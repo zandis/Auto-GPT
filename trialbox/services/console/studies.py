@@ -9,11 +9,13 @@ a person decides (CDR, study partner, …).
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any
 
+from tb_common.config import environment_name
 from tb_contracts import Job
 
 from console.sitestore import DEFAULT_REASONS, Mark, SiteProfile, StudySettings
@@ -88,6 +90,44 @@ class CriterionMeta:
     label: str
     text: str = ""
     original: str = ""  # the label as the study wrote it, when ``label`` is the site's translation (D-120)
+    text_original: str = ""  # the text as the study wrote it, when ``text`` is the ruleset's translation (D-309)
+    todo: str = ""  # the criterion's to-do in the page language (D-309)
+    todo_original: str = ""  # the to-do as the run writes it, which ``todo`` replaces on the page
+
+
+def criterion_meta(row: Mapping[str, Any], lang: str, site_label: str = "") -> CriterionMeta:
+    """One approved criterion for a page in ``lang`` (T-507, D-309): the label the site gave at approval (D-120), else
+    the label the ruleset ships for this text, else the study's own label; the shipped text and to-do in ``lang``
+    when the ruleset has them. Whatever replaces the study's words keeps them beside it (``original``,
+    ``text_original``)."""
+    written = str(row.get("label") or row["id"])
+    text = str(row.get("text") or "")
+    tr = (row.get("i18n") or {}).get(lang) or {}
+    local = site_label or str(tr.get("label") or "")
+    local_text = str(tr.get("text") or "")
+    todo = str(tr.get("todo") or "")
+    return CriterionMeta(
+        str(row["id"]),
+        str(row["kind"]),
+        str(row.get("class") or "structured"),
+        local or written,
+        local_text or text,
+        written if local else "",
+        text if local_text and local_text != text else "",
+        todo,
+        str(row.get("action") or "") if todo else "",
+    )
+
+
+def test_model_in_use(environ: Mapping[str, str] | None = None) -> bool:
+    """T-507 (D-309, LLM-045): the box's note answers come from the test model with fixed answers. True with
+    ``TB_LLM_MODE=stub``; with no ``TB_LLM_MODE`` on a DEV or TEST box, whose demo and tests run the in-process stub.
+    A page marks every answer read from notes as "test model" then (DEV pages label the test model)."""
+    env = os.environ if environ is None else environ
+    mode = (env.get("TB_LLM_MODE") or "").strip().lower()
+    if mode:
+        return mode == "stub"
+    return environment_name(env) in ("DEV", "TEST")
 
 
 VERIFIED_BY = {"structured": "records", "note": "notes", "human": "person", "mixed": "records_notes"}
@@ -314,10 +354,11 @@ class Fit:
     open: list[str] = field(default_factory=list)  # unknown labels
     not_met: list[str] = field(default_factory=list)  # inclusion criteria a note or record says are not met
     person: list[str] = field(default_factory=list)  # pending_human labels
+    todo_words: dict[str, str] = field(default_factory=dict)  # a run's to-do -> its words in the page language (D-309)
 
 
 def fit_facts(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, CriterionMeta]) -> Fit:
-    fit = Fit()
+    fit = Fit(todo_words={m.todo_original: m.todo for m in crit.values() if m.todo and m.todo_original})
     for v in criteria:
         cid = str(v.get("id"))
         meta = crit.get(cid)
@@ -478,6 +519,9 @@ def patient_rows(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Crite
                 "label": meta.label if meta else cid,
                 "original": meta.original if meta else "",
                 "text": meta.text if meta else "",
+                "text_original": meta.text_original if meta else "",
+                "test_model": bool(meta and meta.cls in ("note", "mixed") and v.get("verdict") != "pending_human")
+                and test_model_in_use(),
                 "verdict": v.get("verdict"),
                 "quote": ev.get("quote"),
                 "date": ev.get("quote_date"),

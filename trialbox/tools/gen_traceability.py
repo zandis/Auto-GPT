@@ -1,12 +1,12 @@
 """gen_traceability: the traceability matrix of TB-PLAN-05 is generated from the plan's own tables, never typed twice.
 
     python tools/gen_traceability.py            # write docs/plan/25-traceability.csv from docs/plan/25-master-plan.md
-    python tools/gen_traceability.py --check    # exit 1 when the CSV, the §5 "Plan" cells or the §3 totals are stale
+    python tools/gen_traceability.py --check    # print what is stale as warnings; exit 0 (CI job `trace`)
+    python tools/gen_traceability.py --strict   # as --check, but exit 1 when anything is stale
     python tools/gen_traceability.py --write    # also rewrite the §5 "Plan" cells and the §3 totals table in the plan
 
-Every run also checks the commitments register (T-641, REG-010): each promise sentence of the filed IRB amendments,
-the hospital IT pack and the opt-out notice has a row in ``docs/validation/commitments.csv``, each row quotes its
-source as it now reads, and a ``green`` row names code and a test that exist.
+D-311: the matrix is a planning aid, not a merge gate, so ``--check`` only warns. The commitments-register check of
+T-641 was removed; the register is archived in ``docs/plan/sites/archive/``.
 
 The plan (TB-PLAN-05 §7.4) names the rule: every work item carries a Trace cell (URS, RSK and TST ids); the
 requirement tables carry an FS id per requirement; the test table carries the level per test. From those the script
@@ -198,126 +198,6 @@ def rewrite(text: str, plan: Plan) -> str:
     return "\n".join(out) + "\n"
 
 
-# ---------------------------------------------------------------------------------------------- commitments (T-641)
-COMMITMENTS = ROOT / "docs" / "validation" / "commitments.csv"
-COMMIT_FIELDS = [
-    *("id", "source", "section", "quote", "promise", "status"),
-    *("code", "test", "card", "correction", "finding"),
-]
-STATUSES = ("green", "amber", "red", "n/a")
-# the promise text of each source: (file, first heading of the scope, the heading that ends it). Inside the scope a
-# table row or a numbered list item is one promise unit; any other prose line is split into sentences.
-PROMISE_SOURCES: tuple[tuple[str, str, str], ...] = (
-    ("docs/plan/sites/irb-amendment-cgmh.md", "### B.3 Content", "### B.5 Attachments"),
-    ("docs/plan/sites/irb-amendment-japan.md", "### A.3 変更内容", "### A.5 添付"),
-    ("docs/plan/sites/it-security-pack.md", "### A.1 What TrialBox is, in one paragraph", "## B. 日本語"),
-    (
-        "docs/plan/design/14-ethics-pack.md",
-        "### 4.3 English",
-        "## 5. Pilot validation protocol (summary for the committee)",
-    ),
-)
-SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z(])|(?<=。)")
-TEST_REF = re.compile(r"^(?P<path>[\w./-]+\.py)::(?P<name>\w+)$")
-
-
-def norm(s: str) -> str:
-    """Markdown emphasis and code marks dropped, whitespace collapsed: the form a quote is matched in."""
-    return re.sub(r"\s+", " ", s.replace("**", "").replace("*", "").replace("`", "")).strip()
-
-
-def promise_units(text: str, start: str, end: str) -> list[str]:
-    """The promise units between two headings. Table header rows, separators, headings and a line that is only a
-    bold title are not promises."""
-    lines = text.splitlines()
-    try:
-        a = next(i for i, ln in enumerate(lines) if ln.strip() == start)
-    except StopIteration:
-        return []
-    b = next((i for i in range(a + 1, len(lines)) if lines[i].strip() == end), len(lines))
-    scope = lines[a + 1 : b]
-    units: list[str] = []
-    for i, raw in enumerate(scope):
-        ln = raw.strip()
-        if ln.startswith(">"):
-            ln = ln[1:].strip()
-        if not ln or ln.startswith("#") or re.fullmatch(r"\*\*[^*]+\*\*", ln):
-            continue
-        if ln.startswith("|"):
-            nxt = scope[i + 1].strip() if i + 1 < len(scope) else ""
-            if re.fullmatch(r"\|[\s:|-]+\|", ln) or re.fullmatch(r"\|[\s:|-]+\|", nxt):
-                continue  # a separator, or the header above one
-            units.append(norm(" | ".join(cells(ln))))
-        elif re.match(r"\d+\.\s", ln):
-            units.append(norm(ln))
-        else:
-            units += [norm(s) for s in SENTENCE.split(ln) if norm(s)]
-    return units
-
-
-def commitment_errors(
-    rows_: list[dict[str, str]], sources: tuple[tuple[str, str, str], ...] = PROMISE_SOURCES, root: Path = ROOT
-) -> list[str]:
-    """Problems with the register: a promise unit with no row, a row whose quote its source no longer holds, a status
-    without the evidence it needs (green: code and a test that exist; amber: a card; red: a card and a correction)."""
-    errs: list[str] = []
-    seen: set[str] = set()
-    texts: dict[str, str] = {}
-    for r in rows_:
-        rid, src, quote, status = r.get("id", ""), r.get("source", ""), norm(r.get("quote", "")), r.get("status", "")
-        if not rid or rid in seen:
-            errs.append(f"commitments: id missing or repeated: {rid!r}")
-        seen.add(rid)
-        if src not in texts:
-            p = root / src
-            texts[src] = norm(p.read_text(encoding="utf-8")) if p.is_file() else ""
-        if not texts[src]:
-            errs.append(f"commitments: {rid}: source {src!r} not found")
-        elif not quote or quote not in texts[src]:
-            errs.append(f"commitments: {rid}: the quote is not in {src} (the text changed: update the row)")
-        if status not in STATUSES:
-            errs.append(f"commitments: {rid}: status {status!r} is not one of {', '.join(STATUSES)}")
-        if status == "green":
-            if not r.get("code", "").strip() or not r.get("test", "").strip():
-                errs.append(f"commitments: {rid}: green needs code and a test")
-            for ref in filter(None, (t.strip() for t in r.get("test", "").split(";"))):
-                m = TEST_REF.match(ref)
-                f = root / m.group("path") if m else None
-                body = f.read_text("utf-8") if m and f and f.is_file() else ""
-                if not m or not re.search(rf"def {m.group('name')}\b", body):
-                    errs.append(f"commitments: {rid}: test {ref!r} not found")
-        if status in ("amber", "red") and not r.get("card", "").strip():
-            errs.append(f"commitments: {rid}: {status} needs the card that finishes it")
-        if status == "red" and not r.get("correction", "").strip():
-            errs.append(f"commitments: {rid}: red needs the correction wording for the supplement")
-    for src, start, end in sources:
-        p = root / src
-        units = promise_units(p.read_text(encoding="utf-8"), start, end) if p.is_file() else []
-        if not units:
-            errs.append(f"commitments: no promise text found in {src} between {start!r} and {end!r}")
-        quotes = [norm(r.get("quote", "")) for r in rows_ if r.get("source") == src]
-        for u in units:
-            if not any(q and q in u for q in quotes):
-                errs.append(f"commitments: a promise in {src} has no row: {u[:100]!r}")
-    return errs
-
-
-def tally(rows_: list[dict[str, str]]) -> list[tuple[str, int]]:
-    return [(s, sum(r.get("status") == s for r in rows_)) for s in STATUSES]
-
-
-def read_commitments(path: Path | None = None) -> tuple[list[dict[str, str]], list[str]]:
-    path = path or COMMITMENTS
-    if not path.is_file():
-        return [], [f"{path} is missing"]
-    with path.open(encoding="utf-8", newline="") as f:
-        rd = csv.DictReader(f)
-        head = list(rd.fieldnames or [])
-        rows_ = list(rd)
-    errs = [] if head == COMMIT_FIELDS else [f"commitments: header is {head}, expected {COMMIT_FIELDS}"]
-    return rows_, errs
-
-
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     text = PLAN.read_text(encoding="utf-8")
@@ -325,8 +205,6 @@ def main(argv: list[str] | None = None) -> int:
     m = re.search(r"\*\*(\d+) agent sessions\*\* \| \*\*\d+(?:\.\d+)? owner and reviewer hours\*\*(.*?) \|", text)
     plan.engineer_hours = m.group(2) if m else ""
     errs = orphans(plan)
-    commitments, cerrs = read_commitments()
-    errs += cerrs + commitment_errors(commitments)
     new_csv = rows(plan)
     new_text = rewrite(text, plan)
     if "--write" in args:
@@ -334,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
         text = new_text
     elif new_text != text:
         errs.append("the §5 'Plan' cells or the §3 totals differ from the Trace and Size cells (run --write)")
-    if "--check" in args:
+    if "--check" in args or "--strict" in args:
         old = list(csv.DictReader(CSV.open(encoding="utf-8"))) if CSV.exists() else []
         if old != new_csv:
             errs.append(f"{CSV.relative_to(ROOT)} is stale (run without --check to regenerate)")
@@ -343,15 +221,15 @@ def main(argv: list[str] | None = None) -> int:
             w = csv.DictWriter(f, fieldnames=FIELDS)
             w.writeheader()
             w.writerows(new_csv)
+    strict = "--strict" in args
     for e in errs:
-        print(e)
+        print(e if strict else f"warning: {e}")
     print(
         f"gen_traceability: {len(plan.items)} items, {len(plan.urs_fs)} requirements, {len(plan.rsk)} risks, "
-        f"{len(plan.tst_level)} tests, {len(new_csv)} links; {len(commitments)} commitments "
-        f"({', '.join(f'{n} {s}' for s, n in tally(commitments))}); "
+        f"{len(plan.tst_level)} tests, {len(new_csv)} links; "
         f"{'clean' if not errs else f'{len(errs)} problem(s)'}"
     )
-    return 1 if errs else 0
+    return 1 if errs and strict else 0
 
 
 if __name__ == "__main__":

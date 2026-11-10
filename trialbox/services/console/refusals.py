@@ -32,6 +32,10 @@ REFUSALS: dict[str, tuple[str, str]] = {
         "請先將頁面語言切換為標籤的語言",
     ),
     "approve the criteria first": ("先に選択基準を承認してください", "請先核准收案條件"),
+    "give every criterion a short label first: ": (
+        "先にすべての基準に短いラベルを付けてください：",
+        "請先為每一項條件填寫簡短標籤：",
+    ),
     "attach a protocol file": ("プロトコルのファイルを添付してください", "請附上計畫書檔案"),
     "attach the informed-consent form": ("同意説明文書を添付してください", "請附上受試者同意書"),
     "attachments are at most 50 MB": ("添付ファイルは50 MBまでです", "附件最大 50 MB"),

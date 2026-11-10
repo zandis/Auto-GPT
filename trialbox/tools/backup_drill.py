@@ -562,6 +562,9 @@ def _admin_signs_in(work: Path, password: str) -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tb_common.config import adopt_site_tz
+
+    adopt_site_tz()  # a synthetic site in one process: its site.tz as TB_TZ (D-315)
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_DRILL_DIR", "/tmp/tb-backup-drill")))
     ap.add_argument(

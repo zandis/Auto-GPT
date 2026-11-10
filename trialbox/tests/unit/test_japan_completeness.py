@@ -130,8 +130,8 @@ def test_d130_unloaded_codes_stay_unknown_and_loaded_ones_resolve(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """標準病名 codes without an ICD-10 alternate: with no lookup and no licensed list they resolve nowhere (D-130
-    keeps them unknown; the code itself reaches the mapping); a loaded MEDIS release resolves its codes, but only to
-    a code in the ICD-10-CM list."""
+    keeps them unknown; the code itself reaches the mapping); a loaded MEDIS release resolves its codes to their WHO
+    ICD-10 target, kept even when ICD-10-CM has no such code (D-314), and given as ICD-10-CM only where it has."""
     from adapter.sources.ssmix2 import source as ss
 
     empty = tmp_path / "no-lookups"
@@ -146,15 +146,16 @@ def test_d130_unloaded_codes_stay_unknown_and_loaded_ones_resolve(
     st = licensed.TermStore()
     try:
         _load_all(st)
-        st.db.execute("UPDATE concept SET target_code = 'M10.99X' WHERE code = 'ZB30'")  # a WHO-only code
+        st.db.execute("UPDATE concept SET target_code = 'e149' WHERE code = 'ZB30'")  # WHO-only, written loosely
     finally:
         st.close()
     _storage(root, "10000001", "20260101", "PPR-01", "D9", ["PV1||O", "PRB|AD|20260101|ZB30^骨粗鬆症^99XYZ|D9"])
     src = Ssmix2Source(root)  # reads the store (TB_DB_URL)
-    got = {r["byomei_code"]: r["icd10"] for r in src.rows("diagnosis", "diagnosis", None, None)}
-    assert got == {"ZB26": "M10.9", "ZB27": "", "ZB99": "", "ZB30": ""}
-    assert src.missed == {"diagnosis:ZB27": 1, "diagnosis:ZB99": 1, "diagnosis:ZB30": 1}
-    assert src.stats["diagnosis:licensed"] == 1 and src.stats["diagnosis:licensed code not in ICD-10-CM"] == 1
+    rows = list(src.rows("diagnosis", "diagnosis", None, None))
+    got = {r["byomei_code"]: (r["icd10"], r["icd10cm"]) for r in rows}
+    assert got == {"ZB26": ("M10.9", "M10.9"), "ZB27": ("", ""), "ZB99": ("", ""), "ZB30": ("E14.9", "")}
+    assert src.missed == {"diagnosis:ZB27": 1, "diagnosis:ZB99": 1}
+    assert src.stats["diagnosis:licensed"] == 2 and src.stats["diagnosis:licensed WHO-only code"] == 1
 
 
 def test_site_setup_suggestions_use_the_licensed_lists() -> None:

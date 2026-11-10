@@ -1,0 +1,29 @@
+# Criterion labels and criterion text in the site's other languages (T-507, D-309). The protocol is in Traditional
+# Chinese; `source` is its text (the IR's `text`). A translation is shown only while the approved criterion still has
+# exactly this text. Every translation here needs a native read before the PoC (T-507 PR body).
+ruleset: RA-COH
+criteria:
+  RA-COH-INC-01:
+    source: 曾經診斷類風濕性關節炎（ICD-10-CM M05 或 M06）之病人。
+    ja: {label: 関節リウマチ, text: 関節リウマチ（ICD-10-CM M05 または M06）の記録がある患者。}
+    en: {label: Rheumatoid arthritis, text: Patients with a record of rheumatoid arthritis (ICD-10-CM M05 or M06).}
+  RA-COH-INC-02:
+    source: 一年內曾使用 methotrexate。
+    ja: {label: メトトレキサート, text: 1年以内にメトトレキサートを使用している。}
+    en: {label: Methotrexate, text: Methotrexate used within one year.}
+  RA-COH-INC-03:
+    source: 九十日內最近一次 DAS28 大於 5.1（高疾病活動度）。
+    ja: {label: DAS28 5.1超, text: 90日以内の直近のDAS28が5.1超（高疾患活動性）。}
+    en: {label: DAS28 >5.1, text: Latest DAS28 within 90 days above 5.1 (high disease activity).}
+  RA-COH-INC-04:
+    source: 九十日內最近一次 DAS28 小於或等於 3.2（低疾病活動度）。
+    ja: {label: DAS28 3.2以下, text: 90日以内の直近のDAS28が3.2以下（低疾患活動性）。}
+    en: {label: DAS28 ≤3.2, text: Latest DAS28 within 90 days at most 3.2 (low disease activity).}
+  RA-COH-INC-05:
+    source: 最近一次 B 型肝炎表面抗原（HBsAg）陽性。
+    ja: {label: HBs抗原陽性, text: 直近のB型肝炎表面抗原（HBs抗原）が陽性。}
+    en: {label: HBsAg positive, text: Latest hepatitis B surface antigen (HBsAg) positive.}
+  RA-COH-INC-06:
+    source: 一年內曾使用生物製劑。
+    ja: {label: 生物学的製剤, text: 1年以内に生物学的製剤を使用している。}
+    en: {label: Biologic, text: A biologic used within one year.}

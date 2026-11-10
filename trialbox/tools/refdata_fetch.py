@@ -28,10 +28,16 @@ has its licence read at the source when it is fetched.
     python tools/refdata_fetch.py sample --out /tmp/pack                             # the committed samples, no network
     python tools/refdata_fetch.py site-load umin_ctr --file ctr_data_j.csv.gz        # at the hospital, its own download
     python tools/refdata_fetch.py site-load medis_byomei_icd10 --file NMAIN.TXT --columns 病名交換用コード,...
+    python tools/refdata_fetch.py fetch --raw .cache/refdata/raw ctgov nhi_drugs nhi_services ucum   # D-317
+    python tools/refdata_fetch.py site-load jrct --file jRCT_search.csv               # the hospital's jRCT search
+    python tools/refdata_fetch.py build --raw ... --out dist/ --withdraw tfda_indication="metadata wrong"
 
 The full ClinicalTrials.gov download (API v2 bulk JSON zip) was about 2.8 GB for 610,756 studies on 2026-11-06
 (10.6 GB unpacked); the pack keeps every record unchanged, gzip'd as JSON lines (about 2.2 GB). Fetch it outside the
-repository (``--raw`` under ``.cache``). Standard library plus httpx and openpyxl.
+repository (``--raw`` under ``.cache``), on a disk with about 8 GB free (the zip, the pack and its tar). Its version
+is the registry's data timestamp read at fetch time, and the build stops when the zip holds more than 2 % fewer
+studies than the registry counted then (D-317). Downloads are retried five times with a growing pause, resumed with
+``Range`` where the server allows it (D-317). Standard library plus httpx and openpyxl.
 """
 
 from __future__ import annotations
@@ -76,6 +82,45 @@ NLM_DISCLAIMER = (
     "evaluated by the U.S. Federal Government. This copy was downloaded on {date} and may not be current: check "
     "ClinicalTrials.gov before acting on it. NLM does not endorse TrialBox."
 )
+UCUM_LICENCE = "https://raw.githubusercontent.com/ucum-org/ucum/v2.2/LICENSE.md"
+UCUM = "http://unitsofmeasure.org"
+
+
+def parse_ucum(path: Path) -> Iterator[dict[str, Any]]:
+    """``ucum-essence.xml``: one term per prefix, base unit and unit, its fields as the file gives them (the UCUM
+    licence forbids changing the content): ``code`` the case-sensitive ``Code``, ``display`` the ``name``, ``extra``
+    the element, ``CODE``, every other attribute, the print symbol, the property and the value (unit and value as
+    written). A file that is not UCUM essence is refused."""
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(path.read_bytes())
+    ns = "{http://unitsofmeasure.org/ucum-essence}"
+    if root.tag != ns + "root":
+        raise ValueError(f"{path.name}: not a UCUM essence file (root {root.tag})")
+    for el in root:
+        kind = el.tag.removeprefix(ns)
+        if kind not in ("prefix", "base-unit", "unit"):
+            continue
+        extra: dict[str, Any] = {"element": kind, **{k: v for k, v in el.attrib.items() if k != "Code"}}
+        names: list[str] = []
+        for child in el:
+            tag, text = child.tag.removeprefix(ns), "".join(child.itertext()).strip()
+            if tag == "name":
+                names.append(text)  # a unit may have several names (the first is the display)
+            elif tag == "value":
+                extra["value"] = {**child.attrib, "text": text}
+            else:
+                extra[tag] = text  # printSymbol, property, dim
+        extra["names"] = names
+        yield {"system": UCUM, "code": el.attrib["Code"], "display": names[0] if names else "", "extra": extra}
+
+
+def ucum_version(path: Path) -> str:
+    """``UCUM <version> (<revision-date>)`` from the file's root element."""
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(path.read_bytes())
+    return f"UCUM {root.attrib.get('version', '?')} ({root.attrib.get('revision-date', '?')})"
 
 
 # One registry of items (D-170): the sources below plus the country modules' items (tb_common.refdata_tw).
@@ -183,11 +228,23 @@ SOURCES: tuple[Source, ...] = (
         "ctr_data_j.csv.gz", fetch=False,
     ),
     Source(
-        "jrct", "jRCT (Japan Registry of Clinical Trials)", "trial", "site-fetch",
-        "https://jrct.mhlw.go.jp/", "jRCT terms of use", "https://jrct.mhlw.go.jp/",
-        "No bulk download or public API; bulk use needs the jRCT help desk's permission (asked, pending).",
-        "jRCT, Ministry of Health, Labour and Welfare.", "-", "-",
-        "Pending the help desk's answer; JAPIC-CTI and JMACCT were merged into jRCT on 2023-03-06.", fetch=False,
+        "ucum", "UCUM, the Unified Code for Units of Measure (Regenstrief), ucum-essence.xml 2.2", "term", "ship",
+        "https://raw.githubusercontent.com/ucum-org/ucum/v2.2/ucum-essence.xml",
+        "UCUM Copyright Notice and License 1.1 (Regenstrief Institute)", UCUM_LICENCE,
+        "Free (no charge, royalty-free) to reproduce and distribute and to build software that interoperates with "
+        "UCUM. The content may not be changed (no added, deleted or modified field names, contents, descriptions or "
+        "comments) and no derivative work made: the pack keeps each prefix and unit with its fields exactly as the "
+        "file gives them, one record per element, and nothing else. Copies must carry the copyright notice, a "
+        "notice of the licence and of its disclaimer of warranties, and the licence or its URL.",
+        "The Unified Code for Units of Measure (UCUM) is copyright © 1999-2024 Regenstrief Institute, Inc., used "
+        "under the UCUM Copyright Notice and License (" + UCUM_LICENCE + "), which includes a disclaimer of "
+        "warranties: UCUM is provided as is, without warranties of any kind.",
+        "with UCUM releases (2.2 of 2024-06-17)", "305 units, 24 prefixes, 7 base units; 83 KB XML",
+        "Pinned to the v2.2 tag and its sha256; the licence is read at the same tag when fetched.",
+        "ucum-essence.xml", decision="D-317", parse=parse_ucum, version_of=ucum_version,
+        sha256="dfccea1b5dc284245ebae97edd1dc03c45864da4e87df55bc9851797b4fd0b61",  # v2.2, read 2026-11-10
+        licence_reader=rd.page_licence_reader(UCUM_LICENCE, "no-charge", "distribute the Work",
+                                              "Regenstrief Institute"),
     ),
     Source(
         "who_ictrp", "WHO ICTRP", "trial", "not usable", "https://trialsearch.who.int/",
@@ -212,42 +269,62 @@ BY_ID = {s.id: s for s in SOURCES}
 
 
 # ------------------------------------------------------------------------------------------------ download
-def download(url: str, dest: Path, attempts: int = 3, timeout: float = 600) -> dict[str, Any]:
-    """Stream ``url`` to ``dest`` (sha256 on the way); a cut-off transfer is retried and never kept."""
-    import httpx
+ATTEMPTS = 5  # D-317: info.nhi.gov.tw cut the 97 MB drug list off three times in the D-170 fetch
+BACKOFF = 5.0  # seconds before the second try; doubled each time
+
+
+def download(url: str, dest: Path, attempts: int = ATTEMPTS, timeout: float = 600,
+             wait: float = BACKOFF) -> dict[str, Any]:  # fmt: skip
+    """Stream ``url`` to ``dest`` (sha256 on the way); a cut-off transfer is retried and never kept (D-317).
+
+    A cut transfer is detected by its ``content-length`` or, for a zip (CT.gov's bulk download names no length), by
+    the zip's own directory. The next try asks for the rest (``Range``) when the server answered with a length;
+    a server that ignores the range (info.nhi.gov.tw, ClinicalTrials.gov: 200, the whole file) starts again from
+    the first byte. Tries are spaced by ``wait`` seconds, doubled each time."""
+    import time
 
     dest.parent.mkdir(parents=True, exist_ok=True)
-    last = ""
-    for _ in range(attempts):
-        part = dest.with_suffix(dest.suffix + ".part")
-        h = hashlib.sha256()
-        n = 0
+    part = dest.with_suffix(dest.suffix + ".part")
+    part.unlink(missing_ok=True)
+    last, want = "", 0
+    for i in range(attempts):
+        if i and wait:
+            time.sleep(wait * 2 ** (i - 1))
+        have = part.stat().st_size if part.exists() and want else 0
         try:
-            with httpx.stream("GET", url, timeout=timeout, follow_redirects=True) as r, part.open("wb") as fh:
+            with rd.http_client(timeout) as c, c.stream("GET", url, headers=(
+                    {"Range": f"bytes={have}-"} if have else {})) as r:  # fmt: skip
                 if r.status_code >= 400:
                     raise RuntimeError(f"HTTP {r.status_code}")
-                want = int(r.headers.get("content-length") or 0)
-                for chunk in r.iter_bytes(1 << 20):
-                    fh.write(chunk)
-                    h.update(chunk)
-                    n += len(chunk)
+                resumed = have and r.status_code == 206
+                if not resumed:
+                    have, want = 0, int(r.headers.get("content-length") or 0)
+                with part.open("ab" if resumed else "wb") as fh:
+                    for chunk in r.iter_bytes(1 << 20):
+                        fh.write(chunk)
+            n = part.stat().st_size
             if want and n != want:
                 raise RuntimeError(f"cut off at {n} of {want} bytes")
             if dest.suffix == ".zip" and not zipfile.is_zipfile(part):
                 raise RuntimeError(f"cut off at {n} bytes (not a whole zip)")
+            sha = rd.sha256_file(part)
             part.replace(dest)
-            return {"url": url, "downloaded_at": _now(), "sha256": h.hexdigest(), "bytes": n}
+            return {"url": url, "downloaded_at": _now(), "sha256": sha, "bytes": n, "tries": i + 1}
         except Exception as exc:
             last = f"{type(exc).__name__}: {exc}"
-            part.unlink(missing_ok=True)
+            if not want:
+                part.unlink(missing_ok=True)  # no length: nothing to resume from
+    part.unlink(missing_ok=True)
     raise RuntimeError(f"{url}: {last} (after {attempts} tries)")
 
 
 def local_file(path: Path, dest: Path, url: str) -> dict[str, Any]:
+    """A file the vendor or the hospital downloaded by hand, copied beside the fetch (streamed: the CT.gov zip is
+    about 3 GB)."""
     dest.parent.mkdir(parents=True, exist_ok=True)
-    data = path.read_bytes()
-    dest.write_bytes(data)
-    return {"url": url, "downloaded_at": _now(), "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data),
+    if path.resolve() != dest.resolve():
+        shutil.copyfile(path, dest)
+    return {"url": url, "downloaded_at": _now(), "sha256": rd.sha256_file(dest), "bytes": dest.stat().st_size,
             "file": path.name}  # fmt: skip
 
 
@@ -257,16 +334,34 @@ def _now() -> str:
 
 def ctgov_slice(dest: Path, n: int, countries: tuple[str, ...] = ("Japan", "Taiwan")) -> dict[str, Any]:
     """A small slice for tests and checks: the first ``n`` studies with a site in the countries (one API page)."""
-    import httpx
-
     url = "https://clinicaltrials.gov/api/v2/studies"
     params: dict[str, str | int] = {"query.locn": " OR ".join(countries), "pageSize": min(n, 1000), "format": "json"}
-    r = httpx.get(url, params=params, timeout=120)
-    r.raise_for_status()
+    with rd.http_client(120) as c:
+        r = c.get(url, params=params)
+        r.raise_for_status()
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(r.content)
     return {"url": str(r.url), "downloaded_at": _now(), "sha256": hashlib.sha256(r.content).hexdigest(),
             "bytes": len(r.content), "slice": n}  # fmt: skip
+
+
+CTGOV_API = "https://clinicaltrials.gov/api/v2"
+CTGOV_SHORTFALL = 0.02  # D-317: a build with 2 % fewer studies than the registry counted at fetch time stops
+
+
+def ctgov_meta() -> dict[str, Any]:
+    """Read at fetch time, beside the bulk download (D-317): the registry's data timestamp and API version (the
+    pack's version of the CT.gov part: the zip itself names none) and how many studies it holds (the build checks
+    the zip against it). Empty values when the API does not answer: the version is then the download date."""
+    out: dict[str, Any] = {}
+    try:
+        with rd.http_client(60) as c:
+            v = c.get(f"{CTGOV_API}/version").json()
+            out["version"] = f"ClinicalTrials.gov data of {v['dataTimestamp']} (API {v['apiVersion']})"
+            out["expected_records"] = int(c.get(f"{CTGOV_API}/stats/size").json()["totalStudies"])
+    except Exception:
+        pass
+    return out
 
 
 MHLW_XLSX = re.compile(r'href="(/topics/\d{4}/\d{2}/xls/tp\d{8}-01_0([1-4])\.xlsx)"')
@@ -275,11 +370,10 @@ MHLW_XLSX = re.compile(r'href="(/topics/\d{4}/\d{2}/xls/tp\d{8}-01_0([1-4])\.xls
 def fetch_mhlw(dest: Path) -> dict[str, Any]:
     """The index page, then the newest workbook of each of the four lists (01 内用薬, 02 注射薬, 03 外用薬,
     04 歯科用薬剤: the page lists the newest first). The download's sha256 is over the four files' sha256s."""
-    import httpx
-
     index = BY_ID["mhlw_yakka"].url
-    r = httpx.get(index, timeout=60)
-    r.raise_for_status()
+    with rd.http_client(60) as c:
+        r = c.get(index)
+        r.raise_for_status()
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "index.html").write_bytes(r.content)
     page = r.content.decode("shift_jis", errors="replace")
@@ -338,6 +432,10 @@ def fetch(
         elif sid == "ctgov" and slice_n:
             dest = raw / sid / "slice.json"
             meta = ctgov_slice(dest, slice_n)
+        elif sid == "ctgov":
+            about = ctgov_meta() if file is None else {}  # the registry's state, read before the zip is made
+            meta = local_file(file, dest, s.url) if file is not None else download(s.url, dest)
+            meta.update(about)
         elif file is not None:
             meta = local_file(file, dest, s.url)
         elif not s.fetch:
@@ -678,13 +776,18 @@ Writer = Callable[[str, Iterable[dict[str, Any]]], dict[str, Any]]
 
 
 def build(raw: Path, out: Path, day: str | None = None, ids: list[str] | None = None, sample: bool = False,
-          suffix: str = "", site: bool = False) -> Path:  # fmt: skip
+          suffix: str = "", site: bool = False, withdraw: dict[str, str] | None = None) -> Path:  # fmt: skip
     """Parse every fetched source under ``raw`` into ``out/trialbox-refdata-<day>[-suffix]/`` and its ``.tar``.
 
     A vendor build (the default) builds ``ship`` items only: a site-fetch item's file (the hospital's MEDIS or
     UMIN download, left under ``raw`` by ``site-load``) is never put into a pack that ships; naming one in ``ids``
-    is refused. ``site=True`` (``site_load`` only) builds the hospital's own part from site-fetch items only."""
+    is refused. ``site=True`` (``site_load`` only) builds the hospital's own part from site-fetch items only.
+    ``withdraw`` (``--withdraw ID=reason``, D-317) lists sources this pack takes out of the box: loading it deletes
+    their rows (never the hospital's own site-fetch rows) and records why."""
     want = "site-fetch" if site else "ship"
+    clash = sorted(set(withdraw or {}) & set(ids or []))
+    if clash:
+        raise SystemExit(f"{', '.join(clash)}: both built and withdrawn")
     if ids:
         wrong = [i for i in ids if BY_ID[i].distribution != want]
         if wrong:
@@ -697,7 +800,8 @@ def build(raw: Path, out: Path, day: str | None = None, ids: list[str] | None = 
                 )
             )
     ids = ids or [s.id for s in SOURCES if s.distribution == want
-                  and (raw / (s.derived_from or s.id) / "fetch.json").is_file()]  # fmt: skip
+                  and (raw / (s.derived_from or s.id) / "fetch.json").is_file()
+                  and s.id not in (withdraw or {})]  # fmt: skip
     day = day or date.today().strftime("%Y%m%d")
     pack = out / (f"trialbox-refdata-{day}" + (f"-{suffix}" if suffix else ""))
     pack.mkdir(parents=True, exist_ok=True)
@@ -720,6 +824,7 @@ def build(raw: Path, out: Path, day: str | None = None, ids: list[str] | None = 
                              f"{s.derived_from or sid} again")  # fmt: skip
         if sid == "ctgov":
             files = [write("ctgov/studies.jsonl.gz", parse_ctgov(path))]
+            check_ctgov_count(int(files[0]["records"]), meta)
         elif sid == "tfda_indication":
             terms = list(parse_tfda_indication(path))
             indications = {t["display"]: t["extra"]["codes"] for t in terms}
@@ -736,10 +841,24 @@ def build(raw: Path, out: Path, day: str | None = None, ids: list[str] | None = 
         else:
             raise SystemExit(f"{sid}: no parser")
         entries.append(_entry(s, meta, files, path, parts))
-    as_of = max(str(e["downloaded_at"])[:10] for e in entries)
-    rd.write_manifest(pack, as_of, entries, sample=sample)
+    gone = [{"id": k, "reason": v} for k, v in sorted((withdraw or {}).items())]
+    if not entries and not gone:
+        raise SystemExit("nothing to build: no fetched item under the raw directory and nothing withdrawn")
+    as_of = max(str(e["downloaded_at"])[:10] for e in entries) if entries else f"{day[:4]}-{day[4:6]}-{day[6:8]}"
+    rd.write_manifest(pack, as_of, entries, sample=sample, withdrawn=gone)
     rd.verify(pack)
     return rd.pack_tar(pack, out / f"{pack.name}.tar")
+
+
+def check_ctgov_count(records: int, meta: dict[str, Any]) -> None:
+    """The full CT.gov part holds about as many studies as the registry counted when it was fetched (D-317): a zip
+    cut short in a way its directory hides, or a wrong file, stops the build. A slice is not checked."""
+    expected = int(meta.get("expected_records") or 0)
+    if expected and not meta.get("slice") and records < expected * (1 - CTGOV_SHORTFALL):
+        raise SystemExit(
+            f"ctgov: {records:,} studies in the download, the registry counted {expected:,} at fetch time "
+            f"(more than {CTGOV_SHORTFALL:.0%} short): fetch ctgov again"
+        )
 
 
 KIND_FILE = {"ctgov": "studies", "trial": "trials", "term": "terms", "map": "map", "synonym": "synonyms"}
@@ -881,6 +1000,8 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--out", type=Path, default=ROOT / ".cache" / "refdata")
     b.add_argument("--date", help="YYYYMMDD (default today)")
     b.add_argument("--ids", nargs="*")
+    b.add_argument("--withdraw", action="append", default=[], metavar="ID=REASON",
+                   help="take a source out of every box that loads this pack (D-317); repeat for several")  # fmt: skip
     sm = sub.add_parser("sample")
     sm.add_argument("--out", type=Path, required=True)
     sl = sub.add_parser("site-load")
@@ -896,7 +1017,10 @@ def main(argv: list[str] | None = None) -> int:
         for line in fetch(a.ids, a.raw, a.file, a.slice, not a.no_licence_check):
             print(line)
     elif a.cmd == "build":
-        print(build(a.raw, a.out, a.date, a.ids))
+        gone = dict(w.split("=", 1) for w in a.withdraw if "=" in w)
+        if len(gone) != len(a.withdraw) or not all(k.strip() and v.strip() for k, v in gone.items()):
+            raise SystemExit("--withdraw takes ID=REASON (a reason is required)")
+        print(build(a.raw, a.out, a.date, a.ids, withdraw={k.strip(): v.strip() for k, v in gone.items()}))
     elif a.cmd == "sample":
         print(build(sample_raw(a.out / "raw"), a.out, "20261109", sample=True))
     else:

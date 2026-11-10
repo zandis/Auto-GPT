@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
+from tb_common.config import site_tz
 from tb_common.crypto import ed25519_generate
 from tb_contracts.landing import (
     D3,
@@ -178,7 +179,7 @@ def run_pipeline(
     """Drive one publish cycle L0 → L5 for ``source_dir`` (synthetic CSV site or MIMIC-IV FHIR demo)."""
     source = source or ("demo_his" if kind == "csv" else "mimic_fhir")
     site_id = site_id or ("DEMO-A" if kind == "csv" else "MIMIC-DEMO")
-    tz = tz or ("Asia/Taipei" if kind == "csv" else MIMIC_TZ)
+    tz = site_tz(tz) if kind == "csv" else (tz or MIMIC_TZ)  # a site's CSV: the site's zone (D-315)
     contracts = load_contracts(contracts_dir or (DEMO_HIS if kind == "csv" else MIMIC_FHIR))
     keys = SiteKeys.derive(site_key, site_id)
     signing = signing_key or _signing_key(workdir)

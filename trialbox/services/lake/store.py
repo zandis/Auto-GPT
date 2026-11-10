@@ -239,9 +239,11 @@ def _limit_message(exc: Exception) -> str:
 
 
 class Lake:
-    def __init__(self, lake_dir: Path, tz: str = "Asia/Taipei") -> None:
+    def __init__(self, lake_dir: Path, tz: str | None = None) -> None:
+        from tb_common.config import site_tz
+
         self.dir = lake_dir
-        self.tz = tz
+        self.tz = site_tz(tz)  # the site's zone; TB_TZ when not given, never a default (D-315)
         self._lock = threading.Lock()
         for sub in ("ndjson", "parquet", "db"):
             (lake_dir / sub).mkdir(parents=True, exist_ok=True)

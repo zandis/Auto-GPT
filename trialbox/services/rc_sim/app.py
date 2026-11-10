@@ -24,7 +24,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
-from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -54,12 +53,10 @@ def _form_list(form: Any, name: str) -> list[str]:
 
 
 def _local_now() -> str:
-    """REDCap stamps changes in its server's local time; the simulator uses the site zone (``TB_TZ``)."""
-    try:
-        zone: Any = ZoneInfo(os.environ.get("TB_TZ") or "Asia/Taipei")
-    except Exception:
-        zone = None
-    return datetime.now(zone).replace(microsecond=0, tzinfo=None).isoformat()
+    """REDCap stamps changes in its server's local time; the simulator uses the site zone (``TB_TZ``, D-315)."""
+    from tb_common.config import site_zone
+
+    return datetime.now(site_zone()).replace(microsecond=0, tzinfo=None).isoformat()
 
 
 def _err(status: int, msg: str) -> JSONResponse:

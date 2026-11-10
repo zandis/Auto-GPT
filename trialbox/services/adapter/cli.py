@@ -80,6 +80,7 @@ def build_config() -> tuple[AdapterConfig, str, str]:
         return RebuildResult.model_validate(resp.json())
 
     ret = cfg.settings.retention
+    fc = cfg.settings.feed_completeness  # T-611
     ac = AdapterConfig(
         lake_dir=lake_dir,
         secrets_dir=Path(cfg.env.secrets_dir),
@@ -95,6 +96,9 @@ def build_config() -> tuple[AdapterConfig, str, str]:
         keep_month_end_months=int(
             ret.month_end_snapshots_months if ret and ret.month_end_snapshots_months is not None else 36
         ),
+        table_max_drop_pct=float(fc.max_table_drop_pct) if fc else 10.0,
+        required_tables=tuple(fc.required_tables) if fc else (),
+        optional_tables=tuple(fc.optional_tables) if fc else (),
     )
     default_path = ds.path or (os.environ.get(ds.dsn_env, "") if ds.dsn_env else "")
     return ac, ds.type, default_path

@@ -34,7 +34,7 @@ MAPPING_ROOT = ROOT / "services" / "adapter"
 QUESTIONS: list[tuple[str, str, Any, str]] = [
     ("site_id", "Site id (short, upper case)", None, "str"),
     ("site_name", "Site name", None, "str"),
-    ("tz", "Time zone (IANA)", "Asia/Taipei", "str"),
+    ("tz", "Time zone (IANA, e.g. Asia/Tokyo; the mapping's tz)", "", "str"),  # no default zone (D-315)
     ("locale", "Report language (zh-TW | ja)", "zh-TW", "str"),
     ("contact", "Box contact e-mail (operations)", None, "str"),
     ("internal_domains", "Internal mail domains (comma separated)", None, "list"),
@@ -170,6 +170,25 @@ def ask(answers: dict[str, Any], prompt: Callable[[str], str] = input) -> dict[s
     return out
 
 
+def _zone_errors(tz: str, mapping: Path) -> list[str]:
+    """site.tz must be a real zone and the one the data source mapping states (D-315, doctor check site_tz)."""
+    from zoneinfo import ZoneInfo
+
+    if not tz:
+        return ["tz is required: the site's IANA time zone (for example Asia/Tokyo)"]
+    try:
+        ZoneInfo(tz)
+    except Exception:
+        return [f"tz {tz!r} is not a valid IANA time zone"]
+    try:
+        stated = (yaml.safe_load(mapping.read_text(encoding="utf-8")) or {}).get("tz")
+    except (OSError, yaml.YAMLError, AttributeError):
+        return []  # a missing mapping is reported above
+    if stated and str(stated) != tz:
+        return [f"tz {tz} differs from the mapping's tz {stated} ({mapping.name}): the source's days would move"]
+    return []
+
+
 def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]:
     """Answers -> (settings dict, env dict, warnings). Raises WizardError on inconsistent answers."""
     base = defaults()
@@ -200,6 +219,8 @@ def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]
     mapping = str(get("mapping"))
     if not (MAPPING_ROOT / mapping).exists() and not Path(mapping).exists():
         errors.append(f"mapping file {mapping} not found (copy a template from services/adapter/mapping/templates)")
+    tz = str(a.get("tz") or "").strip()  # the site's zone: one answer, no default (D-315)
+    errors += _zone_errors(tz, MAPPING_ROOT / mapping if (MAPPING_ROOT / mapping).exists() else Path(mapping))
     ds_type = str(get("data_source_type"))
     data_source: dict[str, Any] = {"type": ds_type, "mapping": mapping, "nightly_at": "02:00"}
     if ds_type == "cgrd_sql":
@@ -249,7 +270,7 @@ def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]
         "site": {
             "id": site_id,
             "name": str(get("site_name")),
-            "tz": str(a.get("tz", "Asia/Taipei")),
+            "tz": tz,
             "locale": str(a.get("locale", "zh-TW")),
             "contact": str(get("contact")),
         },

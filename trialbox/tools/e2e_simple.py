@@ -430,6 +430,13 @@ def _stage12(res: dict[str, Any], crc: Any, pi: Any, lang: str, box: Any) -> Sta
             state("trial") == "amber", [j.state for j in box.orch.db.find(ruleset=SITE_RS, limit=5)])  # fmt: skip
     if waiting:
         page = pi.get(f"/pilot/jobs/{waiting[0].job_id}/approval")
+        # D-309: a pasted protocol ships no labels in the page language; the investigator gives each one first
+        for cid in re.findall(r'data-testid="label-missing-([A-Z0-9-]+)"', page.text):
+            pi.post(
+                f"/pilot/jobs/{waiting[0].job_id}/approval/label",
+                data={"csrf": fd._csrf(page.text), "crit": cid, "text": f"{cid} label"},
+            )
+        page = pi.get(f"/pilot/jobs/{waiting[0].job_id}/approval")
         pi.post(
             f"/pilot/jobs/{waiting[0].job_id}/approve",
             data={"csrf": fd._csrf(page.text), "confirm": "yes"},
@@ -1716,6 +1723,9 @@ def report(out: dict[str, Any]) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tb_common.config import adopt_site_tz
+
+    adopt_site_tz()  # a synthetic site in one process: its site.tz as TB_TZ (D-315)
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_E2E_DIR", "/tmp/tb-e2e-simple")))
     ap.add_argument("--lang", default="ja", choices=["ja", "zh-TW", "en"])

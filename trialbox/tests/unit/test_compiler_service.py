@@ -129,6 +129,14 @@ def test_approve_all_tags_and_materializes(env: dict[str, Any]) -> None:
     assert out.manifest is not None and out.manifest.status == "approved"
     assert out.manifest.review is not None and out.manifest.review.approved_by == "crc1@hospa.test"
     assert (env["tmp"] / "repo" / "GZQO" / "manifest.yaml").exists()
+    # D-318: the approval pins the judge prompt the box has now, with its text and schema shas
+    from tb_llm.prompt_registry import default_registry
+
+    active = default_registry().entry("judge")
+    pins = out.manifest.prompt_pins or {}
+    assert pins["judge"].version == active.version and pins["judge"].sha256 == active.sha256
+    assert pins["judge"].schema_sha256 == active.schema_sha256
+    assert out.manifest.models is not None and out.manifest.models.judge_prompt == f"judge_v{active.version}"
 
 
 def test_edit_round_then_approve(env: dict[str, Any]) -> None:

@@ -5,6 +5,9 @@ recovery actions and the TLS settings check.
   ``TB_CONSOLE_MFA`` is ``totp`` unless ``TB_ENV`` is DEV or TEST, and ``off`` is refused in PRODUCTION. An account
   without an authenticator enrols one at its first sign-in (after its password). A wrong or replayed code counts as a
   failed sign-in; five in 15 minutes from one address lock the account from that address (``console.auth``, D-279).
+  ``POST /api/v1/session`` asks for the same two factors in one call (password and ``code``, checked by
+  :meth:`Identity.step_up`); an account enrols its authenticator on the page only. A token from that route is a
+  bearer token and never a cookie, and a page's cookie is never a bearer token (T-505a, D-320, ROLE-001).
 * **A password someone else set** (an administrator's new account or reset) is replaced by its owner before anything
   else: the sign-in lands on ``/account`` and every other page and API call is refused (D-279, SEC-1).
 * **Step-up at signing** (D-279, SEC-1 P-2): with TOTP on, an electronic signature needs the password *and* a fresh

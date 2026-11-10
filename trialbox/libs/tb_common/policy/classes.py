@@ -172,6 +172,7 @@ _D1 = {
     "DocTable",
     "IEBlock",
     "PromptMeta",
+    "PromptPin",
     "ModelEntry",
     "ModelManifest",
     # the qualification record (D-313): build ids, hashes, counts and codes, no note text
@@ -192,6 +193,7 @@ _D1 = {
     "Schedule",
     "RegistrySource",
     "Retention",
+    "FeedCompleteness",  # T-611
     "CalibrationDefaults",
     "TwpasSettings",
     "CohortSettings",

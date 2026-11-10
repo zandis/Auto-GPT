@@ -120,4 +120,4 @@ services:
     <<: *arm
     environment:
       # same flags as the base file; explicit heap so HAPI does not size itself from the 128 GB of unified memory
-      JAVA_TOOL_OPTIONS: "-Xmx${HAPI_XMX:-6g} -Duser.timezone=${TB_TZ:-Asia/Taipei}"
+      JAVA_TOOL_OPTIONS: "-Xmx${HAPI_XMX:-6g} -Duser.timezone=${TB_TZ:?set TB_TZ in deploy/.env to site.tz (D-315)}"

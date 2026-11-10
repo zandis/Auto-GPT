@@ -22,7 +22,7 @@
 <p>{{ state_pill(qd.state) }}</p>
 <p class="hint">{{ t('site.q.' + name + '.help') }}</p>
 {% if qd.missing %}<h3>{{ t('site.missing') }}</h3>
-<ul class="plain miss">{% for m in qd.missing %}{% set k = m.key.split('.', 1)[1] %}<li data-testid="miss-{{ k }}"><span>{{ t('site.miss.' + k, n=m.n or 0, rows=m.rows or 0, pct=m.pct or 0, of=m.of or 0) }}</span>
+<ul class="plain miss">{% for m in qd.missing %}{% set k = m.key.split('.', 1)[1] %}<li data-testid="miss-{{ k }}"><span>{{ t('site.miss.' + k, n=m.n or 0, rows=m.rows or 0, pct=m.pct or 0, of=m.of or 0, tables=m.tables or '') }}</span>
 {% if m.href %}<a class="button secondary" href="{{ m.href }}" data-testid="fix-{{ k }}">{{ t('site.fix.' + k) }}</a>{% endif %}</li>{% endfor %}</ul>
 {% else %}<p class="ok" data-testid="q-{{ name }}-ok">{{ t('site.q.ok') }}</p>{% endif %}
 {% if name == 'patients' and qd.patients %}<p class="hint">{{ t('site.patients.count', n=qd.patients) }}</p>{% endif %}

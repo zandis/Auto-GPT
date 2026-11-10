@@ -1,5 +1,7 @@
 # Cover note to the committees and hospital IT (TB-SITE-07, owner answer Q-14)
 
+> **Archived 2026-11-10 (D-311).** Not part of the plan and not to be sent. CGMH work is covered by the existing CGRD approval; the Japan amendment is Dr Makoto's own matter, outside this plan. Kept for history only.
+
 | Field | Value |
 | --- | --- |
 | Document ID | TB-SITE-07 |

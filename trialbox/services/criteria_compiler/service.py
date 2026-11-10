@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 import yaml
 from lake.client import LakeAPI
 from tb_common.audit import AuditLog
+from tb_common.config import site_tz
 from tb_common.derived import country_of, egfr_for_site
 from tb_common.fhir import FhirEvaluator, library_resource
 from tb_common.llm import LlmClient, LlmError
@@ -61,6 +62,20 @@ class CompileFailed(RuntimeError):
         self.step = step
 
 
+def approval_pins(manifest: RulesetManifest) -> dict[str, Any]:
+    """The prompts an approval pins (D-318): the registry's current version of the judge prompt with its text and
+    schema shas, and ``models.judge_prompt`` naming that version, so SCREEN runs what the investigator approved."""
+    from tb_llm.prompt_registry import PromptRegistryError, default_registry
+
+    models = dump(manifest.models) if manifest.models else {}
+    pid = str(models.get("judge_prompt") or "judge").rsplit("_v", 1)[0]
+    try:
+        pins = default_registry().pins({pid: None})
+    except PromptRegistryError as exc:
+        raise CompileFailed("approve", f"the judge prompt cannot be pinned ({exc.reason}): {exc}") from exc
+    return {"models": {**models, "judge_prompt": f"{pid}_v{pins[pid]['version']}"}, "prompt_pins": pins}
+
+
 def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", text)).strip().lower()
 
@@ -82,7 +97,7 @@ class CompilerDeps:
     llm: LlmClient
     term: Terminology
     settings_thresholds: dict[str, float]
-    tz: str = "Asia/Taipei"
+    tz: str = ""  # the site's zone; empty: TB_TZ (D-315), never a default
     mrn_regex: str | None = None
     lake: LakeAPI | None = None
     fhir: FhirEvaluator | None = None
@@ -93,6 +108,9 @@ class CompilerDeps:
     ctgov: CtGov | None = None  # ClinicalTrials.gov client (COHORT trial simulation); default from TB_CTGOV_MODE
     # what a plain "eGFR" criterion becomes at this site (D-149); None: from the site's time zone (JP: JSN 2009)
     egfr_equation: str | None = None
+
+    def __post_init__(self) -> None:
+        self.tz = site_tz(self.tz or None)
 
     def egfr(self) -> str:
         if self.egfr_equation:
@@ -385,6 +403,7 @@ class Compiler:
             m.pop("terminology_release", None)
         m.pop("review", None)
         m.pop("equivalence", None)
+        m.pop("prompt_pins", None)  # pinned again at approval (D-318)
         return RulesetManifest.model_validate(m)
 
     def _package(
@@ -752,6 +771,7 @@ class Compiler:
         manifest = RulesetManifest.model_validate(
             {
                 **dump(manifest),
+                **approval_pins(manifest),
                 "status": "approved",
                 "review": {
                     "approved_by": req.by,

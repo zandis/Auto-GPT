@@ -69,7 +69,7 @@ class LakeHttp:
 class LakeLocal:
     """In-process lake (tests, single-host tools)."""
 
-    def __init__(self, lake_dir: Path, embedder: Embedder, tz: str = "Asia/Taipei") -> None:
+    def __init__(self, lake_dir: Path, embedder: Embedder, tz: str | None = None) -> None:
         from lake.store import Lake
 
         self.lake = Lake(lake_dir, tz)

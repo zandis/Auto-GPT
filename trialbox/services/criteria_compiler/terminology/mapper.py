@@ -66,6 +66,33 @@ TABLE_FILES = {
 
 FULL_FILES = {"icd10cm": "icd10cm_full"}
 
+# D-314: WHO ICD-10 categories that ICD-10-CM does not have (Japan codes in WHO ICD-10 2013, through MEDIS 標準病名).
+# A grouper whose ICD-10-CM family is one of the related categories (or a prefix of the WHO category: C9 holds C97)
+# also stands for the WHO-only category, under the WHO URI: a record coded E14.9, I64 or F00.1 is then inside the
+# family and outside the list, so the criterion is unknown (D-113), never a silent false. Category: the ICD-10-CM
+# categories whose groupers it can belong to. A WHO code that ICD-10-CM also has (E11.9) is not here.
+ICD10_WHO = "http://hl7.org/fhir/sid/icd-10"
+WHO_ONLY_CATEGORIES: dict[str, tuple[str, ...]] = {
+    "B24": ("B20",),  # unspecified HIV disease
+    "C97": ("C80",),  # malignant neoplasms of independent (primary) multiple sites
+    "E14": ("E08", "E09", "E10", "E11", "E13"),  # unspecified diabetes mellitus
+    "F00": ("F01", "F02", "F03", "G30"),  # dementia in Alzheimer's disease
+    "I64": ("I60", "I61", "I62", "I63"),  # stroke, not specified as haemorrhage or infarction
+}
+
+
+def who_only_families(families: set[tuple[str, str]] | list[tuple[str, str]]) -> set[tuple[str, str]]:
+    """The WHO-only ICD-10 categories (``WHO_ONLY_CATEGORIES``) that a grouper's ICD-10-CM families stand for, as
+    ``(WHO URI, category)`` families (D-314)."""
+    out: set[tuple[str, str]] = set()
+    for system, prefix in families:
+        if system != SYSTEMS["icd10cm"]:
+            continue
+        for cat, related in WHO_ONLY_CATEGORIES.items():
+            if prefix[:3] in related or cat.startswith(prefix):
+                out.add((ICD10_WHO, cat))
+    return out
+
 
 def norm(text: str) -> str:
     return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", text).strip().lower())
@@ -202,7 +229,7 @@ class Terminology:
                     hits.extend(self.expand(s["table"], s["code"], s["match"]))
                     if s["match"] == "prefix":
                         fams.add((SYSTEMS[s["table"]], s["code"]))
-            return hits, fams
+            return hits, fams | who_only_families(fams)
 
         # 1. exact display-name match on the concept name itself
         hits = exact([primary])
