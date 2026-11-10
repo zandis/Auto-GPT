@@ -3754,8 +3754,11 @@ GPU, the egress rules, the host hardening and the mail server are checked there.
     (`offline`, and a new last step, `no-registry-pull`).
 14. *`console-net` closed.* It is not internal, so the console had a route and a name resolver to the outside where
     `network.sh` is not applied. Now: no NAT out, no IPv6, no traffic between members, published ports on 127.0.0.1
-    by default, and `dns: 127.0.0.1` for the console (outside names do not resolve; the box's own names do).
-    `network.sh` drops every connection into a box network that is not to a published port. The rehearsal's
+    by default, and `dns: 192.0.2.53` for the console (an address never assigned; not 127.0.0.1, which Docker 26+
+    asks from the host's namespace). Outside names do not resolve; the box's own names do. Without NAT a packet can
+    still leave the host with no answer back: `network.sh` drops it, and also every connection into a box network
+    that is not to a published port. Docker allows no published port on an internal network, so this is as closed
+    as compose can make it. The rehearsal's
     `console` step checks the options and that nothing outside resolves or answers from inside the console.
 
 *Evidence.* `make rehearse-box` on 2026-11-09 (Docker 29.9.2, no GPU): all 21 steps PASS in about 9 minutes with
@@ -3788,4 +3791,12 @@ model call refused 404 because the pinned served name was not the one served).
    and unknown paths are not counted, and `/v1/models` is counted apart (independent review, 2026-11-10). It never
    stands in for a model.
 
+*Second review* (2026-11-10, no Blocker or High): the doctor no longer follows a redirect with the key; the stand-in
+refuses a bad or huge `Content-Length` before reading; an update restarts with `--pull never` as the install does;
+`TB_COMPOSE_OVERRIDE` must be owned by root or the installer and not group- or world-writable.
+
 *Not done.* `trialbox secrets rotate` does not rotate `TB_LLM_API_KEY` yet (RUNBOOK §12 says how to change it by hand).
+A GPU box moved to this release with `trialbox update` gets no key (only `install.sh` makes it): re-run `install.sh`
+on it. vLLM's key guards `/v1` only, so on the RTX 5090 profile the sleep and wake endpoints stay open on
+`model-net` (only the gateway and the model servers are on it). The one-off doctor containers get all of
+`deploy/.env`; they should get the `TB_*` values only.

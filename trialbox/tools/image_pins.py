@@ -93,7 +93,7 @@ def resolve(
     for line in read_env(deploy / ".env"):
         k, sep, v = line.partition("=")
         if sep:
-            env[k.strip()] = v.strip()
+            env[k.strip()] = v.strip().strip("'\"")
     changes: dict[str, str | None] = {}
     notes: list[str] = []
     missing: list[str] = []

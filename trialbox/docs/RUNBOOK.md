@@ -474,9 +474,11 @@ mirror is left alone.
 **`console-net`** (D-176). Docker publishes no port of a container that is only on internal networks, so the
 console is also on `trialbox-console`, which is not internal. It is closed by hand: no NAT out (no reply ever comes
 back from outside), no IPv6, published ports on 127.0.0.1 unless `TB_CONSOLE_BIND` says otherwise, and the console
-sends outside names to a resolver that is not there (`dns: 127.0.0.1`; the box's own names still resolve).
-`deploy/network.sh apply` also drops every connection into a box network that is not to a published port (a
-neighbour on the hospital LAN that routes to a container address directly, possible on Docker before 28).
+sends outside names to an address that is never assigned (`dns: 192.0.2.53`; the box's own names still resolve).
+Without NAT a packet from the console can still leave the host, though no answer comes back: `deploy/network.sh
+apply` (run by `install.sh` as root) drops it. Keep the egress rules applied on every box. `network.sh` also drops
+every connection into a box network that is not to a published port (a neighbour on the hospital LAN that routes to
+a container address directly, possible on Docker before 28).
 
 **The model key** (D-177). In GPU mode `install.sh` writes `TB_LLM_API_KEY` to `deploy/.env` once. Compose gives it to
 vLLM as `VLLM_API_KEY`, and only the gateway sends it (`models/routing.yaml`, endpoints `serving` and `verifier`). The

@@ -39,6 +39,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 _BLOCK = re.compile(r"```json\s*(.*?)```", re.S)
+MAX_BODY = 8 * 1024 * 1024  # bytes of one request body
 
 
 class Standin:
@@ -162,7 +163,14 @@ def make_handler(s: Standin) -> type[BaseHTTPRequestHandler]:
 
         def do_POST(self) -> None:
             path = self.path.split("?", 1)[0]
-            length = int(self.headers.get("Content-Length") or 0)
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = -1
+            if not 0 <= length <= MAX_BODY:  # never read a body it would not take, key or no key
+                self.close_connection = True
+                self._send(413 if length > MAX_BODY else 400, _error("bad Content-Length", "BadRequestError", 400))
+                return
             raw = self.rfile.read(length) if length else b""
             if path not in ("/v1/chat/completions", "/v1/completions"):
                 self._send(404, {"detail": "Not Found"})

@@ -216,10 +216,11 @@ services:
     # Docker publishes no port of a container that is only on internal networks: on trialbox-net alone the console
     # was unreachable from the host (found by the box rehearsal, D-176). console-net carries the published port only.
     networks: [trialbox-net, console-net]
-    # console-net is not internal, so Docker's resolver would forward outside names for the console: send them to a
-    # resolver that is not there (the box's own names still resolve). Together with console-net's options below the
-    # console has no way out, even where deploy/network.sh is not applied (D-176).
-    dns: [127.0.0.1]
+    # console-net is not internal, so Docker's resolver would forward outside names for the console. Send them to an
+    # address that is never assigned (TEST-NET-1, RFC 5737), reached from the console's own namespace (Docker 26+
+    # forwards to a loopback resolver from the host's namespace, so not 127.0.0.1) and, with no NAT on console-net,
+    # never answered. The box's own names still resolve. deploy/network.sh drops the query too (D-176).
+    dns: [192.0.2.53]
     depends_on:
       db: {condition: service_healthy}
       orchestrator: {condition: service_healthy}

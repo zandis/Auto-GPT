@@ -154,3 +154,16 @@ def test_loading_delay_answers_503_until_ready() -> None:
         assert _call(f"{url}/v1/models")[0] == 503
     finally:
         srv.shutdown()
+
+
+def test_bad_or_huge_content_length_is_refused_before_reading(base: str) -> None:
+    import http.client
+
+    host, port = base.removeprefix("http://").split(":")
+    for value, want in (("abc", 400), ("-5", 400), (str(vs.MAX_BODY + 1), 413)):
+        c = http.client.HTTPConnection(host, int(port), timeout=10)
+        c.putrequest("POST", "/v1/chat/completions")
+        c.putheader("Content-Length", value)
+        c.endheaders()
+        assert c.getresponse().status == want
+        c.close()

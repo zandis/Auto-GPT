@@ -258,11 +258,18 @@ def check_note_block(inp: DoctorInputs) -> Check:
     )
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirect is an answer, never followed: the model key must not travel to another host."""
+
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
 def _get_models(url: str, key: str, timeout: float = 10.0) -> tuple[int | None, Any]:
     """(HTTP status, JSON body or error text); status None when the server cannot be reached."""
     req = urllib.request.Request(f"{url.rstrip('/')}/models", headers={"Authorization": f"Bearer {key}"} if key else {})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout) as r:
             return r.status, json.loads(r.read() or b"{}")
     except urllib.error.HTTPError as e:
         return e.code, e.reason

@@ -456,7 +456,8 @@ class ComposeBox(_DockerImages):
         # new images: the containers are recreated and every service runs its migrations at start (tb_common.db)
         self.resolve_pins()
         t = os.environ.get("TB_INSTALL_UP_TIMEOUT", "900")
-        self.run(self._c("up", "-d", "--wait", "--wait-timeout", t), timeout=int(t) + 120)
+        pull = os.environ.get("TB_INSTALL_PULL") or "never"  # as install.sh: every image from a bundle (D-176)
+        self.run(self._c("up", "-d", "--pull", pull, "--wait", "--wait-timeout", t), timeout=int(t) + 120)
 
     def post_apply(self, plan: Plan) -> list[str]:
         done = []

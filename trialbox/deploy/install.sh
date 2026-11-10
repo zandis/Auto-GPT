@@ -281,6 +281,10 @@ esac
 if [ -n "${TB_COMPOSE_OVERRIDE:-}" ]; then  # D-176: the rehearsal's model stand-ins (or a site's own override)
   [ -f "$TB_COMPOSE_OVERRIDE" ] || die "TB_COMPOSE_OVERRIDE: no such file $TB_COMPOSE_OVERRIDE"
   OVR="$(cd "$(dirname "$TB_COMPOSE_OVERRIDE")" && pwd)/$(basename "$TB_COMPOSE_OVERRIDE")"
+  # every later compose command (as root: update, secrets rotate) reads it: only its owner (root or the installer)
+  # may change it, and it must stay where it is
+  [ "$(stat -c %u "$OVR")" = 0 ] || [ "$(stat -c %u "$OVR")" = "$(id -u)" ] || die "TB_COMPOSE_OVERRIDE: $OVR is not owned by root or $(id -un)"
+  [ $((0$(stat -c %a "$OVR") & 022)) = 0 ] || die "TB_COMPOSE_OVERRIDE: $OVR is writable by group or others (chmod go-w)"
   echo "install: note: compose override in use: $OVR (kept in deploy/.env COMPOSE_FILE)" >&2
   COMPOSE+=(-f "$OVR"); FILES="$FILES:$OVR"
 fi
