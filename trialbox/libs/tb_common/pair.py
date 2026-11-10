@@ -13,12 +13,18 @@ The rule:
 3. a verifier that did not answer, whose quote is not in the notes, or that gives another verdict turns the answer
    into ``unknown`` with the matching :class:`~tb_common.reasons.Reason`, never an exclusion;
 4. when both agree the answer is as sure as the less sure model (``min`` of the confidences);
-5. a decided answer below :data:`~tb_common.reasons.MIN_CONFIDENCE` is not used: ``unknown`` / ``low_confidence``.
+5. a decided answer below :data:`~tb_common.reasons.MIN_CONFIDENCE` is not used: ``unknown`` / ``low_confidence``;
+6. two answers from one model are one answer (D-276): when the two votes share a served model name or a gateway
+   build (``served``), the judge did not really answer (a gateway that let another build stand in, two names of one
+   model): ``unknown`` / ``model_down``, counted as a failure, never an exclusion (review LLM-002).
+   :func:`same_model` asks the same of the two configured clients before a run.
 """
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
+from typing import Any
 
 from tb_common.reasons import MIN_CONFIDENCE, Reason
 
@@ -33,6 +39,8 @@ class Vote:
     verdict: str  # pass | fail | unknown
     confidence: float
     reason: str | None = None
+    # who gave this answer (:func:`served_keys`): the served model name and, through the gateway, the build
+    served: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -42,6 +50,7 @@ class Decision:
     reason: str | None
     disagreement: bool = False  # the verifier did not confirm a decided judge answer
     failure: bool = False  # the verifier did not answer
+    same_model: bool = False  # the verifier's answer came from the judge's model (D-276)
 
 
 def needs_verifier(first: Vote) -> bool:
@@ -61,6 +70,8 @@ def combine(first: Vote, second: Vote | None, minimum: float = MIN_CONFIDENCE) -
         return floor(first, minimum)
     if second.reason == Reason.MODEL_DOWN.value:
         return Decision("unknown", 0.0, Reason.MODEL_DOWN.value, failure=True)
+    if set(first.served) & set(second.served):  # one model asked twice is not a second opinion (D-276)
+        return Decision("unknown", 0.0, Reason.MODEL_DOWN.value, failure=True, same_model=True)
     if second.reason == Reason.QUOTE_NOT_FOUND.value:
         return Decision("unknown", 0.0, Reason.VERIFIER_QUOTE_MISSING.value, disagreement=True)
     if second.verdict != first.verdict:
@@ -68,4 +79,106 @@ def combine(first: Vote, second: Vote | None, minimum: float = MIN_CONFIDENCE) -
     return floor(Vote(first.verdict, min(first.confidence, second.confidence), first.reason), minimum)
 
 
-__all__ = ["DECIDED", "Decision", "Vote", "combine", "floor", "needs_verifier"]
+# ------------------------------------------------------------------------------------------------ model identity
+def served_key(name: object) -> str:
+    """A served model name for comparison: case folded, outer and repeated spaces dropped. Nothing else is rewritten:
+    ``local/x`` and ``x`` stay two names, because one server may serve both as different models."""
+    return " ".join(str(name or "").split()).casefold()
+
+
+def served_keys(name: object = "", build: object = "") -> tuple[str, ...]:
+    """Who gave an answer, for :class:`Vote`: the model name the server answered under and, through the gateway, the
+    build (its weights digest). Two votes that share a key came from one model: the same served name (two registry
+    builds of one model), or the same weights under two names. Empty when neither is known."""
+    n, b = served_key(name), served_key(build)
+    return tuple(k for k in (f"name:{n}" if n else "", f"build:{b}" if b else "") if k)
+
+
+def _route(client: Any) -> tuple[str, str, str]:
+    """(kind, address, name) a client was configured with: through the gateway its URL and the alias it asks for,
+    else the endpoint's URL and the model name it sends."""
+    gw = getattr(client, "gateway", None)
+    if gw is not None:
+        url = str(getattr(gw, "base_url", "") or "").rstrip("/").casefold()
+        return "gateway", url, served_key(getattr(gw, "model", ""))
+    url = str(getattr(client, "base_url", "") or "").rstrip("/").casefold()
+    return "direct", url, served_key(getattr(client, "model", ""))
+
+
+def gateway_default_alias(env: str | None = None) -> str:
+    """The build alias the gateway gives a judge call that names none: the stub in DEV and TEST, the judge build
+    (``j-workhorse``) elsewhere (``models/routing.yaml``: the first build of the judge's route)."""
+    from tb_common.config import environment_name
+
+    e = env if env is not None else environment_name(os.environ)
+    return "trialbox-stub" if str(e).upper() in ("DEV", "TEST") else "j-workhorse"
+
+
+def served_root(client: Any) -> str | None:
+    """Which weights a direct client's model is served from, as its endpoint says (vLLM's ``/models``: ``root`` is
+    the weights path, the same for every ``--served-model-name`` of one server, on any URL that reaches it). None
+    when it cannot be told: no ``/models``, an error or a time-out, the name not listed, or no ``root``. A client
+    that knows it (``served_root`` attribute: a pinned client, a test double) says so itself."""
+    known = getattr(client, "served_root", None)
+    if isinstance(known, str):
+        return served_key(known) or None
+    name = served_key(getattr(client, "model", ""))
+    try:
+        resp = client.http.get(f"{str(client.base_url).rstrip('/')}/models", timeout=10.0)
+        if resp.status_code >= 400:
+            return None
+        for m in resp.json().get("data") or []:
+            if served_key(m.get("id")) == name:
+                return served_key(m.get("root")) or None
+    except Exception:  # an endpoint without /models, a network error, a time-out: not known
+        return None
+    return None
+
+
+def same_model(judge: Any, verifier: Any) -> str | None:
+    """Why the verifier is not a second model, or None when the box can tell before a run that it is (D-276,
+    reviews S-2, F-02, F-03). The answers themselves are compared again by :func:`combine`.
+
+    Fails closed: "cannot tell" counts as one model. One model: one client object; the same gateway asked for the
+    same alias (a judge that names none gets :func:`gateway_default_alias`); a direct client with no name; two direct
+    clients asking for one model name (whatever their URLs); two direct models served from the same weights, on any
+    URLs (:func:`served_root`); a direct model whose weights its endpoint does not tell; one client through the
+    gateway and the other straight to an endpoint (their identities cannot be compared)."""
+    if verifier is judge:
+        return "the verifier is the judge's own client"
+    (jk, ju, jn), (vk, vu, vn) = _route(judge), _route(verifier)
+    if jk == vk == "gateway":
+        jn, vn = jn or served_key(gateway_default_alias()), vn or served_key(gateway_default_alias())
+        if ju == vu and jn == vn:
+            return f"both ask the same gateway for {jn}"
+        return None
+    if jk != vk:
+        return "one model is reached through the gateway and the other directly, so they cannot be told apart"
+    if not jn or not vn:
+        return "a model has no name"
+    if jn == vn:
+        return f"both are the model {jn}"
+    jr, vr = served_root(judge), served_root(verifier)
+    if jr is None or vr is None:
+        which = jn if jr is None else vn
+        return (
+            f"the endpoint of {which} does not say which weights it serves (/models), so the pair cannot be told apart"
+        )
+    if jr == vr:
+        return f"{jn} and {vn} are served from the same weights ({jr})"
+    return None
+
+
+__all__ = [
+    "DECIDED",
+    "Decision",
+    "Vote",
+    "combine",
+    "floor",
+    "gateway_default_alias",
+    "needs_verifier",
+    "same_model",
+    "served_key",
+    "served_keys",
+    "served_root",
+]

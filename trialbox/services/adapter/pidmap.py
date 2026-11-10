@@ -10,6 +10,10 @@ keys never mix and every service that mounts the same secrets reads the same map
 Chart numbers are written the site's way before they are hashed or stored (:func:`pseudonym`, ``tb_common.chartno``,
 R-48, D-301): a sheet's ``123456`` and the feed's ``00123456`` are one patient under a ``digits:8`` rule. Under the
 default rule a chart number already written the hospital's way is stored and hashed exactly as before.
+
+The site key (T-612, DATA-004). Table ``site_key`` holds the fingerprint of each site's ``site_hmac.key`` as first
+seen. :meth:`PidMap.site_key_problem` says when the key in hand is another one: its fingerprint differs from the
+stored one, or it does not give back the pseudonyms the map holds (a box from before the table).
 """
 
 from __future__ import annotations
@@ -21,7 +25,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from tb_common import chartno
-from tb_common.crypto import aes_decrypt, aes_encrypt, load_or_create_key, pid_for_mrn
+from tb_common.crypto import aes_decrypt, aes_encrypt, key_fingerprint, load_or_create_key, pid_for_mrn
 from tb_common.db import ENV as DB_URL_ENV
 from tb_common.db import Database
 
@@ -44,6 +48,14 @@ CREATE TABLE IF NOT EXISTS identity (
   PRIMARY KEY (key_id, pid)
 )
 """,
+    # T-612: the fingerprint of each site's pseudonymisation key, as first seen (tb_common.crypto.key_fingerprint)
+    """
+CREATE TABLE IF NOT EXISTS site_key (
+  site_id TEXT PRIMARY KEY,
+  fingerprint TEXT NOT NULL,
+  recorded_at TEXT NOT NULL
+)
+""",
 )
 
 
@@ -60,12 +72,44 @@ def key_id(key: bytes) -> str:
 
 class PidMap:
     def __init__(self, key_path: Path, url: str | None = None) -> None:
-        """``key_path``: ``secrets/pid_map.key`` (created on first use, as before). ``url``: the trial database
+        """``key_path``: ``secrets/pid_map.key`` (created on first use, as before: it encrypts the rows and changes no
+        pseudonym; the site key never is, T-612). ``url``: the trial database
         (``TB_DB_URL`` when None; :class:`tb_common.db.DatabaseError` if unset)."""
         self.key = load_or_create_key(key_path)
         self.key_id = key_id(self.key)
         self._db = Database.connect(url if url is not None else os.environ.get(DB_URL_ENV), SCHEMA_NAME)
         self._db.migrate(MIGRATIONS)
+
+    def site_key_problem(self, site_id: str, site_key: bytes, probe: int = 5) -> str | None:
+        """T-612: why ``site_key`` is not the key this map was built with, or None. Compares its fingerprint with the
+        one stored for ``site_id``, then checks that it gives back the pseudonyms of up to ``probe`` stored rows."""
+        fp = key_fingerprint(site_key)
+        stored = self.stored_site_key(site_id)
+        if stored is not None and stored != fp:
+            return f"its fingerprint {fp} differs from the stored one {stored} (site {site_id})"
+        rows = self._db.fetchall(
+            "SELECT pid, mrn FROM pid_map WHERE key_id = ? ORDER BY pid LIMIT ?", (self.key_id, probe)
+        )
+        for pid, blob in rows:
+            mrn = aes_decrypt(self.key, bytes(blob), str(pid).encode()).decode()
+            if pid_for_mrn(site_key, mrn) != pid:
+                return f"it does not give the pseudonyms the pid map holds (fingerprint {fp})"
+        return None
+
+    def record_site_key(self, site_id: str, site_key: bytes) -> None:
+        """Store the site key's fingerprint the first time; never replaced (a changed key is refused, not recorded)."""
+        now = datetime.now(UTC).isoformat(timespec="seconds")
+        with self._db.transaction() as tx:
+            tx.execute(
+                "INSERT INTO site_key (site_id, fingerprint, recorded_at) VALUES (?,?,?)"
+                " ON CONFLICT (site_id) DO NOTHING",
+                (site_id, key_fingerprint(site_key), now),
+            )
+
+    def stored_site_key(self, site_id: str) -> str | None:
+        """The fingerprint stored for ``site_id``, or None."""
+        row = self._db.fetchone("SELECT fingerprint FROM site_key WHERE site_id = ?", (site_id,))
+        return str(row[0]) if row is not None else None
 
     def upsert_many(self, pairs: list[tuple[str, str]]) -> int:
         # one row per pseudonym: two spellings of one chart number (R-48) are one patient; the first is kept

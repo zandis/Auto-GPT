@@ -128,7 +128,8 @@ ever printed, logged or put in the audit; `secrets status` shows names, modes an
 - **Routing.** Patient-level files go only to the study's internal list, as 7z AES-256 with the password in a second
   mail; aggregate files may go to `aggregate_to`. Checked before every send (`tb_common/routing.py`).
 - **Models.** Every call goes through the gateway, which routes by data class; local models only for patient data.
-  A note excludes a patient only when two models agree on a verified quote (D-115, D-117).
+  A note excludes a patient only when two different models agree on a verified quote, and every note holding the
+  evidence was shown to them (D-115, D-117, D-276).
 - **One-way hospital systems.** TrialBox never writes to an EMR, SS-MIX2 or CGRD (owner decision 2).
 
 ## 6. Audit, retention, updates
