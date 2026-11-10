@@ -723,10 +723,12 @@ def _stage13(work: Path, box: Any, gout: dict[str, Any]) -> Stage:
         fun[kind] = (raw.start_n, raw.remaining)
     s.check("GOUT-COH funnel: the SS-MIX2 storage equals its CSV export", fun["ssmix2"] == fun["csv"]
             and list(fun["csv"][1].values())[2] > 0, fun)  # fmt: skip
-    if PAIR is None and gout["feas"]["start"] == GOUT_COH_BEFORE_STEP7["feas"]["start"]:  # the gate, stub
+    shift_file = work / "hospital" / fd.SHIFT_FILE  # T-513: dates moved to the demo day change the pinned numbers
+    own_day = not shift_file.exists() or shift_file.read_text(encoding="utf-8").strip() == "0"
+    if PAIR is None and own_day and gout["feas"]["start"] == GOUT_COH_BEFORE_STEP7["feas"]["start"]:  # the gate, stub
         s.check("GOUT-COH funnel of the main run unchanged by step 7 (FEAS, SCREEN, cohort list)",
                 gout == GOUT_COH_BEFORE_STEP7, gout)  # fmt: skip
-    else:  # another size (tools.complete_run): the numbers were pinned on the gate's hospital; the shape still holds
+    else:  # another size (tools.complete_run) or another day (tools.demo): pinned on the gate's hospital and day
         rem = list(gout["feas"]["remaining"].values())
         sf = gout["screen"]["funnel"]
         s.check("GOUT-COH funnel of the main run: FEAS and SCREEN never grow",
