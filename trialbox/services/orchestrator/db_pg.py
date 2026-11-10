@@ -29,7 +29,7 @@ from typing import Any, Literal, Protocol
 
 from tb_common import timeutil
 from tb_common.db import ENV as DB_URL_ENV
-from tb_common.db import Database
+from tb_common.db import AppliedVersion, Database, Migration, MigrationChanged, MigrationOrderError
 
 Clock = Callable[[], datetime]
 Row = tuple[Any, ...]
@@ -86,7 +86,9 @@ class SqlBackend(Protocol):
 
     def transaction(self) -> AbstractContextManager[Tx]: ...
 
-    def migrate(self, versions: Sequence[str]) -> int: ...
+    def migrate(self, versions: Sequence[str | Migration]) -> int:
+        """Checksummed, append-only schema versions (:meth:`tb_common.db.Database.migrate`, D-204)."""
+        ...
 
     def close(self) -> None: ...
 
@@ -114,8 +116,17 @@ class PostgresBackend:
     def transaction(self) -> AbstractContextManager[Tx]:
         return self.db.transaction()
 
-    def migrate(self, versions: Sequence[str]) -> int:
+    def migrate(self, versions: Sequence[str | Migration]) -> int:
+        """:meth:`tb_common.db.Database.migrate`: a changed applied version raises :class:`MigrationChanged`."""
         return self.db.migrate(versions)
+
+    def migrate_dir(self, path: str | os.PathLike[str]) -> int:
+        """:meth:`tb_common.db.Database.migrate_dir`: the ``NNN_<name>.sql`` scripts of ``path``."""
+        return self.db.migrate_dir(os.fspath(path))
+
+    def applied(self) -> list[AppliedVersion]:
+        """This schema's ``_schema_version`` rows (version, checksum, script name, back-filled)."""
+        return self.db.applied()
 
     def close(self) -> None:
         self.db.close()
@@ -366,6 +377,8 @@ __all__ = [
     "SCHEMA",
     "WF_SCHEMA",
     "Clock",
+    "MigrationChanged",
+    "MigrationOrderError",
     "OutboxMessage",
     "PostgresBackend",
     "SqlBackend",
