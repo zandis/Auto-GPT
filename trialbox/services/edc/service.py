@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -30,9 +31,23 @@ from datacore.export import BASE_EVENT
 from datacore.store import DataCore
 from rc_bridge.client import RcError, RedcapClient
 from tb_common.audit import AuditLog
+from tb_common.llm import LlmError
 
 from edc import mapping, odm, prefill
 from edc.store import EdcError, EdcStore
+
+log = logging.getLogger("edc")
+
+
+def model_failure(exc: LlmError) -> str:
+    """Why the note drafter failed, without any text the model or the notes gave: the gateway's refusal code
+    (``purpose_not_allowed``, ``no_route``...) or the kind of failure."""
+    cause = exc.__cause__
+    reason = getattr(cause, "reason", "")
+    if reason:
+        return f"gateway refused: {reason}"
+    return type(cause or exc).__name__
+
 
 ODM_MEANING = ("By my electronic signature I confirm that I checked each value against the cited hospital record "
                "and that the values are correct for this subject and visit.")  # fmt: skip
@@ -156,7 +171,14 @@ class EdcService:
             err.problems = bad  # type: ignore[attr-defined]
             raise err
         run_id = hashlib.sha256(f"{rs}|{record}|{visit}|{self.stamp()}".encode()).hexdigest()[:16]
-        drafts = prefill.build(pid, vd, items, fields, self.facts(), self.drafter(run_id))
+        try:
+            drafts = prefill.build(pid, vd, items, fields, self.facts(), self.drafter(run_id))
+        except LlmError as exc:  # the gateway refused or the model failed: nothing is drafted, and the page says why
+            why = model_failure(exc)
+            log.error("EDC prefill: the box's model did not draft study %s record %s: %s", rs, record, why)
+            self._audit("edc.drafts", rs, by, {"record": record, "visit": visit or BASE_EVENT, "run": run_id,
+                                               "refused": "edc.model", "error": why})  # fmt: skip
+            raise EdcError("edc.model", f"the box's model did not answer ({why})", 502) from exc
         rows = [d.as_dict() for d in drafts]
         ids = self.store.add_drafts(rs, record, pid, visit or BASE_EVENT, vd.isoformat(), rows, run_id, by,
                                     self.stamp())  # fmt: skip

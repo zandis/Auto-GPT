@@ -150,3 +150,19 @@ Where a recommendation conflicts with an overriding decision above, the decision
 | Topic | Decision |
 |---|---|
 | Study A PI | **Changfu Kuo is the PI of Study A** at CGMH (answers S-04 of the Study A review). |
+
+## Data steward and admin access to patient data (2026-11-10)
+
+Asked after the critical-issues register (PR #73, finding PV-8: admin accounts without `can_view_phi`).
+
+- **A separate data-steward role.** The steward looks after the patient data: sources, conflicts, the lake and OMOP
+  quality, opt-outs and exports. This is not the admin role.
+- **Admin may see patient data, but only under limited conditions.** The default the build will use (the owner can
+  change it):
+  - only through a break-glass step: a stated reason from a fixed list plus free text, one patient or one job at a
+    time;
+  - time-limited (60 minutes), then access ends by itself;
+  - every view is audited (who, which patient pseudonym, reason, time) and the data steward and the PI are told;
+  - the steward reviews each break-glass use; an unreviewed use shows on the steward's worklist;
+  - routine admin work (users, settings, flags, backups, updates) never shows patient-level data.
+- Implemented by the critical-issues fix phase (D-270 to D-289 range), after PR #67 (identity) merges.

@@ -10,9 +10,11 @@
 # Default images: trialbox-py:1.0.0, trialbox-jvm:1.0.0 and the third-party images compose pulls (so the site needs no
 # registry access). Add --no-third-party on a site that mirrors them itself. --refdata adds a reference data pack
 # (tools/refdata_fetch.py build; payload kind refdata, D-140), which install.sh loads once the box runs.
+# --gates build/supply-chain/gates.json (D-186, `make release-bundle`): refuse any image whose local image id is not
+# in that passing release-gate record (Trivy, SBOM and licence gates of these exact images, at most 7 days old).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-KEY=""; ID=""; OUT=""; MODELS=""; RULESETS=""; THIRD=1
+KEY=""; ID=""; OUT=""; MODELS=""; RULESETS=""; THIRD=1; GATES=""
 IMAGES=(); REFDATA=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -24,6 +26,7 @@ while [ $# -gt 0 ]; do
     --refdata) REFDATA+=("$2"); shift ;;
     --image) IMAGES+=("$2"); shift ;;
     --no-third-party) THIRD=0 ;;
+    --gates) GATES="$2"; shift ;;
     -h|--help) sed -n 2,14p "$0"; exit 0 ;;
     *) echo "make_bundle: unknown option $1" >&2; exit 2 ;;
   esac
@@ -50,6 +53,19 @@ if [ ${#IMAGES[@]} -eq 0 ]; then
                -f "$ROOT/deploy/docker-compose.test.yml" --profile stub --profile test --profile gpu config --images 2>/dev/null | sort -u)
     [ ${#IMAGES[@]} -gt "$n" ] || { echo "make_bundle: compose listed no third-party image (docker compose config)" >&2; exit 2; }
   fi
+fi
+
+for img in "${IMAGES[@]}"; do
+  docker image inspect "$img" >/dev/null 2>&1 || { echo "    pulling $img"; docker pull -q "$img" >/dev/null; }
+done
+if [ -n "$GATES" ]; then
+  [ -f "$GATES" ] || { echo "make_bundle: no such gate record $GATES" >&2; exit 2; }
+  GATES="$(cd "$(dirname "$GATES")" && pwd)/$(basename "$GATES")"
+  echo "==> release gates ($GATES)"
+  (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.supply_chain bundle-check --gates "$GATES" \
+    "${IMAGES[@]}") || { echo "make_bundle: images are not covered by a passing gate record" >&2; exit 1; }
+else
+  echo "make_bundle: WARNING no --gates record: these images were not checked by the release gates (D-186)" >&2
 fi
 
 ITEMS=(); PINS=()

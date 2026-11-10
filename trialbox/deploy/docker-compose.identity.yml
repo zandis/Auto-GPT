@@ -1,0 +1,99 @@
+# Identity and TLS (D-192, D-193): Caddy on 443 in front of the console, and Authelia for the hospital account
+# (OIDC, off unless the `oidc` profile and TB_OIDC_ENABLED=1). Add it after the base file and the secrets overlay:
+#
+#   docker compose --project-directory deploy -f deploy/docker-compose.yml -f deploy/docker-compose.secrets.yml \
+#       -f deploy/docker-compose.identity.yml [--profile oidc] up -d --wait
+#
+# (or append it to COMPOSE_FILE in deploy/.env). The settings are in deploy/.env; the full list with comments is
+# deploy/identity/identity.env.example, the steps are RUNBOOK §14.
+#
+# * With this file the console is reachable only through Caddy (https://TB_TLS_HOSTNAME); its own port is no longer
+#   published. Its session cookies are Secure.
+# * Caddy's internal CA keys stay in the caddy-data volume, which no other service mounts.
+# * Authelia keeps its own state (TOTP and WebAuthn registrations of directory users, sessions) in the authelia-data
+#   volume (SQLite); add the volume to the site backup.
+
+services:
+  caddy:
+    image: ${CADDY_IMAGE:-caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee}
+    restart: unless-stopped
+    init: true
+    logging: {driver: json-file, options: {max-size: "50m", max-file: "5"}}
+    environment:
+      TB_TLS_MODE: "${TB_TLS_MODE:-internal}"
+      TB_TLS_HOSTNAME: "${TB_TLS_HOSTNAME:?set TB_TLS_HOSTNAME in deploy/.env (the console's DNS name)}"
+      TB_AUTH_HOSTNAME: "${TB_AUTH_HOSTNAME:-auth.invalid}"
+      # the site's own SSO header names too, so Caddy strips them from every request (review H1)
+      TB_CONSOLE_SSO_HEADER: "${TB_CONSOLE_SSO_HEADER:-X-TB-No-Sso-Header}"
+      TB_CONSOLE_SSO_ROLE_HEADER: "${TB_CONSOLE_SSO_ROLE_HEADER:-X-TB-No-Sso-Role}"
+      TB_CONSOLE_SSO_MAILBOX_HEADER: "${TB_CONSOLE_SSO_MAILBOX_HEADER:-X-TB-No-Sso-Mailbox}"
+    volumes:
+      - ./identity/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${TB_TLS_CERT_FILE:-/dev/null}:/etc/caddy/certs/site.crt:ro
+      - ${TB_TLS_KEY_FILE:-/dev/null}:/etc/caddy/certs/site.key:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    ports: ["${TB_TLS_BIND:-0.0.0.0}:443:443"]
+    networks:
+      edge-net: {}
+      trialbox-net:
+        # the console reaches Authelia's token endpoint at https://TB_AUTH_HOSTNAME through Caddy
+        aliases: ["${TB_AUTH_HOSTNAME:-auth.invalid}"]
+    depends_on:
+      console: {condition: service_healthy}
+
+  authelia:
+    profiles: [oidc]
+    image: ${AUTHELIA_IMAGE:-authelia/authelia:4.39.28@sha256:bd97cff4fcbf715b5ff1f9ae286afbe6033afce385302520b0368122d43a6f54}
+    restart: unless-stopped
+    logging: {driver: json-file, options: {max-size: "50m", max-file: "5"}}
+    environment:
+      X_AUTHELIA_CONFIG_FILTERS: template   # the OIDC signing key is read from a file by the template filter
+      AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET_FILE: /run/authelia/jwt_secret
+      AUTHELIA_SESSION_SECRET_FILE: /run/authelia/session_secret
+      AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE: /run/authelia/storage_key
+      AUTHELIA_IDENTITY_PROVIDERS_OIDC_HMAC_SECRET_FILE: /run/authelia/oidc_hmac
+      AUTHELIA_AUTHENTICATION_BACKEND_LDAP_PASSWORD_FILE: /run/authelia/ldap_password
+    volumes:
+      - ${TB_AUTHELIA_CONFIG:-./site/authelia/configuration.yml}:/config/configuration.yml:ro
+      - ./secrets/authelia:/run/authelia:ro
+      - authelia-data:/data
+    networks:
+      trialbox-net: {}
+      egress-net: {}   # LDAPS (636) to the hospital's AD only: the host allowlist opens it (network sheet)
+    # health: the image's own HEALTHCHECK (/app/healthcheck.sh)
+
+  console:
+    # behind Caddy only; Secure cookies; the identity settings from deploy/.env
+    ports: !reset []
+    environment:
+      TB_CONSOLE_SECURE_COOKIE: "1"
+      TB_CONSOLE_SSO_HEADER: ""   # never behind Caddy: the hospital account comes through OIDC (review H1)
+      TB_CONSOLE_MFA: "${TB_CONSOLE_MFA:-totp}"
+      TB_CONSOLE_IDLE_MINUTES: "${TB_CONSOLE_IDLE_MINUTES:-10}"
+      TB_CONSOLE_SESSION_HOURS: "${TB_CONSOLE_SESSION_HOURS:-8}"
+      TB_OIDC_ENABLED: "${TB_OIDC_ENABLED:-0}"
+      TB_OIDC_ISSUER: "${TB_OIDC_ISSUER:-}"
+      TB_OIDC_CLIENT_ID: "${TB_OIDC_CLIENT_ID:-trialbox-console}"
+      TB_OIDC_CLIENT_SECRET_FILE: /run/secrets/oidc_client_secret
+      TB_OIDC_REDIRECT_URL: "https://${TB_TLS_HOSTNAME}/auth/oidc/callback"
+      TB_OIDC_GROUP_ROLES: "${TB_OIDC_GROUP_ROLES:-}"
+      TB_OIDC_LOGOUT_URL: "${TB_OIDC_LOGOUT_URL:-}"
+      TB_OIDC_REQUIRE_MFA: "${TB_OIDC_REQUIRE_MFA:-1}"
+      TB_OIDC_CA_FILE: /run/tb-oidc-ca.pem
+    volumes:
+      - ${TB_OIDC_CA:-/dev/null}:/run/tb-oidc-ca.pem:ro   # Caddy's root (internal mode) or the hospital CA chain
+    secrets: [{source: oidc_client_secret, target: oidc_client_secret}]
+
+secrets:
+  oidc_client_secret:
+    file: ${TB_OIDC_CLIENT_SECRET:-/dev/null}   # deploy/secrets/authelia/oidc_client_secret.txt with OIDC on
+
+networks:
+  edge-net:
+    name: trialbox-edge   # the one network with a published port (443)
+
+volumes:
+  caddy-data:
+  caddy-config:
+  authelia-data:

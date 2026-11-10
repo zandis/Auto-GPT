@@ -237,7 +237,7 @@ EOF
 # ------------------------------------------------------------------------------------------------ egress override
 egress-override)
   # Only the REHEARSAL's egress: standins.yml makes egress-net internal. The shipped egress-net (not internal) with
-  # deploy/network.sh's nftables is NOT rehearsed (no NET_ADMIN here); it is checked at the site's IQ (RUNBOOK §12).
+  # deploy/network.sh's nftables is NOT rehearsed (no NET_ADMIN here); it is checked at the site's IQ (RUNBOOK §14).
   in_svc criteria-compiler <<'EOF' || fail "criteria-compiler can reach the internet"
 import socket
 for host in ("clinicaltrials.gov", "repo1.maven.org", "pypi.org"):

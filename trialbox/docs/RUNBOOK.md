@@ -30,7 +30,8 @@ rule is held by `tests/unit/test_install_tiers.py`.
 runs the settings wizard, makes one token per service, starts the stack, creates the first administrator, writes the
 site's network sheet to `deploy/site/network-sheet.{en,ja,zh-TW}.{md,html}` (print it for hospital IT), installs the
 nightly log job and runs the host check. `--mode stub` installs a box without a GPU. The vendor builds the bundle with
-`tools/make_bundle.sh`. On Windows the box runs in WSL2: `docs/handover/OFFLINE-MEDIA.md`,
+`tools/make_bundle.sh` (`make release-bundle`: only images that passed the release gates). The image vulnerability
+gate is in report mode for now; the open findings are in `deploy/security/known-image-findings.md` (SECURITY.md §8). On Windows the box runs in WSL2: `docs/handover/OFFLINE-MEDIA.md`,
 `docs/handover/WINDOWS-INSTALL-CHECKLIST.md` and `deploy/windows/preflight.ps1`.
 
 **The same, step by step.**
@@ -112,10 +113,54 @@ the log. A project with repeating instruments is refused (`edc.repeating`). Held
 ## 3. Accounts
 
 Administrators add accounts on **Users** (`/ops/users`). The one-time password shows once, in a read-only field; hand
-it over in person or by phone (D-133). Five failed sign-ins lock an account for 15 minutes; sessions end after 30
-minutes idle or 8 hours. Roles and the work they do: [User guide](USER_GUIDE.md). In the POC container:
+it over in person or by phone (D-133). Five failed sign-ins lock an account for 15 minutes; sessions end after 10
+minutes idle or 8 hours; local accounts give a TOTP code after the password ([§12](#12-identity-and-tls-d-192-d-193)). Roles and the work they do: [User guide](USER_GUIDE.md). In the POC container:
 `docker exec -i trialbox-console-1 python -m console.cli bootstrap-admin|add-user NAME --role ROLE|reset-password
 NAME|disable NAME|list-users`.
+
+### Build gate: the data-handling scan (D-203)
+
+Real patient data never enters the repository, CI, a log or a support bundle (TB-SITE-03). `make data-scan` scans
+every tracked file (patterns in `tools/data_scan_patterns.yaml`) for chart numbers after their label or in an HL7 PID
+segment, Taiwan IDs and マイナンバー with valid check digits, Japanese insurer numbers, Taiwanese and Japanese phone
+numbers, and Chinese, Japanese or katakana names beside a date (western, compact, ROC or wareki; on the same line or
+up to three lines apart). Full-width characters, invisible characters, other dashes and numbers split by spaces,
+dots or hyphens are normalised first; tables (`.csv`, `.tsv`, `.xlsx`, `.parquet`) are also read with each value
+labelled by its column header; archives and office files are read member by member, by content as well as by name;
+other encodings (UTF-16, Big5, Shift-JIS, EUC-JP, GB18030) are decoded. A binary of an unknown kind is reported as
+`unscanned`. A data file type (`.csv`, `.xlsx`, `.ndjson`, `.parquet`, `.duckdb`, `.hl7` ...) outside
+`tests/fixtures/`, `eval/`, `catalogue/`, `refdata/` and the reference tables `.gitattributes` names is refused. Exit
+2 on a hit; the output gives the file, the line, the pattern and at most two characters at each end, never the value.
+The same scan runs on a log (`python -m tools.data_scan --log make-test.log`), on a support bundle or any archive
+(`python -m tools.data_scan bundle.tgz`), as the pre-commit hook (`pre-commit install --config
+trialbox/.pre-commit-config.yaml`, from the repository root) and as the `data-scan` CI job. A synthetic value that
+looks real goes into `tools/data_scan_allow.txt` with its reason; a real one is an incident (TB-SITE-03 §1.7).
+
+### Build gate: the CI jobs (D-206)
+
+`.github/workflows/trialbox-ci.yml` runs on every pull request and every push to master; its first job, `changes`,
+skips the others (reported as skipped, which satisfies a required check) when a pull request touches neither
+`trialbox/` nor a TrialBox workflow. `make ci` runs the same list locally. Each job has at most 15 minutes; a newer
+push to a pull request cancels the older run (pushes to master are never cancelled). The required checks on master
+(set by the owner in GitHub): `unit`, `lint`, `contracts`, `goldens`, `data-scan`, `e2e-simple`.
+
+| Job | What it runs | Gates |
+| --- | --- | --- |
+| `lint` | ruff check and format; actionlint on the TrialBox workflows | yes |
+| `types` | mypy strict on libs, services, tools, tests | yes |
+| `docs` | `tools/doclint.py` | yes |
+| `contracts` | `make contracts-check` (no hand-edited generated file) | yes |
+| `trace` | `tools/gen_traceability.py --check` | yes |
+| `unit` | `make test PYTEST_N=auto` on throwaway clusters from the runner's own PostgreSQL (`tools/pglocal.py`, server and client tools one version), `TB_DATA_DIR` in the runner's temp, then the data scan of its log | yes |
+| `e2e-simple` | `make e2e-simple` (D-111) | yes |
+| `goldens` | `make goldens-check` (T-006, D-205) | yes |
+| `data-scan` | `make data-scan` (D-203) | yes |
+| `shell` | shellcheck: errors gate, warnings listed (2026-11-09: ten in `deploy/`) | errors |
+| `images` | hadolint on the three Dockerfiles | listed only (2026-11-09: first runs to triage) |
+
+`trialbox-e2e.yml` is the nightly (and on demand): `public_e2e`, the backup drill and the update drill. The
+supply-chain gates (lock current, allow-list, pip-audit, licences) are the `lock` job of `trialbox-supply-chain.yml`
+(D-185, D-186), not repeated in `trialbox-ci.yml`.
 
 ## 4. Troubleshooting
 
@@ -469,7 +514,132 @@ Optional `TB_BUCKET=gs://<bucket>` moves code and results through a bucket (the 
 access); without it they go over plain HTTP to the VM with the key in a header. A billing budget with a kill switch
 is the last net; it needs billing permissions this project's service account does not have: the owner sets it.
 
-## 12. Box-install rehearsal: the gate before a site's IQ
+## 12. Identity and TLS (D-192, D-193)
+
+The console is reached at `https://<TB_TLS_HOSTNAME>` through Caddy on 443; its own port is no longer published.
+Local accounts sign in with a password and a TOTP code. The hospital account (AD through Authelia, OIDC) is optional
+and off by default. All settings are in `deploy/.env`; the list with comments is
+`deploy/identity/identity.env.example`.
+
+**Ask hospital IT on day one** (lead time 2 to 6 weeks): a DNS name for the console (and one for Authelia when the
+site uses the hospital account), the firewall rule for 443 from the clinic PCs, and either a certificate for those
+names or permission to install Caddy's root certificate on the staff PCs. For the hospital account: a read-only AD
+bind account, the AD groups to map (below) and LDAPS (636) from the box to a domain controller.
+
+**TLS.**
+
+1. Put `TB_TLS_HOSTNAME` (and `TB_TLS_MODE`) in `deploy/.env`. With the hospital's certificate set
+   `TB_TLS_MODE=hospital`, `TB_TLS_CERT_FILE` (certificate and chain, PEM) and `TB_TLS_KEY_FILE` (key, PEM, 0600
+   root), then check them with `python -m console.cli check-tls` (in the console container, or on the host with the
+   same variables). It fails on a missing file, a key that is not the certificate's, a name the certificate does not
+   carry, or a certificate that is not valid today, and warns 30 days before it ends.
+2. Add the overlay: append `:deploy/docker-compose.identity.yml` to `COMPOSE_FILE` in `deploy/.env` (after the
+   secrets overlay), then `docker compose up -d --wait`.
+3. Internal CA only: copy the root certificate out once (`docker compose cp
+   caddy:/data/caddy/pki/authorities/local/root.crt deploy/secrets/tls/caddy-root.crt`) and have hospital IT install
+   it as a trusted root on the staff PCs (group policy). Never copy anything else out of the `caddy-data` volume: it
+   holds the CA's private keys.
+4. Open `https://<TB_TLS_HOSTNAME>/login` from a clinic PC: no certificate warning.
+
+**Local accounts (TOTP, the default).** `TB_CONSOLE_MFA=totp` is the default and can be turned off only in DEV and
+TEST. An account sets up its authenticator only with a one-time **enrolment code** from an administrator (valid 24
+hours, works once): after the password the console shows a key, the person adds it to an authenticator app (or a
+hospital device) and types the enrolment code and the app's code. Without a valid enrolment code an account with no
+authenticator cannot sign in at all, so knowing a password is never enough to register a device. Every later sign-in
+asks for the current code; a code works once. A wrong or reused code, or a wrong enrolment code, counts as a failed
+sign-in: five failures in 15 minutes lock the account for 15 minutes, and the lock is in the audit trail
+(`console.lockout`).
+
+- **After the upgrade, and for every new account**: **Sign-in and recovery** (`/ops/identity`) lists the accounts
+  without an authenticator at the top. For each, check who it is and choose **Enrolment code**; hand the code over in
+  person or read it out on a call back to the extension in the staff directory. The code is shown once and never
+  written to a log or the audit (`console.enrol_code` records who issued one for whom).
+- **The first administrator** (no other administrator can issue a code): on the box,
+  `python -m console.cli enrol-code admin` in the console container prints the code. This shell step is the
+  supervised path; record it in the install checklist.
+- **Lost phone**: on the same page choose **Reset authenticator** for that person, after the same identity check. The
+  account is signed out everywhere and the page shows the enrolment code for the new device. An administrator's own
+  authenticator is reset by another administrator, or with `console.cli reset-totp NAME` (prints the code).
+- **Locked out**: wait 15 minutes, or an administrator chooses **Unlock** on the same page (`console.cli unlock
+  NAME`). All actions are audited (`console.totp_reset`, `console.enrol_code`, `console.unlock`;
+  `console.totp_enrolled` says whether it was a first device or one after a reset).
+- **Sessions** end after `TB_CONSOLE_IDLE_MINUTES` without activity (default 10; set the hospital's policy for shared
+  clinic PCs, at most 60) and after `TB_CONSOLE_SESSION_HOURS` in all (default 8). A page that refreshes itself (a
+  running job) does not count as activity. Cookies are Secure, HttpOnly and SameSite=Strict; an explicit
+  `TB_CONSOLE_SECURE_COOKIE=0` is refused in PRODUCTION.
+- The trusted-header SSO (`TB_CONSOLE_SSO_HEADER`, D-93) runs only with TOTP off (DEV, TEST) and OIDC off, never signs
+  in a local account, and Caddy strips identity headers from every request: a hospital uses the OIDC sign-in below.
+- The TOTP secrets are stored encrypted, with the key `totp.key` on the `console-data` volume, not in the database.
+  Back up both; with the database but without the key, every person sets up a new authenticator (an administrator
+  resets them all).
+
+**Hospital account (OIDC through Authelia, optional).**
+
+1. Copy `deploy/identity/authelia/configuration.example.yml` to `deploy/site/authelia/configuration.yml` and fill in
+   the values marked `SITE` (domain controller, base DN, bind account, the two host names).
+2. Make the secrets in `deploy/secrets/authelia/` (0600, root): `jwt_secret`, `session_secret`, `storage_key`,
+   `oidc_hmac` (each 64 random characters), `ldap_password` (the bind account's), `oidc_jwks.pem` (an RSA 2048 key,
+   `openssl genrsa -out oidc_jwks.pem 2048`) and `oidc_client_secret.txt` (the client secret; its digest goes into
+   the configuration, as the comment at its top says).
+3. In `deploy/.env`: `TB_OIDC_ENABLED=1`, `TB_AUTH_HOSTNAME`, `TB_OIDC_ISSUER=https://<TB_AUTH_HOSTNAME>`,
+   `TB_OIDC_CLIENT_SECRET`, `TB_OIDC_LOGOUT_URL=https://<TB_AUTH_HOSTNAME>/logout`, `TB_OIDC_CA` (the internal root
+   from TLS step 3, or the hospital's CA chain) and `TB_OIDC_GROUP_ROLES`, for example
+   `TB-Coordinators:coordinator,TB-Investigators:investigator,TB-Monitors:cro,TB-Admins:admin`.
+4. Open LDAPS for Authelia only: add `authelia=<domain controller>:636` to `EGRESS_EXTRA` and run
+   `deploy/network.sh apply` ([Security §2](SECURITY.md#2-network)).
+5. `docker compose --profile oidc up -d --wait`. The sign-in page shows **Sign in with the hospital account**.
+
+Only the groups in `TB_OIDC_GROUP_ROLES` give a role. A person in no mapped group, or in groups that map to two
+different roles, is refused, and the refusal is audited (`console.login_failed`, `via: oidc`); a `role` claim or any
+other group is ignored. The role is read again at every sign-in, so removing someone from a group takes effect at
+their next sign-in. Authelia asks for the second factor (TOTP or a security key), and the console refuses a sign-in
+the provider did not report as two-factor. A hospital account never takes over a local account of the same name.
+Sign-out also signs out of Authelia. Add the `authelia-data` volume to the backup (the authenticators registered by
+directory users). Authelia's OIDC provider is certified but still called beta by its makers (D-192).
+
+The overlay is checked in CI (`.github/workflows/trialbox-identity.yml`: `caddy validate` in both TLS modes,
+`docker compose config` of the merged files, and Caddy run in front of a stand-in console: HSTS on 443, identity
+headers stripped, 80 and 8090 closed, no query strings in its log). The whole stack with Authelia has not been started
+on a box yet. Run the four TLS steps and one sign-in of each kind at IQ.
+
+## 13. Working in parallel on one machine (D-201)
+
+For developers and agent sessions that run the suite side by side on one machine; not for a box.
+
+- **One temp root per branch.** `make` sets `TB_TEST_ROOT` to `$TB_SCRATCH/tb-tests-<branch>` (`TB_SCRATCH`: your
+  scratchpad, default `/var/tmp/trialbox-<uid>`; a detached checkout is `detached-<sha>`) and exports it. Under it:
+  pytest's `--basetemp` (`pytest/`), the test `TMPDIR` (`tmp/`, emptied after each run), one PostgreSQL cluster per
+  xdist worker (`pg-gw0` ...), the shared cluster of `e2e_simple` and the drills (`pglocal/`), `e2e-simple/` and
+  `backup-drill/`. `make test` marks the root (`.tb-test-root`) and holds `flock` on it for the whole run: a second
+  run on the same root stops at once and touches nothing. `/`, a top-level directory, `/tmp`, `/var/tmp`, the home
+  directory, a system directory or a folder directly in one, and an existing folder of other files (no marker) are
+  refused as a root; links are resolved first.
+- **One venv per branch, exactly the lock.** `make venv` runs `uv sync --frozen --group test --extra dev`: it
+  installs `uv.lock` and removes anything installed by hand; the venv has no pip. `make test` first checks that the
+  venv still matches the lock (`venv-check`). To change a dependency, edit `pyproject.toml`, run `uv lock`, commit
+  both. The test plugins are pinned in `[dependency-groups] test` (pytest, pytest-timeout, pytest-cov,
+  pytest-xdist); `addopts` blocks `randomly` and the cache provider, and a guard test fails a run in which
+  `-p randomly` brought it back. Random order is a nightly job, not a default (`TB_TEST_RANDOM=1`).
+- **The suite in parallel.** `make test` runs `pytest -n auto` (`PYTEST_N=0` for serial, `PYTEST_N=4` to cap).
+  pytest keeps one basetemp and, of it, only the failed tests' folders; a green run removes it.
+- **Disk.** `make check-disk` first (fails under `TB_MIN_FREE_GB`, default 20 GB; reports the branch root against
+  its 10 GB budget). `make clean-tmp` (`DRY=1` to list only) removes what earlier runs left and nobody uses now:
+  `/tmp/pytest-of-*` run folders without a live `.lock`, stopped `/tmp/tb-pgtest-*` and `/tmp/tb-pglocal-*`
+  clusters, `/tmp/tb-backup-drill*`, `/tmp/tb-drill`, `/tmp/tb-e2e-simple*`, the rehearsal's `runs/` (not while a
+  rehearsal runs), and the `src.tgz`/`results.tgz` of every `.cache/complete-run` run but the two newest by time
+  (reports stay). It never stops a running server, never follows a link, never touches another user's files or a
+  folder a running process names (working directory, open file, command line, environment). The rehearsal keeps the
+  newest two evidence folders per case.
+- **After a crash.** `python -m tools.pglocal --gc` stops and removes every cluster whose `.owner` process is gone (a
+  `kill -9`, a lost session); a cluster without an owner file, an unreadable owner file or a folder that is not a
+  cluster is never touched by it. A server is signalled only when the pid file names the postmaster running in that
+  data directory, so a stale pid file signals nobody.
+- **As root** the throwaway server runs as `postgres`, which must reach the cluster: `pglocal` adds the search bit
+  (`o+x`, never `o+r`) to a parent that lacks it and says so on stderr; a socket path too long for Unix (about 100
+  characters) moves to a short private folder under the scratch root (under `/tmp` only when that root is long
+  too) that `<cluster>/run` links to.
+
+## 14. Box-install rehearsal: the gate before a site's IQ
 
 Before any site's installation qualification (IQ), and before a release goes on a site's media, run
 `make rehearse-box` on any Docker host (no GPU; the network only to build the images; D-176). A

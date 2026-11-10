@@ -3700,11 +3700,11 @@ Source: the owner's follow-up list of 2026-11-09 (task 3), after the cloud-run r
 lived in steps nothing ran off the paid VM (`docs/reviews/2026-11-09-cloud-run-review.md` §5). The same gap existed for
 the box: nothing had run `deploy/install.sh` on a clean host from offline media.
 
-*Decision.* `tools/rehearse_box/rehearse.sh` (`make rehearse-box`, RUNBOOK §12) makes media as the vendor does, removes
+*Decision.* `tools/rehearse_box/rehearse.sh` (`make rehearse-box`, RUNBOOK §14) makes media as the vendor does, removes
 the box images from the Docker host, and runs the real installer (`--tier large`) in a clean Ubuntu 24.04 container
 that uses the host's Docker through its socket. The strict vLLM stand-ins of D-177 take the place of the GPU, given to
 the installer as `TB_COMPOSE_OVERRIDE` (a new, printed hook kept in `COMPOSE_FILE`). The steps and what each proves are
-in RUNBOOK §12: the WSL2 preflight, three media failures, the install, `doctor --live`, the served names, the offline
+in RUNBOOK §14: the WSL2 preflight, three media failures, the install, `doctor --live`, the served names, the offline
 media (images, CQL jars, reference data, no route out), the console, one SCREEN through the gateway, a power loss and
 restart, a wrong served name and a missing key. A FAIL stops the release. It does not replace the site's IQ: a real
 GPU, the egress rules, the host hardening and the mail server are checked there.
@@ -3739,7 +3739,7 @@ GPU, the egress rules, the host hardening and the mail server are checked there.
     rehearsal gives it a plain SMTP sink (`tools/rehearse_box/smtp_sink.py`) as `smtp.hospa.test` and checks that the
     SCREEN mailed something. The real relay is checked at the site's IQ.
 
-*After the independent review* (2026-11-10; RUNBOOK §12):
+*After the independent review* (2026-11-10; RUNBOOK §14):
 12. *Digest pins on the classic image store.* Saved under its tag, a digest-pinned image resolves by its digest again
     only on Docker's containerd image store. The classic `overlay2` store keeps no digests after `docker load`
     (tried: `postgres:16-alpine@sha256:...` is "No such image" after the load), so compose would pull it. The bundle
@@ -3770,7 +3770,7 @@ loads and no pull; the console resolves no outside name). The classic overlay2 s
 with a bundle made on the containerd store: after the load `postgres:16-alpine@sha256:...` is "No such image" and
 `compose up --pull never` fails; after `tools/image_pins.py resolve` the db runs the bundle's image by its id, and
 the daemon's events show two loads and no pull. (A full `make rehearse-box` on an overlay2 daemon needs about 10 GB
-more disk than this machine had free: run it there before a release, RUNBOOK §12.) Unit tests:
+more disk than this machine had free: run it there before a release, RUNBOOK §14.) Unit tests:
 `test_vllm_standin.py`, `test_doctor_serving.py`, `test_model_key.py`, `test_verify_update_stdlib.py`,
 `test_smtp_sink.py`, `test_image_pins.py`, `test_egress_rules.py`.
 
@@ -3824,10 +3824,96 @@ refuses a bad or huge `Content-Length` before reading; an update restarts with `
    must be absolute, three levels deep, not a system folder, and new or the caller's own earlier rehearsal folder.
    The report names the Docker image store.
 
-*Not done.* `trialbox secrets rotate` does not rotate `TB_LLM_API_KEY` yet (RUNBOOK §12 says how to change it by hand).
+*Not done.* `trialbox secrets rotate` does not rotate `TB_LLM_API_KEY` yet (RUNBOOK §14 says how to change it by hand).
 The one-off doctor containers get all of `deploy/.env` and run as root; they should get the `TB_*` values only.
 `llm-stub` (stub mode, where no key is made) still gets `deploy/.env` whole: the secrets overlay lists exactly the
 services with a token. `install.sh` gives `settings.yaml` to gid 10001, which may be a real group on a host.
+**D-185 One hashed lock: `uv.lock`, exported to `deploy/requirements.lock` with sha256 hashes and checked in CI.**
+Source: `docs/reviews/2026-11-09-component-review-layer2-verification.md` row 2 and R-19; master plan WS-14.6. The
+lock was made with `uv pip compile` without hashes, and pip-audit found 60 advisories in it (pillow 12.3.0: 39, pypdf
+6.19.0: 18, brotli, certifi, opentelemetry-api: 1 each).
+1. `uv.lock` (uv 0.11.32) is the one lock: every file of every package with its sha256. `deploy/requirements.lock` is
+   its `uv export` (runtime dependencies only, no extras, no dev, not the project), written by `make lock`; never
+   edited by hand. Every entry carries `--hash=sha256:`, so the images' `pip install -r` runs in hash-checking mode
+   and refuses a file whose bytes differ. pip-audit itself installs from its own hashed lock
+   (`tools/supply_chain/pip-audit.lock`).
+2. `make lock-check` (CI, every pull request) fails when `uv.lock` no longer satisfies `pyproject.toml`
+   (`uv lock --check`), when `deploy/requirements.lock` is not the export of `uv.lock`, or when an entry has no sha256,
+   is not pinned with `==`, is an option (`-e`, an index) or appears twice; when a `uv.lock` package comes from git or
+   a URL or has a file without a hash; and when the pip-audit lock is unhashed or not pip-audit 2.9.0. A unit test
+   compares the export byte for byte, so uv is pinned to 0.11.32 in the workflows.
+3. Floors for the advisories: `pypdf>=6.21.4` in `pyproject.toml`, `pillow>=13` as a uv constraint. pip-audit on the
+   new lock: none.
+4. The base images are pinned by index digest (`python:3.12-slim@sha256:5e2bdb1b…`, amd64 and arm64) in
+   `deploy/docker/python.Dockerfile` and `demo/Dockerfile`; the demo image installs pytest on its own pip line, since
+   hash-checking mode refuses an unpinned extra requirement.
+
+*Evidence.* `tests/unit/test_supply_chain.py` (lock part); `make lock-check` PASS; an environment installed from
+`deploy/requirements.lock` with `--require-hashes` (73 packages on CPython 3.12 Linux).
+
+*Not done here.* `make venv` still resolves from `pyproject.toml` (not `uv sync --frozen`).
+
+**D-186 SBOM per release, pip-audit and offline Trivy as gates on every shipped image, an allow-list with reasons, a
+licence report.** Source: the same review, row 2 and §3; WS-14.6; the independent review of PR #61 (6 High).
+1. **pip-audit** (2.9.0, from its hashed lock, on Python 3.12; build side only) on `deploy/requirements.lock`: every
+   advisory fails unless allow-listed; the audited set must equal the lock's entries for CPython 3.12 on Linux
+   (markers evaluated); a package it could not audit fails; an empty or unreadable report fails.
+2. **Trivy** (0.75.0) with the database loaded first (`make trivy-db`; on the media, `oras pull` of `trivy-db:2` and
+   `trivy-java-db:1`) and the scan offline, with no ignore file, no config file and every `TRIVY_*` setting removed.
+   CRITICAL or HIGH with a fixed version fails unless allow-listed; UNKNOWN (not scored yet) counts as HIGH; a missing or
+   odd severity fails; unfixed findings
+   and MEDIUM/LOW are listed. A report must show OS packages and the image's own language packages (Python; jars in
+   the JVM image). The database (and the Java one) may be at most 7 days old.
+3. **Release gates** (`make release-gates`): each image is pinned first, a local one by its image id, a third-party
+   one by its registry digest for the platform, and Trivy and Syft must both name that image. They cover
+   trialbox-py, trialbox-jvm, trialbox-demo and every third-party image compose pulls. `gates.json` and
+   `dist/sbom/index.json` record per image the reference, platform, image id, digests, and the report and SBOM with
+   their sha256. CI (`trialbox-images.yml`) runs them on amd64 and arm64 for pull requests that change what goes into
+   an image, weekly and for a release tag, and for a tag also on both platforms of `make images-multiarch` by digest.
+   `make release-bundle` bundles only images in a passing record at most 7 days old (`tools/make_bundle.sh --gates`).
+4. **SBOM per release**: Syft (1.56.0) CycloneDX JSON per image and platform, and for the lock: Syft over an
+   environment installed from the lock with hashes, so each package carries the licence of its installed metadata;
+   it must name every locked package that installs on the box, at its version.
+5. **Licence report** from the SBOMs (nested components, ids, names, expressions, URLs, full texts searched to the
+   end; Licence and License): flags GPL, LGPL, AGPL, unknown and dual. Only a licence on the known permissive list
+   counts as an `OR` choice; `LicenseRef-*`, `NOASSERTION`, `Proprietary` never do. Each flag of a package needs its
+   own allow-list entry in the lock and our images; a dual entry names the branch taken, an unknown entry the licence
+   a person verified. Unknown licences of jars and Go, Rust and other binaries in our images (Syft reads no licence
+   there) are counted per image and ecosystem against a reviewed budget that fails when one more appears (Python and
+   npm unknowns are never budgeted). Third-party images, redistributed unmodified, have one budget per image for all
+   their open flags; their terms are reviewed as a whole. Distro packages of a base image are listed, not gated.
+6. **The allow-list** `deploy/supply-chain-allowlist.yaml`: every entry needs its package, a reason (20 characters or
+   more) and `review_by` at most 180 days ahead; a key given twice or a list given as anything else is refused; after
+   `review_by` every gate fails until the entry is reviewed or removed; there is no date override. It starts with
+   the eight LGPL packages of the review, dulwich under Apache-2.0, six packages whose licence the SBOM cannot read
+   (duckdb, jinja2, kiwisolver, matplotlib, pycryptodomex, reportlab; each read in the wheel; reportlab ships a GPL
+   font as data), the base image's interpreter and pip's Windows launchers, and no vulnerability entries.
+7. Every GitHub action is pinned to a commit; Syft and Trivy are release archives with pinned sha256.
+8. Two faults that broke `make images` before this decision are fixed: `python.Dockerfile` copied `integrations/`,
+   removed in D-121; the root `.dockerignore` left out the JVM image's validator and FHIR packages
+   (`deploy/docker/jvm.Dockerfile.dockerignore` now applies to that build). A test checks every COPY source. The
+   build contexts also leave out the scanners and their outputs (the first CI run found Syft and Trivy, with their
+   Go modules, inside the demo image), and the Python images take Debian's security updates of the base's packages.
+
+*Evidence.* `tests/unit/test_supply_chain.py` (offline, fixtures trimmed from real Trivy and Syft output);
+`make pip-audit`, `make licences` and `make lock-check` PASS; the first CI runs of the image gates (amd64 and arm64)
+found real HIGH and CRITICAL findings with fixes: zlib1g in the base (now upgraded at build), jackson-databind,
+the HL7 FHIR core libraries, commons-beanutils, guava and httpcore5 in the validator and cql-to-elm jars, and many
+in the third-party images (MailHog alone over 1,500; MailHog has no arm64 image). Those are not allow-listed here:
+moving the jar versions and the third-party digests, or accepting a finding, is the security owner's decision.
+
+*Report mode* (owner decision of 2026-11-10, option (a)). Until the follow-up lands, CI runs the image gates with
+`--vuln-mode report`: fixable CRITICAL/HIGH findings in trialbox-jvm, trialbox-demo, MailHog, vLLM, postgres, HAPI
+and GreenMail (`VULN_REPORT_ONLY` in `tools/supply_chain/release.py`) are listed in the CI job summary per image and
+platform (CVE, package, installed and fixed version) and do not fail a pull request. trialbox-py's vulnerability
+gate, the licence gate, `make lock-check`, `make allowlist-check`, `make pip-audit` and every build, scan or report
+error still block, and `tools/make_bundle.sh --gates` never bundles an image that passed only in report mode.
+MailHog, published for amd64 only, is left out of the arm64 gates by name (`SC_AMD64_ONLY`). Each image's findings,
+owner (security owner, to assign), target date (2026-12-10) and planned fix are in
+`deploy/security/known-image-findings.md`; a test keeps that file and the report-mode set in step.
+
+*Not done here.* `THIRD_PARTY_NOTICES.md`; the SBOMs inside the signed bundle; `--gates` mandatory in
+`tools/make_bundle.sh` (optional with a warning, so the demo VM's update script keeps working).
 
 **D-187 Backups, layout 2: one snapshot, stream hashes, what a backup leaves out, sidecars.**
 Source: `docs/reviews/2026-11-09-dataflow-lifecycle-review.md` §6.3 and §7.1 to §7.3 (R-45, R-60) and WS-08.6, finishing the backup row D-149 left open.
@@ -3846,6 +3932,55 @@ Source: WS-08.6 and WS-08.5 (the admin tile turns red 36 h after the last backup
 *Evidence.* `tests/unit/test_backup_schedule.py`; `tools/backup_drill.py`.
 *Not done here.* The docker-side runs; `doctor` failing on a local-only target; `install.sh` installing the cron file; the admin tile (WS-08.5); review items M2, M7, the repo-path half of M8, and the open Lows.
 
+**D-189 Score definitions from the catalogue; CDAI and SDAI in the SQL and CQL engines.**
+Source: `docs/reviews/2026-11-09-dataflow-lifecycle-review.md` §0.4, §4.2; D-149 "Not done here"; WS-04.3.
+1. `tools/gen_score_defs.py` generates `libs/tb_common/score_defs.json` from `catalogue/scores/*.yaml`. A
+   definition is `<score_id>@<version>` with the sha256 of its YAML; a YAML changed under the same version is
+   refused (bump the version). `tb_common.scores` reads it; the same-visit windows of CDAI, SDAI, DAS28-ESR and
+   DAS28-CRP come from it, and a test checks that the hand-written eGFR, JSN and DAS28 constants equal the catalogue's
+   coefficients.
+2. CDAI = TJC28 + SJC28 + PtGA + EvGA and SDAI = CDAI + CRP (mg/dL) are in the Python reference, the SQL generator
+   and the CQL `TB_Common` (`CDAI`, `SDAI`). The globals are LOINC 75844-1 / 75846-6 on a 0-10 scale: a 0-100 mm VAS
+   is divided by 10, a 10 cm VAS is 0-10, and a value outside 0-10 gives no value and `derived_unit` in every
+   engine. The criterion IR (schema 1.2.0) and the extract schema accept `cdai` and `sdai` (calculators
+   `cdai@1.0.0`, `sdai@1.0.0`).
+3. Worked examples (catalogue CDAI 27, 1.5, SDAI 31, 1.2; review CDAI 14.5; CKD-EPI 59.3; JSN 63.1) give the same
+   value in Python, in the compiled SQL on a lake and in the CQL helper text; a missing input or a unit that does not
+   fit is the same reason in each, never FALSE.
+4. An impossible value never raises in the Python reference: a creatinine of 0 or less, a joint count outside 0-28, a
+   negative CRP or ESR, or a value that is not a finite number gives no value and `derived_unit:<input>`; an age of 0
+   or less gives `derived_missing_input:age`. The SQL `egfr_jsn` template has the same creatinine and age guard.
+*Evidence.* `tests/unit/test_derived_definitions.py`.
+*Not done.* The SQL and CQL engines do not yet carry the joint-count, CRP and ESR ranges.
+
+**D-190 Stored derived rows with provenance, recompute on change, derived-vs-documented conflicts.**
+Source: the same review §4.2 (storage, recompute triggers, conflicts); WS-04.3.
+1. `tb_common.derived_store`: schema `derived` with `definition`, `score_row` (value or reason; unit; anchor;
+   definition version and sha; site mapping version; every input with its source table, row id, date, value and unit
+   as recorded, status, and the value and unit used), `input_link` (one per input) and `conflict`. Rows are
+   superseded, never updated in place or deleted. Stored scores: CDAI, SDAI, DAS28-ESR, DAS28-CRP, eGFR CKD-EPI
+   2021 and JSN 2009. Two stores opening at once load a definition once (insert or nothing, then re-read its sha).
+2. A row is written only when its fingerprint (definition version and sha, mapping version, inputs; age and sex for
+   eGFR) changes: an input added, corrected, confirmed or deleted, a new mapping or a new definition version. An
+   anchor gone at the source retires its row. `run_batch` reads the lake's `observation` (never `site_fact`). A
+   patient whose recompute fails is counted in the batch report (`failed`, `failed_pids`) and the batch goes on.
+3. Only rows with status final, amended, corrected, confirmed or signed are inputs: a proposed fact never counts.
+   The lake's `observation` has no status column, so the batch records each lake row's status as `not_recorded`,
+   which counts: the lake holds only feed rows and confirmed facts (a proposed fact stays out of `observation` by
+   its basis tag). An entered-in-error or preliminary feed row is not left out until the lake carries
+   `Observation.status`.
+4. A documented score (proposed or signed) within 7 days of a computed row and beyond the tolerance (CDAI and SDAI
+   0.5, DAS28 0.2, eGFR 5) opens a `derived_vs_documented` conflict; neither value is overwritten, the score reads
+   as unknown until a person chooses keep_derived, keep_documented or both_at_dates.
+5. A recomputed row takes over the conflicts of the row it replaces (`carried_from`), checked against the stored
+   documented value even when the batch is not given the documented scores: a conflict that still differs stays
+   open; one that now agrees is closed. A person's decision stays unless the new value differs from the value it was
+   made against (`resolved_value`) by more than the tolerance; then the conflict opens again. A documented record
+   given again with another value or status is checked as new.
+*Evidence.* `tests/unit/test_derived_store.py`.
+*Not done.* Screening reading stored rows; ruleset pinning of definition versions; scheduling the batch; a
+conflicts page; the eGFR under-18 rule; for the lake owner, `Observation.status` in the lake's `observation` table.
+
 **D-191 The SAE register: one record per serious AE on the one reporting clock (independent plan review PR-17).** The review found that the SAE clock had no system of record and no failure mode in the risk file. TrialBox now keeps an SAE register, schema `sae` of the trial database (`services/console/saerecord.py`), with a worklist at `/sae` and a case page at `/studies/{rs}/sae/{record}/{event}` (`services/console/sae_pages.py`).
 
 * **One place per fact.** Onset, the day learned, seriousness and outcome, and the day each first report was sent stay on the AE form (D-134, D-143). "Record the report sent" writes only that field through the data core's form save. A second "sent" is refused; corrections are made on the AE form. For a case no longer serious, a late "sent" or "closed" is kept in the register.
@@ -3860,3 +3995,102 @@ Source: WS-08.6 and WS-08.5 (the admin tile turns red 36 h after the last backup
 
 *Evidence.* `tests/console/test_sae_record.py` (15 cases); PR #60 (review: 0 Blocker, 4 High fixed).
 *Open.* The office's SAE log stays the inspected record; compare monthly. Not built yet: the write-path sync from the orchestrator, the copy to the office mailbox, the OQ wrong-clock test, follow-ups on home pages and in mail, the `/api/v1` route, void and correct for receipts and requested follow-ups, and review items M5, M7 and M8.
+
+**D-192 Identity for the console: TOTP for local accounts by default, an optional OIDC sign-in through Authelia,
+the administrator's audited recovery, and hardened sessions.** Component review 2026-11-09 layer 1 rows 30 and 36
+and layer 2 item 1 (Authelia, Authlib, pyotp; corrections: the OIDC provider is beta, sign-out goes through
+Authelia, the portal needs a hospital host name and certificate); the IT security pack (§A.4 sign-in, §B session
+controls and password policy); master plan WS-13.1 (part), URS-ADM-01, RSK-07, TST-SEC-06 (part). Built 2026-11-09,
+no Docker.
+
+* **TOTP (RFC 6238) for local accounts, standard library only** (`services/console/totp.py`): HMAC-SHA1, 6 digits,
+  30 s, one step of drift either side, a step accepted once (the last step is stored; a replay is refused and
+  audited). pyotp was not added: the code is 30 lines and the supply-chain lock (task A) was being rebuilt in
+  parallel. Default `TB_CONSOLE_MFA=totp` outside DEV and TEST; `off` is refused in PRODUCTION. An account without an
+  authenticator enrols one at its next sign-in after the password (the first good code confirms it). The secret is
+  AES-256-GCM sealed with the account name as associated data, under `totp.key` on the console volume, not in the
+  database (`auth` schema version 2: `totp_secret`, `totp_step`, `idp_sub`, `pending_logins`, `oidc_pending`).
+* **Sign-in in two steps.** A right password makes a ten-minute pending sign-in (a SameSite=Strict cookie, its hash
+  stored), never a session. A wrong or replayed code counts as a failed sign-in, and with TOTP on a right password
+  no longer clears the failure count, so knowing the password does not buy unlimited code guesses. Five failures in
+  15 minutes lock the account for 15 minutes (as before); the lock is audited once (`console.lockout`).
+* **Recovery.** `/ops/identity` (administrators; new page, the Users page is unchanged) and `console.cli unlock|
+  reset-totp`: lift a lock early, or clear another account's authenticator after a confirmation sheet (never one's
+  own on the page). Both are audited (`console.unlock`, `console.totp_reset`) and the reset signs the account out.
+  The reset account enrols again after its password, so the identity check before a reset is a procedure (RUNBOOK
+  §12), not code.
+* **Sessions.** Idle timeout default 10 minutes (the IT pack's shared-PC lock; was 30), `TB_CONSOLE_IDLE_MINUTES`
+  1-60; absolute 8 h, `TB_CONSOLE_SESSION_HOURS` 1-12. Cookies HttpOnly and SameSite=Strict as before; Secure is now
+  on by default in PRODUCTION when `TB_CONSOLE_SECURE_COOKIE` is unset (the base compose file still passes `0` for
+  the plain-http 127.0.0.1 port; the identity overlay passes `1`).
+* **OIDC through Authelia, off by default** (`services/console/oidc.py`, `TB_OIDC_ENABLED`). Authorization-code flow
+  with PKCE S256, state bound to the browser by a Lax cookie and single use within 10 minutes, nonce; the ID token's
+  signature is checked against the provider's JWKS (RS256 or ES256 only; `none` and HS* refused), then issuer,
+  audience, `azp`, expiry, issue time, nonce and subject; `amr` must report a second factor unless
+  `TB_OIDC_REQUIRE_MFA=0`. No OIDC library was added (Authlib would need the lock regenerated): `httpx` and
+  `cryptography` are already dependencies. Roles come only from `TB_OIDC_GROUP_ROLES` (group:role pairs into the
+  existing five roles); a `role` claim or an unmapped group gives nothing, a person in no mapped group or in groups
+  of two roles is refused, the role is refreshed at each sign-in, an OIDC account is bound to its subject and never
+  takes over a local or header account of the same name. The callback answers with a same-origin page that moves on
+  (a Strict cookie set on a cross-site redirect would not be sent on the next hop). Sign-out continues to Authelia's
+  logout. Authelia's OIDC provider is OpenID Certified but beta (4.39): the console uses only the code flow, the
+  discovery document, the JWKS, the token and userinfo endpoints and a plain logout link.
+* **Unchanged:** the role table (`console.auth.User` properties, `tb_common/authz.py`), the signed actor assertion
+  (S-09, D-143), the trusted-header SSO (D-93).
+
+*Evidence.* `tests/console/test_identity.py` (35 tests: the RFC 6238 vectors; window, replay and input cleaning; the
+sealed secret; the defaults and bounds; enrolment with no session before the code; a half-done sign-in expiring
+after ten minutes; wrong and replayed codes; lock-out
+by codes with the password not resetting the count; password lock-out and the audited unlock; the audited reset and
+who may do it; one-step sign-in in TEST; idle and absolute expiry; Secure, HttpOnly and Strict cookies in PRODUCTION;
+OIDC off by default; OIDC settings refused when unsafe; a mapped group's sign-in, the token request with PKCE, the
+audited login and the provider logout; nine refusal cases including a `role` claim, unmapped and two-role groups, a
+missing second factor, nonce, audience, issuer and expiry; userinfo about another subject; state single-use, bound to
+the browser and expiring; no take-over of a local account; forged, `none`, HS256 and wrong-key tokens; ES256; the
+deploy files). `tests/console/test_console_app.py`: the PRODUCTION control-plane test signs in with the TOTP step
+over https.
+
+*After the independent review (2026-11-10, four High findings).* (H1) The trusted-header SSO (D-93) is refused at
+start unless TOTP and OIDC are both off (so only in DEV and TEST), a header never signs in a local or OIDC account,
+and Caddy strips the common identity headers and the site's configured ones from every request. (H2) A password no
+longer registers a device: an account without an authenticator (every account after the upgrade, and after a reset)
+needs a one-time enrolment code an administrator issues on `/ops/identity` or with `console.cli enrol-code|reset-totp`
+(24 hours, once, only its hash stored, never in the audit); without one it cannot sign in; the page lists the
+accounts without an authenticator first; `console.totp_enrolled` says `first` or `reset`. The first administrator's
+code comes from the shell on the box (the supervised path in RUNBOOK §12). (H3) A page's own 5-second refresh asks
+with `auto=1` and does not move the idle clock. (H4) CI job `trialbox-identity` runs `caddy validate` in both modes,
+`docker compose config` of the merged files (pytest asserts that only Caddy publishes, only 443) and Caddy in front of
+a stand-in console (HSTS, headers stripped, 80 and 8090 closed, no query strings in the log). Also: an explicit
+`TB_CONSOLE_SECURE_COOKIE=0` is refused in PRODUCTION and the base compose file leaves it unset; TOTP off only in DEV
+and TEST; `TB_OIDC_LOGOUT_URL` required with OIDC; the Authelia cookie scoped to its own host; HTTP errors from the
+provider caught; the OIDC state checked against the browser before it is used up; half-done sign-ins cleared on a
+password change and on disable.
+
+*Open.* WebAuthn in the console (Authelia offers it for directory users), step-up re-authentication before a reveal,
+an export or a signature, the breached-password list, password history and the forced first change, `doctor`
+failing without MFA (its `secure_cookie` check now follows the console's default), removing the trusted-header
+SSO altogether, the `steward` role (the role table stays as it is here). The full stack with Authelia has not been
+started on a box (no Docker daemon on the build machine).
+
+**D-193 TLS on the console through Caddy: its internal CA by default, the hospital's certificate by a setting.**
+Component review layer 1 row 36 and layer 2 item 1; IT security pack §A.3 (only 443 from the clinic PCs) and §B "In
+transit"; master plan CP-2 and RSK-27 (the internal CA as the fallback while hospital IT issues a certificate).
+
+* `deploy/docker-compose.identity.yml` adds Caddy 2.11.9 (pinned by digest) on 443 in front of the console, stops
+  publishing the console's own port (`ports: !reset []`, Compose 2.24 or later) and turns on Secure cookies; Authelia
+  4.39.28 (pinned by digest) is in the `oidc` profile with its own SQLite state, on the internal network plus the
+  egress network for LDAPS (opened by `EGRESS_EXTRA`). New services only; the base compose file is not changed.
+* `deploy/identity/Caddyfile`: `TB_TLS_MODE=internal` (default; `tls internal`, `local_certs`, never a public ACME CA)
+  or `hospital` (`TB_TLS_CERT_FILE` and `TB_TLS_KEY_FILE` from settings, mounted read-only); TLS 1.2 and 1.3, HSTS, no
+  Server header, admin API off. The CA keys stay in the `caddy-data` volume, which no other service mounts; the root
+  certificate is copied out for the staff PCs and for the console's back channel to Authelia (`TB_OIDC_CA`).
+* `python -m console.cli check-tls` (`console.identity.check_tls`) checks the hospital certificate before Caddy uses
+  it: readable PEM, valid today (a note 30 days before the end), the key is the certificate's, the host name is in the
+  SAN (wildcards one level), and a note when no intermediate is in the file.
+* Hospital-IT settings: `deploy/identity/identity.env.example` (copied into `deploy/.env`; settings.yaml is not used,
+  because the console and Caddy both read the environment and the settings schema is shared), the Authelia example
+  `deploy/identity/authelia/configuration.example.yml` (`activedirectory` over LDAPS, two-factor policy, PKCE, no
+  remember-me, the same 5/15/15 lock-out), RUNBOOK §12, SECURITY §2 and §3.
+
+*Evidence.* `tests/console/test_identity.py` (internal mode, a hospital certificate good, for another host, a
+wildcard, with a foreign key, expired, ending soon, missing; the CLI; the deploy files agree with the console).

@@ -1,0 +1,156 @@
+# Supply-chain allow-list (D-186). The pip-audit, Trivy and licence gates fail on a finding unless an entry here
+# accepts it. Format and rules: tools/supply_chain/allowlist.py. Checked by `make allowlist-check` (CI):
+#   - every entry has a reason of at least 20 characters that a reviewer can check;
+#   - every entry has review_by (YYYY-MM-DD), at most 180 days ahead; once it passes, the gates fail until the
+#     entry is reviewed (new date and reason) or removed;
+#   - a vulnerability entry names one package and matches its id or any alias (CVE, GHSA, PYSEC);
+#   - a licence entry matches a package and one flag: lgpl, gpl, agpl, unknown (records the licence a person
+#     verified in `licence`) or dual (names the permissive branch taken in `chosen`); every flag of a package
+#     needs its own entry, so a stricter licence (LGPL to GPL) fails again;
+#   - a key given twice, or a list given as anything else, is refused.
+# Change this file in a pull request the security owner approves.
+
+vulnerabilities: []  # pip-audit on deploy/requirements.lock was clean on 2026-11-09
+
+licences:
+  # The eight LGPL packages of the layer-2 review (docs/reviews/2026-11-09-component-review-layer2-verification.md
+  # section 3). Installed unmodified from PyPI wheels into images the hospital controls; the library can be
+  # replaced; the licence texts go in THIRD_PARTY_NOTICES (WS-14.6). Never vendor or patch them.
+  - package: psycopg
+    class: lgpl
+    reason: LGPL-3.0-only; used unmodified as an installed package, replaceable, licence text shipped in the notices
+    review_by: 2027-05-01
+  - package: psycopg-binary
+    class: lgpl
+    reason: LGPL-3.0-only; unmodified wheel (bundles libpq and OpenSSL under their own permissive licences); notices
+    review_by: 2027-05-01
+  - package: docxtpl
+    class: lgpl
+    reason: LGPL-2.1-only; used unmodified as an installed package, replaceable, licence text shipped in the notices
+    review_by: 2027-05-01
+  - package: py7zr
+    class: lgpl
+    reason: LGPL-2.1-or-later; unmodified; 7z attachments only; goes away if R-12 replaces attachments with links
+    review_by: 2027-05-01
+  - package: pybcj
+    class: lgpl
+    reason: LGPL-2.1-or-later; unmodified dependency of py7zr; goes away with py7zr (R-12); notices
+    review_by: 2027-05-01
+  - package: pyppmd
+    class: lgpl
+    reason: LGPL-2.1-or-later; unmodified dependency of py7zr; goes away with py7zr (R-12); notices
+    review_by: 2027-05-01
+  - package: inflate64
+    class: lgpl
+    reason: LGPL-2.1-or-later; unmodified dependency of py7zr; goes away with py7zr (R-12); notices
+    review_by: 2027-05-01
+  - package: multivolumefile
+    class: lgpl
+    reason: LGPL-2.1-or-later; unmodified dependency of py7zr; goes away with py7zr (R-12); notices
+    review_by: 2027-05-01
+
+  # Dual licence: the permissive branch is taken.
+  - package: dulwich
+    class: dual
+    chosen: Apache-2.0
+    reason: Apache-2.0 OR GPL-2.0-or-later; used under Apache-2.0, unmodified; Apache notice in the notices
+    review_by: 2027-05-01
+
+  # No licence the report can read from the SBOM (no field, a hash of the text, or a free name). Each was read in
+  # the installed metadata and licence file of the locked version on 2026-11-09.
+  - package: duckdb
+    class: unknown
+    licence: MIT (classifier "MIT License"; dist-info/licenses/LICENSE is the MIT text)
+    reason: Permissive licence verified in the wheel; the SBOM carries no licence field for it
+    review_by: 2027-05-01
+  - package: jinja2
+    class: unknown
+    licence: BSD-3-Clause (classifier "BSD License"; dist-info/licenses/LICENSE.txt is the 3-clause text)
+    reason: Permissive licence verified in the wheel; the SBOM carries no licence field for it
+    review_by: 2027-05-01
+  - package: kiwisolver
+    class: unknown
+    licence: BSD-3-Clause ("Modified BSD License" in dist-info/licenses/LICENSE; classifier "BSD License")
+    reason: Permissive licence verified in the wheel; the SBOM gives only a hash of the licence text
+    review_by: 2027-05-01
+  - package: matplotlib
+    class: unknown
+    licence: Matplotlib licence, PSF-based (classifier "Python Software Foundation License"); bundled DejaVu and STIX fonts under their own font licences
+    reason: Permissive licence verified in the wheel; the SBOM gives only a hash of the licence text
+    review_by: 2027-05-01
+  - package: pycryptodomex
+    class: unknown
+    licence: BSD-2-Clause and public domain (LICENSE.rst; classifiers "BSD License", "Public Domain")
+    reason: Permissive licence and public-domain parts verified in the wheel; "BSD, Public Domain" is not an SPDX id
+    review_by: 2027-05-01
+  # From the python:3.12-slim base image (Syft scan of the pinned digest, both platforms, 2026-11-09).
+  - package: python
+    class: unknown
+    licence: PSF-2.0 (the CPython interpreter of the official python image, /usr/local/bin/python3.12)
+    reason: The interpreter of the base image, unmodified; Syft finds the binary but no licence field
+    review_by: 2027-05-01
+  - package: Simple Launcher
+    class: unknown
+    licence: PSF-2.0 / distlib (pip/_vendor/distlib/t32.exe etc.; Windows launchers vendored by pip)
+    reason: Windows .exe launchers inside pip in the base image; never run on Linux; licence of distlib
+    review_by: 2027-05-01
+  - package: reportlab
+    class: unknown
+    licence: BSD-3-Clause (dist-info/licenses/LICENSE); bundled DarkGarden font under GPL-2.0 (font data, unmodified)
+    reason: BSD code verified in the wheel; the GPL font file ships unmodified as data and is listed in the notices
+    review_by: 2027-05-01
+  # From the trialbox-jvm image (CI release gates, 2026-11-10, amd64 and arm64).
+  - package: hl7-fhir-us-davinci-pas
+    class: unknown
+    licence: CC0-1.0 (HL7 FHIR specification content; one Da Vinci PAS extension definition, subset by tools/fetch_fhir_packages.py)
+    reason: HL7 publishes FHIR implementation guide content under CC0; the package.json of the subset has no licence field
+    review_by: 2027-05-01
+  - package: openjdk
+    class: unknown
+    licence: GPL-2.0-only WITH Classpath-exception-2.0 (Eclipse Temurin JRE 17, copied unmodified from the pinned eclipse-temurin image)
+    reason: The JRE ships unmodified; the Classpath exception covers the jars run on it; listed in the notices
+    review_by: 2027-05-01
+
+# Licence budgets: open licence flags counted per image and ecosystem (tools/supply_chain/licences.py evaluate). A
+# count above its budget fails, so every new component is reviewed; when a count drops, lower the budget.
+budgets:
+  # Our images: Syft reads no licence from most jars (pom.properties only), so they are counted, not named.
+  # The jars are the HL7 validator and the CQL translator with their dependencies (tools/fetch_jvm_deps.sh).
+  - image: trialbox-jvm
+    ecosystem: maven
+    max: 68
+    reason: HL7 validator and cql-to-elm jars without licence data in the jar; reviewed list in dist/sbom/licences.md
+    review_by: 2027-02-01
+  - image: trialbox-demo
+    ecosystem: maven
+    max: 64
+    reason: The same cql-to-elm jars in the demo image (the validator is left out of its context); reviewed list
+    review_by: 2027-02-01
+  # Third-party images, redistributed unmodified under their publishers' terms: all their open flags (unknown,
+  # copyleft, dual) are counted per image. The image's own terms are reviewed as a whole (counsel: the vLLM image's
+  # CUDA libraries, layer-2 review section 3). Counts are the larger of amd64 and arm64 on 2026-11-10.
+  - image: vllm/vllm-openai
+    ecosystem: "*"
+    max: 630
+    reason: vLLM image v0.32.0 unmodified; Rust crates, Go modules, CUDA wheels without licence data; counsel reviews it
+    review_by: 2027-02-01
+  - image: hapiproject/hapi
+    ecosystem: "*"
+    max: 179
+    reason: HAPI FHIR server image unmodified (Apache-2.0 project); its jars carry no licence data for Syft
+    review_by: 2027-02-01
+  - image: greenmail/standalone
+    ecosystem: "*"
+    max: 36
+    reason: GreenMail test mail server image unmodified (Apache-2.0 project); test and POC profiles only
+    review_by: 2027-02-01
+  - image: postgres
+    ecosystem: "*"
+    max: 4
+    reason: Official postgres image unmodified; gosu and the server binary carry no licence data for Syft
+    review_by: 2027-02-01
+  - image: mailhog/mailhog
+    ecosystem: "*"
+    max: 1
+    reason: MailHog test mail catcher image unmodified (MIT project); test profile only; the Go toolchain binary
+    review_by: 2027-02-01

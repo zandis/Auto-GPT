@@ -9,7 +9,8 @@ closed). Checks:
 * ``routing_perimeter``: ``models/routing.yaml`` has no row, and no lookup, that sends D3/D4 outside the perimeter;
 * ``gateway_only_model_reach``: the egress allowlist (``deploy/egress.py``) gives a model host to the gateway only;
 * ``channel_engine``: ``channels.engine`` is valid (native is the only engine, D-121);
-* ``secure_cookie``: the console session cookie is marked Secure (``TB_CONSOLE_SECURE_COOKIE=1``). FAIL in
+* ``secure_cookie``: the console session cookie is marked Secure (``TB_CONSOLE_SECURE_COOKIE=1``, or unset or empty in
+  PRODUCTION, the console's default since D-192). FAIL in
   PRODUCTION and VALIDATION, WARN elsewhere (a DEV/TEST box may serve plain http on localhost; D-121);
 * ``publish_gate``: the data platform has a current signed snapshot and the last gate decision is known;
 * ``note_block``: ``TB_NOTE_BLOCK=both_agree`` (the default, D-95) needs a verifier build (``TB_GATEWAY_VERIFIER_MODEL``
@@ -18,7 +19,9 @@ closed). Checks:
   DEV/TEST, FAIL in VALIDATION/PRODUCTION, since the site then believes two models agree when one did;
 * ``registry_pins``: the committed registry with the site override (``TB_REGISTRY_OVERRIDE``, default
   ``deploy/site/registry.site.yaml``) loads; lists the site-pinned builds. WARN when no model build is pinned
-  (production routes nothing) or, in VALIDATION/PRODUCTION, when no pinned build is ``champion``.
+  (production routes nothing) or, in VALIDATION/PRODUCTION, when no pinned build is ``champion``;
+* ``flags``: a seed variable such as ``TB_LAKE_SOURCE`` that disagrees with its feature flag is ignored since the
+  box's first start (T-008, D-207): WARN, naming the flag's value and where to change it.
 
 ``--live`` adds one check that talks to the model servers, so it runs where the gateway's network is (install.sh
 runs it in a one-off container on ``trialbox-model-net``; ``--serving`` runs it alone):
@@ -181,10 +184,14 @@ def check_channel_engine(inp: DoctorInputs) -> Check:
 
 
 def check_secure_cookie(inp: DoctorInputs) -> Check:
-    on = inp.env.get("TB_CONSOLE_SECURE_COOKIE", "0").lower() in ("1", "true")
-    if on:
-        return Check("secure_cookie", "PASS", "console session cookie is Secure (https only)")
+    """The console's own rule (``console.identity.secure_cookie_default``, D-192): an explicit value wins; unset or
+    empty means Secure in PRODUCTION (the base compose file passes it empty) and off elsewhere."""
     env = inp.env.get("TB_ENV", "DEV")
+    raw = (inp.env.get("TB_CONSOLE_SECURE_COOKIE") or "").strip().lower()
+    on = raw in ("1", "true", "on", "yes") if raw else env.strip().upper() == "PRODUCTION"
+    if on:
+        why = "console session cookie is Secure (https only)" + ("" if raw else ", the PRODUCTION default")
+        return Check("secure_cookie", "PASS", why)
     status: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
     why = f"TB_CONSOLE_SECURE_COOKIE is off in {env}: the session cookie can travel on http"
     return Check("secure_cookie", status, why)
@@ -361,6 +368,23 @@ def check_serving(inp: DoctorInputs) -> Check:
     return Check("serving", "PASS", "; ".join(good) + "; key required")
 
 
+def check_flags(inp: DoctorInputs) -> Check:
+    """T-008 (D-207): a seed variable (``TB_LAKE_SOURCE``) seeds its flag at the first start only; one that now says
+    something else than the flag is ignored, which an operator must know: WARN."""
+    url = inp.env.get("TB_DB_URL", "")
+    if not url:
+        return Check("flags", "PASS", "no trial database configured here (TB_DB_URL): the flags were not read")
+    try:
+        from tb_common.flags import env_drift
+
+        drift = env_drift(dict(inp.env), url)
+    except Exception as e:  # the flags live on the box: unreadable from here is worth a look, not a failure
+        return Check("flags", "WARN", f"cannot read the feature flags ({type(e).__name__})")
+    if drift:
+        return Check("flags", "WARN", "; ".join(drift))
+    return Check("flags", "PASS", "every seed variable that is set agrees with its flag")
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -371,6 +395,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_publish_gate,
     check_note_block,
     check_registry_pins,
+    check_flags,
 )
 
 
