@@ -1131,3 +1131,14 @@ def test_copy_does_not_touch_fixtures() -> None:
     before = copy.deepcopy(_json("trivy_image.json"))
     _mutate(lambda d: d["Results"].clear())
     assert _json("trivy_image.json") == before
+
+
+def test_uv_floor_is_the_advisory_fix() -> None:
+    # DEP-006: uv below 0.13.4 trusts a compromised CA root (GHSA-hq85-5cpj-mr62); the pinned uv is at or above it
+    assert lock.MIN_UV_VERSION == "0.13.4"
+    assert not lock.uv_too_old(lock.UV_VERSION)
+    assert lock.uv_too_old("0.11.32")
+    assert lock.uv_too_old("0.13.3")
+    assert not lock.uv_too_old("0.13.4")
+    assert not lock.uv_too_old("1.0.0")
+    assert lock.uv_too_old("?")
