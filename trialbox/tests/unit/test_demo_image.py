@@ -1,4 +1,4 @@
-"""T-501: the demo image starts from a clean build. The CI job `demo-image` builds and starts the image itself; these
+"""T-501: the demo image starts from a clean build. The CI job `demo-boot` builds and starts the image itself; these
 are the fast checks of the parts it depends on (LIFE-005, ROLE-002, OPS-077, OPS-009)."""
 
 from __future__ import annotations

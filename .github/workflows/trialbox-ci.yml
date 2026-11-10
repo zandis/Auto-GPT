@@ -286,7 +286,7 @@ jobs:
   # T-501 (OPS-001, ROLE-002, ROLE-003, UX-001): the demo image from a fresh checkout (no .cache, no make jvm-deps),
   # started with no -e flag: /login answers and every seeded account signs in (over plain http here: the Secure cookie
   # is only a header to the server), within the memory and start-time budget of trialbox/demo/README.md
-  demo-image:
+  demo-boot:
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.trialbox == 'true'

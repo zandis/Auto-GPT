@@ -30,11 +30,11 @@ plain-http address add `-e TB_CONSOLE_SECURE_COOKIE=0`, and never share a plain-
 
 ## Memory and start time (measured)
 
-| What | Measured (T-501, 2026-11-10) | Budget (CI job `demo-image` fails above it) |
+| What | Measured (T-501, 2026-11-10) | Budget (CI job `demo-boot` fails above it) |
 | --- | --- | --- |
-| Peak memory of the demo process (VmHWM) | 1.82 GB while seeding; 0.80 GB once it serves | 2.5 GB |
+| Peak memory of the demo process (VmHWM) | 1.82 GB while seeding (local and CI); 0.80 GB once it serves | 2.5 GB |
 | PostgreSQL in the container | about 0.15 GB | |
-| First answer on `/login` after start | 181 s on a 4-core machine; 339 s in the container on the same machine under heavy load | 600 s |
+| First answer on `/login` after start | 166 s in CI (GitHub runner); 339 s locally under heavy load | 600 s |
 
 Plan the host for 4 GB of memory and give it up to 10 minutes to start. A 2 GB host is too tight (the peak plus
 PostgreSQL is close to 2 GB), and a 512 MB or 1 GB host cannot run it. The image is about 410 MB to pull.
