@@ -66,7 +66,14 @@ from console.auth import (
 from console.backend import Backend, MailItem, Refused, RulesetInfo, Unavailable
 from console.cascade import CascadeRuns
 from console.i18n import CATALOGUES, LANGS, pick_language, translate
-from console.identity import Hooks, Identity, IdentitySettings, secure_cookie_default
+from console.identity import (
+    MUST_CHANGE_OPEN,
+    Hooks,
+    Identity,
+    IdentitySettings,
+    client_source,
+    secure_cookie_default,
+)
 from console.identity import register as register_identity
 from console.proposals import Classifier, Proposal, ProposalError, job_create, propose
 from console.refusals import localize as localize_refusal
@@ -211,6 +218,10 @@ class ConsoleSettings:
 
 class _LoginRequired(Exception):
     pass
+
+
+class _MustChange(Exception):
+    """A page asked by an account whose password someone else set (D-279): it goes to /account first."""
 
 
 class _Problem(Exception):
@@ -521,9 +532,14 @@ def create_app(
             user = sso_user(request)
             if user is None:
                 raise _LoginRequired()
-            token, sess = us.new_session(user, pick_language(request.headers.get("accept-language")))
+            token, sess = us.new_session(user, pick_language(request.headers.get("accept-language")), "sso")
             request.state.sso_cookie = token
             au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role, "via": "sso"})
+        # D-279 (SEC-1): with a password someone else set, the account reaches only its own password page
+        if request.url.path not in MUST_CHANGE_OPEN and us.must_change(sess.user.username):
+            if request.method == "GET" and not request.url.path.startswith("/api/"):
+                raise _MustChange()
+            raise _Problem(403, "account.must_change")
         _scope_check(request, sess)
         bind_session(sess.token_sha[:16])  # S-09: the actor this request names to the orchestrator is signed with it
         return sess
@@ -663,6 +679,10 @@ def create_app(
     async def _to_login(request: Request, _exc: _LoginRequired) -> Response:
         return RedirectResponse("/login", status_code=303)
 
+    @app.exception_handler(_MustChange)
+    async def _to_account(request: Request, _exc: _MustChange) -> Response:
+        return RedirectResponse("/account?must_change=1", status_code=303)  # D-279: the password page first
+
     @app.exception_handler(_Problem)
     async def _problem(request: Request, exc: _Problem) -> Response:
         if request.url.path.startswith("/api/"):  # D-125: the API answers in JSON, never with a page
@@ -794,21 +814,35 @@ def create_app(
         cookie = request.cookies.get(LOGIN_COOKIE, "")
         if not cookie or not secrets.compare_digest(cookie, login_csrf):
             raise _Problem(400, "csrf")
+        src = client_source(request)  # D-279 (SEC-9): failures count per account and address
+        wait = us.throttled(src)
+        if wait:  # this address made many failed tries: it waits, nobody is locked out
+            au.append("console.login_failed", actor=f"console:{username.strip().lower()[:32] or '-'}",
+                      detail={"reason": "slowed", "source": src})  # fmt: skip
+            resp = login_page(request, 429, failed=True, uninitialised=False, wait=wait)
+            resp.headers["Retry-After"] = str(wait)
+            return resp
         # D-192: with a TOTP step to come, a right password does not clear the failure count; the code does
-        user = us.authenticate(username[:64], password[:256], clear_failures=not settings.identity.totp_required)
+        user = us.authenticate(
+            username[:64], password[:256], clear_failures=not settings.identity.totp_required, source=src
+        )
         if user is None:
-            au.append("console.login_failed", actor=f"console:{username.strip().lower()[:32] or '-'}")
-            ident.after_failure(username)
-            until = us.locked_until(username[:64])
+            au.append("console.login_failed", actor=f"console:{username.strip().lower()[:32] or '-'}",
+                      detail={"source": src})  # fmt: skip
+            ident.after_failure(username, src)
+            until = us.locked_until(username[:64], src)
             left = max(1, -(-int((until - us.clock()).total_seconds()) // 60)) if until else 0
             return login_page(
                 request, 401, failed=True, uninitialised=False, until=until.isoformat() if until else "", left=left
             )
         if ident.needs_code(user):  # D-192: local accounts give a TOTP code before a session exists
             return ident.second_step(user)
-        token, _ = us.new_session(user, lang_of(request, None))
+        token, _ = us.new_session(user, lang_of(request, None), "password")
         au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role})
-        done = RedirectResponse("/home" if settings.pilot else "/", status_code=303)  # S1: land on the work list
+        landing = "/home" if settings.pilot else "/"  # S1: land on the work list
+        if us.must_change(user.username):  # D-279: a password someone else set is replaced first
+            landing = "/account?must_change=1"
+        done = RedirectResponse(landing, status_code=303)
         done.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=settings.secure_cookie)
         done.delete_cookie(LOGIN_COOKIE)
         done.delete_cookie(LANG_COOKIE)
@@ -963,7 +997,7 @@ def create_app(
                     raise AuthError("unknown role")
                 scope_values(affiliation, studies, expires or None)  # refuse a bad scope before the account exists
                 password = random_password()
-                us.create(name, role, password, mailbox.strip() or None)
+                us.create(name, role, password, mailbox.strip() or None, must_change=True)  # D-279: the owner's first
                 made_user = us.set_scope(name, affiliation, studies, expires or None)
                 au.append(
                     "console.user",
@@ -987,7 +1021,7 @@ def create_app(
                     return confirm_step(request, sess, text, "/ops/users", {"action": "reset", "username": name},
                                         "/ops/users")  # fmt: skip
                 password = random_password()
-                us.set_password(name, password)
+                us.set_password(name, password, must_change=True)  # D-279: the owner replaces it at sign-in
                 au.append("console.user", actor=actor(sess), detail={"action": "reset", "user": name})
                 keep_once(sess, name, password)
                 return RedirectResponse("/ops/users#made", status_code=303)
@@ -1060,6 +1094,7 @@ def create_app(
         users=us,
         clock=us.clock,
         submit=submit,
+        identity=ident,  # D-279: the second factor at signing (console.edc_pages)
     )
     app.state.helpers = helpers  # console.notify (CLI) reads the same helpers
     register_home(app, helpers)
