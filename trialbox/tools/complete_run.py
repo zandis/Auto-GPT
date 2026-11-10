@@ -1306,6 +1306,11 @@ def quota_problems(project: dict[str, Any], regions: dict[str, dict[str, Any]], 
         ):  # fmt: skip
             p, r = _quota(qs, pre), _quota(qs, regular)
             use, name = (p, "PREEMPTIBLE") if p is not None and p["limit"] > 0 else (r, "regular")
+            if use is None and what.startswith("RTX") and qs and q is not None:
+                # Compute Engine does not list a per-region RTX PRO 6000 metric in ``regions describe`` (2026-11-10;
+                # the region's other quotas are there): GPUS_ALL_REGIONS above is the readable bound, and a start
+                # beyond the regional quota fails at create time before anything is billed
+                continue
             if use is None:
                 out.append(f"{region}: {what} quota not readable")
             elif use["limit"] - use["usage"] < n * per_vm:
