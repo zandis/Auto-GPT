@@ -296,6 +296,7 @@ class _Route:
     sentence_set: str
     via: Stage  # S2 (lexicon hit) or S2b (above threshold)
     margin: float = 0.0
+    left_out: int = 0  # evidence notes the excerpt budget did not show in full (D-276): a "not met" is then not final
 
 
 class _Run:
@@ -575,9 +576,17 @@ class _Run:
         A note longer than half the budget is cut to that half (its evidence sentences first, then its start), and a
         note that no longer fits is skipped, not the end of the search: one long note used to stop the loop and hide
         every older note, so the model got nothing at all (D-142, review A-06)."""
+        return _Run.excerpt_set(notes, keep)[0]
+
+    @staticmethod
+    def excerpt_set(notes: list[_Note], keep: Mapping[str, Collection[str]]) -> tuple[list[dict[str, Any]], int]:
+        """:meth:`excerpts`, and how many evidence notes the budget did not show in full: a note skipped, or cut so
+        that one of its evidence sentences is gone. Both models read this one set, so with a note left out their
+        agreement on "not met" is not final (D-276, review S-10; :meth:`_map`)."""
         out: list[dict[str, Any]] = []
         budget = EXCERPT_TOKENS
         cap = EXCERPT_TOKENS // 2
+        left_out = 0
         for n in sorted(notes, key=lambda n: (n.d, n.did), reverse=True):
             if n.did not in keep:
                 continue
@@ -587,10 +596,13 @@ class _Run:
                 text = _clip(n, keep[n.did], cap)
                 cost = expected_tokens([{"text": text}]) - 300
             if cost > budget:
+                left_out += 1
                 continue
+            if text is not n.text and any(s not in text for s in keep[n.did]):
+                left_out += 1
             budget -= cost
             out.append({"date": n.d.isoformat(), "note_type": n.type, "text": text, "did": n.did})
-        return out
+        return out, left_out
 
     # -------------------------------------------------------------------------------------------- S2 / S2b
     def s2(self, note_crit: list[CriterionIR]) -> tuple[list[_Route], list[tuple[str, str, list[_Note]]]]:
@@ -621,7 +633,8 @@ class _Run:
                     found: dict[str, set[str]] = {}
                     for n, s in hits:
                         found.setdefault(n.did, set()).add(s)
-                    routes.append(_Route(t.pid, c.id, self.excerpts(win, found), _set_hash(sset), "S2"))
+                    shown, left = self.excerpt_set(win, found)
+                    routes.append(_Route(t.pid, c.id, shown, _set_hash(sset), "S2", left_out=left))
                     continue
                 self.metrics.pairs_s2_zero_hit += 1
                 if c.id in self.cfg.zero_hit_allowed:  # CAS-13 certified: absence semantics directly after S2
@@ -700,7 +713,8 @@ class _Run:
                 for i in top:
                     keep.setdefault(sents[i][0].did, set()).add(sents[i][1])
                 sset = sorted({sentence_hash(sents[i][1]) for i in top})
-                routes.append(_Route(pid, cid, self.excerpts(win, keep), _set_hash(sset), "S2b", best - thr.value))
+                shown, left = self.excerpt_set(win, keep)
+                routes.append(_Route(pid, cid, shown, _set_hash(sset), "S2b", best - thr.value, left_out=left))
                 continue
             self.metrics.pairs_s2b_below += 1
             detail = {"best": round(best, 4), "threshold": thr.value, "threshold_source": thr.source}
@@ -793,7 +807,9 @@ class _Run:
         with ThreadPoolExecutor(max_workers=min(workers, len(items)), thread_name_prefix="cascade") as ex:
             return list(ex.map(fn, items))
 
-    def _map(self, c: CriterionIR, reply: JudgeReply, span: dict[str, Any] | None, stage: Stage) -> Outcome:
+    def _map(
+        self, c: CriterionIR, reply: JudgeReply, span: dict[str, Any] | None, stage: Stage, left_out: int = 0
+    ) -> Outcome:
         ev = [span] if span else []
         meta = {
             "call_id": reply.call_id,
@@ -812,6 +828,11 @@ class _Run:
         eligible = condition_present if c.kind == "inclusion" else not condition_present
         if eligible:
             return Outcome(c.id, "pass", stage, evidence=[*ev, meta], reason=reply.reason[:200])
+        if left_out:
+            # D-276 (review S-10): the judge and the verifier read the same excerpts. With an evidence note left out
+            # by the budget, "not met" is an answer about part of the record: a person looks, nobody is excluded
+            why = f"not judged: {left_out} evidence note(s) did not fit the excerpts, so not met is not final"
+            return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason=why)
         if reply.confidence < self.cfg.confidence_floor:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason="abstained")
         if not self.cfg.note_block:  # D-97: a single model may send a patient to review, never out
@@ -875,7 +896,7 @@ class _Run:
                         self.metrics.pairs_judged["S3"] += 1
                 c = self.crit[r.cid]
                 lo, hi = window_of(c, t.index_date)
-                o = self._map(c, reply, verify_span(reply, r.excerpts, lo, hi), "S3")
+                o = self._map(c, reply, verify_span(reply, r.excerpts, lo, hi), "S3", r.left_out)
                 t.outcomes[r.cid] = o
                 done.append(r)
                 if o.hard:
@@ -923,7 +944,7 @@ class _Run:
                         self.metrics.pairs_judged["S4"] += 1
                 c = self.crit[r.cid]
                 lo, hi = window_of(c, t.index_date)
-                second = self._map(c, reply, verify_span(reply, r.excerpts, lo, hi), "S4")
+                second = self._map(c, reply, verify_span(reply, r.excerpts, lo, hi), "S4", r.left_out)
                 if second.status == first.status:
                     return False
                 t.outcomes[r.cid] = Outcome(

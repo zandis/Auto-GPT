@@ -30,6 +30,12 @@ ROOT = Path(__file__).resolve().parents[2]
 DIGEST = "sha256:" + "a" * 64
 
 
+@pytest.fixture(autouse=True)
+def _no_real_docker(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`docker volume ls` through TB_DOCKER: `true` answers "no volumes" without the host's Docker."""
+    monkeypatch.setenv("TB_DOCKER", "true")
+
+
 @pytest.fixture()
 def v(tmp_path: Path) -> dict[str, Any]:
     priv, pub = keygen(tmp_path / "k1")
@@ -887,7 +893,7 @@ def test_compose_volumes_are_evidence_of_data(tmp_path: Path) -> None:
     out = {"volumes": "trialbox_pgdata\ntrialbox_lake\n"}
 
     def run(argv: list[str], *a: Any, **kw: Any) -> str:
-        if "volumes" in argv:
+        if argv[1:3] == ["volume", "ls"] and "label=com.docker.compose.project=trialbox" in argv:
             return out["volumes"]
         raise up.UpdateFailed("down")
 
@@ -922,3 +928,57 @@ def test_install_sh_stops_when_the_bundle_load_fails() -> None:
     load = text.index('TB_SKIP_AUDIT=1 sh "$ROOT/tools/apply_update.sh"')
     assert "set -euo pipefail" in text[:load]  # the pipe into sed keeps apply_update.sh's exit status
     assert "|| die" in text[load : text.index("\n", load)]
+
+
+# ------------------------------------------------------------------------------------------------ T-111b
+def test_a_docker_that_cannot_list_volumes_counts_as_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail closed: a box with a deploy whose Docker cannot answer is not a first install (no compose file read)."""
+    deploy, stage, summary = _first_install(tmp_path, monkeypatch, [])
+    monkeypatch.setenv("TB_DOCKER", "false")  # docker volume ls fails
+    monkeypatch.setenv("TB_SKIP_AUDIT", "1")
+    box = up.ComposeBox(deploy)
+    assert up.box_in_service(deploy, box) == ""  # no deploy at all (no docker-compose.yml): nothing installed here
+    (deploy / "docker-compose.yml").write_text("name: trialbox\n")
+    assert "counted as data" in up.box_in_service(deploy, box)
+    assert up.main_apply(stage, summary, "compose", deploy) == 1
+    assert (tmp_path / "models/judge/config.json").read_text() == "old"
+
+
+def test_the_volume_query_uses_the_project_label(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[list[str]] = []
+
+    def run(argv: list[str], *a: Any, **kw: Any) -> str:
+        seen.append(list(argv))
+        return ""
+
+    (tmp_path / ".env").write_text("COMPOSE_PROJECT_NAME=site-a\n")
+    assert up.ComposeBox(tmp_path, run=run).data_volumes() == []
+    assert seen == [["true", "volume", "ls", "-q", "--filter", "label=com.docker.compose.project=site-a"]]
+
+
+def test_a_malformed_installed_record_is_refused_plainly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    deploy, stage, summary = _first_install(tmp_path, monkeypatch, [])
+    (deploy / "updates").mkdir()
+    (deploy / "updates" / us.INSTALLED).write_text("{not json")
+    assert up.main_apply(stage, summary, "compose", deploy) == 1
+    out = capsys.readouterr().out
+    assert "update REFUSED:" in out and "is unreadable" in out
+    (deploy / "updates" / us.INSTALLED).write_text('{"release_seq": "two"}')
+    assert up.main_apply(stage, summary, "compose", deploy) == 1
+
+
+def test_a_tar_with_an_unpinned_tag_beside_a_pinned_one_is_refused(tmp_path: Path) -> None:
+    box, calls = _image_box(tmp_path, CONFIG)
+    plan = _image_plan(tmp_path, True)
+    hexd = CONFIG.removeprefix("sha256:")
+    body = json.dumps([{"Config": f"blobs/sha256/{hexd}", "RepoTags": ["trialbox-py:1.0.0", "postgres:16"],
+                        "Layers": []}]).encode()  # fmt: skip
+    with tarfile.open(plan.stage / "image/py.tar", "w") as tf:
+        info = tarfile.TarInfo("manifest.json")
+        info.size = len(body)
+        tf.addfile(info, io.BytesIO(body))
+    with pytest.raises(up.UpdateFailed, match=r"tags \['postgres:16'\] are not pinned"):
+        box.load_images(plan)
+    assert not any("docker load" in c for c in calls)
