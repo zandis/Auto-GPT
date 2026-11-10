@@ -3764,8 +3764,15 @@ GPU, the egress rules, the host hardening and the mail server are checked there.
 *Evidence.* `make rehearse-box` on 2026-11-09 (Docker 29.9.2, no GPU): all 21 steps PASS in about 9 minutes with
 the build (install 138 s, each SCREEN about 85 s; 362 patients in scope, 19 model calls, 7 mails to the sink; no 401
 or 404 during either SCREEN; the wrong name and the missing key each FAIL the doctor and are refused by the servers,
-and the box recovers after each). Unit tests: `test_vllm_standin.py`, `test_doctor_serving.py`, `test_model_key.py`,
-`test_verify_update_stdlib.py`, `test_smtp_sink.py`.
+and the box recovers after each). After the review fixes, 2026-11-10 (Docker 29.9.2, containerd image store): all 22
+steps PASS (install 107 s; 14 containers, each on an image the bundle loaded, postgres and hapi included; 4 image
+loads and no pull; the console resolves no outside name). The classic overlay2 store, in a Docker-in-Docker daemon
+with a bundle made on the containerd store: after the load `postgres:16-alpine@sha256:...` is "No such image" and
+`compose up --pull never` fails; after `tools/image_pins.py resolve` the db runs the bundle's image by its id, and
+the daemon's events show two loads and no pull. (A full `make rehearse-box` on an overlay2 daemon needs about 10 GB
+more disk than this machine had free: run it there before a release, RUNBOOK §12.) Unit tests:
+`test_vllm_standin.py`, `test_doctor_serving.py`, `test_model_key.py`, `test_verify_update_stdlib.py`,
+`test_smtp_sink.py`, `test_image_pins.py`, `test_egress_rules.py`.
 
 **D-177 The on-box model servers need a key, and the rehearsal's vLLM stand-in is strict about names and keys.**
 Source: the owner's follow-up list of 2026-11-09 (task 3); the cloud-run review's served-name failure (run 4: every
