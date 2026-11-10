@@ -129,18 +129,36 @@ def _sha(path: Path) -> str:
     return h.hexdigest()
 
 
-def _verify(directory: Path) -> tuple[bool, str]:
+def _audit_lib() -> object:
     sys.path.insert(0, str(ROOT / "libs"))
-    from tb_common.audit import verify  # standard library only
+    from tb_common import audit  # standard library only
 
-    res = verify(directory)
-    return bool(res.ok), "; ".join(res.errors[:3])
+    return audit
+
+
+def _verify(
+    directory: Path, anchor: dict[str, object] | None = None, require_head: bool = True
+) -> tuple[bool, str, object]:
+    res = _audit_lib().verify(directory, anchor=anchor, require_head=require_head)  # type: ignore[attr-defined]
+    return bool(res.ok), "; ".join(res.errors[:3]), res
+
+
+def _gunzip(path: Path) -> bytes:
+    with gzip.open(path, "rb") as fh:
+        return fh.read()
 
 
 def archive_audit(audit: Path, archive: Path, today: date) -> list[str]:
-    """Copy each closed audit day file (before ``today``) not yet in the archive, or changed since; never touch
-    ``audit``. The chain must verify first, and the archive (decompressed) must verify after."""
-    ok, why = _verify(audit)
+    """Copy each closed audit day file (before ``today``) not yet in the archive; never touch ``audit``. The chain
+    must verify first, against its own head anchor and against the archive's ``HEAD.json`` (where the chain stood at
+    the end of the last archived day, D-272), and the archive (decompressed) must verify after. A closed day that
+    changed since it was archived is refused, never overwritten: only a day that grew (its archived copy is the start
+    of the file, the newest file still being written past midnight) is copied again."""
+    import json
+
+    head_file = archive / "HEAD.json"
+    anchor = json.loads(head_file.read_text(encoding="utf-8")) if head_file.is_file() else None
+    ok, why, _ = _verify(audit, anchor)
     if not ok:
         raise RuntimeError(f"the audit chain in {audit} does not verify ({why}): nothing archived, check it first")
     archive.mkdir(parents=True, exist_ok=True)
@@ -150,7 +168,11 @@ def archive_audit(audit: Path, archive: Path, today: date) -> list[str]:
         for line in manifest.read_text(encoding="utf-8").splitlines():
             h, _, name = line.partition("  ")
             known[name] = h
-    done = []
+    present = {f.name for f in audit.iterdir() if AUDIT_DAY.match(f.name)}
+    gone = sorted(set(known) - present)
+    if gone:
+        raise RuntimeError(f"archived day files are missing from {audit}: {', '.join(gone)}: nothing archived")
+    todo: list[tuple[Path, str, Path]] = []
     for f in sorted(audit.iterdir()):
         m = AUDIT_DAY.match(f.name)
         if not m or m.group(1) >= today.isoformat():
@@ -159,6 +181,16 @@ def archive_audit(audit: Path, archive: Path, today: date) -> list[str]:
         if known.get(f.name) == h:
             continue
         dest = archive / m.group(1)[:4] / f"{f.name}.gz"
+        if f.name in known:
+            old = _gunzip(dest) if dest.is_file() else b""
+            if not old or not f.read_bytes().startswith(old):
+                raise RuntimeError(
+                    f"the closed day {f.name} changed since it was archived (sha256 {known[f.name][:16]}, now "
+                    f"{h[:16]}): the archived copy is kept and nothing is archived; compare the two"
+                )
+        todo.append((f, h, dest))
+    done = []
+    for f, h, dest in todo:
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(".gz.part")
         with f.open("rb") as src, gzip.open(tmp, "wb") as gz:
@@ -174,9 +206,15 @@ def archive_audit(audit: Path, archive: Path, today: date) -> list[str]:
         for name, h in known.items():
             if _sha(Path(tmpd) / name) != h:
                 raise RuntimeError(f"archived {name} differs from its manifest line")
-        ok, why = _verify(Path(tmpd))
+        ok, why, res = _verify(Path(tmpd), anchor, require_head=False)
         if not ok:
             raise RuntimeError(f"the archived chain does not verify ({why})")
+    if known:
+        last = max(known)
+        new = {"file": last, "hash": res.last_hash, "lines": res.lines}  # type: ignore[attr-defined]
+        tmp_head = archive / ".HEAD.json.tmp"
+        tmp_head.write_text(json.dumps(new, sort_keys=True) + "\n", encoding="utf-8")
+        tmp_head.replace(head_file)
     return done
 
 

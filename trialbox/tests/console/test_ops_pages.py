@@ -41,7 +41,7 @@ ROLES = ("coordinator", "investigator", "viewer", "cro")
 
 
 def _events(audit_dir: Path, name: str) -> list[dict[str, Any]]:
-    out = [json.loads(x) for f in sorted(audit_dir.glob("*")) for x in f.read_text().splitlines() if x]
+    out = [json.loads(x) for f in sorted(audit_dir.glob("*.jsonl")) for x in f.read_text().splitlines() if x]
     return [e for e in out if e.get("event") == name]
 
 

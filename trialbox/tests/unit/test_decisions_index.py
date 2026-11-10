@@ -54,7 +54,8 @@ def test_master_registry_holds_the_agreed_rows() -> None:
     c = di.load(REPO)
     rows = {(r.first, r.last): r for r in c.rows}
     assert rows[(271, 271)].state == "merged"  # fix group D-271 (PR #97), a file since the log froze
-    assert rows[(272, 278)].state == "reserved"  # the rest of the critical-issues fix groups
+    assert rows[(272, 272)].state == "merged"  # fix group D-272 (audit integrity), a file
+    assert rows[(273, 278)].state == "reserved"  # the rest of the critical-issues fix groups
     assert rows[(279, 279)].state == "merged"  # fix group D-279, a file
     assert rows[(280, 289)].state == "reserved"
     assert rows[(152, 159)].state == "unused" and rows[(164, 169)].state == "unused"
