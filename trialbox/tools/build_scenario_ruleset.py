@@ -185,10 +185,10 @@ def build(rid: str, work: Path, out: Path) -> dict[str, Any]:
     # the test patients: every patient of the scenario's archetype and the gate's stratified sample
     rs = Ruleset.load(target)
     sql = {e.pid: e.results for e in sql_evaluations(lake, rs.sql, INDEX)}
-    gate = stratified_sample([c.PatientEvaluation(pid=p, index_date=INDEX, engine="sql", results=r)
+    sample = stratified_sample([c.PatientEvaluation(pid=p, index_date=INDEX, engine="sql", results=r)
                               for p, r in sql.items()], f"{rs.id}|{rs.version}")  # fmt: skip
     arch = {p for p, m in mrn_of.items() if site["states"][m].get("archetype") == sc["archetype"]}
-    pids = sorted(arch | set(gate))
+    pids = sorted(arch | set(sample))
     exprs = CqlGenerator.expression_names(rs.active())
     fhir.load(cql_eval.libraries(rs), rs.valuesets.values())
     cql = {e.pid: e.results for e in fhir.evaluate_many(rs.library, pids, INDEX, exprs)}

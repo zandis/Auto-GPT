@@ -126,7 +126,7 @@ class LocalFhir:
 
 def _patient_refs(r: dict[str, Any]) -> set[str]:
     text = json.dumps(r)
-    out = set()
+    out: set[str] = set()
     start = 0
     while True:
         i = text.find('"Patient/', start)

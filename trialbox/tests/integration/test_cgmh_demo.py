@@ -1,7 +1,7 @@
 """T-504: the CGMH scenarios walked through the console (``tools.cgmh_demo``), on the tw-ra synthetic site.
 
 * T2 in zh-TW: the RA-JAK list holds the trial's planted candidates and nobody with a coded zoster or thrombosis;
-* T1 in ja, zh-TW and en: the GZQO amendment is listed as changes since v1.0.0, every changed row is opened and
+* T1 (here in ja; in the demo container in ja, zh-TW and en): the GZQO amendment is listed as changes since v1.0.0, every changed row is opened and
   labelled, Approve all makes v1.1.0, and the new list gains the BMI 25-27 patients and keeps no one aged 80 or more;
   a mark given before the amendment stays;
 * T3 in zh-TW: a GOUT-COH registry patient's visit is drafted from the hospital record, signed and sent to REDCap,
@@ -35,8 +35,8 @@ def test_t2_ra_jak_list_in_zh_tw(work: Path) -> None:
     assert len(res["note_only_listed"]) > 5  # a zoster or thrombosis written only in a note: kept for a person
 
 
-@pytest.mark.parametrize("lang", ["ja", "zh-TW", "en"])
-def test_t1_gzqo_amend_and_approve(work: Path, lang: str) -> None:
+def test_t1_gzqo_amend_and_approve(work: Path) -> None:
+    lang = "ja"  # zh-TW and en too in the demo container (CI demo-boot); each walk is a fresh box (about 30 s)
     res = cd.run(work, PASSWORD, "amend", lang)
     ap = res["approval"]
     assert res["version"] == "1.1.0"

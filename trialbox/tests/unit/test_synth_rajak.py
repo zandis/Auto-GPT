@@ -62,9 +62,11 @@ def test_the_planted_states_and_the_note_languages(tw_ra: Any) -> None:
 
 
 def test_the_gold_covers_every_planted_state() -> None:
-    for crit, (attr, answers) in {**rajak.STRUCTURED, **rajak.NOTES}.items():
+    covered: dict[str, tuple[str, set[str]]] = {k: (a, set(v)) for k, (a, v) in rajak.STRUCTURED.items()}
+    covered |= {k: (a, set(v)) for k, (a, v) in rajak.NOTES.items()}
+    for crit, (attr, answers) in covered.items():
         planted = set(RATES["rajak"][attr]) | ({"na"} if attr == "pregnancy" else set())
-        assert set(answers) == planted, crit
+        assert answers == planted, crit
     # a coded zoster or thromboembolism rules a patient out; one in a note alone never does on the codes
     base = {a: next(k for k, v in ans.items() if v is (rajak.KINDS[c] == "inclusion")) for c, (a, ans) in
             rajak.STRUCTURED.items()}  # fmt: skip
