@@ -56,7 +56,7 @@ or nested zip in a gzip is opened), workbooks through openpyxl (cells by row, da
 python-docx (paragraphs and table rows), Parquet through pyarrow, decompression bounded at 32 MB, and any unreadable
 archive (encrypted, corrupt) an `unscanned` hit rather than a crash. Normalisation drops every format character and
 variation selector and more dash kinds; numbers may be split by dots, slashes and tabs too (not inside an unlabelled
-ID, where a dot matched drawing coordinates); `+819024681357`, `886912345678` and labelled `tel0912…` numbers are
+ID, where a dot matched drawing coordinates); +81 numbers with no separators, 886 numbers without the plus and numbers right after a `tel` label are
 found (`tw_phone_intl` is new); a 12-digit マイナンバー alone in a delimited cell is found; 6-digit insurer numbers too.
 False positives the review proved are closed: a phone number after a hyphen (`TB-08-2026-0001`), a 4-4-4 group
 outside a field, the review's place and word examples. The hook's repository-root paths were already right (the

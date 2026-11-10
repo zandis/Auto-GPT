@@ -56,7 +56,23 @@ folders that never share a prefix; the fallback under the scratch root, never `/
 `/var`, a relative path and "" refused; the plugin and retention settings; the lock pins; gc removes a dead owner's
 cluster and keeps a live one and an unowned one; a reused pid is a dead owner; a real cluster of a dead owner is
 stopped and deleted by `--gc`; a long root gets a short socket; `clean-tmp` keeps a locked pytest folder and the two
-newest runs; no test names a fixed `/tmp/tb-*` path. Run counts and timings are in the pull request.
+newest runs; no test names a fixed `/tmp/tb-*` path; and, after the review, a planted `run` link is never followed,
+a stale pid file signals nobody, a running cluster without an owner is kept, an unreadable owner file is kept, a
+folder of other files is no test root, a detached HEAD gets its own slug. Measured on this four-core machine
+(acceptance numbers of the card): (1) two `make test` runs at once on two roots, 14 min 37 s and 14 min 28 s, 1,874
+passed each (the one failure in each was the clean-tmp test seeing another agent's rehearsal, since fixed, and in one
+the flaky test below), nothing new under `/tmp`, no server left; a third run on the first root stopped at once with
+"in use by another run"; (2) `kill -9` of a running `make test`'s process group left four worker clusters and their
+servers, and `python -m tools.pglocal --gc` removed all four and stopped every server (the branch's stopped shared
+`pglocal/` folder stays for the next run); (3) `make check-disk` exits 1 here (5 to 13 GB free against 20); (4) after
+`uv pip install pytest-randomly` into the venv `make venv-check` fails and `make venv` removes it; `pytest -p
+randomly` fails with "Error importing plugin" without it, and the guard test fails a run in which it was re-enabled;
+(5) `make clean-tmp DRY=1` here would free 7.0 to 8.6 GiB (the card's 12 GB was the morning's figure; the 11 GB
+`/tmp/pytest-of-root` had been cleaned since, and a running 2.2 GB shared cluster is now kept on purpose); (6) `make
+test` with `-n auto` took 9 min 48 s to 12 min 27 s (1,874 to 1,875 tests; 21 min of CPU), not the card's 8: the
+parallelism is limited by per-worker session fixtures and a few long tests. `tests/unit/test_gpu_prep.py::
+test_the_stub_profile_run_measures_and_extrapolates` is flaky under load (a rounded 0.0 s per patient against a
+rounded 0.01 GPU-hour); it passes alone and is the test owner's to fix (this card may not touch test bodies).
 
 *Not done.* The random-order nightly job itself (the sibling's). The per-feature registration files of review §5.2
 (5). Moving `.cache/complete-run` out of the tree (§5.3 (2), with T-004). The tools' own `--dir` defaults (`/tmp/tb-*`
