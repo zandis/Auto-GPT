@@ -1273,9 +1273,7 @@ def create_app(
             # the audit holds the line masked (D-272); the chart number comes back from the job's options
             raw_rows.insert(0, (None, unmask_ids(mask_ids(str(web.detail.get("line", ""))), job.options)))
         case = _case_card(job)
-        # D-273 (PV-4): a patient on the opt-out register is never shown by chart number, here either
-        subj = str(((case or {}).get("subject") or {}).get("pid") or (job.options or {}).get("pid") or "")
-        out = bool(subj) and subj in helpers.gone()
+        out = _case_opted_out(job, case)
         thread_rows = [(m, shown_ids(sess, job, text, "thread", opted_out=out)) for m, text in raw_rows]
         return page(
             request,
@@ -1298,6 +1296,28 @@ def create_app(
             case=case,
             screen=_screen_card(job, sess, revealed),
         )
+
+    def _case_opted_out(job: Job, case: dict[str, Any] | None) -> bool:
+        """D-273 (PV-4): is the job's subject on the opt-out register now? The pseudonym comes from the finished
+        CASE card or the job's options; for a CASE job still running, or failed, the box turns the job's own chart
+        number into the pseudonym (never shown, never returned). If the box cannot answer, the line stays masked."""
+        gone = helpers.gone()
+        if not gone:
+            return False
+        subj = str(((case or {}).get("subject") or {}).get("pid") or (job.options or {}).get("pid") or "")
+        if subj:
+            return subj in gone
+        chart = str((job.options or {}).get("mrn") or "").strip()
+        if job.type != "CASE" or not chart:
+            return False
+        from console import s28
+
+        try:
+            got = s28.call(bk, "POST", "/setup/pseudonym", {"chart_no": chart})
+        except Exception:  # the box is down or refuses: fail closed
+            return True
+        pid = str((got or {}).get("pid") or "")
+        return not pid or pid in gone
 
     def shown_ids(sess: Session, job: Job, text: str, where: str, opted_out: bool = False) -> str:
         """A request line or subject as this reader may see it (P-01, D-143): the chart number in clear for an
