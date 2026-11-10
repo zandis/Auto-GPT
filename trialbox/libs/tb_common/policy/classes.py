@@ -153,6 +153,7 @@ _D1 = {
     "DocTable",
     "IEBlock",
     "PromptMeta",
+    "PromptPin",
     "ModelEntry",
     "ModelManifest",
     "UpdateFile",

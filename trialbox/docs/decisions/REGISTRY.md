@@ -136,3 +136,5 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-306 | merged | T-002 | decisions as files, one number registry, CODEOWNERS and CONTRIBUTING (file) |
 | D-307 | reserved | T-508 | the PoC is a product evaluation, not research |
 | D-308 | reserved | T-501 | held for T-501 |
+| D-309..D-317 | reserved | TB-PLAN-06 wave 1-3 cards | numbers the integrator hands to the wave cards (D-311: PR #109); each card splits its number out |
+| D-318 | merged | T-101b | the approved ruleset pins its prompt and terminology release; approval needed on a change (file) |
