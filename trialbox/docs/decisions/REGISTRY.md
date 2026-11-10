@@ -118,7 +118,9 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-270 | merged | fix group D-270 (PR #86) | the console's "today" is the site's date; `docs/DECISIONS.md` (its last entry) |
 | D-271 | merged | fix group D-271 (PR #97) | the data pipeline never promotes nothing; `docs/decisions/D-271-data-pipeline-integrity.md` |
 | D-272 | merged | fix group D-272 (FG-C) | audit integrity: no chart number in the audit chain, a head anchor, an archive that never overwrites (file) |
-| D-273..D-289 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
+| D-273..D-278 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
+| D-279 | merged | fix group D-279 | identity follow-ups: forced first password change, sign-in lock per account and address, OIDC session lifetime, second factor at signing; `docs/decisions/D-279-identity-follow-ups.md` (file) |
+| D-280..D-289 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
 | D-290..D-299 | unused | — | below the new block; never given |
 
 ## New numbers (from D-300)

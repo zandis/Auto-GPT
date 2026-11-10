@@ -4,8 +4,15 @@
   password: the first administrator is created by ``python -m console.cli bootstrap-admin`` (random password printed
   once) or, at first start, from the file named by ``TB_CONSOLE_ADMIN_PASSWORD_FILE`` (a compose secret).
 * Passwords are stored as scrypt hashes (stdlib ``hashlib.scrypt``, per-user salt); at least 12 characters.
-* Five failed logins within 15 minutes lock the account for 15 minutes (audited by the app). A wrong second-factor
-  code counts as a failed login; an administrator can lift a lock early (``unlock``, audited; D-192).
+* Failed sign-ins are counted per account *and* per address (D-279, SEC-9, CR-116): five failures within 15 minutes
+  lock the account for 15 minutes *from that address only*, so an outsider cannot lock a named account out; an address
+  with many failures across names is slowed (a doubling wait, at most a minute); and 50 failures on one account from
+  any number of addresses lock it everywhere (the backstop against distributed guessing). A wrong second-factor code
+  counts as a failed sign-in; an administrator can lift a lock early (``unlock``, audited; D-192). Rows older than the
+  15-minute window are deleted as new ones arrive, so the table stays small.
+* A password someone else set (an administrator's new account or reset, the command line) must be replaced by its
+  owner before the account does anything else (``must_change``; D-279, SEC-1, 21 CFR 11.300): only the owner ever
+  knows a password that signs.
 * Sessions are server-side: the cookie carries a random token, the table stores only its SHA-256. Idle timeout
   (default 10 min, ``TB_CONSOLE_IDLE_MINUTES``) and absolute lifetime (default 8 h, ``TB_CONSOLE_SESSION_HOURS``).
   Each session has its own CSRF token, checked on every state-changing request.
@@ -19,6 +26,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import ipaddress
 import re
 import secrets
 from collections.abc import Callable
@@ -38,8 +46,12 @@ AFFILIATIONS: tuple[str, ...] = ("hospital", "smo", "cro")
 SSO_MARK = "sso"  # pw_hash of an account the hospital identity provider signs in (no console password)
 OIDC_MARK = "oidc"  # pw_hash of an account signed in through the OIDC provider (Authelia; D-192)
 MIN_PASSWORD = 12
-MAX_FAILURES = 5
+MAX_FAILURES = 5  # per account and address (D-279)
 LOCKOUT = timedelta(minutes=15)
+NAME_CEILING = 50  # per account from all addresses: the account locks everywhere (distributed guessing; D-279)
+SOURCE_FREE = 10  # failures one address may make across names before each try waits (D-279)
+SOURCE_MAX_WAIT = timedelta(seconds=60)  # slowed, never locked: a hospital's shared address keeps working
+OIDC_ABSOLUTE = timedelta(minutes=60)  # an OIDC session's lifetime: the directory is asked again (D-279, CR-117)
 IDLE = timedelta(minutes=10)  # D-192: the IT security pack's idle lock for shared clinic PCs
 ABSOLUTE = timedelta(hours=8)
 PENDING_TTL = timedelta(minutes=10)  # between the password and the code (enrolment included; D-192)
@@ -102,7 +114,17 @@ CREATE TABLE oidc_pending (
   created TEXT NOT NULL
 )
 """
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2)
+# D-279: ``must_change`` marks a password someone else set (SEC-1); each failure keeps the address it came from
+# (SEC-9: the lock is per account and address); each session keeps how it was opened (``via``: an OIDC session has
+# a shorter life, CR-117; T-505a refuses an API session as a cookie).
+SCHEMA_V3 = """
+ALTER TABLE users ADD COLUMN must_change INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE login_failures ADD COLUMN source TEXT COLLATE "C" NOT NULL DEFAULT '';
+CREATE INDEX login_failures_source ON login_failures (source, at);
+CREATE INDEX login_failures_at ON login_failures (at);
+ALTER TABLE sessions ADD COLUMN via TEXT NOT NULL DEFAULT ''
+"""
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3)
 _COLS = "username, role, mailbox, affiliation, studies, expires"
 
 
@@ -160,6 +182,22 @@ def random_password(groups: int = 5) -> str:
 
 def _sha(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def source_of(host: str | None) -> str:
+    """The address a sign-in is counted under (D-279): an IPv4 address as is, an IPv6 address by its /64 (one
+    household or one machine holds a whole /64, so counting single IPv6 addresses would not slow anyone). Anything
+    else (a test client's name, no peer) is kept as given, cut to 64 characters."""
+    h = (host or "").strip()
+    try:
+        ip = ipaddress.ip_address(h)
+    except ValueError:
+        return h[:64]
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None:  # an IPv4 client on a dual-stack socket
+            return str(ip.ipv4_mapped)
+        return str(ipaddress.ip_network(f"{ip}/64", strict=False))
+    return str(ip)
 
 
 @dataclass(frozen=True)
@@ -266,11 +304,13 @@ class UserStore:
         clock: Clock = _utcnow,
         idle: timedelta = IDLE,
         absolute: timedelta = ABSOLUTE,
+        oidc_absolute: timedelta = OIDC_ABSOLUTE,
     ) -> None:
         self.db = open_db(url, "auth", MIGRATIONS)
         self.clock = clock
         self.idle = idle
         self.absolute = absolute
+        self.oidc_absolute = oidc_absolute
         self.zone: ZoneInfo | None = None  # the site's zone, set by console.app (D-270)
 
     def close(self) -> None:
@@ -319,7 +359,11 @@ class UserStore:
         assert row is not None
         return _row_user(row)
 
-    def create(self, username: str, role: Role, password: str, mailbox: str | None = None) -> User:
+    def create(
+        self, username: str, role: Role, password: str, mailbox: str | None = None, *, must_change: bool = False
+    ) -> User:
+        """A local account. ``must_change``: the password was set by someone other than the owner (an
+        administrator's page, the command line), so the owner must replace it before anything else (D-279)."""
         u = check_username(username)
         if role not in ROLES:
             raise AuthError(f"role must be one of {', '.join(ROLES)}")
@@ -328,9 +372,9 @@ class UserStore:
         if mb is not None and ("@" not in mb or " " in mb):
             raise AuthError("mailbox must be an e-mail address")
         n = self.db.execute(
-            "INSERT INTO users (username, role, pw_hash, mailbox, created) VALUES (?,?,?,?,?) "
+            "INSERT INTO users (username, role, pw_hash, mailbox, created, must_change) VALUES (?,?,?,?,?,?) "
             "ON CONFLICT (username) DO NOTHING",
-            (u, role, hash_password(password), mb, self.clock().isoformat()),
+            (u, role, hash_password(password), mb, self.clock().isoformat(), int(must_change)),
         )
         if n != 1:
             raise AuthError(f"user {u} exists")
@@ -406,12 +450,23 @@ class UserStore:
             raise AuthError("account expired")
         return user
 
-    def set_password(self, username: str, password: str) -> None:
+    def must_change(self, username: str) -> bool:
+        """True while the account still has a password its owner did not choose (D-279, SEC-1)."""
+        return bool(self.db.fetchval("SELECT must_change FROM users WHERE username = ?", (username,)))
+
+    def set_password(self, username: str, password: str, *, must_change: bool = False) -> None:
+        """A new password; the account signs out everywhere. ``must_change=True`` when someone other than the owner
+        set it (an administrator's reset, the command line): the owner then replaces it at the next sign-in. The
+        owner's own change (``/account/password``, after typing the current one) passes False (D-279)."""
         check_password_policy(password)
         pw_hash = hash_password(password)
         with self.db.transaction() as tx:
-            if tx.execute("UPDATE users SET pw_hash = ? WHERE username = ?", (pw_hash, username)) != 1:
-                raise AuthError(f"no user {username}")
+            n = tx.execute(
+                "UPDATE users SET pw_hash = ?, must_change = ? WHERE username = ? AND pw_hash NOT IN (?, ?)",
+                (pw_hash, int(must_change), username, SSO_MARK, OIDC_MARK),
+            )
+            if n != 1:  # a directory account has no console password, so none is ever set (D-279, REG-025)
+                raise AuthError(f"no user {username} with a console password")
             tx.execute("DELETE FROM sessions WHERE username = ?", (username,))  # sign out everywhere
             tx.execute("DELETE FROM login_failures WHERE username = ?", (username,))
             tx.execute("DELETE FROM pending_logins WHERE username = ?", (username,))  # a half-done sign-in too
@@ -433,67 +488,111 @@ class UserStore:
         rows = self.db.fetchall(f"SELECT {_COLS} FROM users WHERE disabled = 1 ORDER BY username")
         return [_row_user(r) for r in rows]
 
-    # ------------------------------------------------------------------ login
-    def locked(self, username: str) -> bool:
-        since = (self.clock() - LOCKOUT).isoformat()
-        n = self.db.fetchval("SELECT count(*) FROM login_failures WHERE username = ? AND at >= ?", (username, since))
-        return int(n) >= MAX_FAILURES
-
-    def locked_until(self, username: str) -> datetime | None:
-        """When a locked account opens again (D-133, review F-05: the sign-in page shows it), or None. Unknown names
-        lock the same way, so this tells nothing about which accounts exist."""
+    # ------------------------------------------------------------------ login (D-192; D-279 per address)
+    def _failures(self, username: str) -> list[tuple[str, datetime]]:
+        """(address, time) of each failure of one account inside the window, newest first."""
         since = (self.clock() - LOCKOUT).isoformat()
         rows = self.db.fetchall(
-            "SELECT at FROM login_failures WHERE username = ? AND at >= ? ORDER BY at DESC",
+            "SELECT source, at FROM login_failures WHERE username = ? AND at >= ? ORDER BY at DESC",
             (username.strip().lower()[:64], since),
         )
-        if len(rows) < MAX_FAILURES:
-            return None
-        return datetime.fromisoformat(str(rows[MAX_FAILURES - 1][0])) + LOCKOUT
+        return [(str(r[0]), datetime.fromisoformat(str(r[1]))) for r in rows]
 
-    def record_failure(self, username: str) -> None:
-        """One failed sign-in step (a wrong password or a wrong or replayed second-factor code)."""
+    def locked_until(self, username: str, source: str | None = None) -> datetime | None:
+        """When a locked account opens again for ``source`` (D-133, review F-05: the sign-in page shows it), or None.
+
+        Locked when five failures within 15 minutes came from that address, or 50 from all addresses together (D-279).
+        ``source=None`` asks about any address (the administrator's identity page). Unknown names lock the same way,
+        so this tells nothing about which accounts exist."""
+        rows = self._failures(username)
+        ends: list[datetime] = []
+        if len(rows) >= NAME_CEILING:
+            ends.append(rows[NAME_CEILING - 1][1] + LOCKOUT)
+        by_source: dict[str, list[datetime]] = {}
+        for src, at in rows:
+            if source is None or src == source:
+                by_source.setdefault(src, []).append(at)
+        ends.extend(ats[MAX_FAILURES - 1] + LOCKOUT for ats in by_source.values() if len(ats) >= MAX_FAILURES)
+        return max(ends) if ends else None
+
+    def locked(self, username: str, source: str | None = None) -> bool:
+        """Locked from ``source``, or from any address when it is None (D-279)."""
+        return self.locked_until(username, source) is not None
+
+    def throttled(self, source: str) -> int:
+        """Seconds the address ``source`` must still wait before its next sign-in try, or 0 (D-279, SEC-9). After
+        ``SOURCE_FREE`` failures within 15 minutes across all names, each further try waits twice as long after the
+        last failure (1 s, 2 s, 4 s, ... at most ``SOURCE_MAX_WAIT``): guessing is slowed, nobody is locked out."""
+        since = (self.clock() - LOCKOUT).isoformat()
+        row = self.db.fetchone("SELECT count(*), max(at) FROM login_failures WHERE source = ? AND at >= ?",
+                               (source, since))  # fmt: skip
+        n = int(row[0]) if row else 0
+        if n < SOURCE_FREE or not row or row[1] is None:
+            return 0
+        wait = min(timedelta(seconds=2 ** min(n - SOURCE_FREE, 16)), SOURCE_MAX_WAIT)
+        left = datetime.fromisoformat(str(row[1])) + wait - self.clock()
+        return max(0, -(-int(left.total_seconds() * 1000) // 1000))
+
+    def record_failure(self, username: str, source: str = "") -> None:
+        """One failed sign-in step (a wrong password or a wrong or replayed second-factor code) from ``source``.
+        Rows older than the window go at the same time, so the table holds 15 minutes of failures at most."""
         u = username.strip().lower()[:64]
-        self.db.execute("INSERT INTO login_failures (username, at) VALUES (?,?)", (u, self.clock().isoformat()))
+        now = self.clock()
+        with self.db.transaction() as tx:
+            tx.execute("DELETE FROM login_failures WHERE at < ?", ((now - LOCKOUT).isoformat(),))
+            tx.execute("INSERT INTO login_failures (username, at, source) VALUES (?,?,?)",
+                       (u, now.isoformat(), source[:64]))  # fmt: skip
 
-    def clear_failures(self, username: str) -> int:
-        return self.db.execute("DELETE FROM login_failures WHERE username = ?", (username.strip().lower()[:64],))
+    def clear_failures(self, username: str, source: str | None = None) -> int:
+        """Forget an account's failures: from one address (a right sign-in from there) or from all (``None``)."""
+        u = username.strip().lower()[:64]
+        if source is None:
+            return self.db.execute("DELETE FROM login_failures WHERE username = ?", (u,))
+        return self.db.execute("DELETE FROM login_failures WHERE username = ? AND source = ?", (u, source))
 
     def unlock(self, username: str) -> bool:
-        """An administrator lifts a lock before it runs out (D-192; the caller audits it). True when it was locked."""
-        was = self.locked(username.strip().lower()[:64])
+        """An administrator lifts a lock before it runs out, from every address (D-192; the caller audits it). True
+        when it was locked from at least one."""
+        was = self.locked(username.strip().lower()[:64], None)
         self.clear_failures(username)
         return was
 
-    def authenticate(self, username: str, password: str, clear_failures: bool = True) -> User | None:
-        """The user, or None (unknown user, wrong password, disabled or locked). Constant work for unknown users.
-        With a second factor to come, ``clear_failures=False`` keeps the failure count until the code is right, so
-        a known password does not reset the count of wrong codes (D-192)."""
+    def authenticate(self, username: str, password: str, clear_failures: bool = True, source: str = "") -> User | None:
+        """The user, or None (unknown user, wrong password, disabled, locked from ``source`` or ``source`` must still
+        wait). Constant work for unknown users. With a second factor to come, ``clear_failures=False`` keeps the
+        failure count until the code is right, so a known password does not reset the count of wrong codes (D-192).
+
+        A try while the account is locked from this address is recorded under the address only (an empty name): it
+        still slows the address, and it never adds to the account's count from all addresses (D-279)."""
         u = username.strip().lower()
         row = self.db.fetchone(f"SELECT {_COLS}, pw_hash FROM users WHERE username = ? AND disabled = 0", (u,))
         stored = str(row[6]) if row else hash_password("unknown-user-dummy-password")
         ok = verify_password(password, stored) and row is not None
-        if self.locked(u):
+        if self.throttled(source):
+            return None
+        if self.locked(u, source):
+            self.record_failure("", source)
             return None
         if not ok:
-            self.db.execute(
-                "INSERT INTO login_failures (username, at) VALUES (?,?)", (u[:64], self.clock().isoformat())
-            )
+            self.record_failure(u, source)
             return None
         if clear_failures:
-            self.db.execute("DELETE FROM login_failures WHERE username = ?", (u,))
+            self.clear_failures(u, source)
         assert row is not None
         user = _row_user(row[:6])
         return None if self._expired(user) else user
 
     # ------------------------------------------------------------------ sessions
-    def new_session(self, user: User, lang: str = "en") -> tuple[str, Session]:
+    def new_session(self, user: User, lang: str = "en", via: str = "") -> tuple[str, Session]:
+        """A session; ``via`` says how it was opened (``password``, ``password+totp``, ``oidc``, ``sso``, ``api``;
+        D-279): an ``oidc`` session lives ``oidc_absolute`` at most, so a person removed from the directory loses
+        the console within that time (CR-117)."""
         token = secrets.token_urlsafe(32)
         csrf = secrets.token_urlsafe(32)
         now = self.clock().isoformat()
         self.db.execute(
-            "INSERT INTO sessions (token_sha, username, csrf, created, last_seen, lang) VALUES (?,?,?,?,?,?)",
-            (_sha(token), user.username, csrf, now, now, lang),
+            "INSERT INTO sessions (token_sha, username, csrf, created, last_seen, lang, via) VALUES (?,?,?,?,?,?,?)",
+            (_sha(token), user.username, csrf, now, now, lang, via[:16]),
         )
         return token, Session(user, csrf, lang, _sha(token))
 
@@ -505,13 +604,15 @@ class UserStore:
         sha = _sha(token)
         now = self.clock()
         row = self.db.fetchone(
-            "SELECT username, csrf, created, last_seen, lang FROM sessions WHERE token_sha = ?", (sha,)
+            "SELECT username, csrf, created, last_seen, lang, via FROM sessions WHERE token_sha = ?", (sha,)
         )
         if row is None:
             return None
         created, last = datetime.fromisoformat(row[2]), datetime.fromisoformat(row[3])
         user = self.get(str(row[0]))
-        if user is None or now - created > self.absolute or now - last > self.idle:
+        # D-279 (CR-117): a directory session is asked of the directory again after ``oidc_absolute``
+        absolute = min(self.absolute, self.oidc_absolute) if row[5] == "oidc" else self.absolute
+        if user is None or now - created > absolute or now - last > self.idle:
             self.end_session(token)
             return None
         if touch:
@@ -658,11 +759,12 @@ class UserStore:
 
     # ------------------------------------------------------------------ first start
     def bootstrap_from_file(self, path: Path, username: str = "admin", mailbox: str | None = None) -> User | None:
-        """Create the first administrator from a secret file when no administrator exists yet; None otherwise."""
+        """Create the first administrator from a secret file when no administrator exists yet; None otherwise. The
+        password sits in a file that others can read, so the administrator replaces it at first sign-in (D-279)."""
         if self.count("admin") > 0 or not path.is_file():
             return None
         password = path.read_text(encoding="utf-8").strip()
-        return self.create(username, "admin", password, mailbox)
+        return self.create(username, "admin", password, mailbox, must_change=True)
 
 
 def csrf_ok(session: Session, submitted: str | None) -> bool:
