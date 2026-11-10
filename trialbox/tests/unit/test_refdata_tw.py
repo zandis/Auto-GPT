@@ -87,7 +87,11 @@ def test_fetch_is_the_only_network_path_and_a_derived_item_fetches_its_parent(mo
         return {"url": url, "downloaded_at": "2026-11-09T00:00:00+00:00", "sha256": "0" * 64, "bytes": 1}
 
     monkeypatch.setattr(rf, "download", fake_download)
-    monkeypatch.setattr(tw, "datagov_meta", lambda url: {"version": f"v:{url.rsplit('/', 1)[-1]}", "license": "1"})
+    icd_item = rf.BY_ID["tw_icd_2014_2023"]
+    listed = {rf.BY_ID["nhi_drug_atc"].meta_url: [rf.BY_ID["nhi_drugs"].url],  # the records list the files fetched
+              icd_item.meta_url: [icd_item.url, icd_item.extra_files[0][1]]}  # fmt: skip
+    monkeypatch.setattr(tw, "datagov_meta", lambda url: {"version": f"v:{url.rsplit('/', 1)[-1]}", "license": "1",
+                                                         "downloads": listed.get(url, [])})  # fmt: skip
     rf.fetch(["nhi_drug_atc", "tw_icd_2014_2023", "tw_zh_synonyms"], tmp_path)
     assert calls == [rf.BY_ID["nhi_drugs"].url, rf.BY_ID["tw_icd_2014_2023"].url,
                      rf.BY_ID["tw_icd_2014_2023"].extra_files[0][1]]  # fmt: skip
@@ -96,8 +100,8 @@ def test_fetch_is_the_only_network_path_and_a_derived_item_fetches_its_parent(mo
     icd = json.loads((tmp_path / "tw_icd_2014_2023/fetch.json").read_text())
     assert icd["version"] == "v:177508" and [p["path"] for p in icd["parts"]] == [
         "tw_icd_2014_2023_cm.csv", "tw_icd_2014_2023_pcs.csv"]  # fmt: skip
-    assert icd["licence_check"]["license"] == "1"  # the licence field read at fetch time, kept as evidence
-    assert nhi["licence_checks"]["nhi_drug_atc"]["license"] == "1"  # the derived item's own record, too
+    assert icd["licence_check"]["read"] == "license 1" and icd["licence_check"]["ok"]  # evidence, kept
+    assert nhi["licence_checks"]["nhi_drug_atc"]["read"] == "license 1"  # the derived item's own record, too
     assert (tmp_path / "tw_zh_synonyms/zh_tw_clinical_synonyms.csv").read_bytes() == tw.REPO_SYNONYMS.read_bytes()
 
 
@@ -110,7 +114,7 @@ def test_fetch_refuses_a_changed_licence_or_a_pinned_file_that_changed(monkeypat
 
     monkeypatch.setattr(rf, "download", fake_download)
     monkeypatch.setattr(tw, "datagov_meta", lambda url: {"version": "v", "license": "2"})
-    with pytest.raises(SystemExit, match="licence '2'"):
+    with pytest.raises(SystemExit, match="now reads 'license 2'"):
         rf.fetch(["naer_medical_terms"], tmp_path)
     monkeypatch.setattr(tw, "datagov_meta", lambda url: {})  # the dataset record did not answer: fail closed
     with pytest.raises(SystemExit, match="licence was not checked"):
@@ -125,6 +129,11 @@ def test_fetch_refuses_a_changed_licence_or_a_pinned_file_that_changed(monkeypat
     monkeypatch.setattr(tw, "datagov_meta", lambda url: {"version": "v", "license": "1",
                                                          "downloads": ["https://elsewhere.example/x.csv"]})  # fmt: skip
     with pytest.raises(SystemExit, match="not a download of the dataset record"):
+        rf.fetch(["naer_medical_terms"], tmp_path)
+    # a record that lists no download binds nothing, and the NAER file is not pinned: refused (merge of D-170 M4
+    # with D-173; before, an empty list let any URL through)
+    monkeypatch.setattr(tw, "datagov_meta", lambda url: {"version": "v", "license": "1"})
+    with pytest.raises(SystemExit, match="lists no download"):
         rf.fetch(["naer_medical_terms"], tmp_path)
     with pytest.raises(SystemExit, match="pinned to sha256"):
         rf.fetch(["nhi_lab_loinc"], tmp_path)  # the 1.3.0 package's sha256 is pinned
