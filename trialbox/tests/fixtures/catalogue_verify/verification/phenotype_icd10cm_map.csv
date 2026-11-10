@@ -1,0 +1,3 @@
+phenotype_id,ohdsi_cohort_id,icd10cm_include,icd10cm_exclude,note
+ph.ra,858,M05;M06,M06.1,
+ph.dementia,33,F01;F02;F03;G30,F00 is WHO ICD-10 only

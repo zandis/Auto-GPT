@@ -39,7 +39,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-160..D-163 | merged | EDC prefill, Study A documents | `docs/DECISIONS.md` |
 | D-164..D-169 | unused | — | gap recorded by TB-ASSESS-01 |
 | D-170..D-179 | merged | reference data, rehearsal, IT screens (PRs #66, #68, #76 and earlier) | `docs/DECISIONS.md` |
-| D-180 | reserved | PR #80 | catalogue completion with verified codes; becomes a file at merge (the log is frozen) |
+| D-180 | merged | PR #80 | catalogue completion with verified codes (file) |
 | D-181 | merged | PR #64 | judge bake-off; `docs/DECISIONS.md` |
 | D-182..D-184 | unused | — | held for the sibling session, which was given D-185 to D-193 instead |
 | D-185..D-193 | merged | sibling session | supply chain, backups, derived scores, SAE register, identity, TLS; `docs/DECISIONS.md` |
