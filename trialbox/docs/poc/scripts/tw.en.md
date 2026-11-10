@@ -1,0 +1,70 @@
+# PoC scripts: Taiwan site (English)
+
+| Field | Value |
+| --- | --- |
+| Site | `tw`: the Taiwanese rheumatology demo site (synthetic, Asia/Taipei) |
+| Studies | RA-JAK (rheumatoid arthritis, JAK inhibitor, phase 3 sponsor trial, scenario T2); GZQO (gout phase 3 sponsor trial with one protocol amendment, scenario T1); GOUT-COH (investigator-initiated gout registry with REDCap prefill, scenario T3) |
+| Accounts | your PI account, your sub-investigator account, your CRC account (one each, never shared) |
+| Version | 1.0, 2026-11-10, card T-508 |
+| Same tasks in | [tw.zh-TW.md](tw.zh-TW.md) (Traditional Chinese). The task ids are the same in both files. |
+| Checked by | `tests/integration/test_poc_scripts.py` walks every task below on the current master |
+
+How to use it. Do the tasks in order: session A is the PI part and then the sub-investigator part; session B is the
+CRC part, then the questionnaire and the debrief ([../forms.md](../forms.md)). After each task, rate how easy it was
+(1 to 7) on the session record. "Expected result" is what the screen must show; anything else is a finding. "Known
+gap" marks a result the console does not give yet: tell us how much it matters. "Time" is a budget for a first-time
+user, not a target.
+
+All patients, names, doctors and numbers on the site are synthetic. Do not type anything from a real patient.
+
+## Session A, part 1: PI
+
+| # | Task | Expected result | Time |
+| --- | --- | --- | --- |
+| TW-PI-01 | Open the link you were given and pass the front door. Sign in with your PI account and the password you were given. Set up the second factor: add the key shown to your authenticator app, then type the enrolment code and a code from the app. Choose your own password; you are signed out, so sign in again with it and a new code. Read and accept the acknowledgement. Then choose RA-JAK. | The console asks for a new password before anything else. After the second sign-in: "Before you start: the acknowledgement", five statements and two optional ones; "I accept" works only with the five ticked. Then "This week's patients" with "Criteria waiting for your approval: GZQO v1.1.0" and the studies GZQO and RA-JAK; RA-JAK opens "This week's patients · RA-JAK". A banner on every page: synthetic data only, not for clinical use, not a medical device. | 8 min |
+| TW-PI-02 | Under "Clinic, next 2 weeks", open the first patient. | The patient sheet: "Why this patient fits", "Still open", "Needs you", "To do", the link "Ask treating doctor" and the mark bar ("Approach", "Need info", "Not suitable now"). | 3 min |
+| TW-PI-03 | On the same patient, go to "Every criterion with its evidence". Find the DAS28 row, the HBsAg row and the herpes zoster row. | Each row shows type, result, evidence and source. DAS28 and HBsAg: a result from "coded records", or "unknown" with the reason (for example "no value recorded: not excluded, please check"). Herpes zoster: "test model", from "records, then notes", with a result or "unknown" and the reason ("the notes do not say"). An unknown never takes the patient off the list. Known gap: DAS28 does not yet show the score, its parts and their dates, and a coded row does not show value, unit, date and code (T-514). | 8 min |
+| TW-PI-04 | Open the fourth patient. Press "Ask treating doctor" and send the request to the doctor the data suggests. | The "Referrals" page: "Referral requested. It is on the screening log." and "Waiting for the doctor 1". Back on the patient: "Approach waits for the treating doctor"; there is no "Approach" button. | 4 min |
+| TW-PI-05 | Open the second patient of the clinic list. Type a note for the coordinator and press "Need info". | "Sent to the coordinator's task list." with "Undo". The coordinator sees the task with your note (TW-CRC-02). | 2 min |
+| TW-PI-06 | Open the third patient. Press "Not suitable now" with no reason. Then choose a reason and press it again. Then press "Undo". | Without a reason: refused ("Choose a reason first."). With a reason: accepted, with "Undo". After "Undo" the patient has no "Not suitable now" mark. | 3 min |
+| TW-PI-07 | Open the first patient again and press "Approach". | Before you press: "Check before approaching: marking Approach now is recorded as an override with your name" (no IRB approval date, no consent-form version yet). After: "Approved. The coordinator has a task to contact this patient." The patient has a screening number (RA-JAK-0001 or the next free one); "Screening log" lists it with "Approach despite IRB warning". | 3 min |
+| TW-PI-08 | The sponsor amended GZQO: the BMI cut moves from 27 to 25 and one exclusion is added (aged 80 or older). On "This week's patients", open "Criteria waiting for your approval: GZQO v1.1.0". Open every amber line; give a short label to each line that asks for one; press "Approve all". | "Changes since v1.0.0" lists GZQO-INC-03 as new wording and the added exclusion as a new criterion. After "Approve all": "APPROVE GZQO v1.1.0 done"; the waiting line is gone from "This week's patients". Known gap: the GZQO list changes only after the coordinator asks for a new list, and the patients marked under the old wording are not yet put up for a second look. | 8 min |
+| TW-PI-09 | Back on RA-JAK, open "Criteria not matched". Pick one patient, read why, type what looks wrong and press "This is wrong, send to review". | Each row shows the criterion, where the answer came from and the evidence. After sending: "Sent to review. It is recorded with your name". | 6 min |
+| TW-PI-10 | On the approached patient (TW-PI-07), under "Chart number", choose why you need it and press "Show chart number". | The synthetic chart number is shown once; open the page again and it is gone. The view is recorded with your account and the reason. | 2 min |
+
+## Session A, part 2: sub-investigator
+
+| # | Task | Expected result | Time |
+| --- | --- | --- | --- |
+| TW-SI-01 | Sign out. Sign in with your sub-investigator account for the first time, as in TW-PI-01. | As TW-PI-01: new password, second factor, acknowledgement, then "This week's patients · RA-JAK". | 5 min |
+| TW-SI-02 | Open "Delegation log". | You are on it as "Sub-investigator", with no tick under "Approach". The page says "Only the study's PI keeps the delegation log." | 2 min |
+| TW-SI-03 | Open the fifth patient of the clinic list. Look for the "Approach" button. | There is no "Approach" button; "Need info" and "Not suitable now" are there. Known gap: the page does not yet say why Approach is missing (T-516). | 3 min |
+| TW-SI-04 | On the same patient, type a note and press "Need info". | Accepted. Under "Marks" the mark is listed with your account name. | 2 min |
+| TW-SI-05 | Open the sixth patient. Press "Ask treating doctor" and send the request. | The "Referrals" page: the request is waiting for the doctor. | 3 min |
+| TW-SI-06 | Open "Criteria not matched". | The list opens, with "This is wrong, send to review" on each patient. | 3 min |
+| TW-SI-07 | Type the address of the gout trial's page yourself: `/studies/GZQO/week`. | "Page not found": the study is not one of yours. A link "My home page" takes you back. | 1 min |
+| TW-SI-08 | On the patient of TW-SI-03, choose why you need the chart number and press "Show chart number". | Shown once, recorded with your account. | 2 min |
+| TW-SI-09 | Open "IRB and consent form". | You can read it; there is no form to change it (only the PI and the coordinator change it). | 1 min |
+| TW-SI-10 | Sign out. | The sign-in page. Opening a page again asks you to sign in. | 1 min |
+
+## Session B: CRC
+
+| # | Task | Expected result | Time |
+| --- | --- | --- | --- |
+| TW-CRC-01 | Sign in with your CRC account for the first time, as in TW-PI-01. | As TW-PI-01, then "My work" with "My tasks". | 5 min |
+| TW-CRC-02 | In "My tasks", find the patient the PI marked "Need info" (TW-PI-05). | The task names the patient's pseudonym and shows the PI's note. | 3 min |
+| TW-CRC-03 | Open the patient the PI approached (TW-PI-07). Under "Contact outcome", press "Reached, visit booked". | The screening number is shown; a confirmation with "Undo". "Screening log" shows "Reached, visit booked". | 3 min |
+| TW-CRC-04 | Open "Referrals". For the patient of TW-PI-04, choose how you asked the doctor (for example by phone) and press "Agree". | "Recorded: the doctor agrees to introduce the study. The PI may now approach the patient." The count shows "Doctor agreed 1". The PI's patient sheet shows "Approach" again. | 3 min |
+| TW-CRC-05 | Open "IRB and consent form". Enter a made-up approval number (for example IRB-DEMO-0001), the approval date, the end of validity, the consent-form version and its date. Press "Save". | Saved and shown. The PI no longer sees the IRB warning before "Approach". | 4 min |
+| TW-CRC-06 | Open "Screening log" and download the XLSX file. | One row per screening number with its status; the file holds the same rows. Known gap: the file has no "synthetic data" line yet (DATA-015, card T-682). | 3 min |
+| TW-CRC-07 | Open the registry GOUT-COH, "EDC prefill". Draft the baseline visit of the registry number shown (GOUT-COH-0001), dated today. On "Review", check each value against its source and press "Confirm" on each; sign with your password and a code from the authenticator; press "Send to REDCap". | "Check each value against its source": birth date and sex, and where the record has them serum uric acid, history of gout and allopurinol, each with its source in the hospital record and its date; "Comments" is not drafted (entered by hand). Signing without the authenticator code is refused and nothing is signed. After sending: "Sent …" with "Read-back differences 0": REDCap holds the same values. | 10 min |
+| TW-CRC-08 | Open "Send in a protocol". Type one line of criteria text in the box and send it. | Refused: "Not accepted in the demonstration". Nothing was stored. | 2 min |
+| TW-CRC-09 | Leave the console untouched for more than 10 minutes, then open any page. | The sign-in page. After signing in you are on your home page. Known gap: the page you were on and a note you had not saved are not kept. | 12 min |
+| TW-CRC-10 | Sign out. | The sign-in page. | 1 min |
+
+After session B: the ten-item usability questionnaire and the five open questions ([../forms.md](../forms.md)), then
+the debrief with the facilitator.
+
+Not in this script, and said to the tester: the feedback button on every page (card T-510, not on master yet; use the
+session record meanwhile), the phone layout (try it on your own phone if you wish and tell us), the morning notices,
+the consent step on the participant page (on the Japan site), and real model reading (step 2 of the PoC).
