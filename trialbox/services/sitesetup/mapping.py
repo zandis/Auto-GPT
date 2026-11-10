@@ -285,12 +285,17 @@ def _nhi_lab(code: str) -> dict[str, str]:
     return {"system": LOINC, "code": loinc[0], "display": disp, "method": "refdata", "confidence": conf}
 
 
-@lru_cache(maxsize=1)
 def _known_loinc() -> frozenset[str]:
+    """TrialBox's curated LOINC codes; empty when the table cannot be read (that answer is not cached)."""
     try:
-        return frozenset(c.code for c in _terminology().expand("loinc", "", "prefix"))
+        return _known_loinc_cached()
     except Exception:
         return frozenset()
+
+
+@lru_cache(maxsize=1)
+def _known_loinc_cached() -> frozenset[str]:
+    return frozenset(c.code for c in _terminology().expand("loinc", "", "prefix"))
 
 
 def site_country() -> str | None:
@@ -313,6 +318,8 @@ def _tw_2014(code: str) -> dict[str, str] | None:
     from tb_common import refdata_tw as tw
 
     rows = _refdata(tw.ICD_CM_2014, code)
+    if rows and all(t.get("relation") == "relatedto" for t in rows):
+        return {}  # a mapping NHIA added later (carrier -> chronic hepatitis B): the coordinator picks
     targets = sorted({t["target_code"] for t in rows})
     if not rows or code in targets:
         return None

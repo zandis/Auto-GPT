@@ -113,11 +113,14 @@ def icd_map_rows(data: bytes, pcs: bool) -> Iterator[dict[str, Any]]:
     """One NHIA 2014 <-> 2023 file (CM or PCS; same columns). The relation says how the 2023 code's meaning relates
     to the 2014 code's: the same code with one target and one source is ``equivalent``; a 2014 code split into
     several 2023 codes gives ``narrower`` targets; several 2014 codes merged into one 2023 code give a ``wider``
-    target; both at once, or a one-to-one change of code, ``inexact``."""
+    target; both at once, or a one-to-one change of code, ``inexact``. A mapping NHIA added later for a deleted
+    code (修訂日期 "增列對應", e.g. 2014 Z22.51 carrier -> 2023 B18.1 chronic hepatitis B) is ``relatedto``: a
+    candidate, not the same meaning; it does not count as a merge for the other rows."""
     rows = require_columns(csv_rows(data), ICD_COLS[:8], "an NHIA 2014/2023 ICD-10 map")
     c14, c23 = ICD_COLS[0], ICD_COLS[3]
     pairs = [(r[c14], r[c23], r) for r in rows if r.get(c14) and r.get(c23)]
-    uniq = {(a, b) for a, b, _ in pairs}
+    added = {(a, b) for a, b, r in pairs if "增列對應" in (r.get(ICD_COLS[8]) or "")}
+    uniq = {(a, b) for a, b, _ in pairs} - added
     n_targets, n_sources = Counter(a for a, _ in uniq), Counter(b for _, b in uniq)
     seen: set[tuple[str, str]] = set()
     src, tgt = (ICD_PCS_2014, ICD_PCS_2023) if pcs else (ICD_CM_2014, ICD_CM_2023)
@@ -126,7 +129,9 @@ def icd_map_rows(data: bytes, pcs: bool) -> Iterator[dict[str, Any]]:
             continue
         seen.add((a, b))
         split, merged = n_targets[a] > 1, n_sources[b] > 1
-        if split and merged:
+        if (a, b) in added:
+            rel = "relatedto"
+        elif split and merged:
             rel = "inexact"
         elif split:
             rel = "narrower"
@@ -176,21 +181,29 @@ def parse_nhi_lab_loinc(path: Path) -> Iterator[dict[str, Any]]:
     """The NHIA ConceptMap ``nhi-loinc``: NHI 醫療服務給付項目 (lab order) code -> LOINC, every target as a row with
     its equivalence (``relatedto`` throughout 1.3.0: candidates, not equivalents). LOINC codes only: a LOINC display
     in a later release is never copied (LOINC text stays under the LOINC licence). An R5 ``relationship`` is turned
-    into the R4 equivalence; an unknown one, or an element without a code, refuses the package."""
+    into the R4 equivalence; an unknown one, or an element without a code, refuses the package. A target that says
+    no match (``unmatched``, ``disjoint``, R5 ``not-related-to``) is skipped: it maps nothing. Only groups whose source
+    is the NHI service code system are read; a package with none is refused (site set-up asks that system)."""
     pkg, cm = _pas_package(path)
     if str(pkg.get("license", "")).upper() != "CC0-1.0":
         raise ValueError(f"the NHI PAS package's licence is {pkg.get('license')!r}, not CC0-1.0: do not ship")
     seen: set[tuple[str, str]] = set()
-    groups = [g for g in cm.get("group") or [] if g.get("target") == LOINC]
+    groups = [
+        g for g in cm.get("group") or [] if g.get("target") == LOINC and (g.get("source") or NHI_SERVICE) == NHI_SERVICE
+    ]
     if not groups:
-        raise ValueError(f"{path.name}: the ConceptMap has no group with target {LOINC}")
+        raise ValueError(f"{path.name}: the ConceptMap has no group from {NHI_SERVICE} to {LOINC}")
+    system = NHI_SERVICE
     for g in groups:
-        system = g.get("source") or NHI_SERVICE
         for e in g.get("element") or []:
+            if not e.get("code"):
+                raise ValueError(f"{path.name}: an element without a code: {e!r}")
             for t in e.get("target") or []:
-                if not e.get("code") or not t.get("code"):
-                    raise ValueError(f"{path.name}: an element or target without a code: {e!r}")
                 rel = t.get("equivalence") or R5_TO_R4.get(str(t.get("relationship") or ""), "")
+                if rel in ("unmatched", "disjoint"):
+                    continue  # no match: nothing to map
+                if not t.get("code"):
+                    raise ValueError(f"{path.name}: {e['code']}: a target without a code: {t!r}")
                 if rel not in RELATIONS:
                     raise ValueError(f"{path.name}: {e['code']} -> {t['code']}: unknown relation {t!r}")
                 key = (str(e["code"]), str(t["code"]))

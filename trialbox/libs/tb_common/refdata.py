@@ -53,6 +53,7 @@ import gzip
 import hashlib
 import io
 import json
+import logging
 import os
 import re
 import shutil
@@ -67,6 +68,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 FORMAT = "trialbox-refdata/1"
 KINDS = ("ctgov", "trial", "term", "map", "synonym")
@@ -637,20 +640,38 @@ def shared(url: str | None = None) -> RefStore | None:
     return st
 
 
+def _drop_shared(st: RefStore) -> None:
+    """A shared store whose query failed (the database restarted, the connection dropped): close it and forget it,
+    so the next lookup after the 60 s pause opens a new one instead of failing for the life of the process."""
+    for url, cur in list(_SHARED.items()):
+        if cur is st:
+            _SHARED.pop(url, None)
+            _FAILED[url] = time.monotonic()
+            log.warning("reference data store query failed; reconnecting later")
+    with suppress(Exception):
+        st.close()
+
+
 def map_targets_or_empty(source_system: str, code: str, url: str | None = None) -> list[dict[str, Any]]:
     """:meth:`RefStore.map_targets`, or [] when nothing is loaded or the database is not reachable."""
     st = shared(url)
+    if st is None:
+        return []
     try:
-        return st.map_targets(source_system, code) if st else []
+        return st.map_targets(source_system, code)
     except Exception:
+        _drop_shared(st)
         return []
 
 
 def synonyms_or_empty(term: str, domain: str = "", url: str | None = None) -> list[dict[str, Any]]:
     st = shared(url)
+    if st is None:
+        return []
     try:
-        return st.synonyms(term, domain) if st else []
+        return st.synonyms(term, domain)
     except Exception:
+        _drop_shared(st)
         return []
 
 
@@ -667,7 +688,11 @@ YES_RELATIONS = ("equivalent", "equal", "wider", "subsumes")  # the target holds
 NO_RELATIONS = ("equivalent", "equal", "narrower", "specializes")  # the targets together hold all of it
 
 
-def in_set_via_map(targets: Iterable[dict[str, Any]], wanted: set[tuple[str, str]]) -> str:
+def in_set_via_map(
+    targets: Iterable[dict[str, Any]],
+    wanted: set[tuple[str, str]],
+    families: Iterable[tuple[str, str]] = (),
+) -> str:
     """Whether a code read through a map (e.g. a TW 2014 ICD-10-CM code from an old record) is in a code list of
     exact ``(system, code)`` pairs (a prefix family is not expanded here). Unknown never excludes:
 
@@ -676,17 +701,32 @@ def in_set_via_map(targets: Iterable[dict[str, Any]], wanted: set[tuple[str, str
     * ``no`` only when every target is equivalent, equal, narrower or specializes (together they cover the source)
       and none is in the list;
     * ``unknown`` otherwise: some targets in and some out (a split), an inexact or relatedto row (candidates, not
-      meanings), or no row at all. ``unmatched`` rows are dropped first."""
+      meanings), or no row at all. ``unmatched`` rows are dropped first.
+
+    ``families`` are the list's ``(system, code prefix)`` groupers (``MappingResult.families``): a target under one
+    is inside. A list in another code system than every target (the HL7 ICD-10-CM URI against the TW 2023 system)
+    cannot say "no": the answer is then ``yes`` or ``unknown``, never ``no``."""
     rows = [t for t in targets if t.get("relation") != "unmatched"]
     if not rows:
         return "unknown"
-    inside = [(t["target_system"], t["target_code"]) in wanted for t in rows]
+    fams = [(sy, pre) for sy, pre in families if pre]
+
+    def is_in(t: dict[str, Any]) -> bool:
+        sy, code = t["target_system"], t["target_code"]
+        return (sy, code) in wanted or any(sy == fs and code.startswith(pre) for fs, pre in fams)
+
+    inside = [is_in(t) for t in rows]
+    systems = {sy for sy, _ in wanted} | {sy for sy, _ in fams}
     if any(i and t.get("relation") in YES_RELATIONS for i, t in zip(inside, rows, strict=True)):
         return "yes"
     if all(inside) and all(t.get("relation") in NO_RELATIONS for t in rows):
         return "yes"  # a split whose every part is in the list (2014 I10 against I10 and I16.0 / .1 / .9)
-    if not any(inside) and all(t.get("relation") in NO_RELATIONS for t in rows):
-        return "no"
+    if (
+        not any(inside)
+        and all(t.get("relation") in NO_RELATIONS for t in rows)
+        and all(t["target_system"] in systems for t in rows)
+    ):
+        return "no"  # only when the list speaks the targets' code system
     return "unknown"
 
 

@@ -191,7 +191,14 @@ class Terminology:
 
         # 1. exact display-name match on the concept name itself
         hits = exact([primary])
+        trusted: list[dict[str, Any]] | None = None
         if hits:
+            # a trusted dictionary entry whose canonical name holds the exact hit and more wins: 心衰竭 is the
+            # display of I50.9 but means heart failure, the whole I50 family (D-172)
+            trusted, other = self._dictionary(name, domain, primary)
+            wide = self._via(name, domain, trusted, grouped, exact, "synonym", False)
+            if wide is not None and {c.code for c in hits} < {c.code for c in wide.concepts}:
+                return wide
             return MappingResult(name, domain, _dedupe(hits), "exact", False)
         # 2. curated synonym/grouper table on the name — a grouper such as "urate-lowering therapy" must win over
         #    exact matches of individual example drugs
@@ -201,7 +208,8 @@ class Terminology:
         # 2a. the loaded synonym dictionary (D-172), trusted entries only: TrialBox's curated rows that are not
         #     ambiguous (類風濕關節炎 -> rheumatoid arthritis, GPT -> alt), then the curated table and the exact names
         #     on their canonical names. Such a match is a curated synonym: no review.
-        trusted, other = self._dictionary(name, domain, primary)
+        if trusted is None:
+            trusted, other = self._dictionary(name, domain, primary)
         found = self._via(name, domain, trusted, grouped, exact, "synonym", False)
         if found is not None:
             return found

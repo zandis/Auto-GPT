@@ -113,6 +113,12 @@ def test_fetch_refuses_a_changed_licence_or_a_pinned_file_that_changed(monkeypat
         rf.fetch(["naer_medical_terms"], tmp_path)
     with pytest.raises(SystemExit, match="pinned to sha256"):
         rf.fetch(["nhi_lab_loinc"], tmp_path)  # the 1.3.0 package's sha256 is pinned
+    monkeypatch.setattr(rf, "dataset_meta", lambda url: {})  # the dataset API did not answer
+    with pytest.raises(SystemExit, match="did not answer"):
+        rf.fetch(["naer_medical_terms"], tmp_path)
+    rf.fetch(["naer_medical_terms"], tmp_path, licence_check=False)  # explicit: recorded as skipped
+    naer = json.loads((tmp_path / "naer_medical_terms/fetch.json").read_text())
+    assert naer["licence_check"] == {"skipped": "--no-licence-check"}
 
 
 # ------------------------------------------------------------------------------------------------ build checks
@@ -200,7 +206,8 @@ def test_icd_2014_2023_relations(tmp_path: Path) -> None:
     assert rel[("A00.0", "A00.0")] == "equivalent" and rel[("M10.9", "M10.9")] == "equivalent"
     assert rel[("A04.7", "A04.71")] == rel[("A04.7", "A04.72")] == "narrower"  # one 2014 code split in two
     assert {rel[("I10", c)] for c in ("I10", "I16.0", "I16.1", "I16.9")} == {"narrower"}
-    assert rel[("B18.1", "B18.1")] == rel[("Z22.51", "B18.1")] == "wider"  # two 2014 codes merged into one
+    assert rel[("B18.1", "B18.1")] == "equivalent"  # NHIA's later added mapping does not make it a merge
+    assert rel[("Z22.51", "B18.1")] == "relatedto"  # 增列對應: carrier -> chronic hepatitis B is a candidate only
     assert rel[("P83.8", "P83.88")] == "inexact" and rel[("T84.040A", "M97.01XA")] == "inexact"
     a047 = next(r for r in rows if r["source_code"] == "A04.7")
     assert a047["extra"]["status_2014"] == "2014代碼改為不可用" and a047["extra"]["target_zh"].startswith("艱難梭菌")
@@ -241,6 +248,14 @@ def test_a_later_ig_with_r5_relationships_and_loinc_names(tmp_path: Path) -> Non
     pkg = _pas_with_target(tmp_path / "c", {"display": "no code"})
     with pytest.raises(ValueError, match="without a code"):
         list(tw.parse_nhi_lab_loinc(pkg))
+    pkg = _pas_with_target(tmp_path / "d", {"equivalence": "unmatched"})  # R4 no-match: skipped, not refused
+    assert list(tw.parse_nhi_lab_loinc(pkg)) == []
+    pkg = _pas_with_target(tmp_path / "e", {"code": "2160-0", "equivalence": "relatedto"})
+    cm = json.loads((pkg / "ConceptMap-nhi-loinc.json").read_text(encoding="utf-8"))
+    cm["group"][0]["source"] = "urn:other"
+    (pkg / "ConceptMap-nhi-loinc.json").write_text(json.dumps(cm), encoding="utf-8")
+    with pytest.raises(ValueError, match="no group from"):  # site set-up asks the NHI system: refuse, not 0 rows
+        list(tw.parse_nhi_lab_loinc(pkg))
 
 
 def test_synonyms_naer_split_and_curated_flag() -> None:
@@ -258,6 +273,27 @@ def test_every_curated_synonym_resolves_in_its_domain() -> None:
     dead = [(r["term"], r["canonical"]) for r in tw.parse_zh_tw_synonyms(tw.REPO_SYNONYMS)
             if t.map(r["domain"], r["canonical"]).method not in ("exact", "synonym")]  # fmt: skip
     assert dead == []
+
+
+def test_every_trusted_synonym_term_maps_like_its_canonical_name() -> None:
+    """The term itself, through the dictionary, gets the canonical name's codes: an exact display hit on one code
+    (心衰竭 = I50.9) must not hide the canonical grouper (heart failure = the I50 family)."""
+    rows = list(tw.parse_zh_tw_synonyms(tw.REPO_SYNONYMS))
+
+    def lookup(term: str, domain: str = "") -> list[dict[str, object]]:
+        n = rd.norm_name(term)
+        return [{**r, "source_id": "tw_zh_synonyms"} for r in rows
+                if rd.norm_name(r["term"]) == n and (not domain or r["domain"] == domain)]  # fmt: skip
+
+    t, plain = Terminology(name_synonyms=lookup), Terminology()
+    off = []
+    for r in rows:
+        if not r["curated"]:
+            continue
+        got, want = t.map(r["domain"], r["term"]), plain.map(r["domain"], r["canonical"])
+        if {c.code for c in got.concepts} != {c.code for c in want.concepts} or got.needs_review:
+            off.append((r["term"], got.method, len(got.concepts), len(want.concepts)))
+    assert off == []
 
 
 def test_roc_dates() -> None:
@@ -327,6 +363,18 @@ def test_in_set_via_map_per_relation(rows: list[dict[str, str]], want_in: str, w
     assert rd.in_set_via_map(rows, {("s", "Z")}) == want_out
 
 
+def test_in_set_via_map_never_says_no_across_systems_or_families() -> None:
+    eq = [{"target_system": tw.ICD_CM_2023, "target_code": "E11.9", "relation": "equivalent"}]
+    hl7 = "http://hl7.org/fhir/sid/icd-10-cm"
+    # a list in another code system cannot rule the code out
+    assert rd.in_set_via_map(eq, {(hl7, "E11.9")}) == "unknown"
+    assert rd.in_set_via_map(eq, set(), families=[(hl7, "E11")]) == "unknown"
+    # a prefix family in the targets' system holds the code
+    assert rd.in_set_via_map(eq, set(), families=[(tw.ICD_CM_2023, "E11")]) == "yes"
+    assert rd.in_set_via_map(eq, set(), families=[(tw.ICD_CM_2023, "E10")]) == "no"
+    assert rd.in_set_via_map(eq, {(tw.ICD_CM_2023, "I10")}, families=[(tw.ICD_CM_2023, "E11")]) == "yes"
+
+
 def test_a_bad_relation_is_refused() -> None:
     with pytest.raises(rd.PackError, match="relation"):
         rd.map_row({"source_system": "a", "source_code": "1", "target_system": "b", "target_code": "2",
@@ -389,6 +437,7 @@ def test_site_setup_suggests_from_the_taiwan_maps(loaded: str, monkeypatch: pyte
     moved = sm.suggest("condition", sm.local_system("dx-code"), "P83.8")  # gone in 2023, one new code
     assert moved["code"] == "P83.88" and moved["method"] == "refdata"
     assert sm.suggest("condition", sm.local_system("dx-code"), "A04.7") == {}  # split: the coordinator picks
+    assert sm.suggest("condition", sm.local_system("dx-code"), "Z22.51") == {}  # NHIA's added mapping: no pick
     assert sm.suggest("condition", sm.local_system("dx-code"), "I10")["method"] == "same"  # still a 2023 code
 
 

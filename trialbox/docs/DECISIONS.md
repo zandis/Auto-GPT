@@ -3697,7 +3697,9 @@ authority's answer in both countries. WS-06.7 and WS-16.4 of TB-PLAN-05 now leav
 
 **D-170 Reference data items: one registry with version and sha256, and the NHI drug code -> ATC map.** WS-08.8,
 builds on D-140; 2026-11-09. Built in a cloud container with network access through a proxy; tests on committed
-excerpts only. Revised after the independent review of the same day (findings H2, H3, M3, M6, L4, L6).
+excerpts only. Revised after the independent review of the same day (findings H2, H3, M3, M6, L4, L6). Revised
+again on 2026-11-10 after a second independent review (the map check, the matcher order, the PAS and ICD parsers,
+the licence read, the shared store).
 
 1. *One registry of items.* Every reference data source is one `tb_common.refdata.Item` (the old
    `tools/refdata_fetch.py` `Source` is now this class): name, kind, distribution (ship, site-fetch, not usable),
@@ -3721,17 +3723,21 @@ excerpts only. Revised after the independent review of the same day (findings H2
    URL's file differs from its pin (the PAS 1.3.0 package; a sample build skips only the pin). A parser that finds
    no rows or misses a required column raises; `build` refuses an item with 0 records. For a data.gov.tw item,
    `fetch` reads the dataset API, keeps its answer (`licence_check`) in `fetch.json` as evidence, and stops when
-   the `license` field is not 1 (OGDL 1.0).
+   the `license` field is not 1 (OGDL 1.0) or the API does not answer (`--no-licence-check` skips the read and
+   records that in `fetch.json`). A `meta_url` outside data.gov.tw is refused until a reader for it is added.
 4. *Store.* Schema `refdata` version 2 (`DDL_V2`): `source` gains `version` and `download_sha256`; new tables
    `concept_map` (indexed both ways) and `synonym` (indexed on the matcher's normal form, NFKC and lower case).
    Queries: `map_targets`, `map_sources`, `synonyms`. A box at version 1 migrates in place; its old rows keep an
    empty version and sha256 (tested). Lookups made often use one shared store per process (`refdata.shared`); a
-   database that does not answer is not retried for 60 s.
+   database that does not answer is not retried for 60 s; a shared store whose query fails is closed and reopened
+   after that pause.
 5. *`in_set_via_map`* (a code read through a map against a list of exact codes; unknown never excludes): `yes` when
    a target that holds the whole meaning (equivalent, equal, wider, subsumes) is in the list, or every target of a
    split (narrower, specializes) is; `no` only when every target is equivalent, equal, narrower or specializes and
    none is in the list; `unknown` otherwise, so inexact and relatedto rows never decide; `unmatched` rows are
-   dropped first. Prefix families are not expanded here. Not called by ingest yet.
+   dropped first. The list's prefix families (`MappingResult.families`) count as inside; a list in
+   another code system than the targets (the HL7 ICD-10-CM URI against the TW 2023 system) never gives `no`. Not
+   called by ingest yet.
 6. *Offline.* Only `tools/refdata_fetch.py fetch` downloads. The box reads the pack loaded from the signed update
    bundle; the matcher and site set-up read the trial database.
 7. *NHI drug code -> ATC* (`nhi_drug_atc`, kind map, ship). Read from the `nhi_drugs` download (健保用藥品項查詢項目檔,
@@ -3761,7 +3767,10 @@ after the independent review (H3, M4, L2, L3).
    `urn:tw:nhi:icd-10-cm-2014` -> `urn:tw:nhi:icd-10-cm-2023` (the system of `tw_icd10_zh`), PCS likewise; the
    reverse direction is `map_sources`. Relation: same code, one target and one source `equivalent`; a 2014 code split
    into several 2023 codes `narrower`; several 2014 codes merged `wider`; both, or a one-to-one change of code,
-   `inexact`. The 2014 and 2023 status, the zh names and the revision note go in `extra`. Real files today: CM
+   `inexact`. A mapping NHIA added later for a deleted code (修訂日期 "增列對應", e.g. Z22.51 carrier -> B18.1
+   chronic hepatitis B) is `relatedto` and does not make the other rows a merge (B18.1 -> B18.1 stays
+   `equivalent`); site set-up does not suggest it. The 2014 and 2023 status, the zh names and the revision note go
+   in `extra`. Real files today: CM
    74,872 rows -> 74,863 pairs (67,637 equivalent, 5,613 narrower, 236 wider, 1,377 inexact); PCS 79,062 rows ->
    77,892 pairs; 3.5 MB in the pack. Note: 2014 I10 maps to 2023 I10 and I16.0 / I16.1 / I16.9, so a 2014 I10 read
    against a list holding only I10 is unknown, not yes.
@@ -3777,7 +3786,9 @@ after the independent review (H3, M4, L2, L3).
    release is never copied. The terms say the package is CC0 and the LOINC codes stay under the LOINC licence; the
    attribution carries the LOINC notice; the version names the LOINC version the map states
    (`tw.gov.mohw.nhi.pas 1.3.0, ConceptMap nhi-loinc 1.3.0, LOINC 2.77`). An R5 `relationship` is turned into the R4
-   equivalence; an unknown relation or an element without a code refuses the package. Site set-up suggests a LOINC
+   equivalence; an unknown relation or an element without a code refuses the package; a no-match
+   target (`unmatched`, `disjoint`) is skipped; only groups from the NHI service code system are read, and a package
+   without one is refused. Site set-up suggests a LOINC
    code when the NHI code has one target (0.90), or, at 0.80, when exactly one of several targets is in TrialBox's
    curated lab table (09015C -> 2160-0; that reflects what TrialBox knows, not the hospital's specimen or method, and
    a person confirms); otherwise none.
@@ -3799,7 +3810,8 @@ after the independent review (H3, M4, L2, L3).
    dictionary's trusted entries (curated, not marked for review) -> the curated table, then the exact names, on
    their canonical names: method `synonym`, no review; the curated table and the exact names on the model's
    synonyms (as before); **2c** the dictionary's other entries (NAER, ambiguous abbreviations): method `dictionary`,
-   always `needs_review`; then the LLM. So a NAER sense never pre-empts what the model's synonyms resolve (發作 with
+   always `needs_review`; then the LLM. When the exact name hits (心衰竭 is the display of I50.9) and a trusted
+   entry's canonical name gives those codes and more (heart failure, the I50 family), the trusted entry wins. So a NAER sense never pre-empts what the model's synonyms resolve (發作 with
    the model's "gout" stays gout, not stroke), and a trusted entry that resolves nothing does not hide the others.
    The note names the sources. The criteria compiler service wires `refdata.synonym_lookup()`; every other
    `Terminology()` is unchanged. No database or no pack: the steps are skipped. The lookup does not filter by

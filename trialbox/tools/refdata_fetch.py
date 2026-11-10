@@ -326,7 +326,9 @@ def fetch_parts(s: Source, dest: Path, file: Path | None) -> dict[str, Any]:
     return _joined(s.url, parts)
 
 
-def fetch(ids: list[str], raw: Path, file: Path | None = None, slice_n: int = 0) -> list[str]:
+def fetch(
+    ids: list[str], raw: Path, file: Path | None = None, slice_n: int = 0, licence_check: bool = True
+) -> list[str]:
     """Download each item into ``raw/<id>/`` with ``fetch.json`` (URL, date, sha256, bytes, version). The only
     place that reaches the network: the box reads the built pack from the update bundle."""
     done = []
@@ -361,14 +363,21 @@ def fetch(ids: list[str], raw: Path, file: Path | None = None, slice_n: int = 0)
         for item in (s, *(c for c in SOURCES if c.derived_from == sid)):
             if not item.meta_url:
                 continue
-            dm = dataset_meta(item.meta_url)
-            if dm and dm.get("license") != OGDL_LICENSE_ID:
+            if not item.meta_url.startswith("https://data.gov.tw/"):
+                raise SystemExit(f"{item.id}: no reader for the dataset API {item.meta_url}: add one before fetching")
+            dm = dataset_meta(item.meta_url) if licence_check else {"skipped": "--no-licence-check"}
+            if not dm:
+                raise SystemExit(
+                    f"{item.id}: the data.gov.tw dataset API did not answer, so its licence could not be read; "
+                    "retry, or pass --no-licence-check after reading the terms by hand"
+                )
+            if licence_check and dm.get("license") != OGDL_LICENSE_ID:
                 raise SystemExit(
                     f"{item.id}: data.gov.tw now gives licence {dm.get('license')!r}, not "
                     f"{OGDL_LICENSE_ID} (OGDL 1.0): read the terms before shipping"
                 )
             if item is s:
-                meta.update({"version": dm.get("version", ""), "licence_check": dm} if dm else {})
+                meta.update({"version": dm.get("version", ""), "licence_check": dm})
             else:
                 meta.setdefault("versions", {})[item.id] = dm.get("version", "")
         (raw / sid / "fetch.json").write_text(json.dumps({**meta, "path": dest.name}, indent=1), encoding="utf-8")
@@ -789,6 +798,8 @@ def main(argv: list[str] | None = None) -> int:
     f.add_argument("--raw", type=Path, default=ROOT / ".cache" / "refdata" / "raw")
     f.add_argument("--file", type=Path, help="an account download (LOINC, the NHIA workbook) instead of the URL")
     f.add_argument("--slice", type=int, default=0, help="ctgov only: one API page of N studies with JP/TW sites")
+    f.add_argument("--no-licence-check", action="store_true",
+                   help="data.gov.tw items: do not read the dataset API (recorded in fetch.json as skipped)")  # fmt: skip
     b = sub.add_parser("build")
     b.add_argument("--raw", type=Path, default=ROOT / ".cache" / "refdata" / "raw")
     b.add_argument("--out", type=Path, default=ROOT / ".cache" / "refdata")
@@ -804,7 +815,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "sources":
         print(table_md(), end="")
     elif a.cmd == "fetch":
-        for line in fetch(a.ids, a.raw, a.file, a.slice):
+        for line in fetch(a.ids, a.raw, a.file, a.slice, not a.no_licence_check):
             print(line)
     elif a.cmd == "build":
         print(build(a.raw, a.out, a.date, a.ids))
