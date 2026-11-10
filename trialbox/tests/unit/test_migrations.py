@@ -360,6 +360,8 @@ def store_migrations() -> dict[str, list[str]]:
 ADDED: dict[str, tuple[str, ...]] = {
     # D-317: refdata version 3, the record of withdrawn sources
     "refdata": ("9e976b5878b8d5a8d1a89e417b61450471874a0e1122e43764d755d11662af83",),
+    # D-279: users.must_change, login_failures.source, sessions.via
+    "auth": ("44f1f94e5797899b13e8b807b4b20ace62bd584cf226dd4e207cf500b466deb6",),
     # D-301: migration 3, the one-million block and the vocabulary tables
     "omop": ("0eec88a07c4476ca00fdfb2e8fc414fb2257a293e381d8115a668fa7df0dc6f9",),
 }

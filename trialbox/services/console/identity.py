@@ -4,7 +4,11 @@ recovery actions and the TLS settings check.
 * **Local accounts sign in with a password and a TOTP code** (RFC 6238, ``console.totp``). It is the default:
   ``TB_CONSOLE_MFA`` is ``totp`` unless ``TB_ENV`` is DEV or TEST, and ``off`` is refused in PRODUCTION. An account
   without an authenticator enrols one at its first sign-in (after its password). A wrong or replayed code counts as a
-  failed sign-in; five in 15 minutes lock the account (``console.auth``).
+  failed sign-in; five in 15 minutes from one address lock the account from that address (``console.auth``, D-279).
+* **A password someone else set** (an administrator's new account or reset) is replaced by its owner before anything
+  else: the sign-in lands on ``/account`` and every other page and API call is refused (D-279, SEC-1).
+* **Step-up at signing** (D-279, SEC-1 P-2): with TOTP on, an electronic signature needs the password *and* a fresh
+  code (:meth:`Identity.step_up`); a wrong code counts as a failed sign-in.
 * **Recovery**: an administrator resets another account's authenticator (lost phone) or lifts a lock on
   ``/ops/identity`` or with ``console.cli reset-totp|unlock``; both are audited and sign the account out.
 * **OIDC** through the hospital's Authelia (``console.oidc``), off by default (``TB_OIDC_ENABLED``). Roles come only
@@ -33,7 +37,7 @@ from fastapi.responses import RedirectResponse
 from tb_common.audit import AuditLog
 
 from console import totp
-from console.auth import MAX_FAILURES, AuthError, Session, User, UserStore
+from console.auth import MAX_FAILURES, AuthError, Session, User, UserStore, source_of
 from console.i18n import EN, JA, ZH
 from console.oidc import OidcClient, OidcConfigError, OidcError, OidcSettings
 
@@ -41,6 +45,16 @@ MFA_COOKIE = "tb_console_mfa"
 OIDC_COOKIE = "tb_console_oidc"
 MFA_MODES = ("totp", "off")
 TLS_MODES = ("internal", "hospital")
+
+
+def client_source(request: Request) -> str:
+    """The address a sign-in try is counted under (D-279). Behind Caddy this is the browser's address only when
+    uvicorn trusts the proxy (``TB_CONSOLE_FORWARDED_ALLOW_IPS``); otherwise every try shares the proxy's address."""
+    return source_of(request.client.host if request.client else None)
+
+
+#: the pages an account with a password someone else set may still open (D-279): its own password page and sign-out
+MUST_CHANGE_OPEN = frozenset({"/account", "/account/password", "/logout", "/lang"})
 
 
 class IdentityConfigError(RuntimeError):
@@ -65,6 +79,7 @@ class IdentitySettings:
     mfa: str = "totp"
     idle: timedelta = timedelta(minutes=10)
     absolute: timedelta = timedelta(hours=8)
+    oidc_absolute: timedelta = timedelta(minutes=60)  # D-279 (CR-117): the directory is asked again after this
     totp_key_file: Path = Path("/data/console/totp.key")
     totp_issuer: str = "TrialBox"
     oidc: OidcSettings = field(default_factory=OidcSettings)
@@ -90,6 +105,7 @@ class IdentitySettings:
             mfa=mfa,
             idle=timedelta(minutes=_int_in(env, "TB_CONSOLE_IDLE_MINUTES", 10, 1, 60)),
             absolute=timedelta(hours=_int_in(env, "TB_CONSOLE_SESSION_HOURS", 8, 1, 12)),
+            oidc_absolute=timedelta(minutes=_int_in(env, "TB_OIDC_SESSION_MINUTES", 60, 5, 480)),
             totp_key_file=Path(key) if key else data_dir / "totp.key",
             totp_issuer=(env.get("TB_CONSOLE_TOTP_ISSUER") or "TrialBox").strip()[:40] or "TrialBox",
             oidc=oidc,
@@ -211,6 +227,7 @@ class Identity:
 
     def __post_init__(self) -> None:
         self.box = totp.SecretBox(self.settings.totp_key_file)
+        self.users.oidc_absolute = self.settings.oidc_absolute  # D-279 (CR-117): the directory session's lifetime
         if self.settings.oidc.enabled and self.oidc_client is None:
             self.oidc_client = OidcClient(self.settings.oidc)
 
@@ -229,19 +246,51 @@ class Identity:
         resp.set_cookie(MFA_COOKIE, token, httponly=True, samesite="strict", secure=self.secure, max_age=600)
         return resp
 
-    def after_failure(self, username: str) -> None:
-        """Audit the failure that locks an account (the alert the IT pack asks for), once per lock: further tries
-        while it is locked are audited as failed sign-ins only. Unknown names lock the same way."""
+    def after_failure(self, username: str, source: str = "") -> None:
+        """Audit the failure that locks an account from an address (the alert the IT pack asks for), once per lock:
+        further tries while it is locked are audited as failed sign-ins only. Unknown names lock the same way. The
+        address is in the event, so the administrator sees whether one machine or many are guessing (D-279)."""
         u = username.strip().lower()[:64]
-        until = self.users.locked_until(u)
-        if until is None or self._announced.get(u) == until:
+        until = self.users.locked_until(u, source)
+        key = f"{u} {source}"
+        if until is None or self._announced.get(key) == until:
             return
-        self._announced[u] = until
+        if len(self._announced) > 10_000:  # bounded: an address spraying names cannot grow it without end
+            self._announced.clear()
+        self._announced[key] = until
         self.audit.append(
             "console.lockout",
             actor=f"console:{u[:32] or '-'}",
-            detail={"failures": MAX_FAILURES, "until": until.isoformat(timespec="seconds")},
+            detail={"failures": MAX_FAILURES, "until": until.isoformat(timespec="seconds"), "source": source},
         )
+
+    def step_up(self, username: str, code: str, source: str = "") -> str:
+        """The second signature component (21 CFR 11.200(a); D-279, SEC-1 P-2): with TOTP on, a fresh code from the
+        signer's authenticator, checked like the sign-in step (replay guard; a wrong code counts as a failure).
+        ``""`` when it passes or TOTP is off; otherwise the reason: ``"wrong"``, ``"replay"``, ``"none"`` (no
+        authenticator), ``"locked"`` or ``"key"`` (the key file does not open the secret: a refusal, never a pass)."""
+        if not self.settings.totp_required:
+            return ""
+        if self.users.locked(username, source):
+            return "locked"
+        sealed, last = self.users.totp_state(username)
+        if sealed is None:
+            return "none"
+        try:
+            secret = self.box.open(username, sealed)
+        except (InvalidTag, ValueError):
+            return "key"
+        typed = (code or "")[:32]
+        step = totp.verify(secret, typed, self.now(), last)
+        reason = ""
+        if step is None:
+            reason = "replay" if totp.verify(secret, typed, self.now(), None) is not None else "wrong"
+        elif not self.users.use_step(username, step):
+            reason = "replay"
+        if reason:
+            self.users.record_failure(username, source)
+            self.after_failure(username, source)
+        return reason
 
     def logout_target(self, username: str) -> str:
         if self.oidc_enabled and self.settings.oidc.logout_url and self.users.is_oidc(username):
@@ -260,12 +309,12 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
         resp.delete_cookie(name, httponly=True, samesite="strict", secure=h.secure)
 
     def _signed_in(user: User, lang: str, via: str) -> str:
-        token, _ = us.new_session(user, lang)
+        token, _ = us.new_session(user, lang, via)
         au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role, "via": via})
         return token
 
     def _locked_page(request: Request, username: str) -> Response:
-        until = us.locked_until(username)
+        until = us.locked_until(username, client_source(request))
         left = max(1, -(-int((until - us.clock()).total_seconds()) // 60)) if until else 0
         resp = h.login_page(
             request, 401, failed=True, uninitialised=False, until=until.isoformat() if until else "", left=left
@@ -323,7 +372,8 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
         username, csrf, sealed_enrol = pending
         if not mfa_csrf or not secrets.compare_digest(csrf.encode(), mfa_csrf.encode()):
             raise h.problem(400, "csrf")
-        if us.locked(username):
+        src = client_source(request)
+        if us.locked(username, src):
             us.drop_pending(token)
             return _locked_page(request, username)
         sealed, last = us.totp_state(username)
@@ -354,22 +404,23 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
             elif not us.use_step(username, step):
                 reason = "replay"  # the same code in two tabs at once: one wins
         if reason:
-            us.record_failure(username)
+            us.record_failure(username, src)
             au.append("console.login_failed", actor=f"console:{username}", detail={"factor": "totp", "reason": reason})
-            ident.after_failure(username)
-            if us.locked(username):
+            ident.after_failure(username, src)
+            if us.locked(username, src):
                 us.drop_pending(token)
                 return _locked_page(request, username)
             return _code_form(request, username, csrf, sealed_enrol if enrolling else None, failed=reason, status=401)
         us.drop_pending(token)
-        us.clear_failures(username)
+        us.clear_failures(username, src)
         user = us.get(username)
         if user is None:  # disabled or expired between the two steps
             resp = h.login_page(request, 401, failed=True, uninitialised=False)
             _clear(resp, MFA_COOKIE)
             return resp
         session_token = _signed_in(user, h.lang_of(request, None), "password+totp")
-        done = RedirectResponse(h.home, status_code=303)
+        # D-279: a password someone else set is replaced first
+        done = RedirectResponse("/account" if us.must_change(user.username) else h.home, status_code=303)
         done.set_cookie(h.session_cookie, session_token, httponly=True, samesite="strict", secure=h.secure)
         _clear(done, MFA_COOKIE)
         return done
@@ -443,7 +494,7 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
         rows = []
         for u in us.users():
             sealed, _ = us.totp_state(u.username)
-            until = us.locked_until(u.username)
+            until = us.locked_until(u.username, None)  # from any address (D-279)
             idp = us.is_sso(u.username)
             live, _why = us.enrol_state(u.username)
             rows.append(
