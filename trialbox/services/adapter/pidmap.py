@@ -6,6 +6,10 @@ is TPM-sealed on the appliance (DECISIONS D-10). Used solely to render MRNs into
 The rows live in schema ``pidmap`` of the trial database (D-126). Each map is the one of its key file (one per
 secrets directory, so one per site): rows carry ``key_id``, a one-way fingerprint of the key, so maps under different
 keys never mix and every service that mounts the same secrets reads the same map.
+
+Chart numbers are written the site's way before they are hashed or stored (:func:`pseudonym`, ``tb_common.chartno``,
+R-48, D-301): a sheet's ``123456`` and the feed's ``00123456`` are one patient under a ``digits:8`` rule. Under the
+default rule a chart number already written the hospital's way is stored and hashed exactly as before.
 """
 
 from __future__ import annotations
@@ -16,7 +20,8 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 
-from tb_common.crypto import aes_decrypt, aes_encrypt, load_or_create_key
+from tb_common import chartno
+from tb_common.crypto import aes_decrypt, aes_encrypt, load_or_create_key, pid_for_mrn
 from tb_common.db import ENV as DB_URL_ENV
 from tb_common.db import Database
 
@@ -42,6 +47,12 @@ CREATE TABLE IF NOT EXISTS identity (
 )
 
 
+def pseudonym(site_key: bytes, chart_no: str) -> tuple[str, str]:
+    """``(pid, chart number written the site's way)``: the pair the map stores."""
+    norm = chartno.normalise(None, chart_no)
+    return pid_for_mrn(site_key, norm), norm
+
+
 def key_id(key: bytes) -> str:
     """The map's namespace: a domain-separated SHA-256 of the key (reveals nothing about it)."""
     return hashlib.sha256(b"trialbox pid_map key id\x00" + key).hexdigest()[:32]
@@ -57,11 +68,13 @@ class PidMap:
         self._db.migrate(MIGRATIONS)
 
     def upsert_many(self, pairs: list[tuple[str, str]]) -> int:
+        # one row per pseudonym: two spellings of one chart number (R-48) are one patient; the first is kept
+        pairs = list({pid: (pid, mrn) for pid, mrn in reversed(pairs)}.values())[::-1]
         now = datetime.now(UTC).isoformat(timespec="seconds")
         with self._db.transaction() as tx:
             existing = {r[0] for r in tx.fetchall("SELECT pid FROM pid_map WHERE key_id = ?", (self.key_id,))}
             new = [
-                (self.key_id, pid, aes_encrypt(self.key, mrn.encode(), pid.encode()), now, now)
+                (self.key_id, pid, aes_encrypt(self.key, chartno.normalise(None, mrn).encode(), pid.encode()), now, now)
                 for pid, mrn in pairs
                 if pid not in existing
             ]

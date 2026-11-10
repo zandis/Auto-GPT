@@ -36,7 +36,7 @@ jobs:
     outputs:
       trialbox: ${{ steps.diff.outputs.trialbox }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
       - id: diff
@@ -56,10 +56,10 @@ jobs:
     if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.11.32"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
           enable-cache: true
           cache-dependency-glob: trialbox/uv.lock
       - name: Python environment (uv.lock, exactly)
@@ -77,10 +77,10 @@ jobs:
     if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.11.32"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
           enable-cache: true
           cache-dependency-glob: trialbox/uv.lock
       - run: make venv
@@ -93,15 +93,17 @@ jobs:
     if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.11.32"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
           enable-cache: true
           cache-dependency-glob: trialbox/uv.lock
       - run: make venv
       - name: doclint (the eight documents, links, paths)
         run: .venv/bin/python tools/doclint.py
+      - name: decision numbers (one text per number, every file in the registry; T-002, D-306)
+        run: .venv/bin/python -m tools.decisions_index --check
 
   contracts:
     runs-on: ubuntu-latest
@@ -109,10 +111,10 @@ jobs:
     if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.11.32"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
           enable-cache: true
           cache-dependency-glob: trialbox/uv.lock
       - run: make venv
@@ -125,10 +127,10 @@ jobs:
     if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.11.32"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
           enable-cache: true
           cache-dependency-glob: trialbox/uv.lock
       - run: make venv
@@ -144,20 +146,20 @@ jobs:
     # so pg_dump/pg_restore and the server are one version, as on a developer machine (a postgres:16 service with the
     # runner's newer client tools failed the backup tests on transaction_timeout)
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.11.32"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
           enable-cache: true
           cache-dependency-glob: trialbox/uv.lock
-      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3  # v4.9.1
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78  # v6.2.0
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
           cache-dependency-path: trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
       - run: make venv
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: |
             trialbox/.cache/jvm
@@ -181,20 +183,20 @@ jobs:
     if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.11.32"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
           enable-cache: true
           cache-dependency-glob: trialbox/uv.lock
-      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3  # v4.9.1
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78  # v6.2.0
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
           cache-dependency-path: trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
       - run: make venv
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: |
             trialbox/.cache/jvm
@@ -208,7 +210,7 @@ jobs:
         run: make e2e-simple E2E_DIR="$RUNNER_TEMP/e2e"
       - name: Keep the check list
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: e2e-simple
           path: ${{ runner.temp }}/e2e.json
@@ -220,10 +222,10 @@ jobs:
     if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.11.32"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
           enable-cache: true
           cache-dependency-glob: trialbox/uv.lock
       - run: make venv
@@ -241,10 +243,10 @@ jobs:
     if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
-          version: "0.11.32"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
           enable-cache: true
           cache-dependency-glob: trialbox/uv.lock
       - run: make venv
@@ -257,7 +259,7 @@ jobs:
     if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       # gates on errors; the warnings are listed. 2026-11-09 (D-206): ten warnings in deploy/*.sh are open findings
       - name: shellcheck
         run: |
@@ -271,7 +273,7 @@ jobs:
     timeout-minutes: 15
     # D-206: gating since 2026-11-10; the first findings were triaged as inline ignores with a reason in each Dockerfile
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: hadolint
         run: |
           rc=0
@@ -280,3 +282,85 @@ jobs:
             docker run --rm -i hadolint/hadolint:v2.12.0 hadolint --failure-threshold warning - < "$f" || rc=1
           done
           exit "$rc"
+
+  # T-501 (OPS-001, ROLE-002, ROLE-003, UX-001): the demo image from a fresh checkout (no .cache, no make jvm-deps),
+  # started with no -e flag: /login answers and every seeded account signs in (over plain http here: the Secure cookie
+  # is only a header to the server), within the memory and start-time budget of trialbox/demo/README.md
+  demo-boot:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - name: Build demo/Dockerfile from the fresh checkout
+        run: |
+          test ! -e .cache/jvm
+          DOCKER_BUILDKIT=1 docker build -f demo/Dockerfile -t trialbox-demo:ci .
+      - name: Start it with no -e flag and wait for /login (budget 600 s)
+        run: |
+          docker run -d --name tb-demo -p 8080:8080 trialbox-demo:ci
+          start=$(date +%s)
+          until curl -fsS -o /dev/null http://127.0.0.1:8080/login; do
+            if [ "$(docker inspect -f '{{.State.Running}}' tb-demo)" != true ]; then
+              echo "the container stopped"; docker logs tb-demo 2>&1 | grep -v '^password' | tail -60; exit 1
+            fi
+            if [ $(( $(date +%s) - start )) -gt 600 ]; then echo "no answer on /login within 600 s"; exit 1; fi
+            sleep 5
+          done
+          echo "first answer on /login after $(( $(date +%s) - start )) s" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Peak memory of the demo process (budget 2.5 GB)
+        run: |
+          peak=$(docker exec tb-demo awk '/^VmHWM/ {print $2}' /proc/1/status)
+          echo "peak RSS of the demo process: $(( peak / 1024 )) MB" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$peak" -le 2621440
+      - name: Each seeded account signs in
+        run: |
+          pw=$(docker logs tb-demo 2>&1 | sed -n 's/^password (all accounts): //p')
+          test -n "$pw"
+          echo "::add-mask::$pw"
+          DEMO_PW="$pw" python3 - admin crc pi subpi cra viewer <<'PY'
+          import http.client, os, re, sys, urllib.parse
+
+          def req(method, path, body=None, cookies=None):
+              c = http.client.HTTPConnection("127.0.0.1", 8080, timeout=30)
+              h = {"Cookie": "; ".join(f"{k}={v}" for k, v in (cookies or {}).items())}
+              if body is not None:
+                  h["Content-Type"] = "application/x-www-form-urlencoded"
+              c.request(method, path, body=body, headers=h)
+              r = c.getresponse()
+              text = r.read().decode("utf-8", "replace")
+              jar = {}
+              for k, v in r.getheaders():
+                  if k.lower() == "set-cookie":
+                      name, _, rest = v.partition("=")
+                      jar[name] = rest.split(";", 1)[0]
+              return r.status, {k.lower(): v for k, v in r.getheaders()}, jar, text
+
+          bad = []
+          for user in sys.argv[1:]:
+              st, _, jar, html = req("GET", "/login")
+              tok = re.search(r'name="login_csrf" value="([^"]+)"', html)
+              if st != 200 or not tok:
+                  bad.append((user, "/login", st))
+                  continue
+              form = urllib.parse.urlencode({"username": user, "password": os.environ["DEMO_PW"], "login_csrf": tok.group(1)})
+              st, hdr, jar2, _ = req("POST", "/login", form, jar)
+              session = {k: v for k, v in jar2.items() if v and k not in jar}
+              if st != 303 or not session:
+                  bad.append((user, "sign-in", st))
+                  continue
+              path = hdr.get("location", "/home")
+              for _ in range(4):  # a role's home may redirect (pi to the study week, cra to /reports)
+                  st, h3, _, _ = req("GET", path, cookies=session)
+                  if st not in (302, 303) or h3.get("location", "").startswith("/login"):
+                      break
+                  path = h3["location"]
+              print(f"{user}: signed in, {path} answers {st}")
+              if st != 200:
+                  bad.append((user, path, st))
+          sys.exit(f"sign-in failed: {bad}" if bad else 0)
+          PY
+      - name: The container log (password line left out)
+        if: always()
+        run: docker logs tb-demo 2>&1 | grep -v '^password' | tail -80 || true

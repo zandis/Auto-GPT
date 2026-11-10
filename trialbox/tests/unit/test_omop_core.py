@@ -128,7 +128,7 @@ def test_schema_has_the_cdm_tables_beside_the_extension_tables(db: Any) -> None:
     assert db.schema.endswith("omop")
     assert db.fetchval("SELECT concept_name FROM concept WHERE concept_id = 0") == "No matching concept"
     again = schema.connect(db.url)  # a re-connect migrates nothing
-    assert again.fetchval("SELECT max(version) FROM _schema_version") == 2
+    assert again.fetchval("SELECT max(version) FROM _schema_version") == 3  # D-301 added the vocabulary tables
     again.close()
 
 
@@ -139,7 +139,7 @@ def test_local_concept_block_is_at_least_two_billion(monkeypatch: Any) -> None:
     with pytest.raises(schema.OmopError, match="2,000,000,000"):
         schema.concept_block()
     monkeypatch.setenv("TB_OMOP_CONCEPT_BLOCK", "2140000000")
-    assert schema.concept_block() == (2_140_000_000, schema.INT4_MAX)  # a site block ends at the integer maximum
+    assert schema.concept_block() == (2_140_000_000, 2_140_999_999)  # one million ids per site (D-301)
 
 
 # ------------------------------------------------------------------------------------------------ loader
@@ -468,19 +468,219 @@ def test_every_committed_ruleset_screens_the_same_on_both_lakes(feed_dir: Path, 
 
 
 def test_the_parity_tool_only_touches_its_own_schemas(tmp_path: Path) -> None:
-    """Review H2/H4: a TB_DB_URL with no prefix (a box, CI) must not let the parity run write to, or drop, every
-    schema; the run's prefix is private to its work directory and never empty."""
+    """Review H2/H4, DI-3: the run's prefix is freshly minted (random), never the caller's, never empty, and the URL
+    is built with urlencode (no text appended to a URL without a query string)."""
     from tb_common.db import split_url
 
     from tools import omop_parity as op
     from tools import pglocal
 
     bare = "postgresql://u@localhost/tb"
-    url, prefix = op.private_url(bare, tmp_path / "a")
-    assert prefix.startswith("par") and split_url(url) == ("postgresql://u@localhost/tb", prefix)
-    url2, prefix2 = op.private_url("postgresql://u@h/tb?sslmode=disable&tb_prefix=w1_", tmp_path / "a")
-    assert prefix2 == "w1_" + prefix and split_url(url2)[1] == prefix2 and "sslmode=disable" in url2
-    assert op.private_url(bare, tmp_path / "b")[1] != prefix
-    assert split_url(f"{url}omop0_")[1] == prefix + "omop0_"
+    url, prefix = op.private_url(bare)
+    assert op.PREFIX.fullmatch(prefix) and prefix.startswith("par")
+    assert split_url(url) == ("postgresql://u@localhost/tb", prefix)
+    url2, prefix2 = op.private_url("postgresql://u@h/tb?sslmode=disable&tb_prefix=w1_")
+    assert not prefix2.startswith("w1_") and split_url(url2)[1] == prefix2 and "sslmode=disable" in url2
+    assert op.private_url(bare)[1] != prefix  # random, not derived from a path
+    assert split_url(op.with_prefix(url, prefix + "omop0_"))[1] == prefix + "omop0_"
+    for bad in ("", "Par_", "x; drop", "a-b_"):
+        with pytest.raises(ValueError):
+            op.with_prefix(bare, bad)
     with pytest.raises(ValueError, match="empty prefix"):
         pglocal.drop_prefix(bare, "")
+
+
+# ------------------------------------------------------------------------------------------------ DI-3 (D-271)
+def _caller_schemas(db_url: str) -> set[str]:
+    import psycopg
+    from tb_common.db import split_url
+
+    dsn, prefix = split_url(db_url)
+    with psycopg.connect(dsn, autocommit=True) as con:
+        names = {str(r[0]) for r in con.execute("SELECT nspname FROM pg_namespace")}
+    return {n for n in names if n.startswith((prefix, "par"))}  # the caller's own, and any parity run's
+
+
+def _keep(db_url: str) -> None:
+    """A schema of the caller's, with a row, that a parity run must leave alone."""
+    from tb_common.db import Database
+
+    d = Database.connect(db_url, "keep")
+    d.execute("CREATE TABLE IF NOT EXISTS k (x int)")
+    d.execute("INSERT INTO k VALUES (1)")
+    d.close()
+
+
+def _kept(db_url: str) -> bool:
+    from tb_common.db import Database
+
+    d = Database.connect(db_url, "keep")
+    try:
+        return int(d.fetchval("SELECT count(*) FROM k")) == 1
+    finally:
+        d.close()
+
+
+def _writes_like_the_ingest() -> None:
+    """What ``_ingest`` does through ``pglocal.for_work``: a schema under whatever ``TB_DB_URL`` says."""
+    from tb_common.db import Database
+
+    d = Database.connect(os.environ["TB_DB_URL"], "pidmap")
+    d.execute("CREATE TABLE IF NOT EXISTS m (x int)")
+    d.close()
+
+
+def test_a_parity_run_writes_and_drops_only_its_own_schemas(
+    feed_dir: Path, db_url: str, tmp_path: Path, monkeypatch: Any
+) -> None:
+    """DI-3: the caller's schemas survive a passing run, nothing is written under the caller's prefix, the run's
+    own schemas are gone afterwards and TB_DB_URL is the caller's again."""
+    from tools import omop_parity as op
+
+    _keep(db_url)
+    before = _caller_schemas(db_url)
+
+    def built(work: Path) -> list[Any]:
+        _writes_like_the_ingest()
+        return [op.DataSet("site-a", feed_dir, {}, SNAP, date(2026, 10, 5), "Asia/Taipei")]
+
+    monkeypatch.setattr(op, "BUILDERS", {"x": built}, raising=False)
+    monkeypatch.setattr(op, "RULESETS", [ROOT / "rulesets" / "GOUT-COH"])
+    monkeypatch.setattr(op, "synthetic", built)  # an unfixed run() looks its builders up by these names
+    rep = op.run(tmp_path / "par", ("x",)) if hasattr(op, "BUILDERS") else op.run(tmp_path / "par", ("synthetic",))
+    assert rep["identical"], rep.get("failures")
+    assert os.environ["TB_DB_URL"] == db_url
+    assert _caller_schemas(db_url) == before and _kept(db_url)  # nothing new under the caller's prefix, nothing gone
+
+
+def test_a_failing_parity_run_still_drops_its_schemas_and_keeps_the_callers(
+    db_url: str, tmp_path: Path, monkeypatch: Any
+) -> None:
+    from tools import omop_parity as op
+
+    _keep(db_url)
+    before = _caller_schemas(db_url)
+
+    def broken(work: Path) -> list[Any]:
+        _writes_like_the_ingest()
+        raise RuntimeError("source unreadable")
+
+    monkeypatch.setattr(op, "BUILDERS", {"synthetic": broken}, raising=False)
+    monkeypatch.setattr(op, "synthetic", broken)
+    with pytest.raises(RuntimeError, match="source unreadable"):
+        op.run(tmp_path / "par", ("synthetic",))
+    assert os.environ["TB_DB_URL"] == db_url
+    assert _caller_schemas(db_url) == before and _kept(db_url)
+
+
+def test_parity_over_nothing_is_a_failure_not_identical(db_url: str, tmp_path: Path, monkeypatch: Any) -> None:
+    """DI-3: two empty stores, no ruleset, nothing evaluated, or every set skipped never read as IDENTICAL."""
+    from tools import omop_parity as op
+
+    monkeypatch.setattr(op, "BUILDERS", {"mimic": lambda work: []}, raising=False)
+    monkeypatch.setattr(op, "mimic", lambda work: [])
+    rep = op.run(tmp_path / "par", ("mimic",))
+    assert not rep["identical"] and "IDENTICAL" not in op.table(rep).splitlines()[-1:]
+    assert op.main(["--dir", str(tmp_path / "p2"), "--sets", "mimic"]) == 1
+    assert not op.run(tmp_path / "par", ())["identical"]  # no set at all
+    monkeypatch.setattr(op, "RULESETS", [])
+    assert not op.run(tmp_path / "par", ("mimic",), allow_skip=True)["identical"]
+    empty = {
+        "omop": {"rows": {"person": 0}},
+        "tables": {"patient": {"rows": 0, "identical": True}},
+        "screening": {"GOUT-COH": {"patients_evaluated": 0, "feas_identical": True, "patients_different": 0}},
+    }
+    why = op.failures(empty)
+    assert "the OMOP store has no persons" in why and "the legacy lake has no patients" in why
+    assert "GOUT-COH: no patient evaluated" in why
+    one_side = {**empty, "omop": {"rows": {"person": 5}}, "tables": {"patient": {"rows": 4, "identical": False}}}
+    assert "the OMOP store has 5 persons, the legacy lake 4 patients" in op.failures(one_side)
+
+
+# ------------------------------------------------------------------------------------------------ DI-7 (D-271)
+def test_a_feed_batch_that_would_tombstone_the_whole_feed_is_refused(feed_dir: Path, db: Any, monkeypatch: Any) -> None:
+    """DI-7: an empty or broken feed must not tombstone the hospital's patients in the store of record; an override
+    that names the batch (recorded in tb_load) lets a real mass removal through, and only that batch."""
+    from omop.load import load_batch
+    from omop.schema import OmopError
+
+    feed = _feed(feed_dir)
+    _load(db, feed)
+    live = "SELECT count(*) FROM tb_record WHERE cdm_table = 'person' AND status <> 'tombstoned'"
+    n = int(db.fetchval(live))
+    assert n == 600
+    with pytest.raises(OmopError, match="would tombstone .*person: 600 of 600"):
+        load_batch(db, "feed", "2026-10-05", {}, tz="Asia/Taipei")
+    nxt = copy.deepcopy(feed)
+    nxt["Patient"] = feed["Patient"][200:]  # a third of the patients missing: a broken extract
+    with pytest.raises(OmopError, match="person: 200 of 600"):
+        load_batch(db, "feed", "2026-10-05", nxt, tz="Asia/Taipei")
+    assert int(db.fetchval(live)) == 600  # nothing happened
+    assert db.fetchval("SELECT count(*) FROM tb_load WHERE source_kind = 'feed-refused'") == 2
+    assert db.fetchval("SELECT max(batch) FROM tb_load WHERE source_kind = 'feed'") == SNAP
+    few = copy.deepcopy(feed)
+    few["Patient"] = feed["Patient"][10:]  # 10 of 600 gone: an ordinary night
+    assert load_batch(db, "feed", "2026-10-05", few, tz="Asia/Taipei").override == ""
+    # an override for another night, or without a night, does nothing (review M3)
+    for stale in ("2026-10-05: an old reason", "site closed its oncology ward"):
+        monkeypatch.setenv("TB_FEED_DROP_OVERRIDE", stale)
+        with pytest.raises(OmopError, match="person: 190 of 590"):
+            load_batch(db, "feed", "2026-10-06", nxt, tz="Asia/Taipei")
+    monkeypatch.setenv("TB_FEED_DROP_OVERRIDE", "2026-10-06: site closed its oncology ward (ticket 42)")
+    rep = load_batch(db, "feed", "2026-10-06", nxt, tz="Asia/Taipei")
+    assert "override: site closed its oncology ward" in rep.override
+    counts = db.fetchval("SELECT counts::text FROM tb_load WHERE batch = '2026-10-06' AND source_kind = 'feed'")
+    assert "ticket 42" in counts
+
+
+def test_a_feed_with_patients_but_no_clinical_rows_is_refused(feed_dir: Path, db: Any, monkeypatch: Any) -> None:
+    """Review H2: the guard counts every CDM table, not persons only: a night whose diagnosis and lab extracts failed
+    would tombstone every condition and measurement while every patient is still there."""
+    from omop.load import load_batch
+    from omop.schema import OmopError
+
+    feed = _feed(feed_dir)
+    _load(db, feed)
+    part = copy.deepcopy(feed)
+    part["Condition"] = []
+    part.pop("Observation", None)
+    with pytest.raises(OmopError, match="condition_occurrence: .* of "):
+        load_batch(db, "feed", "2026-10-05", part, tz="Asia/Taipei")
+    gone = "SELECT count(*) FROM tb_record WHERE status = 'tombstoned'"
+    assert db.fetchval(gone) == 0
+    for bad in ("20%", "-1", "101"):  # review L1: a typo is a plain refusal, never a crash or a silent default
+        monkeypatch.setenv("TB_FEED_MAX_DROP_PCT", bad)
+        with pytest.raises(OmopError, match="TB_FEED_MAX_DROP_PCT"):
+            load_batch(db, "feed", "2026-10-05", feed, tz="Asia/Taipei")
+
+
+def test_feed_guard_threshold() -> None:
+    from tb_common import feedguard
+
+    assert not feedguard.too_many(600, 10, 20) and feedguard.too_many(600, 200, 20)
+    assert feedguard.too_many(2, 2, 20) and feedguard.too_many(1, 1, 100)  # all of a kind: always refused
+    assert not feedguard.too_many(4, 1, 20)  # a small site deleting one record (review L1: floor of 5)
+    assert feedguard.drops({"Organization": 2, "Condition": 2}, {"Organization": 2, "Condition": 0}, 20) == []
+    assert feedguard.drops({"Organization": 2, "Condition": 2}, {"Organization": 2, "Condition": 2}, 20) == [
+        "Condition: 2 of 2"
+    ]
+
+
+def test_an_omop_rebuild_from_a_missing_folder_leaves_the_store_and_current(
+    feed_dir: Path, db_url: str, tmp_path: Path, monkeypatch: Any
+) -> None:
+    from embed_service.embedder import HashEmbedder
+    from lake.store import Lake
+    from omop import schema
+
+    monkeypatch.setenv("TB_LAKE_SOURCE", "omop")
+    lake = Lake(tmp_path / "lake", "Asia/Taipei")
+    lake.rebuild(SNAP, HashEmbedder(), feed_dir)
+    with pytest.raises(Exception, match="no NDJSON folder|holds no patient"):
+        lake.rebuild("2026-10-05", HashEmbedder())
+    assert lake.current() == SNAP and lake.snapshots() == [SNAP]
+    d = schema.connect(db_url, schema.schema_for(lake.dir))
+    try:
+        assert d.fetchval("SELECT count(*) FROM tb_record WHERE status = 'tombstoned'") == 0
+    finally:
+        d.close()
