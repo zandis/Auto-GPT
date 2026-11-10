@@ -10,7 +10,7 @@ trusts the local user, and runs with ``fsync=off``: it is for tests and demos, n
 ``db`` service is the database. The PostgreSQL server binaries are found through ``TB_PG_BIN``, ``pg_config
 --bindir`` or ``/usr/lib/postgresql/<n>/bin``.
 
-Parallel work on one machine (D-201, RUNBOOK §12): every temporary root of a test run derives from ``TB_TEST_ROOT``
+Parallel work on one machine (D-201, RUNBOOK §13): every temporary root of a test run derives from ``TB_TEST_ROOT``
 (``make`` sets it per branch, default ``$TB_SCRATCH/tb-tests-<branch>``); a cluster made for one process carries an
 ``.owner`` file (pid and start time) so that ``--gc`` can reap it after a ``kill -9``. A socket path too long for a
 Unix socket is moved to a short private directory that ``<root>/run`` links to.

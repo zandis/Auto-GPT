@@ -30,7 +30,7 @@ check-disk` fails under `TB_MIN_FREE_GB` (20) and reports the branch root agains
 clean-tmp` removes what earlier runs left and nobody uses now (pytest run folders without a live `.lock`, old
 clusters without a client, the drill and e2e folders in `/tmp`, the rehearsal's `runs/`, the tarballs of all but
 the two newest `.cache/complete-run` runs), keeping anything a running process holds; the rehearsal keeps the newest
-two evidence folders per case. RUNBOOK §12.
+two evidence folders per case. RUNBOOK §13.
 
 *After the adversarial review* (a fresh Fable session, 2026-11-10, on the diff; three Blockers and two Highs of its
 findings were in this card, all fixed). B1: `remove()` followed a `run` link wherever it pointed, and `clean-tmp`

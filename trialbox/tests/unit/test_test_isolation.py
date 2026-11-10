@@ -1,4 +1,4 @@
-"""Test isolation on one machine (D-201, T-003; RUNBOOK §12): every temp root under TB_TEST_ROOT, one cluster per
+"""Test isolation on one machine (D-201, T-003; RUNBOOK §13): every temp root under TB_TEST_ROOT, one cluster per
 xdist worker with an owner file, orphans reaped by ``pglocal --gc``, the plugin set pinned, nothing in a fixed /tmp."""
 
 from __future__ import annotations

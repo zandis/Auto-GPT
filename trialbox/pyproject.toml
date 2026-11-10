@@ -25,7 +25,7 @@ dependencies = [
   "matplotlib>=3.9",
   "docxtpl>=0.18",
   "python-docx>=1.1",
-  "pypdf>=5.0",
+  "pypdf>=6.21.4",  # layer-2 review R-19: advisories below 6.21.4 on the mailed-protocol path (D-185)
   "py7zr>=0.22",
   "cryptography>=43",
   "apscheduler>=3.10,<4",
@@ -66,11 +66,6 @@ test = [
   "pytest-xdist==3.8.0",
 ]
 
-# the editable install of this project is rebuilt only when its metadata changes, so `make venv-check` (uv sync
-# --check) does not report every edited source file as drift
-[tool.uv]
-cache-keys = [{ file = "pyproject.toml" }]
-
 [project.scripts]
 adapter = "adapter.cli:main"
 trialbox-settings = "tools.settings_wizard:main"
@@ -78,6 +73,14 @@ trialbox-settings = "tools.settings_wizard:main"
 [build-system]
 requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.uv]
+# D-185: uv.lock is the one hashed lock; deploy/requirements.lock is its export (`make lock`, checked by `make
+# lock-check`). Floors for transitive packages with advisories below them (layer-2 review R-19).
+constraint-dependencies = ["pillow>=13"]
+# the editable install of this project is rebuilt only when its metadata changes, so `make venv-check` (uv sync
+# --check) does not report every edited source file as drift
+cache-keys = [{ file = "pyproject.toml" }]
 
 [tool.setuptools.packages.find]
 where = ["libs", "services", "."]

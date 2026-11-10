@@ -44,7 +44,7 @@ def pg_cluster_url() -> Iterator[str]:
             if pglocal.owner_alive(root):
                 owner = (root / ".owner").read_text().split()[0]
                 raise pytest.UsageError(f"{root} belongs to running pid {owner}: give each parallel run its own "
-                                        "TB_TEST_ROOT (RUNBOOK §12)")  # fmt: skip
+                                        "TB_TEST_ROOT (RUNBOOK §13)")  # fmt: skip
             pglocal.remove(root)  # a cluster left by a killed run of this worker starts again empty
             root.mkdir(parents=True)
         else:
