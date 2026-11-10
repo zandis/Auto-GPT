@@ -153,7 +153,9 @@ class AgreementJudge:
         if not needs_verifier(_vote(first)):
             return first
         second: JudgeReply = self.verifier.judge(role=role, **kw)
-        if (first.prompt, first.prompt_sha) != (second.prompt, second.prompt_sha):
+        answered = second
+        mismatch = (first.prompt, first.prompt_sha) != (second.prompt, second.prompt_sha)
+        if mismatch:
             # D-201: the pair agrees only on one registered prompt text; two texts are not two opinions on one question
             second = replace(second, verdict="unknown", confidence=0.0)  # combine() -> unknown (disagree)
         d = combine(_vote(first), _vote(second))  # the one two-model rule (tb_common.pair, D-118)
@@ -170,15 +172,19 @@ class AgreementJudge:
             call_id=first.call_id,
             build_sha=first.build_sha,
             prompt=first.prompt,
+            prompt_sha=first.prompt_sha,
             tokens_in=first.tokens_in + second.tokens_in,
             tokens_out=first.tokens_out + second.tokens_out,
             refused=second.refused,
-            opinions=[_opinion("judge", first), _opinion("verifier", second)] if d.disagreement else [],
+            opinions=[_opinion("judge", first), _opinion("verifier", answered, mismatch)] if d.disagreement else [],
         )
 
 
-def _opinion(role: str, r: JudgeReply) -> dict[str, Any]:
-    return {"role": role, "verdict": r.verdict, "quote": r.quote, "quote_date": r.quote_date}
+def _opinion(role: str, r: JudgeReply, prompt_mismatch: bool = False) -> dict[str, Any]:
+    o = {"role": role, "verdict": r.verdict, "quote": r.quote, "quote_date": r.quote_date}
+    if prompt_mismatch:  # D-201: why this answer did not count (the reason code stays "disagree", tb_common.reasons)
+        o["prompt_mismatch"] = f"{r.prompt} sha256 {r.prompt_sha[:12]}"
+    return o
 
 
 def _vote(r: JudgeReply) -> Vote:

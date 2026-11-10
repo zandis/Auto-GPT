@@ -62,12 +62,7 @@ SCHEMA: dict[str, Any] = {
     "required": ["sentences"],
     "additionalProperties": False,
 }
-SYSTEM = (
-    "You write a short clinical profile of one patient for a clinical-trial coordinator. Use only the facts given; "
-    "never add a fact. Write 4 to 8 sentences in {language}: the main conditions, their treatment and course, recent "
-    "results that matter, anything a trial would screen on. Every sentence cites the ids of the facts it rests on in "
-    '"cites". Answer with JSON only: {{"sentences": [{{"text": "...", "cites": ["F1", "F4"]}}]}}.'
-)
+PROMPT = "profile_summary_v1"  # libs/tb_llm/prompts/profile_summary_v1.md (the prompt registry, D-201)
 
 
 # ------------------------------------------------------------------------------------------------ the facts
@@ -155,9 +150,11 @@ def _facts(p: dict[str, str], r: dict[str, list[dict[str, str]]], ref: str) -> l
 
 
 def messages(p: dict[str, Any]) -> list[dict[str, str]]:
+    """The registered ``profile_summary`` prompt rendered for one patient (the gateway checks the text against it)."""
+    from tb_common.llm import load_prompt, render
+
     facts = "\n".join(f"{f['id']}: {f['text']}" for f in p["facts"])
-    return [{"role": "system", "content": SYSTEM.format(language=p["language"])},
-            {"role": "user", "content": f"Patient facts:\n{facts}"}]  # fmt: skip
+    return render(load_prompt(PROMPT), {"language": p["language"], "facts": facts})
 
 
 def check_citations(p: dict[str, Any], data: dict[str, Any]) -> tuple[int, int]:
@@ -173,6 +170,12 @@ def body(msgs: list[dict[str, str]]) -> dict[str, Any]:
     return {"messages": msgs, "temperature": 0.0, "max_tokens": MAX_TOKENS,
             "response_format": {"type": "json_schema", "json_schema": {"name": "profile_summary", "schema": SCHEMA,
                                                                        "strict": True}}}  # fmt: skip
+
+
+def _prompt_sha() -> str:
+    from tb_common.llm import load_prompt
+
+    return load_prompt(PROMPT).sha256
 
 
 def stub_call(msgs: list[dict[str, str]]) -> dict[str, Any]:
@@ -208,7 +211,7 @@ class Caller:
                 gw = self.local.gw = self.make_gateway()
             labels = CallLabels(data_class="D3", purpose="screening", study_id="none",
                                 context_of_use="patient_profile_summary", role="abstract_field",
-                                prompt="profile_summary@1")  # fmt: skip
+                                prompt="profile_summary@1", prompt_sha=_prompt_sha())  # fmt: skip
             try:
                 payload: dict[str, Any] = gw.complete(body(msgs), labels)
                 return payload

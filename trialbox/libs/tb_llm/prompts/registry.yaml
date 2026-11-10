@@ -1,16 +1,11 @@
 # The prompt registry (WS-02.3, D-201; libs/tb_llm/prompt_registry.py). One entry per prompt version. A changed
 # prompt file is refused until it is registered as a new version; in PRODUCTION a version also needs a qualification
-# record ({record: <path under trialbox/>, sha256: <of that file>}; provisional until T-012's record schema). The
-# entries with {baseline: 6e11e25} are the prompts in service when the registry was created, moved here byte for
-# byte from the path in their comment (frozen in prompt_registry.BASELINE).
-version: prompts-2026-11-09
-# Prompts whose text is built in code, so nothing here pins it: the gateway passes exactly this id@version for exactly
-# this context of use (outside DEV/TEST and D0 every other unregistered id is refused). Keep this list short.
-unpinned:
-  - ref: profile_summary@1
-    context_of_use: patient_profile_summary
-    source: tools/bench_profile.py
-    reason: D-148 profile cost bench on fictional patients through the installed box's gateway (cloud run part profile)
+# record ({record: libs/tb_llm/prompts/qualification/<x>.json, sha256: <of that file>}, naming prompt, sha256 and
+# schema_sha256; provisional until T-012). The
+# entries with {baseline: <commit>} are the prompts in service when the registry was created (frozen with their
+# schema sha in prompt_registry.BASELINE): moved here byte for byte from the path in their comment (6e11e25), or
+# registered by reference / from code at 0cc908b (crf_prefill, profile_summary).
+version: prompts-2026-11-10
 prompts:
   - id: assist  # moved from services/sitesetup/prompts/assist_v1.md
     version: 1
@@ -140,3 +135,22 @@ prompts:
     approved_by: integrator (baseline import, T-101)
     date: 2026-11-05
     qualification: {baseline: 6e11e25}
+  - id: crf_prefill  # registered in place: services/edc is owned by another task (EXTERNAL_FILES); move it here later
+    version: 1
+    file: services/edc/prompts/crf_prefill_v1.md
+    sha256: 7082eeeeec626c0059b1c97167000f4360bfaa3f5063eb5e8ef01c230d34c7a3
+    schema: llm_crf_prefill_output
+    schema_sha256: 66040684f002e167efcae7e78df07639561c4c7a7d3f15fe66e50c0586ad1880
+    approved_by: integrator (baseline import, T-101; text as merged in PR #56)
+    date: 2026-11-09
+    qualification: {baseline: 0cc908b}
+  - id: profile_summary  # was code in tools/bench_profile.py (SYSTEM); renders the same messages
+    version: 1
+    file: profile_summary_v1.md
+    sha256: 64ee45f776b57812715ac2ea17f53c54c37949491888de4287fc31826524d921
+    schema: profile_summary
+    schema_ref: "tools.bench_profile:SCHEMA"  # a dict in code, hashed at load
+    schema_sha256: ddf7234ad8507e6db7aeb554128c6133db65de9ecdb33dcbd27720bdfb594f26
+    approved_by: integrator (baseline import, T-101; D-148 cost bench text)
+    date: 2026-11-09
+    qualification: {baseline: 0cc908b}

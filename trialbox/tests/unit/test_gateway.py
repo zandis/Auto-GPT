@@ -6,7 +6,9 @@ offline and repeatable.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -27,7 +29,7 @@ from tb_common.crypto import sha256_text
 from tb_common.llm import LlmClient, load_prompt, render
 from tb_common.policy.classes import Environment, Topology
 from tb_contracts import inline_schema
-from tb_llm import CallLabels, GatewayClient, GatewayRefused, json_schema_format
+from tb_llm import CallLabels, GatewayClient, GatewayRefused, json_schema_format, prompt_registry
 from tracestore.store import TraceStore
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -64,7 +66,7 @@ def H(**over: str) -> dict[str, str]:
         "X-TB-Study": "STUDY-1",
         "X-TB-Step": "step-1",
         "X-TB-Context-Of-Use": "s3_note_judgement",
-        "X-TB-Prompt": "judge@3",
+        "X-TB-Prompt": "judge@4",  # the body helpers render the newest judge (D-201: the text must be this version's)
     }
     for k, v in over.items():
         key = "X-TB-" + k.replace("_", "-")
@@ -72,6 +74,11 @@ def H(**over: str) -> dict[str, str]:
             h.pop(key, None)
         else:
             h[key] = v
+    # a registered prompt carries its registry sha, as tb_llm callers send it (D-201), unless the test sets one
+    pid, _, ver = h.get("X-TB-Prompt", "").partition("@")
+    if "Prompt_Sha" not in over and pid in prompt_registry.default_registry().ids and re.fullmatch(r"[1-9]\d*", ver):
+        with contextlib.suppress(prompt_registry.PromptRegistryError):
+            h["X-TB-Prompt-Sha"] = prompt_registry.default_registry().entry(pid, int(ver)).sha256
     return h
 
 
@@ -299,7 +306,7 @@ def test_response_cache_keyed_by_prompt_and_model_sha(tmp_path: Path) -> None:
         return httpx.Response(r.status_code, json=r.json())
 
     gw = _gw(tmp_path, http=httpx.Client(transport=httpx.MockTransport(counting)))
-    h = H(Caller="criteria-compiler", Role="extract_criteria", Purpose="protocol_ingest", Prompt="ir_extract@1")
+    h = H(Caller="criteria-compiler", Role="extract_criteria", Purpose="protocol_ingest", Prompt="ir_extract@2")
     a = gw.chat(h, _ir_body())
     b = gw.chat(h, _ir_body())
     assert a.status == b.status == 200 and len(seen) == 1
@@ -341,8 +348,11 @@ def _intake(caller: str, role: str, data_class: str = "D3", **over: str) -> dict
 
 
 INTAKE_BODY: dict[str, Any] = {
-    "messages": [{"role": "user", "content": "請問 GZQO 目前收案狀況？"}],
-    # the registered schema (D-201: the gateway refuses another one for a registered prompt)
+    # the registered template rendered and its schema (D-201: the gateway refuses other messages or another schema)
+    "messages": render(
+        load_prompt("classify_intent_v1"),
+        {"text": "請問 GZQO 目前收案狀況？", "attachments": [], "today": "2026-11-10", "language": "zh-TW"},
+    ),
     "response_format": json_schema_format("classify_intent", ClassifiedIntent.model_json_schema()),
 }
 
@@ -366,7 +376,7 @@ def test_d3_intake_role_needs_no_study_step(tmp_path: Path, caller: str, role: s
         _intake("converse-native", "classify_intent", "D4"),
         _intake("converse-native", "frontdesk_converse"),  # converse-native's is classify_intent
         _intake("eval", "classify_intent", Purpose="evaluation"),  # a caller without the flag
-        _intake("orchestrator", "judge", Purpose="screening", Prompt="judge@3"),
+        _intake("orchestrator", "judge", Purpose="screening", Prompt="judge@4"),
         _intake("converse-native", "classify_intent", Step="step-1"),  # a named step must still be confirmed
     ],
 )
@@ -409,7 +419,8 @@ def test_http_app_and_tb_llm_client(tmp_path: Path) -> None:
         study_id="STUDY-1",
         context_of_use="s3_note_judgement",
         role="judge",
-        prompt="judge@3",
+        prompt="judge@4",
+        prompt_sha=load_prompt("judge").sha256,
     )
     body = _judge_body()
     out = client.chat(body["messages"], labels, response_format=body["response_format"])
