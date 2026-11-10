@@ -9,6 +9,7 @@
 | Testers | Dr Makoto (Japan site, Japanese) and Dr Wenn (CGMH, Traditional Chinese) |
 | Basis | The deep review of 2026-11-10 (`docs/reviews/2026-11-10-deep-review/`), above all TB-DR-02a (clinical journeys, run on the demo), TB-DR-02b (roles and the demo as a host), TB-DR-05b §6 (statement and acknowledgement), TB-DR-07 §3 (site trial types), TB-DR-09 §4 (hosting) and TB-DR-10 §3.1 (the gate). |
 | Plan | Gate GP of `28-master-plan-v6.md` (TB-PLAN-06). The cards named here (T-501 to T-516) are defined in TB-PLAN-06 §6.2, wave P. Three are split there into two pull requests each: T-505 (a console, b demo tools), T-613 (a in wave P, b in wave 1), T-617 (a in wave P, b in wave 2). |
+| Owner's decisions (2026-11-10) | The testers are Dr Makoto and Dr Wenn themselves and the owner facilitates (Q-01). The trial types are confirmed: early Alzheimer's disease for Japan, rheumatoid arthritis for CGMH (Q-02). The hosting cost is approved (Q-03). The PI may start runs (Q-04). The PoC is product evaluation, not research, and the clinicians sign the acknowledgement only (Q-07). Recorded real-model answers may be shown with a label, and step 2 is wanted (Q-13). TB-PLAN-06 §10.4 has the record. |
 | Rule | Synthetic and public data only. No real patient data, ever, in the PoC, its feedback, its logs or its screenshots. |
 
 ## 1. What the PoC is, and what it is not

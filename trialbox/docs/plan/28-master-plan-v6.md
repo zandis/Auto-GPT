@@ -1782,6 +1782,22 @@ Only decisions that are truly the owner's. Each has a recommended answer; if the
 | Q-20 | Break-glass for the admin: a second person before access, or a steward review after? Which time limit? | No second person; 60 minutes; the steward and the PI are told at once; steward review within 7 days. A second person only for a non-admin reveal outside the user's own lists. |
 | Q-21 | The repository is public, master is not protected, and GitHub Issues are disabled. Do you protect master now, enable a problem log, and move TrialBox to its own private repository before site material and the PoC feedback arrive? | Protect master this week with the required checks of §7.5. Enable Issues, or keep `docs/validation/problems.csv`. Yes to a private repository of its own; until then nothing that names a tester, a host or a hospital contact is committed. |
 
+### 10.4 The owner's answers of 2026-11-10
+
+Given by the owner the same day, after reading the summary of this plan. They are decisions; the cards that waited on them may start.
+
+| # | Answer | Effect |
+| --- | --- | --- |
+| Q-01 | **Yes.** Dr Makoto and Dr Wenn test themselves, about four hours each; the owner facilitates. | `27-poc-plan.md` §5 and §8 stand as written. |
+| Q-02 | **Yes.** The assumed trial types are confirmed: early Alzheimer's disease for Japan, rheumatoid arthritis for CGMH. | T-503 and T-504 build the scenarios as proposed. The one-table study list (phase, EDC, registry) is still sent to both PIs; it no longer blocks the PoC. |
+| Q-03 | **Approved.** The PoC host: one small cloud VM for two months (about US$110 a month, a price from memory to be checked at order) and a domain name. | T-509 may create it at the freeze. Each paid step is still shown to the owner before it runs. |
+| Q-04 | **Yes.** The PI may start feasibility, screening and case runs on the PI's own studies. | T-512 is no longer pending; a separate tick for sub-investigators; daily limits unchanged. |
+| Q-07 | **Yes.** The PoC is product evaluation, not research. The clinicians sign the acknowledgement only. | Recorded as a decision file by T-508 (number from the registry). Counsel reads the statement once. |
+| Q-13 | **Yes** to both: recorded real-model answers may be shown with a label; step 2 (GP-2, real models on the owner's B200, January) is wanted. | T-515 stands; GP-2 is planned, after G1 and G1b. |
+| Q-21 | **Protect master.** | The owner sets branch protection with the required checks of §7.5 (T-007). Agent sessions cannot change repository settings. The owner did not decide on a private repository or on enabling Issues: both stay open, and until decided nothing that names a tester, a host or a hospital contact is committed, and the problem log is `docs/validation/problems.csv` (T-654). |
+
+Q-05, Q-06, Q-08 to Q-12 and Q-14 to Q-20 are not answered yet. The plan proceeds on their recommendations and records each as an assumption until the owner decides.
+
 ## 11. Assumptions this plan makes where the request was silent
 
 The owner's request left these unsaid. Each is filled as stated; any of them can be overturned at G0.
@@ -1810,4 +1826,4 @@ The owner's request left these unsaid. Each is filled as stated; any of them can
 
 | Version | Date | Change |
 | --- | --- | --- |
-| 1.0 | 2026-11-10 | First issue, from the deep review of 2026-11-10. Adds the PoC gate (GP-0, GP-1, GP, GP-2); redraws the critical path per site with float; defines "full scope" per site; reorganises the task list (wave P to wave L) with a conflict matrix; adds the standards compliance matrix, the dependency upgrade plan and the test strategy; lists the questions for the owner. |
+| 1.0 | 2026-11-10 | First issue (with the owner's answers to Q-01 to Q-04, Q-07, Q-13 and Q-21 of the same day, §10.4), from the deep review of 2026-11-10. Adds the PoC gate (GP-0, GP-1, GP, GP-2); redraws the critical path per site with float; defines "full scope" per site; reorganises the task list (wave P to wave L) with a conflict matrix; adds the standards compliance matrix, the dependency upgrade plan and the test strategy; lists the questions for the owner. |
