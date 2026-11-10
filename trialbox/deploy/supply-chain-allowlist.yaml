@@ -107,7 +107,7 @@ licences:
     review_by: 2027-05-01
   - package: openjdk
     class: unknown
-    licence: GPL-2.0-only WITH Classpath-exception-2.0 (Eclipse Temurin JRE 17, copied unmodified from the pinned eclipse-temurin image)
+    licence: GPL-2.0-only WITH Classpath-exception-2.0 (Eclipse Temurin JRE 21, copied unmodified from the pinned eclipse-temurin image)
     reason: The JRE ships unmodified; the Classpath exception covers the jars run on it; listed in the notices
     review_by: 2027-05-01
 
