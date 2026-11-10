@@ -5354,7 +5354,6 @@
      "set": "Obesity diagnoses",
      "concept_id": 4215968,
      "vocabulary": "SNOMED",
-     "name": "Obese",
      "domain": "Observation",
      "descendants": true,
      "excluded": false
@@ -5363,7 +5362,6 @@
      "set": "Obesity diagnoses",
      "concept_id": 4176962,
      "vocabulary": "SNOMED",
-     "name": "Obesity associated disorder",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5381,7 +5379,6 @@
      "set": "Body weight",
      "concept_id": 4099154,
      "vocabulary": "SNOMED",
-     "name": "Body weight",
      "domain": "Observation",
      "descendants": true,
      "excluded": false
@@ -5417,7 +5414,6 @@
      "set": "Body weight",
      "concept_id": 4264825,
      "vocabulary": "SNOMED",
-     "name": "Birth weight",
      "domain": "Observation",
      "descendants": true,
      "excluded": true
@@ -5433,7 +5429,6 @@
      "set": "Dementia",
      "concept_id": 37312036,
      "vocabulary": "SNOMED",
-     "name": "Aggression due to dementia",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5442,7 +5437,6 @@
      "set": "Dementia",
      "concept_id": 37312035,
      "vocabulary": "SNOMED",
-     "name": "Agitation due to dementia",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5451,7 +5445,6 @@
      "set": "Dementia",
      "concept_id": 4041685,
      "vocabulary": "SNOMED",
-     "name": "Amyotrophic lateral sclerosis with dementia",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5460,7 +5453,6 @@
      "set": "Dementia",
      "concept_id": 37312031,
      "vocabulary": "SNOMED",
-     "name": "Anxiety due to dementia",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5469,7 +5461,6 @@
      "set": "Dementia",
      "concept_id": 37312030,
      "vocabulary": "SNOMED",
-     "name": "Apathetic behaviour due to dementia",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5478,7 +5469,6 @@
      "set": "Dementia",
      "concept_id": 35608576,
      "vocabulary": "SNOMED",
-     "name": "Behavioral and psychological symptoms of dementia",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5487,7 +5477,6 @@
      "set": "Dementia",
      "concept_id": 4092747,
      "vocabulary": "SNOMED",
-     "name": "Cerebral degeneration presenting primarily with dementia",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5496,7 +5485,6 @@
      "set": "Dementia",
      "concept_id": 4182210,
      "vocabulary": "SNOMED",
-     "name": "Dementia",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5505,7 +5493,6 @@
      "set": "Dementia",
      "concept_id": 37116464,
      "vocabulary": "SNOMED",
-     "name": "Dementia caused by heavy metal exposure",
      "domain": "Condition",
      "descendants": false,
      "excluded": true
@@ -5514,7 +5501,6 @@
      "set": "Dementia",
      "concept_id": 37017549,
      "vocabulary": "SNOMED",
-     "name": "Dementia co-occurrent with human immunodeficiency virus infection",
      "domain": "Condition",
      "descendants": false,
      "excluded": true
@@ -5523,7 +5509,6 @@
      "set": "Dementia",
      "concept_id": 4244346,
      "vocabulary": "SNOMED",
-     "name": "Dialysis dementia",
      "domain": "Condition",
      "descendants": false,
      "excluded": true
@@ -5532,7 +5517,6 @@
      "set": "Dementia",
      "concept_id": 37311665,
      "vocabulary": "SNOMED",
-     "name": "Disinhibited behaviour due to dementia",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5541,7 +5525,6 @@
      "set": "Dementia",
      "concept_id": 4043378,
      "vocabulary": "SNOMED",
-     "name": "Frontotemporal dementia",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5550,7 +5533,6 @@
      "set": "Dementia",
      "concept_id": 45765480,
      "vocabulary": "SNOMED",
-     "name": "Frontotemporal dementia with parkinsonism-17",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5559,7 +5541,6 @@
      "set": "Dementia",
      "concept_id": 45765477,
      "vocabulary": "SNOMED",
-     "name": "GRN-related frontotemporal dementia",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5568,7 +5549,6 @@
      "set": "Dementia",
      "concept_id": 377788,
      "vocabulary": "SNOMED",
-     "name": "General paresis - neurosyphilis",
      "domain": "Condition",
      "descendants": false,
      "excluded": true
@@ -5577,7 +5557,6 @@
      "set": "Dementia",
      "concept_id": 372610,
      "vocabulary": "SNOMED",
-     "name": "Postconcussion syndrome",
      "domain": "Condition",
      "descendants": false,
      "excluded": true
@@ -5586,7 +5565,6 @@
      "set": "Dementia",
      "concept_id": 37017247,
      "vocabulary": "SNOMED",
-     "name": "Presenile dementia co-occurrent with human immunodeficiency virus infection",
      "domain": "Condition",
      "descendants": false,
      "excluded": true
@@ -5595,7 +5573,6 @@
      "set": "Dementia",
      "concept_id": 37311890,
      "vocabulary": "SNOMED",
-     "name": "Psychological symptom due to dementia",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5604,7 +5581,6 @@
      "set": "Dementia",
      "concept_id": 37312577,
      "vocabulary": "SNOMED",
-     "name": "Wandering due to dementia",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5613,7 +5589,6 @@
      "set": "Dementia",
      "concept_id": 4059191,
      "vocabulary": "SNOMED",
-     "name": "H/O: dementia",
      "domain": "Observation",
      "descendants": true,
      "excluded": false
@@ -5634,7 +5609,6 @@
      "set": "HIV excluding HIV-II  ",
      "concept_id": 4276586,
      "vocabulary": "SNOMED",
-     "name": "Finding of HIV status",
      "domain": "Measurement",
      "descendants": true,
      "excluded": false
@@ -5643,7 +5617,6 @@
      "set": "HIV excluding HIV-II  ",
      "concept_id": 4013105,
      "vocabulary": "SNOMED",
-     "name": "HIV negative",
      "domain": "Measurement",
      "descendants": true,
      "excluded": true
@@ -5652,7 +5625,6 @@
      "set": "HIV excluding HIV-II  ",
      "concept_id": 44783356,
      "vocabulary": "SNOMED",
-     "name": "Human immunodeficiency virus carrier",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5661,7 +5633,6 @@
      "set": "HIV excluding HIV-II  ",
      "concept_id": 432554,
      "vocabulary": "SNOMED",
-     "name": "Human immunodeficiency virus II infection",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -5670,7 +5641,6 @@
      "set": "HIV excluding HIV-II  ",
      "concept_id": 439727,
      "vocabulary": "SNOMED",
-     "name": "Human immunodeficiency virus infection",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5701,7 +5671,6 @@
      "set": "COVID-19",
      "concept_id": 37311061,
      "vocabulary": "SNOMED",
-     "name": "COVID-19",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5717,7 +5686,6 @@
      "set": "Febrile seizure and unspecified seizure ",
      "concept_id": 444413,
      "vocabulary": "SNOMED",
-     "name": "Febrile convulsion",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5726,7 +5694,6 @@
      "set": "Febrile seizure and unspecified seizure ",
      "concept_id": 377091,
      "vocabulary": "SNOMED",
-     "name": "Seizure",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -5735,7 +5702,6 @@
      "set": "Febrile seizure and unspecified seizure ",
      "concept_id": 4196708,
      "vocabulary": "SNOMED",
-     "name": "Seizure related finding",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5756,7 +5722,6 @@
      "set": "Stroke (ischemic or hemorrhagic)",
      "concept_id": 372924,
      "vocabulary": "SNOMED",
-     "name": "Cerebral artery occlusion",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -5765,7 +5730,6 @@
      "set": "Stroke (ischemic or hemorrhagic)",
      "concept_id": 375557,
      "vocabulary": "SNOMED",
-     "name": "Cerebral embolism",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -5774,7 +5738,6 @@
      "set": "Stroke (ischemic or hemorrhagic)",
      "concept_id": 376713,
      "vocabulary": "SNOMED",
-     "name": "Cerebral hemorrhage",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -5783,7 +5746,6 @@
      "set": "Stroke (ischemic or hemorrhagic)",
      "concept_id": 443454,
      "vocabulary": "SNOMED",
-     "name": "Cerebral infarction",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5792,7 +5754,6 @@
      "set": "Stroke (ischemic or hemorrhagic)",
      "concept_id": 441874,
      "vocabulary": "SNOMED",
-     "name": "Cerebral thrombosis",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -5801,7 +5762,6 @@
      "set": "Stroke (ischemic or hemorrhagic)",
      "concept_id": 439847,
      "vocabulary": "SNOMED",
-     "name": "Intracranial hemorrhage",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -5810,7 +5770,6 @@
      "set": "Stroke (ischemic or hemorrhagic)",
      "concept_id": 432923,
      "vocabulary": "SNOMED",
-     "name": "Subarachnoid hemorrhage",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -5826,7 +5785,6 @@
      "set": "Acute myocardial Infarction",
      "concept_id": 4329847,
      "vocabulary": "SNOMED",
-     "name": "Myocardial infarction",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5835,7 +5793,6 @@
      "set": "Acute myocardial Infarction",
      "concept_id": 314666,
      "vocabulary": "SNOMED",
-     "name": "Old myocardial infarction",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -5851,7 +5808,6 @@
      "set": "Influenza (including complications) - Conditions",
      "concept_id": 4146943,
      "vocabulary": "SNOMED",
-     "name": "Encephalitis due to influenza",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5860,7 +5816,6 @@
      "set": "Influenza (including complications) - Conditions",
      "concept_id": 46274061,
      "vocabulary": "SNOMED",
-     "name": "Encephalopathy due to Influenza A virus",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5869,7 +5824,6 @@
      "set": "Influenza (including complications) - Conditions",
      "concept_id": 4266367,
      "vocabulary": "SNOMED",
-     "name": "Influenza",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5878,7 +5832,6 @@
      "set": "Influenza (including complications) - Conditions",
      "concept_id": 42537960,
      "vocabulary": "SNOMED",
-     "name": "Influenza with CNS disorder",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5887,7 +5840,6 @@
      "set": "Influenza (including complications) - Conditions",
      "concept_id": 4112824,
      "vocabulary": "SNOMED",
-     "name": "Influenza with gastrointestinal tract involvement",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5896,7 +5848,6 @@
      "set": "Influenza (including complications) - Conditions",
      "concept_id": 4299935,
      "vocabulary": "SNOMED",
-     "name": "Myocarditis due to influenza virus",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5905,7 +5856,6 @@
      "set": "Influenza (including complications) - Conditions",
      "concept_id": 46269706,
      "vocabulary": "SNOMED",
-     "name": "Otitis media due to influenza",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5914,7 +5864,6 @@
      "set": "Influenza (including complications) - Conditions",
      "concept_id": 763011,
      "vocabulary": "SNOMED",
-     "name": "Pneumonia due to Influenza A virus",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -5923,7 +5872,6 @@
      "set": "Influenza (including complications) - Conditions",
      "concept_id": 4042202,
      "vocabulary": "SNOMED",
-     "name": "Post-influenza encephalitis",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -5932,7 +5880,6 @@
      "set": "Influenza (pre-coordinated Positive Measurements)",
      "concept_id": 45757528,
      "vocabulary": "SNOMED",
-     "name": "Influenza A virus present",
      "domain": "Measurement",
      "descendants": true,
      "excluded": false
@@ -5941,7 +5888,6 @@
      "set": "Influenza (pre-coordinated Positive Measurements)",
      "concept_id": 4262075,
      "vocabulary": "SNOMED",
-     "name": "Influenza B virus present",
      "domain": "Measurement",
      "descendants": true,
      "excluded": false
@@ -5950,7 +5896,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 44789502,
      "vocabulary": "SNOMED",
-     "name": "Avian infl virus nucl acid det",
      "domain": "Measurement",
      "descendants": true,
      "excluded": false
@@ -5959,7 +5904,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 37392948,
      "vocabulary": "SNOMED",
-     "name": "Avian influenza virus RNA (ribonucleic acid) detection assay",
      "domain": "Observation",
      "descendants": true,
      "excluded": false
@@ -5968,7 +5912,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 37394408,
      "vocabulary": "SNOMED",
-     "name": "Avian influenza virus nucleic acid detection assay",
      "domain": "Observation",
      "descendants": true,
      "excluded": false
@@ -5977,7 +5920,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 36676235,
      "vocabulary": "SNOMED",
-     "name": "Detection of Influenza A virus using PCR - polymerase chain reaction technique",
      "domain": "Measurement",
      "descendants": true,
      "excluded": false
@@ -6094,7 +6036,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 2213094,
      "vocabulary": "CPT4",
-     "name": "Infectious agent antigen detection by immunoassay technique, (eg, enzyme immunoassay [EIA], enzyme-linked immunosorbent assay [ELISA], immunochemiluminometric assay [IMCA]) qualitative or semiquantitative, multiple-step method; Influenza, A or B, each",
      "domain": "Measurement",
      "descendants": true,
      "excluded": false
@@ -6103,7 +6044,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 2213181,
      "vocabulary": "CPT4",
-     "name": "Infectious agent antigen detection by immunoassay with direct optical observation; Influenza",
      "domain": "Measurement",
      "descendants": true,
      "excluded": false
@@ -6112,7 +6052,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 2213063,
      "vocabulary": "CPT4",
-     "name": "Infectious agent antigen detection by immunofluorescent technique; influenza A virus",
      "domain": "Measurement",
      "descendants": true,
      "excluded": false
@@ -6121,7 +6060,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 2213062,
      "vocabulary": "CPT4",
-     "name": "Infectious agent antigen detection by immunofluorescent technique; influenza B virus",
      "domain": "Measurement",
      "descendants": true,
      "excluded": false
@@ -6130,7 +6068,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 40757077,
      "vocabulary": "CPT4",
-     "name": "Infectious agent detection by nucleic acid (DNA or RNA); influenza virus, for multiple types or sub-types, includes multiplex reverse transcription, when performed, and multiplex amplified probe technique, first 2 types or sub-types",
      "domain": "Measurement",
      "descendants": true,
      "excluded": false
@@ -6139,7 +6076,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 40756898,
      "vocabulary": "CPT4",
-     "name": "Infectious agent detection by nucleic acid (DNA or RNA); influenza virus, includes reverse transcription, when performed, and amplified probe technique, each type or subtype",
      "domain": "Measurement",
      "descendants": true,
      "excluded": false
@@ -6148,7 +6084,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 37398130,
      "vocabulary": "SNOMED",
-     "name": "Influenza (A and B) serology",
      "domain": "Observation",
      "descendants": true,
      "excluded": true
@@ -6157,7 +6092,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 4039357,
      "vocabulary": "SNOMED",
-     "name": "Influenza A and B virus antigen assay",
      "domain": "Measurement",
      "descendants": true,
      "excluded": false
@@ -6166,7 +6100,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 4201049,
      "vocabulary": "SNOMED",
-     "name": "Influenza A antibody level",
      "domain": "Measurement",
      "descendants": true,
      "excluded": true
@@ -6175,7 +6108,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 37393224,
      "vocabulary": "SNOMED",
-     "name": "Influenza A antibody level",
      "domain": "Observation",
      "descendants": true,
      "excluded": true
@@ -6184,7 +6116,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 37392223,
      "vocabulary": "SNOMED",
-     "name": "Influenza A antigen level",
      "domain": "Observation",
      "descendants": true,
      "excluded": false
@@ -6193,7 +6124,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 44806470,
      "vocabulary": "SNOMED",
-     "name": "Influenza A nucleic acid detection",
      "domain": "Measurement",
      "descendants": true,
      "excluded": false
@@ -6202,7 +6132,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 37394297,
      "vocabulary": "SNOMED",
-     "name": "Influenza A nucleic acid detection assay",
      "domain": "Observation",
      "descendants": true,
      "excluded": false
@@ -6211,7 +6140,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 44805899,
      "vocabulary": "SNOMED",
-     "name": "Influenza A virus IgG antibody measurement",
      "domain": "Measurement",
      "descendants": true,
      "excluded": true
@@ -6220,7 +6148,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 4044987,
      "vocabulary": "SNOMED",
-     "name": "Influenza A virus antigen assay",
      "domain": "Measurement",
      "descendants": true,
      "excluded": false
@@ -6229,7 +6156,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 45757528,
      "vocabulary": "SNOMED",
-     "name": "Influenza A virus present",
      "domain": "Measurement",
      "descendants": true,
      "excluded": true
@@ -6238,7 +6164,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 4039358,
      "vocabulary": "SNOMED",
-     "name": "Influenza A, B, and C virus antigen assay",
      "domain": "Measurement",
      "descendants": true,
      "excluded": false
@@ -6247,7 +6172,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 37393225,
      "vocabulary": "SNOMED",
-     "name": "Influenza B antibody level",
      "domain": "Observation",
      "descendants": true,
      "excluded": true
@@ -6256,7 +6180,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 4196405,
      "vocabulary": "SNOMED",
-     "name": "Influenza B antibody level",
      "domain": "Measurement",
      "descendants": true,
      "excluded": true
@@ -6265,7 +6188,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 37392224,
      "vocabulary": "SNOMED",
-     "name": "Influenza B antigen level",
      "domain": "Observation",
      "descendants": true,
      "excluded": false
@@ -6274,7 +6196,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 44807860,
      "vocabulary": "SNOMED",
-     "name": "Influenza B nucleic acid detection",
      "domain": "Measurement",
      "descendants": true,
      "excluded": false
@@ -6283,7 +6204,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 37394300,
      "vocabulary": "SNOMED",
-     "name": "Influenza B nucleic acid detection assay",
      "domain": "Observation",
      "descendants": true,
      "excluded": false
@@ -6292,7 +6212,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 44805900,
      "vocabulary": "SNOMED",
-     "name": "Influenza B virus IgG antibody measurement",
      "domain": "Measurement",
      "descendants": true,
      "excluded": true
@@ -6301,7 +6220,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 4044988,
      "vocabulary": "SNOMED",
-     "name": "Influenza B virus antigen assay",
      "domain": "Measurement",
      "descendants": true,
      "excluded": false
@@ -6310,7 +6228,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 4262075,
      "vocabulary": "SNOMED",
-     "name": "Influenza B virus present",
      "domain": "Measurement",
      "descendants": true,
      "excluded": true
@@ -6319,7 +6236,6 @@
      "set": "Influenza testing (excluding Ab testing)",
      "concept_id": 37392761,
      "vocabulary": "SNOMED",
-     "name": "Influenza B virus ribonucleic acid detection assay",
      "domain": "Observation",
      "descendants": true,
      "excluded": false
@@ -6398,7 +6314,6 @@
      "set": "Intracranial bleed Hemorrhagic stroke",
      "concept_id": 376713,
      "vocabulary": "SNOMED",
-     "name": "Cerebral hemorrhage",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -6407,7 +6322,6 @@
      "set": "Intracranial bleed Hemorrhagic stroke",
      "concept_id": 439847,
      "vocabulary": "SNOMED",
-     "name": "Intracranial hemorrhage",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -6416,7 +6330,6 @@
      "set": "Intracranial bleed Hemorrhagic stroke",
      "concept_id": 432923,
      "vocabulary": "SNOMED",
-     "name": "Subarachnoid hemorrhage",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -6425,7 +6338,6 @@
      "set": "Intracranial bleed Hemorrhagic stroke",
      "concept_id": 43530727,
      "vocabulary": "SNOMED",
-     "name": "Spontaneous cerebral hemorrhage",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -6434,7 +6346,6 @@
      "set": "Intracranial bleed Hemorrhagic stroke",
      "concept_id": 4148906,
      "vocabulary": "SNOMED",
-     "name": "Spontaneous subarachnoid hemorrhage",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -6443,7 +6354,6 @@
      "set": "Intracranial bleed Hemorrhagic stroke",
      "concept_id": 43530674,
      "vocabulary": "SNOMED",
-     "name": "Spontaneous cerebellar hemorrhage",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -6452,7 +6362,6 @@
      "set": "Intracranial bleed Hemorrhagic stroke",
      "concept_id": 42535425,
      "vocabulary": "SNOMED",
-     "name": "Spontaneous hemorrhage of cerebral hemisphere",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -6468,7 +6377,6 @@
      "set": "Ischemic stroke",
      "concept_id": 372924,
      "vocabulary": "SNOMED",
-     "name": "Cerebral artery occlusion",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -6477,7 +6385,6 @@
      "set": "Ischemic stroke",
      "concept_id": 375557,
      "vocabulary": "SNOMED",
-     "name": "Cerebral embolism",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -6486,7 +6393,6 @@
      "set": "Ischemic stroke",
      "concept_id": 443454,
      "vocabulary": "SNOMED",
-     "name": "Cerebral infarction",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -6495,7 +6401,6 @@
      "set": "Ischemic stroke",
      "concept_id": 441874,
      "vocabulary": "SNOMED",
-     "name": "Cerebral thrombosis",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -6516,7 +6421,6 @@
      "set": "Alzheimer's disease",
      "concept_id": 378419,
      "vocabulary": "SNOMED",
-     "name": "Alzheimer's disease",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -6547,7 +6451,6 @@
      "set": "Major depressive disorder",
      "concept_id": 440383,
      "vocabulary": "SNOMED",
-     "name": "Depressive disorder",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -6556,7 +6459,6 @@
      "set": "Major depressive disorder",
      "concept_id": 4152280,
      "vocabulary": "SNOMED",
-     "name": "Major depressive disorder",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -6582,7 +6484,6 @@
      "set": "Autoimmune hepatitis",
      "concept_id": 200762,
      "vocabulary": "SNOMED",
-     "name": "Autoimmune hepatitis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -6608,7 +6509,6 @@
      "set": "Adult Epilepsy and Seizure Afebrile",
      "concept_id": 380378,
      "vocabulary": "SNOMED",
-     "name": "Epilepsy",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -6617,7 +6517,6 @@
      "set": "Adult Epilepsy and Seizure Afebrile",
      "concept_id": 444413,
      "vocabulary": "SNOMED",
-     "name": "Febrile convulsion",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -6626,7 +6525,6 @@
      "set": "Adult Epilepsy and Seizure Afebrile",
      "concept_id": 44783583,
      "vocabulary": "SNOMED",
-     "name": "Generalized epilepsy with febrile seizures plus",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -6635,7 +6533,6 @@
      "set": "Adult Epilepsy and Seizure Afebrile",
      "concept_id": 377091,
      "vocabulary": "SNOMED",
-     "name": "Seizure",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -6644,7 +6541,6 @@
      "set": "Adult Epilepsy and Seizure Afebrile",
      "concept_id": 377101,
      "vocabulary": "SNOMED",
-     "name": "Simple febrile seizure",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -6653,7 +6549,6 @@
      "set": "Inpatient Epilepsy",
      "concept_id": 4236312,
      "vocabulary": "SNOMED",
-     "name": "Complex partial epileptic seizure",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -6662,7 +6557,6 @@
      "set": "Inpatient Epilepsy",
      "concept_id": 380378,
      "vocabulary": "SNOMED",
-     "name": "Epilepsy",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -6671,7 +6565,6 @@
      "set": "Inpatient Epilepsy",
      "concept_id": 45757050,
      "vocabulary": "SNOMED",
-     "name": "Epilepsy in mother complicating pregnancy",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -6680,7 +6573,6 @@
      "set": "Inpatient Epilepsy",
      "concept_id": 444413,
      "vocabulary": "SNOMED",
-     "name": "Febrile convulsion",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -6689,7 +6581,6 @@
      "set": "Inpatient Epilepsy",
      "concept_id": 44783583,
      "vocabulary": "SNOMED",
-     "name": "Generalized epilepsy with febrile seizures plus",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -6698,7 +6589,6 @@
      "set": "Inpatient Epilepsy",
      "concept_id": 43531630,
      "vocabulary": "SNOMED",
-     "name": "Intractable absence seizures",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -6707,7 +6597,6 @@
      "set": "Inpatient Epilepsy",
      "concept_id": 46270370,
      "vocabulary": "SNOMED",
-     "name": "Refractory infantile spasms co-occurrent with status epilepticus",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -6716,7 +6605,6 @@
      "set": "Inpatient Epilepsy",
      "concept_id": 4029498,
      "vocabulary": "SNOMED",
-     "name": "Seizure disorder",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -6725,7 +6613,6 @@
      "set": "Inpatient Epilepsy",
      "concept_id": 377101,
      "vocabulary": "SNOMED",
-     "name": "Simple febrile seizure",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -7071,7 +6958,6 @@
      "set": "Acute kidney injury (Narrow definition)",
      "concept_id": 197320,
      "vocabulary": "SNOMED",
-     "name": "Acute renal failure syndrome",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -7080,7 +6966,6 @@
      "set": "Acute kidney injury (Narrow definition)",
      "concept_id": 196455,
      "vocabulary": "SNOMED",
-     "name": "Hepatorenal syndrome",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -7089,7 +6974,6 @@
      "set": "Acute kidney injury (Narrow definition)",
      "concept_id": 37116834,
      "vocabulary": "SNOMED",
-     "name": "Postpartum acute renal failure",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -7098,7 +6982,6 @@
      "set": "Acute kidney injury (Narrow definition)",
      "concept_id": 444044,
      "vocabulary": "SNOMED",
-     "name": "Acute tubular necrosis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -7107,7 +6990,6 @@
      "set": "Dialysis procedure at a Medicare certified ESRD facility for acute kidney injury without ESRD",
      "concept_id": 1314323,
      "vocabulary": "HCPCS",
-     "name": "Dialysis procedure at a medicare certified esrd facility for acute kidney injury without esrd",
      "domain": "Procedure",
      "descendants": true,
      "excluded": false
@@ -7133,7 +7015,6 @@
      "set": "Asthma",
      "concept_id": 317009,
      "vocabulary": "SNOMED",
-     "name": "Asthma",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -7142,7 +7023,6 @@
      "set": "Asthma",
      "concept_id": 4235703,
      "vocabulary": "SNOMED",
-     "name": "Asthma management",
      "domain": "Observation",
      "descendants": true,
      "excluded": false
@@ -7151,7 +7031,6 @@
      "set": "Asthma",
      "concept_id": 4279553,
      "vocabulary": "SNOMED",
-     "name": "Eosinophilic asthma",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -7680,7 +7559,6 @@
      "set": "Hives, Erythema, Eruption, Urticaria",
      "concept_id": 140214,
      "vocabulary": "SNOMED",
-     "name": "Eruption",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -7689,7 +7567,6 @@
      "set": "Hives, Erythema, Eruption, Urticaria",
      "concept_id": 40481101,
      "vocabulary": "SNOMED",
-     "name": "Erythema of skin",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -7698,7 +7575,6 @@
      "set": "Hives, Erythema, Eruption, Urticaria",
      "concept_id": 45766714,
      "vocabulary": "SNOMED",
-     "name": "Inflammatory dermatosis",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -7707,7 +7583,6 @@
      "set": "Hives, Erythema, Eruption, Urticaria",
      "concept_id": 4082588,
      "vocabulary": "SNOMED",
-     "name": "Wheal",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -7716,7 +7591,6 @@
      "set": "Hives, Erythema, Eruption, Urticaria",
      "concept_id": 4297361,
      "vocabulary": "SNOMED",
-     "name": "Angioedema and/or urticaria",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -7725,7 +7599,6 @@
      "set": "Hives, Erythema, Eruption, Urticaria",
      "concept_id": 4134132,
      "vocabulary": "SNOMED",
-     "name": "Chronic disease of skin",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -7734,7 +7607,6 @@
      "set": "Hives, Erythema, Eruption, Urticaria",
      "concept_id": 140168,
      "vocabulary": "SNOMED",
-     "name": "Psoriasis",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -7743,7 +7615,6 @@
      "set": "Hives, Erythema, Eruption, Urticaria",
      "concept_id": 4148876,
      "vocabulary": "SNOMED",
-     "name": "Stasis dermatitis",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -7752,7 +7623,6 @@
      "set": "Hives, Erythema, Eruption, Urticaria",
      "concept_id": 4029043,
      "vocabulary": "SNOMED",
-     "name": "Infection of skin",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -7761,7 +7631,6 @@
      "set": "Hives, Erythema, Eruption, Urticaria",
      "concept_id": 432791,
      "vocabulary": "SNOMED",
-     "name": "Angioedema",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -7782,7 +7651,6 @@
      "set": "Iron deficiency Anemia",
      "concept_id": 439777,
      "vocabulary": "SNOMED",
-     "name": "Anemia",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -7791,7 +7659,6 @@
      "set": "Iron deficiency Anemia",
      "concept_id": 4280354,
      "vocabulary": "SNOMED",
-     "name": "Nutritional anemia",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -7812,7 +7679,6 @@
      "set": "Malignant tumor of prostate",
      "concept_id": 4163261,
      "vocabulary": "SNOMED",
-     "name": "Malignant tumor of prostate",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -7828,7 +7694,6 @@
      "set": "Atrial fibrillation",
      "concept_id": 313217,
      "vocabulary": "SNOMED",
-     "name": "Atrial fibrillation",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -7837,7 +7702,6 @@
      "set": "Atrial fibrillation",
      "concept_id": 314665,
      "vocabulary": "SNOMED",
-     "name": "Atrial flutter",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -7853,7 +7717,6 @@
      "set": "Sepsis",
      "concept_id": 132797,
      "vocabulary": "SNOMED",
-     "name": "Sepsis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -7862,7 +7725,6 @@
      "set": "Sepsis",
      "concept_id": 196236,
      "vocabulary": "SNOMED",
-     "name": "Septic shock",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -7878,7 +7740,6 @@
      "set": "Myasthenia gravis",
      "concept_id": 76685,
      "vocabulary": "SNOMED",
-     "name": "Myasthenia gravis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -7894,7 +7755,6 @@
      "set": "Dermatomyositis",
      "concept_id": 80182,
      "vocabulary": "SNOMED",
-     "name": "Dermatomyositis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -7910,7 +7770,6 @@
      "set": "Osteoporosis",
      "concept_id": 80502,
      "vocabulary": "SNOMED",
-     "name": "Osteoporosis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -7926,7 +7785,6 @@
      "set": "Rheumatoid arthritis",
      "concept_id": 80809,
      "vocabulary": "SNOMED",
-     "name": "Rheumatoid arthritis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -7942,7 +7800,6 @@
      "set": "Ulcerative colitis",
      "concept_id": 81893,
      "vocabulary": "SNOMED",
-     "name": "Ulcerative colitis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -7973,7 +7830,6 @@
      "set": "Atopic dermatitis",
      "concept_id": 133834,
      "vocabulary": "SNOMED",
-     "name": "Atopic dermatitis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -7989,7 +7845,6 @@
      "set": "Systemic sclerosis",
      "concept_id": 134442,
      "vocabulary": "SNOMED",
-     "name": "Systemic sclerosis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8005,7 +7860,6 @@
      "set": "Chronic lymphoid leukemia, disease",
      "concept_id": 138379,
      "vocabulary": "SNOMED",
-     "name": "Chronic lymphoid leukemia, disease",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8021,7 +7875,6 @@
      "set": "Psoriasis",
      "concept_id": 140168,
      "vocabulary": "SNOMED",
-     "name": "Psoriasis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8037,7 +7890,6 @@
      "set": "Acute myeloid leukemia, disease",
      "concept_id": 140352,
      "vocabulary": "SNOMED",
-     "name": "Acute myeloid leukemia, disease",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8053,7 +7905,6 @@
      "set": "Hypothyroidism",
      "concept_id": 140673,
      "vocabulary": "SNOMED",
-     "name": "Hypothyroidism",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8069,7 +7920,6 @@
      "set": "Biliary cirrhosis",
      "concept_id": 192675,
      "vocabulary": "SNOMED",
-     "name": "Biliary cirrhosis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8085,7 +7935,6 @@
      "set": "End-stage renal disease",
      "concept_id": 193782,
      "vocabulary": "SNOMED",
-     "name": "End-stage renal disease",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8101,7 +7950,6 @@
      "set": "Viral hepatitis C",
      "concept_id": 197494,
      "vocabulary": "SNOMED",
-     "name": "Viral hepatitis C",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8117,7 +7965,6 @@
      "set": "Primary malignant neoplasm of kidney",
      "concept_id": 198985,
      "vocabulary": "SNOMED",
-     "name": "Primary malignant neoplasm of kidney",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8138,7 +7985,6 @@
      "set": "Type 1 diabetes mellitus",
      "concept_id": 201254,
      "vocabulary": "SNOMED",
-     "name": "Type 1 diabetes mellitus",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8154,7 +8000,6 @@
      "set": "Crohn's disease",
      "concept_id": 201606,
      "vocabulary": "SNOMED",
-     "name": "Crohn's disease",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8170,7 +8015,6 @@
      "set": "Type 2 diabetes mellitus",
      "concept_id": 201826,
      "vocabulary": "SNOMED",
-     "name": "Type 2 diabetes mellitus",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8186,7 +8030,6 @@
      "set": "Chronic obstructive lung disease",
      "concept_id": 255573,
      "vocabulary": "SNOMED",
-     "name": "Chronic obstructive lung disease",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8202,7 +8045,6 @@
      "set": "Pneumonia",
      "concept_id": 255848,
      "vocabulary": "SNOMED",
-     "name": "Pneumonia",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8218,7 +8060,6 @@
      "set": "Systemic lupus erythematosus",
      "concept_id": 257628,
      "vocabulary": "SNOMED",
-     "name": "Systemic lupus erythematosus",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8244,7 +8085,6 @@
      "set": "Heart failure",
      "concept_id": 316139,
      "vocabulary": "SNOMED",
-     "name": "Heart failure",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8260,7 +8100,6 @@
      "set": "Hypertensive disorder",
      "concept_id": 316866,
      "vocabulary": "SNOMED",
-     "name": "Hypertensive disorder",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8281,7 +8120,6 @@
      "set": "Coronary arteriosclerosis",
      "concept_id": 317576,
      "vocabulary": "SNOMED",
-     "name": "Coronary arteriosclerosis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8302,7 +8140,6 @@
      "set": "Migraine",
      "concept_id": 318736,
      "vocabulary": "SNOMED",
-     "name": "Migraine",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8318,7 +8155,6 @@
      "set": "Age related macular degeneration",
      "concept_id": 374028,
      "vocabulary": "SNOMED",
-     "name": "Age related macular degeneration",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8334,7 +8170,6 @@
      "set": "Multiple sclerosis",
      "concept_id": 374919,
      "vocabulary": "SNOMED",
-     "name": "Multiple sclerosis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8350,7 +8185,6 @@
      "set": "Seizure",
      "concept_id": 377091,
      "vocabulary": "SNOMED",
-     "name": "Seizure",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8366,7 +8200,6 @@
      "set": "Epilepsy",
      "concept_id": 380378,
      "vocabulary": "SNOMED",
-     "name": "Epilepsy",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8382,7 +8215,6 @@
      "set": "Chronic inflammatory demyelinating polyradiculoneuropathy",
      "concept_id": 381009,
      "vocabulary": "SNOMED",
-     "name": "Chronic inflammatory demyelinating polyradiculoneuropathy",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8398,7 +8230,6 @@
      "set": "Parkinson's disease",
      "concept_id": 381270,
      "vocabulary": "SNOMED",
-     "name": "Parkinson's disease",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8419,7 +8250,6 @@
      "set": "Tuberculosis",
      "concept_id": 434557,
      "vocabulary": "SNOMED",
-     "name": "Tuberculosis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8440,7 +8270,6 @@
      "set": "Schizophrenia",
      "concept_id": 435783,
      "vocabulary": "SNOMED",
-     "name": "Schizophrenia",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8456,7 +8285,6 @@
      "set": "Behcet's syndrome",
      "concept_id": 436642,
      "vocabulary": "SNOMED",
-     "name": "Behcet's syndrome",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8472,7 +8300,6 @@
      "set": "Bipolar disorder",
      "concept_id": 436665,
      "vocabulary": "SNOMED",
-     "name": "Bipolar disorder",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8488,7 +8315,6 @@
      "set": "Ankylosing spondylitis",
      "concept_id": 437082,
      "vocabulary": "SNOMED",
-     "name": "Ankylosing spondylitis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8504,7 +8330,6 @@
      "set": "Multiple myeloma",
      "concept_id": 437233,
      "vocabulary": "SNOMED",
-     "name": "Multiple myeloma",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8520,7 +8345,6 @@
      "set": "Glaucoma",
      "concept_id": 437541,
      "vocabulary": "SNOMED",
-     "name": "Glaucoma",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8536,7 +8360,6 @@
      "set": "Autism spectrum disorder",
      "concept_id": 439776,
      "vocabulary": "SNOMED",
-     "name": "Autism spectrum disorder",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8557,7 +8380,6 @@
      "set": "Gout",
      "concept_id": 440674,
      "vocabulary": "SNOMED",
-     "name": "Gout",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8578,7 +8400,6 @@
      "set": "Pulmonary arterial hypertension",
      "concept_id": 4013643,
      "vocabulary": "SNOMED",
-     "name": "Pulmonary arterial hypertension",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8594,7 +8415,6 @@
      "set": "Uveitis",
      "concept_id": 4028363,
      "vocabulary": "SNOMED",
-     "name": "Uveitis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8610,7 +8430,6 @@
      "set": "Non-Hodgkin's lymphoma (clinical)",
      "concept_id": 4038838,
      "vocabulary": "SNOMED",
-     "name": "Non-Hodgkin's lymphoma (clinical)",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8626,7 +8445,6 @@
      "set": "Cirrhosis of liver",
      "concept_id": 4064161,
      "vocabulary": "SNOMED",
-     "name": "Cirrhosis of liver",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8642,7 +8460,6 @@
      "set": "Malignant tumor of breast",
      "concept_id": 4112853,
      "vocabulary": "SNOMED",
-     "name": "Malignant tumor of breast",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8658,7 +8475,6 @@
      "set": "Neoplasm of thyroid gland",
      "concept_id": 4131909,
      "vocabulary": "SNOMED",
-     "name": "Neoplasm of thyroid gland",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8679,7 +8495,6 @@
      "set": "Follicular non-Hodgkin's lymphoma",
      "concept_id": 4147411,
      "vocabulary": "SNOMED",
-     "name": "Follicular non-Hodgkin's lymphoma",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8700,7 +8515,6 @@
      "set": "Retinopathy due to diabetes mellitus",
      "concept_id": 4174977,
      "vocabulary": "SNOMED",
-     "name": "Retinopathy due to diabetes mellitus",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8721,7 +8535,6 @@
      "set": "Malignant neoplasm of liver",
      "concept_id": 4246127,
      "vocabulary": "SNOMED",
-     "name": "Malignant neoplasm of liver",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8737,7 +8550,6 @@
      "set": "Juvenile rheumatoid arthritis",
      "concept_id": 4253901,
      "vocabulary": "SNOMED",
-     "name": "Juvenile rheumatoid arthritis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8758,7 +8570,6 @@
      "set": "Type B viral hepatitis",
      "concept_id": 4281232,
      "vocabulary": "SNOMED",
-     "name": "Type B viral hepatitis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8779,7 +8590,6 @@
      "set": "Preterm labor with preterm delivery",
      "concept_id": 36712702,
      "vocabulary": "SNOMED",
-     "name": "Preterm labor with preterm delivery",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8800,7 +8610,6 @@
      "set": "Mantle cell lymphoma",
      "concept_id": 40481901,
      "vocabulary": "SNOMED",
-     "name": "Mantle cell lymphoma",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8816,7 +8625,6 @@
      "set": "Marginal zone lymphoma",
      "concept_id": 40490918,
      "vocabulary": "SNOMED",
-     "name": "Marginal zone lymphoma",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8832,7 +8640,6 @@
      "set": "Antineutrophil cytoplasmic antibody positive vasculitis",
      "concept_id": 42535714,
      "vocabulary": "SNOMED",
-     "name": "Antineutrophil cytoplasmic antibody positive vasculitis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8848,7 +8655,6 @@
      "set": "Chronic kidney disease",
      "concept_id": 46271022,
      "vocabulary": "SNOMED",
-     "name": "Chronic kidney disease",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8874,7 +8680,6 @@
      "set": "Aplastic anemia",
      "concept_id": 137829,
      "vocabulary": "SNOMED",
-     "name": "Aplastic anemia",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8910,7 +8715,6 @@
      "set": "Psoriatic arthritis (exclude mutilans)",
      "concept_id": 81931,
      "vocabulary": "SNOMED",
-     "name": "Psoriasis with arthropathy",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8919,7 +8723,6 @@
      "set": "Psoriatic arthritis (exclude mutilans)",
      "concept_id": 40319772,
      "vocabulary": "SNOMED",
-     "name": "Psoriatic arthritis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8928,7 +8731,6 @@
      "set": "Psoriatic arthritis (exclude mutilans)",
      "concept_id": 4025831,
      "vocabulary": "SNOMED",
-     "name": "Arthritis mutilans",
      "domain": "Condition",
      "descendants": false,
      "excluded": true
@@ -8937,7 +8739,6 @@
      "set": "Arthropathy",
      "concept_id": 80809,
      "vocabulary": "SNOMED",
-     "name": "Rheumatoid arthritis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8946,7 +8747,6 @@
      "set": "Arthropathy",
      "concept_id": 81097,
      "vocabulary": "SNOMED",
-     "name": "Felty's syndrome",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8955,7 +8755,6 @@
      "set": "Arthropathy",
      "concept_id": 72714,
      "vocabulary": "SNOMED",
-     "name": "Chronic polyarticular juvenile rheumatoid arthritis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8964,7 +8763,6 @@
      "set": "Arthropathy",
      "concept_id": 75621,
      "vocabulary": "SNOMED",
-     "name": "Acute polyarticular juvenile rheumatoid arthritis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8973,7 +8771,6 @@
      "set": "Arthropathy",
      "concept_id": 72705,
      "vocabulary": "SNOMED",
-     "name": "Pauciarticular juvenile rheumatoid arthritis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8982,7 +8779,6 @@
      "set": "Arthropathy",
      "concept_id": 75622,
      "vocabulary": "SNOMED",
-     "name": "Monarticular juvenile rheumatoid arthritis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -8991,7 +8787,6 @@
      "set": "Arthropathy",
      "concept_id": 75897,
      "vocabulary": "SNOMED",
-     "name": "Polyarthropathy",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -9000,7 +8795,6 @@
      "set": "Arthropathy",
      "concept_id": 79903,
      "vocabulary": "SNOMED",
-     "name": "Effusion of joint",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -9009,7 +8803,6 @@
      "set": "Arthropathy",
      "concept_id": 4153359,
      "vocabulary": "SNOMED",
-     "name": "Arthritis of spine",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -9018,7 +8811,6 @@
      "set": "Arthropathy",
      "concept_id": 437082,
      "vocabulary": "SNOMED",
-     "name": "Ankylosing spondylitis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -9676,7 +9468,6 @@
      "set": "Mild cognitive impairment (REWARD update)",
      "concept_id": 439795,
      "vocabulary": "SNOMED",
-     "name": "Minimal cognitive impairment",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -9685,7 +9476,6 @@
      "set": "Mild cognitive impairment (REWARD update)",
      "concept_id": 4297400,
      "vocabulary": "SNOMED",
-     "name": "Mild cognitive disorder",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -10336,7 +10126,6 @@
      "set": "ADHD condition or procedure",
      "concept_id": 44813054,
      "vocabulary": "SNOMED",
-     "name": "Attention deficit hyperactivity disorder annual review",
      "domain": "Procedure",
      "descendants": true,
      "excluded": false
@@ -10345,7 +10134,6 @@
      "set": "ADHD condition or procedure",
      "concept_id": 40480225,
      "vocabulary": "SNOMED",
-     "name": "Adult attention deficit hyperactivity disorder",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -10354,7 +10142,6 @@
      "set": "ADHD condition or procedure",
      "concept_id": 4262921,
      "vocabulary": "SNOMED",
-     "name": "Hyperkinetic syndrome with developmental delay",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -10363,7 +10150,6 @@
      "set": "ADHD condition or procedure",
      "concept_id": 45765570,
      "vocabulary": "SNOMED",
-     "name": "Drug therapy for attention deficit hyperactivity disorder",
      "domain": "Procedure",
      "descendants": true,
      "excluded": false
@@ -10372,7 +10158,6 @@
      "set": "ADHD condition or procedure",
      "concept_id": 4047120,
      "vocabulary": "SNOMED",
-     "name": "Disorders of attention and motor control",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -10381,7 +10166,6 @@
      "set": "ADHD condition or procedure",
      "concept_id": 4085043,
      "vocabulary": "SNOMED",
-     "name": "Reduced concentration span",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -10593,7 +10377,6 @@
      "set": "Hypoparathyroidism",
      "concept_id": 140362,
      "vocabulary": "SNOMED",
-     "name": "Hypoparathyroidism",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -10639,7 +10422,6 @@
      "set": " Interstitial lung disease (ILD) not including Acute Respiratory Distress Syndrome",
      "concept_id": 4119786,
      "vocabulary": "SNOMED",
-     "name": "Interstitial lung disease",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -10648,7 +10430,6 @@
      "set": " Interstitial lung disease (ILD) not including Acute Respiratory Distress Syndrome",
      "concept_id": 4195694,
      "vocabulary": "SNOMED",
-     "name": "Acute respiratory distress syndrome",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -10657,7 +10438,6 @@
      "set": " Interstitial lung disease (ILD) not including Acute Respiratory Distress Syndrome",
      "concept_id": 438791,
      "vocabulary": "SNOMED",
-     "name": "Pulmonary congestion and hypostasis",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -10666,7 +10446,6 @@
      "set": " Interstitial lung disease (ILD) not including Acute Respiratory Distress Syndrome",
      "concept_id": 258180,
      "vocabulary": "SNOMED",
-     "name": "Pneumonia due to Gram negative bacteria",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -10675,7 +10454,6 @@
      "set": " Interstitial lung disease (ILD) not including Acute Respiratory Distress Syndrome",
      "concept_id": 4006969,
      "vocabulary": "SNOMED",
-     "name": "Acute respiratory disease",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -10691,7 +10469,6 @@
      "set": "Nodule of lung",
      "concept_id": 37206719,
      "vocabulary": "SNOMED",
-     "name": "Nodule of lung",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -10700,7 +10477,6 @@
      "set": "Nodule of lung",
      "concept_id": 4203096,
      "vocabulary": "SNOMED",
-     "name": "Lung mass",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -10731,7 +10507,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 4157333,
      "vocabulary": "SNOMED",
-     "name": "Malignant neoplasm of main bronchus",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -10740,7 +10515,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 4128888,
      "vocabulary": "SNOMED",
-     "name": "Neoplasm of lung",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -10749,7 +10523,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 254591,
      "vocabulary": "SNOMED",
-     "name": "Secondary malignant neoplasm of lung",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -10758,7 +10531,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 4248073,
      "vocabulary": "SNOMED",
-     "name": "Secondary malignant neoplasm of main bronchus",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -10767,7 +10539,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 443388,
      "vocabulary": "SNOMED",
-     "name": "Malignant tumor of lung",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -10776,7 +10547,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 4242353,
      "vocabulary": "SNOMED",
-     "name": "Benign neoplasm of lung",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -10785,7 +10555,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 4311499,
      "vocabulary": "SNOMED",
-     "name": "Primary malignant neoplasm of respiratory tract",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -10794,7 +10563,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 46270492,
      "vocabulary": "SNOMED",
-     "name": "Adult pulmonary Langerhans cell histiocytosis",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -10803,7 +10571,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 254583,
      "vocabulary": "SNOMED",
-     "name": "Kaposi's sarcoma of lung",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -10812,7 +10579,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 4174275,
      "vocabulary": "SNOMED",
-     "name": "Pulmonary lymphangioleiomyomatosis",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -10821,7 +10587,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 437677,
      "vocabulary": "SNOMED",
-     "name": "Abnormal findings on diagnostic imaging of lung",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -10830,7 +10595,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 4166126,
      "vocabulary": "SNOMED",
-     "name": "Localized swelling, mass and lump, trunk",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -10839,7 +10603,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 4142875,
      "vocabulary": "SNOMED",
-     "name": "Solitary nodule of lung",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -10855,7 +10618,6 @@
      "set": "Small Cell Lung Cancer",
      "concept_id": 4110591,
      "vocabulary": "SNOMED",
-     "name": "Small cell carcinoma of lung",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -10864,7 +10626,6 @@
      "set": "Primary Malignant neoplasm of lung",
      "concept_id": 258369,
      "vocabulary": "SNOMED",
-     "name": "Primary malignant neoplasm of lung",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -10880,7 +10641,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 4157333,
      "vocabulary": "SNOMED",
-     "name": "Malignant neoplasm of main bronchus",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -10889,7 +10649,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 4128888,
      "vocabulary": "SNOMED",
-     "name": "Neoplasm of lung",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -10898,7 +10657,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 254591,
      "vocabulary": "SNOMED",
-     "name": "Secondary malignant neoplasm of lung",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -10907,7 +10665,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 4248073,
      "vocabulary": "SNOMED",
-     "name": "Secondary malignant neoplasm of main bronchus",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -10916,7 +10673,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 443388,
      "vocabulary": "SNOMED",
-     "name": "Malignant tumor of lung",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -10925,7 +10681,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 4242353,
      "vocabulary": "SNOMED",
-     "name": "Benign neoplasm of lung",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -10934,7 +10689,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 4311499,
      "vocabulary": "SNOMED",
-     "name": "Primary malignant neoplasm of respiratory tract",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -10943,7 +10697,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 46270492,
      "vocabulary": "SNOMED",
-     "name": "Adult pulmonary Langerhans cell histiocytosis",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -10952,7 +10705,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 254583,
      "vocabulary": "SNOMED",
-     "name": "Kaposi's sarcoma of lung",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -10961,7 +10713,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 4174275,
      "vocabulary": "SNOMED",
-     "name": "Pulmonary lymphangioleiomyomatosis",
      "domain": "Condition",
      "descendants": true,
      "excluded": true
@@ -10970,7 +10721,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 437677,
      "vocabulary": "SNOMED",
-     "name": "Abnormal findings on diagnostic imaging of lung",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -10979,7 +10729,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 4166126,
      "vocabulary": "SNOMED",
-     "name": "Localized swelling, mass and lump, trunk",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -10988,7 +10737,6 @@
      "set": "Primary lung cancer or abnormal lung findings",
      "concept_id": 4142875,
      "vocabulary": "SNOMED",
-     "name": "Solitary nodule of lung",
      "domain": "Condition",
      "descendants": false,
      "excluded": false
@@ -14269,601 +14017,601 @@
   }
  },
  "icd10cm_names": {
-  "Abnormal findings on diagnostic imaging of lung": [],
-  "Acute myeloid leukemia, disease": [],
-  "Acute polyarticular juvenile rheumatoid arthritis": [],
-  "Acute renal failure syndrome": [],
-  "Acute tubular necrosis": [
-   "N17.0"
-  ],
-  "Adult attention deficit hyperactivity disorder": [],
-  "Age related macular degeneration": [
-   "H35.3130",
-   "H35.3230",
-   "H35.3110",
-   "H35.3120",
-   "H35.3131"
-  ],
-  "Aggression due to dementia": [],
-  "Agitation due to dementia": [],
-  "Alzheimer's disease": [],
-  "Amyotrophic lateral sclerosis with dementia": [],
-  "Anemia": [
-   "D53.2",
-   "D61.03",
-   "D64.9",
-   "D46.4",
-   "D53.0"
-  ],
-  "Angioedema and/or urticaria": [],
-  "Ankylosing spondylitis": [
-   "M08.1",
-   "M45.6",
-   "M45.2",
-   "M45.3",
-   "M45.4"
-  ],
-  "Antineutrophil cytoplasmic antibody positive vasculitis": [],
-  "Anxiety due to dementia": [],
-  "Apathetic behaviour due to dementia": [],
-  "Aplastic anemia": [
-   "D61.3",
-   "D61.9",
-   "D61.09",
-   "D61.1",
-   "D61.2"
-  ],
-  "Arthritis of spine": [],
-  "Asthma": [
-   "J45.998",
-   "J82.83",
-   "J45.909",
-   "J45.991",
-   "J45.20"
-  ],
-  "Asthma management": [],
-  "Atopic dermatitis": [
-   "L20.89",
-   "L20.9"
-  ],
-  "Atrial fibrillation": [
-   "I48.0",
-   "I48.21",
-   "I48.91",
-   "I48.11",
-   "I48.19"
-  ],
-  "Atrial flutter": [
-   "I48.3",
-   "I48.4",
-   "I48.92"
-  ],
-  "Attention deficit hyperactivity disorder annual review": [],
-  "Autism spectrum disorder": [],
-  "Autoimmune hepatitis": [
-   "K75.4"
-  ],
-  "Avian infl virus nucl acid det": [],
-  "Avian influenza virus RNA (ribonucleic acid) detection assay": [],
-  "Avian influenza virus nucleic acid detection assay": [],
-  "Behavioral and psychological symptoms of dementia": [],
-  "Behcet's syndrome": [],
-  "Biliary cirrhosis": [
-   "K74.3",
-   "K74.4",
-   "K74.5"
-  ],
-  "Bipolar disorder": [
-   "F31.81",
-   "F31.89",
-   "F31.9",
-   "F25.0",
-   "F31.0"
-  ],
-  "Body weight": [],
-  "COVID-19": [
-   "U07.1",
-   "Z28.310",
-   "Z28.311",
-   "Z86.16",
-   "U09.9"
-  ],
-  "Cerebral artery occlusion": [
-   "I66.9",
-   "I66.01",
-   "I66.02",
-   "I66.09",
-   "I66.11"
-  ],
-  "Cerebral degeneration presenting primarily with dementia": [],
-  "Cerebral embolism": [
-   "I63.40",
-   "I63.49",
-   "I63.411",
-   "I63.412",
-   "I63.413"
-  ],
-  "Cerebral hemorrhage": [
-   "P10.1",
-   "I60.10",
-   "I60.11",
-   "I60.12"
-  ],
-  "Cerebral infarction": [
-   "I63.89",
-   "I63.9",
-   "I69.320",
-   "I69.321",
-   "I69.322"
-  ],
-  "Cerebral thrombosis": [
-   "I63.6",
-   "I63.30",
-   "I63.39",
-   "O87.3",
-   "I63.311"
-  ],
-  "Chronic inflammatory demyelinating polyradiculoneuropathy": [],
-  "Chronic kidney disease": [
-   "I12.9",
-   "N18.9",
-   "I12.0",
-   "D63.1",
-   "N18.1"
-  ],
-  "Chronic lymphoid leukemia, disease": [],
-  "Chronic obstructive lung disease": [],
-  "Chronic polyarticular juvenile rheumatoid arthritis": [],
-  "Cirrhosis of liver": [
-   "K74.60",
-   "K74.69",
-   "P78.81",
-   "K71.7",
-   "K70.30"
-  ],
-  "Complex partial epileptic seizure": [
-   "G40.201",
-   "G40.209",
-   "G40.211",
-   "G40.219"
-  ],
-  "Coronary arteriosclerosis": [],
-  "Crohn's disease": [
-   "K50.00",
-   "K50.011",
-   "K50.012",
-   "K50.013",
-   "K50.014"
-  ],
-  "Dementia": [
-   "F01.A11",
-   "F01.A4",
-   "F01.B11",
-   "F01.B4",
-   "F01.C11"
-  ],
-  "Depressive disorder": [
-   "F25.1",
-   "F33.0",
-   "F33.1",
-   "F33.9",
-   "F32.0"
-  ],
-  "Dermatomyositis": [
-   "M33.02",
-   "M33.03",
-   "M33.12",
-   "M33.13",
-   "M33.00"
-  ],
-  "Detection of Influenza A virus using PCR - polymerase chain reaction technique": [],
-  "Disinhibited behaviour due to dementia": [],
-  "Disorders of attention and motor control": [],
-  "Drug therapy for attention deficit hyperactivity disorder": [],
-  "Effusion of joint": [],
-  "Encephalitis due to influenza": [],
-  "Encephalopathy due to Influenza A virus": [],
-  "End-stage renal disease": [
-   "N18.6",
-   "I12.0",
-   "I13.11",
-   "I13.2"
-  ],
-  "Eosinophilic asthma": [
-   "J82.83"
-  ],
-  "Epilepsy": [
-   "G40.803",
-   "G40.804",
-   "G40.911",
-   "G40.919",
-   "G40.B11"
-  ],
-  "Eruption": [
-   "L56.4",
-   "X35.XXXS",
-   "K00.6",
-   "X35.XXXA",
-   "X35.XXXD"
-  ],
-  "Erythema of skin": [],
-  "Febrile convulsion": [
-   "R56.00",
-   "R56.01"
-  ],
-  "Felty's syndrome": [
-   "M05.00",
-   "M05.011",
-   "M05.012",
-   "M05.019",
-   "M05.021"
-  ],
-  "Finding of HIV status": [],
-  "Follicular non-Hodgkin's lymphoma": [],
-  "Frontotemporal dementia": [],
-  "Frontotemporal dementia with parkinsonism-17": [],
-  "GRN-related frontotemporal dementia": [],
-  "Glaucoma": [
-   "H40.9",
-   "Q15.0",
-   "B73.02",
-   "H40.823",
-   "H40.89"
-  ],
-  "Gout": [
-   "M10.9",
-   "M10.08",
-   "M10.00",
-   "M10.011",
-   "M10.012"
-  ],
-  "H/O: dementia": [
-   "F13.27",
-   "F13.97"
-  ],
-  "Heart failure": [
-   "I50.814",
-   "I09.81",
-   "I50.82",
-   "I50.89",
-   "I50.9"
-  ],
-  "Human immunodeficiency virus carrier": [],
-  "Human immunodeficiency virus infection": [
-   "Z21"
-  ],
-  "Hyperkinetic syndrome with developmental delay": [],
-  "Hypertensive disorder": [
-   "P00.0"
-  ],
-  "Hypoparathyroidism": [
-   "E20.0",
-   "E20.812",
-   "E20.9",
-   "E89.2",
-   "E20.89"
-  ],
-  "Hypothyroidism": [
-   "E03.3",
-   "E03.9",
-   "E89.0",
-   "E03.8",
-   "E02"
-  ],
-  "Influenza": [
-   "J11.81",
-   "J11.82",
-   "J10.01",
-   "J10.81",
-   "J10.82"
-  ],
-  "Influenza A and B virus antigen assay": [],
-  "Influenza A antigen level": [],
-  "Influenza A nucleic acid detection": [],
-  "Influenza A nucleic acid detection assay": [],
-  "Influenza A virus antigen assay": [],
-  "Influenza A virus present": [],
-  "Influenza A, B, and C virus antigen assay": [],
-  "Influenza B antigen level": [],
-  "Influenza B nucleic acid detection": [],
-  "Influenza B nucleic acid detection assay": [],
-  "Influenza B virus antigen assay": [],
-  "Influenza B virus present": [],
-  "Influenza B virus ribonucleic acid detection assay": [],
-  "Influenza with CNS disorder": [],
-  "Influenza with gastrointestinal tract involvement": [],
-  "Interstitial lung disease": [
-   "J84.115",
-   "J84.170",
-   "J84.848"
-  ],
-  "Intracranial hemorrhage": [
-   "I62.9",
-   "I69.220",
-   "I69.221",
-   "I69.222",
-   "I69.290"
-  ],
-  "Intractable absence seizures": [],
-  "Juvenile rheumatoid arthritis": [
-   "M08.08",
-   "M08.48",
-   "M08.011",
-   "M08.012",
-   "M08.019"
-  ],
-  "Localized swelling, mass and lump, trunk": [
-   "R22.2"
-  ],
-  "Lung mass": [],
-  "Major depressive disorder": [
-   "F33.0",
-   "F33.1",
-   "F33.9",
-   "F32.0",
-   "F32.1"
-  ],
-  "Malignant neoplasm of liver": [
-   "Z85.05",
-   "C22.8",
-   "C78.7",
-   "C22.9"
-  ],
-  "Malignant neoplasm of main bronchus": [
-   "C34.00",
-   "C34.01",
-   "C34.02"
-  ],
-  "Malignant tumor of breast": [],
-  "Malignant tumor of lung": [
-   "C7A.090",
-   "Z85.110"
-  ],
-  "Malignant tumor of prostate": [],
-  "Mantle cell lymphoma": [
-   "C83.17",
-   "C83.10",
-   "C83.1A",
-   "C83.12",
-   "C83.16"
-  ],
-  "Marginal zone lymphoma": [
-   "C88.41",
-   "C88.40"
-  ],
-  "Migraine": [
-   "G43.B1",
-   "G43.D1",
-   "G43.B0",
-   "G43.D0",
-   "G43.A1"
-  ],
-  "Mild cognitive disorder": [],
-  "Minimal cognitive impairment": [],
-  "Monarticular juvenile rheumatoid arthritis": [],
-  "Multiple myeloma": [
-   "C90.01",
-   "C90.02",
-   "C90.00"
-  ],
-  "Multiple sclerosis": [
-   "G35.D",
-   "G35.A",
-   "G35.B0",
-   "G35.B1",
-   "G35.C0"
-  ],
-  "Myasthenia gravis": [
-   "P94.0",
-   "G70.00",
-   "G70.01"
-  ],
-  "Myocardial infarction": [
-   "I25.2",
-   "I21.9",
-   "I21.A1",
-   "I21.A9",
-   "I21.4"
-  ],
-  "Myocarditis due to influenza virus": [
-   "J11.82",
-   "J10.82"
-  ],
-  "Neoplasm of lung": [
-   "C78.00",
-   "C78.01",
-   "C78.02",
-   "D14.30",
-   "D14.31"
-  ],
-  "Neoplasm of thyroid gland": [
-   "C73",
-   "D34",
-   "D44.0"
-  ],
-  "Nodule of lung": [],
-  "Non-Hodgkin's lymphoma (clinical)": [],
-  "Nutritional anemia": [
-   "D53.9",
-   "D53.8"
-  ],
-  "Obese": [],
-  "Obesity associated disorder": [],
-  "Osteoporosis": [
-   "M81.6",
-   "Z82.62",
-   "Z13.820",
-   "M81.8",
-   "Z87.310"
-  ],
-  "Otitis media due to influenza": [
-   "J11.83",
-   "J10.83"
-  ],
-  "Parkinson's disease": [],
-  "Pauciarticular juvenile rheumatoid arthritis": [
-   "M08.48",
-   "M08.40",
-   "M08.411",
-   "M08.412",
-   "M08.419"
-  ],
-  "Pneumonia": [
-   "A01.03",
-   "A02.22",
-   "A54.84",
-   "B01.2",
-   "B06.81"
-  ],
-  "Pneumonia due to Influenza A virus": [
-   "J09.X1"
-  ],
-  "Polyarthropathy": [
-   "M06.4"
-  ],
-  "Preterm labor with preterm delivery": [
-   "O60.10X1",
-   "O60.10X2",
-   "O60.10X3",
-   "O60.10X4",
-   "O60.10X5"
-  ],
-  "Primary malignant neoplasm of kidney": [],
-  "Primary malignant neoplasm of lung": [],
-  "Primary malignant neoplasm of respiratory tract": [],
-  "Psoriasis": [
-   "L40.0",
-   "L40.4",
-   "L40.8",
-   "L40.9",
-   "L40.1"
-  ],
-  "Psoriasis with arthropathy": [],
-  "Psoriatic arthritis": [
-   "L40.52"
-  ],
-  "Psychological symptom due to dementia": [],
-  "Pulmonary arterial hypertension": [
-   "I27.21"
-  ],
-  "Reduced concentration span": [],
-  "Retinopathy due to diabetes mellitus": [
-   "E08.3553",
-   "E08.311",
-   "E08.319",
-   "E08.3551",
-   "E08.3552"
-  ],
-  "Rheumatoid arthritis": [
-   "M06.9",
-   "M05.9",
-   "M06.08",
-   "M06.00",
-   "M06.011"
-  ],
-  "Schizophrenia": [
-   "F20.0",
-   "F20.1",
-   "F20.2",
-   "F20.3",
-   "F20.5"
-  ],
-  "Seizure": [
-   "F44.5",
-   "G40.001",
-   "G40.009",
-   "G40.011",
-   "G40.019"
-  ],
-  "Seizure disorder": [
-   "F44.5"
-  ],
-  "Seizure related finding": [],
-  "Sepsis": [
+  "132797": [
    "A02.1",
    "A22.7",
    "A26.7",
    "A32.7",
    "A42.7"
   ],
-  "Septic shock": [
-   "T81.12XS",
-   "R65.20",
-   "R65.21",
-   "T81.12XA",
-   "T81.12XD"
+  "133834": [
+   "L20.89",
+   "L20.9"
   ],
-  "Small cell carcinoma of lung": [],
-  "Solitary nodule of lung": [],
-  "Spontaneous cerebellar hemorrhage": [],
-  "Spontaneous cerebral hemorrhage": [],
-  "Spontaneous hemorrhage of cerebral hemisphere": [],
-  "Spontaneous subarachnoid hemorrhage": [],
-  "Subarachnoid hemorrhage": [
-   "I60.8",
-   "I60.9",
-   "I69.020",
-   "I69.021",
-   "I69.022"
-  ],
-  "Systemic lupus erythematosus": [
-   "M32.9",
-   "M32.0",
-   "M32.11",
-   "M32.12",
-   "M32.13"
-  ],
-  "Systemic sclerosis": [
+  "134442": [
    "M34.0",
    "M34.89",
    "M34.9",
    "M34.82",
    "M34.83"
   ],
-  "Tuberculosis": [
-   "A18.39",
-   "P37.0",
-   "Z22.7",
-   "A15.0",
-   "A15.7"
+  "137829": [
+   "D61.3",
+   "D61.9",
+   "D61.09",
+   "D61.1",
+   "D61.2"
   ],
-  "Type 1 diabetes mellitus": [
-   "E10.A1",
-   "E10.65",
-   "E10.9",
-   "E10.A0",
-   "E10.21"
+  "138379": [],
+  "140168": [
+   "L40.0",
+   "L40.4",
+   "L40.8",
+   "L40.9",
+   "L40.1"
   ],
-  "Type 2 diabetes mellitus": [
-   "E11.65",
-   "E11.9",
-   "E10.A2",
-   "E11.21",
-   "E11.36"
+  "140214": [
+   "L56.4",
+   "X35.XXXS",
+   "K00.6",
+   "X35.XXXA",
+   "X35.XXXD"
   ],
-  "Type B viral hepatitis": [],
-  "Ulcerative colitis": [
-   "K51.80",
-   "K51.813",
-   "K51.814",
-   "K51.90",
-   "K51.913"
+  "140352": [],
+  "140362": [
+   "E20.0",
+   "E20.812",
+   "E20.9",
+   "E89.2",
+   "E20.89"
   ],
-  "Uveitis": [
-   "H44.133",
-   "H44.131",
-   "H44.132",
-   "H44.139"
+  "140673": [
+   "E03.3",
+   "E03.9",
+   "E89.0",
+   "E03.8",
+   "E02"
   ],
-  "Viral hepatitis C": [
+  "192675": [
+   "K74.3",
+   "K74.4",
+   "K74.5"
+  ],
+  "193782": [
+   "N18.6",
+   "I12.0",
+   "I13.11",
+   "I13.2"
+  ],
+  "196236": [
+   "T81.12XS",
+   "R65.20",
+   "R65.21",
+   "T81.12XA",
+   "T81.12XD"
+  ],
+  "197320": [],
+  "197494": [
    "B18.2",
    "B19.20",
    "B19.21",
    "B18.0",
    "B18.1"
   ],
-  "Wandering due to dementia": [],
-  "Wheal": []
+  "198985": [],
+  "200762": [
+   "K75.4"
+  ],
+  "201254": [
+   "E10.A1",
+   "E10.65",
+   "E10.9",
+   "E10.A0",
+   "E10.21"
+  ],
+  "201606": [
+   "K50.00",
+   "K50.011",
+   "K50.012",
+   "K50.013",
+   "K50.014"
+  ],
+  "201826": [
+   "E11.65",
+   "E11.9",
+   "E10.A2",
+   "E11.21",
+   "E11.36"
+  ],
+  "255573": [],
+  "255848": [
+   "A01.03",
+   "A02.22",
+   "A54.84",
+   "B01.2",
+   "B06.81"
+  ],
+  "257628": [
+   "M32.9",
+   "M32.0",
+   "M32.11",
+   "M32.12",
+   "M32.13"
+  ],
+  "258369": [],
+  "313217": [
+   "I48.0",
+   "I48.21",
+   "I48.91",
+   "I48.11",
+   "I48.19"
+  ],
+  "314665": [
+   "I48.3",
+   "I48.4",
+   "I48.92"
+  ],
+  "316139": [
+   "I50.814",
+   "I09.81",
+   "I50.82",
+   "I50.89",
+   "I50.9"
+  ],
+  "316866": [
+   "P00.0"
+  ],
+  "317009": [
+   "J45.998",
+   "J82.83",
+   "J45.909",
+   "J45.991",
+   "J45.20"
+  ],
+  "317576": [],
+  "318736": [
+   "G43.B1",
+   "G43.D1",
+   "G43.B0",
+   "G43.D0",
+   "G43.A1"
+  ],
+  "35608576": [],
+  "36676235": [],
+  "36712702": [
+   "O60.10X1",
+   "O60.10X2",
+   "O60.10X3",
+   "O60.10X4",
+   "O60.10X5"
+  ],
+  "37206719": [],
+  "372924": [
+   "I66.9",
+   "I66.01",
+   "I66.02",
+   "I66.09",
+   "I66.11"
+  ],
+  "37311061": [
+   "U07.1",
+   "Z28.310",
+   "Z28.311",
+   "Z86.16",
+   "U09.9"
+  ],
+  "37311665": [],
+  "37311890": [],
+  "37312030": [],
+  "37312031": [],
+  "37312035": [],
+  "37312036": [],
+  "37312577": [],
+  "37392223": [],
+  "37392224": [],
+  "37392761": [],
+  "37392948": [],
+  "37394297": [],
+  "37394300": [],
+  "37394408": [],
+  "374028": [
+   "H35.3130",
+   "H35.3230",
+   "H35.3110",
+   "H35.3120",
+   "H35.3131"
+  ],
+  "374919": [
+   "G35.D",
+   "G35.A",
+   "G35.B0",
+   "G35.B1",
+   "G35.C0"
+  ],
+  "375557": [
+   "I63.40",
+   "I63.49",
+   "I63.411",
+   "I63.412",
+   "I63.413"
+  ],
+  "376713": [
+   "P10.1",
+   "I60.10",
+   "I60.11",
+   "I60.12"
+  ],
+  "377091": [
+   "F44.5",
+   "G40.001",
+   "G40.009",
+   "G40.011",
+   "G40.019"
+  ],
+  "378419": [],
+  "380378": [
+   "G40.803",
+   "G40.804",
+   "G40.911",
+   "G40.919",
+   "G40.B11"
+  ],
+  "381009": [],
+  "381270": [],
+  "4013643": [
+   "I27.21"
+  ],
+  "4028363": [
+   "H44.133",
+   "H44.131",
+   "H44.132",
+   "H44.139"
+  ],
+  "4029498": [
+   "F44.5"
+  ],
+  "40319772": [
+   "L40.52"
+  ],
+  "4038838": [],
+  "4039357": [],
+  "4039358": [],
+  "4041685": [],
+  "4043378": [],
+  "4044987": [],
+  "4044988": [],
+  "4047120": [],
+  "40480225": [],
+  "40481101": [],
+  "40481901": [
+   "C83.17",
+   "C83.10",
+   "C83.1A",
+   "C83.12",
+   "C83.16"
+  ],
+  "40490918": [
+   "C88.41",
+   "C88.40"
+  ],
+  "4059191": [
+   "F13.27",
+   "F13.97"
+  ],
+  "4064161": [
+   "K74.60",
+   "K74.69",
+   "P78.81",
+   "K71.7",
+   "K70.30"
+  ],
+  "4082588": [],
+  "4085043": [],
+  "4092747": [],
+  "4099154": [],
+  "4110591": [],
+  "4112824": [],
+  "4112853": [],
+  "4119786": [
+   "J84.115",
+   "J84.170",
+   "J84.848"
+  ],
+  "4128888": [
+   "C78.00",
+   "C78.01",
+   "C78.02",
+   "D14.30",
+   "D14.31"
+  ],
+  "4131909": [
+   "C73",
+   "D34",
+   "D44.0"
+  ],
+  "4142875": [],
+  "4146943": [],
+  "4147411": [],
+  "4148906": [],
+  "4152280": [
+   "F33.0",
+   "F33.1",
+   "F33.9",
+   "F32.0",
+   "F32.1"
+  ],
+  "4153359": [],
+  "4157333": [
+   "C34.00",
+   "C34.01",
+   "C34.02"
+  ],
+  "4163261": [],
+  "4166126": [
+   "R22.2"
+  ],
+  "4174977": [
+   "E08.3553",
+   "E08.311",
+   "E08.319",
+   "E08.3551",
+   "E08.3552"
+  ],
+  "4176962": [],
+  "4182210": [
+   "F01.A11",
+   "F01.A4",
+   "F01.B11",
+   "F01.B4",
+   "F01.C11"
+  ],
+  "4196708": [],
+  "4203096": [],
+  "4215968": [],
+  "4235703": [],
+  "4236312": [
+   "G40.201",
+   "G40.209",
+   "G40.211",
+   "G40.219"
+  ],
+  "4246127": [
+   "Z85.05",
+   "C22.8",
+   "C78.7",
+   "C22.9"
+  ],
+  "42535425": [],
+  "42535714": [],
+  "42537960": [],
+  "4253901": [
+   "M08.08",
+   "M08.48",
+   "M08.011",
+   "M08.012",
+   "M08.019"
+  ],
+  "4262075": [],
+  "4262921": [],
+  "4266367": [
+   "J11.81",
+   "J11.82",
+   "J10.01",
+   "J10.81",
+   "J10.82"
+  ],
+  "4276586": [],
+  "4279553": [
+   "J82.83"
+  ],
+  "4280354": [
+   "D53.9",
+   "D53.8"
+  ],
+  "4281232": [],
+  "4297361": [],
+  "4297400": [],
+  "4299935": [
+   "J11.82",
+   "J10.82"
+  ],
+  "4311499": [],
+  "432923": [
+   "I60.8",
+   "I60.9",
+   "I69.020",
+   "I69.021",
+   "I69.022"
+  ],
+  "4329847": [
+   "I25.2",
+   "I21.9",
+   "I21.A1",
+   "I21.A9",
+   "I21.4"
+  ],
+  "434557": [
+   "A18.39",
+   "P37.0",
+   "Z22.7",
+   "A15.0",
+   "A15.7"
+  ],
+  "43530674": [],
+  "43530727": [],
+  "43531630": [],
+  "435783": [
+   "F20.0",
+   "F20.1",
+   "F20.2",
+   "F20.3",
+   "F20.5"
+  ],
+  "436642": [],
+  "436665": [
+   "F31.81",
+   "F31.89",
+   "F31.9",
+   "F25.0",
+   "F31.0"
+  ],
+  "437082": [
+   "M08.1",
+   "M45.6",
+   "M45.2",
+   "M45.3",
+   "M45.4"
+  ],
+  "437233": [
+   "C90.01",
+   "C90.02",
+   "C90.00"
+  ],
+  "437541": [
+   "H40.9",
+   "Q15.0",
+   "B73.02",
+   "H40.823",
+   "H40.89"
+  ],
+  "437677": [],
+  "439727": [
+   "Z21"
+  ],
+  "439776": [],
+  "439777": [
+   "D53.2",
+   "D61.03",
+   "D64.9",
+   "D46.4",
+   "D53.0"
+  ],
+  "439795": [],
+  "439847": [
+   "I62.9",
+   "I69.220",
+   "I69.221",
+   "I69.222",
+   "I69.290"
+  ],
+  "440383": [
+   "F25.1",
+   "F33.0",
+   "F33.1",
+   "F33.9",
+   "F32.0"
+  ],
+  "440674": [
+   "M10.9",
+   "M10.08",
+   "M10.00",
+   "M10.011",
+   "M10.012"
+  ],
+  "441874": [
+   "I63.6",
+   "I63.30",
+   "I63.39",
+   "O87.3",
+   "I63.311"
+  ],
+  "443388": [
+   "C7A.090",
+   "Z85.110"
+  ],
+  "443454": [
+   "I63.89",
+   "I63.9",
+   "I69.320",
+   "I69.321",
+   "I69.322"
+  ],
+  "444044": [
+   "N17.0"
+  ],
+  "444413": [
+   "R56.00",
+   "R56.01"
+  ],
+  "44783356": [],
+  "44789502": [],
+  "44806470": [],
+  "44807860": [],
+  "44813054": [],
+  "45757528": [],
+  "45765477": [],
+  "45765480": [],
+  "45765570": [],
+  "46269706": [
+   "J11.83",
+   "J10.83"
+  ],
+  "46271022": [
+   "I12.9",
+   "N18.9",
+   "I12.0",
+   "D63.1",
+   "N18.1"
+  ],
+  "46274061": [],
+  "72705": [
+   "M08.48",
+   "M08.40",
+   "M08.411",
+   "M08.412",
+   "M08.419"
+  ],
+  "72714": [],
+  "75621": [],
+  "75622": [],
+  "75897": [
+   "M06.4"
+  ],
+  "763011": [
+   "J09.X1"
+  ],
+  "76685": [
+   "P94.0",
+   "G70.00",
+   "G70.01"
+  ],
+  "79903": [],
+  "80182": [
+   "M33.02",
+   "M33.03",
+   "M33.12",
+   "M33.13",
+   "M33.00"
+  ],
+  "80502": [
+   "M81.6",
+   "Z82.62",
+   "Z13.820",
+   "M81.8",
+   "Z87.310"
+  ],
+  "80809": [
+   "M06.9",
+   "M05.9",
+   "M06.08",
+   "M06.00",
+   "M06.011"
+  ],
+  "81097": [
+   "M05.00",
+   "M05.011",
+   "M05.012",
+   "M05.019",
+   "M05.021"
+  ],
+  "81893": [
+   "K51.80",
+   "K51.813",
+   "K51.814",
+   "K51.90",
+   "K51.913"
+  ],
+  "81931": []
  },
  "atc": {
   "A10": "DRUGS USED IN DIABETES",

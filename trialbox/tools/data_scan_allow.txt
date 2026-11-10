@@ -35,6 +35,8 @@ value | cjk_name_dob | 潘映君 | the author of a published article cited in th
 value | cjk_name_dob | 中村健一 | the author of a published presentation cited in the TW/JP field research (a citation, not a patient)
 value | cjk_name_dob | 木村通男 | the author of a published survey cited in the TW/JP field research (a citation, not a patient)
 value | cjk_name_dob | 陳玉夏 | the author of a published article cited in the TW/JP field research (a citation, not a patient)
+value | cjk_name_dob | 福田分類 | the Fukuda (福田) classification of diabetic retinopathy, a clinical term in catalogue/items.csv beside its verified_date, not a person
+value | cjk_name_dob | 嚴重度 | "severity" (嚴重度, as in CGI-S 臨床整體印象-嚴重度) in catalogue/items.csv beside its verified_date, not a person's name
 value | * | 02-2312-3456 | the hospital switchboard in the synthetic consent form (a public institutional number, no patient)
 value | * | (02-2312-3456 | the same switchboard, as the TW pattern reports it with its parenthesis
 value | * | (02) 2312-3456 | the same switchboard, written with the area code in parentheses

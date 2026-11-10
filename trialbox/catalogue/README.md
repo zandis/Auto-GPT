@@ -47,7 +47,12 @@ What the columns mean:
   retired id is never given to another item.
 - `jlac10`: the 17-digit codes from the MHLW 特定健診 XML item table (付属2 Ver.4), the only public JLAC10 source
   that could be read (the JSLM pages refused automated reading). Items outside that table have no JLAC10 code here.
-  `jlac10_map.csv` must give each mapped row a `fit` of `exact` or `partial` (the build stops otherwise).
+  `jlac10_map.csv` must give each mapped row a `fit` of `exact` or `partial` (the build stops otherwise), and
+  `source_unit_ucum`, the MHLW unit in UCUM. When it differs from the item's `unit_ucum`, `unit_factor` must say
+  how to convert (value in the item's unit = MHLW value x factor; CRP mg/dL x10, WBC /uL x0.001, platelets
+  10*4/uL x10), or the build stops. A code for which the MHLW table gives no unit cannot fit a unit-bearing item
+  exactly.
+- Adopting a LOINC code appends the LOINC notice to `licence_notes`; other licence notes stay.
 - Phenotypes: `verified = yes` when every library cohort id exists in PhenotypeLibrary 3.37.0 and every code in
   `codes` was found: ICD-10-CM (NLM Clinical Tables; a range such as `A15-A19` is checked category by category, and
   `(excl. M06.1)` codes are recorded as excluded, `use = exclude`), LOINC and ATC. It does not say the definition is clinically right.

@@ -127,7 +127,8 @@ def test_phenotypes_verified_and_translated(cat: Path) -> None:
     assert ra["name_check"].startswith("1 of 2 SNOMED entry concept names") and ra["name_check"].endswith(
         "1 of those inside the include set"
     )
-    assert "Rheumatoid arthritis [SNOMED, OMOP concept 80809]" in ra["entry_concepts"]  # not a SNOMED CT code
+    assert "[SNOMED, OMOP concept 80809]" in ra["entry_concepts"]  # not a SNOMED CT code
+    assert "Rheumatoid arthritis" not in ra["entry_concepts"]  # SNOMED CT names are licensed text: ids only
     assert "Athena" in ra["derivation"] and ra["may_exclude"] == "no"
     assert ph["ph.breast_cancer"]["verified"] == "no" and "ICD-O-3 C50" in ph["ph.breast_cancer"]["verified_note"]
     assert ph["ph.local_only"]["verified"] == "no" and "no code in `codes`" in ph["ph.local_only"]["verified_note"]
@@ -255,6 +256,61 @@ def test_every_code_shape_in_the_shipped_catalogue_is_registered() -> None:
     assert missing == []
 
 
+def _set_item_unit(cat: Path, unit: str) -> None:
+    items = cat / "items.csv"
+    items.write_text(items.read_text(encoding="utf-8").replace(",yes,mg/dL\n", f",yes,{unit}\n"), encoding="utf-8")
+
+
+def test_a_jlac10_unit_that_differs_needs_a_factor(cat: Path) -> None:
+    _set_item_unit(cat, "umol/L")  # the MHLW code is in mg/dl
+    with pytest.raises(cv.CatalogueError, match="differs from the item's unit 'umol/L' and jlac10_map gives no unit"):
+        cv.build(cv.Paths(cat))
+    jl = cat / "verification" / "jlac10_map.csv"
+    jl.write_text(jl.read_text(encoding="utf-8").replace(",exact,mg/dL,,", ",exact,mg/dL,88.4,"), encoding="utf-8")
+    cr = _build(cat)["items.csv"]["lab.creatinine"]
+    assert cr["jlac10_source"].endswith("MHLW unit mg/dl (mg/dL); x88.4 to umol/L")
+
+
+def test_the_jlac10_source_unit_must_be_the_mhlw_unit(cat: Path) -> None:
+    jl = cat / "verification" / "jlac10_map.csv"
+    jl.write_text(jl.read_text(encoding="utf-8").replace(",exact,mg/dL,,", ",exact,mg/L,,"), encoding="utf-8")
+    with pytest.raises(cv.CatalogueError, match="source_unit_ucum 'mg/L' is not the MHLW unit 'mg/dl'"):
+        cv.build(cv.Paths(cat))
+
+
+def test_a_jlac10_code_without_a_unit_cannot_fit_exactly(cat: Path) -> None:
+    data = json.loads((cat / "verification" / "evidence.json").read_text(encoding="utf-8"))
+    data["jlac10"]["3C015000002327101"]["unit"] = ""
+    _edit_evidence(cat, jlac10=data["jlac10"])
+    jl = cat / "verification" / "jlac10_map.csv"
+    jl.write_text(jl.read_text(encoding="utf-8").replace(",exact,mg/dL,,", ",exact,,,"), encoding="utf-8")
+    with pytest.raises(cv.CatalogueError, match="gives no unit, so the code cannot fit 'mg/dL' exactly"):
+        cv.build(cv.Paths(cat))
+    jl.write_text(jl.read_text(encoding="utf-8").replace(",exact,,,", ",partial,,,"), encoding="utf-8")
+    assert "gives no unit; not checked" in _build(cat)["items.csv"]["lab.creatinine"]["jlac10_source"]
+
+
+def test_adopting_loinc_keeps_the_other_licence_notes(cat: Path) -> None:
+    items = cat / "items.csv"
+    note = "Instrument copyright A. Author; licence not verified"
+    items.write_text(
+        items.read_text(encoding="utf-8").replace("ILD marker,local concept,", f"ILD marker,{note},"), encoding="utf-8"
+    )
+    kl6 = _build(cat)["items.csv"]["lab.kl6"]
+    assert kl6["licence_notes"] == f"{note}; {cv.LOINC_NOTICE}"
+    for p, text in cv.build(cv.Paths(cat)).items():
+        p.write_text(text, encoding="utf-8")
+    assert _build(cat)["items.csv"]["lab.kl6"]["licence_notes"] == f"{note}; {cv.LOINC_NOTICE}"  # appended once
+    shipped = {r["id"]: r["licence_notes"] for r in _shipped("items.csv")}
+    assert shipped["card.kccq"].startswith("KCCQ copyright J. Spertus") and cv.LOINC_NOTICE in shipped["card.kccq"]
+    assert all(
+        shipped[f"onc.tnm_{t}"].startswith("AJCC staging content is licensed") for t in ("ct", "cn", "cm", "pt", "pn")
+    )
+    assert all(
+        shipped[f"onc.{f}_icdo3"].startswith("ICD-O-3 is WHO-copyrighted") for f in ("primary_site", "morphology")
+    )
+
+
 def test_jlac10_fit_is_required(cat: Path) -> None:
     jl = cat / "verification" / "jlac10_map.csv"
     jl.write_text(jl.read_text(encoding="utf-8").replace("3C015000002327101,exact,", "3C015000002327101,,"))
@@ -363,11 +419,27 @@ def test_fetch_with_a_fake_network(cat: Path, monkeypatch: pytest.MonkeyPatch) -
     assert set(ev.cohorts) == {"33", "858"} and ev.cohorts["858"]["entry_concepts"] == []
     assert [c["concept_id"] for c in ev.cohorts["33"]["entry_concepts"]] == [4182210]
     assert ev.icd10cm_prefixes["M05"]["n"] == 2 and ev.icd10cm_prefixes["F00"]["n"] == 0
-    assert ev.icd10cm_names == {"Dementia": ["F03.90"]}
+    assert ev.icd10cm_names == {"4182210": ["F03.90"]}  # searched by name, kept by OMOP concept id
+    assert "name" not in ev.cohorts["33"]["entry_concepts"][0]
     assert ev.atc == {"M04AA": "Uric acid"}  # N04B (the score file) was not listed: not invented
     assert ev.cdisc == {"HAQ01TC": {"nci_code": "C106667", "name": "HAQ"}}
     assert all("CONCEPT_CODE" not in c and "code" not in c for c in ev.cohorts["33"]["entry_concepts"])
     assert json.loads(ev.dump())["date"] == "2026-11-09"
+
+
+def test_evidence_keeps_no_cpt4_hcpcs_or_snomed_names(cat: Path) -> None:
+    ev = cv.Evidence.load(cat / "verification" / "evidence.json")
+    ev.cohorts["33"]["entry_concepts"] = [
+        {"set": "s", "concept_id": n, "vocabulary": vocab, "name": f"licensed {vocab} text", "excluded": False}
+        for n, vocab in enumerate(["CPT4", "HCPCS", "SNOMED", "RxNorm"], 1)
+    ]
+    dumped = ev.dump()
+    assert "licensed CPT4 text" not in dumped and "licensed HCPCS text" not in dumped
+    assert "licensed SNOMED text" not in dumped and "licensed RxNorm text" in dumped
+    kept = json.loads(dumped)["cohorts"]["33"]["entry_concepts"]
+    assert [c["concept_id"] for c in kept] == [1, 2, 3, 4]  # the ids stay
+    shipped = (cv.CATALOGUE / "verification" / "evidence.json").read_text(encoding="utf-8")
+    assert shipped == cv.Evidence.load(cv.CATALOGUE / "verification" / "evidence.json").dump()
 
 
 def test_parse_mhlw_rows() -> None:

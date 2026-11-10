@@ -2,11 +2,11 @@
  "date": "2026-11-09",
  "sources": {},
  "loinc_codes": {
+  "14682-9": "Creatinine [Moles/volume] in Serum or Plasma",
   "1989-3": "25-hydroxyvitamin D3 [Mass/volume] in Serum or Plasma",
   "2160-0": "Creatinine [Mass/volume] in Serum or Plasma",
-  "93369-7": "Krebs von den Lungen-6 [Units/volume] in Serum or Plasma by Immunoassay",
   "3084-1": "Urate [Mass/volume] in Serum or Plasma",
-  "14682-9": "Creatinine [Moles/volume] in Serum or Plasma"
+  "93369-7": "Krebs von den Lungen-6 [Units/volume] in Serum or Plasma by Immunoassay"
  },
  "loinc_searches": {
   "DAS28": {
@@ -14,6 +14,10 @@
    "hits": []
   },
   "DAS28-ESR": {
+   "total": 0,
+   "hits": []
+  },
+  "HAQ-DI": {
    "total": 0,
    "hits": []
   },
@@ -25,10 +29,6 @@
      "Krebs von den Lungen-6 [Units/volume] in Serum or Plasma by Immunoassay"
     ]
    ]
-  },
-  "HAQ-DI": {
-   "total": 0,
-   "hits": []
   }
  },
  "jlac10": {
@@ -48,7 +48,6 @@
      "set": "Dementia",
      "concept_id": 4182210,
      "vocabulary": "SNOMED",
-     "name": "Dementia",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -68,7 +67,6 @@
      "set": "RA",
      "concept_id": 80809,
      "vocabulary": "SNOMED",
-     "name": "Rheumatoid arthritis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -77,7 +75,6 @@
      "set": "RA",
      "concept_id": 4107913,
      "vocabulary": "SNOMED",
-     "name": "Myopathy due to rheumatoid arthritis",
      "domain": "Condition",
      "descendants": true,
      "excluded": false
@@ -86,7 +83,6 @@
      "set": "RA",
      "concept_id": 2107560,
      "vocabulary": "CPT4",
-     "name": "RA disease activity, high",
      "domain": "Observation",
      "descendants": true,
      "excluded": false
@@ -95,6 +91,26 @@
   }
  },
  "icd10cm_prefixes": {
+  "A15": {
+   "n": 10,
+   "sample": []
+  },
+  "A16": {
+   "n": 0,
+   "sample": []
+  },
+  "A17": {
+   "n": 8,
+   "sample": []
+  },
+  "A18": {
+   "n": 30,
+   "sample": []
+  },
+  "A19": {
+   "n": 9,
+   "sample": []
+  },
   "F00": {
    "n": 0,
    "sample": []
@@ -130,34 +146,14 @@
   "M10": {
    "n": 300,
    "sample": []
-  },
-  "A15": {
-   "n": 10,
-   "sample": []
-  },
-  "A16": {
-   "n": 0,
-   "sample": []
-  },
-  "A17": {
-   "n": 8,
-   "sample": []
-  },
-  "A18": {
-   "n": 30,
-   "sample": []
-  },
-  "A19": {
-   "n": 9,
-   "sample": []
   }
  },
  "icd10cm_names": {
-  "Dementia": [
+  "4107913": [],
+  "4182210": [
    "F03.90"
   ],
-  "Myopathy due to rheumatoid arthritis": [],
-  "Rheumatoid arthritis": [
+  "80809": [
    "M06.9",
    "M79.0"
   ]

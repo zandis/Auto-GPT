@@ -240,7 +240,7 @@ items.csv,lab.afp,loinc,LOINC,1834-1,code,yes,Alpha-1-Fetoprotein [Mass/volume] 
 items.csv,lab.pivka2,loinc,LOINC,93768-0,code,yes,Acarboxyprothrombin [Units/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,no,"code_fit partial: not read against the item, or only part of it"
 items.csv,lab.pivka2,verified_note,LOINC,34444-0,text,yes,Acarboxyprothrombin [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
 items.csv,lab.psa,loinc,LOINC,2857-1,code,yes,Prostate specific Ag [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,no,"code_fit unreviewed: not read against the item, or only part of it"
-items.csv,lab.psa,jlac10,JLAC10,5D305000002399811,code,yes,PSA(前立腺特異抗原),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.psa,jlac10,JLAC10,5D305000002399811,code,yes,PSA(前立腺特異抗原),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,no,the MHLW item covers only part of the catalogue item
 items.csv,lab.hcg,loinc,LOINC,19080-1,code,yes,Choriogonadotropin [Units/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,no,"code_fit unreviewed: not read against the item, or only part of it"
 items.csv,rheum.tjc28,loinc,LOINC,88981-6,code,yes,Tender joint #,NLM Clinical Tables loinc_items,2026-11-10,no,"code_fit partial: not read against the item, or only part of it"
 items.csv,rheum.sjc28,loinc,LOINC,88980-8,code,yes,Swollen joint #,NLM Clinical Tables loinc_items,2026-11-10,no,"code_fit partial: not read against the item, or only part of it"

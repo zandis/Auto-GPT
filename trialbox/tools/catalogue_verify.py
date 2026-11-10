@@ -116,11 +116,35 @@ ACTIONS = {"adopt", "adopt_partial", "keep_local", "fit_exact", "fit_partial"}
 ADOPT = {"adopt", "adopt_partial"}
 FIT = {"adopt": "exact", "fit_exact": "exact", "adopt_partial": "partial", "fit_partial": "partial"}
 JLAC10_FITS = {"exact", "partial"}
+# The MHLW unit as printed in the 付属2 sheet -> its UCUM form. jlac10_map.csv `source_unit_ucum` must match this
+# table, so a unit cannot be copied wrong; a unit not listed here stops the build until someone adds it.
+MHLW_UNIT_UCUM = {
+    "": "",
+    "%": "%",
+    "cm": "cm",
+    "kg": "kg",
+    "kg/m2": "kg/m2",
+    "mmHg": "mm[Hg]",
+    "拍／分": "/min",
+    "mg/dl": "mg/dL",
+    "g/dl": "g/dL",
+    "mg/L": "mg/L",
+    "ng/ml": "ng/mL",
+    "U/l": "U/L",
+    "ml/min/1.73m2": "mL/min/{1.73_m2}",
+    "mg/g･CR": "mg/g",
+    "ｆｌ": "fL",
+    "/mm3": "/uL",
+    "万/mm3": "10*4/uL",
+}
 # segments of a phenotype `codes` cell that name another vocabulary, not ICD-10-CM
 NON_ICD_PREFIXES = ("LOINC", "ATC", "MEDIS", "ICD-O", "local", "procedure")
 ICD_TOKEN = re.compile(r"\b([A-Z]\d[0-9A-Z](?:\.[0-9A-Z]{1,4})?)")
 MAX_NAME_CHECKS = 40
 MAX_STORED_CONCEPTS = 60  # per cohort in evidence.json; the count is kept
+# Vocabularies whose concept names are licensed text (CPT4: AMA copyright; SNOMED CT: SNOMED International
+# affiliate licence; HCPCS kept with them to be safe). evidence.json and the CSVs keep their concept ids only.
+NAMELESS_VOCABULARIES = frozenset({"CPT4", "HCPCS", "SNOMED"})
 
 Getter = Callable[[str], bytes]
 
@@ -276,7 +300,7 @@ class Evidence:
     jlac10: dict[str, dict[str, str]] = field(default_factory=dict)  # 17-digit code -> {name, unit, method, group}
     cohorts: dict[str, dict[str, Any]] = field(default_factory=dict)  # id -> {name, status, entry_concepts}
     icd10cm_prefixes: dict[str, dict[str, Any]] = field(default_factory=dict)  # prefix -> {n, sample}
-    icd10cm_names: dict[str, list[str]] = field(default_factory=dict)  # concept name -> ICD-10-CM codes by title
+    icd10cm_names: dict[str, list[str]] = field(default_factory=dict)  # OMOP concept id -> ICD-10-CM codes by title
     atc: dict[str, str] = field(default_factory=dict)  # ATC code -> WHOCC name
     cdisc: dict[str, dict[str, str]] = field(default_factory=dict)  # submission value -> {nci_code, name}
     sources: dict[str, str] = field(default_factory=dict)
@@ -304,7 +328,7 @@ class Evidence:
             "loinc_codes": dict(sorted(self.loinc_codes.items())),
             "loinc_searches": dict(sorted(self.loinc_searches.items())),
             "jlac10": dict(sorted(self.jlac10.items())),
-            "cohorts": dict(sorted(self.cohorts.items(), key=lambda kv: int(kv[0]))),
+            "cohorts": {k: _nameless_cohort(v) for k, v in sorted(self.cohorts.items(), key=lambda kv: int(kv[0]))},
             "icd10cm_prefixes": dict(sorted(self.icd10cm_prefixes.items())),
             "icd10cm_names": dict(sorted(self.icd10cm_names.items())),
             "atc": dict(sorted(self.atc.items())),
@@ -314,6 +338,25 @@ class Evidence:
 
     def icd_exists(self, prefix: str) -> bool:
         return int(self.icd10cm_prefixes.get(prefix, {}).get("n", 0)) > 0
+
+
+def nameless(concepts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The concepts without the names of NAMELESS_VOCABULARIES: only the id, vocabulary and flags stay."""
+    return [
+        {k: v for k, v in c.items() if k != "name"} if c.get("vocabulary") in NAMELESS_VOCABULARIES else c
+        for c in concepts
+    ]
+
+
+def _nameless_cohort(rec: dict[str, Any]) -> dict[str, Any]:
+    if "entry_concepts" not in rec:
+        return rec
+    return {**rec, "entry_concepts": nameless(rec["entry_concepts"])}
+
+
+def concept_label(c: dict[str, Any]) -> str:
+    named = f"{c['name']} " if c.get("name") else ""
+    return f"{named}[{c['vocabulary']}, OMOP concept {c['concept_id']}]"
 
 
 # ---------------------------------------------------------------- curated inputs
@@ -537,6 +580,20 @@ def build_codes(refs: list[CodeRef], ev: Evidence, items: list[dict[str, str]], 
 # ---------------------------------------------------------------- build: items
 
 
+# a licence note that only says the item had no code; it goes when a LOINC code is adopted
+LOCAL_ONLY_NOTE = re.compile(r"local( concept)?( until mapped)?")
+
+
+def with_loinc_notice(notes: str) -> str:
+    """The item's licence notes with the LOINC notice appended once. Other notes (an instrument's copyright, a
+    staging licence) are kept: adopting a LOINC code adds a licence, it never removes one."""
+    parts = [p.strip() for p in notes.split("; ") if p.strip()]
+    parts = [p for p in parts if not LOCAL_ONLY_NOTE.fullmatch(p)]
+    if LOINC_NOTICE not in parts:
+        parts.append(LOINC_NOTICE)
+    return "; ".join(parts)
+
+
 def _searches_note(terms: list[str], ev: Evidence) -> str:
     parts = []
     for t in terms:
@@ -569,7 +626,7 @@ def build_items(rows: list[dict[str, str]], cur: Curated, ev: Evidence) -> list[
             if row["loinc"] != code:
                 row["source"] = f"LOINC {code}; was local: {row['source']}" if row["source"] else f"LOINC {code}"
                 row["loinc"] = code
-                row["licence_notes"] = LOINC_NOTICE
+            row["licence_notes"] = with_loinc_notice(row.get("licence_notes", ""))
             if row["omop_concept_id"] and row["omop_concept_id"] != (dec or {}).get("retired_local_id"):
                 raise CatalogueError(f"{row['id']}: record local id {row['omop_concept_id']} as retired_local_id")
             row["omop_concept_id"] = ""
@@ -622,12 +679,58 @@ def _fill_jlac10(row: dict[str, str], cur: Curated, ev: Evidence) -> None:
             raise CatalogueError(f"{row['id']}: JLAC10 {code} is not in the MHLW evidence")
         if not re.fullmatch(r"[0-9][0-9A-Z]{16}", code):
             raise CatalogueError(f"{row['id']}: {code} is not a 17-character JLAC10 code")
+    unit_note = _jlac10_unit(row, jl, codes, ev) if codes else ""
     if codes:
         names = sorted({ev.jlac10[c]["name"] for c in codes})
         row["jlac10"] = ";".join(codes)
         row["jlac10_source"] = f"{SRC_MHLW} '{' / '.join(names)}', checked {ev.date}"
+        if unit_note:
+            row["jlac10_source"] += f"; {unit_note}"
     if jl.get("note"):
         row["jlac10_source"] = "; ".join(p for p in (row["jlac10_source"], jl["note"]) if p)
+
+
+def _jlac10_unit(row: dict[str, str], jl: dict[str, str], codes: list[str], ev: Evidence) -> str:
+    """Check the MHLW unit against the item's unit. When they differ, jlac10_map must give `unit_factor`
+    (value in the item's unit = value in the MHLW unit x factor), or the build fails: a JLAC10 value read in the
+    wrong unit could exclude a patient. Returns the note for `jlac10_source`."""
+    item_id = row["id"]
+    raw = {ev.jlac10[c]["unit"] for c in codes}
+    if len(raw) > 1:
+        raise CatalogueError(f"{item_id}: the JLAC10 codes have different MHLW units {sorted(raw)}; map them apart")
+    mhlw = raw.pop()
+    if mhlw not in MHLW_UNIT_UCUM:
+        raise CatalogueError(f"{item_id}: MHLW unit {mhlw!r} has no UCUM form in MHLW_UNIT_UCUM")
+    given = jl.get("source_unit_ucum", "")
+    if given != MHLW_UNIT_UCUM[mhlw]:
+        raise CatalogueError(
+            f"{item_id}: jlac10_map source_unit_ucum {given!r} is not the MHLW unit {mhlw!r} ({MHLW_UNIT_UCUM[mhlw]!r})"
+        )
+    target = row.get("unit_ucum", "")
+    factor = jl.get("unit_factor", "")
+    if not given and target:
+        if jl.get("fit") == "exact" or factor:
+            raise CatalogueError(
+                f"{item_id}: the MHLW table gives no unit, so the code cannot fit {target!r} exactly; "
+                "use fit partial and no unit_factor"
+            )
+        return f"the MHLW table gives no unit; not checked against {target}"
+    if given == target:
+        if factor not in ("", "1"):
+            raise CatalogueError(f"{item_id}: unit_factor {factor} although the units are the same ({given!r})")
+        return ""
+    if not factor:
+        raise CatalogueError(
+            f"{item_id}: MHLW unit {given!r} differs from the item's unit {target!r} and jlac10_map gives no "
+            "unit_factor"
+        )
+    try:
+        value = float(factor)
+    except ValueError:
+        raise CatalogueError(f"{item_id}: unit_factor {factor!r} is not a number") from None
+    if not value > 0:
+        raise CatalogueError(f"{item_id}: unit_factor {factor!r} must be positive")
+    return f"MHLW unit {mhlw} ({given}); x{factor} to {target}"
 
 
 # ---------------------------------------------------------------- build: phenotypes
@@ -712,21 +815,20 @@ def build_icd10cm(rows: list[dict[str, str]], cur: Curated, ev: Evidence) -> lis
         bad = [t for t in include + exclude if not ev.icd_exists(t)]
         n_codes = sum(int(ev.icd10cm_prefixes.get(t, {}).get("n", 0)) for t in include)
         concepts = co["entry_concepts"]
-        names = [c["name"] for c in concepts if c.get("vocabulary") == "SNOMED" and not c.get("excluded")]
-        names = names[:MAX_NAME_CHECKS]
+        names = _name_checked(concepts)
         found = inside = 0
         outside: list[str] = []
-        for name in names:
-            hits = ev.icd10cm_names.get(name, [])
+        for cid in names:
+            hits = ev.icd10cm_names.get(cid, [])
             if not hits:
                 continue
             found += 1
             if any(_in_set(h, include, exclude) for h in hits):
                 inside += 1
             else:
-                outside.extend(f"{h} ({name})" for h in hits[:2])
+                outside.extend(f"{h} (OMOP concept {cid})" for h in hits[:2])
         total = int(co.get("entry_concept_count", len(concepts)))
-        shown = "; ".join(f"{c['name']} [{c['vocabulary']}, OMOP concept {c['concept_id']}]" for c in concepts[:6])
+        shown = "; ".join(concept_label(c) for c in concepts[:6])
         if total > 6:
             shown += f"; +{total - 6} more"
         out.append(
@@ -753,6 +855,12 @@ def build_icd10cm(rows: list[dict[str, str]], cur: Curated, ev: Evidence) -> lis
             }
         )
     return out
+
+
+def _name_checked(concepts: list[dict[str, Any]]) -> list[str]:
+    """The OMOP ids of the SNOMED entry concepts whose names were searched in the ICD-10-CM titles."""
+    ids = [str(c["concept_id"]) for c in concepts if c.get("vocabulary") == "SNOMED" and not c.get("excluded")]
+    return list(dict.fromkeys(ids))[:MAX_NAME_CHECKS]
 
 
 def _in_set(code: str, include: list[str], exclude: list[str]) -> bool:
@@ -958,13 +1066,15 @@ def fetch(paths: Paths, date: str, get: Getter = http_get, log: Callable[[str], 
     lib = {r["cohortId"]: r for r in csv.DictReader(io.StringIO(get(f"{OHDSI_RAW}/Cohorts.csv").decode("utf-8-sig")))}
     wanted = {cid for r in phenos for cid in _cohort_ids(r["ohdsi_pl_cohort_ids"])}
     primary = {m["ohdsi_cohort_id"] for m in cur.phenotypes.values()}
+    full_concepts: dict[str, list[dict[str, Any]]] = {}
     for cid in sorted(wanted, key=int):
         if cid not in lib:
             continue
         rec: dict[str, Any] = {"name": lib[cid]["cohortName"], "status": lib[cid]["status"], "entry_concepts": []}
         if cid in primary:
             concepts = entry_concepts(json.loads(get(f"{OHDSI_RAW}/cohorts/{cid}.json")))
-            rec["entry_concepts"] = concepts[:MAX_STORED_CONCEPTS]
+            full_concepts[cid] = concepts[:MAX_STORED_CONCEPTS]
+            rec["entry_concepts"] = nameless(concepts[:MAX_STORED_CONCEPTS])
             rec["entry_concept_count"] = len(concepts)
         ev.cohorts[cid] = rec
     log(f"ohdsi: {len(ev.cohorts)} cohorts, {len(primary)} with entry concepts")
@@ -974,14 +1084,16 @@ def fetch(paths: Paths, date: str, get: Getter = http_get, log: Callable[[str], 
     prefixes |= {r.code for r in refs if r.system == "ICD-10-CM"}
     for p in sorted(prefixes):
         ev.icd10cm_prefixes[p] = fetch_icd_prefix(get, p)
-    names = set()
+    by_name: dict[str, list[str]] = {}  # the name is searched, then dropped: only the concept id is kept
     for cid in primary:
-        concepts = ev.cohorts.get(cid, {}).get("entry_concepts", [])
-        snomed = [c["name"] for c in concepts if c["vocabulary"] == "SNOMED" and not c["excluded"]]
-        names |= set(snomed[:MAX_NAME_CHECKS])
-    for name in sorted(names):
-        ev.icd10cm_names[name] = fetch_icd_name(get, name)
-    log(f"icd10cm: {len(ev.icd10cm_prefixes)} code families, {len(ev.icd10cm_names)} concept names")
+        concepts = full_concepts.get(cid, [])
+        checked = set(_name_checked(concepts))
+        for c in concepts:
+            if str(c["concept_id"]) in checked:
+                ev.icd10cm_names[str(c["concept_id"])] = by_name.setdefault(c["name"], [])
+    for name in sorted(by_name):
+        by_name[name].extend(fetch_icd_name(get, name))
+    log(f"icd10cm: {len(ev.icd10cm_prefixes)} code families, {len(ev.icd10cm_names)} concepts searched by name")
     for code in sorted({r.code for r in refs if r.system == "ATC"}):
         atc_name = fetch_atc(get, code)
         if atc_name is not None:
