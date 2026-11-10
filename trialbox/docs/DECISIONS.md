@@ -3768,6 +3768,16 @@ the HL7 FHIR core libraries, commons-beanutils, guava and httpcore5 in the valid
 in the third-party images (MailHog alone over 1,500; MailHog has no arm64 image). Those are not allow-listed here:
 moving the jar versions and the third-party digests, or accepting a finding, is the security owner's decision.
 
+*Report mode* (owner decision of 2026-11-10, option (a)). Until the follow-up lands, CI runs the image gates with
+`--vuln-mode report`: fixable CRITICAL/HIGH findings in trialbox-jvm, trialbox-demo, MailHog, vLLM, postgres, HAPI
+and GreenMail (`VULN_REPORT_ONLY` in `tools/supply_chain/release.py`) are listed in the CI job summary per image and
+platform (CVE, package, installed and fixed version) and do not fail a pull request. trialbox-py's vulnerability
+gate, the licence gate, `make lock-check`, `make allowlist-check`, `make pip-audit` and every build, scan or report
+error still block, and `tools/make_bundle.sh --gates` never bundles an image that passed only in report mode.
+MailHog, published for amd64 only, is left out of the arm64 gates by name (`SC_AMD64_ONLY`). Each image's findings,
+owner (security owner, to assign), target date (2026-12-10) and planned fix are in
+`deploy/security/known-image-findings.md`; a test keeps that file and the report-mode set in step.
+
 *Not done here.* `THIRD_PARTY_NOTICES.md`; the SBOMs inside the signed bundle; `--gates` mandatory in
 `tools/make_bundle.sh` (optional with a warning, so the demo VM's update script keeps working).
 

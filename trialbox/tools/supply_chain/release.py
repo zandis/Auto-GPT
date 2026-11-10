@@ -26,6 +26,54 @@ from typing import Any
 from tools.supply_chain import licences, sbom, vulns
 from tools.supply_chain.allowlist import Allowlist
 
+# The image vulnerability gate is in REPORT mode for these images until the follow-up lands (owner decision of
+# 2026-11-10, D-186; tracked with owner and target date in deploy/security/known-image-findings.md). With
+# `--vuln-mode report`, a fixable CRITICAL/HIGH finding in one of them is shown in the CI summary instead of failing.
+# trialbox-py is never here: its vulnerability gate always blocks. A bundle never carries a report-mode finding.
+VULN_REPORT_ONLY = frozenset(
+    {
+        "trialbox-jvm",
+        "trialbox-demo",
+        "mailhog/mailhog",
+        "vllm/vllm-openai",
+        "postgres",
+        "hapiproject/hapi",
+        "greenmail/standalone",
+    }
+)
+VULN_MODES = ("block", "report")
+
+
+def report_only(ref: str) -> bool:
+    """Is this image (any tag, digest or registry) in the report-mode set?"""
+    repo = repository(ref)
+    return any(repo == name or repo.endswith("/" + name) for name in VULN_REPORT_ONLY)
+
+
+def split_report_mode(
+    failing: list[vulns.Finding], ref: str, vuln_mode: str
+) -> tuple[list[vulns.Finding], list[vulns.Finding]]:
+    """(blocking, deferred): only a fixable CRITICAL/HIGH finding of a report-mode image is deferred."""
+    if vuln_mode != "report" or not report_only(ref):
+        return list(failing), []
+    blocking: list[vulns.Finding] = []
+    deferred: list[vulns.Finding] = []
+    for f in failing:
+        fixable_high = f.severity in ("CRITICAL", "HIGH") and bool(f.fixed)
+        (deferred if fixable_high else blocking).append(f)
+    return blocking, deferred
+
+
+def finding_row(f: vulns.Finding) -> dict[str, str]:
+    return {
+        "id": f.id,
+        "severity": f.severity,
+        "package": f.package,
+        "installed": f.version,
+        "fixed": f.fixed,
+        "target": f.target,
+    }
+
 
 @dataclass(frozen=True)
 class Target:
@@ -130,9 +178,16 @@ def run_gates(
     insecure: bool = False,
     severities: frozenset[str] = vulns.DEFAULT_FAIL_SEVERITIES,
     fail_unfixed: bool = False,
+    vuln_mode: str = "block",
     now: dt.datetime | None = None,
 ) -> dict[str, Any]:
-    """Scan and gate every target; return the record (also written to ``out_dir/gates.json``)."""
+    """Scan and gate every target; return the record (also written to ``out_dir/gates.json``).
+
+    ``vuln_mode="report"``: for the images in ``VULN_REPORT_ONLY`` only, a fixable CRITICAL/HIGH finding is
+    recorded and shown but does not fail the image. Everything else still fails: such findings in any other image,
+    a missing or odd severity, an unreadable or empty report, a scan or SBOM that does not name the image."""
+    if vuln_mode not in VULN_MODES:
+        raise vulns.ReportError(f"vuln mode must be one of {', '.join(VULN_MODES)}, got {vuln_mode!r}")
     now = now or dt.datetime.now(dt.UTC)
     out_dir.mkdir(parents=True, exist_ok=True)
     sbom_dir.mkdir(parents=True, exist_ok=True)
@@ -191,6 +246,7 @@ def run_gates(
             doc = sbom.run_syft(source, sbom_path, syft_env, platform=plat if remote else None)
             entry["errors"] += identity_problems(target, pinned, report, doc)
             result = vulns.gate(list(report.findings), allow, fails=fails)
+            blocking, deferred = split_report_mode(result.failing, target.ref, vuln_mode)
             entry.update(
                 platform=report.platform,
                 image_id=pinned["image_id"] or report.image_id,
@@ -199,11 +255,14 @@ def run_gates(
                 trivy_sha256=sbom.sha256(report_path),
                 sbom=sbom_path.name,
                 sbom_sha256=sbom.sha256(sbom_path),
-                failing=[f"{f.id} {f.package} {f.version}" for f in result.failing],
+                failing=[f"{f.id} {f.package} {f.version}" for f in blocking],
+                failing_detail=[finding_row(f) for f in blocking],
+                vuln_mode="report" if vuln_mode == "report" and report_only(target.ref) else "block",
+                report_mode_findings=[finding_row(f) for f in deferred],
                 accepted=[f"{f.id} {f.package}: {why}" for f, why in result.accepted],
                 reported=len(result.reported),
             )
-            entry["ok"] = result.ok and not entry["errors"]
+            entry["ok"] = not blocking and not result.errors and not entry["errors"]
             sboms[sbom_path.name] = doc
             index.append(
                 {
@@ -238,8 +297,51 @@ def run_gates(
         and "lock_sbom_error" not in record
     )
     (sbom_dir / "index.json").write_text(json.dumps({"sboms": index}, indent=2) + "\n", encoding="utf-8")
+    record["vuln_mode"] = vuln_mode
     (out_dir / "gates.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    (out_dir / "summary.md").write_text(summary_markdown(record), encoding="utf-8")
     return record
+
+
+def summary_markdown(record: dict[str, Any]) -> str:
+    """The CI job summary: the result per image and platform, and every CRITICAL/HIGH finding, blocking or reported."""
+    mode = record.get("vuln_mode", "block")
+    out = [
+        f"## Release gates: {'PASS' if record.get('ok') else 'FAIL'}",
+        "",
+        f"Image vulnerability gate mode: **{mode}**"
+        + (
+            " (fixable CRITICAL/HIGH findings in "
+            + ", ".join(sorted(VULN_REPORT_ONLY))
+            + " are reported, not blocking, until the follow-up lands; see deploy/security/known-image-findings.md)"
+            if mode == "report"
+            else ""
+        ),
+        "",
+        "| Image | Platform | Result | Blocking findings | Reported findings | Errors |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for e in record.get("images", []):
+        out.append(
+            f"| {e.get('ref')} | {e.get('platform') or '?'} | {'PASS' if e.get('ok') else 'FAIL'} | "
+            f"{len(e.get('failing_detail', []))} | {len(e.get('report_mode_findings', []))} | "
+            f"{'; '.join(e.get('errors', []))[:200].replace('|', '/')} |"
+        )
+    lic = record.get("licences", {})
+    out += ["", f"Licence gate: **{'PASS' if lic.get('ok') else 'FAIL'}** ({len(lic.get('failing', []))} failing)"]
+    out += [f"- {x}" for x in lic.get("failing", [])]
+    for e in record.get("images", []):
+        rows = [("blocking", x) for x in e.get("failing_detail", [])]
+        rows += [("reported", x) for x in e.get("report_mode_findings", [])]
+        if not rows:
+            continue
+        out += ["", f"### {e.get('ref')} ({e.get('platform') or '?'})", ""]
+        out += ["| Gate | CVE | Severity | Package | Installed | Fixed in |", "| --- | --- | --- | --- | --- | --- |"]
+        for kind, x in rows:
+            out.append(
+                f"| {kind} | {x['id']} | {x['severity']} | {x['package']} | {x['installed']} | {x['fixed'] or '-'} |"
+            )
+    return "\n".join(out) + "\n"
 
 
 def render(record: dict[str, Any]) -> str:
@@ -255,6 +357,10 @@ def render(record: dict[str, Any]) -> str:
         lines.append(f"  {state}  {e['ref']} {e.get('platform') or ''} {e.get('image_id') or ''}".rstrip())
         lines += [f"        ERROR {x}" for x in e.get("errors", [])]
         lines += [f"        FAIL  {x}" for x in e.get("failing", [])]
+        lines += [
+            f"        REPORT {x['id']} {x['severity']} {x['package']} {x['installed']} (fixed in {x['fixed']})"
+            for x in e.get("report_mode_findings", [])
+        ]
     lic = record.get("licences", {})
     lines.append(f"  {'PASS' if lic.get('ok') else 'FAIL'}  licences ({lic.get('report')})")
     lines += [f"        FAIL  {x}" for x in lic.get("failing", [])]
@@ -274,7 +380,12 @@ def bundle_problems(record: Any, images: dict[str, str], *, now: dt.datetime | N
     if created is None or now - created > dt.timedelta(days=vulns.MAX_DB_AGE_DAYS):
         return [f"the gate record is older than {vulns.MAX_DB_AGE_DAYS} days (or undated); run make release-gates"]
     # matched by image id (config digest): the content itself, whatever tag or registry it came under
-    passed = {e.get("image_id") for e in record.get("images", []) if e.get("ok") and e.get("image_id")}
+    # an image that passed only because its findings were in report mode is not releasable
+    passed = {
+        e.get("image_id")
+        for e in record.get("images", [])
+        if e.get("ok") and e.get("image_id") and not e.get("report_mode_findings")
+    }
     problems = []
     for ref, image_id in images.items():
         if not image_id or image_id not in passed:

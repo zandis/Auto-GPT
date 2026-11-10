@@ -94,6 +94,7 @@ def cmd_release_gates(args: argparse.Namespace) -> int:
         insecure=args.insecure,
         severities=sev,
         fail_unfixed=args.fail_unfixed,
+        vuln_mode=args.vuln_mode,
     )
     print(release.render(record))
     return 0 if record["ok"] else 1
@@ -197,6 +198,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--sbom-dir", default="dist/sbom")
     p.add_argument("--lock-sbom", help="the lock's SBOM from make lock-sbom")
     p.add_argument("--insecure", action="store_true", help="plain-HTTP registry (a CI-local registry only)")
+    p.add_argument(
+        "--vuln-mode",
+        choices=release.VULN_MODES,
+        default="block",
+        help="report: fixable CRITICAL/HIGH in the images of release.VULN_REPORT_ONLY are shown, not failing",
+    )
     severity_args(p)
     p.set_defaults(fn=cmd_release_gates)
     p = sub.add_parser("bundle-check", help="are these local images in a passing gate record?")

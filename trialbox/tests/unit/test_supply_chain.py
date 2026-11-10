@@ -934,6 +934,92 @@ def test_bundle_carries_only_gated_images() -> None:
     assert release.bundle_problems({"not": "a record"}, {})
 
 
+# ---------------------------------------------------------------- report mode (owner decision 2026-11-10)
+
+
+def _finding(fid: str, severity: str, fixed: str = "2.0") -> vulns.Finding:
+    return vulns.Finding("trivy", "img", "pkg", "1.0", fid, (), severity, fixed)
+
+
+def test_known_image_findings_lists_every_report_mode_image() -> None:
+    path = ROOT / "deploy" / "security" / "known-image-findings.md"
+    assert path.is_file()
+    text = path.read_text(encoding="utf-8")
+    assert "report mode" in text and "2026-12-10" in text and "security owner (to assign)" in text
+    rows = {line.split("|")[1].strip() for line in text.splitlines() if line.startswith("| ") and "---" not in line}
+    missing = sorted(name for name in release.VULN_REPORT_ONLY if name not in rows)
+    assert missing == [], f"report-mode images without a row in {path.name}: {missing}"
+    assert "trialbox-py" not in release.VULN_REPORT_ONLY  # its vulnerability gate always blocks
+
+
+def test_report_mode_defers_only_fixable_high_findings_of_named_images() -> None:
+    failing = [
+        _finding("CVE-1", "HIGH"),
+        _finding("CVE-2", "CRITICAL"),
+        _finding("CVE-3", "HIGH", fixed=""),  # only fails with --fail-unfixed: stays blocking
+        _finding("CVE-4", "MEDIUM"),  # only fails with --severity ...MEDIUM: stays blocking
+        _finding("CVE-5", "INVALID('HIGH ')"),
+    ]
+    blocking, deferred = release.split_report_mode(failing, "trialbox-jvm:1.0.0", "report")
+    assert [f.id for f in deferred] == ["CVE-1", "CVE-2"]
+    assert [f.id for f in blocking] == ["CVE-3", "CVE-4", "CVE-5"]
+    assert release.split_report_mode(failing, "localhost:5000/trialbox-jvm@sha256:ab", "report")[1]
+    assert release.split_report_mode(failing, "vllm/vllm-openai@sha256:ab", "report")[1]
+    # trialbox-py, and every image in block mode, keep every finding blocking
+    assert release.split_report_mode(failing, "trialbox-py:1.0.0", "report") == (failing, [])
+    assert release.split_report_mode(failing, "trialbox-jvm:1.0.0", "block") == (failing, [])
+
+
+def test_report_mode_still_fails_on_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PATH", str(tmp_path))  # no docker, no scanners: every image errors
+    record = release.run_gates(
+        [release.Target("trialbox-jvm:1.0.0")],
+        cache_dir=tmp_path,
+        out_dir=tmp_path / "out",
+        sbom_dir=tmp_path / "sbom",
+        allow=_allow({}),
+        allow_errors=[],
+        lock_sbom=None,
+        vuln_mode="report",
+    )
+    assert record["ok"] is False and record["images"][0]["errors"]
+    summary = (tmp_path / "out" / "summary.md").read_text(encoding="utf-8")
+    assert "Release gates: FAIL" in summary and "mode: **report**" in summary
+    with pytest.raises(vulns.ReportError):
+        release.run_gates([], cache_dir=tmp_path, out_dir=tmp_path, sbom_dir=tmp_path, allow=_allow({}),
+                          allow_errors=[], lock_sbom=None, vuln_mode="ignore")  # fmt: skip
+    with pytest.raises(SystemExit):
+        cli.main(["release-gates", "--image", "x", "--cache-dir", str(tmp_path), "--vuln-mode", "ignore"])
+
+
+def test_summary_lists_every_finding_and_bundle_refuses_report_mode_images() -> None:
+    row = release.finding_row(_finding("CVE-2026-1", "HIGH"))
+    record = {
+        "ok": True,
+        "created": dt.datetime.now(dt.UTC).isoformat(),
+        "vuln_mode": "report",
+        "licences": {"ok": True, "failing": []},
+        "images": [
+            {"ref": "trialbox-py:1.0.0", "platform": "linux/amd64", "image_id": "sha256:py", "ok": True},
+            {"ref": "trialbox-jvm:1.0.0", "platform": "linux/arm64", "image_id": "sha256:jvm", "ok": True,
+             "report_mode_findings": [row]},
+        ],
+    }  # fmt: skip
+    text = release.summary_markdown(record)
+    assert "### trialbox-jvm:1.0.0 (linux/arm64)" in text
+    assert "| reported | CVE-2026-1 | HIGH | pkg | 1.0 | 2.0 |" in text
+    assert "known-image-findings.md" in text
+    assert release.bundle_problems(record, {"trialbox-py:1.0.0": "sha256:py"}) == []
+    assert release.bundle_problems(record, {"trialbox-jvm:1.0.0": "sha256:jvm"})  # passed only in report mode
+
+
+def test_arm64_gates_name_the_amd64_only_images() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    assert "SC_AMD64_ONLY ?= mailhog/mailhog" in makefile
+    text = (ROOT / "deploy" / "security" / "known-image-findings.md").read_text(encoding="utf-8")
+    assert "no arm64 image" in text
+
+
 def test_make_bundle_checks_the_gate_record() -> None:
     script = (ROOT / "tools" / "make_bundle.sh").read_text(encoding="utf-8")
     assert "--gates) GATES=" in script and "tools.supply_chain bundle-check" in script

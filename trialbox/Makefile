@@ -202,7 +202,12 @@ SC_THIRD_PARTY ?= $(shell docker compose --project-directory deploy -f deploy/do
 	--profile stub --profile test --profile gpu config --images 2>/dev/null | grep -v '^trialbox-' | sort -u)
 # the third-party images are scanned in their registry, by digest, for this machine's platform (or SC_PLATFORM)
 SC_PLATFORM ?= linux/$(if $(filter aarch64 arm64,$(shell uname -m)),arm64,amd64)
-SC_IMAGES ?= $(SC_OWN_IMAGES) $(foreach i,$(SC_THIRD_PARTY),registry:$(i)=$(SC_PLATFORM))
+# third-party images published for amd64 only (named here so nothing is skipped silently; tracked in
+# deploy/security/known-image-findings.md): left out of the arm64 gates, and a GB10 bundle cannot carry them
+SC_AMD64_ONLY ?= mailhog/mailhog
+SC_PLATFORM_IMAGES = $(if $(filter linux/arm64%,$(SC_PLATFORM)),$(foreach i,$(SC_THIRD_PARTY),$(if \
+	$(filter $(addsuffix :%,$(SC_AMD64_ONLY)) $(addsuffix @%,$(SC_AMD64_ONLY)),$(i)),,$(i))),$(SC_THIRD_PARTY))
+SC_IMAGES ?= $(SC_OWN_IMAGES) $(foreach i,$(SC_PLATFORM_IMAGES),registry:$(i)=$(SC_PLATFORM))
 
 lock:
 	uv lock

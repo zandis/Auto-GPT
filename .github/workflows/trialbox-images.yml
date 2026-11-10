@@ -8,6 +8,10 @@
 # Runs on pull requests that change what goes into an image, on release tags, weekly (new advisories arrive without a
 # code change) and by hand. A release is made only from a passing record: `make release-bundle` runs the gates and
 # tools/make_bundle.sh --gates refuses an image that is not in it.
+# REPORT MODE (owner decision 2026-11-10, until the follow-up): fixable CRITICAL/HIGH findings in trialbox-jvm,
+# trialbox-demo and the third-party images are listed in the job summary and do not fail the job; trialbox-py's
+# vulnerability gate, the licence gate and every scan or report error still fail it. A bundle never carries an image
+# that passed only in report mode. Open findings: trialbox/deploy/security/known-image-findings.md.
 # Every action is pinned to a commit (tag in the comment); Syft and Trivy come with pinned sha256.
 name: TrialBox image gates
 
@@ -78,8 +82,18 @@ jobs:
       - name: Trivy DB into the cache
         run: make trivy-db
 
+      # --vuln-mode report (owner decision 2026-11-10, D-186): fixable CRITICAL/HIGH findings in the images of
+      # tools/supply_chain/release.py VULN_REPORT_ONLY are listed in the job summary instead of failing, until the
+      # follow-up (deploy/security/known-image-findings.md). Everything else still fails this step: trialbox-py's
+      # findings, the licence gate, a build or scan error, a missing or empty report, an image not named by its scan.
       - name: Release gates (Trivy offline, SBOMs, licences, record)
-        run: make release-gates SC_PLATFORM=${{ matrix.platform }}
+        run: make release-gates SC_PLATFORM=${{ matrix.platform }} RELEASE_GATES_ARGS="--vuln-mode report"
+
+      - name: Findings in the job summary
+        if: always()
+        run: |
+          if [ -f build/supply-chain/summary.md ]; then cat build/supply-chain/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else echo "No gate record was written: the gates did not run to the end." >> "$GITHUB_STEP_SUMMARY"; fi
 
       - name: Keep the record, SBOMs and reports
         if: always()
@@ -136,9 +150,15 @@ jobs:
 
       - name: Release gates on both platforms of the pushed images
         run: >-
-          make release-gates SC_DIR=build/supply-chain-multiarch RELEASE_GATES_ARGS=--insecure
+          make release-gates SC_DIR=build/supply-chain-multiarch RELEASE_GATES_ARGS="--insecure --vuln-mode report"
           SC_IMAGES="registry:localhost:5000/trialbox-py:1.0.0=linux/amd64 registry:localhost:5000/trialbox-py:1.0.0=linux/arm64
           registry:localhost:5000/trialbox-jvm:1.0.0=linux/amd64 registry:localhost:5000/trialbox-jvm:1.0.0=linux/arm64"
+
+      - name: Findings in the job summary
+        if: always()
+        run: |
+          if [ -f build/supply-chain-multiarch/summary.md ]; then cat build/supply-chain-multiarch/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else echo "No gate record was written: the gates did not run to the end." >> "$GITHUB_STEP_SUMMARY"; fi
 
       - name: Keep the record, SBOMs and reports
         if: always()
