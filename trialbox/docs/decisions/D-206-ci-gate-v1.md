@@ -43,6 +43,15 @@ container by `job.services.postgres.id` and fails if the server does not come ba
 ones: if the first runs are slower, the limit or the runner size is raised); actions and images are pinned by tag,
 not by digest (T-110's supply-chain card); the nightly has no failure notification yet.
 
+*On merging master and wave0-goldens* (2026-11-10). One copy of each job: `goldens` now runs `make goldens-check`
+(T-006 landed through wave0-goldens; its separate `trialbox-goldens.yml` is dropped, since that workflow's `paths:`
+filter would leave a required check waiting); `audit` is dropped, because the supply-chain workflow of D-185/D-186
+(`trialbox-supply-chain.yml`, job `lock`) gates pip-audit against an allow-list, with the lock check and the licence
+gate; `make ci` runs `lock-check` and `allowlist-check` in its place. Every action is pinned to a commit and the
+`unit` service image by digest (D-186), and uv is the lock's 0.11.32. The test group of D-201 is in the one `uv.lock`
+(regenerated with `make lock`); it is not in the runtime export `deploy/requirements.lock`, so the images do not
+carry it; its packages are MIT or Apache-2.0.
+
 *Limits.* actionlint and hadolint were not run here (no binaries may be fetched in this session), and no GitHub run
 exists yet: acceptance (1) green on master, (2) red within five minutes on a lint break, (3) red on a stale golden
 and (5) the required checks are shown by the first runs after merge and by the owner's setting. Not in this card:

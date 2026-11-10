@@ -450,7 +450,7 @@ def private_url(work: Path) -> str:
 
     from tools import pglocal
 
-    base = os.environ.get("TB_DB_URL") or pglocal.ensure(pglocal.SHARED)
+    base = os.environ.get("TB_DB_URL") or pglocal.ensure(pglocal.shared_dir())
     dsn, prefix = split_url(base)
     own = f"{prefix}gold{hashlib.sha1(str(work.resolve()).encode(), usedforsecurity=False).hexdigest()[:10]}_"
     return f"{dsn}{'&' if '?' in dsn else '?'}tb_prefix={own}"

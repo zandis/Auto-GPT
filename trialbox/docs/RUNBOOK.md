@@ -151,15 +151,16 @@ push to a pull request cancels the older run (pushes to master are never cancell
 | `docs` | `tools/doclint.py` | yes |
 | `contracts` | `make contracts-check` (no hand-edited generated file) | yes |
 | `trace` | `tools/gen_traceability.py --check` | yes |
-| `unit` | `make test PYTEST_N=auto` against a `postgres:16` service, as a role with LOGIN CREATEDB only (`TB_TEST_DB_URL`), then the data scan of its log | yes |
+| `unit` | `make test PYTEST_N=auto` against a `postgres:16-alpine` service (pinned by digest), as a role with LOGIN CREATEDB only (`TB_TEST_DB_URL`), then the data scan of its log | yes |
 | `e2e-simple` | `make e2e-simple` (D-111) | yes |
-| `goldens` | `make goldens-check` once T-006 adds it; a warning until then | yes |
-| `audit` | pip-audit of `uv.lock` | listed only until T-110 (2026-11-10: no findings on the lock) |
+| `goldens` | `make goldens-check` (T-006, D-205) | yes |
 | `data-scan` | `make data-scan` (D-203) | yes |
 | `shell` | shellcheck: errors gate, warnings listed (2026-11-09: ten in `deploy/`) | errors |
 | `images` | hadolint on the three Dockerfiles | listed only (2026-11-09: first runs to triage) |
 
-`trialbox-e2e.yml` is the nightly (and on demand): `public_e2e`, the backup drill and the update drill.
+`trialbox-e2e.yml` is the nightly (and on demand): `public_e2e`, the backup drill and the update drill. The
+supply-chain gates (lock current, allow-list, pip-audit, licences) are the `lock` job of `trialbox-supply-chain.yml`
+(D-185, D-186), not repeated in `trialbox-ci.yml`.
 
 ## 4. Troubleshooting
 

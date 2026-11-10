@@ -95,8 +95,9 @@ data-scan:
 	$(PY) -m tools.data_scan $(SCAN)
 
 # the CI gate's jobs, in the order of .github/workflows/trialbox-ci.yml (D-206): lint, types, docs, contracts, trace,
-# unit (+ the scan of its log), e2e-simple, goldens, audit (listed, not gating), data-scan, shell, images (if hadolint
-# is installed). Stops at the first failing job.
+# unit (+ the scan of its log), e2e-simple, goldens, data-scan, shell, images (if hadolint is installed); then the
+# offline supply-chain checks (lock-check, allowlist-check; `make supply-chain` is trialbox-supply-chain.yml). Stops at
+# the first failing job.
 CI_LOG ?= $(TB_TEST_ROOT)/unit.log
 ci: venv-check
 	$(PY) -m ruff check . && $(PY) -m ruff format --check .
@@ -108,12 +109,11 @@ ci: venv-check
 	set -o pipefail; $(MAKE) test 2>&1 | tee "$(CI_LOG)"
 	$(PY) -m tools.data_scan --log "$(CI_LOG)"
 	$(MAKE) e2e-simple
-	@if $(MAKE) -n goldens-check >/dev/null 2>&1; then $(MAKE) goldens-check; else echo "ci: goldens: no goldens-check target until T-006 lands"; fi
-	-uv export --frozen --group test --extra dev --no-emit-project --no-hashes > "$(TB_TEST_ROOT)/requirements.txt" && \
-		uvx pip-audit@2.9.0 --disable-pip --no-deps -r "$(TB_TEST_ROOT)/requirements.txt"
+	$(MAKE) goldens-check
 	$(MAKE) data-scan
 	git ls-files -z '*.sh' | xargs -0 shellcheck --severity=error
 	@if command -v hadolint >/dev/null; then hadolint --failure-threshold warning deploy/docker/python.Dockerfile deploy/docker/jvm.Dockerfile demo/Dockerfile || true; else echo "ci: images: hadolint not installed, skipped"; fi
+	$(MAKE) lock-check allowlist-check
 
 HL7_ENV := TB_HL7_VALIDATOR_JAR=$(CURDIR)/.cache/jvm/validator_cli.jar TB_FHIR_PACKAGE_HOME=$(CURDIR)/.cache/jvm/fhir-home
 
