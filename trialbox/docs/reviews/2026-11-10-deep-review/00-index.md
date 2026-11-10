@@ -20,6 +20,7 @@ Counts are findings by severity as each file's tables give them. A finding that 
 | `02a-ux-clinical-journeys.md` | UI/UX and the clinic pipeline: PI, sub-investigator, CRC, in ja, zh-TW, en | UX | **run** (616 page loads, 183 timed tasks) | 41 | 3 | 0 | 7 | 17 | 14 |
 | `02b-role-journeys-authz.md` | Non-clinical roles; role × route matrix (228 routes × 7 identities) | ROLE | **run** | 28 | 2 | 1 | 9 | 9 | 7 |
 | `03-llm-serving-stack.md` | The LLM serving stack | LLM | **run** (stub, gateway; no GPU) | 46 | 1 | 3 | 15 | 23 | 4 |
+| `03a-verifier-candidates.md` | Verifier and embedder candidates, including non-PRC options: a desk comparison asked for by the owner (Q-19) | — | read, look-ups; nothing served or measured | — | | | | | |
 | `04-engineering-quality.md` | Software engineering quality; the full suite | ENG | **run** | 36 | 0 | 0 | 7 | 22 | 7 |
 | `05a-data-standards.md` | Data and interoperability standards | STD | **run** (checkers) | 35 | 1 | 0 | 9 | 18 | 7 |
 | `05b-regulatory-standards.md` | Regulatory, GxP, privacy, quality system | REG | read | 32 | 0 | 3 | 13 | 14 | 2 |
