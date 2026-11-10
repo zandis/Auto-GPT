@@ -798,8 +798,11 @@ def main(argv: list[str] | None = None) -> int:
     f.add_argument("--raw", type=Path, default=ROOT / ".cache" / "refdata" / "raw")
     f.add_argument("--file", type=Path, help="an account download (LOINC, the NHIA workbook) instead of the URL")
     f.add_argument("--slice", type=int, default=0, help="ctgov only: one API page of N studies with JP/TW sites")
-    f.add_argument("--no-licence-check", action="store_true",
-                   help="data.gov.tw items: do not read the dataset API (recorded in fetch.json as skipped)")  # fmt: skip
+    f.add_argument(
+        "--no-licence-check",
+        action="store_true",
+        help="data.gov.tw items: do not read the dataset API (recorded in fetch.json as skipped)",
+    )
     b = sub.add_parser("build")
     b.add_argument("--raw", type=Path, default=ROOT / ".cache" / "refdata" / "raw")
     b.add_argument("--out", type=Path, default=ROOT / ".cache" / "refdata")
