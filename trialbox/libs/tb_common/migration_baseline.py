@@ -24,6 +24,7 @@ BASELINE: dict[str, tuple[str, ...]] = {
         "0e3a813b0aea05c327f1443e830e0379bd8c13e623aaf4005baed29bec0f494b",
         "758a9577e1643839cf7ece62ae10bed88404a46b69c6a0252029e062bcd917a3",
     ),
+    "derived": ("358bd2f475a1b1302e935e21e870d36e3c6eec342690c6e349eb4ab55d6b5f72",),
     "edc": ("4adb60686c2312912b6d2991b58d3fe2f901b4d59b539c418090f79bec9b7260",),
     "library": ("564fff938db5977ada9d769d6a285708f839f937e9bcbdafd24f72a19b9a58e3",),
     "mail": (
