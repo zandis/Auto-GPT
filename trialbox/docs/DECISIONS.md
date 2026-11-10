@@ -3802,11 +3802,32 @@ model call refused 404 because the pinned served name was not the one served).
 refuses a bad or huge `Content-Length` before reading; an update restarts with `--pull never` as the install does;
 `TB_COMPOSE_OVERRIDE` must be owned by root or the installer and not group- or world-writable.
 
+*Independent review of PR #68* (2026-11-10; 1 High, 6 Medium):
+4. *`model-guard`* (High). vLLM v0.32 checks its key only on `/v1`, `/v2`, `/inference` and `/cohere`: SageMaker's
+   `POST /invocations` (chat), `/tokenize`, `/score`, `/pooling`, `/classify`, `/metrics`, and with dev mode
+   `/collective_rpc`, `/reset_prefix_cache`, `/server_info` and `/sleep`, answered anyone on `model-net`. The vLLM
+   servers now sit only on `model-backend-net` (internal), and `model-guard` (`services/model_guard`, standard
+   library, read-only, no capabilities, no env file) answers to `llm-service` and `llm-verifier` on `model-net`. It
+   passes `GET /v1/models`, `POST /v1/chat/completions` and `POST /v1/completions` with the key only, `/sleep`,
+   `/wake_up` and `/is_sleeping` with the key on the RTX 5090 profile only (`TB_GUARD_ADMIN=1`; the gateway's swap
+   now sends the key; the sleep init containers call the servers on `model-backend-net`), and `/health`. Everything
+   else is 404 and never forwarded. `doctor --serving` POSTs `/invocations` and `/tokenize` without the key and FAILs
+   when either answers; the stand-in answers them as vLLM does, so a box without the guard fails the check.
+5. *Updates.* An update makes `TB_LLM_API_KEY` on a GPU box that has none and runs `doctor --serving` after the
+   restart; a FAIL rolls it back. `TB_INSTALL_PULL` is checked there too (never or missing).
+6. *The host.* `network.sh` has an input hook: no new connection from a box network to the host, except an allowed
+   destination on the host. The rehearsal reports, without asserting, whether the host answers the console (the
+   rules are not applied there).
+7. *Rehearsal honesty and safety.* The no-route-out check is its own step, `egress-override`, and covers only the
+   rehearsal's internal `egress-net`; the shipped `egress-net` with `network.sh` is checked at the site's IQ. A new
+   step `guard` checks `model-guard` (24 steps). The work folder is a fresh `mktemp` folder by default; a given one
+   must be absolute, three levels deep, not a system folder, and new or the caller's own earlier rehearsal folder.
+   The report names the Docker image store.
+
 *Not done.* `trialbox secrets rotate` does not rotate `TB_LLM_API_KEY` yet (RUNBOOK §12 says how to change it by hand).
-A GPU box moved to this release with `trialbox update` gets no key (only `install.sh` makes it): re-run `install.sh`
-on it. vLLM's key guards `/v1` only, so on the RTX 5090 profile the sleep and wake endpoints stay open on
-`model-net` (only the gateway and the model servers are on it). The one-off doctor containers get all of
-`deploy/.env`; they should get the `TB_*` values only.
+The one-off doctor containers get all of `deploy/.env` and run as root; they should get the `TB_*` values only.
+`llm-stub` (stub mode, where no key is made) still gets `deploy/.env` whole: the secrets overlay lists exactly the
+services with a token. `install.sh` gives `settings.yaml` to gid 10001, which may be a real group on a host.
 
 **D-187 Backups, layout 2: one snapshot, stream hashes, what a backup leaves out, sidecars.**
 Source: `docs/reviews/2026-11-09-dataflow-lifecycle-review.md` §6.3 and §7.1 to §7.3 (R-45, R-60) and WS-08.6, finishing the backup row D-149 left open.

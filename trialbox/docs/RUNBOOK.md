@@ -495,6 +495,8 @@ without the key (401). It never starts without a key (D-177).
 | `doctor` | `trialbox doctor --live` passes, with the `serving` check (below) |
 | `served` | the pinned served names in `deploy/site/registry.site.yaml` are exactly what the two servers serve |
 | `offline` | every running container runs an image the bundle loaded, the third-party ones (`postgres`, `hapi`) too, and the Docker daemon pulled nothing; the CQL translator jars in `criteria-compiler` are byte for byte the vendor's and translate; the media's reference data pack is loaded; ClinicalTrials.gov is offline; the box has no route out |
+| `egress-override` | no route out of the box **with the rehearsal's own internal `egress-net`** (`tools/rehearse_box/standins.yml`). The shipped `egress-net` with `deploy/network.sh` is not rehearsed (no `NET_ADMIN`): check it at the site's IQ |
+| `guard` | on `model-net` only `model-guard` answers to the model servers' names: `/invocations`, `/tokenize`, `/collective_rpc`, `/metrics` and the rest are 404 with or without the key, `/v1` needs the key, nothing reached the stand-ins' open routes, and the servers are only on `trialbox-model-backend` |
 | `console` | the console answers `/healthz` and its sign-in page; inside it no outside name resolves and no outside address answers, while the box's own names do (`console-net`, below) |
 | `screen` | SCREEN GZQO on synthetic hospital A ends `done`, its model calls go through the gateway to both pinned builds, with no 401 and no 404, and it mails its results to the site's relay (a plain SMTP sink, `tools/rehearse_box/smtp_sink.py`, stands in for it) |
 | `power-cycle`, `after-restart` | every box process killed (as in a power loss), the host restarted: the box comes back healthy with its data, the doctor passes, the console answers, a second SCREEN runs |
@@ -502,7 +504,8 @@ without the key (401). It never starts without a key (D-177).
 | `missing-key` | the gateway without the key: the doctor FAILs with "refused the key (HTTP 401)", and both calls are refused |
 | `no-registry-pull` | the Docker daemon's image events, from the moment the images were removed to the end of the run: every bundle image loaded, no pull |
 
-**Knobs.** `TB_REHEARSE_DIR` (default `/tmp/tb-rehearse-box`; the report and logs stay there),
+**Knobs.** `TB_REHEARSE_DIR` (default a fresh private `mktemp` folder; a given one must be absolute, three levels
+deep, not a system folder, and new or this user's earlier rehearsal folder; the report and logs stay there),
 `TB_REHEARSE_SKIP_BUILD=1` (use the images already built), `TB_REHEARSE_KEEP=1` (leave the box running for a look),
 `TB_EXTRA_CA` (a PEM for apt and pip behind a TLS proxy). It needs a Docker host with no other TrialBox stack and port
 8090 free. The box container uses the host's Docker through its socket, so the work folder has the same path inside.
@@ -535,9 +538,22 @@ apply` (run by `install.sh` as root) drops it. Keep the egress rules applied on 
 every connection into a box network that is not to a published port (a neighbour on the hospital LAN that routes to
 a container address directly, possible on Docker before 28).
 
+**`model-guard`** (D-177). vLLM checks its key only on paths under `/v1` (and `/v2`, `/inference`, `/cohere`).
+`POST /invocations` (chat), `/tokenize`, `/score`, `/pooling`, `/metrics` and, in dev mode, `/collective_rpc` answer
+without it. So the vLLM servers are only on `trialbox-model-backend`, and `model-guard` (`services/model_guard`) is
+what `llm-service` and `llm-verifier` mean on `trialbox-model-net`. It passes, with the key only, `GET /v1/models`,
+`POST /v1/chat/completions` and `POST /v1/completions`; on the RTX 5090 profile also the gateway's `/sleep`,
+`/wake_up` and `/is_sleeping`; and `/health` without the key. Everything else is 404. `trialbox doctor --serving`
+also checks that `/invocations` and `/tokenize` refuse a call without the key.
+
+**The host itself.** `deploy/network.sh apply` also drops every new connection from a box network to the host
+(sshd, a database), except an allowed destination that is on the host.
+
 **The model key** (D-177). In GPU mode `install.sh` writes `TB_LLM_API_KEY` to `deploy/.env` once. Compose gives it to
 vLLM as `VLLM_API_KEY`, and only the gateway sends it (`models/routing.yaml`, endpoints `serving` and `verifier`). The
 secrets overlay clears it in every other service. After the stack starts, the installer runs `trialbox doctor
 --serving` on the model network and stops when a server is down, refuses the key, does not serve a pinned name, or
-answers without the key in PRODUCTION. To change the key: set a new value in `deploy/.env`, then `docker compose
---project-directory deploy up -d gateway llm-service llm-verifier` (`trialbox secrets rotate` does not rotate it yet).
+answers without the key in PRODUCTION. An update (`trialbox update`) makes the key on a GPU box that has none and runs
+the same check after the restart; a FAIL rolls the update back. To change the key: set a new value in
+`deploy/.env`, then `docker compose --project-directory deploy up -d gateway model-guard llm-service llm-verifier`
+(`trialbox secrets rotate` does not rotate it yet).
