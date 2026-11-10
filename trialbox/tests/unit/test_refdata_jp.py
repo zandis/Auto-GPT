@@ -1,0 +1,354 @@
+"""Japan reference data items (D-173 to D-175): the WHO ICD-10 <-> ICD-10-CM bridge, YJ -> ATC, CTCAE v5.0, the ja
+synonyms, and the site-fetch loaders for MEDIS 病名, JLAC10 -> LOINC and the JCOG CTCAE translation. Fixtures are
+synthetic, the repository's own tables, or a six-term excerpt of NCI's public-domain CTCAE workbook."""
+
+from __future__ import annotations
+
+import csv
+import json
+from pathlib import Path
+from typing import Any
+
+import pytest
+from criteria_compiler.terminology.mapper import Terminology
+from sitesetup import mapping as sm
+from tb_common import refdata as rd
+from tb_common import refdata_jp as jp
+from tb_common import refdata_tw as tw
+
+from tools import refdata_fetch as rf
+
+ROOT = Path(__file__).resolve().parents[2]
+SAMPLES = ROOT / "tests" / "fixtures" / "refdata"
+SHIP = ("icd10_who_cm_bridge", "jp_yj_atc", "ctcae_v5_en", "ja_synonyms")
+SITE = ("medis_byomei_icd10", "jlac10_loinc", "ctcae_v5_ja_jcog")
+
+
+@pytest.fixture(scope="module")
+def sample_tar(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    out = tmp_path_factory.mktemp("jppack")
+    return rf.build(rf.sample_raw(out / "raw"), out, "20261109", sample=True)
+
+
+@pytest.fixture
+def loaded(sample_tar: Path, db_url: str) -> str:
+    with rd.opened(sample_tar) as p, rd.RefStore(db_url) as st:
+        st.load(p, by="test")
+    return db_url
+
+
+def _write(path: Path, rows: list[list[str]], encoding: str = "utf-8") -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding=encoding) as fh:
+        csv.writer(fh).writerows(rows)
+    return path
+
+
+# ------------------------------------------------------------------------------------------------ the registry
+def test_each_item_is_registered_with_its_licence_decision_and_loader() -> None:
+    by = rf.BY_ID
+    for sid in SHIP + SITE:
+        s = by[sid]
+        assert s.country == "JP" and s.parse is not None and s.decision in ("D-173", "D-174", "D-175")
+        assert s.licence and s.terms and s.attribution and s.url
+        assert s.name in rf.table_md()
+    assert all(by[sid].distribution == "ship" for sid in SHIP)
+    # what the licence forbids is never shipped: a loader for the hospital's own file, and nothing to fetch
+    for sid in SITE:
+        assert by[sid].distribution == "site-fetch" and not by[sid].fetch
+        with pytest.raises(SystemExit, match="site-fetch"):
+            rf.fetch([sid], Path("/nonexistent"))
+    assert by["icd10_who_cm_bridge"].derived_from == "icd10cm"  # read from the ICD-10-CM download
+    assert by["ctcae_v5_en"].sha256 and by["ctcae_v5_en"].licence_reader is not None
+
+
+def test_nothing_from_medis_jlac_or_jcog_is_committed_as_data() -> None:
+    """The repository holds no MEDIS 病名, JLAC10 or JCOG translation file: only the loaders and synthetic tests."""
+    src = ROOT / "libs" / "tb_common" / "refdata_src"
+    assert sorted(p.name for p in src.iterdir()) == sorted(
+        ["zh_tw_clinical_synonyms.csv", "jp_yj_atc.csv", "icd10_who_cm_exceptions.csv", "ja_clinical_synonyms.csv"]
+    )
+
+
+# ------------------------------------------------------------------------------------------------ the licence reader
+def test_the_licence_reader_lives_on_the_item_and_fetch_keeps_its_evidence(monkeypatch: pytest.MonkeyPatch,
+                                                                            tmp_path: Path) -> None:  # fmt: skip
+    def fake_download(url: str, dest: Path, **_: object) -> dict[str, object]:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"x")
+        return {"url": url, "downloaded_at": "2026-11-10T00:00:00+00:00", "sha256": "0" * 64, "bytes": 1}
+
+    reads: list[str] = []
+
+    def reader(ok: bool, answer: bool = True) -> Any:
+        def read(item: rd.Item) -> rd.LicenceRead | None:
+            reads.append(item.id)
+            return rd.LicenceRead("https://x/terms", "free" if ok else "paid", "free", ok) if answer else None
+
+        return read
+
+    monkeypatch.setattr(rf, "download", fake_download)
+    item = rf.BY_ID["ctcae_v5_en"]
+    for ok, answer, err in ((False, True, "now reads 'paid'"), (True, False, "could not be read")):
+        monkeypatch.setitem(rf.BY_ID, "ctcae_v5_en", rd.Item(**{**item.__dict__, "licence_reader": reader(ok, answer),
+                                                                 "sha256": ""}))  # fmt: skip
+        with pytest.raises(SystemExit, match=err):
+            rf.fetch(["ctcae_v5_en"], tmp_path)
+    monkeypatch.setitem(rf.BY_ID, "ctcae_v5_en", rd.Item(**{**item.__dict__, "licence_reader": reader(True),
+                                                             "sha256": ""}))  # fmt: skip
+    rf.fetch(["ctcae_v5_en"], tmp_path)
+    meta = json.loads((tmp_path / "ctcae_v5_en/fetch.json").read_text())
+    assert meta["licence_check"] == {"url": "https://x/terms", "read": "free", "expected": "free", "ok": True,
+                                     "version": ""}  # fmt: skip
+    assert reads == ["ctcae_v5_en"] * 3
+    # an item without a reader (our own tables) reads nothing; the Taiwan items read data.gov.tw through theirs
+    assert rf.read_licence(rf.BY_ID["jp_yj_atc"]) is None
+    assert rf.BY_ID["naer_medical_terms"].licence_reader is tw.datagov_tw_licence
+
+
+def test_the_page_reader_needs_every_marker(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    class R:
+        text = "Unless otherwise indicated, all text ... is free of copyright"
+
+        def raise_for_status(self) -> None:
+            return None
+
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: R())
+    item = rf.BY_ID["ctcae_v5_en"]
+    assert rd.page_licence_reader("https://p", "free of copyright")(item) == rd.LicenceRead(
+        "https://p", "free of copyright", "free of copyright", True
+    )
+    got = rd.page_licence_reader("https://p", "free of copyright", "no fee")(item)
+    assert got is not None and not got.ok
+
+    def boom(*a: object, **k: object) -> None:
+        raise httpx.ConnectError("refused")
+
+    monkeypatch.setattr(httpx, "get", boom)
+    assert rd.page_licence_reader("https://p", "x")(item) is None
+
+
+# ------------------------------------------------------------------------------------------------ the pack
+def test_the_pack_records_version_and_sha256_for_each_japan_item(sample_tar: Path) -> None:
+    with rd.opened(sample_tar) as pack:
+        m = rd.verify(pack)
+        notice = (pack / "NOTICE.md").read_text(encoding="utf-8")
+    src = {s["id"]: s for s in m["sources"]}
+    assert not set(SITE) & set(src)  # the site-fetch items are never in the vendor's pack
+    for sid in SHIP:
+        s = src[sid]
+        assert s["version"] and len(s["download_sha256"]) == 64 and s["country"] == "JP" and s["records"] > 0
+        assert f"* Version: {s['version']}" in notice and s["download_sha256"] in notice
+    assert src["jp_yj_atc"]["version"].startswith("TrialBox YJ stem to ATC, 56 entries")
+    assert src["ctcae_v5_en"]["version"] == "CTCAE v5.0 (NCI, 2017-11-27), terms of MedDRA v20.1"
+    assert src["ctcae_v5_en"]["records"] == 6 and "free of copyright" in notice.lower()
+
+
+# ------------------------------------------------------------------------------------------------ D-173 bridge
+def test_the_bridge_maps_categories_and_marks_differing_scope_inexact(tmp_path: Path) -> None:
+    import zipfile
+
+    z = tmp_path / "icd10cm-code-descriptions-2027.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        zf.writestr("x/icd10cm-codes-2027.txt",
+                    "E119    Type 2 diabetes mellitus without complications\nE1165   T2DM with hyperglycemia\n"
+                    "E139    Other specified diabetes mellitus without complications\nO24410  GDM\n"
+                    "Z87891  Personal history of nicotine dependence\nI10     Essential hypertension\n")  # fmt: skip
+    rows = {r["source_code"]: r for r in jp.parse_icd10_who_cm_bridge(z)}
+    assert sorted(rows) == ["E11", "E13", "I10", "O24", "Z87"]
+    assert rows["E11"]["relation"] == "wider" and rows["E11"]["target_code"] == "E11"
+    assert rows["E11"]["source_system"] == jp.ICD10_WHO and rows["E11"]["target_system"] == jp.ICD10CM
+    assert {rows[c]["relation"] for c in ("E13", "O24", "Z87")} == {"inexact"}  # the exception list
+    assert all(r["source_display"] == "" and r["target_display"] == "" for r in rows.values())  # code strings only
+    assert jp.bridge_version(z).startswith("ICD-10-CM FY2027 categories; TrialBox exceptions sha256 ")
+
+
+def test_a_who_code_is_in_its_family_or_unknown_never_no(loaded: str) -> None:
+    fam = [(jp.ICD10CM, "E11")]
+    # the sample ICD-10-CM list has M10, M1A, E11, I10... categories (tests/fixtures/refdata/icd10cm_sample.txt)
+    assert jp.who_icd10_in_list("E11.9", set(), fam, loaded) == "yes"  # WHO E11.9 is inside the CM E11 family
+    assert jp.who_icd10_in_list("E11.9", {(jp.ICD10CM, "E11.9")}, (), loaded) == "unknown"  # exact codes only
+    assert jp.who_icd10_in_list("I10", {(jp.ICD10CM, "M10.9")}, [(jp.ICD10CM, "M10")], loaded) == "unknown"
+    assert jp.who_icd10_in_list("E14.9", set(), [(jp.ICD10CM, "E1")], loaded) == "unknown"  # WHO-only category
+    assert jp.who_icd10_targets("not a code", loaded) == []
+
+
+# ------------------------------------------------------------------------------------------------ D-173 MEDIS
+def test_medis_loader_reads_a_headerless_shift_jis_release(tmp_path: Path) -> None:
+    """A synthetic file shaped like a MEDIS release (Shift_JIS, no header row): the site gives the columns."""
+    f = _write(tmp_path / "medis" / "NMAIN.TXT",
+               [["1", "ZZ01", "テスト病名一", "E119", "8800001"], ["1", "ZZ02", "テスト病名二", "", "8800002"],
+                ["1", "ZZ03", "テスト病名三", "XYZ", "8800003"], ["1", "BAD", "x", "I10", ""]],
+               encoding="cp932")  # fmt: skip
+    with pytest.raises(ValueError, match="no header row"):
+        list(jp.parse_medis_byomei(f))
+    (f.parent / "columns.txt").write_text(
+        "変更区分,病名交換用コード,病名表記,ICD10-2013,傷病名コード", encoding="utf-8"
+    )
+    rows = list(jp.parse_medis_byomei(f))
+    assert [(r["source_code"], r["target_code"], r["relation"]) for r in rows] == [("ZZ01", "E11.9", "wider")]
+    assert rows[0]["source_display"] == "テスト病名一" and rows[0]["extra"] == {"receipt_code": "8800001"}
+
+
+def test_site_load_of_medis_keeps_the_hospitals_part_and_shows_it_on_the_notice(loaded: str, tmp_path: Path) -> None:
+    f = _write(tmp_path / "dl" / "byomei.csv",
+               [["病名交換用コード", "病名表記", "ICD10-2013"], ["ZZ01", "テスト病名一", "E11.9"]])  # fmt: skip
+    tar = rf.site_load("medis_byomei_icd10", f, tmp_path / "site", db_url=loaded, version="Ver.9.99 (synthetic)")
+    assert "site-medis-byomei-icd10" in tar.name
+    with rd.RefStore(loaded) as st:
+        got = st.map_targets(jp.MEDIS_BYOMEI, "ZZ01")
+        notes = {n["id"]: n for n in st.notices()}
+    assert [(t["target_system"], t["target_code"]) for t in got] == [(jp.ICD10_WHO, "E11.9")]
+    medis = notes["medis_byomei_icd10"]
+    assert medis["distribution"] == "site-fetch" and medis["version"] == "Ver.9.99 (synthetic)"
+    assert "使用許諾申請書" in medis["terms"] and len(medis["download_sha256"]) == 64
+    assert "jp_yj_atc" in notes  # the vendor's pack is still there beside the hospital's part
+
+
+# ------------------------------------------------------------------------------------------------ D-174 YJ -> ATC
+def test_the_yj_table_is_one_ingredient_per_stem_with_full_atc_codes() -> None:
+    rows = list(jp.parse_jp_yj_atc(jp.REPO_YJ_ATC))
+    assert len(rows) == 56 and len({r["source_code"] for r in rows}) == 56
+    assert all(r["relation"] == "wider" and len(r["target_code"]) == 7 for r in rows)
+    by = {r["source_code"]: r["target_code"] for r in rows}
+    assert by["3962002"] == "A10BA02" and by["3332001"] == "B01AA03"  # metformin, warfarin
+    assert by["3999016"] == "L04AX03" and by["4222001"] == "L01BA01"  # methotrexate: RA vs oncology stems
+    assert by["3399007"] == "B01AC06" and by["1143001"] == "N02BA01"  # aspirin: antiplatelet vs analgesic
+
+
+def test_a_bad_yj_row_refuses_the_table(tmp_path: Path) -> None:
+    f = _write(tmp_path / "t.csv", [list(jp.YJ_COLS), ["396200", "x", "内用", "A10BA02", "metformin"]])
+    with pytest.raises(ValueError, match="bad row"):
+        list(jp.parse_jp_yj_atc(f))
+
+
+def test_site_setup_suggests_atc_for_a_yj_code(loaded: str) -> None:
+    got = sm.suggest("medication", sm.local_system("drug-code"), "3339004F1020")  # an apixaban tablet
+    assert got == {"system": sm.ATC, "code": "B01AF02", "display": "apixaban", "method": "refdata",
+                   "confidence": "0.90"}  # fmt: skip
+    assert sm.suggest("medication", sm.local_system("drug-code"), "9999999F1020") == {}  # stem not in the table
+
+
+# ------------------------------------------------------------------------------------------------ D-174 JLAC10
+def test_jlac10_loader_reads_codes_or_parts_and_keeps_only_valid_rows(tmp_path: Path) -> None:
+    f = _write(tmp_path / "a.csv", [["JLAC10", "LOINC", "項目名"], ["3C015000002327101", "2160-0", "クレアチニン"],
+                                    ["3C0150000023271", "2160-0", "15 characters"], ["bad", "2160-0", ""],
+                                    ["3C015000002327101", "not-loinc", ""]])  # fmt: skip
+    rows = list(jp.parse_jlac10_loinc(f))
+    assert [(r["source_code"], r["target_code"], r["relation"]) for r in rows] == [
+        ("3C015000002327101", "2160-0", "relatedto"), ("3C0150000023271", "2160-0", "relatedto")]  # fmt: skip
+    g = _write(tmp_path / "b.csv", [["分析物コード", "識別コード", "材料コード", "測定法コード", "結果識別コード",
+                                     "LOINCコード", "relation"], ["3C015", "0000", "023", "271", "01", "2160-0",
+                                                                  "equivalent"]])  # fmt: skip
+    assert [(r["source_code"], r["relation"]) for r in jp.parse_jlac10_loinc(g)] == [
+        ("3C015000002327101", "equivalent")]  # fmt: skip
+    h = _write(tmp_path / "c.csv", [["JLAC10", "LOINC", "relation"], ["3C015000002327101", "2160-0", "same"]])
+    with pytest.raises(ValueError, match="R4 equivalence"):
+        list(jp.parse_jlac10_loinc(h))
+
+
+def test_site_setup_suggests_loinc_from_the_hospitals_jlac10_map(loaded: str, tmp_path: Path) -> None:
+    code = "3Z999000002399901"  # synthetic: not in the shipped JP-Core sample table
+    assert sm.suggest("observation", sm.local_system("lab-code"), code) == {}
+    f = _write(tmp_path / "dl" / "jlac.csv", [["JLAC10", "LOINC", "項目名"], [code, "2160-0", "テスト項目"],
+                                              ["3Z998000002399901", "2160-0", "a"],
+                                              ["3Z998000002399901", "38483-4", "b"]])  # fmt: skip
+    rf.site_load("jlac10_loinc", f, tmp_path / "site", db_url=loaded)
+    got = sm.suggest("observation", sm.local_system("lab-code"), code)
+    assert got["code"] == "2160-0" and got["method"] == "refdata" and got["confidence"] == "0.90"
+    assert sm.suggest("observation", sm.local_system("lab-code"), "3Z998000002399901") == {}  # two targets
+
+
+# ------------------------------------------------------------------------------------------------ D-174 CTCAE
+def test_ctcae_en_keeps_terms_grades_and_definitions_but_no_meddra_codes(tmp_path: Path) -> None:
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    ws = wb.worksheets[0]
+    ws.title = "CTCAE v5.0 Clean Copy"
+    rows = list(csv.reader((SAMPLES / "ctcae_v5_sample.csv").open(encoding="utf-8")))
+    rows[1][0] = "10002272"  # a code as NCI's file has it: it must not reach the pack
+    for r in rows:
+        ws.append(r)
+    f = tmp_path / "ctcae-v5.0.xlsx"
+    wb.save(f)
+    terms = {t["code"]: t for t in jp.parse_ctcae_v5_en(f)}
+    assert sorted(terms) == sorted(["Anemia", "Febrile neutropenia", "Diarrhea", "Nausea",
+                                    "Alanine aminotransferase increased", "Peripheral sensory neuropathy"])  # fmt: skip
+    fn = terms["Febrile neutropenia"]
+    assert fn["system"] == jp.CTCAE5 and fn["extra"]["grades"]["1"] == "" and fn["extra"]["grades"]["5"] == "Death"
+    assert fn["extra"]["soc"] == "Blood and lymphatic system disorders" and fn["extra"]["definition"]
+    assert "10002272" not in json.dumps(list(terms.values()))
+
+
+def test_jcog_loader_gives_ja_terms_for_the_english_terms(tmp_path: Path) -> None:
+    """A synthetic workbook in the JCOG layout (our own Japanese words, not JCOG's text)."""
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    ws = wb.worksheets[0]
+    ws.append(["ソート用\nID", "CTCAE v5.0\nMedDRA \nv20.1 Code", "CTCAE v5.0\nSOC", "CTCAE v5.0\nSOC 日本語",
+               "CTCAE v5.0\nTerm", "CTCAE v5.0\nTerm 日本語", "Grade 1\n原文", "Grade 1", "Grade 2\n原文", "Grade 2",
+               "Grade 3\n原文", "Grade 3", "Grade 4\n原文", "Grade 4", "Grade 5 \n原文", "Grade 5",
+               "CTCAE v5.0 AE Term \nDefinition", "CTCAE v5.0 AE Term \nDefinition", "Navigational Note",
+               "検索上の注意"])  # fmt: skip
+    ws.append([None, "合成 SOC 見出し"])
+    ws.append([None, "", "Gastrointestinal disorders", "合成の器官別分類", "Nausea", "合成用語・吐き気",
+               "x", "合成グレード1", "x", "合成グレード2", "x", "合成グレード3", "-", "-", "-", "-",
+               "def", "合成の定義", "-", "-"])  # fmt: skip
+    f = tmp_path / "CTCAEv5J_20990101_synthetic.xlsx"
+    wb.save(f)
+    rows = list(jp.parse_ctcae_v5_ja(f))
+    assert len(rows) == 1
+    r = rows[0]
+    assert (r["term"], r["lang"], r["canonical"], r["domain"], r["system"], r["code"]) == (
+        "合成用語・吐き気", "ja", "Nausea", "adverse_event", jp.CTCAE5, "Nausea")  # fmt: skip
+    assert r["extra"]["grades_ja"] == {
+        "1": "合成グレード1",
+        "2": "合成グレード2",
+        "3": "合成グレード3",
+        "4": "",
+        "5": "",
+    }
+    assert r["extra"]["definition_ja"] == "合成の定義" and r["extra"]["soc_ja"] == "合成の器官別分類"
+    assert jp.ctcae_ja_version(f) == "CTCAE v5.0 日本語訳JCOG版 20990101"
+
+
+def test_the_ctcae_store_answers_en_and_ja(loaded: str, tmp_path: Path) -> None:
+    with rd.RefStore(loaded) as st:
+        t = st.term(jp.CTCAE5, "Nausea")
+    assert t is not None and t["extra"]["grades"]["4"] == "" and t["extra"]["lang"] == "en"
+
+
+# ------------------------------------------------------------------------------------------------ D-175 synonyms
+def test_every_curated_ja_synonym_resolves_and_maps_like_its_canonical_name() -> None:
+    rows = list(jp.parse_ja_synonyms(jp.REPO_SYNONYMS))
+    assert len(rows) == 70 and {r["term"] for r in rows if not r["curated"]} == {"RA", "AMI", "MTX", "PSL", "GPT"}
+    plain = Terminology()
+    dead = [r["term"] for r in rows if plain.map(r["domain"], r["canonical"]).method not in ("exact", "synonym")]
+    assert dead == []
+
+    def lookup(term: str, domain: str = "") -> list[dict[str, Any]]:
+        n = rd.norm_name(term)
+        return [{**r, "source_id": "ja_synonyms"} for r in rows
+                if rd.norm_name(r["term"]) == n and (not domain or r["domain"] == domain)]  # fmt: skip
+
+    t = Terminology(name_synonyms=lookup)
+    off = [r["term"] for r in rows if r["curated"] and (
+        {c.code for c in t.map(r["domain"], r["term"]).concepts}
+        != {c.code for c in plain.map(r["domain"], r["canonical"]).concepts}
+        or t.map(r["domain"], r["term"]).needs_review)]  # fmt: skip
+    assert off == []
+
+
+def test_the_name_matcher_reads_the_ja_dictionary(loaded: str) -> None:
+    plain = Terminology()
+    with_dict = Terminology(name_synonyms=rd.synonym_lookup(loaded))
+    assert plain.map("condition", "関節リウマチ").method not in ("exact", "synonym")
+    ra = with_dict.map("condition", "関節リウマチ")
+    assert ra.method == "synonym" and not ra.needs_review and "ja_synonyms" in ra.notes[0]
+    assert ra.concepts == plain.map("condition", "rheumatoid arthritis").concepts
+    psl = with_dict.map("medication", "PSL")  # a note abbreviation: reviewed
+    assert psl.method == "dictionary" and psl.needs_review and {c.code for c in psl.concepts} == {"H02AB06"}

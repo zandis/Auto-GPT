@@ -1,0 +1,9 @@
+prefix,relation,note
+E13,inexact,"WHO E13 (other specified diabetes) also holds what ICD-10-CM puts under E08 and E09"
+O,inexact,"pregnancy chapter: ICD-10-CM restructured the categories (trimester, weeks), the scope of a category can differ"
+U,inexact,"codes for special purposes: WHO's provisional U codes and ICD-10-CM's differ"
+V,inexact,"external causes: ICD-10-CM restructured the chapter"
+W,inexact,"external causes: ICD-10-CM restructured the chapter"
+X,inexact,"external causes: ICD-10-CM restructured the chapter"
+Y,inexact,"external causes: ICD-10-CM restructured the chapter (WHO Y40-Y59 adverse effects are T codes in ICD-10-CM)"
+Z,inexact,"factors influencing health status: ICD-10-CM added and moved many categories"

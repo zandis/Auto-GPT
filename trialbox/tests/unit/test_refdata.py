@@ -61,7 +61,8 @@ def test_the_manifest_records_url_date_sha_count_licence_terms_and_attribution(p
     assert m["format"] == "trialbox-refdata/1" and m["pack_id"] == "trialbox-refdata-20261109" and m["sample"]
     ids = {s["id"] for s in m["sources"]}
     assert ids == {"ctgov", "tfda_trials", "tfda_indication", "mhlw_yakka", "nhi_drugs", "icd10cm", "nhi_drug_atc",
-                   "tw_icd_2014_2023", "nhi_lab_loinc", "naer_medical_terms", "tw_zh_synonyms"}  # fmt: skip
+                   "tw_icd_2014_2023", "nhi_lab_loinc", "naer_medical_terms", "tw_zh_synonyms",
+                   "icd10_who_cm_bridge", "jp_yj_atc", "ctcae_v5_en", "ja_synonyms"}  # fmt: skip
     for s in m["sources"]:
         assert all(s[k] not in ("", None) for k in ("url", "downloaded_at", "download_sha256", "records", "licence",
                                                      "terms", "attribution", "version"))  # fmt: skip

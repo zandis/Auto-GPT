@@ -11,17 +11,23 @@ each source is recorded here and in DECISIONS.md D-140:
 * **not usable**: listed so nobody tries again; no fetcher.
 
 Country modules add their items to the same registry (D-170): ``tb_common.refdata_tw`` (NHI drug -> ATC, ICD-10-CM/PCS
-2014 <-> 2023, NHI lab -> LOINC, zh-TW synonyms). Each item has its own parser and records its version and sha256.
+2014 <-> 2023, NHI lab -> LOINC, zh-TW synonyms) and ``tb_common.refdata_jp`` (D-173 to D-175: the WHO ICD-10 <->
+ICD-10-CM bridge, YJ -> ATC, CTCAE v5.0, ja synonyms; MEDIS 病名, JLAC10 -> LOINC and the JCOG CTCAE translation as
+site-fetch loaders). Each item has its own parser and records its version and sha256; an item with a licence reader
+has its licence read at the source when it is fetched.
 
     python tools/refdata_fetch.py sources                                  # the table (markdown)
     python tools/refdata_fetch.py fetch --raw .cache/refdata/raw tfda_trials mhlw_yakka icd10cm
     python tools/refdata_fetch.py fetch --raw .cache/refdata/raw nhi_drug_atc tw_icd_2014_2023 nhi_lab_loinc \
         naer_medical_terms tw_zh_synonyms                                  # the Taiwan items (D-170 to D-172)
+    python tools/refdata_fetch.py fetch --raw .cache/refdata/raw icd10cm icd10_who_cm_bridge jp_yj_atc ctcae_v5_en \
+        ja_synonyms                                                        # the Japan items (D-173 to D-175)
     python tools/refdata_fetch.py fetch --raw .cache/refdata/raw ctgov --slice 200   # one API page, JP/TW sites
     python tools/refdata_fetch.py fetch --raw .cache/refdata/raw loinc --file Loinc_2.81.zip   # account download
     python tools/refdata_fetch.py build --raw .cache/refdata/raw --out dist/   # dist/trialbox-refdata-<date>.tar
     python tools/refdata_fetch.py sample --out /tmp/pack                             # the committed samples, no network
-    python tools/refdata_fetch.py site-load umin --file ctr_data_j.csv.gz            # at the hospital, its own download
+    python tools/refdata_fetch.py site-load umin_ctr --file ctr_data_j.csv.gz        # at the hospital, its own download
+    python tools/refdata_fetch.py site-load medis_byomei_icd10 --file NMAIN.TXT --columns 病名交換用コード,...
 
 The full ClinicalTrials.gov download (API v2 bulk JSON zip) was about 2.8 GB for 610,756 studies on 2026-11-06
 (10.6 GB unpacked); the pack keeps every record unchanged, gzip'd as JSON lines (about 2.2 GB). Fetch it outside the
@@ -37,6 +43,7 @@ import hashlib
 import io
 import json
 import re
+import shutil
 import sys
 import tarfile
 import zipfile
@@ -51,6 +58,7 @@ for _p in (ROOT / "libs", ROOT / "services"):
         sys.path.insert(0, str(_p))
 
 from tb_common import refdata as rd  # noqa: E402
+from tb_common import refdata_jp as jp  # noqa: E402
 from tb_common import refdata_tw as tw  # noqa: E402
 
 SAMPLES = ROOT / "tests" / "fixtures" / "refdata"
@@ -197,6 +205,7 @@ SOURCES: tuple[Source, ...] = (
         "-", "monthly", "4.9 MB, 0.2 MB, 0.4 MB zips", fetch=False,
     ),
     *tw.ITEMS,  # D-170 to D-172: the Taiwan maps and synonyms
+    *jp.ITEMS,  # D-173 to D-175: the Japan maps, CTCAE and synonyms (MEDIS, JLAC10, JCOG: site-fetch loaders)
 )  # fmt: skip
 BY_ID = {s.id: s for s in SOURCES}
 
@@ -294,26 +303,8 @@ def _joined(url: str, parts: list[dict[str, Any]]) -> dict[str, Any]:
             "parts": [{k: p[k] for k in ("path", "url", "sha256", "bytes")} for p in parts]}  # fmt: skip
 
 
-OGDL_LICENSE_ID = "1"  # data.gov.tw dataset API: license 1 = Open Government Data License 1.0
-
-
-def dataset_meta(meta_url: str) -> dict[str, str]:
-    """A data.gov.tw dataset's modified date (its version) and its licence field, from the dataset API; empty when
-    it does not answer. The licence field is kept in fetch.json as evidence of the licence read at fetch time."""
-    import httpx
-
-    try:
-        r = httpx.get(meta_url, timeout=60)
-        r.raise_for_status()
-        res = r.json()["result"]
-        return {"version": f"data.gov.tw {res['datasetId']} modified {res['modifiedDate']}",
-                "license": str(res.get("license", "")), "meta_url": meta_url}  # fmt: skip
-    except Exception:
-        return {}
-
-
-def dataset_version(meta_url: str) -> str:
-    return dataset_meta(meta_url).get("version", "")
+# A licence read at the source is the item's own reader (Item.licence_reader, D-173): the data.gov.tw dataset API
+# for the Taiwan items (tb_common.refdata_tw.datagov_tw_licence), a licence page for others.
 
 
 def fetch_parts(s: Source, dest: Path, file: Path | None) -> dict[str, Any]:
@@ -361,28 +352,39 @@ def fetch(
                 f"{meta['parts'][0]['sha256']}: the published file changed, check it before shipping"
             )
         for item in (s, *(c for c in SOURCES if c.derived_from == sid)):
-            if not item.meta_url:
+            dm = read_licence(item, licence_check)
+            if dm is None:
                 continue
-            if not item.meta_url.startswith("https://data.gov.tw/"):
-                raise SystemExit(f"{item.id}: no reader for the dataset API {item.meta_url}: add one before fetching")
-            dm = dataset_meta(item.meta_url) if licence_check else {"skipped": "--no-licence-check"}
-            if not dm:
-                raise SystemExit(
-                    f"{item.id}: the data.gov.tw dataset API did not answer, so its licence could not be read; "
-                    "retry, or pass --no-licence-check after reading the terms by hand"
-                )
-            if licence_check and dm.get("license") != OGDL_LICENSE_ID:
-                raise SystemExit(
-                    f"{item.id}: data.gov.tw now gives licence {dm.get('license')!r}, not "
-                    f"{OGDL_LICENSE_ID} (OGDL 1.0): read the terms before shipping"
-                )
             if item is s:
                 meta.update({"version": dm.get("version", ""), "licence_check": dm})
             else:
                 meta.setdefault("versions", {})[item.id] = dm.get("version", "")
+                meta.setdefault("licence_checks", {})[item.id] = dm
         (raw / sid / "fetch.json").write_text(json.dumps({**meta, "path": dest.name}, indent=1), encoding="utf-8")
         done.append(f"{sid}: {meta['bytes']:,} bytes, sha256 {meta['sha256'][:16]}")
     return done
+
+
+def read_licence(item: Source, licence_check: bool = True) -> dict[str, Any] | None:
+    """The item's own licence reader (``Item.licence_reader``, D-173), run at fetch time: its evidence for
+    ``fetch.json``, or None for an item without one. Stops when the source does not answer or the licence no longer
+    reads as expected; ``licence_check=False`` (``--no-licence-check``) skips the read and records that."""
+    if item.licence_reader is None:
+        return None
+    if not licence_check:
+        return {"skipped": "--no-licence-check"}
+    got = item.licence_reader(item)
+    if got is None:
+        raise SystemExit(
+            f"{item.id}: the licence could not be read at the source (it did not answer); retry, or pass "
+            "--no-licence-check after reading the terms by hand"
+        )
+    if not got.ok:
+        raise SystemExit(
+            f"{item.id}: the licence now reads {got.read!r} at {got.url}, not {got.expected!r}: read the terms "
+            "before shipping"
+        )
+    return got.evidence()
 
 
 # ------------------------------------------------------------------------------------------------ parsers
@@ -625,6 +627,8 @@ def check_raw(raw: Path, sid: str, meta: dict[str, Any], pinned: bool = True) ->
 def _version(s: Source, meta: dict[str, Any], path: Path) -> str:
     """The item's version (D-170): stated in the file (``version_of``), the dataset's modified date read at fetch
     time, a fixed version, or else the download date (a daily list's only version)."""
+    if s.distribution == "site-fetch" and meta.get("version"):
+        return str(meta["version"])  # the release the hospital named at site-load
     if s.version_of is not None:
         return s.version_of(path)
     return str(meta.get("version") or s.version or f"downloaded {str(meta['downloaded_at'])[:10]}")
@@ -764,17 +768,39 @@ def sample_raw(raw: Path) -> Path:
     for sid in ("tw_icd_2014_2023", "naer_medical_terms"):
         meta = json.loads((raw / sid / "fetch.json").read_text(encoding="utf-8"))
         (raw / sid / "fetch.json").write_text(json.dumps({**meta, "version": "sample"}), encoding="utf-8")
+    # D-173 to D-175: the Japan items that ship (the bridge reads the ICD-10-CM sample above); NCI's CTCAE v5.0
+    # workbook as an excerpt of six terms (public domain; the MedDRA code column is blank in the excerpt)
+    put("jp_yj_atc", "jp_yj_atc.csv", jp.REPO_YJ_ATC.read_bytes(), BY_ID["jp_yj_atc"].url)
+    put("ja_synonyms", "ja_clinical_synonyms.csv", jp.REPO_SYNONYMS.read_bytes(), BY_ID["ja_synonyms"].url)
+    cw = openpyxl.Workbook()
+    cs = cw.worksheets[0]
+    cs.title = "CTCAE v5.0 Clean Copy"
+    for row in csv.reader(io.StringIO((SAMPLES / "ctcae_v5_sample.csv").read_text(encoding="utf-8"))):
+        cs.append(row)
+    cb = io.BytesIO()
+    cw.save(cb)
+    put("ctcae_v5_en", "ctcae-v5.0.xlsx", cb.getvalue(), BY_ID["ctcae_v5_en"].url)
     return raw
 
 
-def site_load(sid: str, file: Path, out: Path, load: bool = True, db_url: str | None = None) -> Path:
+def site_load(sid: str, file: Path, out: Path, load: bool = True, db_url: str | None = None,
+              columns: list[str] | None = None, version: str = "") -> Path:  # fmt: skip
     """At the hospital: a site-fetch source the hospital downloaded itself -> its own pack part, loaded beside the
-    vendor's pack. TrialBox never downloads it."""
+    vendor's pack. TrialBox never downloads it. ``columns``: the column names, in file order, of a release without
+    a header row (MEDIS), kept beside the file as ``columns.txt`` (the file itself is not changed). ``version``: the
+    release printed on the download (MEDIS Ver.5.19); else the item's own reading of the file, or the load date."""
     s = BY_ID[sid]
-    if s.distribution != "site-fetch" or sid not in PARSERS:
+    if s.distribution != "site-fetch" or (s.parse is None and sid not in PARSERS):
         raise SystemExit(f"{sid} is not a site-fetch source with a loader")
     raw = out / "raw"
+    if (raw / sid).exists():
+        shutil.rmtree(raw / sid)  # an earlier load's file or columns must not mix with this one
     meta = local_file(file, raw / sid / file.name, s.url)
+    if columns:
+        (raw / sid / "columns.txt").write_text(",".join(columns), encoding="utf-8")
+        meta["columns"] = columns
+    if version.strip():
+        meta["version"] = version.strip()
     (raw / sid / "fetch.json").write_text(json.dumps({**meta, "path": file.name}), encoding="utf-8")
     tar = build(raw, out, ids=[sid], suffix=f"site-{sid.replace('_', '-')}")
     if load:
@@ -801,7 +827,7 @@ def main(argv: list[str] | None = None) -> int:
     f.add_argument(
         "--no-licence-check",
         action="store_true",
-        help="data.gov.tw items: do not read the dataset API (recorded in fetch.json as skipped)",
+        help="do not read the items' licences at the source (recorded in fetch.json as skipped)",
     )
     b = sub.add_parser("build")
     b.add_argument("--raw", type=Path, default=ROOT / ".cache" / "refdata" / "raw")
@@ -814,6 +840,8 @@ def main(argv: list[str] | None = None) -> int:
     sl.add_argument("id", choices=[s.id for s in SOURCES if s.distribution == "site-fetch"])
     sl.add_argument("--file", type=Path, required=True, help="the file the hospital downloaded itself")
     sl.add_argument("--out", type=Path, default=Path("/tmp/trialbox-site-refdata"))
+    sl.add_argument("--columns", help="comma-separated column names in file order, for a file without a header row")
+    sl.add_argument("--version", default="", help="the release printed on the download (e.g. MEDIS Ver.5.19)")
     a = ap.parse_args(argv)
     if a.cmd == "sources":
         print(table_md(), end="")
@@ -825,7 +853,8 @@ def main(argv: list[str] | None = None) -> int:
     elif a.cmd == "sample":
         print(build(sample_raw(a.out / "raw"), a.out, "20261109", sample=True))
     else:
-        print(site_load(a.id, a.file, a.out))
+        cols = [c.strip() for c in a.columns.split(",") if c.strip()] if a.columns else None
+        print(site_load(a.id, a.file, a.out, columns=cols, version=a.version))
     return 0
 
 

@@ -30,7 +30,15 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from tb_common.refdata import RELATIONS, Item, csv_rows, require_columns
+from tb_common.refdata import (
+    RELATIONS,
+    Item,
+    LicenceRead,
+    csv_rows,
+    curated_synonyms,
+    own_file_version,
+    require_columns,
+)
 
 OGDL = "Open Government Data License, version 1.0 (Taiwan)"
 OGDL_URL = "https://data.gov.tw/license"
@@ -48,6 +56,38 @@ ICD_PCS_2023 = "urn:tw:nhi:icd-10-pcs-2023"
 _ATC_SHAPE = re.compile(r"^[A-Z](\d{2}([A-Z]([A-Z](\d{2})?)?)?)?$")
 _ATC_LEVEL = {1: 1, 3: 2, 4: 3, 5: 4, 7: 5}  # code length -> ATC level
 REPO_SYNONYMS = Path(__file__).resolve().parent / "refdata_src" / "zh_tw_clinical_synonyms.csv"
+
+
+# ------------------------------------------------------------------------------------------------ licence reader
+OGDL_LICENSE_ID = "1"  # data.gov.tw dataset API: license 1 = Open Government Data License 1.0
+
+
+def dataset_meta(meta_url: str) -> dict[str, str]:
+    """A data.gov.tw dataset's modified date (its version) and its licence field, from the dataset API; empty when
+    it does not answer."""
+    import httpx
+
+    try:
+        r = httpx.get(meta_url, timeout=60)
+        r.raise_for_status()
+        res = r.json()["result"]
+        return {"version": f"data.gov.tw {res['datasetId']} modified {res['modifiedDate']}",
+                "license": str(res.get("license", "")), "meta_url": meta_url}  # fmt: skip
+    except Exception:
+        return {}
+
+
+def datagov_tw_licence(item: Item) -> LicenceRead | None:
+    """The item's licence reader (D-173, review M4 of D-170): the dataset API's ``license`` field must be 1 (OGDL
+    1.0); the same answer gives the dataset's modified date, the item's version. None when the API does not answer."""
+    if not item.meta_url.startswith("https://data.gov.tw/"):
+        raise ValueError(f"{item.id}: {item.meta_url} is not a data.gov.tw dataset API URL")
+    dm = dataset_meta(item.meta_url)
+    if not dm:
+        return None
+    lic = dm.get("license", "")
+    return LicenceRead(item.meta_url, f"license {lic}", f"license {OGDL_LICENSE_ID} (OGDL 1.0)",
+                       lic == OGDL_LICENSE_ID, dm.get("version", ""))  # fmt: skip
 
 
 def roc(s: str) -> str:
@@ -252,21 +292,11 @@ def parse_zh_tw_synonyms(path: Path) -> Iterator[dict[str, Any]]:
     """TrialBox's own curated list: zh-TW clinical words and the abbreviations of Taiwanese notes -> the name the
     matcher knows, per domain. A row is trusted (``curated``: no review) unless its ``review`` column says yes (an
     abbreviation with another meaning in some specialty: MI, RA, CVA)."""
-    cols = ("term", "lang", "canonical", "domain", "review")
-    for r in require_columns(csv_rows(path.read_bytes()), cols, "the curated zh-TW synonyms"):
-        if r.get("term") and r.get("canonical"):
-            review = r.get("review", "").lower() in ("yes", "y", "true", "1")
-            yield {"term": r["term"], "lang": r.get("lang") or "zh-TW", "canonical": r["canonical"],
-                   "canonical_lang": r.get("canonical_lang") or "en", "domain": r.get("domain", ""), "system": "",
-                   "code": "", "curated": not review,
-                   "extra": {"note": r.get("note", ""), "review": review}}  # fmt: skip
+    return curated_synonyms(path, "zh-TW", "the curated zh-TW synonyms")
 
 
 def synonyms_version(path: Path) -> str:
-    import hashlib
-
-    return f"TrialBox zh-TW synonyms, {sum(1 for _ in parse_zh_tw_synonyms(path))} entries, " \
-           f"sha256 {hashlib.sha256(path.read_bytes()).hexdigest()[:12]}"  # fmt: skip
+    return own_file_version("TrialBox zh-TW synonyms", path, sum(1 for _ in parse_zh_tw_synonyms(path)))
 
 
 # ------------------------------------------------------------------------------------------------ the items
@@ -281,7 +311,7 @@ ITEMS: tuple[Item, ...] = (
         "monthly", "one map row per drug code with an ATC code (the list had 45,224 codes in the D-140 fetch)",
         "Read from the nhi_drugs download (no second download); non-ATC-shaped values are left out.",
         country="TW", decision="D-170", derived_from="nhi_drugs", parse=parse_nhi_drug_atc,
-        meta_url="https://data.gov.tw/api/v2/rest/dataset/23715",
+        meta_url="https://data.gov.tw/api/v2/rest/dataset/23715", licence_reader=datagov_tw_licence,
     ),
     Item(
         "tw_icd_2014_2023", "Taiwan ICD-10-CM/PCS 2014 <-> 2023 map (NHIA, data.gov.tw 177508)", "map", "ship",
@@ -294,7 +324,7 @@ ITEMS: tuple[Item, ...] = (
         "tw_icd_2014_2023_cm.csv", country="TW", decision="D-171", parse=parse_tw_icd_2014_2023,
         extra_files=(("tw_icd_2014_2023_pcs.csv",
                       "https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-D20026-008"),),
-        meta_url="https://data.gov.tw/api/v2/rest/dataset/177508",
+        meta_url="https://data.gov.tw/api/v2/rest/dataset/177508", licence_reader=datagov_tw_licence,
     ),
     Item(
         "nhi_lab_loinc", "NHI lab order code -> LOINC (NHIA PAS IG ConceptMap nhi-loinc)", "map", "ship",
@@ -321,7 +351,7 @@ ITEMS: tuple[Item, ...] = (
         "rarely (dataset modified 2026-08-12)", "30,797 terms, 2.1 MB CSV",
         "Academic translations: an English term lists several zh-TW names and senses, so matches are reviewed.",
         "naer_medical_terms.csv", country="TW", decision="D-172", parse=parse_naer_terms,
-        meta_url="https://data.gov.tw/api/v2/rest/dataset/15460",
+        meta_url="https://data.gov.tw/api/v2/rest/dataset/15460", licence_reader=datagov_tw_licence,
     ),
     Item(
         "tw_zh_synonyms", "TrialBox zh-TW clinical synonyms and note abbreviations (curated)", "synonym", "ship",
