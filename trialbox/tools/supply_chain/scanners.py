@@ -2,7 +2,7 @@
 
     python -m tools.supply_chain scanners --dest .cache/scanners      # then put .cache/scanners/bin on PATH
 
-The sums are the ones the projects publish in their ``*_checksums.txt`` for these releases (fetched 2026-11-09 and
+The sums are the ones the projects publish in their ``*_checksums.txt`` for these releases (fetched 2026-11-10 and
 checked against the downloaded archives). To move a version, change the version and both sums together, in one pull
 request the security owner approves. An archive whose sha256 differs is refused and nothing is installed.
 """
@@ -28,19 +28,19 @@ class Asset:
     sha256: str
 
 
-SYFT_VERSION = "1.56.0"
-TRIVY_VERSION = "0.75.0"
+SYFT_VERSION = "1.57.1"
+TRIVY_VERSION = "0.76.2"
 _SYFT = f"https://github.com/anchore/syft/releases/download/v{SYFT_VERSION}/syft_{SYFT_VERSION}_linux_{{arch}}.tar.gz"
 _TRIVY = f"https://github.com/aquasecurity/trivy/releases/download/v{TRIVY_VERSION}/trivy_{TRIVY_VERSION}_Linux-{{arch}}.tar.gz"
 ASSETS = (
     Asset("syft", SYFT_VERSION, "amd64", _SYFT.format(arch="amd64"),
-          "1c2493cfcf52d3367d6cb25780d9190c111c2219c34c820574c43e8bae15c528"),
+          "bf52519eb57f675d47c07d43213cb6dff6449f3d6d1147ff6701ed91f44eef0c"),
     Asset("syft", SYFT_VERSION, "arm64", _SYFT.format(arch="arm64"),
-          "ace61b9397ae28189c674ae332d67a8074dafd71e87724dfb8b22412d8253bb5"),
+          "aa3d3e07344f590bcce8d31043b752daa76c8a56c2aa34ceeee63c6168152582"),
     Asset("trivy", TRIVY_VERSION, "amd64", _TRIVY.format(arch="64bit"),
-          "c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f"),
+          "bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf"),
     Asset("trivy", TRIVY_VERSION, "arm64", _TRIVY.format(arch="ARM64"),
-          "a1ee9f6ffb7d112b64ff726a2a0717c21175c1114361391f4a132956751a13b3"),
+          "ab9d51f86e6a5fb936f605faff6b593ac51bc378fff4d3e8b9d58358b9c367c3"),
 )  # fmt: skip
 
 

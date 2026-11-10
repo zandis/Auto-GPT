@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trialbox.local/schemas/v1/prompt_meta.schema.json",
   "title": "PromptMeta",
-  "description": "YAML front matter of services/*/prompts/<id>_v<n>.md (SPEC 7). Schema version 1.0.0.",
+  "description": "YAML front matter of libs/tb_llm/prompts/<id>_v<n>.md, listed in libs/tb_llm/prompts/registry.yaml (SPEC 7, D-300). Schema version 1.0.0.",
   "type": "object",
   "required": [
     "id",

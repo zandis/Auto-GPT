@@ -125,7 +125,7 @@ master stay); reservations D-208 to D-262 stay valid.
 
 | Number | State | Holder | Note |
 | --- | --- | --- | --- |
-| D-300 | reserved | T-101, PR #75 | prompt registry (renumbered from the PR's D-201) |
+| D-300 | merged | T-101 | prompt registry, renumbered from the PR's D-201 (file) |
 | D-301 | reserved | T-105, PR #82 | vocabulary schema (renumbered from the PR's D-205) |
 | D-302 | reserved | T-102a | permission matrix |
 | D-303 | reserved | T-106 | OMOP schema name |
