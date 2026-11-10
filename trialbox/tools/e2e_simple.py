@@ -780,7 +780,8 @@ def _stage14(work: Path, box: Any) -> Stage:
     cassettes, two real records, tiny TFDA / MHLW / NHI / ICD-10-CM excerpts) is built, verified and loaded; with every
     outbound connection refused, a trial is found by NCT id, by condition and by a Japan or Taiwan site, and the
     criteria are drafted from the pack's full record. D-170 to D-172: the Taiwan maps and synonyms of the same pack
-    answer offline (NHI drug -> ATC, NHI lab -> LOINC, a TW 2014 ICD code -> 2023, a zh-TW word in the matcher)."""
+    answer offline (NHI drug -> ATC, NHI lab -> LOINC, a TW 2014 ICD code -> 2023, a zh-TW word in the matcher).
+    D-173 to D-175: the Japan items too (the WHO ICD-10 bridge, YJ -> ATC, CTCAE v5.0, a ja word in the matcher)."""
     from criteria_compiler.ctgov import CtGov
     from tb_common import refdata as rd
     from tb_contracts import CompileRequest, CtgovSearchRequest, ParseRequest
@@ -792,7 +793,7 @@ def _stage14(work: Path, box: Any) -> Stage:
     tar = rf.build(rf.sample_raw(work / "refdata" / "raw"), work / "refdata", "20261109", sample=True)
     with rd.opened(tar) as pack:
         m = rd.verify(pack)
-        s.check("the pack verifies: every file's sha256 and record count", len(m["sources"]) == 11, m["pack_id"])
+        s.check("the pack verifies: every file's sha256 and record count", len(m["sources"]) == 15, m["pack_id"])
         s.check("each source has its URL, date, sha256, count, licence, terms and attribution",
                 all(x["url"] and x["download_sha256"] and x["attribution"] for x in m["sources"]))  # fmt: skip
         with rd.RefStore() as st:
@@ -823,12 +824,18 @@ def _stage14(work: Path, box: Any) -> Stage:
             bool(res.draft_zip_key) and bool(parsed.ie_block.inclusion), res.draft_zip_key)  # fmt: skip
     from criteria_compiler.terminology.mapper import Terminology
     from sitesetup import mapping as sm
+    from tb_common import refdata_jp as rdjp
 
     with _no_network():
         drug = sm.suggest("medication", sm.local_system("drug-code"), "B004858100")
         lab = sm.suggest("observation", sm.local_system("lab-code"), "12198C")
         dx = sm.suggest("condition", sm.local_system("dx-code"), "P83.8")
         ra = Terminology(name_synonyms=rd.synonym_lookup()).map("condition", "類風濕關節炎")
+        yj = sm.suggest("medication", sm.local_system("drug-code"), "3339004F1020")
+        ja = Terminology(name_synonyms=rd.synonym_lookup()).map("condition", "関節リウマチ")
+        who = rdjp.who_icd10_in_list("E11.9", set(), [(rdjp.ICD10CM, "E11")])
+        with rd.RefStore() as st:
+            nausea = st.term(rdjp.CTCAE5, "Nausea")
     dx_want = "P83.88" if sm.site_country() == "TW" else "P83.8"  # the 2014 -> 2023 step runs at Taiwan sites only
     s.check("D-170/171: NHI drug -> ATC, NHI lab -> LOINC and (Taiwan) TW 2014 -> 2023 ICD suggested offline",
             (drug.get("code"), lab.get("code"), dx.get("code")) == ("N05AF01", "83113-1", dx_want),
@@ -836,6 +843,15 @@ def _stage14(work: Path, box: Any) -> Stage:
     s.check("D-172: 類風濕關節炎 maps to rheumatoid arthritis through the curated synonym dictionary, no review",
             ra.method == "synonym" and not ra.needs_review and bool(ra.concepts)
             and "tw_zh_synonyms" in " ".join(ra.notes), ra.notes)  # fmt: skip
+    s.check("D-173: a WHO ICD-10 code (E11.9) falls in its ICD-10-CM family through the bridge", who == "yes", who)
+    s.check("D-174: a YJ code (apixaban) -> ATC B01AF02 by its stem; CTCAE v5.0 Nausea with its grades, offline",
+            yj.get("code") == "B01AF02" and nausea is not None and bool(nausea["extra"]["grades"]["1"]),
+            (yj, nausea))  # fmt: skip
+    s.check(
+        "D-175: 関節リウマチ maps to rheumatoid arthritis through the ja synonym dictionary, no review",
+        ja.method == "synonym" and not ja.needs_review and "ja_synonyms" in " ".join(ja.notes),
+        ja.notes,
+    )
     s.seconds = time.perf_counter() - t
     return s
 
@@ -857,7 +873,7 @@ def _stage15(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, m
 
     h.users.create("subpi", "investigator", password, "subpi@hospa.test")
     sub = ld.sign_in(app, "subpi", password, lang)
-    today = h.clock().date().isoformat()
+    today = h.today().isoformat()
     r1 = pi.post(f"/studies/{TRIAL}/team", data={"csrf": csrf(pi), "username": "pi", "role": "pi", "start": today},
                  follow_redirects=False)  # fmt: skip
     r2 = pi.post(f"/studies/{TRIAL}/team", data={"csrf": csrf(pi), "username": "subpi", "role": "sub_pi",
@@ -1019,7 +1035,7 @@ def _stage16(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, b
     if not no:
         s.seconds = time.perf_counter() - t
         return s
-    visit = h.clock().date()
+    visit = h.today()
     # the box refuses an acknowledgement or a visit dated after its own day: the console's site day must be the box's
     site_day = local_today(h.clock(), site_zone(h.bk))
     s.check("the console and the box keep one site date", site_day == box.orch.today(), (site_day, box.orch.today()))
@@ -1390,7 +1406,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     t = time.perf_counter()
     from console import studies as st
 
-    today = h.clock().date()
+    today = h.today()
     wrows = h.week_bundle(None, TRIAL)["rows"]
     ready = [r for r in wrows if st.in_worklist(r, "ready", today)]
     needs = [r for r in wrows if st.in_worklist(r, "needs", today)]
@@ -1549,7 +1565,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     new_rid = str(by_no.get(new_no, {}).get("record_id", ""))
     s.check("a new screening number got a new REDCap record", new_rid and new_rid not in before, (new_no, new_rid))
     # the coordinator records consent in REDCap; the next Run now reads it back and TrialBox's status follows
-    day = h.clock().date().isoformat()
+    day = h.today().isoformat()
     sim.post("/sim/records", json={"project_id": 101, "records": [{"record_id": new_rid, "consent_date": day}]})
     r = crc.post(f"/studies/{TRIAL}/redcap-read", data={"csrf": fd._csrf(r.text), "back": "log"})
     s.check(
@@ -1586,7 +1602,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     forms_out = api("POST", "/studies/RB/forms/dictionary", {"csv": buf.getvalue(), "record_field": "rec_id",
                                                               "by": "crc1"})  # fmt: skip
     s.check("the data dictionary becomes TrialBox forms", bool(api("GET", "/studies/RB/forms")), forms_out)
-    day = h.clock().date().isoformat()
+    day = h.today().isoformat()
     api("PUT", "/studies/RB/data/RB0901", {"values": {"icf_dt": "2026-10-01", "tb_status": "3"}, "by": "crc1"})
     api("PUT", "/studies/RB/data/RB0950", {"values": {"tb_status": "2", "tb_screen_date": day}, "by": "crc1"})
     data = api("GET", "/studies/RB/data")

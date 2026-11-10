@@ -26,8 +26,10 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from console.storedb import open_db
+from console.timefmt import local_today, site_zone
 
 Role = Literal["admin", "coordinator", "investigator", "viewer", "cro"]
 ROLES: tuple[Role, ...] = ("admin", "coordinator", "investigator", "viewer", "cro")
@@ -269,12 +271,17 @@ class UserStore:
         self.clock = clock
         self.idle = idle
         self.absolute = absolute
+        self.zone: ZoneInfo | None = None  # the site's zone, set by console.app (D-270)
 
     def close(self) -> None:
         self.db.close()
 
+    def today(self) -> date:
+        """The site's calendar date (D-270): an end date is a site day, and the clock is a UTC instant."""
+        return local_today(self.clock(), self.zone or site_zone(None))
+
     def _expired(self, user: User) -> bool:
-        return bool(user.expires) and self.clock().date().isoformat() > str(user.expires)
+        return bool(user.expires) and self.today().isoformat() > str(user.expires)
 
     # ------------------------------------------------------------------ users
     def count(self, role: Role | None = None) -> int:
@@ -414,6 +421,17 @@ class UserStore:
             tx.execute("UPDATE users SET disabled = 1 WHERE username = ?", (username,))
             tx.execute("DELETE FROM sessions WHERE username = ?", (username,))
             tx.execute("DELETE FROM pending_logins WHERE username = ?", (username,))
+
+    def enable(self, username: str) -> None:
+        """D-178 (review J-14): the undo of :meth:`disable`. The password is the one the account had; its sessions
+        stay ended (the person signs in again)."""
+        with self.db.transaction() as tx:
+            if tx.execute("UPDATE users SET disabled = 0 WHERE username = ? AND disabled = 1", (username,)) != 1:
+                raise AuthError(f"no disabled account {username}")
+
+    def disabled_users(self) -> list[User]:
+        rows = self.db.fetchall(f"SELECT {_COLS} FROM users WHERE disabled = 1 ORDER BY username")
+        return [_row_user(r) for r in rows]
 
     # ------------------------------------------------------------------ login
     def locked(self, username: str) -> bool:

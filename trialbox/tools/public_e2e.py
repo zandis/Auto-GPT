@@ -226,7 +226,10 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     t0 = time.perf_counter()
     box, client, repo, site = build(work, llm, verifier)
     clock = ld.Clock(box.today[0])
-    app = ld.console(work, box, client, repo, password, clock, extra_env=SITE_ENV)
+    # D-178: the operations screens run their actions in this process (no host runner in the in-process box)
+    ops_env = {"TB_OPS_DIR": str(work / "ops"), "TB_OPS_RUNNER": "inline", "TB_OPS_DEPLOY": str(work / "ops-deploy")}
+    shutil.rmtree(work / "ops", ignore_errors=True)
+    app = ld.console(work, box, client, repo, password, clock, extra_env={**SITE_ENV, **ops_env})
     h = app.state.helpers
     cat = CATALOGUES[lang]
     hosp = work / "hospital"
@@ -703,11 +706,19 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         "/ops/users",
         "/audit",
         "/jobs",
+        *(f"/admin/ops?tab={tab}" for tab in ("overview", "backups", "update", "logs", "secrets", "network")),
     ):
         r = admin.get(path)
         s.check(f"admin {path}", r.status_code == 200, r.status_code)
     r = pi.get("/admin")
     s.check("investigator cannot open admin", r.status_code in (403, 303, 404), r.status_code)
+    # D-178 (review J-09): the network sheet from the console, after a confirmation that names the consequence
+    page = admin.get("/admin/ops?tab=network")
+    r = admin.post("/admin/ops/network_sheet", data={"csrf": fd._csrf(page.text)})
+    s.check("operations: the action asks first", 'data-testid="confirm-text"' in r.text, r.status_code)
+    r = admin.post("/admin/ops/network_sheet", data={"csrf": fd._csrf(page.text), "confirm": "yes"})
+    s.check("operations: network sheet written", 'data-state="done"' in r.text and "network-sheet." in r.text, "")
+    s.check("operations: refused to the investigator", pi.get("/admin/ops").status_code == 403, "")
     r = crc.get("/no-such-page")
     s.check("404 page", r.status_code == 404, r.status_code)
     s.seconds = time.perf_counter() - t

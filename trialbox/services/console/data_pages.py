@@ -20,6 +20,7 @@ shown only to roles that may read patient-level rows.
 from __future__ import annotations
 
 import re
+import time
 from typing import Annotated, Any
 from urllib.parse import quote
 
@@ -178,10 +179,19 @@ def register(app: FastAPI, h: Helpers) -> None:
                   detail={"source": "redcap", "action": "attach", "owned": len(body.owned)})  # fmt: skip
         return dict(out)
 
+    # D-178 (review J-14): the connection a Detach removed, kept for the toast's Undo (this person, this study, 15
+    # minutes, in memory: the token itself is never here, only its reference name)
+    detached: dict[tuple[str, str], tuple[dict[str, Any], float]] = {}
+
     def apply_detach(sess: Session, path: str, rs: str) -> dict[str, Any]:
         """Detach REDCap: every field is TrialBox's again; nothing is deleted."""
         rid = study_or_404(sess, rs)
         need_change(sess, path)
+        with_body = [x for x in s28.call(bk, "GET", f"/studies/{rid}/sources").get("sources") or []
+                     if x.get("name") == "redcap"]  # fmt: skip
+        if with_body:
+            cfg = {k: v for k, v in dict(with_body[0].get("body") or {}).items() if k in ApiRedcap.model_fields}
+            detached[(sess.token_sha, rid)] = (cfg, time.monotonic())
         out = s28.call(bk, "DELETE", f"/studies/{rid}/sources/redcap?by={quote(h.actor(sess))}")
         au.append("console.data_source", ruleset=rid, actor=h.actor(sess),
                   detail={"source": "redcap", "action": "detach"})  # fmt: skip
@@ -242,6 +252,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             editable=can_change_setup(sess.user),
             tokens=tokens() if can_change_setup(sess.user) and not has_redcap else [],
             identity="\n".join(f"{f['name']}={f['name']}" for f in data["fields"]),
+            can_undo_detach=not has_redcap and undo_of(sess, rid) is not None,  # D-178: the toast's Undo
             **{"err": err, **extra},
         )
 
@@ -287,6 +298,39 @@ def register(app: FastAPI, h: Helpers) -> None:
         except (Problem, Unavailable) as exc:
             return sources_page(request, sess, rid, err=err_of(exc))
         return RedirectResponse(f"/studies/{rid}/sources?done=detach", status_code=303)
+
+    def undo_of(sess: Session, rid: str) -> dict[str, Any] | None:
+        got = detached.get((sess.token_sha, rid))
+        if got is None or time.monotonic() - got[1] > 900:
+            return None
+        return got[0]
+
+    @app.post("/studies/{rs}/sources/redcap/undo")
+    def detach_undo(request: Request, rs: str, csrf: str = Form("")) -> Response:
+        """D-178 (review J-14): the toast's Undo after Detach: the same connection attached again."""
+        sess = h.need(request)
+        if not h.csrf_ok(sess, csrf):
+            raise h.problem(400, "csrf")
+        rid = study_or_404(sess, rs)
+        need_change(sess, request.url.path)
+        cfg = undo_of(sess, rid)
+        if cfg is None:
+            raise h.problem(409, "dc.undo_none")
+        now_on = [x for x in s28.call(bk, "GET", f"/studies/{rid}/sources").get("sources") or []
+                  if x.get("name") == "redcap"]  # fmt: skip
+        if now_on:  # someone attached a connection since the detach: the undo must not replace it
+            detached.pop((sess.token_sha, rid), None)
+            au.append("console.refused", ruleset=rid, actor=h.actor(sess),
+                      detail={"source": "redcap", "action": "undo_detach", "reason": "attached since"})  # fmt: skip
+            raise h.problem(409, "dc.undo_attached")
+        try:
+            apply_attach(sess, request.url.path, rid, ApiRedcap(**cfg))
+        except (Problem, Unavailable) as exc:
+            return sources_page(request, sess, rid, err=err_of(exc))
+        detached.pop((sess.token_sha, rid), None)
+        au.append("console.data_source", ruleset=rid, actor=h.actor(sess),
+                  detail={"source": "redcap", "action": "undo_detach"})  # fmt: skip
+        return RedirectResponse(f"/studies/{rid}/sources?done=undo", status_code=303)
 
     @app.post("/studies/{rs}/sources/{name}/sync")
     def sync_now(request: Request, rs: str, name: str, csrf: str = Form("")) -> Response:

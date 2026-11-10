@@ -31,6 +31,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
@@ -58,6 +59,7 @@ from console.teamstore import (
     TeamError,
     TeamStore,
 )
+from console.timefmt import local_date, site_zone
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _PID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
@@ -90,12 +92,15 @@ def standing(team: TeamStore, user: User, rs: str, today: date) -> Standing:
     return Standing(is_pi, tasks, pi is not None, pi if is_pi and pi is not None else own)
 
 
-def check_due(team: TeamStore, rs: str, today: date) -> bool:
-    """The monthly comparison with the office's signed log is due (or was never made) for a study with a log."""
+def check_due(team: TeamStore, rs: str, today: date, tz: ZoneInfo) -> bool:
+    """The monthly comparison with the office's signed log is due (or was never made) for a study with a log.
+
+    ``today`` is the site's date; a check's stored time is a UTC instant, so it is read on the site's calendar too
+    (D-270: a check at 08:00 in Tokyo is the day before in UTC)."""
     if not team.entries(rs):
         return False
     checks = team.checks(rs)
-    return not checks or checks[0].at[:10] < (today - timedelta(days=CHECK_DAYS)).isoformat()
+    return not checks or local_date(checks[0].at, tz) < (today - timedelta(days=CHECK_DAYS)).isoformat()
 
 
 class ApiReferral(BaseModel):
@@ -137,7 +142,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     per_hour = int(env.get("TB_CANDIDATE_VIEWS_PER_HOUR") or 60)
 
     def today() -> date:
-        return h.clock().date()
+        return h.today()  # the site's date, not the UTC date (D-270)
 
     def now() -> str:
         return h.clock().isoformat()
@@ -154,7 +159,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return user.can_approve and (s.pi or not s.logged)
 
     h.may, h.may_approve = may, may_approve
-    h.team_due = lambda rid: check_due(team, rid, today())
+    h.team_due = lambda rid: check_due(team, rid, today(), site_zone(bk))
 
     def deny(sess: Session, path: str) -> Exception:
         au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
@@ -435,7 +440,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         entries = team.entries(rid)
         return h.page(request, "team_log.html", sess, rs=rid, entries=entries, standing=s, tasks=TASKS,
                       log_roles=LOG_ROLES, accounts=accounts(rid), checks=team.checks(rid)[:12],
-                      due=check_due(team, rid, today()), history=team.history(rid)[-30:], today=today(),
+                      due=check_due(team, rid, today(), site_zone(bk)), history=team.history(rid)[-30:], today=today(),
                       can_edit=sess.user.role == "investigator" and s.pi,
                       can_check=sess.user.role == "coordinator" or (sess.user.role == "investigator" and s.pi),
                       results=CHECK_RESULTS, has_pi=team.pi_of(rid, today()) is not None)  # fmt: skip
@@ -671,7 +676,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return {
             "study": rid,
             "you": {"pi": s.pi, "tasks": sorted(s.tasks)},
-            "check_due": check_due(team, rid, today()),
+            "check_due": check_due(team, rid, today(), site_zone(bk)),
             "entries": [
                 {"id": e.id, "username": e.username, "name": e.name, "role": e.role, "tasks": list(e.tasks),
                  "start": e.start, "end": e.end, "training_day": e.training_day, "signed_by": e.signed_by}

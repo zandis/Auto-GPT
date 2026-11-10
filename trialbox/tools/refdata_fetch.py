@@ -11,17 +11,23 @@ each source is recorded here and in DECISIONS.md D-140:
 * **not usable**: listed so nobody tries again; no fetcher.
 
 Country modules add their items to the same registry (D-170): ``tb_common.refdata_tw`` (NHI drug -> ATC, ICD-10-CM/PCS
-2014 <-> 2023, NHI lab -> LOINC, zh-TW synonyms). Each item has its own parser and records its version and sha256.
+2014 <-> 2023, NHI lab -> LOINC, zh-TW synonyms) and ``tb_common.refdata_jp`` (D-173 to D-175: the WHO ICD-10 <->
+ICD-10-CM bridge, YJ -> ATC, CTCAE v5.0, ja synonyms; MEDIS 病名, JLAC10 -> LOINC and the JCOG CTCAE translation as
+site-fetch loaders). Each item has its own parser and records its version and sha256; an item with a licence reader
+has its licence read at the source when it is fetched.
 
     python tools/refdata_fetch.py sources                                  # the table (markdown)
     python tools/refdata_fetch.py fetch --raw .cache/refdata/raw tfda_trials mhlw_yakka icd10cm
     python tools/refdata_fetch.py fetch --raw .cache/refdata/raw nhi_drug_atc tw_icd_2014_2023 nhi_lab_loinc \
         naer_medical_terms tw_zh_synonyms                                  # the Taiwan items (D-170 to D-172)
+    python tools/refdata_fetch.py fetch --raw .cache/refdata/raw icd10cm icd10_who_cm_bridge jp_yj_atc ctcae_v5_en \
+        ja_synonyms                                                        # the Japan items (D-173 to D-175)
     python tools/refdata_fetch.py fetch --raw .cache/refdata/raw ctgov --slice 200   # one API page, JP/TW sites
     python tools/refdata_fetch.py fetch --raw .cache/refdata/raw loinc --file Loinc_2.81.zip   # account download
     python tools/refdata_fetch.py build --raw .cache/refdata/raw --out dist/   # dist/trialbox-refdata-<date>.tar
     python tools/refdata_fetch.py sample --out /tmp/pack                             # the committed samples, no network
-    python tools/refdata_fetch.py site-load umin --file ctr_data_j.csv.gz            # at the hospital, its own download
+    python tools/refdata_fetch.py site-load umin_ctr --file ctr_data_j.csv.gz        # at the hospital, its own download
+    python tools/refdata_fetch.py site-load medis_byomei_icd10 --file NMAIN.TXT --columns 病名交換用コード,...
 
 The full ClinicalTrials.gov download (API v2 bulk JSON zip) was about 2.8 GB for 610,756 studies on 2026-11-06
 (10.6 GB unpacked); the pack keeps every record unchanged, gzip'd as JSON lines (about 2.2 GB). Fetch it outside the
@@ -37,6 +43,7 @@ import hashlib
 import io
 import json
 import re
+import shutil
 import sys
 import tarfile
 import zipfile
@@ -52,6 +59,7 @@ for _p in (ROOT / "libs", ROOT / "services"):
         sys.path.insert(0, str(_p))
 
 from tb_common import refdata as rd  # noqa: E402
+from tb_common import refdata_jp as jp  # noqa: E402
 from tb_common import refdata_tw as tw  # noqa: E402
 
 SAMPLES = ROOT / "tests" / "fixtures" / "refdata"
@@ -198,6 +206,7 @@ SOURCES: tuple[Source, ...] = (
         "-", "monthly", "4.9 MB, 0.2 MB, 0.4 MB zips", fetch=False,
     ),
     *tw.ITEMS,  # D-170 to D-172: the Taiwan maps and synonyms
+    *jp.ITEMS,  # D-173 to D-175: the Japan maps, CTCAE and synonyms (MEDIS, JLAC10, JCOG: site-fetch loaders)
 )  # fmt: skip
 BY_ID = {s.id: s for s in SOURCES}
 
@@ -295,6 +304,10 @@ def _joined(url: str, parts: list[dict[str, Any]]) -> dict[str, Any]:
             "parts": [{k: p[k] for k in ("path", "url", "sha256", "bytes")} for p in parts]}  # fmt: skip
 
 
+# A licence read at the source is the item's own reader (Item.licence_reader, D-173): the data.gov.tw dataset API
+# for the Taiwan items (tb_common.refdata_tw.datagov_tw_licence), a licence page for others.
+
+
 def fetch_parts(s: Source, dest: Path, file: Path | None) -> dict[str, Any]:
     """An item of several files (``extra_files``): the main file, then each further file beside it. The download's
     sha256 is over the files' sha256s in order (as for the MHLW workbooks)."""
@@ -303,36 +316,6 @@ def fetch_parts(s: Source, dest: Path, file: Path | None) -> dict[str, Any]:
     for name, url in s.extra_files:
         parts.append({**download(url, dest.parent / name), "path": name})
     return _joined(s.url, parts)
-
-
-def check_licence(item: Source, urls: Iterable[str] = ()) -> dict[str, Any]:
-    """The item's dataset record read at fetch time ({} for an item without one). Fails closed: a record that
-    cannot be read (timeout, changed API), that names another licence, or that lists download URLs not including
-    the ones fetched (``urls``: the licence must cover the file actually downloaded) stops the fetch, so nothing
-    ships without the licence evidence (D-170)."""
-    if not item.meta_url:
-        return {}
-    if item.read_meta is None:
-        raise SystemExit(f"{item.id}: meta_url {item.meta_url} has no reader (read_meta)")
-    dm = item.read_meta(item.meta_url)
-    if not dm:
-        raise SystemExit(
-            f"{item.id}: the dataset record {item.meta_url} did not answer: the licence was not checked; "
-            "fetch again later"
-        )
-    if item.licence_id and dm.get("license") != item.licence_id:
-        raise SystemExit(
-            f"{item.id}: the dataset record now gives licence {dm.get('license')!r}, not {item.licence_id!r} "
-            f"({item.licence}): read the terms before shipping"
-        )
-    listed = {unquote(u) for u in dm.get("downloads") or []}
-    stray = sorted(u for u in (unquote(u) for u in urls) if listed and u not in listed)
-    if stray:
-        raise SystemExit(
-            f"{item.id}: {', '.join(stray)} is not a download of the dataset record {item.meta_url} "
-            f"(it lists {', '.join(sorted(listed))}): the licence read there may not cover it"
-        )
-    return dm
 
 
 def fetch(
@@ -373,11 +356,8 @@ def fetch(
             )
         fetched = [] if s.url.startswith("repo:") else [s.url, *(u for _, u in s.extra_files)]
         for item in (s, *(c for c in SOURCES if c.derived_from == sid)):
-            if licence_check:
-                dm = check_licence(item, fetched)
-            else:
-                dm = {"skipped": "--no-licence-check"} if item.meta_url else {}
-            if not dm:
+            dm = read_licence(item, licence_check, fetched)
+            if dm is None:
                 continue
             meta.setdefault("licence_checks", {})[item.id] = dm
             if item is s:
@@ -387,6 +367,49 @@ def fetch(
         (raw / sid / "fetch.json").write_text(json.dumps({**meta, "path": dest.name}, indent=1), encoding="utf-8")
         done.append(f"{sid}: {meta['bytes']:,} bytes, sha256 {meta['sha256'][:16]}")
     return done
+
+
+def read_licence(item: Source, licence_check: bool = True, fetched: Iterable[str] = ()) -> dict[str, Any] | None:
+    """The item's own licence reader (``Item.licence_reader``, D-173), run at fetch time: its evidence for
+    ``fetch.json``, or None for an item without one. Fails closed (D-170, second review M3, M4, L5): it stops when
+    an item has a dataset record but no reader, when the source does not answer, when the licence no longer reads as
+    expected, or when a fetched URL (``fetched``) is not a download of the licensed record. A record that lists no
+    downloads binds nothing, so the file must then be pinned by sha256. ``licence_check=False``
+    (``--no-licence-check``, after reading the terms by hand) skips the read and records that."""
+    if item.licence_reader is None:
+        if item.meta_url:
+            raise SystemExit(
+                f"{item.id}: has a dataset API URL ({item.meta_url}) but no licence reader: add one before fetching"
+            )
+        return None
+    if not licence_check:
+        return {"skipped": "--no-licence-check"}
+    got = item.licence_reader(item)
+    if got is None:
+        raise SystemExit(
+            f"{item.id}: the licence could not be read at the source (it did not answer): the licence was not "
+            "checked; retry, or pass --no-licence-check after reading the terms by hand"
+        )
+    if not got.ok:
+        raise SystemExit(
+            f"{item.id}: the licence now reads {got.read!r} at {got.url}, not {got.expected!r}: read the terms "
+            "before shipping"
+        )
+    urls = [unquote(u) for u in fetched]
+    listed = {unquote(u) for u in got.downloads}
+    if listed:
+        stray = sorted(u for u in urls if u not in listed)
+        if stray:
+            raise SystemExit(
+                f"{item.id}: {', '.join(stray)} is not a download of the dataset record {got.url} "
+                f"(it lists {', '.join(sorted(listed))}): the licence read there may not cover it"
+            )
+    elif urls and not BY_ID[item.derived_from or item.id].sha256:
+        raise SystemExit(
+            f"{item.id}: the licence record {got.url} lists no download and the file is not pinned by sha256: "
+            "nothing binds the licence read to the file fetched"
+        )
+    return got.evidence()
 
 
 # ------------------------------------------------------------------------------------------------ parsers
@@ -630,6 +653,8 @@ def check_raw(raw: Path, sid: str, meta: dict[str, Any], pinned: bool = True) ->
 def _version(s: Source, meta: dict[str, Any], path: Path) -> str:
     """The item's version (D-170): stated in the file (``version_of``), the dataset's modified date read at fetch
     time, a fixed version, or else the download date (a daily list's only version)."""
+    if s.distribution == "site-fetch" and meta.get("version"):
+        return str(meta["version"])  # the release the hospital named at site-load
     if s.version_of is not None:
         return s.version_of(path)
     return str(meta.get("version") or s.version or f"downloaded {str(meta['downloaded_at'])[:10]}")
@@ -653,13 +678,29 @@ Writer = Callable[[str, Iterable[dict[str, Any]]], dict[str, Any]]
 
 
 def build(raw: Path, out: Path, day: str | None = None, ids: list[str] | None = None, sample: bool = False,
-          suffix: str = "") -> Path:  # fmt: skip
-    """Parse every fetched source under ``raw`` into ``out/trialbox-refdata-<day>[-suffix]/`` and its ``.tar``."""
+          suffix: str = "", site: bool = False) -> Path:  # fmt: skip
+    """Parse every fetched source under ``raw`` into ``out/trialbox-refdata-<day>[-suffix]/`` and its ``.tar``.
+
+    A vendor build (the default) builds ``ship`` items only: a site-fetch item's file (the hospital's MEDIS or
+    UMIN download, left under ``raw`` by ``site-load``) is never put into a pack that ships; naming one in ``ids``
+    is refused. ``site=True`` (``site_load`` only) builds the hospital's own part from site-fetch items only."""
+    want = "site-fetch" if site else "ship"
+    if ids:
+        wrong = [i for i in ids if BY_ID[i].distribution != want]
+        if wrong:
+            raise SystemExit(
+                f"{', '.join(wrong)}: not {want} items; a "
+                + (
+                    "site build takes site-fetch items only"
+                    if site
+                    else "vendor build never packs a site-fetch or unusable item (the hospital runs site-load)"
+                )
+            )
+    ids = ids or [s.id for s in SOURCES if s.distribution == want
+                  and (raw / (s.derived_from or s.id) / "fetch.json").is_file()]  # fmt: skip
     day = day or date.today().strftime("%Y%m%d")
     pack = out / (f"trialbox-refdata-{day}" + (f"-{suffix}" if suffix else ""))
     pack.mkdir(parents=True, exist_ok=True)
-    ids = ids or [s.id for s in SOURCES if s.distribution != "not usable"
-                  and (raw / (s.derived_from or s.id) / "fetch.json").is_file()]  # fmt: skip
     entries = []
 
     def write(rel: str, recs: Iterable[dict[str, Any]]) -> dict[str, Any]:
@@ -674,9 +715,9 @@ def build(raw: Path, out: Path, day: str | None = None, ids: list[str] | None = 
         meta, path = _meta(raw, sid)
         parts = check_raw(raw, sid, meta, pinned=not sample)
         lc = meta.get("licence_check") or {}
-        if s.meta_url and not sample and not (lc.get("license") or lc.get("skipped")):
-            raise SystemExit(f"{sid}: fetch.json has no licence check of {s.meta_url}: fetch {s.derived_from or sid} "
-                             "again")  # fmt: skip
+        if (s.licence_reader is not None or s.meta_url) and not sample and not (lc.get("ok") or lc.get("skipped")):
+            raise SystemExit(f"{sid}: fetch.json has no licence check of {s.meta_url or s.licence_url}: fetch "
+                             f"{s.derived_from or sid} again")  # fmt: skip
         if sid == "ctgov":
             files = [write("ctgov/studies.jsonl.gz", parse_ctgov(path))]
         elif sid == "tfda_indication":
@@ -773,19 +814,41 @@ def sample_raw(raw: Path) -> Path:
     for sid in ("tw_icd_2014_2023", "naer_medical_terms"):
         meta = json.loads((raw / sid / "fetch.json").read_text(encoding="utf-8"))
         (raw / sid / "fetch.json").write_text(json.dumps({**meta, "version": "sample"}), encoding="utf-8")
+    # D-173 to D-175: the Japan items that ship (the bridge reads the ICD-10-CM sample above); NCI's CTCAE v5.0
+    # workbook as an excerpt of six terms (public domain; the MedDRA code column is blank in the excerpt)
+    put("jp_yj_atc", "jp_yj_atc.csv", jp.REPO_YJ_ATC.read_bytes(), BY_ID["jp_yj_atc"].url)
+    put("ja_synonyms", "ja_clinical_synonyms.csv", jp.REPO_SYNONYMS.read_bytes(), BY_ID["ja_synonyms"].url)
+    cw = openpyxl.Workbook()
+    cs = cw.worksheets[0]
+    cs.title = "CTCAE v5.0 Clean Copy"
+    for row in csv.reader(io.StringIO((SAMPLES / "ctcae_v5_sample.csv").read_text(encoding="utf-8"))):
+        cs.append(row)
+    cb = io.BytesIO()
+    cw.save(cb)
+    put("ctcae_v5_en", "ctcae-v5.0.xlsx", cb.getvalue(), BY_ID["ctcae_v5_en"].url)
     return raw
 
 
-def site_load(sid: str, file: Path, out: Path, load: bool = True, db_url: str | None = None) -> Path:
+def site_load(sid: str, file: Path, out: Path, load: bool = True, db_url: str | None = None,
+              columns: list[str] | None = None, version: str = "") -> Path:  # fmt: skip
     """At the hospital: a site-fetch source the hospital downloaded itself -> its own pack part, loaded beside the
-    vendor's pack. TrialBox never downloads it."""
+    vendor's pack. TrialBox never downloads it. ``columns``: the column names, in file order, of a release without
+    a header row (MEDIS), kept beside the file as ``columns.txt`` (the file itself is not changed). ``version``: the
+    release printed on the download (MEDIS Ver.5.19); else the item's own reading of the file, or the load date."""
     s = BY_ID[sid]
-    if s.distribution != "site-fetch" or sid not in PARSERS:
+    if s.distribution != "site-fetch" or (s.parse is None and sid not in PARSERS):
         raise SystemExit(f"{sid} is not a site-fetch source with a loader")
     raw = out / "raw"
+    if (raw / sid).exists():
+        shutil.rmtree(raw / sid)  # an earlier load's file or columns must not mix with this one
     meta = local_file(file, raw / sid / file.name, s.url)
+    if columns:
+        (raw / sid / "columns.txt").write_text(",".join(columns), encoding="utf-8")
+        meta["columns"] = columns
+    if version.strip():
+        meta["version"] = version.strip()
     (raw / sid / "fetch.json").write_text(json.dumps({**meta, "path": file.name}), encoding="utf-8")
-    tar = build(raw, out, ids=[sid], suffix=f"site-{sid.replace('_', '-')}")
+    tar = build(raw, out, ids=[sid], suffix=f"site-{sid.replace('_', '-')}", site=True)
     if load:
         with rd.opened(tar) as pack, rd.RefStore(db_url) as st:
             st.load(pack, by=f"site-load:{sid}", origin="site")
@@ -810,7 +873,8 @@ def main(argv: list[str] | None = None) -> int:
     f.add_argument(
         "--no-licence-check",
         action="store_true",
-        help="items with a dataset record: do not read it (recorded in fetch.json as skipped)",
+        help="do not read the items' licences at the source (recorded in fetch.json as skipped; a vendor build "
+        "accepts the recorded skip)",
     )
     b = sub.add_parser("build")
     b.add_argument("--raw", type=Path, default=ROOT / ".cache" / "refdata" / "raw")
@@ -823,6 +887,8 @@ def main(argv: list[str] | None = None) -> int:
     sl.add_argument("id", choices=[s.id for s in SOURCES if s.distribution == "site-fetch"])
     sl.add_argument("--file", type=Path, required=True, help="the file the hospital downloaded itself")
     sl.add_argument("--out", type=Path, default=Path("/tmp/trialbox-site-refdata"))
+    sl.add_argument("--columns", help="comma-separated column names in file order, for a file without a header row")
+    sl.add_argument("--version", default="", help="the release printed on the download (e.g. MEDIS Ver.5.19)")
     a = ap.parse_args(argv)
     if a.cmd == "sources":
         print(table_md(), end="")
@@ -834,7 +900,8 @@ def main(argv: list[str] | None = None) -> int:
     elif a.cmd == "sample":
         print(build(sample_raw(a.out / "raw"), a.out, "20261109", sample=True))
     else:
-        print(site_load(a.id, a.file, a.out))
+        cols = [c.strip() for c in a.columns.split(",") if c.strip()] if a.columns else None
+        print(site_load(a.id, a.file, a.out, columns=cols, version=a.version))
     return 0
 
 
