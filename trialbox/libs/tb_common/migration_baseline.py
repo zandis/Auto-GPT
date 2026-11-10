@@ -40,7 +40,10 @@ BASELINE: dict[str, tuple[str, ...]] = {
     "orch": ("9edc901b745b7b7e2aa1f2c87e0ad1f3d7860c6825e0e638be9cfb8320c40578",),
     "pidmap": ("0e1b2d77c92fecd822baf15acb7cfdb57db4137867869f1d48f079e89821363e",),
     "recall": ("d9ea5b8161e5241298321b3c464d503bc6801d22e0707c117a79821131474e6e",),
-    "refdata": ("abce30a55cd0af022855d67d6dfb60abd2ac6b76b63f4fcf871b48795cc823aa",),
+    "refdata": (
+        "abce30a55cd0af022855d67d6dfb60abd2ac6b76b63f4fcf871b48795cc823aa",
+        "fffa253180b60c2b8bed2891dc3ba30df157902ead4c9e40c7067e42d70dfc93",
+    ),
     "sae": (
         "bb78cfbe26204336feb5c26172c27f07ce5acbcdd8a49feaf8bf3bdc1098de32",
         "2ecd64f9564158876a0ebe4c543a3672f5a4f5494c929181bc7e8a654fb47b15",

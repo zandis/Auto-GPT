@@ -331,7 +331,7 @@ def store_migrations() -> dict[str, list[str]]:
     from tracestore import store as trace
 
     return {
-        "refdata": [refdata.DDL],
+        "refdata": [refdata.DDL, refdata.DDL_V2],
         "optout": list(optout.MIGRATIONS),
         "wf": list(db_pg.MIGRATIONS),
         "recall": list(ledger.MIGRATIONS),
