@@ -121,7 +121,7 @@ jobs:
       - name: generated contracts are what the schemas generate (no hand edit)
         run: make contracts-check
       - name: shipped rulesets are what the compiler gives (ValueSets, SQL, CQL; T-613a, D-322)
-        run: TB_ENV=DEV PYTHONPATH=libs:services:. .venv/bin/python -m tools.build_rulesets --check
+        run: TB_ENV=DEV TB_TZ=Asia/Taipei PYTHONPATH=libs:services:. .venv/bin/python -m tools.build_rulesets --check
 
   trace:
     runs-on: ubuntu-latest
