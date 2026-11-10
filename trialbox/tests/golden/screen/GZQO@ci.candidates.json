@@ -1,0 +1,766 @@
+{
+ "meta": {
+  "generator": "tools.synth_hospital profile ci + tools.public_site en",
+  "head": "fbe5f92e2ffaace5934833e3d89297ebf943e96e",
+  "lake_schema_version": 2,
+  "profile": "ci",
+  "reason": "D-205: the first committed goldens (T-006), widened after the Fable review",
+  "ref_date": "2026-11-01",
+  "ruleset": "GZQO",
+  "ruleset_version": "1.0.0",
+  "seed": 42,
+  "written_with_source": "legacy"
+ },
+ "sets": {
+  "public-en": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "18b7589c50bbe31065ad2e73eac7e89eeae4282cce734d2d3b19741a201abd97",
+   "patients": 53,
+   "structured_criteria": [
+    "GZQO-INC-01",
+    "GZQO-INC-02",
+    "GZQO-INC-03",
+    "GZQO-INC-04",
+    "GZQO-INC-06",
+    "GZQO-INC-08",
+    "GZQO-INC-09",
+    "GZQO-EXC-01",
+    "GZQO-EXC-02",
+    "GZQO-EXC-03",
+    "GZQO-EXC-04",
+    "GZQO-EXC-05",
+    "GZQO-EXC-06",
+    "GZQO-EXC-07",
+    "GZQO-EXC-08",
+    "GZQO-EXC-09",
+    "GZQO-EXC-10",
+    "GZQO-EXC-13"
+   ],
+   "verdicts": {
+    "GZQO-EXC-01": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "GZQO-EXC-02": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "GZQO-EXC-03": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "GZQO-EXC-04": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "GZQO-EXC-05": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "GZQO-EXC-06": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    },
+    "GZQO-EXC-07": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "GZQO-EXC-08": {
+     "met": 3,
+     "not_met": 26,
+     "unknown": 24
+    },
+    "GZQO-EXC-09": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    },
+    "GZQO-EXC-10": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "GZQO-EXC-13": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    },
+    "GZQO-INC-01": {
+     "met": 43,
+     "not_met": 9,
+     "unknown": 1
+    },
+    "GZQO-INC-02": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "GZQO-INC-03": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    },
+    "GZQO-INC-04": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    },
+    "GZQO-INC-06": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "GZQO-INC-08": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    },
+    "GZQO-INC-09": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    }
+   }
+  },
+  "ssmix2-jp": {
+   "candidate_pids": [
+    "11aaecff17cba8df3d625ca4a1e72088",
+    "2c3de19bc8836f7fe71b526ea54dfc9d",
+    "3734cc4230d21d2b564d0948a3db8617",
+    "4acdf712f0d62ec15da08a9c21e81ff2",
+    "6505fb82a3644aa91c492accb2d5c808",
+    "9df76a229c46d32db557ca5d630f38d2",
+    "a4c7024f6a7defbd3990acc5526edc1f",
+    "c4d66fddb2999e54b4702fbb90c74e2e",
+    "f0f000bbbd1722f0edd9e32dd6a2b1ca",
+    "ff6a3704b6b513fb1faefcbb096324c7"
+   ],
+   "candidates": 10,
+   "outcomes_sha": "e1bfb6a129f3960f7da546bef8c65595a765af3559531be89bb5fd2da0a7edec",
+   "patients": 400,
+   "structured_criteria": [
+    "GZQO-INC-01",
+    "GZQO-INC-02",
+    "GZQO-INC-03",
+    "GZQO-INC-04",
+    "GZQO-INC-06",
+    "GZQO-INC-08",
+    "GZQO-INC-09",
+    "GZQO-EXC-01",
+    "GZQO-EXC-02",
+    "GZQO-EXC-03",
+    "GZQO-EXC-04",
+    "GZQO-EXC-05",
+    "GZQO-EXC-06",
+    "GZQO-EXC-07",
+    "GZQO-EXC-08",
+    "GZQO-EXC-09",
+    "GZQO-EXC-10",
+    "GZQO-EXC-13"
+   ],
+   "verdicts": {
+    "GZQO-EXC-01": {
+     "met": 5,
+     "not_met": 395,
+     "unknown": 0
+    },
+    "GZQO-EXC-02": {
+     "met": 9,
+     "not_met": 391,
+     "unknown": 0
+    },
+    "GZQO-EXC-03": {
+     "met": 3,
+     "not_met": 397,
+     "unknown": 0
+    },
+    "GZQO-EXC-04": {
+     "met": 8,
+     "not_met": 392,
+     "unknown": 0
+    },
+    "GZQO-EXC-05": {
+     "met": 4,
+     "not_met": 396,
+     "unknown": 0
+    },
+    "GZQO-EXC-06": {
+     "met": 44,
+     "not_met": 103,
+     "unknown": 253
+    },
+    "GZQO-EXC-07": {
+     "met": 31,
+     "not_met": 369,
+     "unknown": 0
+    },
+    "GZQO-EXC-08": {
+     "met": 5,
+     "not_met": 217,
+     "unknown": 178
+    },
+    "GZQO-EXC-09": {
+     "met": 37,
+     "not_met": 130,
+     "unknown": 233
+    },
+    "GZQO-EXC-10": {
+     "met": 7,
+     "not_met": 393,
+     "unknown": 0
+    },
+    "GZQO-EXC-13": {
+     "met": 16,
+     "not_met": 107,
+     "unknown": 277
+    },
+    "GZQO-INC-01": {
+     "met": 381,
+     "not_met": 19,
+     "unknown": 0
+    },
+    "GZQO-INC-02": {
+     "met": 118,
+     "not_met": 282,
+     "unknown": 0
+    },
+    "GZQO-INC-03": {
+     "met": 90,
+     "not_met": 108,
+     "unknown": 202
+    },
+    "GZQO-INC-04": {
+     "met": 81,
+     "not_met": 24,
+     "unknown": 295
+    },
+    "GZQO-INC-06": {
+     "met": 65,
+     "not_met": 335,
+     "unknown": 0
+    },
+    "GZQO-INC-08": {
+     "met": 164,
+     "not_met": 39,
+     "unknown": 197
+    },
+    "GZQO-INC-09": {
+     "met": 238,
+     "not_met": 162,
+     "unknown": 0
+    }
+   }
+  },
+  "synthetic-jp-a": {
+   "candidate_pids": [
+    "0097f5b92ae78f97f008a2d00701511c",
+    "01f8ed9e9af72fa415eaed54e3ac1d8c",
+    "02357c34aa18d4082deb3bffddbaa043",
+    "034ca5970393eb79513ec5eba57470d2",
+    "04ba5725301580861f17d54bb3f5aa04",
+    "04ed9e60e4ab1c468555c64c657e9c27",
+    "06dbe87962ab875f8bd88f73222218f8",
+    "070de2049a04f18ae717631e0abd5ca7",
+    "09aeca1c940f12e8e33657b1bafdce85",
+    "172a7f5868114095007a28703f390c32",
+    "17551eba989932c9cafc875a012370e8",
+    "1afc11afecafe5c92f01128a8d5d00e1",
+    "22407986babb7de0eaf6e77bde91e27c",
+    "384677fe294825b61e3209210dae541e",
+    "439a3ca5b2d5095cf013783ba00df1ef",
+    "446fa851562340a5de247c942240f38e",
+    "45ed342d45943d95febd5dd302cb4a64",
+    "4884e17c0c19078d029b4f722fbe997a",
+    "59ee60d08aa0f0a2d267dd1954b4d245",
+    "5a882a020b5534a3eb0626df8a2f22d2",
+    "68c2ba632f3c03404b13d4782edbb8de",
+    "6b73741613ff092d6ebda63c3d3b7395",
+    "740827eafe56929584b82f181f4f645c",
+    "775c5bf62010f0a37508e0a9fcf9eed4",
+    "80274df9a3e1ad3980c3e03d64c6d1d7",
+    "88372177d0948ce129a08c1f09439217",
+    "8d99a2c2c5718835ef823142890257e6",
+    "9c390338ddc63a2537728f41d614b128",
+    "a237257508d1fd324c7dd442d5dd0fec",
+    "a572db5c2d2e8ff1ee0118fa72fa5099",
+    "ba4c2ca4558aa3ca7dd79e347e3a0c46",
+    "c3c17358e0cd815da73314738fb9d766",
+    "c584a3ccdec9a03281dad834a6fb6d72",
+    "d06e0526f0667a377f9ffa76191c06c0",
+    "d65b8d71385d87c3b704513991460712",
+    "e03f3734ce1f2504d39fc421f530637e",
+    "e2ff0498b75a5afdf784f6f96fc2e998",
+    "ef9b853f3992a4fe25283443da924460",
+    "f11930c9c48c359fa9bb4e092abb18b4",
+    "f149202e66a1a9f14d6e1b00393bb6bd",
+    "ffd49b25f1d323069cb65e0fdab23958"
+   ],
+   "candidates": 41,
+   "outcomes_sha": "dce019de1b8221f6df53f695f5ecfb1fe2d4c4f7336923d4e2b145f72141ccc6",
+   "patients": 2500,
+   "structured_criteria": [
+    "GZQO-INC-01",
+    "GZQO-INC-02",
+    "GZQO-INC-03",
+    "GZQO-INC-04",
+    "GZQO-INC-06",
+    "GZQO-INC-08",
+    "GZQO-INC-09",
+    "GZQO-EXC-01",
+    "GZQO-EXC-02",
+    "GZQO-EXC-03",
+    "GZQO-EXC-04",
+    "GZQO-EXC-05",
+    "GZQO-EXC-06",
+    "GZQO-EXC-07",
+    "GZQO-EXC-08",
+    "GZQO-EXC-09",
+    "GZQO-EXC-10",
+    "GZQO-EXC-13"
+   ],
+   "verdicts": {
+    "GZQO-EXC-01": {
+     "met": 52,
+     "not_met": 2448,
+     "unknown": 0
+    },
+    "GZQO-EXC-02": {
+     "met": 59,
+     "not_met": 2441,
+     "unknown": 0
+    },
+    "GZQO-EXC-03": {
+     "met": 25,
+     "not_met": 2475,
+     "unknown": 0
+    },
+    "GZQO-EXC-04": {
+     "met": 56,
+     "not_met": 2444,
+     "unknown": 0
+    },
+    "GZQO-EXC-05": {
+     "met": 26,
+     "not_met": 2474,
+     "unknown": 0
+    },
+    "GZQO-EXC-06": {
+     "met": 312,
+     "not_met": 646,
+     "unknown": 1542
+    },
+    "GZQO-EXC-07": {
+     "met": 165,
+     "not_met": 2335,
+     "unknown": 0
+    },
+    "GZQO-EXC-08": {
+     "met": 36,
+     "not_met": 1317,
+     "unknown": 1147
+    },
+    "GZQO-EXC-09": {
+     "met": 245,
+     "not_met": 775,
+     "unknown": 1480
+    },
+    "GZQO-EXC-10": {
+     "met": 45,
+     "not_met": 2455,
+     "unknown": 0
+    },
+    "GZQO-EXC-13": {
+     "met": 88,
+     "not_met": 658,
+     "unknown": 1754
+    },
+    "GZQO-INC-01": {
+     "met": 2398,
+     "not_met": 78,
+     "unknown": 24
+    },
+    "GZQO-INC-02": {
+     "met": 734,
+     "not_met": 1758,
+     "unknown": 8
+    },
+    "GZQO-INC-03": {
+     "met": 524,
+     "not_met": 683,
+     "unknown": 1293
+    },
+    "GZQO-INC-04": {
+     "met": 533,
+     "not_met": 169,
+     "unknown": 1798
+    },
+    "GZQO-INC-06": {
+     "met": 342,
+     "not_met": 2151,
+     "unknown": 7
+    },
+    "GZQO-INC-08": {
+     "met": 981,
+     "not_met": 271,
+     "unknown": 1248
+    },
+    "GZQO-INC-09": {
+     "met": 1490,
+     "not_met": 1010,
+     "unknown": 0
+    }
+   }
+  },
+  "synthetic-jp-a-deletes": {
+   "candidate_pids": [
+    "0165c00d8abc4418550705c7c9bc9a33",
+    "01f8ed9e9af72fa415eaed54e3ac1d8c",
+    "04ba5725301580861f17d54bb3f5aa04",
+    "04ed9e60e4ab1c468555c64c657e9c27",
+    "070de2049a04f18ae717631e0abd5ca7",
+    "148a2e0b5e366fb41a393d376b7d6b22",
+    "1507a1282b672cc390f7532eda1ef341",
+    "172a7f5868114095007a28703f390c32",
+    "17551eba989932c9cafc875a012370e8",
+    "1afc11afecafe5c92f01128a8d5d00e1",
+    "1e409c358cb3f9ed0b5480739cbdcf0f",
+    "216af82379480efb97e869be2c544bd1",
+    "22407986babb7de0eaf6e77bde91e27c",
+    "33426d95bf23a8ef4fb17e5ab28f2450",
+    "37ea5abb8127390036f111f13158dd8f",
+    "384677fe294825b61e3209210dae541e",
+    "3ddd704543a2b934bdd4b9a5c353c314",
+    "405b5807ba4d5833a5de968f715372a9",
+    "446fa851562340a5de247c942240f38e",
+    "45ed342d45943d95febd5dd302cb4a64",
+    "4884e17c0c19078d029b4f722fbe997a",
+    "4e67dfdd564df42cccf061acbfebf26b",
+    "4f6c76c3009a4a6e2a1a28e5b35a88d3",
+    "59ee60d08aa0f0a2d267dd1954b4d245",
+    "5a882a020b5534a3eb0626df8a2f22d2",
+    "68c2ba632f3c03404b13d4782edbb8de",
+    "775c5bf62010f0a37508e0a9fcf9eed4",
+    "794caa37587ed4983606f864534ea76c",
+    "80274df9a3e1ad3980c3e03d64c6d1d7",
+    "80b72e0a9f0cb9babe69f8788affc081",
+    "88372177d0948ce129a08c1f09439217",
+    "8d99a2c2c5718835ef823142890257e6",
+    "94559a3de1bd169a69f8f7752cb1de82",
+    "9c390338ddc63a2537728f41d614b128",
+    "a237257508d1fd324c7dd442d5dd0fec",
+    "a572db5c2d2e8ff1ee0118fa72fa5099",
+    "b33c4031974a24c69e3ad18e98c4cc64",
+    "ba4c2ca4558aa3ca7dd79e347e3a0c46",
+    "c2bb3196003046cdd98e2ac10edce5a6",
+    "c3c17358e0cd815da73314738fb9d766",
+    "c584a3ccdec9a03281dad834a6fb6d72",
+    "d027bd8c86ec64eea874f1878217deda",
+    "d06e0526f0667a377f9ffa76191c06c0",
+    "d65b8d71385d87c3b704513991460712",
+    "e2ff0498b75a5afdf784f6f96fc2e998",
+    "ef9b853f3992a4fe25283443da924460",
+    "f11930c9c48c359fa9bb4e092abb18b4",
+    "f149202e66a1a9f14d6e1b00393bb6bd",
+    "ffd49b25f1d323069cb65e0fdab23958"
+   ],
+   "candidates": 49,
+   "outcomes_sha": "abfe9daeff5f47355fdaeeb1b2cdae6674739c5718edbe9037c1fbe97036c74e",
+   "patients": 2500,
+   "structured_criteria": [
+    "GZQO-INC-01",
+    "GZQO-INC-02",
+    "GZQO-INC-03",
+    "GZQO-INC-04",
+    "GZQO-INC-06",
+    "GZQO-INC-08",
+    "GZQO-INC-09",
+    "GZQO-EXC-01",
+    "GZQO-EXC-02",
+    "GZQO-EXC-03",
+    "GZQO-EXC-04",
+    "GZQO-EXC-05",
+    "GZQO-EXC-06",
+    "GZQO-EXC-07",
+    "GZQO-EXC-08",
+    "GZQO-EXC-09",
+    "GZQO-EXC-10",
+    "GZQO-EXC-13"
+   ],
+   "verdicts": {
+    "GZQO-EXC-01": {
+     "met": 45,
+     "not_met": 2455,
+     "unknown": 0
+    },
+    "GZQO-EXC-02": {
+     "met": 53,
+     "not_met": 2447,
+     "unknown": 0
+    },
+    "GZQO-EXC-03": {
+     "met": 21,
+     "not_met": 2479,
+     "unknown": 0
+    },
+    "GZQO-EXC-04": {
+     "met": 51,
+     "not_met": 2449,
+     "unknown": 0
+    },
+    "GZQO-EXC-05": {
+     "met": 24,
+     "not_met": 2476,
+     "unknown": 0
+    },
+    "GZQO-EXC-06": {
+     "met": 296,
+     "not_met": 585,
+     "unknown": 1619
+    },
+    "GZQO-EXC-07": {
+     "met": 145,
+     "not_met": 2355,
+     "unknown": 0
+    },
+    "GZQO-EXC-08": {
+     "met": 31,
+     "not_met": 1316,
+     "unknown": 1153
+    },
+    "GZQO-EXC-09": {
+     "met": 224,
+     "not_met": 703,
+     "unknown": 1573
+    },
+    "GZQO-EXC-10": {
+     "met": 42,
+     "not_met": 2458,
+     "unknown": 0
+    },
+    "GZQO-EXC-13": {
+     "met": 83,
+     "not_met": 597,
+     "unknown": 1820
+    },
+    "GZQO-INC-01": {
+     "met": 2417,
+     "not_met": 79,
+     "unknown": 4
+    },
+    "GZQO-INC-02": {
+     "met": 701,
+     "not_met": 1791,
+     "unknown": 8
+    },
+    "GZQO-INC-03": {
+     "met": 450,
+     "not_met": 573,
+     "unknown": 1477
+    },
+    "GZQO-INC-04": {
+     "met": 501,
+     "not_met": 151,
+     "unknown": 1848
+    },
+    "GZQO-INC-06": {
+     "met": 319,
+     "not_met": 2174,
+     "unknown": 7
+    },
+    "GZQO-INC-08": {
+     "met": 898,
+     "not_met": 249,
+     "unknown": 1353
+    },
+    "GZQO-INC-09": {
+     "met": 1481,
+     "not_met": 1019,
+     "unknown": 0
+    }
+   }
+  },
+  "synthetic-tw-a": {
+   "candidate_pids": [
+    "021619eab207bfdca9547a2125e8eb8f",
+    "02e920fdeb8a8795e236cc45efb17c8d",
+    "02fcc7b9d1b5df79dd2e234b809ebe35",
+    "162f2029dc0aabddd6fa2face12f1c8d",
+    "1d3a7662a73e7550b0096f4401042ffb",
+    "1eed4d3d4539c2dbd07c09e91ae3242f",
+    "1f30c77c9360c613fa86d8fd0f25e3db",
+    "20053b6102c34abcc6190ea1a937d397",
+    "249974e9225ab770dc71196db2ab4a96",
+    "253eaf8d95ec9ace02d7c502b48f7385",
+    "2548687ea83ecc1c2be9e3b90512b400",
+    "259811dd3ee00838038f1f2c187d9d0d",
+    "333fc83ae7ca87f9d672e054b7cc891f",
+    "3f2f3b0d07427c3bd10e0e6e7dc552d6",
+    "3f7204a0fd43dc52b46ba31432d27f68",
+    "42cb7841e34a538043faf98790a1ea1b",
+    "430662e0375fa4361e12ea2082919602",
+    "4436dfb19109549840df2019d96c4941",
+    "486043bd9deb496611e2bbb93b361dc0",
+    "514b1ee0982cf5bc397ced6b52f41e27",
+    "52a2852bc4ce6dab9c41b035891a5a3d",
+    "56b7af2eab498d5d0d0b5b2cd7f60b26",
+    "5c644867e54eb38aae70d0044a3ebbda",
+    "5e04efa45fef40a4c1bb299e62e983e5",
+    "5eed2e070254b9140b47906fed7fd8a9",
+    "60134294da4b49195dc6fdfcb2ebda4a",
+    "6074aaf9f7ff6f987273cc1c6169ef38",
+    "64197e90c5f0972fdc0cd0834024734f",
+    "6ce3cb89fec0d2a316bca7435fc60d61",
+    "6d07c37db51615609c8f26f21232109f",
+    "6d4cb9a743dfdaa9475bc5fe1630aded",
+    "766d41044c857092cc0a1f8377fd2714",
+    "7f6bfba3b1e478e5f414c3d1b73ff7e9",
+    "7fcc2f06bd22c94af42863f9f1436189",
+    "920bb7d30717a55fabf24ffdbd9386f8",
+    "98b3633fc4e082cda7b4dcf720f45464",
+    "990f72ed9a0e5e38279f2a9c9970c72e",
+    "9d95f6ab1229ebc91002b217e2b2e7d5",
+    "a2748915c55c19f50263ffeae40a7bec",
+    "a997fc2752e538318c07097fbc3df40c",
+    "b1727ff351c54dba74535647897516a5",
+    "b88f005a0d00a2f48b155b266f60ef0a",
+    "bb802d00e878d6449b6727ba89bc53e4",
+    "bcdcda0bb9c743a7ca6ca0fb730ee571",
+    "bf15803efcf893efcb43ccdabc9c4e98",
+    "bf5c1e0d8c071e3ece8777fce7253b11",
+    "c1f18b79c2de8545c15ba28f7a0dbebb",
+    "c9767611ebf68de68ed2ea515ed92f1f",
+    "ca94b490420b10c084f99ab4d1912e2c",
+    "cbcc5d06b2f3f6f9e73c98e6bc615ab0",
+    "d80537593c6c8580ee2a09a35f9ac632",
+    "e0251c39a8a7a2a9489ba2de54f14e7f",
+    "e7695d0ce81aedce56992ef42a74f31b",
+    "ef57b05b638b3f50d2829c5cf4e89737",
+    "f0cbed6d8b9a11fde5458e3c4b663af1",
+    "feffa436d392d52a2910d4f960540432"
+   ],
+   "candidates": 56,
+   "outcomes_sha": "1e2e8ddfdfa9737cbc13479e2708fcfd9672b73124bab197c9628b2eadd1c88f",
+   "patients": 2500,
+   "structured_criteria": [
+    "GZQO-INC-01",
+    "GZQO-INC-02",
+    "GZQO-INC-03",
+    "GZQO-INC-04",
+    "GZQO-INC-06",
+    "GZQO-INC-08",
+    "GZQO-INC-09",
+    "GZQO-EXC-01",
+    "GZQO-EXC-02",
+    "GZQO-EXC-03",
+    "GZQO-EXC-04",
+    "GZQO-EXC-05",
+    "GZQO-EXC-06",
+    "GZQO-EXC-07",
+    "GZQO-EXC-08",
+    "GZQO-EXC-09",
+    "GZQO-EXC-10",
+    "GZQO-EXC-13"
+   ],
+   "verdicts": {
+    "GZQO-EXC-01": {
+     "met": 53,
+     "not_met": 2447,
+     "unknown": 0
+    },
+    "GZQO-EXC-02": {
+     "met": 46,
+     "not_met": 2454,
+     "unknown": 0
+    },
+    "GZQO-EXC-03": {
+     "met": 24,
+     "not_met": 2476,
+     "unknown": 0
+    },
+    "GZQO-EXC-04": {
+     "met": 48,
+     "not_met": 2452,
+     "unknown": 0
+    },
+    "GZQO-EXC-05": {
+     "met": 30,
+     "not_met": 2470,
+     "unknown": 0
+    },
+    "GZQO-EXC-06": {
+     "met": 302,
+     "not_met": 668,
+     "unknown": 1530
+    },
+    "GZQO-EXC-07": {
+     "met": 174,
+     "not_met": 2326,
+     "unknown": 0
+    },
+    "GZQO-EXC-08": {
+     "met": 26,
+     "not_met": 1359,
+     "unknown": 1115
+    },
+    "GZQO-EXC-09": {
+     "met": 247,
+     "not_met": 748,
+     "unknown": 1505
+    },
+    "GZQO-EXC-10": {
+     "met": 43,
+     "not_met": 2457,
+     "unknown": 0
+    },
+    "GZQO-EXC-13": {
+     "met": 96,
+     "not_met": 632,
+     "unknown": 1772
+    },
+    "GZQO-INC-01": {
+     "met": 2385,
+     "not_met": 91,
+     "unknown": 24
+    },
+    "GZQO-INC-02": {
+     "met": 750,
+     "not_met": 1742,
+     "unknown": 8
+    },
+    "GZQO-INC-03": {
+     "met": 545,
+     "not_met": 660,
+     "unknown": 1295
+    },
+    "GZQO-INC-04": {
+     "met": 492,
+     "not_met": 194,
+     "unknown": 1814
+    },
+    "GZQO-INC-06": {
+     "met": 375,
+     "not_met": 2117,
+     "unknown": 8
+    },
+    "GZQO-INC-08": {
+     "met": 960,
+     "not_met": 296,
+     "unknown": 1244
+    },
+    "GZQO-INC-09": {
+     "met": 1503,
+     "not_met": 997,
+     "unknown": 0
+    }
+   }
+  }
+ }
+}

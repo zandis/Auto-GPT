@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trialbox.local/schemas/v1/criterion_ir.schema.json",
   "title": "CriterionIR",
-  "description": "One eligibility criterion (SPEC 3.3). Schema version 1.1.0 (1.1.0: derived egfr_ckd_epi and egfr_jsn, D-149).",
+  "description": "One eligibility criterion (SPEC 3.3). Schema version 1.2.0 (1.1.0: derived egfr_ckd_epi and egfr_jsn, D-149; 1.2.0: derived cdai and sdai, D-189).",
   "type": "object",
   "required": ["id", "ruleset", "text", "kind", "class", "logic"],
   "additionalProperties": false,
@@ -101,7 +101,7 @@
         "duration": {"$ref": "#/$defs/duration"},
         "age": {"$ref": "#/$defs/age"},
         "sex": {"enum": ["male", "female"]},
-        "derived": {"enum": ["bmi", "egfr", "egfr_ckd_epi", "egfr_jsn", "das28", "basdai", "asdas"], "description": "computed observation; egfr_ckd_epi and egfr_jsn name the equation (D-149), a plain egfr is CKD-EPI 2021"}
+        "derived": {"enum": ["bmi", "egfr", "egfr_ckd_epi", "egfr_jsn", "das28", "basdai", "asdas", "cdai", "sdai"], "description": "computed observation; egfr_ckd_epi and egfr_jsn name the equation (D-149), a plain egfr is CKD-EPI 2021"}
       }
     }
   }

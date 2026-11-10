@@ -1,0 +1,2 @@
+# pip-audit for `make pip-audit`, compiled to pip-audit.lock with hashes by `make lock` (D-186)
+pip-audit==2.9.0

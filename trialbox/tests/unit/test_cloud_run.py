@@ -48,6 +48,10 @@ def test_resume_keeps_only_parts_of_this_run_id_and_head(tmp_path: Path) -> None
     assert sorted(p.stem for p in parts.glob("*.json")) == ["a"]
 
 
+@pytest.mark.skipif(
+    not cr.NODE_TOOLS.exists() and not os.environ.get("NODE_PATH"),
+    reason="the part's screenshot needs the preinstalled Node Playwright",
+)
 def test_a_part_records_its_run_and_a_new_run_runs_it_again(tmp_path: Path) -> None:
     env = dict(os.environ, PYTHONPATH="libs:services:.", TB_SELFTEST_SECONDS="0.2", TB_ENV="DEV")
 
