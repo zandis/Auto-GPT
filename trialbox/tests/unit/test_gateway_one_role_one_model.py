@@ -253,7 +253,8 @@ def test_the_judge_role_never_gets_the_verifier_build_whatever_the_judge_server_
 
 
 def _routing() -> dict[str, Any]:
-    return yaml.safe_load((ROOT / "models" / "routing.yaml").read_text(encoding="utf-8"))
+    doc: dict[str, Any] = yaml.safe_load((ROOT / "models" / "routing.yaml").read_text(encoding="utf-8"))
+    return doc
 
 
 def test_a_route_that_says_nothing_does_not_fall_back(tmp_path: Path) -> None:
