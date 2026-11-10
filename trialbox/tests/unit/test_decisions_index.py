@@ -53,7 +53,8 @@ def test_master_is_clean() -> None:
 def test_master_registry_holds_the_agreed_rows() -> None:
     c = di.load(REPO)
     rows = {(r.first, r.last): r for r in c.rows}
-    assert rows[(271, 275)].state == "reserved" and rows[(277, 289)].state == "reserved"  # the fix-group block
+    assert rows[(271, 271)].state == "merged"  # fix group D-271 (PR #97), a file since the log froze
+    assert rows[(272, 275)].state == "reserved" and rows[(277, 289)].state == "reserved"  # the rest of the fix groups
     assert rows[(276, 276)].state == "merged" and "PR #101" in rows[(276, 276)].holder  # D-276, the two-model check
     assert rows[(152, 159)].state == "unused" and rows[(164, 169)].state == "unused"
     assert rows[(99, 99)].state == "missing"
