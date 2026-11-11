@@ -33,6 +33,7 @@ from orchestrator.scenarios.screen import (
     small_cell,
     threshold,
 )
+from orchestrator.scheduler import require_open
 
 APPT_SQL = """
 SELECT pid, CAST(min(start) AS VARCHAR) AS next_appt, arg_min(practitioner_id, start) AS practitioner_id,
@@ -50,6 +51,7 @@ def first_monday(d: date) -> bool:
 
 def run(ctx: Ctx) -> Outcome:
     job = ctx.job
+    require_open(job.ruleset)  # D-386 (LIFE-008): no list for a study that is not open
     rs: Ruleset = require_approved(ctx, (job.ruleset or "").upper(), None)
     ctx.update(ruleset_version=rs.version)
     pool = ctx.orch.db.pool(rs.id)

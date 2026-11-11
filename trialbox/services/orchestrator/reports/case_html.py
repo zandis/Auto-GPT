@@ -11,6 +11,7 @@ from html import escape
 from typing import Any
 
 from tb_common.reasons import label as reason_label
+from tb_common.wording import statement
 
 TITLE = {
     "en": "Eligibility sheet: {ruleset} v{version}",
@@ -28,14 +29,14 @@ NOTICE = {
     "「不明」表示病歷未提及，不代表不符合條件。是否適格由試驗主持人判斷。",
 }
 HEADLINE = {
-    "en": "{met} met, {not_met} not met, {unknown} unknown, {human} for a human of {total}",
+    "en": "{met} met, {not_met} not met, {unknown} unknown, {human} for a person of {total}",
     "ja": "{total}項目中 該当{met} 非該当{not_met} 不明{unknown} 要確認{human}",
-    "zh-TW": "共{total}項：符合{met}、不符合{not_met}、不明{unknown}、需人工{human}",
+    "zh-TW": "共{total}項：符合{met}、不符合{not_met}、不明{unknown}、需人員確認{human}",
 }
 VERDICT = {
-    "en": {"pass": "met", "fail": "not met", "unknown": "unknown", "pending_human": "needs a human"},
-    "ja": {"pass": "該当", "fail": "非該当", "unknown": "不明", "pending_human": "要確認（人）"},
-    "zh-TW": {"pass": "符合", "fail": "不符合", "unknown": "不明", "pending_human": "需人工確認"},
+    "en": {"pass": "met", "fail": "not met", "unknown": "unknown", "pending_human": "needs a person"},
+    "ja": {"pass": "該当", "fail": "非該当", "unknown": "不明", "pending_human": "要確認（担当者）"},
+    "zh-TW": {"pass": "符合", "fail": "不符合", "unknown": "不明", "pending_human": "需人員確認"},
 }
 KIND = {
     "en": {"inclusion": "inclusion", "exclusion": "exclusion"},
@@ -50,17 +51,17 @@ SOURCE = {
 HINT = {
     "en": {
         "structured": "Give the chart number so the box can check the hospital data, or attach the lab or "
-        "diagnosis page.",
+        "problem-list page.",
         "note": "Attach the clinic note or discharge summary that describes this, with its date.",
         "human": "To be asked or checked by the study team at the visit.",
     },
     "ja": {
-        "structured": "カルテ番号を指定して院内データを照合するか、検査結果や診断の記載ページを添付してください。",
+        "structured": "カルテ番号を指定して院内データを照合するか、検査結果や病名の記載ページを添付してください。",
         "note": "この内容が記載された外来記録または退院サマリー（日付入り）を添付してください。",
         "human": "治験チームが来院時に確認する項目です。",
     },
     "zh-TW": {
-        "structured": "提供病歷號以便比對院內資料，或附上檢驗結果或診斷的頁面。",
+        "structured": "提供病歷號以便比對院內資料，或附上檢驗結果或病名的頁面。",
         "note": "請附上記載此內容的門診紀錄或出院摘要（含日期）。",
         "human": "由研究團隊於訪視時詢問或確認。",
     },
@@ -80,10 +81,10 @@ META = {
         "not_in_lake": "{note}",
         "charts": "Chart files",
         "undated": "{n} of {total} excerpts carry no date in the text and were given the upload date.",
-        "judge": "Note criteria judged by {model}{verifier}; {calls} model calls; {disagreements} answers set to "
+        "judge": "Note criteria read by {model}{verifier}; {calls} model calls; {disagreements} answers set to "
         "unknown because the two models disagreed.",
         "pair": " with {verifier} as the second model (both must agree)",
-        "nojudge": "No language model is configured: note criteria could not be judged.",
+        "nojudge": "No language model is configured: note criteria could not be read.",
         "chart_only": "The chart number was not given or not found, so structured criteria were also answered from the "
         "chart text and should be checked against the record.",
         "footer": "TrialBox · job {job_id} · the chart and this sheet stay on the box and are covered by its retention "
@@ -94,15 +95,15 @@ META = {
         "by": "依頼者",
         "subject": "患者",
         "pid": "仮名 {pid}",
-        "in_lake": "院内データに存在（スナップショット {snapshot}）；構造化基準はデータベースから判定",
+        "in_lake": "院内データに存在（スナップショット {snapshot}）；構造化基準はデータベースで照合",
         "not_in_lake": "{note}",
         "charts": "カルテファイル",
         "undated": "{total}件中{n}件の抜粋には本文に日付がなく、アップロード日を付与しました。",
-        "judge": "記述基準は {model}{verifier} が判定；モデル呼び出し {calls} 回；"
+        "judge": "記述基準は {model}{verifier} が読み取り；モデル呼び出し {calls} 回；"
         "2モデルの不一致により不明とした回答 {disagreements} 件。",
         "pair": "（第2モデル {verifier}、両者一致が必要）",
-        "nojudge": "言語モデルが設定されていないため、記述基準は判定できませんでした。",
-        "chart_only": "カルテ番号が未指定または未登録のため、構造化基準もカルテの文章から判定しました。"
+        "nojudge": "言語モデルが設定されていないため、記述基準は読み取れませんでした。",
+        "chart_only": "カルテ番号が未指定または未登録のため、構造化基準もカルテの文章から読み取りました。"
         "原本との照合が必要です。",
         "footer": "TrialBox · ジョブ {job_id} · カルテと本シートは装置内に保管され、保持規則の対象です · 宛先: {to}",
     },
@@ -111,15 +112,15 @@ META = {
         "by": "申請者",
         "subject": "病人",
         "pid": "假名 {pid}",
-        "in_lake": "存在於院內資料（快照 {snapshot}）；結構化條件以資料庫判定",
+        "in_lake": "存在於院內資料（快照 {snapshot}）；結構化條件以資料庫比對",
         "not_in_lake": "{note}",
         "charts": "病歷檔案",
         "undated": "{total}段摘錄中有{n}段文字內無日期，已以上傳日期標示。",
-        "judge": "病歷文字條件由 {model}{verifier} 判定；模型呼叫 {calls} 次；"
+        "judge": "病歷文字條件由 {model}{verifier} 判讀；模型呼叫 {calls} 次；"
         "因兩模型不一致而列為不明者 {disagreements} 項。",
         "pair": "（第二模型 {verifier}，須兩者一致）",
-        "nojudge": "未設定語言模型，病歷文字條件無法判定。",
-        "chart_only": "未提供或查無病歷號，結構化條件亦以病歷文字判定，須與原始紀錄核對。",
+        "nojudge": "未設定語言模型，病歷文字條件無法判讀。",
+        "chart_only": "未提供或查無病歷號，結構化條件亦以病歷文字判讀，須與原始紀錄核對。",
         "footer": "TrialBox · 工作 {job_id} · 病歷與本表留存於本機並受保存規則約束 · 收件者: {to}",
     },
 }
@@ -213,6 +214,7 @@ def sheet(rec: dict[str, Any]) -> bytes:
     )
     parts.append(
         f"<footer>{escape(m['footer'].format(job_id=rec['job_id'], to=', '.join(rec.get('recipients') or [])))}"
+        f'<p data-testid="intended-use">{escape(statement(lang))}</p>'  # TB-IU-01 C1 (T-116)
         "</footer></body></html>"
     )
     return "".join(parts).encode("utf-8")

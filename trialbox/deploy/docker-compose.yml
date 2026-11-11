@@ -68,6 +68,15 @@ services:
       POSTGRES_USER: hapi
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_WF_PASSWORD: ${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}
+      # D-378 (CR-037): each service's own role (docker/db-init/30-service-roles.sh); TB_DB_PW_<SERVICE> in .env
+      # (deploy/install.sh makes them), else the workflow password (a dev or test stack)
+      TB_DB_PW_LAKE: ${TB_DB_PW_LAKE:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
+      TB_DB_PW_CRITERIA_COMPILER: ${TB_DB_PW_CRITERIA_COMPILER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
+      TB_DB_PW_ADAPTER: ${TB_DB_PW_ADAPTER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
+      TB_DB_PW_ORCHESTRATOR: ${TB_DB_PW_ORCHESTRATOR:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
+      TB_DB_PW_MAIL_GATEWAY: ${TB_DB_PW_MAIL_GATEWAY:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
+      TB_DB_PW_GATEWAY: ${TB_DB_PW_GATEWAY:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
+      TB_DB_PW_CONSOLE: ${TB_DB_PW_CONSOLE:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
       POSTGRES_INITDB_ARGS: ${POSTGRES_INITDB_ARGS:---data-checksums}
     volumes:
       - db-pg:/var/lib/postgresql/data
@@ -123,7 +132,9 @@ services:
     <<: *py
     mem_limit: ${TB_MEM_LAKE:-8g}   # DuckDB takes 40 % of this per worker (lake.store.memory_limit)
     command: ["uvicorn", "lake.app:app", "--host", "0.0.0.0", "--port", "8013", "--workers", "2"]
-    environment: {PORT: "8013", TB_SERVICE_NAME: lake, TB_LAKE_DIR: /data/lake, TB_LAKE_EMBEDDER: http,
+    environment: {PORT: "8013", TB_SERVICE_NAME: lake,
+                  TB_DB_URL: "postgresql://tb_lake:${TB_DB_PW_LAKE:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_LAKE_DIR: /data/lake, TB_LAKE_EMBEDDER: http,
                   TB_LAKE_MEMORY_LIMIT: "${TB_LAKE_MEMORY_LIMIT:-}", TB_LAKE_MAX_TEMP: "${TB_LAKE_MAX_TEMP:-}",
                   TB_LAKE_SOURCE: "${TB_LAKE_SOURCE:-legacy}"}
     volumes:
@@ -157,7 +168,9 @@ services:
     mem_limit: ${TB_MEM_COMPILER:-3g}
     pids_limit: 1024   # JVM threads
     command: ["uvicorn", "criteria_compiler.app:app", "--host", "0.0.0.0", "--port", "8012"]
-    environment: {PORT: "8012", TB_SERVICE_NAME: criteria-compiler, TB_RULESETS_DIR: /data/rulesets, TB_AUDIT_DIR: /data/audit,
+    environment: {PORT: "8012", TB_SERVICE_NAME: criteria-compiler,
+                  TB_DB_URL: "postgresql://tb_criteria_compiler:${TB_DB_PW_CRITERIA_COMPILER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_RULESETS_DIR: /data/rulesets, TB_AUDIT_DIR: /data/audit,
                   TB_CTGOV_MODE: "${TB_CTGOV_MODE:-offline}", TB_GATEWAY_URL: "http://gateway:8020/v1",
                   TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_DATA_CLASS: "${TB_DATA_CLASS:-}"}
     # only service allowed to reach clinicaltrials.gov (public registry, COHORT; network.sh); its cloud LLM calls go
@@ -176,7 +189,9 @@ services:
     mem_limit: ${TB_MEM_ADAPTER:-6g}   # the validator's heap (TB_VALIDATOR_XMX, 3g) plus the service
     pids_limit: 1024   # JVM threads
     command: ["uvicorn", "adapter.app:app", "--host", "0.0.0.0", "--port", "8016"]
-    environment: {PORT: "8016", TB_SERVICE_NAME: adapter, TB_LAKE_DIR: /data/lake, TB_ADAPTER_LAKE: http,
+    environment: {PORT: "8016", TB_SERVICE_NAME: adapter,
+                  TB_DB_URL: "postgresql://tb_adapter:${TB_DB_PW_ADAPTER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_LAKE_DIR: /data/lake, TB_ADAPTER_LAKE: http,
                   TB_AUDIT_DIR: /data/audit, TB_SECRETS_DIR: /run/secrets/trialbox, TB_VALIDATOR_XMX: 3g}
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
@@ -192,7 +207,9 @@ services:
     mem_limit: ${TB_MEM_ORCH:-4g}
     pids_limit: 1024   # JVM threads
     command: ["uvicorn", "orchestrator.app:app", "--host", "0.0.0.0", "--port", "8010"]
-    environment: {PORT: "8010", TB_SERVICE_NAME: orchestrator, TB_AUDIT_DIR: /data/audit, TB_RULESETS_DIR: /data/rulesets,
+    environment: {PORT: "8010", TB_SERVICE_NAME: orchestrator,
+                  TB_DB_URL: "postgresql://tb_orchestrator:${TB_DB_PW_ORCHESTRATOR:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_AUDIT_DIR: /data/audit, TB_RULESETS_DIR: /data/rulesets,
                   TB_ORCH_DIR: /data/orchestrator, TB_SECRETS_DIR: /run/secrets/trialbox,
                   TB_GATEWAY_URL: "http://gateway:8020/v1", TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}",
                   TB_GATEWAY_VERIFIER_MODEL: "${TB_GATEWAY_VERIFIER_MODEL:-}", TB_DATA_CLASS: "${TB_DATA_CLASS:-}",
@@ -213,7 +230,9 @@ services:
     <<: *py
     mem_limit: ${TB_MEM_MAIL:-1g}
     command: ["uvicorn", "mail_gateway.app:app", "--host", "0.0.0.0", "--port", "8015"]
-    environment: {PORT: "8015", TB_SERVICE_NAME: mail-gateway, TB_AUDIT_DIR: /data/audit, TB_MAIL_DIR: /data/mail}
+    environment: {PORT: "8015", TB_SERVICE_NAME: mail-gateway,
+                  TB_DB_URL: "postgresql://tb_mail_gateway:${TB_DB_PW_MAIL_GATEWAY:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_AUDIT_DIR: /data/audit, TB_MAIL_DIR: /data/mail}
     networks: [trialbox-net, egress-net]   # only service allowed to reach IMAP/SMTP (network.sh)
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
@@ -229,7 +248,9 @@ services:
     <<: *py
     mem_limit: ${TB_MEM_GATEWAY:-2g}
     command: ["uvicorn", "--factory", "gateway.app:create_app", "--host", "0.0.0.0", "--port", "8020"]
-    environment: {PORT: "8020", TB_SERVICE_NAME: gateway, TB_ENV: "${TB_ENV:-PRODUCTION}", TB_TOPOLOGY: "${TB_TOPOLOGY:-A}",
+    environment: {PORT: "8020", TB_SERVICE_NAME: gateway,
+                  TB_DB_URL: "postgresql://tb_gateway:${TB_DB_PW_GATEWAY:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_ENV: "${TB_ENV:-PRODUCTION}", TB_TOPOLOGY: "${TB_TOPOLOGY:-A}",
                   TB_PROFILE: "${TB_PROFILE:-P-GB10}", TB_CLOUD_OPT_IN: "${TB_CLOUD_OPT_IN:-}", TB_AUDIT_DIR: /data/audit,
                   TB_TRACESTORE: "on",
                   TB_REGISTRY_OVERRIDE: /etc/trialbox/site/registry.site.yaml, TB_MODEL_SWAP: "${TB_MODEL_SWAP:-}",
@@ -253,7 +274,9 @@ services:
     mem_limit: ${TB_MEM_CONSOLE:-2g}
     command: ["uvicorn", "--factory", "console.app:create_app", "--host", "0.0.0.0", "--port", "8090",
               "--proxy-headers", "--forwarded-allow-ips", "${TB_CONSOLE_FORWARDED_ALLOW_IPS:-127.0.0.1}"]
-    environment: {PORT: "8090", TB_SERVICE_NAME: console, TB_CONSOLE_DIR: /data/console, TB_AUDIT_DIR: /data/audit,
+    environment: {PORT: "8090", TB_SERVICE_NAME: console,
+                  TB_DB_URL: "postgresql://tb_console:${TB_DB_PW_CONSOLE:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_CONSOLE_DIR: /data/console, TB_AUDIT_DIR: /data/audit,
                   TB_RULESETS_DIR: /data/rulesets, TB_GATEWAY_URL: "http://gateway:8020/v1",
                   TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_CONSOLE_SECURE_COOKIE: "${TB_CONSOLE_SECURE_COOKIE:-}",
                   TB_OPS_DIR: /data/ops}  # D-178: the mount below; the host's TB_OPS_DIR in .env is the host path
@@ -286,7 +309,7 @@ services:
     profiles: [stub]
     mem_limit: 1g
     command: ["uvicorn", "llm_stub.app:app", "--host", "0.0.0.0", "--port", "8000"]
-    environment: {PORT: "8000", TB_SERVICE_NAME: llm-stub}
+    environment: {PORT: "8000", TB_SERVICE_NAME: llm-stub, TB_DB_URL: ""}  # opens no database (D-378)
     networks:
       model-net:
         aliases: [llm-service, llm-verifier]  # stands in for both serving endpoints (routing.yaml)

@@ -102,6 +102,7 @@ def render(
             L("pdf.screen.footer") + (L("pdf.screen.footer.cells", hi=sc - 1, t=sc) if sc > 1 else ""),
             small,
         ),
+        Paragraph(escape(meta.statement), small),  # TB-IU-01 C1 (T-116)
     ]
 
     def on_page(canvas: Any, doc: Any) -> None:

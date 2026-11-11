@@ -9,6 +9,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from tb_common.wording import statement
+
 REPO = Path(__file__).resolve().parents[3]
 FONT_DIRS = [Path(os.environ["TB_FONTS_DIR"])] if os.environ.get("TB_FONTS_DIR") else []
 FONT_DIRS += [Path("/opt/trialbox/fonts"), REPO / ".cache" / "fonts"]
@@ -45,6 +47,12 @@ class ReportMeta:
             f"TrialBox {self.site_id} · ruleset {self.ruleset} v{self.version} · model {self.model} · "
             f"snapshot {self.snapshot} · job {self.job_id}{tail}"
         )
+
+    @property
+    def statement(self) -> str:
+        """The intended-use statement in the report's language (TB-IU-01 §1 condition C1; T-116): every PDF and
+        workbook prints it once, from the one source in ``tb_common.wording``."""
+        return statement(self.locale)
 
 
 def font_family(locale: str) -> str:

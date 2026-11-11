@@ -275,6 +275,7 @@ def render(
     for k, v in sorted(capabilities.items()):
         crow.append([CAPABILITY_LABELS.get(k, k.replace("_", " ").capitalize()), L("pdf.yes") if v else L("pdf.no")])
     story.append(table(crow, [90 * mm, 30 * mm]))
+    story += [Spacer(1, 4 * mm), Paragraph(escape(meta.statement), small)]  # TB-IU-01 C1 (T-116)
 
     def on_page(canvas: Any, doc: Any) -> None:
         canvas.saveState()
