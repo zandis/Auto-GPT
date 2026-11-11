@@ -22,8 +22,8 @@ deleted upstream in 2024, so `pin_model` cannot pin the official folder.
 
 1. **One mode name, shared.** The embed service's modes are `model` (the local embedder from the offline models
    volume), `hash` (the CI stub) and `http` (the client of the service), in `services/embed_service/embedder.py`
-   `MODES`. The wizard writes `model` for a GPU box and `hash` for a stub box (and warns that a PRODUCTION embed
-   service refuses the stub). The old mode name `bge-m3` is read as `model`, so an older `.env` still starts.
+   `MODES`. The wizard writes `model` for a GPU box and `hash` for a stub box; a stub box runs with `TB_ENV` DEV or
+   TEST, since a PRODUCTION embed service refuses the stub. The old mode name `bge-m3` is read as `model`, so an older `.env` still starts.
 2. **No hash stub in PRODUCTION.** The embed service (`service_embedder`) refuses `hash` when `TB_ENV` is PRODUCTION
    (PRODUCTION when unset, D-127). An unset mode in PRODUCTION means `model`. The service builds its embedder at start
    in PRODUCTION, so a wrong configuration stops the container instead of failing the first call.

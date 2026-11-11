@@ -82,10 +82,9 @@ def test_the_wizard_writes_a_mode_the_service_accepts(tmp_path: Path) -> None:
     a = yaml.safe_load(ANSWERS_C.read_text(encoding="utf-8"))
     dirs = [ANSWERS_C.parent / "mapping"]
     _, gpu_env, _ = settings_wizard.build({**a, "llm_mode": "gpu"}, dirs)
-    _, stub_env, warnings = settings_wizard.build({**a, "llm_mode": "stub"}, dirs)
+    _, stub_env, _ = settings_wizard.build({**a, "llm_mode": "stub"}, dirs)
     assert emb.normalise_mode(gpu_env["TB_EMBED_MODE"]) == "model"
     assert emb.normalise_mode(stub_env["TB_EMBED_MODE"]) == "hash"
-    assert any("hash stub" in w for w in warnings)
     # the wizard's GPU output starts the service in PRODUCTION once the embedder is pinned
     folder = _weights(tmp_path / "models" / "embedder")
     override = _pin(tmp_path, folder)

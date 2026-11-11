@@ -300,11 +300,6 @@ def build(
         warnings.append(
             "ClinicalTrials.gov live: the box will reach clinicaltrials.gov:443 (the network sheet lists it)"
         )
-    if str(a.get("llm_mode", "gpu")) != "gpu":
-        warnings.append(
-            "llm_mode stub: the embedder is the hash stub, which the embed service refuses with TB_ENV PRODUCTION "
-            "(set TB_ENV DEV or TEST in deploy/.env for a stub box)"
-        )
     tls_host = str(a.get("tls_hostname") or "").strip()
     tls_mode = str(a.get("tls_mode") or "hospital").strip().lower()
     tls_env: dict[str, str] = {}
