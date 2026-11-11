@@ -433,14 +433,17 @@ def test_odm_holds_signed_values_with_audit_signature_and_cdash(tmp_path: Path) 
     # the changed value names the person's own source, not the machine's citation of the old value (E-08)
     assert _el(w, "o:AuditRecord/o:SourceID").text == "manual:2026-11-05"
     assert str(_el(items["urate"], "o:AuditRecord/o:SourceID").text).startswith("record:observation:o2@")
-    assert _el(w, "o:Signature/o:SignatureRef").get("SignatureOID") == "SD.transcribed"
+    # one SignatureDef per meaning, language and words signed (E-23 e, T-115)
+    assert str(_el(w, "o:Signature/o:SignatureRef").get("SignatureOID")).startswith("SD.transcribed.en.")
     idef = _el(root, ".//o:ItemDef[@OID='weight']")
     assert idef.get("SDSVarName") == "VSORRES"
     assert {(a.get("Context"), a.get("Name")) for a in idef.iterfind("o:Alias", NS)} == {
         ("CDASH", "VS.VSORRES"),
         ("CDASH-TESTCD", "WEIGHT"),
     }
-    assert [c.tag.split("}")[1] for c in idef] == ["Description", "Question", "Alias", "Alias"]
+    # T-115 (E-23 a, c): Length and decimal places on the float, the unit as a MeasurementUnitRef
+    assert [c.tag.split("}")[1] for c in idef] == ["Question", "MeasurementUnitRef", "Alias", "Alias"]
+    assert (idef.get("DataType"), idef.get("Length"), idef.get("SignificantDigits")) == ("float", "16", "4")
     assert root.find(".//o:SignatureDef/o:Meaning", NS) is not None
     assert _el(root, ".//o:User/o:FullName").text == "Chen Mei"
     assert "Tophus on the right ear" not in text  # the citation is a reference, never note text

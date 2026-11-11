@@ -26,6 +26,10 @@ Rules (each refusal is a :class:`PromptRegistryError` with a stable ``reason``):
   or a record (provisional until T-012's record schema): a JSON file under ``libs/tb_llm/prompts/qualification/``
   (inside the image) with that file's sha256 in the entry, naming ``prompt`` (``id@version``), ``sha256`` and
   ``schema_sha256`` equal to the entry's;
+* D-359 (T-606): ``get(id)`` without a version resolves to :meth:`PromptRegistry.served`: the newest version, and in
+  PRODUCTION the newest whose qualification holds. A new version is registered, run and qualified in DEV, TEST or
+  VALIDATION while a PRODUCTION box keeps serving the qualified one; the start check fails only when an id has no
+  qualified version or an entry's text or schema changed. An explicit unqualified version stays refused;
 * a prompt with no schema is refused for a patient route (data class D2, D3 or D4: ``prompt_schema_missing``);
 * a template may use ``{{ … }}`` expressions only (no ``{% … %}`` blocks), so :meth:`PromptRegistry.check_messages`
   can tell whether sent messages are this template rendered: the literal text between the expressions must appear
@@ -38,9 +42,10 @@ Ruleset pins (D-318, URS-PI-06). An approved ruleset names the prompts it runs w
 (``prompt_pins``: id -> version, text sha256, schema sha256; :meth:`PromptRegistry.pins` writes them at approval).
 :meth:`PromptRegistry.pinned` resolves a pin only when the registry still holds that version with the same text and
 schema (``prompt_pin_changed`` otherwise), so SCREEN keeps the approved text after a newer version is registered.
-:meth:`PromptRegistry.pin_drift` lists the pins whose prompt has a newer registered version: that study needs the
-investigator's re-approval. A manifest from before D-318 pins only a version, through ``models.judge_prompt``
-(``judge_v4``): :func:`manifest_pins` reads it as a pin without shas.
+:meth:`PromptRegistry.pin_drift` lists the pins whose prompt has a newer qualified version (D-359; the newest
+version when none is qualified): that study needs the investigator's re-approval. A manifest from before D-318 pins
+only a version, through ``models.judge_prompt`` (``judge_v4``): :func:`manifest_pins` reads it as a pin without
+shas.
 """
 
 from __future__ import annotations
@@ -362,15 +367,55 @@ class PromptRegistry:
         return self._by[(prompt_id, v)]
 
     def active_set(self) -> list[PromptEntry]:
-        """The prompts in use: per id the newest registered version (what ``get(id)`` returns)."""
+        """Per id the newest registered version: what ``get(id)`` returns outside PRODUCTION, and what
+        ``trialbox eval qualify`` qualifies."""
         return [self.entry(i) for i in sorted(self.ids)]
+
+    def qualifies(self, e: PromptEntry, environment: str | None = None) -> bool:
+        try:
+            self.check_qualification(e, environment)
+        except PromptRegistryError:
+            return False
+        return True
+
+    def served(self, prompt_id: str, environment: str | None = None) -> PromptEntry:
+        """The version ``get(prompt_id)`` resolves to (D-359): the newest registered version; in PRODUCTION the newest
+        whose qualification holds, so a newer version registered and not yet qualified waits (it is qualified in
+        VALIDATION) while the box keeps the qualified one. None qualified: ``prompt_unqualified``."""
+        e = self.entry(prompt_id)
+        if _env(environment) != "PRODUCTION":
+            return e
+        for v in reversed(self.versions(prompt_id)):
+            q = self._by[(prompt_id, v)]
+            if self.qualifies(q, environment):
+                return q
+        raise PromptRegistryError(
+            "prompt_unqualified",
+            f"{e.ref}: no version of {prompt_id!r} has a qualification record: refused in PRODUCTION",
+        )
+
+    def served_set(self, environment: str | None = None) -> list[PromptEntry]:
+        """Per id the version :meth:`served` resolves to (ids with none left out)."""
+        out = []
+        for i in sorted(self.ids):
+            try:
+                out.append(self.served(i, environment))
+            except PromptRegistryError:
+                continue
+        return out
+
+    def pending(self, environment: str | None = None) -> list[PromptEntry]:
+        """The versions newer than the one served in ``environment``: registered, waiting for a qualification."""
+        served = {e.id: e.version for e in self.served_set(environment)}
+        return [e for e in self.entries() if e.version > served.get(e.id, 0)]
 
     # ------------------------------------------------------------------------------------------------ checks
     def get(
         self, prompt_id: str, version: int | None = None, *, environment: str | None = None, patient: bool = False
     ) -> ResolvedPrompt:
-        """The verified text of ``prompt_id`` at ``version`` (newest when None); see the module rules."""
-        e = self.entry(prompt_id, version)
+        """The verified text of ``prompt_id`` at ``version`` (when None, the :meth:`served` version: the newest, and in
+        PRODUCTION the newest qualified one); see the module rules."""
+        e = self.entry(prompt_id, version) if version is not None else self.served(prompt_id, environment)
         r = self._verify(e)
         if patient and e.schema is None:
             raise PromptRegistryError(
@@ -476,8 +521,7 @@ class PromptRegistry:
     def check_qualification(self, e: PromptEntry, environment: str | None = None) -> None:
         """PRODUCTION only: the entry carries a qualification that holds (module rules). Elsewhere a missing record
         is allowed, so a new version can be qualified in VALIDATION."""
-        env = (environment if environment is not None else _environment()).strip().upper()
-        if env != "PRODUCTION":
+        if _env(environment) != "PRODUCTION":
             return
         q = e.qualification
         if q is None:
@@ -511,11 +555,12 @@ class PromptRegistry:
 
     # ------------------------------------------------------------------------------------------------ ruleset pins
     def pins(self, refs: dict[str, int | None]) -> dict[str, dict[str, Any]]:
-        """The ``prompt_pins`` an approval writes: per prompt id the given version (the active one when None), with
+        """The ``prompt_pins`` an approval writes: per prompt id the given version (the served one when None), with
         its text sha256 and schema sha256, each verified as :meth:`get` verifies it."""
         out: dict[str, dict[str, Any]] = {}
         for pid in sorted(refs):
-            e = self._verify(self.entry(pid, refs[pid])).entry
+            v = refs[pid]
+            e = self._verify(self.entry(pid, v) if v is not None else self.served(pid)).entry
             pin: dict[str, Any] = {"version": e.version, "sha256": e.sha256}
             if e.schema_sha256:
                 pin["schema_sha256"] = e.schema_sha256
@@ -537,9 +582,13 @@ class PromptRegistry:
         return r
 
     def pin_drift(self, pins: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-        """One row per pin that is no longer the registry's current prompt: ``newer`` (a newer version is registered:
-        the study needs re-approval, SCREEN keeps the pinned one), ``changed`` (the pinned version is gone or its text
-        or schema differs: SCREEN refuses it) or ``unknown`` (the id is not registered)."""
+        """One row per pin that is no longer the registry's current prompt: ``newer`` (a newer qualified version is
+        registered: the study needs re-approval, SCREEN keeps the pinned one), ``changed`` (the pinned version is gone
+        or its text or schema differs: SCREEN refuses it) or ``unknown`` (the id is not registered).
+
+        D-359: a newer version still waiting for its qualification record does not send approved studies back to the
+        investigator; it counts once its record holds. An id with no qualified version at all compares against its
+        newest version."""
         out: list[dict[str, Any]] = []
         for pid in sorted(pins):
             pin = pins[pid]
@@ -548,24 +597,35 @@ class PromptRegistry:
             if not vs:
                 out.append({"id": pid, "pinned": ref, "active": None, "state": "unknown"})
                 continue
-            active = f"{pid}@{vs[-1]}"
+            try:
+                top = self.served(pid, "PRODUCTION").version  # the newest qualified version (D-359)
+            except PromptRegistryError:
+                top = vs[-1]
+            active = f"{pid}@{top}"
             try:
                 self.pinned(pid, pin, environment="DEV")
             except PromptRegistryError:
                 out.append({"id": pid, "pinned": ref, "active": active, "state": "changed"})
                 continue
-            if int(pin["version"]) < vs[-1]:
+            if int(pin["version"]) < top:
                 out.append({"id": pid, "pinned": ref, "active": active, "state": "newer"})
         return out
 
     def problems(self, environment: str | None = None) -> list[str]:
-        """Every entry checked as :meth:`get` would (the start check): an empty list is a clean registry."""
+        """The start check: every entry's text and schema verified as :meth:`get` verifies them, and every id must
+        have a version :meth:`served` in ``environment`` (D-359: in PRODUCTION a newer version still waiting for its
+        qualification record is not a problem; the qualified one is served). An empty list is a clean registry."""
         out: list[str] = []
         for e in self.entries():
             try:
-                self.get(e.id, e.version, environment=environment)
+                self._verify(e)
             except PromptRegistryError as exc:
                 out.append(f"{e.ref}: {exc.reason}: {exc}")
+        for pid in sorted(self.ids):
+            try:
+                self.get(pid, environment=environment)
+            except PromptRegistryError as exc:
+                out.append(f"{self.entry(pid).ref}: {exc.reason}: {exc}")
         return out
 
     def check(self, environment: str | None = None) -> None:
@@ -573,6 +633,10 @@ class PromptRegistry:
         bad = self.problems(environment)
         if bad:
             raise PromptRegistryError("registry_invalid", "prompt registry refused: " + "; ".join(bad))
+
+
+def _env(environment: str | None) -> str:
+    return (environment if environment is not None else _environment()).strip().upper()
 
 
 def _environment() -> str:
@@ -643,6 +707,8 @@ def main(argv: list[str] | None = None) -> int:
     bad = default_registry().problems(env)
     for line in bad:
         print(line)
+    for e in default_registry().pending(env):
+        print(f"{e.ref}: waiting for a qualification record (served: the newest qualified version)")
     print(f"prompt registry: {'clean' if not bad else f'{len(bad)} problem(s)'} ({len(default_registry().entries())})")
     return 1 if bad else 0
 

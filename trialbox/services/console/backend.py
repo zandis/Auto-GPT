@@ -343,6 +343,19 @@ class HttpBackend:
             return None
         return dict(data) if isinstance(data, dict) else None
 
+    def model_builds(self) -> list[dict[str, Any]] | None:
+        """The gateway's registry view (``/registry/v1/builds``: statuses, pins, qualification records; no endpoint
+        addresses) for the admin Models tile (T-012b); None without a gateway or when it does not answer."""
+        base = self.services.get("gateway")
+        if not base:
+            return None
+        try:
+            data = ServiceClient(base, "gateway", timeout=10, retries=0).get_json("/registry/v1/builds")
+        except ServiceError:
+            return None
+        builds = data.get("builds") if isinstance(data, dict) else None
+        return [dict(b) for b in builds if isinstance(b, dict)] if isinstance(builds, list) else None
+
     def run_canary(self) -> bool:
         """Start the pair canary on the orchestrator (``POST /models/canary``); False when it is down or refused."""
         try:

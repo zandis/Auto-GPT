@@ -230,6 +230,20 @@ EN: dict[str, str] = {
     "edc.problem.sex_codes": "give the codes for male and female, e.g. male=1,female=2",
     "edc.problem.question": "give the words to look for in notes",
     "nav.edc": "EDC prefill",
+    # T-115 (D-368): the signature beside each value, what the send holds back, the stored re-entry result
+    "edc.review.signed_by": "Signed by {name} ({role}), {at}",
+    "edc.trail.covers": "Values signed",
+    "edc.action.superseded": "draft replaced: the item map changed",
+    "edc.result.target_changed": "built for another REDCap target: not sent",
+    "edc.result.stale_map": "the item map changed since signing: not sent",
+    "edc.result.dictionary_changed": "the REDCap data dictionary changed: not sent",
+    "edc.result.format": "REDCap would refuse this value: not sent",
+    "edc.sent_held": "Held back: other REDCap target {target}, map changed {map}, dictionary changed {dict}, format refused {fmt}.",
+    "edc.err.edc.token_bound": "This REDCap connection is already another study's target. Nothing was saved.",
+    "edc.err.edc.stale_map": "The item map changed after this value was drafted. Draft the subject again.",
+    "edc.err.edc.stale_dictionary": "The data dictionary changed after this value was drafted. Draft the subject again.",
+    "edc.err.edc.reentry_record": "No blind re-entry result is on record for this study. An administrator records it with the report's id first.",
+    "edc.err.edc.reentry_same_person": "The re-entry result was recorded by you. Another person records it.",
 }
 
 JA: dict[str, str] = {
@@ -457,6 +471,20 @@ JA: dict[str, str] = {
     "edc.problem.sex_codes": "男性と女性のコードを入力してください（例 male=1,female=2）",
     "edc.problem.question": "記録から探す語を入力してください",
     "nav.edc": "EDC 事前入力",
+    # T-115 (D-368)
+    "edc.review.signed_by": "署名：{name}（{role}）、{at}",
+    "edc.trail.covers": "署名した値",
+    "edc.action.superseded": "下書きを置き換え：項目対応表が変わった",
+    "edc.result.target_changed": "別の REDCap 送信先向け：送信しません",
+    "edc.result.stale_map": "署名後に項目対応表が変わった：送信しません",
+    "edc.result.dictionary_changed": "REDCap のデータ辞書が変わった：送信しません",
+    "edc.result.format": "REDCap が受け付けない形式：送信しません",
+    "edc.sent_held": "保留：別の送信先 {target}、対応表の変更 {map}、辞書の変更 {dict}、形式の不一致 {fmt}。",
+    "edc.err.edc.token_bound": "この REDCap 接続は既に別の試験の送信先です。保存していません。",
+    "edc.err.edc.stale_map": "この値の下書き後に項目対応表が変わりました。もう一度下書きしてください。",
+    "edc.err.edc.stale_dictionary": "この値の下書き後にデータ辞書が変わりました。もう一度下書きしてください。",
+    "edc.err.edc.reentry_record": "この試験のブラインド再入力の結果が記録されていません。先に管理者が報告書の番号とともに記録します。",
+    "edc.err.edc.reentry_same_person": "再入力の結果はあなたが記録しました。別の人が記録します。",
 }
 
 ZH: dict[str, str] = {
@@ -684,4 +712,18 @@ ZH: dict[str, str] = {
     "edc.problem.sex_codes": "請輸入男性與女性的代碼（例 male=1,female=2）",
     "edc.problem.question": "請輸入病歷中要找的詞",
     "nav.edc": "EDC 預填",
+    # T-115 (D-368)
+    "edc.review.signed_by": "簽章：{name}（{role}），{at}",
+    "edc.trail.covers": "已簽章的值",
+    "edc.action.superseded": "草稿已取代：項目對應表已變更",
+    "edc.result.target_changed": "為另一個 REDCap 目標而建：不送出",
+    "edc.result.stale_map": "簽章後項目對應表已變更：不送出",
+    "edc.result.dictionary_changed": "REDCap 資料字典已變更：不送出",
+    "edc.result.format": "REDCap 不會接受此值：不送出",
+    "edc.sent_held": "暫不送出：其他目標 {target}、對應表變更 {map}、字典變更 {dict}、格式不符 {fmt}。",
+    "edc.err.edc.token_bound": "此 REDCap 連線已是另一個試驗的目標，未儲存。",
+    "edc.err.edc.stale_map": "此值草擬後項目對應表已變更，請重新草擬。",
+    "edc.err.edc.stale_dictionary": "此值草擬後資料字典已變更，請重新草擬。",
+    "edc.err.edc.reentry_record": "此試驗尚無盲性重新輸入的結果紀錄，請先由管理者連同報告編號記錄。",
+    "edc.err.edc.reentry_same_person": "重新輸入的結果是你記錄的，須由另一人記錄。",
 }

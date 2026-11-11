@@ -46,6 +46,14 @@ refused here: downgrades are the update path's decision (T-111), which reads :me
 :meth:`Database.migrate_dir` reads a directory of ``NNN_<name>.sql`` files (``001_init.sql``, ``002_...``) as the
 version list. The PostgreSQL extensions ``vector`` and ``pgroonga`` exist only on the box's ``db`` image (created by
 ``deploy/docker/db-init/``, never by a store); :func:`extensions` lists the ones installed.
+
+**One role per service** (D-378, CR-037). On the box each service logs in as its own role (``tb_<service>``) and
+reaches only the schemas its list in ``deploy/docker/db-init/30-service-roles.sh`` names. Each of those schemas is
+owned by a group role ``tbs_<schema>``; a connection to a schema whose owner is such a group, and whose user is a
+member, runs ``SET ROLE`` to the group, so the tables a migration makes belong to the group, not to the one service
+that happened to start first. A schema that does not exist yet is created only then (``CREATE SCHEMA`` needs the
+database's CREATE right even when the schema exists). Anywhere else (the test clusters, a tool as ``trialbox``
+before D-378) nothing changes.
 """
 
 from __future__ import annotations
@@ -101,6 +109,13 @@ class MigrationOrderError(MigrationError):
     """Versions out of order: a gap or a duplicate in the scripts, or a gap in what is applied (D-204)."""
 
 
+#: D-378: the group role that owns a store's schema on the box is ``tbs_<schema>``; a service role that is a member
+#: works in the schema as the group (see ``deploy/docker/db-init/30-service-roles.sh``)
+GROUP_PREFIX = "tbs_"
+_GROUP_SQL = (
+    "SELECT 1 FROM pg_namespace n JOIN pg_roles r ON r.oid = n.nspowner "
+    "WHERE n.nspname = %s AND r.rolname = %s AND pg_has_role(current_user, r.oid, 'MEMBER')"
+)
 #: the PostgreSQL extensions the box's ``db`` image provides (D-204; ``deploy/docker/db-init/``)
 IMAGE_EXTENSIONS = ("vector", "pgroonga")
 #: the comment on ``_schema_version`` once every row carries a checksum (D-204): a row without one is refused after it
@@ -281,8 +296,14 @@ class Database:
         except Exception as e:  # psycopg.OperationalError and friends
             raise DatabaseError(f"cannot reach the trial database: {type(e).__name__}") from e
         try:
-            con.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
+            if con.execute("SELECT 1 FROM pg_namespace WHERE nspname = %s", (schema,)).fetchone() is None:
+                con.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
             con.execute(f'SET search_path TO "{schema}"')
+            # D-378: a schema owned by its group role (tbs_<schema>, deploy/docker/db-init/30-service-roles.sh) is
+            # used as that role, so what a migration creates belongs to the group and every member service can use it
+            group = (GROUP_PREFIX + schema)[:63]
+            if con.execute(_GROUP_SQL, (schema, group)).fetchone() is not None:
+                con.execute(f'SET ROLE "{group}"')
         except Exception as e:
             con.close()
             raise DatabaseError(f"cannot use the trial database: {type(e).__name__}") from e

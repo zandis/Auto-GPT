@@ -26,7 +26,9 @@
 #                 service passwords; .env 0600, settings.yaml 0640 for group tb; an existing settings.yaml is kept
 #                 and re-validated
 #   4. start:     docker compose up --wait --pull never with the chosen model profile (every image from the bundle,
-#                 digest pins kept on either Docker image store: tools/image_pins.py); egress rules (deploy/network.sh)
+#                 digest pins kept on either Docker image store: tools/image_pins.py); egress rules (deploy/network.sh);
+#                 the systemd units of deploy/systemd (egress closed at boot before Docker, the stack after a restart,
+#                 the egress refresh and watchdog timers; D-377)
 #   5. accounts:  first console administrator (password printed once); users page for the rest
 #   6. check:     deploy/check_host.sh; the console URL and the intake address
 # In GPU mode step 3 also makes the key of the on-box model servers (TB_LLM_API_KEY, D-177) and step 4 checks that
@@ -53,7 +55,7 @@ while [ $# -gt 0 ]; do
     --ctgov) CTGOV="$2"; shift ;;
     --ctgov-check) CTGOV_CHECK=1 ;;
     --check) CHECK=1 ;;
-    -h|--help) sed -n 2,38p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,40p "$0"; exit 0 ;;
     -*) echo "install: unknown option $1" >&2; exit 2 ;;
     *) BUNDLE="$1" ;;
   esac
@@ -214,7 +216,9 @@ fi
 echo "    ClinicalTrials.gov: $CTGOV"
 sed -i "/^TB_CTGOV_MODE=/d" deploy/.env && echo "TB_CTGOV_MODE=$CTGOV" >> deploy/.env
 # random service passwords where the example ones are still in place
-for k in POSTGRES_PASSWORD POSTGRES_WF_PASSWORD; do
+# D-378: and one per service role of the trial database (deploy/docker/db-init/30-service-roles.sh)
+for k in POSTGRES_PASSWORD POSTGRES_WF_PASSWORD TB_DB_PW_LAKE TB_DB_PW_CRITERIA_COMPILER TB_DB_PW_ADAPTER \
+         TB_DB_PW_ORCHESTRATOR TB_DB_PW_MAIL_GATEWAY TB_DB_PW_GATEWAY TB_DB_PW_CONSOLE; do
   if grep -q "^$k=change-me" deploy/.env || ! grep -q "^$k=" deploy/.env; then
     sed -i.bak "/^$k=/d" deploy/.env && printf '%s=%s\n' "$k" "$(rand 32)" >> deploy/.env
   fi
@@ -228,7 +232,7 @@ if command -v python3 >/dev/null; then
 else
   docker run --rm --user 0 -v "$ROOT/deploy:/d" "$IMAGE_PY" python -m tools.trialbox secrets init --deploy /d | sed 's/^/    /'
 fi
-# D-126: every service reaches the one trial database with the workflow role's password
+# D-126: the host tools reach the one trial database as `trialbox`; each service has its own role (D-378)
 WF_PW="$(sed -n 's/^POSTGRES_WF_PASSWORD=//p' deploy/.env | tail -1)"
 sed -i "/^TB_DB_URL=/d" deploy/.env && echo "TB_DB_URL=postgresql://trialbox:${WF_PW}@db:5432/trialbox_wf" >> deploy/.env
 # D-127 (review F-06): a box is PRODUCTION unless the operator set TB_ENV on purpose (timers, mail, REDCap, gates)
@@ -255,8 +259,9 @@ chmod 600 deploy/.env
 chown "$(id -u):10001" deploy/settings.yaml && chmod 640 deploy/settings.yaml
 export TB_SETTINGS_FILE="./settings.yaml"
 if [ "$MODE" = gpu ]; then
-  # D-142 (review R-01): pin the profile's deployed pair from the site's own weights (champion: the status PRODUCTION
-  # routes); without it every PRODUCTION model call is refused (build_unpinned). Builds already pinned are kept.
+  # D-142 (review R-01): pin the profile's deployed pair from the site's own weights, which must be the release
+  # models/registry.yaml expects (D-358), as candidate; PRODUCTION routes it once `trialbox eval qualify` passes and
+  # `pin_model --promote` makes it champion (until then: champion_unqualified / no_eligible_build). Pins are kept.
   mkdir -p deploy/site
   for v in JUDGE_MODEL_DIR JUDGE_MODEL VERIFIER_MODEL_DIR VERIFIER_MODEL; do  # as compose reads them from deploy/.env
     val="$(sed -n "s/^$v=//p" deploy/.env | tail -1)"; [ -z "$val" ] || export "$v=$val"
@@ -363,6 +368,9 @@ fi
 say "site keys (made once, never replaced)"
 "${COMPOSE[@]}" run --rm --no-deps -T adapter python -m adapter.cli keys-init | sed 's/^/    /' \
   || die "the site keys could not be made or read (above): put the site's keys back from the backup (RUNBOOK §5)"
+# D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
+"${COMPOSE[@]}" up -d --pull "$PULL" --wait db && "${COMPOSE[@]}" exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh \
+  || die "the database roles could not be set (docker compose logs db)"
 "${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-900}" \
   || { "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }
 if [ "$MODE" = gpu ]; then
@@ -376,8 +384,33 @@ if [ "$MODE" = gpu ]; then
   set -e
   [ "$rc" = 0 ] || die "the model servers do not match the pins or the key (FAIL above): the stack is up but every model call would be refused; fix deploy/.env (JUDGE_MODEL, VERIFIER_MODEL, TB_LLM_API_KEY) or re-pin (RUNBOOK §8), then re-run"
 fi
+EGRESS_OK=0
 if [ "$(id -u)" = 0 ] && [ -x deploy/network.sh ]; then
-  say "egress rules"; deploy/network.sh apply || echo "install: warning: egress rules not applied (deploy/network.sh apply)" >&2
+  say "egress rules"
+  if deploy/network.sh apply; then EGRESS_OK=1
+  else echo "install: warning: egress rules not applied (deploy/network.sh apply)" >&2; fi
+fi
+# T-108b (D-377; CR-043, OPS-049, OPS-064): the systemd units. trialbox-egress loads the closed egress table from the
+# state file `apply` just wrote, before Docker starts; trialbox starts the stack after it and re-applies the rules;
+# two timers refresh the rules and run the watchdog. Only once the state file exists: a boot without it would stop
+# Docker. TB_SYSTEMD_DIR moves the target folder (tests); TB_SYSTEMD=0 skips the step.
+SYSTEMD_DIR="${TB_SYSTEMD_DIR:-/etc/systemd/system}"
+if [ "${TB_SYSTEMD:-1}" != 0 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system ] && command -v systemctl >/dev/null; then
+  if [ "$EGRESS_OK" = 1 ]; then
+    say "systemd units (egress at boot, the stack after a restart, watchdog)"
+    for unit in deploy/systemd/*.service deploy/systemd/*.timer; do
+      sed "s#@TB_ROOT@#$ROOT#g" "$unit" > "$SYSTEMD_DIR/$(basename "$unit")"
+      chmod 644 "$SYSTEMD_DIR/$(basename "$unit")"
+    done
+    systemctl daemon-reload
+    systemctl enable trialbox-egress.service trialbox.service trialbox-egress-refresh.timer trialbox-watchdog.timer \
+      >/dev/null 2>&1 || die "the systemd units could not be enabled (systemctl status trialbox-egress trialbox)"
+    systemctl start trialbox-egress.service trialbox-egress-refresh.timer trialbox-watchdog.timer >/dev/null 2>&1 || true
+    echo "    enabled: trialbox-egress, trialbox, trialbox-egress-refresh.timer, trialbox-watchdog.timer"
+    echo "    (trialbox-ops.timer is installed, not enabled: RUNBOOK §15)"
+  else
+    echo "install: warning: systemd units not enabled: the egress rules were not applied (no state file for a boot)" >&2
+  fi
 fi
 if [ "$(id -u)" = 0 ] && [ -d /etc/cron.d ] && command -v python3 >/dev/null; then
   # D-138: every night collect yesterday's service logs, prune by settings.retention, copy the audit to its archive

@@ -55,9 +55,11 @@ def check_token(token: str) -> str:
 
 
 def api_url(base: str) -> str:
-    """The ``/api/`` endpoint of a REDCap base URL (``https://redcap.example/`` or ``.../api/``)."""
+    """The ``/api/`` endpoint of a REDCap base URL (``https://redcap.example/`` or ``.../api/``). Only ``https://``:
+    the token travels in every request body, so plain ``http://`` is refused (SEC-14, T-115). ``inproc://`` is the
+    demo's and tests' in-process simulator."""
     b = base.strip()
-    if not (b.startswith("https://") or b.startswith("http://") or b.startswith(INPROC_PREFIX)):
+    if not (b.lower().startswith("https://") or b.startswith(INPROC_PREFIX)):
         raise RcError("RC-UPSTREAM", "the REDCap URL must start with https://")
     b = b.rstrip("/")
     return b if b.endswith("/api") else b + "/api"
