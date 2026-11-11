@@ -1120,6 +1120,9 @@ def create_app(
     from console import sae_pages
 
     sae_pages.register(app, helpers)  # the SAE register and its worklist (D-191)
+    from console import breakglass
+
+    breakglass.register(app, helpers)  # D-280 (OD-5): the administrator's break-glass grants and the steward's review
     from console import timers
 
     timers.plan(raw_env)  # a bad HH:MM fails at start, not at 07:00
@@ -1216,7 +1219,10 @@ def create_app(
             raise _Problem(404, "notfound")
         # D-91/D-101: the CASE eligibility sheet carries chart text (phi); in the pilot workspace a requester or an
         # investigator may read it in the browser, exactly as the study team receives it by mail. Viewers may not.
-        if out.tag != "aggregate" and not (job.type == "CASE" and sess.user.can_view_phi):
+        # D-280 (OD-5): the administrator reads it only under a break-glass grant for this job
+        if out.tag != "aggregate" and not (
+            job.type == "CASE" and (sess.user.can_view_phi or _bg(sess, job, "case sheet") is not None)
+        ):
             raise _Problem(404, "notfound")
         if out.tag != "aggregate":  # D-273 (PV-3): an investigator reads a study's patient sheet only as delegated
             helpers.delegated(sess, job.ruleset or "", request.url.path)
@@ -1260,8 +1266,15 @@ def create_app(
         job = _job_or_404(job_id)
         return _job_page(request, sess, job)
 
+    def _bg(sess: Session, job: Job, what: str) -> Any:
+        """D-280 (OD-5): the administrator's open break-glass grant for this job (one audited use), else None."""
+        if helpers.breakglass is None:
+            return None
+        return helpers.breakglass(sess, job_id=job.job_id, what=what)
+
     def _job_page(request: Request, sess: Session, job: Job, revealed: dict[str, str] | None = None) -> Response:
         job_id = job.job_id
+        grant = _bg(sess, job, "job page")
         review_html = next(
             (o for o in job.outputs or [] if o.filename.startswith("review_") and o.filename.endswith(".html")), None
         )
@@ -1277,7 +1290,8 @@ def create_app(
             raw_rows.insert(0, (None, unmask_ids(mask_ids(str(web.detail.get("line", ""))), job.options)))
         case = _case_card(job)
         out = _case_opted_out(job, case)
-        thread_rows = [(m, shown_ids(sess, job, text, "thread", opted_out=out)) for m, text in raw_rows]
+        thread_rows = [(m, shown_ids(sess, job, text, "thread", opted_out=out, bg=grant is not None))
+                       for m, text in raw_rows]  # fmt: skip
         return page(
             request,
             "job.html",
@@ -1297,7 +1311,8 @@ def create_app(
             rulesets=[r for r in bk.rulesets() if r.status == "approved"],
             consent=_consent_card(job),
             case=case,
-            screen=_screen_card(job, sess, revealed),
+            screen=_screen_card(job, sess, revealed, bg=grant is not None),
+            breakglass=grant,
         )
 
     def _case_opted_out(job: Job, case: dict[str, Any] | None) -> bool:
@@ -1322,12 +1337,12 @@ def create_app(
         pid = str((got or {}).get("pid") or "")
         return not pid or pid in gone
 
-    def shown_ids(sess: Session, job: Job, text: str, where: str, opted_out: bool = False) -> str:
+    def shown_ids(sess: Session, job: Job, text: str, where: str, opted_out: bool = False, bg: bool = False) -> str:
         """A request line or subject as this reader may see it (P-01, D-143): the chart number in clear for an
         account with identifier authority for the job's study (administrator, coordinator, the study's
         investigator), as one audited view under the reveal cap; masked for everyone else (viewer, CRO)."""
         masked = mask_ids(text)
-        if masked == text or opted_out or not sess.user.sees_ids(job.ruleset):
+        if masked == text or opted_out or not (sess.user.sees_ids(job.ruleset) or bg):
             return masked
         if not helpers.delegated_ok(sess.user, job.ruleset):
             return masked
@@ -1336,10 +1351,11 @@ def create_app(
                       detail={"where": where, "reason": "rate limit"})  # fmt: skip
             return masked
         au.append("console.view_id", job_id=job.job_id, ruleset=job.ruleset, actor=actor(sess),
-                  detail={"where": where, "role": sess.user.role})  # fmt: skip
+                  detail={"where": where, "role": sess.user.role, **({"breakglass": True} if bg else {})})  # fmt: skip
         return text
 
-    def _screen_card(job: Job, sess: Session, revealed: dict[str, str] | None = None) -> dict[str, Any] | None:
+    def _screen_card(job: Job, sess: Session, revealed: dict[str, str] | None = None,
+                     bg: bool = False) -> dict[str, Any] | None:  # fmt: skip
         """The coordinator's screen for a finished SCREEN / MICROBATCH job (D-99): the run summary from the
         ``screen_*.json`` aggregate, and for administrators and coordinators the candidate rows (tier, next visit,
         practitioner, open questions, note quotes) from the candidate-list JSON the mail also carried. Viewers see the
@@ -1363,7 +1379,8 @@ def create_app(
                 card["summary"] = None
         # D-273 (PV-3, PV-4): the rows are patient level; an investigator sees them only as delegated ("screen"),
         # and a patient on the opt-out register now is not shown, however old the job (only the count is)
-        if list_out is not None and sess.user.can_view_phi and helpers.delegated_ok(sess.user, job.ruleset):
+        # D-280 (OD-5): the administrator only under a break-glass grant for this job (``bg``)
+        if list_out is not None and (sess.user.can_view_phi or bg) and helpers.delegated_ok(sess.user, job.ruleset):
             try:
                 cl = json.loads(bk.get_object(list_out.minio_key))
             except (KeyError, ValueError, OSError):
@@ -1425,7 +1442,8 @@ def create_app(
         list (so never an opted-out patient), audited before the orchestrator is asked, and the orchestrator's cap."""
         sess = need(request)
         job = _job_or_404(job_id)
-        _need_role(request, csrf, sess.user.sees_ids(job.ruleset), sess)
+        # D-280: the administrator gets through only under a break-glass grant; ``apply_reveal`` checks it
+        _need_role(request, csrf, sess.user.sees_ids(job.ruleset) or sess.user.is_admin, sess)
         if job.type not in ("SCREEN", "MICROBATCH") or job.state != "done":
             raise _Problem(409, "request.refused", reason="chart numbers are revealed for finished screening jobs only")
         pid = pid.strip()
@@ -1433,7 +1451,8 @@ def create_app(
             raise _Problem(400, "request.refused", reason="bad pseudonym")
         if helpers.apply_reveal is None or not job.ruleset:
             raise _Problem(403, "forbidden")
-        _ctx, mrn = helpers.apply_reveal(sess, request.url.path, job.ruleset, pid, reason, via="job", note=note)
+        _ctx, mrn = helpers.apply_reveal(sess, request.url.path, job.ruleset, pid, reason, via="job", note=note,
+                                         job_id=job.job_id)  # fmt: skip
         return _job_page(request, sess, job, revealed={pid: mrn})
 
     def _case_card(job: Job) -> dict[str, Any] | None:
@@ -1768,6 +1787,9 @@ def create_app(
         if not _RULESET_ID.match(rs):
             raise _Problem(404, "notfound")
         helpers.delegated(sess, rs, request.url.path)  # D-273 (PV-3): an investigator as delegated only
+        if sess.user.is_admin:  # D-280 (OD-5, CR-023): the registry's rows are patient level
+            au.append("console.denied", actor=actor(sess), detail={"action": request.url.path[:80]})
+            raise _Problem(403, "forbidden")
         try:
             return _registry_page(request, sess, rs)
         except Refused as exc:

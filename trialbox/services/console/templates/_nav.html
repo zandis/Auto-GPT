@@ -9,6 +9,10 @@
       {{ item('/reports', 'nav.reports', path.startswith('/reports') or path.endswith('/feasibility')) }}
     {% elif r in ('cro', 'viewer') %}
       {{ item('/reports', 'nav.reports', path.startswith('/reports') or path.endswith('/feasibility')) }}
+    {% elif r == 'steward' %}{# D-280: the steward's lists and the break-glass review #}
+      {{ item('/breakglass', 'nav.breakglass', path.startswith('/breakglass')) }}
+      {{ item('/site/opt-outs', 'team.optout.title', path.startswith('/site/opt-outs')) }}
+      {{ item('/site/staff', 'team.staff.title', path.startswith('/site/staff')) }}
     {% elif r == 'admin' %}
       {{ item('/home', 'nav.admin', path == '/home') }}
       {{ item('/home?view=studies', 'nav.studies', false) }}
@@ -27,7 +31,7 @@
         <a href="/help?back={{ path|urlencode }}">{{ t('help.title') }}</a>
         {% if r in ('investigator', 'coordinator', 'admin') %}<a href="/site" data-testid="more-site">{{ t('site.ready.title') }}</a>{% endif %}
         {% if r in ('investigator', 'coordinator', 'admin') %}<a href="/notices/received" data-testid="more-notices">{{ t('received.title') }}</a>{% endif %}
-        {% if settings.pilot and r in ('investigator', 'coordinator', 'admin') %}<a href="/sae" data-testid="more-sae">{{ t('sae.nav') }}</a>{% endif %}
+        {% if settings.pilot and r in ('investigator', 'coordinator') %}<a href="/sae" data-testid="more-sae">{{ t('sae.nav') }}</a>{% endif %}
         {% if r == 'cro' %}<a href="/reports">{{ t('nav.reports') }}</a>{% else %}
         {% set sp = path.split('/') %}{% if user.can_view_phi and sp|length > 2 and sp[1] == 'studies' and sp[2] and user.sees_study(sp[2]) %}{% set srs = sp[2]|upper %}
         <a href="/studies/{{ srs }}/setup" data-testid="more-setup">{{ srs }} · {{ t('setup.title') }}</a>
@@ -39,8 +43,9 @@
         <a href="/studies/{{ srs }}/referrals" data-testid="more-referrals">{{ srs }} · {{ t('team.ref.title') }}</a>
         <a href="/studies/{{ srs }}/team" data-testid="more-team">{{ srs }} · {{ t('team.log.title') }}</a>
         <a href="/studies/{{ srs }}/irb" data-testid="more-irb">{{ srs }} · {{ t('team.irb.title') }}</a>{% endif %}{% endif %}
-        {% if user.can_view_phi %}<a href="/site/staff" data-testid="more-staff">{{ t('team.staff.title') }}</a>{% endif %}
-        {% if r in ('coordinator', 'admin') %}<a href="/site/opt-outs" data-testid="more-optouts">{{ t('team.optout.title') }}</a>{% endif %}
+        {% if user.can_view_phi or r in ('admin', 'steward') %}<a href="/site/staff" data-testid="more-staff">{{ t('team.staff.title') }}</a>{% endif %}
+        {% if r in ('coordinator', 'steward') %}<a href="/site/opt-outs" data-testid="more-optouts">{{ t('team.optout.title') }}</a>{% endif %}
+        {% if r in ('admin', 'steward', 'investigator') %}<a href="/breakglass" data-testid="more-breakglass">{{ t('nav.breakglass') }}</a>{% endif %}
         {% if r == 'admin' %}<a href="/admin?tab=health">{{ t('admin.tab.health') }}</a><a href="/admin?tab=jobs">{{ t('admin.tab.jobs') }}</a><a href="/admin?tab=sources">{{ t('admin.tab.sources') }}</a>{% endif %}
         <a href="/">{{ t('nav.overview') }}</a>
         {% if user.aggregate_only %}<a href="/reports">{{ t('nav.reports') }}</a>{% else %}{# D-146: viewer and CRO open no run, registry or audit page #}

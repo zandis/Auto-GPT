@@ -69,8 +69,8 @@ def role_allowed(role: str, command: str) -> bool:
 # the logged PI has every task, a sub-investigator the ones the PI ticked, an investigator not on a log that names a PI
 # none. Before a study's log names a PI, every investigator of the study acts as its PI with ``investigator``'s row.
 STUDY_TASKS: tuple[str, ...] = ("screen", "approach", "refer", "enter_data")
+# D-280 (OD-5, CR-023): the administrator has no study task; one patient or one job only through break-glass.
 ROLE_STUDY_TASKS: dict[str, frozenset[str]] = {
-    "admin": frozenset({"screen"}),
     "coordinator": frozenset({"screen", "enter_data"}),
     "investigator": frozenset({"screen", "approach", "refer"}),  # until the study's log names its PI
 }
@@ -159,8 +159,8 @@ def admin_allowed(role: str, action: str) -> bool:
 # form (the data core) and only the coordinator enters trial data. The investigator still acknowledges on the
 # participant page (D-143). Viewer and CRO (sponsor, monitor) accounts see nothing.
 SAE_ACTIONS: tuple[str, ...] = ("view", "record")
+# D-280 (OD-5, CR-023): the administrator reads no SAE row (patient-level); break-glass covers one patient or job.
 ROLE_SAE_ACTIONS: dict[str, frozenset[str]] = {
-    "admin": frozenset({"view"}),
     "coordinator": frozenset({"view", "record"}),
     "investigator": frozenset({"view"}),
 }
@@ -169,3 +169,14 @@ ROLE_SAE_ACTIONS: dict[str, frozenset[str]] = {
 def sae_allowed(role: str, action: str) -> bool:
     """True only when the role table above grants ``action`` on the SAE register to ``role``."""
     return action in SAE_ACTIONS and action in ROLE_SAE_ACTIONS.get(role, frozenset())
+
+
+# D-280 (owner decision OD-5, CR-029): break-glass. The administrator sees patient data only through a grant: a reason
+# from this list plus a written note, one patient or one job, 60 minutes, then it ends by itself. The console signs a
+# reveal under a grant with :data:`BREAK_GLASS_ROLE`, never with ``admin``; the orchestrator gives a chart number to
+# that role only (``orchestrator.app.ID_ROLES``). Every use is audited and waits on the steward's review list.
+BREAK_GLASS_REASONS: tuple[str, ...] = ("support", "data_fix", "optout_request", "incident", "audit_request", "other")
+BREAK_GLASS_MINUTES = 60
+BREAK_GLASS_NOTE_MIN = 10  # the written "why" every grant needs, in characters
+BREAK_GLASS_ROLE = "breakglass"  # a signed role is a-z only (tb_common.service_auth)
+BREAK_GLASS_REVIEW_DAYS = 7  # the steward reviews each use within a week (owner question Q-20)
