@@ -101,7 +101,14 @@ def postprocess(
             mappings[vs_name] = res
             concept_vs[key] = vs_name
             valuesets[vs_name] = valueset(
-                ruleset, vs_name, cand.name, res.concepts, version, res.needs_review, families=res.families
+                ruleset,
+                vs_name,
+                cand.name,
+                res.concepts,
+                version,
+                res.needs_review,
+                families=res.families,
+                ingredients=getattr(term, "ingredients", None) if cand.domain == "medication" else None,
             )
             if res.method == "none":
                 warnings.append(f"concept '{cand.name}' ({cand.domain}) could not be mapped")

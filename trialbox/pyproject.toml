@@ -147,6 +147,16 @@ init_forbid_extra = true
 init_typed = true
 warn_required_dynamic_aliases = true
 
+# Coverage of the unit suite (T-651, ENG-029): the unit job runs it with COVERAGE_CORE=sysmon and lines only (no cost
+# worth naming); the nightly job adds branches. tools/coverage_ratchet.py compares each package with
+# tools/coverage_baseline.json and fails on a drop of more than 0.5 point.
+[tool.coverage.run]
+source = ["libs", "services", "tools"]
+relative_files = true
+
+[tool.coverage.report]
+skip_empty = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "libs", "services"]

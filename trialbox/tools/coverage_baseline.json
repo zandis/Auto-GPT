@@ -1,0 +1,247 @@
+{
+ "note": "tools/coverage_ratchet.py --write-baseline (T-651); line from the unit job, branch from the nightly",
+ "packages": {
+  "libs": {
+   "statements": 5,
+   "line": 0.0,
+   "branch": 100.0
+  },
+  "libs/tb_common": {
+   "statements": 4994,
+   "line": 94.01,
+   "branch": 87.5
+  },
+  "libs/tb_contracts": {
+   "statements": 2368,
+   "line": 97.68,
+   "branch": 79.09
+  },
+  "libs/tb_llm": {
+   "statements": 497,
+   "line": 92.35,
+   "branch": 84.57
+  },
+  "libs/tb_testkit": {
+   "statements": 138,
+   "line": 96.38,
+   "branch": 78.12
+  },
+  "services/adapter": {
+   "statements": 2887,
+   "line": 89.75,
+   "branch": 83.9
+  },
+  "services/channels": {
+   "statements": 263,
+   "line": 88.21,
+   "branch": 76.27
+  },
+  "services/console": {
+   "statements": 10250,
+   "line": 88.46,
+   "branch": 77.66
+  },
+  "services/criteria_compiler": {
+   "statements": 2525,
+   "line": 91.76,
+   "branch": 85.82
+  },
+  "services/datacore": {
+   "statements": 1528,
+   "line": 93.0,
+   "branch": 84.57
+  },
+  "services/dataplat": {
+   "statements": 1528,
+   "line": 91.75,
+   "branch": 79.5
+  },
+  "services/deliverables": {
+   "statements": 956,
+   "line": 97.91,
+   "branch": 93.08
+  },
+  "services/doc_parser": {
+   "statements": 227,
+   "line": 88.11,
+   "branch": 86.05
+  },
+  "services/edc": {
+   "statements": 1037,
+   "line": 92.29,
+   "branch": 83.6
+  },
+  "services/embed_service": {
+   "statements": 75,
+   "line": 76.0,
+   "branch": 57.14
+  },
+  "services/gateway": {
+   "statements": 766,
+   "line": 93.47,
+   "branch": 87.6
+  },
+  "services/guard": {
+   "statements": 178,
+   "line": 97.19,
+   "branch": 93.18
+  },
+  "services/lake": {
+   "statements": 898,
+   "line": 91.54,
+   "branch": 88.26
+  },
+  "services/llm_stub": {
+   "statements": 351,
+   "line": 93.16,
+   "branch": 85.29
+  },
+  "services/mail_gateway": {
+   "statements": 578,
+   "line": 84.43,
+   "branch": 74.62
+  },
+  "services/matching": {
+   "statements": 2065,
+   "line": 94.77,
+   "branch": 87.95
+  },
+  "services/model_guard": {
+   "statements": 122,
+   "line": 83.61,
+   "branch": 96.15
+  },
+  "services/omop": {
+   "statements": 1591,
+   "line": 89.5,
+   "branch": 82.03
+  },
+  "services/orchestrator": {
+   "statements": 8325,
+   "line": 92.2,
+   "branch": 82.28
+  },
+  "services/rc_bridge": {
+   "statements": 440,
+   "line": 93.18,
+   "branch": 85.47
+  },
+  "services/rc_sim": {
+   "statements": 296,
+   "line": 94.26,
+   "branch": 91.18
+  },
+  "services/registry": {
+   "statements": 262,
+   "line": 90.08,
+   "branch": 83.67
+  },
+  "services/sitesetup": {
+   "statements": 1661,
+   "line": 91.99,
+   "branch": 84.01
+  },
+  "services/tracestore": {
+   "statements": 109,
+   "line": 97.25,
+   "branch": 91.67
+  },
+  "tools": {
+   "statements": 30924,
+   "line": 66.84,
+   "branch": 62.95
+  }
+ },
+ "files": {
+  "services/matching/cascade/engine.py": {
+   "statements": 707,
+   "line": 96.04,
+   "branch": 90.83
+  },
+  "services/matching/proposed.py": {
+   "statements": 124,
+   "line": 93.55,
+   "branch": 91.67
+  },
+  "services/matching/coverage.py": {
+   "statements": 90,
+   "line": 95.56,
+   "branch": 91.67
+  },
+  "services/matching/cascade/judge.py": {
+   "statements": 108,
+   "line": 100.0,
+   "branch": 100.0
+  },
+  "libs/tb_common/pair.py": {
+   "statements": 92,
+   "line": 100.0,
+   "branch": 100.0
+  },
+  "libs/tb_common/quotes.py": {
+   "statements": 12,
+   "line": 100.0,
+   "branch": 100.0
+  },
+  "services/orchestrator/scenarios/evaluate.py": {
+   "statements": 392,
+   "line": 93.11,
+   "branch": 91.79
+  },
+  "services/criteria_compiler/compile_sql/generator.py": {
+   "statements": 270,
+   "line": 96.3,
+   "branch": 90.43
+  },
+  "services/criteria_compiler/compile_cql/generator.py": {
+   "statements": 309,
+   "line": 95.79,
+   "branch": 90.0
+  },
+  "services/criteria_compiler/compile_cql/translator.py": {
+   "statements": 79,
+   "line": 91.14,
+   "branch": 77.27
+  },
+  "services/criteria_compiler/semantics.py": {
+   "statements": 100,
+   "line": 98.0,
+   "branch": 96.67
+  },
+  "services/criteria_compiler/equivalence/gate.py": {
+   "statements": 56,
+   "line": 26.79,
+   "branch": 0.0
+  },
+  "libs/tb_common/derived.py": {
+   "statements": 189,
+   "line": 93.65,
+   "branch": 86.49
+  },
+  "services/guard/guard.py": {
+   "statements": 62,
+   "line": 96.77,
+   "branch": 100.0
+  },
+  "services/guard/recognisers.py": {
+   "statements": 95,
+   "line": 96.84,
+   "branch": 89.29
+  },
+  "libs/tb_common/phi_guard.py": {
+   "statements": 72,
+   "line": 100.0,
+   "branch": 96.67
+  },
+  "services/gateway/core.py": {
+   "statements": 371,
+   "line": 94.34,
+   "branch": 89.66
+  },
+  "services/gateway/policy.py": {
+   "statements": 228,
+   "line": 93.86,
+   "branch": 87.5
+  }
+ }
+}
