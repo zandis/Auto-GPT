@@ -159,8 +159,20 @@ def signature_sha(key: bytes, s: Mapping[str, Any], shas: Mapping[int, str]) -> 
     """What ``content_sha`` covers (version 2, D-281, CR-036): the study, subject and visit; who signed, their printed
     name and role; the meaning and its words in the signer's language; how they re-authenticated; when; and every
     value's hash. HMAC-SHA256 with the orchestrator's key, so a database writer without the key cannot re-make it."""
-    body = {k: str(s[k]) for k in ("study", "record", "visit", "signer", "printed_name", "role", "meaning",
-                                   "meaning_text", "lang", "method", "at")}  # fmt: skip
+    keys = (
+        "study",
+        "record",
+        "visit",
+        "signer",
+        "printed_name",
+        "role",
+        "meaning",
+        "meaning_text",
+        "lang",
+        "method",
+        "at",
+    )
+    body: dict[str, Any] = {k: str(s[k]) for k in keys}
     body["values"] = [[int(k), str(v)] for k, v in sorted((int(k), str(v)) for k, v in shas.items())]
     msg = json.dumps(body, sort_keys=True, ensure_ascii=False).encode("utf-8")
     return hmac.new(key, b"trialbox edc signature v2\x00" + msg, hashlib.sha256).hexdigest()

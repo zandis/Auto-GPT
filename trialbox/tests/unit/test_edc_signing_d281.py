@@ -177,7 +177,7 @@ def test_the_signature_key(tmp_path: Path) -> None:
 
 # ------------------------------------------------------------------ SEC-6: the audit line inside the transaction
 class _Broken(AuditLog):
-    def append(self, event: str, *a: Any, **kw: Any) -> Any:  # type: ignore[override]
+    def append(self, event: str, *a: Any, **kw: Any) -> Any:
         if event in ("edc.sign", "edc.decide") and "refused" not in (kw.get("detail") or {}):
             raise OSError("the audit volume is full")
         return super().append(event, *a, **kw)
