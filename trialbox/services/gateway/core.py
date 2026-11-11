@@ -22,8 +22,13 @@ Processing order for ``POST /v1/chat/completions`` (each step passes or refuses;
 4. PHI tripwire on D0–D2 calls (LLM-15): a hit blocks the call, it is never relabelled;
 5. registry resolution of each candidate alias to a pinned build (S1-07; unpinned builds are refused); a candidate
    outside the perimeter (``external``, ``dev_public``) also needs a provider pin for that endpoint (S1-14), because a
-   weight hash cannot vouch for what a third party serves (``provider_unpinned``);
-6. response cache keyed by (prompt sha, model sha) for cacheable D0/D1 roles (§8.12);
+   weight hash cannot vouch for what a third party serves (``provider_unpinned``); a request whose estimated size
+   (:mod:`tb_llm.budget`: the messages plus ``max_tokens``) is over the build's ``context_length`` is refused
+   ``prompt_too_long`` (HTTP 413) before anything is sent, with no other build tried (T-603, review LLM-015).
+   ``GET /v1/models`` gives each alias's context, so callers size their prompts from it;
+6. response cache keyed by (messages and response format, model sha, sampling, ``max_tokens``) for cacheable D0/D1
+   roles (§8.12); only a complete answer is kept: one cut off (``finish_reason`` other than ``stop``) or outside its
+   schema is not, so a retry with a larger budget reaches the model (T-603, review LLM-017);
 7. dispatch with forced sampling (MOD-4) and structured-output pass-through. A transport error or an HTTP 5xx is
    retried once on the same build. Another alias answers only where the route says ``fallback: any`` and the role
    is not a patient role (T-601, D-276; deep review LLM-002, LLM-003): a patient role gets the build it named, or
@@ -63,6 +68,7 @@ from tb_common.crypto import sha256_text
 from tb_common.policy.classes import Environment, Topology
 from tb_common.ulid import new_ulid
 from tb_contracts.dataclass import ClassLabel, DataClass
+from tb_llm.budget import estimate_messages, over_context
 from tb_llm.prompt_registry import (
     PATIENT_CLASSES,
     PromptRegistry,
@@ -146,6 +152,8 @@ class _Call:
     fallbacks: int = 0  # candidates that failed before the one that answered
     retries: int = 0  # second tries on the same build (T-601)
     expected_alias: str = ""  # the alias this call was meant to get: the one it named, else the route's first
+    tokens_est: int = 0  # the request's estimated prompt size (T-603, tb_llm.budget)
+    context: int | None = None  # the context of the build tried last (registry context_length)
     step_basis: str = ""  # D3/D4: "step" (confirmed), "intake" (FR-CONV-8) or "box_policy" (D-142)
 
 
@@ -251,6 +259,26 @@ class Gateway:
         """Aliases only (§8.2): no builds, hashes or endpoint addresses."""
         return sorted(self.registry.aliases)
 
+    def contexts(self) -> dict[str, int | None]:
+        """Each alias's context in tokens (T-603, review LLM-015): the ``context_length`` of the builds the alias can
+        route to here (not retired or suspended; pinned, or the stub in DEV/TEST), the smallest when several could;
+        None when none of them records one. Callers size prompts from it; the gateway checks each call against the
+        build that takes it."""
+        env = self.config.environment
+        sandbox = env in (Environment.DEV, Environment.TEST)
+        out: dict[str, int | None] = {}
+        for alias in sorted(self.registry.aliases):
+            sizes = [
+                int(b.context_length)
+                for b in self.registry.builds
+                if b.alias == alias
+                and b.status.value not in ("retired", "suspended")
+                and (b.pinned or (b.serving == "stub" and sandbox))
+                and b.context_length
+            ]
+            out[alias] = min(sizes) if sizes else None
+        return out
+
     def chat(self, headers: Mapping[str, str], body: dict[str, Any]) -> GatewayResponse:
         call = _Call(call_id=new_ulid())
         h = {k.lower(): v for k, v in headers.items()}
@@ -282,6 +310,7 @@ class Gateway:
         messages = body.get("messages")
         response_format = body.get("response_format")
         call.rendered_sha = sha256_text(canonical({"messages": messages, "response_format": response_format}))
+        call.tokens_est = estimate_messages(messages) if isinstance(messages, list) else 0
 
         # 1-2 identity and headers
         if not call.caller or call.caller not in self.policy.callers:
@@ -444,11 +473,24 @@ class Gateway:
         ep = cand.endpoint
         call.alias, call.build_id, call.build_sha = cand.alias, res.build.build_id, res.build.model_sha
         call.endpoint, call.zone = ep.name, ep.zone
+        call.context = int(res.build.context_length) if res.build.context_length else None
+        max_tokens = body.get("max_tokens")
+        max_tokens = max_tokens if isinstance(max_tokens, int) and not isinstance(max_tokens, bool) else None
+        if over_context(call.context, call.tokens_est, max_tokens):
+            # T-603 (review LLM-015): the server would answer HTTP 400; nothing is sent and no other build is tried
+            # (another build of the role has no larger context on this box, and on a patient route it is not allowed)
+            raise Refusal(
+                "prompt_too_long",
+                f"about {call.tokens_est} prompt tokens + max_tokens {max_tokens or 0} is over {call.alias}'s context "
+                f"of {call.context} tokens; size the prompt from GET /v1/models",
+                status=413,
+            )
         sampling = {} if free_form else dict(self.policy.sampling)
         cacheable = (
             bool(self.policy.roles.get(call.role, {}).get("cacheable")) and label.data_class.rank <= 1 and not free_form
         )
-        key = (call.rendered_sha, res.build.model_sha, canonical(sampling))
+        # T-603 (review LLM-017): max_tokens is in the key, so a retry with a larger budget is not the cut-off answer
+        key = (call.rendered_sha, res.build.model_sha, canonical({**sampling, "max_tokens": max_tokens}))
         hit: dict[str, Any] | None = None
         if cacheable:
             with self._cache_lock:
@@ -574,7 +616,12 @@ class Gateway:
             )
         call.output_sha = sha256_text(content)
         call.schema_valid = _schema_ok(content, body.get("response_format"))
-        if cacheable:
+        finish = payload["choices"][0].get("finish_reason") if isinstance(payload["choices"][0], dict) else None
+        # T-603 (review LLM-017): only a complete answer in its schema is kept; a cut-off or invalid one would be handed
+        # back to the retry that asks for it again with more room. A server that reports no finish_reason is
+        # taken as complete (the schema check still applies)
+        complete = finish in (None, "stop") and call.schema_valid is not False
+        if cacheable and complete:
             with self._cache_lock:
                 self.cache[key] = json.loads(json.dumps(payload))
                 while len(self.cache) > self.cache_size:
@@ -674,6 +721,8 @@ class Gateway:
             "fallbacks": call.fallbacks,
             "retries": call.retries,
             "expected_alias": call.expected_alias,
+            "tokens_est": call.tokens_est,
+            "context": call.context,
             "topology": self.config.topology.value,
             "environment": self.config.environment.value,
             **extra,

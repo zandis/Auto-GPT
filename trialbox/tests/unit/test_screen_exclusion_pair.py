@@ -203,8 +203,9 @@ def test_v1_not_met_is_not_final_when_the_budget_left_retrieved_notes_out(monkey
     small = _Chunks([_chunk(n, f"{FLARE}. Seen in clinic.") for n in range(1, 6)])
     large = _Chunks([_chunk(n, f"{FLARE}. {filler}") for n in range(1, 6)])
     assert _v1(small, "fail") == ("excluded", "note")  # control: every retrieved note was read
-    assert _v1(large, "fail") == ("review", "not_evaluated")
-    assert _v1(large, "pass")[1] == "note"  # an answer that keeps the patient stands
+    assert _v1(large, "fail") == ("review", "notes_over_budget")
+    # T-603 (CR-004 flag half): an answer that keeps the patient stands, flagged: review, with the reason
+    assert _v1(large, "pass") == ("review", "notes_over_budget")
 
 
 def test_v1_the_full_record_read_settles_what_the_chunk_budget_cut(monkeypatch: pytest.MonkeyPatch) -> None:
