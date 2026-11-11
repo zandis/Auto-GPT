@@ -18,6 +18,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from lake.client import LakeHttp
 from pydantic import BaseModel, Field
 from tb_common.audit import AuditLog
+from tb_common.authz import BREAK_GLASS_ROLE
 from tb_common.config import get_config, tb_env
 from tb_common.crypto import load_key
 from tb_common.fhir import FhirEvaluator
@@ -171,9 +172,10 @@ def _limit_key(request: Request, who: Actor) -> str:
     return f"{getattr(request.state, 'tb_caller', None) or '-'}|{who.name}"
 
 
-# D-273 (PV-5, PV-15): the console roles with identifier authority (``User.can_reveal``). Fix group D-280 takes the
-# administrator out of this set together with the console (owner decision OD-5: break-glass only).
-ID_ROLES = frozenset({"admin", "coordinator", "investigator"})
+# D-273 (PV-5, PV-15): the console roles with identifier authority (``User.can_reveal``). D-280 (owner decision OD-5):
+# the administrator is out of this set; an administrator's reveal under a break-glass grant is signed with
+# ``BREAK_GLASS_ROLE`` by the console, which holds the grant, its reason and its 60-minute end.
+ID_ROLES = frozenset({"coordinator", "investigator", BREAK_GLASS_ROLE})
 
 
 def _id_authority(o: Any, claim: Actor, rid: str | None, event: str, job_id: str | None = None,
@@ -392,7 +394,7 @@ class NoticeRequest(BaseModel):
     """A console notice (D-108): N1 the investigator's pre-clinic list, N2 the coordinator's digest. Pseudonyms and
     counts only (FR-NOTIF-01/02), so the mail is ``aggregate`` and goes to internal addresses only."""
 
-    kind: Literal["N1", "N2"]
+    kind: Literal["N1", "N2", "BG"]  # D-280: BG tells the steward and the PI of a break-glass grant at once
     to: list[str] = Field(min_length=1, max_length=5)
     subject: str = Field(min_length=1, max_length=200)
     body_md: str = Field(min_length=1, max_length=20_000)
