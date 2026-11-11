@@ -19,6 +19,16 @@ services:
     restart: unless-stopped
     init: true
     logging: {driver: json-file, options: {max-size: "50m", max-file: "5"}}
+    mem_limit: ${TB_MEM_CADDY:-256m}   # T-108a (D-360)
+    pids_limit: 256
+    labels: {tb.watchdog: restart}
+    # the Caddyfile's health site, on the container's loopback only (the admin API stays off)
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2020/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
     environment:
       TB_TLS_MODE: "${TB_TLS_MODE:-internal}"
       TB_TLS_HOSTNAME: "${TB_TLS_HOSTNAME:?set TB_TLS_HOSTNAME in deploy/.env (the console's DNS name)}"
@@ -47,6 +57,9 @@ services:
     image: ${AUTHELIA_IMAGE:-authelia/authelia:4.39.28@sha256:bd97cff4fcbf715b5ff1f9ae286afbe6033afce385302520b0368122d43a6f54}
     restart: unless-stopped
     logging: {driver: json-file, options: {max-size: "50m", max-file: "5"}}
+    mem_limit: ${TB_MEM_AUTHELIA:-512m}   # T-108a (D-360)
+    pids_limit: 256
+    labels: {tb.watchdog: restart}
     environment:
       X_AUTHELIA_CONFIG_FILTERS: template   # the OIDC signing key is read from a file by the template filter
       AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET_FILE: /run/authelia/jwt_secret

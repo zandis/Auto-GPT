@@ -31,7 +31,9 @@ Local concepts are minted from ``tb_local_concept_seq`` in the site's block (``T
 would end above 2,147,483,647 is refused. Migration 2 keeps the text it was applied with (ten million, D-204: an
 applied migration never changes); migration 3 narrows the sequence to the one-million block and adds the vocabulary
 tables of D-301 (``omop.vocab_load``). Migration 4 (T-106, D-339, ``ddl/partitions.sql``) partitions the large
-clinical tables by the year of their required date (``omop.partitions``).
+clinical tables by the year of their required date (``omop.partitions``). Migration 5 (T-106b, STD-032) creates the
+other fifteen tables of the pinned DDL (:data:`CDM_TABLES_ADDED`) the same way as migration 1, so the store holds all
+39 CDM v5.4 tables; the loader writes none of the fifteen yet.
 """
 
 from __future__ import annotations
@@ -76,6 +78,26 @@ CDM_TABLES = (
     "source_to_concept_map",
     "drug_strength",
 )
+# T-106b (STD-032): the other fifteen tables of the v5.4 DDL, created empty by migration 5 (an empty table is
+# conformant; OHDSI tools such as Achilles, the DQD package and WebAPI expect all 39). Migration 1 keeps its text.
+CDM_TABLES_ADDED = (
+    "visit_detail",
+    "device_exposure",
+    "note_nlp",
+    "specimen",
+    "location",
+    "payer_plan_period",
+    "cost",
+    "drug_era",
+    "dose_era",
+    "condition_era",
+    "episode",
+    "episode_event",
+    "metadata",
+    "cohort",
+    "cohort_definition",
+)
+ALL_CDM_TABLES = CDM_TABLES + CDM_TABLES_ADDED
 FILES = ("ddl", "primary_keys", "indices")
 
 # record status (D-151): coded = from the hospital's coded record; the rest as the design's state machine
@@ -360,7 +382,7 @@ CREATE TABLE tb_ruleset_release (
 def migrations() -> list[str]:
     from omop.partitions import migration as partitions_ddl
 
-    return [cdm_ddl(), tb_ddl(), vocab_ddl(), partitions_ddl()]
+    return [cdm_ddl(), tb_ddl(), vocab_ddl(), partitions_ddl(), cdm_ddl(CDM_TABLES_ADDED)]
 
 
 def db_url() -> str | None:

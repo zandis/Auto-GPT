@@ -18,12 +18,20 @@
 #   rest (~55%)                               OS, HAPI (HAPI_XMX 6g), Postgres, DuckDB, embedder, services
 # vLLM sizes its pool as a fraction of the whole device and checks free memory at start, so llm-verifier starts only
 # after llm-service is healthy.
+# Every service has a memory limit (mem_limit, GiB), so no one service can starve the models of unified memory
+# (OPS-063). The limits are deploy/gb10-profile.yaml's, unmeasured until a Spark run records each peak (D-373);
+# tests/unit/test_two_device_config.py keeps the two equal. The two-device form: deploy/two-device/ (T-214).
 #
 # Host prerequisites (deploy/check_host.sh --gb10 checks them):
 #   * NVIDIA driver 580.142 exactly. Hold the package (apt-mark hold); the later 580.x builds regress vLLM on GB10
 #     (see the SPEC reference "GB10 driver regression note"). Do not take driver updates outside a signed update bundle.
+#     The hold is dated and re-tested every 28 days on the bench Spark (D-373, deploy/gb10-profile.yaml driver_hold).
 #   * nvidia-container-toolkit; Docker Engine 27+; cgroup v2.
 #   * TrialBox images built multi-arch (make images-multiarch) or arm64 (make images PLATFORM=linux/arm64).
+#
+# Limits (T-108a, D-360): the base file's caps hold here too; a cap counts the host side of unified memory a
+# container maps, so the vLLM caps (TB_MEM_LLM, TB_MEM_VERIFIER, 48g each) leave room for the weights' page cache.
+# Not measured on a Spark (T-214 measures them).
 #
 # Every third-party image is pinned by digest in deploy/images.lock (D-348). The pins are multi-arch indexes that
 # include arm64. Unified memory is shared with HAPI, DuckDB and the embedder, so vLLM takes a smaller fraction than on
@@ -34,6 +42,7 @@ x-arm: &arm
 services:
   llm-service:
     <<: *arm
+    mem_limit: 42g   # deploy/gb10-profile.yaml (unmeasured, D-373)
     # D-348: the official vLLM release of every profile (deploy/images.lock), its arm64 manifest. Built for CUDA 13 and
     # sm_120, which runs on the GB10's sm_121 (check_host.sh --gb10 checks the device and the driver against the lock).
     # It replaced a community build for the DGX Station (sm_103a, DEP-003). To be confirmed on a Spark (T-214).
@@ -57,6 +66,7 @@ services:
 
   llm-verifier:
     <<: *arm
+    mem_limit: ${TB_MEM_VERIFIER:-32g}   # deploy/gb10-profile.yaml (unmeasured, D-373)
     logging:
       driver: json-file
       options: {max-size: "50m", max-file: "5"}
@@ -81,6 +91,8 @@ services:
     ipc: host
     networks: {model-backend-net: {aliases: [llm-verifier-vllm]}}   # behind model-guard (D-177)
     restart: unless-stopped
+    pids_limit: 4096
+    labels: {tb.watchdog: restart}   # the host's watchdog restarts a hung server (OPS-029)
     depends_on:
       llm-service: {condition: service_healthy}
     deploy:
@@ -95,31 +107,36 @@ services:
       start_period: 900s
 
   # TrialBox services: the same images, arm64 variant (multi-arch tag or the local arm64 build).
-  mail-gateway: *arm
+  mail-gateway: {<<: *arm, mem_limit: 1g}
   orchestrator:
     <<: *arm
+    mem_limit: 3g   # deploy/gb10-profile.yaml (unmeasured, D-373)
     environment:
       TB_MODEL_SWAP: "off"   # one pass per run with both models (orchestrator/twophase.py)
       TB_SCREEN_LLM_CONCURRENCY: "${JUDGE_MAX_SEQS:-8}"   # SCREEN calls in flight: vLLM --max-num-seqs (D-142)
-  criteria-compiler: *arm
-  adapter: *arm
-  lake: *arm
+  criteria-compiler: {<<: *arm, mem_limit: 1g}
+  adapter: {<<: *arm, mem_limit: 3g}
+  lake: {<<: *arm, mem_limit: 6g}
   embed-service:
     <<: *arm
+    mem_limit: 4g   # deploy/gb10-profile.yaml (unmeasured, D-373)
     environment:
       TB_EMBED_DEVICE: ${TB_EMBED_DEVICE:-cuda}  # bge-m3 on the GPU; falls back to CPU when CUDA is absent
-  doc-parser: *arm
+  doc-parser: {<<: *arm, mem_limit: 2g}
   gateway:
     <<: *arm
+    mem_limit: 2g   # deploy/gb10-profile.yaml (unmeasured, D-373)
     environment:
       TB_MODEL_SWAP: "off"   # both resident (services/gateway/swap.py)
       TB_PROFILE: P-GB10
-  llm-stub: *arm
-  model-guard: *arm
+  llm-stub: {<<: *arm, mem_limit: 1g}
+  console: {<<: *arm, mem_limit: 2g}
+  model-guard: {<<: *arm, mem_limit: 1g}
   # Third-party services: multi-arch digests from docker-compose.yml resolve to their arm64 manifests here.
-  db: *arm
+  db: {<<: *arm, mem_limit: 8g}
   fhir-store:
     <<: *arm
+    mem_limit: ${TB_MEM_FHIR:-8g}   # the 6g heap below plus the JVM's own (T-108a, D-360); gb10-profile.yaml (D-373)
     environment:
       # same flags as the base file; explicit heap so HAPI does not size itself from the 128 GB of unified memory
       JAVA_TOOL_OPTIONS: "-Xmx${HAPI_XMX:-6g} -Duser.timezone=${TB_TZ:?set TB_TZ in deploy/.env to site.tz (D-315)}"

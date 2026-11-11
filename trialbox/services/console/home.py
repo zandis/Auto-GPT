@@ -30,7 +30,7 @@ from tb_common.authz import BREAK_GLASS_ROLE, can_request
 from tb_common.service_auth import bind_session, scope_of
 from tb_contracts import Job
 
-from console import s28
+from console import coded_view, s28
 from console import studies as st
 from console.auth import REVEAL_REASONS, Session, reveal_reason, source_of
 from console.backend import Refused
@@ -727,13 +727,17 @@ def register(app: FastAPI, h: Helpers) -> None:
                 {"id": c["id"], "label": crit[c["id"]].label if c["id"] in crit else c["id"],
                  "kind": crit[c["id"]].kind if c["id"] in crit else "", "source": c.get("source") or "coded",
                  "quote": c.get("quote"), "date": c.get("quote_date"), "reason": c.get("reason"),
-                 "records": len(c.get("resource_refs") or [])}
+                 "records": len(c.get("resource_refs") or []),
+                 # T-514 (D-362): the coded records' value, unit, date and code; the test model's note answers say so
+                 "coded": coded_view.view(c, "fail"),
+                 "test_model": c.get("source") == "notes" and st.test_model_in_use()}
                 for c in r.get("criteria") or []
             ]  # fmt: skip
             if not items:  # excluded by the run's own rules: scope, research-contact consent
                 items = [{"id": "", "label": "consent" if "consent" in a.lower() or a.startswith("contact")
                           else "scope", "kind": "", "source": "rule", "quote": None, "date": None, "reason": None,
-                          "records": 0} for a in r.get("actions") or ["scope"]]  # fmt: skip
+                          "records": 0, "coded": None, "test_model": False}
+                         for a in r.get("actions") or ["scope"]]  # fmt: skip
             out.append({"pid": str(r["pid"]), "short": str(r["pid"])[:8], "items": items})
         return out
 
@@ -795,6 +799,35 @@ def register(app: FastAPI, h: Helpers) -> None:
         au.append("console.excluded_review", job_id=job.job_id, ruleset=rid, actor=h.actor(sess),
                   detail={"pid": pid, "criterion": crit, "role": sess.user.role})  # fmt: skip
         return RedirectResponse(f"/studies/{rid}/not-matched?done=sent#x-{pid[:8]}", status_code=303)
+
+    # ------------------------------------------------------------------ amendment re-screen list (D-364, LIFE-010)
+    def rescreen_bundle(sess: Session, rid: str) -> dict[str, Any]:
+        """The latest list (a new criteria version) against the latest list of an earlier version."""
+        wk = week_bundle(sess, rid)
+        cl = (wk or {}).get("cl") or None
+        version = str((cl or {}).get("version") or "")
+        if wk is None or not version:
+            return {"rows": [], "version": version, "prev": "", "job": None}
+        jobs = [j for j in bk.list_jobs(limit=500) if j.ruleset == rid and j.type in SCREEN_TYPES and j.state == "done"]
+        older = [j for j in jobs if j.ruleset_version and st.semver(j.ruleset_version) < st.semver(version)]
+        old_job = max(older, key=lambda j: (j.updated_at or j.received_at, j.job_id), default=None)
+        old = load(old_job, "candidate_list_", ".json") if old_job is not None else None
+        gone = h.gone()  # D-273 (PV-4): an opted-out patient is on no list
+        reg = {p: s for p, s in registry_map(rid).items() if p not in gone}
+        rows = st.rescreen_list(cl, store.latest_marks(rid), reg, crit_of(rid, sess.lang), old)
+        prev = str((old or {}).get("version") or "")
+        return {"rows": rows, "version": version, "prev": prev, "job": wk["job"]}
+
+    @app.get("/studies/{rs}/rescreen")
+    def rescreen(request: Request, rs: str) -> Response:
+        sess = h.need(request)
+        rid = need_excluded(sess, rs, request.url.path)
+        b = rescreen_bundle(sess, rid)
+        groups = {g: [r for r in b["rows"] if r["group"] == g] for g in st.RESCREEN_GROUPS}
+        au.append("console.view", ruleset=rid, actor=h.actor(sess),
+                  detail={"page": "rescreen", "rows": len(b["rows"]), "version": b["version"]})  # fmt: skip
+        return h.page(request, "rescreen.html", sess, rs=rid, groups=groups, n=len(b["rows"]), version=b["version"],
+                      prev=b["prev"], job=b["job"])  # fmt: skip
 
     h.patient_ctx = patient_ctx
 
@@ -992,8 +1025,12 @@ def register(app: FastAPI, h: Helpers) -> None:
                           detail={"pid": pid, "action": "approach", "reason": ",".join(warned)})  # fmt: skip
             au.append("console.pi_mark", job_id=wk["job"].job_id, ruleset=rid, actor=h.actor(sess), detail=detail)
 
-        store.mark(rid, Mark(pid, value, stored_reason, stored_note, sess.user.username, now, wk["job"].job_id),
-                   number=conf if mark == "approach" else None, before_commit=audit)  # fmt: skip
+        # D-364 (LIFE-010): the criteria version of the list the mark was made on
+        version = str((wk.get("cl") or {}).get("version") or wk["job"].ruleset_version or "") or None
+        if version:
+            detail["version"] = version
+        store.mark(rid, Mark(pid, value, stored_reason, stored_note, sess.user.username, now, wk["job"].job_id,
+                             version), number=conf if mark == "approach" else None, before_commit=audit)  # fmt: skip
         if warned:  # the override record follows its audit event (an event without the record, never the reverse)
             h.team.add_override(rid, pid, warned, sess.user.username, now)
         return rid, value, detail

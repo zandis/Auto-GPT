@@ -158,6 +158,8 @@ TrialBox clinical synonyms (ja, zh-TW), condition names, departments
 SNOMED CT
   TrialBox v1 ships without SNOMED CT (no affiliate licence for Japan or Taiwan; inquiry TB-LIC-01 not sent). The
   remnants were removed by card T-617b (D-342), and the build check refuses a shipped data file that names it.
+  One exception (D-376): the TWPAS bundle's route is SNOMED CT 26643006 (oral), the only oral code in the TWPAS
+  IG's required route value set. The code is written; no description ships. The licence question is open (9.3).
   A hospital feed that carries SNOMED CT codes is still read on the box.
 
 
@@ -406,8 +408,9 @@ Every folder of the image that holds code lists, code maps or value sets, and th
     request text is docs/licences/atc-permission-request.md (not sent). The fallback is codes only, names from the
     open NHI and site lists. The ATC version is not recorded.
 9.3 SNOMED CT remnants: closed by T-617b. The MIMIC ICU map uses ICD-10-PCS, the OMOP operator concepts keep OHDSI
-    ids without SNOMED CT codes, the TWPAS route is TW Core's medication-path-tw, and the test value sets dropped
-    their SNOMED CT includes.
+    ids without SNOMED CT codes, and the test value sets dropped their SNOMED CT includes. The TWPAS route is
+    SNOMED CT 26643006 again (D-376), because the IG's required value set has no other oral code. Whether that one
+    code needs an affiliate licence is for the owner (inquiry TB-LIC-01).
 9.4 JP Core: the package states no licence; JAMI's terms are to be confirmed before go-live in Japan.
 9.5 Fonts: fetched from an unpinned branch; the font hash pin is in dependency batch 2.
 9.6 The licence of each item above was read from the source's own statement or the component's metadata;

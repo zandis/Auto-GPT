@@ -13,7 +13,7 @@ from xml.etree import ElementTree as ET
 import httpx
 import pytest
 from edc import odm
-from edc.store import KEY_ENV, KEY_FILE, SIG_VERSION, EdcError, EdcStore, _legacy_sha, sign_key_of
+from edc.store import APPEND_ONLY, KEY_ENV, KEY_FILE, SIG_VERSION, EdcError, EdcStore, _legacy_sha, sign_key_of
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from rc_bridge.client import RedcapClient
@@ -155,7 +155,7 @@ def test_the_trail_tables_are_append_only(tmp_path: Path, table: str) -> None:
                               "pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() "
                               "AND NOT t.tgisinternal")  # fmt: skip
     again.close()
-    assert len(names) == len({n[0] for n in names}) == 12
+    assert len(names) == len({n[0] for n in names}) == 2 * len(APPEND_ONLY)  # T-115 adds reentry_record
 
 
 def test_the_signature_key(tmp_path: Path) -> None:
@@ -163,10 +163,10 @@ def test_the_signature_key(tmp_path: Path) -> None:
     with pytest.raises(EdcError) as e:
         sign_key_of({"TB_ENV": "PRODUCTION"})
     assert e.value.code == "edc.sign_key"
-    made = sign_key_of({"TB_ENV": "PRODUCTION"}, tmp_path / "secrets")  # made once in the secrets folder
+    made = sign_key_of({"TB_ENV": "TEST"}, tmp_path / "secrets")  # made once in the secrets folder
     f = tmp_path / "secrets" / KEY_FILE
     assert len(made) == 32 and (f.stat().st_mode & 0o777) == 0o600
-    assert sign_key_of({}, tmp_path / "secrets") == made  # never replaced
+    assert sign_key_of({}, tmp_path / "secrets") == made  # never replaced; a plain key still loads (T-210d)
     named = tmp_path / "elsewhere.key"
     named.write_bytes(b"short")
     with pytest.raises(EdcError):

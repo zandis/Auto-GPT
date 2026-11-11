@@ -1,0 +1,10 @@
+# The console's operations runner (D-178), the unit of RUNBOOK §15. Installed by deploy/install.sh but not enabled:
+# turn it on with `systemctl enable --now trialbox-ops.timer`.
+[Unit]
+Description=TrialBox operations requests
+After=trialbox.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=@TB_ROOT@
+ExecStart=/usr/bin/env python3 -m tools.trialbox ops run

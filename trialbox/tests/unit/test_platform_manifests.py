@@ -22,6 +22,7 @@ from typing import Any
 
 import pytest
 import yaml
+from tb_common import kek
 
 from tools.trialbox import doctor
 from tools.trialbox import platform as pf
@@ -271,7 +272,7 @@ def test_copies_in_the_base_are_byte_identical() -> None:
     """kustomize reads files only under the kustomization, so the base carries two copies; they never drift."""
     base = PLATFORM / "base"
     assert (base / "settings.example.yaml").read_bytes() == (ROOT / "deploy/settings.example.yaml").read_bytes()
-    for f in ("10-trialbox-wf.sh", "20-extensions.sh"):
+    for f in ("10-trialbox-wf.sh", "20-extensions.sh", "30-service-roles.sh"):
         assert (base / "db-init" / f).read_bytes() == (ROOT / "deploy/docker/db-init" / f).read_bytes(), f
 
 
@@ -563,6 +564,24 @@ def test_a_secret_holding_the_kek_fails_doctor() -> None:
         c = pf.check_kek_custody(_inputs(st))
         assert c.status == "FAIL" and secret["metadata"]["name"] in c.detail, secret
         assert "c2VjcmV0" not in c.detail  # a value is never echoed
+
+
+def test_the_secret_check_follows_the_keys_the_kek_wraps() -> None:
+    """T-210e: the platform check takes its key names from ``kek.PROTECTED`` (OPTIONAL keys included): a key added
+    there is refused in a Secret without a second list to keep in step."""
+    assert pf.KEK_KEY_NAMES == kek.PROTECTED
+    assert set(kek.OPTIONAL) <= set(pf.KEK_KEY_NAMES)
+    for name in kek.PROTECTED:
+        for spelled in (name, name.upper(), name.replace("_", "-"), name.replace("_", "")):
+            st = _cluster(quota=ENOUGH)
+            st.objects.append({"kind": "Secret", "metadata": {"name": "app"}, "data": {spelled: "c2VjcmV0"}})
+            c = pf.check_kek_custody(_inputs(st))
+            assert c.status == "FAIL" and spelled in c.detail and "c2VjcmV0" not in c.detail, spelled
+    for benign in ("audit_sign.pub", "totp.key", "TB_DB_URL", "tls.key", "objects", "keycloak"):
+        assert not pf.KEK_KEYS.search(benign), benign
+    # a key added to PROTECTED later is found by the same pattern
+    later = pf.kek_keys_pattern((*kek.PROTECTED, "consent_sign.key"))
+    assert later.search("consent_sign.key") and not pf.KEK_KEYS.search("consent_sign.key")
 
 
 def test_image_digests_against_the_release() -> None:

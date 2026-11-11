@@ -19,5 +19,8 @@ Each record holds, in this order:
    update log), result.
 7. **Periodic review.** When one falls due (VMP §8): its findings and the problem-log rows it opened.
 8. **Steps to repeat at a site.** Only where TB-PLAN-06 §0.3 item 2 applies; otherwise "none".
+9. **Record inventory.** The output of `python tools/gen_traceability.py --records` at the tagged commit: the
+   records of `../record-inventory.md` §2 with class, keeper and retention, and whether the store map is complete
+   (card T-643).
 
 No signature (D-311).

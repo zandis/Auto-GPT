@@ -7,7 +7,7 @@
 {% block content %}
 {% from "_life.html" import sae_banner, report_banner with context %}
 <div class="headrow"><h1>{{ t('wb.title') }} · {{ rs }}</h1>
-{% if wk %}<span class="hint" data-testid="week-counts">{{ t('week.counts', n=wk.counts.total, new=wk.counts.new, pending=wk.counts.pending, marked=wk.counts.marked) }} · <a href="/studies/{{ rs }}/excluded" data-testid="to-excluded">{{ t('ex.link') }}</a></span>{% endif %}</div>
+{% if wk %}<span class="hint" data-testid="week-counts">{{ t('week.counts', n=wk.counts.total, new=wk.counts.new, pending=wk.counts.pending, marked=wk.counts.marked) }} · <a href="/studies/{{ rs }}/excluded" data-testid="to-excluded">{{ t('ex.link') }}</a> · <a href="/studies/{{ rs }}/rescreen" data-testid="to-rescreen">{{ t('rescreen.link') }}</a></span>{% endif %}</div>
 {# T-684 (UX-037): once the study is set up the procedure folds to one line and the SAE banners to one line each,
    so the first patient row is on the first screen #}
 {% if step < 2 %}{{ steps_bar(steps, step) }}{% endif %}

@@ -1,0 +1,151 @@
+# Record inventory: every record the box makes or holds
+
+*Card T-643 (deep review REG-022; TB6-REG-03). Decision D-363. Status: living. No signature (D-311).*
+
+TrialBox makes and holds records that a monitor, an auditor or the trial office may ask for. This page says, for each
+one, what kind of record it is, where the record of truth lives, who keeps it, for how long, how it leaves the box for
+the investigator site file (ISF) and which audit events cover it. §4 maps every table the code creates to one row
+here; `tests/unit/test_record_inventory.py` and `python tools/gen_traceability.py --check` fail or warn when a table
+has no row. The release record carries the table of §2 (`release-records/README.md` item 9).
+
+## 1. How to read the tables
+
+**Class.**
+
+| Class | Meaning |
+| --- | --- |
+| essential | an essential record of the trial in the sense of ICH E6(R3) Appendix C: it shows how the trial was run |
+| source | the first place a fact is written down; TrialBox is the system of record for it |
+| copy | a copy of a record kept elsewhere (the hospital EMR, the sponsor's EDC, a signed paper log); the other place is the system of record |
+| aid | a working aid for the team; useful, not evidence of how the trial was run |
+| control | the box's own evidence that it ran as it should (audit trail, access, configuration, validation) |
+
+**Keeper.** The site keeps everything on the box: the box is the site's machine (VMP §2, the regulated user). The
+column names who answers for the content at the site.
+
+**Retention.** "Kept" means no job of the box deletes it: the record stays until the site archives the study. How long
+the site keeps it after that is the trial's essential-record period, which the sponsor agreement and the law of the
+site set (ICH E6(R3) Appendix C; J-GCP and the Taiwanese GCP rules); the box does not set it. Where the box does
+delete, the setting is named (`libs/tb_common/retention.py`, `DEFAULTS`: per country, changeable at install). These
+are defaults to discuss with the site, not legal advice.
+
+**ISF export.** The page or route that gives the record as a file. "Page only" means there is no file yet: the ISF
+bundle of card T-304 builds from this table.
+
+## 2. The records
+
+| Id | Record | Class | System of record | Keeper | Retention | ISF export | Audit events |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| R-01 | Audit chain: every action, hash-chained, with the head anchor | control | the box; the nightly archive on the hospital share | site administrator | 10 years on the box (`audit_years`); the archive is never deleted | the archive's day files and its head anchor; `tools/audit_verify.py` | all |
+| R-02 | Export ledger: every file or record set that left the box, to whom, under which approval | control | the audit chain (`flow.export` events) | data steward | as R-01 | `libs/tb_common/flowledger.py` `exports` | `flow.export` |
+| R-03 | Screening log: screening numbers, the PI's mark, contact outcomes, registry status | essential | the box, pseudonymous; the site's registry resolves the chart number | PI, through the trial office | kept | `/studies/{rs}/screening-log.xlsx`; `/registry/{ruleset}/export.xlsx` | `console.pi_mark`, `console.contact_outcome`, `console.registry`, `registry.export` |
+| R-04 | Delegation log copy and its monthly check | copy | the trial office's signed delegation log | trial office | kept | page only | `console.delegation` |
+| R-05 | Consent and approval checks: IRB approval and consent-form version per study, every Approach marked despite a warning | aid | the IRB file and the signed consent forms at the site (never in the box) | trial office | kept | page only | `console.irb`, `console.approach_override` |
+| R-06 | Research-use opt-out register | copy | the patient's opt-out form at the research office | research office | kept (an event log: an opt-out and a lift) | page only | `console.opt_out` |
+| R-07 | SAE register: the case, its deadlines, receipts and follow-ups, its trail, and the study's confirmed SAE rule set | essential | the AE form of the data core (R-09) or the sponsor's CRF for the facts; the register for the clock and the receipts | PI | kept | page only | `console.sae`, `console.sae_ack`, `life.sae_ack`, `life.report`, `life.sae_rule` |
+| R-08 | EDC prefill: the switch, the item map, drafts and their fate, decisions, electronic signatures and their voids, what was sent | essential | the sponsor's EDC holds the CRF; the box holds the trail of each prefilled value | PI | kept (drafts are never deleted; decisions and sends are append-only) | `/studies/{rs}/edc/export.odm.xml` | `edc.switch`, `edc.map`, `edc.drafts`, `edc.decide`, `edc.sent`, `edc.reentry`, `console.edc` |
+| R-09 | Data core: study forms, entered values and their history, conflicts, field owners | source | per field (`owner`): the box for a field TrialBox owns; REDCap or another source for a field it owns | PI | kept | `/studies/{rs}/export.{fmt}` (CSV, XLSX, ODM) | `data.entry`, `data.sync`, `data.import`, `data.resolve`, `data.export`, `data.forms`, `data.source` |
+| R-10 | Subject lifecycle: the subject's state and every step, the schedule of events and its versions with their effective dates (D-364) | copy | R-09 and the screening log; a step a person enters is written here first | PI | kept | page only | `life.step`, `life.schedule`, `console.life_step`, `console.life_schedule` |
+| R-11 | Referrals to treating physicians and their answers | aid | the box | CRC | kept | page only | `console.referral` |
+| R-12 | Candidate views, chart-number reveals and the administrator's break-glass grants | control | the box | data steward | kept | page only | `console.candidate_view`, `console.view_id`, `screen.reveal_refused`, `console.breakglass_open`, `console.breakglass_use`, `console.breakglass_end`, `console.breakglass_review` |
+| R-13 | User accounts and roles | control | the box (or the hospital's sign-in service, where one is set) | site administrator | kept; a retired account stays | page only | `console.user`, `console.login`, `console.totp_enrolled`, `console.totp_reset` |
+| R-14 | Feature flags and every change | control | the box | site administrator | kept | page only | `flag.seed`, `flag.set` |
+| R-15 | Study settings, REDCap links and the screening scope | control | the box | trial office | kept | page only | `study.settings`, `study.screen_scope`, `redcap.connection`, `redcap.link` |
+| R-16 | REDCap read-back and writes: what the box read from the sponsor's project and what it wrote | copy | the sponsor's REDCap project | trial office | kept | page only | `redcap.read`, `redcap.write`, `console.redcap_read` |
+| R-17 | Criterion library and approved ruleset releases | control | the box; the ruleset files of the release | data steward | kept | the ruleset release in the update bundle | `console.study_setup`, `console.proposal` |
+| R-18 | Jobs: every screening run with its ruleset, model, snapshot and outputs, and every submission | control | the box | data steward | kept; outputs `outputs_days` | the job's output files | `job.requeued`, `console.cascade`, `console.command` |
+| R-19 | Recall ledger: audit draws and the confidence sequences of the excluded lists | control | the box | data steward | kept | page only | (in the job's events) |
+| R-20 | Site set-up: inputs, facts read or confirmed, local codes, checks, published settings | aid | the box; the site's sheets and charts in the protected data folder | data steward | kept | page only | `setup.fact`, `setup.resolve`, `setup.publish`, `console.site_fact`, `console.site_map` |
+| R-21 | Feasibility answers the site types (site profile) | aid | the box | PI | kept | on the feasibility report | `console.site_profile` |
+| R-22 | Screening review traces: criterion labels, code pre-ticks, amber rows opened, the review of the excluded list | aid | the box | PI | kept | page only | `console.excluded_review`, `console.view` |
+| R-23 | Derived scores with their inputs and definition versions | copy | the hospital data they are computed from (R-25) | data steward | kept | page only | (in the job's events) |
+| R-24 | Pseudonym map and master patient index: the only link from a pseudonym back to a chart number | control | the box (encrypted; the key under the KEK) | site administrator | kept while any record keyed by the pseudonym is kept | never exported | `console.view_id`, `console.chart_lookup` |
+| R-25 | The hospital data copy: OMOP rows and TrialBox's extension rows, the lake snapshots | copy | the hospital EMR and its export | data steward | snapshots: `nightly_snapshots` and `month_end_snapshots_months`; OMOP rows replaced by each load | never exported as such | `console.site_patients` |
+| R-26 | Mail and notice logs | aid | the mail server; the box keeps the index | site administrator | `mail_log_days` (five years Japan, seven years Taiwan) | page only | `mail.received`, `mail.duplicate_suppressed`, `retention.mail`, `console.notice` |
+
+R-01 and R-02 also hold the training evidence of `qms-lite.md` §3 (first sign-in and the acknowledgement event).
+
+## 3. Other stores (not records)
+
+| Id | Store | Why it is not a record | Retention |
+| --- | --- | --- | --- |
+| O-01 | Sign-in state: sessions, pending sign-ins, single sign-on hand-offs, failure counters | transient; every sign-in, failure and lock is in R-01 | until the session or the lock ends |
+| O-02 | Feedback entries (in-product feedback) | product feedback, not about a patient or the trial | kept; exported by the owner |
+| O-03 | Model traces | debugging aid, redacted at write; the audit trail is the gateway's ledger and R-01 | 90 days (`tracestore` `retention_days`) |
+| O-04 | Workflow steps and the outbox | how a job resumes; the job (R-18) is the record | kept |
+| O-05 | Working pool and the PI feedback of a job | rebuilt by each run; the marks of R-03 are the record | `pool_months_after_ruleset` |
+| O-06 | Weekly appearances | "new this week" on the list | kept |
+| O-07 | Notice recipients | settings | kept |
+| O-08 | Staff directory and department contacts | the referral's "who to ask" | kept |
+| O-09 | Public and licensed reference data: registry, terminology, maps, vocabulary releases | public or licensed data, not about the trial | replaced by each pack or release |
+| O-10 | Aggregate cohort tables and the public trial cache | aggregate counts and a public registry cache | `outputs_days` |
+| O-11 | Embedding cache of the lake | vectors keyed by a text hash; rebuilt from R-25 | kept |
+| O-12 | Schema versions | how a database is migrated | kept |
+
+## 4. Store map
+
+Every table the code creates, by module. `tests/unit/test_record_inventory.py` reads this table and the code: a table
+with no row, a row for a table the module no longer creates and an id with no row all fail. File stores (no table)
+are marked "files".
+
+| Module | Tables | Id |
+| --- | --- | --- |
+| `libs/tb_common/audit.py` | files: the day files, the head anchor, the archive | R-01 |
+| `libs/tb_common/flowledger.py` | files: `flow.export` events in the audit chain | R-02 |
+| `services/console/sitestore.py` | `screening_no`, `contact_outcomes`, `pi_marks` | R-03 |
+| `services/orchestrator/db.py` | `candidates`, `candidate_events` | R-03 |
+| `services/console/teamstore.py` | `delegation`, `delegation_history`, `delegation_checks` | R-04 |
+| `services/console/teamstore.py` | `irb`, `approach_overrides` | R-05 |
+| `libs/tb_common/optout.py` | `optout_events` | R-06 |
+| `services/console/saerecord.py` | `sae_case`, `sae_report`, `sae_trail` | R-07 |
+| `services/datacore/lifecycle.py` | `ae_ack`, `sae_rule` | R-07 |
+| `services/edc/store.py` | `switch`, `switch_event`, `item_map`, `map_event`, `target`, `draft`, `decision`, `signature`, `signature_void`, `sent`, `reentry_record` | R-08 |
+| `services/datacore/store.py` | `form`, `value`, `history`, `conflict`, `owner`, `source_cfg`, `src_record` | R-09 |
+| `services/datacore/lifecycle.py` | `subject`, `subject_step`, `schedule`, `schedule_version` | R-10 |
+| `services/console/teamstore.py` | `referrals`, `referral_events` | R-11 |
+| `services/console/teamstore.py` | `candidate_views` | R-12 |
+| `services/console/breakglass.py` | `grants` | R-12 |
+| `services/console/auth.py` | `users` | R-13 |
+| `libs/tb_common/flags.py` | `flag`, `flag_event` | R-14 |
+| `services/orchestrator/studystore.py` | `study_settings`, `rc_connection`, `rc_project_link`, `screen_scope` | R-15 |
+| `services/console/sitestore.py` | `study_settings` | R-15 |
+| `services/orchestrator/studystore.py` | `rc_record`, `rc_read_log`, `rc_write` | R-16 |
+| `services/criteria_compiler/library/ddl.py` | `criterion_library`, `criterion_library_text`, `criterion_library_valueset`, `criterion_library_lexicon_key`, `criterion_library_usage`, `criterion_library_meta` | R-17 |
+| `services/omop/schema.py` | `tb_ruleset_release` | R-17 |
+| `services/orchestrator/db.py` | `jobs`, `submissions` | R-18 |
+| `services/orchestrator/recall/ledger.py` | `recall_cell`, `recall_observation`, `recall_sequence_state`, `recall_run_cell`, `recall_registration`, `recall_known_positive` | R-19 |
+| `services/sitesetup/store.py` | `input`, `fact`, `local_code`, `check_item`, `fix`, `setting`, `published` | R-20 |
+| `services/console/sitestore.py` | `site_profile` | R-21 |
+| `services/console/sitestore.py` | `criterion_labels`, `code_ticks`, `approval_opened`, `excluded_review` | R-22 |
+| `libs/tb_common/derived_store.py` | `definition`, `score_row`, `input_link`, `conflict` | R-23 |
+| `services/adapter/pidmap.py` | `pid_map`, `identity`, `site_key` | R-24 |
+| `services/dataplat/mpi/__init__.py` | `mpi_person`, `mpi_identifier`, `mpi_merge`, `pid_alias` | R-24 |
+| `services/omop/schema.py` | `tb_record`, `tb_record_event`, `tb_conflict`, `tb_id_map`, `tb_appointment`, `tb_claim`, `tb_consent`, `tb_load` | R-25 |
+| `services/lake/store.py` | `document_chunk`, `lake_meta` | R-25 |
+| `services/mail_gateway/store.py` | `intake`, `sent`, `send_keys` | R-26 |
+| `services/orchestrator/db.py` | `mails` | R-26 |
+| `services/console/sitestore.py` | `notify_log` | R-26 |
+| `services/console/auth.py` | `sessions`, `pending_logins`, `oidc_pending`, `login_failures` | O-01 |
+| `services/console/feedback.py` | `entry` | O-02 |
+| `services/tracestore/store.py` | `traces`, `access_log` | O-03 |
+| `services/orchestrator/db_pg.py` | `steps`, `outbox` | O-04 |
+| `services/orchestrator/db.py` | `pool`, `feedback` | O-05 |
+| `services/console/sitestore.py` | `weekly_seen` | O-06 |
+| `services/console/sitestore.py` | `notify_people` | O-07 |
+| `services/console/teamstore.py` | `staff`, `dept_contacts` | O-08 |
+| `libs/tb_common/refdata.py` | `pack`, `source`, `ctgov_study`, `trial`, `term`, `concept_map`, `synonym`, `withdrawn` | O-09 |
+| `services/adapter/licensed.py` | `release`, `concept` | O-09 |
+| `services/omop/schema.py` | `tb_vocab_release`, `tb_concept_attr`, `tb_term_grouper`, `tb_map_relation` | O-09 |
+| `services/orchestrator/db.py` | `cohort_tables`, `trial_cache` | O-10 |
+| `services/lake/store.py` | `cache` | O-11 |
+| `libs/tb_common/db.py` | `_schema_version` | O-12 |
+
+The standard OMOP CDM tables (`services/omop/ddl/OMOPCDM_postgresql_5.4_ddl.sql`) are R-25 as a whole. The trace
+store's `access_log` is an access record of O-03's own data, kept with it.
+
+## 5. Not done here
+
+- The site's own retention period per study is not a setting yet; "kept" means the box never deletes.
+- ISF export for the rows marked "page only" is card T-304.
+- REG-022 asked that each site's trial office sign this page; D-311 removed signers. A site that wants it signed
+  prints it.

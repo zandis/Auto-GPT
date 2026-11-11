@@ -71,7 +71,7 @@ def test_the_canary_step_reports_the_stubs_known_result_by_name(record: dict[str
 def test_steps_record_their_numbers(record: dict[str, Any]) -> None:
     s = record["steps"]
     assert s["schema"]["detail"]["valid"] == s["schema"]["detail"]["sent"] > 10
-    assert s["schema"]["detail"]["not_probed_on_stub"] == ["profile_summary@1"]
+    assert s["schema"]["detail"]["not_probed_on_stub"] == ["profile_summary@2"]
     assert s["pair_gate"]["detail"]["exclusions"] >= 20 and s["pair_gate"]["detail"]["wrong_exclusions"] == 0
     assert s["determinism"]["detail"]["changed_exclusions"] == 0 and s["determinism"]["detail"]["cache_hits"] == 0
     tp = s["throughput"]["detail"]
@@ -156,11 +156,16 @@ def test_stub_mode_is_for_profile_ci_only() -> None:
 
 
 def test_a_real_profile_needs_pinned_weights_and_a_licence_file(tmp_path: Path) -> None:
-    """The registry's real builds have no weight hash today (LLM-007); their licences are verified against the
+    """The registry's real builds name the release they expect (T-012b, LLM-007): that is the weight hash in the
+    record, and the stub's answers do not carry it, so the pin step fails. Their licences are verified against the
     register (T-617b), but no weight folder was given to show the licence file."""
     doc = q.qualify(_opts(profile="rtxpro6000", stub=False), q.stub_target(tmp_path), steps=("pin", "licence"))
     pin, lic = doc["steps"]["pin"], doc["steps"]["licence"]
-    assert pin["status"] == "failed" and "no pinned weight hash" in pin["reason"]
+    reg = {b["build_id"]: b for b in q.registry_doc()["builds"]}
+    for b in doc["builds"].values():
+        assert b["weights_sha256"] == reg[b["build_id"]]["expected"]["manifest_sha256"]
+        assert b["revision"] == reg[b["build_id"]]["expected"]["revision"]
+    assert pin["status"] == "failed" and "no pinned weight hash" not in pin["reason"]
     assert lic["status"] == "failed" and "licence not verified" not in lic["reason"] and "--model-dir" in lic["reason"]
     assert lic["detail"]["judge"]["register"] == "model-gemma-4-26b-a4b-nvfp4"
     assert lic["detail"]["verifier"]["register"] == "model-qwen3.5-9b-awq-4bit"
@@ -256,7 +261,7 @@ def test_a_missing_schema_probe_fails_the_schema_step(tmp_path: Path, monkeypatc
     probes.write_text(yaml.safe_dump(doc, allow_unicode=True), encoding="utf-8")
     monkeypatch.setattr(q, "PROBES", probes)
     s = q.qualify(_opts(), steps=("schema",))["steps"]["schema"]
-    assert s["status"] == "failed" and s["detail"]["probes"]["judge@4"] == "no_probe"
+    assert s["status"] == "failed" and s["detail"]["probes"]["judge@5"] == "no_probe"
 
 
 def test_a_schema_violation_fails_the_schema_step(tmp_path: Path) -> None:
@@ -274,7 +279,7 @@ def test_a_schema_violation_fails_the_schema_step(tmp_path: Path) -> None:
 
     up = httpx.Client(transport=httpx.MockTransport(handler), base_url="http://llm-stub:8000")
     s = q.qualify(_opts(), q.stub_target(tmp_path, up), steps=("schema",))["steps"]["schema"]
-    assert s["status"] == "failed" and s["detail"]["probes"]["concept_map@1"] == "invalid"
+    assert s["status"] == "failed" and s["detail"]["probes"]["concept_map@2"] == "invalid"
 
 
 def test_a_server_that_logs_prompts_fails_the_log_marker_step(tmp_path: Path) -> None:

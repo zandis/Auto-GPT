@@ -1,0 +1,10 @@
+# Re-apply the egress table when a container address changed (T-108b, D-377): a restart by Docker or by the watchdog
+# gives a container a new address. Skipped when the live table is the saved one. Run by trialbox-egress-refresh.timer.
+[Unit]
+Description=TrialBox egress table refresh
+Requires=trialbox-egress.service
+After=trialbox-egress.service trialbox.service
+
+[Service]
+Type=oneshot
+ExecStart=@TB_ROOT@/deploy/network.sh apply --if-changed

@@ -1139,6 +1139,15 @@ EN.update(_HOME_EN)
 JA.update(_HOME_JA)
 ZH.update(_HOME_ZH)
 
+# D-364 (T-621): the amendment record at approval and the re-screen list
+from console.i18n_amend import EN as _AM_EN  # noqa: E402
+from console.i18n_amend import JA as _AM_JA  # noqa: E402
+from console.i18n_amend import ZH as _AM_ZH  # noqa: E402
+
+EN.update(_AM_EN)
+JA.update(_AM_JA)
+ZH.update(_AM_ZH)
+
 # T-506 (TB-IU-01 §1, REG-020): the intended-use statement in the footer comes from its one source in tb_common
 from tb_common.wording import STATEMENT as _STATEMENT  # noqa: E402
 

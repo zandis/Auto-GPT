@@ -10,8 +10,16 @@ x-logging: &logging   # no PHI in logs (pids only); size-based rotation keeps we
   driver: json-file
   options: {max-size: "50m", max-file: "5"}
 
+# T-108a (D-360): every service has a memory cap (mem_limit, a TB_MEM_<NAME> setting in deploy/.env moves it) and a
+# pids cap, so one runaway process cannot take the box's memory or process table from the others (CR-082). No CPU
+# cap: CPU is shared, not exhausted, and a cap only slows a night run. The label tb.watchdog says what the host's
+# watchdog (python3 -m tools.trialbox watchdog, D-360) does when the service's health check fails: restart it and
+# audit the restart, or only report it (the database). Values follow deploy/platform/base (the Kubernetes form).
 x-py: &py
   logging: *logging
+  mem_limit: 2g
+  pids_limit: 512
+  labels: {tb.watchdog: restart}
   image: ${TB_IMAGE:-trialbox-py:1.0.0}
   build:
     context: ..
@@ -60,6 +68,15 @@ services:
       POSTGRES_USER: hapi
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_WF_PASSWORD: ${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}
+      # D-378 (CR-037): each service's own role (docker/db-init/30-service-roles.sh); TB_DB_PW_<SERVICE> in .env
+      # (deploy/install.sh makes them), else the workflow password (a dev or test stack)
+      TB_DB_PW_LAKE: ${TB_DB_PW_LAKE:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
+      TB_DB_PW_CRITERIA_COMPILER: ${TB_DB_PW_CRITERIA_COMPILER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
+      TB_DB_PW_ADAPTER: ${TB_DB_PW_ADAPTER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
+      TB_DB_PW_ORCHESTRATOR: ${TB_DB_PW_ORCHESTRATOR:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
+      TB_DB_PW_MAIL_GATEWAY: ${TB_DB_PW_MAIL_GATEWAY:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
+      TB_DB_PW_GATEWAY: ${TB_DB_PW_GATEWAY:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
+      TB_DB_PW_CONSOLE: ${TB_DB_PW_CONSOLE:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
       POSTGRES_INITDB_ARGS: ${POSTGRES_INITDB_ARGS:---data-checksums}
     volumes:
       - db-pg:/var/lib/postgresql/data
@@ -69,6 +86,9 @@ services:
       - ${TB_PGBACKREST_REPO:-./pgbackrest/repo}:/var/lib/pgbackrest
     networks: [trialbox-net]
     restart: unless-stopped
+    mem_limit: ${TB_MEM_DB:-4g}
+    pids_limit: 512   # a backend per connection: well above max_connections (100)
+    labels: {tb.watchdog: report}   # a restart does not cure a database; the watchdog audits it and a person looks
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U hapi -d hapi && psql -U hapi -d hapi -tAc \"SELECT 1 FROM pg_database WHERE datname='trialbox_wf'\" | grep -q 1"]
       interval: 10s
@@ -98,6 +118,9 @@ services:
       JAVA_TOOL_OPTIONS: "-Xmx${HAPI_XMX:-3g} -Duser.timezone=${TB_TZ:?set TB_TZ in deploy/.env to site.tz (D-315)}"
     networks: [trialbox-net]
     restart: unless-stopped
+    mem_limit: ${TB_MEM_FHIR:-5g}   # the heap (HAPI_XMX, 3g) plus the JVM's own; raise both together
+    pids_limit: 1024
+    labels: {tb.watchdog: restart}
     healthcheck:
       test: ["CMD", "java", "-cp", "/app", "HealthCheck"]
       interval: 15s
@@ -107,8 +130,11 @@ services:
 
   lake:
     <<: *py
+    mem_limit: ${TB_MEM_LAKE:-8g}   # DuckDB takes 40 % of this per worker (lake.store.memory_limit)
     command: ["uvicorn", "lake.app:app", "--host", "0.0.0.0", "--port", "8013", "--workers", "2"]
-    environment: {PORT: "8013", TB_SERVICE_NAME: lake, TB_LAKE_DIR: /data/lake, TB_LAKE_EMBEDDER: http,
+    environment: {PORT: "8013", TB_SERVICE_NAME: lake,
+                  TB_DB_URL: "postgresql://tb_lake:${TB_DB_PW_LAKE:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_LAKE_DIR: /data/lake, TB_LAKE_EMBEDDER: http,
                   TB_LAKE_MEMORY_LIMIT: "${TB_LAKE_MEMORY_LIMIT:-}", TB_LAKE_MAX_TEMP: "${TB_LAKE_MAX_TEMP:-}",
                   TB_LAKE_SOURCE: "${TB_LAKE_SOURCE:-legacy}"}
     volumes:
@@ -117,6 +143,7 @@ services:
 
   embed-service:
     <<: *py
+    mem_limit: ${TB_MEM_EMBED:-4g}
     image: ${TB_EMBED_IMAGE:-trialbox-py:1.0.0}
     command: ["uvicorn", "embed_service.app:app", "--host", "0.0.0.0", "--port", "8014"]
     environment: {PORT: "8014", TB_SERVICE_NAME: embed-service, TB_EMBED_MODEL_PATH: /models/bge-m3}
@@ -126,6 +153,7 @@ services:
 
   doc-parser:
     <<: *py
+    mem_limit: ${TB_MEM_DOCPARSER:-2g}
     image: ${TB_DOCPARSER_IMAGE:-trialbox-py:1.0.0}
     command: ["uvicorn", "doc_parser.app:app", "--host", "0.0.0.0", "--port", "8011"]
     environment: {PORT: "8011", TB_SERVICE_NAME: doc-parser, TB_GATEWAY_URL: "http://gateway:8020/v1",
@@ -137,8 +165,12 @@ services:
   criteria-compiler:
     <<: *py
     image: ${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}
+    mem_limit: ${TB_MEM_COMPILER:-3g}
+    pids_limit: 1024   # JVM threads
     command: ["uvicorn", "criteria_compiler.app:app", "--host", "0.0.0.0", "--port", "8012"]
-    environment: {PORT: "8012", TB_SERVICE_NAME: criteria-compiler, TB_RULESETS_DIR: /data/rulesets, TB_AUDIT_DIR: /data/audit,
+    environment: {PORT: "8012", TB_SERVICE_NAME: criteria-compiler,
+                  TB_DB_URL: "postgresql://tb_criteria_compiler:${TB_DB_PW_CRITERIA_COMPILER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_RULESETS_DIR: /data/rulesets, TB_AUDIT_DIR: /data/audit,
                   TB_CTGOV_MODE: "${TB_CTGOV_MODE:-offline}", TB_GATEWAY_URL: "http://gateway:8020/v1",
                   TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_DATA_CLASS: "${TB_DATA_CLASS:-}"}
     # only service allowed to reach clinicaltrials.gov (public registry, COHORT; network.sh); its cloud LLM calls go
@@ -154,8 +186,12 @@ services:
   adapter:
     <<: *py
     image: ${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}
+    mem_limit: ${TB_MEM_ADAPTER:-6g}   # the validator's heap (TB_VALIDATOR_XMX, 3g) plus the service
+    pids_limit: 1024   # JVM threads
     command: ["uvicorn", "adapter.app:app", "--host", "0.0.0.0", "--port", "8016"]
-    environment: {PORT: "8016", TB_SERVICE_NAME: adapter, TB_LAKE_DIR: /data/lake, TB_ADAPTER_LAKE: http,
+    environment: {PORT: "8016", TB_SERVICE_NAME: adapter,
+                  TB_DB_URL: "postgresql://tb_adapter:${TB_DB_PW_ADAPTER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_LAKE_DIR: /data/lake, TB_ADAPTER_LAKE: http,
                   TB_AUDIT_DIR: /data/audit, TB_SECRETS_DIR: /run/secrets/trialbox, TB_VALIDATOR_XMX: 3g}
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
@@ -168,8 +204,12 @@ services:
   orchestrator:
     <<: *py
     image: ${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}
+    mem_limit: ${TB_MEM_ORCH:-4g}
+    pids_limit: 1024   # JVM threads
     command: ["uvicorn", "orchestrator.app:app", "--host", "0.0.0.0", "--port", "8010"]
-    environment: {PORT: "8010", TB_SERVICE_NAME: orchestrator, TB_AUDIT_DIR: /data/audit, TB_RULESETS_DIR: /data/rulesets,
+    environment: {PORT: "8010", TB_SERVICE_NAME: orchestrator,
+                  TB_DB_URL: "postgresql://tb_orchestrator:${TB_DB_PW_ORCHESTRATOR:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_AUDIT_DIR: /data/audit, TB_RULESETS_DIR: /data/rulesets,
                   TB_ORCH_DIR: /data/orchestrator, TB_SECRETS_DIR: /run/secrets/trialbox,
                   TB_GATEWAY_URL: "http://gateway:8020/v1", TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}",
                   TB_GATEWAY_VERIFIER_MODEL: "${TB_GATEWAY_VERIFIER_MODEL:-}", TB_DATA_CLASS: "${TB_DATA_CLASS:-}",
@@ -188,8 +228,11 @@ services:
 
   mail-gateway:
     <<: *py
+    mem_limit: ${TB_MEM_MAIL:-1g}
     command: ["uvicorn", "mail_gateway.app:app", "--host", "0.0.0.0", "--port", "8015"]
-    environment: {PORT: "8015", TB_SERVICE_NAME: mail-gateway, TB_AUDIT_DIR: /data/audit, TB_MAIL_DIR: /data/mail}
+    environment: {PORT: "8015", TB_SERVICE_NAME: mail-gateway,
+                  TB_DB_URL: "postgresql://tb_mail_gateway:${TB_DB_PW_MAIL_GATEWAY:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_AUDIT_DIR: /data/audit, TB_MAIL_DIR: /data/mail}
     networks: [trialbox-net, egress-net]   # only service allowed to reach IMAP/SMTP (network.sh)
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
@@ -203,8 +246,11 @@ services:
     # through models/registry.yaml plus the site pins in ./site (tools/pin_model.py; a missing file = nothing pinned,
     # so production routes nothing). Registry, PHI guard and trace store run in this process.
     <<: *py
+    mem_limit: ${TB_MEM_GATEWAY:-2g}
     command: ["uvicorn", "--factory", "gateway.app:create_app", "--host", "0.0.0.0", "--port", "8020"]
-    environment: {PORT: "8020", TB_SERVICE_NAME: gateway, TB_ENV: "${TB_ENV:-PRODUCTION}", TB_TOPOLOGY: "${TB_TOPOLOGY:-A}",
+    environment: {PORT: "8020", TB_SERVICE_NAME: gateway,
+                  TB_DB_URL: "postgresql://tb_gateway:${TB_DB_PW_GATEWAY:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_ENV: "${TB_ENV:-PRODUCTION}", TB_TOPOLOGY: "${TB_TOPOLOGY:-A}",
                   TB_PROFILE: "${TB_PROFILE:-P-GB10}", TB_CLOUD_OPT_IN: "${TB_CLOUD_OPT_IN:-}", TB_AUDIT_DIR: /data/audit,
                   TB_TRACESTORE: "on",
                   TB_REGISTRY_OVERRIDE: /etc/trialbox/site/registry.site.yaml, TB_MODEL_SWAP: "${TB_MODEL_SWAP:-}",
@@ -225,9 +271,12 @@ services:
     # on the hospital LAN use deploy/docker-compose.identity.yml (Caddy, TLS; RUNBOOK §12). Unset, the session cookie is
     # Secure in PRODUCTION (D-192); an explicit TB_CONSOLE_SECURE_COOKIE=0 is refused there.
     <<: *py
+    mem_limit: ${TB_MEM_CONSOLE:-2g}
     command: ["uvicorn", "--factory", "console.app:create_app", "--host", "0.0.0.0", "--port", "8090",
               "--proxy-headers", "--forwarded-allow-ips", "${TB_CONSOLE_FORWARDED_ALLOW_IPS:-127.0.0.1}"]
-    environment: {PORT: "8090", TB_SERVICE_NAME: console, TB_CONSOLE_DIR: /data/console, TB_AUDIT_DIR: /data/audit,
+    environment: {PORT: "8090", TB_SERVICE_NAME: console,
+                  TB_DB_URL: "postgresql://tb_console:${TB_DB_PW_CONSOLE:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_CONSOLE_DIR: /data/console, TB_AUDIT_DIR: /data/audit,
                   TB_RULESETS_DIR: /data/rulesets, TB_GATEWAY_URL: "http://gateway:8020/v1",
                   TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_CONSOLE_SECURE_COOKIE: "${TB_CONSOLE_SECURE_COOKIE:-}",
                   TB_OPS_DIR: /data/ops}  # D-178: the mount below; the host's TB_OPS_DIR in .env is the host path
@@ -258,8 +307,9 @@ services:
   llm-stub:
     <<: *py
     profiles: [stub]
+    mem_limit: 1g
     command: ["uvicorn", "llm_stub.app:app", "--host", "0.0.0.0", "--port", "8000"]
-    environment: {PORT: "8000", TB_SERVICE_NAME: llm-stub}
+    environment: {PORT: "8000", TB_SERVICE_NAME: llm-stub, TB_DB_URL: ""}  # opens no database (D-378)
     networks:
       model-net:
         aliases: [llm-service, llm-verifier]  # stands in for both serving endpoints (routing.yaml)
@@ -286,6 +336,11 @@ services:
     ipc: host
     networks: {model-backend-net: {aliases: [llm-service-vllm]}}   # behind model-guard (D-177)
     restart: unless-stopped
+    # host memory, not the card's: the process, its pinned buffers and, with sleep mode, the weights while asleep
+    mem_limit: ${TB_MEM_LLM:-48g}
+    pids_limit: 4096   # vLLM's worker, tokenizer and compile threads
+    # a hung server answers no /health: after the health check's retries the watchdog restarts it (OPS-029)
+    labels: {tb.watchdog: restart}
     deploy:
       resources:
         reservations:
@@ -313,6 +368,9 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
+    mem_limit: 512m
+    pids_limit: 256
+    labels: {tb.watchdog: restart}
     environment:
       PORT: "8000"
       TB_LLM_API_KEY: "${TB_LLM_API_KEY:-}"
