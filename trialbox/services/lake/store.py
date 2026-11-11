@@ -41,6 +41,7 @@ import pyarrow.parquet as pq
 from embed_service.embedder import Embedder
 from tb_common import feedguard
 from tb_common.crypto import sha256_text
+from tb_common.phi_guard import NOTE_MASK_VERSION, mask_note
 
 from lake.flatten import SCHEMAS
 from lake.source import lake_rows
@@ -239,11 +240,14 @@ def _limit_message(exc: Exception) -> str:
 
 
 class Lake:
-    def __init__(self, lake_dir: Path, tz: str | None = None) -> None:
+    def __init__(self, lake_dir: Path, tz: str | None = None, mrn_regex: str | None = None) -> None:
         from tb_common.config import site_tz
 
         self.dir = lake_dir
         self.tz = site_tz(tz)  # the site's zone; TB_TZ when not given, never a default (D-315)
+        # T-600 (D-337): the site's chart number pattern; note text is masked with it, and with the labelled
+        # patterns of ``phi_guard.mask_note``, before chunks, the full-text index and the embeddings are made
+        self.mrn_regex = mrn_regex
         self._lock = threading.Lock()
         for sub in ("ndjson", "parquet", "db"):
             (lake_dir / sub).mkdir(parents=True, exist_ok=True)
@@ -400,10 +404,11 @@ class Lake:
             del table
             if name != "document":
                 rows[name] = []  # DuckDB reads the Parquet file; only document rows are needed for chunking
-        # chunks
+        # chunks: from the masked note text (T-600, D-337). The ``document`` table and its Parquet file, labelled
+        # ``phi`` (``lake.flatten.PHI_COLUMNS``), keep the original; chunks, BM25 tokens and embeddings never see it.
         chunk_rows: list[dict[str, Any]] = []
         for doc in sorted(rows["document"], key=lambda r: r["did"]):
-            for i, text in enumerate(chunk(doc["text"] or "")):
+            for i, text in enumerate(chunk(mask_note(doc["text"] or "", self.mrn_regex))):
                 chunk_rows.append(
                     {
                         "did": doc["did"],
@@ -444,7 +449,7 @@ class Lake:
                 )
             con.execute(
                 "CREATE TABLE lake_meta AS SELECT ? AS snapshot, ? AS built_at, ? AS schema_version, ? AS schema_sha, "
-                "? AS embed_store, ? AS embed_model",
+                "? AS embed_store, ? AS embed_model, ? AS note_mask",
                 [
                     snapshot,
                     time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -452,6 +457,7 @@ class Lake:
                     schema_sha(),
                     "embed_cache.duckdb",
                     embedder.model,
+                    NOTE_MASK_VERSION,
                 ],
             )
             con.execute("CHECKPOINT")

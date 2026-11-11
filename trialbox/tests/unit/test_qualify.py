@@ -19,6 +19,7 @@ import httpx
 import pytest
 import yaml
 
+from tools import licence_register
 from tools import qualify as q
 
 FAST = {"repeat_items": 20}
@@ -154,25 +155,65 @@ def test_stub_mode_is_for_profile_ci_only() -> None:
         q.qualify(_opts(profile="rtxpro6000"))
 
 
-def test_a_real_profile_needs_pinned_weights_and_a_verified_licence(tmp_path: Path) -> None:
-    """The registry's real builds have no weight hash and an unverified licence today (LLM-007, LLM-012)."""
+def test_a_real_profile_needs_pinned_weights_and_a_licence_file(tmp_path: Path) -> None:
+    """The registry's real builds have no weight hash today (LLM-007); their licences are verified against the
+    register (T-617b), but no weight folder was given to show the licence file."""
     doc = q.qualify(_opts(profile="rtxpro6000", stub=False), q.stub_target(tmp_path), steps=("pin", "licence"))
     pin, lic = doc["steps"]["pin"], doc["steps"]["licence"]
     assert pin["status"] == "failed" and "no pinned weight hash" in pin["reason"]
-    assert lic["status"] == "failed" and "licence not verified" in lic["reason"] and "--model-dir" in lic["reason"]
+    assert lic["status"] == "failed" and "licence not verified" not in lic["reason"] and "--model-dir" in lic["reason"]
+    assert lic["detail"]["judge"]["register"] == "model-gemma-4-26b-a4b-nvfp4"
+    assert lic["detail"]["verifier"]["register"] == "model-qwen3.5-9b-awq-4bit"
+
+
+def test_a_build_with_no_licence_file_is_refused_and_the_text_must_be_the_checked_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T-617b: `qualify` refuses a weight folder with no licence file; a licence file that is not the text the
+    register row checked is refused too; the register's own text passes."""
+    builds = q.profile_builds("rtxpro6000")
+    for role in ("judge", "verifier"):
+        (tmp_path / role).mkdir()
+    dirs = {"judge": tmp_path / "judge", "verifier": tmp_path / "verifier"}
+    ctx = _ctx(_opts(profile="rtxpro6000", stub=False, model_dirs=dirs), tmp_path, builds)
+    r = q.step_licence(ctx)
+    assert r.status == "failed" and r.reason.count("no licence file in the weight folder") == 2
+
+    (dirs["judge"] / "LICENSE").write_text("Apache License 2.0 text\n", encoding="utf-8")
+    (dirs["verifier"] / "LICENSE").write_text("some other text\n", encoding="utf-8")
+    r = q.step_licence(ctx)
+    assert r.status == "failed" and "not the text checked in register row model-qwen3.5-9b-awq-4bit" in r.reason
+    assert "gemma" not in r.reason  # the Gemma row records no text hash: any licence file is accepted
+
+    sha = hashlib.sha256(b"some other text\n").hexdigest()
+    rows = [
+        replace(row, raw={**row.raw, "text_sha256": sha}) if row.id == "model-qwen3.5-9b-awq-4bit" else row
+        for row in licence_register.load()
+    ]
+    monkeypatch.setattr(licence_register, "load", lambda: rows)
+    r = q.step_licence(ctx)
+    assert r.status == "passed", r.reason
+    assert r.detail["verifier"] == {**r.detail["verifier"], "file": "LICENSE", "file_sha256": sha}
+
+
+def test_a_verified_licence_needs_its_register_row(tmp_path: Path) -> None:
+    builds = q.profile_builds("rtxpro6000")
+    builds["judge"].licence = {"name": "Apache-2.0", "spdx": "Apache-2.0", "verified": True}
+    builds["verifier"].licence = {**builds["verifier"].licence, "spdx": "MIT"}
+    r = q.step_licence(_ctx(_opts(profile="rtxpro6000", stub=False), tmp_path, builds))
+    assert "licence verified without a register row" in r.reason
+    assert "spdx 'MIT' is not row model-qwen3.5-9b-awq-4bit's 'Apache-2.0'" in r.reason
 
 
 def test_a_weight_folder_without_a_licence_file_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    builds = q.profile_builds("rtxpro6000")
-    for b in builds.values():
-        b.licence = {"name": "Apache-2.0", "verified": True}
+    builds = q.profile_builds("rtxpro6000")  # both licences verified against docs/licences/register.csv
     (tmp_path / "j").mkdir()
     (tmp_path / "v").mkdir()
     (tmp_path / "v" / "LICENSE").write_text("licence text\n", encoding="utf-8")
     dirs = {"judge": tmp_path / "j", "verifier": tmp_path / "v"}
     ctx = _ctx(_opts(profile="rtxpro6000", stub=False, model_dirs=dirs), tmp_path, builds)
     r = q.step_licence(ctx)
-    assert r.status == "failed" and r.reason.endswith("no licence file in the weight folder")
+    assert r.status == "failed" and r.reason.startswith(f"{builds['judge'].build_id}: no licence file in the weight")
     assert r.detail["verifier"]["file"] == "LICENSE" and r.detail["judge"]["file"] is None
 
 
