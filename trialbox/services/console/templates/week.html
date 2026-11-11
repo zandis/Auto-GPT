@@ -15,6 +15,7 @@
 {% if not wk %}
 <section class="card"><p>{{ t('week.none') }}</p>{% if user.can_request %}<a class="button" href="/pilot/request?ruleset={{ rs }}">{{ t('next.screen') }}</a>{% endif %}</section>
 {% else %}
+{% include "_asof.html" %}
 <div class="bench" data-testid="workbench">
   <nav class="rail" aria-label="{{ t('wb.lists') }}">
     <h3>{{ t('wb.lists') }}</h3>
