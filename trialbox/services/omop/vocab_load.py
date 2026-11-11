@@ -804,6 +804,23 @@ ATHENA_ALLOW = frozenset({
     "Condition Status", "Meas Type", "Cost", "Cost Type", "Episode", "Episode Type", "OMOP Extension",
 })  # fmt: skip
 ATHENA = "ATHENA"
+# What the terms of each licensed vocabulary an Athena bundle may hold say (T-307, D-375; public sources, summarised).
+# A load records one acknowledgement per such vocabulary of the bundle: a ``tb_vocab_release`` row named
+# ``LICENCE:<vocabulary>`` with these terms, the bundle's sha256 and the person who loaded it (:func:`licence_acks`).
+LICENCE = "LICENCE:"
+ATHENA_TERMS: dict[str, str] = {
+    "LOINC": "LOINC, copyright Regenstrief Institute: free for any use including commercial; the LOINC notice and "
+             "version are shown wherever LOINC codes are (https://loinc.org/license/)",
+    "UCUM": "UCUM, copyright Regenstrief Institute and the UCUM Organization: free use under the UCUM terms of use, "
+            "the notice kept (https://ucum.org/license)",
+    "RxNorm": "RxNorm, US National Library of Medicine: the RxNorm-sourced content of the bundle (SAB=RXNORM) carries "
+              "no licence restriction; other sources inside RxNorm are not part of the Athena bundle "
+              "(https://www.nlm.nih.gov/research/umls/rxnorm/)",
+    "RxNorm Extension": "RxNorm Extension, OHDSI: distributed with the OMOP vocabularies, free to use "
+                        "(https://athena.ohdsi.org)",
+    "ATC": "ATC, WHO Collaborating Centre for Drug Statistics Methodology: the codes are used with the WHOCC "
+           "attribution; whether TrialBox needs the Centre's permission is open (T-617b) (https://atcddd.fhi.no)",
+}  # fmt: skip
 ATHENA_FILES = ("VOCABULARY", "CONCEPT", "CONCEPT_RELATIONSHIP", "CONCEPT_SYNONYM", "CONCEPT_ANCESTOR", "DOMAIN",
                 "CONCEPT_CLASS", "RELATIONSHIP")  # fmt: skip
 _CONCEPT_COLS = ("concept_id", "concept_name", "domain_id", "vocabulary_id", "concept_class_id", "standard_concept",
@@ -945,8 +962,31 @@ def load_athena(
                            int(r["min_levels_of_separation"]), int(r["max_levels_of_separation"]))
                           for r in tables["CONCEPT_ANCESTOR"]])  # fmt: skip
         res.concepts = len(concepts)
+        _acknowledge(tx, tables, sha, by)
         _check_never_standard(tx)
     return res
+
+
+def _acknowledge(tx: Any, tables: Mapping[str, list[dict[str, str]]], sha: str, by: str) -> None:
+    """One acknowledgement row per licensed vocabulary of the bundle (:data:`ATHENA_TERMS`); a vocabulary the bundle
+    no longer holds keeps its old row, inactive."""
+    versions = {r["vocabulary_id"]: (r.get("vocabulary_version") or "") for r in tables["VOCABULARY"]}
+    held = {r["vocabulary_id"] for r in tables["VOCABULARY"]} | {r["vocabulary_id"] for r in tables["CONCEPT"]}
+    for vid, terms in ATHENA_TERMS.items():
+        name = LICENCE + vid
+        if vid not in held:
+            tx.execute("UPDATE tb_vocab_release SET active = false WHERE release_name = ?", (name,))
+            continue
+        _release(tx, name, sha, vid, versions.get(vid) or "unversioned", terms, 0, by)
+
+
+def licence_acks(db: Any) -> list[dict[str, Any]]:
+    """The licence acknowledgements of the active Athena bundle: vocabulary, version, the terms, who loaded it, when."""
+    rows = db.fetchall(
+        "SELECT vocabulary_id, version, source, loaded_by, loaded_at FROM tb_vocab_release "
+        "WHERE release_name LIKE ? AND active ORDER BY vocabulary_id", (LICENCE + "%",))  # fmt: skip
+    return [{"vocabulary": v, "version": ver, "terms": t, "acknowledged_by": by, "at": str(at)}
+            for v, ver, t, by, at in rows]  # fmt: skip
 
 
 def _athena_small(tx: Any, tables: Mapping[str, list[dict[str, str]]], concepts: list[tuple[Any, ...]]) -> None:
