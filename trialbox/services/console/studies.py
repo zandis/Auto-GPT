@@ -533,8 +533,8 @@ def patient_rows(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Crite
                 "source": VERIFIED_BY.get(meta.cls, "records") if meta else "records",
             }
         )
-        ops = out[-1]["opinions"]
-        out[-1]["disagree"] = len({o.get("verdict") for o in ops}) > 1  # the two checks differ (T-515)
+        verdicts = {o.get("verdict") for o in ev.get("opinions") or [] if o.get("quote")}
+        out[-1]["disagree"] = len(verdicts) > 1  # the two checks differ (T-515)
     return out
 
 
