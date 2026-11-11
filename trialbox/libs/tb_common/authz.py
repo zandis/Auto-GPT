@@ -52,10 +52,22 @@ def allowed(settings: Settings, command: str, sender: str) -> bool:
 _PREPARE = frozenset(
     {"FEAS", "SCREEN", "COHORT", "NAV", "MICROBATCH", "STATUS", "CANCEL", "CONSENT", "RELEASE", "CASE", "FEEDBACK"}
 )
+# T-512 (D-349, owner answer Q-04, finding FIT-003): the runs an investigator may start in one study. THE ONE PLACE
+# THIS RULE LIVES: a different answer is a change to this table. "pi" is the study's logged PI (or, before the study's
+# delegation log names one, any investigator of the study); "run" is a sub-investigator the PI ticked for the ``run``
+# task. The daily limits of ``daily_limit`` hold for them as for every requester. Two empty sets give D-146's old
+# rule back (the investigator approves; never a run).
+INVESTIGATOR_RUNS: dict[str, frozenset[str]] = {
+    "pi": frozenset({"FEAS", "SCREEN", "CASE"}),
+    "run": frozenset({"FEAS", "SCREEN", "CASE"}),
+}
+_INVESTIGATOR = frozenset({"APPROVE", "STATUS"})  # the investigator approves the criteria (D-108)
 ROLE_COMMANDS: dict[str, frozenset[str]] = {
     "admin": _PREPARE,
     "coordinator": _PREPARE,
-    "investigator": frozenset({"APPROVE", "STATUS"}),  # the investigator approves the criteria (D-108); never a run
+    # the orchestrator's job authorisation table: the most the role may start in any study; the console adds the
+    # study's delegation log on top (``can_request``)
+    "investigator": _INVESTIGATOR | INVESTIGATOR_RUNS["pi"] | INVESTIGATOR_RUNS["run"],
 }
 
 
@@ -64,11 +76,27 @@ def role_allowed(role: str, command: str) -> bool:
     return command.upper() in ROLE_COMMANDS.get(role, frozenset())
 
 
+def can_request(role: str, command: str, *, is_pi: bool = False, tasks: frozenset[str] = frozenset()) -> bool:
+    """May a console account with ``role`` start ``command`` in one study (T-512, D-349)? ``is_pi`` and ``tasks``
+    are the account's standing in that study (the delegation log, ``study_tasks``). Administrators and coordinators
+    by the role table; an investigator by :data:`INVESTIGATOR_RUNS`: the PI by "pi", a sub-investigator only with
+    the ``run`` tick."""
+    cmd = command.upper()
+    if role != "investigator":
+        return role_allowed(role, cmd)
+    if cmd in _INVESTIGATOR:
+        return True
+    if is_pi:
+        return cmd in INVESTIGATOR_RUNS["pi"]
+    return "run" in tasks and cmd in INVESTIGATOR_RUNS["run"]
+
+
 # D-147: the study tasks of the delegation log (ICH E6): see candidates, mark Approach, ask a treating doctor, enter
 # data. The role table gives each role its tasks in a study; for an investigator the study's delegation log decides:
 # the logged PI has every task, a sub-investigator the ones the PI ticked, an investigator not on a log that names a PI
 # none. Before a study's log names a PI, every investigator of the study acts as its PI with ``investigator``'s row.
-STUDY_TASKS: tuple[str, ...] = ("screen", "approach", "refer", "enter_data")
+# T-512 (D-349): ``run`` lets a sub-investigator start the runs of INVESTIGATOR_RUNS["run"] ("screen" only shows them).
+STUDY_TASKS: tuple[str, ...] = ("screen", "approach", "refer", "enter_data", "run")
 ROLE_STUDY_TASKS: dict[str, frozenset[str]] = {
     "admin": frozenset({"screen"}),
     "coordinator": frozenset({"screen", "enter_data"}),

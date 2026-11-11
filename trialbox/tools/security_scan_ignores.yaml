@@ -1,0 +1,105 @@
+# Reviewed findings of the security scans (T-654; deep review ENG-010, ENG-011; tools/security_scan.py).
+# One entry = one file, one rule, the number of findings accepted there and why. A file with more findings of that
+# rule than `count` fails the scan, so a new finding in a listed file is not hidden. An entry with no reason is refused.
+# Paths are relative to trialbox/. The scan prints this list as a table with `python -m tools.security_scan ignores`.
+
+secrets:
+  - path: .env.example
+    rule: Basic Auth Credentials
+    count: 1
+    reason: the `change-me-wf` placeholder of the example environment file; service_token() treats change-me-* as unset
+  - path: docs/reviews/2026-11-09-review-parts/03-security-compliance.md
+    rule: Private Key
+    count: 1
+    reason: review prose that names the PEM header as a scanner pattern; no key material
+  - path: tests/integration/test_db_image.py
+    rule: Basic Auth Credentials
+    count: 1
+    reason: the password of a throwaway test database started by the test itself
+  - path: tests/unit/test_backup_schedule.py
+    rule: Basic Auth Credentials
+    count: 1
+    reason: a made-up database URL written to a temporary .env to test parsing
+  - path: tests/unit/test_update_path.py
+    rule: Basic Auth Credentials
+    count: 1
+    reason: a made-up database URL written to a temporary .env to test parsing
+
+sast:
+  # B608: SQL built from strings. In every listed place the values are bound as parameters; what is interpolated is a
+  # table or column name from a fixed tuple in the module, a list of `?` placeholders, a schema name the code made, or
+  # an integer constant (the vector dimension, a LIMIT passed through int()).
+  - {path: libs/tb_common/flags.py, rule: B608, count: 1, reason: "table name from a fixed tuple; the value is bound"}
+  - {path: libs/tb_common/refdata.py, rule: B608, count: 2, reason: "table names from the module's TABLES; values bound"}
+  - path: services/criteria_compiler/library/repository.py
+    rule: B608
+    count: 1
+    reason: "table suffix from a fixed tuple; the id is bound"
+  - path: services/lake/store.py
+    rule: B608
+    count: 7
+    reason: "snapshot table names from the lake's own list, DIM and int() constants, WHERE text made of bound `?` terms"
+  - {path: services/omop/load.py, rule: B608, count: 5, reason: "OMOP table and column names from module constants"}
+  - {path: services/omop/vocab_load.py, rule: B608, count: 1, reason: "column list from the module constant _CONCEPT_COLS; no outside input"}
+  - path: services/orchestrator/db.py
+    rule: B608
+    count: 4
+    reason: "column lists from module constants and `?` placeholder lists; every value is bound"
+  - {path: services/orchestrator/recall/ledger.py, rule: B608, count: 1, reason: "table names from a fixed tuple"}
+  - path: services/sitesetup/store.py
+    rule: B608
+    count: 3
+    reason: "column names filtered through a fixed allowed set; table names from a fixed tuple; values bound"
+  - {path: tools/bench.py, rule: B608, count: 1, reason: "benchmark tool; table names from its own list"}
+  - {path: tools/goldens.py, rule: B608, count: 2, reason: "schema name the tool created itself; no outside input"}
+  - {path: tools/make_fixtures.py, rule: B608, count: 1, reason: "fixture builder; table name from its own spec"}
+  - {path: tools/synth_site_from_schema.py, rule: B608, count: 2, reason: "synthetic site builder; names from its spec"}
+  - {path: tools/synthea_ad_cohort.py, rule: B608, count: 1, reason: "evaluation tool; the quoted path of its own CSV"}
+  # B108: a fixed temporary path
+  - {path: libs/tb_common/extra_ca.py, rule: B108, count: 1, reason: "fallback after TMPDIR; the bundle holds public certificates only"}
+  - path: tools/pglocal.py
+    rule: B108
+    count: 9
+    reason: "/tmp for short PostgreSQL socket paths in per-user folders, and /tmp listed in the refuse-to-delete set"
+  - {path: tools/refdata_fetch.py, rule: B108, count: 1, reason: "default --out of an operator command; the operator can change it"}
+  - {path: tools/trialbox/backup_schedule.py, rule: B108, count: 1, reason: "a path inside the backup container"}
+  - {path: tools/trialbox/update.py, rule: B108, count: 4, reason: "paths inside the service containers during an update"}
+  # B310: urlopen with a URL that could be file:// in principle
+  - {path: tools/catalogue_verify.py, rule: B310, count: 1, reason: "fixed https registry URLs; build-side tool"}
+  - {path: tools/fetch_fhir_packages.py, rule: B310, count: 1, reason: "fixed https package URLs; build-side tool (hash pinning is ENG-013)"}
+  - {path: tools/fetch_fonts.py, rule: B310, count: 1, reason: "fixed https font URLs; build-side tool (hash pinning is ENG-013)"}
+  - {path: tools/fetch_open_data.py, rule: B310, count: 1, reason: "fixed https public-data URLs; build-side tool"}
+  - {path: tools/gen_calendar.py, rule: B310, count: 1, reason: "public calendar URLs; build-side tool"}
+  - {path: tools/jpcore_rules.py, rule: B310, count: 1, reason: "fixed https package URL, checked by sha256"}
+  - {path: tools/supply_chain/scanners.py, rule: B310, count: 1, reason: "fixed https release URLs, checked by sha256"}
+  - {path: tools/trialbox/platform.py, rule: B310, count: 1, reason: "the in-cluster API URL, with the service account's CA"}
+  - {path: tools/trialbox/update.py, rule: B310, count: 1, reason: "the box's own health URL, given by the update code"}
+  # B314: xml.etree on an outside file. Python 3.12's expat limits entity expansion and ElementTree never loads
+  # external entities.
+  - {path: services/rc_sim/app.py, rule: B314, count: 1, reason: "a document with a DTD or an entity is refused first"}
+  - {path: tools/open_cohorts_eval.py, rule: B314, count: 1, reason: "public TREC topics file; evaluation tool"}
+  - {path: tools/refdata_fetch.py, rule: B314, count: 2, reason: "public reference files the operator fetched"}
+  - {path: tools/trec_ct_eval.py, rule: B314, count: 1, reason: "public TREC topics file; evaluation tool"}
+  # B324: md5 or sha1, not for security
+  - {path: tools/jpcore_rules.py, rule: B324, count: 1, reason: "sha1 compared with the upstream's published sha1; sha256 is checked too"}
+  - {path: tools/pglocal.py, rule: B324, count: 1, reason: "sha1 of a folder path to make a short database name"}
+  - {path: tools/trialbox/backup.py, rule: B324, count: 1, reason: "md5 of no rows, to match the database's own md5() content hash"}
+  # the rest, one each
+  - {path: libs/tb_llm/prompt_registry.py, rule: B506, count: 1, reason: "the loader is a yaml.SafeLoader subclass"}
+  - {path: tools/supply_chain/allowlist.py, rule: B506, count: 1, reason: "the loader is a yaml.SafeLoader subclass"}
+  - {path: tools/complete_run.py, rule: B602, count: 2, reason: "shell=True runs the operator's own --after command"}
+  - {path: libs/tb_common/refdata_tw.py, rule: B610, count: 2, reason: "false positive: a local function named extra, not Django"}
+  - {path: libs/tb_common/llm.py, rule: B701, count: 1, reason: "Jinja renders plain-text prompts, not HTML"}
+  - path: services/criteria_compiler/compile_cql/generator.py
+    rule: B701
+    count: 1
+    reason: "Jinja renders CQL source, not HTML"
+  - {path: services/model_guard/__init__.py, rule: B104, count: 1, reason: "binds all interfaces inside its container; it checks the key on every request"}
+  - {path: tools/rehearse_box/smtp_sink.py, rule: B104, count: 1, reason: "test mail sink inside its own container"}
+  - {path: tools/vllm_standin.py, rule: B104, count: 1, reason: "test stand-in for the model server inside its container"}
+  - {path: tools/trialbox/logs.py, rule: B103, count: 1, reason: "0o750 on the log folder: owner and group only"}
+  - {path: tools/trialbox/svc_secrets.py, rule: B103, count: 1, reason: "0o755 on the folder of public files; the secret files are elsewhere, 0600"}
+  - path: tools/bench_embed.py
+    rule: B615
+    count: 2
+    reason: "hand-run benchmark of a named embedding model; not in the product or any image"
