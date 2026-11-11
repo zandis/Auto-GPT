@@ -93,9 +93,6 @@ def test_the_default_is_not_zip(tmp_path: Path) -> None:
     assert load_env(dotenv=tmp_path / "none.env", environ={}).attach_password_mode == "link"
     assert inspect.signature(prepare).parameters["mode"].default == "link"
     assert next(q for q in QUESTIONS if q[0] == "attachment_encryption")[2] == "link"
-    assert yaml.safe_load((ROOT / "deploy/platform/base/settings.example.yaml").read_text())[
-        "attachment_encryption"
-    ] == ("link")
     answers = yaml.safe_load((ROOT / "tests/fixtures/onboarding/site_c_answers.yaml").read_text(encoding="utf-8"))
     answers.pop("attachment_encryption")
     answers["mapping"] = "mapping/tw_core/demo_his.yaml"  # an installed mapping (the site C one is the test's own)

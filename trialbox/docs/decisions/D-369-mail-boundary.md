@@ -21,7 +21,7 @@ whoever wrote it, and a sender that failed authentication still got a detailed r
 
 1. **Default `link`.** `settings.attachment_encryption` defaults to `link` (schema), `ATTACH_PASSWORD_MODE` to
    `link` (and now accepts it), `prepare(mode=...)` to `link`, and the wizard asks `link | smime` with `link` first
-   and a new question `console_url`, written to `.env` as `TB_CONSOLE_URL`. The platform example says `link`.
+   and a new question `console_url`, written to `.env` as `TB_CONSOLE_URL`.
 2. **No password zip for patient files on a real box.** In `zip` mode a mail with a `phi` tag or a `phi` attachment
    is refused (`EncryptionError`, HTTP 422) before anything is built or sent, and the send key is freed. Only a
    synthetic box may still do it: the mail gateway allows it when `TB_ENV` is DEV or TEST, and the in-process test
@@ -42,8 +42,8 @@ whoever wrote it, and a sender that failed authentication still got a detailed r
 
 - A site that keeps `attachment_encryption: zip` on a real box gets its patient mails refused, by design; it moves
   to `link` (with `TB_CONSOLE_URL`) or `smime`. The wizard warns about `zip` and about `link` without a console URL.
-- `deploy/settings.example.yaml` keeps `zip`: it is the synthetic test stacks' settings file and the tests read the
-  archive. `.env.example` now says `link` and sets `TB_CONSOLE_URL`.
+- `deploy/settings.example.yaml` (and its byte-identical platform copy) keeps `zip`: it is the synthetic test
+  stacks' settings file and the tests read the archive. `.env.example` now says `link` and sets `TB_CONSOLE_URL`.
 - A known sender whose mail fails authentication no longer learns why. The administrator sees the reason in the
   audit trail and the mail thread view.
 - `require_spf_dkim: false` still turns the sender check off for a site whose MTA adds no results; it is an
