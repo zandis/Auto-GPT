@@ -615,6 +615,12 @@ def create_app(
         sess = need(request)
         return _need_role(request, csrf, sess.user.can_request, sess)
 
+    def need_runner(request: Request, csrf: str, command: str, ruleset: str) -> Session:
+        """Starting a FEAS, SCREEN or CASE run (T-512, D-349): coordinators and administrators as before; an
+        investigator by ``tb_common.authz.can_request`` with the study's delegation log (``Helpers.may_run``)."""
+        sess = need(request)
+        return _need_role(request, csrf, helpers.may_run(sess.user, ruleset.strip().upper(), command), sess)
+
     def lang_of(request: Request, sess: Session | None) -> str:
         if sess is not None and sess.lang in LANGS:
             return sess.lang
@@ -1070,6 +1076,7 @@ def create_app(
         entry_pages,
         lifecycle_pages,
         notify,
+        recorded_opinions,
         screening_log,
         site_pages,
         step4,
@@ -1095,6 +1102,7 @@ def create_app(
         clock=us.clock,
         submit=submit,
         identity=ident,  # D-279: the second factor at signing (console.edc_pages)
+        recorded=recorded_opinions.from_env(_env_map(env)),  # T-515: DEV demo opinions (TB_DEMO_OPINIONS)
     )
     app.state.helpers = helpers  # console.notify (CLI) reads the same helpers
     register_home(app, helpers)
@@ -1535,7 +1543,7 @@ def create_app(
         version: str = Form(""),
         pract: str = Form(""),
     ) -> Response:
-        sess = need_requester(request, csrf)
+        sess = need_runner(request, csrf, kind if kind in ("FEAS", "SCREEN") else "FEAS", ruleset)  # T-512
         rs = ruleset.strip().upper()
         if kind not in ("FEAS", "SCREEN") or not _RULESET_ID.match(rs):
             raise _Problem(400, "request.refused", reason="choose FEAS or SCREEN and an approved ruleset")
@@ -1715,7 +1723,7 @@ def create_app(
         lang: str = Form(""),
         charts: Annotated[list[UploadFile] | None, File()] = None,
     ) -> Response:
-        sess = need_requester(request, csrf)
+        sess = need_runner(request, csrf, "CASE", ruleset)  # T-512 (D-349): the PI asks a case question too
         demo_guard.guard(request, _Problem)  # T-502: no chart upload in demo mode
         rs = ruleset.strip().upper()
         if not _RULESET_ID.match(rs):

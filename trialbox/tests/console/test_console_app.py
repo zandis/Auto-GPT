@@ -1567,8 +1567,11 @@ def test_investigator_sees_candidate_rows_and_case_sheet_and_reveals(box: dict[s
     case = _done_case(box["backend"])
     sheet = next(o for o in case.outputs or [] if o.filename.endswith(".html"))
     assert c.get(f"/pilot/jobs/{case.job_id}/view/{sheet.filename}").status_code == 200
-    r = c.post("/pilot/request", data={"kind": "FEAS", "ruleset": "GZQO", "csrf": csrf})
-    assert r.status_code == 403 and box["backend"].created == []
+    # T-512 (D-349, Q-04): the PI starts a run on the PI's own study; an investigator of another study does not
+    r = c2.post("/pilot/request", data={"kind": "FEAS", "ruleset": "GZQO", "csrf": csrf2})
+    assert r.status_code in (403, 404) and box["backend"].created == []
+    r = c.post("/pilot/request", data={"kind": "FEAS", "ruleset": "GZQO", "csrf": csrf}, follow_redirects=False)
+    assert r.status_code == 303 and [q.type for q in box["backend"].created] == ["FEAS"]
     viewer, _ = login(box["app"], "viewer", VIEWER_PW)
     assert viewer.get(f"/pilot/jobs/{case.job_id}/view/{sheet.filename}").status_code == 403
     admin, _ = login(box["app"])

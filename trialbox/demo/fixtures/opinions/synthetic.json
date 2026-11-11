@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "source": {
+    "kind": "synthetic",
+    "name": "synthetic examples (T-515)",
+    "note": "Made up by hand to show the two checks on the demo pages. No model wrote these words. Replace or add to them with g1-short-run.json (see README.md)."
+  },
+  "cases": [
+    {
+      "ruleset": "GZQO",
+      "criterion": ["GZQO-INC-05"],
+      "case": "agree",
+      "opinions": [
+        {"role": "judge", "verdict": "pass", "quote": "[synthetic] Gout flare of the right first toe in March and another of the left knee in June.", "quote_date": "2026-06-18"},
+        {"role": "verifier", "verdict": "pass", "quote": "[synthetic] Two flares in the last year (March, June), both treated with colchicine.", "quote_date": "2026-06-18"}
+      ]
+    },
+    {
+      "ruleset": "GZQO",
+      "criterion": ["GZQO-INC-05", "GZQO-EXC-11"],
+      "case": "disagree",
+      "opinions": [
+        {"role": "judge", "verdict": "pass", "quote": "[synthetic] Patient reports joint pain twice this year, once in the ankle.", "quote_date": "2026-05-02"},
+        {"role": "verifier", "verdict": "fail", "quote": "[synthetic] Ankle pain after a fall; no flare documented since last year.", "quote_date": "2026-05-02"}
+      ]
+    },
+    {
+      "ruleset": "GZQO",
+      "criterion": ["GZQO-EXC-11"],
+      "case": "agree",
+      "opinions": [
+        {"role": "judge", "verdict": "pass", "quote": "[synthetic] No swollen or tender joints today; last flare ended in spring.", "quote_date": "2026-09-30"},
+        {"role": "verifier", "verdict": "pass", "quote": "[synthetic] Joints quiet at this visit; no current flare.", "quote_date": "2026-09-30"}
+      ]
+    }
+  ]
+}
