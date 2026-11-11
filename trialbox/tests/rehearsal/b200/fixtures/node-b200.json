@@ -1,0 +1,6 @@
+{"kind": "Node", "metadata": {"name": "gpu-node-1", "labels": {
+  "nvidia.com/gpu.product": "NVIDIA-B200", "nvidia.com/gpu.count": "1", "nvidia.com/mig.strategy": "mixed",
+  "nvidia.com/cuda.driver.major": "580", "nvidia.com/cuda.driver.minor": "95", "nvidia.com/cuda.driver.rev": "05",
+  "nvidia.com/cuda.runtime.major": "13", "nvidia.com/cuda.runtime.minor": "0",
+  "feature.node.kubernetes.io/kernel-version.full": "6.8.0-48-generic"}},
+ "status": {"allocatable": {"cpu": "64", "nvidia.com/mig-2g.45gb": "1", "nvidia.com/mig-1g.23gb": "1"}}}
