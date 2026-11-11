@@ -38,9 +38,11 @@
    follow-up), for the study patients (the candidate pools and registries), on the snapshot that ingest published.
    A confirmed fact reaches the lake at that publish, so it is in the twin within that one tick.
 7. **One read route, asked through `permit`.** `GET /api/v1/studies/{rs}/patients/{pid}/twin` (console). The account
-   must hold matrix row `profile.read` and read the study's patients by its own rights (`Helpers.reads`: `phi.view`,
-   then the delegation log), or hold an open break-glass grant for that patient (D-430). Every read is one audit
-   event `console.twin_view` with role, layers returned, basis snapshot and twin version. The `setpoint` and `gap`
+   must hold matrix row `profile.read` (coordinator, investigator) and read the study's patients by its own rights
+   (`Helpers.reads`: `phi.view`, then the delegation log), or hold an open break-glass grant for that patient (D-430;
+   the administrator, who holds no patient-level row, reads a twin only so). The patient must be on the study's list
+   or in its candidate registry. Every read is one audit event `console.twin_view` with role (`breakglass` under a
+   grant), layers returned, basis snapshot and twin version; a read under a grant is also one use of the grant. The `setpoint` and `gap`
    layers are returned only to a role that holds `profile.research_layers` (the study's PI); for every other role
    they are absent.
 
