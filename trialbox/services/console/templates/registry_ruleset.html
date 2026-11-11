@@ -16,7 +16,7 @@
   <label for="mrn">{{ t('case.mrn') }}</label>
   <input id="mrn" name="mrn" required maxlength="32" pattern="[A-Za-z0-9\-]+" autocomplete="off">
   <label for="status">{{ t('registry.status') }}</label>
-  <select id="status" name="status">{% for s in statuses %}<option value="{{ s }}">{{ t('registry.status.' + s) }}</option>{% endfor %}</select>
+  <select id="status" name="status">{% for s in options(none) %}<option value="{{ s }}">{{ t('registry.status.' + s) }}</option>{% endfor %}</select>
   <label for="reason">{{ t('registry.reason') }}</label>
   <input id="reason" name="reason" maxlength="500">
   <button type="submit" {{ 'disabled' if not user.can_request else '' }} data-testid="registry-add">{{ t('registry.add.submit') }}</button>

@@ -35,6 +35,7 @@
 <section class="card" data-testid="entry-form">
 <h2>{{ form.titles.get(lang) or form.titles.en }} <span class="hint"><span class="mono">{{ record }}</span> · {% if event %}<span class="mono">{{ event }}</span>{% else %}{{ t('dc.entry.event.none') }}{% endif %}</span></h2>
 {% if ae and ae.serious %}{{ report_clock(ae) }}{% endif %}
+{% if form.name == 'tb_consent' %}{% include "_consent_entry.html" %}{% endif %}
 {% if n_problems %}<p class="error" role="alert" data-testid="entry-refused">{{ t('dc.entry.refused', n=n_problems) }}</p>{% endif %}
 <form method="post" action="/studies/{{ rs }}/entry" id="entry" class="entry">
   <input type="hidden" name="csrf" value="{{ csrf }}">
