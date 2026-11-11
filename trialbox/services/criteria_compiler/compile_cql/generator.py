@@ -50,6 +50,7 @@ _env = Environment(
     loader=FileSystemLoader(TEMPLATES), undefined=StrictUndefined, keep_trailing_newline=True, autoescape=False
 )
 CS_NAMES = {LOINC: "LOINC", SCORE: "TBSCORE"}
+YJ_SHAPE = "[0-9]{7}[A-Z][0-9A-Z]{4}"  # a 12-character YJ code (T-610), as compile_sql's YJ_STEM_OF reads it
 # resource type and coding list of a presence atom whose ValueSet is a code-prefix grouper (D-113 families)
 FAMILY_CODINGS = {
     "condition": ("Condition", "X.code.coding"),
@@ -182,6 +183,14 @@ class CqlGenerator:
             case "medication":
                 date = "date from X.authoredOn"
                 retrieve = f"[MedicationRequest: {vs}] X"
+                stems = self.vs.yj_stems(atom.valueset)
+                if stems:  # T-610: a YJ code whose ingredient stem the ValueSet lists matches, as in the SQL
+                    listed = ", ".join(f"'{st}'" for st in stems)
+                    retrieve = (
+                        f"[MedicationRequest] X where exists (({FAMILY_CODINGS['medication'][1]}) Cd where "
+                        f"FHIRHelpers.ToCode(Cd) in {vs} or (Matches(Cd.code.value, '{YJ_SHAPE}') and "
+                        f"Substring(Cd.code.value, 0, 7) in {{{listed}}})) and"
+                    )
             case "procedure":
                 date = "date from (X.performed as FHIR.dateTime)"
                 retrieve = f"[Procedure: {vs}] X"

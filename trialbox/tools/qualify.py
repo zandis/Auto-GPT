@@ -21,7 +21,8 @@ build). The steps, in order (:data:`STEPS`); each one ends ``passed`` or ``faile
 * ``schema``: every prompt of the active set is sent once with an adversarial line in its data
   (``eval/qualification/schema_probes.yaml``); 100 % must be valid on the first attempt and not cut off (LLM-020);
 * ``longest_prompt``: the longest prompt the product sends per role (the judge's full-record fallback, the uploaded
-  chart) must fit the profile's context with the prompt's ``max_tokens``, and is sent and answered (LLM-015);
+  chart, both sized from the profile's context since T-603) must fit the profile's context with the prompt's
+  ``max_tokens``, and is sent and answered (LLM-015);
 * ``log_marker``: a marker string is planted in a note excerpt; after the call it must not be found in the gateway's
   audit files, in the logs of this process or in any ``--server-log`` (the model server's container log; LLM-042);
 * ``canary``: the 54-case pair canary (``orchestrator.selftest``), reported by model name;
@@ -563,30 +564,44 @@ def step_schema(ctx: Ctx) -> StepResult:
 
 
 # The longest prompt each role sends (LLM-015): the judge's full-record fallback and the chart a coordinator uploads.
-def longest_prompts() -> dict[str, tuple[str, dict[str, Any]]]:
+# Since T-603 both are sized from the model's context (NoteJudge.budget, sitesetup.charts.chart_parts): the longest
+# prompt on a profile is the one filled to that profile's budget; with no context known, the old fixed sizes.
+def longest_prompts(context: int | None = None) -> dict[str, tuple[str, dict[str, Any]]]:
     from orchestrator.scenarios.evaluate import FULL_RECORD_TOKENS, _tokens
-    from sitesetup.charts import MAX_CHART_CHARS
+    from sitesetup.charts import MAX_CHART_CHARS, chart_parts
+    from tb_common.llm import load_prompt, render
+    from tb_llm.budget import estimate_messages, text_budget
 
     line = "2026-10-01 経過良好。血圧 128/76、HbA1c 6.9 %。痛風発作なし。\n"
     text = line * 8
-    excerpts, n = [], 0
-    while n + _tokens(text) <= FULL_RECORD_TOKENS:  # as NoteJudge.full_record fills its budget
-        excerpts.append({"date": "2026-10-01", "note_type": "progress", "text": text})
-        n += _tokens(text)
-    judge = {
+    judge: dict[str, Any] = {
         "criterion_text": "No active gout flare",
         "note_question": "Is the patient currently having a gout flare?",
         "index_date": "2026-10-05",
-        "excerpts": excerpts,
+        "excerpts": [],
     }
+    budget = FULL_RECORD_TOKENS
+    if context:
+        p = load_prompt("judge")
+        budget = min(budget, text_budget(context, estimate_messages(render(p, judge)), p.meta.max_tokens))
+    excerpts, n = [], 0
+    while n + _tokens(text) <= budget:  # as NoteJudge.full_record fills its budget
+        excerpts.append({"date": "2026-10-01", "note_type": "progress", "text": text})
+        n += _tokens(text)
+    judge["excerpts"] = excerpts
+    chart_vars = {"language": "ja", "language_name": "Japanese", "text": ""}
     chart = (line * (MAX_CHART_CHARS // len(line) + 1))[:MAX_CHART_CHARS]
-    return {"judge": ("judge", judge), "chart_facts": ("chart_facts", {"language": "ja", "text": chart})}
+    if context:
+        p = load_prompt("chart_facts")
+        room = text_budget(context, estimate_messages(render(p, chart_vars)), p.meta.max_tokens)
+        chart = chart_parts(chart, room)[0]  # the first part is the fullest (sitesetup.charts.extract)
+    return {"judge": ("judge", judge), "chart_facts": ("chart_facts", {**chart_vars, "text": chart})}
 
 
 def _estimate(messages: list[dict[str, str]]) -> int:
-    from orchestrator.scenarios.evaluate import _tokens
+    from tb_llm.budget import estimate_messages
 
-    return sum(_tokens(m["content"]) for m in messages)
+    return estimate_messages(messages)
 
 
 def step_longest_prompt(ctx: Ctx) -> StepResult:
@@ -595,7 +610,7 @@ def step_longest_prompt(ctx: Ctx) -> StepResult:
     context = ctx.builds["judge"].context_length
     detail: dict[str, Any] = {"context_length": context, "roles": {}}
     problems: list[str] = []
-    for role, (pid, variables) in longest_prompts().items():
+    for role, (pid, variables) in longest_prompts(context).items():
         prompt = load_prompt(pid)
         need = _estimate(render(prompt, variables)) + prompt.meta.max_tokens
         row: dict[str, Any] = {"prompt": f"{prompt.meta.id}@{prompt.meta.version}", "tokens_needed": need}

@@ -1,0 +1,17 @@
+{# D-277 (FIT-025, UX-005): the SAE pages' shared pieces. The regulator is named from the study's rule set (its
+   country), the same word in every language; each study's rule set with its deadlines, their legend, and who confirmed
+   it on the study set-up page. #}
+{% macro pname(p, reg='') %}{% if p == 'regulator' and reg %}{{ t('sae.party.regulator', name=reg) }}{% elif p == 'regulator' %}{{ t('sae.party.regulator_any') }}{% else %}{{ t('life.clock.party.' + p) }}{% endif %}{% endmacro %}
+{% macro rules_line(rules, reg='') %}{% for p, d in rules.items() %}{{ pname(p, reg) }} {% if d[0] or d[1] %}{{ d[0] }}/{{ d[1] }}{% else %}–{% endif %}{% if not loop.last %}; {% endif %}{% endfor %}{% endmacro %}
+{% macro rules_card(study_rules, fu_rules, tz) %}<section class="card" data-testid="sae-rules">
+{% for rs_, x in study_rules.items() %}<div data-testid="sae-rules-{{ rs_ }}">
+<p><strong>{{ t('sae.rule.set', rs=rs_, name=t('sae.set.' + x.name) if x.name else '–', regulator=x.regulator or '–') }}</strong></p>
+<p>{{ t('sae.rule', rules=rules_line(x.parties or {}, x.regulator)) }}</p>
+{% if x.confirmed_by %}<p data-testid="sae-confirmed">{{ t('sae.rule.by', who=x.confirmed_by|who, at=x.confirmed_at|local) }}</p>{% else %}<p class="warn" data-testid="sae-unconfirmed">{{ t('sae.rule.unconfirmed') }}{% if x.source in ('box', 'country') %} {{ t('sae.rule.source.' + x.source) }}{% endif %}</p>{% endif %}
+{% for f in x.problems or [] %}{% if f != 'default_rules' %}<p class="error" data-testid="sae-rule-problem-{{ f }}">{{ t('sae.flag.' + f) }}</p>{% endif %}{% endfor %}
+</div>{% endfor %}
+{% set regs = study_rules.values()|map(attribute='regulator')|unique|list %}
+<p>{{ t('sae.rule.followup', rules=rules_line(fu_rules, regs[0] if regs|length == 1 else '')) }}</p>
+<p class="hint" data-testid="sae-legend">{{ t('sae.rule.legend') }}</p>
+<p class="hint">{{ t('sae.calendar', tz=tz) }}</p>
+</section>{% endmacro %}

@@ -32,7 +32,7 @@ import json
 import re
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta, tzinfo
 from typing import Any
 
 from datacore.store import DataCore
@@ -82,39 +82,129 @@ SAE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS ae_ack (study TEXT NOT NULL, record TEXT NOT NULL, event TEXT NOT NULL,
   who TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (study, record, event))
 """
+# D-277 (LIFE-023): the study's SAE rule set, chosen on the study set-up page; who confirmed it and when (version 4)
+SAE_SCHEMA_V2 = """
+CREATE TABLE IF NOT EXISTS sae_rule (study TEXT NOT NULL PRIMARY KEY, rule_set TEXT NOT NULL,
+  confirmed_by TEXT NOT NULL, confirmed_at TEXT NOT NULL)
+"""
+SAE_MIGRATIONS = (SAE_SCHEMA, SAE_SCHEMA_V2)
 
-# The SAE reporting clock (P-03, D-143): days from the day the site learned of a serious AE (``ae_aware``, else the
-# onset) to the report, as (fatal or life-threatening, other serious); 0 = not tracked. Plain defaults that each site
-# confirms with its IRB SOP and the protocol before the first patient (TB_SAE_REPORT_DAYS overrides):
-# * Japan (J-GCP art. 48): the investigator tells the sponsor and the head of the institution "at once" (直ちに), here
-#   one day; an investigator-initiated trial (医師主導治験) reports to PMDA itself in 7 days (death or a threat to
-#   life, unexpected) or 15 days (other).
-# * Taiwan (藥品優良臨床試驗作業準則): the investigator tells the sponsor at once (one day); the IRB in 7 or 15 days, as
-#   most Taiwanese IRB SOPs ask; TFDA in 7 or 15 days (the sponsor's duty unless the investigator sponsors the trial).
+# The SAE reporting clock (P-03, D-143, D-277): from the moment the site learned of a serious AE (``ae_aware`` and
+# ``ae_aware_time``, else the onset) to each report, as (fatal or life-threatening, other serious); 0 = no report to
+# that party. A one-day rule is the "at once" report (直ちに; 立即): it is counted in hours, 24 h from the time learned
+# (LIFE-022), and when no time was entered from the start of the day learned, the strictest reading. Longer rules are
+# calendar days. Each study names one of the sets below on its set-up page (LIFE-023); they are plain defaults that
+# the study confirms with its IRB SOP and the protocol (the page records who confirmed and when):
+# * ``jp_gcp`` 治験 (J-GCP art. 48), company sponsor: the sponsor and the head of the institution at once; the sponsor
+#   reports to PMDA, so no regulator clock at the site.
+# * ``jp_gcp_ii`` 医師主導治験: the same, and the investigator reports to PMDA in 7 days (death or a threat to life) or
+#   15 days (other).
+# * ``jp_crb`` 特定臨床研究 (臨床研究法): the certified review board and MHLW in 7 or 15 days.
+# * ``jp_guideline`` 指針 research (生命・医学系指針): the head of the institution at once.
+# * ``tw_trial`` 人體試驗 (藥品優良臨床試驗作業準則): the sponsor at once, the IRB and TFDA in 7 or 15 days.
+# * ``tw_research`` 人體研究 (人體研究法): the IRB in 7 or 15 days.
+# The regulator's name comes from the set, so from the country (UX-005): the same word in every language.
 REPORT_PARTIES = ("sponsor", "irb", "regulator")
 REPORT_FIELDS = {"sponsor": "ae_rep_sponsor", "irb": "ae_rep_irb", "regulator": "ae_rep_reg"}
-REPORT_RULES: dict[str, dict[str, tuple[int, int]]] = {
-    "jp": {"sponsor": (1, 1), "irb": (1, 1), "regulator": (7, 15)},
-    "tw": {"sponsor": (1, 1), "irb": (7, 15), "regulator": (7, 15)},
+HOUR_RULE = 1  # a rule of one day is the 24-hour report, counted in hours
+
+
+@dataclass(frozen=True)
+class RuleSet:
+    name: str
+    country: str  # JP or TW
+    regulator: str  # the regulator's name, the same in every language
+    parties: dict[str, tuple[int, int]]
+
+
+RULE_SETS: dict[str, RuleSet] = {
+    "jp_gcp": RuleSet("jp_gcp", "JP", "PMDA", {"sponsor": (1, 1), "irb": (1, 1), "regulator": (0, 0)}),
+    "jp_gcp_ii": RuleSet("jp_gcp_ii", "JP", "PMDA", {"sponsor": (1, 1), "irb": (1, 1), "regulator": (7, 15)}),
+    "jp_crb": RuleSet("jp_crb", "JP", "MHLW", {"sponsor": (0, 0), "irb": (7, 15), "regulator": (7, 15)}),
+    "jp_guideline": RuleSet("jp_guideline", "JP", "MHLW", {"sponsor": (0, 0), "irb": (1, 1), "regulator": (0, 0)}),
+    "tw_trial": RuleSet("tw_trial", "TW", "TFDA", {"sponsor": (1, 1), "irb": (7, 15), "regulator": (7, 15)}),
+    "tw_research": RuleSet("tw_research", "TW", "TFDA", {"sponsor": (0, 0), "irb": (7, 15), "regulator": (0, 0)}),
 }
+RULE_ALIASES = {"jp": "jp_gcp_ii", "tw": "tw_trial"}  # the box-wide names before D-277 (TB_SAE_RULES)
+COUNTRY_DEFAULT = {"JP": "jp_gcp_ii", "TW": "tw_trial"}  # the country's strictest set, until the study names one
+REPORT_RULES: dict[str, dict[str, tuple[int, int]]] = {k: dict(RULE_SETS[v].parties) for k, v in RULE_ALIASES.items()}
+# what the resolved rules can say is wrong; all but ``default_rules`` are an alert, never a quiet fallback (CR-009)
+RULE_PROBLEMS = ("unknown_rules", "no_country", "other_country", "bad_override", "noclock", "default_rules")
+RULE_ALERTS = ("unknown_rules", "no_country", "other_country", "bad_override", "noclock")
+SERIOUS_WHY = ("1", "2", "3", "4", "5", "6")
+_HHMM = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
+
+
+def _site_country(tz: str) -> str:
+    from tb_common.derived import country_of
+
+    return country_of(tz) or ""
+
+
+def apply_override(parties: dict[str, tuple[int, int]], override: str) -> list[str]:
+    """``TB_SAE_REPORT_DAYS`` (``sponsor=1,irb=7/15,regulator=0``; one number is both) on top of ``parties``; returns
+    the parts it could not read, which the caller turns into an alert (CR-009: never ignored silently)."""
+    bad: list[str] = []
+    for part in (override or "").split(","):
+        if not part.strip():
+            continue
+        key, _, val = part.partition("=")
+        key, val = key.strip().lower(), val.strip()
+        a, _, b = val.partition("/")
+        try:
+            if key not in REPORT_PARTIES or not val:
+                raise ValueError(part)
+            parties[key] = (max(0, int(a)), max(0, int(b or a)))
+        except ValueError:
+            bad.append(part.strip()[:40])
+    return bad
+
+
+def clock_rules(study_set: str = "", tz: str = "", override: str = "", box_set: str = "") -> dict[str, Any]:
+    """The clock in force for one study: the study's named set, else the box's (``TB_SAE_RULES``), else the default
+    of the site's country (from ``site.tz``), then ``override``. Returns ``name``, ``country``, ``regulator``,
+    ``parties`` (party -> (fatal or life-threatening, other) days), ``source`` (study, box, country) and
+    ``problems`` (:data:`RULE_PROBLEMS`). An unknown name, a zone of no known country or an unreadable override is
+    a problem the pages show as an alert, never the Taiwan clock (CR-009)."""
+    country = _site_country(tz)
+    asked = (study_set or box_set or "").strip().lower()
+    name = RULE_ALIASES.get(asked, asked)
+    source = "study" if study_set else ("box" if box_set else "country")
+    problems: list[str] = []
+    if name:
+        rs = RULE_SETS.get(name)
+        if rs is None:
+            problems.append("unknown_rules")
+    else:
+        rs = RULE_SETS.get(COUNTRY_DEFAULT.get(country, ""))
+        problems.append("default_rules" if rs is not None else "no_country")
+    if rs is not None and country and rs.country != country:
+        problems.append("other_country")
+    parties = dict(rs.parties) if rs is not None else {}
+    if apply_override(parties, override):
+        problems.append("bad_override")
+    if not any(max(v) > 0 for v in parties.values()):
+        problems.append("noclock")
+    return {"name": rs.name if rs is not None else name[:40], "country": rs.country if rs is not None else country,
+            "regulator": rs.regulator if rs is not None else "", "parties": parties, "source": source,
+            "problems": problems}  # fmt: skip
 
 
 def report_rules(tz: str = "", override: str = "", rules: str = "") -> dict[str, tuple[int, int]]:
-    """The clock in force: ``rules`` (``jp`` / ``tw``; by default from the site's zone, Asia/Tokyo is Japan), then
-    ``override`` (``TB_SAE_REPORT_DAYS``: ``sponsor=1,irb=7/15,regulator=0``; one number is both)."""
-    name = (rules or ("jp" if tz == "Asia/Tokyo" else "tw")).strip().lower()
-    out = dict(REPORT_RULES.get(name, REPORT_RULES["tw"]))
-    for part in (override or "").split(","):
-        key, _, val = part.partition("=")
-        key, val = key.strip().lower(), val.strip()
-        if key not in REPORT_PARTIES or not val:
-            continue
-        a, _, b = val.partition("/")
-        try:
-            out[key] = (max(0, int(a)), max(0, int(b or a)))
-        except ValueError:
-            continue
-    return out
+    """The parties of :func:`clock_rules` for a box-wide name (``rules``) or the site's zone; what the pages show as
+    a problem is in :func:`clock_rules`."""
+    return dict(clock_rules("", tz, override, rules)["parties"])
+
+
+def is_serious(e: dict[str, Any]) -> bool:
+    """Serious by the form's own answer, or by an answer that only a serious AE has (CR-008): a fatal outcome always;
+    a "why serious" reason when Serious is not answered (an import, an old record). A fatal AE whose Serious radio
+    says No is still an SAE, with its clock and its alert. An explicit No with a "why serious" left over is not: the
+    form hides that field once Serious is No and keeps the old value (``datacore.sync.save_form``), so the reason is
+    what the AE was, and a correction to "not serious" must be able to take effect (D-277)."""
+    if e.get("ae_serious") == "1" or e.get("ae_outcome") == "5":
+        return True
+    return e.get("ae_serious") != "0" and e.get("ae_serious_why") in SERIOUS_WHY
 
 
 def grave(e: dict[str, Any]) -> bool:
@@ -122,20 +212,58 @@ def grave(e: dict[str, Any]) -> bool:
     return e.get("ae_outcome") == "5" or e.get("ae_serious_why") in ("1", "2")
 
 
-def report_clock(e: dict[str, Any], today: date, rules: dict[str, tuple[int, int]]) -> list[dict[str, Any]]:
-    """Each report a serious AE needs: party, due date, the day it was reported (or ""), overdue on ``today``."""
-    if e.get("ae_serious") != "1":
+def aware_time(e: dict[str, Any]) -> time | None:
+    m = _HHMM.match(str(e.get("ae_aware_time") or "").strip())
+    return time(int(m.group(1)), int(m.group(2))) if m else None
+
+
+def start_at(e: dict[str, Any], tz: tzinfo | None = None) -> datetime | None:
+    """The moment the clock starts: the day learned at the time learned (else at 00:00), else the onset at 00:00."""
+    aware = _day(str(e.get("ae_aware") or ""))
+    if aware is not None:
+        return datetime.combine(aware, aware_time(e) or time(0, 0), tzinfo=tz)
+    onset = _day(str(e.get("ae_onset") or ""))
+    return datetime.combine(onset, time(0, 0), tzinfo=tz) if onset is not None else None
+
+
+def sent_ok(done: str, today: date, start: date | None) -> bool:
+    """A "reported on" day that counts: a real date, not after today, not before day 0 (CR-010: 2099 does not)."""
+    d = _day(done) if done else None
+    return d is not None and d <= today and (start is None or d >= start)
+
+
+def report_clock(e: dict[str, Any], today: date, rules: dict[str, tuple[int, int]],
+                 now: datetime | None = None) -> list[dict[str, Any]]:  # fmt: skip
+    """Each report a serious AE needs: party, days, due day (and for the 24-hour report ``hours`` and ``due_at``, the
+    site-local moment), the day it was reported (or ""), and overdue at ``now`` (else on ``today``). A regulator
+    report is not needed for an AE expected per the reference safety information (``ae_expected`` 1, LIFE-024). A
+    "reported on" day that cannot be right (unreadable, after today, before day 0) does not count as sent and is
+    marked ``bad_done`` (CR-010)."""
+    if not is_serious(e):
         return []
     start = _day(str(e.get("ae_aware") or "")) or _day(str(e.get("ae_onset") or ""))
+    tz = now.tzinfo if now is not None else None
+    began = start_at(e, tz)
+    expected = e.get("ae_expected") == "1"
     out = []
     for party in REPORT_PARTIES:
         days = rules.get(party, (0, 0))[0 if grave(e) else 1]
-        if days <= 0:
+        if days <= 0 or (party == "regulator" and expected):
             continue
-        due = start + timedelta(days=days) if start else None
+        row: dict[str, Any] = {"party": party, "days": days}
+        if days == HOUR_RULE:
+            due_at = began + timedelta(hours=24) if began is not None else None
+            due = due_at.date() if due_at is not None else None
+            row.update(hours=24, due_at=due_at.isoformat(timespec="minutes") if due_at is not None else "")
+            late = (now > due_at) if (now is not None and due_at is not None) else bool(due and today > due)
+        else:
+            due = start + timedelta(days=days) if start else None
+            late = bool(due and today > due)
         done = str(e.get(REPORT_FIELDS[party]) or "")
-        out.append({"party": party, "days": days, "due": due.isoformat() if due else "", "done": done,
-                    "overdue": bool(due and not done and today > due)})  # fmt: skip
+        ok = sent_ok(done, today, start)
+        row.update(due=due.isoformat() if due else "", done=done, overdue=bool(due and not ok and late),
+                   bad_done=bool(done and not ok))  # fmt: skip
+        out.append(row)
     return out
 
 
@@ -186,6 +314,11 @@ def can_step(cur: str, to: str) -> str | None:
     if to not in NEXT[cur]:
         return "order"
     return None
+
+
+def _death_day(v: dict[str, str]) -> str:
+    """The day of a death recorded on an AE form: the date of death, else the day learned, else the onset."""
+    return next((str(v[k]) for k in ("ae_death_date", "ae_aware", "ae_onset") if _day(str(v.get(k) or ""))), "")
 
 
 def _day(text: str) -> date | None:
@@ -326,6 +459,12 @@ class Lifecycle:
         if once.get("wd_date"):
             put("withdrawn", once["wd_date"], "form:tb_withdrawal", once.get("wd_reason", "") or "6",
                 once.get("wd_note", ""))  # fmt: skip
+        deaths = sorted(
+            (_death_day(v), ev) for ev, v in vals.items() if AE_EVENT.match(ev) and v.get("ae_outcome") == "5"
+        )
+        deaths = [d for d in deaths if d[0]]
+        if deaths:  # CR-011 (PR #60 M5): a death ends the participant, as the withdrawal form's reason 5 (Death)
+            put("withdrawn", deaths[0][0], f"form:tb_adverse_event:{deaths[0][1]}", "5", "death")
         if registry and registry in FROM_REGISTRY and registry != "candidate":
             want = FROM_REGISTRY[registry]
             reason = "declined" if registry == "declined" else ("other" if want == "screen_fail" else "")
@@ -444,6 +583,23 @@ class Lifecycle:
         self.db.execute("INSERT INTO ae_ack (study, record, event, who, at) VALUES (?,?,?,?,?) "
                         "ON CONFLICT (study, record, event) DO NOTHING", (study, record, event, who, at))  # fmt: skip
         return self.acks(study)[(record, event)]
+
+    def sae_rule(self, study: str) -> dict[str, Any] | None:
+        """The study's SAE rule set (D-277), who confirmed it and when; None until the set-up page names one."""
+        rows = self.db.fetchdicts("SELECT * FROM sae_rule WHERE study = ?", (study,))
+        return rows[0] if rows else None
+
+    def set_sae_rule(self, study: str, rule_set: str, by: str, at: str) -> dict[str, Any]:
+        """Name the study's SAE rule set (one of :data:`RULE_SETS`); the person saving it confirms it."""
+        if rule_set not in RULE_SETS:
+            raise LifeError("rules", f"the SAE rule set is one of {', '.join(RULE_SETS)}")
+        self.db.execute("INSERT INTO sae_rule (study, rule_set, confirmed_by, confirmed_at) VALUES (?,?,?,?) "
+                        "ON CONFLICT (study) DO UPDATE SET rule_set = excluded.rule_set, "
+                        "confirmed_by = excluded.confirmed_by, confirmed_at = excluded.confirmed_at",
+                        (study, rule_set, by, at))  # fmt: skip
+        out = self.sae_rule(study)
+        assert out is not None
+        return out
 
     def next_event(self, study: str, record: str, prefix: str) -> str:
         pat = AE_EVENT if prefix == "ae" else DV_EVENT

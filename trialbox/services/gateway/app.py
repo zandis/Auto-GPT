@@ -1,4 +1,5 @@
-"""tb-gateway HTTP app (spec v4 §8.2; S1-06): OpenAI-compatible ``POST /v1/chat/completions`` and ``GET /v1/models``;
+"""tb-gateway HTTP app (spec v4 §8.2; S1-06): OpenAI-compatible ``POST /v1/chat/completions`` and ``GET /v1/models``
+(each alias with its context, T-603);
 ``POST /v1/serving/activate``, ``POST /v1/serving/release`` and ``GET /v1/serving/status`` drive the one-GPU model
 swap (:mod:`gateway.swap`).
 
@@ -63,7 +64,20 @@ def create_app(gateway: Gateway | None = None) -> FastAPI:
 
     @app.get("/v1/models")
     def models() -> dict[str, Any]:
-        return {"object": "list", "data": [{"id": a, "object": "model", "owned_by": "tb-gateway"} for a in gw.models()]}
+        """Aliases, each with its context in tokens (T-603): ``context_length`` and, as vLLM names it,
+        ``max_model_len``; null where no routable build records one. Callers size their prompts from it."""
+        ctx = gw.contexts()
+        data = [
+            {
+                "id": a,
+                "object": "model",
+                "owned_by": "tb-gateway",
+                "context_length": ctx.get(a),
+                "max_model_len": ctx.get(a),
+            }
+            for a in gw.models()
+        ]
+        return {"object": "list", "data": data}
 
     @app.post("/v1/chat/completions")
     async def chat(request: Request) -> JSONResponse:
