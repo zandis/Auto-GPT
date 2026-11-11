@@ -424,9 +424,9 @@ def _pi_referral(s: Site) -> None:
 @step("JP-PI-09", "TW-PI-09")
 def _pi_not_matched(s: Site) -> None:
     rs, user = s.state["trial"], f"{s.key}.pi"
-    page = s.get(user, f"/studies/{rs}/excluded")
+    page = s.get(user, f"/studies/{rs}/not-matched")
     assert "Criteria not matched" in text(page.text)
-    m = re.search(r'action="(/studies/[^/]+/excluded/([0-9a-f]+)/review)"', page.text)
+    m = re.search(r'action="(/studies/[^/]+/not-matched/([0-9a-f]+)/review)"', page.text)
     assert m
     form = page.text[m.start() :].split("</form>", 1)[0]
     crit = re.search(r'name="crit" value="([^"]*)"', form)
@@ -459,7 +459,7 @@ def _jp_criteria(s: Site) -> None:
     assert "coded records" in egfr and re.search(r"present|unknown the score cannot be computed", egfr), egfr
     assert "unknown" in amyloid, amyloid
     assert pid in {str(r["pid"]) for r in rows(s, "AD-MAB")}  # unknown keeps the patient on the list
-    excluded = s.get("jp.pi", "/studies/AD-MAB/excluded?show=all").text
+    excluded = s.get("jp.pi", "/studies/AD-MAB/not-matched?show=all").text
     assert f"patient {pid[:8]}" not in text(excluded)
 
 
@@ -511,7 +511,7 @@ def _si_referral(s: Site) -> None:
 @step("JP-SI-06", "TW-SI-06")
 def _si_not_matched(s: Site) -> None:
     rs, user = s.state["trial"], f"{s.key}.subpi"
-    t = text(s.get(user, f"/studies/{rs}/excluded").text)
+    t = text(s.get(user, f"/studies/{rs}/not-matched").text)
     assert "Criteria not matched" in t and "This is wrong, send to review" in t
 
 

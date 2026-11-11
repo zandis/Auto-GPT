@@ -496,7 +496,7 @@ def test_verify_all_checks_every_pin_and_refuses_an_empty_override(tmp_path: Pat
     d = _model_dir(models)
     out = tmp_path / "site" / "o.yaml"
     assert pin_model.verify_all(models, out) == (False, [f"nothing is pinned in {out}"])
-    pin_model.pin(BUILD, d, served_name=SERVED, out=out)
+    pin_model.pin(BUILD, d, served_name=SERVED, out=out, trust_first_use=True)
     assert pin_model.main(["--verify-all", str(models), "--out", str(out)]) == 0
     (d / "model-00001-of-00002.safetensors").write_bytes(b"tampered")
     good, lines = pin_model.verify_all(models, out)

@@ -229,7 +229,7 @@ workflow_store() {
   local pw; pw="$(envfile_get POSTGRES_WF_PASSWORD)"; pw="${pw:-$(envfile_get POSTGRES_PASSWORD)}"
   "${COMPOSE[@]}" exec -T db sh -c \
     'psql -U trialbox -d trialbox_wf -tAc "SELECT 1 FROM pg_database WHERE datname='"'"'trialbox_wf_e2e'"'"'" | grep -q 1 \
-     || createdb -U trialbox trialbox_wf_e2e' || return 1
+     || createdb -U hapi -O trialbox trialbox_wf_e2e' || return 1  # trialbox has no CREATEDB (D-378)
   TB_PG_DSN="postgresql://trialbox:$pw@127.0.0.1:$WF_PORT/trialbox_wf_e2e" "$PY" -m pytest -q -p no:cacheprovider -rs \
     tests/unit/test_outbox_killloop.py::test_postgres_backend_same_semantics \
     tests/unit/test_recall_ledger.py::test_postgres_ledger_round_trip

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{# D-386 (T-622, LIFE-008, LIFE-013): the study's state (start-up, open, paused, closed) with its history, and the
+   study's identifiers (sponsor, protocol number, SIV date, registry ids). Lists and morning mails follow the state. #}
+{% set dis = '' if editable else ' disabled' %}
+{% set bad_names = bad|map('replace', 'registry.', 'registry_')|list %}
+{% macro field(name, label, value, hint='', type='text', cls='') %}
+<div><label for="id-{{ name }}">{{ label }}</label>
+<input id="id-{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ value }}"{% if cls %} class="{{ cls }}"{% endif %}{{ dis }} autocapitalize="none" spellcheck="false"{% if hint %} aria-describedby="id-{{ name }}-hint"{% endif %}{% if name in bad_names %} aria-invalid="true"{% endif %} data-testid="id-{{ name }}">
+{% if hint %}<p class="hint" id="id-{{ name }}-hint">{{ hint }}</p>{% endif %}</div>
+{% endmacro %}
+{% block title %}{{ t('sstate.title') }} · {{ rs }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('sstate.title') }}</h1><a href="/studies/{{ rs }}/setup">{{ t('setup.title') }}</a></div>
+<p>{{ t('sstate.help') }}</p>
+{% if not editable %}<p class="hint" data-testid="state-readonly">{{ t('sstate.readonly') }}</p>{% endif %}
+{% if err %}<p class="error" role="alert" data-testid="state-error">{% set labels = [] %}{% for b in bad %}{% set _ = labels.append(t('sid.' + b)) %}{% endfor %}{{ t(err, fields=labels|join(', ')) }}</p>{% endif %}
+{% if saved == 'state' %}<p class="ok" role="status" data-testid="state-saved">{{ t('sstate.changed', state=t('sstate.' + cur.state)) }}</p>{% endif %}
+{% if saved == 'identity' %}<p class="ok" role="status" data-testid="identity-saved">{{ t('sid.saved') }}</p>{% endif %}
+
+<section class="card" id="state" data-testid="study-state" data-state="{{ cur.state }}">
+<h2>{{ t('sstate.now', state=t('sstate.' + cur.state)) }}</h2>
+{% if cur.by %}<p class="hint" data-testid="state-since">{{ t('sstate.since', at=cur.at|local, by=cur.by|replace('console:', '')) }}{% if cur.reason %} · {{ cur.reason }}{% endif %}</p>
+{% else %}<p class="hint" data-testid="state-default">{{ t('sstate.default') }}</p>{% endif %}
+<p data-testid="state-effect">{{ t('sstate.effect.' + cur.state) }}</p>
+{% if editable %}
+{% if moves %}
+<form method="post" action="/studies/{{ rs }}/state" data-testid="state-form">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<fieldset><legend>{{ t('sstate.change') }}</legend>
+<div><label for="state-to">{{ t('sstate.move') }}</label>
+<select id="state-to" name="state">{% for s in moves %}<option value="{{ s }}">{{ t('sstate.' + s) }}</option>{% endfor %}</select></div>
+<div><label for="state-reason">{{ t('sstate.reason') }}</label>
+<input id="state-reason" name="reason" maxlength="200" aria-describedby="state-reason-help">
+<p class="hint" id="state-reason-help">{{ t('sstate.reason_help') }}</p></div>
+<button type="submit">{{ t('sstate.save') }}</button>
+</fieldset></form>
+{% else %}<p class="hint" data-testid="state-final">{{ t('sstate.none_left') }}</p>{% endif %}
+{% endif %}
+<h3>{{ t('sstate.history') }}</h3>
+{% if not history %}<p class="empty">{{ t('sstate.history.none') }}</p>{% else %}
+<div class="scroll" tabindex="0"><table data-testid="state-history">
+<thead><tr><th scope="col">{{ t('sstate.col.when') }}</th><th scope="col">{{ t('sstate.col.from') }}</th><th scope="col">{{ t('sstate.col.to') }}</th><th scope="col">{{ t('sstate.col.reason') }}</th><th scope="col">{{ t('sstate.col.by') }}</th></tr></thead>
+<tbody>{% for e in history %}<tr><td class="nowrap">{{ e.at|local }}</td><td>{{ t('sstate.' + e.prev) if e.prev else '' }}</td><td>{{ t('sstate.' + e.state) }}</td><td>{{ e.reason }}</td><td>{{ e.by|replace('console:', '') }}</td></tr>{% endfor %}</tbody>
+</table></div>{% endif %}
+</section>
+
+<section class="card" id="identity" data-testid="study-identity">
+<h2>{{ t('sid.legend') }}</h2>
+<p class="hint">{{ t('sid.help') }}</p>
+{% if ident.by %}<p class="hint" data-testid="identity-entered">{{ t('sid.entered', by=ident.by|replace('console:', ''), at=ident.at|local) }}</p>{% endif %}
+<form method="post" action="/studies/{{ rs }}/identity" data-testid="identity-form">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+{{ field('sponsor', t('sid.sponsor'), ident.sponsor) }}
+{{ field('protocol_no', t('sid.protocol_no'), ident.protocol_no, cls='mono') }}
+{{ field('siv_date', t('sid.siv_date'), ident.siv_date, type='date') }}
+{% for r in registries %}{{ field('registry_' + r, t('sid.registry.' + r), ident.registry_ids.get(r, ''), t('sid.hint.' + r), cls='mono') }}{% endfor %}
+{% if editable %}<button type="submit">{{ t('sid.save') }}</button>{% endif %}
+</form>
+</section>
+{% endblock %}

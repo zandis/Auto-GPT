@@ -21,6 +21,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
+from urllib.parse import quote
 
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
@@ -336,7 +337,9 @@ def register(app: FastAPI, h: Helpers) -> None:
             when = w["visit"].date() if w.get("visit") else None
             href = f"/studies/{rs}/week?list=all&pid={w['pid']}#chart"
             open_items = " · ".join((w["fit"].not_met + w["fit"].open + w["fit"].person)[:3])
-            if mk is not None and mk.mark == "approach" and reg.get(w["pid"]) in (None, "candidate"):
+            paused = mk is not None and mk.mark == "approach" and referral_wait(rs, w["pid"]) is not None
+            if mk is not None and mk.mark == "approach" and reg.get(w["pid"]) in (None, "candidate") and not paused:
+                # T-516 (UX-013): no call task while a referral asked after Approach waits for the doctor
                 due = date.fromisoformat(local_date(mk.at, site_zone(h.bk))) + timedelta(days=2)
                 tasks.append({"kind": "call", "rs": rs, "short": w["short"], "href": href, "due": due,
                               "detail": mk.note or open_items})  # fmt: skip
@@ -651,6 +654,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             irb_warn=sel["irb_warn"] if sel else [],
             may_approach=sel["may_approach"] if sel else False,
             ref_wait=sel["ref_wait"] if sel else None,
+            approach_by=sel["approach_by"] if sel else "",
             team_due=bool(h.team_due and h.team_due(rid)),
         )
 
@@ -703,6 +707,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             "irb_warn": h.team.irb(rid).warnings(h.today()) if h.team is not None else [],
             "may_approach": sess.user.can_mark and (h.may is None or h.may(sess.user, rid, "approach")),
             "ref_wait": referral_wait(rid, pid),
+            # T-516 (UX-015): who marks Approach when this account may not (the logged PI), shown where the button is
+            "approach_by": approach_by(rid),
         }
 
     # ------------------------------------------------------------------ excluded patients and why (P-04, D-143)
@@ -749,6 +755,14 @@ def register(app: FastAPI, h: Helpers) -> None:
         return rid
 
     @app.get("/studies/{rs}/excluded")
+    def excluded_moved(request: Request, rs: str) -> Response:
+        """T-116 (D-351): the page is "Criteria not matched"; the old path answers 301 for one release, query kept.
+        Access is checked first, so an account that may not see the list gets the same 403 here as on the page."""
+        rid = need_excluded(h.need(request), rs, request.url.path)
+        q = f"?{request.url.query}" if request.url.query else ""
+        return RedirectResponse(f"/studies/{quote(rid, safe='')}/not-matched{q}", status_code=301)
+
+    @app.get("/studies/{rs}/not-matched")
     def excluded(request: Request, rs: str, src: str = "", page: int = 1, done: str = "") -> Response:
         sess = h.need(request)
         rid = need_excluded(sess, rs, request.url.path)
@@ -768,7 +782,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                       src=src if src in ex_sources else "", sources=ex_sources, page_no=page_no, pages=pages,
                       done=done == "sent")  # fmt: skip
 
-    @app.post("/studies/{rs}/excluded/{pid}/review")
+    @app.post("/studies/{rs}/not-matched/{pid}/review")
+    @app.post("/studies/{rs}/excluded/{pid}/review")  # the old path still takes a form posted from an open page
     def excluded_review(request: Request, rs: str, pid: str, csrf: str = Form(""), crit: str = Form(""),
                         note: str = Form("")) -> Response:  # fmt: skip
         """ "This is wrong, send to review": recorded with the person and the time, audited (P-04)."""
@@ -788,7 +803,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         store.send_excluded_review(rid, pid, job.job_id, crit, note.strip()[:300], h.actor(sess), h.clock().isoformat())
         au.append("console.excluded_review", job_id=job.job_id, ruleset=rid, actor=h.actor(sess),
                   detail={"pid": pid, "criterion": crit, "role": sess.user.role})  # fmt: skip
-        return RedirectResponse(f"/studies/{rid}/excluded?done=sent#x-{pid[:8]}", status_code=303)
+        return RedirectResponse(f"/studies/{rid}/not-matched?done=sent#x-{pid[:8]}", status_code=303)
 
     # ------------------------------------------------------------------ amendment re-screen list (D-364, LIFE-010)
     def rescreen_bundle(sess: Session, rid: str) -> dict[str, Any]:
@@ -820,6 +835,11 @@ def register(app: FastAPI, h: Helpers) -> None:
                       prev=b["prev"], job=b["job"])  # fmt: skip
 
     h.patient_ctx = patient_ctx
+
+    def approach_by(rid: str) -> str:
+        """T-516 (UX-015): the name of the study's PI in the delegation log today, or "" when the log names none."""
+        pi = h.team.pi_of(rid, h.today()) if h.team is not None else None
+        return str(pi.name or pi.username or "") if pi is not None else ""
 
     def referral_wait(rid: str, pid: str) -> Any:
         """The patient's latest referral when it is not agreed (asked, discuss or declined), else None."""
@@ -1068,6 +1088,13 @@ def register(app: FastAPI, h: Helpers) -> None:
             au.append("console.refused", ruleset=rid, actor=h.actor(sess),
                       detail={"pid": pid, "action": outcome, "reason": "no approach mark"})  # fmt: skip
             raise h.problem(409, "outcome.wait_pi")
+        waiting = referral_wait(rid, pid)
+        if waiting is not None:
+            # T-516 (UX-013): a referral asked after Approach pauses it; the call waits for the doctor's agreement
+            paused = f"approach paused: referral {waiting.state}"
+            au.append("console.refused", ruleset=rid, actor=h.actor(sess),
+                      detail={"pid": pid, "action": outcome, "reason": paused})  # fmt: skip
+            raise h.problem(409, "outcome.wait_referral")
         today = h.today()
         retry_on: str | None = None
         if outcome == "not_reached":
