@@ -17,7 +17,7 @@ import pytest
 from console import saerecord as sr
 from datacore import lifecycle as lc
 
-from tests.console.test_console_app import box, login  # noqa: F401 - the fixture is used by name
+from tests.console.test_console_app import box, login, name_pi  # noqa: F401 - the fixture is used by name
 from tests.console.test_lifecycle_pages import PW, _save, lb  # noqa: F401 - the fixture is used by name
 
 TPE = timezone(timedelta(hours=8))
@@ -196,6 +196,7 @@ FATAL = {"ae_term": "Myocardial infarction", "ae_onset": "2026-11-09", "ae_aware
 
 
 def test_write_path_office_copy_ack_and_named_rule(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+    name_pi(lb, "pi")  # D-380 (ROLE-008): the steward names the study's PI
     """CR-012: a page view writes nothing; the AE form's save writes the case (system:sync). FIT-025: the new case
     goes to the trial office's mailbox without the AE term; the register names the rule set and who confirmed it.
     UX-028: the investigator acknowledges on the case page. UX-005: the regulator's name is the same in every

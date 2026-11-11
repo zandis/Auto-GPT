@@ -432,6 +432,8 @@ def _stage12(res: dict[str, Any], crc: Any, pi: Any, lang: str, box: Any) -> Sta
     waiting = box.orch.db.find(ruleset=SITE_RS, state="awaiting_approval", limit=5)
     s.check("the protocol's criteria are drafted and wait for the investigator", bool(waiting) and
             state("trial") == "amber", [j.state for j in box.orch.db.find(ruleset=SITE_RS, limit=5)])  # fmt: skip
+    # D-380 (ROLE-008): the new study's PI entry, written from the signed log as the steward would
+    fd.seed_pi(studies=(SITE_RS,))
     if waiting:
         page = pi.get(f"/pilot/jobs/{waiting[0].job_id}/approval")
         # D-309: a pasted protocol ships no labels in the page language; the investigator gives each one first
@@ -885,20 +887,25 @@ def _stage15(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, m
         return [r for r in _audit(box) if r.get("event") == name]
 
     h.users.create("subpi", "investigator", password, "subpi@hospa.test")
-    sub = ld.sign_in(app, "subpi", password, lang)
     today = h.today().isoformat()
-    r1 = pi.post(f"/studies/{TRIAL}/team", data={"csrf": csrf(pi), "username": "pi", "role": "pi", "start": today},
-                 follow_redirects=False)  # fmt: skip
+    # D-380 (ROLE-008): the steward wrote the PI entry from the signed log (the demo seed); the PI adds the rest
     r2 = pi.post(f"/studies/{TRIAL}/team", data={"csrf": csrf(pi), "username": "subpi", "role": "sub_pi",
                                                  "tasks": ["screen", "refer"], "start": today,
                                                  "training_day": today}, follow_redirects=False)  # fmt: skip
+    sub = ld.sign_in(app, "subpi", password, lang)  # an investigator on no study's log lands on no study page
     log = pi.get(f"/studies/{TRIAL}/team").text
-    s.check("the PI adds themselves and a sub-investigator to the delegation log",
-            (r1.status_code, r2.status_code) == (303, 303) and log.count('data-testid="entry-') == 2,
-            (r1.status_code, r2.status_code))  # fmt: skip
+    ids = re.findall(r'data-testid="entry-(\d+)"', log)
+    s.check(
+        "the PI the log names adds a sub-investigator to the delegation log",
+        r2.status_code == 303 and len(ids) == 2,
+        r2.status_code,
+    )
     s.check(
         "the sub-investigator cannot change their own ticks (403)",
-        sub.post(f"/studies/{TRIAL}/team/2", data={"csrf": csrf(sub), "tasks": ["approach"]}).status_code == 403,
+        sub.post(
+            f"/studies/{TRIAL}/team/{ids[-1] if ids else 0}", data={"csrf": csrf(sub), "tasks": ["approach"]}
+        ).status_code
+        == 403,
     )
     cand = sub.get(f"/studies/{TRIAL}/candidates")
     week = h.week_bundle(None, TRIAL)
@@ -964,8 +971,12 @@ def _stage15(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, m
         s.check(f"the {who} account stays masked (403)", set(got) == {403}, got)
     # opt-out by chart number: the box turns it into the pseudonym; the number is never stored
     mrn_y = h.bk.reveal(week["job"].job_id, y, "console:crc", role="coordinator", scope="*")  # signed (D-273)
-    op = crc.get("/site/opt-outs").text
-    r = crc.post("/site/opt-outs", data={"csrf": fd._csrf(op), "chart_no": mrn_y or "", "source": "paper"},
+    # D-380 (CR-023): the steward (or the privacy office) keeps the opt-out register, not the coordinator
+    h.users.create("stw", "steward", password, "stw@hospa.test")
+    stw = ld.sign_in(app, "stw", password, lang)
+    s.check("the coordinator does not keep the opt-out register (403)", crc.get("/site/opt-outs").status_code == 403)
+    op = stw.get("/site/opt-outs").text
+    r = stw.post("/site/opt-outs", data={"csrf": fd._csrf(op), "chart_no": mrn_y or "", "source": "paper"},
                  follow_redirects=False)  # fmt: skip
     s.check("an opt-out entered by chart number is registered under the patient's pseudonym",
             r.status_code == 303 and y in h.optout.active() and mrn_y not in json.dumps(
