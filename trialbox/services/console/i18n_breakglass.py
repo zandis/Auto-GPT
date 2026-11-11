@@ -64,6 +64,7 @@ EN: dict[str, str] = {
     "bg.what.reveal": "chart number",
     "bg.what.job_page": "job page",
     "bg.what.case_sheet": "CASE sheet",
+    "bg.what.twin": "patient record summary (API)",
 }
 
 JA: dict[str, str] = {
@@ -126,6 +127,7 @@ JA: dict[str, str] = {
     "bg.what.reveal": "カルテ番号",
     "bg.what.job_page": "処理画面",
     "bg.what.case_sheet": "CASEシート",
+    "bg.what.twin": "患者記録の要約（API）",
 }
 
 ZH: dict[str, str] = {
@@ -188,4 +190,5 @@ ZH: dict[str, str] = {
     "bg.what.reveal": "病歷號",
     "bg.what.job_page": "作業頁面",
     "bg.what.case_sheet": "CASE 表",
+    "bg.what.twin": "病人紀錄摘要（API）",
 }

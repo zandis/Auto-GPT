@@ -30,7 +30,11 @@ ALLOWED: dict[str, str] = {
     "tests/unit/test_context_budgets.py": "T-603: shows the in-process stub enforces a context (no network)",
     "tests/unit/test_no_direct_model_calls.py": "holds the patterns of this check",
     "tests/unit/test_perimeter.py": "T-604: calls the gateway app in-process (TestClient) to show its refusal",
+    "tests/unit/test_gateway_verified_caller.py": "T-212b: calls the gateway app in-process (TestClient) with "
+    "synthetic service tokens to show the caller binding (no network)",
     "tools/vllm_standin.py": "D-177: the box rehearsal's stand-in for a vLLM server: serves the model API, calls none",
+    "tests/unit/test_gateway_under_load.py": "T-608: posts to the gateway app in-process against a local silent "
+    "socket and the in-process stub (no model, no network)",
     "tests/unit/test_vllm_standin.py": "drives the vLLM stand-in on a local port (no model, no network)",
     "services/model_guard/__init__.py": "D-177: the key and path allowlist in front of vLLM: forwards the gateway's calls",
     "tests/unit/test_model_guard.py": "drives model-guard against a local recording upstream (no model, no network)",

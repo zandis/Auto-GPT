@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -141,7 +142,8 @@ def test_u03_the_same_patient_in_another_study(box: dict[str, Any], monkeypatch:
     name_pi(box, "drsuzuki")  # D-380
     other, _ = login(box["app"], "drsuzuki", "role-pages-password-01")
     page = other.get("/studies/GZQO/week?list=all").text
-    assert "Consented or enrolled in another study" in page and "STB" not in page
+    shown = re.sub(r'name="csrf" value="[^"]*"', "", page)  # a random CSRF token can hold the letters "STB"
+    assert "Consented or enrolled in another study" in page and "STB" not in shown
     for lang in ("ja", "zh-TW"):
         for key in ("elsewhere.candidate", "elsewhere.enrolled.other", "elsewhere.open"):
             assert key in CATALOGUES[lang], (lang, key)

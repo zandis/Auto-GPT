@@ -33,6 +33,7 @@ from tb_common.audit import AuditLog
 from tb_common.config import get_config
 from tb_common.llm import LlmClient, LlmError
 from tb_common.policy.classes import Environment, Topology
+from tb_common.service_auth import token_hash
 
 from tests.model_pins import promote_pins, release_registry
 from tools import pin_model
@@ -137,6 +138,20 @@ def test_install_pins_the_profile_pair_once_and_reports_missing_weights(
             assert build in known and endpoint in (known[build].get("served") or {}), build
 
 
+def _token_registry(tmp_path: Path, services: tuple[str, ...]) -> Path:
+    """Synthetic per-service tokens and their registry, as ``trialbox secrets init`` writes them (D-138)."""
+    folder = tmp_path / "tokens"
+    folder.mkdir(exist_ok=True)
+    hashes = {}
+    for name in services:
+        tok = secrets.token_hex(16)
+        (folder / f"{name}.token").write_text(tok + "\n", encoding="utf-8")
+        hashes[name] = token_hash(tok)
+    reg = folder / "tokens.json"
+    reg.write_text(json.dumps({"schema": "tb-service-tokens/1", "services": hashes}), encoding="utf-8")
+    return reg
+
+
 @pytest.fixture
 def box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     dotenv = _dotenv()
@@ -148,12 +163,15 @@ def box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
         "TB_SETTINGS": str(ROOT / "deploy" / "settings.example.yaml"),
         "TB_DB_URL": os.environ["TB_DB_URL"],  # the test's private trial database (trace store)
         "TB_AUDIT_WRITER": "file",  # the test's database has no audit journal (D-394): the chain in TB_AUDIT_DIR
-        # install replaces the example's shared token with secrets (docker-compose.secrets.yml); one synthetic token
-        "TB_SERVICE_TOKEN": secrets.token_hex(16),
+        # install gives each service its own token (docker-compose.secrets.yml, D-138): the gateway binds X-TB-Caller
+        # to the service its token names (T-212b, D-437), so the box runs with a token registry, not a shared token
+        "TB_SERVICE_TOKEN": "",
+        "TB_SERVICE_TOKENS": str(_token_registry(tmp_path, ("gateway", "orchestrator"))),
     }
 
     def enter(service: str) -> dict[str, str]:
         env = {**_service_env(service, dotenv), **host_paths}
+        env["TB_SERVICE_TOKEN_FILE"] = str(tmp_path / "tokens" / f"{service}.token")
         for k, v in env.items():
             monkeypatch.setenv(k, v)
         get_config.cache_clear()

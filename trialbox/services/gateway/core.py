@@ -2,7 +2,9 @@
 
 Processing order for ``POST /v1/chat/completions`` (each step passes or refuses; every refusal is audited):
 
-1. caller identity: ``X-TB-Caller`` must be on the allowlist, with the role and purpose it asks for (LLM-48);
+1. caller identity: ``X-TB-Caller`` must be on the allowlist, with the role and purpose it asks for (LLM-48), and a
+   name the verified service may claim: the service the request's service token identifies (T-212b, D-437, CR-040;
+   :meth:`gateway.policy.RoutingPolicy.check_claim`), else ``caller_unverified``;
 2. header validation: class, purpose, role, study, context of use and prompt are required (LLM-2, ENG-04); D3/D4
    also need a study and step that the step confirmer accepts as live, except a D3 (never D4) call without a step
    on the intake role of a conversation engine whose caller entry sets ``d3_intake_without_step`` (FR-CONV-8: intake
@@ -36,6 +38,13 @@ Processing order for ``POST /v1/chat/completions`` (each step passes or refuses;
    configuration fault: it ends the call (``prompt_too_long`` when the server says the prompt is over its context,
    else ``upstream_failed``), with no retry and no other build. A timeout is not retried (the request may still be
    running on the server);
+   under load (T-608, D-445; review LLM-023): one call has a budget (``TB_GATEWAY_CALL_BUDGET_S``, 210 s) that its
+   retry and fallbacks share, each attempt reads at most 180 s (batch) or 30 s (interactive) and no longer than
+   the budget left; an endpoint takes at most its slots (:mod:`gateway.load`: the server's ``max_num_seqs``), an
+   interactive call that finds none within 0.5 s gets ``model_busy``; an endpoint whose breaker is open is not
+   sent to (``model_busy`` for an interactive role, ``model_unavailable`` for a batch one, both 503 with
+   ``Retry-After``); while a screening run holds the one-GPU swap, only the holder's own batch calls hear
+   ``model_asleep``, every other call ``model_busy`` at once, and no call wakes the sleeping model (D-445 §6);
 8. served-model echo check (the upstream must report the build's served name and, for a provider-pinned build, the
    pinned provider; the request asked for that provider only, with no fallback);
 9. audit record appended before the response is returned (LLM-5), then the redacted trace (§8.14). The response
@@ -77,9 +86,11 @@ from tb_llm.prompt_registry import (
     parse_ref,
     schema_sha,
 )
+from tb_llm.timeouts import CALL_BUDGET_S, CONNECT_S, UPSTREAM_READ_S
 from tracestore.store import TraceStore
 
-from gateway.policy import Candidate, Refusal, RoutingPolicy, _match, parse_label
+from gateway.load import INTERACTIVE_SLOT_WAIT_S, PROBE_TIMEOUT_S, LoadControl
+from gateway.policy import Candidate, Refusal, RoutingPolicy, _match, endpoint_key, parse_label
 from gateway.swap import ModelSwap
 
 StepConfirm = Callable[[str, str, str], bool]  # (caller, study, step) -> live and delegated
@@ -87,6 +98,11 @@ StepConfirm = Callable[[str, str, str], bool]  # (caller, study, step) -> live a
 # ``model_busy``: a person is waiting, while batch roles keep the long limit of the HTTP client
 INTERACTIVE_TIMEOUT_S = 30.0
 BUSY_MESSAGE = "the model is busy (a screening run is using the GPU); try again in a few minutes"
+UNAVAILABLE_MESSAGE = "the model server does not answer (its breaker is open); try again later"
+# Retry-After (seconds) on the 503 refusals (T-608)
+RETRY_AFTER = {"model_busy": "5", "model_asleep": "5", "model_unavailable": "30"}
+_BUSY = ": busy"  # an error the caller may retry soon (an interactive timeout, no slot)
+_OPEN = ": unavailable (breaker open)"
 # T-601: a transport error or HTTP 5xx is tried once more on the same build after this pause
 RETRY_DELAY_S = 0.5
 # the body fields a caller may send on to the model server (T-605, D-431, review LLM-019); sampling is then forced
@@ -107,6 +123,9 @@ UPSTREAM_FIELDS = frozenset(
 _TRANSIENT_4XX = (408, 429)
 # what vLLM (and OpenAI-compatible servers) say when the prompt plus max_tokens is over the model's context
 _TOO_LONG = ("maximum context length", "context length", "context_length", "too many tokens", "prompt is too long")
+# chat() and activate() called inside the gateway's own process (``trialbox doctor``'s judge-route check, tests): no
+# network boundary, so no service token to bind the caller to (D-437). The HTTP app always passes the verified service
+IN_PROCESS = "<in-process>"
 REQUIRED = ("x-tb-caller", "x-tb-data-class", "x-tb-purpose", "x-tb-role", "x-tb-study", "x-tb-context-of-use")
 
 
@@ -139,6 +158,7 @@ class GatewayResponse:
 class _Call:
     call_id: str
     caller: str = ""
+    service: str = ""  # the verified service (its token's identity, D-437); "" when none or in-process
     role: str = ""
     purpose: str = ""
     study: str = ""
@@ -169,6 +189,8 @@ class _Call:
     tokens_est: int = 0  # the request's estimated prompt size (T-603, tb_llm.budget)
     context: int | None = None  # the context of the build tried last (registry context_length)
     step_basis: str = ""  # D3/D4: "step" (confirmed), "intake" (FR-CONV-8) or "box_policy" (D-142)
+    deadline: float = 0.0  # time.monotonic() by which this call ends (T-608, the call budget)
+    tokens_estimated: bool = False  # the upstream said its token counts are estimates (the stub, LLM-046)
 
 
 def _content_text(messages: Any) -> str:
@@ -218,7 +240,8 @@ class Gateway:
         self.registry = registry
         self.audit = audit
         self.config = config or GatewayConfig()
-        self.http = http or httpx.Client(timeout=600.0)
+        # T-608 (D-445): connect 5 s, read 180 s; each attempt is cut to the call's budget left
+        self.http = http or httpx.Client(timeout=httpx.Timeout(UPSTREAM_READ_S, connect=CONNECT_S))
         self.guard = guard or Guard.from_settings()
         self.traces = traces
         self.step_confirm = step_confirm
@@ -226,6 +249,9 @@ class Gateway:
         self.swap = swap  # TB_MODEL_SWAP=sleep: judge and verifier time-share one GPU (gateway.swap)
         self.interactive_timeout_s = float(self.env.get("TB_GATEWAY_INTERACTIVE_TIMEOUT_S") or INTERACTIVE_TIMEOUT_S)
         self.retry_delay_s = float(self.env.get("TB_GATEWAY_RETRY_DELAY_S") or RETRY_DELAY_S)
+        self.upstream_read_s = float(self.env.get("TB_GATEWAY_UPSTREAM_READ_S") or UPSTREAM_READ_S)
+        self.call_budget_s = float(self.env.get("TB_GATEWAY_CALL_BUDGET_S") or CALL_BUDGET_S)
+        self.load = LoadControl(policy.endpoints, self.env, probe=self._probe)  # slots and breakers (T-608)
         self.cache: OrderedDict[tuple[str, str, str], dict[str, Any]] = OrderedDict()
         self.cache_size = cache_size
         self._cache_lock = threading.Lock()  # the HTTP app runs calls in a thread pool
@@ -235,38 +261,86 @@ class Gateway:
             self.prompts.check(Environment.PRODUCTION.value)
 
     # ------------------------------------------------------------------------------------------------ public
-    def activate(self, caller: str, endpoint: str, hold: bool = False) -> GatewayResponse:
+    def _auth_open(self) -> bool:
+        """The service-token layer admits calls without a token here (``TB_ENV`` DEV or TEST, as
+        :func:`tb_common.service_auth.authorize` reads it, from this process's environment); a call without a service
+        identity can only come from it."""
+        return environment_name(os.environ) in ("DEV", "TEST")
+
+    def _probe(self, endpoint: str) -> bool:
+        """The stall check's question (T-608): does ``endpoint``'s server answer ``GET /models`` within 3 s?"""
+        ep = self.policy.endpoints.get(endpoint)
+        url = ep.url(dict(self.env)).rstrip("/") if ep is not None else ""
+        if not url:
+            return True  # nothing to ask: not a stalled server
+        key = endpoint_key(ep.api_key_env, self.env) if ep is not None and ep.api_key_env else ""
+        try:
+            r = self.http.get(
+                f"{url}/models",
+                headers={"Authorization": f"Bearer {key}"} if key else {},
+                timeout=min(PROBE_TIMEOUT_S, max(0.1, self.load.stall_s)),
+            )
+        except httpx.HTTPError:
+            return False
+        return r.status_code < 500
+
+    def _swap_refusal(self, caller: str, service: str | None) -> GatewayResponse | None:
+        """None when ``service`` (the verified token identity, D-437) may drive the swap as ``caller``: a service of
+        ``serving_control`` with a caller it may claim whose entry may use the ``judge`` role; else the audited 403."""
+        c = self.policy.callers.get(caller)
+        code, msg = "", ""
+        if c is None or not _match("judge", c.roles):
+            code, msg = "caller_unknown", f"caller {caller!r} may not swap models"
+        elif service != IN_PROCESS:
+            try:
+                self.policy.check_claim(service, caller, self.config.environment, auth_open=self._auth_open())
+            except Refusal as r:
+                code, msg = r.reason, str(r)
+            else:
+                verified = service and service != "legacy"
+                if verified and service not in self.policy.serving_control:
+                    code, msg = "caller_unverified", f"service {service} may not swap models"
+        if not code:
+            return None
+        who = "" if service == IN_PROCESS else (service or "")
+        self.audit.append("llm.gateway.swap_refused", detail={"caller": caller, "service": who, "reason": code})
+        return GatewayResponse(403, {"error": {"type": "tb_refusal", "code": code, "message": msg}})
+
+    def activate(
+        self, caller: str, endpoint: str, hold: bool = False, *, service: str | None = IN_PROCESS
+    ) -> GatewayResponse:
         """Wake ``endpoint`` and put the other swappable one to sleep (``POST /v1/serving/activate``). Allowed for
-        callers whose allowlist entry may use the ``judge`` role (the orchestrator, matching, eval). ``hold``: a
-        screening run keeps the card until :meth:`release` (no wake on demand meanwhile, D-116)."""
+        the verified services of ``serving_control`` (the orchestrator, the operator) calling as a caller they may
+        claim whose allowlist entry may use the ``judge`` role (T-212b, D-437). ``hold``: a screening run keeps the
+        card until :meth:`release` (no wake on demand meanwhile, D-116)."""
         from gateway.swap import SwapError
 
         if self.swap is None:
             return GatewayResponse(200, {"swap": "off", "active": None})
-        c = self.policy.callers.get(caller)
-        if c is None or not _match("judge", c.roles):
-            msg = f"caller {caller!r} may not swap models"
-            return GatewayResponse(403, {"error": {"type": "tb_refusal", "code": "caller_unknown", "message": msg}})
+        refused = self._swap_refusal(caller, service)
+        if refused is not None:
+            return refused
+        who = "" if service == IN_PROCESS else (service or "")
         try:
-            st = self.swap.activate(endpoint, hold=hold)
+            st = self.swap.activate(endpoint, hold=hold, holder=who)  # D-445: the hold names its service
         except SwapError as e:
-            self.audit.append(
-                "llm.gateway.swap_failed", detail={"caller": caller, "endpoint": endpoint, "error": str(e)}
-            )
+            detail = {"caller": caller, "service": who, "endpoint": endpoint, "error": str(e)}
+            self.audit.append("llm.gateway.swap_failed", detail=detail)
             return GatewayResponse(502, {"error": {"type": "swap_failed", "message": str(e)}})
-        self.audit.append("llm.gateway.swap", detail={"caller": caller, **st})
+        self.audit.append("llm.gateway.swap", detail={"caller": caller, "service": who, **st})
         return GatewayResponse(200, st)
 
-    def release(self, caller: str) -> GatewayResponse:
-        """``POST /v1/serving/release``: the screening run lets go of the card; nothing is swapped back now."""
+    def release(self, caller: str, *, service: str | None = IN_PROCESS) -> GatewayResponse:
+        """``POST /v1/serving/release``: the screening run lets go of the card; nothing is swapped back now. Same
+        rule as :meth:`activate`."""
         if self.swap is None:
             return GatewayResponse(200, {"swap": "off", "active": None})
-        c = self.policy.callers.get(caller)
-        if c is None or not _match("judge", c.roles):
-            msg = f"caller {caller!r} may not swap models"
-            return GatewayResponse(403, {"error": {"type": "tb_refusal", "code": "caller_unknown", "message": msg}})
+        refused = self._swap_refusal(caller, service)
+        if refused is not None:
+            return refused
         st = self.swap.release()
-        self.audit.append("llm.gateway.swap_release", detail={"caller": caller, **st})
+        who = "" if service == IN_PROCESS else (service or "")
+        self.audit.append("llm.gateway.swap_release", detail={"caller": caller, "service": who, **st})
         return GatewayResponse(200, st)
 
     def models(self) -> list[str]:
@@ -293,27 +367,36 @@ class Gateway:
             out[alias] = min(sizes) if sizes else None
         return out
 
-    def chat(self, headers: Mapping[str, str], body: dict[str, Any]) -> GatewayResponse:
-        call = _Call(call_id=new_ulid())
+    def chat(
+        self, headers: Mapping[str, str], body: dict[str, Any], *, service: str | None = IN_PROCESS
+    ) -> GatewayResponse:
+        """One model call. ``service``: the service the request's token identifies (``request.state.tb_caller``;
+        None without one), which binds ``X-TB-Caller`` (D-437); :data:`IN_PROCESS` for a call from inside this
+        process."""
+        call = _Call(call_id=new_ulid(), deadline=time.monotonic() + self.call_budget_s)
         h = {k.lower(): v for k, v in headers.items()}
         try:
-            return self._chat(call, h, body)
+            return self._chat(call, h, body, service)
         except Refusal as r:
             self._record("llm.gateway.refuse", call, reason=r.reason, message=str(r))
+            headers = {
+                "X-TB-Call-Id": call.call_id,
+                "X-TB-Refusal": r.reason,
+                "X-TB-Fallbacks": str(call.fallbacks),
+                "X-TB-Retries": str(call.retries),
+            }
+            if r.reason in RETRY_AFTER:
+                headers["Retry-After"] = RETRY_AFTER[r.reason]
             return GatewayResponse(
                 r.status,
                 {"error": {"type": "tb_refusal", "code": r.reason, "message": str(r), "call_id": call.call_id}},
-                {
-                    "X-TB-Call-Id": call.call_id,
-                    "X-TB-Refusal": r.reason,
-                    "X-TB-Fallbacks": str(call.fallbacks),
-                    "X-TB-Retries": str(call.retries),
-                },
+                headers,
             )
 
     # ------------------------------------------------------------------------------------------------ pipeline
-    def _chat(self, call: _Call, h: dict[str, str], body: dict[str, Any]) -> GatewayResponse:
+    def _chat(self, call: _Call, h: dict[str, str], body: dict[str, Any], service: str | None) -> GatewayResponse:
         call.caller = h.get("x-tb-caller", "")
+        call.service = "" if service == IN_PROCESS else (service or "")
         call.role = h.get("x-tb-role", "")
         call.purpose = h.get("x-tb-purpose", "")
         call.study = h.get("x-tb-study", "")
@@ -329,6 +412,9 @@ class Gateway:
         # 1-2 identity and headers
         if not call.caller or call.caller not in self.policy.callers:
             raise Refusal("caller_unknown", f"caller {call.caller!r} is not on the gateway allowlist")
+        if service != IN_PROCESS:
+            # T-212b (D-437, CR-040): the header is a claim; the token's service must be allowed to make it
+            self.policy.check_claim(service, call.caller, self.config.environment, auth_open=self._auth_open())
         missing = [k for k in REQUIRED if not h.get(k)]
         free_form = bool(self.policy.roles.get(call.role, {}).get("free_form"))
         if not free_form and not call.prompt:
@@ -427,8 +513,14 @@ class Gateway:
             if out is not None:
                 return out
             call.fallbacks += 1
-        if upstream_errors and all(e.endswith(": busy") for e in upstream_errors):
+        interactive = bool(self.policy.roles.get(call.role, {}).get("interactive"))
+        if upstream_errors and all(e.endswith(_BUSY) for e in upstream_errors):
             raise Refusal("model_busy", BUSY_MESSAGE, status=503)
+        if upstream_errors and all(e.endswith((_BUSY, _OPEN)) for e in upstream_errors):
+            # T-608: nothing was sent to a server whose breaker is open; the front desk hears "busy"
+            if interactive:
+                raise Refusal("model_busy", BUSY_MESSAGE, status=503)
+            raise Refusal("model_unavailable", UNAVAILABLE_MESSAGE, status=503)
         if upstream_errors:
             raise Refusal("upstream_failed", "; ".join(upstream_errors)[:500], status=502)
         first = registry_refusals[0] if registry_refusals else None
@@ -529,8 +621,9 @@ class Gateway:
             headers["X-TB-Prompt-Version"] = ver
             if call.prompt_sha:
                 headers["X-TB-Prompt-Sha"] = call.prompt_sha
-        if ep.api_key_env and self.env.get(ep.api_key_env):
-            headers["Authorization"] = f"Bearer {self.env[ep.api_key_env]}"
+        ep_key = endpoint_key(ep.api_key_env, self.env) if ep.api_key_env else ""
+        if ep_key:  # TB_LLM_API_KEY_FILE (a compose secret, D-437) before TB_LLM_API_KEY
+            headers["Authorization"] = f"Bearer {ep_key}"
         url = ep.url(dict(self.env))
         if not url:
             errors.append(f"{ep.name}: no URL configured")
@@ -539,49 +632,46 @@ class Gateway:
         if self.swap is not None and ep.name in self.swap.urls:
             if not self.swap.awake(ep.name):
                 was = self.swap.active
-                if not self.swap.ensure(ep.name):
-                    # held by a screening run: not sent, and no fallback either (the judge's route falls back to
-                    # the verifier build, which must never answer in the judge's place during the verifier pass)
-                    if interactive:
+                if not self.swap.ensure(ep.name):  # D-445 §6: never across a hold (checked under the swap's lock)
+                    # not sent, and no fallback either (the judge's route falls back to the verifier build, which
+                    # must never answer in the judge's place during the verifier pass)
+                    if self.swap.held and not interactive and call.service == self.swap.holder:
+                        raise Refusal(
+                            "model_asleep", f"{ep.name} is asleep (one-GPU swap); activate it first", status=503
+                        )
+                    if self.swap.held or interactive:
                         raise Refusal("model_busy", BUSY_MESSAGE, status=503)
-                    raise Refusal("model_asleep", f"{ep.name} is asleep (one-GPU swap); activate it first", status=503)
+                    raise Refusal("model_asleep", f"{ep.name} could not be woken (one-GPU swap)", status=503)
                 self.audit.append(
                     "llm.gateway.swap",
-                    detail={"caller": "on-demand", "from": was, "role": call.role, **self.swap.status()},
+                    detail={
+                        "caller": "on-demand",
+                        "service": call.service,
+                        "from": was,
+                        "role": call.role,
+                        **self.swap.status(),
+                    },
                 )
             elif not interactive:
-                self.swap.touch()
-        resp: httpx.Response | None = None
-        for attempt in (1, 2):
-            if attempt == 2:
-                call.retries += 1
-                if self.retry_delay_s > 0:
-                    time.sleep(self.retry_delay_s)
-            t0 = time.perf_counter()
-            try:
-                if interactive:
-                    resp = self.http.post(
-                        f"{url.rstrip('/')}/chat/completions",
-                        json=upstream,
-                        headers=headers,
-                        timeout=self.interactive_timeout_s,
-                    )
-                else:
-                    resp = self.http.post(f"{url.rstrip('/')}/chat/completions", json=upstream, headers=headers)
-            except httpx.TimeoutException as e:
-                # not tried again: the server may still be working on it, and a person may be waiting
-                errors.append(f"{ep.name}: busy" if interactive else f"{ep.name}: {type(e).__name__}")
+                self.swap.touch(call.service)  # D-445: only the holder's own calls keep its hold alive
+        lane = self.load.endpoints.get(ep.name)
+        if lane is not None and not lane.breaker.allow():
+            errors.append(f"{ep.name}{_OPEN}")  # T-608: not sent; a fallback-any route tries its next build
+            return None
+        ticket = None
+        if lane is not None:
+            left = call.deadline - time.monotonic()
+            ticket = lane.acquire(INTERACTIVE_SLOT_WAIT_S if interactive else left)
+            if ticket is None:
+                lane.breaker.cancel()
+                errors.append(f"{ep.name}{_BUSY}")  # every slot taken: model_busy (T-608)
                 return None
-            except httpx.HTTPError as e:
-                if attempt == 1:
-                    continue  # T-601: a transport error is tried once more on the same build
-                errors.append(f"{ep.name}: {type(e).__name__} (tried twice)")
-                return None
-            call.latency_ms = round((time.perf_counter() - t0) * 1000, 2)
-            if resp.status_code >= 500 and attempt == 1:
-                continue  # T-601: a server error is tried once more on the same build
-            break
-        if resp is None:  # not reached: each path above answers or returns
+        try:
+            resp = self._send(call, ep.name, url, upstream, headers, interactive, lane, errors)
+        finally:
+            if lane is not None and ticket is not None:
+                lane.release(ticket)
+        if resp is None:
             return None
         if resp.status_code >= 400:
             # vLLM answers 404 to a model name it does not serve: name the one sent (the pin's served name)
@@ -616,6 +706,7 @@ class Gateway:
         except RegistryError as e:
             raise Refusal(e.reason, str(e), status=502) from e
         usage = payload.get("usage") or {}
+        call.tokens_estimated = bool(usage.get("estimated"))  # LLM-046: the stub's counts are estimates
         call.tokens_in = int(usage.get("prompt_tokens") or 0)
         call.tokens_out = int(usage.get("completion_tokens") or 0)
         c = ep.cost
@@ -642,6 +733,79 @@ class Gateway:
                 while len(self.cache) > self.cache_size:
                     self.cache.popitem(last=False)
         return self._allow(call, payload, label, body)
+
+    def _send(
+        self,
+        call: _Call,
+        name: str,
+        url: str,
+        upstream: dict[str, Any],
+        headers: dict[str, str],
+        interactive: bool,
+        lane: Any,
+        errors: list[str],
+    ) -> httpx.Response | None:
+        """POST the call, with T-601's one retry on the same build, inside the call's budget (T-608). Each outcome
+        tells the endpoint's breaker: an answer below 500 closes it; a connection error, a batch read timeout or a
+        5xx after the retry counts toward opening it; an interactive read timeout counts for nothing (busy, not
+        dead)."""
+        breaker = lane.breaker if lane is not None else None
+        resp: httpx.Response | None = None
+        for attempt in (1, 2):
+            left = call.deadline - time.monotonic()
+            if attempt == 2:
+                if left <= self.retry_delay_s + 1.0:
+                    break  # no budget for the retry: the first answer (or error) stands
+                call.retries += 1
+                if self.retry_delay_s > 0:
+                    time.sleep(self.retry_delay_s)
+                left = call.deadline - time.monotonic()
+            if left < 1.0:
+                errors.append(f"{name}: the call's budget of {self.call_budget_s:.0f}s is spent")
+                if breaker is not None:
+                    breaker.cancel()
+                return None
+            limit = min(self.interactive_timeout_s if interactive else self.upstream_read_s, left)
+            t0 = time.perf_counter()
+            try:
+                resp = self.http.post(
+                    f"{url.rstrip('/')}/chat/completions",
+                    json=upstream,
+                    headers=headers,
+                    timeout=httpx.Timeout(limit, connect=min(CONNECT_S, limit)),
+                )
+            except httpx.TimeoutException as e:
+                # not tried again: the server may still be working on it, and a person may be waiting
+                if breaker is not None:
+                    if interactive and not isinstance(e, httpx.ConnectTimeout):
+                        breaker.cancel()
+                    else:
+                        breaker.failure("timeouts")
+                errors.append(f"{name}{_BUSY}" if interactive else f"{name}: {type(e).__name__}")
+                return None
+            except httpx.HTTPError as e:
+                if attempt == 1:
+                    resp = None
+                    continue  # T-601: a transport error is tried once more on the same build
+                if breaker is not None:
+                    breaker.failure("connection errors")
+                errors.append(f"{name}: {type(e).__name__} (tried twice)")
+                return None
+            call.latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+            if resp.status_code >= 500 and attempt == 1:
+                continue  # T-601: a server error is tried once more on the same build
+            break
+        if resp is None:
+            if breaker is not None:
+                breaker.failure("connection errors")
+            errors.append(f"{name}: no answer (the call's budget left no retry)")
+            return None
+        if breaker is not None:
+            if resp.status_code >= 500:
+                breaker.failure("server errors")
+            else:
+                breaker.success()
+        return resp
 
     def _allow(self, call: _Call, payload: dict[str, Any], label: ClassLabel, body: dict[str, Any]) -> GatewayResponse:
         if call.cache == "hit":
@@ -708,6 +872,7 @@ class Gateway:
     def _record(self, event: str, call: _Call, **extra: Any) -> None:
         detail = {
             "call_id": call.call_id,
+            "service": call.service,  # the verified service behind X-TB-Caller (D-437)
             "decision": "refuse" if event.endswith("refuse") else "allow",
             "class": call.data_class,
             "purpose": call.purpose,
@@ -737,6 +902,7 @@ class Gateway:
             "retries": call.retries,
             "expected_alias": call.expected_alias,
             "tokens_est": call.tokens_est,
+            "tokens_estimated": call.tokens_estimated,
             "context": call.context,
             "topology": self.config.topology.value,
             "environment": self.config.environment.value,
