@@ -67,6 +67,11 @@ services:
       - archive_command=${TB_PG_ARCHIVE_COMMAND:-pgbackrest --stanza=trialbox archive-push %p}
       - -c
       - archive_timeout=${TB_PG_ARCHIVE_TIMEOUT:-300}
+      # T-209c (D-406, OPS-035): a failed statement is never written to the log with its text or its values
+      - -c
+      - log_min_error_statement=panic
+      - -c
+      - log_parameter_max_length_on_error=0
     environment:
       POSTGRES_DB: hapi
       POSTGRES_USER: hapi

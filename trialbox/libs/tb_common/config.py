@@ -494,6 +494,7 @@ DECLARED: dict[str, Declared] = {
     "TB_HOST_FHIR_PORT": Declared("str", "8080", "bench: FHIR host port"),
     "TB_HOST_LAKE_PORT": Declared("str", "8013", "bench: lake host port"),
     "TB_HOST_SMTP_PORT": Declared("int", "", "test mail: SMTP host port"),
+    "TB_HOST_ROOT": Declared("path", "", "host scripts: fake host root for the tests only, empty on the box (D-408)"),
     "TB_HOST_TZ": Declared("str", "", "doctor: the host's zone to compare"),
     "TB_IMAGE": Declared("str", "trialbox-py:1.0.0", "the Python services' image"),
     "TB_INSTALL_PULL": Declared("str", "never", "install: image pull policy"),
