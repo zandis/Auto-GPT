@@ -140,6 +140,11 @@ D-187 or by the update path, counted on a running box, gives a warning instead. 
 status and alert, wipe, restore with the pack loaded again, an old-format restore, the Postgres settings and a
 point-in-time recovery).
 
+**Database roles after a restore (D-378).** Each service signs in as its own role and reaches only its own schemas,
+which belong to group roles. A restore made as `trialbox` leaves its tables owned by `trialbox`, so run the role
+script once after it: `docker compose --project-directory deploy exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh`
+(`deploy/install.sh` runs it on every install and upgrade). It is safe to run any time.
+
 
 ## Secrets (D-128, D-138): the one place to rotate them
 

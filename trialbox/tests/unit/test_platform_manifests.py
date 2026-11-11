@@ -271,7 +271,7 @@ def test_copies_in_the_base_are_byte_identical() -> None:
     """kustomize reads files only under the kustomization, so the base carries two copies; they never drift."""
     base = PLATFORM / "base"
     assert (base / "settings.example.yaml").read_bytes() == (ROOT / "deploy/settings.example.yaml").read_bytes()
-    for f in ("10-trialbox-wf.sh", "20-extensions.sh"):
+    for f in ("10-trialbox-wf.sh", "20-extensions.sh", "30-service-roles.sh"):
         assert (base / "db-init" / f).read_bytes() == (ROOT / "deploy/docker/db-init" / f).read_bytes(), f
 
 
