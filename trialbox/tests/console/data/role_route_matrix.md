@@ -52,6 +52,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/auth/oidc/start` | n | n | n | n | n | n | n |
 | GET | `/breakglass` | Y | - | - | - | - | - | Y |
 | GET | `/cmd` | Y | Y | Y | Y | Y | Y | Y |
+| GET | `/data/items` | Y | - | - | - | - | - | - |
 | GET | `/demo/ack` | n | n | n | n | n | n | n |
 | GET | `/feedback/export.csv` | Y | - | - | - | - | - | - |
 | GET | `/help` | Y | Y | Y | Y | Y | Y | Y |
@@ -217,12 +218,15 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/studies/{rs}/profile` | Y | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/redcap-read` | - | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/referrals/{ref_id}/answer` | - | Y | Y | Y | - | - | - |
+| POST | `/studies/{rs}/sae/sync` | - | U | - | U | - | - | - |
+| POST | `/studies/{rs}/sae/{record}/{event}/ack` | - | n | n | n | - | - | - |
 | POST | `/studies/{rs}/sae/{record}/{event}/{what}` | n | n | n | n | - | - | n |
 | POST | `/studies/{rs}/schedule` | - | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/setup` | - | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/setup/log` | - | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/setup/redcap` | - | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/setup/redcap/test` | - | Y | - | Y | - | - | - |
+| POST | `/studies/{rs}/setup/sae` | - | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/setup/scope` | - | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/setup/study` | - | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/sources/redcap` | - | Y | - | Y | - | - | - |
