@@ -47,7 +47,7 @@ from typing import IO, Any
 from zoneinfo import ZoneInfo
 
 from tb_common import feedguard
-from tb_common.audit import AuditLog
+from tb_common.audit_writer import open_audit
 from tb_common.crypto import pid_for_mrn
 
 from adapter.ndjson import is_deleted_flag, snapshot_dir
@@ -554,7 +554,7 @@ def _publish(
 def _audit(cfg: AdapterConfig, rep: BackfillReport) -> None:
     if not cfg.audit_dir:
         return
-    AuditLog(cfg.audit_dir, cfg.tz).append(
+    open_audit(cfg.audit_dir, cfg.tz).append(
         "ingest.backfill",
         snapshot=rep.snapshot,
         actor="adapter",

@@ -21,6 +21,7 @@ COMPOSE = ROOT / "deploy" / "docker-compose.yml"
 WRITERS = {
     "libs/tb_common/flags.py",  # docstring example
     "libs/tb_common/llm.py",
+    "services/adapter/backfill.py",
     "services/adapter/licensed.py",
     "services/adapter/pipeline.py",
     "services/console/app.py",
