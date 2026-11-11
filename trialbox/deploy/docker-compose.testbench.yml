@@ -22,6 +22,9 @@ services:
     ports: ["127.0.0.1:${TB_HOST_TESTBENCH_PORT:-8765}:8765"]
     read_only: true
     tmpfs: [/tmp]
+    mem_limit: 2g   # T-108a (D-360)
+    pids_limit: 512
+    logging: {driver: json-file, options: {max-size: "20m", max-file: "3"}}
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
 

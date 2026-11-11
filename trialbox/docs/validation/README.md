@@ -19,7 +19,7 @@ names. Every record is written by the pull request or the tool that does the wor
 | [`problems.csv`](problems.csv) | the problem log; deviations and CAPA (VMP §6) | T-654 |
 | [`ai-governance.md`](ai-governance.md) | the AI governance note: who answers for the models, what they may and may not do | T-649b |
 | [`model-change-protocol.md`](model-change-protocol.md) | the model change protocol: the qualify steps and their thresholds | T-649b |
-| `record-inventory.md` | every GxP record the box makes or holds (planned) | T-643 |
+| [`record-inventory.md`](record-inventory.md) | every record the box makes or holds: class, system of record, keeper, retention, export, audit events; the store map | T-643 |
 | `protocols/` | IQ, OQ, PQ protocols, only under TB-PLAN-06 §0.3 item 2 (planned) | T-315b |
 
 Not here, by D-311: `gates/` (gate records, B1), `risk-register.md` (one risk file, B18; the risk file stays TB-PLAN-05
