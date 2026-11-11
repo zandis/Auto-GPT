@@ -163,10 +163,10 @@ def test_the_signature_key(tmp_path: Path) -> None:
     with pytest.raises(EdcError) as e:
         sign_key_of({"TB_ENV": "PRODUCTION"})
     assert e.value.code == "edc.sign_key"
-    made = sign_key_of({"TB_ENV": "PRODUCTION"}, tmp_path / "secrets")  # made once in the secrets folder
+    made = sign_key_of({"TB_ENV": "TEST"}, tmp_path / "secrets")  # made once in the secrets folder
     f = tmp_path / "secrets" / KEY_FILE
     assert len(made) == 32 and (f.stat().st_mode & 0o777) == 0o600
-    assert sign_key_of({}, tmp_path / "secrets") == made  # never replaced
+    assert sign_key_of({}, tmp_path / "secrets") == made  # never replaced; a plain key still loads (T-210d)
     named = tmp_path / "elsewhere.key"
     named.write_bytes(b"short")
     with pytest.raises(EdcError):
