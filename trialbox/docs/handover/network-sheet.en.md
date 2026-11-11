@@ -2,14 +2,16 @@
 
 Generated from the compose files below by tools/network_sheet.py (D-138). Nothing on the box is reachable from outside except the console port. No secret value is on this sheet.
 
-**Compose files:** `deploy/docker-compose.yml`, `deploy/docker-compose.secrets.yml`, `deploy/docker-compose.rtx5090.yml`, `deploy/docker-compose.gb10.yml`, `deploy/docker-compose.rtxpro6000.yml`
+**Compose files:** `deploy/docker-compose.yml`, `deploy/docker-compose.secrets.yml`, `deploy/docker-compose.identity.yml`, `deploy/docker-compose.rtx5090.yml`, `deploy/docker-compose.gb10.yml`, `deploy/docker-compose.rtxpro6000.yml`
 
 ## Listening ports
 
 | Service | Port | On the host | Networks | Who may reach it | Runs |
 | --- | --- | --- | --- | --- | --- |
 | adapter | 8016 | not published | trialbox-net | with its own token, only: console, orchestrator; the administrator on the host (operator token) | always |
-| console | 8090 | 127.0.0.1:8090:8090 | console-net, trialbox-net | staff browsers: 127.0.0.1 by default; the hospital LAN only through the site's TLS proxy | always |
+| authelia | 9091 | not published | egress-net, trialbox-net | console and Caddy only (sign-in with the hospital account) | oidc (identity) |
+| caddy | 443 | 0.0.0.0:443:443 | edge-net, trialbox-net | clinic PCs on the hospital LAN, port 443 only (https://TB_TLS_HOSTNAME) | always |
+| console | 8090 | not published | console-net, trialbox-net | staff browsers: 127.0.0.1 by default; the hospital LAN only through the site's TLS proxy | always |
 | criteria-compiler | 8012 | not published | egress-net, trialbox-net | with its own token, only: orchestrator; the administrator on the host (operator token) | always |
 | db | 5432 | not published | trialbox-net | TrialBox services and fhir-store, with a password | always |
 | doc-parser | 8011 | not published | trialbox-net | with its own token, only: orchestrator; the administrator on the host (operator token) | always |
@@ -32,6 +34,7 @@ Generated from the compose files below by tools/network_sheet.py (D-138). Nothin
 | Networks |  |
 | --- | --- |
 | trialbox-console | the console's published port only: no NAT out, no outside names; nftables drop the rest (deploy/network.sh) |
+| trialbox-edge | out of the box only to the hosts below (nftables, deploy/network.sh) |
 | trialbox-egress | out of the box only to the hosts below (nftables, deploy/network.sh) |
 | trialbox-model-backend | internal: no route out of the box |
 | trialbox-model-net | internal: no route out of the box |
@@ -51,10 +54,20 @@ With no site settings the box reaches nothing outside. ClinicalTrials.gov is off
 | orchestrator | NHI_TWPAS_BASE_URL | NHI TWPAS (SUBMIT only) | NHI_TWPAS_BASE_URL |
 | any | EGRESS_EXTRA | site additions | EGRESS_EXTRA |
 
+## The host (outside the containers)
+
+| From -> to | Why | Opened by |
+| --- | --- | --- |
+| clinic PCs -> TB_TLS_HOSTNAME:443 (caddy) | the console over https; nothing else is published | docker-compose.identity.yml, TB_TLS_HOSTNAME |
+| authelia -> domain controller:636 (LDAPS) | sign-in with the hospital account (optional) | EGRESS_EXTRA authelia=<dc>:636, profile oidc |
+| host -> hospital NTP server, UDP 123 | the clock of every audit row (check_host: clock in sync) | the host's time service (systemd-timesyncd or chrony) |
+| host -> backup share (TB_BACKUP_TARGETS), NFS 2049 or SMB 445 | the off-box backup copy (RUNBOOK §5) | TB_BACKUP_TARGETS, a share mounted on the host |
+
 ## Secrets (names and places only)
 
 | Secret | Kept in | Given to |
 | --- | --- | --- |
+| oidc_client_secret | deploy/secrets/authelia/oidc_client_secret.txt (0600, root) | console only, at /run/secrets/oidc_client_secret (OIDC on) |
 | service token: adapter | deploy/secrets/services/adapter.token (0600) | adapter only, at /run/secrets/tb_service_token |
 | service token: console | deploy/secrets/services/console.token (0600) | console only, at /run/secrets/tb_service_token |
 | service token: criteria-compiler | deploy/secrets/services/criteria-compiler.token (0600) | criteria-compiler only, at /run/secrets/tb_service_token |
@@ -71,6 +84,8 @@ With no site settings the box reaches nothing outside. ClinicalTrials.gov is off
 | IMAP_PASS, SMTP_PASS | deploy/.env (0600, root) | mail-gateway |
 | CLOUD_LLM_API_KEY (empty by default) | deploy/.env (0600, root) | gateway |
 | site_hmac.key, pid_map.key, REDCap API tokens | volume tb-secrets (/run/secrets/trialbox) | adapter, orchestrator |
+| Caddy's internal CA keys (TB_TLS_MODE=internal) | volume caddy-data | caddy only; never copied out |
+| Authelia secrets and the LDAP bind password | deploy/secrets/authelia/ (0600, root) | authelia only |
 | backup public key | deploy/secrets/backup.pub | the backup (encrypts only) |
 | backup private key | USB stick | hospital IT, sealed envelope; never on the box |
 | vendor update key (public) | deploy/keys/vendor_ed25519.pub | tools/apply_update.sh |

@@ -1,0 +1,13 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: trialbox-doctor-nodes, labels: {app.kubernetes.io/component: doctor}}
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: trialbox-doctor-nodes, labels: {app.kubernetes.io/component: doctor}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: trialbox-doctor-nodes}
+subjects: [{kind: ServiceAccount, name: trialbox-doctor, namespace: trialbox}]

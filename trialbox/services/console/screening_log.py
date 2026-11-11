@@ -95,6 +95,9 @@ def prescreen_rows(marks: list[Any], numbers: dict[str, str], seen: dict[str, tu
             "listed": (seen.get(m.pid) or ("", ""))[1],
             "version": m.version or "",
             "mark": m,
+            # a "not now" mark's reason is the recheck date, a plan rather than something that happened: this log
+            # records what happened (nothing after today, T-513), so the date stays on the patient page and week list
+            "mark_reason": "" if m.mark == "not_now" else (m.reason or ""),
             "later": "",
             "no": numbers.get(m.pid, ""),
             "referral": refs.get(m.pid),

@@ -60,3 +60,8 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata: {name: iq-evidence, labels: {app.kubernetes.io/component: storage}}  # iq-evidence.json, canary.json
 spec: {accessModes: [ReadWriteMany], resources: {requests: {storage: 1Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: model-pins, labels: {app.kubernetes.io/component: storage}}  # registry.site.yaml (the pin job)
+spec: {accessModes: [ReadWriteMany], resources: {requests: {storage: 1Gi}}}
