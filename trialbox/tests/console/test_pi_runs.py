@@ -45,7 +45,9 @@ def test_the_q04_rule_is_one_table_in_authz() -> None:
 
 
 def test_a_different_q04_answer_is_a_one_line_change(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setitem(authz.INVESTIGATOR_RUNS, "pi", frozenset())
+    # T-102a (D-366): the table is the matrix's ``command.*`` rows; the PI's runs gone is one cell per command
+    for cmd in authz.INVESTIGATOR_RUNS["pi"]:
+        monkeypatch.setitem(authz.MATRIX[f"command.{cmd}"], "investigator", ("task:run",))
     assert not authz.can_request("investigator", "FEAS", is_pi=True)
     assert authz.can_request("investigator", "APPROVE", is_pi=True)
 
