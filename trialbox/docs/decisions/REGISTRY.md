@@ -133,8 +133,8 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-300 | merged | T-101 | prompt registry, renumbered from the PR's D-201 (file) |
 | D-301 | merged | T-105, PR #82 | vocabulary schema (renumbered from the PR's D-205) (file) |
 | D-302 | reserved | T-102a | permission matrix |
-| D-303 | reserved | T-106 | OMOP schema name |
-| D-304 | reserved | T-106 | dual write |
+| D-303 | unused | T-106 | was reserved for the OMOP schema name; T-106 took D-339 (the integrator gave it) |
+| D-304 | unused | T-106 | was reserved for the dual write; T-106 took D-339 (the integrator gave it) |
 | D-305 | unused | — | was reserved for T-012a, which took D-313 |
 | D-306 | merged | T-002 | decisions as files, one number registry, CODEOWNERS and CONTRIBUTING (file) |
 | D-307 | unused | T-508 | was reserved for T-508, which took D-332 (the integrator gave D-332) |
@@ -154,14 +154,20 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-320 | merged | T-505a | the API sign-in asks for the second factor; one channel per session (file) |
 | D-321 | merged | T-504 | scenario rulesets: SQL checked on planted gold, CQL recorded by a local engine (file) |
 | D-322 | merged | T-613a | the shipped rulesets recompiled offline from their cassettes, and the CI drift check (file) |
+| D-323 | merged | T-515 | recorded first and second checks on the demo from a fixture (DEV and TEST only), each opinion marked synthetic, recorded run or test model; the G1 short-run file drops in later (file) |
 | D-328 | merged | T-502 | PoC demonstration mode behind the audited flag `demo.mode`: uploads and chart paste refused, banner, `demo.ack`, the scan of stored input (file) |
 | D-329 | merged | T-513 | one demo clock: the demo day is the real day in the site's time zone; dates moved, one clock (file) |
 | D-330 | merged | T-509 | the PoC host: one VM, the image by digest, Cloudflare Access through a tunnel, kept data on its own disk, daily snapshot, purge (file) |
 | D-331 | merged | T-510 | in-product feedback: a flag, a rating and a comment on every page, stored with path, language, role and time; CSV export to issues; the comment in the demo scan (file) |
 | D-332 | merged | T-508 | the clinician PoC is product evaluation, not research: no protocol, subject consent or committee step; the acknowledgement only (file) |
+| D-333 | merged | T-601 | the gateway never answers one role with another role's model: `fallback: none` unless a route says `any`, one retry on the same build, no fallback on 400/404, build and fallbacks in the response, `tb_llm` raises on an unexpected alias, doctor `judge_route` (file) |
 | D-334 | merged | T-613b | lab units read per row: one conversion table in labvalue (engines' factors reused), mapping_check unit pairs and raw values, one presence reader in ja, zh-TW, en (file) |
+| D-342 | merged | T-617b | the licence register as data (`docs/licences/register.csv`) and its build check; model licence rows backed by it; no SNOMED CT ships; the ATC request written, not sent (file) |
+| D-343 | merged | T-649b | N-12 gates on the unadjusted figure; every model change follows the model change protocol, and every qualification record cites it (file) |
 | D-344 | merged | T-215 | QMS-lite records in `docs/validation/`, VMP v1.1 without signatures, change classes CC1 to CC6, staged roll-out, standards position (file) |
 | D-346 | merged | T-208 | the prompt-injection and false-positive suite: facts not words, a stub that obeys as the negative control, the fence escaped, hidden text flagged, traces 7 days in PRODUCTION (file) |
 | D-347 | merged | T-210b | the site keys under a KEK: wrapped files, three back ends, the unseal, the key inventory (file) |
+| D-348 | merged | T-673 | third-party images in `deploy/images.lock` by digest, no image by tag, the GPU host checked against the vLLM image (arch, driver, compute capability), Mailpit for MailHog (file) |
 | D-349 | merged | T-512 | the PI starts FEAS, SCREEN and CASE on own study; a sub-investigator with the `run` tick; one table `authz.INVESTIGATOR_RUNS`; "data as of" on the patient lists (file) |
+| D-339 | merged | T-106 | OMOP second slice: schema name stays `omop`; the adapter's dual write behind the flag `omop.dual_write` (a failure never holds the night); the large CDM tables partitioned by year; the Relational checks after every load in the ingest report; parity timings (file) |
 | D-359 | merged | T-606 | injection hardening: every prompt a new version with the "text is data" rule; the guard's planted-instruction screen; contact lines masked before the criteria locator; PRODUCTION serves the newest qualified version (file) |
