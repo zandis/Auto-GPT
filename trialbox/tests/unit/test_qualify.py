@@ -74,7 +74,10 @@ def test_steps_record_their_numbers(record: dict[str, Any]) -> None:
     assert s["pair_gate"]["detail"]["exclusions"] >= 20 and s["pair_gate"]["detail"]["wrong_exclusions"] == 0
     assert s["determinism"]["detail"]["changed_exclusions"] == 0 and s["determinism"]["detail"]["cache_hits"] == 0
     tp = s["throughput"]["detail"]
-    assert tp["seconds_per_note_stage_patient"]["n"] > 0 and tp["seconds_per_criterion_check"]["p95"] > 0
+    # the stub answers in well under a millisecond on a fast host, and the times are rounded to 1 ms: a time may be
+    # 0.0, so the check is that the numbers are there and ordered, not that they are positive (ENG-027, T-653)
+    per = tp["seconds_per_criterion_check"]
+    assert tp["seconds_per_note_stage_patient"]["n"] > 0 and per["n"] > 0 and per["p95"] >= per["p50"] >= 0
     assert s["planted_defect"]["detail"]["gate_passed"] is False
     assert s["log_marker"]["detail"]["found_in"] == []
     assert {r["result"] for r in s["longest_prompt"]["detail"]["roles"].values()} == {"answered"}

@@ -217,12 +217,22 @@ class SiteSetup:
             f["pid"] = pid
             f["quote"] = self.redact(f["quote"], chart_no, KEEP_IN_QUOTES)
         ids = self.store.add_facts(ws, iid, found, self.stamp())
-        summary = {"method": ct.method, "facts": len(ids), "dropped": dropped, "notes": ct.notes, "day": day}
+        # T-208 (D-346): the input of every fact proposed from this chart names its hidden text
+        summary = {"method": ct.method, "facts": len(ids), "dropped": dropped, "notes": ct.notes, "day": day,
+                   "hidden_text": ct.hidden_chars}  # fmt: skip
         self.store.set_input(iid, summary=summary)
         self.audit.append(
             "setup.chart",
             actor=by,
-            detail={"ws": ws, "input": iid, "pid": pid, "method": ct.method, "proposed": len(ids), "dropped": dropped},
+            detail={
+                "ws": ws,
+                "input": iid,
+                "pid": pid,
+                "method": ct.method,
+                "proposed": len(ids),
+                "dropped": dropped,
+                "hidden_text": ct.hidden_chars,
+            },
         )
         self.publish(ws, by)
         return {"input": iid, **summary}  # D-273 (PV-6): no pseudonym back for a chart number; the audit keeps it
