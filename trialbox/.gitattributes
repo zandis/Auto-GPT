@@ -36,6 +36,8 @@ refdata/** -tb-data
 docs/plan/25-traceability.csv -tb-data
 # the archived commitments register (T-641, removed from CI by D-311): promise sentences, no patient
 docs/plan/sites/archive/commitments.csv -tb-data
+# the lifecycle records (T-654): the problem log and the SOUP list, about the software, never a patient
+docs/validation/*.csv -tb-data
 # each ruleset's synthetic FHIR test patients
 rulesets/*/tests/patients.ndjson -tb-data
 # code maps and terminology tables (public code systems, no patient)
