@@ -27,6 +27,16 @@ VALUES = {"rs": "GZQO", "ruleset": "GZQO", "pid": "c" * 32, "record": "1", "even
 SKIP = re.compile(r"^/(api/|static/|logout|login|lang|health|metrics|cmd|ask)")
 
 
+# A cell marked data-wording="source" shows another source's words as written (a catalogue item's name, such as LOINC
+# 21854-5 "Date of cancer diagnosis", and its protocol phrasing): data, not the product's wording (D-351 item 5).
+# Only such cells are left out; the rest of the page, its headings and its help, is checked.
+_SOURCE_CELL = re.compile(r'<td\b[^>]*\bdata-wording="source"[^>]*>.*?</td>', re.S)
+
+
+def _product_words(page: str) -> str:
+    return _SOURCE_CELL.sub("<td></td>", page)
+
+
 def _pages(app: Any, values: dict[str, str]) -> list[str]:
     out = []
     for r in app.routes:
@@ -53,7 +63,7 @@ def _walk(b: dict[str, Any], user: str, lang: str) -> tuple[list[str], list[str]
         if r.status_code != 200 or "text/html" not in r.headers.get("content-type", ""):
             continue
         seen.append(r.url.path)
-        bad += [f"{path}: {h.word!r} in …{h.context}…" for h in check_page(r.text)]
+        bad += [f"{path}: {h.word!r} in …{h.context}…" for h in check_page(_product_words(r.text))]
     return seen, bad
 
 
@@ -97,6 +107,15 @@ def test_the_footer_carries_the_statement_in_the_reader_language(box: dict[str, 
     for other in LANGS:
         if other != lang:
             assert STATEMENT[other] not in html.unescape(foot)
+
+
+def test_only_cells_marked_as_source_text_are_left_out() -> None:
+    """The exemption is narrow: a catalogue cell marked as source text is skipped; the same word in any other cell, or
+    in a heading of the same page, is still a hit."""
+    page = (
+        '<table><tr><td data-wording="source">Date of cancer diagnosis</td><td>diagnosis</td></tr></table><h2>判定</h2>'
+    )
+    assert sorted(h.word for h in check_page(_product_words(page))) == sorted(["diagnosis", "判定"])
 
 
 def test_a_planted_word_fails_the_walk() -> None:
