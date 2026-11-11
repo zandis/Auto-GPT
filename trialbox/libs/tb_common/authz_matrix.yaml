@@ -19,7 +19,7 @@
 # * ``permit`` is pure: no audit, no I/O. The caller audits.
 #
 # Sources: D-93, D-101, D-104, D-108, D-143, D-146, D-147, D-160, D-162, D-178, D-191, D-280 (OD-5), D-349 (T-512),
-# D-380 (T-102b), D-386 (T-622), D-395 (T-310b).
+# D-380 (T-102b), D-386 (T-622), D-395 (T-310b), D-425 (T-102c).
 # D-280: the administrator (the IT operator) has no patient-level row; one patient or one job only through
 # break-glass (``console.breakglass``, the ``breakglass.*`` rows). D-380: the data steward and the privacy office
 # keep the opt-out register and the staff directory, and nobody else; the steward writes a study's first PI entry;
@@ -82,6 +82,25 @@ actions:
     investigator: false
     viewer: true
     cro: true
+    steward: false
+    privacy: false
+  # T-102c (D-425): the call sites that asked for the CRO role by name ask these rows
+  report.sponsor_form:
+    what: read reports in the sponsor (suppressed) form and the sponsor pack only, never a site page of one study (D-104)
+    admin: false
+    coordinator: false
+    investigator: false
+    viewer: false
+    cro: true
+    steward: false
+    privacy: false
+  report.office:
+    what: read the research office's yearly counts of every study, small cells hidden (page and XLSX; ROLE-017)
+    admin: true
+    coordinator: true
+    investigator: false
+    viewer: true
+    cro: false
     steward: false
     privacy: false
 
@@ -153,6 +172,24 @@ actions:
     admin: false
     coordinator: false
     investigator: [pi]
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
+  study.setup:
+    what: change a study's set-up, data sources, forms and conflicts, and add data-entry forms (S21)
+    admin: false
+    coordinator: true
+    investigator: false
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
+  site.setup:
+    what: change the site's set-up and confirm site facts (D-131, a CRC or admin confirms)
+    admin: true
+    coordinator: true
+    investigator: false
     viewer: false
     cro: false
     steward: false
@@ -375,6 +412,15 @@ actions:
     cro: false
     steward: false
     privacy: false
+  sae.ack:
+    what: acknowledge a serious adverse event on the participant page (D-143)
+    admin: false
+    coordinator: false
+    investigator: true
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
 
   # ---------------------------------------------------------------- operations and accounts (D-178)
   ops.view:
@@ -469,7 +515,7 @@ actions:
     privacy: false
 
   # ---------------------------------------------------------------- break-glass (D-280, OD-5; page: console.breakglass)
-  # Recorded here for the matrix; ``console.breakglass`` still checks the role itself (T-102c moves the call sites).
+  # ``console.breakglass`` asks these rows (T-102c, D-425).
   breakglass.open:
     what: open or end one 60-minute grant for one patient or one job
     admin: true
@@ -535,6 +581,24 @@ actions:
     viewer: false
     cro: false
     steward: true
+    privacy: false
+  delegation.check:
+    what: record the monthly comparison of the delegation log with the office's signed log
+    admin: false
+    coordinator: true
+    investigator: [pi]
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
+  referral.answer:
+    what: record the treating doctor's answer to a referral (D-147)
+    admin: false
+    coordinator: true
+    investigator: [task:refer]
+    viewer: false
+    cro: false
+    steward: false
     privacy: false
   irb.edit:
     what: record a study's IRB approval and consent-form version (approval number, reason for a change; hospital staff only)

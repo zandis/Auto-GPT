@@ -138,7 +138,8 @@ def test_a_job_started_before_a_publish_finishes_on_its_own_snapshot(make: Any, 
         lake = ctx.services.lake
         seen["pinned"] = lake.snapshot()
         seen["before"] = _count(lake)
-        _night(lake_dir, NIGHT_2, 5)  # the next night publishes while the job runs
+        if Lake(lake_dir).current() != NIGHT_2:  # T-305b: a held night is never rebuilt under its own job
+            _night(lake_dir, NIGHT_2, 5)  # the next night publishes while the job runs
         seen["current"] = Lake(lake_dir).current()
         seen["after"] = _count(lake)  # no snapshot named: the job's own
         lake.chunks_search("syn-001", "gout")  # the note search names it too

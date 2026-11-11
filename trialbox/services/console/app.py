@@ -603,7 +603,7 @@ def create_app(
         job or registry page of another study."""
         path = request.url.path
         u = sess.user
-        if u.role == "cro" and not (
+        if u.sponsor_form and not (
             path
             in ("/", "/home", "/reports", "/lang", "/logout", "/cmd", "/account", "/account/password", "/help", "/ask")
             or re.fullmatch(r"/studies/[A-Za-z0-9_-]+/feasibility", path)
@@ -1946,7 +1946,7 @@ def create_app(
         README that names the ruleset version, snapshot, approval record, population and the models that ran. The
         pack never contains a patient-level file; the download is audited."""
         sess = need(request)
-        if not (sess.user.can_request or sess.user.role == "cro"):  # D-104: a CRO account gets the sponsor pack
+        if not (sess.user.can_request or sess.user.sponsor_form):  # D-104: a CRO account gets the sponsor pack
             raise _Problem(403, "forbidden")
         job = _job_or_404(job_id)
         if not sess.user.sees_study(job.ruleset or ""):

@@ -27,7 +27,8 @@ from datacore.lifecycle import CONTACT_ATTEMPTS, CONTACT_DEFAULT, contact_check
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
-from tb_common.authz import BREAK_GLASS_ROLE, can_request
+from tb_common.authz import BREAK_GLASS_ROLE, NO_STANDING, Decision, conditional, study_bound
+from tb_common.authz import permit as permit_row
 from tb_common.service_auth import bind_session, scope_of
 from tb_contracts import Job
 
@@ -56,6 +57,15 @@ from console.timefmt import local_date, local_today, site_zone
 CLOSING_OUTCOMES = frozenset({"reached_declined", "not_approached", "lost_contact"})
 
 _PID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+# T-102c (D-425): where ``/home`` sends a role, by the first of these matrix rows it holds (the investigator marks the
+# weekly list; the viewer and the CRO read reports; D-280: the steward reviews break-glass; D-380: the privacy office
+# keeps the opt-out register); the administrator and the coordinator stay on the home page
+HOME_STARTS: tuple[tuple[str, str], ...] = (
+    ("list.mark", "/week"),
+    ("report.aggregate_only", "/reports"),
+    ("breakglass.review", "/breakglass"),
+    ("optout.keep", "/site/opt-outs"),
+)
 REVEAL_NOTE_MIN = 10  # D-273 (ROLE-016): the written "why" a reveal for "other" needs, in characters
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 SCREEN_TYPES = ("MICROBATCH", "SCREEN")
@@ -108,7 +118,6 @@ class Helpers:
     # set by console.team (D-147): the study team store, the opt-out register and the one permission function
     team: Any = None
     optout: Any = None
-    may: Callable[..., bool] | None = None
     may_approve: Callable[..., bool] | None = None
     stand: Callable[..., Any] | None = None  # console.team.standing for one account and study (T-512)
     team_due: Callable[[str], bool] | None = None
@@ -141,21 +150,38 @@ class Helpers:
             self.au.append("console.denied", actor=self.actor(sess), detail={"action": path[:80]})
             raise self.problem(403, "forbidden")
 
+    def need_rows(self, sess: Session, rid: str, path: str) -> None:
+        """ROLE-017 (T-102c, D-425): who reads one study's patient-level rows. A page, its XLSX and its ``/api/v1``
+        twin ask this one question (the ``phi.view`` row, then the study's delegation log), so they never disagree; a
+        refusal is audited."""
+        if not self.permit(sess.user, "phi.view", rid):
+            self.au.append("console.denied", actor=self.actor(sess), detail={"action": path[:80]})
+            raise self.problem(403, "forbidden")
+        self.delegated(sess, rid, path)
+
     def delegated_ok(self, user: Any, rid: str | None, tasks: tuple[str, ...] = ("screen",)) -> bool:
-        """The rule of :meth:`delegated` as a yes or no, for a page that hides a part instead of refusing."""
-        if user.role != "investigator" or self.may is None:
+        """The rule of :meth:`delegated` as a yes or no, for a page that hides a part instead of refusing. It applies
+        to the roles whose ``task.*`` rows the log decides (the matrix's conditions, T-102c); the others pass here
+        and meet their own row on the page."""
+        if not any(conditional(user.role, f"task.{t}") for t in tasks):
             return True
-        return bool(rid) and any(self.may(user, rid, t) for t in tasks)
+        return bool(rid) and any(self.permit(user, f"task.{t}", rid) for t in tasks)
+
+    def permit(self, user: Any, action: str, rid: str | None = None) -> Decision:
+        """T-102c (D-425): the one question pages and ``/api/v1`` ask: ``tb_common.authz.permit`` for ``action``,
+        with the account's standing in study ``rid`` read from the delegation log. No study, a study the account does
+        not see, or no log store: no standing, so no condition holds (fails closed; the team fallback is gone)."""
+        standing = NO_STANDING
+        if rid and self.stand is not None and user.sees_study(rid):
+            standing = self.stand(user, rid).grant()
+        return permit_row(user.role, action, standing)
 
     def may_run(self, user: Any, rid: str | None, command: str) -> bool:
-        """T-512 (D-349, Q-04): may this account start ``command`` on study ``rid``? ``tb_common.authz.can_request``
-        decides, with the account's standing in the study (the delegation log) for an investigator."""
-        if user.role != "investigator":
-            return can_request(user.role, command)
-        if not rid or not user.sees_study(rid) or self.stand is None:
+        """T-512 (D-349, Q-04): may this account start ``command`` on study ``rid``? The ``command.*`` row decides,
+        with the account's standing in the study; a role whose runs depend on the log needs a study it sees."""
+        if study_bound(user.role, "command.") and not (rid and user.sees_study(rid)):
             return False
-        s = self.stand(user, rid)
-        return can_request(user.role, command, is_pi=s.pi, tasks=s.tasks)
+        return self.permit(user, f"command.{command.upper()}", rid).allowed
 
     def today(self) -> date:
         """The site's calendar date now (site.tz), the one "today" of every console rule (D-270).
@@ -445,16 +471,11 @@ def register(app: FastAPI, h: Helpers) -> None:
     @app.get("/home")
     def home(request: Request, view: str = "") -> Response:
         sess = h.need(request)
-        role = sess.user.role
-        if role == "investigator":
-            return RedirectResponse("/week", status_code=303)
-        if role in ("cro", "viewer"):
-            return RedirectResponse("/reports", status_code=303)
-        if role == "steward":  # D-280: the steward starts on the break-glass review list
-            return RedirectResponse("/breakglass", status_code=303)
-        if role == "privacy":  # D-380: the privacy office starts on the opt-out register it keeps
-            return RedirectResponse("/site/opt-outs", status_code=303)
-        if role == "admin" and view != "studies":
+        # T-102c (D-425): each role starts on the page of its first right in this order (the matrix's rows)
+        for action, start in HOME_STARTS:
+            if permit_row(sess.user.role, action):
+                return RedirectResponse(start, status_code=303)
+        if sess.user.is_admin and view != "studies":
             admin_page = getattr(h, "admin_page", None)  # step 4: S13 with its tabs (console.step4)
             return admin_page(request, sess, "health") if admin_page else admin_home(request, sess)
         jobs = bk.list_jobs(limit=500)
@@ -519,7 +540,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                     load(job, "feasprofile_", ".json", "aggregate"),
                     store.profile(r.id),
                     {},
-                    sponsor=sess.user.role == "cro",
+                    sponsor=sess.user.sponsor_form,
                 )["summary"]
             rows.append({"id": r.id, "version": r.version, "job": job, "summary": summary})
         return h.page(request, "reports.html", sess, rows=rows)
@@ -547,7 +568,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def feasibility(request: Request, rs: str, view: str = "", saved: str = "", refreshed: str = "") -> Response:
         sess = h.need(request)
         rid = study_or_404(sess, rs)
-        sponsor = view == "sponsor" or sess.user.role == "cro"
+        sponsor = view == "sponsor" or sess.user.sponsor_form
         rep = feas_bundle(sess, rid, sponsor)
         site = store.profile(rid)
         wk = week_bundle(sess, rid) if rep and sess.user.can_view_phi and not sponsor else None
@@ -765,7 +786,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             "mrn": None,
             # D-147: the IRB/consent-form warning before Approach, who may mark Approach, a referral still waiting
             "irb_warn": h.team.irb(rid).warnings(h.today()) if h.team is not None else [],
-            "may_approach": sess.user.can_mark and (h.may is None or h.may(sess.user, rid, "approach")),
+            "may_approach": sess.user.can_mark and h.permit(sess.user, "task.approach", rid).allowed,
             "ref_wait": referral_wait(rid, pid),
             # T-516 (UX-015): who marks Approach when this account may not (the logged PI), shown where the button is
             "approach_by": approach_by(rid),
@@ -962,7 +983,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         patient, or for the job (``job_id``) that is the study's latest list; the reveal is then signed with
         ``BREAK_GLASS_ROLE`` and its audit record names the grant."""
         rid = study_or_404(sess, rs)
-        delegated = sess.user.role != "investigator" or h.may is None or h.may(sess.user, rid, "screen")
+        delegated = h.delegated_ok(sess.user, rid)
         grant = None
         if not sess.user.sees_ids(rid) and sess.user.is_admin and h.breakglass is not None and _PID.match(pid or ""):
             grant = h.breakglass(sess, ruleset=rid, pid=pid, what="reveal") or (
@@ -1058,7 +1079,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         Approach, never a gate: an Approach marked under it is recorded as an override with the marker's name."""
         rid = study_or_404(sess, rs)
         task = "approach" if mark == "approach" else "screen"
-        if not sess.user.can_mark or (h.may is not None and not h.may(sess.user, rid, task)):
+        if not sess.user.can_mark or not h.permit(sess.user, f"task.{task}", rid):
             au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
             raise h.problem(403, "forbidden")
         if mark not in (*MARKS, "withdraw", "undo") or not _PID.match(pid):
@@ -1395,10 +1416,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def rows_or_403(sess: Session, rs: str, path: str) -> str:
         """A study this account sees, for a role that reads patient-level rows; the same check as the page (D-146)."""
         rid = study_or_404(sess, rs)
-        if not sess.user.can_view_phi:
-            au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
-            raise h.problem(403, "forbidden")
-        h.delegated(sess, rid, path)  # D-273 (PV-3): the page's delegation rule on /api/v1 too
+        h.need_rows(sess, rid, path)  # D-273 (PV-3), ROLE-017: the page's rule on /api/v1 too
         return rid
 
     @app.get("/api/v1/studies/{rs}/patients")

@@ -54,7 +54,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from tb_common.authz import Standing as Grant
-from tb_common.authz import monitor_may_see, permit, study_tasks
+from tb_common.authz import conditional, monitor_may_see, permit, study_tasks
 from tb_common.config import environment_name
 from tb_common.optout import SOURCES, OptOutError, OptOutRegister
 
@@ -112,6 +112,24 @@ class Standing:
         return Grant(is_pi=self.pi, tasks=self.tasks, log_names_pi=self.logged, monitor=self.monitor is not None)
 
 
+def log_account(user: User) -> bool:
+    """An account whose study tasks the delegation log gives (the matrix's ``task.*`` conditions: the investigator,
+    as PI or sub-investigator; T-102c, D-425)."""
+    return conditional(user.role, "task.screen")
+
+
+def monitor_account(user: User) -> bool:
+    """An account that reads a study only under a monitor grant (the matrix's ``monitor.read`` condition: a CRO
+    account, FIT-002)."""
+    return conditional(user.role, "monitor.read")
+
+
+def on_log(user: User) -> bool:
+    """An account a delegation-log entry may name: one with a study task (by role or by the log: the coordinator, the
+    investigator) or a monitor grant (a CRO account)."""
+    return permit(user.role, "task.screen").allowed or log_account(user) or monitor_account(user)
+
+
 def standing(team: TeamStore, user: User, rs: str, today: date) -> Standing:
     """The one permission function of D-147: pages and ``/api/v1`` both ask it. The rights per role come from the
     role table (``tb_common.authz.study_tasks``); this reads the study's delegation log into it."""
@@ -121,11 +139,11 @@ def standing(team: TeamStore, user: User, rs: str, today: date) -> Standing:
     pi = next((e for e in reversed(entries) if e.role == "pi" and e.active_on(today)), None)
     mine = [e for e in entries if e.username == user.username and e.active_on(today)]
     if user.aggregate_only:  # a CRO account: only a monitor grant (FIT-002), never a study task
-        grant = next((e for e in reversed(mine) if e.role == "monitor"), None) if user.role == "cro" else None
+        grant = next((e for e in reversed(mine) if e.role == "monitor"), None) if monitor_account(user) else None
         return Standing(False, frozenset(), pi is not None, grant, grant)
     own = mine[-1] if mine else None
     # D-380 (ROLE-008): the bootstrap is closed. Only the PI the log names is PI; with no PI named, nobody is.
-    is_pi = user.role == "investigator" and pi is not None and pi.username == user.username
+    is_pi = log_account(user) and pi is not None and pi.username == user.username
     ticked = frozenset(t for e in mine if e.role == "sub_pi" for t in e.tasks)
     tasks = study_tasks(user.role, log_names_pi=pi is not None, is_pi=is_pi, ticked=ticked)
     return Standing(is_pi, tasks, pi is not None, pi if is_pi else own)
@@ -222,13 +240,13 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return standing(team, user, rid, today())
 
     def may(user: User, rid: str, task: str) -> bool:
-        return task in stand(user, rid).tasks
+        return h.permit(user, f"task.{task}", rid).allowed
 
     def may_approve(user: User, rid: str) -> bool:
         """FR-AUTH-13 and D-147: only the PI the study's log names approves (D-380: no PI named, nobody)."""
         return user.can_approve and stand(user, rid).pi
 
-    h.may, h.may_approve, h.stand = may, may_approve, stand  # T-512: h.may_run reads the standing too
+    h.may_approve, h.stand = may_approve, stand  # T-512, T-102c: h.permit and h.may_run read the standing
     h.team_due = lambda rid: check_due(team, rid, today(), site_zone(bk))
 
     def deny(sess: Session, path: str) -> Exception:
@@ -490,7 +508,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         """The doctor's answer, recorded by the CRC (who asked by phone, in person or by EMR message) or, for a
         referral arranged outside TrialBox, by the PI or sub-PI who asked."""
         rid = study_or_404(sess, rs)
-        if not (sess.user.role == "coordinator" or may(sess.user, rid, "refer")):
+        if not h.permit(sess.user, "referral.answer", rid):
             raise deny(sess, path)
         if body.answer not in ANSWERS:
             raise refused(TeamError("choose the doctor's answer: agree, decline or discuss"))
@@ -592,7 +610,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             counts[f"route.{r.route}"] = counts.get(f"route.{r.route}", 0) + 1
             counts[f"state.{r.state}"] = counts.get(f"state.{r.state}", 0) + 1
         nos = store.screening_nos(rid)
-        may_answer = sess.user.role == "coordinator" or "refer" in s.tasks
+        may_answer = permit(sess.user.role, "referral.answer", s.grant()).allowed
         lang = sess.lang if sess.lang in DOCTOR_LANGS else "en"
         asks = {r.id: "\n".join(doctor_request(sess, rid, r, lang)) for r in open_refs}  # UX-034: the copy text
         return h.page(request, "team_referrals.html", sess, rs=rid, refs=list(reversed(refs)), open_refs=open_refs,
@@ -614,7 +632,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     def accounts(rid: str) -> list[User]:
         """Accounts a log entry may name: investigators and coordinators of the study, and CRO accounts of the study
         for a monitor grant (FIT-002)."""
-        return [u for u in h.users.users() if u.role in ("investigator", "coordinator", "cro") and u.sees_study(rid)]
+        return [u for u in h.users.users() if on_log(u) and u.sees_study(rid)]
 
     def log_roles_for(sess: Session, s: Standing) -> tuple[str, ...]:
         """The log roles this account may write (D-380): the logged PI every role; the steward the PI entry (study
@@ -640,7 +658,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
                       log_roles=writable, accounts=accounts(rid), checks=team.checks(rid)[:12],
                       due=check_due(team, rid, today(), site_zone(bk)), history=team.history(rid)[-30:], today=today(),
                       can_edit=bool(writable), can_tick=permit(sess.user.role, "delegation.keep", s.grant()).allowed,
-                      can_check=sess.user.role == "coordinator" or (sess.user.role == "investigator" and s.pi),
+                      can_check=permit(sess.user.role, "delegation.check", s.grant()).allowed,
                       results=CHECK_RESULTS, has_pi=team.pi_of(rid, today()) is not None)  # fmt: skip
 
     @app.post("/studies/{rs}/team")
@@ -660,11 +678,11 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         acct = next((u for u in accounts(rid) if u.username == username), None) if username else None
         if username and acct is None:
             raise refused(TeamError("no such account for this study"))
-        if role in ("pi", "sub_pi") and acct is not None and acct.role != "investigator":
+        if role in ("pi", "sub_pi") and acct is not None and not log_account(acct):
             raise refused(TeamError("a sub-investigator signs in with an investigator account"))
-        if role != "monitor" and acct is not None and acct.role == "cro":
+        if role != "monitor" and acct is not None and monitor_account(acct):
             raise refused(TeamError("a CRO account is on the log only as a monitor"))
-        if role == "monitor" and (acct is None or acct.role != "cro"):
+        if role == "monitor" and (acct is None or not monitor_account(acct)):
             raise refused(TeamError("a monitor grant names a CRO account of this study"))
         if role == "monitor" and not str(form.get("end") or "").strip():
             raise refused(TeamError("a monitor grant ends with the visit: give the end date"))
@@ -692,7 +710,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         need_csrf(sess, form)
         rid = study_or_404(sess, rs)
         s = stand(sess.user, rid)
-        if not (sess.user.role == "coordinator" or (sess.user.role == "investigator" and s.pi)):
+        if not permit(sess.user.role, "delegation.check", s.grant()):
             raise deny(sess, request.url.path)
         result = str(form.get("result") or "")
         try:
@@ -769,7 +787,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         overrides = [o for o in team.overrides(rid) if o[0] not in on][-50:] if sess.user.can_view_phi else []
         return h.page(request, "team_irb.html", sess, rs=rid, irb=rec, warnings=rec.warnings(today()),
                       can_edit=may_edit_irb(sess, rid), icf=team.icf_list(rid), icf_history=team.icf_history(rid),
-                      reads_subjects=sess.user.can_view_phi and sess.user.role != "cro",
+                      reads_subjects=sess.user.can_view_phi,
                       overrides=overrides)  # fmt: skip
 
     @app.post("/studies/{rs}/irb")
@@ -858,7 +876,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     def reconsent_access(sess: Session, path: str, rs: str) -> str:
         """Record level: who reads the participants (``lifecycle_pages``) reads the re-consent list."""
         rid = study_or_404(sess, rs)
-        if not sess.user.can_view_phi or sess.user.role == "cro":
+        if not sess.user.can_view_phi:
             raise deny(sess, path)
         h.delegated(sess, rid, f"participants {rid}", ("screen", "enter_data"))
         return rid
@@ -900,7 +918,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             due = reconsent_list(rid)
         except (Problem, Unavailable) as exc:
             err = err_of(exc)
-        enters = sess.user.role == "coordinator" or (h.may is not None and h.may(sess.user, rid, "enter_data"))
+        enters = h.permit(sess.user, "task.enter_data", rid).allowed
         return h.page(request, "team_reconsent.html", sess, rs=rid, due=due, err=err, editable=enters)
 
     @app.get("/api/v1/studies/{rs}/icf")

@@ -32,6 +32,7 @@ from urllib.parse import quote, urlencode
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
+from tb_common.authz import permit
 
 from console import demo_guard, s28
 from console.auth import Session, User
@@ -83,7 +84,7 @@ def site_wide(user: User) -> bool:
 
 def can_setup(user: User) -> bool:
     """Who changes the site's set-up: the coordinator and the administrator (D-131: "a CRC or admin confirms")."""
-    return user.role in ("coordinator", "admin")
+    return permit(user.role, "site.setup").allowed  # T-102c (D-425): the matrix row
 
 
 class ApiChart(BaseModel):
@@ -121,7 +122,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         return [r for r in rows if str(r.get("pid") or "") not in gone] if gone else rows
 
     def need_view(sess: Session, path: str) -> None:
-        if sess.user.role == "cro":
+        if sess.user.sponsor_form:
             raise h.problem(404, "notfound")
         admin_ok = sess.user.is_admin and (path in ADMIN_SETUP or path.startswith("/site/templates/"))
         if not (sess.user.can_view_phi or admin_ok):
@@ -250,7 +251,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             else ("next" if _NEXT.search(question or "") or not question else "help")
         )
         if kind == "next":
-            if not can_setup(sess.user) and sess.user.role != "investigator":
+            if not can_setup(sess.user) and not sess.user.can_mark:
                 points.append(t("ask.next.reader"))
             else:
                 try:

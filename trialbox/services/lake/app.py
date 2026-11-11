@@ -97,6 +97,31 @@ def put_site(body: dict[str, Any]) -> dict[str, Any]:
     return {"counts": lake().put_site(resources)}
 
 
+@app.post("/holds")
+def put_hold(body: dict[str, Any]) -> dict[str, Any]:
+    """T-305b (D-403): a running job holds the snapshot it pinned; it is neither rebuilt nor pruned until released."""
+    snap, holder = body.get("snapshot"), body.get("holder")
+    if not isinstance(snap, str) or not isinstance(holder, str):
+        raise HTTPException(status_code=400, detail="snapshot and holder are strings")
+    try:
+        lake().hold(snap, holder)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"holder": holder, "snapshot": snap}
+
+
+@app.delete("/holds/{holder}")
+def delete_hold(holder: str) -> dict[str, Any]:
+    return {"holder": holder, "released": lake().release(holder)}
+
+
+@app.get("/holds")
+def get_holds() -> dict[str, Any]:
+    return {"holds": lake().holds()}
+
+
 @app.post("/rebuild")
 def rebuild(req: RebuildRequest) -> RebuildResult:
     try:

@@ -339,15 +339,16 @@ def collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[No
                     out.append(build_health(u, person, today, hl, accounts_now(today)))
             continue
         sess = Session(u, "", person.lang, "")
-        kind = "N1" if u.role == "investigator" else "N2" if u.role == "coordinator" else None
+        # T-102c (D-425): N1 to who marks the weekly list (the investigator), N2 to who prepares requests (the
+        # coordinator; the administrator got the health mail above)
+        kind = "N1" if u.can_mark else "N2" if u.can_request else None
         if kind is None or kind not in kinds or store.notice_sent(kind, u.username, today.isoformat()):
             continue
         studies: list[Any] = []
         life: dict[str, dict[str, Any]] = {}
         for r in h.trials(sess):
             # D-273 (PV-3): N1 carries the study's patient rows; an investigator gets them only as delegated
-            may = getattr(h, "may", None)
-            if kind == "N1" and may is not None and not may(u, r.id, "screen"):
+            if kind == "N1" and not h.delegated_ok(u, r.id):
                 continue
             state = store.study_state(r.id)  # D-386 (LIFE-008): the mails follow the study's state
             if state.state not in CARE_STATES:
