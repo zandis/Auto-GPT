@@ -17,6 +17,15 @@ services:
       mail-gateway: {condition: service_healthy}
       link: {condition: service_healthy}
 
+  # Memory limits on the workstation follow deploy/gb10-profile.yaml (unmeasured, D-373), not the one-box defaults of
+  # docker-compose.yml (T-108a); the same TB_MEM_* names override them.
+  db: {mem_limit: "${TB_MEM_DB:-8g}"}
+  fhir-store: {mem_limit: "${TB_MEM_FHIR:-8g}"}
+  lake: {mem_limit: "${TB_MEM_LAKE:-6g}"}
+  criteria-compiler: {mem_limit: "${TB_MEM_COMPILER:-1g}"}
+  adapter: {mem_limit: "${TB_MEM_ADAPTER:-3g}"}
+  orchestrator: {mem_limit: "${TB_MEM_ORCH:-3g}"}
+
   link:
     image: ${TB_IMAGE:-trialbox-py:1.0.0}
     command: ["python", "-m", "tools.two_device", "link"]
