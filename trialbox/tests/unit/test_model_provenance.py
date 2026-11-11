@@ -88,7 +88,7 @@ def provenance_problems(doc: dict[str, Any]) -> list[str]:
 # ------------------------------------------------------------------------------------------------ provenance
 def test_no_deployed_build_has_a_null_revision() -> None:
     doc = _doc()
-    assert len(deployed(doc)) == 8 and JUDGE in deployed(doc) and VERIFIER in deployed(doc)
+    assert len(deployed(doc)) == 11 and JUDGE in deployed(doc) and VERIFIER in deployed(doc)
     assert provenance_problems(doc) == []
 
 

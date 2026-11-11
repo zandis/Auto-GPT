@@ -39,8 +39,28 @@ before anything is applied) or from ``docker compose config --format json`` (``-
   record exists this is a FAIL that says so;
 * ``gpu_serving``: exactly one judge and one verifier workload (``trialbox.io/role``), each with exactly one GPU
   device, no other workload with a GPU, a GPU quota of at least two; in a cluster their pods are ready;
+* ``mig_instances`` (D-409, LLM-027): the pair's devices are MIG instances, not a time-slice or an MPS share, and
+  there are two. Refused: a shared resource name (``nvidia.com/gpu.shared``, MPS), a node labelled
+  ``nvidia.com/gpu.sharing-strategy=time-slicing|mps`` or ``nvidia.com/gpu.replicas`` above 1, a declaration
+  ``TB_PLATFORM_GPU_SHARING=time-slicing|mps``; one instance (the nodes offer fewer than the pair needs, or a pair pod
+  cannot be scheduled for ``Insufficient nvidia.com/...``) fails with that reason. In ``shared-quota`` MIG must be
+  shown: a ``nvidia.com/mig-<profile>`` resource, a node's ``nvidia.com/mig.strategy`` label (the optional
+  ``components/node-read`` lets the job read Nodes) or ``TB_PLATFORM_GPU_SHARING=mig`` with
+  ``TB_PLATFORM_GPU_EVIDENCE``; and the profiles seen must be the ones ``TB_MIG_PROFILE`` names (one profile, or
+  ``judge=<profile>,verifier=<profile>``);
 * ``canary``: the last canary result (``TB_CANARY_RESULT``, ``tools/canary.py --out``) passed.
-  The three GPU checks are skipped with ``--no-gpu`` (outside VALIDATION and PRODUCTION only).
+  The four GPU checks are skipped with ``--no-gpu`` (outside VALIDATION and PRODUCTION only). On a test cluster whose
+  GPU devices are stand-ins (extended resources advertised by hand, ``TB_PLATFORM_GPU_STANDIN=1``, refused in
+  VALIDATION and PRODUCTION like ``--no-gpu``) ``gpu_serving`` and ``mig_instances`` run and ``serving_record`` and
+  ``canary`` are ``skipped: stand-in device`` (no model was measured there).
+
+And one check that needs no GPU:
+
+* ``model_key`` (D-177, D-409, LLM-028): both model servers get ``VLLM_API_KEY`` from a Secret, model-guard stands
+  in front of them with the same key, the Services the gateway calls (``llm-service``, ``llm-verifier``) select
+  model-guard, the gateway holds the key and no other workload does; in a cluster, model-guard answers its health
+  check and refuses a call without the key and with another key (401) and an unkeyed vLLM route (404). On the
+  compose form: the guard service, the servers' key and their network (the refusal is ``doctor --serving``'s).
 
 ``release.json`` is provisional here (``deploy/platform/release.json``, schema ``tb-release-images/0-provisional``)
 until T-110 lands the real one; only its ``images`` map is read.
@@ -56,6 +76,7 @@ import socket
 import ssl
 import struct
 import time
+import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import asdict, dataclass, field
@@ -73,7 +94,11 @@ COMPONENT = ROOT / "deploy" / "platform" / "components" / "release-images" / "ku
 NO_DEVICE = "skipped: no device"
 EVIDENCE_SCHEMA = "tb-iq-evidence/1"
 GPU_RESOURCE = re.compile(r"^(nvidia\.com/gpu|nvidia\.com/mig-[0-9a-z.+-]+)$")
-REQUIRED_POLICIES = ("trialbox-default-deny", "trialbox-model-isolation")
+# every GPU resource a device plugin may advertise, the shared ones too (time-slicing renamed, MPS)
+GPU_ANY = re.compile(r"^nvidia\.com/(gpu(\.shared)?|mig-[0-9a-z.+-]+|mps[0-9a-z./-]*)$")
+SHARED_GPU = re.compile(r"(\.shared$|/mps)")
+REQUIRED_POLICIES = ("trialbox-default-deny", "trialbox-model-isolation", "trialbox-model-guard")
+STANDIN = "skipped: stand-in device"
 WORKLOADS = ("Deployment", "StatefulSet", "Job", "Pod", "DaemonSet", "CronJob")
 
 
@@ -276,6 +301,7 @@ def state_from_manifests(text: str) -> PlatformState:
 
 
 COMPOSE_ROLES = {"llm-service": "judge", "llm-verifier": "verifier"}  # the pair's compose services (D-142)
+MODEL_KEY_VARS = ("VLLM_API_KEY", "TB_LLM_API_KEY")  # D-177: the servers' key and the guard's and gateway's
 
 
 def state_from_compose(config: Mapping[str, Any]) -> PlatformState:
@@ -291,15 +317,22 @@ def state_from_compose(config: Mapping[str, Any]) -> PlatformState:
             if "gpu" in (dev.get("capabilities") or []):
                 gpus += len(dev.get("device_ids") or []) or int(dev.get("count") or 1)
         res = {"requests": {"nvidia.com/gpu": str(gpus)}} if gpus else {}
-        container = {"name": name, "image": svc.get("image", ""), "resources": res}
+        # D-409: whether the model key is set (never its value) and the networks, for model_key
+        env = [
+            {"name": k, "value": "<set>" if v else ""}
+            for k, v in sorted((svc.get("environment") or {}).items())
+            if k in MODEL_KEY_VARS
+        ]
+        container = {"name": name, "image": svc.get("image", ""), "resources": res, "env": env}
         labels = {"app.kubernetes.io/component": name}
         role = (svc.get("labels") or {}).get("trialbox.io/role") or COMPOSE_ROLES.get(name)
         if role:
             labels["trialbox.io/role"] = role
+        nets = ",".join(sorted(svc.get("networks") or {}))
         objs.append(
             {
                 "kind": "Deployment",
-                "metadata": {"name": name, "labels": labels},
+                "metadata": {"name": name, "labels": labels, "annotations": {"trialbox.io/networks": nets}},
                 "spec": {"replicas": 1, "template": {"spec": {"containers": [container]}}},
             }
         )
@@ -315,6 +348,7 @@ class KubeApi:
         ("Secret", "/api/v1/namespaces/{ns}/secrets"),
         ("ConfigMap", "/api/v1/namespaces/{ns}/configmaps"),
         ("ResourceQuota", "/api/v1/namespaces/{ns}/resourcequotas"),
+        ("Service", "/api/v1/namespaces/{ns}/services"),
         ("PersistentVolumeClaim", "/api/v1/namespaces/{ns}/persistentvolumeclaims"),
         ("Deployment", "/apis/apps/v1/namespaces/{ns}/deployments"),
         ("StatefulSet", "/apis/apps/v1/namespaces/{ns}/statefulsets"),
@@ -330,19 +364,28 @@ class KubeApi:
         self.namespace = (sa / "namespace").read_text(encoding="utf-8").strip()
         self.ctx = ssl.create_default_context(cafile=str(sa / "ca.crt"))
 
+    def _get(self, path: str) -> dict[str, Any]:
+        req = urllib.request.Request(self.base + path, headers={"Authorization": f"Bearer {self.token}"})
+        with urllib.request.urlopen(req, context=self.ctx, timeout=10) as r:
+            doc: dict[str, Any] = json.loads(r.read())
+        return doc
+
     def state(self) -> PlatformState:
         objs: list[dict[str, Any]] = []
         for kind, path in self.PATHS:
-            req = urllib.request.Request(
-                self.base + path.format(ns=self.namespace), headers={"Authorization": f"Bearer {self.token}"}
-            )
-            with urllib.request.urlopen(req, context=self.ctx, timeout=10) as r:
-                doc = json.loads(r.read())
+            doc = self._get(path.format(ns=self.namespace))
             for item in doc.get("items") or []:
                 if kind == "Secret":  # never keep a value: names, labels, annotations and data keys only
                     item = {**item, "data": dict.fromkeys(item.get("data") or {}, ""), "stringData": {}}
                 item.setdefault("kind", kind)
                 objs.append(item)
+        try:  # cluster-scoped: only with the optional components/node-read (D-409)
+            for item in self._get("/api/v1/nodes").get("items") or []:
+                item.setdefault("kind", "Node")
+                objs.append(item)
+        except urllib.error.HTTPError as e:
+            if e.code not in (401, 403, 404):
+                raise
         return PlatformState(objs, "cluster", self.namespace)
 
 
@@ -459,6 +502,12 @@ class PlatformInputs:
     connect: Callable[[str, int], None] | None = None  # raises OSError when the host does not answer
     sntp: Callable[[str], float] | None = None  # returns the offset in seconds
     resolve: Callable[[str], list[str]] | None = None  # host -> addresses (the egress policies' ipBlocks)
+    gpu_standin: bool = False  # TB_PLATFORM_GPU_STANDIN: the devices are stand-ins (a test cluster, D-409)
+    # model_key's live probe: service name -> base URL of model-guard, and the HTTP call (method, url, key, host)
+    guard_urls: Mapping[str, str] = field(
+        default_factory=lambda: {"llm-service": "http://llm-service:8000", "llm-verifier": "http://llm-verifier:8000"}
+    )
+    http: Callable[[str, str, str | None, str], int | None] | None = None
 
 
 def _strict(inp: PlatformInputs) -> bool:
@@ -806,7 +855,7 @@ def check_network_policy(inp: PlatformInputs) -> Check:
         for d in yaml.safe_load_all(SHIPPED_POLICIES.read_text(encoding="utf-8"))
         if isinstance(d, dict)
     }
-    for name in ("trialbox-model-isolation",):
+    for name in ("trialbox-model-isolation", "trialbox-model-guard"):
         got_spec = (inp.state.named("NetworkPolicy", name) or {}).get("spec") or {}
         if _canon(got_spec) != _canon(shipped[name].get("spec") or {}):
             return Check("network_policy", "FAIL", f"{name} differs from the shipped one (deploy/platform/base)")
@@ -881,8 +930,8 @@ def check_network_policy(inp: PlatformInputs) -> Check:
     return Check(
         "network_policy",
         "PASS",
-        f"default deny, model isolation as shipped, no open rule; egress allowlist {', '.join(want) or 'empty'}; "
-        + doc_note,
+        "default deny, model isolation and model-guard as shipped, no open rule; "
+        f"egress allowlist {', '.join(want) or 'empty'}; " + doc_note,
     )
 
 
@@ -1006,6 +1055,9 @@ def check_backup_target(inp: PlatformInputs) -> Check:
 NO_GPU_REFUSED = (
     "--no-gpu (TB_PLATFORM_NO_GPU) is refused in VALIDATION and PRODUCTION: the GPU checks never skip there"
 )
+STANDIN_REFUSED = (
+    "TB_PLATFORM_GPU_STANDIN is refused in VALIDATION and PRODUCTION: stand-in devices are for a test cluster only"
+)
 
 
 def _gpu_skipped(inp: PlatformInputs, name: str) -> Check | None:
@@ -1018,13 +1070,24 @@ def _gpu_skipped(inp: PlatformInputs, name: str) -> Check | None:
     return Check(name, "SKIP", NO_DEVICE)
 
 
+def _measured_skipped(inp: PlatformInputs, name: str) -> Check | None:
+    """A check that needs a model measured on the device: skipped on stand-in devices (refused where strict)."""
+    if (skipped := _gpu_skipped(inp, name)) is not None:
+        return skipped
+    if inp.gpu_standin:
+        return Check(name, "FAIL", STANDIN_REFUSED) if _strict(inp) else Check(name, "SKIP", STANDIN)
+    return None
+
+
 def check_serving_record(inp: PlatformInputs) -> Check:
-    if (skipped := _gpu_skipped(inp, "serving_record")) is not None:
+    if (skipped := _measured_skipped(inp, "serving_record")) is not None:
         return skipped
     from tools import serving_config as sc
 
     path = inp.env.get("TB_SERVING_RECORD", "").strip()
     mig = inp.env.get("TB_MIG_PROFILE", "").strip()
+    if inp.env.get("TB_GPU_PROFILE", "").strip() == "shared-quota" and path and Path(path).is_file():
+        return _shared_quota_record(path, mig)
     if not path or not Path(path).is_file():
         return Check(
             "serving_record",
@@ -1050,6 +1113,31 @@ def check_serving_record(inp: PlatformInputs) -> Check:
         "PASS",
         f"{path}: {card.get('name')} {mig}, driver {card.get('driver')}, CUDA {card.get('cuda')}",
     )
+
+
+def _shared_quota_record(path: str, mig: str) -> Check:
+    """D-409: the shared-quota record is a measurement on two MIG instances (``serving_config.measured_for``, the rule
+    keyed on each instance's MIG profile) of the layout this namespace was given (``TB_MIG_PROFILE``)."""
+    from tools import serving_config as sc
+
+    rec = json.loads(Path(path).read_text(encoding="utf-8"))
+    why = sc.measured_for(rec, "shared-quota")
+    try:
+        want = sc.mig_layout(mig)
+    except ValueError as e:
+        want, why = {}, [*why, f"TB_MIG_PROFILE: {e}"]
+    got = sc.record_layout(rec)
+    if not want:
+        why.append("TB_MIG_PROFILE is not set to the MIG instances the namespace was given")
+    for role, prof in sorted(want.items()):
+        if role in got and sc.mig_base(got[role]) != sc.mig_base(prof):
+            why.append(f"the record's {role} ran on MIG profile {got[role]}, this namespace's is {prof}")
+    if why:
+        return Check("serving_record", "FAIL", f"{path}: " + "; ".join(why))
+    card = rec.get("card") or {}
+    lay = ", ".join(f"{r} {p}" for r, p in sorted(got.items()))
+    what = f"{card.get('name')} {lay}, driver {card.get('driver')}, CUDA {card.get('cuda')}"
+    return Check("serving_record", "PASS", f"{path}: {what}")
 
 
 GPU_ROLES = ("judge", "verifier")
@@ -1134,8 +1222,311 @@ def check_gpu_serving(inp: PlatformInputs) -> Check:
     return Check("gpu_serving", "PASS", "judge and verifier ready, one device each")
 
 
+# ------------------------------------------------------------------------------------------------ MIG (D-409)
+MIG_STRATEGY_LABEL = "nvidia.com/mig.strategy"
+SHARING_LABEL = "nvidia.com/gpu.sharing-strategy"
+REPLICAS_LABEL = "nvidia.com/gpu.replicas"
+PRODUCT_LABEL = "nvidia.com/gpu.product"
+TWO_INSTANCES = "the judge and the verifier each need their own MIG instance: ask for two (LLM-027, D-409)"
+
+
+def _gpu_names(spec: Mapping[str, Any]) -> set[str]:
+    out: set[str] = set()
+    for c in containers(spec):
+        res = c.get("resources") or {}
+        for part in ("requests", "limits"):
+            out |= {k for k, v in (res.get(part) or {}).items() if GPU_ANY.match(k) and quantity(v) > 0}
+    return out
+
+
+def _pair_specs(state: PlatformState) -> dict[str, tuple[dict[str, Any], dict[str, Any]]]:
+    pair: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
+    for owner, spec, _ in pod_specs(state):
+        role = _role(owner)
+        if role in GPU_ROLES:
+            pair.setdefault(role, (owner, spec))
+    return pair
+
+
+def _component(owner: Mapping[str, Any]) -> str:
+    tmpl = (((owner.get("spec") or {}).get("template") or {}).get("metadata") or {}).get("labels") or {}
+    return str(
+        tmpl.get("app.kubernetes.io/component")
+        or ((owner.get("metadata") or {}).get("labels") or {}).get("app.kubernetes.io/component")
+        or ""
+    )
+
+
+def _pods_of(state: PlatformState, component: str) -> list[dict[str, Any]]:
+    return [
+        p
+        for p in state.of("Pod")
+        if ((p.get("metadata") or {}).get("labels") or {}).get("app.kubernetes.io/component") == component
+    ]
+
+
+def check_mig_instances(inp: PlatformInputs) -> Check:
+    """MIG instance, not time-sliced, and two of them (D-409; LLM-027, OPS-067)."""
+    if (skipped := _gpu_skipped(inp, "mig_instances")) is not None:
+        return skipped
+    from tools import serving_config as sc
+
+    need_mig = inp.env.get("TB_GPU_PROFILE", "").strip() == "shared-quota"
+    pair = _pair_specs(inp.state)
+    if set(pair) != set(GPU_ROLES):
+        return Check("mig_instances", "FAIL", f"no judge and verifier pair declared (found {sorted(pair) or 'none'})")
+    bad: list[str] = []
+    evidence: list[str] = []
+    names = {role: sorted(_gpu_names(spec)) for role, (_, spec) in pair.items()}
+    seen: dict[str, str] = {}  # role -> MIG profile seen on the platform
+    for role, ns in sorted(names.items()):
+        if not ns:
+            bad.append(f"the {role} asks for no GPU device")
+        for n in ns:
+            if SHARED_GPU.search(n):
+                bad.append(f"the {role} asks for {n}: a time-sliced or MPS share, no memory isolation (refused)")
+            elif n.startswith("nvidia.com/mig-"):
+                seen[role] = n.removeprefix("nvidia.com/mig-")
+                evidence.append(f"{role} on {n}")
+    sharing = inp.env.get("TB_PLATFORM_GPU_SHARING", "").strip().lower()
+    ref = inp.env.get("TB_PLATFORM_GPU_EVIDENCE", "").strip()
+    if sharing in ("time-slicing", "time-sliced", "timeslicing", "mps"):
+        bad.append(f"the platform declares TB_PLATFORM_GPU_SHARING={sharing}: no memory isolation (refused)")
+    declared_mig = sharing == "mig" and bool(ref)
+    if declared_mig:
+        evidence.append(f"declared mig ({ref})")
+    elif sharing == "mig":
+        bad.append("TB_PLATFORM_GPU_SHARING=mig without TB_PLATFORM_GPU_EVIDENCE (the MIG configuration dump)")
+    # the nodes (with components/node-read, or given with --manifests): the ones the pair's pods run on, else all
+    on = {
+        str((p.get("spec") or {}).get("nodeName"))
+        for owner, _ in pair.values()
+        for p in _pods_of(inp.state, _component(owner))
+        if (p.get("spec") or {}).get("nodeName")
+    }
+    nodes = [nd for nd in inp.state.of("Node") if not on or (nd.get("metadata") or {}).get("name") in on]
+    gpu_nodes = [nd for nd in nodes if any(GPU_ANY.match(k) for k in ((nd.get("status") or {}).get("capacity") or {}))]
+    node_mig = False
+    avail: dict[str, float] = {}
+    for node in gpu_nodes:
+        nm = (node.get("metadata") or {}).get("name")
+        lab = (node.get("metadata") or {}).get("labels") or {}
+        strategy, how = lab.get(MIG_STRATEGY_LABEL, ""), lab.get(SHARING_LABEL, "")
+        if how in ("time-slicing", "mps"):
+            bad.append(f"node {nm}: {SHARING_LABEL}={how} (a shared device, no memory isolation)")
+        reps = str(lab.get(REPLICAS_LABEL, ""))
+        if reps.isdigit() and int(reps) > 1:
+            bad.append(f"node {nm}: {REPLICAS_LABEL}={reps} (each device is handed out {reps} times: time-sliced)")
+        if strategy in ("single", "mixed"):
+            node_mig = True
+            evidence.append(f"node {nm} {MIG_STRATEGY_LABEL}={strategy}")
+            m = re.search(r"MIG-(\d+g\.\d+gb(\+me)?)$", str(lab.get(PRODUCT_LABEL, "")))
+            if strategy == "single" and m:
+                for role, ns in names.items():
+                    if "nvidia.com/gpu" in ns:
+                        seen.setdefault(role, m.group(1))
+        elif need_mig:
+            bad.append(f"node {nm}: no {MIG_STRATEGY_LABEL} label: MIG is off there (a whole card or a time-slice)")
+        for k, v in ((node.get("status") or {}).get("allocatable") or {}).items():
+            if GPU_ANY.match(k):
+                avail[k] = avail.get(k, 0.0) + quantity(v)
+    if gpu_nodes:  # enough instances of each resource the pair asks for
+        want: dict[str, int] = {}
+        for ns in names.values():
+            for k in ns:
+                want[k] = want.get(k, 0) + 1
+        for k, need in sorted(want.items()):
+            have = int(avail.get(k, 0))
+            if have < need:
+                bad.append(f"the nodes offer {have} {k} for the pair's {need}: {TWO_INSTANCES}")
+    elif inp.state.source == "cluster":
+        evidence.append("nodes not readable (components/node-read not granted)")
+    for role, (owner, _) in sorted(pair.items()):
+        for p in _pods_of(inp.state, _component(owner)):
+            for c in (p.get("status") or {}).get("conditions") or []:
+                msg = str(c.get("message") or "")
+                if c.get("type") == "PodScheduled" and c.get("status") == "False" and "Insufficient nvidia.com/" in msg:
+                    pod = (p.get("metadata") or {}).get("name")
+                    bad.append(f"the {role} pod {pod} cannot be scheduled ({msg.strip()}): {TWO_INSTANCES}")
+    is_mig = bool(seen) or node_mig or declared_mig
+    if need_mig and not is_mig:
+        bad.append(
+            "not shown to be MIG instances: no nvidia.com/mig-<profile> resource, no node with "
+            f"{MIG_STRATEGY_LABEL} (components/node-read) and no TB_PLATFORM_GPU_SHARING=mig with "
+            "TB_PLATFORM_GPU_EVIDENCE"
+        )
+    try:
+        layout = sc.mig_layout(inp.env.get("TB_MIG_PROFILE", ""))
+    except ValueError as e:
+        layout = {}
+        bad.append(f"TB_MIG_PROFILE: {e}")
+    if need_mig and not layout:
+        bad.append("TB_MIG_PROFILE does not name the instances the namespace was given")
+    for role, prof in sorted(seen.items()):
+        if layout.get(role) and sc.mig_base(layout[role]) != sc.mig_base(prof):
+            bad.append(f"the {role} is on MIG profile {prof}, TB_MIG_PROFILE says {layout[role]}")
+    if bad:
+        return Check("mig_instances", "FAIL", "; ".join(bad))
+    if not is_mig:
+        how = "not declared (TB_PLATFORM_GPU_SHARING)" if not sharing else f"declared {sharing}"
+        return Check(
+            "mig_instances",
+            "WARN" if not sharing else "PASS",
+            f"whole devices, not MIG; no time-slice seen; sharing {how}",
+        )
+    lay = ", ".join(f"{r} {p}" for r, p in sorted((layout or seen).items()))
+    return Check("mig_instances", "PASS", f"two MIG instances ({lay}), not time-sliced: " + "; ".join(evidence))
+
+
+# ------------------------------------------------------------------------------------------------ model key (D-409)
+MODEL_KEY_SECRET = "trialbox-model-key"
+GUARD = "model-guard"
+WRONG_KEY = "doctor-probe-not-the-key"
+
+
+def _key_refs(c: Mapping[str, Any]) -> dict[str, str]:
+    """``{env var: "secret/key" | "<literal>" | "<set>"}`` for the model key variables of one container."""
+    out: dict[str, str] = {}
+    for e in c.get("env") or []:
+        if e.get("name") in MODEL_KEY_VARS:
+            sk = (e.get("valueFrom") or {}).get("secretKeyRef")
+            if sk:
+                out[e["name"]] = f"{sk.get('name')}/{sk.get('key')}"
+            elif e.get("value") == "<set>":
+                out[e["name"]] = "<set>"
+            elif e.get("value"):
+                out[e["name"]] = "<literal>"
+    return out
+
+
+def _uses_secret(spec: Mapping[str, Any], secret: str) -> bool:
+    for v in spec.get("volumes") or []:
+        if (v.get("secret") or {}).get("secretName") == secret:
+            return True
+    for c in containers(spec):
+        for e in c.get("env") or []:
+            if ((e.get("valueFrom") or {}).get("secretKeyRef") or {}).get("name") == secret:
+                return True
+        for ef in c.get("envFrom") or []:
+            if (ef.get("secretRef") or {}).get("name") == secret:
+                return True
+    return False
+
+
+def _http_status(method: str, url: str, key: str | None, host: str) -> int | None:
+    """HTTP status of one call (never following a redirect), None when nothing answers."""
+    from tools.trialbox.doctor import _NoRedirect
+
+    headers = {"Host": host}
+    if key is not None:
+        headers["Authorization"] = f"Bearer {key}"
+    data = b"{}" if method == "POST" else None
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.build_opener(_NoRedirect).open(req, timeout=10) as r:
+            return int(r.status)
+    except urllib.error.HTTPError as e:
+        return int(e.code)
+    except (OSError, ValueError):
+        return None
+
+
+def _probe_guard(inp: PlatformInputs) -> tuple[list[str], list[str]]:
+    """In the cluster: model-guard is up and refuses a call without the key, with another key, and on vLLM's
+    unkeyed routes. The doctor holds no key, so a call with the right key is the gateway's to make (canary)."""
+    call = inp.http or _http_status
+    bad, good = [], []
+    for name, base in sorted(inp.guard_urls.items()):
+        base = base.rstrip("/")
+        up = call("GET", base + "/healthz", None, name)
+        if up != 200:
+            bad.append(f"{name}: model-guard not reachable ({'no answer' if up is None else f'HTTP {up}'})")
+            continue
+        no_key = call("GET", base + "/v1/models", None, name)
+        wrong = call("GET", base + "/v1/models", WRONG_KEY, name)
+        unkeyed = call("POST", base + "/invocations", None, name)
+        if no_key not in (401, 403):
+            bad.append(f"{name}: a call without the key answered {no_key} (must be refused 401)")
+        if wrong not in (401, 403):
+            bad.append(f"{name}: a call with another key answered {wrong} (must be refused 401)")
+        if unkeyed not in (401, 403, 404, 405):
+            bad.append(f"{name}: POST /invocations without the key answered {unkeyed} (vLLM's unkeyed route is open)")
+        if no_key in (401, 403) and wrong in (401, 403) and unkeyed in (401, 403, 404, 405):
+            good.append(f"{name} refuses without the key ({no_key})")
+    return bad, good
+
+
+def check_model_key(inp: PlatformInputs) -> Check:
+    """The model servers refuse a call without the key, and only the gateway holds it (D-177, D-409; LLM-028)."""
+    bad: list[str] = []
+    refs: set[str] = set()
+    pair = _pair_specs(inp.state)
+    if not pair:
+        return Check("model_key", "WARN", "no model server declared: nothing to check")
+    for role, (owner, spec) in sorted(pair.items()):
+        for c in spec.get("containers") or []:
+            got = _key_refs(c).get("VLLM_API_KEY")
+            if not got:
+                bad.append(f"the {role} {_name(owner)} runs without VLLM_API_KEY (vLLM answers /v1 without a key)")
+            elif got == "<literal>":
+                bad.append(f"the {role} {_name(owner)}: VLLM_API_KEY is a plain value in the manifest, not a Secret")
+            else:
+                refs.add(got)
+    guards = [(o, sp) for o, sp, _ in pod_specs(inp.state) if _component(o) == GUARD]
+    if not guards:
+        bad.append(
+            "no model-guard in front of the model servers: vLLM answers /invocations, /tokenize and /metrics "
+            "without its key (D-177)"
+        )
+    gates = [(o, sp) for o, sp, _ in pod_specs(inp.state) if _component(o) == "gateway"]
+    for what, objs in (("model-guard", guards), ("the gateway", gates)):
+        for o, sp in objs:
+            got = next((r for c in sp.get("containers") or [] if (r := _key_refs(c).get("TB_LLM_API_KEY"))), None)
+            if not got or got == "<literal>":
+                why = "every model call would be refused 401" if what == "the gateway" else "it would not start"
+                bad.append(f"{what} ({_name(o)}) holds no TB_LLM_API_KEY from a Secret: {why}")
+            else:
+                refs.add(got)
+    secrets = {r.split("/", 1)[0] for r in refs if "/" in r}
+    if len(refs) > 1:
+        bad.append(f"the servers, model-guard and the gateway do not read one key: {sorted(refs)}")
+    if inp.state.source == "compose":
+        for role, (owner, _) in sorted(pair.items()):
+            nets = str(((owner.get("metadata") or {}).get("annotations") or {}).get("trialbox.io/networks", ""))
+            if "model-net" in nets.split(","):
+                bad.append(f"the {role} ({_name(owner)}) is on model-net: the gateway reaches it around model-guard")
+    else:
+        allowed = {id(o) for o, _ in [*pair.values(), *guards, *gates]}
+        for o, sp, _ in pod_specs(inp.state):
+            if id(o) not in allowed and any(_uses_secret(sp, sec) for sec in secrets):
+                bad.append(f"{_name(o)} also holds the model key")
+        for svc_name in ("llm-service", "llm-verifier"):
+            svc = inp.state.named("Service", svc_name)
+            sel = ((svc or {}).get("spec") or {}).get("selector") or {}
+            if svc is not None and sel.get("app.kubernetes.io/component") != GUARD:
+                bad.append(
+                    f"Service {svc_name} selects {sel}: the gateway would reach the model server around model-guard"
+                )
+    if bad:
+        return Check("model_key", "FAIL", "; ".join(bad))
+    if inp.state.source != "cluster":
+        how = "doctor --serving on the box network" if inp.state.source == "compose" else "the doctor job"
+        return Check(
+            "model_key",
+            "PASS",
+            f"declared: the servers, model-guard and the gateway read {', '.join(sorted(refs))}; nothing else "
+            f"holds it ({inp.state.source}; the refusal is probed by {how})",
+        )
+    live_bad, good = _probe_guard(inp)
+    if live_bad:
+        return Check("model_key", "FAIL", "; ".join(live_bad))
+    return Check("model_key", "PASS", "; ".join(good) + f"; key {', '.join(sorted(refs))}, held by the gateway only")
+
+
 def check_canary(inp: PlatformInputs) -> Check:
-    if (skipped := _gpu_skipped(inp, "canary")) is not None:
+    if (skipped := _measured_skipped(inp, "canary")) is not None:
         return skipped
     path = inp.env.get("TB_CANARY_RESULT", "").strip()
     if not path or not Path(path).is_file():
@@ -1162,7 +1553,9 @@ PLATFORM_CHECKS: tuple[Callable[[PlatformInputs], Check], ...] = (
     check_backup_target,
     check_serving_record,
     check_gpu_serving,
+    check_mig_instances,
     check_canary,
+    check_model_key,
 )
 
 
@@ -1189,6 +1582,7 @@ def evidence(checks: Iterable[Check], inp: PlatformInputs, *, now: datetime | No
         "gpu_profile": inp.env.get("TB_GPU_PROFILE", ""),
         "mig_profile": inp.env.get("TB_MIG_PROFILE", ""),
         "no_gpu": inp.no_gpu,
+        "gpu_standin": inp.gpu_standin,
         "release": {"release_id": inp.release.release_id, "sha256": inp.release.sha256},
         "checks": rows,
         "passed": all(r["status"] != "FAIL" for r in rows),
@@ -1242,7 +1636,10 @@ def inputs_from(a: Any, env: Mapping[str, str], routing: Path) -> PlatformInputs
     release = load_release(a.release or (in_pod if in_pod.is_file() else RELEASE))
     penv = platform_env(env)
     no_gpu = a.no_gpu or penv.get("TB_PLATFORM_NO_GPU", "") in ("1", "true", "yes")  # a test cluster's overlay
-    inp = PlatformInputs(state, release, penv, no_gpu=no_gpu, routing_path=routing)
+    standin = penv.get("TB_PLATFORM_GPU_STANDIN", "") in ("1", "true", "yes")  # kind with advertised devices
+    inp = PlatformInputs(state, release, penv, no_gpu=no_gpu, routing_path=routing, gpu_standin=standin)
     if no_gpu and _strict(inp):
         raise PlatformError(f"{NO_GPU_REFUSED} (TB_ENV={penv.get('TB_ENV', 'PRODUCTION')})")
+    if standin and _strict(inp):
+        raise PlatformError(f"{STANDIN_REFUSED} (TB_ENV={penv.get('TB_ENV', 'PRODUCTION')})")
     return inp

@@ -580,6 +580,11 @@ DECLARED: dict[str, Declared] = {
     "TB_PLATFORM_API_SERVER": Declared("str", "", "platform: API server"),
     "TB_PLATFORM_BACKUP_EVIDENCE": Declared("str", "", "platform: backup evidence file"),
     "TB_PLATFORM_BACKUP_HOST": Declared("str", "", "platform: backup host"),
+    "TB_PLATFORM_GPU_EVIDENCE": Declared("str", "", "platform check: reference of the MIG configuration dump (D-409)"),
+    "TB_PLATFORM_GPU_SHARING": Declared(
+        "str", "", "platform check: how the GPU is shared (mig, whole, time-slicing, mps; D-409)"
+    ),
+    "TB_PLATFORM_GPU_STANDIN": Declared("bool", "", "platform check: stand-in GPU devices on a test cluster (D-409)"),
     "TB_PLATFORM_NETWORK_POLICY_EVIDENCE": Declared("str", "", "platform: network policy evidence"),
     "TB_PLATFORM_NO_GPU": Declared("bool", "", "platform: test cluster without a GPU"),
     "TB_PLATFORM_QUOTA": Declared("str", "", "platform: quota"),
