@@ -174,7 +174,12 @@ ALTER TABLE contact_outcomes ADD COLUMN prev_status TEXT;
 ALTER TABLE contact_outcomes ADD COLUMN undone_by TEXT;
 ALTER TABLE contact_outcomes ADD COLUMN undone_at TEXT
 """
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3)
+# D-364 (LIFE-010): the criteria version the list showed when the mark was made, so an amendment can re-open marks
+# made under an older version (additive; marks made before have none and count as older than any version)
+SCHEMA_V4 = """
+ALTER TABLE pi_marks ADD COLUMN version TEXT
+"""
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4)
 
 
 @dataclass
@@ -262,6 +267,7 @@ class Mark:
     by: str
     at: str
     job_id: str | None
+    version: str | None = None  # the criteria version of the list the mark was made on (D-364)
 
 
 class SiteStore:
@@ -308,8 +314,9 @@ class SiteStore:
             raise ValueError(f"mark must be one of {', '.join(MARKS)}")
         with self.db.transaction() as tx:
             tx.execute(
-                "INSERT INTO pi_marks (ruleset, pid, mark, reason, note, by, at, job_id) VALUES (?,?,?,?,?,?,?,?)",
-                (ruleset, m.pid, m.mark, m.reason, m.note, m.by, m.at, m.job_id),
+                "INSERT INTO pi_marks (ruleset, pid, mark, reason, note, by, at, job_id, version) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (ruleset, m.pid, m.mark, m.reason, m.note, m.by, m.at, m.job_id, m.version),
             )
             no = self._number(tx, ruleset, m.pid, number, m.at) if number is not None else None
             if before_commit is not None:
@@ -327,7 +334,7 @@ class SiteStore:
 
     def mark_history(self, ruleset: str, pid: str) -> list[Mark]:
         rows = self.db.fetchall(
-            "SELECT pid, mark, reason, note, by, at, job_id FROM pi_marks WHERE ruleset = ? AND pid = ? "
+            "SELECT pid, mark, reason, note, by, at, job_id, version FROM pi_marks WHERE ruleset = ? AND pid = ? "
             "ORDER BY at, id",
             (ruleset, pid),
         )
@@ -357,7 +364,7 @@ class SiteStore:
 
     def all_marks(self, ruleset: str) -> list[Mark]:
         rows = self.db.fetchall(
-            "SELECT pid, mark, reason, note, by, at, job_id FROM pi_marks WHERE ruleset = ? ORDER BY at, id",
+            "SELECT pid, mark, reason, note, by, at, job_id, version FROM pi_marks WHERE ruleset = ? ORDER BY at, id",
             (ruleset,),
         )
         return [Mark(*r) for r in rows]

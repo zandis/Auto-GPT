@@ -2629,6 +2629,22 @@ class RulesetManifest(BaseModel):
     status: Literal["draft", "approved"] = "draft"
     source_documents: list[str] | None = None
     protocol_version: str | None = None
+    protocol_date: date_aliased | None = None
+    """
+    the date of the protocol version these criteria come from (D-364)
+    """
+    effective_from: date_aliased | None = None
+    """
+    the first site day this criteria version screens (D-364, LIFE-009): until then the box keeps screening on the version before it
+    """
+    irb_reference: str | None = Field(None, max_length=64)
+    """
+    the IRB approval number of this protocol version as the approver typed it (D-364): a record printed with the approval, not a gate (D-311)
+    """
+    irb_approved_on: date_aliased | None = None
+    """
+    the day the IRB approved this protocol version (D-364), a record
+    """
     language: str | None = None
     index_date_rule: Literal["run_date", "month_end"]
     library: str | None = None
@@ -2740,6 +2756,18 @@ class ApproveRequest(BaseModel):
     via: str | None = None
     """
     how the approval reached the box: 'web console' or 'e-mail' (D-101)
+    """
+    effective_from: date_aliased | None = None
+    """
+    the first site day the approved version screens (D-364); empty = the day of approval
+    """
+    irb_reference: str | None = Field(None, max_length=64)
+    """
+    the IRB approval number of the protocol version, a record (D-364, D-311)
+    """
+    irb_approved_on: date_aliased | None = None
+    """
+    the day the IRB approved the protocol version, a record (D-364)
     """
     decisions: list[ReviewDecision]
 
