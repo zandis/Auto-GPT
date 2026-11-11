@@ -65,7 +65,12 @@ class KeyMissingError(FileNotFoundError):
 
 
 def load_key(path: Path) -> bytes:
-    """Read a key file that the install ceremony made; :class:`KeyMissingError` when it is absent or empty."""
+    """Read a key file that the install ceremony made; :class:`KeyMissingError` when it is absent or empty. A key kept
+    under the KEK (``<path>.wrapped``, T-210b) is opened with it (``tb_common.kek.load_key_file``)."""
+    if path.with_name(path.name + ".wrapped").exists():
+        from tb_common.kek import load_key_file
+
+        return load_key_file(path)
     try:
         key = path.read_bytes()
     except FileNotFoundError:
@@ -77,7 +82,9 @@ def load_key(path: Path) -> bytes:
 
 def create_key(path: Path, size: int = 32) -> bool:
     """The install ceremony's step (T-612): write ``size`` random bytes to ``path`` (mode 0600) when it is absent.
-    Returns whether a key was made; an existing key is never replaced."""
+    Returns whether a key was made; an existing key, plain or wrapped under the KEK (T-210b), is never replaced."""
+    if path.with_name(path.name + ".wrapped").exists():
+        return False
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)

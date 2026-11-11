@@ -7,6 +7,7 @@ import base64
 import json
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pytest
@@ -63,7 +64,9 @@ def test_site_pattern_masks_an_unlabelled_chart_number_and_keeps_white_space() -
     assert MASK_CHAR not in "".join(tokens(out))  # the tokenizer gives the full-text index nothing for a masked span
 
 
-def _gold(seed: int, site: str, n: int, prefix: str, style: str, mix: dict[str, float]) -> list[tuple[str, dict]]:
+def _gold(
+    seed: int, site: str, n: int, prefix: str, style: str, mix: dict[str, float]
+) -> list[tuple[str, dict[str, Any]]]:
     g = Generator(seed, site, REF, n, prefix, style=style, lang_mix=mix, gold=True)
     g.run()
     text = {r["note_no"]: r["text"] for r in g.t["note"]}
@@ -75,7 +78,7 @@ def _gold(seed: int, site: str, n: int, prefix: str, style: str, mix: dict[str, 
     [(9, "TW-T", 150, "3", "TW", {"zh-TW": 0.7, "en": 0.3}), (5, "JP-T", 150, "2", "JP", {"ja": 0.8, "en": 0.2})],
     ids=["tw", "jp"],
 )
-def test_planted_identifiers_in_synthetic_notes_are_masked_and_findings_kept(args: tuple) -> None:
+def test_planted_identifiers_in_synthetic_notes_are_masked_and_findings_kept(args: tuple[Any, ...]) -> None:
     """Every planted name, chart number, phone and insurance number is masked; every planted clinical finding is
     left exactly as written; nothing outside the planted PHI is masked."""
     seen = {k: 0 for k in PLANTED}
