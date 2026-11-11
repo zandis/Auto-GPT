@@ -38,6 +38,8 @@ refused a whole criteria-locator call when a protocol's front page held a doctor
    the text. It never blocks a call; what a flag does is the caller's:
    - **notes:** a judge or verifier answer whose quote lies in a flagged sentence is `unknown` with the reason
      `planted_instruction` (`orchestrator.scenarios.evaluate.postprocess`): an instruction is never evidence;
+     against the suite's obeying stub this holds the 8 judge attacks whose true answer is `unknown` (the suite's
+     negative-control tests now count them as held; every other attack still changes a fact);
    - **protocols:** the document parser adds one warning per flagged section; the compiler carries the parser's
      warnings into its review notes;
    - **approval:** a criterion whose text the screen flags is amber on the approval page with its own warning, so
