@@ -12,7 +12,7 @@ Generated from `models/registry.yaml` by `python -m registry.cards --write`. Do 
 | Revision | not yet pinned |
 | Quantisation | to record at qualification |
 | Context length | to record at qualification |
-| Licence | Gemma 4 licence (terms to confirm) (SPDX: n/a; verified: no) |
+| Licence | Apache-2.0 (Gemma 4; hosted (SPDX: Apache-2.0; verified: no) |
 | Origin | Google (US); non-PRC: yes |
 
 ## Contexts of use

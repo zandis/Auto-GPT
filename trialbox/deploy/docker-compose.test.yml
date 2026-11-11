@@ -5,7 +5,7 @@
 # their model calls D0 (TB_DATA_CLASS). llm-stub is not published: models are reached through the gateway only.
 services:
   greenmail:
-    image: ${GREENMAIL_IMAGE:-greenmail/standalone:2.1.3@sha256:d6db42a4fc258fec0948b1ae7b579fd06947cc92087c162ec0597972a6c36850}
+    image: ${GREENMAIL_IMAGE:-greenmail/standalone:2.1.15@sha256:309ba544ea482e5d4265d09921cdab07c8dad2cc4481d715c9b8ff5d3f0a149f}
     profiles: [test]
     environment:
       GREENMAIL_OPTS: >-
@@ -13,10 +13,18 @@ services:
         -Dgreenmail.auth.disabled -Dgreenmail.users=trialbox:trialbox@hospa.test -Dgreenmail.verbose=false
     networks: [trialbox-net, host-net]
     ports: ["127.0.0.1:${TB_HOST_SMTP_PORT:-3025}:3025", "127.0.0.1:${TB_HOST_IMAP_PORT:-3143}:3143"]
-  mailhog:
-    image: ${MAILHOG_IMAGE:-mailhog/mailhog:v1.0.1@sha256:8d76a3d4ffa32a3661311944007a415332c4bb855657f4f6c57996405c009bea}
+  # the sink for the box's outbound mail: SMTP 1025, web UI and API 8025 (D-348 replaced MailHog, DEP-021). The alias
+  # keeps SMTP_HOST=mailhog of an older deploy/.env working; TB_HOST_MAILHOG_PORT keeps its name for the same reason.
+  mailpit:
+    image: ${MAILPIT_IMAGE:-axllent/mailpit:v1.33.1@sha256:aef2aacc11f075ec0fb6874275ee4a421e688e11a96ebb296134d1735c7761ce}
     profiles: [test]
-    networks: [trialbox-net, host-net]
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"       # like MailHog: any SMTP login is accepted, none is required
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"   # a login without TLS on the test network
+      MP_MAX_MESSAGES: "5000"
+    networks:
+      trialbox-net: {aliases: [mailhog]}
+      host-net: {}
     ports: ["127.0.0.1:${TB_HOST_MAILHOG_PORT:-8025}:8025"]
   mail-gateway:
     environment: {PORT: "8015", TB_SERVICE_NAME: mail-gateway, TB_AUDIT_DIR: /data/audit, TB_MAIL_DIR: /data/mail,
