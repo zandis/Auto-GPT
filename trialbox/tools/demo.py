@@ -58,7 +58,7 @@ import shutil
 import sys
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -275,6 +275,23 @@ def seed_accounts(
     return done
 
 
+IRB_STUDY = "GZQO"  # T-516 (UX-014): the trial whose IRB approval and consent-form version the demo seeds
+
+
+def seed_irb(team: Any, study: str, today: date, now: str) -> bool:
+    """T-516 (UX-014, D-385): two values for the demo trial: the IRB approval date (60 days ago) and the current
+    consent-form version, so a tester's Approach is not an override every time. Only when the study has neither (a
+    record a tester saved is never touched); the cohort study keeps none, so the warning can still be shown on purpose.
+    Synthetic values. Returns True when it seeded."""
+    from console.teamstore import Irb
+
+    have = team.irb(study)
+    if have.approved_on or have.icf_version:
+        return False
+    team.save_irb(study, Irb(approved_on=(today - timedelta(days=60)).isoformat(), icf_version="1.0"), SEED_ACTOR, now)
+    return True
+
+
 def switch_off_builtin(users: Any, keep: set[str]) -> list[str]:
     """With an accounts file, the built-in accounts (one shared password) are switched off after the seed."""
     off = [u.username for u in users.users() if u.username in SEEDED and u.username not in keep]
@@ -456,9 +473,14 @@ def start(a: argparse.Namespace, environ: Mapping[str, str] | None = None) -> di
     app = create_app(console_env(a.dir, env, bool(accounts)), backend=backend, audit=AuditLog(box.audit_dir),
                      users=users)  # fmt: skip
     langs = {name: a.lang for name in SEEDED}
-    done: dict[str, list[str]] = {"created": [], "logged": [], "enrol": [], "off": []}
+    done: dict[str, list[str]] = {"created": [], "logged": [], "enrol": [], "off": [], "irb": []}
+    team = TeamStore(url)
+    studies = {r.id.upper() for r in backend.rulesets()}
+    if not kept and IRB_STUDY in studies and seed_irb(team, IRB_STUDY, users.today(), clock().isoformat()):
+        done["irb"].append(IRB_STUDY)  # after the seed's own checks, which show the warning
+        AuditLog(box.audit_dir).append("console.irb", actor=SEED_ACTOR, ruleset=IRB_STUDY,
+                                       detail={"action": "seed", "fields": "approved_on,icf_version"})  # fmt: skip
     if accounts:
-        team = TeamStore(url)
         totp_on = app.state.identity.settings.totp_required
         known = {r.id.upper() for r in backend.rulesets()}
         done.update(seed_accounts(users, team, accounts, today=users.today(), now=clock().isoformat(), totp=totp_on,

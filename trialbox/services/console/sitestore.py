@@ -11,6 +11,10 @@
   screening numbers, contact outcomes, which amber approval rows an investigator opened, the coordinator's code
   pre-ticks, who receives which notice (investigator -> practitioner id for clinic days, digest time) and the notice
   log.
+* **Study state and identifiers (D-386, LIFE-008, LIFE-013)**: the study's state (start-up, open, paused, closed) as
+  an event log with who, when and why, and the study's sponsor, protocol number, site initiation visit (SIV) date
+  and registry ids (ClinicalTrials.gov, jRCT, UMIN-CTR, the Taiwan registry). Lists run and N1/N2 mails go out only
+  for an open study; a study with no recorded state counts as open, as before D-386.
 
 Stored in the trial database (PostgreSQL ``trialbox_wf``, schema ``site``; D-126). Nothing here holds a chart number
 or a name.
@@ -19,8 +23,10 @@ or a name.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any
 
 from console.storedb import open_db
@@ -179,7 +185,126 @@ ALTER TABLE contact_outcomes ADD COLUMN undone_at TEXT
 SCHEMA_V4 = """
 ALTER TABLE pi_marks ADD COLUMN version TEXT
 """
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4)
+# D-386 (T-622, LIFE-008, LIFE-013): the study's state as an event log (the latest row is the state) and the study's
+# identifiers (one row per study; every change is a ``console.study_identity`` audit event)
+SCHEMA_V5 = """
+CREATE TABLE study_state (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  ruleset TEXT NOT NULL,
+  state TEXT NOT NULL,
+  prev TEXT,
+  reason TEXT NOT NULL DEFAULT '',
+  by TEXT NOT NULL,
+  at TEXT COLLATE "C" NOT NULL
+);
+CREATE INDEX study_state_rs ON study_state (ruleset, at);
+CREATE TABLE study_identity (
+  ruleset TEXT PRIMARY KEY,
+  sponsor TEXT NOT NULL DEFAULT '',
+  protocol_no TEXT NOT NULL DEFAULT '',
+  siv_date TEXT,
+  registry_ids TEXT NOT NULL DEFAULT '{}',
+  by TEXT NOT NULL,
+  at TEXT NOT NULL
+)
+"""
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5)
+
+# ---------------------------------------------------------------------------------------------- D-386 study state
+STUDY_STATES = ("startup", "open", "paused", "closed")
+# the moves a person may make; "closed" is final (a study that recruits again is a new study set-up)
+STATE_MOVES: dict[str, tuple[str, ...]] = {
+    "startup": ("open", "closed"),
+    "open": ("paused", "closed"),
+    "paused": ("open", "closed"),
+    "closed": (),
+}
+LIST_STATES = ("open",)  # screening lists run and N1/N2 mails go out only in these states
+DEFAULT_STATE = "open"  # a study with no recorded state, as before D-386 (the pilot studies keep running)
+# Registry ids, by the registries' public formats (synthetic examples only in tests and docs):
+# ClinicalTrials.gov "NCT" + 8 digits; jRCT "jRCT" + 10 digits, or a category letter + 9 digits ("jRCTs..."); UMIN-CTR
+# "UMIN" + 9 digits. The Taiwan registry publishes no single pattern we could confirm: its id is checked for shape
+# only (4 to 40 letters, digits and ". / _ -", starting with a letter or digit) and may not look like another
+# registry's id (a jRCT or NCT id typed into the Taiwan field is refused).
+REGISTRIES = ("nct", "jrct", "umin", "tw")
+REGISTRY_PATTERNS: dict[str, re.Pattern[str]] = {
+    "nct": re.compile(r"^NCT\d{8}$"),
+    "jrct": re.compile(r"^jRCT[a-z]?\d{9,10}$"),
+    "umin": re.compile(r"^UMIN\d{9}$"),
+    "tw": re.compile(r"^[A-Za-z0-9][A-Za-z0-9./_-]{3,39}$"),
+}
+_PROTOCOL_NO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._/()-]{0,39}$")
+_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+SPONSOR_MAX = 120
+
+
+def registry_id_ok(registry: str, value: str) -> bool:
+    """True when ``value`` is a well-formed id of ``registry`` (one of :data:`REGISTRIES`)."""
+    pat = REGISTRY_PATTERNS.get(registry)
+    if pat is None or not pat.match(value):
+        return False
+    if registry == "tw":  # another registry's id in the Taiwan field is a slip, not a Taiwan id
+        return not any(REGISTRY_PATTERNS[r].match(value) for r in ("nct", "jrct", "umin"))
+    return True
+
+
+def state_move_ok(prev: str, new: str) -> bool:
+    return new in STATE_MOVES.get(prev, ())
+
+
+@dataclass(frozen=True)
+class StudyState:
+    """The study's state now: the latest event of the log, or the default for a study with none (``by`` empty)."""
+
+    state: str = DEFAULT_STATE
+    reason: str = ""
+    by: str = ""
+    at: str = ""
+    prev: str | None = None
+
+    @property
+    def runs(self) -> bool:
+        """Lists run and N1/N2 mails go out (D-386): only an open study."""
+        return self.state in LIST_STATES
+
+
+@dataclass
+class StudyIdentity:
+    """Who runs the study and where it is registered (D-386, LIFE-013). Every field is optional; what is filled in
+    must have its format. Printed on the study state page and the screening log's "about" sheet."""
+
+    sponsor: str = ""
+    protocol_no: str = ""
+    siv_date: str = ""  # the site initiation visit, YYYY-MM-DD
+    registry_ids: dict[str, str] = field(default_factory=dict)  # registry -> id, registry in REGISTRIES
+    by: str = ""
+    at: str = ""
+
+    def problems(self) -> list[str]:
+        """The fields that are filled in and wrong, by name (``registry.<r>`` for a registry id)."""
+        out: list[str] = []
+        if len(self.sponsor) > SPONSOR_MAX or any(ord(c) < 32 for c in self.sponsor):
+            out.append("sponsor")
+        if self.protocol_no and not _PROTOCOL_NO.match(self.protocol_no):
+            out.append("protocol_no")
+        if self.siv_date:
+            try:
+                ok = bool(_DATE.match(self.siv_date)) and date.fromisoformat(self.siv_date).isoformat() == self.siv_date
+            except ValueError:
+                ok = False
+            if not ok:
+                out.append("siv_date")
+        for reg, value in self.registry_ids.items():
+            if reg not in REGISTRIES or (value and not registry_id_ok(reg, value)):
+                out.append(f"registry.{reg}")
+        return out
+
+    def lines(self) -> list[tuple[str, str]]:
+        """(field, value) of what is filled in, in a fixed order: the log's "about" sheet prints these."""
+        out = [(k, v) for k, v in (("sponsor", self.sponsor), ("protocol_no", self.protocol_no),
+                                   ("siv_date", self.siv_date)) if v]  # fmt: skip
+        out += [(f"registry.{r}", self.registry_ids[r]) for r in REGISTRIES if self.registry_ids.get(r)]
+        return out
 
 
 @dataclass
@@ -569,3 +694,73 @@ class SiteStore:
             (username, limit),
         )
         return [(str(r[0]), str(r[1]), str(r[2]), str(r[3])) for r in rows]
+
+    # ------------------------------------------------------------------ study state and identifiers (D-386)
+    def study_state(self, ruleset: str) -> StudyState:
+        row = self.db.fetchone(
+            "SELECT state, reason, by, at, prev FROM study_state WHERE ruleset = ? ORDER BY at DESC, id DESC LIMIT 1",
+            (ruleset.upper(),),
+        )
+        if row is None:
+            return StudyState()
+        return StudyState(str(row[0]), str(row[1]), str(row[2]), str(row[3]), row[4])
+
+    def state_history(self, ruleset: str) -> list[StudyState]:
+        """Every state change of the study, oldest first (the log prints the dates)."""
+        rows = self.db.fetchall(
+            "SELECT state, reason, by, at, prev FROM study_state WHERE ruleset = ? ORDER BY at, id", (ruleset.upper(),)
+        )
+        return [StudyState(str(r[0]), str(r[1]), str(r[2]), str(r[3]), r[4]) for r in rows]
+
+    def set_study_state(
+        self, ruleset: str, state: str, reason: str, by: str, at: str,
+        before_commit: Callable[[StudyState], None] | None = None,
+    ) -> StudyState:  # fmt: skip
+        """Move the study to ``state``. Refuses a state not in :data:`STUDY_STATES` or a move not in
+        :data:`STATE_MOVES` (ValueError). ``before_commit`` (the audit append) runs inside the transaction, so a
+        failed append keeps the old state (as D-273 does for marks)."""
+        if state not in STUDY_STATES:
+            raise ValueError(f"state must be one of {', '.join(STUDY_STATES)}")
+        rid = ruleset.upper()
+        with self.db.transaction() as tx:
+            tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"study_state:{rid}",))
+            row = tx.fetchone(
+                "SELECT state FROM study_state WHERE ruleset = ? ORDER BY at DESC, id DESC LIMIT 1", (rid,)
+            )
+            prev = str(row[0]) if row is not None else DEFAULT_STATE
+            if not state_move_ok(prev, state):
+                raise ValueError(f"a study cannot move from {prev} to {state}")
+            tx.execute(
+                "INSERT INTO study_state (ruleset, state, prev, reason, by, at) VALUES (?,?,?,?,?,?)",
+                (rid, state, prev, reason, by, at),
+            )
+            new = StudyState(state, reason, by, at, prev)
+            if before_commit is not None:
+                before_commit(new)
+        return new
+
+    def study_identity(self, ruleset: str) -> StudyIdentity:
+        row = self.db.fetchone(
+            "SELECT sponsor, protocol_no, siv_date, registry_ids, by, at FROM study_identity WHERE ruleset = ?",
+            (ruleset.upper(),),
+        )
+        if row is None:
+            return StudyIdentity()
+        ids = {str(k): str(v) for k, v in (json.loads(row[3]) or {}).items()}
+        return StudyIdentity(str(row[0]), str(row[1]), str(row[2] or ""), ids, str(row[4]), str(row[5]))
+
+    def save_study_identity(self, ruleset: str, ident: StudyIdentity, by: str, at: str) -> StudyIdentity:
+        """Store the study's identifiers; ValueError naming the wrong fields when one is malformed."""
+        bad = ident.problems()
+        if bad:
+            raise ValueError(", ".join(bad))
+        ids = {r: ident.registry_ids[r] for r in REGISTRIES if ident.registry_ids.get(r)}
+        self.db.execute(
+            "INSERT INTO study_identity (ruleset, sponsor, protocol_no, siv_date, registry_ids, by, at) "
+            "VALUES (?,?,?,?,?,?,?) ON CONFLICT (ruleset) DO UPDATE SET sponsor = excluded.sponsor, "
+            "protocol_no = excluded.protocol_no, siv_date = excluded.siv_date, registry_ids = excluded.registry_ids, "
+            "by = excluded.by, at = excluded.at",
+            (ruleset.upper(), ident.sponsor, ident.protocol_no, ident.siv_date or None,
+             json.dumps(ids, sort_keys=True), by, at),
+        )  # fmt: skip
+        return StudyIdentity(ident.sponsor, ident.protocol_no, ident.siv_date, ids, by, at)

@@ -126,6 +126,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/studies/{rs}/screening-log.xlsx` | Y | Y | - | Y | - | - | - |
 | GET | `/studies/{rs}/setup` | - | Y | Y | Y | - | - | - |
 | GET | `/studies/{rs}/sources` | Y | Y | Y | Y | - | - | Y |
+| GET | `/studies/{rs}/state` | - | Y | Y | Y | - | - | - |
 | GET | `/studies/{rs}/subjects` | - | Y | Y | Y | - | - | - |
 | GET | `/studies/{rs}/subjects/{record}` | - | Y | Y | Y | - | - | - |
 | GET | `/studies/{rs}/team` | Y | Y | Y | Y | - | - | Y |
@@ -214,6 +215,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/studies/{rs}/feasibility/refresh` | Y | Y | Y | Y | - | - | - |
 | POST | `/studies/{rs}/forms/builtin` | - | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/forms/dictionary` | - | Y | - | Y | - | - | - |
+| POST | `/studies/{rs}/identity` | - | Y | Y | Y | - | - | - |
 | POST | `/studies/{rs}/irb` | Y | Y | Y | Y | - | - | - |
 | POST | `/studies/{rs}/not-matched/{pid}/review` | - | n | n | n | - | - | - |
 | POST | `/studies/{rs}/patients/{pid}/mark` | - | - | Y | - | - | - | - |
@@ -237,6 +239,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/studies/{rs}/sources/redcap/detach` | - | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/sources/redcap/undo` | - | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/sources/{name}/sync` | - | n | - | n | - | - | - |
+| POST | `/studies/{rs}/state` | - | Y | Y | Y | - | - | - |
 | POST | `/studies/{rs}/subjects/{record}/aes/{event}/ack` | - | - | n | - | - | - | - |
 | POST | `/studies/{rs}/subjects/{record}/step` | - | U | - | U | - | - | - |
 | POST | `/studies/{rs}/subjects/{record}/undo` | - | U | - | U | - | - | - |

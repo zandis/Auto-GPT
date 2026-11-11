@@ -63,6 +63,7 @@ class ReasonCode(StrEnum):
     IDN_QUARANTINE_SHARE = "IDN_QUARANTINE_SHARE"  # L3: identity-quarantine share above the ceiling
     SNAPSHOT_BALANCE = "SNAPSHOT_BALANCE"  # L3 → L4 balance does not hold
     STAGE_FAILED = "STAGE_FAILED"  # a stage raised; nothing is published
+    FEED_INCOMPLETE = "FEED_INCOMPLETE"  # T-611: a table missing, emptied or shrunk against the last good night
 
 
 class Severity(StrEnum):

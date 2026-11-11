@@ -15,18 +15,19 @@ site run the trial after that. Nothing leaves the box unless the site says so.
 
 All patient data in this repository is synthetic or public. No real patient record is here.
 
-## The eight documents
+## The documents
 
 | Document | For | What |
 | --- | --- | --- |
 | [README](README.md) | everyone | this page: what TrialBox is, how to try it, the map |
 | [Architecture](docs/ARCHITECTURE.md) | builders, hospital IT | services, stores, data and rule paths, models |
-| [Runbook](docs/RUNBOOK.md) | the site's IT | install, update, back up, operate, fix, GPU runs |
+| [Runbook](docs/RUNBOOK.md) | the site's IT | install, update, back up, operate, fix, support, recovery |
 | [Security and compliance](docs/SECURITY.md) | security officers | hardening, secrets, network, audit, laws |
 | [Data and integration](docs/DATA.md) | hospital IT, data owners | sources, mapping, REDCap, open data and licences |
 | [Validation and evidence](docs/VALIDATION.md) | owner, reviewers | the gates, the tests, the measured numbers |
 | [User guide](docs/USER_GUIDE.md) | PIs, CRCs, admins | roles, daily tasks, help in ja, zh-TW and en |
 | [Decisions](docs/DECISIONS.md) | everyone | every choice (D-nnn), append-only |
+| [Developing](docs/DEVELOPING.md) | the team | checks before a push, the team's procedures, documents and drills (D-390) |
 
 Records that are not maintained: `docs/reviews/` (reviews), `docs/plan/` (plans and the design set),
 `docs/research/` (research), `spec/v4/` (the v4 specification) and `spec/archive/` (older specifications).
@@ -61,7 +62,7 @@ card has no measured serving record.
 
 | Path | What |
 | --- | --- |
-| `services/` | console, orchestrator, gateway, mail_gateway, criteria_compiler, doc_parser, adapter, lake, embed_service, datacore, sitesetup, matching, dataplat, deliverables, registry, guard, tracestore, rc_bridge, rc_sim, llm_stub, channels |
+| `services/` | console, orchestrator, gateway, mail_gateway, criteria_compiler, doc_parser, adapter, lake, embed_service, datacore, sitesetup, matching, deliverables, registry, guard, tracestore, rc_bridge, rc_sim, llm_stub, channels |
 | `libs/` | `tb_contracts` (models generated from `schemas/`), `tb_common` (config, audit, db, service tokens, crypto, LLM client, retention), `tb_llm`, `tb_testkit` |
 | `schemas/` | JSON Schemas, the one source of every contract |
 | `rulesets/` | approved demo rulesets: GZQO (trial), GOUT-COH and RA-COH (cohorts), RA-BIO and ONC-OSI (NHI) |

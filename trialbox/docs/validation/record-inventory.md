@@ -62,6 +62,7 @@ bundle of card T-304 builds from this table.
 | R-24 | Pseudonym map and master patient index: the only link from a pseudonym back to a chart number | control | the box (encrypted; the key under the KEK) | site administrator | kept while any record keyed by the pseudonym is kept | never exported | `console.view_id`, `console.chart_lookup` |
 | R-25 | The hospital data copy: OMOP rows and TrialBox's extension rows, the lake snapshots | copy | the hospital EMR and its export | data steward | snapshots: `nightly_snapshots` and `month_end_snapshots_months`; OMOP rows replaced by each load | never exported as such | `console.site_patients` |
 | R-26 | Mail and notice logs | aid | the mail server; the box keeps the index | site administrator | `mail_log_days` (five years Japan, seven years Taiwan) | page only | `mail.received`, `mail.duplicate_suppressed`, `retention.mail`, `console.notice` |
+| R-27 | Study state and identifiers: the state (start-up, open, paused, closed) with every change, who, when and why; sponsor, protocol number, SIV date, registry ids (D-386) | control | the box; the sponsor's and the registries' own records for the identifiers | trial office | kept (the state is an event log) | the screening log's "about" sheet (`/studies/{rs}/screening-log.xlsx`) | `console.study_state`, `console.study_identity`, `scheduler.held` |
 
 R-01 and R-02 also hold the training evidence of `qms-lite.md` §3 (first sign-in and the acknowledgement event).
 
@@ -118,13 +119,13 @@ are marked "files".
 | `services/console/sitestore.py` | `site_profile` | R-21 |
 | `services/console/sitestore.py` | `criterion_labels`, `code_ticks`, `approval_opened`, `excluded_review` | R-22 |
 | `libs/tb_common/derived_store.py` | `definition`, `score_row`, `input_link`, `conflict` | R-23 |
-| `services/adapter/pidmap.py` | `pid_map`, `identity`, `site_key` | R-24 |
-| `services/dataplat/mpi/__init__.py` | `mpi_person`, `mpi_identifier`, `mpi_merge`, `pid_alias` | R-24 |
+| `services/adapter/pidmap.py` | `pid_map`, `identity`, `site_key`, `pid_alias` | R-24 |
 | `services/omop/schema.py` | `tb_record`, `tb_record_event`, `tb_conflict`, `tb_id_map`, `tb_appointment`, `tb_claim`, `tb_consent`, `tb_load` | R-25 |
 | `services/lake/store.py` | `document_chunk`, `lake_meta` | R-25 |
 | `services/mail_gateway/store.py` | `intake`, `sent`, `send_keys` | R-26 |
 | `services/orchestrator/db.py` | `mails` | R-26 |
 | `services/console/sitestore.py` | `notify_log` | R-26 |
+| `services/console/sitestore.py` | `study_state`, `study_identity` | R-27 |
 | `services/console/auth.py` | `sessions`, `pending_logins`, `oidc_pending`, `login_failures` | O-01 |
 | `services/console/feedback.py` | `entry` | O-02 |
 | `services/tracestore/store.py` | `traces`, `access_log` | O-03 |

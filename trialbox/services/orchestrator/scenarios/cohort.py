@@ -37,6 +37,7 @@ from orchestrator.core import Ctx, Delivery, Outcome
 from orchestrator.db import JobDB
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen import report_meta, small_cell
+from orchestrator.scheduler import require_open
 
 COLUMNS = (
     "site_id",
@@ -262,6 +263,7 @@ def run_cohort(ctx: Ctx) -> Outcome:
     from orchestrator.scenarios import trials
 
     job = ctx.job
+    require_open(job.ruleset)  # D-386 (LIFE-008): no list for a study that is not open
     rs = require_approved(ctx, (job.ruleset or "").upper(), (job.options or {}).get("version"))
     if rs.manifest.kind != "cohort":
         raise StepFailed("ruleset", f"{rs.id} is a {rs.manifest.kind} ruleset; COHORT needs a cohort ruleset.")

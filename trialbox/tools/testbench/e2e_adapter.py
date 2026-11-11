@@ -5,7 +5,7 @@ certificate) is imported lazily. ``TB_TESTBENCH_E2E=<module>:<function>`` names 
 candidates in :data:`CANDIDATES` are tried in order. Until one exists the adapter falls back to the v1 paths that
 already work:
 
-* synthetic site A: dataplat L0 → L5 (:func:`dataplat.pipeline.run_pipeline`), then FEAS on the published snapshot
+* synthetic site A: one adapter night (:func:`tools.ingest_local.run_local`), then FEAS on the published snapshot
   with ruleset GZQO (:func:`orchestrator.scenarios.feas_compute.compute`), the feasibility PDF and XLSX, and a second
   independent run for reproducibility;
 * MIMIC-IV FHIR demo: :func:`tools.open_data_e2e.run` (the path behind ``make open-data-e2e``).
@@ -24,7 +24,7 @@ import re
 import shutil
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -240,25 +240,21 @@ def _released_ok(v: Any) -> bool:
 
 
 def _one_synthetic_run(src: Path, work: Path, trial_id: str, log: Log) -> dict[str, Any]:
-    from dataplat.common import fixed_clock
-    from dataplat.pipeline import run_pipeline
     from embed_service.embedder import HashEmbedder
     from lake.client import LakeLocal
     from orchestrator.scenarios.feas_compute import FeasParams, compute, raw_json
     from tb_common.ruleset import Ruleset
 
-    clock = fixed_clock(datetime(2026, 10, 5, 2, 0, tzinfo=UTC))
-    log(f"dataplat L0 → L5 on {src.name}")
-    from tools import pglocal
+    from tools.ingest_local import run_local
 
-    pglocal.for_work(work)  # D-126: the MPI lives in the trial database (TB_DB_URL, or a local throwaway one)
-    res = run_pipeline(src, work / "dataplat", site_key=SITE_KEY, clock=clock, snapshot=SYNTH_SNAPSHOT)
-    log(f"publish gate: {res.outcome} {res.blocking_reasons or ''}")
+    log(f"adapter night on {src.name} (data contracts on)")
+    res = run_local(src, work / "ingest", site_key=SITE_KEY, snapshot=SYNTH_SNAPSHOT)
+    log(f"ingest gate: {res.outcome} {res.blocking_reasons or ''}")
     out: dict[str, Any] = {"pipeline": res}
     if not res.published:
         return out
     rs = Ruleset.load(ROOT / "rulesets" / trial_id)
-    lake = LakeLocal(work / "dataplat" / "l4" / "lake", HashEmbedder(), "Asia/Taipei")
+    lake = LakeLocal(res.lake_dir, HashEmbedder(), "Asia/Taipei")
     log(f"FEAS {trial_id} on snapshot {SYNTH_SNAPSHOT}")
     result, raw = compute(
         lake, rs, FeasParams(run_date=SYNTH_RUN_DATE, snapshot=SYNTH_SNAPSHOT, capacity_per_month=9.0)
@@ -284,22 +280,18 @@ def synthetic_v1(dataset: BenchDataset, trial_id: str, out_dir: Path, log: Log) 
     first = runs[0]
     pr = first["pipeline"]
     inv: list[Invariant] = []
-    blocking = list(pr.validation.blocking_reasons) if pr.validation else ["no validation report"]
+    blocking = list(pr.blocking_reasons)
     inv.append(Invariant("0 blocking DQ findings", not blocking and pr.published, f"gate {pr.outcome}; {blocking}"))
     inv.append(
-        Invariant(
-            "lineage complete",
-            bool(pr.lineage and pr.lineage.complete),
-            f"{len(pr.lineage.run_ids) if pr.lineage else 0} runs; missing {pr.lineage.missing if pr.lineage else '-'}",
-        )
+        Invariant("lineage complete", pr.lineage_complete, f"{len(pr.lineage.get('inputs') or [])} input files hashed")
     )
     stages: list[tuple[str, str]] = []
     for level, tables in pr.counts.items():
-        stages.append((f"dataplat {level}", f"{sum(tables.values())} rows in {len(tables)} tables"))
+        stages.append((f"ingest {level}", f"{sum(tables.values())} rows in {len(tables)} tables"))
     if pr.validation:
         acc = sum(t.accepted for t in pr.validation.tables)
         q = sum(t.quarantined for t in pr.validation.tables)
-        stages.insert(1, ("dataplat L1", f"{acc} accepted, {q} quarantined"))
+        stages.insert(1, ("ingest contracts", f"{acc} accepted, {q} quarantined"))
     files: list[Path] = []
     summary: dict[str, Any] = {"gate": pr.gate.model_dump(mode="json")}
     if "raw" in first:
@@ -352,11 +344,11 @@ def synthetic_v1(dataset: BenchDataset, trial_id: str, out_dir: Path, log: Log) 
     report = out_dir / "report.json"
     report.write_text(json.dumps(summary, indent=1, sort_keys=True, default=str) + "\n", encoding="utf-8")
     files.append(report)
-    lineage = pr.workdir / "lineage" / "events.jsonl"
+    lineage = pr.night_dir / "lineage.json"
     if lineage.exists():
         files.append(lineage)
     return BenchE2E(
-        engine="fallback: v1 synthetic path (dataplat + FEAS + reports)",
+        engine="fallback: v1 synthetic path (adapter + FEAS + reports)",
         dataset=dataset.id,
         trial_id=trial_id,
         passed=all(i.ok for i in inv),
