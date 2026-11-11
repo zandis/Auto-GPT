@@ -96,7 +96,7 @@ CREATE TABLE uses (
 CREATE INDEX uses_grant ON uses (grant_id, id)
 """
 MIGRATIONS = (SCHEMA_V1, SCHEMA_V2)
-WHATS = ("patient_page", "reveal", "job_page", "case_sheet")
+WHATS = ("patient_page", "reveal", "job_page", "case_sheet", "twin")  # twin: T-204 (D-440), the twin API
 _COLS = ("id, username, reason, note, kind, ruleset, pid, job_id, opened_at, ends_at, ended_at, uses, reviewed_by, "
          "reviewed_at, review_note")  # fmt: skip
 

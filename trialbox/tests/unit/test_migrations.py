@@ -325,6 +325,7 @@ def store_migrations() -> dict[str, list[str]]:
     from orchestrator import db as orch
     from orchestrator import db_pg, studystore
     from orchestrator.recall import ledger
+    from patient_profile import twin
     from sitesetup import store as sitesetup
     from tb_common import derived_store, flags, optout, refdata
     from tracestore import store as trace
@@ -354,6 +355,7 @@ def store_migrations() -> dict[str, list[str]]:
         "app": list(flags.MIGRATIONS),
         "derived": list(derived_store.MIGRATIONS),
         "dataops": [dataops.SCHEMA],
+        "profile": list(twin.MIGRATIONS),
     }
 
 
@@ -421,6 +423,8 @@ ADDED: dict[str, tuple[str, ...]] = {
     ),
     # T-112a (D-427): the data-operations batches, new after the baseline
     "dataops": ("01925afb0e82837617a880fa2d2b32f7efaa6d5e98945e7144f57510d76efbcf",),
+    # T-204 (D-440): the patient twin, new after the baseline
+    "profile": ("e1107c0c7de613b72141fb70237b6eb35c1f98f5a1549f9c60f8537512a751b6",),
 }
 #: stores of the baseline whose code is gone (T-659b: ``mpi``, the retired data platform's patient index)
 RETIRED = {"mpi"}
@@ -436,7 +440,8 @@ STORE_FILES = {
     "services/datacore/dataops.py", "services/datacore/store.py", "services/edc/store.py",
     "services/mail_gateway/store.py", "services/omop/schema.py", "services/orchestrator/db.py",
     "services/orchestrator/db_pg.py", "services/orchestrator/outbox.py", "services/orchestrator/recall/ledger.py",
-    "services/orchestrator/studystore.py", "services/sitesetup/store.py", "services/tracestore/store.py",
+    "services/orchestrator/studystore.py", "services/patient_profile/twin.py", "services/sitesetup/store.py",
+    "services/tracestore/store.py",
 }  # fmt: skip
 #: files that migrate but are not a store: the machinery, the update path's bundle-driven ``release``, the drill's
 #: throwaway database

@@ -48,4 +48,8 @@ File: [data/08-derived-scores.md](data/08-derived-scores.md).
 
 File: [data/09-all-history-back-fill-and-held-snapshots.md](data/09-all-history-back-fill-and-held-snapshots.md).
 
+## 10. The patient twin
+
+File: [data/10-the-patient-twin.md](data/10-the-patient-twin.md).
+
 <!-- end of the generated index -->
