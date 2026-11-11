@@ -12,7 +12,6 @@ import os
 import smtplib
 import time
 from collections.abc import Callable
-from email import message_from_bytes, policy
 from email.message import EmailMessage
 from email.utils import make_msgid
 from pathlib import Path
@@ -24,7 +23,7 @@ from pypdf import PdfReader
 from tb_common.service_auth import auth_headers
 from tb_common.subject import is_job_mail
 
-from tests.stack import ensure_ingested, host_port, url
+from tests.stack import MAILPIT_LIST, ensure_ingested, host_port, outbound_mail, url
 
 pytestmark = pytest.mark.e2e
 ROOT = Path(__file__).resolve().parents[2]
@@ -56,13 +55,7 @@ def send(
 
 
 def outbox() -> list[EmailMessage]:
-    items = httpx.get(f"{MAILHOG}/api/v2/messages", params={"limit": 500}, timeout=30).json()["items"]
-    out = []
-    for it in items:
-        msg = message_from_bytes(it["Raw"]["Data"].encode("utf-8", "surrogateescape"), policy=policy.default)
-        assert isinstance(msg, EmailMessage)
-        out.append(msg)
-    return out
+    return outbound_mail()  # Mailpit since D-348
 
 
 def wait_for(pred: Callable[[EmailMessage], bool], timeout: float = 1800) -> EmailMessage:
@@ -103,7 +96,7 @@ def job_id_from(m: EmailMessage) -> str:
 def stack() -> None:
     try:
         assert httpx.get(f"{ORCH}/healthz", timeout=5).status_code == 200
-        httpx.get(f"{MAILHOG}/api/v2/messages", timeout=5).raise_for_status()
+        httpx.get(f"{MAILHOG}{MAILPIT_LIST}", timeout=5).raise_for_status()
     except (httpx.HTTPError, AssertionError):
         pytest.skip("compose test stack not running (make up-test)")
     ensure_ingested()  # the scenarios need patients in the lake and FHIR store

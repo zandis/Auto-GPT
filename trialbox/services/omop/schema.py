@@ -30,7 +30,8 @@ Local concepts are minted from ``tb_local_concept_seq`` in the site's block (``T
 (D-301, the D-151 overflow fix: 47 sites fit below the integer maximum, where ten million fitted four); a block that
 would end above 2,147,483,647 is refused. Migration 2 keeps the text it was applied with (ten million, D-204: an
 applied migration never changes); migration 3 narrows the sequence to the one-million block and adds the vocabulary
-tables of D-301 (``omop.vocab_load``).
+tables of D-301 (``omop.vocab_load``). Migration 4 (T-106, D-339, ``ddl/partitions.sql``) partitions the large
+clinical tables by the year of their required date (``omop.partitions``).
 """
 
 from __future__ import annotations
@@ -357,7 +358,9 @@ CREATE TABLE tb_ruleset_release (
 
 
 def migrations() -> list[str]:
-    return [cdm_ddl(), tb_ddl(), vocab_ddl()]
+    from omop.partitions import migration as partitions_ddl
+
+    return [cdm_ddl(), tb_ddl(), vocab_ddl(), partitions_ddl()]
 
 
 def db_url() -> str | None:

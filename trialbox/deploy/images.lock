@@ -1,7 +1,7 @@
 {
   "format": "trialbox-images-lock/1",
-  "decision": "D-204",
-  "about": "The container images the box runs, pinned. One entry per image the box builds or pulls (only db so far; the others move here with T-110). For a built image: the base it is built FROM (reference and multi-arch index digest), the exact OS packages it adds (each installed at that version and held; the build fails otherwise), the signing keys it trusts, the extensions it provides with their versions and whether the image marks them trusted, and `digest`: the built image's digest, written by the release build (T-110 release.json carries the same value). `digest` is null until a release pins it: a locally built image is a mutable tag, and the update path must refuse a bundle while it is null or differs (T-111). tests/integration/test_db_image.py keeps this file equal to the Dockerfile's ARG defaults and the compose `db` image line.",
+  "decision": "D-204, D-348",
+  "about": "The container images the box runs, pinned: the one digest list (D-204, D-348). `images`: the images the box builds (only db so far; the others move here with T-110). For a built image: the base it is built FROM (reference and multi-arch index digest), the exact OS packages it adds (each installed at that version and held; the build fails otherwise), the signing keys it trusts, the extensions it provides with their versions and whether the image marks them trusted, and `digest`: the built image's digest, written by the release build (T-110 release.json carries the same value). `digest` is null until a release pins it: a locally built image is a mutable tag, and the update path must refuse a bundle while it is null or differs (T-111). tests/integration/test_db_image.py keeps this file equal to the Dockerfile's ARG defaults and the compose `db` image line. `third_party`: every image the box pulls as published (D-348): `image` (repository:tag), `digest` (the multi-arch index digest, read from the registry), `platforms` (each platform's manifest digest; for a GPU image the CUDA architectures it is built for), `variables` (the compose variables that name it; every compose file writes ${VAR:-image@digest} with exactly these values: tools/images_lock.py check-compose and tests/unit/test_images_lock.py). `gpu` holds what the host must give the image (deploy/check_host.sh reads it): the CUDA version, the lowest NVIDIA driver it runs on, and the structured-output backend the serving record names. Moving the vLLM entry is a model change: requalify first.",
   "images": {
     "db": {
       "image": "trialbox-postgres:16-1",
@@ -36,6 +36,113 @@
         "pgroonga"
       ],
       "healthcheck": "/usr/local/bin/tb-db-check"
+    }
+  },
+  "third_party": {
+    "vllm": {
+      "image": "vllm/vllm-openai:v0.32.0",
+      "digest": "sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34",
+      "platforms": {
+        "linux/amd64": {
+          "manifest": "sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+          "cuda_arch": [
+            "7.5",
+            "8.0",
+            "8.6",
+            "8.9",
+            "9.0",
+            "10.0",
+            "12.0"
+          ]
+        },
+        "linux/arm64": {
+          "manifest": "sha256:6ff5ff0ddf3658d2c2d677dac5ca2d4726ce0156b4371166d918181b210bd4bc",
+          "cuda_arch": [
+            "8.0",
+            "8.7",
+            "8.9",
+            "9.0",
+            "10.0",
+            "11.0",
+            "12.0"
+          ]
+        }
+      },
+      "variables": [
+        "VLLM_IMAGE",
+        "VLLM_GB10_IMAGE"
+      ],
+      "gpu": {
+        "cuda": "13.0.2",
+        "driver_min": "580.65.06",
+        "structured_outputs_backend": "auto"
+      },
+      "note": "the release of the G1 run (deploy/measured/serving_config.rtxpro6000.json); official project image, also on the GB10 (arm64 manifest, sm_120 code runs on sm_121). Image config: NVIDIA_REQUIRE_CUDA=cuda>=13.0, VLLM_ENABLE_CUDA_COMPATIBILITY=0, so the host driver must be R580 or newer. No --structured-outputs-config flag is set: vLLM's default backend (auto) serves structured output."
+    },
+    "hapi": {
+      "image": "hapiproject/hapi:v8.12.0-2",
+      "digest": "sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e",
+      "platforms": {
+        "linux/amd64": {},
+        "linux/arm64": {}
+      },
+      "variables": [
+        "HAPI_IMAGE"
+      ]
+    },
+    "caddy": {
+      "image": "caddy:2.11.9-alpine",
+      "digest": "sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee",
+      "platforms": {
+        "linux/amd64": {},
+        "linux/arm64": {}
+      },
+      "variables": [
+        "CADDY_IMAGE"
+      ]
+    },
+    "authelia": {
+      "image": "authelia/authelia:4.39.28",
+      "digest": "sha256:bd97cff4fcbf715b5ff1f9ae286afbe6033afce385302520b0368122d43a6f54",
+      "platforms": {
+        "linux/amd64": {},
+        "linux/arm64": {}
+      },
+      "variables": [
+        "AUTHELIA_IMAGE"
+      ]
+    },
+    "greenmail": {
+      "image": "greenmail/standalone:2.1.15",
+      "digest": "sha256:309ba544ea482e5d4265d09921cdab07c8dad2cc4481d715c9b8ff5d3f0a149f",
+      "platforms": {
+        "linux/amd64": {
+          "manifest": "sha256:3e72e4b4a24f2977e26fd6f619bbd62ac039c5185b33f9366de99fb5da118150"
+        },
+        "linux/arm64": {
+          "manifest": "sha256:175af0b7d45bc9978ffb28fb87e1d3fe1dee4d5791fcf59fa3fbb184378c90fb"
+        }
+      },
+      "variables": [
+        "GREENMAIL_IMAGE"
+      ],
+      "note": "test and PoC profiles only"
+    },
+    "mailpit": {
+      "image": "axllent/mailpit:v1.33.1",
+      "digest": "sha256:aef2aacc11f075ec0fb6874275ee4a421e688e11a96ebb296134d1735c7761ce",
+      "platforms": {
+        "linux/amd64": {
+          "manifest": "sha256:c95e8356f55b65520e8b7fd4d74d3e2d06e4a83513f639e316b1e592fbd52646"
+        },
+        "linux/arm64": {
+          "manifest": "sha256:6bb6d70382fa3915b00389bbc435d41d9b3bc4a599a71f97e82881b80ebe428d"
+        }
+      },
+      "variables": [
+        "MAILPIT_IMAGE"
+      ],
+      "note": "test profile only: the sink for the box's outbound mail (replaces MailHog, DEP-021)"
     }
   }
 }

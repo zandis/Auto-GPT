@@ -108,6 +108,13 @@ DECLARED: dict[str, Declared] = {
         help="Where the screening lake's rows come from at the next rebuild: flattened from the FHIR snapshot "
         "(legacy) or exported from the OMOP store of record (omop). D-151, WS-03.5.",
     ),
+    "omop.dual_write": Declared(
+        values=("off", "on"),
+        default="off",
+        seed_env="TB_OMOP_DUAL_WRITE",
+        help="The adapter also loads each night's passed snapshot into the OMOP store of record as soon as its NDJSON "
+        "is written, before and apart from the lake rebuild; a failed load never holds the night (T-106, D-339).",
+    ),
 }
 
 
