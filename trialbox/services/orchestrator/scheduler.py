@@ -1,8 +1,16 @@
-"""Nightly / weekly / monthly batch jobs (SPEC §4.8) from ``settings.schedule``: every scheduled run is a job."""
+"""Nightly / weekly / monthly batch jobs (SPEC §4.8) from ``settings.schedule``: every scheduled run is a job.
+
+D-386 (T-622, LIFE-008): a list job (SCREEN, MICROBATCH, COHORT) runs only for a study whose state is ``open``. The
+state is the console's (schema ``site`` of the trial database, table ``study_state``; the console writes it, this
+module only reads it). The timer skips a study that is not open and audits the skip; a list job asked for by hand
+fails at its first step with the reason (:func:`require_open`, called by the list scenarios). A study with no
+recorded state is open, as before D-386.
+"""
 
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Any, cast
 
@@ -45,8 +53,76 @@ def cron_kwargs(spec: str, quarterly: bool = False) -> dict[str, Any]:
     return kw
 
 
+LIST_JOBS = ("SCREEN", "MICROBATCH", "COHORT")  # the jobs that make a patient list (D-386)
+OPEN = "open"
+
+
+def study_state(ruleset: str, url: str | None = None) -> str:
+    """The study's state from the console's ``site.study_state`` (latest row), or ``open`` when the study has none
+    or the console has not made the table yet. ``url``: the trial database (``TB_DB_URL`` when None); without one
+    (a bare test stack) every study is open. A database error is raised: the caller decides."""
+    from tb_common.db import Database
+
+    url = url or os.environ.get("TB_DB_URL")
+    if not url:
+        return OPEN
+    with Database.connect(url, "site") as site:
+        if site.fetchval("SELECT to_regclass(?)", (f'"{site.schema}".study_state',)) is None:
+            return OPEN
+        state = site.fetchval(
+            "SELECT state FROM study_state WHERE ruleset = ? ORDER BY at DESC, id DESC LIMIT 1",
+            ((ruleset or "").upper(),),
+        )
+    return str(state) if state else OPEN
+
+
+def require_open(ruleset: str | None) -> None:
+    """A list scenario's first check (D-386): refuse to make a list for a study that is not open. The job fails
+    with the reason; nothing is listed or mailed. An unreachable trial database is logged and left to the run's own
+    steps, which need the same database (the timer, :func:`_held`, holds the job instead)."""
+    from tb_common.db import DatabaseError
+
+    from orchestrator.clients import StepFailed
+
+    if not ruleset:
+        return
+    try:
+        state = study_state(ruleset)
+    except DatabaseError as exc:  # the trial database is unreachable: the run that follows needs it and fails there
+        log.warning("study state of %s not read: %s", ruleset, exc)
+        return
+    if state != OPEN:
+        raise StepFailed(
+            "ruleset",
+            f"Study {ruleset.upper()} is {state}: lists run only for an open study. "
+            "The study coordinator changes the state on the study's set-up page.",
+        )
+
+
+def _held(orch: Orchestrator, jtype: str, ruleset: str | None) -> bool:
+    """True when the timer must not start ``jtype`` for ``ruleset``: a list job of a study that is not open. The
+    skip is audited (``scheduler.held``); a state that cannot be read holds the job too (logged)."""
+    if jtype not in LIST_JOBS or not ruleset:
+        return False
+    try:
+        state = study_state(ruleset)
+    except Exception as exc:  # the trial database is down: no list rather than a list for a paused study
+        log.error("%s for %s held: the study state could not be read: %s", jtype, ruleset, exc)
+        return True
+    if state == OPEN:
+        return False
+    log.info("%s for %s held: the study is %s", jtype, ruleset, state)
+    try:
+        orch.audit.append("scheduler.held", ruleset=ruleset, detail={"job": jtype, "state": state})
+    except Exception as exc:  # the audit must not take the scheduler down
+        log.warning("scheduler.held not audited: %s", exc)
+    return True
+
+
 def _submit(orch: Orchestrator, jtype: str, ruleset: str | None = None) -> None:
     if jtype not in orch.scenarios:
+        return
+    if _held(orch, jtype, ruleset):
         return
     try:
         orch.create(JobCreate(type=cast(Any, jtype), ruleset=ruleset, requested_by="scheduler"))

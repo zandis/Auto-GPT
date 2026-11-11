@@ -382,7 +382,11 @@ ADDED: dict[str, tuple[str, ...]] = {
         # D-387 (T-623): datacore version 6 (the criterion not met and its version on a screen-failure step)
         "668c23320ea6fe609efb7a779800ad02501c28559dc45abac20610e63f6f7a5a",
     ),
-    "site": ("7f7cf970ce4268ca7fdc4fd725535442b586b8ea1e2b23fa631dddf9d3a7575d",),
+    # D-386 (T-622): site version 5 (the study's state log and identifiers)
+    "site": (
+        "7f7cf970ce4268ca7fdc4fd725535442b586b8ea1e2b23fa631dddf9d3a7575d",
+        "2ab6655ef5282d733ea7c4b2804d496be62b238fee5fbee5d7d4d9ccd78540ff",
+    ),
     "sae": ("78527251f39fb58cd728b207c0fc332740a2d06444492dbd617b4d1b0cb7b6d3",),
     # T-510 (D-331): the feedback store, new after the baseline
     "feedback": ("3981b6201cd514508bed945433f3415993494cb24e52809cca7f37fe3801e368",),

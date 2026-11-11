@@ -110,6 +110,18 @@ def suppress(n: int, k: int) -> int | str:
     return f"<{k}" if 0 < n < k else n
 
 
+def study_lines(store: Any, rid: str) -> list[list[str]]:
+    """D-386 (LIFE-008, LIFE-013): the rows the log's "about" sheet prints for the study: its sponsor, protocol
+    number, SIV date and registry ids (as entered, each checked against its registry's format when saved), the state
+    now, and every state change with its date, who and why."""
+    out = [[k, v] for k, v in store.study_identity(rid).lines()]
+    cur = store.study_state(rid)
+    out.append(["state", cur.state])
+    for e in store.state_history(rid):
+        out.append([f"state.{e.state}", e.at, e.by, e.reason])
+    return out
+
+
 def register(app: FastAPI, h: Helpers) -> None:
     bk, au, store = h.bk, h.au, h.store
     tz = site_zone(bk)
@@ -243,6 +255,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             link=link,
             last=reads[0] if reads else None,
             back="log",
+            sstate=store.study_state(rid),  # D-386: the study's state and identifiers above the log
+            sident=store.study_identity(rid),
         )
 
     @app.get("/studies/{rs}/screening-log.xlsx")
@@ -331,6 +345,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         about.append(["study", rid])
         about.append(["made", h.clock().isoformat(timespec="seconds")])
         about.append(["note", "Pseudonymous ICH E6(R3) screening log. Chart numbers are not in this file."])
+        for row in study_lines(store, rid):  # D-386 (LIFE-008, LIFE-013): identifiers and the state's dates
+            about.append(row)
         about.append(["pre-screen log", "One row per investigator mark, approached or not (D-387)."])
         buf = io.BytesIO()
         wb.save(buf)

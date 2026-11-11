@@ -4,6 +4,7 @@
 <div class="headrow"><h1>{{ rs }} · {{ t('log.title') }}</h1>
 <span>{% if user.can_request %}<a href="/studies/{{ rs }}/screening-log.xlsx" data-testid="log-xlsx">{{ t('download') }} XLSX</a> · {% endif %}<a href="/studies/{{ rs }}/setup" data-testid="to-setup">{{ t('setup.title') }}</a></span></div>
 <p class="hint">{{ t('log.help') }}</p>
+{% include "_study_ids.html" %}
 {% set q = request.query_params %}
 {% if q.get('read') is not none %}<p class="ok" role="status" data-testid="read-done">{{ t('rc.read.done', n=q.get('read')) }}</p>{% endif %}
 {% if q.get('rc_err') %}<p class="error" role="alert">{{ t('rc.err.' + q.get('rc_err'), fields='', msg='') }} <span class="hint mono">{{ q.get('rc_err') }}</span></p>{% endif %}

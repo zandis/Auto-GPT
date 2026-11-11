@@ -1148,6 +1148,15 @@ EN.update(_AM_EN)
 JA.update(_AM_JA)
 ZH.update(_AM_ZH)
 
+# D-386 (T-622): the study's state and its identifiers
+from console.i18n_state import EN as _SS_EN  # noqa: E402
+from console.i18n_state import JA as _SS_JA  # noqa: E402
+from console.i18n_state import ZH as _SS_ZH  # noqa: E402
+
+EN.update(_SS_EN)
+JA.update(_SS_JA)
+ZH.update(_SS_ZH)
+
 # D-387 (T-623): the pre-screen log and the criterion not met on a screen failure
 from console.i18n_prescreen import EN as _PRE_EN  # noqa: E402
 from console.i18n_prescreen import JA as _PRE_JA  # noqa: E402
