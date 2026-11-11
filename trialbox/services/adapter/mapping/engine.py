@@ -28,6 +28,12 @@ A mapping can also re-profile the shared resources (D-137: the Japan mapping put
 resource set): ``profiles`` maps a base profile URL to this mapping's profile (``""`` drops the claim), and
 ``overlay`` adds or replaces elements of the base resources of one type and table
 (``- {type: Observation, table: lab, elements: {code.text: {column: item_name}}}``).
+
+**Row provenance (T-106b, DATA-010).** A mapper given the night it ingests (``ingest_time``, which the nightly
+pipeline sets) stamps every resource it makes from a source row: ``meta.source`` is ``<site>/<table>#<row hash>``
+(the hash is an HMAC of the canonical source row under the site key, so it names the row without revealing it),
+``meta.lastUpdated`` the night, and a ``meta.tag`` of ``urn:trialbox:mapping-version`` the mapping's version
+(:attr:`Mapping.version`: its name and a hash of its files). The lake carries the four as columns.
 """
 
 from __future__ import annotations
@@ -36,6 +42,7 @@ import base64
 import csv
 import hashlib
 import hmac
+import json
 import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -55,6 +62,7 @@ Resource = dict[str, Any]
 DATA_ABSENT = "http://terminology.hl7.org/CodeSystem/data-absent-reason"
 _PATH_RE = re.compile(r"([A-Za-z_$][A-Za-z0-9_$]*)(?:\[(\d+)\])?")
 _TOKEN_RE = re.compile(r"\{([^{}]+)\}")
+MAPPING_VERSION = "urn:trialbox:mapping-version"  # the meta.tag system of the mapping version (lake.flatten)
 
 
 class MappingError(ValueError):
@@ -114,6 +122,8 @@ class Mapping:
     fhir_profiles: str = ""  # "jp-core": the ingest checks a sample against JP Core (D-137)
     # D-149: the site's declared unit per analyte (LOINC code -> UCUM) for a feed result that arrives without one
     unit_defaults: dict[str, str] = field(default_factory=dict)
+    # T-106b: ``<name>@<12 hex>``, the hash of the mapping file and the base it extends (a changed file, a new version)
+    version: str = ""
 
     @staticmethod
     def _read(path: Path) -> dict[str, Any]:
@@ -125,12 +135,14 @@ class Mapping:
     @classmethod
     def load(cls, path: Path) -> Mapping:
         doc = cls._read(path)
+        digest = hashlib.sha256(path.read_bytes())
         lookup_dirs = {name: path.parent for name in (doc.get("lookups") or {})}
         if doc.get("extends"):
             base_path = Path(doc["extends"])
             base_path = base_path if base_path.is_absolute() else (path.parent / base_path).resolve()
             if not base_path.exists():
                 raise MappingError(f"{path}: extends {doc['extends']} not found")
+            digest.update(base_path.read_bytes())
             base = cls._read(base_path)
             if base.get("extends"):
                 raise MappingError(f"{base_path}: a base mapping cannot extend another one")
@@ -182,6 +194,7 @@ class Mapping:
             profiles={str(k): str(v or "") for k, v in (doc.get("profiles") or {}).items()},
             fhir_profiles=str(doc.get("fhir_profiles") or ""),
             unit_defaults={str(k): str(v) for k, v in (doc.get("unit_defaults") or {}).items()},
+            version=f"{doc.get('name', path.stem)}@{digest.hexdigest()[:12]}",
         )
 
     def normalize(self, table: str, row: Row) -> Row:
@@ -207,10 +220,11 @@ class Mapping:
 class Mapper:
     """Applies a :class:`Mapping` to source rows."""
 
-    def __init__(self, mapping: Mapping, site_key: bytes, site_id: str) -> None:
+    def __init__(self, mapping: Mapping, site_key: bytes, site_id: str, ingest_time: str | None = None) -> None:
         self.m = mapping
         self.key = site_key
         self.site_id = site_id
+        self.ingest_time = ingest_time  # a FHIR instant: set, every resource carries its row provenance (DATA-010)
         self.builders: dict[str, Callable[[ResourceSpec, Row, dict[str, Any]], Any]] = {
             "lab_value": self._b_lab_value,
             "coding": self._b_coding,
@@ -550,8 +564,18 @@ class Mapper:
                 res["meta"] = {"profile": [prof]}
         for path, expr in rs.elements.items():
             self.set_path(res, path, self.value(expr, row, rs))
+        if self.ingest_time:
+            meta = res.setdefault("meta", {})
+            meta["source"] = f"{self.site_id}/{rs.table}#{self.row_hash(row)}"
+            meta["lastUpdated"] = self.ingest_time
+            meta["tag"] = [*(meta.get("tag") or []), {"system": MAPPING_VERSION, "code": self.m.version}]
         pruned: Resource = self.prune(res)
         return pruned
+
+    def row_hash(self, row: Row) -> str:
+        """The source row's fingerprint: an HMAC under the site key of its canonical JSON (24 hex)."""
+        body = json.dumps(row, sort_keys=True, default=str, ensure_ascii=False).encode("utf-8")
+        return hmac.new(self.key, body, hashlib.sha256).hexdigest()[:24]
 
     def map_table(self, table: str, rows: Iterator[Row]) -> Iterator[Resource]:
         specs = [r for r in self.m.resources if r.table == table]
