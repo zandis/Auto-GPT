@@ -19,6 +19,9 @@ the whole hospital, deltas merged) or ``site`` (the site's published inputs, ``l
   the source itself deleted (the snapshot's ``tombstones.json``: a delta night's SS-MIX2 flag, FHIR ``deleted[]`` or
   CSV ``deleted`` row; passed as ``deleted``) has the reason ``deleted at the source`` on its tombstone event
   (T-305b, D-149); any other is ``left the feed``.
+* **Withheld persons** (D-441). A patient the opt-out worker withholds (``tb_withheld``) is kept out of every load:
+  their records are left out of the batch, so a live one is tombstoned with the reason ``opted out`` and none is
+  restored while the row stands (:func:`withhold` is the worker's call; it tombstones at once).
 * **Status and provenance** per record in ``tb_record`` (batch, file, row; first and last batch). A proposed fact is
   loaded (its type concept says so) but never reaches a coded lake table; a refuted diagnosis is ``rejected``.
 * **Conflicts.** Two sources that give a patient different birth dates, sexes or dates of death open a
@@ -671,10 +674,11 @@ def _load(
             from omop.dqd import relational_violations
 
             dqd_before = relational_violations(tx, person_only=True)
+        recs, held_out = _without_withheld(tx, recs)  # D-441: an opted-out patient never re-enters the store
         concepts = Concepts(tx)
         concepts.prepare((c for r in recs for c in r.codes), (p for r in recs for p in r.std_only))
         _resolve(tx, kind, batch, recs, concepts, rep)
-        affected_persons, affected_providers = _write(tx, kind, batch, recs, files, rep, dead or set())
+        affected_persons, affected_providers = _write(tx, kind, batch, recs, files, rep, dead or set(), held_out)
         _derive(tx, affected_persons, affected_providers, batch, rep, site_name)
         if kind == "site":
             _note_nlp(tx, kind, batch)
@@ -987,6 +991,8 @@ def _omop_row(r: Rec) -> dict[str, Any]:
 #: the reasons on a tombstone event (T-305b): the source said so, or the record is simply not in the batch any more
 DELETED_AT_SOURCE = "deleted at the source"
 LEFT_THE_FEED = "left the feed"
+#: D-441: the patient is withheld by the opt-out worker (``tb_withheld``)
+OPTED_OUT = "opted out"
 
 
 def _write(
@@ -997,8 +1003,10 @@ def _write(
     files: Mapping[str, str],
     rep: LoadReport,
     dead: set[tuple[str, str]] | None = None,
+    held_out: set[tuple[str, str, int]] | None = None,
 ) -> tuple[set[int], set[int]]:
-    """Diff the batch against ``tb_record`` and write inserts, updates, tombstones and restores."""
+    """Diff the batch against ``tb_record`` and write inserts, updates, tombstones and restores. ``held_out``: the
+    keys of the records left out because their patient is withheld (D-441), for the tombstone's reason."""
     old = {
         (str(t), str(s), int(p)): (int(k), tab, rid, sha, st, pid)
         for k, t, s, p, tab, rid, sha, st, pid in tx.fetchall(
@@ -1083,12 +1091,7 @@ def _write(
         ):
             rec_before[int(k)] = js
     # before-images of every OMOP row that is replaced or deleted
-    before: dict[tuple[str, int], str] = {}
-    for table, ids in deletes.items():
-        col = ID_COL[table]
-        for rid, js in tx.fetchall(f"SELECT {col}, row_to_json(t)::text FROM {table} t WHERE {col} = ANY(?)", (ids,)):
-            before[(table, int(rid))] = js
-        tx.execute(f"DELETE FROM {table} WHERE {col} = ANY(?)", (ids,))
+    before = _drop_rows(tx, deletes)
     for table, rows in inserts.items():
         if table in PARTITIONED:  # T-106: each year's partition exists before its rows are written
             ensure_years(tx, table, years_of(rows, PARTITIONED[table][1]))
@@ -1147,9 +1150,10 @@ def _write(
         bjs = before.get((str(prev[1]), int(prev[2]))) if prev and prev[1] in ID_COL and prev[2] else None
         ev_rows.append((keys[key], batch, action, frm, to, bsha, bjs, rec_before.get(keys[key]), None))
     dead = dead or set()
+    held_out = held_out or set()
     for k, v in gone:
         bjs = before.get((str(v[1]), int(v[2]))) if v[1] in ID_COL and v[2] is not None else None
-        why = DELETED_AT_SOURCE if (k[0], k[1]) in dead else LEFT_THE_FEED
+        why = OPTED_OUT if k in held_out else DELETED_AT_SOURCE if (k[0], k[1]) in dead else LEFT_THE_FEED
         ev_rows.append((v[0], batch, "tombstone", v[4], "tombstoned", v[3], bjs, rec_before.get(v[0]), why))
     if ev_rows:
         tx.copy_rows(
@@ -1168,6 +1172,17 @@ def _write(
             ev_rows,
         )
     return persons, providers
+
+
+def _drop_rows(tx: Any, deletes: Mapping[str, list[int]]) -> dict[tuple[str, int], str]:
+    """Delete OMOP rows by id (table -> ids, tables of :data:`ID_COL` only) and return their before-images."""
+    before: dict[tuple[str, int], str] = {}
+    for table, ids in deletes.items():
+        col = ID_COL[table]
+        for rid, js in tx.fetchall(f"SELECT {col}, row_to_json(t)::text FROM {table} t WHERE {col} = ANY(?)", (ids,)):
+            before[(table, int(rid))] = js
+        tx.execute(f"DELETE FROM {table} WHERE {col} = ANY(?)", (ids,))
+    return before
 
 
 def _batch_day(batch: str) -> date:
@@ -1411,3 +1426,126 @@ def set_status(db: Database, key: tuple[str, str, str, int], to: str, by: str, r
             (rk, frm, to, by, reason, rk),
         )
         tx.execute("UPDATE tb_record SET status = ?, changed_at = now() WHERE record_key = ?", (to, rk))
+
+
+# ------------------------------------------------------------------------------------------------ D-441 withheld
+#: the tables a withheld patient keeps: the consent statements that say no (D-441)
+KEEP_WITHHELD = ("tb_consent",)
+
+
+def _without_withheld(tx: Any, recs: list[Rec]) -> tuple[list[Rec], set[tuple[str, str, int]]]:
+    """The batch without the records of withheld patients (``tb_withheld``), and the keys left out. The patient's
+    consent statements stay (:data:`KEEP_WITHHELD`): the refusal itself must reach the lake, or the registry would
+    read as silent and an OMOP-built lake would undo the opt-out (review HIGH-1)."""
+    held = {str(r[0]) for r in tx.fetchall("SELECT pid FROM tb_withheld")}
+    if not held:
+        return recs, set()
+
+    def out(r: Rec) -> bool:
+        return r.pid in held and r.table not in KEEP_WITHHELD
+
+    return [r for r in recs if not out(r)], {r.key for r in recs if out(r)}
+
+
+EVENT_COLS = [
+    "record_key",
+    "event",
+    "from_status",
+    "to_status",
+    "before_sha",
+    "before",
+    "record_before",
+    "actor",
+    "reason",
+]
+
+
+@dataclass
+class WithholdReport:
+    withheld: int = 0  # rows added to tb_withheld
+    released: int = 0  # rows removed (a lift: the next load restores the records)
+    tombstoned: int = 0  # live records tombstoned now
+
+    def as_dict(self) -> dict[str, int]:
+        return {"withheld": self.withheld, "released": self.released, "tombstoned": self.tombstoned}
+
+
+def withhold(db: Database, pids: Iterable[str], actor: str = "optout-worker") -> WithholdReport:
+    """D-441: make ``tb_withheld`` exactly ``pids`` (the patients opted out now) and tombstone, at once, every live
+    record of a newly withheld patient with the reason ``opted out`` (before-images kept, as for any tombstone;
+    erasing them is the retention run's, T-206b). A released patient (lifted) is only taken off the table: nothing
+    is restored until the next load carries the records again. Under the loader's lock, so it never interleaves with
+    a load. Returns counts only."""
+    want = sorted(set(pids))
+    rep = WithholdReport()
+    with db.transaction() as tx:
+        tx.execute("SELECT pg_advisory_xact_lock(hashtext('trialbox-omop-load'))")
+        have = {str(r[0]) for r in tx.fetchall("SELECT pid FROM tb_withheld")}
+        gone = sorted(have - set(want))
+        if gone:
+            tx.execute("DELETE FROM tb_withheld WHERE pid = ANY(?)", (gone,))
+            rep.released = len(gone)
+        new = [p for p in want if p not in have]
+        for p in new:
+            tx.execute("INSERT INTO tb_withheld (pid, reason) VALUES (?, ?)", (p, OPTED_OUT))
+        rep.withheld = len(new)
+        if not want:
+            return rep
+        persons = [
+            int(r[0])
+            for r in tx.fetchall(
+                "SELECT omop_id FROM tb_id_map WHERE id_kind = 'person' AND source_id = ANY(?)", (want,)
+            )
+        ]
+        if not persons:
+            return rep
+        live = tx.fetchall(
+            "SELECT record_key, cdm_table, record_id, status, content_sha FROM tb_record WHERE status <> 'tombstoned' "
+            "AND (person_id = ANY(?) OR (cdm_table = 'person' AND record_id = ANY(?))) "
+            "AND coalesce(cdm_table, '') <> ALL(?)",
+            (persons, persons, list(KEEP_WITHHELD)),
+        )
+        if not live:
+            return rep
+        keys = [int(r[0]) for r in live]
+        rec_before: dict[int, str] = dict(
+            tx.fetchall("SELECT record_key, row_to_json(r)::text FROM tb_record r WHERE record_key = ANY(?)", (keys,))
+        )
+        by_table: dict[str, list[int]] = defaultdict(list)
+        for _, table, rid, _, _ in live:
+            if table in ID_COL and rid is not None:
+                by_table[str(table)].append(int(rid))
+        if by_table.get("note"):
+            tx.execute("DELETE FROM note_nlp WHERE note_id = ANY(?)", (by_table["note"],))
+        if by_table.get("measurement"):
+            m = by_table["measurement"]
+            tx.execute("DELETE FROM fact_relationship WHERE fact_id_1 = ANY(?) OR fact_id_2 = ANY(?)", (m, m))
+        before = _drop_rows(tx, by_table)
+        tx.execute("DELETE FROM observation_period WHERE person_id = ANY(?)", (persons,))
+        tx.execute("DELETE FROM death WHERE person_id = ANY(?)", (persons,))
+        tx.execute("DELETE FROM person WHERE person_id = ANY(?)", (persons,))
+        tx.execute(
+            "UPDATE tb_record SET status = 'tombstoned', tombstoned_at = now(), changed_at = now() "
+            "WHERE record_key = ANY(?)",
+            (keys,),
+        )
+        tx.copy_rows(
+            "tb_record_event",
+            EVENT_COLS,
+            [
+                (
+                    int(k),
+                    "tombstone",
+                    st,
+                    "tombstoned",
+                    sha,
+                    before.get((str(t), int(rid))) if t in ID_COL and rid is not None else None,
+                    rec_before.get(int(k)),
+                    actor,
+                    OPTED_OUT,
+                )
+                for k, t, rid, st, sha in live
+            ],
+        )
+        rep.tombstoned = len(live)
+    return rep
