@@ -33,3 +33,10 @@ score definitions through a generated file (§8) and its items through `tb_commo
 `python -m omop.catalogue_load` gives each item one concept (LOINC from the vocabulary, a local item at its
 TB-SHARED id; a LOINC code the vocabulary lacks is listed as unmapped), chart extraction drops item answers of an
 instrument whose `storable` is `score`, and `/data/items` shows the items by specialty to the administrator.
+The instrument copyright register (`catalogue/instruments.csv`, D-375) says, from public sources, who holds each
+licensed scale or questionnaire and what its terms say; `/data/instruments` shows it to the administrator. A site
+that holds a licence may keep more of an instrument than the catalogue allows only by giving its licence reference
+(an empty one is refused and audited). TrialBox asks nobody for a licence. The phenotypes load with a status
+(`tb_common.phenotypes`): seven ICD-10-CM sets are checked on the synthetic hospital, the other 157 are "not
+validated here". An Athena load records one licence acknowledgement per licensed vocabulary in the bundle
+(`python -m omop vocab status` lists them).
