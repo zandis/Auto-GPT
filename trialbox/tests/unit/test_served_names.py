@@ -25,6 +25,7 @@ from registry.registry import Registry
 from tb_common.llm import LlmClient, LlmError
 from tb_common.policy.classes import Environment
 
+from tests.model_pins import promote_pins, release_registry
 from tools import complete_run, pin_model, scenarios
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -73,18 +74,36 @@ def _weights(models: Path) -> None:
         (models / d / "model.safetensors").write_bytes(f"synthetic {d}".encode())
 
 
-def test_install_moves_an_old_pin_to_the_served_name_and_keeps_the_weights_pin(tmp_path: Path) -> None:
+def _release(tmp_path: Path, monkeypatch: pytest.MonkeyPatch | None = None) -> Path:
+    """A registry copy whose rtxpro6000 pair expects the synthetic folders (T-012b), where the harness looks for it."""
+    m = tmp_path / "models"
+    folders = {b: m / d for b, _ep, _dv, d, *_ in pin_model.PROFILE_PAIRS["rtxpro6000"]}
+    harness = scenarios.harness_registry_path(tmp_path)
+    harness.parent.mkdir(parents=True, exist_ok=True)
+    release_registry(tmp_path, folders).replace(harness)
+    if monkeypatch is not None:
+        import registry.registry as reg_mod
+
+        monkeypatch.setattr(reg_mod, "DEFAULT_PATH", harness)
+    return harness
+
+
+def test_install_moves_an_old_pin_to_the_served_name_and_keeps_the_weights_pin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A box pinned before the names were joined (served ``gemma-4-26b-a4b-it``): install again renames, never
     re-hashes, and a site's own JUDGE_MODEL (deploy/.env, which compose reads too) still wins."""
     out = tmp_path / "site" / "registry.site.yaml"
     _weights(tmp_path / "models")
+    release = _release(tmp_path, monkeypatch)
     old = {"JUDGE_MODEL": "gemma-4-26b-a4b-it", "VERIFIER_MODEL": "qwen3.5-9b"}
     assert pin_model.install_pins("rtxpro6000", tmp_path / "models", out, old)[0]
     before = yaml.safe_load(out.read_text(encoding="utf-8"))["builds"]
     ok, lines = pin_model.install_pins("rtxpro6000", tmp_path / "models", out, {})
     assert ok and all("served name on" in x and "(was 'gemma-4-26b-a4b-it')" in lines[0] for x in lines), lines
     after = yaml.safe_load(out.read_text(encoding="utf-8"))["builds"]
-    reg = Registry.from_env({"TB_REGISTRY_OVERRIDE": str(out)})
+    promote_pins(out)
+    reg = Registry.from_env({"TB_REGISTRY_OVERRIDE": str(out), "TB_REGISTRY_PATH": str(release)})
     for alias, endpoint, build, served in (
         ("j-workhorse", "serving", "gemma-4-26b-a4b-it-rtxpro6000", pin_model.JUDGE_SERVED),
         ("v-verifier", "verifier", "qwen3.5-9b-rtxpro6000", pin_model.VERIFIER_SERVED),
@@ -162,7 +181,9 @@ def test_a_pin_with_a_name_the_server_does_not_serve_is_a_named_404(tmp_path: Pa
     _weights(tmp_path / "models")
     site = tmp_path / "site" / "registry.site.yaml"
     old = {"JUDGE_MODEL": "gemma-4-26b-a4b-it", "VERIFIER_MODEL": "qwen3.5-9b"}
-    assert pin_model.install_pins("rtxpro6000", tmp_path / "models", site, old)[0]
+    release = _release(tmp_path)
+    assert pin_model.install_pins("rtxpro6000", tmp_path / "models", site, old, registry_path=release)[0]
+    promote_pins(site)
     env = scenarios.installed_env(tmp_path / "audit", JUDGE_URL, VERIFIER_URL)
     assert env["TB_REGISTRY_OVERRIDE"] == str(site)
     vllm = _Vllm()
