@@ -9,7 +9,7 @@
 <tbody>
 {% for r in rows %}<tr>
 <td>{{ r.id }} <span class="hint">v{{ r.version }}</span></td>
-<td>{{ r.job.updated_at.date().isoformat() if r.job else '–' }}</td>
+<td>{{ (r.job.run_date.isoformat() if r.job.run_date else r.job.updated_at|local(10)) if r.job else '–' }}</td>
 {% if r.summary %}
 <td class="num">{{ r.summary.per_month[1] }} <span class="hint">({{ r.summary.per_month[0] }}–{{ r.summary.per_month[2] }})</span></td>
 <td>{% if r.summary.reading %}<span class="pill rd-{{ r.summary.reading }}">{{ t('reading.' + r.summary.reading) }}</span>{% else %}<span class="hint">{{ t('reading.none') }}</span>{% endif %}</td>
