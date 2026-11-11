@@ -2,7 +2,10 @@
 # TrialBox complete run ON the RTX PRO 6000 VM (TB-PLAN-04 step 9, D-141, D-150). The VM's startup script for the run
 # (the usual one is gpu-sim-startup.sh). deploy/gcp/complete-run.sh puts it there with this metadata:
 #
-#   tb-key            random API key of the two model servers and the door (made by the driver, never printed)
+#   tb-door-secret, tb-door-version  the Secret Manager secret and version (T-119, CR-048) that hold the door: the
+#                     random API key of the two model servers and the door, and the TLS key of nginx :443 (made by
+#                     the driver, read here with the VM's own service account, never in the metadata, never printed)
+#   tb-door-cert      the door's self-signed certificate (public; the driver pins its key). No port 80.
 #   tb-run-id         the run's id: the run directory is /var/lib/tb/runs/<id> (a new id never sees an older run's
 #                     parts, D-150 / review H-01); tb-patients the bulk size; tb-bucket an optional gs:// bucket
 #   tb-only           the parts of this VM (complete_run --only tags; a shard of a parallel run, D-148); empty: all
@@ -24,7 +27,7 @@
 #      TB-SERVING-FAILED, TB-NO-CODE, TB-UPLOAD-REJECTED, TB-SETUP-FAILED), so a failed boot costs minutes, not hours.
 # The workload runs here, not on the driver: the code comes from the bucket or an HTTP upload by the driver, the model
 # parts run with --resume inside this run's own directory (a restart of the same run id continues where it stopped),
-# results.tgz is re-packed after every part, and waits in the bucket or at http://<vm>/tb/results.tgz (key needed).
+# results.tgz is re-packed after every part, and waits in the bucket or at https://<vm>/tb/results.tgz (key needed).
 # Nothing ever prints the key: no `set -x` (A-12). tests/rehearsal runs this script unchanged before any paid launch.
 TB=/var/lib/tb
 CON=/var/log/tb-complete.log      # this boot's console
@@ -33,6 +36,7 @@ mkdir -p "$TB/incoming" "$TB/out" "$TB/runs" "$TB/cache"
 [ -f "$CON" ] && mv -f "$CON" "$CON.prev"   # a fresh console per boot (review M-01); the last one kept once
 exec > >(tee -a "$CON" /dev/ttyS0) 2>&1
 set -u
+export PATH="$PATH:/snap/bin"   # gcloud on the GCE images (Secret Manager, the bucket)
 md() { curl -sf -H Metadata-Flavor:Google "http://metadata.google.internal/computeMetadata/v1/instance/attributes/$1"; }
 HB="$TB/heartbeat"
 DONE="$TB/DONE"
@@ -84,8 +88,23 @@ EOS
 chmod 0755 /usr/local/sbin/tb-watchdog
 systemd-run --unit tb-watchdog --description "TrialBox watchdog" /usr/local/sbin/tb-watchdog "$IDLEM" "$GRACE"
 
-KEY=$(md tb-key || true)
-[ -n "$KEY" ] || { echo "TB-NO-KEY: the metadata has no tb-key; powering off"; systemctl poweroff; exit 1; }
+# the door from Secret Manager (T-119): the key and the TLS key into root-only files, the certificate from metadata
+TLS=/root/tls
+install -d -m 700 "$TLS" "$TB"
+DSEC=$(md tb-door-secret || true); DVER=$(md tb-door-version || true)
+rm -f "$TB/door-key" "$TLS/door.key"
+if [ -n "$DSEC" ] && [ -n "$DVER" ]; then
+  (umask 077; gcloud secrets versions access "$DVER" --secret="$DSEC" 2>/dev/null | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+open(sys.argv[1], "w").write(d["key"].strip()); open(sys.argv[2], "w").write(d["tls_key"])' "$TB/door-key" "$TLS/door.key")
+  (umask 022; md tb-door-cert > "$TLS/door.crt") || rm -f "$TLS/door.crt"
+fi
+KEY=$(cat "$TB/door-key" 2>/dev/null || true)
+[ -n "$KEY" ] && [ -s "$TLS/door.key" ] && [ -s "$TLS/door.crt" ] \
+  || { echo "TB-NO-KEY: no door from Secret Manager (tb-door-secret, tb-door-version, tb-door-cert); powering off"
+       systemctl poweroff; exit 1; }
+DOOR_TLS=(--noproxy "*" --cacert "$TLS/door.crt" --resolve tb-door:443:127.0.0.1)   # its own door, as the driver checks it
 RUN_ID=$(md tb-run-id || echo run)
 RUN_ID=$(printf '%s' "$RUN_ID" | tr -c 'A-Za-z0-9._-' '_')
 RUN="$TB/runs/$RUN_ID"
@@ -138,7 +157,8 @@ fi
 
 # ------------------------------------------------------------------ the driver's door: heartbeat, upload, progress
 # a tiny server on the docker bridge gateway (port 8081) behind nginx: POST /tb/heartbeat, POST /tb/collected,
-# PUT /tb/upload (the code tarball), GET /tb/progress (the run log's tail), GET /tb/results.tgz. nginx runs in a
+# PUT /tb/upload (the code tarball), GET /tb/progress (the run log's tail), GET /tb/results.tgz, on 443 only (TLS,
+# the driver's pinned certificate; T-119: no port 80, the key never crosses plain HTTP). nginx runs in a
 # container and reaches the host as host.docker.internal (= the docker0 gateway), so the door cannot listen on
 # 127.0.0.1 (the first cloud run got 502 there). It listens on the gateway only, never on the public address, and it
 # checks the key itself as well as nginx does.
@@ -193,14 +213,14 @@ JS=local/gemma-4-26b-a4b-nvfp4   # the served names: tools/pin_model.py JUDGE_SE
 VS=local/qwen3.5-9b-awq
 docker rm -f judge verifier front 2>/dev/null
 docker network create tb 2>/dev/null
-# :80 for the driver (the key is checked here for /tb/; vLLM checks it for /judge/ and /verifier/); 127.0.0.1:8080
+# :443 (TLS) for the driver (the key is checked here for /tb/; vLLM checks it for /judge/ and /verifier/); 127.0.0.1:8080
 # for the run on this VM: the gateway reaches the two servers there, and nginx adds the key (the routing file is
 # the installed box's, unchanged)
 umask 077
 cat > /root/nginx.conf <<NG
 events {}
 http { resolver 127.0.0.11 valid=5s ipv6=off; client_max_body_size 200m; proxy_read_timeout 900s;
-  server { listen 80;
+  server { listen 443 ssl; ssl_certificate $TLS/door.crt; ssl_certificate_key $TLS/door.key; ssl_protocols TLSv1.2 TLSv1.3;
     location /judge/    { set \$up judge;    rewrite ^/judge/(.*)\$ /\$1 break;    proxy_pass http://\$up:8000; }
     location /verifier/ { set \$up verifier; rewrite ^/verifier/(.*)\$ /\$1 break; proxy_pass http://\$up:8000; }
     location /record/   { alias /srv/record/; default_type application/json; }
@@ -211,14 +231,14 @@ http { resolver 127.0.0.11 valid=5s ipv6=off; client_max_body_size 200m; proxy_r
     location /verifier/ { set \$up verifier; rewrite ^/verifier/(.*)\$ /\$1 break; proxy_set_header Authorization "Bearer ${KEY}"; proxy_pass http://\$up:8000; } } }
 NG
 umask 022
-docker run -d --name front --network tb -p 80:80 -p 127.0.0.1:8080:8080 --add-host host.docker.internal:host-gateway \
-  -v /root/nginx.conf:/etc/nginx/nginx.conf:ro -v $REC:/srv/record:ro nginx:1.27-alpine >/dev/null \
+docker run -d --name front --network tb -p 443:443 -p 127.0.0.1:8080:8080 --add-host host.docker.internal:host-gateway \
+  -v /root/nginx.conf:/etc/nginx/nginx.conf:ro -v $REC:/srv/record:ro -v "$TLS:$TLS:ro" nginx:1.27-alpine >/dev/null \
   || { echo "TB-FRONT-FAILED: the nginx container did not start; the driver cannot reach this VM: powering off"; systemctl poweroff; exit 1; }
 # the door through nginx with the key, as the driver will use it (M-05): unreachable means a paid VM nobody can drive
-for _ in $(seq 1 30); do curl -fsS -o /dev/null --max-time 5 -H @"$TB/door-hdr" http://127.0.0.1/tb/progress && break; sleep 2; done
-curl -fsS -o /dev/null --max-time 5 -H @"$TB/door-hdr" http://127.0.0.1/tb/progress \
-  || { echo "TB-DOOR-FAILED: /tb/progress does not answer through nginx: powering off"; systemctl poweroff; exit 1; }
-echo "TB-DOOR-UP on $DOOR_HOST:8081 behind nginx :80"
+for _ in $(seq 1 30); do curl -fsS -o /dev/null --max-time 5 "${DOOR_TLS[@]}" -H @"$TB/door-hdr" https://tb-door/tb/progress && break; sleep 2; done
+curl -fsS -o /dev/null --max-time 5 "${DOOR_TLS[@]}" -H @"$TB/door-hdr" https://tb-door/tb/progress \
+  || { echo "TB-DOOR-FAILED: /tb/progress does not answer through nginx (TLS): powering off"; systemctl poweroff; exit 1; }
+echo "TB-DOOR-UP on $DOOR_HOST:8081 behind nginx :443 (TLS, no port 80)"
 
 if [ "$COLLECT_ONLY" = 1 ]; then  # a stopped VM started to hand over its results (review H-04): no models, no run
   if [ -f "$TB/out/results.tgz" ]; then echo "TB-COLLECT-ONLY: results.tgz ($(stat -c %s "$TB/out/results.tgz") bytes) at /tb/results.tgz"
@@ -287,7 +307,7 @@ for pair in "judge $JS" "verifier $VS"; do
     -d "{\"model\": \"$2\", \"messages\": [{\"role\": \"user\", \"content\": \"Answer OK.\"}], \"max_tokens\": 4}" \
     "http://127.0.0.1:8080/$1/v1/chat/completions")
   [ "$code" = 200 ] || serving_failed "$1: one chat call as '$2' answered HTTP $code"
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "http://127.0.0.1/$1/v1/models")
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "${DOOR_TLS[@]}" "https://tb-door/$1/v1/models")
   [ "$code" = 401 ] || serving_failed "$1: a call without the key answered HTTP $code, not 401"
   echo "TB-SERVING ok: $1 serves $2, one chat call answered, no key refused"
 done

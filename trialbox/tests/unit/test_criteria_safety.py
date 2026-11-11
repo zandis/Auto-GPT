@@ -333,7 +333,9 @@ def test_unit_key_and_conversion_table() -> None:
     assert labunit.convert(88.4, "umol/L", "mg/dL", LOINC, "3084-1") is None  # urate is not creatinine
     assert labunit.convert(88.4, "umol/L", "mg/dL") is None
     assert labunit.convert(53, "mmol/mol", "%", LOINC, HBA1C) is None
-    assert labunit.convert(15.0, "10*4/uL", "10*9/L", LOINC, "777-3") is None
+    # units of one kind convert by definition, whatever the analyte (D-418, DATA-016)
+    assert labunit.convert(15.0, "10*4/uL", "10*9/L", LOINC, "777-3") == pytest.approx(150.0)
+    assert labunit.convert(5.6, "mmol/L", "mg/dL", LOINC, "2345-7") is None  # mass and substance need a molar mass
     assert labunit.convert(1.0, None, "mg/dL", LOINC, CREAT) is None and labunit.convert(1.0, "", "%") is None
     # a criterion with no unit (a count, a score) reads rows with no unit only
     assert labunit.convert(6, None, None) == 6 and labunit.convert(6, "{count}", "") == 6

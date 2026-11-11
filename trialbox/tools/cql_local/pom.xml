@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- The CQL engine that HAPI FHIR 8.12's clinical-reasoning module runs (cqf-fhir-cql 4.13.0: engine and
      translator 5.4.0), for tools/cql_eval.py: CQL verdicts without a FHIR server (T-504, D-321). Fetch with
-     python -m tools.cql_eval --fetch (Maven, into .cache/jvm/cql-local/lib). Build-time only; never in an image. -->
+     python -m tools.cql_eval with its fetch option (Maven, into .cache/jvm/cql-local/lib; XML allows no double hyphen
+     inside a comment). Build-time only; never in an image. -->
 <project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
   <groupId>local.trialbox</groupId>

@@ -89,6 +89,9 @@ class ValidationResult:
     errors: int  # resources with >= 1 error/fatal issue
     messages: list[str] = field(default_factory=list)
     per_file: dict[int, list[str]] = field(default_factory=dict)  # resource index -> error messages
+    # T-619a: resource index -> the elements the validator matched to no slice of the profile (its information
+    # "does not match any known slice"), so a check can tell a filled slice from an open one
+    unsliced: dict[int, list[str]] = field(default_factory=dict)
 
     @property
     def error_pct(self) -> float:
@@ -154,6 +157,7 @@ class Hl7Validator:
     def _parse(doc: Resource, n: int) -> ValidationResult:
         oos = [e["resource"] for e in doc.get("entry", [])] if doc["resourceType"] == "Bundle" else [doc]
         per_file: dict[int, list[str]] = {}
+        unsliced: dict[int, list[str]] = {}
         errors = 0
         messages: list[str] = []
         for oo in oos:
@@ -168,6 +172,11 @@ class Hl7Validator:
             errs = [i for i in oo.get("issue", []) if i.get("severity") in ("error", "fatal")]
             m = re.search(r"(?:^|[\\/])r(\d{5})-[A-Za-z]+\.json$", fname)
             if m:
+                unsliced[int(m.group(1))] = [
+                    (i.get("expression") or i.get("location") or [""])[0]
+                    for i in oo.get("issue", [])
+                    if "does not match any known slice" in ((i.get("details") or {}).get("text") or "")
+                ]
                 per_file[int(m.group(1))] = [
                     f"{(i.get('expression') or i.get('location') or [''])[0]}: "
                     f"{((i.get('details') or {}).get('text') or i.get('diagnostics', ''))[:300]}"
@@ -179,7 +188,7 @@ class Hl7Validator:
                     text = (i.get("details") or {}).get("text") or i.get("diagnostics", "")
                     loc = (i.get("expression") or i.get("location") or [""])[0]
                     messages.append(f"{fname} {loc}: {text[:300]}")
-        return ValidationResult("hl7-validator", n, errors, messages[:200], per_file)
+        return ValidationResult("hl7-validator", n, errors, messages[:200], per_file, unsliced)
 
 
 class StructuralValidator:

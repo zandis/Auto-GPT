@@ -40,7 +40,7 @@ closed). Checks:
   (WARN elsewhere) when there is no target, no off-box target, no alert route (``TB_BACKUP_ALERT_CMD`` or
   ``TB_BACKUP_MAILTO``), no ``/etc/cron.d/trialbox-backup`` on a host with ``/etc/cron.d``, no good backup or one
   older than ``TB_BACKUP_MAX_AGE_HOURS`` (``backup-status``'s rules); WARN in PRODUCTION when WAL archiving is off;
-  on a platform it passes and points to ``backup_target``;
+  on a platform it passes and points to ``backup_target`` and ``backup_job``;
 * ``site_key`` (T-612, DATA-004): ``site_hmac.key`` is in the secrets folder (``TB_SECRETS_DIR``) and its fingerprint
   is the one recorded in the lake (``site_key.json``) and in the pid map. FAIL when it is missing or another key (the
   ingest then refuses every night); WARN when the folder is not on this host. Prints the fingerprint, never the key;
@@ -756,7 +756,9 @@ def check_backup(inp: DoctorInputs) -> Check:
     """D-274 (CR-058, OPS-028, OPS-048): targets, an off-box one, an alert route, the cron file, the newest good
     backup's age, WAL archiving. In PRODUCTION every problem is a FAIL except archiving off (WARN)."""
     if inp.platform:
-        return Check("backup", "PASS", "not a host check on a platform: see backup_target (no host cron)")
+        return Check(
+            "backup", "PASS", "not a host check on a platform: see backup_target and backup_job (no host cron)"
+        )
     from tools.trialbox import backup_schedule as bs
 
     prod = (inp.env.get("TB_ENV") or "PRODUCTION").upper() == "PRODUCTION"

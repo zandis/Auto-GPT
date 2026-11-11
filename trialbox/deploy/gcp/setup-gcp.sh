@@ -7,10 +7,17 @@
 #   2. enables the Compute Engine API
 #   3. creates service account trialbox-deployer with only the roles needed
 #      to create and manage a VM + its firewall rule
-#   4. creates ONE JSON key and prints a one-line base64 copy of it
+#   4. Secret Manager (T-119, CR-048; a secret with no version costs nothing):
+#        tb-gpu-door       the GPU run's door (complete-run.sh adds one version per VM and run and destroys it
+#                          once collected); the deployer may add and destroy versions of it only, the VMs' service
+#                          account may read it
+#        tb-demo-password  the demo VM's password (demo-vm-startup.sh reads it; never metadata): asked here once,
+#                          without echo, when it has no version yet (Enter skips)
+#   5. creates ONE JSON key and prints a one-line base64 copy of it
 #      for the GCP_SA_KEY environment variable
 #
 # Usage:  bash setup-gcp.sh [PROJECT_ID]
+#         VM_SA=<email> bash setup-gcp.sh ...   the VMs' service account (default: the Compute Engine default one)
 set -euo pipefail
 
 PROJECT_ID="${1:-trialbox-demo-$(date +%y%m%d)}"
@@ -49,6 +56,28 @@ for ROLE in roles/compute.instanceAdmin.v1 roles/compute.securityAdmin roles/iam
     --member="serviceAccount:$SA" --role="$ROLE" --condition=None >/dev/null
   echo "   granted $ROLE"
 done
+
+echo "== Secret Manager (secrets, never metadata)"
+gcloud services enable secretmanager.googleapis.com
+VM_SA="${VM_SA:-$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')-compute@developer.gserviceaccount.com}"
+for SECRET in tb-gpu-door tb-demo-password; do
+  gcloud secrets describe "$SECRET" >/dev/null 2>&1 || \
+    gcloud secrets create "$SECRET" --replication-policy=automatic --labels=trialbox=t-119 >/dev/null
+  gcloud secrets add-iam-policy-binding "$SECRET" --member="serviceAccount:$VM_SA" \
+    --role=roles/secretmanager.secretAccessor --condition=None >/dev/null
+  echo "   $SECRET: readable by $VM_SA"
+done
+gcloud secrets add-iam-policy-binding tb-gpu-door --member="serviceAccount:$SA" \
+  --role=roles/secretmanager.secretVersionManager --condition=None >/dev/null
+echo "   tb-gpu-door: $SA adds and destroys its versions"
+if [ -z "$(gcloud secrets versions list tb-demo-password --filter=state:enabled --format='value(name)' 2>/dev/null)" ]; then
+  read -r -s -p "Demo VM password (not shown; Enter to skip): " DEMO_PW; echo
+  if [ -n "$DEMO_PW" ]; then
+    printf '%s' "$DEMO_PW" | gcloud secrets versions add tb-demo-password --data-file=- >/dev/null
+    echo "   tb-demo-password: stored"
+  fi
+  unset DEMO_PW
+fi
 
 echo "== Key"
 if [ -f "$KEY" ]; then

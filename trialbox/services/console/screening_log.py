@@ -235,6 +235,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                     "consented": str(lf.get("consented") or ""),
                     "icf_version": str(lf.get("icf_version") or ""),
                     "enrolled": str(lf.get("enrolled") or ""),
+                    "randomised": str(lf.get("randomised") or ""),  # D-407 (LIFE-020): in the sponsor's IRT
                 }
             )
         return rows
@@ -302,6 +303,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                 "consent_date",
                 "consent_form_version",
                 "enrolment_date",
+                "randomisation_date",
             ]
         )
         for r in log_rows(rid):
@@ -333,6 +335,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                     r["consented"],
                     r["icf_version"],
                     r["enrolled"],
+                    r["randomised"],
                 ]
             )
         pre = wb.create_sheet("pre-screen log")  # D-387 (LIFE-015): one row per investigator mark

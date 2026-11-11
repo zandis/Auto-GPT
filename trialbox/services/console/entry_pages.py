@@ -43,7 +43,8 @@ _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _PID = re.compile(r"^[0-9a-fA-F]{32}$")
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,99}$")
-FORMATS = ("odm", "csv", "xlsx")
+FORMATS = ("odm", "cdisc", "csv", "xlsx")
+SUFFIX_FORMAT = {"odm.xml": "odm", "cdisc.odm.xml": "cdisc"}  # the download path's suffix -> format
 BACKS = ("visits", "subject")  # D-134: where Save returns when the form was opened from the lifecycle pages
 ENTERED = ("text", "notes", "date", "dateTime", "integer", "decimal", "choice", "multi")
 
@@ -140,13 +141,15 @@ def register(app: FastAPI, h: Helpers) -> None:
         return dict(s28.call(bk, "GET", f"/studies/{rid}/records/{quote(record)}"))
 
     # ------------------------------------------------------------------ actions (one per page and /api/v1)
-    def apply_builtin(sess: Session, path: str, rs: str) -> dict[str, Any]:
-        """Add TrialBox's seven forms (ja, zh-TW, en) to the study in one call."""
+    def apply_builtin(sess: Session, path: str, rs: str, ctcae: str = "") -> dict[str, Any]:
+        """Add TrialBox's seven forms (ja, zh-TW, en) to the study in one call; ``ctcae`` names an oncology study's
+        CTCAE version (D-396)."""
         rid = study_or_404(sess, rs)
         need_enter(sess, path)
-        out = dict(s28.call(bk, "POST", f"/studies/{rid}/forms/builtin", {"by": h.actor(sess)}))
+        out = dict(s28.call(bk, "POST", f"/studies/{rid}/forms/builtin", {"by": h.actor(sess), "ctcae": ctcae[:16]}))
         au.append("console.data_forms", ruleset=rid, actor=h.actor(sess),
-                  detail={"forms": len(out.get("forms") or []), "origin": "builtin"})  # fmt: skip
+                  detail={"forms": len(out.get("forms") or []), "origin": "builtin",
+                          "ctcae": str(out.get("ctcae") or "")})  # fmt: skip
         return out
 
     def apply_save(sess: Session, path: str, rs: str, record: str, event: str, form: str,
@@ -365,7 +368,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def download(request: Request, rs: str, fmt: str) -> Response:
         sess = h.need(request)
         try:
-            name, media, data = read_export(sess, rs, "odm" if fmt == "odm.xml" else fmt)
+            name, media, data = read_export(sess, rs, SUFFIX_FORMAT.get(fmt, fmt))
         except (Problem, Unavailable) as exc:
             raise h.problem(503, "unavailable", detail=str(exc)[:200]) from exc
         return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="{name}"'})
@@ -377,13 +380,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not h.csrf_ok(sess, str(data.get("csrf") or "")):
             raise h.problem(400, "csrf")
         try:
-            out = apply_builtin(sess, request.url.path, rs)
+            out = apply_builtin(sess, request.url.path, rs, str(data.get("ctcae") or ""))
         except (Problem, Unavailable) as exc:
             q = urlencode({"err": exc.code if isinstance(exc, Problem) else "unavailable",
                            "fields": ", ".join(exc.fields) if isinstance(exc, Problem) else ""})  # fmt: skip
             return RedirectResponse(f"/studies/{rs.upper()}/forms?{q}", status_code=303)
-        return RedirectResponse(f"/studies/{rs.upper()}/forms?builtin={len(out.get('forms') or [])}",
-                                status_code=303)  # fmt: skip
+        q = urlencode({"builtin": len(out.get("forms") or []), "ctcae": str(out.get("ctcae") or "")})
+        return RedirectResponse(f"/studies/{rs.upper()}/forms?{q}", status_code=303)
 
     # ------------------------------------------------------------------ /api/v1 (D-125, D-127)
     def api_session(request: Request) -> Session:
@@ -406,10 +409,16 @@ def register(app: FastAPI, h: Helpers) -> None:
         return JSONResponse(body, status_code=status)
 
     @app.post("/api/v1/studies/{rs}/forms/builtin", response_model=None)
-    def api_builtin(request: Request, rs: str) -> Any:
+    async def api_builtin(request: Request, rs: str) -> Any:
         sess = api_session(request)
         try:
-            return {"study": rs.upper(), **apply_builtin(sess, request.url.path, rs)}
+            is_json = request.headers.get("content-type", "").startswith("application/json")
+            body = await request.json() if is_json else {}
+        except ValueError:
+            body = {}
+        ctcae = str(body.get("ctcae") or "") if isinstance(body, dict) else ""
+        try:
+            return {"study": rs.upper(), **apply_builtin(sess, request.url.path, rs, ctcae)}
         except (Problem, Unavailable) as exc:
             return refused(sess, exc)
 

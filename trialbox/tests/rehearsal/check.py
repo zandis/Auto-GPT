@@ -2,12 +2,15 @@
 
     python tests/rehearsal/check.py run-a <evidence> --only TAG,TAG --head <sha>
     python tests/rehearsal/check.py run-b <evidence> --only ... --head <sha> --previous <run id of run-a>
+    python tests/rehearsal/check.py bucket <evidence> --only ... --head <sha>
     python tests/rehearsal/check.py served|no-upload|hang|busy <evidence>
 
 The evidence (rehearse.sh ``end_case``): ``console.log`` (the VM's serial console of this case), ``POWEROFF`` (each
 power-off and why), ``standin-judge.log`` / ``standin-verifier.log`` (one line per call: status, path, model),
 ``vm-results.tgz`` (the VM's ``results.tgz`` as it is on its disk), ``out/`` (the driver's run folder: plan, shard-1
-with the collected results, the merged parts and the report), ``driver.log``.
+with the collected results, the merged parts and the report), ``driver.log``; ``metadata-keys`` (the names of the VM's
+metadata), ``secrets-left`` (the door versions still in "Secret Manager"), ``gcloud.log`` and ``vm-gcloud.log`` (the
+driver's and the VM's cloud calls; T-119).
 
 Model quality is not rehearsed: the stand-ins answer with the repository's deterministic stub, so the checks that
 judge the pair's answers (:data:`MODEL_QUALITY`) may fail; every other check must pass. Plumbing, names, keys, setup,
@@ -92,6 +95,39 @@ def check_servers(r: Result, e: Path, chats: bool = True) -> None:
             r.ok(f"{s} stand-in: answered calls", n["200"] > 0, n)
 
 
+def check_door(r: Result, e: Path, collected: bool = True) -> None:
+    """T-119 (CR-048): the key never in the metadata, the door on TLS 443, its secret version gone once collected."""
+    keys = text(e / "metadata-keys").split()
+    r.ok("metadata: no tb-key (the door comes from Secret Manager)", "tb-key" not in keys, keys)
+    r.ok("metadata: the door's secret and certificate named", {"tb-door-secret", "tb-door-version", "tb-door-cert"}
+         <= set(keys), keys)  # fmt: skip
+    con = text(e / "console.log")
+    r.ok("console: no TB-NO-KEY", "TB-NO-KEY" not in con)
+    r.ok("console: the door is up on 443 (TLS), no port 80", "behind nginx :443 (TLS" in con)
+    if collected:
+        left = text(e / "secrets-left").split()
+        r.ok("Secret Manager: the door's version was destroyed once collected", not left, left)
+
+
+def check_record(r: Result, res: dict[str, bytes]) -> None:
+    """T-119: the serving record is captured on the VM (``docker inspect`` of the two servers, the weight hashes)."""
+    raw = res.get("serving_config.rtxpro6000.live.json")
+    r.ok("results.tgz has the serving record", raw is not None, sorted(res)[:8])
+    rec = json.loads(raw) if raw else {}
+    srv = {s.get("role"): s for s in rec.get("servers") or []}
+    for role, served in (("judge", "local/gemma-4-26b-a4b-nvfp4"), ("verifier", "local/qwen3.5-9b-awq")):
+        s = srv.get(role) or {}
+        r.ok(
+            f"serving record: {role} serves {served}", s.get("served_model_name") == served, s.get("served_model_name")
+        )
+        r.ok(f"serving record: {role} has its weight files' sha256", bool(s.get("model_files_sha256")))
+        r.ok(
+            f"serving record: {role} names the vLLM image and version",
+            bool(s.get("image")) and bool(s.get("vllm_version")),
+        )
+    r.ok("serving record: no API key in it", "api-key" not in json.dumps(rec), "")
+
+
 def report_of(e: Path) -> dict[str, Any]:
     p = e / "out" / "report" / "report.json"
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
@@ -119,6 +155,18 @@ def run_case(a: argparse.Namespace) -> int:
         "the driver collected results.tgz with vm.log and parts/", bool(vm) and any(k.startswith("parts/") for k in res)
     )
     r.ok("vm.log: the run ended (TB-RUN-EXIT)", "TB-RUN-EXIT" in vm)
+    check_door(r, e)
+    check_record(r, res)
+    if a.case == "bucket":
+        gl, vl = text(e / "gcloud.log"), text(e / "vm-gcloud.log")
+        r.ok(
+            "bucket: the driver put the code in the bucket", re.search(r"storage cp \S*src\.tgz gs://", gl) is not None
+        )
+        r.ok(
+            "bucket: the VM took the code from the bucket", "storage cp" in vl and "TB-BUCKET: no" not in con, vl[-300:]
+        )
+        r.ok("bucket: the driver took the results from the bucket",
+             re.search(r"storage cp gs://\S*results\.tgz", gl) is not None)  # fmt: skip
     r.ok("vm.log: nothing kept from another run (--resume)", "kept (--resume)" not in vm and "another run" not in vm,
          [ln for ln in vm.splitlines() if "kept" in ln or "another run" in ln][:3])  # fmt: skip
     r.ok("vm.log: this boot's log only (one '== boot' line)", vm.count("== boot ") == 1, vm.count("== boot "))
@@ -168,6 +216,7 @@ def served_case(a: argparse.Namespace) -> int:
     r.ok("the driver collected results.tgz saying why", "TB-SERVING-FAILED" in vm, sorted(res)[:6])
     r.ok("results.tgz has the servers' logs", "serving-logs/judge.log" in res, sorted(res)[:6])
     r.ok("results.tgz has no parts", not any(k.startswith("parts/") for k in res))
+    check_door(r, e)
     offs = poweroffs(e)
     r.ok("the VM powered off once the driver collected", bool(offs) and "results collected" in offs[-1], offs[-1:])
     return r.done()
@@ -183,6 +232,7 @@ def no_upload_case(a: argparse.Namespace) -> int:
     vm = res.get("vm.log", b"").decode("utf-8", "replace")
     r.ok("results.tgz on the disk says TB-NO-CODE", "TB-NO-CODE" in vm, sorted(res))
     r.ok("results.tgz: this boot's log only, no earlier run", vm.count("== boot ") == 1 and "rehearsal-run" not in vm)
+    check_door(r, e)
     offs = poweroffs(e)
     r.ok("the VM powered off after the grace (nobody collected)", bool(offs) and "grace" in offs[-1], offs[-1:])
     return r.done()
@@ -201,6 +251,7 @@ def silent_case(a: argparse.Namespace, hang: bool) -> int:
              run_offs)  # fmt: skip
         r.ok("it finished and powered off after the grace", bool(run_offs) and "grace" in run_offs[0], run_offs[:1])
     r.ok("--collect started the stopped VM results-only", "TB-COLLECT-ONLY: results.tgz" in con)
+    check_door(r, e)
     offs = poweroffs(e)
     r.ok("the results-only boot powered off once collected", bool(offs) and "results collected" in offs[-1], offs[-1:])
     res = members(e / "out" / "shard-1" / "results.tgz")
@@ -224,14 +275,14 @@ def silent_case(a: argparse.Namespace, hang: bool) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("case", choices=["run-a", "run-b", "served", "no-upload", "hang", "busy"])
+    ap.add_argument("case", choices=["run-a", "run-b", "bucket", "served", "no-upload", "hang", "busy"])
     ap.add_argument("evidence", type=Path)
     ap.add_argument("--only", default="")
     ap.add_argument("--head", default="")
     ap.add_argument("--previous", default="")
     a = ap.parse_args()
     print(f"== check {a.case} ({a.evidence})")
-    if a.case in ("run-a", "run-b"):
+    if a.case in ("run-a", "run-b", "bucket"):
         return run_case(a)
     if a.case == "served":
         return served_case(a)

@@ -4,6 +4,11 @@
 version: 1
 name: demo_his
 tz: Asia/Taipei
+# T-619a (STD-011): TW Core output. The elements marked `when: {fhir_profiles: tw-core}` fill TW Core 1.0.0's slices
+# with TW Core's own code systems (ICD-10-CM TW edition, NHI drug and service codes, NHI departments). They sit beside
+# the codings the lake reads (always first), so a mapping that extends this one for another profile set (JP Core sets
+# `fhir_profiles: jp-core`) does not carry them. tools/twcore_check.py validates a sample with the HL7 validator in CI.
+fhir_profiles: tw-core
 systems:
   icd10cm: http://hl7.org/fhir/sid/icd-10-cm
   loinc: http://loinc.org
@@ -26,6 +31,12 @@ systems:
   condition_clinical: http://terminology.hl7.org/CodeSystem/condition-clinical
   condition_verification: http://terminology.hl7.org/CodeSystem/condition-ver-status
   v2_0203: http://terminology.hl7.org/CodeSystem/v2-0203
+  # TW Core 1.0.0 code systems (T-619a, STD-011)
+  tw_icd10cm_2014: https://twcore.mohw.gov.tw/ig/twcore/CodeSystem/icd-10-cm-2014-tw
+  tw_icd10cm_2023: https://twcore.mohw.gov.tw/ig/twcore/CodeSystem/icd-10-cm-2023-tw
+  tw_nhi_drug: https://twcore.mohw.gov.tw/ig/twcore/CodeSystem/medication-nhi-tw
+  tw_service: https://twcore.mohw.gov.tw/ig/twcore/CodeSystem/medical-service-payment-tw
+  tw_department: https://twcore.mohw.gov.tw/ig/twcore/CodeSystem/medical-consultation-department-nhi-tw
 # D-149, D-334: the unit a feed result with a number and no unit is read in, per analyte (LOINC -> UCUM). It is the
 # unit the lab lookup writes (its `ucum` column), so a lab row without a unit and a FHIR result without one land in
 # the same unit; `tools/mapping_check.py` fails when the two disagree. Change both together.
@@ -71,6 +82,8 @@ resources:
     elements:
       identifier[0].system: {template: "{sys.pid}/{site_id}"}
       identifier[0].value: {pid: mrn}
+      # the identifier is TrialBox's pseudonym, never the hospital's record number: v2-0203 ANON (no TW Core slice)
+      identifier[0].type.coding[0]: {const: {system: "http://terminology.hl7.org/CodeSystem/v2-0203", code: ANON}, when: {fhir_profiles: tw-core}}
       gender: {column: sex, map: {M: male, F: female}, default: unknown}
       birthDate: {column: birth_date, type: date}
       deceasedDateTime: {column: death_date, type: datetime}
@@ -101,6 +114,11 @@ resources:
       class.system: {template: "{sys.actcode}"}
       class.code: {column: enc_type, map: {OPD: AMB, IPD: IMP, ER: EMER}, default: AMB}
       serviceType.coding[0]: {builder: coding, column: dept_code, system: department}
+      # TW Core slice TWMedicalConsultationDepartment: the NHI 就醫科別 of a local department. TW Core binds this slice
+      # to the departments SNOMED CT has no code for (血液腫瘤科 AF among them); the others are SNOMED CT coded there,
+      # which TrialBox does not ship (no SNOMED CT licence, D-342), so they keep the local coding only
+      serviceType.coding[1].system: {template: "{sys.tw_department}", when: [{fhir_profiles: tw-core}, {column: dept_code, in: [ONC]}]}
+      serviceType.coding[1].code: {column: dept_code, map: {ONC: AF}, when: [{fhir_profiles: tw-core}, {column: dept_code, in: [ONC]}]}
       subject.reference: {ref: {type: Patient, pid: mrn}}
       participant[0].individual.reference: {ref: {type: Practitioner, column: staff_id}}
       period.start: {column: visit_datetime, type: datetime}
@@ -128,6 +146,9 @@ resources:
       verificationStatus.coding[0].code: {column: suspected, map: {Y: provisional, y: provisional, "1": provisional}}
       category[0].coding[0]: {const: {system: "http://terminology.hl7.org/CodeSystem/condition-category", code: encounter-diagnosis}}
       code.coding[0]: {builder: coding, column: icd10, system: icd10cm}
+      # TW Core slices icd10-cm-2014 / icd10-cm-2023: the NHI edition by the date of the diagnosis (2023 from 2025-01-01)
+      code.coding[1]: {builder: coding, column: icd10, system: tw_icd10cm_2014, when: [{fhir_profiles: tw-core}, {column: diag_date, date_before: "2025-01-01"}]}
+      code.coding[2]: {builder: coding, column: icd10, system: tw_icd10cm_2023, when: [{fhir_profiles: tw-core}, {column: diag_date, date_from: "2025-01-01"}]}
       subject.reference: {ref: {type: Patient, pid: mrn}}
       encounter.reference: {ref: {type: Encounter, hid: enc_no}}
       onsetDateTime: {column: diag_date, type: date}
@@ -219,11 +240,15 @@ resources:
       intent: {const: order}
       medicationCodeableConcept.coding[0]: {builder: coding, column: nhi_drug_code, system: nhi_drug, display_column: drug_name}
       medicationCodeableConcept.coding[1]: {builder: coding, column: atc, system: atc}
+      # TW Core slice nhi-medication-tw (after the codings the lake reads; JP Core puts HOT9 at [2])
+      medicationCodeableConcept.coding[3]: {builder: coding, column: nhi_drug_code, system: tw_nhi_drug, when: {fhir_profiles: tw-core}}
       medicationCodeableConcept.text: {column: drug_name}
       subject.reference: {ref: {type: Patient, pid: mrn}}
       encounter.reference: {ref: {type: Encounter, hid: enc_no}}
       authoredOn: {column: order_date, type: date}
       dosageInstruction[0].text: {template: "{daily_dose} {dose_unit}"}
+      # T-616 (STD-012) reads the therapy period here first; the validity period stays for the CQL and older readers
+      dosageInstruction[0].timing.repeat.boundsPeriod: {builder: period, start: start_date, end: end_date, type: date}
       dispenseRequest.validityPeriod: {builder: period, start: start_date, end: end_date, type: date}
   - type: Procedure
     table: procedure
@@ -232,6 +257,8 @@ resources:
     elements:
       status: {const: completed}
       code.coding[0]: {builder: coding, column: order_code, system: nhi_order, display_column: proc_name}
+      # TW Core slice medical-service-payment: the NHI 醫療服務給付項目 code (the same code)
+      code.coding[1]: {builder: coding, column: order_code, system: tw_service, when: {fhir_profiles: tw-core}}
       subject.reference: {ref: {type: Patient, pid: mrn}}
       performedDateTime: {column: proc_date, type: date}
   - type: DiagnosticReport

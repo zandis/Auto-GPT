@@ -31,6 +31,8 @@ import re
 import shutil
 import sys
 import tarfile
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -110,11 +112,23 @@ def twpas_set(version: str) -> tuple[list[str], list[str]]:
     return TWPAS_SETS[version]
 
 
-def _get(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "trialbox-fetch/1.0"})
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        data: bytes = resp.read()
-        return data
+def _get(url: str, tries: int = 4) -> bytes:
+    """``url``'s bytes. A failed name lookup or a dropped connection is tried again, 2, 4 and 8 s apart (T-619a: a CI
+    runner once lost the DNS answer for packages.fhir.org); an HTTP error answer (404, 403) is not."""
+    for attempt in range(tries):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "trialbox-fetch/1.0"})
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data: bytes = resp.read()
+                return data
+        except urllib.error.HTTPError:
+            raise
+        except (urllib.error.URLError, OSError) as exc:
+            if attempt == tries - 1:
+                raise
+            print(f"  {url}: {exc}; trying again in {2 ** (attempt + 1)} s", file=sys.stderr)
+            time.sleep(2 ** (attempt + 1))
+    raise AssertionError("unreachable")
 
 
 def pins(path: Path = PINS) -> dict[str, str]:

@@ -35,9 +35,10 @@ DIGEST = "sha256:" + "cd" * 32
 # what the platform team creates before the first apply (RUNBOOK §17), never committed
 PROVIDED = {
     "Secret": {"trialbox-db", "trialbox-mail", "trialbox-cloud", "trialbox-actor", "trialbox-model-key"}
+    | {"trialbox-backup-restore-key"}  # only during a restore (T-633, RUNBOOK §26)
     | {f"trialbox-token-{s}" for s in ("lake", "embed-service", "doc-parser", "criteria-compiler", "adapter")}
     | {f"trialbox-token-{s}" for s in ("orchestrator", "mail-gateway", "gateway", "console")},
-    "ConfigMap": {"trialbox-service-tokens", "trialbox-serving-record"},
+    "ConfigMap": {"trialbox-service-tokens", "trialbox-serving-record", "trialbox-backup-pub"},
 }
 
 

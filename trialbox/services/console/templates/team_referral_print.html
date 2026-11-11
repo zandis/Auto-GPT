@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{# D-407 (T-620, LIFE-017, UX-034): the request for the treating doctor on one page, in the doctor's language. The
+   chart number only after a recorded reveal (the one reveal path, its reason and its audit record); otherwise a line
+   the study team fills in by hand. No note's words: the criteria met are named, never quoted. #}
+{% block title %}{{ t('ref.doc.title') }} · {{ rs }}{% endblock %}
+{% block content %}
+<div class="headrow noprint"><h1>{{ rs }} · {{ t('ref.doc.title') }}</h1></div>
+<p class="hint noprint">{{ t('ref.doc.print.help') }} <a href="/studies/{{ rs }}/referrals#r{{ ref.id }}">{{ t('team.ref.title') }}</a></p>
+<p class="hint noprint" data-testid="ref-doc-langs">{% for g in langs %}<a href="/studies/{{ rs }}/referrals/{{ ref.id }}/print?lang={{ g }}"{% if g == doc_lang %} aria-current="page"{% endif %}>{{ t('ref.doc.lang.' + g) }}</a>{% if not loop.last %} · {% endif %}{% endfor %}</p>
+<article class="card refletter" lang="{{ doc_lang }}" data-testid="ref-letter">
+{% for line in lines %}{% if loop.first %}<h2>{{ line }}</h2>{% elif line.startswith('- ') %}<p class="refcrit">{{ line[2:] }}</p>{% else %}<p{% if mrn and loop.index == 4 %} class="mono" data-testid="ref-letter-chart"{% endif %}>{{ line }}</p>{% endif %}{% endfor %}
+</article>
+{% if not mrn and may_reveal %}<section class="card noprint" data-testid="ref-doc-reveal">
+<form method="post" action="/studies/{{ rs }}/referrals/{{ ref.id }}/print" class="markform"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="lang" value="{{ doc_lang }}">
+<p class="hint">{{ t('ref.doc.reveal.help') }}</p>
+<label for="rr">{{ t('reveal.reason') }}</label><select id="rr" name="reason" required data-testid="ref-doc-reason"><option value="">{{ t('mark.reason.choose') }}</option>{% for k in reveal_reasons %}<option value="{{ k }}">{{ t('reveal.reason.' ~ k) }}</option>{% endfor %}</select>
+<label for="rnote">{{ t('mark.note') }}</label><input id="rnote" name="note" maxlength="200">
+<button type="submit" class="secondary" data-testid="ref-doc-reveal-btn">{{ t('ref.doc.reveal') }}</button></form>
+</section>{% endif %}
+{% endblock %}

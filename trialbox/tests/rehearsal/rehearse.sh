@@ -2,12 +2,14 @@
 # The cloud run's local rehearsal (D-150; review of 2026-11-09 §5): the gate before any paid launch (RUNBOOK §11).
 #
 #   make rehearse                       # every case below, about 40-60 minutes, US$0
-#   tests/rehearsal/rehearse.sh [CASE ...]   # some cases, in order: run-a run-b served no-upload hang busy
+#   tests/rehearsal/rehearse.sh [CASE ...]   # some cases, in order: run-a run-b bucket served no-upload hang busy
+#   make rehearse CASES=run-a,bucket    # commas or spaces
 #
 # It runs the REAL driver (deploy/gcp/complete-run.sh, the commit at HEAD, as `git archive` uploads it) against the REAL
 # VM script (deploy/gcp/complete-run-vm.sh, unchanged) booted in an Ubuntu 24.04 container that stands in for
 # tb-gpu-sim; only what costs money or needs the cloud is replaced:
-#   * gcloud (driver-shims/gcloud): the VM is the container; start = a boot (vm/boot.sh), metadata = files;
+#   * gcloud (driver-shims/gcloud): the VM is the container; start = a boot (vm/boot.sh), metadata = files; Secret
+#     Manager and the bucket are folders of the state (the VM's own gcloud, shims/gcloud, reads the same folders);
 #   * on the "VM" (shims/): the GCE metadata server, systemd (systemd-run, poweroff), docker (the two vLLM servers are
 #     strict stand-ins, vllm_standin.py: key checked, 404 for any but the served name; nginx is the real nginx with the
 #     script's own config), nvidia-smi; docker's DNS (dns_standin.py);
@@ -20,6 +22,9 @@
 #              results.tgz per part, power-off once collected;
 #   run-b      the same disk, a new run (scenario-gateway scenario-it-dump): nothing kept from run-a (H-01), a fresh
 #              log (M-01), the report's HEAD is the launched commit (M-02);
+#   bucket     the same disk, TB_BUCKET set (T-119): the code and the results go through the bucket, not the door;
+# In every case the door is TLS on 443 with the driver's pinned certificate, the key comes from "Secret Manager" (never
+# the metadata), its version is destroyed once collected, and the serving record is captured (T-119).
 #   served     the judge serves a wrong name: the boot stops before any part with TB-SERVING-FAILED, results say why;
 #   no-upload  nobody uploads: TB-NO-CODE after the (1-minute) wait, power-off after the grace;
 #   hang       a silent, stuck part (selftest-hang) and no driver: the watchdog powers off after the idle limit
@@ -29,7 +34,7 @@
 # Every case is checked by check.py; the evidence stays in $TB_REHEARSAL_DIR/evidence/<case>/.
 #
 # Needs: docker (a private dockerd is started under $TB_REHEARSAL_DIR when none answers, and stopped afterwards),
-# about 4 GB of disk, the ports 80, 8080, 127.0.0.2-3:8000 and 127.0.0.11:53 free (the container shares the host's
+# about 4 GB of disk, the ports 443, 8080, 127.0.0.2-3:8000 and 127.0.0.11:53 free (the container shares the host's
 # network), and the sandbox proxy for egress. TB_REHEARSAL_KEEP=1 keeps the container and the daemon for a look.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -43,7 +48,8 @@ CA="${TB_REHEARSAL_CA:-${SSL_CERT_FILE:-/etc/ssl/certs/ca-certificates.crt}}"
 VENV="$(readlink -f "$TBROOT/.venv")"
 PY="$VENV/bin/python"
 POS_ONLY="${TB_REHEARSAL_ONLY:-hospital-ja,public-ja,scenario-gateway,scenario-emr-fhir,scenario-it-dump,scenario-public-medtxt,scenario-public-trec}"
-CASES=("$@"); [ "${#CASES[@]}" -gt 0 ] || CASES=(run-a run-b served no-upload hang busy)
+# shellcheck disable=SC2206  # CASES=run-a,bucket from make: split on commas and spaces
+CASES=(${*//,/ }); [ "${#CASES[@]}" -gt 0 ] || CASES=(run-a run-b bucket served no-upload hang busy)
 S="$REH/state"
 mkdir -p "$REH" "$REH/evidence"
 log() { echo "$(date -u +%T) rehearse: $*"; }
@@ -68,7 +74,7 @@ prune_evidence() {  # D-201: the newest two per case, <case> and <case>.prev; ol
   for d in "$REH/evidence"/*.*; do
     [ -e "$d" ] || continue
     name="$(basename "$d")"
-    for c in "${CASES[@]}" run-a run-b served no-upload hang busy; do
+    for c in "${CASES[@]}" run-a run-b bucket served no-upload hang busy; do
       if [ "${name%%.*}" = "$c" ] && [ "$name" != "$c.prev" ]; then rm -rf "$d"; break; fi
     done
   done
@@ -96,7 +102,8 @@ trap cleanup EXIT
 # ------------------------------------------------------------------ the "VM": an Ubuntu 24.04 disk, prepared once
 fresh_disk() {
   docker rm -f "$C" >/dev/null 2>&1 || true
-  rm -rf "$S"; mkdir -p "$S/metadata" "$S/units" "$S/knobs/metadata"
+  rm -rf "$S"; mkdir -p "$S/metadata" "$S/units" "$S/knobs/metadata" "$S/bucket"
+  mkdir -p "$S/secrets/tb-gpu-door"   # the door's secret, as deploy/gcp/setup-gcp.sh makes it once (T-119)
   echo TERMINATED > "$S/status"
   if ! docker image inspect "$IMG" >/dev/null 2>&1; then
     log "fetching the Ubuntu 24.04 base"
@@ -116,6 +123,8 @@ fresh_disk() {
 
 # ------------------------------------------------------------------ the driver, exactly as the operator runs it
 export TB_REH_STATE="$S" TB_REH_CONTAINER="$C" CLOUDSDK_CONFIG="$REH/gcloud-config" TB_SA_KEY_FILE=/dev/null
+# shellcheck source=deploy/gcp/door-tls.sh
+. "$TBROOT/deploy/gcp/door-tls.sh"   # door_make for the no-upload case, which has no driver
 mkdir -p "$CLOUDSDK_CONFIG"
 drive() {  # $1 case; the driver's arguments follow (a new run id per case)
   local case=$1 rid; shift
@@ -143,7 +152,7 @@ start_case() {  # $1 case: its evidence folder; the console, power-off and stand
   E="$REH/evidence/$1"
   if [ -d "$E" ]; then rm -rf "$E.prev"; mv "$E" "$E.prev"; fi   # the newest two per case (D-201): this and .prev
   mkdir -p "$E"
-  : > "$S/console.log"; : > "$S/POWEROFF"; : > "$S/gcloud.log"
+  : > "$S/console.log"; : > "$S/POWEROFF"; : > "$S/gcloud.log"; : > "$S/vm-gcloud.log"
   for n in judge verifier; do : > "$S/units/$n.log"; done
   rm -rf "$S/knobs"; mkdir -p "$S/knobs/metadata"
   for k in "$S"/metadata/*; do  # metadata stays on a VM between starts; a case's own knobs must not reach the next
@@ -153,11 +162,13 @@ start_case() {  # $1 case: its evidence folder; the console, power-off and stand
   log "case $1"
 }
 end_case() {  # keep this case's evidence
-  cp "$S/console.log" "$S/POWEROFF" "$S/gcloud.log" "$E/" 2>/dev/null || true
+  cp "$S/console.log" "$S/POWEROFF" "$S/gcloud.log" "$S/vm-gcloud.log" "$E/" 2>/dev/null || true
+  ls "$S/metadata" > "$E/metadata-keys" 2>/dev/null || true   # names only (T-119: no tb-key among them)
+  find "$S/secrets" -type f ! -name .last -printf '%P\n' > "$E/secrets-left" 2>/dev/null || true
   for n in judge verifier front tb-door tb-watchdog; do cp "$S/units/$n.log" "$E/standin-$n.log" 2>/dev/null || true; done
   docker cp "$C:/var/lib/tb/out/results.tgz" "$E/vm-results.tgz" >/dev/null 2>&1 || true
   [ -d "$REH/runs/$1" ] && cp -r "$REH/runs/$1" "$E/out" 2>/dev/null || true
-  rm -f "$E/out/shard-1/tb-key" "$E/out/src.tgz"
+  rm -f "$E/out/shard-1/tb-key" "$E/out/shard-1/door.key" "$E/out/shard-1/door-secret.json" "$E/out/src.tgz"
 }
 driven() {  # $1 case, $2 minutes, driver args...: --no-wait, then --collect until done
   local case=$1 minutes=$2; shift 2
@@ -171,6 +182,7 @@ driven() {  # $1 case, $2 minutes, driver args...: --no-wait, then --collect unt
 FAILED=()
 check() { "$PY" "$HERE/check.py" "$@" || FAILED+=("$1"); }
 [ "${CASES[0]}" = run-a ] || docker inspect "$C" >/dev/null 2>&1 || fresh_disk
+mkdir -p "$S/secrets/tb-gpu-door" "$S/bucket"   # a disk kept from an older harness (TB_REHEARSAL_KEEP=1)
 for case in "${CASES[@]}"; do
   case "$case" in
     run-a)
@@ -182,19 +194,26 @@ for case in "${CASES[@]}"; do
       prev="$(cat "$REH/evidence/run-a/out/run-id" 2>/dev/null || echo none)"
       driven run-b 30 --patients 500 --only scenario-gateway,scenario-it-dump || true
       end_case run-b; check run-b "$E" --only scenario-gateway,scenario-it-dump --head "$(git -C "$TBROOT" rev-parse HEAD)" --previous "$prev" ;;
+    bucket)  # T-119: TB_BUCKET; the code and the results through the bucket, the door only for heartbeat and progress
+      start_case bucket
+      TB_BUCKET=gs://tb-rehearsal-bucket driven bucket 30 --patients 500 --only scenario-it-dump || true
+      end_case bucket; check bucket "$E" --only scenario-it-dump --head "$(git -C "$TBROOT" rev-parse HEAD)" ;;
     served)
       start_case served; echo "local/not-the-judge" > "$S/knobs/served-judge"
       driven served 20 --patients 500 --only scenario-it-dump || true
       end_case served; check served "$E" ;;
     no-upload)  # no driver: the VM is started as the driver would, and nobody uploads
       start_case no-upload; knob tb-code-wait-minutes 1; knob tb-done-grace 1
-      (umask 077; "$PY" -c 'import secrets; print(secrets.token_urlsafe(32))' > "$REH/no-upload-key")
+      rm -rf "$REH/no-upload-door"; mkdir -p "$REH/no-upload-door"; PY="$PY" door_make "$REH/no-upload-door"
+      ver="$(PATH="$HERE/driver-shims:$PATH" gcloud secrets versions add tb-gpu-door \
+        --data-file="$REH/no-upload-door/door-secret.json" --format='value(name)')"
       PATH="$HERE/driver-shims:$PATH" gcloud compute instances add-metadata "$C" --metadata-from-file \
-        "startup-script=$TBROOT/deploy/gcp/complete-run-vm.sh,tb-key=$REH/no-upload-key" \
-        --metadata "tb-run-id=rehearsal-no-upload,tb-only=scenario-it-dump,tb-collect-only=0,tb-max-minutes=60"
+        "startup-script=$TBROOT/deploy/gcp/complete-run-vm.sh,tb-door-cert=$REH/no-upload-door/door.crt" \
+        --metadata "tb-door-secret=tb-gpu-door,tb-door-version=${ver##*/},tb-run-id=rehearsal-no-upload,tb-only=scenario-it-dump,tb-collect-only=0,tb-max-minutes=60"
       PATH="$HERE/driver-shims:$PATH" gcloud compute instances start "$C"
       wait_terminated 15 || log "no-upload: still running after 15 minutes"
-      rm -f "$REH/no-upload-key"; end_case no-upload; check no-upload "$E" ;;
+      PATH="$HERE/driver-shims:$PATH" gcloud secrets versions destroy "${ver##*/}" --secret tb-gpu-door --quiet || true
+      rm -rf "$REH/no-upload-door"; end_case no-upload; check no-upload "$E" ;;
     hang)
       start_case hang; knob tb-idle-minutes 2; knob tb-done-grace 1; knob tb-selftest-seconds 900
       drive hang --no-wait --patients 500 --only selftest-hang || true
