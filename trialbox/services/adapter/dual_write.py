@@ -109,7 +109,8 @@ def _load(
         feed = read_all(ndjson_dir)
         files = {k: f"ndjson/{snap}/{k}.ndjson" for k in feed}
         site = os.environ.get("TB_SITE_ID") or cfg.site_id
-        rep = load_batch(db, "feed", snap, feed, files, cfg.tz, site)
+        dead = _tombstones(ndjson_dir)
+        rep = load_batch(db, "feed", snap, feed, files, cfg.tz, site, deleted=dead)
     except OmopError as exc:  # the store's own refusal, rolled back and kept in tb_load (its text is ours)
         log.warning("omop dual write %s refused: %s", snap, exc)
         return done("refused", error=str(exc)[:2000])
@@ -129,6 +130,18 @@ def _load(
         return done("loaded", counts=counts, relational_checks=0, error=f"relational checks: {type(exc).__name__}")
     bad = {k: v for k, v in sorted(rel.items()) if v}
     return done("loaded", counts=counts, relational_checks=len(rel), relational_failed=bad)
+
+
+def _tombstones(ndjson_dir: Path) -> dict[str, list[str]]:
+    """T-305b (D-149): the ids the source deleted on this night (``tombstones.json``), for the OMOP tombstone's
+    reason ``deleted at the source``."""
+    from adapter.ndjson import TOMBSTONES
+
+    try:
+        body = json.loads((ndjson_dir / TOMBSTONES).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {str(t): [str(i) for i in ids] for t, ids in body.items()} if isinstance(body, dict) else {}
 
 
 def _record_failure(db: Any, snap: str, error: str) -> None:

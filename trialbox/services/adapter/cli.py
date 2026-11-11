@@ -3,6 +3,8 @@
     adapter run --source {cgrd_sql|csv|fhir_bulk|ssmix2} [--path DIR | --dsn DSN] [--since DATE] [--snapshot DATE]
                 [--no-fhir] [--no-lake] [--no-validate]
     adapter validate [--snapshot DATE] [--per-type 50] [--file RESOURCES.json|.ndjson] [--lake DIR]   # JP Core (D-137)
+    adapter backfill [--source KIND] [--path DIR | --dsn DSN] [--snapshot DATE] [--first-years N]
+                     [--work DIR] [--no-lake] [--no-validate]   # all history, by year, newest first (T-305b)
     adapter keys-init [--secrets DIR]          # the install ceremony's key step (T-612)
     adapter pid-merge --from CHART --into CHART --reason TEXT --ticket ID   # a chart-number merge (T-659b)
 
@@ -138,6 +140,17 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--no-fhir", action="store_true")
     run.add_argument("--no-lake", action="store_true")
     run.add_argument("--no-validate", action="store_true")
+    bf = sub.add_parser("backfill", help="load all history by year, newest first, resumable (T-305b, D-403)")
+    bf.add_argument("--source", choices=["cgrd_sql", "csv", "fhir_bulk", "ssmix2"])
+    bf.add_argument("--path", help="directory (csv, fhir_bulk, ssmix2)")
+    bf.add_argument("--dsn", help="SQLAlchemy DSN (cgrd_sql)")
+    bf.add_argument("--snapshot")
+    bf.add_argument(
+        "--first-years", type=int, default=5, help="publish once after the newest N years (0: only at the end)"
+    )
+    bf.add_argument("--work", type=Path, help="the work folder (default: <lake>/backfill/<snapshot>)")
+    bf.add_argument("--no-lake", action="store_true")
+    bf.add_argument("--no-validate", action="store_true")
     val = sub.add_parser("validate", help="JP Core $validate over a sample of a snapshot, or over a file (D-137)")
     val.add_argument("--snapshot", help="the snapshot (default: the newest)")
     val.add_argument("--per-type", type=int, default=50, help="resources of each type to check (default 50)")
@@ -165,6 +178,8 @@ def main(argv: list[str] | None = None) -> int:
         return pid_merge(ac, args.old, args.new, args.reason, args.ticket)
     kind = args.source or default_kind
     path = args.dsn or args.path or default_path
+    if args.cmd == "backfill":
+        return backfill_cmd(ac, kind, path, args)
     try:
         report = run_ingest(
             ac,
@@ -181,6 +196,28 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     print(json.dumps(dump(report), ensure_ascii=False, indent=1))
     return 0 if report.passed else 1
+
+
+def backfill_cmd(ac: AdapterConfig, kind: str, path: str, args: argparse.Namespace) -> int:
+    """``adapter backfill``: the whole history as one snapshot; run it again to resume (T-305b, D-403)."""
+    from adapter.backfill import backfill
+
+    try:
+        rep = backfill(
+            ac,
+            kind,
+            path,
+            snapshot=args.snapshot,
+            work_dir=args.work,
+            first_years=args.first_years,
+            validate=not args.no_validate,
+            rebuild_lake=not args.no_lake,
+        )
+    except SiteKeyError as exc:
+        print(f"back-fill refused, nothing was read or written: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(rep.as_dict(), ensure_ascii=False, indent=1))
+    return 0 if rep.state == "published" else 1
 
 
 def pid_merge(ac: AdapterConfig, old: str, new: str, reason: str, ticket: str) -> int:

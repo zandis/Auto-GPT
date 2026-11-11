@@ -133,6 +133,9 @@ class Env:
     # T-305a (D-383): a job refuses to pin a lake snapshot more than this many days older than its run date; 0 = no
     # check (the code default: tests and demos run old synthetic nights). The production compose file sets 3.
     lake_max_snapshot_age_days: int = 0
+    # T-305b (D-403): site-setup decisions on the hospital's lake within this many seconds of the last publish wait
+    # and are published as one batch; 0 = every decision publishes at once (the code default). Compose sets 300.
+    site_publish_batch_seconds: int = 0
     # T-624 (D-397): the most patients the micro-batch jobs of one night evaluate, every study together (pool
     # re-checks and new patients); the rest carry over to the next run. 0 = no limit.
     microbatch_night_budget: int = 2000
@@ -193,6 +196,7 @@ _ENV_MAP: dict[str, str] = {
     "TB_AUDIT_DIR": "audit_dir",
     "TB_SECRETS_DIR": "secrets_dir",
     "TB_LAKE_MAX_SNAPSHOT_AGE_DAYS": "lake_max_snapshot_age_days",
+    "TB_SITE_PUBLISH_BATCH_SECONDS": "site_publish_batch_seconds",
     "TB_MICROBATCH_NIGHT_BUDGET": "microbatch_night_budget",
 }
 
@@ -227,6 +231,8 @@ def load_env(dotenv: Path | None = None, environ: dict[str, str] | None = None) 
         _check_zone("TB_TZ", env.tz)
     if env.lake_max_snapshot_age_days < 0:
         raise ConfigError("TB_LAKE_MAX_SNAPSHOT_AGE_DAYS must be 0 (no check) or a number of days")
+    if env.site_publish_batch_seconds < 0:
+        raise ConfigError("TB_SITE_PUBLISH_BATCH_SECONDS must be 0 (publish every decision) or a number of seconds")
     if env.microbatch_night_budget < 0:
         raise ConfigError("TB_MICROBATCH_NIGHT_BUDGET must be 0 (no limit) or a number of patients")
     if env.attach_password_mode not in ("link", "smime", "zip"):
@@ -661,6 +667,9 @@ DECLARED: dict[str, Declared] = {
     "TB_SETTINGS": Declared("str", "", "settings.yaml path"),
     "TB_SETTINGS_FILE": Declared("path", "settings.yaml", "backup schedule: settings.yaml path"),
     "TB_SITE_ID": Declared("str", "", "the site id"),
+    "TB_SITE_PUBLISH_BATCH_SECONDS": Declared(
+        "int", "0", "site decisions on main wait this long and publish as one batch (0: at once; D-403)"
+    ),
     "TB_SKIP_AUDIT": Declared("bool", "", "update: skip the audit check (drills)"),
     "TB_SOURCE_DIR": Declared("path", "./site/feed", "compose: host folder of the site feed (settings wizard, T-632)"),
     "TB_SOURCE_MOUNT": Declared("path", "/data/source/site", "compose: where the site feed is mounted (T-632)"),

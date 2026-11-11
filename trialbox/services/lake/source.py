@@ -123,9 +123,11 @@ def lake_rows(
     snapshot: str,
     source: str | None = None,
     lake_dir: Path | None = None,
+    deleted: dict[str, list[str]] | None = None,
 ) -> Rows:
     """The lake rows of one snapshot: ``feed`` is the snapshot's NDJSON by type, ``site`` the site's inputs;
-    ``lake_dir`` names the lake, whose OMOP store is its own (``omop.schema.schema_for``)."""
+    ``lake_dir`` names the lake, whose OMOP store is its own (``omop.schema.schema_for``); ``deleted`` the ids the
+    source deleted in this snapshot (its ``tombstones.json``), for the OMOP tombstone's reason (T-305b)."""
     if source is None:
         source, origin = rebuild_source()  # read once, when the rebuild starts (D-207)
         record_source(lake_dir, snapshot, source, origin)
@@ -134,7 +136,7 @@ def lake_rows(
         for k, v in site.items():  # D-135: the site's own inputs join every snapshot (after the hospital's)
             merged.setdefault(k, []).extend(v)
         return Flattener(tz).flatten(merged)
-    return omop_rows(feed, site, tz=tz, snapshot=snapshot, lake_dir=lake_dir)
+    return omop_rows(feed, site, tz=tz, snapshot=snapshot, lake_dir=lake_dir, deleted=deleted)
 
 
 def omop_rows(
@@ -145,6 +147,7 @@ def omop_rows(
     snapshot: str,
     url: str | None = None,
     lake_dir: Path | None = None,
+    deleted: dict[str, list[str]] | None = None,
 ) -> Rows:
     import logging
 
@@ -157,7 +160,8 @@ def omop_rows(
     db = schema.connect(url, schema.schema_for(lake_dir))
     try:
         name = os.environ.get("TB_SITE_ID", "")
-        f = load_batch(db, "feed", snapshot, feed, {k: f"ndjson/{snapshot}/{k}.ndjson" for k in feed}, tz, name)
+        files = {k: f"ndjson/{snapshot}/{k}.ndjson" for k in feed}
+        f = load_batch(db, "feed", snapshot, feed, files, tz, name, deleted=deleted)
         s = load_batch(db, "site", f"site@{snapshot}", site, {k: f"site/{k}.ndjson" for k in site}, tz, name)
         rows = export_rows(db)
     finally:
