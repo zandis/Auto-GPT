@@ -28,6 +28,9 @@ from datacore.forms import Field
 
 SIGNATURE_OID = "SD.transcribed"
 LOCATION_OID = "LOC.site"
+#: the signature's legal reason in the file (D-281, REG-021): a plain statement, no claim of conformance with 21 CFR
+#: Part 11 or the Japanese ER/ES guideline. It changes only when an assessment of those rules is on file.
+LEGAL_REASON = "Electronic signature of the person named; see the site's validation summary"
 
 
 def _oid(text: str) -> str:
@@ -120,7 +123,7 @@ def build(study: str, fields: dict[str, Field], items: list[dict[str, Any]], val
     _sub(loc, "MetaDataVersionRef", StudyOID=study_oid, MetaDataVersionOID=mdv_oid, EffectiveDate=at[:10])
     sd = _sub(ad, "SignatureDef", OID=SIGNATURE_OID, Methodology="Electronic")
     _sub(sd, "Meaning").text = meaning_text
-    _sub(sd, "LegalReason").text = "21 CFR Part 11 electronic signature; ER/ES guideline (Japan)"
+    _sub(sd, "LegalReason").text = LEGAL_REASON
     # ClinicalData: signed values only
     cd = _sub(root, "ClinicalData", StudyOID=study_oid, MetaDataVersionOID=mdv_oid)
     data: dict[str, dict[str, list[dict[str, Any]]]] = {}

@@ -358,6 +358,7 @@ def test_a_value_changed_after_signing_is_not_sent_until_signed_again(tmp_path: 
         reason="scale re-read",
         by="crc",
         citation={"text": "ward scale sheet", "day": "2026-11-05"},
+        unlock=True,  # the person re-authenticated: a signed value is locked otherwise (D-281)
     )
     out = svc.send_redcap(k.STUDY, "crc")
     assert "weight" not in {x["item"] for x in out["sent"]}
@@ -760,8 +761,8 @@ def test_e23_user_ids_do_not_collide(tmp_path: Path) -> None:
     _sign(svc)
     one = svc.export_odm(k.STUDY, "crc")
     d = _by_item(svc.store.drafts(k.STUDY, k.RECORD))
-    svc.decide(k.STUDY, d["weight"]["id"], "edit", value="73", reason="re-read", by="crc",
-               citation={"text": "sheet", "day": "2026-11-05"})  # fmt: skip
+    svc.decide(k.STUDY, d["weight"]["id"], "edit", value="73", reason="re-read", by="crc",  # signed: unlocked (D-281)
+               citation={"text": "sheet", "day": "2026-11-05"}, unlock=True)  # fmt: skip
     _sign(svc)
     two = svc.export_odm(k.STUDY, "crc")  # the same second, other values: another file id (E-28)
     oid = re.compile(r'FileOID="([^"]+)"')
