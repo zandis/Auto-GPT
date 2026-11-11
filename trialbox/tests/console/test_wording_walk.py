@@ -64,6 +64,7 @@ MUST_REACH: dict[str, tuple[str, ...]] = {
     "admin": ("/admin", "/site/codes", "/site/start", "/pilot/case"),
     "viewer": ("/reports", "/help"),
     "cro": ("/reports", "/about"),
+    "steward": ("/breakglass", "/about"),
 }
 
 

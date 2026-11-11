@@ -746,9 +746,11 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     @app.get("/studies/{rs}/excluded")
     def excluded_moved(request: Request, rs: str) -> Response:
-        """T-116 (D-351): the page is "Criteria not matched"; the old path answers 301 for one release, query kept."""
+        """T-116 (D-351): the page is "Criteria not matched"; the old path answers 301 for one release, query kept.
+        Access is checked first, so an account that may not see the list gets the same 403 here as on the page."""
+        rid = need_excluded(h.need(request), rs, request.url.path)
         q = f"?{request.url.query}" if request.url.query else ""
-        return RedirectResponse(f"/studies/{quote(rs, safe='')}/not-matched{q}", status_code=301)
+        return RedirectResponse(f"/studies/{quote(rid, safe='')}/not-matched{q}", status_code=301)
 
     @app.get("/studies/{rs}/not-matched")
     def excluded(request: Request, rs: str, src: str = "", page: int = 1, done: str = "") -> Response:
