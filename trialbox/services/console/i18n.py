@@ -1166,6 +1166,15 @@ EN.update(_PRE_EN)
 JA.update(_PRE_JA)
 ZH.update(_PRE_ZH)
 
+# D-396 (T-619b): CTCAE grading of an oncology study and the CDISC export with CDASH IE and DS
+from console.i18n_cdash import EN as _CD_EN  # noqa: E402
+from console.i18n_cdash import JA as _CD_JA  # noqa: E402
+from console.i18n_cdash import ZH as _CD_ZH  # noqa: E402
+
+EN.update(_CD_EN)
+JA.update(_CD_JA)
+ZH.update(_CD_ZH)
+
 # T-506 (TB-IU-01 §1, REG-020): the intended-use statement in the footer comes from its one source in tb_common
 from tb_common.wording import STATEMENT as _STATEMENT  # noqa: E402
 

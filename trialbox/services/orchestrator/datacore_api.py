@@ -138,6 +138,10 @@ class SyncBody(BaseModel):
     by: str
 
 
+class BuiltinBody(SyncBody):
+    ctcae: str = ""  # D-396: the study's CTCAE version (an oncology study), "" for none
+
+
 def _rs(rs: str) -> str:
     rid = rs.strip().upper()
     if not _RS.match(rid):
@@ -337,13 +341,18 @@ def router(get: Callable[[], DataService]) -> APIRouter:
 
     # ------------------------------------------------------------------ built-in capture (TB-PLAN-04 step 4)
     @r.post("/studies/{rs}/forms/builtin")
-    def add_builtin(rs: str, body: SyncBody) -> dict[str, Any]:
+    def add_builtin(rs: str, body: BuiltinBody) -> dict[str, Any]:
         """TrialBox's seven forms in one call. A built-in field name another form of the study already uses is
-        refused (FORM-DUP), so a REDCap dictionary's fields are never shadowed; adding them again replaces them."""
-        from datacore.builtin import ORIGIN, builtin_questionnaires
+        refused (FORM-DUP), so a REDCap dictionary's fields are never shadowed; adding them again replaces them.
+        ``ctcae`` names the study's CTCAE version: the AE form then grades each AE 1 to 5 by it (D-396)."""
+        from datacore.builtin import ORIGIN, builtin_questionnaires, ctcae_code
 
         svc, rid = get(), _rs(rs)
-        qs = builtin_questionnaires(rid)
+        try:
+            ctcae = ctcae_code(body.ctcae)
+        except ValueError as exc:
+            raise _fail(forms.FormError("FORM-CTCAE", str(exc), ["ctcae"])) from exc
+        qs = builtin_questionnaires(rid, ctcae)
         names = {q["name"] for q in qs}
         theirs = {f.name for q in svc.dc.forms(rid) if q["name"] not in names for f in forms.fields_of(q)}
         dup = sorted(theirs & {i["linkId"] for q in qs for i in q["item"]})
@@ -352,8 +361,9 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         at = svc.stamp()
         for q in qs:
             svc.dc.put_form(rid, q, ORIGIN, at)
-        svc.audit.append("data.forms", ruleset=rid, actor=body.by, detail={"forms": sorted(names), "origin": ORIGIN})
-        return {"forms": [q["name"] for q in qs], "fields": sum(len(q["item"]) for q in qs)}
+        svc.audit.append("data.forms", ruleset=rid, actor=body.by,
+                         detail={"forms": sorted(names), "origin": ORIGIN, "ctcae": ctcae})  # fmt: skip
+        return {"forms": [q["name"] for q in qs], "fields": sum(len(q["item"]) for q in qs), "ctcae": ctcae}
 
     @r.get("/studies/{rs}/records")
     def get_records(rs: str) -> list[dict[str, Any]]:
@@ -402,8 +412,8 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         svc, rid = get(), _rs(rs)
         if fmt == "dictionary":
             return {"metadata": forms.metadata(export.export_fields(svc.dc, rid))}
-        if fmt not in ("odm", "csv", "xlsx"):
-            raise HTTPException(status_code=404, detail={"code": "DATA-EXPORT", "message": "odm, csv or xlsx"})
+        if fmt not in export.FORMATS:
+            raise HTTPException(status_code=404, detail={"code": "DATA-EXPORT", "message": "odm, cdisc, csv or xlsx"})
         at = svc.now().isoformat(timespec="seconds")
         body = export.export(svc.dc, rid, fmt, at)
         suffix, media = export.media(fmt)

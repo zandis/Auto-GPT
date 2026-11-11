@@ -14,6 +14,13 @@ TrialBox's own data lives in schema `datacore` of `trialbox_wf` (D-123, D-126):
 - **Sync** runs at 03:00 and on a button. Pages: Sources, Conflicts, Forms; the same calls under `/api/v1`.
 - **Exports:** CDISC ODM 1.3, REDCap CSV and XLSX (D-129). An ODM export re-imports into the REDCap simulator with
   every value equal (`e2e_simple` stage 10).
+- **Adverse events and CDISC scope** ([D-396](../decisions/D-396-ae-grading-cdash-ie-ds.md)). AE terms are kept as
+  written (CDASH `AETERM`); MedDRA coding is done by the sponsor or the data centre, not by TrialBox. An oncology study
+  names its CTCAE version (5.0 or 6.0) when it adds the built-in forms, and each AE then records a CTCAE grade 1 to 5
+  with that version. The CDISC export (`export.cdisc.odm.xml`) is the ODM with CDASH tags on the built-in items and
+  CDASH IE rows (the criterion a screen failure did not meet) and DS rows (consent, screen failure, completion,
+  withdrawal) from the screening log. CDASH covers DM, VS, LB, MH, CM, SV, AE, IE and DS here; EX, SDTM datasets,
+  Define-XML and CDISC Controlled Terminology files are out of scope.
 
 **REDCap.** Attach a project on the study's set-up page (guided; variable names are read from the dictionary). The
 screening write-back fills three fields on TrialBox's own instrument (`tb_screen_date`, `tb_status`,

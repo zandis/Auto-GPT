@@ -31,6 +31,8 @@ from xml.etree import ElementTree as ET  # building only; nothing is parsed here
 from datacore.export import BASE_EVENT, ODM_NS, _sub, _texts, item_def_attrs
 from datacore.forms import Field
 
+from edc.cdash import sds_name
+
 LOCATION_OID = "LOC.site"
 #: the signature's legal reason in the file (D-281, REG-021): a plain statement, no claim of conformance with 21 CFR
 #: Part 11 or the Japanese ER/ES guideline. It changes only when an assessment of those rules is on file.
@@ -54,12 +56,6 @@ def unit_oid(unit: str) -> str:
 def signature_def_oid(meaning: str, lang: str, text: str) -> str:
     """One SignatureDef per meaning, language and the words the signer saw (E-23 e)."""
     return f"SD.{_oid(meaning)}.{_oid(lang)}.{hashlib.sha256(text.encode('utf-8')).hexdigest()[:6]}"
-
-
-def sds_name(var: str) -> str:
-    """The SDTM variable of a CDASH name, or "" when the CDASH name is not one: CDASH dates and times (``BRTHDAT``,
-    ``VSDAT``, ``VISDAT``, ``--TIM``) become ``--DTC`` in SDTM, so they carry only the CDASH alias (STD-062)."""
-    return "" if re.search(r"(DAT|TIM)$", var) else var
 
 
 def source_id(c: dict[str, Any] | None) -> str:
