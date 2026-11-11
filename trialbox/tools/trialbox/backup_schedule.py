@@ -21,6 +21,10 @@ is on (``TB_PG_ARCHIVE_MODE=on``), pgBackRest then takes a differential backup, 
 ``TB_PGBACKREST_FULL_DAY`` (default Sunday, the box's local day). The result goes to ``deploy/site/backup-last.json``
 (0600: time, file name, size, sha256, targets, errors; never a row or a file's content) and to the audit
 (``backup.done`` / ``backup.failed``). A run holds a lock, sweeps what a killed run left, and checks free space first.
+D-274: every running service but ``db`` is paused while the databases and the volumes are read (one point in time),
+and the dump folder carries a ``host/`` part (``deploy/.env``, settings, ``deploy/site``, ``deploy/secrets``, the
+Authelia and Caddy volumes). ``backup-install`` (install.sh) writes the cron file, turns WAL archiving on where the
+image and an off-box share allow it, and runs the first backup; in PRODUCTION it needs an alert route.
 
 **Off-box.** A target counts as off-box when it is a network share (NFS, SMB/CIFS, SSHFS ... or a Windows UNC path
 mounted in WSL2), a USB disk, or a path that hospital IT declared in ``TB_BACKUP_OFFBOX`` (e.g. an iSCSI volume in
@@ -65,6 +69,10 @@ ARCHIVE_STALE_HOURS = 26
 REALERT = timedelta(hours=24)
 STANZA = "trialbox"
 CONTAINER_SPOOL = "/tmp/tb-backup"
+QUIESCE_KEEP = frozenset({"db"})  # D-274 (DI-11): every other running service is paused while a backup reads
+# D-274 (OPS-046): volumes a rebuild needs beyond the data. traces-data is left out on purpose: model traces are
+# diagnostics, not needed to rebuild, and may hold note text (PV-13)
+HOST_VOLUMES = ("authelia-data", "caddy-data")
 
 Audit = Callable[[str, dict[str, Any]], None]
 
@@ -136,8 +144,25 @@ def _lit(s: str) -> str:
     return "'" + s.replace("'", "''") + "'"
 
 
-_ROW = ("SELECT %L || ''|'' || count(*) || ''|'' || "
-        "md5(COALESCE(string_agg(t::text, chr(10) ORDER BY t::text), '''')) FROM %I.%I t")  # fmt: skip
+ROW_HASH = "rs1"  # D-274 (CR-057): the table's content hash; "md5" is the one every backup before it used
+EMPTY_HASH = {"md5": "d41d8cd98f00b204e9800998ecf8427e", "rs1": "rs1:0:0"}  # the hash of a table with no rows
+
+
+def row_agg(scheme: str = ROW_HASH) -> str:
+    """The SQL of a table's content hash over its rows aliased ``t``, for ``SELECT count(*), <this> FROM x t``.
+
+    ``rs1`` (D-274, CR-057): two sums of 64-bit pieces of each row's md5. A sum does not depend on row order and
+    never builds one value over the whole table, so a table of any size hashes (``md5``, the old form, aggregated the
+    whole table into one string, and Postgres refuses a string over 1 GB). ``md5`` stays to restore older backups."""
+    if scheme == "md5":
+        return "md5(COALESCE(string_agg(t::text, chr(10) ORDER BY t::text), ''))"
+    if scheme != "rs1":
+        raise ValueError(f"unknown row hash {scheme!r}")
+    part = "COALESCE(sum(('x' || {}(md5(t::text), 16))::bit(64)::bigint), 0)"
+    return f"'rs1:' || {part.format('left')} || ':' || {part.format('right')}"
+
+
+_ROW = "SELECT %L || ''|'' || count(*) || ''|'' || " + row_agg().replace("'", "''") + " FROM %I.%I t"
 _SITE = " WHERE source_id IN (SELECT source_id FROM %I.source WHERE distribution = ''site-fetch'')"
 
 
@@ -187,7 +212,7 @@ def snapshot_script(out: str, name: str, pg_dump: str, conn: str, schemas: Seque
 
 
 def snapshot_meta(name: str, refdata: str | None) -> dict[str, Any]:
-    return {"db": name, "rows_from": "snapshot", "refdata_schema": refdata,
+    return {"db": name, "rows_from": "snapshot", "refdata_schema": refdata, "row_hash": ROW_HASH,
             "excluded_tables": [f"{refdata}.{t}" for t in BULK_REFDATA] if refdata else []}  # fmt: skip
 
 
@@ -319,6 +344,13 @@ class Config:
     alert_cmd: str = ""
     site: str = ""
     tz: str = "UTC"
+    mailto: str = ""  # D-274: cron's MAILTO, an alert route only where the host has a mail transfer agent
+    archive_set: str = ""  # TB_PG_ARCHIVE_MODE as written ("" when the site never chose)
+    pgbackrest_repo: str = ""
+
+    @property
+    def alert_route(self) -> bool:
+        return bool(self.alert_cmd or self.mailto)
 
     @property
     def last_file(self) -> Path:
@@ -341,9 +373,11 @@ def _unquote(v: str) -> str:
     return v[1:-1] if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'" else v
 
 
-def config(deploy: Path, env: Mapping[str, str]) -> Config:
-    """The schedule's settings from ``deploy/.env`` (``env``, quotes removed), with the process environment winning."""
-    e = {k: _unquote(v) for k, v in {**env, **{k: v for k, v in os.environ.items() if k.startswith("TB_")}}.items()}
+def config(deploy: Path, env: Mapping[str, str], process_env: bool = True) -> Config:
+    """The schedule's settings from ``deploy/.env`` (``env``, quotes removed), with the process environment winning
+    (``process_env``; doctor passes its own merged settings and False)."""
+    proc = {k: v for k, v in os.environ.items() if k.startswith("TB_")} if process_env else {}
+    e = {k: _unquote(v) for k, v in {**env, **proc}.items()}
     return Config(
         deploy=deploy,
         targets=[Path(t) for t in _split(e.get("TB_BACKUP_TARGETS", ""))],
@@ -357,6 +391,9 @@ def config(deploy: Path, env: Mapping[str, str]) -> Config:
         alert_cmd=e.get("TB_BACKUP_ALERT_CMD", ""),
         site=e.get("TB_SITE_ID", ""),
         tz=e.get("TB_TZ") or "Asia/Taipei",
+        mailto=e.get("TB_BACKUP_MAILTO", ""),
+        archive_set=(e.get("TB_PG_ARCHIVE_MODE") or "").lower(),
+        pgbackrest_repo=e.get("TB_PGBACKREST_REPO", ""),
     )
 
 
@@ -430,6 +467,9 @@ def nightly(
                            "sha256": copies[0]["sha256"], "copies": copies}  # fmt: skip
         except Exception as e:  # every failure is recorded, audited and alerted (exit 1)
             errors.append(f"backup failed: {type(e).__name__}: {str(e)[-400:]}")
+    pit = getattr(make_backup, "point_in_time", None)
+    if pit is not None:  # D-274 (DI-11): the writing services held still while the databases and files were read
+        res["point_in_time"] = dict(pit)
     if cfg.archive_on and pgbackrest is not None:
         kind = "full" if _local_weekday(now, cfg.tz) == cfg.full_day else "diff"
         try:
@@ -501,6 +541,9 @@ def status(
                                 "its time")  # fmt: skip
         except ValueError:
             problems.append("deploy/site/backup-last.json has no time for the good backup")
+    if cfg.production and not cfg.alert_route:
+        problems.append("no alert route: set TB_BACKUP_ALERT_CMD (or TB_BACKUP_MAILTO with a mail relay) in "
+                        "deploy/.env (RUNBOOK §5)")  # fmt: skip
     if last and not last.get("ok"):
         problems.append(f"the last nightly backup at {last.get('at', '?')} failed (deploy/site/backup-last.json)")
     if last.get("pgbackrest") and not last["pgbackrest"].get("ok"):
@@ -617,15 +660,67 @@ class ComposeOps:
         _write_json(work / f"{db}.dump.json", snapshot_meta(db, refdata))
         parse_snapshot(work, db)  # the dump finished and every file is there, or the run fails here
 
+    def writers(self) -> list[str]:
+        """The running services but ``db``: the ones a backup holds still (D-274, DI-11)."""
+        out = self.box.run(self.box._c("ps", "--status", "running", "--services"))
+        return sorted({x for x in out.split() if x not in QUIESCE_KEEP})
+
+    def host_files(self, dest: Path) -> list[str]:
+        """What a rebuild needs besides the data (D-274, DI-12, OPS-046), copied into ``dest`` (inside the 0700 work
+        folder): ``deploy/.env``, the settings file, ``deploy/site`` (pins, mapping, records), ``deploy/secrets``
+        (the pgBackRest cipher, the public backup key) and the volumes of the identity provider and the proxy (its
+        CA: without it every clinic PC must trust a new root). Returns the names taken."""
+        dest.mkdir(mode=0o700, parents=True, exist_ok=True)
+        taken: list[str] = []
+        settings = Path(self.env.get("TB_SETTINGS_FILE") or "settings.yaml")
+        settings = settings if settings.is_absolute() else self.deploy / settings
+        for src, name in ((self.deploy / ".env", "deploy.env"), (settings, "settings.yaml")):
+            if src.is_file():
+                shutil.copy2(src, dest / name)
+                taken.append(name)
+        skip = shutil.ignore_patterns("backup.lock", ".audit-*", "*.tmp")
+        for sub in ("site", "secrets"):
+            if (self.deploy / sub).is_dir():
+                shutil.copytree(self.deploy / sub, dest / sub, symlinks=True, ignore=skip, dirs_exist_ok=True)
+                taken.append(sub)
+        for vol in HOST_VOLUMES:
+            root = self.env.get("TB_DOCKER_VOLUMES") or os.environ.get("TB_DOCKER_VOLUMES") or "/var/lib/docker/volumes"
+            src = Path(root) / f"trialbox_{vol}" / "_data"
+            try:
+                if not src.is_dir():
+                    continue
+                shutil.copytree(src, dest / "volumes" / vol, symlinks=True, dirs_exist_ok=True)
+                taken.append(f"volume {vol}")
+            except OSError:  # not readable here (not root): the backup goes on without it, and says so
+                taken.append(f"volume {vol}: not readable")
+        return taken
+
     def make_backup(self, cfg: Config) -> Callable[[list[Path]], list[Path]]:
+        """The nightly step: one point in time (D-274, DI-11). The services that write (all but ``db``) are paused
+        (``docker compose pause``) while both databases are snapshotted and the backup container reads every
+        volume, and unpaused right after, whatever happened; ``TB_BACKUP_QUIESCE=off`` leaves them running (the
+        backup is then two database snapshots and files read a little later, and the record says so)."""
+
         def run(targets: list[Path]) -> list[Path]:
             before = {t: {p.name for p in t.glob(f"trialbox-*{SUFFIX}")} for t in targets}
             work = Path(tempfile.mkdtemp(prefix=".backup-", dir=self.deploy))  # 0700; plaintext dumps: removed below
+            paused: list[str] = []
+            started = datetime.now(UTC)
+            run.point_in_time = {"held": False, "paused": [], "why": "TB_BACKUP_QUIESCE=off"}  # type: ignore[attr-defined]
             try:
+                if (self.env.get("TB_BACKUP_QUIESCE") or "pause").lower() != "off":
+                    paused = self.writers()
+                    if paused:
+                        self.box.run(self.box._c("pause", *paused))
+                    run.point_in_time = {"held": True, "paused": paused}  # type: ignore[attr-defined]
                 for db, user in (("trialbox_wf", "trialbox"), ("hapi", "hapi")):
                     self.snapshot(db, user, work)
+                self.host_files(work / "host")
                 self.box._backup_container(work, cfg.public_key, [str(t) for t in targets], keep=cfg.keep)
             finally:
+                if paused:
+                    self.box.run(self.box._c("unpause", *paused))
+                    run.point_in_time["held_s"] = round((datetime.now(UTC) - started).total_seconds())  # type: ignore[attr-defined]
                 shutil.rmtree(work, ignore_errors=True)
             new = [sorted({p.name for p in t.glob(f"trialbox-*{SUFFIX}")} - before[t]) for t in targets]
             if not all(new):
@@ -646,21 +741,34 @@ class ComposeOps:
                 "last_archived_age_s": int(age or -1)}  # fmt: skip
 
     def audit(self, event: str, detail: dict[str, Any]) -> None:
+        """Append ``event`` to the box's audit log through the orchestrator. Events kept while it was down
+        (``deploy/site/backup-audit-pending.jsonl``) go first, in order (D-274, DI-10); what cannot be sent stays."""
         code = (
             "import json, sys\nfrom tb_common.audit import AuditLog\ns = json.load(sys.stdin)\n"
             "AuditLog('/data/audit').append(s['event'], actor='backup', input_sha=s['sha'], detail=s['detail'])\n"
         )
         state = self.deploy / "site"
         state.mkdir(parents=True, exist_ok=True)
-        f = state / f".audit-{event}.json"
-        f.write_text(json.dumps({"event": event, "sha": detail.get("sha256") or "", "detail": detail}))
-        try:
-            self.box.run(self.box._c("exec", "-T", "orchestrator", "python", "-c", code), stdin_file=f)
-            f.unlink(missing_ok=True)
-        except Exception:  # the orchestrator is down: keep the event for the admin, never lose it
-            with (state / "backup-audit-pending.jsonl").open("a", encoding="utf-8") as fh:
-                fh.write(f.read_text() + "\n")
-            f.unlink(missing_ok=True)
+        pending = state / "backup-audit-pending.jsonl"
+        lines = [ln for ln in (pending.read_text(encoding="utf-8").splitlines() if pending.is_file() else []) if ln]
+        lines.append(json.dumps({"event": event, "sha": detail.get("sha256") or "", "detail": detail}))
+        left: list[str] = []
+        for ln in lines:
+            if left:  # keep the order: after one fails, the rest wait too
+                left.append(ln)
+                continue
+            f = state / f".audit-{json.loads(ln)['event']}.json"
+            f.write_text(ln, encoding="utf-8")
+            try:
+                self.box.run(self.box._c("exec", "-T", "orchestrator", "python", "-c", code), stdin_file=f)
+            except Exception:  # the orchestrator is down: keep the event for the admin, never lose it
+                left.append(ln)
+            finally:
+                f.unlink(missing_ok=True)
+        if left:
+            pending.write_text("".join(x + "\n" for x in left), encoding="utf-8")
+        else:
+            pending.unlink(missing_ok=True)
 
 
 @contextlib.contextmanager
@@ -675,6 +783,138 @@ def _lock(deploy: Path) -> Iterator[bool]:
             yield False
             return
         yield True
+
+
+# ------------------------------------------------------------------------------------------------ install (D-274)
+CRON_NAME = "trialbox-backup"
+
+
+def set_env(path: Path, key: str, value: str) -> None:
+    """Set ``key=value`` in a ``deploy/.env`` (replaced in place, else appended); the file keeps its mode."""
+    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+    out = [ln for ln in lines if not ln.startswith(f"{key}=")]
+    out.append(f"{key}={value}")
+    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+
+
+def cron_text(template: str, root: Path, mailto: str) -> str:
+    """The cron file for this box: the install folder for ``/opt/trialbox`` and the site's ``MAILTO`` (empty: cron
+    mails nothing, the alert goes through ``TB_BACKUP_ALERT_CMD``)."""
+    if any(c in str(root) for c in "\n#%") or any(c in mailto for c in "\n\"'"):
+        raise ValueError("an install folder or MAILTO with a newline, #, % or a quote")
+    out = []
+    for ln in template.replace("/opt/trialbox", str(root)).splitlines():
+        out.append(f'MAILTO="{mailto}"' if ln.startswith("MAILTO=") else ln)
+    return "\n".join(out) + "\n"
+
+
+def install_cron(cfg: Config, cron_dir: Path, root: Path, has_mta: bool) -> list[str]:
+    """Write ``<cron_dir>/trialbox-backup`` (0644). In PRODUCTION an alert route is required (D-274, OPS-028):
+    ``TB_BACKUP_ALERT_CMD``, or ``TB_BACKUP_MAILTO`` on a host that has a mail transfer agent; else ValueError."""
+    notes = []
+    if cfg.mailto and not has_mta:
+        msg = "TB_BACKUP_MAILTO is set but this host has no mail transfer agent (sendmail): cron cannot mail"
+        if cfg.production and not cfg.alert_cmd:
+            raise ValueError(msg + "; set TB_BACKUP_ALERT_CMD (RUNBOOK §5)")
+        notes.append("note: " + msg)
+    if cfg.production and not cfg.alert_route:
+        raise ValueError(
+            "PRODUCTION needs a backup alert route: TB_BACKUP_ALERT_CMD (a command that reads the "
+            "message on stdin), or TB_BACKUP_MAILTO and a mail relay, in deploy/.env (RUNBOOK §5)"
+        )
+    if not cfg.alert_route:
+        notes.append("note: no backup alert route (TB_BACKUP_ALERT_CMD, TB_BACKUP_MAILTO): alerts reach the audit "
+                     "and the admin page only")  # fmt: skip
+    template = (cfg.deploy / "backup" / f"{CRON_NAME}.cron").read_text(encoding="utf-8")
+    cron_dir.mkdir(parents=True, exist_ok=True)
+    dest = cron_dir / CRON_NAME
+    tmp = cron_dir / f".{CRON_NAME}.tmp"  # cron reads no file whose name has a dot
+    tmp.write_text(cron_text(template, root, cfg.mailto if has_mta else ""), encoding="utf-8")
+    os.chmod(tmp, 0o644)
+    tmp.replace(dest)
+    return [f"cron: {dest} (04:45 nightly backup, hourly age check)", *notes]
+
+
+def setup_archiving(cfg: Config, ops: ComposeOps, classify: Callable[[Path], Target] | None = None) -> list[str]:
+    """WAL archiving on by default (D-274, DATA-024, OPS-048): unless the site wrote ``TB_PG_ARCHIVE_MODE=off``, turn
+    it on when the db image carries pgBackRest and the repository is off the box (``TB_PGBACKREST_REPO``, else
+    ``pgbackrest-<site>`` on the first off-box target): the cipher pass is made once (``deploy/secrets/pgbackrest``),
+    the stanza is created, archiving is switched on and ``pgbackrest check`` must archive a segment, or it is
+    switched off again (a failing ``archive_command`` would fill the disk). Returns what was done, in plain words."""
+    env_file = cfg.deploy / ".env"
+    if cfg.archive_set == "off":
+        return ["WAL archiving: off (TB_PG_ARCHIVE_MODE=off in deploy/.env, the site's choice)"]
+    if cfg.archive_on:
+        return ["WAL archiving: on (deploy/.env)"]
+    cls = classify or cfg.classify
+    try:
+        ops.box.run(ops.box._c("exec", "-T", "db", "sh", "-c", "command -v pgbackrest"))
+    except Exception:
+        return ["WAL archiving: off: the db image has no pgBackRest (POSTGRES_IMAGE; RUNBOOK §5); doctor warns"]
+    repo = cfg.pgbackrest_repo
+    if not repo:
+        off = [t for t in cfg.targets if cls(t).offbox]
+        if not off:
+            return ["WAL archiving: off: no off-box target for the pgBackRest repository (TB_BACKUP_TARGETS or "
+                    "TB_PGBACKREST_REPO); doctor warns"]  # fmt: skip
+        repo = str(off[0] / f"pgbackrest-{safe(cfg.site or 'box')}")
+    elif not cls(Path(repo)).offbox:
+        return [f"WAL archiving: off: TB_PGBACKREST_REPO {repo} is on this box; doctor warns"]
+    Path(repo).mkdir(parents=True, exist_ok=True)
+    cipher = cfg.deploy / "secrets" / "pgbackrest" / "cipher.conf"
+    if not cipher.is_file():
+        import secrets as _secrets
+
+        cipher.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(cipher.parent, 0o700)
+        fd = os.open(cipher, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(f"[global]\nrepo1-cipher-pass={_secrets.token_urlsafe(48)}\n")
+    set_env(env_file, "TB_PGBACKREST_REPO", repo)
+    pg = ("exec", "-T", "-u", "postgres", "db", "pgbackrest", f"--stanza={STANZA}")
+    try:
+        uid = ops.box.run(ops.box._c("exec", "-T", "db", "id", "-u", "postgres")).strip() or "999"
+        with contextlib.suppress(OSError):  # the container's postgres user reads it (root runs install)
+            for f in (cipher.parent, cipher, Path(repo)):
+                os.chown(f, int(uid), int(uid))
+        ops.box.run(ops.box._c("up", "-d", "db"), timeout=900)  # the repository mount
+        ops.box.run(ops.box._c(*pg, "stanza-create"), timeout=900)
+        set_env(env_file, "TB_PG_ARCHIVE_MODE", "on")
+        ops.box.run(ops.box._c("up", "-d", "db"), timeout=900)
+        ops.box.run(ops.box._c(*pg, "check"), timeout=900)
+    except Exception as e:
+        set_env(env_file, "TB_PG_ARCHIVE_MODE", "off")
+        with contextlib.suppress(Exception):
+            ops.box.run(ops.box._c("up", "-d", "db"), timeout=900)
+        return [f"WAL archiving: off: set-up failed ({type(e).__name__}: {str(e)[-200:]}); RUNBOOK §5"]
+    return [f"WAL archiving: on, to {repo} (point-in-time restore; the cipher pass is in {cipher}: give hospital "
+            "IT a copy with the backup key)"]  # fmt: skip
+
+
+def main_install(deploy: Path, cron_dir: Path = Path("/etc/cron.d"), first: bool = True) -> int:
+    """``trialbox backup-install`` (install.sh's backup step, D-274): the cron file, WAL archiving, the first
+    backup. Exit 1 only when the cron file cannot be installed (in PRODUCTION: no alert route)."""
+    from tools.trialbox import update
+
+    cfg = config(deploy, update._env_file(deploy / ".env"))
+    try:
+        for n in install_cron(cfg, cron_dir, deploy.resolve().parent, shutil.which("sendmail") is not None):
+            print(n)
+    except (OSError, ValueError) as e:
+        print(f"backup-install: {e}")
+        return 1
+    ops = ComposeOps(deploy)
+    for n in setup_archiving(cfg, ops):
+        print(n)
+    if not first:
+        return 0
+    if not cfg.public_key.is_file():
+        print("first backup: not yet: no backup key (trialbox backup-keygen with hospital IT, RUNBOOK §5); "
+              "the cron runs it every night from then on")  # fmt: skip
+        return 0
+    rc = main_nightly(deploy)
+    print("first backup: " + ("done" if rc == 0 else "FAILED (above); backup-status stays red until it works"))
+    return 0
 
 
 def main_nightly(deploy: Path) -> int:
