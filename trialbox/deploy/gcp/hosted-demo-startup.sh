@@ -219,6 +219,18 @@ pinned "$IMAGE" || die "metadata tb-image must be an image by digest (…@sha256
 pinned "$CADDY_IMAGE" || die "tb-caddy-image must be pinned by digest"
 pinned "$CLOUDFLARED_IMAGE" || die "tb-cloudflared-image must be pinned by digest"
 
+# T-119 (CR-048): secrets come from Secret Manager only. A key, password, token or accounts file put in the instance
+# metadata (readable by anyone on the VM and in the project's metadata) is refused before anything starts; its value
+# is never read. In a dry run the metadata is the TB_MD_<KEY> environment.
+metadata_keys() {
+  if [ "$DRY" = 1 ]; then env | sed -n 's/^TB_MD_\([A-Z0-9_]*\)=.*/\1/p' | tr 'A-Z_' 'a-z-'; return 0; fi
+  curl -sf -H Metadata-Flavor:Google "$MD/instance/attributes/" || true
+}
+for k in $(metadata_keys); do
+  [[ "$k" =~ (password|passwd|token|accounts|^tb-key$|private-key) ]] \
+    && die "metadata $k looks like a secret: put it in Secret Manager ($PREFIX-...) and remove it from the metadata"
+done
+
 if [ -n "$RESET_SITE" ]; then
   idx=$(site_index "$RESET_SITE") || die "no site '$RESET_SITE' in tb-sites ($SITES)"
   say "reset site $RESET_SITE: its kept folder is emptied; the next start seeds afresh (3 to 6 minutes)"
