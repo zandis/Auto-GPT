@@ -18,6 +18,10 @@
   While a referral waits or was declined, Approach is refused: the PI contacts the patient only after agreement.
 * **IRB approval and the current consent-form version** (``/studies/{rs}/irb``): missing or expired gives a warning
   before Approach, not a gate; every override is recorded.
+* **The IRB text's coverage** (D-395, RSK-42): a candidate's page and its chart number open only while the study's PI
+  has recorded, on the study set-up page (``/studies/{rs}/state``), that the approved IRB text covers "identified
+  pre-screening across departments by the investigator before referral". Without it: 403 with the reason, audited.
+  ``TB_IRB_TEXT_GATE``: ``auto`` (default: on in VALIDATION and PRODUCTION), ``on`` or ``off`` (refused there).
 * **Opt-out register** (``/site/opt-outs``, kept by the research office or the steward): an opted-out patient leaves
   screening, every candidate list and later exports (``tb_common.optout``); each registration is audited.
 
@@ -37,6 +41,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from tb_common.authz import study_tasks
+from tb_common.config import environment_name
 from tb_common.optout import SOURCES, OptOutError, OptOutRegister
 
 from console import s28
@@ -104,6 +109,22 @@ def check_due(team: TeamStore, rs: str, today: date, tz: ZoneInfo) -> bool:
     return not checks or local_date(checks[0].at, tz) < (today - timedelta(days=CHECK_DAYS)).isoformat()
 
 
+GATE_ENVS = ("VALIDATION", "PRODUCTION")  # where the IRB-text gate is on by default and cannot be turned off
+
+
+def irb_text_gate(env: Mapping[str, str]) -> bool:
+    """D-395: is the candidate view held until the study's IRB text covers the sentence? ``TB_IRB_TEXT_GATE`` is
+    ``auto`` (on in VALIDATION and PRODUCTION, off in DEV and TEST, where only synthetic data is read), ``on`` or
+    ``off``; ``off`` is refused in VALIDATION and PRODUCTION (ValueError)."""
+    mode = (env.get("TB_IRB_TEXT_GATE") or "auto").strip().lower()
+    if mode not in ("auto", "on", "off"):
+        raise ValueError(f"TB_IRB_TEXT_GATE must be auto, on or off, got {mode!r}")
+    name = environment_name(env)
+    if mode == "off" and name in GATE_ENVS:
+        raise ValueError(f"TB_IRB_TEXT_GATE=off is refused in {name}")
+    return name in GATE_ENVS if mode == "auto" else mode == "on"
+
+
 class ApiReferral(BaseModel):
     route: str = ""
     staff_id: int | None = None
@@ -140,6 +161,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     team = TeamStore()  # schema team of the trial database (TB_DB_URL, D-126)
     optout = OptOutRegister()  # schema optout, read by the orchestrator too
     h.team, h.optout = team, optout
+    h.irb_gate = irb_text_gate(env)  # D-395
     per_hour = int(env.get("TB_CANDIDATE_VIEWS_PER_HOUR") or 60)
     # D-273 (PV-6): chart numbers turned into pseudonyms at the opt-out door, per person and hour
     lookups_per_hour = int(env.get("TB_OPTOUT_LOOKUPS_PER_HOUR") or 30)
@@ -188,6 +210,18 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         if task not in s.tasks:
             raise deny(sess, path)
         return s
+
+    def view_open(rid: str) -> bool:
+        """D-395: the candidate view of this study may open (the gate is off here, or the IRB text covers it)."""
+        return not h.irb_gate or store.irb_text(rid).enables
+
+    def need_irb_text(sess: Session, rid: str, path: str) -> None:
+        """D-395 (RSK-42): no candidate page and no chart number from it until the study's PI has recorded that the
+        approved IRB text covers the cross-department identified view. Refused with the reason, and audited."""
+        if not view_open(rid):
+            au.append("console.denied", ruleset=rid, actor=h.actor(sess),
+                      detail={"action": path[:80], "reason": "irb_text"})  # fmt: skip
+            raise h.problem(403, "irbt.refused", rs=rid)
 
     # ------------------------------------------------------------------ candidates
     def candidate_rows(sess: Session, rid: str) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
@@ -273,6 +307,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     def view_candidate(sess: Session, path: str, rs: str, pid: str, purpose: str) -> tuple[str, dict[str, Any]]:
         rid = study_or_404(sess, rs)
         need_task(sess, rid, "screen", path)
+        need_irb_text(sess, rid, path)
         if purpose not in VIEW_PURPOSES:
             raise h.problem(400, "candidate.purpose")
         ctx = candidate_ctx(sess, rid, pid)
@@ -289,6 +324,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         the study and, for an investigator, the delegation log's "screen"; the D-143 reason; the audit record on both
         sides and the orchestrator's per-person cap. The candidate page adds only the view's purpose to the record."""
         rid = study_or_404(sess, rs)
+        need_irb_text(sess, rid, path)
         if purpose not in VIEW_PURPOSES:
             raise h.problem(400, "candidate.purpose")
         if h.apply_reveal is None:
@@ -315,7 +351,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         removed = len((wk or {}).get("removed") or ())  # only the count: who opted out is itself private
         return h.page(request, "team_candidates.html", sess, rs=rid, wk=wk, rows=shown, n_all=n_all, page_no=page_no,
                       pages=pages, show=show, removed=removed, standing=stand(sess.user, rid),
-                      purposes=VIEW_PURPOSES)  # fmt: skip
+                      purposes=VIEW_PURPOSES, view_open=view_open(rid))  # fmt: skip
 
     @app.get("/studies/{rs}/candidates/{pid}")
     def candidate(request: Request, rs: str, pid: str, purpose: str = "") -> Response:
@@ -323,6 +359,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         if purpose not in VIEW_PURPOSES:  # nothing patient-level before the purpose is given
             rid = study_or_404(sess, rs)
             need_task(sess, rid, "screen", request.url.path)
+            need_irb_text(sess, rid, request.url.path)
             if not _PID.match(pid):
                 raise h.problem(404, "notfound")
             return h.page(request, "team_purpose.html", sess, rs=rid, pid=pid, purposes=VIEW_PURPOSES)
@@ -739,6 +776,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return {
             "study": rid,
             "job_id": wk["job"].job_id if wk else None,
+            "candidate_view": view_open(rid),  # D-395: a candidate's page opens (the IRB text covers it)
             "candidates": [
                 {"pid": r["pid"], "tier": r["tier"], "status": r["status"], "screening_no": r["screening_no"],
                  "doctor": {"known": r["doctor"]["known"], "name": r["doctor"]["name"] or None,

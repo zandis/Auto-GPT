@@ -145,6 +145,22 @@
         "MAILPIT_IMAGE"
       ],
       "note": "test profile only: the sink for the box's outbound mail (replaces MailHog, DEP-021)"
+    },
+    "prometheus": {
+      "image": "prom/prometheus:v3.5.0",
+      "digest": "sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996",
+      "platforms": {
+        "linux/amd64": {
+          "manifest": "sha256:8672a850efe2f9874702406c8318704edb363587f8c2ca88586b4c8fdb5cea24"
+        },
+        "linux/arm64": {
+          "manifest": "sha256:dfc3cce6bfa8485ccad377c66f4ef9833524fde710756faa725251b639d19d86"
+        }
+      },
+      "variables": [
+        "PROMETHEUS_IMAGE"
+      ],
+      "note": "monitoring overlay only (deploy/docker-compose.monitoring.yml, T-209a, D-379): scrapes the console's /metrics on the box; the 3.5 long-term-support release"
     }
   }
 }
