@@ -20,6 +20,7 @@ names. Every record is written by the pull request or the tool that does the wor
 | [`ai-governance.md`](ai-governance.md) | the AI governance note: who answers for the models, what they may and may not do | T-649b |
 | [`model-change-protocol.md`](model-change-protocol.md) | the model change protocol: the qualify steps and their thresholds | T-649b |
 | [`record-inventory.md`](record-inventory.md) | every record the box makes or holds: class, system of record, keeper, retention, export, audit events; the store map | T-643 |
+| [`soa.csv`](soa.csv) | the statement of applicability: ISO/IEC 27001:2022 Annex A, 93 controls, who each applies to (product, Aimedics, hospital), evidence or a reason | T-649c |
 | `protocols/` | IQ, OQ, PQ protocols, only under TB-PLAN-06 §0.3 item 2 (planned) | T-315b |
 
 Not here, by D-311: `gates/` (gate records, B1), `risk-register.md` (one risk file, B18; the risk file stays TB-PLAN-05

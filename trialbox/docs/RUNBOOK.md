@@ -88,9 +88,9 @@ File: [runbook/17-on-a-hospital-platform.md](runbook/17-on-a-hospital-platform.m
 
 File: [runbook/18-site-mapping-without-site-data.md](runbook/18-site-mapping-without-site-data.md).
 
-## 19. Model misbehaviour: note reading off, the runs a build touched (reserved for T-609)
+## 19. Model misbehaviour: note reading off, the runs a build touched
 
-Not written yet: the number is held in the table below.
+File: [runbook/19-model-misbehaviour.md](runbook/19-model-misbehaviour.md). In it: [What the hold does](runbook/19-model-misbehaviour.md#what-the-hold-does), [1. Hold note reading](runbook/19-model-misbehaviour.md#1-hold-note-reading), [2. List the runs and patients the build touched](runbook/19-model-misbehaviour.md#2-list-the-runs-and-patients-the-build-touched), [3. Re-review](runbook/19-model-misbehaviour.md#3-re-review), [4. Fix and release](runbook/19-model-misbehaviour.md#4-fix-and-release), [Who does what](runbook/19-model-misbehaviour.md#who-does-what).
 
 ## 20. Close-out and decommissioning (reserved for T-628)
 
@@ -151,7 +151,7 @@ TrialBox; OPS-073: [Developing](DEVELOPING.md) lists them, D-390).
 | 16 | Box-install rehearsal | on master | team |
 | 17 | On a hospital platform | on master | site |
 | 18 | Developing a site mapping without the site's data | on master | team |
-| 19 | Model misbehaviour: note reading off, the runs a build touched | T-609 | site |
+| 19 | Model misbehaviour: note reading off, the runs a build touched | on master | site |
 | 20 | Close-out and decommissioning | T-628 | site |
 | 21 | Support model and the supervised remote session | on master | site |
 | 22 | Disaster recovery with measured RPO and RTO | on master | site |

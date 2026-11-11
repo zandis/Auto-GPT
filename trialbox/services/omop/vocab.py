@@ -65,6 +65,7 @@ DOMAIN_MEASUREMENT = 21
 SUSPECTED = 2_000_000_001
 SITE_INPUT = 2_000_000_011
 PROPOSED_FACT = 2_000_000_012
+DEATH_DATE_IMPUTED = 2_000_000_013  # T-616 (STD-013, D-400): a death recorded without a date
 HAS_COMPONENT = 2_000_000_021
 COMPONENT_OF = 2_000_000_022
 SHARED: tuple[tuple[int, str, str, str, str, str], ...] = (
@@ -84,6 +85,14 @@ SHARED: tuple[tuple[int, str, str, str, str, str], ...] = (
         "TB-SHARED",
         "TB Type",
         "proposed",
+    ),
+    (
+        DEATH_DATE_IMPUTED,
+        "TrialBox death recorded without a date (death_date is the night it was loaded, the latest it can be)",
+        "Type Concept",
+        "TB-SHARED",
+        "TB Type",
+        "death-date-imputed",
     ),
     (
         HAS_COMPONENT,

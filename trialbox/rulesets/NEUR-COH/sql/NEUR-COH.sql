@@ -10,6 +10,7 @@ base AS (
   SELECT p.pid, p.birth_date, p.sex, i.index_date FROM patient p CROSS JOIN idx i
   WHERE ((SELECT pids FROM params) IS NULL OR list_contains((SELECT pids FROM params), p.pid))
     AND (p.deceased_date IS NULL OR p.deceased_date > i.index_date)
+    AND (p.deceased_date IS NOT NULL OR p.deceased IS NOT TRUE)
     AND (p.birth_date IS NULL OR p.birth_date <= i.index_date)),
 vs(vs_id, system, code) AS (VALUES
   ('VS_COGNITIVE_IMPAIRMENT_OR_DEMENTIA', 'http://hl7.org/fhir/sid/icd-10-cm', 'F01'),
