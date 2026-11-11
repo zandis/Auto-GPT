@@ -172,6 +172,19 @@ def permit(role: str, action: str, standing: Standing = NO_STANDING) -> Decision
     return Decision(False, role, action, "standing")
 
 
+def conditional(role: str, action: str) -> bool:
+    """T-102c (D-425): is ``role``'s cell for ``action`` a list of conditions, so that the study's delegation log
+    decides (the investigator's ``task.*`` rows, a CRO account's monitor grant)? A page that applies the log only where
+    it applies asks this instead of naming a role. A role or an action not in the matrix: False."""
+    return isinstance(MATRIX.get(action, {}).get(role), tuple)
+
+
+def study_bound(role: str, prefix: str) -> bool:
+    """T-102c (D-425): does any row starting with ``prefix`` hold for ``role`` only in some studies (a condition)?
+    Such a role needs a study it sees before it is asked (an investigator starts no run without a study)."""
+    return any(conditional(role, a) for a in MATRIX if a.startswith(prefix))
+
+
 def _granted(cond: str) -> frozenset[str]:
     """The commands whose investigator cell names ``cond`` (T-512's two rows)."""
     return frozenset(a.removeprefix("command.") for a, row in MATRIX.items()

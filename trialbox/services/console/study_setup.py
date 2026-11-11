@@ -29,8 +29,7 @@ from urllib.parse import quote
 from datacore import lifecycle as lc
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
-from tb_common.authz import NO_STANDING, permit
-from tb_common.authz import Standing as AuthzStanding
+from tb_common.authz import permit
 
 from console import s28
 from console import studies as st
@@ -90,7 +89,7 @@ def show_map(m: dict[str, str]) -> str:
 
 def can_change_setup(user: User) -> bool:
     """Who changes a study's set-up (S21) and its data sources, forms and conflicts: the study's coordinator."""
-    return user.role == "coordinator"
+    return permit(user.role, "study.setup").allowed  # T-102c (D-425): the matrix row
 
 
 REASON_STATES = ("paused", "closed")  # D-386: a move to these takes a reason
@@ -117,11 +116,7 @@ def sae_sets_for(country: str) -> dict[str, lc.RuleSet]:
 def _permit(h: Helpers, user: User, rid: str, action: str) -> bool:
     """``permit`` over ``action`` with the account's standing in the study (the delegation log, for the
     investigator's ``pi`` condition)."""
-    standing = NO_STANDING
-    if user.role == "investigator" and h.stand is not None and user.sees_study(rid):
-        s = h.stand(user, rid)
-        standing = AuthzStanding(is_pi=bool(s.pi), tasks=frozenset(s.tasks), log_names_pi=bool(s.logged))
-    return permit(user.role, action, standing).allowed
+    return h.permit(user, action, rid).allowed
 
 
 def may_change_state(h: Helpers, user: User, rid: str) -> bool:
@@ -152,7 +147,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def study_or_404(sess: Session, rs: str) -> str:
         rid = rs.strip().upper()
-        if not _RS.match(rid) or not sess.user.sees_study(rid) or sess.user.role == "cro" or not known_study(bk, rid):
+        if not _RS.match(rid) or not sess.user.sees_study(rid) or sess.user.sponsor_form or not known_study(bk, rid):
             raise h.problem(404, "notfound")
         if not sess.user.can_view_phi:  # D-146 (review J-05): a viewer reads aggregate reports, not a study's set-up
             au.append("console.denied", actor=h.actor(sess), detail={"action": f"setup {rid}"})

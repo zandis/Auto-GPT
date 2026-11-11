@@ -29,6 +29,7 @@ from datacore.lifecycle import icf_check
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
+from tb_common.authz import permit
 
 from console import s28
 from console.auth import Session, User
@@ -56,7 +57,7 @@ class ApiSave(BaseModel):
 
 def can_enter(user: User) -> bool:
     """Who enters trial data and adds forms: the study's coordinator (as ``study_setup.can_change_setup``)."""
-    return user.role == "coordinator"
+    return permit(user.role, "study.setup").allowed  # T-102c (D-425): the matrix row
 
 
 def record_key(record: str) -> str:
@@ -92,7 +93,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def study_or_404(sess: Session, rs: str) -> str:
         """A study this account sees, and a role that reads record-level rows (the trial values)."""
         rid = rs.strip().upper()
-        if not _RS.match(rid) or not sess.user.sees_study(rid) or sess.user.role == "cro" or not known_study(bk, rid):
+        if not _RS.match(rid) or not sess.user.sees_study(rid) or sess.user.sponsor_form or not known_study(bk, rid):
             raise h.problem(404, "notfound")
         if not sess.user.can_view_phi:
             au.append("console.denied", actor=h.actor(sess), detail={"action": f"entry {rid}"})
@@ -106,7 +107,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         (trial values only: adding forms stays the coordinator's)."""
         if can_enter(user):
             return True
-        return rid is not None and user.role == "investigator" and h.may is not None and h.may(user, rid, "enter_data")
+        return rid is not None and h.permit(user, "task.enter_data", rid).allowed
 
     def need_enter(sess: Session, path: str, rid: str | None = None) -> None:
         if not enters(sess.user, rid):

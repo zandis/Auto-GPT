@@ -98,7 +98,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def study_or_404(sess: Session, rs: str) -> str:
         rid = rs.strip().upper()
-        if not _RS.match(rid) or not sess.user.sees_study(rid) or sess.user.role == "cro" or not known_study(bk, rid):
+        if not _RS.match(rid) or not sess.user.sees_study(rid) or sess.user.sponsor_form or not known_study(bk, rid):
             raise h.problem(404, "notfound")
         if not sess.user.can_view_phi:
             au.append("console.denied", actor=h.actor(sess), detail={"action": f"participants {rid}"})
@@ -273,7 +273,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def apply_ack(sess: Session, path: str, rs: str, record: str, event: str) -> dict[str, Any]:
         """The investigator acknowledges a serious AE (P-02, D-143): one tap, the study's investigator only."""
         rid = study_or_404(sess, rs)
-        if sess.user.role != "investigator":
+        if not h.permit(sess.user, "sae.ack"):
             au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
             raise h.problem(403, "forbidden")
         rec, ev = record_key(record[:64]), event.strip().lower()
