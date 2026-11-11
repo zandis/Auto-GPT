@@ -612,6 +612,7 @@ DECLARED: dict[str, Declared] = {
     "TB_SCREEN_PIPELINE": Declared("str", "cascade", "SCREEN pipeline (cascade or v1)"),
     "TB_SCREEN_WORKERS": Declared("int", "", "two-phase: verifier calls side by side"),
     "TB_SECRETS_DIR": Declared("path", "/run/secrets/trialbox", "folder of the services' secrets"),
+    "TB_SECRETS_HOST_DIR": Declared("path", "", "support bundle: host secrets folder it must never include (T-209b)"),
     "TB_SELFTEST": Declared("str", "on", "orchestrator self-test at start"),
     "TB_SELFTEST_SECONDS": Declared("float", "300", "complete-run tool: self-test time"),
     "TB_SERVICE_NAME": Declared("str", "", "the service's name (service auth)"),
@@ -656,5 +657,6 @@ DECLARED: dict[str, Declared] = {
     "TB_VALIDATOR_XMX": Declared("str", "4g", "FHIR validator: Java heap"),
     "TB_VAULT_DIR": Declared("path", "", "testbench: vault folder"),
     "TB_VAULT_URL": Declared("str", "", "testbench: vault URL"),
+    "TB_WEIGHTS_FLAG": Declared("path", "", "doctor --verify-all: where the weights flag file goes (D-393)"),
     "TB_WORKERS": Declared("int", "4", "orchestrator: job workers"),
 }
