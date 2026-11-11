@@ -16,7 +16,7 @@
   </form>
   <form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/mark" class="marknn">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}">
-    <label for="recheck-{{ s }}">{{ t('mark.recheck') }}</label><input id="recheck-{{ s }}" name="recheck" type="date" lang="{{ lang }}" min="{{ (today).isoformat() }}">
+    <label for="recheck-{{ s }}">{{ t('mark.recheck') }}</label><input id="recheck-{{ s }}" name="recheck" type="date" lang="{{ lang }}" min="{{ (today).isoformat() }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
     <button type="submit" name="mark" value="not_now" class="secondary" data-testid="not_now-{{ s }}">{{ t('mark.not_now') }}</button>
   </form>
   {% if current %}<button type="submit" form="mk-{{ s }}" name="mark" value="withdraw" class="secondary" data-testid="withdraw-{{ s }}">{{ t('mark.withdraw') }}</button>{% endif %}
@@ -37,9 +37,10 @@
 {% if waiting and current and current.mark == 'approach' %}<p class="warn" role="status" data-testid="approach-paused">{{ t('team.approach.paused', state=t('team.state.' + ref_wait.state)) }}</p>
 {% elif can_approach and waiting %}<p class="warn" data-testid="ref-wait">{{ t('team.approach.wait', state=t('team.state.' + ref_wait.state)) }}</p>
 {% elif can_approach and irb_warn is defined and irb_warn %}<p class="warn" role="alert" data-testid="irb-warning">{{ t('team.irb.warn') }} {% for w in irb_warn %}<span class="pill warn">{{ t('team.irb.w.' + w) }}</span> {% endfor %}<a href="/studies/{{ rs }}/irb">{{ t('team.irb.title') }}</a></p>{% endif %}
+{# T-685 (UX-026): access keys A (Approach) and I (Need info): one mark bar per page, so each key is unique #}
 <div class="markbar" data-testid="markbar">
-  {% if can_approach and not (ref_wait is defined and ref_wait) %}<button type="submit" form="mk-{{ s }}" name="mark" value="approach" data-testid="approach-{{ s }}">{{ t('mark.approach') }}</button>{% endif %}
-  <button type="submit" form="mk-{{ s }}" name="mark" value="need_info" class="secondary" data-testid="need_info-{{ s }}">{{ t('mark.need_info') }}</button>
+  {% if can_approach and not (ref_wait is defined and ref_wait) %}<button type="submit" form="mk-{{ s }}" name="mark" value="approach" accesskey="a" title="{{ t('mark.key', k='A') }}" data-testid="approach-{{ s }}">{{ t('mark.approach') }}</button>{% endif %}
+  <button type="submit" form="mk-{{ s }}" name="mark" value="need_info" class="secondary" accesskey="i" title="{{ t('mark.key', k='I') }}" data-testid="need_info-{{ s }}">{{ t('mark.need_info') }}</button>
   <button type="submit" form="ns-{{ s }}" class="secondary danger" data-testid="not_suitable-{{ s }}">{{ t('mark.not_suitable') }}</button>
   {% if next_href %}<a class="button secondary" href="{{ next_href }}" data-testid="next-patient">{{ t('sheet.next') }} →</a>{% endif %}
 </div>
@@ -68,7 +69,7 @@
   {% if ck %}<p class="hint" data-testid="contact-attempts">{{ t('outcome.attempts', n=ck.attempts, max=ck.max) }}{% if ck.why == 'too_soon' %} · <span class="warn" data-testid="contact-too-soon">{{ t('outcome.next_from', d=ck.next) }}</span>{% endif %}</p>
   {% if ck.why == 'limit' %}<p class="pill warn" data-testid="contact-limit">{{ t('outcome.limit.ask_pi', max=ck.max) }}</p>{% endif %}{% endif %}
   <div class="markrow">{% for k in keys %}{% if not (ck and ck.why and k in ('reached_booked', 'reached_declined', 'not_reached')) %}<button type="submit" name="outcome" value="{{ k }}" class="{{ '' if k == 'reached_booked' else 'secondary' }}" data-testid="outcome-{{ k }}">{{ t('outcome.' + k) }}</button>{% endif %}{% endfor %}</div>
-  <label for="retry-{{ pid[:8] }}">{{ t('outcome.retry') }}</label><input id="retry-{{ pid[:8] }}" name="retry" type="date" lang="{{ lang }}">
+  <label for="retry-{{ pid[:8] }}">{{ t('outcome.retry') }}</label><input id="retry-{{ pid[:8] }}" name="retry" type="date" lang="{{ lang }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
   <label for="onote-{{ pid[:8] }}">{{ t('outcome.note') }}</label><input id="onote-{{ pid[:8] }}" name="note" maxlength="300">
   {% if outcomes %}<ul class="plain hint">{% for o in outcomes[-3:] %}<li>{{ o.at|local }} · {{ o.by }} · {{ t('outcome.' + o.outcome) }}{% if o.retry %} · {{ t('outcome.retry_on', d=o.retry) }}{% endif %}</li>{% endfor %}</ul>{% endif %}
 </form>

@@ -31,6 +31,10 @@
 #                 the egress refresh and watchdog timers; D-377)
 #   5. accounts:  first console administrator (password and enrolment code printed once); users page for the rest
 #   6. check:     deploy/check_host.sh; the https:// console URL must answer; the intake address
+# Host baseline (T-634, D-408): in VALIDATION and PRODUCTION the site keys are sealed under a KEK right after they are
+# made (deploy/hardening/seal_keys.sh), and with deploy/site/hardening.conf the input firewall and SSH are set after
+# the egress rules (deploy/hardening/apply.sh). The disk unlock is hospital IT's, once, at OS install
+# (deploy/hardening/disk-unlock.sh); the host check FAILs a disk the TPM alone opens.
 # Site inputs and a finished install (T-632, D-382): the site's mapping lives in deploy/site/mapping (the adapter and
 # the wizard look there before the image) and the feed folder is TB_SOURCE_DIR (required in PRODUCTION). TLS is on:
 # the wizard's TB_TLS_HOSTNAME (asked here when missing) adds deploy/docker-compose.identity.yml after `console.cli
@@ -232,9 +236,10 @@ fi
 echo "    ClinicalTrials.gov: $CTGOV"
 sed -i "/^TB_CTGOV_MODE=/d" deploy/.env && echo "TB_CTGOV_MODE=$CTGOV" >> deploy/.env
 # random service passwords where the example ones are still in place
-# D-378: and one per service role of the trial database (deploy/docker/db-init/30-service-roles.sh)
+# D-378: and one per service role of the trial database (deploy/docker/db-init/30-service-roles.sh); D-394: the
+# audit writer's role too
 for k in POSTGRES_PASSWORD POSTGRES_WF_PASSWORD TB_DB_PW_LAKE TB_DB_PW_CRITERIA_COMPILER TB_DB_PW_ADAPTER \
-         TB_DB_PW_ORCHESTRATOR TB_DB_PW_MAIL_GATEWAY TB_DB_PW_GATEWAY TB_DB_PW_CONSOLE; do
+         TB_DB_PW_ORCHESTRATOR TB_DB_PW_MAIL_GATEWAY TB_DB_PW_GATEWAY TB_DB_PW_CONSOLE TB_DB_PW_AUDIT_WRITER; do
   if grep -q "^$k=change-me" deploy/.env || ! grep -q "^$k=" deploy/.env; then
     sed -i.bak "/^$k=/d" deploy/.env && printf '%s=%s\n' "$k" "$(rand 32)" >> deploy/.env
   fi
@@ -423,6 +428,17 @@ fi
 say "site keys (made once, never replaced)"
 "${COMPOSE[@]}" run --rm --no-deps -T adapter python -m adapter.cli keys-init | sed 's/^/    /' \
   || die "the site keys could not be made or read (above): put the site's keys back from the backup (RUNBOOK §5)"
+# T-634 (D-408; OPS-043): sealed at once, before any service opens them. VALIDATION and PRODUCTION always; a DEV or TEST
+# box only when it has deploy/site/hardening.conf. The KEK's back end is the site's (KEK_BACKEND, default tpm); the
+# host check FAILs a plain site key in VALIDATION and PRODUCTION
+HB_CONF="$ROOT/deploy/site/hardening.conf"
+if [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f "$HB_CONF" ]; then
+  say "site keys sealed under the KEK (deploy/hardening/seal_keys.sh)"
+  [ "$(id -u)" = 0 ] || die "sealing the site keys needs root (the secrets volume, the TPM): run the installer as root"
+  SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)}"
+  TB_IMAGE="$IMAGE_PY" sh deploy/hardening/seal_keys.sh --secrets "$SEC_DIR" --conf "$HB_CONF" \
+    || die "the site keys are not sealed (above): fix deploy/site/hardening.conf (KEK_BACKEND) and re-run; docs/security/01-the-host.md"
+fi
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
 "${COMPOSE[@]}" up -d --pull "$PULL" --wait db && "${COMPOSE[@]}" exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh \
   || die "the database roles could not be set (docker compose logs db)"
@@ -444,6 +460,14 @@ if [ "$(id -u)" = 0 ] && [ -x deploy/network.sh ]; then
   say "egress rules"
   if deploy/network.sh apply; then EGRESS_OK=1
   else echo "install: warning: egress rules not applied (deploy/network.sh apply)" >&2; fi
+fi
+# T-634 (D-408; OPS-052): the input firewall (443 from the clinic ranges only) and SSH, from the site's
+# deploy/site/hardening.conf; without it a VALIDATION or PRODUCTION box fails the host check at the end
+if [ "$(id -u)" = 0 ] && [ -f "$HB_CONF" ]; then
+  say "host baseline: input firewall and SSH (deploy/hardening/apply.sh)"
+  sh deploy/hardening/apply.sh --conf "$HB_CONF" all || die "the host baseline could not be applied (above)"
+elif [ ! -f "$HB_CONF" ]; then
+  echo "install: warning: no deploy/site/hardening.conf (the clinic ranges, SSH, the KEK back end): copy deploy/hardening/hardening.example.conf, fill it in with hospital IT, re-run" >&2
 fi
 # T-108b (D-377; CR-043, OPS-049, OPS-064): the systemd units. trialbox-egress loads the closed egress table from the
 # state file `apply` just wrote, before Docker starts; trialbox starts the stack after it and re-applies the rules;
@@ -531,9 +555,9 @@ for f in deploy/updates/pending_audit/*.json; do  # the bundle's update.applied 
   "${COMPOSE[@]}" exec -T orchestrator python -c '
 import json, sys
 from pathlib import Path
-from tb_common.audit import AuditLog
+from tb_common.audit_writer import open_audit
 s = json.load(sys.stdin)
-AuditLog(Path("/data/audit")).append("update.applied", actor="deploy/install.sh", input_sha=s["manifest_sha256"],
+open_audit(Path("/data/audit")).append("update.applied", actor="deploy/install.sh", input_sha=s["manifest_sha256"],
     detail={"bundle_id": s["bundle_id"], "signer": s["signer"], "files": s["files"]})
 ' < "$f" && rm -f "$f" && echo "    audited bundle $(basename "$f" .json)"
 done

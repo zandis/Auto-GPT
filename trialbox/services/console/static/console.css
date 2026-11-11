@@ -544,6 +544,14 @@ section.card.compact > details[open] > summary .hint { display: none; }
 .menu-toggle { display: none; }
 #worklist:focus { outline: 3px solid var(--accent); outline-offset: 2px; }
 @media (max-width: 760px) { .menu-toggle { display: block; } }
+
+/* ---------------------------------------------------------------- T-685 (D-402): clinical UX polish
+   the expected date format beside every date field (UX-038): the browser's own picker follows its locale, not the page */
+.datefmt { margin-left: 6px; white-space: nowrap; }
+/* the full pseudonym under the 8-character code (UX-036) and the EDC refusal code (UX-030), folded */
+details.idfull, details.tech { display: inline-block; margin-left: 8px; }
+details.idfull > input { margin-top: 4px; max-width: 100%; }
+details.tech > summary { cursor: pointer; }
 /* D-407 (UX-034): the request for the treating doctor: copy text and the one-page print */
 .refdoc-text { width: 100%; font: inherit; }
 .refletter p.refcrit { margin: 2px 0 2px 16px; }

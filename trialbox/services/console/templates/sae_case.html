@@ -38,19 +38,19 @@
 <button type="submit" class="secondary" data-testid="sae-close-{{ r.kind }}-{{ r.party }}">{{ t('sae.form.close') }}</button></form>{% endif %}
 {% if editable and not r.sent_on and not r.closed_on %}{% if r.kind == 'initial' %}
 <form method="post" action="/studies/{{ rs }}/sae/{{ record|urlencode }}/{{ event }}/sent" class="stack"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="party" value="{{ r.party }}">
-<label for="sent-{{ r.party }}">{{ t('sae.form.on') }}</label><input id="sent-{{ r.party }}" name="on" type="date" value="{{ today }}" max="{{ today }}">
+<label for="sent-{{ r.party }}">{{ t('sae.form.on') }}</label><input id="sent-{{ r.party }}" name="on" type="date" value="{{ today }}" max="{{ today }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
 <label for="sref-{{ r.party }}">{{ t('sae.form.ref') }}</label><input id="sref-{{ r.party }}" name="ref" maxlength="60">
 <button type="submit" data-testid="sae-sent-{{ r.party }}">{{ t('sae.form.sent') }}</button></form>
 {% else %}
 <form method="post" action="/studies/{{ rs }}/sae/{{ record|urlencode }}/{{ event }}/followup_sent" class="stack"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="party" value="{{ r.party }}">{% if r.id %}<input type="hidden" name="id" value="{{ r.id }}">{% endif %}
-<label for="fs-{{ r.party }}-{{ r.id or 'rule' }}">{{ t('sae.form.on') }}</label><input id="fs-{{ r.party }}-{{ r.id or 'rule' }}" name="on" type="date" value="{{ today }}" max="{{ today }}">
+<label for="fs-{{ r.party }}-{{ r.id or 'rule' }}">{{ t('sae.form.on') }}</label><input id="fs-{{ r.party }}-{{ r.id or 'rule' }}" name="on" type="date" value="{{ today }}" max="{{ today }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
 <label for="fsref-{{ r.party }}-{{ r.id or 'rule' }}">{{ t('sae.form.ref') }}</label><input id="fsref-{{ r.party }}-{{ r.id or 'rule' }}" name="ref" maxlength="60">
 <button type="submit" data-testid="sae-fu-sent-{{ r.party }}-{{ r.id or 'rule' }}">{{ t('sae.form.fu_sent') }}</button></form>
 {% endif %}{% endif %}</td>
 <td class="nowrap">{{ r.receipt_on or '–' }}
 {% if editable and r.sent_on and r.state != 'bad_sent' and not r.receipt_on and (r.kind == 'initial' or r.id) %}
 <form method="post" action="/studies/{{ rs }}/sae/{{ record|urlencode }}/{{ event }}/receipt" class="stack"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="party" value="{{ r.party }}"><input type="hidden" name="kind" value="{{ r.kind }}">{% if r.id %}<input type="hidden" name="id" value="{{ r.id }}">{% endif %}
-<label for="rc-{{ r.kind }}-{{ r.party }}-{{ r.id or '' }}">{{ t('sae.form.on') }}</label><input id="rc-{{ r.kind }}-{{ r.party }}-{{ r.id or '' }}" name="on" type="date" value="{{ today }}" max="{{ today }}">
+<label for="rc-{{ r.kind }}-{{ r.party }}-{{ r.id or '' }}">{{ t('sae.form.on') }}</label><input id="rc-{{ r.kind }}-{{ r.party }}-{{ r.id or '' }}" name="on" type="date" value="{{ today }}" max="{{ today }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
 <label for="rcref-{{ r.kind }}-{{ r.party }}-{{ r.id or '' }}">{{ t('sae.form.ref') }}</label><input id="rcref-{{ r.kind }}-{{ r.party }}-{{ r.id or '' }}" name="ref" maxlength="60">
 <button type="submit" class="secondary" data-testid="sae-receipt-{{ r.kind }}-{{ r.party }}">{{ t('sae.form.receipt') }}</button></form>
 {% endif %}</td>
@@ -59,7 +59,7 @@
 <form method="post" action="/studies/{{ rs }}/sae/{{ record|urlencode }}/{{ event }}/followup" class="markform" data-testid="sae-followup-form"><input type="hidden" name="csrf" value="{{ csrf }}">
 <h2>{{ t('sae.form.followup') }}</h2>
 <label for="fu-party">{{ t('sae.form.party') }}</label><select id="fu-party" name="party">{% for p in parties %}<option value="{{ p }}">{{ pname(p, rules.regulator) }}</option>{% endfor %}</select>
-<label for="fu-due">{{ t('sae.form.due') }}</label><input id="fu-due" name="due" type="date" min="{{ one.aware or one.onset }}">
+<label for="fu-due">{{ t('sae.form.due') }}</label><input id="fu-due" name="due" type="date" min="{{ one.aware or one.onset }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
 <button type="submit" data-testid="sae-followup-add">{{ t('sae.form.followup') }}</button></form>{% endif %}
 </section>
 {% endif %}

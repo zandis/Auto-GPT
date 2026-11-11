@@ -23,6 +23,7 @@ PAGES = (
     "22-planned-power-cut.md",
     "22-moving-the-box.md",
     "22-replacing-hardware.md",
+    "20-close-out-and-decommissioning.md",  # T-628, D-413
 )
 TABLETOPS = ("tabletop-record-japan.md", "tabletop-record-cgmh.md")
 

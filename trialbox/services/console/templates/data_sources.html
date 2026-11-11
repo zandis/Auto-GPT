@@ -15,7 +15,7 @@
 <section class="card" data-testid="dc-sources">
 {% if not sources %}<p class="empty" data-testid="dc-no-source">{{ t('dc.sources.none') }}</p>{% else %}
 <div class="scroll" tabindex="0"><table class="candidates">
-<thead><tr><th>{{ t('dc.col.source') }}</th><th>{{ t('dc.col.direction') }}</th><th>{{ t('dc.col.last_sync') }}</th><th>{{ t('dc.col.last_result') }}</th><th>{{ t('dc.col.owns') }}</th>{% if editable %}<th></th>{% endif %}</tr></thead>
+<thead><tr><th>{{ t('dc.col.source') }}</th><th>{{ t('dc.col.direction') }}</th><th>{{ t('dc.col.last_sync') }}</th><th>{{ t('dc.col.last_result') }}</th><th>{{ t('dc.col.owns') }}</th>{% if editable %}<th><span class="sr">{{ t('col.actions') }}</span></th>{% endif %}</tr></thead>
 <tbody>{% for s in sources %}<tr data-testid="source-{{ s.name }}">
 <td>{{ t_or('dc.source.' + s.name, s.name) }}{% if s.token_ref %} <span class="hint mono">{{ s.token_ref }}</span>{% endif %}</td>
 <td data-testid="dir-{{ s.name }}">{{ t('dc.dir.' + s.direction) }}</td>

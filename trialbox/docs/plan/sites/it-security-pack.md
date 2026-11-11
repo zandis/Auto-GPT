@@ -54,7 +54,7 @@ Sign-in through the hospital's directory (AD/LDAP or OIDC) with a second factor 
 | Retention | audit 10 years; service logs 365 days; mail logs 5 years (JP) or 7 years (TW); patient data per the hospital's policy; chart originals 1 year after their facts are decided; a written retention table per data kind |
 | Opt-out | a consent register the research office maintains; an opt-out removes the patient from screening, profiles, vectors and future exports within minutes and is logged |
 | De-identification | anything that leaves the study team is suppressed at k = 5 with controlled rounding; research exports use project pseudonyms, date shifts and k = 5 over quasi-identifiers |
-| Destruction | study-level identified lists destroyed at study end; decommissioning by NIST 800-88 purge with a certificate |
+| Destruction | study-level identified lists destroyed at study end; decommissioning by NIST 800-88 purge with a certificate (RUNBOOK §20; certificate TB-SITE-12, `purge-certificate.md`) |
 
 ### A.6 Shared-host rules (CGMH B200 and any private cloud)
 

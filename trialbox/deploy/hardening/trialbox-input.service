@@ -1,0 +1,19 @@
+# The TrialBox input firewall at boot (deploy/hardening/apply.sh; T-634, D-408; OPS-052). Loads the table
+# inet trialbox_input from /etc/trialbox/input.nft before the network comes up; the egress table is
+# trialbox-egress.service's (D-377).
+[Unit]
+Description=TrialBox input firewall (nftables)
+Documentation=file://@TB_ROOT@/docs/security/01-the-host.md
+DefaultDependencies=no
+Before=network-pre.target docker.service
+Wants=network-pre.target
+ConditionPathExists=/etc/trialbox/input.nft
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/trialbox/input.nft
+ExecStop=/usr/sbin/nft delete table inet trialbox_input
+
+[Install]
+WantedBy=sysinit.target
