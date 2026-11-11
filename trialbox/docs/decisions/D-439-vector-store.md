@@ -55,8 +55,8 @@ so the schema cannot fix `halfvec(1024)`.
 ## Consequences
 
 - The stock PostgreSQL of the unit job and of the local test cluster has no pgvector, so the store's SQL is tested
-  in `tests/integration/test_vec_store.py`, against the box's db image (CI job `e2e`, `make test-compose`, which
-  allows no skip) or any server in `TB_TEST_DB_URL` that has the extension. Locally those tests skip with the
+  in `tests/integration/test_vec_store.py`, against the box's db image (the nightly or dispatched workflow
+  `trialbox-e2e.yml`, `make test-compose`, which allows no skip; it does not run on a pull request) or any server in `TB_TEST_DB_URL` that has the extension. Locally those tests skip with the
   reason. The chunker, the PHI pass, "embed once per sha" and the dimension rule are unit tests that need no
   database.
 - `tests/unit/test_migrations.py` migrates every store on the local cluster; it now skips the stores that need an
