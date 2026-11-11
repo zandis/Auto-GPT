@@ -42,3 +42,43 @@ Exit 1 means `failed`; the record's `failed_steps` and each step's `reason` say 
 
 `python -m tools.trialbox eval qualify --profile ci --stub` runs every step against the stub through an in-process
 gateway. It needs no GPU and no network, and its record can never qualify a PRODUCTION champion.
+
+## G1b on the owner's B200 (T-114, D-428)
+
+G1b qualifies the pair in the `shared-quota` profile on the owner's own B200, not on a cloud VM: no `gcloud`, no
+rental, no network on the host. The owner or the named operator (Q-12) runs one script there. The host is not
+CGMH's: the record says so, carries the host fingerprint, and `doctor --platform` compares it at IQ (RSK-52).
+
+On a development machine, at the commit to qualify:
+
+    python -m tools.b200_qualify build --out /media/usb/tb-b200.tar.gz \
+        --image vllm=<docker save tarball of the release vLLM image> \
+        --weights <judge build>=<weight folder> --weights <verifier build>=<weight folder>
+
+It writes the bundle and `tb-b200.tar.gz.sha256`. Send the sha256 by another channel (mail, chat), not on the stick.
+
+On the B200, as root, with the site's `.env` (images, model key, `JUDGE_MODEL_DIR`, `VERIFIER_MODEL_DIR`) and a file
+of extra `eval qualify` arguments, one per line (`--audit-dir`, `--model-dir`, `--evidence`, as in "The run" above):
+
+    sudo tools/b200_qualify.sh --bundle tb-b200.tar.gz --sha256 <hex> --operator <name> \
+        --env-file site.env --qualify-args qualify.args --out /var/tmp/tb-g1b
+
+The script checks the bundle (sha256, then every file against `MANIFEST.json`), loads the images, writes the host
+fingerprint, then runs the two layouts of `eval/qualification/b200-layouts.json` (the smallest that fits the pair,
+and one larger). For each it asks before it partitions GPU 0 (`--yes` skips the question; anything else on the card
+stops), starts the pair on its two MIG instances, captures the serving record and stamps it with the layout's
+fingerprint, runs `eval qualify --profile shared-quota`, and stops the pair. MIG stays on with the last layout;
+`nvidia-smi -i 0 -mig 0` turns it off.
+
+Send back `g1b-results.tar.gz` only (no weights, images or keys). Check the record and commit it with
+`docs/plan/measurements/b200-g1b/` (the record, `G1b.md`, both serving records):
+
+    python -m tools.b200_qualify check g1b-record.json
+
+Exit 0 means `passed`: both layouts measured and qualified, from a bundle built at a commit. A record from stand-ins
+(`TB_B200_STANDIN=1`, the tests) is `standin` and never passes.
+
+At CGMH, `doctor --platform` runs `host_match`: it compares the serving record's fingerprint with this host (the GPU
+node's labels, or `TB_PLATFORM_HOST_FINGERPRINT`, a file from `python3 -m tools.b200_qualify fingerprint --out
+<file>` on the host). Any difference (driver, CUDA, MIG layout, vLLM image digest and the rest) is a WARN that names
+each field: re-measure on the site's partition before PQ.

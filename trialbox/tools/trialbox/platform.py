@@ -48,6 +48,11 @@ before anything is applied) or from ``docker compose config --format json`` (``-
 * ``serving_record``: the ``shared-quota`` serving record (``TB_SERVING_RECORD``) exists, validates and names the
   MIG profile the namespace was given (``TB_MIG_PROFILE``). The profile is measured, never assumed: until T-114's
   record exists this is a FAIL that says so;
+* ``host_match`` (T-114, D-428; RSK-52, OPS-071): the host the serving record was taken on (its
+  ``host_fingerprint``: GPU, driver, CUDA, VBIOS, MIG layout, kernel, OS, toolkit, vLLM image digest, written by
+  ``tools/b200_qualify.py``) against this host: ``TB_PLATFORM_HOST_FINGERPRINT`` (a fingerprint taken on the host),
+  else the GPU node's labels and the vLLM images running. A difference is a WARN, never a FAIL: the record was taken
+  on the owner's B200, and the site re-measures at IQ; no fingerprint on either side is a WARN that says so;
 * ``gpu_serving``: exactly one judge and one verifier workload (``trialbox.io/role``), each with exactly one GPU
   device, no other workload with a GPU, a GPU quota of at least two; in a cluster their pods are ready;
 * ``mig_instances`` (D-409, LLM-027): the pair's devices are MIG instances, not a time-slice or an MPS share, and
@@ -1476,6 +1481,73 @@ def _shared_quota_record(path: str, mig: str) -> Check:
     return Check("serving_record", "PASS", f"{path}: {what}")
 
 
+def _host_here(inp: PlatformInputs) -> tuple[dict[str, Any], str]:
+    """This host's fingerprint for ``host_match``, and where it came from."""
+    from tools import b200_qualify as bq
+
+    path = inp.env.get("TB_PLATFORM_HOST_FINGERPRINT", "").strip()
+    if path:
+        return json.loads(Path(path).read_text(encoding="utf-8")), f"TB_PLATFORM_HOST_FINGERPRINT {path}"
+    images = sorted(
+        {
+            str(c.get("image"))
+            for _, spec, _ in pod_specs(inp.state)
+            for c in containers(spec)
+            if "vllm" in str(c.get("image"))
+        }
+    )
+    node = next(
+        (
+            n
+            for n in inp.state.of("Node")
+            if ((n.get("metadata") or {}).get("labels") or {}).get("nvidia.com/gpu.product")
+        ),
+        None,
+    )
+    if node is not None:
+        return bq.fingerprint_from_node(node, images), f"node {(node.get('metadata') or {}).get('name')} labels"
+    if any("@sha256:" in i for i in images):
+        return {"vllm_image_digests": images}, "the running vLLM images only (no GPU node labels)"
+    return {}, ""
+
+
+def check_host_match(inp: PlatformInputs) -> Check:
+    if (skipped := _measured_skipped(inp, "host_match")) is not None:
+        return skipped
+    from tools import b200_qualify as bq
+
+    path = inp.env.get("TB_SERVING_RECORD", "").strip()
+    rec = json.loads(Path(path).read_text(encoding="utf-8")) if path and Path(path).is_file() else {}
+    recorded = rec.get("host_fingerprint") or {}
+    if not recorded:
+        return Check(
+            "host_match",
+            "WARN",
+            f"{path or 'TB_SERVING_RECORD unset'}: no host fingerprint in the serving record, so whether this host is "
+            "the one measured is unknown (T-114: tools/b200_qualify.sh stamps it)",
+        )
+    here, source = _host_here(inp)
+    if not here:
+        return Check(
+            "host_match",
+            "WARN",
+            "this host's fingerprint is unknown: set TB_PLATFORM_HOST_FINGERPRINT (`python3 -m tools.b200_qualify "
+            "fingerprint` on the host) or let the doctor read Nodes (components/node-read)",
+        )
+    diffs, seen = bq.compare(recorded, here)
+    if not seen:
+        return Check("host_match", "WARN", f"nothing to compare between the record and this host ({source})")
+    if diffs:
+        return Check(
+            "host_match",
+            "WARN",
+            f"this host differs from the one the serving record was measured on ({source}): "
+            + "; ".join(diffs)
+            + ". The record does not predict this host: re-measure here (RSK-52)",
+        )
+    return Check("host_match", "PASS", f"matches the measured host on {', '.join(seen)} ({source})")
+
+
 GPU_ROLES = ("judge", "verifier")
 
 
@@ -1892,6 +1964,7 @@ PLATFORM_CHECKS: tuple[Callable[[PlatformInputs], Check], ...] = (
     check_db_storage,
     check_pod_limits,
     check_serving_record,
+    check_host_match,
     check_gpu_serving,
     check_mig_instances,
     check_canary,
