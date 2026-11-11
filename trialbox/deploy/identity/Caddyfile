@@ -18,6 +18,14 @@
 	}
 }
 
+# T-108a (D-360): the container's health check (docker-compose.identity.yml), plain HTTP on the loopback only;
+# the port is never published
+http://127.0.0.1:2020 {
+	bind 127.0.0.1
+	respond /healthz "ok" 200
+	respond 404
+}
+
 (tls_internal) {
 	tls internal
 }
