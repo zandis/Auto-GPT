@@ -266,7 +266,9 @@ def test_a_drug_valueset_carries_the_yj_stems_of_its_atc_codes() -> None:
 
 def _run(sql: str, meds: dict[str, list[tuple[str | None, str | None]]]) -> dict[str, Any]:
     con = duckdb.connect()
-    con.execute("CREATE TABLE patient (pid VARCHAR, birth_date DATE, sex VARCHAR, deceased_date DATE, deceased BOOLEAN)")
+    con.execute(
+        "CREATE TABLE patient (pid VARCHAR, birth_date DATE, sex VARCHAR, deceased_date DATE, deceased BOOLEAN)"
+    )
     con.execute('CREATE TABLE medication (mid VARCHAR, pid VARCHAR, nhi_code VARCHAR, atc VARCHAR, authored DATE, '
                 'start DATE, "end" DATE, status VARCHAR, name VARCHAR, dose VARCHAR)')  # fmt: skip
     for i, (pid, rows) in enumerate(meds.items()):

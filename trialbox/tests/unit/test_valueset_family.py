@@ -36,7 +36,9 @@ def _crit(kind: str, quantifier: str | None = None) -> CriterionIR:
 
 def _run(sql: str, codes: dict[str, list[str]]) -> dict[str, bool | None]:
     con = duckdb.connect()
-    con.execute("CREATE TABLE patient (pid VARCHAR, birth_date DATE, sex VARCHAR, deceased_date DATE, deceased BOOLEAN)")
+    con.execute(
+        "CREATE TABLE patient (pid VARCHAR, birth_date DATE, sex VARCHAR, deceased_date DATE, deceased BOOLEAN)"
+    )
     con.execute(
         "CREATE TABLE condition (pid VARCHAR, cid VARCHAR, system VARCHAR, code VARCHAR, onset DATE, recorded DATE)"
     )
@@ -117,7 +119,9 @@ WHO = "http://hl7.org/fhir/sid/icd-10"
 
 def _run_coded(sql: str, codes: dict[str, list[tuple[str, str]]]) -> dict[str, bool | None]:
     con = duckdb.connect()
-    con.execute("CREATE TABLE patient (pid VARCHAR, birth_date DATE, sex VARCHAR, deceased_date DATE, deceased BOOLEAN)")
+    con.execute(
+        "CREATE TABLE patient (pid VARCHAR, birth_date DATE, sex VARCHAR, deceased_date DATE, deceased BOOLEAN)"
+    )
     con.execute(
         "CREATE TABLE condition (pid VARCHAR, cid VARCHAR, system VARCHAR, code VARCHAR, onset DATE, recorded DATE)"
     )
