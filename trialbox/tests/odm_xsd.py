@@ -1,6 +1,6 @@
 """The CDISC ODM 1.3.2 schema check of an ODM file (E-25, STD-062; T-115): ``lxml`` (libxml2, the library behind
 ``xmllint``) against ``tests/fixtures/odm/ODM1-3-2.xsd``, and ``xmllint --schema`` itself where it is installed.
-The schema files are CDISC's, unchanged (``tests/fixtures/odm/SOURCE.txt``); nothing is fetched from the network."""
+The schema files are CDISC's, unchanged (``tests/fixtures/odm/NOTICE``); nothing is fetched from the network."""
 
 from __future__ import annotations
 
