@@ -8,6 +8,11 @@
 #   tools/apply_update.sh clean               # remove left-over rollback points of finished updates
 #
 # 0. refused while deploy/updates/IN_PROGRESS.json exists (an unfinished update: `status`, then `rollback`);
+# 0b. the site keys (T-210b, D-347; python3 -m tools.keys check --for-update): refused when a key is both plain and
+#    wrapped, a wrapped key names another KEK, the KEK sits in the secrets folder, or the keys are wrapped and the KEK
+#    is not unsealed (tools/keys.py unseal): the services the update restarts could not open them, and the update
+#    would roll back half way. Plain keys in VALIDATION or PRODUCTION are a warning here (doctor key_custody FAILs).
+#    The secrets folder is TB_SECRETS_HOST_DIR (default: the compose volume); a host without it is not checked;
 # 1. verify (tools/verify_update.py), before any payload is staged: the Ed25519 signature with a key the box trusts
 #    (deploy/updates/trust.json, else deploy/keys/vendor_ed25519.pub and vendor_ed25519.next.pub), key_id, the
 #    manifest schema, not_after, a key rotation (accepted once), release_seq above the installed one (an older or
@@ -59,6 +64,11 @@ if [ -f "$UPDATES/IN_PROGRESS.json" ]; then
   echo "update REFUSED: an update is unfinished ($UPDATES/IN_PROGRESS.json)." >&2
   echo "  tools/apply_update.sh status, then tools/apply_update.sh rollback <bundle> (nothing was changed)" >&2
   exit 1
+fi
+SECRETS=${TB_SECRETS_HOST_DIR:-/var/lib/docker/volumes/trialbox_tb-secrets/_data}
+if [ -d "$SECRETS" ]; then
+  ( cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT" python3 -m tools.keys check --for-update --secrets "$SECRETS" ) \
+    || { echo "update REFUSED: the site keys (above); nothing was changed" >&2; exit 1; }
 fi
 [ -f "$UPDATES/trust.json" ] || [ -f "$PUBKEY" ] || { echo "vendor public key not installed: $PUBKEY" >&2; exit 2; }
 STAGE=$(mktemp -d "${TMPDIR:-/tmp}/tb-update.XXXXXX")
