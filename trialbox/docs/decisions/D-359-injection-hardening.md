@@ -31,8 +31,10 @@ refused a whole criteria-locator call when a protocol's front page held a doctor
    unqualified version (`judge@5`) stays refused in PRODUCTION (`prompt_unqualified`). An approval pins the served
    version. The pin-drift check (D-318) compares against the newest qualified version, so a version waiting for its
    record does not send every approved study back to the investigator (an id with no qualified version compares
-   against its newest). Without this, registering any new version stopped every PRODUCTION gateway until a record
-   existed.
+   against its newest). A caller whose own environment serves a newer version, in front of a PRODUCTION gateway that
+   refuses it (`prompt_unqualified`), sends the qualified version once and keeps to it (`tb_common.llm`); the
+   gateway still checks that text. Without this, registering any new version stopped every PRODUCTION gateway until
+   a record existed.
 3. **The planted-instruction screen** (`guard.injection.screen`, `Guard.screen`, `POST /v1/screen`): deterministic
    patterns in en, ja and zh-TW. Each needs a cue that the reader addressed is a model (instructions, prompt, a
    system or assistant line, the AI, a verdict or JSON to output, a code fence), so clinical orders ("stop alcohol",

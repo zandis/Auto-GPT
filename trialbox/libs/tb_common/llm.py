@@ -68,6 +68,10 @@ class LlmSchemaError(LlmError):
     pass
 
 
+class LlmPromptUnqualified(LlmError):
+    """The gateway refused the prompt version as unqualified (``prompt_unqualified``): a PRODUCTION box (D-359)."""
+
+
 class LlmPromptTooLong(LlmError):
     """The prompt does not fit the model's context with room for an answer (T-603): not sent. The gateway's refusal
     ``prompt_too_long`` (before dispatch, or the server's own HTTP 400) is raised as this too."""
@@ -170,6 +174,7 @@ class LlmClient:
         self.http = httpx.Client(timeout=timeout)
         self.gateway = gateway  # tb_llm.GatewayClient (shim path) or None
         self._context: tuple[float, int | None] | None = None
+        self._prompt_env: str | None = None  # set to PRODUCTION once the gateway refuses an unqualified version
 
     CONTEXT_TTL_S = 300.0
 
@@ -198,7 +203,7 @@ class LlmClient:
         ctx = self.context_tokens()
         if not ctx:
             return None
-        prompt = load_prompt(prompt_id)
+        prompt = load_prompt(prompt_id, self._prompt_env or getattr(self.gateway, "prompt_environment", None))
         return text_budget(ctx, estimate_messages(render(prompt, fixed)), prompt.meta.max_tokens)
 
     @classmethod
@@ -248,8 +253,36 @@ class LlmClient:
         phi_guard_hit: bool | None = None,
         data_class: str | None = None,
     ) -> LlmResult:
+        kw: dict[str, Any] = {
+            "job_id": job_id,
+            "clearance": clearance,
+            "phi_guard_hit": phi_guard_hit,
+            "data_class": data_class,
+        }
         # a gateway client may name the environment of the box it stands for (tools.scenarios): its served prompt
-        prompt = load_prompt(prompt_id, getattr(self.gateway, "prompt_environment", None))
+        env = self._prompt_env or getattr(self.gateway, "prompt_environment", None)
+        try:
+            return self._chat_json(load_prompt(prompt_id, env), variables, schema, **kw)
+        except LlmPromptUnqualified:
+            # D-359: the gateway is a PRODUCTION box and this version waits for its qualification record. Its served
+            # version is the newest qualified one; the gateway still checks that text and its record.
+            if env == "PRODUCTION":
+                raise
+            self._prompt_env = "PRODUCTION"
+            return self._chat_json(load_prompt(prompt_id, "PRODUCTION"), variables, schema, **kw)
+
+    def _chat_json(
+        self,
+        prompt: Prompt,
+        variables: dict[str, Any],
+        schema: str | None,
+        *,
+        job_id: str | None,
+        clearance: PhiClearance | None,
+        phi_guard_hit: bool | None,
+        data_class: str | None,
+    ) -> LlmResult:
+        prompt_id = prompt.meta.id
         schema_name = schema or prompt.meta.output_schema
         json_schema = inline_schema(schema_name)
         messages = render(prompt, variables)
@@ -399,6 +432,8 @@ class LlmClient:
         except GatewayRefused as exc:
             if exc.reason == "prompt_too_long":
                 raise LlmPromptTooLong(f"gateway refused {meta.id}: {exc.reason}") from exc
+            if exc.reason == "prompt_unqualified":
+                raise LlmPromptUnqualified(f"gateway refused {meta.id}@{meta.version}: {exc.reason}") from exc
             raise LlmError(f"gateway refused {meta.id}: {exc.reason}") from exc
         except GatewayError as exc:
             raise LlmError(str(exc)) from exc

@@ -280,3 +280,33 @@ def test_the_stub_chart_reader_reads_a_capitalised_negation() -> None:
 
     facts = chart_facts({"chart": "2026-09-01 No history of hypertension.\nNo evidence of gout.\nDenies diabetes."})
     assert facts["facts"] == []
+
+
+def test_the_client_follows_a_production_gateway_to_the_qualified_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """D-359: a DEV-configured caller in front of a PRODUCTION gateway sends judge@5 once; on ``prompt_unqualified``
+    it sends the served (qualified) judge@4 and keeps to it."""
+    import json as _json
+
+    from tb_common.llm import LlmClient
+    from tb_llm import GatewayRefused
+
+    monkeypatch.setenv("TB_ENV", "DEV")
+    sent: list[str] = []
+
+    class Gw:
+        def context(self) -> None:
+            return None
+
+        def complete(self, body: dict[str, Any], labels: Any) -> dict[str, Any]:
+            ref = labels.headers("orchestrator")["X-TB-Prompt"]
+            sent.append(ref)
+            if ref != "judge@4":
+                raise GatewayRefused("prompt_unqualified", 403, f"{ref} has no qualification record")
+            ans = {"verdict": "unknown", "confidence": 0.5}
+            return {"model": "m", "choices": [{"message": {"content": _json.dumps(ans)}, "finish_reason": "stop"}]}
+
+    c = LlmClient("", "", gateway=Gw())
+    v = {"criterion_text": "x", "note_question": "q", "index_date": "2026-01-01", "excerpts": []}
+    for _ in range(2):
+        c.chat_json("judge", v)
+    assert sent == ["judge@5", "judge@4", "judge@4"]
