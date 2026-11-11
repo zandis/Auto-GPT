@@ -117,6 +117,15 @@ DECLARED: dict[str, Declared] = {
         "and a run whose note stage ends under the hold drops its note answers. Hold and release with `trialbox "
         "model hold|release` (release needs a passing pair canary run after the hold; RUNBOOK §19).",
     ),
+    "vec.s2b": Declared(
+        values=("off", "on"),
+        default="off",
+        seed_env=None,  # switched on /ops/flags with a reason, after the S2b threshold refit of D-429, never by a file
+        help="S2b of the screening cascade ranks a patient's window sentences from the vector store (schema vec, "
+        "T-203b, D-449) instead of embedding them on the fly. Read once when a run starts. A store that is "
+        "unavailable, not indexed from the run's pinned snapshot or of another model falls back to the on-the-fly "
+        "path for that pair, and the patient's trace records it; S2b never excludes in screening either way.",
+    ),
     "omop.dual_write": Declared(
         values=("off", "on"),
         default="off",

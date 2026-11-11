@@ -108,6 +108,26 @@ class OrchestratorJudge(NoteJudge):
         )
 
 
+VEC_FLAG = "vec.s2b"  # T-203b (D-449): S2b from the vector store; off until the S2b threshold refit after G1 (D-429)
+
+
+def vec_s2b_on() -> bool:
+    """The flag ``vec.s2b`` as stored (``/ops/flags``); off when it has no row or the flag store cannot be read."""
+    from tb_common.flags import read
+
+    return read(VEC_FLAG) == "on"
+
+
+def s2b_source(lake: Any, snapshot: str, on: bool) -> Any:
+    """The cascade's stored-vector source on the job's pinned snapshot when the flag is on, else None (the S2b path
+    of every run before T-203b, byte for byte)."""
+    if not on:
+        return None
+    from vec.s2b import LakeVecSource
+
+    return LakeVecSource(lake, snapshot)
+
+
 def check_failures(judge: OrchestratorJudge | None) -> None:
     """The v1 rule (:func:`orchestrator.scenarios.evaluate.check_judge`): a few unanswered checks stay ``unknown``;
     more than the share means the model was down and the list would silently be a filters-only list."""
@@ -257,6 +277,9 @@ class CascadeScreen:
     judging: dict[str, Any]
     summary: dict[str, Any]
     judge: OrchestratorJudge | None
+    # T-203b (D-449): per patient, where S2b's ranking came from (stored vectors or on the fly, why, which model);
+    # patient level (D3), published with the job only when the flag vec.s2b was on; None when it was off
+    s2b_sources: dict[str, dict[str, Any]] | None = None
 
 
 # D-142 (review A-07): SCREEN's budget of model calls is explicit (job option ``max_pairs``, else
@@ -315,6 +338,7 @@ def screen_with_cascade(
     may_block, _policy, _why = effective_note_block(note_judge)
     from embed_service.embedder import HashEmbedder
 
+    source = s2b_source(ctx.services.lake, snapshot, vec_s2b_on())  # read once: a run keeps its S2b source
     cfg = CascadeConfig(
         study_id=rs.id,
         run_date=run_date,
@@ -335,7 +359,9 @@ def screen_with_cascade(
     try:
         res = two_phase(  # one GPU for both models (TB_MODEL_SWAP=sleep): judge pass, verifier pass, merge
             judge,
-            lambda j: run_cascade(ctx.services.lake, rs, cfg, judge=j, embedder=HashEmbedder(), reviewer=None),
+            lambda j: run_cascade(
+                ctx.services.lake, rs, cfg, judge=j, embedder=HashEmbedder(), reviewer=None, s2b_source=source
+            ),
         )
     except CascadeError as exc:
         raise StepFailed("running", f"The screening cascade could not run for {rs.id} v{rs.version}: {exc}") from exc
@@ -357,7 +383,10 @@ def screen_with_cascade(
     out = summary(res)
     # D-142 (review A-07): the budget of model calls and whether it ran out, for the report and the job record
     out["budget"] = {"max_pairs": max_pairs, "unprocessed": res.metrics.unprocessed, "hit": res.metrics.unprocessed > 0}
-    return CascadeScreen(results, judging, out, judge)
+    sources = None
+    if source is not None:
+        sources = {pid: dict(t.s2b_source) for pid, t in sorted(res.traces.items()) if t.s2b_source is not None}
+    return CascadeScreen(results, judging, out, judge, sources)
 
 
 __all__ = [
@@ -368,8 +397,10 @@ __all__ = [
     "check_failures",
     "judged",
     "pipeline",
+    "s2b_source",
     "screen_with_cascade",
     "summary",
+    "vec_s2b_on",
     "verdict_of",
     "verdicts_of",
 ]

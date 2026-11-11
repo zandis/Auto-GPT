@@ -85,6 +85,46 @@ def chunks_search(req: ChunkSearchRequest) -> ChunkSearchResult:
     return ChunkSearchResult(hits=[ChunkHit(**h) for h in hits])
 
 
+_vec: Any = None
+
+
+def vec_store() -> Any:
+    """The vector store (schema ``vec`` of ``TB_DB_URL``, this service's role, D-378), opened on first use; None when
+    it cannot be opened (no database, no pgvector): S2b then ranks on the fly (D-449). The search by patient needs no
+    HNSW index, so none is made here (the indexer makes the model's)."""
+    global _vec
+    if _vec is None:
+        try:
+            from vec.store import VecStore
+
+            _vec = VecStore()
+        except Exception as exc:  # logged by name only: the URL may hold a password
+            import logging
+
+            logging.getLogger("lake").warning("vector store unavailable for S2b: %s", type(exc).__name__)
+            return None
+    return _vec
+
+
+@app.post("/vec/s2b")
+def vec_s2b(body: dict[str, Any]) -> dict[str, Any]:
+    """T-203b (D-449, flag ``vec.s2b`` on the orchestrator's side): one patient's window notes ranked from the vector
+    store on the pinned snapshot, or a fallback answer with its reason."""
+    pid, dids, query, snap = body.get("pid"), body.get("dids"), body.get("query"), body.get("snapshot")
+    if not isinstance(pid, str) or not isinstance(query, str) or not isinstance(dids, list):
+        raise HTTPException(status_code=400, detail="pid, dids and query are required")
+    if not all(isinstance(d, str) for d in dids) or not (snap is None or isinstance(snap, str)):
+        raise HTTPException(status_code=400, detail="dids are note ids; snapshot is a snapshot id")
+    from vec.s2b import UNAVAILABLE, fallback
+
+    try:
+        return lake().vec_s2b(pid, dids, query, embedder(), vec_store(), snap)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:  # the store went away mid-run: the cascade falls back for this pair
+        return fallback(f"{UNAVAILABLE} ({type(exc).__name__})")
+
+
 @app.post("/site")
 def put_site(body: dict[str, Any]) -> dict[str, Any]:
     """D-135: the site's own inputs (FHIR resources by type from the orchestrator's site set-up); the next rebuild

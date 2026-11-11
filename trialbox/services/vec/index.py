@@ -14,9 +14,9 @@ the unit tests (the stock PostgreSQL of the test cluster has no pgvector).
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from embed_service.embedder import Embedder
 from tb_common.phi_guard import NOTE_MASK_VERSION, mask_note
@@ -105,3 +105,38 @@ def index_notes(
             flush()
     flush()
     return IndexStats(n_notes, n_chunks, n_new)
+
+
+SNAPSHOT_NOTES_SQL = """
+SELECT pid, did, CAST(date AS DATE) AS d, type, text FROM document WHERE did > $1 ORDER BY did LIMIT {page}
+"""
+
+
+def snapshot_notes(lake: Any, snapshot: str, exclude: Iterable[str] = (), page: int = 2000) -> Iterator[Note]:
+    """The notes of a lake snapshot (its ``document`` table, the original text: masked by :func:`note_chunks`), a page
+    at a time by note id. Patients in ``exclude`` (the opt-out register, D-147) are never read into the store."""
+    gone = frozenset(exclude)
+    last = ""
+    while True:
+        rows = lake.query(SNAPSHOT_NOTES_SQL.format(page=int(page)), [last], snapshot).to_pylist()
+        if not rows:
+            return
+        for r in rows:
+            if str(r["pid"]) not in gone:
+                yield Note(str(r["pid"]), str(r["did"]), str(r["text"] or ""), r["d"].isoformat() if r["d"] else None,
+                           r["type"])  # fmt: skip
+        last = str(rows[-1]["did"])
+
+
+def index_snapshot(
+    store: Store,
+    lake: Any,
+    snapshot: str,
+    embedder: Embedder,
+    exclude: Iterable[str] = (),
+    mrn_regex: str | None = None,
+) -> IndexStats:
+    """Index every note of ``snapshot`` (T-203b, D-449: the night's job after the lake rebuild), skipping the patients
+    in ``exclude``. A note already indexed with the same text costs no embedding (one vector per sha); a note whose
+    text changed has its chunks replaced, so S2b on that snapshot reads its vectors."""
+    return index_notes(store, snapshot_notes(lake, snapshot, exclude), embedder, mrn_regex)

@@ -1004,3 +1004,68 @@ def test_s4_a_second_opinion_that_disagrees_sends_a_strong_candidate_to_review(
     else:
         assert (o.status, o.stage, o.reason, t.tier) == ("unknown", "S4", "S3/S4 disagree", "potential:uncertain")
         assert res.stage("S4").detail["disagreements"] == 1
+
+
+# ================================================================================================ T-203b S2b source
+@dataclass
+class _VecSource:
+    """An S2b stored-vector source (D-449) with one scripted behaviour for every pair."""
+
+    kind: str
+
+    def rank(self, pid: str, query: str, notes: Sequence[Any], k: int) -> Any:
+        from matching.cascade.s2b_semantic import SourceFallback, SourceRanking
+
+        n = sum(len(x.sents) for x in notes)
+        if self.kind == "error":
+            raise ConnectionError("vector store down")
+        if self.kind == "fallback":
+            return SourceFallback("vector store unavailable")
+        if self.kind == "out_of_range":
+            return SourceRanking(1.0, [(n, 1.0)], "m")
+        score = {"below": 0.0, "above": 1.0}[self.kind]
+        return SourceRanking(score, [(i, score) for i in reversed(range(n))][:k], "m")
+
+
+VEC_NOTES = {
+    "R-1": [_note("R-1", "Routine visit.\nNothing to report.")],
+    "R-2": [_note("R-2", "Gout flare in the left toe.\nNo infection.")],
+    "R-3": [_note("R-3", "Seen.", offset=-400)],  # no note in the window
+    "R-4": [],
+}
+
+
+@pytest.mark.parametrize("kind", ["below", "above", "fallback", "error", "out_of_range"])
+@pytest.mark.parametrize("absence", [False, True])
+def test_the_s2b_vector_source_never_changes_who_is_excluded_or_drops_a_pair(kind: str, absence: bool) -> None:
+    """T-203b (D-449): whatever the stored-vector source answers (a low or high ranking, a fallback, an error, a
+    ranking that indexes nothing), every patient keeps the status, tier and exit of the run without it; in screening
+    (absence semantics off) it only picks excerpts, and with absence semantics on it is not asked at all."""
+    notes = [n for v in VEC_NOTES.values() for n in v]
+
+    def run(source: Any) -> Any:
+        lake = _lake(CASCADE_RS, sorted(VEC_NOTES), notes)
+        conf: dict[str, Any] = {"study_id": lake.rs.id, "run_date": INDEX, "index_mode": "single", "population": sorted(lake.s1),
+                "semantics": "v1", "snapshot": None, "lexicon": LEXICON, "absence_semantics": absence}  # fmt: skip
+        return run_cascade(lake, lake.rs, CascadeConfig(**conf), embedder=_Embedder(above=False), s2b_source=source)
+
+    off, on = run(None), run(_VecSource(kind))
+    for pid in VEC_NOTES:
+        a, b = off.traces[pid], on.traces[pid]
+        assert (a.tier, a.exit_stage, a.exit_criterion) == (b.tier, b.exit_stage, b.exit_criterion), (kind, pid)
+        assert {c: (o.status, o.hard, o.unknown_kind) for c, o in a.outcomes.items()} == {
+            c: (o.status, o.hard, o.unknown_kind) for c, o in b.outcomes.items()
+        }, (kind, pid)
+    assert off.stage("S2b").pairs_in == on.stage("S2b").pairs_in
+    assert off.metrics.pairs_s2b_above + off.metrics.pairs_s2b_below == (
+        on.metrics.pairs_s2b_above + on.metrics.pairs_s2b_below
+    )
+    asked = on.stage("S2b").detail
+    fell = kind in ("fallback", "error", "out_of_range") or absence
+    assert asked["vec_fallback_pairs"] == (asked["vec_fallback_pairs"] + asked["vec_pairs"] if fell else 0)
+    assert asked["vec_fallback_pairs" if fell else "vec_pairs"] > 0
+    if fell:  # the fallback is the on-the-fly path: the same reasons too, and every fallback is on the trace
+        assert {p: {c: o.reason for c, o in t.outcomes.items()} for p, t in off.traces.items()} == {
+            p: {c: o.reason for c, o in t.outcomes.items()} for p, t in on.traces.items()
+        }
+        assert all(t.s2b_source["fallback"] for t in on.traces.values() if t.s2b_source)

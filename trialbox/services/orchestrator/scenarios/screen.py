@@ -108,6 +108,7 @@ class ScreenRun:
     judging: dict[str, Any] | None = None
     cascade: dict[str, Any] | None = None  # D-103: the cascade's stage log and counts when it ran the screen
     whole_hospital: bool = False  # D-146: every doctor's patients (``practitioners`` is then empty)
+    s2b_sources: dict[str, dict[str, Any]] | None = None  # T-203b (D-449): only when the flag vec.s2b was on
 
     @property
     def pipeline(self) -> str:
@@ -502,6 +503,7 @@ def run_screen(
         )  # fmt: skip
     judging = judging_info(judge)
     cascade: dict[str, Any] | None = None
+    s2b_sources: dict[str, dict[str, Any]] | None = None
     if pipeline() == "cascade":  # D-103: the v4 cascade is the screening engine
         cs = screen_with_cascade(
             ctx,
@@ -515,7 +517,7 @@ def run_screen(
             recent,
             max_pairs_of(opts),
         )
-        results, judging, cascade = cs.results, cs.judging, cs.summary
+        results, judging, cascade, s2b_sources = cs.results, cs.judging, cs.summary, cs.s2b_sources
         tiers = {t: sum(1 for v in results.values() if v.tier == t) for t in ("high", "review", "excluded")}
         ctx.orch.audit.append(
             "screen.evaluated",
@@ -552,8 +554,17 @@ def run_screen(
     rows.sort(key=sort_key)
     return ScreenRun(
         rs, run_date, snapshot, scoped, results, rows, list(practitioners or []), depts, window, judge, judging,
-        cascade, whole_hospital=practitioners is None,
+        cascade, whole_hospital=practitioners is None, s2b_sources=s2b_sources,
     )  # fmt: skip
+
+
+def s2b_source_doc(run: ScreenRun) -> dict[str, Any] | None:
+    """T-203b (D-449): per patient of the run, where S2b ranked from (the vector store or on the fly), why a pair fell
+    back and the model of each; None when the flag vec.s2b was off (no file, the run's outputs as before)."""
+    if run.s2b_sources is None:
+        return None
+    return {"ruleset": run.rs.id, "version": run.rs.version, "run_date": run.run_date.isoformat(),
+            "snapshot": run.snapshot, "flag": "vec.s2b", "patients": run.s2b_sources}  # fmt: skip
 
 
 def candidate_list(run: ScreenRun) -> CandidateList:
@@ -739,6 +750,14 @@ def run(ctx: Ctx) -> Outcome:
     persist_pool(ctx, rs, [r for r in srun.rows if r.tier in ("high", "review")])
     excluded = json.dumps(excluded_doc(ctx, srun), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
     ctx.publish(f"excluded_{rs.id}_v{rs.version}.json", excluded, "phi", [])  # P-04: the console only, never mailed
+    s2b_doc = s2b_source_doc(srun)
+    if s2b_doc is not None:  # T-203b (D-449): the S2b source per patient, with the job (never mailed)
+        ctx.publish(
+            f"s2b_source_{rs.id}_v{rs.version}.json",
+            json.dumps(s2b_doc, ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8"),
+            "phi",
+            [],
+        )
     agg_to = recipients(rs.manifest.routing, job.requested_by)
 
     def n(v: int) -> int:  # D-99: internal mail, PDF and console show exact counts; the sponsor pack suppresses
