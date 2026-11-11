@@ -173,3 +173,126 @@ def scan(text: str, mrn_regex: str | None = None) -> PhiScan:
     if findings:
         return PhiScan(True, findings, None)
     return PhiScan(False, [], PhiClearance(sha256_text(text)))
+
+
+# ------------------------------------------------------------------------------------------------ note text (T-600)
+# FR-DEID-01 (CR-028, DATA-020): names, phone numbers, chart numbers and ID numbers in note text are masked before
+# the text is chunked, indexed for full-text search or embedded. The lake's ``document`` table keeps the original
+# under the ``phi`` label (D-337). Masking keeps the length: every character of a span other than white space becomes
+# ``MASK_CHAR``, so chunk boundaries, offsets and line breaks stay where they were and the clinical words around a span
+# are untouched. ``○`` is how Taiwanese and Japanese records mask a name by hand; the tokenizer drops it, so a masked
+# span gives no token to the full-text index or the hash embedder.
+MASK_CHAR = "○"
+NOTE_MASK_VERSION = "1"  # recorded in lake_meta.note_mask; bump when the recognisers below change what they mask
+
+_CJK_N = "一-鿿"
+_KANA_N = "぀-ヿ"
+_ROC = "|".join(sorted(ROC_COMPOUND, key=len, reverse=True)) + "|[" + "".join(sorted(ROC_SURNAMES)) + "]"
+_JP = "|".join(sorted(JP_SURNAMES, key=len, reverse=True))
+_GIVEN_JP = rf"(?:(?!さん|様|くん|ちゃん|より|から)[{_CJK_N}{_KANA_N}])"  # a given name, not the honorific after it
+_ROLE_ZH = r"(?:醫師|醫生|護理師|藥師|個管師)"
+_NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    # chart numbers after their label (the site pattern, unlabelled, is added per call)
+    (
+        "mrn",
+        re.compile(
+            r"(?:病歷號(?:碼)?|病历号|カルテ番号|患者ID|(?i:MRN|chart\s*no\.?|medical record (?:no\.?|number)))"
+            r"[\s:：#]*(?P<v>[A-Z0-9][A-Z0-9-]{3,14})(?![A-Za-z0-9])"
+        ),
+    ),
+    # insurance and ID numbers after their label
+    (
+        "id",
+        re.compile(
+            r"(?:健保卡號|身分證(?:字號)?|身份證|保険者番号|被保険者番号|(?i:insurance\s*no\.?|ID\s*no\.?))"
+            r"[\s:：#]*(?P<v>[A-Z0-9][A-Z0-9-]{3,14})(?![A-Za-z0-9])"
+        ),
+    ),
+    ("id", TW_ID),
+    ("phone", PHONE),
+    (
+        "phone",
+        re.compile(
+            r"(?<![\d+])(?:\+81[-\s]?\(?\d{1,4}\)?[-\s]?\d{1,4}[-\s]?\d{4}"
+            r"|0[5-9]0[-\s]?\d{4}[-\s]?\d{4}|0\d{1,4}-\d{1,4}-\d{4})(?!\d)"
+        ),
+    ),
+    # names after a role or a label (the writer of the note, a relative), with an honorific, or as the v1 rules find
+    # them (patient word, sex and age); only the name is masked, never the title, the sex or the age
+    (
+        "name",
+        re.compile(rf"(?:記載医|記載者|担当医|主治医|家族の|氏名)[\s:：]*(?P<v>(?:{_JP})[\s　]?{_GIVEN_JP}{{1,3}})"),
+    ),
+    ("name", re.compile(rf"(?:記錄者|紀錄者|家屬|家属|姓名)[\s:：]*(?P<v>(?:{_ROC})[{_CJK_N}]{{1,2}})")),
+    ("name", re.compile(rf"(?P<v>(?:{_ROC})(?:(?!科)[{_CJK_N}]){{0,2}}){_ROLE_ZH}")),
+    ("name", re.compile(rf"(?P<v>(?:{_ROC})[{_CJK_N}]{{0,2}}?)\s?{HONORIFIC}")),
+    ("name", re.compile(rf"{PATIENT_WORD}[：:\s]?(?P<v>(?:{_ROC})[{_CJK_N}]{{1,2}})(?=[，,、\s(（]|$)")),
+    (
+        "name",
+        re.compile(rf"(?P<v>(?:{_ROC})[{_CJK_N}]{{1,2}})[，,、\s]*[（(]?(?:男|女)[)）]?[，,、\s]*\d{{1,3}}\s?歲"),
+    ),
+    ("name", re.compile(rf"(?P<v>(?:{_JP})[\s　]?[{_CJK_N}{_KANA_N}]{{1,3}}?)\s?{HONORIFIC}")),
+    (
+        "name",
+        re.compile(r"(?:\b(?:Mr|Mrs|Ms|Miss|Dr)\.?\s+|\bPatient(?: name)?:\s*)(?P<v>[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)"),
+    ),
+    (
+        "name",
+        re.compile(
+            r"\b(?:[Dd]aughter|[Ss]on|[Ww]ife|[Hh]usband|[Mm]other|[Ff]ather|[Ss]ister|[Bb]rother|[Ss]pouse"
+            r"|[Pp]artner|[Rr]elative|[Ss]een by|[Rr]eviewed by|[Dd]ictated by|[Nn]ame\s*[:：])"
+            r"\s+(?:Dr\.?\s+)?(?!(?:Mr|Mrs|Ms|Miss|Dr)\b)(?P<v>[A-Z][a-z]+(?:\s+[A-Z]\.)?(?:\s+[A-Z][a-z]+)?)"
+        ),
+    ),
+)
+
+
+def note_spans(text: str, mrn_regex: str | None = None) -> list[tuple[str, int, int]]:
+    """``(kind, start, end)`` of every name, phone number, chart number and ID number found in note text, overlaps
+    merged (kinds: ``name``, ``phone``, ``mrn``, ``id``). ``mrn_regex`` is the site's chart number pattern
+    (``settings.mrn_regex``); it also masks a chart number written without its label."""
+    found: list[tuple[str, int, int]] = []
+    for kind, rx in _NOTE_PATTERNS:
+        for m in rx.finditer(text):
+            if "v" in rx.groupindex and m.group("v") is not None:
+                found.append((kind, m.start("v"), m.end("v")))
+            else:
+                found.append((kind, m.start(), m.end()))
+    if mrn_regex:
+        body = mrn_regex.strip("^$")
+        for m in re.finditer(rf"(?<![0-9A-Za-z\-/.]){body}(?![0-9A-Za-z\-/.])", text):
+            found.append(("mrn", m.start(), m.end()))
+    merged: list[tuple[str, int, int]] = []
+    for kind, s, e in sorted(found, key=lambda f: (f[1], -f[2])):
+        if e <= s:
+            continue
+        if merged and s < merged[-1][2]:
+            k0, s0, e0 = merged[-1]
+            merged[-1] = (k0, s0, max(e0, e))
+        else:
+            merged.append((kind, s, e))
+    return merged
+
+
+def mask_note(text: str, mrn_regex: str | None = None) -> str:
+    """Note text with every span of :func:`note_spans` masked, the length and the white space kept."""
+    spans = note_spans(text, mrn_regex)
+    if not spans:
+        return text
+    out = list(text)
+    for _kind, s, e in spans:
+        for i in range(s, e):
+            if not out[i].isspace():
+                out[i] = MASK_CHAR
+    return "".join(out)
+
+
+def site_mrn_regex() -> str | None:
+    """The site's chart number pattern (``settings.mrn_regex``), or ``None`` when no site configuration is readable
+    (a test lake, a tool run without a site): then only labelled chart numbers are masked."""
+    try:
+        from tb_common.config import get_config
+
+        return get_config().settings.mrn_regex
+    except Exception:
+        return None
