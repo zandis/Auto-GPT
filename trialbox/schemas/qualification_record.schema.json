@@ -21,6 +21,7 @@
     "status",
     "failed_steps",
     "qualifies_production",
+    "change_protocol",
     "sha256"
   ],
   "additionalProperties": false,
@@ -53,6 +54,18 @@
     "status": {"enum": ["passed", "failed"]},
     "failed_steps": {"type": "array", "items": {"type": "string"}},
     "qualifies_production": {"type": "boolean"},
+    "change_protocol": {
+      "title": "QualificationChangeProtocol",
+      "description": "The model change protocol this record is evidence for (D-343): the document, the sha256 of its text and the change id of its table of foreseen changes.",
+      "type": "object",
+      "required": ["document", "sha256", "change"],
+      "additionalProperties": false,
+      "properties": {
+        "document": {"const": "docs/validation/model-change-protocol.md"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "change": {"type": "string", "pattern": "^MC-[0-9]+$"}
+      }
+    },
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
   },
   "$defs": {

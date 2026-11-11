@@ -31,11 +31,19 @@ build). The steps, in order (:data:`STEPS`); each one ends ``passed`` or ``faile
   changed verdicts is reported (LLM-021);
 * ``throughput``: the two numbers of LLM-025 from the pair run: seconds per note-stage patient and seconds per
   criterion check, p50 and p95;
+* ``injection``: the prompt-injection and false-positive suite (``eval/injection/cases.yaml``,
+  :mod:`tools.injection_eval`; T-208, D-346): the judge and verifier as the pair, the judge build as the reader of
+  charts, consent forms and protocols; 0 changed facts over the attacks and at most 2 % false positives on the
+  controls (the stub must also give every expected fact);
 * ``n12``, ``public_e2e``, ``goldens``: evidence steps: a JSON result (``--evidence step=file``) written at this git
   HEAD with ``passed`` or ``ok`` true. With ``--stub`` (profile ``ci`` only) they run in wiring form: the tool's
   command answers ``--help``, and the record says so;
 * ``planted_defect``: the same pair with a planted defect (every decided verdict flipped) must fail both the canary
   and the pair gate; a qualification that cannot see a broken model proves nothing.
+
+The ``n12`` evidence must say ``"basis": "unadjusted"``: the gate figure is the raw one (D-343, REG-030). Every
+record cites the model change protocol (``docs/validation/model-change-protocol.md``): its path, the sha256 of its
+text and the change id qualified (``--change``, default ``MC-0``, a first qualification).
 
 The record (``schemas/qualification_record.schema.json``) is ``failed`` unless every step of :data:`STEPS` is in it
 and ``passed``; :func:`check_record` recomputes that, the body sha256 and the profile, and refuses synthetic weights
@@ -82,6 +90,9 @@ RECORD_FORMAT = "qualification-record/1"
 OUT_DIR = ROOT / "eval" / "qualification"
 STUB_OUT_DIR = ROOT / ".cache" / "qualification"
 PROBES = ROOT / "eval" / "qualification" / "schema_probes.yaml"
+# the model change protocol every record cites (T-649b, D-343): the change ids of its table "Foreseen changes"
+CHANGE_PROTOCOL = ROOT / "docs" / "validation" / "model-change-protocol.md"
+CHANGE_TYPES = ("MC-0", "MC-1", "MC-2", "MC-3", "MC-4", "MC-5", "MC-6", "MC-7", "MC-8")
 STEPS = (
     "pin",
     "serving_record",
@@ -93,6 +104,7 @@ STEPS = (
     "pair_gate",
     "determinism",
     "throughput",
+    "injection",
     "n12",
     "public_e2e",
     "goldens",
@@ -263,6 +275,7 @@ class Options:
     model_dirs: dict[str, Path] = field(default_factory=dict)
     server_logs: list[Path] = field(default_factory=list)
     evidence: dict[str, Path] = field(default_factory=dict)
+    change: str = "MC-0"  # the protocol's change id this run qualifies (MC-0: a first qualification)
 
 
 @dataclass
@@ -850,6 +863,24 @@ def step_throughput(ctx: Ctx) -> StepResult:
     return ok(detail)
 
 
+def step_injection(ctx: Ctx) -> StepResult:
+    from tools import injection_eval as ie
+
+    # the protocol locator calls as the document parser does (caller doc-parser, role extract_criteria)
+    alias = None if ctx.opts.stub else JUDGE_ALIAS
+    locator = QClient(ctx.target.gateway("doc-parser", model=alias), alias=alias, name=ctx.judge.model)
+    models = ie.Models(judge=ctx.judge, verifier=ctx.verifier, locator=locator)
+    rep = ie.run(ie.load_cases(), models, strict=ctx.opts.stub)
+    s = rep.summary()
+    keys = ("cases", "attacks", "controls", "changed", "changed_ids", "false_positives", "false_positive_ids",
+            "false_positive_share", "not_as_expected", "by_target", "by_language", "checks")  # fmt: skip
+    detail = {k: s[k] for k in keys}
+    if not s["passed"]:
+        return bad("injection suite failed: " + ", ".join(k for k, v in s["checks"].items() if not v), detail)
+    fps = f"{s['false_positives']}/{s['controls']}"
+    return ok(detail, f"{s['attacks']} attacks, 0 changed facts; {fps} false positives")
+
+
 def step_evidence(name: str) -> Callable[[Ctx], StepResult]:
     def run(ctx: Ctx) -> StepResult:
         path = ctx.opts.evidence.get(name)
@@ -871,6 +902,10 @@ def step_evidence(name: str) -> Callable[[Ctx], StepResult]:
         detail["head"] = ev_head or None
         if not passed:
             return bad(f"evidence {path.name} does not say passed", detail)
+        if name == "n12":  # the gate figure is the unadjusted one (D-343, REG-030)
+            detail["basis"] = doc.get("basis")
+            if doc.get("basis") != "unadjusted":
+                return bad(f"evidence {path.name} does not say basis unadjusted: N-12 gates on the raw figure", detail)
         if ev_head and ev_head != head:
             return bad(f"evidence {path.name} is from {ev_head[:12]}, not this HEAD", detail)
         if not ev_head and not ctx.opts.stub:
@@ -918,6 +953,7 @@ STEP_FUNCS: dict[str, Callable[[Ctx], StepResult]] = {
     "pair_gate": step_pair_gate,
     "determinism": step_determinism,
     "throughput": step_throughput,
+    "injection": step_injection,
     "n12": step_evidence("n12"),
     "public_e2e": step_evidence("public_e2e"),
     "goldens": step_evidence("goldens"),
@@ -1059,8 +1095,20 @@ def qualify(opts: Options, target: Target | None = None, *, steps: tuple[str, ..
         "started": started.isoformat(timespec="seconds"),
         "finished": datetime.now(UTC).isoformat(timespec="seconds"),
         "steps": results,
+        "change_protocol": change_protocol(opts.change),
     }
     return finalize(doc)
+
+
+def change_protocol(change: str) -> dict[str, str]:
+    """The citation of the model change protocol: its path, the sha256 of its text and the change id qualified."""
+    if change not in CHANGE_TYPES:
+        raise QualifyError(f"unknown change {change}: one of {', '.join(CHANGE_TYPES)}")
+    try:
+        sha = hashlib.sha256(CHANGE_PROTOCOL.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise QualifyError(f"the model change protocol {CHANGE_PROTOCOL.name} is missing") from exc
+    return {"document": CHANGE_PROTOCOL.relative_to(ROOT).as_posix(), "sha256": sha, "change": change}
 
 
 def write_record(doc: dict[str, Any], out_dir: Path) -> Path:
@@ -1094,6 +1142,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--items", type=int, default=0, help="cap the pair-gate items (0: all)")
     ap.add_argument("--repeat-items", type=int, default=200)
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--change", default="MC-0", choices=CHANGE_TYPES, help="the protocol change id")
     ap.add_argument("--operator", default=os.environ.get("USER", "unknown"))
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--check", type=Path, default=None, help="check a record instead of running one")
@@ -1127,6 +1176,7 @@ def main(argv: list[str] | None = None) -> int:
             _pairs(a.model_dir, "--model-dir"),
             a.server_log,
             evidence,
+            a.change,
         )
         target = None if a.stub else live_target(a.gateway_url, a.audit_dir)
         doc = qualify(opts, target)
