@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 from collections.abc import Iterable
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from tb_common import labvalue
@@ -40,7 +40,16 @@ PROVENANCE_COLS = tuple(c for c, _ in PROVENANCE)
 PHI_COLUMNS: dict[str, tuple[str, ...]] = {"document": ("text",)}
 
 SCHEMAS: dict[str, list[tuple[str, str]]] = {
-    "patient": [("pid", "VARCHAR"), ("birth_date", "DATE"), ("sex", "VARCHAR"), ("deceased_date", "DATE")],
+    # T-616 (STD-013, D-400): ``deceased`` is true when the record says the patient died, with a date or without
+    # one (``deceasedBoolean``, SS-MIX2 PID-30); the base cohort leaves out a deceased patient with no date at every
+    # index date. Never false: a record that says "not deceased" is no evidence, read as unknown (None)
+    "patient": [
+        ("pid", "VARCHAR"),
+        ("birth_date", "DATE"),
+        ("sex", "VARCHAR"),
+        ("deceased_date", "DATE"),
+        ("deceased", "BOOLEAN"),
+    ],
     "practitioner": [("practitioner_id", "VARCHAR"), ("staff_id", "VARCHAR"), ("name", "VARCHAR")],
     "encounter": [
         ("eid", "VARCHAR"),
@@ -168,6 +177,7 @@ NOT_PRESENT = frozenset({"refuted", "entered-in-error"})
 VOID: dict[str, frozenset[str]] = {
     "Observation": frozenset({"entered-in-error", "cancelled", "registered"}),
     "MedicationRequest": frozenset({"entered-in-error", "cancelled", "draft", "not-taken"}),
+    "MedicationStatement": frozenset({"entered-in-error", "not-taken", "intended"}),
     "Procedure": frozenset({"entered-in-error", "not-done", "preparation"}),
     "DiagnosticReport": frozenset({"entered-in-error", "cancelled"}),
     "DocumentReference": frozenset({"entered-in-error"}),
@@ -181,6 +191,7 @@ VOID: dict[str, frozenset[str]] = {
 UNCERTAIN: dict[str, frozenset[str]] = {
     "Observation": frozenset({"preliminary", "unknown"}),
     "MedicationRequest": frozenset({"unknown"}),
+    "MedicationStatement": frozenset({"unknown"}),
 }
 STATUS_SOURCE = "urn:trialbox:status-source"
 NOT_RECORDED = "not-recorded"
@@ -248,11 +259,126 @@ def _ref_id(ref: dict[str, Any] | None) -> str | None:
     return str(ref["reference"]).split("/")[-1]
 
 
+# T-616 (STD-012): an inbound Duration in these UCUM units gives an order's end from its start
+_DAYS = {"d": 1, "day": 1, "days": 1, "wk": 7, "week": 7, "weeks": 7}
+
+
+def _supply_days(dur: dict[str, Any] | None) -> int | None:
+    """``dispenseRequest.expectedSupplyDuration`` in whole days (days or weeks only; anything else: None)."""
+    if not dur:
+        return None
+    per = _DAYS.get(str(dur.get("code") or dur.get("unit") or "").strip().lower())
+    try:
+        value = float(dur["value"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return int(value * per) if per and value >= 0 else None
+
+
+# T-616 (STD-014, D-400): the inbound FHIR contract. The top-level elements the flattener reads, per resource type
+# (``resourceType`` and ``id`` are always read). Any other element a resource carries is *present but not read*:
+# :func:`unread_elements` counts it per resource type for the ingest report, and a resource type that is not here
+# is not read at all (counted as ``*``). docs/data/01-what-the-box-reads.md is the same table in words.
+READ: dict[str, frozenset[str]] = {
+    "Patient": frozenset({"meta", "birthDate", "gender", "deceasedDateTime", "deceasedBoolean"}),
+    "Practitioner": frozenset({"meta", "identifier", "name"}),
+    "Encounter": frozenset({"meta", "status", "class", "serviceType", "subject", "participant", "period"}),
+    "Appointment": frozenset({"meta", "status", "serviceType", "start", "participant"}),
+    "Condition": frozenset(
+        {
+            "meta",
+            "code",
+            "subject",
+            "clinicalStatus",
+            "verificationStatus",
+            "onsetDateTime",
+            "recordedDate",
+            "encounter",
+        }
+    ),
+    "Observation": frozenset(
+        {
+            "meta",
+            "status",
+            "code",
+            "subject",
+            "category",
+            "effectiveDateTime",
+            "effectivePeriod",
+            "effectiveInstant",
+            "valueQuantity",
+            "valueString",
+            "valueCodeableConcept",
+            "valueDateTime",
+            "component",
+        }
+    ),
+    "MedicationRequest": frozenset(
+        {
+            "meta",
+            "status",
+            "subject",
+            "medicationCodeableConcept",
+            "medicationReference",
+            "contained",
+            "authoredOn",
+            "dispenseRequest",
+            "dosageInstruction",
+        }
+    ),
+    "MedicationStatement": frozenset(
+        {
+            "meta",
+            "status",
+            "subject",
+            "medicationCodeableConcept",
+            "medicationReference",
+            "contained",
+            "effectiveDateTime",
+            "effectivePeriod",
+            "dateAsserted",
+            "dosage",
+        }
+    ),
+    "Medication": frozenset({"meta", "code"}),  # read through a medicationReference
+    "Procedure": frozenset({"meta", "status", "code", "subject", "performedDateTime", "performedPeriod"}),
+    "DiagnosticReport": frozenset({"meta", "status", "code", "subject", "effectiveDateTime", "conclusion"}),
+    "DocumentReference": frozenset({"meta", "status", "docStatus", "type", "subject", "date", "content", "context"}),
+    "Consent": frozenset({"meta", "patient", "status", "provision", "dateTime"}),
+    "Claim": frozenset({"meta", "patient", "created", "item"}),
+    "ClaimResponse": frozenset({"meta", "request", "disposition", "outcome", "preAuthPeriod"}),
+}
+ALWAYS_READ = frozenset({"resourceType", "id"})
+
+
+def unread_elements(by_type: dict[str, list[Resource]]) -> dict[str, dict[str, int]]:
+    """Per resource type, how many resources carry each top-level element the flattener does not read (:data:`READ`);
+    a resource type the box does not read at all is counted whole under ``*``. Element names only, never values."""
+    out: dict[str, dict[str, int]] = {}
+    for rtype, items in sorted(by_type.items()):
+        if not items:
+            continue
+        known = READ.get(rtype)
+        if known is None:
+            out[rtype] = {"*": len(items)}
+            continue
+        counts: dict[str, int] = {}
+        for r in items:
+            for k in r:
+                if k not in known and k not in ALWAYS_READ:
+                    counts[k] = counts.get(k, 0) + 1
+        if counts:
+            out[rtype] = dict(sorted(counts.items()))
+    return out
+
+
 class Flattener:
     def __init__(self, tz: str | None = None) -> None:
         from tb_common.config import site_zone
 
         self.zone = site_zone(tz)  # the site's zone; TB_TZ when not given, never a default (D-315)
+        # T-616 (STD-014): the batch's Medication resources by id, for a ``medicationReference`` to one of them
+        self.medications: dict[str, Resource] = {}
 
     def ts(self, value: str | None) -> datetime | None:
         """FHIR date/dateTime/instant -> naive local timestamp in the hospital zone."""
@@ -284,11 +410,13 @@ class Flattener:
 
     def patient(self, r: Resource) -> Row:
         dec = r.get("deceasedDateTime")
+        dead = bool(dec) or r.get("deceasedBoolean") is True  # STD-013: a death flag without a date is a death
         return {
             "pid": r["id"],
             "birth_date": self.d(r.get("birthDate")),
             "sex": sex_of(r.get("gender")),
             "deceased_date": self.d(dec) if dec else None,
+            "deceased": True if dead else None,
         }
 
     def practitioner(self, r: Resource) -> Row:
@@ -385,7 +513,7 @@ class Flattener:
             "pid": _ref_id(r.get("subject")),
             "code": primary.get("code"),
             "system": primary.get("system"),
-            "effective": self.ts(r.get("effectiveDateTime")),
+            "effective": self.effective(r),
             **value,
             "unit": q.get("code") or q.get("unit"),
             "value_code": vcode,
@@ -393,27 +521,77 @@ class Flattener:
             "local_code": local,
         }
 
+    def effective(self, r: Resource) -> datetime | None:
+        """An observation's time: ``effectiveDateTime``, else ``effectiveInstant``, else the start of
+        ``effectivePeriod`` (T-616, review S-17: a result dated by a period only is read, not undated)."""
+        when = r.get("effectiveDateTime") or r.get("effectiveInstant")
+        return self.ts(when or (r.get("effectivePeriod") or {}).get("start"))
+
+    def medication_concept(self, r: Resource) -> dict[str, Any]:
+        """The drug of an order or statement: ``medicationCodeableConcept``, else the ``code`` of the Medication its
+        ``medicationReference`` names, contained (``#id``) or in the batch (``Medication/id``; T-616, STD-014).
+        A reference that names no Medication gives no code (the record is kept, its drug unknown)."""
+        cc = r.get("medicationCodeableConcept")
+        if cc:
+            return dict(cc)
+        ref = str((r.get("medicationReference") or {}).get("reference") or "")
+        if not ref:
+            return {}
+        med: Resource | None = None
+        if ref.startswith("#"):
+            med = next((c for c in r.get("contained") or [] if c.get("id") == ref[1:]), None)
+        else:
+            med = self.medications.get(ref.rsplit("/", maxsplit=1)[-1])
+        if not med or med.get("resourceType", "Medication") != "Medication":
+            return {}
+        code = dict(med.get("code") or {})
+        if not code.get("text") and (r.get("medicationReference") or {}).get("display"):
+            code["text"] = r["medicationReference"]["display"]
+        return code
+
+    def therapy(self, r: Resource) -> tuple[date | None, date | None]:
+        """The therapy period of an order (STD-012), in order: ``dosageInstruction[0].timing.repeat.boundsPeriod``,
+        ``dispenseRequest.validityPeriod``, then ``authoredOn`` with ``dispenseRequest.expectedSupplyDuration``. A
+        statement: its ``effectivePeriod`` (or ``effectiveDateTime``)."""
+        if r.get("resourceType") == "MedicationStatement":
+            period = r.get("effectivePeriod") or {}
+            return self.d(period.get("start") or r.get("effectiveDateTime")), self.d(period.get("end"))
+        dosage = (r.get("dosageInstruction") or [{}])[0] or {}
+        bounds = ((dosage.get("timing") or {}).get("repeat") or {}).get("boundsPeriod") or {}
+        disp = r.get("dispenseRequest") or {}
+        period = bounds if (bounds.get("start") or bounds.get("end")) else disp.get("validityPeriod") or {}
+        start = self.d(period.get("start") or r.get("authoredOn"))
+        end = self.d(period.get("end"))
+        days = _supply_days(disp.get("expectedSupplyDuration"))
+        if end is None and start is not None and days is not None:
+            end = start + timedelta(days=days)
+        return start, end
+
     def medication(self, r: Resource) -> Row:
-        cc = r.get("medicationCodeableConcept") or {}
+        cc = self.medication_concept(r)
         nhi = atc = None
         for c in cc.get("coding") or []:
             if "atc" in (c.get("system") or ""):
                 atc = c.get("code")
             elif nhi is None:
                 nhi = c.get("code")
-        period = (r.get("dispenseRequest") or {}).get("validityPeriod") or {}
-        placed = not uncertain("MedicationRequest", r)  # D-275: an order of unknown status is kept undated
+        rtype = str(r.get("resourceType") or "MedicationRequest")
+        statement = rtype == "MedicationStatement"
+        placed = not uncertain(rtype, r)  # D-275: an order of unknown status is kept undated
+        start, end = self.therapy(r)
+        authored = self.d(r.get("dateAsserted") if statement else r.get("authoredOn"))
+        dosage = r.get("dosage") if statement else r.get("dosageInstruction")
         return {
             "mid": r["id"],
             "pid": _ref_id(r.get("subject")),
             "nhi_code": nhi,
             "atc": atc,
-            "authored": self.d(r.get("authoredOn")) if placed else None,
-            "start": self.d(period.get("start") or r.get("authoredOn")) if placed else None,
-            "end": self.d(period.get("end")) if placed else None,
+            "authored": (authored or (start if statement else None)) if placed else None,
+            "start": start if placed else None,
+            "end": end if placed else None,
             "status": r.get("status"),
             "name": cc.get("text"),
-            "dose": ((r.get("dosageInstruction") or [{}])[0] or {}).get("text"),
+            "dose": ((dosage or [{}])[0] or {}).get("text"),
         }
 
     def procedure(self, r: Resource) -> Row:
@@ -423,7 +601,7 @@ class Flattener:
             "pid": _ref_id(r.get("subject")),
             "code": code,
             "system": system,
-            "performed": self.d(r.get("performedDateTime")),
+            "performed": self.d(r.get("performedDateTime") or (r.get("performedPeriod") or {}).get("start")),
         }
 
     def report(self, r: Resource) -> Row:
@@ -480,16 +658,18 @@ class Flattener:
             "Appointment": ("appointment", self.appointment),
             "Condition": ("condition", self.condition),
             "MedicationRequest": ("medication", self.medication),
+            "MedicationStatement": ("medication", self.medication),
             "Procedure": ("procedure", self.procedure),
             "DiagnosticReport": ("report", self.report),
             "DocumentReference": ("document", self.document),
             "Consent": ("consent", self.consent),
         }
         by_type = {t: [r for r in rs if not void(t, r)] for t, rs in by_type.items()}  # D-275 (S-4)
+        self.medications = {str(m["id"]): m for m in by_type.get("Medication", []) if m.get("id")}
         out: dict[str, list[Row]] = {name: [] for name in SCHEMAS}
         facts: list[Row] = []
         coded: dict[str, list[Resource]] = {}
-        for rtype in ("Condition", "MedicationRequest", "Observation"):
+        for rtype in ("Condition", "MedicationRequest", "MedicationStatement", "Observation"):
             keep = []
             for r in by_type.get(rtype, []):
                 b = basis_of(r)
@@ -510,8 +690,11 @@ class Flattener:
                 if b != "proposed" and not demographic:  # a proposed fact never reaches a coded table
                     keep.append(r)
             coded[rtype] = keep
-        for rtype, (table, fn) in m.items():
-            out[table] = [{**fn(r), **self.provenance(r)} for r in coded.get(rtype, by_type.get(rtype, []))]
+        for rtype, (table, fn) in m.items():  # a table two types fill (medication): the first type's rows first
+            out[table] = [
+                *(out[table] if table == "medication" and rtype == "MedicationStatement" else []),
+                *({**fn(r), **self.provenance(r)} for r in coded.get(rtype, by_type.get(rtype, []))),
+            ]
         out["patient"] = merge_patients(out["patient"])
         out["observation"] = [
             {**row, **self.provenance(r)} for r in coded["Observation"] for row in self.observations(r)
@@ -531,7 +714,7 @@ class Flattener:
             return {"fid": r["id"], "pid": _ref_id(r.get("subject")), "domain": "condition", "code": code,
                     "system": system, "d": d, "value_num": None, "unit": None, "value_text": None,
                     "basis": basis}  # fmt: skip
-        if rtype == "MedicationRequest":
+        if rtype in ("MedicationRequest", "MedicationStatement"):
             med = self.medication(r)
             return {"fid": r["id"], "pid": med["pid"], "domain": "medication", "code": med["atc"] or med["nhi_code"],
                     "system": "atc" if med["atc"] else None, "d": med["authored"], "value_num": None, "unit": None,

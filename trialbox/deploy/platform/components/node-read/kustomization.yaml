@@ -1,0 +1,11 @@
+# Optional (D-409): lets the install-check job read the cluster's Nodes, so `doctor --platform` (check
+# mig_instances) sees the GPU feature labels of the node the pair runs on (nvidia.com/mig.strategy,
+# nvidia.com/gpu.product, nvidia.com/gpu.sharing-strategy, nvidia.com/gpu.replicas) and the MIG instances it offers.
+# Read only, Nodes only. A platform team that grants no cluster-scoped read leaves this out: the check then relies on
+# the MIG resource name, the pods' scheduling and the platform's declaration (TB_PLATFORM_GPU_SHARING=mig with
+# TB_PLATFORM_GPU_EVIDENCE, the MIG configuration dump). The binding's subject is the doctor's ServiceAccount in the
+# namespace `trialbox`; a site overlay in another namespace patches subjects[0].namespace.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - nodes.yaml

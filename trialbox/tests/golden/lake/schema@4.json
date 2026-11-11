@@ -38,13 +38,13 @@
   ]
  ],
  "meta": {
-  "head": "e31dd293513c382adf5101f332ef0c55439ab2a2",
-  "lake_schema_version": 3,
-  "reason": "T-106b lake schema 3",
+  "head": "be80e5a12dae221208e82de578d818e6dac47612",
+  "lake_schema_version": 4,
+  "reason": "T-616 (D-400): patient.deceased column, lake schema 4, base cohort leaves out a deceased patient with no date",
   "written_with_source": "legacy+omop"
  },
  "min_readable": 1,
- "schema_sha": "1b88fc43a95927735eb064bb02d8dd9df150dc5c6e5663ddc7587f595a4f2d30",
+ "schema_sha": "61631db51bb221352d22d79dcfefcf55e9d7a5c077a1baa0c96e960cb5e06484",
  "tables": {
   "appointment": [
    [
@@ -452,6 +452,10 @@
     "DATE"
    ],
    [
+    "deceased",
+    "BOOLEAN"
+   ],
+   [
     "src_table",
     "VARCHAR"
    ],
@@ -637,5 +641,5 @@
    ]
   ]
  },
- "version": 3
+ "version": 4
 }

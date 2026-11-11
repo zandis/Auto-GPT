@@ -9,6 +9,8 @@ path behind ``tools/apply_update.sh``, ``update.py``); ``doctor --platform``, ``
 ``watchdog`` restarts an unhealthy service and audits it (T-108a, D-360, ``watchdog.py``);
 ``eval qualify`` qualifies a model pair for a hardware profile and writes the record (D-313, ``tools/qualify.py``);
 ``model hold|release|status|report`` is the model misbehaviour procedure (T-609, ``model_report.py``);
+``mail status`` and ``mail resolve`` show and settle the mail outbox, in the mail-gateway container (T-108c, D-401,
+``services/mail_gateway/admin.py``).
 ``support-bundle`` writes one PHI-free file for a support ticket (T-209b, D-405, ``tools/support_bundle.py``).
 ``secrets``, ``logs``, ``update``, ``ops`` and ``watchdog`` need only the standard library, so they run with the
 host's ``python3`` from the install folder: ``sudo python3 -m tools.trialbox secrets rotate``."""
@@ -161,7 +163,19 @@ def main(argv: list[str] | None = None) -> int:
     fl.add_argument("--audit", type=Path, default=Path(os.environ.get("TB_AUDIT_DIR", "/data/audit")))
     fl.add_argument("--days", type=int, default=30)
     fl.add_argument("--json", action="store_true")
+    ml = sub.add_parser("mail", help="the mail outbox: status, resolve (T-108c, D-401; in the mail-gateway container)")
+    ml.add_argument("action", choices=["status", "resolve"])
+    ml.add_argument("key", nargs="?", default=None, help="resolve: one held send key (none: send the queue now)")
+    mg = ml.add_mutually_exclusive_group()
+    for flag, what in (("sent", "it did arrive"), ("resend", "send it again now"), ("drop", "give up")):
+        mg.add_argument(f"--{flag}", dest="decision", action="store_const", const=flag, help=what)
+    ml.add_argument("--by", default=None, help="who decides (default: the user)")
+    ml.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
+    if a.cmd == "mail":
+        from mail_gateway import admin as mail_admin
+
+        return mail_admin.main(a.action, a.key, a.decision, a.by, a.json)
     if a.cmd == "exports":
         return _exports_cmd(a)
     if a.cmd == "secrets":
