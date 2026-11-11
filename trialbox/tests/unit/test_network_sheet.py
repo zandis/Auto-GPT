@@ -34,7 +34,9 @@ def _compose_ports() -> dict[str, set[int]]:
     """Independently of the sheet's code: every port the compose files say a service listens on."""
     out: dict[str, set[int]] = {}
     for f in ns.FILES:
-        doc = yaml.load((ROOT / f).read_text(encoding="utf-8"), Loader=_AnyTag)
+        loader = _AnyTag((ROOT / f).read_text(encoding="utf-8"))
+        doc = loader.get_single_data()
+        loader.dispose()
         for name, svc in (doc.get("services") or {}).items():
             got = out.setdefault(name, set())
             text = " ".join(str(c) for c in (svc.get("command") or []))

@@ -291,7 +291,11 @@ def load(files: list[str], root: Path = ROOT) -> dict[str, Any]:
     merged: dict[str, Any] = {}
     origin: dict[str, list[str]] = {}
     for f in files:
-        data = yaml.load((root / f).read_text(encoding="utf-8"), Loader=_ComposeLoader) or {}
+        loader = _ComposeLoader((root / f).read_text(encoding="utf-8"))
+        try:
+            data = loader.get_single_data() or {}
+        finally:
+            loader.dispose()
         for name in data.get("services") or {}:
             origin.setdefault(name, []).append(Path(f).name)
         merged = _merge(merged, data)

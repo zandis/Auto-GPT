@@ -1,6 +1,7 @@
 # Site C's mapping (synthetic onboarding site; T-632, D-382): services/adapter/mapping/templates/csv_site.yaml as is,
-# named for the site. On a box it lives in deploy/site/mapping/tw_core/ (not in the image) with its lab lookup beside
-# it; `extends` finds the shared TW Core mapping in the image (adapter.mapping.site). RUNBOOK §1 step 3 uses it with
+# named for the site, with the shared lab lookup (no `lookups:` of its own). On a box it lives in
+# deploy/site/mapping/tw_core/ (not in the image); `extends` finds the shared TW Core mapping in the image
+# (adapter.mapping.site). RUNBOOK §1 step 3 uses it with
 # tests/fixtures/onboarding/site_c_answers.yaml.
 version: 1
 name: site_c_his
@@ -72,5 +73,3 @@ tables:
     source: CONSENT_FILE
     key: mrn
     rename: {CHART_NO: mrn, CONTACT_OK: consent_contact, SIGN_DATE: consent_date}
-lookups:
-  lab: {file: lab_local_to_loinc.csv, key: local_code}
