@@ -5,6 +5,7 @@
 <h1>{{ t('login.title') }}</h1>
 {# D-133 (review F-05): a language choice before sign-in (the browser's language is only the first guess) #}
 <nav class="langpick" aria-label="{{ t('lang.label') }}" data-testid="login-lang">{% for l in langs %}<a href="/login?lang={{ l }}" lang="{{ l }}" hreflang="{{ l }}" class="button{{ '' if l == lang else ' secondary' }}"{% if l == lang %} aria-current="true"{% endif %}>{{ t('lang.name.' + l) }}</a>{% endfor %}</nav>
+{% if mfa_off_demo %}<p class="warn" role="note" data-testid="login-mfa-off">{{ t('login.mfa_off_demo') }}</p>{% endif %}
 {% if uninitialised %}<p class="warn" role="alert">{{ t('login.uninitialised') }}</p>{% endif %}
 {% if sso %}<p class="hint" data-testid="sso-hint">{{ t('login.sso') }}</p>{% endif %}
 {% if failed and wait %}<p class="error" role="alert" data-testid="login-slowed">{{ t('login.slowed', n=wait) }}</p>

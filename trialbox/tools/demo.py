@@ -85,6 +85,7 @@ PASSTHROUGH = (
     "TB_CONSOLE_SESSION_HOURS",
     "TB_CONSOLE_TOTP_KEY_FILE",
     "TB_CONSOLE_TOTP_ISSUER",
+    "TB_DEMO_HOSTED",  # D-424: the hosted PoC demo may run with TB_CONSOLE_MFA=off
 )
 SEED_ACTOR = "demo:seed"
 _NAME_OK = re.compile(r"[a-z0-9][a-z0-9._-]{1,63}")

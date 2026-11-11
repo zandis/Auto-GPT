@@ -216,3 +216,8 @@ ZH.update(
         "edc.err.edc.must_change": "簽章前請先在「我的帳號」設定您自己的密碼。未簽章。",
     }
 )
+
+# D-424: the hosted PoC demo without a second factor says so on the sign-in page
+EN["login.mfa_off_demo"] = "Second factor is off on this demo box"
+JA["login.mfa_off_demo"] = "このデモ環境では二要素認証がオフになっています"
+ZH["login.mfa_off_demo"] = "此示範主機已關閉雙重驗證"

@@ -69,6 +69,7 @@ from console.backend import Backend, MailItem, Refused, RulesetInfo, Unavailable
 from console.cascade import CascadeRuns
 from console.i18n import CATALOGUES, LANGS, pick_language, translate
 from console.identity import (
+    MFA_OFF_EVENT,
     MUST_CHANGE_OPEN,
     Hooks,
     Identity,
@@ -414,6 +415,8 @@ def create_app(
     users = users or UserStore()  # schema auth of the trial database (TB_DB_URL, D-126)
     users.idle, users.absolute = settings.identity.idle, settings.identity.absolute  # D-192
     ident = Identity(settings.identity, users, audit, settings.secure_cookie)
+    if settings.identity.demo_mfa_off:  # D-424: the hosted PoC demo runs without a second factor; on the record
+        audit.append(MFA_OFF_EVENT, actor="console:start", detail={"mfa": "off", "hosted_demo": True})
     if settings.admin_password_file is not None:
         made = users.bootstrap_from_file(settings.admin_password_file, mailbox=settings.admin_email or None)
         if made is not None:
@@ -797,6 +800,7 @@ def create_app(
             admin_mail=settings.admin_email,
             sso=settings.sso,
             oidc=ident.oidc_enabled,
+            mfa_off_demo=settings.identity.demo_mfa_off,  # D-424: the hosted demo without a second factor says so
             **ctx,
         )
         resp.set_cookie(

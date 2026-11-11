@@ -2,7 +2,9 @@
 recovery actions and the TLS settings check.
 
 * **Local accounts sign in with a password and a TOTP code** (RFC 6238, ``console.totp``). It is the default:
-  ``TB_CONSOLE_MFA`` is ``totp`` unless ``TB_ENV`` is DEV or TEST, and ``off`` is refused in PRODUCTION. An account
+  ``TB_CONSOLE_MFA`` is ``totp`` unless ``TB_ENV`` is DEV or TEST. ``off`` is allowed only in DEV and TEST and on the
+  hosted PoC demo (``TB_DEMO_HOSTED=1``, D-424); it is refused in VALIDATION and PRODUCTION even there. On the demo it
+  writes ``console.mfa_off`` at start-up and the sign-in page says so. An account
   without an authenticator enrols one at its first sign-in (after its password). A wrong or replayed code counts as a
   failed sign-in; five in 15 minutes from one address lock the account from that address (``console.auth``, D-279).
   ``POST /api/v1/session`` asks for the same two factors in one call (password and ``code``, checked by
@@ -56,6 +58,8 @@ OIDC_COOKIE = "tb_console_oidc"
 REAUTH_TTL = 600.0  # seconds a re-authentication at the provider may take (as the OIDC state, ten minutes)
 PROOF_TTL = 120.0  # seconds the page that asked has to use the proof (as an actor assertion)
 MFA_MODES = ("totp", "off")
+NO_MFA_OFF = ("VALIDATION", "PRODUCTION")  # D-424: never without a second factor, not even on a demo
+MFA_OFF_EVENT = "console.mfa_off"  # D-424: written at start-up when the hosted demo runs without a second factor
 TLS_MODES = ("internal", "hospital")
 
 
@@ -95,18 +99,27 @@ class IdentitySettings:
     totp_key_file: Path = Path("/data/console/totp.key")
     totp_issuer: str = "TrialBox"
     oidc: OidcSettings = field(default_factory=OidcSettings)
+    hosted_demo: bool = False  # TB_DEMO_HOSTED: the hosted PoC demo (deploy/gcp/hosted-demo-startup.sh, D-424)
 
     @property
     def totp_required(self) -> bool:
         return self.mfa == "totp"
 
+    @property
+    def demo_mfa_off(self) -> bool:
+        """The hosted PoC demo runs without a second factor (D-424): audited at start-up, shown on the sign-in page."""
+        return self.hosted_demo and self.mfa == "off"
+
     @classmethod
     def from_env(cls, env: Mapping[str, str], environment: str, data_dir: Path) -> IdentitySettings:
         dev = environment.upper() in ("DEV", "TEST")
+        hosted = (env.get("TB_DEMO_HOSTED") or "").strip().lower() in ("1", "true", "on", "yes")
         mfa = (env.get("TB_CONSOLE_MFA") or ("off" if dev else "totp")).strip().lower()
         if mfa not in MFA_MODES:
             raise IdentityConfigError(f"TB_CONSOLE_MFA must be one of {', '.join(MFA_MODES)}")
-        if mfa == "off" and not dev:  # review M2: only the build and the synthetic hospital go without TOTP
+        # review M2: only the build, the synthetic hospital and (D-424) the hosted PoC demo go without TOTP;
+        # VALIDATION and PRODUCTION never do, whatever TB_DEMO_HOSTED says
+        if mfa == "off" and (environment.upper() in NO_MFA_OFF or not (dev or hosted)):
             raise IdentityConfigError(f"TB_CONSOLE_MFA=off is refused in {environment}: local accounts need TOTP")
         key = (env.get("TB_CONSOLE_TOTP_KEY_FILE") or "").strip()
         try:
@@ -121,6 +134,7 @@ class IdentitySettings:
             totp_key_file=Path(key) if key else data_dir / "totp.key",
             totp_issuer=(env.get("TB_CONSOLE_TOTP_ISSUER") or "TrialBox").strip()[:40] or "TrialBox",
             oidc=oidc,
+            hosted_demo=hosted,
         )
 
 
