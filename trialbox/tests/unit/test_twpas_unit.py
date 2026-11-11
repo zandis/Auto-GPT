@@ -96,6 +96,12 @@ def test_bundle_is_deterministic() -> None:
     assert {e["fullUrl"] for e in other["entry"]}.isdisjoint({e["fullUrl"] for e in tb.build(INP)["entry"]})
 
 
+def test_ecog_is_a_quantity_for_twpas_1_2_5() -> None:
+    """TWPAS 1.2.5 types the patient assessment value as Quantity or string (invariant pat-ast-value), D-372."""
+    ecog = next(r for r in _by_type(tb.build(INP))["Observation"] if r["code"]["coding"][0]["code"] == "89247-1")
+    assert ecog["valueQuantity"] == {"value": 1} and "valueInteger" not in ecog
+
+
 @pytest.mark.parametrize(
     ("change", "word"),
     [
