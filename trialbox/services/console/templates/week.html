@@ -70,7 +70,7 @@
       {% if c.quote %}<q class="quote">{{ c.quote }}</q>{% endif %}{% for o in c.opinions or [] %}<div class="hint" data-testid="opinion-{{ c.id }}-{{ o.role }}">{{ t('opinion.' + o.role) }} · {{ t('opinion.says.' + o.verdict) if o.verdict in ('pass', 'fail') else t('verdict.unknown') }}{% if o.label %} · {% include "_opinion_src.html" %}{% endif %}: <q class="quote">{{ o.quote }}</q></div>{% endfor %}</div>
     </li>{% endfor %}</ul>{% endif %}{% endfor %}
     <p class="chartlinks"><a href="/studies/{{ rs }}/patients/{{ p.pid }}" data-testid="full-chart">{{ t('wb.full') }}</a> · <a href="/studies/{{ rs }}/screening-log">{{ t('log.title') }}</a>{% if user.can_request %} · <a href="/pilot/registry/{{ rs }}">{{ t('nav.patients') }}</a>{% endif %}</p>
-    {{ mark_bar(p.pid, next_href) }}
+    {{ mark_bar(p.pid, next_href, p.mark) }}
   </aside>
   {% endif %}
 </div>

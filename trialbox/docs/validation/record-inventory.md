@@ -40,7 +40,7 @@ bundle of card T-304 builds from this table.
 | R-02 | Export ledger: every file or record set that left the box, to whom, under which approval | control | the audit chain (`flow.export` events) | data steward | as R-01 | `libs/tb_common/flowledger.py` `exports` | `flow.export` |
 | R-03 | Screening log: screening numbers, the PI's mark, contact outcomes, registry status | essential | the box, pseudonymous; the site's registry resolves the chart number | PI, through the trial office | kept | `/studies/{rs}/screening-log.xlsx`; `/registry/{ruleset}/export.xlsx` | `console.pi_mark`, `console.contact_outcome`, `console.registry`, `registry.export` |
 | R-04 | Delegation log copy and its monthly check | copy | the trial office's signed delegation log | trial office | kept | page only | `console.delegation` |
-| R-05 | Consent and approval checks: IRB approval and consent-form version per study, every Approach marked despite a warning | aid | the IRB file and the signed consent forms at the site (never in the box) | trial office | kept | page only | `console.irb`, `console.approach_override` |
+| R-05 | Consent and approval checks: IRB approval and consent-form version per study, every Approach marked despite a warning; whether the approved IRB text covers the cross-department identified candidate view, with its approval number, version and date, as the PI recorded it (D-395) | aid | the IRB file and the signed consent forms at the site (never in the box) | trial office | kept | page only | `console.irb`, `console.approach_override`, `console.irb_text` |
 | R-06 | Research-use opt-out register | copy | the patient's opt-out form at the research office | research office | kept (an event log: an opt-out and a lift) | page only | `console.opt_out` |
 | R-07 | SAE register: the case, its deadlines, receipts and follow-ups, its trail, and the study's confirmed SAE rule set | essential | the AE form of the data core (R-09) or the sponsor's CRF for the facts; the register for the clock and the receipts | PI | kept | page only | `console.sae`, `console.sae_ack`, `life.sae_ack`, `life.report`, `life.sae_rule` |
 | R-08 | EDC prefill: the switch, the item map, drafts and their fate, decisions, electronic signatures and their voids, what was sent | essential | the sponsor's EDC holds the CRF; the box holds the trail of each prefilled value | PI | kept (drafts are never deleted; decisions and sends are append-only) | `/studies/{rs}/edc/export.odm.xml` | `edc.switch`, `edc.map`, `edc.drafts`, `edc.decide`, `edc.sent`, `edc.reentry`, `console.edc` |
@@ -97,6 +97,7 @@ are marked "files".
 | `services/orchestrator/db.py` | `candidates`, `candidate_events` | R-03 |
 | `services/console/teamstore.py` | `delegation`, `delegation_history`, `delegation_checks` | R-04 |
 | `services/console/teamstore.py` | `irb`, `approach_overrides` | R-05 |
+| `services/console/sitestore.py` | `study_irb_text` | R-05 |
 | `libs/tb_common/optout.py` | `optout_events` | R-06 |
 | `services/console/saerecord.py` | `sae_case`, `sae_report`, `sae_trail` | R-07 |
 | `services/datacore/lifecycle.py` | `ae_ack`, `sae_rule` | R-07 |
@@ -119,8 +120,7 @@ are marked "files".
 | `services/console/sitestore.py` | `site_profile` | R-21 |
 | `services/console/sitestore.py` | `criterion_labels`, `code_ticks`, `approval_opened`, `excluded_review` | R-22 |
 | `libs/tb_common/derived_store.py` | `definition`, `score_row`, `input_link`, `conflict` | R-23 |
-| `services/adapter/pidmap.py` | `pid_map`, `identity`, `site_key` | R-24 |
-| `services/dataplat/mpi/__init__.py` | `mpi_person`, `mpi_identifier`, `mpi_merge`, `pid_alias` | R-24 |
+| `services/adapter/pidmap.py` | `pid_map`, `identity`, `site_key`, `pid_alias` | R-24 |
 | `services/omop/schema.py` | `tb_record`, `tb_record_event`, `tb_conflict`, `tb_id_map`, `tb_appointment`, `tb_claim`, `tb_consent`, `tb_load` | R-25 |
 | `services/lake/store.py` | `document_chunk`, `lake_meta` | R-25 |
 | `services/mail_gateway/store.py` | `intake`, `sent`, `send_keys` | R-26 |

@@ -31,7 +31,7 @@ def lock() -> dict[str, Any]:
 def test_the_lock_is_well_formed_and_keeps_the_db_entry(lock: dict[str, Any]) -> None:
     assert il.lock_problems(lock) == []
     assert lock["images"]["db"]["image"] == "trialbox-postgres:16-1"  # D-204's part is unchanged
-    assert set(lock["third_party"]) == {"vllm", "hapi", "caddy", "authelia", "greenmail", "mailpit"}
+    assert set(lock["third_party"]) == {"vllm", "hapi", "caddy", "authelia", "greenmail", "mailpit", "prometheus"}
 
 
 def test_vllm_is_the_release_of_the_g1_run_by_digest(lock: dict[str, Any]) -> None:

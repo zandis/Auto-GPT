@@ -10,6 +10,7 @@ Environment:
   orchestrator's ``schedule.mode``), ``on`` or ``off``.
 * ``TB_NOTICE_N1_AT`` (``07:00``), ``TB_NOTICE_N2_AT`` (``07:30``), ``TB_REDCAP_READ_AT`` (``03:00``, after the
   nightly ingest): local times in the site's zone.
+* ``TB_HEALTH_MAIL_AT`` (``07:00``): the administrators' daily health mail (T-209a, D-379).
 
 Each run is the same call as its button (admin "Send notices now", S21 "Run now"); a notice still goes at most once
 per person and day, so a timer and a button on the same morning never send twice.
@@ -62,6 +63,7 @@ def plan(env: Mapping[str, str]) -> list[Timer]:
         Timer("redcap_read", *_at(env, "TB_REDCAP_READ_AT", "03:00")),
         Timer("notice_n1", *_at(env, "TB_NOTICE_N1_AT", "07:00")),
         Timer("notice_n2", *_at(env, "TB_NOTICE_N2_AT", "07:30")),
+        Timer("health_mail", *_at(env, "TB_HEALTH_MAIL_AT", "07:00")),
     ]
 
 
@@ -78,7 +80,10 @@ def jobs(h: Any) -> dict[str, Callable[[], object]]:
     def rc() -> object:
         return rc_read.run(h)
 
-    return {"redcap_read": rc, "notice_n1": n1, "notice_n2": n2}
+    def health() -> object:
+        return notify.send_all(h, h.today(), ("HEALTH",), by="console:timer")
+
+    return {"redcap_read": rc, "notice_n1": n1, "notice_n2": n2, "health_mail": health}
 
 
 def _guarded(name: str, fn: Callable[[], object]) -> Callable[[], None]:
