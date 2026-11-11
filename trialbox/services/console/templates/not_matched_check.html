@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{# T-310a (D-446, FIT-007): the data steward records the site's check (the dry run) of a study's "criteria not
+   matched" list; where the gate is on, the list and its weekly sample open only while the latest record says passed. #}
+{% block title %}{{ t('nm.check.title') }} · {{ rs }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('nm.check.title') }}</h1></div>
+<p class="hint">{{ t('nm.check.help') }}</p>
+{% if done %}<p class="ok" role="status" data-testid="nm-check-done">{{ t('nm.check.done') }}</p>{% endif %}
+<section class="card">
+<p data-testid="nm-gate">{{ t('nm.gate.on') if held.gated else t('nm.gate.off') }}</p>
+<p data-testid="nm-check-state">{% if held.check and held.check.passed %}{{ t('nm.check.passed', record=held.check.record, at=held.check.at|local) }}{% elif held.check %}{{ t('nm.check.withdrawn', at=held.check.at|local) }}{% else %}{{ t('nm.check.none') }}{% endif %}</p>
+{% if held.check and held.check.note %}<p><span data-authored>{{ held.check.note }}</span></p>{% endif %}
+<form method="post" action="/studies/{{ rs }}/not-matched/check" class="stack">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<fieldset><legend>{{ t('nm.check.question') }}</legend>
+<label><input type="radio" name="passed" value="yes" checked> {{ t('nm.check.yes') }}</label>
+<label><input type="radio" name="passed" value="no"> {{ t('nm.check.no') }}</label></fieldset>
+<label for="nm-record">{{ t('nm.check.record') }}</label><input id="nm-record" name="record" maxlength="80">
+<label for="nm-note">{{ t('nm.check.note') }}</label><input id="nm-note" name="note" maxlength="300">
+<button type="submit" data-testid="nm-check-save">{{ t('nm.check.save') }}</button>
+</form>
+</section>
+{% endblock %}

@@ -689,6 +689,71 @@ class EdcService:
                                            "sha": hashlib.sha256(text.encode()).hexdigest()[:16]})  # fmt: skip
         return text
 
+    def _pid_of(self, rs: str, record: str) -> str | None:
+        """The pseudonym a record key is bound to: its drafts', else the lifecycle subject's (D-435)."""
+        for d in self.store.drafts(rs, record, current=False):
+            return str(d["pid"])
+        from datacore.lifecycle import Lifecycle
+
+        sub = Lifecycle(self.dc).subject(rs, record)
+        return str(sub["pid"]) if sub is not None and sub.get("pid") else None
+
+    def import_odm(self, rs: str, data: bytes, by: str, name: str = "") -> dict[str, Any]:
+        """Read a CDISC ODM file into open drafts that cite it (D-435): proposals a person confirms, edits or rejects
+        and signs, never a decided or signed value. The file is refused whole on any problem (``odm.*``), and so
+        when a record is unknown, opted out, or drafted for another subject. Audited, refusals too (the file's
+        sha256 and counts, never a value)."""
+        from edc import odm_import as oi
+
+        sha = hashlib.sha256(data).hexdigest()
+        detail: dict[str, Any] = {"file": sha[:16], "bytes": len(data)}
+        try:
+            self.store.require_on(rs)
+            items = [mapping.ItemMap.from_dict(i) for i in self.store.map(rs)]
+            if not items:
+                raise EdcError("edc.no_map", "save the item map first")
+            fields = self.dc.fields(rs)
+            target = self.store.target(rs)
+            try:
+                f = oi.read(data, f"Project.{odm._oid(rs)}")
+                props = oi.proposals(f, fields, [m.item for m in items], protected=self._protected(rs, target))
+            except oi.OdmRefused as exc:
+                err = EdcError(exc.code, exc.message + (f" ({exc.where})" if exc.where else ""), 422)
+                err.problems = [{"code": exc.code, "where": exc.where}]  # type: ignore[attr-defined]
+                raise err from exc
+            if not props:
+                raise EdcError("odm.empty", "the file holds no value for an item of the study's map", 422)
+            pids: dict[str, str] = {}
+            for rec in sorted({p.record for p in props}):
+                pid = self._pid_of(rs, rec)
+                if pid is None:
+                    raise EdcError("odm.unknown_subject", f"record {rec} is not a subject of this study", 422)
+                pids[rec] = pid
+        except EdcError as exc:
+            self._audit("edc.odm_import", rs, by, {**detail, "refused": exc.code})
+            raise
+        self._not_opted_out(rs, by, "edc.odm_import", set(pids.values()), detail)
+        by_item = {m.item: m for m in items}
+        shas = {m.item: mapping.item_sha(m) for m in items}
+        at = self.stamp()
+        dates = {(str(d["record"]), str(d["visit"])): str(d["visit_date"]) for r in pids
+                 for d in self.store.drafts(rs, r)}  # fmt: skip
+        rows = [{"record": p.record, "pid": pids[p.record], "visit": p.visit,
+                 "visit_date": dates.get((p.record, p.visit), at[:10]), "item": p.item, "form": p.form,
+                 "cdash": by_item[p.item].cdash, "test": by_item[p.item].test, "value": p.value,
+                 "why": "", "citation": oi.citation(f, p, name), "version": f"odm:{sha[:16]}",
+                 "map_sha": shas[p.item], "dict_sha": forms.field_sha(fields[p.item]),
+                 "target": str(target["token_ref"]) if target else ""} for p in props]  # fmt: skip
+        try:
+            out = self.store.add_proposals(rs, rows, f"odm-{sha[:12]}", by, at)
+        except EdcError as exc:
+            self._audit("edc.odm_import", rs, by, {**detail, "refused": exc.code})
+            raise
+        counts = {k: len(v) for k, v in out.items()}
+        self._audit("edc.odm_import", rs, by, {**detail, "name": name[:120], "file_oid": f.file_oid[:80],
+                                               "records": len(pids), **counts})  # fmt: skip
+        return {"file": sha, "name": name[:120], "file_oid": f.file_oid, **out}
+
     def trail(self, rs: str, record: str) -> dict[str, Any]:
         return self.store.trail(rs, record)
 

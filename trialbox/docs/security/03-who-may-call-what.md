@@ -4,6 +4,15 @@
   (`deploy/secrets/services/<service>.token`, 0600) and accepts only the callers in `tb_common/service_auth.py`
   `CALLERS`; a doc-parser token at the orchestrator gets 403. Reads are behind the token too (D-130). Tests:
   `tests/unit/test_service_secrets.py`.
+- **The model gateway's caller is the token's service** (D-437, T-212b; register CR-040). `X-TB-Caller` is only a
+  claim: the gateway accepts it when the service its `X-TB-Service-Token` names may make it (`service_callers` in
+  `models/routing.yaml`: orchestrator as `orchestrator` or `matching`, criteria-compiler, doc-parser and the console
+  as `converse-native` under their own names only; the operator's host token as any). So the roles of a caller entry
+  are bound to the verified service: a doc-parser token cannot use the judge role, nor claim `orchestrator` (D3
+  under `phi_on_box`) or `testbench` (every role). Outside DEV and TEST a call with no service identity (the old
+  shared token) is refused. The one-GPU swap (`/v1/serving/activate`, `release`) is for the `serving_control`
+  services only (orchestrator, operator). Refusals are `caller_unverified`, audited with the verified service.
+  Tests: `tests/unit/test_gateway_verified_caller.py`.
 - **The signed-in user between services** (D-143, review S-09). The console signs the user it names
   (`X-TB-Actor-Assertion`: actor, console session, two-minute expiry, HMAC with a key derived from the console's
   token); the orchestrator verifies it with the key in `deploy/secrets/services/actor/keys`, which only the

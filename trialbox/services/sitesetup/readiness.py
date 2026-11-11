@@ -6,7 +6,9 @@
    mapped, sheet rows without a chart number, other "please check" items, inputs that disagree, the share of
    diagnoses in a code system TrialBox cannot read, and "feasibility needs a bulk source" when there are only charts.
    For the hospital's own workspace also a held night of the feed (T-611): the box still serves the night before,
-   and the item names the tables the completeness gate refused. Green: none of these.
+   and the item names the tables the completeness gate refused (T-112b, D-443: read from ``dataops.batch``, so a
+   night a steward has accepted or rejected is no longer held; the audit chain when no batch row exists). Green:
+   none of these. The answer also names the feed tier the box serves (``feed``, :func:`feed_loaded`).
 3. **Where do trial records live?** Green: TrialBox's forms are added (or REDCap is linked). Amber otherwise.
 
 :func:`patient_check` runs the approved criteria (the SQL engine with D-130's and D-135's rules) on the workspace's
@@ -18,12 +20,15 @@ coded, confirmed and proposed facts.
 from __future__ import annotations
 
 import json
+import os
 from collections import Counter
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 from matching.coverage import ICD10CM
+from tb_common.db import ENV as DB_ENV
+from tb_common.db import DatabaseError
 
 from sitesetup import publish
 from sitesetup.service import SiteSetup
@@ -71,23 +76,70 @@ def last_feed_night(audit_dir: Path | None, days: int = 7) -> dict[str, Any] | N
     return None
 
 
-def feed_held(svc: SiteSetup) -> dict[str, Any] | None:
+def newest_batch() -> Any:
+    """T-112b (D-443): the newest night in ``dataops.batch``, or ``None`` when the trial database or the schema cannot
+    be read (no ``TB_DB_URL``, no night recorded with the schema yet): the caller then reads the audit chain."""
+    if not os.environ.get(DB_ENV):
+        return None
+    from datacore.dataops import newest_night
+
+    try:
+        return newest_night()
+    except DatabaseError:
+        return None
+
+
+def feed_held(svc: SiteSetup, batch: Any = None) -> dict[str, Any] | None:
     """T-611 (DATA-001): when the newest night of the hospital feed was held, what the readiness page says: the box
-    still serves the snapshot before it, and the tables the gate named."""
+    still serves the snapshot before it, and the tables the gate named.
+
+    T-112b (D-443): the light is read from ``dataops.batch`` (``batch``: the newest night, :func:`newest_batch`) when
+    the trial database has one; a night a steward has since accepted or rejected is no longer held. Without a batch
+    row it is read from the audit chain's newest ``ingest.*`` event, as before."""
+    if batch is not None:
+        if batch.state != "HELD":
+            return None
+        return _held_item(batch.snapshot, batch.detail)
     rec = last_feed_night(getattr(getattr(svc, "audit", None), "directory", None))
     if not rec or rec.get("event") != "ingest.held":
         return None
-    detail = rec.get("detail") or {}
+    return _held_item(str(rec.get("snapshot") or ""), rec.get("detail") or {})
+
+
+def _held_item(snapshot: str, detail: dict[str, Any]) -> dict[str, Any]:
     problems = [str(p) for p in detail.get("incomplete") or []]
     names = sorted({p.split(":", 1)[0] for p in problems})
     return {
         "key": "patients.feed_held",
         "n": max(len(names), 1),
         "tables": ", ".join(names) or "-",
-        "snapshot": str(rec.get("snapshot") or ""),
+        "snapshot": snapshot,
         "problems": problems[:10],
-        "link": "/admin?tab=sources",
+        "link": "/data-ops",
     }
+
+
+DOCS_SQL = "SELECT count(*) AS n FROM document"
+
+
+def feed_loaded(svc: SiteSetup, batch: Any = None) -> dict[str, Any] | None:
+    """T-112b (D-443): which tier of the hospital feed the box serves (survey question 26: tier 1 structured data of
+    the participating departments, tier 2 all departments, tier 3 notes and reports). Read from what is loaded:
+    ``CURRENT`` with notes or reports is ``notes`` (tier 3); with structured records only it is ``structured`` (tier
+    1 or 2: the records do not say whether every department is in). ``None`` when no feed is loaded. ``batch``: the
+    newest night, named beside the tier with its state."""
+    lake = svc.lake("main")
+    try:
+        snap = lake.snapshot()
+        if not snap:
+            return None
+        docs = int(lake.query(DOCS_SQL, []).to_pylist()[0]["n"] or 0)
+    except Exception:
+        return None
+    out: dict[str, Any] = {"snapshot": str(snap), "tier": "notes" if docs else "structured", "documents": docs}
+    if batch is not None:
+        out["night"] = {"snapshot": batch.snapshot, "state": batch.state, "attempt": batch.attempt}
+    return out
 
 
 def readiness(svc: SiteSetup, ws: str, study: dict[str, Any], records: dict[str, Any]) -> dict[str, Any]:
@@ -105,7 +157,8 @@ def readiness(svc: SiteSetup, ws: str, study: dict[str, Any], records: dict[str,
     kinds = Counter(i["kind"] for i in inputs)
     feed = ws == "main" and bool(svc.lake(ws).snapshot()) and not inputs
     patients: list[dict[str, Any]] = []
-    held = feed_held(svc) if ws == "main" else None
+    night = newest_batch() if ws == "main" else None  # T-112b (D-443): the lights read dataops first
+    held = feed_held(svc, night) if ws == "main" else None
     if held:
         patients.append(held)
     facts = st.facts(ws)
@@ -163,7 +216,8 @@ def readiness(svc: SiteSetup, ws: str, study: dict[str, Any], records: dict[str,
     }
     states = [v["state"] for v in q.values()]
     overall = "red" if "red" in states else ("amber" if "amber" in states else "green")
-    return {"ws": ws, "study": study.get("id"), "overall": overall, "questions": q, "bulk": bulk}
+    loaded = feed_loaded(svc, night) if ws == "main" else None  # T-112b (D-443): the tier the box serves
+    return {"ws": ws, "study": study.get("id"), "overall": overall, "questions": q, "bulk": bulk, "feed": loaded}
 
 
 def patient_check(svc: SiteSetup, ws: str, rs: Any, today: date) -> list[dict[str, Any]]:

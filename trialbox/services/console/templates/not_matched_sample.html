@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{# T-310a (D-446, URS-PI-05, CR-014): ten of the latest run's "criteria not matched" patients a week for the study's
+   PI, with a counter; each one answered "as the run said" or "send back to my list" (the weekly list takes it back). #}
+{% block title %}{{ t('nm.sample.title') }} · {{ rs }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('nm.sample.title') }}</h1></div>
+<p class="hint">{{ t('nm.sample.help') }}</p>
+<p><a href="/studies/{{ rs }}/not-matched">{{ t('ex.title') }}</a> · <a href="/studies/{{ rs }}/week">{{ t('nm.sample.to_week') }}</a></p>
+{% if done %}<p class="ok" role="status" data-testid="nm-done">{{ t('nm.done.' + answer_done) }}</p>{% endif %}
+{% if not held.shown %}<section class="card"><p class="attention" data-testid="nm-held">{{ t('nm.held.page') }}</p></section>
+{% elif not ws or not ws.n %}<section class="card"><p class="empty" data-testid="nm-none">{{ t('nm.sample.none') }}</p></section>
+{% else %}
+<section class="card">
+<p data-testid="nm-counter"><strong>{{ t('nm.sample.counter', a=ws.answered, n=ws.n, week=ws.week) }}</strong>{% if ws.back %} · {{ t('nm.sample.back_n', n=ws.back) }}{% endif %}</p>
+<p class="hint" data-testid="nm-totals">{{ t('nm.sample.totals', weeks=ws.totals.weeks, n=ws.totals.sampled, back=ws.totals.sent_back) }} · {{ t('nm.sample.run', snapshot=ws.snapshot) }}</p>
+{% if ws.removed %}<p class="hint" data-testid="nm-removed">{{ t('nm.sample.removed', n=ws.removed) }}</p>{% endif %}
+<div class="scroll" tabindex="0"><table class="candidates" data-testid="nm-sample">
+<thead><tr><th scope="col">{{ t('ex.col.patient') }}</th><th scope="col">{{ t('ex.col.criterion') }}</th><th scope="col">{{ t('ex.col.evidence') }}</th><th scope="col">{{ t('nm.col.answer') }}</th></tr></thead>
+<tbody>{% for r in ws.rows %}<tr id="s-{{ r.short }}" data-testid="nm-{{ r.short }}">
+<td><b class="nowrap mono">{{ t('week.patient', p=r.short) }}</b></td>
+<td>{% for i in r['items'] %}{% if i.source == 'rule' %}{{ t('ex.rule.' + i.label) }}{% else %}<strong>{{ given(i.label) }}</strong> <span class="hint mono nowrap">{{ i.id }}</span>{% endif %} <span class="pill">{{ t('ex.src.' + i.source) }}</span>{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
+<td>{% for i in r['items'] %}{% if i.quote %}<blockquote class="quote">{{ i.quote }}</blockquote>{% if i.date %}<span class="hint">{{ i.date }}</span>{% endif %}{% elif i.records %}<span class="hint">{{ t('ex.records', n=i.records) }}</span>{% endif %}{% endfor %}</td>
+<td>{% if r.t.answer %}<span class="pill{% if r.t.answer == 'send_back' %} warn{% endif %}" data-testid="nm-answer-{{ r.short }}">{{ t('nm.answer.' + r.t.answer) }}</span><br><span class="hint">{{ t('nm.answered', who=(r.t.answered_by or '')|replace('console:', ''), at=r.t.answered_at|local) }}</span>{% if r.t.note %}<br><span data-authored>{{ r.t.note }}</span>{% endif %}
+{% else %}<form method="post" action="/studies/{{ rs }}/not-matched/sample/{{ r.t.pid }}" class="stack"><input type="hidden" name="csrf" value="{{ csrf }}"><label for="nmnote-{{ r.short }}" class="hint">{{ t('nm.note') }}</label><input id="nmnote-{{ r.short }}" name="note" maxlength="300">
+<button type="submit" name="answer" value="agree" class="secondary" data-testid="nm-agree-{{ r.short }}">{{ t('nm.answer.agree') }}</button>{% if may_back %} <button type="submit" name="answer" value="send_back" data-testid="nm-back-{{ r.short }}">{{ t('nm.answer.send_back') }}</button>{% endif %}</form>{% endif %}</td>
+</tr>{% endfor %}</tbody></table></div>
+</section>
+{% endif %}
+{% endblock %}

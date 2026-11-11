@@ -24,6 +24,8 @@
   ``max_tokens`` is cut to what fits beside the prompt; a prompt that leaves less than
   :data:`tb_llm.budget.MIN_ANSWER_TOKENS` is refused here (:class:`LlmPromptTooLong`) and never sent; the retry of a
   cut-off answer asks for at most what fits.
+* **Timeouts (T-608, D-445; review LLM-023).** A call waits 240 s (``TB_LLM_TIMEOUT_S``), longer than the gateway's
+  budget for one call (:mod:`tb_llm.timeouts`); a dropped connection is sent once more, a read timeout is not.
 """
 
 from __future__ import annotations
@@ -33,7 +35,7 @@ import os
 import re
 import time
 from dataclasses import dataclass, replace
-from functools import lru_cache
+from functools import lru_cache, partial
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +45,7 @@ from jinja2 import Environment, StrictUndefined
 from tb_contracts import PromptMeta, inline_schema, load_schema, null_absent, schema_errors
 from tb_contracts.schema import schema_error_codes
 from tb_llm.budget import MIN_ANSWER_TOKENS, answer_room, estimate_messages, retry_max_tokens, text_budget
+from tb_llm.timeouts import caller_timeout, once_more
 
 from tb_common.audit import AuditLog
 from tb_common.audit_writer import open_audit
@@ -165,7 +168,7 @@ class LlmClient:
         cloud_enabled: bool = False,
         service_name: str = "",
         audit: AuditLog | None = None,
-        timeout: float = 600.0,
+        timeout: float | httpx.Timeout | None = None,
         gateway: Any = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
@@ -176,7 +179,7 @@ class LlmClient:
         self.cloud_enabled = cloud_enabled
         self.service_name = service_name
         self.audit = audit
-        self.http = httpx.Client(timeout=timeout)
+        self.http = httpx.Client(timeout=caller_timeout() if timeout is None else timeout)
         self.gateway = gateway  # tb_llm.GatewayClient (shim path) or None
         self._context: tuple[float, int | None] | None = None
         self._prompt_env: str | None = None  # set to PRODUCTION once the gateway refuses an unqualified version
@@ -362,8 +365,8 @@ class LlmClient:
                 model = served = str(payload.get("model") or model)
                 build_sha = str((payload.get("tb") or {}).get("build_sha") or "")
             else:
-                try:
-                    resp = self.http.post(f"{base}/chat/completions", json=body, headers=headers)
+                try:  # a dropped connection once more, a timeout never (T-608, D-445)
+                    resp = once_more(partial(self.http.post, f"{base}/chat/completions", json=body, headers=headers))
                 except httpx.HTTPError as exc:
                     raise LlmError(f"LLM endpoint unreachable ({target}): {exc}") from exc
                 if resp.status_code >= 400:
