@@ -718,7 +718,7 @@ def test_doctor_platform_cli_writes_evidence_and_exits(
     assert rc == 0 and doc["passed"] is True, by_status(doc, "FAIL")  # TEST: what is not declared is a WARN
     assert doc["schema"] == pf.EVIDENCE_SCHEMA and doc["no_gpu"] is True and doc["gpu_profile"] == "shared-quota"
     by = {c["name"]: c for c in doc["checks"]}
-    gpu_checks = {"serving_record", "gpu_serving", "mig_instances", "canary"}
+    gpu_checks = {"serving_record", "host_match", "gpu_serving", "mig_instances", "canary"}
     assert {n for n, c in by.items() if c["status"] == "SKIP"} == gpu_checks
     assert all(by[n]["detail"] == "skipped: no device" for n in gpu_checks)
     assert {"topology", "routing_perimeter", "image_digests", "quota", "network_policy", "kek_custody", "ntp"} <= set(

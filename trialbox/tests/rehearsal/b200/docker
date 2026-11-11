@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""Stand-in docker for G1b on the owner's B200 (T-114): `compose up` keeps the MIG devices and serving values the
+script exported; `inspect` answers with them, as a vLLM container started from docker-compose.shared-quota.yml would."""
+
+import json
+import os
+import sys
+from pathlib import Path
+
+S = Path(os.environ["TB_B200_SHIM_STATE"])
+S.mkdir(parents=True, exist_ok=True)
+a = sys.argv[1:]
+with (S / "docker.calls").open("a") as fh:
+    fh.write(" ".join(a) + "\n")
+KEYS = (
+    "TB_MIG_JUDGE_DEVICE",
+    "TB_MIG_VERIFIER_DEVICE",
+    "JUDGE_MAX_LEN",
+    "VERIFIER_MAX_LEN",
+    "JUDGE_MAX_SEQS",
+    "VERIFIER_MAX_SEQS",
+    "JUDGE_GPU_MEM_UTIL",
+    "VERIFIER_GPU_MEM_UTIL",
+)
+DIGEST = "vllm/vllm-openai@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34"
+if a[:1] == ["load"]:
+    print(f"Loaded image: {Path(a[2]).name}")
+elif a[:1] == ["version"]:
+    print("27.3.1")
+elif a[:2] == ["image", "inspect"]:
+    print(json.dumps([DIGEST]))
+elif a[:1] == ["compose"]:
+    if "up" in a:
+        (S / "serving.json").write_text(json.dumps({k: os.environ[k] for k in KEYS}))
+    elif "ps" in a:
+        print("judge-standin" if a[-1] == "llm-service" else "verifier-standin")
+elif a[:1] == ["inspect"]:
+    env = json.loads((S / "serving.json").read_text())
+    role, p = ("judge", "JUDGE") if a[1] == "judge-standin" else ("verifier", "VERIFIER")
+    args = [
+        f"--model=/models/{role}-w",
+        f"--served-model-name=local/{role}",
+        f"--max-model-len={env[p + '_MAX_LEN']}",
+        f"--max-num-seqs={env[p + '_MAX_SEQS']}",
+        "--enforce-eager",
+        f"--gpu-memory-utilization={env[p + '_GPU_MEM_UTIL']}",
+    ]
+    dev = env[f"TB_MIG_{p}_DEVICE"]
+    print(
+        json.dumps(
+            [
+                {
+                    "Args": args,
+                    "Config": {"Image": "vllm/vllm-openai:v0.32.0"},
+                    "Image": "sha256:" + "0" * 64,
+                    "HostConfig": {"DeviceRequests": [{"DeviceIDs": [dev]}]},
+                }
+            ]
+        )
+    )
+elif a[:1] == ["exec"]:
+    print("0.32.0")
+elif a[:1] == ["logs"]:
+    print("stand-in server log")
+else:
+    sys.exit(f"docker stand-in: {' '.join(a)} not handled")
