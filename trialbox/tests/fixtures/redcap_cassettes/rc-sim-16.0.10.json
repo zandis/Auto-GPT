@@ -1,0 +1,376 @@
+{
+ "exchanges": [
+  {
+   "body": "16.0.10",
+   "content_type": "text/plain; charset=utf-8",
+   "request": [
+    [
+     "content",
+     "version"
+    ],
+    [
+     "format",
+     "json"
+    ],
+    [
+     "returnFormat",
+     "json"
+    ]
+   ],
+   "status": 200
+  },
+  {
+   "body": "{\"project_id\":203,\"project_title\":\"GZQO CRF\",\"is_longitudinal\":1,\"has_repeating_instruments_or_events\":0,\"record_autonumbering_enabled\":0,\"in_production\":0}",
+   "content_type": "application/json",
+   "request": [
+    [
+     "content",
+     "project"
+    ],
+    [
+     "format",
+     "json"
+    ],
+    [
+     "returnFormat",
+     "json"
+    ]
+   ],
+   "status": 200
+  },
+  {
+   "body": "[{\"field_name\":\"record_id\",\"form_name\":\"demographics\",\"field_type\":\"text\",\"field_label\":\"Record ID\"},{\"field_name\":\"tb_screening_no\",\"form_name\":\"demographics\",\"field_type\":\"text\",\"field_label\":\"Screening number\"},{\"field_name\":\"brthdat\",\"form_name\":\"demographics\",\"field_type\":\"text\",\"field_label\":\"Birth date\",\"text_validation_type_or_show_slider_number\":\"date_ymd\",\"field_label:ja\":\"生年月日\"},{\"field_name\":\"sex\",\"form_name\":\"demographics\",\"field_type\":\"radio\",\"field_label\":\"Sex\",\"select_choices_or_calculations\":\"1, Male | 2, Female\"},{\"field_name\":\"pt_initials\",\"form_name\":\"demographics\",\"field_type\":\"text\",\"field_label\":\"Initials\",\"identifier\":\"y\"},{\"field_name\":\"weight\",\"form_name\":\"baseline\",\"field_type\":\"text\",\"field_label\":\"Body weight (kg)\",\"text_validation_type_or_show_slider_number\":\"number\",\"text_validation_min\":\"20\",\"text_validation_max\":\"300\"},{\"field_name\":\"urate\",\"form_name\":\"baseline\",\"field_type\":\"text\",\"field_label\":\"Serum uric acid (mg/dL)\",\"text_validation_type_or_show_slider_number\":\"number\"},{\"field_name\":\"mh_gout\",\"form_name\":\"baseline\",\"field_type\":\"yesno\",\"field_label\":\"History of gout\"},{\"field_name\":\"cm_allo\",\"form_name\":\"baseline\",\"field_type\":\"yesno\",\"field_label\":\"Allopurinol (medication)\"},{\"field_name\":\"tophus\",\"form_name\":\"baseline\",\"field_type\":\"yesno\",\"field_label\":\"Tophus present\"},{\"field_name\":\"comments\",\"form_name\":\"baseline\",\"field_type\":\"notes\",\"field_label\":\"Comments\"}]",
+   "content_type": "application/json",
+   "request": [
+    [
+     "content",
+     "metadata"
+    ],
+    [
+     "format",
+     "json"
+    ],
+    [
+     "returnFormat",
+     "json"
+    ]
+   ],
+   "status": 200
+  },
+  {
+   "body": "[{\"day_offset\":0,\"offset_min\":0,\"offset_max\":0,\"event_name\":\"baseline_arm_1\",\"arm_num\":1,\"unique_event_name\":\"baseline_arm_1\"},{\"day_offset\":0,\"offset_min\":0,\"offset_max\":0,\"event_name\":\"week_4_arm_1\",\"arm_num\":1,\"unique_event_name\":\"week_4_arm_1\"}]",
+   "content_type": "application/json",
+   "request": [
+    [
+     "content",
+     "event"
+    ],
+    [
+     "format",
+     "json"
+    ],
+    [
+     "returnFormat",
+     "json"
+    ]
+   ],
+   "status": 200
+  },
+  {
+   "body": "[]",
+   "content_type": "application/json",
+   "request": [
+    [
+     "content",
+     "formEventMapping"
+    ],
+    [
+     "format",
+     "json"
+    ],
+    [
+     "returnFormat",
+     "json"
+    ]
+   ],
+   "status": 200
+  },
+  {
+   "body": "[]",
+   "content_type": "application/json",
+   "request": [
+    [
+     "content",
+     "dag"
+    ],
+    [
+     "format",
+     "json"
+    ],
+    [
+     "returnFormat",
+     "json"
+    ]
+   ],
+   "status": 200
+  },
+  {
+   "body": "[{\"record_id\":\"1\",\"redcap_event_name\":\"baseline_arm_1\",\"tb_screening_no\":\"S-001\",\"brthdat\":\"\",\"sex\":\"\",\"pt_initials\":\"\",\"weight\":\"\",\"urate\":\"\",\"mh_gout\":\"\",\"cm_allo\":\"\",\"tophus\":\"\",\"comments\":\"\"}]",
+   "content_type": "application/json",
+   "request": [
+    [
+     "content",
+     "record"
+    ],
+    [
+     "format",
+     "json"
+    ],
+    [
+     "rawOrLabel",
+     "raw"
+    ],
+    [
+     "rawOrLabelHeaders",
+     "raw"
+    ],
+    [
+     "returnFormat",
+     "json"
+    ],
+    [
+     "type",
+     "flat"
+    ]
+   ],
+   "status": 200
+  },
+  {
+   "body": "[{\"record_id\":\"1\",\"redcap_event_name\":\"baseline_arm_1\",\"tb_screening_no\":\"S-001\",\"brthdat\":\"\",\"sex\":\"\",\"pt_initials\":\"\",\"weight\":\"\",\"urate\":\"\",\"mh_gout\":\"\",\"cm_allo\":\"\",\"tophus\":\"\",\"comments\":\"\"}]",
+   "content_type": "application/json",
+   "request": [
+    [
+     "content",
+     "record"
+    ],
+    [
+     "dateRangeBegin",
+     "2026-01-01 00:00:00"
+    ],
+    [
+     "format",
+     "json"
+    ],
+    [
+     "rawOrLabel",
+     "raw"
+    ],
+    [
+     "rawOrLabelHeaders",
+     "raw"
+    ],
+    [
+     "returnFormat",
+     "json"
+    ],
+    [
+     "type",
+     "flat"
+    ]
+   ],
+   "status": 200
+  },
+  {
+   "body": "[\"2,S-NEW\"]",
+   "content_type": "application/json",
+   "request": [
+    [
+     "content",
+     "record"
+    ],
+    [
+     "data",
+     "[{\"record_id\": \"S-NEW\", \"redcap_event_name\": \"baseline_arm_1\", \"tb_screening_no\": \"S-002\"}]"
+    ],
+    [
+     "forceAutoNumber",
+     "true"
+    ],
+    [
+     "format",
+     "json"
+    ],
+    [
+     "overwriteBehavior",
+     "normal"
+    ],
+    [
+     "returnContent",
+     "auto_ids"
+    ],
+    [
+     "returnFormat",
+     "json"
+    ],
+    [
+     "type",
+     "flat"
+    ]
+   ],
+   "status": 200
+  }
+ ],
+ "format": 1,
+ "redcap_version": "16.0.10",
+ "results": {
+  "dag": [],
+  "event": [
+   {
+    "arm_num": 1,
+    "day_offset": 0,
+    "event_name": "baseline_arm_1",
+    "offset_max": 0,
+    "offset_min": 0,
+    "unique_event_name": "baseline_arm_1"
+   },
+   {
+    "arm_num": 1,
+    "day_offset": 0,
+    "event_name": "week_4_arm_1",
+    "offset_max": 0,
+    "offset_min": 0,
+    "unique_event_name": "week_4_arm_1"
+   }
+  ],
+  "formEventMapping": [],
+  "import": [
+   "2"
+  ],
+  "metadata": [
+   {
+    "field_label": "Record ID",
+    "field_name": "record_id",
+    "field_type": "text",
+    "form_name": "demographics"
+   },
+   {
+    "field_label": "Screening number",
+    "field_name": "tb_screening_no",
+    "field_type": "text",
+    "form_name": "demographics"
+   },
+   {
+    "field_label": "Birth date",
+    "field_label:ja": "生年月日",
+    "field_name": "brthdat",
+    "field_type": "text",
+    "form_name": "demographics",
+    "text_validation_type_or_show_slider_number": "date_ymd"
+   },
+   {
+    "field_label": "Sex",
+    "field_name": "sex",
+    "field_type": "radio",
+    "form_name": "demographics",
+    "select_choices_or_calculations": "1, Male | 2, Female"
+   },
+   {
+    "field_label": "Initials",
+    "field_name": "pt_initials",
+    "field_type": "text",
+    "form_name": "demographics",
+    "identifier": "y"
+   },
+   {
+    "field_label": "Body weight (kg)",
+    "field_name": "weight",
+    "field_type": "text",
+    "form_name": "baseline",
+    "text_validation_max": "300",
+    "text_validation_min": "20",
+    "text_validation_type_or_show_slider_number": "number"
+   },
+   {
+    "field_label": "Serum uric acid (mg/dL)",
+    "field_name": "urate",
+    "field_type": "text",
+    "form_name": "baseline",
+    "text_validation_type_or_show_slider_number": "number"
+   },
+   {
+    "field_label": "History of gout",
+    "field_name": "mh_gout",
+    "field_type": "yesno",
+    "form_name": "baseline"
+   },
+   {
+    "field_label": "Allopurinol (medication)",
+    "field_name": "cm_allo",
+    "field_type": "yesno",
+    "form_name": "baseline"
+   },
+   {
+    "field_label": "Tophus present",
+    "field_name": "tophus",
+    "field_type": "yesno",
+    "form_name": "baseline"
+   },
+   {
+    "field_label": "Comments",
+    "field_name": "comments",
+    "field_type": "notes",
+    "form_name": "baseline"
+   }
+  ],
+  "project": {
+   "has_repeating_instruments_or_events": 0,
+   "in_production": 0,
+   "is_longitudinal": 1,
+   "project_id": 203,
+   "project_title": "GZQO CRF",
+   "record_autonumbering_enabled": 0
+  },
+  "record": [
+   {
+    "brthdat": "",
+    "cm_allo": "",
+    "comments": "",
+    "mh_gout": "",
+    "pt_initials": "",
+    "record_id": "1",
+    "redcap_event_name": "baseline_arm_1",
+    "sex": "",
+    "tb_screening_no": "S-001",
+    "tophus": "",
+    "urate": "",
+    "weight": ""
+   }
+  ],
+  "record_since": [
+   {
+    "brthdat": "",
+    "cm_allo": "",
+    "comments": "",
+    "mh_gout": "",
+    "pt_initials": "",
+    "record_id": "1",
+    "redcap_event_name": "baseline_arm_1",
+    "sex": "",
+    "tb_screening_no": "S-001",
+    "tophus": "",
+    "urate": "",
+    "weight": ""
+   }
+  ],
+  "version": "16.0.10"
+ },
+ "since": "2026-01-01 00:00:00",
+ "source": "rc_sim (TrialBox's simulator; not a real REDCap)",
+ "write": [
+  {
+   "record_id": "S-NEW",
+   "redcap_event_name": "baseline_arm_1",
+   "tb_screening_no": "S-002"
+  }
+ ]
+}

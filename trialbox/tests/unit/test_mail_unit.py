@@ -154,7 +154,7 @@ def test_outbound_zip_encryption_and_routing(tmp_path: Path) -> None:
     html = msg.get_body(("html",))
     assert html is not None and "<table>" in html.get_content()
     (att,) = list(msg.iter_attachments())
-    assert att.get_filename() == "01JB0000000000000000000000.7z" and b"candidate" not in p.data
+    assert att.get_filename() == "01JB0000000000000000000000.7z" and b"PK candidate list" not in p.data
     pw_msg = message_from_bytes(p.password_mails[0][1], policy=policy.default)
     body = str(pw_msg.get_body(("plain",)).get_content())  # type: ignore[union-attr]
     password = next(ln.strip() for ln in body.splitlines() if ln.startswith("    "))
@@ -270,7 +270,8 @@ def test_text_part_of_a_body_with_html_blocks_has_no_raw_tags() -> None:
     assert "<" not in text and "Ruleset X — round 1" in text
     assert "- PHI guard: clean" in text and "X-INC-01 | inclusion" in text
     assert "<table>" in html
-    assert render_body("plain **md**")[0] == "plain md"  # D-119: the text part is rendered from the Markdown
+    # D-119: the text part is rendered from the Markdown; T-116: the intended-use statement closes it
+    assert render_body("plain **md**")[0].split("\n\n-- \n")[0] == "plain md"
 
 
 def test_outbound_subject_with_a_middle_dot_has_no_empty_encoded_word(tmp_path: Path) -> None:

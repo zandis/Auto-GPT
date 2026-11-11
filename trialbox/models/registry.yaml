@@ -14,7 +14,14 @@
 #
 # Status rules for routing (MOD-7): production roles resolve to `champion`, `shadow:<role>` to `shadow`, evaluation
 # roles to `qualified` or better; in DEV/TEST any status except `retired` and `suspended` may be used.
-version: registry-2026-11-10.1
+#
+# T-012b (LLM-007, LLM-029): every local build names its `expected` weights: the manifest sha256 (the digest
+# tools/pin_model.py computes over the visible files) and the upstream revision of the release, here taken from the
+# measured serving record. `pin_model` refuses a folder whose manifest differs (the 16-byte folder of the review) and
+# refuses to trust weights on first use when nothing is expected; the gateway refuses a pin that differs
+# (weights_unexpected). Install pins `candidate`; only `pin_model --promote` with a passing `trialbox eval qualify`
+# record makes a `champion`, and a PRODUCTION gateway refuses a champion without that record (champion_unqualified).
+version: registry-2026-11-11.1
 
 aliases:
   trialbox-stub: {class: J, description: "deterministic OpenAI-compatible stub (services/llm_stub), DEV/TEST only"}
@@ -105,6 +112,10 @@ builds:
     sha256: null
     revision: null
     repository: nvidia/Gemma-4-26B-A4B-NVFP4
+    expected:  # the release's weight manifest (tools/pin_model.py format) and revision, from the measured record
+      manifest_sha256: 5e5bef7a61feffc04e388886d2f1996dbffd1fa10b1722e2fa2a832c39e28a76
+      revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
+      source: deploy/measured/serving_config.rtxpro6000.json
     quantisation: NVFP4 (NVIDIA release; measured 2026-11-08)
     context_length: 32768
     family: gemma
@@ -120,6 +131,10 @@ builds:
     sha256: null
     revision: null
     repository: cyankiwi/Qwen3.5-9B-AWQ-4bit
+    expected:  # the release's weight manifest (tools/pin_model.py format) and revision, from the measured record
+      manifest_sha256: 869b525324626a867331f26126a5605aeb10ae40e9dfbc14fee9849ac3e15982
+      revision: e4d2d39cede8c5d1716d824cd843e2889c648083
+      source: deploy/measured/serving_config.rtxpro6000.json
     quantisation: AWQ 4-bit (measured 2026-11-08)
     context_length: 32768
     family: qwen
@@ -135,6 +150,10 @@ builds:
     sha256: null
     revision: null
     repository: nvidia/Gemma-4-26B-A4B-NVFP4
+    expected:  # the release's weight manifest (tools/pin_model.py format) and revision, from the measured record
+      manifest_sha256: 5e5bef7a61feffc04e388886d2f1996dbffd1fa10b1722e2fa2a832c39e28a76
+      revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
+      source: deploy/measured/serving_config.rtxpro6000.json
     quantisation: NVFP4 (NVIDIA release; measured 2026-11-08)
     context_length: 32768
     family: gemma
@@ -152,6 +171,10 @@ builds:
     sha256: null
     revision: null
     repository: nvidia/Gemma-4-26B-A4B-NVFP4
+    expected:  # the release's weight manifest (tools/pin_model.py format) and revision, from the measured record
+      manifest_sha256: 5e5bef7a61feffc04e388886d2f1996dbffd1fa10b1722e2fa2a832c39e28a76
+      revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
+      source: deploy/measured/serving_config.rtxpro6000.json
     quantisation: NVFP4 (NVIDIA release; measured 2026-11-08)
     context_length: 16384
     family: gemma
@@ -167,6 +190,10 @@ builds:
     sha256: null
     revision: null
     repository: cyankiwi/Qwen3.5-9B-AWQ-4bit
+    expected:  # the release's weight manifest (tools/pin_model.py format) and revision, from the measured record
+      manifest_sha256: 869b525324626a867331f26126a5605aeb10ae40e9dfbc14fee9849ac3e15982
+      revision: e4d2d39cede8c5d1716d824cd843e2889c648083
+      source: deploy/measured/serving_config.rtxpro6000.json
     quantisation: AWQ 4-bit (measured 2026-11-08)
     context_length: 16384
     family: qwen
@@ -182,6 +209,10 @@ builds:
     sha256: null
     revision: null
     repository: nvidia/Gemma-4-26B-A4B-NVFP4
+    expected:  # the release's weight manifest (tools/pin_model.py format) and revision, from the measured record
+      manifest_sha256: 5e5bef7a61feffc04e388886d2f1996dbffd1fa10b1722e2fa2a832c39e28a76
+      revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
+      source: deploy/measured/serving_config.rtxpro6000.json
     quantisation: NVFP4 (NVIDIA release; measured 2026-11-08)
     context_length: 16384
     family: gemma
@@ -199,6 +230,10 @@ builds:
     sha256: null
     revision: null
     repository: nvidia/Gemma-4-26B-A4B-NVFP4
+    expected:  # the release's weight manifest (tools/pin_model.py format) and revision, from the measured record
+      manifest_sha256: 5e5bef7a61feffc04e388886d2f1996dbffd1fa10b1722e2fa2a832c39e28a76
+      revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
+      source: deploy/measured/serving_config.rtxpro6000.json
     quantisation: NVFP4 (NVIDIA release; measured 2026-11-08)
     context_length: 8192
     family: gemma
@@ -214,6 +249,10 @@ builds:
     sha256: null
     revision: null
     repository: cyankiwi/Qwen3.5-9B-AWQ-4bit
+    expected:  # the release's weight manifest (tools/pin_model.py format) and revision, from the measured record
+      manifest_sha256: 869b525324626a867331f26126a5605aeb10ae40e9dfbc14fee9849ac3e15982
+      revision: e4d2d39cede8c5d1716d824cd843e2889c648083
+      source: deploy/measured/serving_config.rtxpro6000.json
     quantisation: AWQ 4-bit (measured 2026-11-08)
     context_length: 8192
     family: qwen
@@ -229,6 +268,7 @@ builds:
     sha256: null
     revision: null
     repository: openai/gpt-oss-safeguard-20b
+    expected: {manifest_sha256: null, revision: null}  # unknown until the release is measured: never champion
     quantisation: MXFP4
     context_length: null
     family: gpt-oss
@@ -245,6 +285,7 @@ builds:
     sha256: null
     revision: null
     repository: null
+    expected: {manifest_sha256: null, revision: null}  # unknown until the release is measured: never champion
     quantisation: null
     context_length: null
     family: nemotron
@@ -260,6 +301,7 @@ builds:
     sha256: null
     revision: null
     repository: null
+    expected: {manifest_sha256: null, revision: null}  # unknown until the release is measured: never champion
     quantisation: null
     context_length: null
     family: nemotron
@@ -275,6 +317,7 @@ builds:
     sha256: null
     revision: null
     repository: null
+    expected: {manifest_sha256: null, revision: null}  # unknown until the release is measured: never champion
     quantisation: 4-bit (recipe to record at qualification)
     context_length: null
     family: qwen
@@ -290,6 +333,7 @@ builds:
     sha256: null
     revision: null
     repository: null
+    expected: {manifest_sha256: null, revision: null}  # unknown until the release is measured: never champion
     quantisation: MXFP4
     context_length: null
     family: gpt-oss

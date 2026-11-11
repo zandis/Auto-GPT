@@ -234,6 +234,21 @@ def test_odm_is_well_formed_with_standard_oids_and_reimports_equal(dc: DataCore)
     assert _sim_values(sim, token) == export.values_of(dc, "GZQO")
 
 
+def test_odm_validates_against_the_odm_1_3_2_schema(dc: DataCore, tmp_path: Any) -> None:
+    """T-115 (STD-062, E-25): the data-core export is valid ODM 1.3.2 by the CDISC schema, as lxml and xmllint read
+    it; a float carries Length and SignificantDigits."""
+    from tests import odm_xsd
+
+    _filled(dc)
+    text = export.odm(dc, "GZQO", AT)
+    assert odm_xsd.problems(text) == []
+    lint = odm_xsd.xmllint(text, tmp_path)
+    assert lint is None or lint[0] == 0, lint
+    assert odm_xsd.problems(text.replace("<StudyName>", "<StudyNam>").replace("</StudyName>", "</StudyNam>"))
+    weight = ET.fromstring(text).find(f".//{ODM}ItemDef[@OID='vs_weight']")
+    assert weight is not None and weight.get("Length") and weight.get("SignificantDigits")
+
+
 def test_classic_study_and_checkboxes_round_trip(dc: DataCore) -> None:
     text = (
         "field_name,form_name,field_type,field_label,select_choices_or_calculations\n"

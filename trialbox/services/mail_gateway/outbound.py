@@ -21,13 +21,15 @@ from tb_common.crypto import random_password
 from tb_common.objstore import ObjectStore
 from tb_common.routing import is_internal
 from tb_common.timeutil import now
+from tb_common.wording import statement, text_lang
 from tb_contracts import SendRequest
 
 Transport = Callable[[str, list[str], bytes], None]
 HTML_WRAP = (
     '<!doctype html><html><head><meta charset="utf-8"></head><body style="font-family:\'Noto Sans TC\',Arial,'
     'sans-serif;font-size:14px">{body}<hr><p style="color:#777;font-size:11px">TrialBox · automated message · '
-    "do not forward outside the hospital unless the content is aggregate.</p></body></html>"
+    "do not forward outside the hospital unless the content is aggregate.</p>"
+    '<p style="color:#777;font-size:11px" data-testid="intended-use">{statement}</p></body></html>'
 )
 
 
@@ -109,9 +111,17 @@ def plain_text(body_md: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip() + "\n"
 
 
+def mail_statement(body_md: str) -> str:
+    """The intended-use statement every mail carries (TB-IU-01 §1 condition C1; T-116), in the body's language: a send
+    request names no language, so it is read from the body's script (kana, Han, else English)."""
+    return statement(text_lang(body_md))
+
+
 def render_body(body_md: str) -> tuple[str, str]:
     html = markdown.markdown(body_md, extensions=["tables", "fenced_code", "sane_lists"])
-    return plain_text(body_md), HTML_WRAP.format(body=html)
+    st = mail_statement(body_md)
+    text = plain_text(body_md).rstrip("\n") + "\n\n-- \n" + st + "\n"
+    return text, HTML_WRAP.format(body=html, statement=html_lib.escape(st))
 
 
 def seven_zip(files: list[tuple[str, bytes]], password: str) -> bytes:
@@ -229,7 +239,7 @@ def prepare(
             pm = EmailMessage()
             pm.set_content(
                 f"Password for the encrypted attachment of '{req.subject}' (message {mid}):\n\n    {password}\n\n"
-                "Sent separately; do not forward."
+                "Sent separately; do not forward.\n\n-- \n" + statement("en") + "\n"
             )
             headers(pm, f"Password: {req.subject}", [r], make_msgid(idstring="pw", domain=domain))
             password_mails.append((r, pm.as_bytes(policy=SMTP_UNFOLDED)))
