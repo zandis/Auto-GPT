@@ -130,11 +130,14 @@ def test_cli_refuses_restore_without_yes_and_reports_errors(box: dict[str, objec
     f = _backup(box, tmp_path)[0]
     assert cli(["restore", str(f), "--key", str(box["priv"])]) == 2
     capsys.readouterr()
-    assert cli(["backup-verify", str(f), "--key", str(box["priv"])]) == 0
+    deploy = tmp_path / "deploy"
+    assert cli(["backup-verify", str(f), "--key", str(box["priv"]), "--deploy", str(deploy)]) == 0
     assert json.loads(capsys.readouterr().out)["site"] == "CGMH"
+    rec = json.loads((deploy / "site" / "backup-verified.json").read_text())  # T-209a (OPS-047): the health reads it
+    assert rec["file"] == f.name and len(rec["sha256"]) == 64 and rec["site"] == "CGMH"
     bad = tmp_path / "bad.tbbak"
     bad.write_bytes(b"junk")
-    assert cli(["backup-verify", str(bad), "--key", str(box["priv"])]) == 1
+    assert cli(["backup-verify", str(bad), "--key", str(box["priv"]), "--deploy", str(deploy)]) == 1
     assert "bad magic" in capsys.readouterr().err
 
 

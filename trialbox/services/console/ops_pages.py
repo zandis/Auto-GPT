@@ -111,6 +111,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         }
 
     h.ops_summary = summary  # the health tab's tile (console.step4)
+    h.ops_status = status  # T-209a: the host's health facts for the health line, the health mail and /metrics
 
     @app.get("/admin/ops")
     def ops_page(request: Request, tab: str = "overview", req: str = "") -> Response:
