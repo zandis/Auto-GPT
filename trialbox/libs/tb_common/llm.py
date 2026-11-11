@@ -86,16 +86,23 @@ class LlmResult:
     build_sha: str = ""  # through the gateway: the build that answered (weights digest); "" on a direct call (D-276)
 
 
+def load_prompt(prompt_id: str, environment: str | None = None) -> Prompt:
+    """``judge`` -> the served version (the newest; in PRODUCTION the newest qualified one, D-359); ``judge_v3`` ->
+    exactly version 3. Resolved through the prompt registry (D-300): an unregistered id or version, or a file whose
+    sha256 differs from the registry, is refused. ``environment`` defaults to this process's ``TB_ENV``."""
+    from tb_common.config import environment_name
+
+    return _load_prompt(prompt_id, (environment or environment_name(os.environ)).strip().upper())
+
+
 @lru_cache(maxsize=128)
-def load_prompt(prompt_id: str) -> Prompt:
-    """``judge`` -> the newest registered version; ``judge_v3`` -> exactly version 3. Resolved through the prompt
-    registry (D-300): an unregistered id or version, or a file whose sha256 differs from the registry, is refused."""
+def _load_prompt(prompt_id: str, environment: str) -> Prompt:
     from tb_llm.prompt_registry import PromptRegistryError, default_registry
 
     pinned = re.fullmatch(r"(.+)_v(\d+)", prompt_id)
     base, want = (pinned.group(1), int(pinned.group(2))) if pinned else (prompt_id, None)
     try:
-        resolved = default_registry().get(base, want)
+        resolved = default_registry().get(base, want, environment=environment)
     except PromptRegistryError as exc:
         raise LlmError(f"prompt {prompt_id!r} refused ({exc.reason}): {exc}") from exc
     path = resolved.path
