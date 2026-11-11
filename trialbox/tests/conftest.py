@@ -230,6 +230,51 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     yield
 
 
+# ------------------------------------------------------------------ the committed rulesets are read-only (T-650c)
+# A ruleset repository pointed at rulesets/ re-materialises it in place (``.<id>.tmp``, rmtree, rename) and breaks a
+# parallel test copying the folder. Each test, and the whole session, must leave the folder exactly as it found it.
+_RULESETS_AT_START: frozenset[tuple[str, int, int, int]] | None = None
+
+
+@pytest.fixture(autouse=True)
+def _rulesets_untouched() -> Iterator[None]:
+    from tests.rulesets_guard import describe, snapshot
+
+    before = snapshot()
+    yield
+    after = snapshot()
+    if after != before:
+        pytest.fail(
+            "the committed rulesets/ folder changed during this test (or a parallel one): "
+            f"{describe(before, after)}; write into tmp_path or a copy (tests.rulesets_guard.copy_rulesets)",
+            pytrace=False,
+        )
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    global _RULESETS_AT_START
+    if not hasattr(session.config, "workerinput"):  # the controller (or a run without xdist)
+        from tests.rulesets_guard import snapshot
+
+        _RULESETS_AT_START = snapshot()
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    if _RULESETS_AT_START is None or hasattr(session.config, "workerinput"):
+        return
+    from tests.rulesets_guard import describe, snapshot
+
+    after = snapshot()
+    if after != _RULESETS_AT_START:
+        tr = session.config.pluginmanager.get_plugin("terminalreporter")
+        msg = f"T-650c: the committed rulesets/ folder changed during the test session: {describe(_RULESETS_AT_START, after)}"
+        if tr is not None:
+            tr.write_line(msg, red=True)
+        else:
+            print(msg)
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "req(*ids): spec v4 requirement ids this test verifies (§17.4)")
     config.addinivalue_line("markers", "nodb: a pure test: no PostgreSQL is started for it (TB_DB_URL refuses); "
