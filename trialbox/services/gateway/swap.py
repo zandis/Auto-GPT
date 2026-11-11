@@ -15,6 +15,10 @@ swapping back. While the card is held, a call routed to the sleeping endpoint is
 it on demand (:meth:`ModelSwap.ensure`: wake is about 0.5 s on the card, 8 Nov 2026), so the judge that serves the
 daytime chat is woken by the first chat after a night run rather than by an extra swap at the end of every run. A
 hold that is never released (the orchestrator died mid-run) lapses after ``TB_SWAP_HOLD_S`` (default 3600 s).
+
+**The hold names its owner (T-608, D-445 §6).** A hold records the verified service that took it (``holder``). The
+on-demand wake checks the hold under the same lock as the swap, so a hold taken meanwhile wins; only a call from the
+holder's service extends the hold (:meth:`ModelSwap.touch`).
 """
 
 from __future__ import annotations
@@ -64,6 +68,7 @@ class ModelSwap:
         self.hold_s = hold_s
         self.held_until = 0.0  # time.monotonic() until which a screening run holds the card (0: not held)
         self.on_demand = 0  # wakes made by a call to the sleeping endpoint (no hold)
+        self.holder = ""  # the verified service holding the card ("" in-process or without a token, D-445)
         self._lock = threading.Lock()
 
     @classmethod
@@ -95,6 +100,7 @@ class ModelSwap:
             "swap": "sleep",
             "active": self.active,
             "held": self.held,
+            "holder": self.holder if self.held else "",
             "swaps": self.swaps,
             "on_demand": self.on_demand,
             "last_swap_s": self.last_swap_s,
@@ -103,11 +109,13 @@ class ModelSwap:
     def release(self) -> dict[str, Any]:
         """The screening run is done with the card: nothing swaps back now; the next call wakes what it needs."""
         self.held_until = 0.0
+        self.holder = ""
         return self.status()
 
-    def touch(self) -> None:
-        """A batch call while a run holds the card keeps the hold alive (a long verifier batch outlives no hold)."""
-        if self.held:
+    def touch(self, service: str = "") -> None:
+        """A batch call of the holder's service while its run holds the card keeps the hold alive (a long verifier
+        batch outlives no hold); another service's call does not (D-445)."""
+        if self.held and service == self.holder:  # no lock: a swap in progress must not hold up a batch call
             self.held_until = time.monotonic() + self.hold_s
 
     def ensure(self, endpoint: str) -> bool:
@@ -118,18 +126,24 @@ class ModelSwap:
         if self.held:
             return False
         try:
-            self.activate(endpoint)
+            self.activate(endpoint, on_demand=True)
         except SwapError:
             return False
-        self.on_demand += 1
         return self.awake(endpoint)
 
-    def activate(self, endpoint: str, hold: bool = False) -> dict[str, Any]:
+    def activate(
+        self, endpoint: str, hold: bool = False, *, holder: str = "", on_demand: bool = False
+    ) -> dict[str, Any]:
+        """Wake ``endpoint`` and sleep the other. ``hold``: ``holder`` (the verified service) keeps the card.
+        ``on_demand``: a chat call's wake, which does nothing while a hold is active (checked under the lock)."""
         if endpoint not in self.urls:
             raise SwapError(f"{endpoint!r} is not a swappable endpoint ({', '.join(sorted(self.urls))})")
         with self._lock:
+            if on_demand and self.held:
+                return self.status()  # a hold taken meanwhile wins: nothing is swapped
             if hold:
                 self.held_until = time.monotonic() + self.hold_s
+                self.holder = holder
             if self.active == endpoint:
                 return self.status()
             t0 = time.perf_counter()
@@ -145,6 +159,8 @@ class ModelSwap:
                 raise
             self.active = endpoint
             self.swaps += 1
+            if on_demand:
+                self.on_demand += 1
             self.last_swap_s = round(time.perf_counter() - t0, 2)
             return self.status()
 

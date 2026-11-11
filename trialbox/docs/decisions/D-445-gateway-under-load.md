@@ -33,7 +33,7 @@
    pool that `/healthz` and the registry view use. A call that finds that limit full is answered `model_busy` at
    once without taking a thread; 8 of the 64 are kept for interactive roles, so a batch flood cannot shut out the
    front desk. `/readyz` and `/v1/serving/status` are `async` and take no thread.
-5. **A breaker per endpoint, on `/readyz`.** It opens after 3 failures in a row (`TB_GATEWAY_BREAKER_FAILURES`: a
+5. **A breaker per endpoint, on `/readyz`.** It opens after 5 failures in a row (`TB_GATEWAY_BREAKER_FAILURES`: a
    connection error, a batch read timeout, an HTTP 5xx after the retry), or when the endpoint is stalled: calls are
    in flight, none finished for 40 s (`TB_GATEWAY_STALL_S`) and its server does not answer `GET /models` within 3 s
    (a watch thread looks every 5 s). An interactive timeout alone does not count: a busy server is not a dead one.
