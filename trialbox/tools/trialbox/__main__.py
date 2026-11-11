@@ -7,7 +7,8 @@ path behind ``tools/apply_update.sh``, ``update.py``); ``doctor --platform``, ``
 ``platform-egress`` for a hospital platform (D-211, ``platform.py``); ``exports`` lists the export ledger (D-149,
 ``tb_common.flowledger``); ``ops`` runs the console's operations requests and writes their status (D-178, ``ops.py``);
 ``watchdog`` restarts an unhealthy service and audits it (T-108a, D-360, ``watchdog.py``);
-``eval qualify`` qualifies a model pair for a hardware profile and writes the record (D-313, ``tools/qualify.py``).
+``eval qualify`` qualifies a model pair for a hardware profile and writes the record (D-313, ``tools/qualify.py``);
+``support-bundle`` writes one PHI-free file for a support ticket (T-209b, D-405, ``tools/support_bundle.py``).
 ``secrets``, ``logs``, ``update``, ``ops`` and ``watchdog`` need only the standard library, so they run with the
 host's ``python3`` from the install folder: ``sudo python3 -m tools.trialbox secrets rotate``."""
 
@@ -27,6 +28,10 @@ def main(argv: list[str] | None = None) -> int:
         from tools import qualify
 
         return qualify.main(args[2:])
+    if args[:1] == ["support-bundle"]:  # its own options (tools/support_bundle.py)
+        from tools import support_bundle
+
+        return support_bundle.main(args[1:])
     ap = argparse.ArgumentParser(prog="trialbox")
     sub = ap.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("doctor", help="v4 deployment checks; exit 1 on any FAIL")
@@ -140,6 +145,7 @@ def main(argv: list[str] | None = None) -> int:
     wd.add_argument("--window-hours", type=float, default=6.0)
     wd.add_argument("--dry-run", action="store_true", help="say what would be done; change nothing")
     wd.add_argument("--json", action="store_true")
+    sub.add_parser("support-bundle", help="one PHI-free file for a support ticket (T-209b; --out DIR, --help)")
     fl = sub.add_parser("exports", help="the export ledger: every file that left the box (D-149)")
     fl.add_argument("--audit", type=Path, default=Path(os.environ.get("TB_AUDIT_DIR", "/data/audit")))
     fl.add_argument("--days", type=int, default=30)
