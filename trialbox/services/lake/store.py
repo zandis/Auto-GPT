@@ -64,8 +64,9 @@ _CONNECT_LOCK = threading.Lock()
 _CACHE_LOCK = threading.Lock()
 
 # 1: tables + document_chunk with its own embedding column (before D-149); 2: no embedding in the snapshot, chunk sha,
-# lake_meta.schema_version / schema_sha / embed_store. A reader serves every version from MIN to CURRENT.
-LAKE_SCHEMA_VERSION = 2
+# lake_meta.schema_version / schema_sha / embed_store; 3 (T-106b): the encounter's end and status, and the four
+# provenance columns on every table (``lake.flatten.PROVENANCE``). A reader serves every version from MIN to CURRENT.
+LAKE_SCHEMA_VERSION = 3
 MIN_READABLE_SCHEMA = 1
 CHUNK_COLUMNS: list[tuple[str, str]] = [
     ("did", "VARCHAR"),
@@ -192,6 +193,7 @@ class RebuildStats:
     chunks: int
     embedded_new: int
     seconds: float
+    promoted: bool = True  # False: built but not made CURRENT (not asked, or older than CURRENT: DATA-007)
 
 
 def memory_limit() -> str:
@@ -356,10 +358,17 @@ class Lake:
         """Build ``db/<snapshot>.duckdb`` (into ``.building``, renamed when complete, with ``.sha256`` sidecars) and,
         with ``promote``, make it ``CURRENT``. The adapter calls this only for a night that passed validation.
 
+        A snapshot older than ``CURRENT`` (a late re-run of an earlier night) is built but never made ``CURRENT``
+        (T-106b, DATA-007): the box does not move back in time, the same rule as the OMOP store's.
+
         Once the lake has held a hospital feed (``fed``), a missing NDJSON folder, or one without a single record, is
         refused (``RebuildError``) before anything is written, unless ``allow_empty``. A lake that never had a feed
         (the practice site, a box before its first night) is built from the site's own inputs alone."""
         t0 = time.perf_counter()
+        cur = self.current()
+        if promote and cur is not None and snapshot < cur:
+            log.warning("lake snapshot %s is older than CURRENT %s: built, not promoted (DATA-007)", snapshot, cur)
+            promote = False
         src = ndjson_dir or self._source(snapshot)
         allow_empty = allow_empty or not self.fed()
         if not src.is_dir() and not allow_empty:
@@ -470,7 +479,7 @@ class Lake:
             rec.unlink(missing_ok=True)
         if promote:
             self.promote(snapshot)
-        return RebuildStats(snapshot, counts, len(chunk_rows), new, round(time.perf_counter() - t0, 2))
+        return RebuildStats(snapshot, counts, len(chunk_rows), new, round(time.perf_counter() - t0, 2), promote)
 
     def _cache(self, read_only: bool) -> duckdb.DuckDBPyConnection:
         """A connection to the vector store; another process holding the write lock is waited for (up to 30 s)."""
