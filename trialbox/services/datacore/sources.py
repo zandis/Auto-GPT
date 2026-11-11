@@ -17,6 +17,8 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from tb_common import encoding
+
 from datacore.store import DataError
 from datacore.sync import Row
 
@@ -188,15 +190,10 @@ def read_sheet(path: Path) -> list[dict[str, str]]:
                 row[h] = "" if v is None else str(v).strip()
             rows.append(row)
         return rows
-    raw = path.read_bytes()
-    for enc in ("utf-8-sig", "cp932", "big5"):
-        try:
-            text = raw.decode(enc)
-            break
-        except UnicodeDecodeError:
-            continue
-    else:
-        raise DataError("DATA-SHEET", "the file is not UTF-8, Shift_JIS or Big5 text")
+    try:  # D-215: the one detector; a Big5 sheet tried as CP932 first read as mojibake without an error
+        text, _ = encoding.decode(path.read_bytes())
+    except encoding.EncodingRefused as exc:
+        raise DataError("DATA-SHEET", f"the file is not readable UTF-8, Shift_JIS or Big5 text ({exc})") from None
     return [{(k or "").strip(): (v or "").strip() for k, v in r.items()} for r in csv.DictReader(io.StringIO(text))]
 
 
@@ -226,6 +223,8 @@ class SheetSource:
         head = list(rows[0])
         self.dropped = [h for h in head if IDENTIFIER.match(h) and h not in (self.key_column, self.mrn_column)]
         bad = [c for c in self.columns if IDENTIFIER.match(c)]
+        if self.mrn_column and self.mrn_column in self.columns:
+            bad.append(self.mrn_column)  # the chart number is turned into the pseudonym, never stored as a value
         if bad:
             raise DataError("DATA-PHI", f"identifier columns cannot be imported: {', '.join(bad)}")
         if not (self.key_column or self.mrn_column):
