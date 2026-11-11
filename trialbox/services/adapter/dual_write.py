@@ -32,6 +32,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -95,7 +96,9 @@ def load_night(cfg: AdapterConfig, snap: str, ndjson_dir: Path) -> OmopLoadSumma
         db.close()
 
 
-def _load(db: Any, cfg: AdapterConfig, snap: str, ndjson_dir: Path, done: Any) -> OmopLoadSummary:
+def _load(
+    db: Any, cfg: AdapterConfig, snap: str, ndjson_dir: Path, done: Callable[..., OmopLoadSummary]
+) -> OmopLoadSummary:
     from omop import dqd
     from omop.load import load_batch
     from omop.schema import OmopError
