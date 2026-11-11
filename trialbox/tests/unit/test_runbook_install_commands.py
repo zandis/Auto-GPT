@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SECTION = ROOT / "docs/runbook/01-install-a-new-site.md"
 ANSWERS_C = ROOT / "tests/fixtures/onboarding/site_c_answers.yaml"
 PRO6000 = "NVIDIA RTX PRO 6000 Blackwell Server Edition"
-EXEC = ("sudo ", "python", "deploy/", "tools/", "make ", "docker ", "cd ", "TB_", "--")
+EXEC = ("sudo ", "python", "deploy/", "tools/", "make ", "docker ", "cd ", "TB_", "--", "systemctl ")
 
 
 def commands() -> list[str]:
@@ -259,6 +259,17 @@ def run_check_host(tmp: Path) -> None:
     assert out.returncode == (1 if any(ln.startswith("FAIL") for ln in lines) else 0)
 
 
+def run_systemctl_enable(tmp: Path) -> None:
+    """``systemctl enable`` needs a booted systemd: the units it names are the ones install.sh copies, with
+    ``@TB_ROOT@`` filled in (their content: tests/unit/test_systemd_units.py)."""
+    cmd = next(c for c in commands() if c.startswith("systemctl enable "))
+    for unit in cmd.split()[2:]:
+        text = (ROOT / "deploy/systemd" / unit).read_text(encoding="utf-8")
+        assert "[Install]" in text or unit.endswith(".timer"), unit
+        filled = text.replace("@TB_ROOT@", str(tmp))
+        assert "@TB_ROOT@" not in filled
+
+
 # command (as §1 writes it, a regular expression) -> its runner
 RUNNERS: list[tuple[str, Callable[[Path], None]]] = [
     (r"tools/serving_config\.py measured", run_serving_measured),
@@ -287,6 +298,7 @@ RUNNERS: list[tuple[str, Callable[[Path], None]]] = [
     (r"deploy/network\.sh apply", run_network_apply),
     (r"docker compose exec adapter python -m adapter\.cli run", run_first_ingest),
     (r"deploy/check_host\.sh \[--gb10\]", run_check_host),
+    (r"systemctl enable trialbox-.*", run_systemctl_enable),
 ]
 
 

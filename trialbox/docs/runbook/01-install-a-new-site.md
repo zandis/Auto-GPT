@@ -63,7 +63,10 @@ for every image a bundle carries; the dated exceptions and open findings are in 
 5. **Start.** `sudo python3 -m tools.trialbox secrets init`, then `cd deploy && docker compose -f docker-compose.yml
    -f docker-compose.secrets.yml -f docker-compose.identity.yml -f docker-compose.<gpu>.yml --profile gpu up -d
    --wait` (`--profile stub` without a GPU; TLS settings first, [§12](12-identity-and-tls.md)). Then
-   `deploy/network.sh apply`.
+   `deploy/network.sh apply`. `install.sh` does both and enables the systemd units of `deploy/systemd`
+   (D-377): the egress table closed at boot before Docker, the stack after a host restart, the egress refresh and
+   watchdog timers. By hand: copy the units with `@TB_ROOT@` replaced by the install folder, then
+   `systemctl enable trialbox-egress.service trialbox.service trialbox-egress-refresh.timer trialbox-watchdog.timer`.
 6. **Vendor key.** Install `deploy/keys/vendor_ed25519.pub`, received out of band.
 7. **First ingest.** `docker compose exec adapter python -m adapter.cli run`, or wait for 02:00. It reads the feed
    folder (`TB_SOURCE_DIR`) with the site's mapping (`deploy/site/mapping`). Check
