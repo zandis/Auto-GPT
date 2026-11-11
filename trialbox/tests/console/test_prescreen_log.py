@@ -79,9 +79,9 @@ def test_three_marks_give_three_pre_screen_rows_and_one_log_row(box: dict[str, A
     assert not check_page(page)  # T-116: no verdict word
     xlsx = crc.get("/studies/GZQO/screening-log.xlsx").content
     log_rows = _sheet(xlsx, "screening log")
-    assert len(log_rows) == 2 and log_rows[0][-5:] == ("criteria_version", "criterion_not_met", "consent_date",
-                                                       "consent_form_version", "enrolment_date")  # fmt: skip
-    assert log_rows[1][-5] == "3.0.0"
+    assert len(log_rows) == 2 and log_rows[0][-6:-1] == ("criteria_version", "criterion_not_met", "consent_date",
+                                                         "consent_form_version", "enrolment_date")  # fmt: skip
+    assert log_rows[1][-6] == "3.0.0"  # D-407 (LIFE-020) added the randomisation date after the enrolment date
     pre_rows = _sheet(xlsx, "pre-screen log")
     assert len(pre_rows) == 4  # the header and three rows
     assert [(r[0], r[2], r[3], r[8]) for r in pre_rows[1:]] == [
@@ -134,7 +134,7 @@ def test_the_log_row_shows_the_criterion_not_met_and_its_version(lb: dict[str, A
     assert f'data-testid="failed-{other}"' not in log
     rows = _sheet(c.get("/studies/GZQO/screening-log.xlsx").content, "screening log")
     by_no = {r[0]: r for r in rows[1:]}
-    assert by_no[no][-4] == f"{FAILED} (v3.0.0)" and not by_no[other][-4]
+    assert by_no[no][-5] == f"{FAILED} (v3.0.0)" and not by_no[other][-5]
 
 
 def test_the_api_refuses_a_criterion_on_another_reason(lb: dict[str, Any]) -> None:  # noqa: F811
@@ -182,7 +182,7 @@ def test_the_step_keeps_the_criterion_and_the_form_feeds_it(life: Lifecycle) -> 
     assert got["GZQO-0001"]["criterion"] == FAILED and got["GZQO-0001"]["criteria_version"] == "3.0.0"
     assert got["GZQO-0002"]["criterion"] == "GZQO-INC-02" and got["GZQO-0002"]["criteria_version"] == "3.0.0"
     assert got["GZQO-0003"] == {"consented": "2026-11-01", "icf_version": "ICF-2.1", "enrolled": "2026-11-03",
-                                "criterion": "", "criteria_version": ""}  # fmt: skip
+                                "criterion": "", "criteria_version": "", "randomised": ""}  # fmt: skip
     assert lc.failed_label(FAILED, "3.0.0") == f"{FAILED} (v3.0.0)" and lc.failed_label("", "3") == ""
     assert date.fromisoformat(got["GZQO-0003"]["enrolled"])
 

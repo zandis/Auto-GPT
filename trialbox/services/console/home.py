@@ -23,6 +23,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 from urllib.parse import quote
 
+from datacore.lifecycle import CONTACT_ATTEMPTS, CONTACT_DEFAULT, contact_check
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
@@ -33,7 +34,7 @@ from tb_contracts import Job
 from console import coded_view, s28
 from console import studies as st
 from console.auth import REVEAL_REASONS, Session, reveal_reason, source_of
-from console.backend import Refused
+from console.backend import Problem, Refused, Unavailable
 from console.i18n import translate
 from console.sitestore import (
     CAP_VALUES,
@@ -703,6 +704,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             "mark": store.latest_marks(rid).get(pid),
             "screening_no": store.screening_no(rid, pid),
             "outcomes": store.outcomes(rid, pid),
+            "contact": contact_state(rid, pid, h.today()),  # D-407 (LIFE-017): attempt n of the study's limit
             "outcome_keys": tuple(OUTCOMES),
             "today": h.today(),
             "mrn": None,
@@ -1069,6 +1071,22 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid, value, _ = apply_mark(sess, request.url.path, rs, pid, mark, reason, recheck, note)
         return RedirectResponse(back_to(rid, pid, back, "undo" if mark == "undo" else value), status_code=303)
 
+    def contact_rule(rid: str) -> dict[str, Any]:
+        """The study's contact-attempt rule from the lifecycle (D-407); the default when the store does not answer."""
+        try:
+            row = s28.call(bk, "GET", f"/studies/{rid}/contact-rule") if s28.has_api(bk) else None
+        except (Problem, Unavailable):
+            row = None
+        if not isinstance(row, dict):
+            return {"max_attempts": CONTACT_DEFAULT[0], "min_days": CONTACT_DEFAULT[1], "set_by": "", "set_at": ""}
+        return row
+
+    def contact_state(rid: str, pid: str, today: date, rule: dict[str, Any] | None = None) -> dict[str, Any]:
+        """D-407 (LIFE-017): attempts so far against the study's limit (``why``: "", ``limit``, ``too_soon``)."""
+        r = rule or contact_rule(rid)
+        days = [local_date(o.at, site_zone(bk)) for o in store.outcomes(rid, pid) if o.outcome in CONTACT_ATTEMPTS]
+        return contact_check(days, int(r["max_attempts"]), int(r["min_days"]), today)
+
     def apply_outcome(
         sess: Session, path: str, rs: str, pid: str, outcome: str, retry: str, note: str
     ) -> tuple[str, str | None]:
@@ -1099,6 +1117,16 @@ def register(app: FastAPI, h: Helpers) -> None:
                       detail={"pid": pid, "action": outcome, "reason": paused})  # fmt: skip
             raise h.problem(409, "outcome.wait_referral")
         today = h.today()
+        if outcome in CONTACT_ATTEMPTS:
+            # D-407 (LIFE-017): the study's contact-attempt limit and the days between attempts; after the limit the
+            # investigator decides what follows, so the page and /api/v1 refuse alike with a plain reason
+            chk = contact_state(rid, pid, today)
+            if chk["why"]:
+                au.append("console.refused", ruleset=rid, actor=h.actor(sess),
+                          detail={"pid": pid, "action": outcome, "reason": f"contact {chk['why']}",
+                                  "attempts": chk["attempts"], "max": chk["max"]})  # fmt: skip
+                key = "outcome.limit" if chk["why"] == "limit" else "outcome.too_soon"
+                raise h.problem(409, key, n=chk["attempts"], max=chk["max"], next=chk["next"])
         retry_on: str | None = None
         if outcome == "not_reached":
             try:

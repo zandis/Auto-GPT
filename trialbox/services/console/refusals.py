@@ -79,6 +79,7 @@ REFUSALS: dict[str, tuple[str, str]] = {
         "再確認日は YYYY-MM-DD で入力してください",
         "請以 YYYY-MM-DD 輸入再評估日期",
     ),
+    "attempts and days are whole numbers": ("回数と日数は整数で入力してください", "次數與天數請輸入整數"),
     "give the retry date as YYYY-MM-DD": (
         "再連絡日は YYYY-MM-DD で入力してください",
         "請以 YYYY-MM-DD 輸入再聯絡日期",

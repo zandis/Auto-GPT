@@ -102,6 +102,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/studies/{rs}/candidates/{pid}` | - | Y | Y | Y | - | - | - |
 | GET | `/studies/{rs}/cohort` | - | Y | Y | Y | - | - | - |
 | GET | `/studies/{rs}/conflicts` | - | Y | Y | Y | - | - | - |
+| GET | `/studies/{rs}/deviations` | - | Y | Y | Y | - | - | - |
 | GET | `/studies/{rs}/edc` | - | Y | Y | Y | - | - | - |
 | GET | `/studies/{rs}/edc/export.odm.xml` | - | U | - | U | - | - | - |
 | GET | `/studies/{rs}/edc/map` | - | U | - | U | - | - | - |
@@ -120,6 +121,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/studies/{rs}/not-matched` | - | Y | Y | Y | - | - | - |
 | GET | `/studies/{rs}/patients/{pid}` | - | Y | Y | Y | - | - | - |
 | GET | `/studies/{rs}/referrals` | - | Y | Y | Y | - | - | - |
+| GET | `/studies/{rs}/referrals/{ref_id}/print` | - | n | n | n | - | - | - |
 | GET | `/studies/{rs}/rescreen` | - | Y | Y | Y | - | - | - |
 | GET | `/studies/{rs}/sae/{record}/{event}` | - | n | n | n | - | - | - |
 | GET | `/studies/{rs}/schedule` | - | Y | Y | Y | - | - | - |
@@ -205,6 +207,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/studies/{rs}/candidates/{pid}/referral` | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/candidates/{pid}/reveal` | Y | Y | Y | Y | - | - | Y |
 | POST | `/studies/{rs}/conflicts/{cid}` | - | Y | - | Y | - | - | - |
+| POST | `/studies/{rs}/deviations` | - | n | - | n | - | - | - |
 | POST | `/studies/{rs}/edc/decide/{draft_id}` | - | n | - | n | - | - | - |
 | POST | `/studies/{rs}/edc/dictionary` | - | U | - | U | - | - | - |
 | POST | `/studies/{rs}/edc/drafts` | - | Y | - | Y | - | - | - |
@@ -227,11 +230,13 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/studies/{rs}/profile` | Y | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/redcap-read` | - | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/referrals/{ref_id}/answer` | - | Y | Y | Y | - | - | - |
+| POST | `/studies/{rs}/referrals/{ref_id}/print` | - | n | Y | Y | - | - | - |
 | POST | `/studies/{rs}/sae/sync` | - | U | - | U | - | - | - |
 | POST | `/studies/{rs}/sae/{record}/{event}/ack` | - | n | n | n | - | - | - |
 | POST | `/studies/{rs}/sae/{record}/{event}/{what}` | n | n | n | n | - | - | n |
 | POST | `/studies/{rs}/schedule` | - | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/setup` | - | Y | - | Y | - | - | - |
+| POST | `/studies/{rs}/setup/contact` | - | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/setup/log` | - | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/setup/redcap` | - | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/setup/redcap/test` | - | Y | - | Y | - | - | - |

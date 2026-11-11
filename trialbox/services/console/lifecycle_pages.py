@@ -9,6 +9,8 @@
   list is on the coordinator's home page; serious AEs are on the investigator's (and the coordinator's) home page.
 * **Visit schedule** (``/studies/{rs}/schedule``): typed in, or read from REDCap's arms and events.
 * **Enrolment report** (``/studies/{rs}/enrolment``, ``.csv``, ``.xlsx``).
+* **Possible deviations** (``/studies/{rs}/deviations``, D-407, LIFE-025): proposals from the box's own facts, each
+  confirmed by the coordinator (a deviation entry is written) or dismissed with a reason.
 
 Everything goes through the orchestrator's lifecycle API (``orchestrator.lifecycle_api``); each page first asks it
 to bring the participants up to date with the site store's screening numbers. "Today" is the site's local date
@@ -457,6 +459,75 @@ def register(app: FastAPI, h: Helpers) -> None:
         except (Problem, Unavailable) as exc:
             err = err_of(exc)
         return h.page(request, "life_report.html", sess, rs=rid, rep=rep, states=STATES, err=err)
+
+    # ------------------------------------------------------------------ possible deviations (D-407, LIFE-025)
+    def icf_in_force(rid: str) -> str:
+        """The consent form version of the study's IRB record (the console's team store), "" when none is kept."""
+        try:
+            return str(h.team.irb(rid).icf_version or "") if h.team is not None else ""
+        except Exception:  # a store without the IRB table answers no version
+            return ""
+
+    def possible(rid: str) -> dict[str, Any]:
+        q = urlencode({"today": today().isoformat(), "icf": icf_in_force(rid)})
+        return dict(get(f"/studies/{rid}/deviations/possible?{q}"))
+
+    def apply_deviation(sess: Session, path: str, rs: str, record: str, key: str, decision: str,
+                        reason: str) -> dict[str, Any]:  # fmt: skip
+        rid = study_or_404(sess, rs)
+        need_enter(sess, path)
+        rec = record_key(record[:64])
+        if not _REC.match(rec):
+            raise h.problem(404, "notfound")
+        body = {"record": rec, "key": key[:80], "decision": decision, "reason": reason.strip()[:300],
+                "by": h.actor(sess), "today": today().isoformat(), "icf": icf_in_force(rid)}  # fmt: skip
+        out = dict(s28.call(bk, "POST", f"/studies/{rid}/deviations/possible", body))
+        au.append("console.deviation_call", ruleset=rid, actor=h.actor(sess),
+                  detail={"record": rec, "key": key[:80], "decision": decision,
+                          "event": str((out.get("row") or {}).get("event") or "")})  # fmt: skip
+        return out
+
+    def deviations_page(request: Request, sess: Session, rid: str, status: int = 200, refused: str = "",
+                        done: str = "") -> Response:  # fmt: skip
+        err = None
+        out: dict[str, Any] = {"rows": [], "open": 0}
+        try:
+            out = possible(rid)
+        except (Problem, Unavailable) as exc:
+            err = err_of(exc)
+        rows = list(out.get("rows") or [])
+        order = {"open": 0, "confirmed": 1, "dismissed": 2}
+        rows.sort(key=lambda r: (order.get(str(r.get("state")), 3), str(r.get("day") or ""), str(r.get("record"))))
+        return h.page(request, "life_deviations.html", sess, status=status, rs=rid, rows=rows,
+                      n_open=int(out.get("open") or 0), editable=can_enter(sess.user), err=err, refused=refused,
+                      done=done)  # fmt: skip
+
+    @app.get("/studies/{rs}/deviations")
+    def deviations(request: Request, rs: str, done: str = "") -> Response:
+        """The possible deviations the box's facts show (a visit outside its window, a consent form version not in
+        force, enrolment before consent or while the screening log says not eligible). The coordinator confirms
+        each (a deviation entry is written, then completed on the form) or dismisses it with a reason."""
+        sess = h.need(request)
+        rid = study_or_404(sess, rs)
+        refresh(rid, h.actor(sess), sess)
+        return deviations_page(request, sess, rid, done=done if done in ("confirm", "dismiss") else "")
+
+    @app.post("/studies/{rs}/deviations")
+    async def deviation_call(request: Request, rs: str) -> Response:
+        sess = h.need(request)
+        data = await request.form()
+        if not h.csrf_ok(sess, str(data.get("csrf") or "")):
+            raise h.problem(400, "csrf")
+        rid = study_or_404(sess, rs)
+        decision = str(data.get("decision") or "")
+        try:
+            apply_deviation(sess, request.url.path, rid, str(data.get("record") or ""), str(data.get("key") or ""),
+                            decision, str(data.get("reason") or ""))  # fmt: skip
+        except Problem as exc:
+            return deviations_page(request, sess, rid, status=409, refused=why_text(lang_of(sess), exc))
+        except Unavailable as exc:
+            return deviations_page(request, sess, rid, status=503, refused=str(exc)[:120])
+        return RedirectResponse(f"/studies/{rid}/deviations?done={decision}", status_code=303)
 
     @app.get("/studies/{rs}/enrolment.{fmt}")
     def enrolment_file(request: Request, rs: str, fmt: str) -> Response:

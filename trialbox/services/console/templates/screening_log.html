@@ -20,7 +20,7 @@
 <td data-testid="referral-{{ r.no }}">{% if r.referral %}{{ t('team.route.' + r.referral.route) }} · {{ t('team.state.' + r.referral.state) }}{% if r.referral.reason %} ({{ t('team.decline.' + r.referral.reason) }}){% endif %}{% else %}–{% endif %}{% if r.override %}<br><span class="pill warn" data-testid="override-{{ r.no }}">{{ t('team.irb.overridden') }}</span>{% endif %}</td>
 <td data-testid="status-{{ r.no }}">{{ t('registry.status.' + r.status) }}{% if r.updated %} · {{ r.updated }}{% endif %}{% if r.reason_rc %} · <span class="hint">{{ t('log.from_redcap', r=r.reason_rc[0]) }}{% if r.reason_rc[1] %} ({{ r.reason_rc[1] }}){% endif %}</span>{% elif r.reason %} · <span class="hint">{{ r.reason }}</span>{% endif %}{% if r.failed %}<br><span data-testid="failed-{{ r.no }}">{{ t('pre.failed', c=r.failed) }}</span>{% endif %}</td>
 <td class="nowrap" data-testid="consent-{{ r.no }}">{{ r.consented or '–' }}{% if r.icf_version %} <span class="hint">{{ t('pre.icf', v=r.icf_version) }}</span>{% endif %}</td>
-<td class="nowrap">{{ r.enrolled or '–' }}</td>
+<td class="nowrap">{{ r.enrolled or '–' }}{% if r.randomised %}<br><span class="pill" data-testid="randomised-{{ r.no }}">{{ t('log.randomised') }}{% if r.randomised != 'yes' %} {{ r.randomised }}{% endif %}</span>{% endif %}</td>
 {% if link %}<td class="mono">{{ r.record_id or '–' }}</td><td class="mono">{{ r.subject_no or '–' }}</td>{% endif %}
 </tr>{% endfor %}</tbody></table></div>{% endif %}
 </section>

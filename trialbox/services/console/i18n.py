@@ -1166,6 +1166,15 @@ EN.update(_PRE_EN)
 JA.update(_PRE_JA)
 ZH.update(_PRE_ZH)
 
+# D-407 (T-620): contact-attempt limit, randomisation on the log, possible deviations, the request for the doctor
+from console.i18n_lifecycle_mediums import EN as _LM_EN  # noqa: E402
+from console.i18n_lifecycle_mediums import JA as _LM_JA  # noqa: E402
+from console.i18n_lifecycle_mediums import ZH as _LM_ZH  # noqa: E402
+
+EN.update(_LM_EN)
+JA.update(_LM_JA)
+ZH.update(_LM_ZH)
+
 # T-506 (TB-IU-01 §1, REG-020): the intended-use statement in the footer comes from its one source in tb_common
 from tb_common.wording import STATEMENT as _STATEMENT  # noqa: E402
 

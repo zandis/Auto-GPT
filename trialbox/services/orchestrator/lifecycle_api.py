@@ -14,6 +14,9 @@
   those an investigator has not acknowledged yet, and the reports that are overdue); ``POST
   /studies/{rs}/aes/{record}/{event}/ack`` (the investigator's one-tap acknowledgement, audited ``life.sae_ack``).
 * ``GET /studies/{rs}/report`` and ``/report/{csv|xlsx}``: the investigator's enrolment report.
+* ``GET/PUT /studies/{rs}/contact-rule`` (D-407, LIFE-017): the study's contact-attempt limit; ``GET/POST
+  /studies/{rs}/deviations/possible`` (LIFE-025): the possible deviations from the box's facts, confirmed (a
+  deviation entry) or dismissed with a reason.
 
 ``today`` is the site's local date (``now()`` is in the site's zone) unless a caller gives one, so tests step through
 the windows. A step is mirrored into the screening log (the candidate registry), so the log, this report and the
@@ -125,6 +128,22 @@ class AckBody(BaseModel):
 class SaeRuleBody(BaseModel):
     rule_set: str
     by: str
+
+
+class ContactRuleBody(BaseModel):
+    max_attempts: int
+    min_days: int
+    by: str
+
+
+class DeviationCallBody(BaseModel):
+    record: str
+    key: str = Field(max_length=80)
+    decision: str
+    reason: str = ""
+    by: str
+    today: str = ""
+    icf: str = Field("", max_length=40)
 
 
 class ScheduleRedcapBody(BaseModel):
@@ -580,6 +599,53 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         svc.audit.append("life.sae_rule", ruleset=rid, actor=body.by,
                          detail={"old": old, "new": body.rule_set, "at": row["confirmed_at"]})  # fmt: skip
         return {"study": rid, "rule_set": row["rule_set"], "rules": sae_rules(svc, rid, life)}
+
+    @r.get("/studies/{rs}/contact-rule")
+    def get_contact_rule(rs: str) -> dict[str, Any]:
+        """D-407 (LIFE-017): the study's contact-attempt limit and the days between two attempts."""
+        rid = _rs(rs)
+        return {"study": rid, **Lifecycle(get().dc).contact_rule(rid)}
+
+    @r.put("/studies/{rs}/contact-rule")
+    def put_contact_rule(rs: str, body: ContactRuleBody) -> dict[str, Any]:
+        svc, rid = get(), _rs(rs)
+        life = Lifecycle(svc.dc)
+        old = life.contact_rule(rid)
+        try:
+            row = life.set_contact_rule(rid, body.max_attempts, body.min_days, body.by, svc.stamp())
+        except LifeError as exc:
+            raise _refused(exc) from exc
+        svc.audit.append("life.contact_rule", ruleset=rid, actor=body.by,
+                         detail={"old": [old["max_attempts"], old["min_days"]],
+                                 "new": [row["max_attempts"], row["min_days"]]})  # fmt: skip
+        return {"study": rid, **row}
+
+    @r.get("/studies/{rs}/deviations/possible")
+    def get_possible_deviations(rs: str, today: str = "", icf: str = "") -> dict[str, Any]:
+        """D-407 (LIFE-025): the possible deviations the box's facts show, each open, confirmed or dismissed."""
+        svc, rid = get(), _rs(rs)
+        day = _today(svc, today)
+        rows = Lifecycle(svc.dc).possible_deviations(rid, day, icf[:40])
+        return {"study": rid, "today": day.isoformat(), "rows": rows,
+                "open": sum(1 for x in rows if x["state"] == "open")}  # fmt: skip
+
+    @r.post("/studies/{rs}/deviations/possible")
+    def post_deviation_call(rs: str, body: DeviationCallBody) -> dict[str, Any]:
+        """Confirm (a deviation entry is written) or dismiss (with a reason) one possible deviation; audited
+        ``life.deviation_call``."""
+        svc, rid, rec = get(), _rs(rs), _rec(body.record)
+        try:
+            out = Lifecycle(svc.dc).decide_deviation(rid, rec, body.key, body.decision, reason=body.reason,
+                                                     by=body.by, at=svc.stamp(), today=_today(svc, body.today),
+                                                     icf_version=body.icf)  # fmt: skip
+        except LifeError as exc:
+            svc.audit.append("life.refused", ruleset=rid, actor=body.by,
+                             detail={"record": rec, "deviation": body.key[:80], "why": exc.why})  # fmt: skip
+            raise _refused(exc) from exc
+        svc.audit.append("life.deviation_call", ruleset=rid, actor=body.by,
+                         detail={"record": rec, "key": out["key"], "decision": body.decision,
+                                 "event": out["event"]})  # fmt: skip
+        return {"study": rid, "row": out}
 
     @r.post("/studies/{rs}/aes/{record}/{event}/ack")
     def post_ack(rs: str, record: str, event: str, body: AckBody) -> dict[str, Any]:

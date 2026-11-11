@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{# D-407 (T-620, LIFE-025): possible deviations from the box's own facts. Each is a proposal, never a deviation by
+   itself: the coordinator confirms it (a deviation entry is written, then completed on the deviation form with its
+   class and reports) or dismisses it with a reason. #}
+{% from "_life.html" import life_nav with context %}
+{% block title %}{{ t('dev.title') }} · {{ rs }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('dev.title') }}</h1><span class="pill" data-testid="dev-open">{{ t('dev.open', n=n_open) }}</span></div>
+{{ life_nav(rs) }}
+<p class="hint">{{ t('dev.help') }}</p>
+{% if done %}<p class="ok" role="status" data-testid="dev-done">{{ t('dev.done.' + done) }}</p>{% endif %}
+{% if refused %}<p class="error" role="alert" data-testid="dev-refused">{{ refused }}</p>{% endif %}
+{% if err %}{% include "_data_err.html" %}{% endif %}
+<section class="card" data-testid="dev-list">
+{% if not rows %}<p class="empty" data-testid="dev-none">{{ t('dev.none') }}</p>{% endif %}
+{% for r in rows %}{% set key = r.record ~ '-' ~ loop.index %}
+<div class="actp outform" data-testid="dev-{{ r.record }}-{{ r.kind }}" data-state="{{ r.state }}">
+<p><a href="/studies/{{ rs }}/subjects/{{ r.record|urlencode }}" class="mono">{{ r.record }}</a> · <b>{{ t('dev.kind.' + r.kind) }}</b> · <span class="pill{{ ' warn' if r.state == 'open' else '' }}">{{ t('dev.state.' + r.state) }}</span></p>
+<p>{{ t('dev.text.' + r.kind, **r.detail) }}{% if r.kind == 'eligibility' and r.detail.criterion %} {{ t('dev.text.criterion', c=r.detail.criterion) }}{% endif %}</p>
+{% if r.state == 'confirmed' %}<p class="hint" data-testid="dev-entry-{{ r.record }}-{{ r.kind }}">{{ t('dev.confirmed_as', event=r.event, who=r.who|who, at=r.at|local) }} <a href="/studies/{{ rs }}/subjects/{{ r.record|urlencode }}">{{ t('dev.complete') }}</a></p>
+{% elif r.state == 'dismissed' %}<p class="hint">{{ t('dev.dismissed_by', who=r.who|who, at=r.at|local, reason=r.reason) }}</p>
+{% elif editable %}<form method="post" action="/studies/{{ rs }}/deviations" class="markform"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="record" value="{{ r.record }}"><input type="hidden" name="key" value="{{ r.key }}">
+<label for="dr-{{ key }}">{{ t('dev.reason') }}</label><input id="dr-{{ key }}" name="reason" maxlength="300" data-testid="dev-reason-{{ r.record }}-{{ r.kind }}">
+<div class="markbar"><button type="submit" name="decision" value="confirm" data-testid="dev-confirm-{{ r.record }}-{{ r.kind }}">{{ t('dev.confirm') }}</button><button type="submit" name="decision" value="dismiss" class="secondary" data-testid="dev-dismiss-{{ r.record }}-{{ r.kind }}">{{ t('dev.dismiss') }}</button></div>
+</form>{% endif %}
+</div>{% endfor %}
+</section>
+{% endblock %}

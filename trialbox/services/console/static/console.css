@@ -188,7 +188,7 @@ svg .axis { stroke: var(--line); stroke-width: 1; }
   .big { font-size: 22px; } table.funnel td.barcol { min-width: 80px; }
 }
 @media print {
-  .top, .banner, .actions, details, form, footer, .skip { display: none !important; }
+  .top, .banner, .actions, details, form, footer, .skip, .noprint { display: none !important; }
   body { background: #fff; color: #000; font-size: 15px; } .card { break-inside: avoid; border-color: #bbb; }
   main { max-width: none; padding: 0; }
 }
@@ -490,3 +490,7 @@ ul.clist li.crow p { margin: 2px 0; }
   ul.miss li { flex-direction: column; align-items: stretch; }
   .formstack button, ul.miss li .button { width: 100%; }
 }
+
+/* D-407 (UX-034): the request for the treating doctor: copy text and the one-page print */
+.refdoc-text { width: 100%; font: inherit; }
+.refletter p.refcrit { margin: 2px 0 2px 16px; }

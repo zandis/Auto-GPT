@@ -106,8 +106,31 @@ SCREEN_FAIL_DETAIL = """
 ALTER TABLE subject_step ADD COLUMN IF NOT EXISTS criterion TEXT NOT NULL DEFAULT '';
 ALTER TABLE subject_step ADD COLUMN IF NOT EXISTS criteria_version TEXT NOT NULL DEFAULT ''
 """
+# D-407 (T-620, LIFE-017, LIFE-025): the study's contact-attempt rule, and the coordinator's answer to each possible
+# deviation the box proposes (confirmed as a deviation entry, or dismissed with a reason) (version 7)
+CONTACT_AND_DEVIATIONS = """
+CREATE TABLE IF NOT EXISTS contact_rule (study TEXT NOT NULL PRIMARY KEY, max_attempts INTEGER NOT NULL,
+  min_days INTEGER NOT NULL, set_by TEXT NOT NULL, set_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS deviation_call (study TEXT NOT NULL, record TEXT NOT NULL, key TEXT NOT NULL,
+  decision TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', event TEXT NOT NULL DEFAULT '', who TEXT NOT NULL,
+  at TEXT NOT NULL, PRIMARY KEY (study, record, key))
+"""
 # the lifecycle's migrations after its base schema, in order (the name is from the first two; never edit an applied one)
-SAE_MIGRATIONS = (SAE_SCHEMA, SAE_SCHEMA_V2, SCHEDULE_VERSIONS, SCREEN_FAIL_DETAIL)
+SAE_MIGRATIONS = (SAE_SCHEMA, SAE_SCHEMA_V2, SCHEDULE_VERSIONS, SCREEN_FAIL_DETAIL, CONTACT_AND_DEVIATIONS)
+
+# D-407 (LIFE-017): contact attempts per study. An attempt is a contact outcome that tried to reach the patient; the
+# outcomes that close the contact without a call ("not approached", "lost contact") are never refused. Until the
+# study sets its own, three attempts at least one day apart; after the limit the investigator decides.
+CONTACT_ATTEMPTS = ("reached_booked", "reached_declined", "not_reached")
+CONTACT_DEFAULT = (3, 1)  # (maximum attempts, minimum days between two attempts)
+CONTACT_BOUNDS = ((1, 20), (0, 60))
+# D-407 (LIFE-025): the kinds of possible deviation the box proposes from its own facts, with the deviation form's
+# kind (``dv_kind``) each one becomes when confirmed
+PROPOSAL_KINDS = {"visit_window": "3", "consent_version": "2", "consent_after": "2", "eligibility": "1"}
+DECISIONS = ("confirm", "dismiss")
+# D-407 (LIFE-020): randomisation is the sponsor's IRT's act; the enrolment form records that it happened, the day and
+# the randomisation number. No arm is ever stored (blinding).
+RAND_FIELDS = ("en_rand", "en_rand_date", "en_rand_no")
 
 # The SAE reporting clock (P-03, D-143, D-277): from the moment the site learned of a serious AE (``ae_aware`` and
 # ``ae_aware_time``, else the onset) to each report, as (fatal or life-threatening, other serious); 0 = no report to
@@ -570,15 +593,18 @@ class Lifecycle:
 
     def screen_detail(self, study: str) -> dict[str, dict[str, str]]:
         """Per record, what the screening log adds to each row (D-387, LIFE-015, LIFE-016): the day of consent and
-        the consent form version, the day of enrolment (the steps that stand), and for a screen failure the
-        criterion not met with its criteria version."""
+        the consent form version, the day of enrolment (the steps that stand), for a screen failure the criterion
+        not met with its criteria version, and the day of randomisation in the sponsor's IRT (D-407, LIFE-020)."""
         by_rec: dict[str, list[dict[str, Any]]] = {}
         for st in self.steps(study):
             by_rec.setdefault(str(st["record"]), []).append(st)
         icf: dict[str, str] = {}
+        rand: dict[str, dict[str, str]] = {}  # D-407 (LIFE-020): randomised in the sponsor's IRT, and on which day
         for r in self.dc.values(study):
             if str(r["event"]) == "" and str(r["field"]) == "ic_version":
                 icf[str(r["record"])] = str(r["value"])
+            elif str(r["event"]) == "" and str(r["field"]) in RAND_FIELDS:
+                rand.setdefault(str(r["record"]), {})[str(r["field"])] = str(r["value"])
         out: dict[str, dict[str, str]] = {}
         for rec, steps in by_rec.items():
             live = live_steps(steps)
@@ -591,6 +617,7 @@ class Lifecycle:
                 "enrolled": day.get("enrolled", ""),
                 "criterion": str(last.get("criterion") or "") if failed else "",
                 "criteria_version": str(last.get("criteria_version") or "") if failed else "",
+                "randomised": randomised(rand.get(rec, {})),
             }
         return out
 
@@ -729,6 +756,138 @@ class Lifecycle:
         pat = AE_EVENT if prefix == "ae" else DV_EVENT
         have = [e["n"] for e in self.entries(study, record, pat)]
         return f"{prefix}{max(have, default=0) + 1}"
+
+    # ------------------------------------------------------------------ contact attempts (D-407, LIFE-017)
+    def contact_rule(self, study: str) -> dict[str, Any]:
+        """The study's contact-attempt rule: ``max_attempts``, ``min_days``, who set it and when (``set_by`` is ""
+        while the default of :data:`CONTACT_DEFAULT` applies)."""
+        rows = self.db.fetchdicts("SELECT * FROM contact_rule WHERE study = ?", (study,))
+        if not rows:
+            return {"max_attempts": CONTACT_DEFAULT[0], "min_days": CONTACT_DEFAULT[1], "set_by": "", "set_at": ""}
+        r = rows[0]
+        return {"max_attempts": int(r["max_attempts"]), "min_days": int(r["min_days"]), "set_by": str(r["set_by"]),
+                "set_at": str(r["set_at"])}  # fmt: skip
+
+    def set_contact_rule(self, study: str, max_attempts: int, min_days: int, by: str, at: str) -> dict[str, Any]:
+        (lo_a, hi_a), (lo_d, hi_d) = CONTACT_BOUNDS
+        if not (lo_a <= max_attempts <= hi_a and lo_d <= min_days <= hi_d):
+            raise LifeError("contact_rule", f"attempts are {lo_a} to {hi_a}; days between attempts {lo_d} to {hi_d}")
+        self.db.execute("INSERT INTO contact_rule (study, max_attempts, min_days, set_by, set_at) VALUES (?,?,?,?,?) "
+                        "ON CONFLICT (study) DO UPDATE SET max_attempts = excluded.max_attempts, "
+                        "min_days = excluded.min_days, set_by = excluded.set_by, set_at = excluded.set_at",
+                        (study, max_attempts, min_days, by, at))  # fmt: skip
+        return self.contact_rule(study)
+
+    # ------------------------------------------------------------------ possible deviations (D-407, LIFE-025)
+    def possible_deviations(self, study: str, today: date, icf_version: str = "") -> list[dict[str, Any]]:
+        """What the box's own facts say may be a deviation, one proposal per subject and fact, each with the
+        coordinator's answer when there is one (``state``: open, confirmed, dismissed). Never a deviation entry by
+        itself: a proposal becomes one only when a person confirms it. ``icf_version``: the consent form version in
+        force for the study (the study's IRB record), when known."""
+        calls = {(str(r["record"]), str(r["key"])): r
+                 for r in self.db.fetchdicts("SELECT * FROM deviation_call WHERE study = ?", (study,))}  # fmt: skip
+        out: list[dict[str, Any]] = []
+        for sub in self.subjects(study):
+            rec = str(sub["record"])
+            for p in self._proposals(study, rec, sub, today, icf_version):
+                c = calls.get((rec, p["key"]))
+                out.append({**p, "record": rec, "pid": str(sub["pid"]), "dv_kind": PROPOSAL_KINDS[p["kind"]],
+                            "state": {"confirm": "confirmed", "dismiss": "dismissed"}[str(c["decision"])] if c
+                            else "open", "reason": str((c or {}).get("reason") or ""),
+                            "event": str((c or {}).get("event") or ""), "who": str((c or {}).get("who") or ""),
+                            "at": str((c or {}).get("at") or "")})  # fmt: skip
+        return out
+
+    def _proposals(self, study: str, rec: str, sub: dict[str, Any], today: date,
+                   icf_version: str) -> list[dict[str, Any]]:  # fmt: skip
+        vals: dict[str, dict[str, str]] = {}
+        for r in self.dc.values(study, rec):
+            vals.setdefault(str(r["event"]), {})[str(r["field"])] = str(r["value"])
+        once = vals.get("", {})
+        out: list[dict[str, Any]] = []
+        for v in self.visits(study, rec, today, subject=sub):
+            if v["status"] != "done":
+                continue
+            said_out = vals.get(str(v["visit"]), {}).get("vs_window") == "0"
+            if (v["start"] and v["in_window"] is False) or said_out:
+                out.append({"kind": "visit_window", "key": f"visit_window:{v['visit']}", "day": v["done_on"],
+                            "detail": {"visit": v["visit"], "done": v["done_on"], "start": v["start"],
+                                       "end": v["end"]},
+                            "text": f"Visit {v['visit']} done on {v['done_on']}, outside its window "
+                                    f"{v['start'] or '?'} to {v['end'] or '?'}."})  # fmt: skip
+        icd, icv = once.get("ic_date", ""), once.get("ic_version", "").strip()
+        if icd and icv and icf_version.strip() and icv.casefold() != icf_version.strip().casefold():
+            out.append({"kind": "consent_version", "key": f"consent_version:{icv[:40]}", "day": icd[:10],
+                        "detail": {"version": icv[:40], "in_force": icf_version.strip()[:40], "day": icd[:10]},
+                        "text": f"Consent on {icd[:10]} used form version {icv[:40]}; the version in force is "
+                                f"{icf_version.strip()[:40]}."})  # fmt: skip
+        ic, en = _day(icd), _day(once.get("en_date", ""))
+        if ic is not None and en is not None and en < ic:
+            out.append({"kind": "consent_after", "key": "consent_after:enrolment", "day": en.isoformat(),
+                        "detail": {"enrolled": en.isoformat(), "consented": ic.isoformat()},
+                        "text": f"Enrolled on {en.isoformat()}, before consent on {ic.isoformat()}."})  # fmt: skip
+        if en is not None and once.get("en_eligible") == "1" and once.get("sl_eligible") == "0":
+            crit = once.get("sl_criterion", "").strip()
+            crit = crit if CRITERION.match(crit) else ""
+            out.append({"kind": "eligibility", "key": "eligibility:screening_log", "day": en.isoformat(),
+                        "detail": {"enrolled": en.isoformat(), "criterion": crit},
+                        "text": f"Enrolled on {en.isoformat()} while the screening log says not eligible"
+                                f"{f' (criterion {crit})' if crit else ''}."})  # fmt: skip
+        return out
+
+    def decide_deviation(self, study: str, record: str, key: str, decision: str, *, reason: str = "", by: str,
+                         at: str, today: date, icf_version: str = "") -> dict[str, Any]:  # fmt: skip
+        """The coordinator's answer to one proposal: ``confirm`` writes a deviation entry (the next ``dvN`` event:
+        date, kind, what happened; class and reports are then completed on the form), ``dismiss`` keeps the reason.
+        One answer per proposal; a second is refused."""
+        if decision not in DECISIONS:
+            raise LifeError("decision", "confirm or dismiss the possible deviation")
+        reason = reason.strip()[:300]
+        if decision == "dismiss" and not reason:
+            raise LifeError("dismiss_reason", "say why this is not a deviation")
+        one = next((p for p in self.possible_deviations(study, today, icf_version)
+                    if p["record"] == record and p["key"] == key), None)  # fmt: skip
+        if one is None:
+            raise LifeError("proposal", "no such possible deviation for this subject")
+        if one["state"] != "open":
+            raise LifeError("decided", f"this possible deviation was already {one['state']}", state=one["state"])
+        event = self.next_event(study, record, "dv") if decision == "confirm" else ""
+        n = self.db.execute("INSERT INTO deviation_call (study, record, key, decision, reason, event, who, at) "
+                            "VALUES (?,?,?,?,?,?,?,?) ON CONFLICT (study, record, key) DO NOTHING",
+                            (study, record, key, decision, reason, event, by, at))  # fmt: skip
+        if n != 1:
+            raise LifeError("decided", "this possible deviation was answered meanwhile")
+        if event:
+            note = one["text"] + (f" {reason}" if reason else "")
+            for f, v in (("dv_date", one["day"]), ("dv_kind", one["dv_kind"]), ("dv_what", note[:1000])):
+                self.dc.write(study, record, event, f, v, by, at, "trialbox:proposed")
+        return {**one, "state": "confirmed" if event else "dismissed", "reason": reason, "event": event, "who": by,
+                "at": at}  # fmt: skip
+
+
+def randomised(v: dict[str, str]) -> str:
+    """The randomisation day the enrolment form gives (``en_rand`` 1 and ``en_rand_date``), "yes" when the day is
+    missing, else "" (D-407, LIFE-020)."""
+    if v.get("en_rand") != "1":
+        return ""
+    d = _day(v.get("en_rand_date", ""))
+    return d.isoformat() if d else "yes"
+
+
+def contact_check(attempt_days: list[str], max_attempts: int, min_days: int, today: date) -> dict[str, Any]:
+    """D-407 (LIFE-017): may the coordinator record one more contact attempt today? ``attempt_days`` are the days
+    (YYYY-MM-DD, site time) of the attempts recorded so far. ``why``: "" (yes), ``limit`` (the study's maximum is
+    reached: the investigator decides what follows) or ``too_soon`` (fewer than ``min_days`` since the last; ``next``
+    is the first day allowed)."""
+    days = sorted(d for d in (_day(x) for x in attempt_days) if d is not None)
+    n = len(days)
+    out: dict[str, Any] = {"attempts": n, "max": max_attempts, "min_days": min_days, "why": "", "next": ""}
+    if n >= max_attempts:
+        out["why"] = "limit"
+    elif days and min_days > 0 and (today - days[-1]).days < min_days:
+        out["why"] = "too_soon"
+        out["next"] = (days[-1] + timedelta(days=min_days)).isoformat()
+    return out
 
 
 def in_force_on(versions: list[dict[str, Any]], day: date) -> dict[str, Any]:

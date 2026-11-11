@@ -2,7 +2,8 @@
 {% macro life_nav(rs) %}<p class="hint chartlinks" data-testid="life-nav"><a href="/studies/{{ rs }}/subjects" data-testid="to-subjects"{% if path.endswith('/subjects') %} aria-current="page"{% endif %}>{{ t('life.to.subjects') }}</a>
  <a href="/studies/{{ rs }}/visits" data-testid="to-visits"{% if path.endswith('/visits') %} aria-current="page"{% endif %}>{{ t('life.to.visits') }}</a>
  <a href="/studies/{{ rs }}/schedule" data-testid="to-schedule"{% if path.endswith('/schedule') %} aria-current="page"{% endif %}>{{ t('life.to.schedule') }}</a>
- <a href="/studies/{{ rs }}/enrolment" data-testid="to-enrolment"{% if path.endswith('/enrolment') %} aria-current="page"{% endif %}>{{ t('life.to.report') }}</a></p>{% endmacro %}
+ <a href="/studies/{{ rs }}/enrolment" data-testid="to-enrolment"{% if path.endswith('/enrolment') %} aria-current="page"{% endif %}>{{ t('life.to.report') }}</a>
+ <a href="/studies/{{ rs }}/deviations" data-testid="to-deviations"{% if path.endswith('/deviations') %} aria-current="page"{% endif %}>{{ t('dev.title') }}</a></p>{% endmacro %}
 
 {% macro state_pill(s) %}<span class="pill life-{{ s }}" data-state="{{ s }}">{{ t('life.state.' + s) }}</span>{% endmacro %}
 

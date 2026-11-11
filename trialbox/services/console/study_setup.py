@@ -188,6 +188,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             tokens=[c["token_ref"] for c in conns.get("connections") or []],
             screen_scope=get_or_none(f"/studies/{rid}/screen-scope") if s28.has_api(bk) else None,
             sae_rule=get_or_none(f"/studies/{rid}/sae-rule") if s28.has_api(bk) else None,
+            contact_rule=get_or_none(f"/studies/{rid}/contact-rule") if s28.has_api(bk) else None,
             last=reads[0] if reads else None,
             all_reasons=ALL_REASONS,
             study_types=STUDY_TYPES,
@@ -254,6 +255,30 @@ def register(app: FastAPI, h: Helpers) -> None:
         detail = {"section": "sae", "rule_set": rule_set[:40]}
         au.append("console.study_setup", ruleset=rid, actor=h.actor(sess), detail=detail)
         return RedirectResponse(f"/studies/{rid}/setup?saved=sae#sae", status_code=303)
+
+    @app.post("/studies/{rs}/setup/contact")
+    def save_contact_rule(request: Request, rs: str, csrf: str = Form(""), max_attempts: str = Form(""),
+                          min_days: str = Form("")) -> Response:  # fmt: skip
+        """D-407 (LIFE-017): the study's contact-attempt limit and the days between two attempts; after the limit
+        the coordinator's list asks the investigator."""
+        sess = h.need(request)
+        rid = study_or_404(sess, rs)
+        need_edit(request, sess, csrf)
+        try:
+            body = {"max_attempts": int(max_attempts), "min_days": int(min_days), "by": h.actor(sess)}
+        except ValueError:
+            raise h.problem(400, "request.refused", reason="attempts and days are whole numbers") from None
+        try:
+            s28.call(bk, "PUT", f"/studies/{rid}/contact-rule", body)
+        except (Problem, Unavailable) as exc:
+            return setup_page(request, sess, rid, err=err_of(exc))
+        au.append(
+            "console.study_setup",
+            ruleset=rid,
+            actor=h.actor(sess),
+            detail={"section": "contact", "max_attempts": body["max_attempts"], "min_days": body["min_days"]},
+        )
+        return RedirectResponse(f"/studies/{rid}/setup?saved=contact#contact", status_code=303)
 
     @app.post("/studies/{rs}/setup/log")
     async def save_log(request: Request, rs: str) -> Response:
