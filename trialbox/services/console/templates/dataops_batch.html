@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{# T-112b (D-443): one night of one source and its trail (every step, who, when, why, the audit event). #}
+{% block title %}{{ t('dataops.title') }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ t('dataops.batch.title', snapshot=b.snapshot, source=b.source, attempt=b.attempt) }}</h1>
+<a href="/data-ops" data-testid="dataops-back">{{ t('dataops.back') }}</a></div>
+<p data-testid="batch-state" data-state="{{ b.state }}">{{ t('dataops.col.state') }}: {{ t('dataops.state.' + b.state) }}</p>
+{% if b.state == 'HELD' %}<section class="card attention">
+{% if may_decide %}{% if not can_accept %}<p class="hint">{{ t('dataops.accept_off') }}</p>{% endif %}{% include "_dataops_decide.html" %}{% else %}<p class="hint">{{ t('dataops.view_only') }}</p>{% endif %}
+</section>{% endif %}
+<section class="card" data-testid="batch-steps">
+<h2>{{ t('dataops.steps.title') }}</h2>
+<div class="scroll" tabindex="0"><table>
+<thead><tr><th scope="col">{{ t('dataops.col.step') }}</th><th scope="col">{{ t('dataops.col.state') }}</th><th scope="col">{{ t('dataops.col.who') }}</th><th scope="col">{{ t('dataops.col.changed') }}</th><th scope="col">{{ t('dataops.col.reason') }}</th><th scope="col">{{ t('dataops.col.event') }}</th></tr></thead>
+<tbody>{% for s in steps %}<tr data-testid="step" data-new="{{ s.new }}">
+<td class="num">{{ s.seq }}</td><td>{% if s.old %}{{ t('dataops.state.' + s.old) }} → {% endif %}{{ t('dataops.state.' + s.new) }}</td><td>{{ s.who|who }}</td><td>{{ s.at|local }}</td><td>{{ s.reason or '–' }}</td><td class="mono">{{ s.audit_event }}</td>
+</tr>{% endfor %}</tbody></table></div>
+</section>
+{% endblock %}

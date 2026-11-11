@@ -56,4 +56,8 @@ File: [data/10-the-patient-twin.md](data/10-the-patient-twin.md).
 
 File: [data/11-the-vector-store.md](data/11-the-vector-store.md).
 
+## 12. Data operations: the nights of every source
+
+File: [data/12-data-operations.md](data/12-data-operations.md).
+
 <!-- end of the generated index -->
