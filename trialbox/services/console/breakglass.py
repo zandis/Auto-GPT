@@ -36,6 +36,8 @@ from tb_common.authz import (
     BREAK_GLASS_NOTE_MIN,
     BREAK_GLASS_REASONS,
     BREAK_GLASS_REVIEW_DAYS,
+    conditional,
+    permit,
 )
 
 from console import i18n_breakglass
@@ -250,7 +252,7 @@ def register(app: FastAPI, h: Helpers, store: BreakGlassStore | None = None) -> 
 
     def pi_studies(user: User) -> set[str]:
         """The studies whose delegation log names this investigator as PI today."""
-        if user.role != "investigator" or h.team is None:
+        if not conditional(user.role, "breakglass.read") or h.team is None:  # T-102c: the row's "pi" condition
             return set()
         out = set()
         for s in h.bk.rulesets():
@@ -277,7 +279,7 @@ def register(app: FastAPI, h: Helpers, store: BreakGlassStore | None = None) -> 
     def tell(sess: Session, g: Grant) -> None:
         """The steward and the study's PI are told at once by mail (internal addresses, pseudonym only)."""
         rid = study_of(h, g)
-        to = {u.mailbox for u in h.users.users() if u.role == "steward" and u.mailbox}
+        to = {u.mailbox for u in h.users.users() if permit(u.role, "breakglass.review") and u.mailbox}
         if rid and h.team is not None:
             pi = h.team.pi_of(rid, h.today())
             for u in h.users.users():
@@ -303,10 +305,10 @@ def register(app: FastAPI, h: Helpers, store: BreakGlassStore | None = None) -> 
     def view(sess: Session, path: str) -> dict[str, Any]:
         t = now()
         role = sess.user.role
-        if role == "admin":
+        if permit(role, "breakglass.open"):  # the administrator: its own grants
             mine = bg.of(sess.user.username)
             return {"mode": "admin", "grants": mine, "active": [g for g in mine if g.active(t)]}
-        if role == "steward":
+        if permit(role, "breakglass.review"):  # the steward: every grant
             rows = bg.grants()
             rows.sort(key=lambda g: (g.reviewed_at is not None, g.id * -1))
             return {"mode": "steward", "grants": rows, "active": []}
@@ -368,7 +370,7 @@ def register(app: FastAPI, h: Helpers, store: BreakGlassStore | None = None) -> 
         sess = h.need(request)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
-        if sess.user.role != "steward":
+        if not permit(sess.user.role, "breakglass.review"):
             raise deny(sess, request.url.path)
         try:
             g = bg.review(gid, sess.user.username, note, now())

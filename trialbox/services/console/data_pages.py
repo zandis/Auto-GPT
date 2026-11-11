@@ -112,7 +112,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         """A study this account sees (never a CRO account). ``rows``: the page shows trial values, so only roles
         that read patient-level rows see it."""
         rid = rs.strip().upper()
-        if not _RS.match(rid) or not sess.user.sees_study(rid) or sess.user.role == "cro" or not known_study(bk, rid):
+        if not _RS.match(rid) or not sess.user.sees_study(rid) or sess.user.sponsor_form or not known_study(bk, rid):
             raise h.problem(404, "notfound")
         if rows and not sess.user.can_view_phi:
             au.append("console.denied", actor=h.actor(sess), detail={"action": f"conflicts {rid}"})

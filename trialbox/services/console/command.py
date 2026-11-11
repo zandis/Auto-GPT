@@ -23,6 +23,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from channels.grammar import GrammarError, Line, parse_line
+from tb_common.authz import permit
 
 # what each role may open; the target page checks again (defence in depth, the field is only a shortcut)
 ROLE_TARGETS: dict[str, frozenset[str]] = {
@@ -370,7 +371,7 @@ def url_of(act: Action, role: str) -> str | None:
     if intent == "jobs":
         if act.target:
             return f"/pilot/jobs/{act.target}"
-        return "/admin?tab=jobs" if role == "admin" else "/jobs"
+        return "/admin?tab=jobs" if permit(role, "ops.view") else "/jobs"
     if intent == "feasibility":
         return f"/studies/{rs}/feasibility"
     if intent == "setup":
@@ -382,11 +383,12 @@ def url_of(act: Action, role: str) -> str | None:
     if intent == "request":
         return f"/pilot/request?ruleset={rs}&kind={act.params.get('kind', 'SCREEN')}"
     if intent == "week":
-        return f"/studies/{rs}/week" if rs and role != "cro" else ("/week" if role != "cro" else "/reports")
+        sponsor = permit(role, "report.sponsor_form").allowed  # T-102c (D-425): the matrix rows, not role names
+        return f"/studies/{rs}/week" if rs and not sponsor else ("/week" if not sponsor else "/reports")
     if intent == "status":
-        if role in ("cro", "viewer"):
+        if permit(role, "report.aggregate_only"):
             return f"/studies/{rs}/feasibility" if rs else "/reports"
-        if role == "investigator":
+        if permit(role, "list.mark"):
             return f"/studies/{rs}/week" if rs else "/week"
         return f"/home#study-{rs}" if rs else "/home"
     return None  # patient / search: resolved by the caller against the registry

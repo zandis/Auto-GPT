@@ -25,6 +25,7 @@ from typing import Any
 
 from datacore.lifecycle import failed_label
 from fastapi import FastAPI, Request, Response
+from tb_common.authz import permit
 from tb_contracts import Job
 
 from console import s28
@@ -244,9 +245,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def screening_log(request: Request, rs: str) -> Response:
         sess = h.need(request)
         rid = study_or_404(sess, rs)
-        if not sess.user.can_view_phi:
-            raise h.problem(403, "forbidden")
-        h.delegated(sess, rid, request.url.path)  # D-273 (PV-3): the week page's delegation rule
+        h.need_rows(sess, rid, request.url.path)  # D-273 (PV-3), ROLE-017: one question with the XLSX and /api/v1
         link = rc_link(rid)
         reads = (link or {}).get("reads") or []
         return h.page(
@@ -269,10 +268,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
         sess = h.need(request)
         rid = study_or_404(sess, rs)
-        if not sess.user.can_request:
-            au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
-            raise h.problem(403, "forbidden")
-        h.delegated(sess, rid, request.url.path)  # D-273 (PV-3)
+        h.need_rows(sess, rid, request.url.path)  # ROLE-017: the page's question (it holds pseudonyms, D-280)
         wb = Workbook()
         ws: Any = wb.active
         ws.title = "screening log"
@@ -367,9 +363,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def cohort(request: Request, rs: str) -> Response:
         sess = h.need(request)
         rid = study_or_404(sess, rs)
-        if not sess.user.can_view_phi:
-            raise h.problem(403, "forbidden")
-        h.delegated(sess, rid, request.url.path)  # D-273 (PV-3): the week page's delegation rule
+        h.need_rows(sess, rid, request.url.path)  # D-273 (PV-3), ROLE-017: one question with the XLSX and /api/v1
         info = next((r for r in bk.rulesets() if r.id == rid), None)
         kind = info.kind if info else ""
         conf = s28.load(bk, store, rid, st.study_defaults(rid, kind))
@@ -451,7 +445,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         return out
 
     def office_allowed(sess: Session) -> bool:
-        return sess.user.role in ("admin", "viewer", "coordinator")  # the CRO never sees the site's own totals
+        return permit(sess.user.role, "report.office").allowed  # the CRO never sees the site's own totals
 
     @app.get("/reports/research-office")
     def research_office(request: Request, year: int = 0) -> Response:

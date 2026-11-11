@@ -100,16 +100,16 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
     def delegated(sess: Session, rid: str) -> bool:
         """D-147: once a study's delegation log names a PI, an investigator sees its patients only as the PI or a
         sub-investigator ticked for "screen" (as on the week and candidate pages)."""
-        return sess.user.role != "investigator" or h.may is None or h.may(sess.user, rid, "screen")
+        return h.delegated_ok(sess.user, rid)
 
     def scope(sess: Session, rs: str, action: str, path: str) -> str:
         """The study, after the study scope (404) and the role table (403); recording also needs ``enter_data``."""
         rid = rs.strip().upper()
-        if not _RS.match(rid) or not sess.user.sees_study(rid) or sess.user.role == "cro" or not known_study(bk, rid):
+        if not _RS.match(rid) or not sess.user.sees_study(rid) or sess.user.sponsor_form or not known_study(bk, rid):
             raise h.problem(404, "notfound")
         if not sae_allowed(sess.user.role, action):
             raise deny(sess, path)
-        if action == "record" and h.may is not None and not h.may(sess.user, rid, "enter_data"):
+        if action == "record" and not h.permit(sess.user, "task.enter_data", rid):
             raise deny(sess, path)
         if not delegated(sess, rid):
             raise deny(sess, path)
@@ -258,7 +258,7 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
         failed: list[str] = []
         rules_by: dict[str, dict[str, Any]] = {}
         for r in h.trials(sess) if h.trials is not None else []:
-            if sess.user.role == "cro" or not known_study(bk, r.id) or not delegated(sess, r.id):
+            if sess.user.sponsor_form or not known_study(bk, r.id) or not delegated(sess, r.id):
                 continue
             try:
                 got, gone, rules_by[r.id] = load(r.id, day)
@@ -292,8 +292,8 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
         case = reg.case(rid, rec, ev)
         if one is None and case is None and status != 503:
             raise h.problem(404, "notfound")
-        editable = sae_allowed(sess.user.role, "record") and (h.may is None or h.may(sess.user, rid, "enter_data"))
-        may_ack = sess.user.role == "investigator" and status != 503
+        editable = sae_allowed(sess.user.role, "record") and h.permit(sess.user, "task.enter_data", rid).allowed
+        may_ack = h.permit(sess.user, "sae.ack").allowed and status != 503
         return h.page(request, "sae_case.html", sess, status=status, rs=rid, record=rec, event=ev, one=one,
                       case=case, trail=reg.trail(rid, rec, ev), today=day.isoformat(), rules=rules,
                       editable=editable and status != 503, may_ack=may_ack, refused=refused, done=done,
@@ -348,7 +348,7 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
             raise h.problem(400, "csrf")
         rid = scope(sess, rs, "view", request.url.path)
         rec, ev = keys(record, event)
-        if sess.user.role != "investigator":
+        if not h.permit(sess.user, "sae.ack"):
             raise deny(sess, request.url.path)
         try:
             out = dict(s28.call(bk, "POST", f"/studies/{rid}/aes/{quote(rec)}/{ev}/ack", {"by": h.actor(sess)}))
