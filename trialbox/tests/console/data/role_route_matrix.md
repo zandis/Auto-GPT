@@ -52,6 +52,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/auth/oidc/start` | n | n | n | n | n | n | n |
 | GET | `/breakglass` | Y | - | - | - | - | - | Y |
 | GET | `/cmd` | Y | Y | Y | Y | Y | Y | Y |
+| GET | `/data/instruments` | Y | - | - | - | - | - | - |
 | GET | `/data/items` | Y | - | - | - | - | - | - |
 | GET | `/demo/ack` | n | n | n | n | n | n | n |
 | GET | `/feedback/export.csv` | Y | - | - | - | - | - | - |
@@ -166,6 +167,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/breakglass` | Y | - | - | - | - | - | - |
 | POST | `/breakglass/{gid}/end` | Y | - | - | - | - | - | - |
 | POST | `/breakglass/{gid}/review` | - | - | - | - | - | - | Y |
+| POST | `/data/instruments/{iid}` | Y | - | - | - | - | - | - |
 | POST | `/demo/ack` | n | n | n | n | n | n | n |
 | POST | `/feedback` | Y | Y | Y | Y | Y | Y | Y |
 | POST | `/ops/flags` | Y | - | - | - | - | - | - |
@@ -216,6 +218,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/studies/{rs}/forms/dictionary` | - | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/identity` | - | Y | Y | Y | - | - | - |
 | POST | `/studies/{rs}/irb` | Y | Y | Y | Y | - | - | - |
+| POST | `/studies/{rs}/irb-text` | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/not-matched/{pid}/review` | - | n | n | n | - | - | - |
 | POST | `/studies/{rs}/patients/{pid}/mark` | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/patients/{pid}/outcome` | Y | Y | - | Y | - | - | - |
