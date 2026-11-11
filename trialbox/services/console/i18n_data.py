@@ -7,7 +7,7 @@ from __future__ import annotations
 
 EN: dict[str, str] = {
     "dc.sources.title": "Data sources",
-    "dc.conflicts.title": "Conflicts",
+    "dc.conflicts.title": "Trial-record differences",
     "dc.forms.title": "Forms",
     "dc.readonly": "Only the study's coordinator attaches, detaches or syncs a source, imports forms and resolves conflicts.",
     "dc.sources.help": "Where this study's trial data also lives. A two-way source is read and written back; a one-way source is only read, and TrialBox never writes to a hospital system. Each field has one owner: TrialBox or one source. With no source, TrialBox works on its own.",
@@ -108,7 +108,7 @@ EN: dict[str, str] = {
 
 JA: dict[str, str] = {
     "dc.sources.title": "データソース",
-    "dc.conflicts.title": "不一致",
+    "dc.conflicts.title": "試験記録の相違",
     "dc.forms.title": "フォーム",
     "dc.readonly": "ソースの接続・切り離し・同期、フォームの取り込み、不一致の解決は、この試験のCRCだけが行えます。",
     "dc.sources.help": "この試験の試験データが他にも保存されている場所です。双方向のソースは読み取りと書き戻しを行い、片方向のソースは読み取りのみです。TrialBox が病院のシステムに書き込むことはありません。各フィールドの持ち主は TrialBox かいずれか一つのソースです。ソースがなくても TrialBox は単独で動作します。",
@@ -209,7 +209,7 @@ JA: dict[str, str] = {
 
 ZH: dict[str, str] = {
     "dc.sources.title": "資料來源",
-    "dc.conflicts.title": "不一致",
+    "dc.conflicts.title": "試驗紀錄差異",
     "dc.forms.title": "表單",
     "dc.readonly": "只有本試驗的研究護理師能連接、中斷或同步來源、匯入表單及處理不一致。",
     "dc.sources.help": "本試驗的試驗資料另外存放的地方。雙向來源會讀取並回寫；單向來源只讀取，TrialBox 絕不寫入醫院系統。每個欄位只有一個擁有者：TrialBox 或某一個來源。沒有來源時，TrialBox 也能獨立運作。",

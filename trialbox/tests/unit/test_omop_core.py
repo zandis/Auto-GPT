@@ -359,8 +359,8 @@ def test_site_inputs_status_and_conflicts(feed_dir: Path, db: Any) -> None:
     assert {r["pid"]: r for r in export_rows(db)["patient"]}[pid]["birth_date"].isoformat() == hospital
     again = _load(db, feed, site)  # the same disagreement again: the resolution stands, nothing reopens
     assert again[1].same > 0 and db.fetchval("SELECT count(*) FROM tb_conflict WHERE state = 'open'") == 7
-    fixed = copy.deepcopy(site)  # the sheet is corrected: the conflict is withdrawn
-    fixed["Patient"] = [p for p in fixed["Patient"] if p["id"] != pid]
+    fixed = copy.deepcopy(site)  # the sheet is corrected (T-201: the sources agree again): the conflict is withdrawn
+    fixed["Patient"] = [{**p, "birthDate": hospital} if p["id"] == pid else p for p in fixed["Patient"]]
     _load(db, feed, fixed, snap="2026-10-05")
     assert db.fetchval("SELECT state FROM tb_conflict WHERE conflict_id = ?", (conf[0][0],)) == "withdrawn"
 

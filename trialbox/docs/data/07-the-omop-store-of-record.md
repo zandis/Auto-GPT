@@ -12,7 +12,11 @@ file, row), the history of every record, and open and resolved conflicts. It is 
 - **Deletes are tombstones.** A record the hospital no longer sends leaves the standard table; its last content and
   the night it went are kept in `tb_record_event`.
 - **Disagreements are recorded.** Two sources that give a patient different birth dates, sexes or dates of death open
-  a conflict; screening reads the item as unknown until the steward (or the PI, for their study) resolves it.
+  a conflict; screening reads the item as unknown until the steward (or the PI, for their study) resolves it. A
+  conflict ends only when the sources agree again or a person resolves it: a source that stops sending the item (a
+  feed that lacks the patient one night, a deleted sheet row) ends nothing (T-201, D-426). The steward's page
+  **Clinical conflicts** (`/data/conflicts`) lists them with each source's value and keeps one value, or keeps the
+  item unknown, with a reason; the lake reads the choice from its next rebuild.
 - **The lake.** The flag `lake.source=omop` builds the screening lake from OMOP with the same tables and rows; the
   default is still `legacy` (flattened from the NDJSON) until the flag flips on the box (WS-03.5, D-384: CI builds the
   goldens and `e2e_simple` from both sources; the flip procedure is in [Go-live acceptance](../runbook/06-go-live-acceptance.md)

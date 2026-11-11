@@ -1188,8 +1188,7 @@ def _derive(tx: Any, persons: set[int], providers: set[int], batch: str, rep: Lo
         )
         prow, drow = [], []
         for pid in ids:
-            if not srcs.get(pid):
-                _conflicts(tx, pid, {}, [], [], batch)
+            if not srcs.get(pid):  # no source sends the patient tonight: a recorded conflict stays (DATA-011)
                 continue
             merged, clash = _merge_person(srcs[pid])
             birth = date.fromisoformat(merged["birth_date"]) if merged["birth_date"] else None
@@ -1306,10 +1305,14 @@ def _conflicts(
     batch: str,
 ) -> None:
     """Open a conflict per disagreeing item (unless the same disagreement is already recorded, open or resolved);
-    withdraw a recorded one the sources no longer give."""
+    withdraw a recorded one only when two or more sources give the item and agree again. A source that goes silent
+    (a feed that lacks the patient tonight, a sheet row deleted) withdraws nothing: the remaining value never stands
+    alone by default; the item stays unknown until a person resolves it (T-201, DATA-011, D-426)."""
     for item in ("birth_date", "sex", "deceased_date"):
         vals = clash.get(item)
         if not vals:
+            if sum(1 for s in sources if s.get(item) is not None) < 2:
+                continue  # one source or none: silence is not agreement
             tx.execute(
                 "UPDATE tb_conflict SET state = 'withdrawn', closed_batch = ? WHERE person_id = ? AND item = ? "
                 "AND kind = 'source_vs_source' AND state <> 'withdrawn'",
