@@ -4,7 +4,8 @@
 step, D-187, D-274, ``backup_schedule.py``); ``secrets``
 (per-service tokens, D-128 / D-138, ``svc_secrets.py``), ``logs`` (retention, ``logs.py``) and ``update`` (the update
 path behind ``tools/apply_update.sh``, ``update.py``); ``doctor --platform``, ``platform-images`` and
-``platform-egress`` for a hospital platform (D-211, ``platform.py``); ``exports`` lists the export ledger (D-149,
+``platform-egress`` for a hospital platform (D-211, ``platform.py``) and ``platform-day2`` for its backup, restore,
+logs, audit archive and digest updates (T-633, D-416, ``platform_day2.py``); ``exports`` lists the export ledger (D-149,
 ``tb_common.flowledger``); ``ops`` runs the console's operations requests and writes their status (D-178, ``ops.py``);
 ``watchdog`` restarts an unhealthy service and audits it (T-108a, D-360, ``watchdog.py``);
 ``eval qualify`` qualifies a model pair for a hardware profile and writes the record (D-313, ``tools/qualify.py``);
@@ -26,6 +27,10 @@ from pathlib import Path
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
+    if args[:1] == ["platform-day2"]:  # its own options (platform_day2.py); `pg` passes its arguments through
+        from tools.trialbox import platform_day2
+
+        return platform_day2.main(args[1:])
     if args[:2] == ["eval", "qualify"]:  # its own options (tools/qualify.py), not a suite of eval/suites/
         from tools import qualify
 
@@ -268,8 +273,9 @@ def _platform_cmd(a: argparse.Namespace) -> int:
         eg = _egress()
         pols, warnings = eg.render_networkpolicy(eg.allowlist(env, eg.ROUTING))
         doctor_pol, doctor_warnings = pf.render_doctor_policy(env)  # the install-check job's own egress (D-211)
-        pols = [*pols, *([doctor_pol] if doctor_pol else [])]
-        for w in [*warnings, *doctor_warnings]:
+        ops_pol, ops_warnings = pf.render_ops_policy(env)  # the log job's API server (T-633, D-416)
+        pols = [*pols, *([doctor_pol] if doctor_pol else []), *([ops_pol] if ops_pol else [])]
+        for w in [*warnings, *doctor_warnings, *ops_warnings]:
             print(f"warning: {w}", file=sys.stderr)
         print(yaml.safe_dump_all(pols, sort_keys=False, allow_unicode=True) if pols else "# no egress allowed", end="")
         return 0

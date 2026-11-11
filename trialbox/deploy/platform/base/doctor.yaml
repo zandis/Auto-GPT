@@ -27,7 +27,7 @@ rules:
     resources: [deployments, statefulsets]
     verbs: [get, list]
   - apiGroups: [batch]
-    resources: [jobs]
+    resources: [jobs, cronjobs]  # cronjobs: the day-2 jobs (checks backup_job, log_job; T-633)
     verbs: [get, list]
   - apiGroups: [networking.k8s.io]
     resources: [networkpolicies]

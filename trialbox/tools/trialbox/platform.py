@@ -34,6 +34,17 @@ before anything is applied) or from ``docker compose config --format json`` (``-
 * ``mail_relay``: ``SMTP_HOST:SMTP_PORT`` accepts a TCP connection;
 * ``backup_target``: ``TB_BACKUP_TARGETS`` is set and off-box (a network share, or the platform's declaration
   ``TB_PLATFORM_BACKUP_EVIDENCE``); a FAIL in PRODUCTION, a WARN elsewhere (D-187's rule);
+* ``backup_job`` (T-633, D-416, OPS-068): the CronJob ``trialbox-backup`` exists (a FAIL in every environment when
+  it does not), is not suspended, runs the backup to the backup share claim (labelled
+  ``trialbox.io/storage=backup-share``), takes the FHIR store too (``TB_HAPI_DB_URL``), runs in the site's zone
+  (``spec.timeZone`` = ``TB_TZ``) and, in a cluster, last succeeded within ``TB_BACKUP_MAX_AGE_HOURS`` (36); the
+  restore key Secret is not left in the namespace (D-126). On the compose form: ``TB_PLATFORM_BACKUP_JOB_EVIDENCE``;
+* ``log_job`` (T-633): the CronJob ``trialbox-logs`` (pod logs of the site's day, the audit archive) exists, runs
+  in the site's zone and, in a cluster, succeeded within two days;
+* ``db_storage`` (T-633, OPS-069): the database's claim is ReadWriteOnce on ``TB_PLATFORM_DB_STORAGE_CLASS``, a
+  block class that is not the shared ReadWriteMany one, evidenced by ``TB_PLATFORM_DB_STORAGE_EVIDENCE``;
+* ``pod_limits`` (T-633, OPS-070): every container states CPU and memory requests and a memory limit (MIG isolates
+  the GPU, not the CPU, memory or storage of a shared host);
 * ``serving_record``: the ``shared-quota`` serving record (``TB_SERVING_RECORD``) exists, validates and names the
   MIG profile the namespace was given (``TB_MIG_PROFILE``). The profile is measured, never assumed: until T-114's
   record exists this is a FAIL that says so;
@@ -353,6 +364,7 @@ class KubeApi:
         ("Deployment", "/apis/apps/v1/namespaces/{ns}/deployments"),
         ("StatefulSet", "/apis/apps/v1/namespaces/{ns}/statefulsets"),
         ("Job", "/apis/batch/v1/namespaces/{ns}/jobs"),
+        ("CronJob", "/apis/batch/v1/namespaces/{ns}/cronjobs"),  # the day-2 jobs (T-633)
         ("NetworkPolicy", "/apis/networking.k8s.io/v1/namespaces/{ns}/networkpolicies"),
     )
 
@@ -508,6 +520,7 @@ class PlatformInputs:
         default_factory=lambda: {"llm-service": "http://llm-service:8000", "llm-verifier": "http://llm-verifier:8000"}
     )
     http: Callable[[str, str, str | None, str], int | None] | None = None
+    now: datetime | None = None  # the clock of the day-2 checks (the jobs' last success); None: now
 
 
 def _strict(inp: PlatformInputs) -> bool:
@@ -616,22 +629,39 @@ def _fmt(res: str, n: float) -> str:
     return f"{n:g}"
 
 
+def _is_backup_share(pvc: Mapping[str, Any]) -> bool:
+    """The claim of the hospital's backup share (T-633): what is on it is encrypted to the hospital's key (D-126), so
+    it is not held to the encrypted storage class."""
+    return ((pvc.get("metadata") or {}).get("labels") or {}).get(STORAGE_LABEL) == BACKUP_SHARE
+
+
+def _is_db_claim(name: str) -> bool:
+    """The database's claim: the template ``db-pg`` and the claims the StatefulSet makes from it (``db-pg-db-0``)."""
+    return name == DB_CLAIM or name.startswith(f"{DB_CLAIM}-{DB}-")
+
+
 def check_storage_encryption(inp: PlatformInputs) -> Check:
     flag = inp.env.get("TB_PLATFORM_STORAGE_ENCRYPTED", "").strip().lower()
     ref = inp.env.get("TB_PLATFORM_STORAGE_EVIDENCE", "").strip()
     cls = inp.env.get("TB_PLATFORM_STORAGE_CLASS", "").strip()
+    db_cls = inp.env.get("TB_PLATFORM_DB_STORAGE_CLASS", "").strip() or cls  # OPS-069: block storage for the db
     off = []
     if cls:
         for pvc in inp.state.of("PersistentVolumeClaim"):
+            if _is_backup_share(pvc):
+                continue
+            want = db_cls if _is_db_claim(str((pvc.get("metadata") or {}).get("name") or "")) else cls
             got = (pvc.get("spec") or {}).get("storageClassName")
-            if got != cls:
+            if got != want:
                 off.append(f"{_name(pvc)} uses {got or 'the default class'}")
         for sts in inp.state.of("StatefulSet"):
             for t in (sts.get("spec") or {}).get("volumeClaimTemplates") or []:
-                if (t.get("spec") or {}).get("storageClassName") != cls:
-                    off.append(f"{_name(sts)} claim {(t.get('metadata') or {}).get('name')} not on {cls}")
+                tname = str((t.get("metadata") or {}).get("name") or "")
+                want = db_cls if _is_db_claim(tname) else cls
+                if (t.get("spec") or {}).get("storageClassName") != want:
+                    off.append(f"{_name(sts)} claim {tname} not on {want}")
     if off:
-        return Check("storage_encryption", "FAIL", f"claims outside the encrypted class {cls}: " + "; ".join(off[:5]))
+        return Check("storage_encryption", "FAIL", "claims outside the encrypted classes: " + "; ".join(off[:5]))
     if not cls and _strict(inp):
         return Check(
             "storage_encryption",
@@ -759,6 +789,50 @@ def render_doctor_policy(
         },
         "spec": {
             "podSelector": {"matchLabels": {"app.kubernetes.io/component": "doctor"}},
+            "policyTypes": ["Egress"],
+            "egress": rules,
+        },
+    }
+    return pol, warn
+
+
+OPS_POLICY = "trialbox-egress-ops"
+OPS_COMPONENT = "logs"
+
+
+def render_ops_policy(
+    env: Mapping[str, str], resolver: Callable[[str], list[str]] | None = None
+) -> tuple[dict[str, Any] | None, list[str]]:
+    """The log job's egress (T-633): the API server only (``TB_PLATFORM_API_SERVER``), where it lists the pods and
+    reads their logs; rendered as the doctor's is. None when the API server is not declared (the job then reaches
+    nothing and fails, closed)."""
+    res = resolver or _resolve
+    rules: list[dict[str, Any]] = []
+    hosts: list[str] = []
+    warn: list[str] = []
+    for v in [v for v in env.get("TB_PLATFORM_API_SERVER", "").split(",") if v.strip()]:
+        hp = _hostport(v, 443)
+        if not hp:
+            continue
+        addrs = sorted(res(hp[0]))
+        if not addrs:
+            warn.append(f"{hp[0]}: does not resolve; log job api-server rule skipped")
+            continue
+        blocks = [{"ipBlock": {"cidr": f"{a}/{128 if ':' in a else 32}"}} for a in addrs]
+        rules.append({"to": blocks, "ports": [{"protocol": "TCP", "port": hp[1]}]})
+        hosts.append(f"api-server={hp[0]}:{hp[1]}/TCP")
+    if not rules:
+        return None, [*warn, "TB_PLATFORM_API_SERVER not declared: the log job gets no api-server rule"]
+    pol = {
+        "apiVersion": "networking.k8s.io/v1",
+        "kind": "NetworkPolicy",
+        "metadata": {
+            "name": OPS_POLICY,
+            "labels": {"app.kubernetes.io/part-of": "trialbox", "trialbox.io/policy": "ops-egress"},
+            "annotations": {"trialbox.io/egress-hosts": ",".join(hosts)},
+        },
+        "spec": {
+            "podSelector": {"matchLabels": {"app.kubernetes.io/component": OPS_COMPONENT}},
             "policyTypes": ["Egress"],
             "egress": rules,
         },
@@ -920,6 +994,26 @@ def check_network_policy(inp: PlatformInputs) -> Check:
                     f"{sorted(_blocks(exp_doc) - _blocks(act)) or '-'} missing"
                 )
         doc_note = "doctor egress as declared"
+    ops_pols = [
+        p
+        for p in pols
+        if (p.get("metadata") or {}).get("name") == OPS_POLICY
+        or ((p.get("metadata") or {}).get("labels") or {}).get("trialbox.io/policy") == "ops-egress"
+    ]
+    if ops_pols:  # the log job's egress (T-633): exactly the declared API server
+        exp_ops, _ = render_ops_policy(inp.env, res)
+        for act in ops_pols:
+            pol_name = (act.get("metadata") or {}).get("name")
+            if exp_ops is None:
+                differ.append(f"{pol_name}: the site declares no API server")
+            elif _canon((act.get("spec") or {}).get("podSelector")) != _canon(exp_ops["spec"]["podSelector"]):
+                differ.append(f"{pol_name}: selects other pods than the log job")
+            elif _blocks(act) != _blocks(exp_ops):
+                differ.append(
+                    f"{pol_name}: ipBlocks {sorted(_blocks(act) - _blocks(exp_ops)) or '-'} not declared, "
+                    f"{sorted(_blocks(exp_ops) - _blocks(act)) or '-'} missing"
+                )
+        doc_note += "; log job egress as declared"
     if differ:
         return Check(
             "network_policy",
@@ -1050,6 +1144,248 @@ def check_backup_target(inp: PlatformInputs) -> Check:
         "FAIL" if prod else "WARN",
         f"{', '.join(targets)}: not shown off-box (no network share mounted, no TB_PLATFORM_BACKUP_EVIDENCE)",
     )
+
+
+# ------------------------------------------------------------------------------------------------ day 2 (T-633)
+BACKUP_JOB = "trialbox-backup"
+LOG_JOB = "trialbox-logs"
+RESTORE_JOB = "trialbox-restore"
+RESTORE_KEY_SECRET = "trialbox-backup-restore-key"  # only for a restore, then deleted (D-126: the box never keeps it)
+STORAGE_LABEL = "trialbox.io/storage"
+BACKUP_SHARE = "backup-share"
+DB = "db"
+DB_CLAIM = "db-pg"
+DEFAULT_BACKUP_MAX_AGE_H = 36.0  # backup_schedule.MAX_AGE_HOURS: the appliance's age alert
+LOG_JOB_MAX_AGE_H = 48.0  # a daily job, with a day's slack
+
+
+def _when(inp: PlatformInputs) -> datetime:
+    return inp.now or datetime.now(UTC)
+
+
+def _parse_time(v: object) -> datetime | None:
+    if not v:
+        return None
+    try:
+        t = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=UTC)
+
+
+def _commands(spec: Mapping[str, Any]) -> list[str]:
+    return [" ".join(map(str, [*(c.get("command") or []), *(c.get("args") or [])])) for c in containers(spec)]
+
+
+def _cron_problems(cj: Mapping[str, Any], inp: PlatformInputs, max_age_h: float) -> tuple[list[str], list[str]]:
+    """What is wrong with a scheduled day-2 job: (failures, warnings). Suspended or without a schedule fails; a
+    ``timeZone`` that is not the site's (``TB_TZ``) fails in VALIDATION and PRODUCTION (the job would run at another
+    hour, D-315); in a cluster, the last success older than ``max_age_h``, or none since the job was made that long
+    ago, likewise."""
+    fails: list[str] = []
+    warns: list[str] = []
+    strict = fails if _strict(inp) else warns
+    spec = cj.get("spec") or {}
+    name = (cj.get("metadata") or {}).get("name")
+    if spec.get("suspend"):
+        fails.append(f"{name} is suspended: it never runs")
+    if not str(spec.get("schedule") or "").strip():
+        fails.append(f"{name} has no schedule")
+    site_tz = inp.env.get("TB_TZ", "").strip()
+    tz = str(spec.get("timeZone") or "").strip()
+    if site_tz and tz != site_tz:
+        strict.append(
+            f"{name} timeZone is {tz or 'unset (the cluster zone, often UTC)'}, not the site's {site_tz}: the site "
+            "overlay sets spec.timeZone (D-315)"
+        )
+    if inp.state.source == "cluster":
+        now = _when(inp)
+        last = _parse_time((cj.get("status") or {}).get("lastSuccessfulTime"))
+        made = _parse_time((cj.get("metadata") or {}).get("creationTimestamp"))
+        if last is not None:
+            age = (now - last).total_seconds() / 3600
+            if age > max_age_h:
+                strict.append(f"{name} last succeeded {age:.0f} h ago (limit {max_age_h:.0f} h)")
+        elif made is not None and (now - made).total_seconds() / 3600 > max_age_h:
+            strict.append(f"{name} has not succeeded since it was made {(now - made).days} days ago")
+        else:
+            warns.append(f"{name} has not run yet")
+    return fails, warns
+
+
+def _verdict(name: str, fails: list[str], warns: list[str], ok: str) -> Check:
+    if fails:
+        return Check(name, "FAIL", "; ".join(fails + warns))
+    if warns:
+        return Check(name, "WARN", "; ".join(warns))
+    return Check(name, "PASS", ok)
+
+
+def check_backup_job(inp: PlatformInputs) -> Check:
+    """The nightly backup on the platform (T-633, OPS-068): the CronJob ``trialbox-backup`` exists, runs, writes to
+    the backup share claim, takes the FHIR store too, and has succeeded within ``TB_BACKUP_MAX_AGE_HOURS``; the
+    restore key is not left in the namespace. A FAIL in every environment when there is no backup job at all."""
+    if inp.state.source == "compose":
+        ref = inp.env.get("TB_PLATFORM_BACKUP_JOB_EVIDENCE", "").strip()
+        if ref:
+            return Check(
+                "backup_job", "PASS", f"compose platform: the nightly backup by the platform's declaration {ref}"
+            )
+        return Check(
+            "backup_job",
+            "FAIL",
+            "compose platform: no backup job declared (TB_PLATFORM_BACKUP_JOB_EVIDENCE: the host's schedule that runs "
+            "`trialbox backup-nightly`, RUNBOOK §5)",
+        )
+    cj = inp.state.named("CronJob", BACKUP_JOB)
+    if cj is None:
+        return Check(
+            "backup_job",
+            "FAIL",
+            f"no backup job (CronJob {BACKUP_JOB}): nothing backs this namespace up (OPS-068); it is in "
+            "deploy/platform/base/day2.yaml (RUNBOOK §26)",
+        )
+    try:
+        max_age = float(inp.env.get("TB_BACKUP_MAX_AGE_HOURS") or DEFAULT_BACKUP_MAX_AGE_H)
+    except ValueError:
+        max_age = DEFAULT_BACKUP_MAX_AGE_H
+    fails, warns = _cron_problems(cj, inp, max_age)
+    strict = fails if _strict(inp) else warns
+    spec = ((cj.get("spec") or {}).get("jobTemplate") or {}).get("spec", {}).get("template", {}).get("spec") or {}
+    if not any("platform-day2 backup" in c or " backup " in f"{c} " for c in _commands(spec)):
+        fails.append(f"{BACKUP_JOB} runs no backup command")
+    claims = {
+        str((v.get("persistentVolumeClaim") or {}).get("claimName"))
+        for v in spec.get("volumes") or []
+        if v.get("persistentVolumeClaim")
+    }
+    shares = [p for p in inp.state.of("PersistentVolumeClaim") if _is_backup_share(p)]
+    share_names = {str((p.get("metadata") or {}).get("name")) for p in shares}
+    if not shares:
+        fails.append(f"no backup share claim (a claim labelled {STORAGE_LABEL}={BACKUP_SHARE})")
+    elif not claims & share_names:
+        fails.append(f"{BACKUP_JOB} does not mount the backup share claim {', '.join(sorted(share_names))}")
+    env_names = {str(e.get("name")) for c in containers(spec) for e in c.get("env") or []}
+    if "TB_HAPI_DB_URL" not in env_names:
+        strict.append("the FHIR store (database hapi) is not in the backup: the job has no TB_HAPI_DB_URL")
+    db_secret = inp.state.named("Secret", "trialbox-db")
+    if (
+        inp.state.source == "cluster"
+        and db_secret is not None
+        and "TB_HAPI_DB_URL" not in (db_secret.get("data") or {})
+    ):
+        strict.append("Secret trialbox-db has no TB_HAPI_DB_URL: the FHIR store (database hapi) is not backed up")
+    if inp.state.named("Secret", RESTORE_KEY_SECRET) is not None:
+        strict.append(
+            f"Secret {RESTORE_KEY_SECRET} is in the namespace: the backup private key is there only during a "
+            "restore; delete it (D-126: the box never holds the key to its own backups)"
+        )
+    sched = (cj.get("spec") or {}).get("schedule")
+    return _verdict(
+        "backup_job",
+        fails,
+        warns,
+        f"{BACKUP_JOB} at {sched!r} ({(cj.get('spec') or {}).get('timeZone')}) to {', '.join(sorted(share_names))}",
+    )
+
+
+def check_log_job(inp: PlatformInputs) -> Check:
+    """The daily log collection and audit archive on the platform (T-633, OPS-068): the CronJob ``trialbox-logs``
+    exists, runs ``platform-day2 logs`` and has succeeded within two days. Missing is a FAIL in VALIDATION and
+    PRODUCTION (the audit's second copy, D-138) and a WARN elsewhere."""
+    if inp.state.source == "compose":
+        return Check(
+            "log_job", "PASS", "compose platform: `trialbox logs daily` runs from the host's cron (RUNBOOK §2)"
+        )
+    cj = inp.state.named("CronJob", LOG_JOB)
+    if cj is None:
+        return Check(
+            "log_job",
+            "FAIL" if _strict(inp) else "WARN",
+            f"no log job (CronJob {LOG_JOB}): no pod logs are kept past the platform's rotation and the audit chain "
+            "has no archive (D-138; deploy/platform/base/day2.yaml)",
+        )
+    fails, warns = _cron_problems(cj, inp, LOG_JOB_MAX_AGE_H)
+    spec = ((cj.get("spec") or {}).get("jobTemplate") or {}).get("spec", {}).get("template", {}).get("spec") or {}
+    if not any("platform-day2 logs" in c for c in _commands(spec)):
+        fails.append(f"{LOG_JOB} runs no `platform-day2 logs`")
+    return _verdict("log_job", fails, warns, f"{LOG_JOB} at {(cj.get('spec') or {}).get('schedule')!r}")
+
+
+def check_db_storage(inp: PlatformInputs) -> Check:
+    """The database on block storage (OPS-069): the claim template ``db-pg`` is ReadWriteOnce and on
+    ``TB_PLATFORM_DB_STORAGE_CLASS``, which is not the shared ReadWriteMany class (a database on a network file
+    system is an integrity and speed risk) and is evidenced (``TB_PLATFORM_DB_STORAGE_EVIDENCE``: block, encrypted).
+    In a cluster the claim the StatefulSet made is checked too: a claim never moves class by itself."""
+    if inp.state.source == "compose":
+        return Check("db_storage", "PASS", "compose platform: the db volume is the host's disk (RUNBOOK §17)")
+    sts = inp.state.named("StatefulSet", DB)
+    tmpl = next(
+        (
+            t
+            for t in ((sts or {}).get("spec") or {}).get("volumeClaimTemplates") or []
+            if (t.get("metadata") or {}).get("name") == DB_CLAIM
+        ),
+        None,
+    )
+    if tmpl is None:
+        return Check("db_storage", "FAIL", f"no StatefulSet {DB} with the claim template {DB_CLAIM}")
+    fails: list[str] = []
+    warns: list[str] = []
+    strict = fails if _strict(inp) else warns
+    modes = list((tmpl.get("spec") or {}).get("accessModes") or [])
+    if not modes or any(m not in ("ReadWriteOnce", "ReadWriteOncePod") for m in modes):
+        fails.append(
+            f"the database claim is {', '.join(modes) or 'without an access mode'}: block storage is ReadWriteOnce; "
+            "a database on a shared file system is an integrity and speed risk (OPS-069)"
+        )
+    db_cls = inp.env.get("TB_PLATFORM_DB_STORAGE_CLASS", "").strip()
+    shared = inp.env.get("TB_PLATFORM_STORAGE_CLASS", "").strip()
+    got = (tmpl.get("spec") or {}).get("storageClassName")
+    if not db_cls:
+        strict.append("no TB_PLATFORM_DB_STORAGE_CLASS: the block storage class for the database is not named")
+    else:
+        if got != db_cls:
+            fails.append(f"the claim template {DB_CLAIM} uses {got or 'the default class'}, not {db_cls}")
+        if db_cls == shared:
+            fails.append(f"{db_cls} is also the class of the shared ReadWriteMany claims: a file system, not block")
+        if not inp.env.get("TB_PLATFORM_DB_STORAGE_EVIDENCE", "").strip():
+            strict.append("no TB_PLATFORM_DB_STORAGE_EVIDENCE (the class's specification: block, encrypted)")
+        for pvc in inp.state.of("PersistentVolumeClaim"):
+            pname = str((pvc.get("metadata") or {}).get("name") or "")
+            if _is_db_claim(pname) and pname != DB_CLAIM:
+                pcls = (pvc.get("spec") or {}).get("storageClassName")
+                if pcls != db_cls:
+                    fails.append(
+                        f"the database's claim {pname} was made on {pcls or 'the default class'}: a claim never moves "
+                        "class; move the database by backup and restore (RUNBOOK §26)"
+                    )
+    return _verdict("db_storage", fails, warns, f"{DB_CLAIM}: {', '.join(modes)} on {db_cls}")
+
+
+def check_pod_limits(inp: PlatformInputs) -> Check:
+    """Noisy neighbours (OPS-070): MIG isolates the GPU only, so every container states its CPU and memory requests
+    and a memory limit; the platform's scheduler and quota then keep TrialBox's share and keep it from taking more."""
+    lack = []
+    n = 0
+    for owner, spec, _ in pod_specs(inp.state):
+        for c in containers(spec):
+            n += 1
+            res = c.get("resources") or {}
+            gaps = [
+                f"{kind}.{what}"
+                for kind, what in (("requests", "cpu"), ("requests", "memory"), ("limits", "memory"))
+                if not (res.get(kind) or {}).get(what)
+            ]
+            if gaps:
+                lack.append(f"{_name(owner)} {c.get('name')}: no {', '.join(gaps)}")
+    if lack:
+        return Check(
+            "pod_limits",
+            "FAIL" if _strict(inp) else "WARN",
+            "on a shared host every container states requests and a memory limit (OPS-070): " + "; ".join(lack[:6]),
+        )
+    return Check("pod_limits", "PASS", f"{n} containers state CPU and memory requests and a memory limit")
 
 
 NO_GPU_REFUSED = (
@@ -1551,6 +1887,10 @@ PLATFORM_CHECKS: tuple[Callable[[PlatformInputs], Check], ...] = (
     check_directory,
     check_mail_relay,
     check_backup_target,
+    check_backup_job,
+    check_log_job,
+    check_db_storage,
+    check_pod_limits,
     check_serving_record,
     check_gpu_serving,
     check_mig_instances,

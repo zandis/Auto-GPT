@@ -116,9 +116,9 @@ File: [runbook/24-patch-policy.md](runbook/24-patch-policy.md). In it: [The host
 
 File: [runbook/25-leavers.md](runbook/25-leavers.md). In it: [A member of the trial team (coordinator, investigator, PI)](runbook/25-leavers.md#a-member-of-the-trial-team-coordinator-investigator-pi), [The site administrator](runbook/25-leavers.md#the-site-administrator), [A key steward or the holder of the backup key](runbook/25-leavers.md#a-key-steward-or-the-holder-of-the-backup-key), [Hospital IT staff who ran the box](runbook/25-leavers.md#hospital-it-staff-who-ran-the-box), [An Aimedics person](runbook/25-leavers.md#an-aimedics-person).
 
-## 26. Platform day 2 (reserved for T-633)
+## 26. Platform day 2
 
-Not written yet: the number is held in the table below.
+File: [runbook/26-platform-day-2.md](runbook/26-platform-day-2.md). In it: [What runs](runbook/26-platform-day-2.md#what-runs), [Where patient data lives and who can read it](runbook/26-platform-day-2.md#where-patient-data-lives-and-who-can-read-it), [Backup](runbook/26-platform-day-2.md#backup), [Restore (and the drill)](runbook/26-platform-day-2.md#restore-and-the-drill), [Logs and the audit archive](runbook/26-platform-day-2.md#logs-and-the-audit-archive), [Updates and rollback](runbook/26-platform-day-2.md#updates-and-rollback), [Noisy neighbours](runbook/26-platform-day-2.md#noisy-neighbours), [Moving the database to block storage](runbook/26-platform-day-2.md#moving-the-database-to-block-storage), [On kind](runbook/26-platform-day-2.md#on-kind).
 
 <!-- end of the generated index -->
 
