@@ -148,7 +148,9 @@ class GatewayClient:
         if self._contexts and now - self._contexts_at < self.CONTEXT_TTL_S:
             return dict(self._contexts)
         try:
-            resp = self.http.get(f"{self.base_url}/models")
+            from tb_common.service_auth import auth_headers
+
+            resp = self.http.get(f"{self.base_url}/models", headers=auth_headers())  # reads need it (LLM-043)
             data = resp.json().get("data", []) if resp.status_code == 200 else []
         except (httpx.HTTPError, ValueError, AttributeError):
             return {}
@@ -297,7 +299,9 @@ class GatewayClient:
         )
 
     def models(self) -> list[str]:
-        resp = self.http.get(f"{self.base_url}/models")
+        from tb_common.service_auth import auth_headers
+
+        resp = self.http.get(f"{self.base_url}/models", headers=auth_headers())
         resp.raise_for_status()
         return [str(m["id"]) for m in resp.json().get("data", [])]
 

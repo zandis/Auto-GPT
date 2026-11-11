@@ -10,12 +10,22 @@ HTTP 403 with ``{"error": {"type": "tb_refusal", "code": <reason>}}``.
 
 In the compose stack the model registry, the PHI guard and the trace store run inside this process (they are on the
 request path of every model call; a network hop each would add failure modes to a fail-closed path). The read-only
-registry view (builds, statuses, pins; no endpoint addresses) is mounted at ``/registry/v1/builds``.
+registry view (builds, statuses, pins; no endpoint addresses) is mounted at ``/registry/v1/builds``. Reads need the
+service token too (``protect_reads``, review LLM-043).
+
+The perimeter is checked (T-604, D-388; review LLM-036): in PRODUCTION on topology A, ``phi_on_box`` lets D3 go to
+the perimeter endpoints without a study step because they are the box itself. So every perimeter endpoint's host must
+resolve to box addresses only (:func:`gateway.policy.perimeter_addresses`). When one does not, the gateway does not
+start (``SystemExit``). The names are resolved again while it runs (``TB_PERIMETER_RECHECK_S``, default 60 s): a name
+that now points off the box makes every chat call a ``perimeter_unverified`` refusal (audited) and ``/healthz`` red.
 """
 
 from __future__ import annotations
 
 import os
+import threading
+import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +41,7 @@ from tracestore.store import TraceStore
 
 from gateway.core import Gateway, GatewayConfig
 from gateway.policy import DEFAULT_PATH as ROUTING_PATH
-from gateway.policy import RoutingPolicy
+from gateway.policy import Resolver, RoutingPolicy, perimeter_checked, perimeter_problems, resolve_host
 from gateway.swap import SWAPPABLE, ModelSwap
 
 
@@ -51,12 +61,66 @@ def from_env() -> Gateway:
     )
 
 
-def create_app(gateway: Gateway | None = None) -> FastAPI:
+PERIMETER_RECHECK_S = 60.0
+
+
+class PerimeterWatch:
+    """The perimeter check of a running gateway (T-604): the endpoint names resolved again at most every
+    ``ttl_s`` seconds, since a container restart or a changed DNS record can move a name off the box."""
+
+    def __init__(
+        self,
+        policy: RoutingPolicy,
+        env: Mapping[str, str],
+        environment: str,
+        resolver: Resolver = resolve_host,
+        ttl_s: float = PERIMETER_RECHECK_S,
+    ) -> None:
+        self.policy, self.env, self.environment, self.resolver, self.ttl_s = policy, env, environment, resolver, ttl_s
+        self._lock = threading.Lock()
+        self._at = -1.0
+        self._problems: list[str] = []
+
+    def problems(self) -> list[str]:
+        with self._lock:
+            now = time.monotonic()
+            if self._at < 0 or now - self._at >= self.ttl_s:
+                self._problems = perimeter_problems(self.policy, self.env, self.environment, self.resolver)
+                self._at = now
+            return list(self._problems)
+
+
+def perimeter_watch(gw: Gateway, resolver: Resolver = resolve_host) -> PerimeterWatch | None:
+    """The watch for a gateway whose perimeter must be the box (PRODUCTION, topology A), checked once now: a
+    perimeter endpoint off the box stops the start (``SystemExit``). None where the check does not apply."""
+    cfg = gw.config
+    if not perimeter_checked(cfg.topology, cfg.environment):
+        return None
+    ttl = float(gw.env.get("TB_PERIMETER_RECHECK_S") or PERIMETER_RECHECK_S)
+    watch = PerimeterWatch(gw.policy, gw.env, cfg.environment.value, resolver, ttl)
+    problems = watch.problems()
+    if problems:
+        gw.audit.append("llm.gateway.perimeter_refused", detail={"phase": "start", "problems": problems})
+        raise SystemExit("tb-gateway: a perimeter endpoint is not on the box (T-604): " + "; ".join(problems))
+    return watch
+
+
+def create_app(gateway: Gateway | None = None, *, resolver: Resolver = resolve_host) -> FastAPI:
     gw = gateway or from_env()
+    perimeter = perimeter_watch(gw, resolver)
     checks: list[Any] = [lambda: {"policy_version": gw.policy.version, "registry_version": gw.registry.version}]
     if gw.traces is not None and getattr(gw.traces, "db", None) is not None:
         checks.append(gw.traces.db.ping)  # the trace store's schema answers (D-142, review A-02)
-    app = make_app("gateway", checks=checks)
+    if perimeter is not None:
+
+        def perimeter_on_box() -> dict[str, Any]:
+            problems = perimeter.problems()
+            if problems:
+                raise RuntimeError("; ".join(problems))
+            return {"perimeter": "on_box"}
+
+        checks.append(perimeter_on_box)
+    app = make_app("gateway", checks=checks, protect_reads=True)  # review LLM-043: reads need the token too
 
     @app.get("/readyz")
     def readyz() -> dict[str, Any]:
@@ -87,6 +151,16 @@ def create_app(gateway: Gateway | None = None) -> FastAPI:
             body = None
         if not isinstance(body, dict):
             return JSONResponse({"error": {"type": "invalid_request", "message": "JSON object body required"}}, 400)
+        problems = await run_in_threadpool(perimeter.problems) if perimeter is not None else []
+        if problems:
+            # T-604: a perimeter name now points off the box; no call goes anywhere until it is back
+            caller = request.headers.get("x-tb-caller", "")
+            gw.audit.append(
+                "llm.gateway.perimeter_refused", detail={"phase": "call", "caller": caller, "problems": problems}
+            )
+            msg = "a perimeter endpoint is not on the box"
+            err = {"type": "tb_refusal", "code": "perimeter_unverified", "message": msg}
+            return JSONResponse({"error": err}, 403, headers={"X-TB-Refusal": "perimeter_unverified"})
         res = await run_in_threadpool(gw.chat, dict(request.headers), body)  # upstream calls block; keep the loop free
         return JSONResponse(res.body, status_code=res.status, headers=res.headers)
 

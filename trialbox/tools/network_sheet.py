@@ -314,7 +314,6 @@ OUTBOUND = (
         "model endpoint (refused for D3/D4 data)",
         "the endpoint's URL",
     ),
-    ("gateway", "CLOUD_LLM_BASE_URL", "cloud model, through the gateway only", "CLOUD_LLM_BASE_URL"),
     (
         "criteria-compiler",
         "clinicaltrials.gov:443",

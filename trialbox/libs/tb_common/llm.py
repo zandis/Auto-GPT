@@ -14,7 +14,10 @@
 * **Gateway shim (spec v4 S1-06, one milestone).** With ``TB_GATEWAY_URL`` set (or a ``gateway`` client passed), the
   request goes through ``libs/tb_llm`` to ``tb-gateway`` with the v4 labels instead of to an endpoint directly; the
   gateway chooses the route and build. ``data_class=`` on :meth:`LlmClient.chat_json` sets the class (else
-  ``TB_DATA_CLASS``, else D3 for ``phi`` prompts and D1 otherwise). Without it nothing changes.
+  ``TB_DATA_CLASS``, else D3 for ``phi`` prompts and D1 otherwise). A call made for a job sends the job id as its
+  step (``X-TB-Step``, unless ``TB_STEP_ID`` names one), so a gateway with a step confirmer can check it (LLM-2;
+  T-604). In PRODUCTION :meth:`LlmClient.from_config` refuses to build a client without ``TB_GATEWAY_URL``: no
+  service there calls ``LLM_BASE_URL`` or ``CLOUD_LLM_BASE_URL`` itself (T-604, D-388; review LLM-038).
 * **Context (T-603, review LLM-015, LLM-018).** :meth:`LlmClient.context_tokens` is the model's context: the
   gateway's ``GET /v1/models`` for the alias, or ``TB_LLM_CONTEXT`` on a direct call (DEV).
   :meth:`LlmClient.text_budget` is what a caller may put in the variable part of a prompt (excerpts, a chart).
@@ -29,7 +32,7 @@ import json
 import os
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -208,16 +211,23 @@ class LlmClient:
 
     @classmethod
     def from_config(cls, audit: AuditLog | None = None) -> LlmClient:
-        from tb_common.config import get_config
+        from tb_common.config import environment_name, get_config
 
         cfg = get_config()
         models = cfg.settings.models
         gateway = None
-        if os.environ.get("TB_GATEWAY_URL"):
+        if os.environ.get("TB_GATEWAY_URL", "").strip():
             from tb_llm import GatewayClient
 
             gateway = GatewayClient(
                 os.environ["TB_GATEWAY_URL"], cfg.env.service_name, model=os.environ.get("TB_GATEWAY_MODEL") or None
+            )
+        elif environment_name(os.environ) == "PRODUCTION":
+            # T-604 (review LLM-038): in a hand-made or platform deployment only the environment decides where a
+            # prompt goes; on a PRODUCTION box it goes through tb-gateway (routing, audit, PHI rules) or nowhere
+            raise LlmError(
+                "no TB_GATEWAY_URL in PRODUCTION: a model client is built only through tb-gateway, never straight "
+                "to LLM_BASE_URL or CLOUD_LLM_BASE_URL"
             )
         return cls(
             cfg.env.llm_base_url,
@@ -444,6 +454,8 @@ class LlmClient:
         labels = v1_labels(
             meta.id, meta.version, phi=bool(meta.phi), study_id=job_id, data_class=data_class, prompt_sha=prompt.sha256
         )
+        if job_id and not labels.step_id:
+            labels = replace(labels, step_id=job_id)  # the step the gateway's confirmer checks (LLM-2; T-604)
         req = {k: v for k, v in body.items() if k != "model"}
         try:
             payload: dict[str, Any] = self.gateway.complete(req, labels)

@@ -46,7 +46,6 @@
 | mail-gateway | SMTP_HOST:SMTP_PORT | outbound mail (hospital SMTP / Exchange) | SMTP_HOST |
 | mail-gateway | IMAP_HOST:IMAP_PORT | intake mailbox | IMAP_HOST |
 | gateway | external model endpoints of models/routing.yaml | model endpoint (refused for D3/D4 data) | the endpoint's URL |
-| gateway | CLOUD_LLM_BASE_URL | cloud model, through the gateway only | CLOUD_LLM_BASE_URL |
 | criteria-compiler | clinicaltrials.gov:443 | ClinicalTrials.gov public registry (COHORT) | TB_CTGOV_MODE=live (chosen at install; the default is offline) |
 | orchestrator | NHI_TWPAS_BASE_URL | NHI TWPAS (SUBMIT only) | NHI_TWPAS_BASE_URL |
 | any | EGRESS_EXTRA | site additions | EGRESS_EXTRA |
