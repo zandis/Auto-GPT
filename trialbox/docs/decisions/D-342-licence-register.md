@@ -31,7 +31,7 @@ unchecked and stale, and that nothing read `licence.verified`.
    - the MIMIC ICU map uses ICD-10-PCS (U.S. public domain). Ventilation is coded by its charted hours; with no end
      time it takes the shortest band;
    - the OMOP measurement operators keep OHDSI's concept ids but not the SNOMED CT vocabulary and codes
-     (vocabulary `TB-OPERATOR`);
+     (vocabulary `None`, as concept 0);
    - the TWPAS route code is TW Core's `medication-path-tw` `PO` (CC0).
    A hospital feed that sends SNOMED CT codes is still read; the box only ships none.
 5. **ATC.** The request text is `docs/licences/atc-permission-request.md`. It is not sent from the repository. The

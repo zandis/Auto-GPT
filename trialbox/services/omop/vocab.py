@@ -29,7 +29,7 @@ from omop.schema import LOCAL_MIN, OmopError
 
 VALID_FROM, VALID_TO = date(1970, 1, 1), date(2099, 12, 31)
 
-OPERATOR_VOCAB = "TB-OPERATOR"
+OPERATOR_VOCAB = "None"  # OHDSI's own placeholder vocabulary (concept 0's); TB-* is for ids >= 2e9 only
 # OHDSI standard concepts written by the loader (id, name, domain, vocabulary, class, code)
 STANDARD: tuple[tuple[int, str, str, str, str, str], ...] = (
     (0, "No matching concept", "Metadata", "None", "Undefined", "No matching concept"),
