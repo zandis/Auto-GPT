@@ -123,7 +123,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-276 | merged | fix group FG-G (PR #101) | the two-model check needs two different models; `docs/decisions/D-276-two-model-check.md` |
 | D-277..D-278 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
 | D-279 | merged | fix group D-279 | identity follow-ups: forced first password change, sign-in lock per account and address, OIDC session lifetime, second factor at signing; `docs/decisions/D-279-identity-follow-ups.md` (file) |
-| D-280 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
+| D-280 | merged | fix group D-280 (FG-K) | the administrator sees no patient data; break-glass for one patient or one job, 60 minutes, reviewed by the steward; a steward role; `docs/decisions/D-280-steward-and-break-glass.md` (file) |
 | D-281 | merged | fix group FG D-281 (built as a card, branch `agent/FG-D281-signing`) | EDC signature controls: record lock, keyed signature over the whole act checked before send and export, append-only trail tables, audit inside the transaction, audited refusals, plain ODM legal reason, REDCap version as text; `docs/decisions/D-281-edc-signature-controls.md` (file) |
 | D-282..D-289 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
 | D-290..D-299 | unused | — | below the new block; never given |
@@ -165,6 +165,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-333 | merged | T-601 | the gateway never answers one role with another role's model: `fallback: none` unless a route says `any`, one retry on the same build, no fallback on 400/404, build and fallbacks in the response, `tb_llm` raises on an unexpected alias, doctor `judge_route` (file) |
 | D-334 | merged | T-613b | lab units read per row: one conversion table in labvalue (engines' factors reused), mapping_check unit pairs and raw values, one presence reader in ja, zh-TW, en (file) |
 | D-337 | merged | T-600 | note text masked (names, phones, chart and ID numbers, length kept) before chunks, full-text search and embeddings; the original stays in the lake under `phi` (file) |
+| D-340 | merged | T-110b | release identity and bundle gates: version in one place, `release.json` and its schema, `--gates` mandatory, SBOMs in the bundle, no test mail servers, the image gate blocking with dated per-image exceptions, pinned build downloads, one Java version (file) |
 | D-342 | merged | T-617b | the licence register as data (`docs/licences/register.csv`) and its build check; model licence rows backed by it; no SNOMED CT ships; the ATC request written, not sent (file) |
 | D-343 | merged | T-649b | N-12 gates on the unadjusted figure; every model change follows the model change protocol, and every qualification record cites it (file) |
 | D-344 | merged | T-215 | QMS-lite records in `docs/validation/`, VMP v1.1 without signatures, change classes CC1 to CC6, staged roll-out, standards position (file) |
@@ -173,3 +174,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-348 | merged | T-673 | third-party images in `deploy/images.lock` by digest, no image by tag, the GPU host checked against the vLLM image (arch, driver, compute capability), Mailpit for MailHog (file) |
 | D-349 | merged | T-512 | the PI starts FEAS, SCREEN and CASE on own study; a sub-investigator with the `run` tick; one table `authz.INVESTIGATOR_RUNS`; "data as of" on the patient lists (file) |
 | D-339 | merged | T-106 | OMOP second slice: schema name stays `omop`; the adapter's dual write behind the flag `omop.dual_write` (a failure never holds the night); the large CDM tables partitioned by year; the Relational checks after every load in the ingest report; parity timings (file) |
+| D-354 | merged | T-210c | uploads and outputs sealed at rest: AES-GCM per object under objects.key wrapped by the KEK, the seal file, seal-objects (file) |

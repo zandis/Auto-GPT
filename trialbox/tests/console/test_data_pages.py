@@ -236,6 +236,9 @@ def test_roles_that_may_not_change_setup_read_only_and_get_403(dcb: dict[str, An
     for user, pw in (("pi", PW), ("admin", ADMIN_PW)):  # setup changes are the coordinator's (study_setup)
         c, csrf = login(dcb["app"], user, pw)
         for path in ("/studies/GZQO/sources", "/studies/GZQO/conflicts", "/studies/GZQO/forms"):
+            if user == "admin" and path.endswith("/conflicts"):  # D-280 (OD-5): trial values are patient level
+                assert c.get(path).status_code == 403
+                continue
             page = c.get(path).text
             assert 'data-testid="dc-readonly"' in page, (user, path)
             assert not re.search(r'data-testid="(sync-|detach-|attach-|keep-|import-)', page), (user, path)
