@@ -133,6 +133,9 @@ class Env:
     # T-305a (D-383): a job refuses to pin a lake snapshot more than this many days older than its run date; 0 = no
     # check (the code default: tests and demos run old synthetic nights). The production compose file sets 3.
     lake_max_snapshot_age_days: int = 0
+    # T-624 (D-397): the most patients the micro-batch jobs of one night evaluate, every study together (pool
+    # re-checks and new patients); the rest carry over to the next run. 0 = no limit.
+    microbatch_night_budget: int = 2000
     extra: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -190,6 +193,7 @@ _ENV_MAP: dict[str, str] = {
     "TB_AUDIT_DIR": "audit_dir",
     "TB_SECRETS_DIR": "secrets_dir",
     "TB_LAKE_MAX_SNAPSHOT_AGE_DAYS": "lake_max_snapshot_age_days",
+    "TB_MICROBATCH_NIGHT_BUDGET": "microbatch_night_budget",
 }
 
 _BOOL_TRUE = {"1", "true", "yes", "on"}
@@ -223,6 +227,8 @@ def load_env(dotenv: Path | None = None, environ: dict[str, str] | None = None) 
         _check_zone("TB_TZ", env.tz)
     if env.lake_max_snapshot_age_days < 0:
         raise ConfigError("TB_LAKE_MAX_SNAPSHOT_AGE_DAYS must be 0 (no check) or a number of days")
+    if env.microbatch_night_budget < 0:
+        raise ConfigError("TB_MICROBATCH_NIGHT_BUDGET must be 0 (no limit) or a number of patients")
     if env.attach_password_mode not in ("zip", "smime"):
         raise ConfigError("ATTACH_PASSWORD_MODE must be zip or smime")
     if env.llm_mode not in ("vllm", "llamacpp", "stub", "openai"):

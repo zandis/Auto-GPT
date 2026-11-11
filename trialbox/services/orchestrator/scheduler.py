@@ -1,5 +1,10 @@
 """Nightly / weekly / monthly batch jobs (SPEC §4.8) from ``settings.schedule``: every scheduled run is a job.
 
+D-397 (T-624, LIFE-014): the screening cadence. The weekly MICROBATCH screens new in-scope patients every week (no
+longer on the first Monday of a month only), and every ingest that passed is followed by a MICROBATCH for the new
+patients booked in the window (:func:`after_ingest`). Both are bounded by the night budget
+(``TB_MICROBATCH_NIGHT_BUDGET``, :mod:`orchestrator.scenarios.microbatch`).
+
 D-386 (T-622, LIFE-008): a list job (SCREEN, MICROBATCH, COHORT) runs only for a study whose state is ``open``. The
 state is the console's (schema ``site`` of the trial database, table ``study_state``; the console writes it, this
 module only reads it). The timer skips a study that is not open and audits the skip; a list job asked for by hand
@@ -119,13 +124,13 @@ def _held(orch: Orchestrator, jtype: str, ruleset: str | None) -> bool:
     return True
 
 
-def _submit(orch: Orchestrator, jtype: str, ruleset: str | None = None) -> None:
+def _submit(orch: Orchestrator, jtype: str, ruleset: str | None = None, options: dict[str, str] | None = None) -> None:
     if jtype not in orch.scenarios:
         return
     if _held(orch, jtype, ruleset):
         return
     try:
-        orch.create(JobCreate(type=cast(Any, jtype), ruleset=ruleset, requested_by="scheduler"))
+        orch.create(JobCreate(type=cast(Any, jtype), ruleset=ruleset, requested_by="scheduler", options=options))
     except Rejected as exc:  # never raised for the scheduler, kept for safety
         log.warning("scheduled %s not created: %s", jtype, exc)
 
@@ -151,6 +156,30 @@ def night_gate(orch: Orchestrator, today: str | None = None) -> bool:
             log.exception("night self-test errored: %s", exc)
             _gate[day] = False
     return _gate[day]
+
+
+def after_ingest(orch: Orchestrator, timed: bool = False) -> list[str]:
+    """D-397 (T-624, LIFE-014): after an ingest that passed, a micro-batch for every study with a candidate pool
+    screens the new patients booked in its window (``trigger=ingest``), so a patient who first appears in Tuesday's
+    data with a Friday appointment is on the clinic list on Wednesday morning, not after the next weekly run. Held
+    like the timer's jobs: a study that is not open (D-386), and after the timer's ingest (``timed``, option
+    ``timer=1``) a night whose model self-test did not pass. An ingest asked for by hand is followed at once, as
+    ``run_now`` starts a job without the night gate. Returns the studies submitted. Never raises: the ingest itself
+    has passed."""
+    try:
+        if timed and not night_gate(orch):
+            log.error("MICROBATCH after the ingest held: the night model self-test did not pass")
+            return []
+        done = []
+        for rid in orch.db.pool_rulesets():
+            if _held(orch, "MICROBATCH", rid):
+                continue
+            _submit(orch, "MICROBATCH", rid, {"trigger": "ingest"})
+            done.append(rid)
+        return done
+    except Exception as exc:  # the follow-up must not turn a passed ingest into a failed one
+        log.exception("MICROBATCH after the ingest not submitted: %s", exc)
+        return []
 
 
 def plan(settings: Settings) -> list[tuple[str, dict[str, Any]]]:
@@ -241,6 +270,8 @@ def start(orch: Orchestrator) -> Any:
                     _submit(orch, "COHORT", rid)
 
             sched.add_job(cohort, "cron", id="cohort", **kw)
+        elif jtype == "INGEST":  # D-397: the timer's ingest; its follow-up micro-batch waits for the night gate
+            sched.add_job(_submit, "cron", id="ingest", args=[orch, "INGEST", None, {"timer": "1"}], **kw)
         else:
             sched.add_job(_submit, "cron", id=jtype.lower(), args=[orch, jtype], **kw)
     sched.start()
