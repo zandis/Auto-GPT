@@ -581,10 +581,20 @@ DECLARED: dict[str, Declared] = {
     "TB_PG_DUMP_CMD": Declared("str", "pg_dump", "pg_dump command"),
     "TB_PG_DUMP_DIR": Declared("path", "", "backup: dump folder"),
     "TB_PG_RESTORE_CMD": Declared("str", "pg_restore", "pg_restore command"),
+    "TB_PG_SPOOL": Declared("path", "", "platform restore job: the folder pg-spool.sh serves (T-633)"),
     "TB_PLANNED_FROM": Declared("str", "", "complete-run tool: plan start"),
     "TB_PLATFORM_API_SERVER": Declared("str", "", "platform: API server"),
     "TB_PLATFORM_BACKUP_EVIDENCE": Declared("str", "", "platform: backup evidence file"),
     "TB_PLATFORM_BACKUP_HOST": Declared("str", "", "platform: backup host"),
+    "TB_PLATFORM_BACKUP_JOB_EVIDENCE": Declared(
+        "str", "", "compose platform: the host schedule of backup-nightly (T-633)"
+    ),
+    "TB_PLATFORM_DB_STORAGE_CLASS": Declared(
+        "str", "", "platform: the block storage class of the database claim (T-633)"
+    ),
+    "TB_PLATFORM_DB_STORAGE_EVIDENCE": Declared(
+        "str", "", "platform: evidence the db class is block and encrypted (T-633)"
+    ),
     "TB_PLATFORM_GPU_EVIDENCE": Declared("str", "", "platform check: reference of the MIG configuration dump (D-409)"),
     "TB_PLATFORM_GPU_SHARING": Declared(
         "str", "", "platform check: how the GPU is shared (mig, whole, time-slicing, mps; D-409)"
@@ -610,7 +620,10 @@ DECLARED: dict[str, Declared] = {
     "TB_REHEARSAL_DIR": Declared("path", "", "rehearsal work folder (tools)"),
     "TB_RELEASE_FILE": Declared("path", "", "release.json path"),
     "TB_RESTORE_ACTOR": Declared("str", "trialbox restore", "restore: actor in the audit"),
+    "TB_RESTORE_FILE": Declared("str", "newest", "platform restore job: the backup on the share to restore (T-633)"),
     "TB_RESTORE_KEEP_DIR": Declared("path", "deploy/pre-restore", "restore: where the old files go"),
+    "TB_RESTORE_OLDER_OK": Declared("bool", "", "platform restore job: restore a backup older than 14 days (T-633)"),
+    "TB_RESTORE_OTHER_SITE": Declared("bool", "", "platform restore job: restore another site's backup (T-633)"),
     "TB_REVEAL_MAX_PER_HOUR": Declared("int", "60", "chart-number reveals per user per hour"),
     "TB_REVISION": Declared("str", "", "about page: git revision"),
     "TB_ROUTING_PATH": Declared("path", "", "gateway: routing file"),

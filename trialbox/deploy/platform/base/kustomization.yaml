@@ -9,7 +9,9 @@
 # MIG devices, CPU and memory: `trialbox doctor --platform --manifests` prints the minimum), a storage class that is
 # encrypted (evidenced) and offers ReadWriteMany, the Secrets trialbox-db, trialbox-mail (optional),
 # trialbox-cloud (optional) and trialbox-token-<service>, the ConfigMap trialbox-service-tokens, and the platform's
-# declarations in a site overlay (platform.env). The key-encryption key is never a Secret (WS-13.11).
+# declarations in a site overlay (platform.env). The key-encryption key is never a Secret (WS-13.11). For day 2
+# (RUNBOOK §26): the ConfigMap trialbox-backup-pub (the backup public key), the claim backup-share bound to the
+# hospital's backup share, a block storage class for the database's claim, and spec.timeZone on the CronJobs.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 labels:
@@ -24,6 +26,7 @@ resources:
   - apps.yaml
   - networkpolicy.yaml
   - doctor.yaml
+  - day2.yaml  # backup, logs and audit archive, restore (T-633, D-416; RUNBOOK §26)
 configMapGenerator:
   - name: trialbox-settings  # a site overlay replaces it (behavior: replace) with the site's settings.yaml
     files:
@@ -39,5 +42,9 @@ configMapGenerator:
   - name: trialbox-platform  # what the platform team declares and evidences (doctor --platform reads it)
     envs:
       - platform.env
+  - name: trialbox-day2-scripts  # the database image's side of the backup and restore jobs (day2.yaml)
+    files:
+      - day2/pg-snapshot.sh
+      - day2/pg-spool.sh
 generatorOptions:
   disableNameSuffixHash: false

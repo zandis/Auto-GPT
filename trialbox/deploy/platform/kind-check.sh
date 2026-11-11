@@ -19,7 +19,8 @@
 # `skipped: stand-in device`, while gpu_serving, mig_instances and model_key run for real; components/node-read
 # lets the doctor read the node. With SLICES=2 the doctor must PASS gpu_serving, mig_instances and model_key; with
 # SLICES=1 the verifier cannot be scheduled and the doctor must FAIL mig_instances with that reason. Then the
-# isolation probe from a second namespace; the cluster is deleted (KEEP=1 keeps it).
+# isolation probe from a second namespace; the cluster is deleted (KEEP=1 keeps it, and the work folder KIND_WORK,
+# default a temporary one, with the overlay that deploy/platform/kind-day2.sh builds on: T-633).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 NAME="${KIND_CLUSTER:-tb-platform}"
@@ -28,10 +29,12 @@ SLICES="${SLICES:-2}"
 case "$SLICES" in 1|2) ;; *) echo "kind-check: SLICES must be 1 or 2" >&2; exit 2 ;; esac
 MIG=3g.90gb
 PY="${PYTHON:-$ROOT/.venv/bin/python}"
-WORK="$(mktemp -d)"
+WORK="${KIND_WORK:-$(mktemp -d)}"   # KEEP=1 keeps it too: deploy/platform/kind-day2.sh builds on $WORK/overlay
+mkdir -p "$WORK"
 cleanup() {
+  [ "${KEEP:-0}" = 1 ] && return 0
   rm -rf "$WORK"
-  [ "${KEEP:-0}" = 1 ] || kind delete cluster --name "$NAME" >/dev/null 2>&1 || true
+  kind delete cluster --name "$NAME" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -63,7 +66,8 @@ kubectl -n "$NS" create secret generic trialbox-model-key \
 kubectl -n "$NS" create configmap vllm-standin --from-file=vllm_standin.py="$ROOT/tests/rehearsal/vllm_standin.py"
 PW="$(head -c 18 /dev/urandom | base64 | tr -dc A-Za-z0-9)"
 kubectl -n "$NS" create secret generic trialbox-db --from-literal=POSTGRES_PASSWORD="$PW" \
-  --from-literal=POSTGRES_WF_PASSWORD="$PW" --from-literal=TB_DB_URL="postgresql://trialbox:$PW@db:5432/trialbox_wf"
+  --from-literal=POSTGRES_WF_PASSWORD="$PW" --from-literal=TB_DB_URL="postgresql://trialbox:$PW@db:5432/trialbox_wf" \
+  --from-literal=TB_HAPI_DB_URL="postgresql://hapi:$PW@db:5432/hapi"   # the FHIR store, for the backup (T-633)
 kubectl -n "$NS" create quota trialbox --hard=requests.cpu=16,requests.memory=96Gi,requests.nvidia.com/gpu=2
 
 O="$WORK/overlay"
@@ -134,7 +138,7 @@ kubectl apply -f "$WORK/rendered.yaml" >/dev/null
 kubectl -n "$NS" wait --for=condition=complete --for=condition=failed job/trialbox-doctor --timeout=600s || true
 kubectl -n "$NS" logs job/trialbox-doctor | tee "$WORK/doctor.txt"
 for check in topology image_digests quota storage_encryption network_policy kek_custody ntp directory mail_relay \
-             backup_target gpu_serving mig_instances model_key; do
+             backup_target backup_job log_job db_storage pod_limits gpu_serving mig_instances model_key; do
   grep -Eq "^(PASS|WARN|FAIL|SKIP) +$check " "$WORK/doctor.txt" || { echo "kind-check: no $check line"; exit 1; }
 done
 for check in serving_record canary; do

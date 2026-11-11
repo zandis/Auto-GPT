@@ -1,0 +1,19 @@
+# A digest update of a running platform deployment, and its rollback (T-633, D-416; OPS-068; RUNBOOK §26).
+#
+# This is the shape `python -m tools.trialbox platform-day2 update-overlay` writes for a site, next to the site's
+# overlay: `next/` is this file with the site overlay (the one applied now) as its resource, one `images` entry per
+# image whose digest the new release changes, and the new release.json as the ConfigMap trialbox-release (what
+# doctor --platform compares the running images with); `previous/` is the overlay applied now, untouched: applying it
+# is the rollback. A new image name or repository is not a digest update: that is a new release's manifests.
+#
+#   python -m tools.trialbox platform-day2 update-overlay --site <site overlay> --release <new release.json> --out <dir>
+#   kubectl -n <ns> create job --from=cronjob/trialbox-backup trialbox-backup-pre-update   # the dump first
+#   kustomize build <dir>/next | kubectl apply -f -          # the update
+#   kustomize build <dir>/previous | kubectl apply -f -      # the rollback
+#
+# As committed it is a no-op update of shared-quota (no image changes), so it builds and validates like the others.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../shared-quota
+images: []
