@@ -18,7 +18,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked test-random test-random-locked e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
+.PHONY: security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked test-random test-random-locked e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
 	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle release-version release-tag supply-chain
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
@@ -117,8 +117,14 @@ test-locked:
 data-scan:
 	$(PY) -m tools.data_scan $(SCAN)
 
+# the security scans of CI job `security` (T-654): secrets over every tracked file, bandit over the Python code;
+# reviewed findings in tools/security_scan_ignores.yaml. Exit 1 on a finding no ignore accepts.
+security-scan:
+	$(PY) -m tools.security_scan secrets
+	$(PY) -m tools.security_scan sast
+
 # the CI gate's jobs, in the order of .github/workflows/trialbox-ci.yml (D-206): lint, types, docs, contracts, trace,
-# unit (+ the scan of its log), e2e-simple, goldens, data-scan, shell, images (if hadolint is installed); then the
+# unit (+ the scan of its log), e2e-simple, goldens, data-scan, security, shell, images (if hadolint is installed); then the
 # offline supply-chain checks (lock-check, allowlist-check; `make supply-chain` is trialbox-supply-chain.yml). Stops at
 # the first failing job.
 CI_LOG ?= $(TB_TEST_ROOT)/unit.log
@@ -134,6 +140,7 @@ ci: venv-check
 	$(MAKE) e2e-simple
 	$(MAKE) goldens-check
 	$(MAKE) data-scan
+	$(MAKE) security-scan
 	git ls-files -z '*.sh' | xargs -0 shellcheck --severity=error
 	@if command -v hadolint >/dev/null; then hadolint --failure-threshold warning deploy/docker/python.Dockerfile deploy/docker/jvm.Dockerfile demo/Dockerfile || true; else echo "ci: images: hadolint not installed, skipped"; fi
 	$(MAKE) lock-check allowlist-check
