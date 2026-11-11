@@ -1091,7 +1091,7 @@ class ReleaseImage(BaseModel):
     sbom_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
 
 
-class Source(BaseModel):
+class ReleaseSource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         populate_by_name=True,
@@ -1101,7 +1101,7 @@ class Source(BaseModel):
     tag: str | None
 
 
-class Gates(BaseModel):
+class ReleaseGates(BaseModel):
     """
     The release-gate record (tools/supply_chain release-gates, D-186) the images passed.
     """
@@ -1133,8 +1133,8 @@ class ReleaseRecord(BaseModel):
     release_id: str = Field(..., pattern="^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
     release_seq: int = Field(..., ge=1)
     created_at: AwareDatetime
-    source: Source
-    gates: Gates
+    source: ReleaseSource = Field(..., title="ReleaseSource")
+    gates: ReleaseGates = Field(..., title="ReleaseGates")
     """
     The release-gate record (tools/supply_chain release-gates, D-186) the images passed.
     """
