@@ -20,6 +20,15 @@ the whole hospital, deltas merged) or ``site`` (the site's published inputs, ``l
   loaded (its type concept says so) but never reaches a coded lake table; a refuted diagnosis is ``rejected``.
 * **Conflicts.** Two sources that give a patient different birth dates, sexes or dates of death open a
   ``tb_conflict``; the lake reads the item as unknown until a person resolves it (``resolve_conflict``).
+* **Routed by domain** (T-106b, STD-031). A condition, measurement or procedure whose concept's domain is
+  ``Observation`` (the standard concept's, else the Athena source concept's: an ICD-10 Z code, a LOINC survey item)
+  is written to OBSERVATION; with no vocabulary loaded the resource type decides, as before. The lake reads it back
+  by its resource type, so the lake does not change. A domain the loader cannot move a row to is counted.
+* **Visits end** (STD-018): ``visit_end_datetime`` is the encounter's ``period.end``; ``visit_end_date`` is its day
+  (the start day while the patient is still in). **Value concepts** are standard (``value_as_concept_id``: the
+  standard Meas Value concept of the answer code, else 0); the answer code itself is kept with the record.
+* **Row provenance** (DATA-010): the resource's source table, row hash, ingest night and mapping version are kept
+  with the record (``tb_record.extra``, not part of its content: a new night alone is not an update).
 
 The whole batch is one transaction under an advisory lock: a load is all or nothing and two loads never interleave.
 The large clinical tables are partitioned by year (``omop.partitions``, T-106): a year's partition is made inside the
@@ -39,15 +48,24 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from lake.flatten import DEMOGRAPHIC, NOT_PRESENT, SUSPECTED, Flattener, basis_of, verification_of, void
+from lake.flatten import (
+    DEMOGRAPHIC,
+    NOT_PRESENT,
+    PROVENANCE_COLS,
+    SUSPECTED,
+    Flattener,
+    basis_of,
+    verification_of,
+    void,
+)
 from tb_common import feedguard
 from tb_common.config import site_tz
 from tb_common.db import Database
 
 from omop import vocab
 from omop.partitions import PARTITIONED, ensure_years, years_of
-from omop.schema import STATUSES, TRANSITIONS, OmopError
-from omop.vocab import Code, Concepts
+from omop.schema import LOCAL_MIN, STATUSES, TRANSITIONS, OmopError
+from omop.vocab import Code, Concepts, standard_vocabulary
 
 Resource = dict[str, Any]
 KINDS = ("feed", "site")
@@ -89,6 +107,64 @@ WIDTH = {
     "visit_source_value": 50,
     "observation_source_value": 50,
 }
+# T-106b (STD-031): the table each OMOP domain asks for, and the tables a record may leave for OBSERVATION
+DOMAIN_TABLE = {
+    "Condition": "condition_occurrence",
+    "Measurement": "measurement",
+    "Observation": "observation",
+    "Procedure": "procedure_occurrence",
+    "Drug": "drug_exposure",
+}
+ROUTABLE = ("condition_occurrence", "measurement", "procedure_occurrence")
+# a row's columns by role, for the tables a record is routed between (a role the target lacks is not carried)
+ROLE: dict[str, dict[str, str]] = {
+    "condition_occurrence": {
+        "concept": "condition_concept_id",
+        "datetime": "condition_start_datetime",
+        "date": "condition_start_date",
+        "type": "condition_type_concept_id",
+        "source_value": "condition_source_value",
+        "source_concept": "condition_source_concept_id",
+        "qualifier_concept": "condition_status_concept_id",
+        "qualifier_source": "condition_status_source_value",
+    },
+    "measurement": {
+        "concept": "measurement_concept_id",
+        "datetime": "measurement_datetime",
+        "date": "measurement_date",
+        "type": "measurement_type_concept_id",
+        "source_value": "measurement_source_value",
+        "source_concept": "measurement_source_concept_id",
+    },
+    "procedure_occurrence": {
+        "concept": "procedure_concept_id",
+        "datetime": "procedure_datetime",
+        "date": "procedure_date",
+        "type": "procedure_type_concept_id",
+        "source_value": "procedure_source_value",
+        "source_concept": "procedure_source_concept_id",
+    },
+    "observation": {
+        "concept": "observation_concept_id",
+        "datetime": "observation_datetime",
+        "date": "observation_date",
+        "type": "observation_type_concept_id",
+        "source_value": "observation_source_value",
+        "source_concept": "observation_source_concept_id",
+        "qualifier_concept": "qualifier_concept_id",
+        "qualifier_source": "qualifier_source_value",
+    },
+}
+# columns of the same name in a home table and OBSERVATION
+SAME_NAME = (
+    "visit_occurrence_id",
+    "provider_id",
+    "value_as_number",
+    "value_as_concept_id",
+    "unit_concept_id",
+    "unit_source_value",
+    "value_source_value",
+)
 
 
 def status_for(basis: str | None) -> str:
@@ -239,11 +315,13 @@ class _Builder:
             out.row = {
                 "visit_concept_id": vocab.VISIT.get(e["class"] or "", 0),
                 "visit_start_datetime": e["start"],
-                "visit_end_datetime": None,
+                "visit_end_datetime": e["end"],
                 "visit_type_concept_id": self.type_concept(status),
                 "visit_source_concept_id": None,
             }
             self._text(out, "visit_source_value", e["class"], "class")
+            if e["status"] is not None:
+                out.extra["status"] = e["status"]
             if e["practitioner_id"] is not None:
                 out.refs["provider_id"] = ("provider", e["practitioner_id"])
             if e["dept"] is not None:
@@ -437,10 +515,9 @@ class _Builder:
             }
             if o["unit"]:
                 out.std_only.append((q.get("system"), o["unit"]))
-            if o["value_code"] and len(o["value_code"]) <= 50:
-                out.codes.append(Code(vsys, o["value_code"], None, "Meas Value"))
-            elif o["value_code"] is not None:
+            if o["value_code"] is not None:  # STD-031: the row holds the standard answer concept; the code is kept
                 out.extra["value_code"] = o["value_code"]
+                out.std_only.append((vsys, o["value_code"]))
             codes = (src.get("code") or {}).get("coding") or []
             system = o["system"]
             display = next((c.get("display") for c in codes if c.get("code") == o["code"]), None)
@@ -530,7 +607,9 @@ def load_batch(
     keyed: dict[tuple[str, str, int], Rec] = {}
     for rtype in sorted(by_type):
         for line, r in enumerate(by_type[rtype], start=1):
+            prov = {k: _iso(v) for k, v in b.fl.provenance(r).items() if v is not None}
             for rec in b.build(rtype, r, line, responses):
+                rec.extra.update(prov)  # DATA-010: kept with the record, outside its content sha
                 if rec.key in keyed:  # one id twice in a file: the last line wins, as the NDJSON merge does
                     stats["duplicate_id"] = stats.get("duplicate_id", 0) + 1
                     del keyed[rec.key]
@@ -669,7 +748,10 @@ def _resolve(tx: Any, kind: str, batch: str, recs: list[Rec], concepts: Concepts
 
     def keeps_id(r: Rec) -> bool:
         old = existing.get(r.key)
-        return old is not None and old[0] == r.table and old[1] is not None
+        if old is None or old[1] is None:
+            return False
+        # a record routed to OBSERVATION by its domain (``_route``, after this) keeps its id there too
+        return old[0] == r.table or (r.table in ROUTABLE and old[0] == "observation")
 
     need = [r for r in recs if r.table in ID_COL and not keeps_id(r)]
     nums = [int(x[0]) for x in tx.fetchall("SELECT nextval('tb_row_seq') FROM generate_series(1, ?)", (len(need),))]
@@ -740,12 +822,78 @@ def _resolve(tx: Any, kind: str, batch: str, recs: list[Rec], concepts: Concepts
                 r.row[req] = fallback
             else:  # no date in the source: the date the record first reached TrialBox, flagged (DQD counts these)
                 r.row[req], r.imputed = first, True
-            if r.table == "visit_occurrence":
-                r.row["visit_end_date"] = r.row[req]
+            if r.table == "visit_occurrence":  # STD-018: the end's day; the start's while the patient is in
+                end = r.row.get("visit_end_datetime")
+                r.row["visit_end_date"] = max(end.date(), r.row[req]) if end is not None else r.row[req]
             if r.table == "drug_exposure":
                 end = r.row.pop("_end")
                 r.row["drug_exposure_end_date"] = end if end is not None else r.row[req]
         r.row.pop("_fallback_date", None)
+    _route(tx, recs, rep)
+
+
+def _route(tx: Any, recs: list[Rec], rep: LoadReport) -> None:
+    """STD-031: a record goes to the table of its concept's domain. The domain is the standard concept's; with none
+    (0), the OHDSI source concept's for the same code (an ICD-10-CM Z code is ``Observation`` in Athena); with no
+    vocabulary loaded neither exists and the resource type decides. A condition, measurement or procedure of the
+    ``Observation`` domain moves to OBSERVATION; another domain than its table's is counted
+    (``domain_kept:<table>:<domain>``), not moved."""
+    cands = [r for r in recs if r.table in ROUTABLE]
+    if not cands:
+        return
+    std_ids = sorted({int(r.row.get(ROLE[str(r.table)]["concept"]) or 0) for r in cands} - {0})
+    std_dom: dict[int, str] = {}
+    if std_ids:
+        rows = tx.fetchall("SELECT concept_id, domain_id FROM concept WHERE concept_id = ANY(?)", (std_ids,))
+        std_dom = {int(c): str(d) for c, d in rows}
+    src_of: dict[int, tuple[str, str]] = {}
+    want: dict[str, set[str]] = defaultdict(set)
+    for r in cands:
+        code = next((c for c in r.codes if c.domain != "Meas Value"), None)
+        sv = standard_vocabulary(code.system) if code else None
+        if code and sv:
+            src_of[id(r)] = (sv, code.code)
+            want[sv].add(code.code)
+    src_dom: dict[tuple[str, str], str] = {}
+    for sv, codes in want.items():
+        for code, dom in tx.fetchall(
+            "SELECT concept_code, domain_id FROM concept WHERE vocabulary_id = ? AND concept_code = ANY(?) "
+            "AND concept_id > 0 AND concept_id < ? ORDER BY concept_id",
+            (sv, sorted(codes), LOCAL_MIN),
+        ):
+            src_dom.setdefault((sv, str(code)), str(dom))
+    for r in cands:
+        home = str(r.table)
+        std = int(r.row.get(ROLE[home]["concept"]) or 0)
+        domain = std_dom.get(std) if std else src_dom.get(src_of.get(id(r), ("", "")))
+        target = DOMAIN_TABLE.get(domain or "")
+        if target is None or target == home:
+            continue
+        if target != "observation":
+            key = f"domain_kept:{home}:{domain}"
+            rep.skipped[key] = rep.skipped.get(key, 0) + 1
+            continue
+        _to_observation(r)
+        rep.skipped[f"routed:{home}:observation"] = rep.skipped.get(f"routed:{home}:observation", 0) + 1
+
+
+def _to_observation(r: Rec) -> None:
+    """The record's row, written as an OBSERVATION row: each column by its role; the measurement operator, which
+    OBSERVATION has no column for, is kept with the record (read back as the lake's ``value_cmp``)."""
+    home, to = ROLE[str(r.table)], ROLE["observation"]
+    row: dict[str, Any] = {}
+    for role, col in home.items():
+        if col in r.row:
+            row[to[role]] = r.row.pop(col)
+    for col in SAME_NAME:
+        if col in r.row:
+            row[col] = r.row.pop(col)
+    op = r.row.pop("operator_concept_id", None)
+    if op:
+        r.extra["value_cmp"] = vocab.OPERATOR_CODE.get(op)
+    if r.row:
+        raise OmopError(f"{r.rtype} {r.srcid}: no OBSERVATION column for {sorted(r.row)}")
+    r.row, r.table = row, "observation"
 
 
 def _concepts(r: Rec, concepts: Concepts) -> None:
@@ -765,9 +913,9 @@ def _concepts(r: Rec, concepts: Concepts) -> None:
         del value_col
     if r.table == "procedure_occurrence" and "procedure_concept_id" not in r.row:
         r.row["procedure_concept_id"] = 0
-    if "_value" in r.row:
+    if "_value" in r.row:  # STD-031: the standard answer concept (0: none in the vocabulary); the code is in extra
         vsys, vcode = r.row.pop("_value")
-        r.row["value_as_concept_id"] = concepts.source_id(vsys, vcode) or None if vcode else None
+        r.row["value_as_concept_id"] = concepts.standard_id(vsys, vcode) if vcode else None
     if "_unit" in r.row:
         usys, unit = r.row.pop("_unit")
         r.row["unit_concept_id"] = concepts.standard_id(usys, unit) if unit else None
@@ -806,7 +954,8 @@ def _write(
     for r in recs:
         seen.add(r.key)
         row = _omop_row(r)
-        sha = _sha([r.table, row, r.basis, r.extra, r.imputed, r.status if r.status == "rejected" else None])
+        content = {k: v for k, v in r.extra.items() if k not in PROVENANCE_COLS}  # a new night alone is no update
+        sha = _sha([r.table, row, r.basis, content, r.imputed, r.status if r.status == "rejected" else None])
         prev = old.get(r.key)
         status = r.status
         if prev is None:
@@ -890,7 +1039,8 @@ def _write(
     )
     tx.execute(
         "UPDATE tb_record r SET last_batch = i.last_batch, source_batch = i.source_batch, source_file = "
-        "i.source_file, source_row = i.source_row FROM tb_in_tmp i WHERE i.action = 'same' AND (r.source_kind, "
+        "i.source_file, source_row = i.source_row, extra = i.extra FROM tb_in_tmp i WHERE i.action = 'same' "
+        "AND (r.source_kind, "
         "r.resource_type, r.source_record_id, r.part) = (i.source_kind, i.resource_type, i.source_record_id, i.part)"
     )
     all_cols = ", ".join(TB_RECORD_COLS)

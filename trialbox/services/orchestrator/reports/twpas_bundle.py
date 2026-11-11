@@ -1,4 +1,4 @@
-"""TWPAS prior-authorisation Bundle (SPEC §9.5) per IG ``tw.gov.mohw.nhi.pas`` (1.2.0 offline, DECISIONS D-63):
+"""TWPAS prior-authorisation Bundle (SPEC §9.5) per IG ``tw.gov.mohw.nhi.pas`` 1.2.5 (DECISIONS D-372):
 ``Bundle(type=collection)`` with Claim (prior-auth request), Patient, Practitioner, Organization (hospital, NHI),
 Coverage, Encounter, the applied MedicationRequest and supporting Observations (gene test with its Specimen and
 laboratory, ECOG patient assessment) as the data allow. The bundle carries PHI (identity resolved in-box) and is only
@@ -323,7 +323,8 @@ def build(inp: TwpasInput, base: str = f"{PAS}") -> dict[str, Any]:
                 "subject": {"reference": ref["patient"]},
                 "effectiveDateTime": inp.ecog_date,
                 "performer": [{"reference": ref["practitioner"]}],
-                "valueInteger": int(inp.ecog),
+                # a Quantity of 0 to 5 since TWPAS 1.2.5 (invariant pat-ast-value; 1.2.0 took an integer), D-372
+                "valueQuantity": {"value": int(inp.ecog)},
             }
         )
         info("patientAssessment", valueReference={"reference": ref["ecog"]})
