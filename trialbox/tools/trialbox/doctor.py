@@ -40,7 +40,7 @@ closed). Checks:
   (WARN elsewhere) when there is no target, no off-box target, no alert route (``TB_BACKUP_ALERT_CMD`` or
   ``TB_BACKUP_MAILTO``), no ``/etc/cron.d/trialbox-backup`` on a host with ``/etc/cron.d``, no good backup or one
   older than ``TB_BACKUP_MAX_AGE_HOURS`` (``backup-status``'s rules); WARN in PRODUCTION when WAL archiving is off;
-  on a platform it passes and points to ``backup_target``;
+  on a platform it passes and points to ``backup_target`` and ``backup_job``;
 * ``site_key`` (T-612, DATA-004): ``site_hmac.key`` is in the secrets folder (``TB_SECRETS_DIR``) and its fingerprint
   is the one recorded in the lake (``site_key.json``) and in the pid map. FAIL when it is missing or another key (the
   ingest then refuses every night); WARN when the folder is not on this host. Prints the fingerprint, never the key;
@@ -122,6 +122,7 @@ class DoctorInputs:
     platform: bool = False  # doctor --platform: pods on a cluster, no host cron, so no host zone to compare
     deploy: Path | None = None  # the deploy folder (from --env-file): the backup record and the cron file (D-274)
     cron_dir: Path = Path("/etc/cron.d")
+    resolver: Callable[[str], list[str]] | None = None  # check perimeter_addresses; None: the system resolver
     compose_config: Mapping[str, Any] | None = None  # doctor --two-device: the device's rendered compose (D-373)
     input_errors: tuple[str, ...] = ()  # OPS-016: a settings file that is missing or does not parse is a FAIL line
 
@@ -232,6 +233,30 @@ def check_gateway_only_model_reach(inp: DoctorInputs) -> Check:
         )
     n = sum(1 for a in allows if a.service == eg.GATEWAY)
     return Check("gateway_only_model_reach", "PASS", f"only {eg.GATEWAY} reaches model hosts ({n} egress rules)")
+
+
+def check_perimeter_addresses(inp: DoctorInputs) -> Check:
+    """T-604 (D-388; review LLM-036): each perimeter endpoint's host and the addresses it resolves to now. In
+    PRODUCTION on topology A an address off the box is a FAIL (the gateway refuses to start on it); elsewhere a WARN.
+    Run on the host, a compose service name does not resolve: it is shown as such (the gateway resolves it on the
+    box network when it starts)."""
+    from gateway.policy import RoutingPolicy, perimeter_addresses, perimeter_checked, resolve_host
+    from tb_common.policy.classes import Environment, Topology
+
+    env = {k: v for k, v in inp.env.items()}
+    environment = (env.get("TB_ENV") or "DEV").strip().upper()
+    topo = env.get("TB_TOPOLOGY", "A")
+    rows = perimeter_addresses(RoutingPolicy.load(inp.routing_path), env, environment, inp.resolver or resolve_host)
+    shown = "; ".join(f"{r.endpoint} {r.host} -> {', '.join(r.addresses) or 'compose service'}" for r in rows)
+    problems = [r.problem for r in rows if r.problem]
+    if not problems:
+        return Check("perimeter_addresses", "PASS", f"on the box: {shown or 'no perimeter endpoint set'}")
+    strict = (
+        topo in Topology.__members__
+        and environment in Environment.__members__
+        and perimeter_checked(Topology(topo), Environment(environment))
+    )
+    return Check("perimeter_addresses", "FAIL" if strict else "WARN", "; ".join(problems))
 
 
 def check_channel_engine(inp: DoctorInputs) -> Check:
@@ -731,7 +756,9 @@ def check_backup(inp: DoctorInputs) -> Check:
     """D-274 (CR-058, OPS-028, OPS-048): targets, an off-box one, an alert route, the cron file, the newest good
     backup's age, WAL archiving. In PRODUCTION every problem is a FAIL except archiving off (WARN)."""
     if inp.platform:
-        return Check("backup", "PASS", "not a host check on a platform: see backup_target (no host cron)")
+        return Check(
+            "backup", "PASS", "not a host check on a platform: see backup_target and backup_job (no host cron)"
+        )
     from tools.trialbox import backup_schedule as bs
 
     prod = (inp.env.get("TB_ENV") or "PRODUCTION").upper() == "PRODUCTION"
@@ -810,6 +837,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_env_class_ceiling,
     check_routing_perimeter,
     check_gateway_only_model_reach,
+    check_perimeter_addresses,
     check_channel_engine,
     check_secure_cookie,
     check_publish_gate,

@@ -9,7 +9,10 @@ Loads ``models/routing.yaml`` and answers *which candidates may serve this call*
 from __future__ import annotations
 
 import fnmatch
+import ipaddress
 import os
+import socket
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -330,6 +333,88 @@ class RoutingPolicy:
         if not out:
             raise Refusal("class_route_mismatch", f"route {r.id} has no endpoint allowed for class {label.tag}")
         return r, out
+
+
+# ------------------------------------------------------------------------------------------------ perimeter (T-604)
+# Addresses a perimeter endpoint of an on-prem box (topology A) may have: the box's own (loopback) and the private
+# ranges Docker gives its networks. A TEST-NET or any public address is outside the box (review LLM-036).
+BOX_NETWORKS = tuple(
+    ipaddress.ip_network(n)
+    for n in ("127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "::1/128", "fc00::/7")
+)
+Resolver = Callable[[str], list[str]]
+
+
+def resolve_host(host: str) -> list[str]:
+    """Every address ``host`` resolves to now (an address literal is itself); empty when it does not resolve."""
+    try:
+        return [str(ipaddress.ip_address(host))]
+    except ValueError:
+        pass
+    try:
+        return sorted({str(ai[4][0]) for ai in socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)})
+    except (socket.gaierror, UnicodeError):
+        return []
+
+
+def box_address(addr: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(addr.split("%", 1)[0])
+    except ValueError:
+        return False
+    return any(ip in net for net in BOX_NETWORKS if net.version == ip.version)
+
+
+@dataclass(frozen=True)
+class PerimeterAddress:
+    """One perimeter endpoint as resolved now: its host, the addresses, and why it is not on the box ("" when it
+    is)."""
+
+    endpoint: str
+    host: str
+    addresses: tuple[str, ...]
+    problem: str = ""
+
+
+def perimeter_addresses(
+    policy: RoutingPolicy, env: Mapping[str, str], environment: str, resolver: Resolver = resolve_host
+) -> list[PerimeterAddress]:
+    """Every perimeter endpoint open in ``environment`` whose URL is set, resolved now (T-604, review LLM-036).
+
+    A host is on the box when every address it resolves to is a box address (:data:`BOX_NETWORKS`). A one-label
+    name that does not resolve here is a compose service name (Docker's DNS answers it on the box networks only);
+    any other name that does not resolve cannot be checked, which is a problem too (fail closed)."""
+    out: list[PerimeterAddress] = []
+    for name, ep in sorted(policy.endpoints.items()):
+        if ep.zone != "perimeter" or (ep.environments and environment not in ep.environments):
+            continue
+        hp = ep.host_port(dict(env))
+        if hp is None:
+            continue
+        host = hp[0]
+        addrs = tuple(resolver(host))
+        problem = ""
+        if not addrs:
+            if "." in host or ":" in host:
+                problem = f"{name}: {host} does not resolve, so it cannot be shown to be on the box"
+        else:
+            outside = [a for a in addrs if not box_address(a)]
+            if outside:
+                problem = f"{name}: {host} resolves to {', '.join(outside)}, which is not a box address"
+        out.append(PerimeterAddress(name, host, addrs, problem))
+    return out
+
+
+def perimeter_checked(topology: Topology, env: Environment) -> bool:
+    """Where the perimeter must be the box itself: PRODUCTION on topology A (on topology B the perimeter is the
+    tenant's serving router, which is not on the box)."""
+    return topology == Topology.A and env == Environment.PRODUCTION
+
+
+def perimeter_problems(
+    policy: RoutingPolicy, env: Mapping[str, str], environment: str, resolver: Resolver = resolve_host
+) -> list[str]:
+    return [p.problem for p in perimeter_addresses(policy, env, environment, resolver) if p.problem]
 
 
 # ------------------------------------------------------------------------------------------------ lint

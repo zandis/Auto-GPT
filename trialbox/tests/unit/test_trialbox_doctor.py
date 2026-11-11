@@ -42,6 +42,7 @@ def test_default_install_passes() -> None:
         "env_class_ceiling",
         "routing_perimeter",
         "gateway_only_model_reach",
+        "perimeter_addresses",
         "channel_engine",
         "secure_cookie",
         "publish_gate",

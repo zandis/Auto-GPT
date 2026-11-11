@@ -85,6 +85,18 @@
 {% if editable %}<div class="savebar card" id="save"><button type="submit" name="action" value="save" data-testid="save-setup">{{ t('setup.save_all') }}</button><span class="hint">{{ t('setup.unsaved') }}</span></div>{% endif %}
 </form>
 
+{% if contact_rule is not none %}{# D-407 (LIFE-017): the study's contact-attempt limit; after it the investigator decides #}
+<section class="card" id="contact" data-testid="setup-contact">
+<h2>{{ t('setup.contact.title') }}</h2>
+<p class="hint">{{ t('setup.contact.help') }}</p>
+<p data-testid="setup-contact-now">{{ t('setup.contact.now', n=contact_rule.max_attempts, d=contact_rule.min_days) }}{% if contact_rule.set_by %} {{ t('sae.rule.by', who=contact_rule.set_by|who, at=contact_rule.set_at|local) }}{% else %} <span class="hint">{{ t('setup.contact.default') }}</span>{% endif %}</p>
+{% if editable %}<form method="post" action="/studies/{{ rs }}/setup/contact" class="markform"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="max_attempts">{{ t('setup.contact.max') }}</label><input id="max_attempts" name="max_attempts" type="number" min="1" max="20" value="{{ contact_rule.max_attempts }}" data-testid="setup-contact-max">
+<label for="min_days">{{ t('setup.contact.days') }}</label><input id="min_days" name="min_days" type="number" min="0" max="60" value="{{ contact_rule.min_days }}" data-testid="setup-contact-days">
+<button type="submit" data-testid="setup-contact-save">{{ t('setup.contact.save') }}</button></form>{% endif %}
+</section>
+{% endif %}
+
 {% if sae_rule is not none %}{# D-277 (LIFE-023): the study's SAE reporting rules, one field; who saved it confirmed it #}
 <section class="card" id="sae" data-testid="setup-sae">
 <h2>{{ t('sae.setup.title') }}</h2>

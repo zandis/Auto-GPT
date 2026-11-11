@@ -12,7 +12,8 @@ One :class:`ItemMap` per item. ``source`` names where a value may come from:
 
 :func:`check` refuses a map that could draft a wrong kind of value: an item the dictionary does not have, a REDCap
 identifier or link field, a numeric item without a unit, a coded source without codes, a ``presence`` item whose
-"yes" code is not a choice of the field. A ``presence`` item is only ever drafted as its yes code: the absence of a
+"yes" code is not a choice of the field, an item tagged as the CTCAE grade (``AE.AETOXGR``) that is not a choice of
+grades 1 to 5 (D-396). A ``presence`` item is only ever drafted as its yes code: the absence of a
 record never becomes "No" (unknown never excludes).
 """
 
@@ -39,6 +40,7 @@ WHAT: dict[str, tuple[str, ...]] = {
 }
 PICKS = ("latest_before", "nearest")
 SEXES = ("male", "female")
+GRADES = ("1", "2", "3", "4", "5")  # CTCAE grades (D-396)
 MAX_WINDOW = 3650
 _CODE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.\-]{0,19}$")
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,99}$")
@@ -109,6 +111,9 @@ def suggest(fields: list[Field], protected: set[str]) -> list[ItemMap]:
         if h is None:
             out.append(ItemMap(f.name))
             continue
+        if h.tag == "AE.AETOXGR" and (f.kind != "choice" or not set(f.options) <= set(GRADES)):
+            out.append(ItemMap(f.name))  # not a choice of grades 1 to 5: no tag rather than a refused one
+            continue
         source, what = h.source, h.what
         if what == "presence" and f.kind != "choice":
             source, what = "none", ""
@@ -150,6 +155,8 @@ def check(items: list[ItemMap], fields: dict[str, Field], protected: set[str]) -
             no(m.item, "cdash")
         if not cdash.valid_test(m.test):
             no(m.item, "cdash_test")
+        if m.cdash == "AE.AETOXGR" and (f.kind != "choice" or not set(f.options) <= set(GRADES)):
+            no(m.item, "cdash_grade")  # D-396: a CTCAE grade is a choice of 1 to 5, nothing else
         if m.source not in SOURCES:
             no(m.item, "source")
             continue

@@ -9,8 +9,9 @@ Normative semantics (DECISIONS D-17):
 * ``observation`` with ``value``: null when no matching observation is in the window; ``latest`` compares the most
   recent observation (ties broken by resource id); ``any``/``all``/``none``/``count>=`` over all matching ones.
   A number is compared in the criterion's unit (``value.unit``): a row in another unit is converted when
-  ``tb_common.labunit`` has a factor for that analyte, and otherwise (a row with no unit included) has no usable
-  number, like a text result: it never makes the comparison true or false (D-275).
+  ``tb_common.labunit`` has a factor for that analyte, or when both units are of one kind (g/L and g/dL, D-418), and
+  otherwise (a row with no unit included) has no usable number, like a text result: it never makes the comparison
+  true or false (D-275).
 * ``demographic``: age = complete years at the index date; null when the birth date is missing or the gender is
   not ``male`` / ``female`` (missing, ``other``, ``unknown``; D-275).
 * ``derived``: computed from the latest components in the window; null when a component is missing; without
