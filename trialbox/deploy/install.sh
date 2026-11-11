@@ -137,6 +137,16 @@ if [ "$MODE" = gpu ] && [ "$GPU" = auto ]; then
   GPU="$(sh "$ROOT/deploy/gpu_profile.sh")"
 fi
 case "$GPU" in auto|default|rtxpro6000|gb10|rtx5090|rtx4090) ;; *) die "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default" ;; esac
+# D-348: the vLLM image of deploy/images.lock must run here (its architecture, the driver its CUDA needs, the GPU's
+# compute capability), before anything is loaded: a CUDA 13 image on an older driver would only fail at start
+if [ "$MODE" = gpu ]; then
+  if command -v python3 >/dev/null; then
+    sh "$ROOT/deploy/check_host.sh" --gpu-only --gpu "$GPU" 2>&1 | sed 's/^/    /' \
+      || die "this GPU host cannot run the vLLM image of deploy/images.lock (FAIL above); nothing was changed"
+  else
+    echo "install: warning: no python3: the GPU host is not checked against deploy/images.lock" >&2
+  fi
+fi
 [ -f "$PUBKEY" ] || die "vendor public key missing: copy vendor_ed25519.pub (from the vendor, out of band) to $PUBKEY"
 if [ -f "$BUNDLE.sha256" ]; then
   (cd "$(dirname "$BUNDLE")" && sha256sum -c "$(basename "$BUNDLE").sha256" >/dev/null) || die "bundle checksum mismatch"
@@ -280,6 +290,7 @@ case "$MODE:$GPU" in
   gpu:gb10) COMPOSE+=(-f deploy/docker-compose.gb10.yml); FILES="$FILES:$ROOT/deploy/docker-compose.gb10.yml" ;;
   gpu:rtx5090|gpu:rtx4090) COMPOSE+=(-f deploy/docker-compose.rtx5090.yml); FILES="$FILES:$ROOT/deploy/docker-compose.rtx5090.yml" ;;
 esac
+LOCK_FILES="$FILES"
 if [ -n "${TB_COMPOSE_OVERRIDE:-}" ]; then  # D-176: the rehearsal's model stand-ins (or a site's own override)
   [ -f "$TB_COMPOSE_OVERRIDE" ] || die "TB_COMPOSE_OVERRIDE: no such file $TB_COMPOSE_OVERRIDE"
   OVR="$(cd "$(dirname "$TB_COMPOSE_OVERRIDE")" && pwd)/$(basename "$TB_COMPOSE_OVERRIDE")"
@@ -291,6 +302,12 @@ if [ -n "${TB_COMPOSE_OVERRIDE:-}" ]; then  # D-176: the rehearsal's model stand
   COMPOSE+=(-f "$OVR"); FILES="$FILES:$OVR"
 fi
 COMPOSE+=(--profile "$MODE")
+# D-348: every third-party image of TrialBox's own compose files is the one deploy/images.lock pins, by digest (the
+# site's TB_COMPOSE_OVERRIDE is its own and is not checked)
+if command -v python3 >/dev/null; then
+  python3 -m tools.images_lock check-compose --files "$LOCK_FILES" 2>&1 | sed 's/^/    /' \
+    || die "a compose file names a third-party image that deploy/images.lock does not pin (FAIL above)"
+fi
 # the same file set for every later `docker compose --project-directory deploy ...` (secrets rotate, update, logs)
 sed -i "/^COMPOSE_FILE=/d" deploy/.env && echo "COMPOSE_FILE=$FILES" >> deploy/.env
 # D-138 log retention: where collected service logs and the audit archive go (RUNBOOK §2 "Logs"); the days are in
@@ -412,7 +429,8 @@ echo "    add coordinators and viewers on the console's Users page, or: docker c
 
 # ------------------------------------------------------------------------------------------------ 6. check
 say "host check"
-sh "$ROOT/deploy/check_host.sh" $( [ "$(uname -m)" = aarch64 ] && echo --gb10 ) || echo "install: host check reported FAIL lines above: fix them before go-live (docs/SECURITY.md)" >&2
+HOST_ARGS=(); [ "$MODE" = gpu ] && HOST_ARGS=(--gpu "$GPU")
+sh "$ROOT/deploy/check_host.sh" ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} || echo "install: host check reported FAIL lines above: fix them before go-live (docs/SECURITY.md)" >&2
 PORT="$(sed -n 's/^TB_HOST_CONSOLE_PORT=//p' deploy/.env | head -1)"
 cat <<EOT
 

@@ -38,15 +38,15 @@
 # install.sh re-checks every pinned build's weight hashes before it starts the stack (pin_model --verify-all), and
 # the scheduler runs the canary (orchestrator/selftest.py) before each night's LLM jobs.
 #
-# vLLM v0.32.0 is the release the 2026-11-06 run used (deploy/gcp/gpu-sim-startup.sh), with the same flags; moving
-# the tag is a model change (re-run `make selftest` and the TrialGPT check).
+# vLLM v0.32.0 is the release the 2026-11-06 run used (deploy/gcp/gpu-sim-startup.sh), with the same flags, by the
+# digest of deploy/images.lock (D-348); moving the lock entry is a model change (re-run `make selftest` and the TrialGPT check).
 
 x-vllm-5090: &vllm5090
   logging:
     driver: json-file
     options: {max-size: "50m", max-file: "5"}
   profiles: [gpu]
-  image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0}
+  image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}
   environment:
     HF_HUB_OFFLINE: "1"
     VLLM_NO_USAGE_STATS: "1"
@@ -100,7 +100,7 @@ services:
 
   judge-sleep-init:
     profiles: [gpu]
-    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0}
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}
     entrypoint: *sleep
     command: ["http://llm-service-vllm:8000", "/sleep?level=1"]
     networks: [model-backend-net]
@@ -127,7 +127,7 @@ services:
   model-swap-init:
     # daytime state: verifier asleep, judge awake (the gateway's first activate call confirms it)
     profiles: [gpu]
-    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0}
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}
     entrypoint: *sleep
     command: ["http://llm-verifier-vllm:8000", "/sleep?level=1"]
     networks: [model-backend-net]
@@ -137,7 +137,7 @@ services:
 
   judge-wake-init:
     profiles: [gpu]
-    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0}
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}
     entrypoint: *sleep
     command: ["http://llm-service-vllm:8000", "/wake_up"]
     networks: [model-backend-net]

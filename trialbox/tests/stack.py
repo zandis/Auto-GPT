@@ -7,6 +7,8 @@ the compose integration and e2e tests do not depend on a manual ingest or on tes
 from __future__ import annotations
 
 import os
+from email import message_from_bytes, policy
+from email.message import EmailMessage
 from pathlib import Path
 
 import httpx
@@ -18,7 +20,7 @@ SNAPSHOT = "2026-10-04"  # synthetic fixtures' snapshot (tools/synth/generator.p
 DEFAULT_PORTS = {
     "SMTP": 3025,  # GreenMail SMTP (mail into the box)
     "IMAP": 3143,  # GreenMail IMAP
-    "MAILHOG": 8025,  # MailHog UI/API (mail out of the box)
+    "MAILHOG": 8025,  # Mailpit UI/API (mail out of the box; the name is kept for existing deploy/.env files)
     "ORCH": 8010,
     "PARSER": 8011,
     "COMPILER": 8012,
@@ -39,6 +41,23 @@ def host_port(name: str) -> int:
 
 def url(name: str, path: str = "") -> str:
     return f"http://127.0.0.1:{host_port(name)}{path}"
+
+
+MAILPIT_LIST = "/api/v1/messages"  # Mailpit's API (deploy/docker-compose.test.yml, D-348)
+
+
+def outbound_mail(limit: int = 500) -> list[EmailMessage]:
+    """The box's outbound mail as Mailpit holds it, newest first: the list, then each message's raw source."""
+    base = url("MAILHOG")
+    listing = httpx.get(f"{base}{MAILPIT_LIST}", params={"limit": limit}, timeout=30).json()
+    out = []
+    for it in listing.get("messages") or []:
+        raw = httpx.get(f"{base}/api/v1/message/{it['ID']}/raw", timeout=30)
+        raw.raise_for_status()
+        msg = message_from_bytes(raw.content, policy=policy.default)
+        assert isinstance(msg, EmailMessage)
+        out.append(msg)
+    return out
 
 
 def ensure_ingested(force: bool = False) -> dict[str, object] | None:
