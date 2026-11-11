@@ -23,7 +23,9 @@ egress table is closed before Docker starts, the stack comes back, `doctor` has 
 ## After the power comes back
 
 1. Start the host. The egress unit loads the closed table before Docker, then the stack starts (D-377). If Docker
-   does not start, see §4 ("Docker does not start after a reboot").
+   does not start, see §4 ("Docker does not start after a reboot"). The disk opens only in the hospital (D-408): a box
+   that is not on the hospital network cannot reach its Tang server and waits at the LUKS prompt for the recovery
+   passphrase (or the TPM PIN, where the site uses one); nothing starts until someone types it.
 2. Unseal the KEK if it is not TPM-sealed (`python -m tools.keys unseal`, §23).
 3. `trialbox doctor --env-file deploy/.env`: no FAIL; the clock check passes (a host clock that drifted while off is a
    FAIL until NTP answers).

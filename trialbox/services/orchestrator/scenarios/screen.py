@@ -396,8 +396,11 @@ def evaluate_scope(
     scoped: list[Scoped],
     only: set[str] | None = None,
     all_candidates: bool = False,
+    judge: NoteJudge | None = None,
 ) -> dict[str, PatientVerdicts]:
-    judge = judge_for(ctx, rs)
+    """The v1 evaluator over ``scoped``. ``judge``: the run's note judge, so its counts reach the run's ``judging``
+    record (SCREEN with ``TB_SCREEN_PIPELINE=v1``); None builds one (:func:`judge_for`)."""
+    judge = judge if judge is not None else judge_for(ctx, rs)
     engine = structured_engine(ctx, snapshot)
     res = evaluate_patients(
         rs,
@@ -538,7 +541,8 @@ def run_screen(
             },
         )
     else:
-        results = evaluate_scope(ctx, rs, run_date, snapshot, scoped)
+        results = evaluate_scope(ctx, rs, run_date, snapshot, scoped, judge=judge)
+        judging = judging_info(judge)  # after the run: its disagreements and failures, as the cascade path does
     # T-514 (D-362, review UX-008): each coded answer carries the record's value, unit, date and code for the person
     # who checks it; display only, after every answer is decided
     coded_values.attach(

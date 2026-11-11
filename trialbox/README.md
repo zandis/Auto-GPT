@@ -45,7 +45,7 @@ python -m tools.public_e2e --dir /tmp/tb-public --lang ja      # the same path o
 python -m tools.complete_run --dir /tmp/tb-complete            # every stage, ja and zh-TW, with screenshots
 ```
 
-`make demo` prints one password for the five accounts (`admin`, `crc`, `pi`, `cra`, `viewer`), or uses
+`make demo` prints one password for the seven accounts (`admin`, `crc`, `pi`, `subpi`, `cra`, `viewer`, `stw`, the steward), or uses
 `TB_DEMO_PASSWORD` when set and then prints nothing. The data is a
 5,000-patient synthetic hospital with notes in Japanese, Chinese and English.
 
@@ -62,10 +62,10 @@ card has no measured serving record.
 
 | Path | What |
 | --- | --- |
-| `services/` | console, orchestrator, gateway, mail_gateway, criteria_compiler, doc_parser, adapter, lake, embed_service, datacore, sitesetup, matching, deliverables, registry, guard, tracestore, rc_bridge, rc_sim, llm_stub, channels |
+| `services/` | console, orchestrator, gateway, mail_gateway, criteria_compiler, doc_parser, adapter, lake, embed_service, datacore, edc, omop, sitesetup, matching, deliverables, registry, guard, model_guard, tracestore, rc_bridge, rc_sim, llm_stub, channels |
 | `libs/` | `tb_contracts` (models generated from `schemas/`), `tb_common` (config, audit, db, service tokens, crypto, LLM client, retention), `tb_llm`, `tb_testkit` |
 | `schemas/` | JSON Schemas, the one source of every contract |
-| `rulesets/` | approved demo rulesets: GZQO (trial), GOUT-COH and RA-COH (cohorts), RA-BIO and ONC-OSI (NHI) |
+| `rulesets/` | approved demo rulesets: trials GZQO, AD-MAB and RA-JAK; cohorts GOUT-COH, RA-COH and NEUR-COH; NHI lists RA-BIO and ONC-OSI |
 | `deploy/` | compose files per GPU profile, `install.sh`, `network.sh`, `check_host.sh`, measured serving records, Windows preflight, GCP scripts |
 | `tools/` | the gates and drills (`e2e_simple`, `public_e2e`, `complete_run`, `backup_drill`, `update_drill`), the synthetic hospital, the walk, the CLI `tools/trialbox` |
 | `tests/` | unit, console, testbench, integration, e2e, LLM |

@@ -201,11 +201,15 @@ class Compiler:
                 "candidates": [{"code": c.code, "system": c.system, "display": c.display} for c in cands],
             }
             guard = scan(variables_text(variables), self.d.mrn_regex)
-            out = LlmConceptMapOutput.model_validate(
-                self.d.llm.chat_json(
+            try:
+                res = self.d.llm.chat_json(
                     "concept_map", variables, job_id=job_id, clearance=guard.clearance, phi_guard_hit=guard.hit
-                ).data
-            )
+                )
+            except LlmError as exc:  # as ir_extract: the requester's Failed mail names the step, not "internal error"
+                raise CompileFailed(
+                    "concept_map", f"the model did not map {name!r} ({str(exc)[:160]}); send the protocol again"
+                ) from exc
+            out = LlmConceptMapOutput.model_validate(res.data)
             choices = [(c.code, c.system, c.confidence) for c in out.choices]
             return choices, out.needs_review or len(choices) > 1 or any(c[2] < 0.9 for c in choices)
 

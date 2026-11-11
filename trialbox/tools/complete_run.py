@@ -834,10 +834,13 @@ class Heartbeat:
         self.thread.start()
 
     def _run(self) -> None:
+        # no /proc: keep the old behaviour (alive while running). With /proc, None means the part has ended (and
+        # been reaped): no beat, so a beat between its end and close() cannot make a stopped part look busy
+        no_proc = not Path("/proc").is_dir()
         last = _tree_cpu(self.pid)
         while not self.stop.wait(self.every):
             now = _tree_cpu(self.pid)
-            if now is None or last is None or now > last:  # no /proc: keep the old behaviour (alive while running)
+            if no_proc or (now is not None and last is not None and now > last):
                 self.path.touch()
                 self.beats += 1
             last = now
