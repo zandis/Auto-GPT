@@ -148,13 +148,27 @@ def test_judge_400_or_404_ends_the_call_never_another_alias(box: Any, fault: str
     assert all(c["model"] != "v-verifier" for c in _gateway_calls(tmp_path))
 
 
+class _Recording:
+    """An HTTP client that keeps the last response, so a test reads the gateway's headers behind ``tb_llm``."""
+
+    def __init__(self, inner: Any) -> None:
+        self.inner = inner
+        self.last: Any = None
+
+    def post(self, *args: Any, **kw: Any) -> Any:
+        self.last = self.inner.post(*args, **kw)
+        return self.last
+
+
 def test_a_judge_that_fails_once_is_answered_by_the_same_build(box: Any) -> None:  # noqa: F811
     gw, _llm, _verifier, fake, _tmp = _faulty(box, {JUDGE_HOST: "flaky"})
-    from tb_common.service_auth import auth_headers
-
-    hdr = {**auth_headers(), **H(Data_Class="D3")}
-    res = TestClient(create_app(gw)).post("/v1/chat/completions", json=_judge_body(), headers=hdr)
-    assert res.status_code == 200, res.text
+    http = _Recording(TestClient(create_app(gw)))  # through tb_llm and the gateway's HTTP app, to read the headers
+    hdr = H(Data_Class="D3", Step="")
+    labels = CallLabels("D3", "screening", "STUDY-1", "s3_note_judgement", "judge", "judge@4",
+                        prompt_sha=hdr["X-TB-Prompt-Sha"])  # fmt: skip
+    GatewayClient("http://gateway/v1", "orchestrator", http=http).complete(_judge_body(), labels)  # type: ignore[arg-type]
+    res = http.last
+    assert res is not None and res.status_code == 200, res
     tb = res.json()["tb"]
     assert (tb["alias"], tb["expected_alias"], tb["fallbacks"], tb["retries"]) == ("j-workhorse", "j-workhorse", 0, 1)
     assert res.headers["X-TB-Build-Id"] == tb["build_id"] and tb["build_id"]
@@ -436,3 +450,8 @@ def test_doctor_passes_when_the_gateway_takes_the_judge_and_the_verifier(tmp_pat
 def test_doctor_fails_when_the_gateway_would_refuse_the_judge(tmp_path: Path, over: dict[str, str], why: str) -> None:
     c = _judge_route(_doctor_env(tmp_path, **over))
     assert c.status == "FAIL" and why in c.detail, c
+
+
+def test_doctor_warns_in_test_when_the_gateway_would_refuse_the_judge(tmp_path: Path) -> None:
+    c = _judge_route(_doctor_env(tmp_path, TB_ENV="TEST"))  # D3 in TEST: refused, a box being set up
+    assert c.status == "WARN" and "would refuse the judge" in c.detail, c

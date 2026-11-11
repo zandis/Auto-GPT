@@ -46,8 +46,9 @@ judge.
 8. **`trialbox doctor` check `judge_route`.** The gateway built from the box's settings (routing file, registry with
    the site pins, `TB_ENV`, `TB_TOPOLOGY`, `TB_PROFILE`, no step confirmer, as compose runs it) takes one synthetic
    judge call as the orchestrator sends it, and one verifier call when `TB_GATEWAY_VERIFIER_MODEL` is set, against a
-   stand-in model server. FAIL in every environment when it would refuse either, naming the refusal code, or when
-   another alias answers. PASS when the judge does not use the gateway.
+   stand-in model server. FAIL in VALIDATION and PRODUCTION (WARN in DEV and TEST, a box being set up) when it would
+   refuse either, naming the refusal code, or when another alias answers. PASS when the judge does not use the
+   gateway.
 
 ## Consequences
 

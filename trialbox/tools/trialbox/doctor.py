@@ -20,9 +20,10 @@ closed). Checks:
 * ``judge_route`` (T-601; D-142 "not done"): the gateway built from this box's settings (routing file, registry with
   the site pins, ``TB_ENV``, ``TB_TOPOLOGY``, ``TB_PROFILE``, no step confirmer, as compose runs it) takes one
   synthetic judge call as the orchestrator sends it (``TB_GATEWAY_MODEL``, ``TB_DATA_CLASS`` or D3), and one verifier
-  call when ``TB_GATEWAY_VERIFIER_MODEL`` is set, against a stand-in model server. FAIL in every environment when it
-  would refuse either (no route, an unpinned or non-champion build, a D3 call with no step outside the box policy) or
-  another alias answers: the box would screen no note. PASS when the judge does not use the gateway;
+  call when ``TB_GATEWAY_VERIFIER_MODEL`` is set, against a stand-in model server. FAIL in VALIDATION and PRODUCTION
+  (WARN in DEV and TEST) when it would refuse either (no route, an unpinned or non-champion build, a D3 call with
+  no step outside the box policy) or another alias answers: the box would screen no note. PASS when the judge does
+  not use the gateway;
 * ``registry_pins``: the committed registry with the site override (``TB_REGISTRY_OVERRIDE``, default
   ``deploy/site/registry.site.yaml``) loads; lists the site-pinned builds. WARN when no model build is pinned
   (production routes nothing) or, in VALIDATION/PRODUCTION, when no pinned build is ``champion``;
@@ -326,6 +327,8 @@ def check_judge_route(inp: DoctorInputs) -> Check:
     if not url:
         return Check("judge_route", "PASS", "the judge does not go through the gateway (no TB_GATEWAY_URL)")
     env = dict(inp.env)
+    # FAIL where the box screens real notes; WARN in DEV and TEST (synthetic data, a box being set up)
+    bad: Status = "FAIL" if env.get("TB_ENV", "DEV") in ("VALIDATION", "PRODUCTION") else "WARN"
     with tempfile.TemporaryDirectory(prefix="tb-doctor-") as tmp:
 
         def upstream(req: httpx.Request) -> httpx.Response:
@@ -375,12 +378,12 @@ def check_judge_route(inp: DoctorInputs) -> Check:
             except GatewayRefused as e:
                 return Check(
                     "judge_route",
-                    "FAIL",
+                    bad,
                     f"the gateway would refuse the {who} ({labels.data_class}, role {labels.role}"
                     f"{', ' + alias if alias else ''}): {e.reason}: {str(e)[:300]}",
                 )
             except GatewayError as e:
-                return Check("judge_route", "FAIL", f"the {who}'s call through the gateway fails: {str(e)[:300]}")
+                return Check("judge_route", bad, f"the {who}'s call through the gateway fails: {str(e)[:300]}")
             got.append(f"{who} {res.alias} ({res.payload.get('tb', {}).get('build_id', '?')})")
     return Check("judge_route", "PASS", f"the gateway takes the {labels.data_class} judge call: " + "; ".join(got))
 
