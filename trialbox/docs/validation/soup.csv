@@ -1,0 +1,24 @@
+component,kind,version,pinned_in,purpose,used_by,class,known_problems_that_matter,reviewed
+DuckDB,python,1.5.5,uv.lock,the lake: SQL engine of the coded criteria,services/matching services/lake,B,wrong results from a planner bug would change a verdict; the engine-agreement tests compare it with CQL and Python,2026-11-10
+duckdb-extension-fts,python,1.5.5,uv.lock,BM25 search over note chunks for the cascade,services/lake,B,a missed chunk gives unknown not excluded (the cascade's rule); no known problem,2026-11-10
+sqlglot,python,30.30.0,uv.lock,parses and checks generated SQL (sqlguard),services/lake/sqlguard.py services/criteria_compiler,B,a parse gap could let a query past the guard; the guard refuses what it cannot parse,2026-11-10
+pydantic,python,2.14.3,uv.lock,validates contracts between services,libs/tb_contracts all services,B,none known that changes a value; strict models refuse extra fields,2026-11-10
+jsonschema,python,4.26.0,uv.lock,validates documents against the JSON schemas of schemas/,libs/tb_contracts libs/tb_common/llm.py,B,none known,2026-11-10
+Jinja2,python,3.1.6,uv.lock,renders CQL source and prompt text,services/criteria_compiler/compile_cql libs/tb_common/llm.py,B,autoescape is off by design (not HTML); covered by the CQL generator tests,2026-11-10
+fhir.resources,python,8.3.0,uv.lock,FHIR resource models for adapter validation and TWPAS bundles,services/adapter services/orchestrator,A,none known,2026-11-10
+tzdata,python,2026.6,uv.lock,time zones of the site (TB_TZ),libs/tb_common,B,an out-of-date zone rule shifts a date by a day near a change; refreshed with the lock,2026-11-10
+psycopg,python,3.3.8,uv.lock,PostgreSQL driver for the durable steps and the OMOP store,services/omop services/orchestrator,A,none known,2026-11-10
+SQLAlchemy,python,2.1.8,uv.lock,database access of some services,services,A,none known,2026-11-10
+cryptography,python,50.0.2,uv.lock,AES-GCM of the pseudonym map (libs/tb_common/crypto.py); backups and update bundles,services/adapter/pidmap.py tools/trialbox,B,pip-audit watches it; no open advisory at this version,2026-11-10
+FastAPI,python,0.162.2,uv.lock,web framework of the console and the service APIs,services/console services/*,A,access control is TrialBox's own (libs/tb_common/authz.py),2026-11-10
+uvicorn,python,0.54.0,uv.lock,HTTP server of the services,services,A,none known,2026-11-10
+httpx,python,0.28.1,uv.lock,HTTP client between services and to the model servers,services,A,none known,2026-11-10
+PyYAML,python,6.0.3,uv.lock,rulesets settings and prompt files (safe loader only),libs services tools,B,only SafeLoader subclasses are used (bandit B506 reviewed),2026-11-10
+pypdf,python,7.0.0,uv.lock,reads protocol PDFs that arrive by mail,services/doc_parser services/mail_gateway,A,advisories below 6.21.4 (D-185); pip-audit watches it,2026-11-10
+HAPI FHIR server,image,v8.12.0-2,deploy/docker-compose.yml (by digest),FHIR store and the CQL engine that runs compiled criteria,services/criteria_compiler,B,a CQL engine bug would change a verdict; the equivalence gate compares CQL with SQL (ENG-016 tracks its weak spots),2026-11-10
+cql-to-elm translator,jvm,5.4.0,services/criteria_compiler/compile_cql/translator/pom.xml,translates generated CQL to ELM,services/criteria_compiler,B,kept at 5.4.0 to match HAPI's engine; transitive jars not hash-checked (ENG-013),2026-11-10
+HL7 FHIR validator,jvm,6.10.4,tools/fetch_jvm_deps.sh (sha256),validates adapter samples and TWPAS bundles,services/adapter,A,jar checked by a pinned sha256,2026-11-10
+Eclipse Temurin JRE,image,21.0.13_9,deploy/docker/jvm.Dockerfile (by digest),runs the JVM tools in the box,trialbox-jvm image,A,CI and image Java versions differ in places (ENG-014),2026-11-10
+PostgreSQL,image,16 (postgres:16-trixie),deploy/images.lock (by digest),workflow store and OMOP store,services/omop services/orchestrator,A,none known; image scans report OS advisories,2026-11-10
+Python,image,3.12-slim,deploy/docker/python.Dockerfile (by digest),runtime of every Python service,all services,A,none known,2026-11-10
+vLLM,image,v0.32.0,deploy/docker-compose.rtx5090.yml deploy/docker-compose.rtxpro6000.yml,serves the local models of the cascade judge and verifier,services/gateway services/matching/cascade,B,a model error gives unknown or abstain (never excluded on its own); the API key is checked by services/model_guard because vLLM checks it only under /v1,2026-11-10
