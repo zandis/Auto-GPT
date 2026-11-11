@@ -35,6 +35,6 @@ exec docker run -d --name trialbox-demo -p 80:8080 --restart unless-stopped \
 EOS
 chmod 0700 /etc/trialbox-demo/run.sh
 sh /etc/trialbox-demo/run.sh trialbox-demo:step5
-for i in $(seq 1 60); do curl -sf -o /dev/null http://127.0.0.1/login && break; sleep 5; done
+for _ in $(seq 1 60); do curl -sf -o /dev/null http://127.0.0.1/login && break; sleep 5; done
 docker logs trialbox-demo 2>&1 | grep -E "^(PASS|FAIL)|e2e_simple|console on|checks pass" | sed 's/^/TBD /'
 echo DEMO-STARTUP-DONE

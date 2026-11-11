@@ -27,7 +27,7 @@
   <form method="post" action="/studies/{{ rs }}/subjects/{{ record|urlencode }}/step" class="markform" data-testid="step-form">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <label for="on_day">{{ t('life.step.day') }}</label>
-    <input id="on_day" name="on_day" type="date" value="{{ today }}" max="{{ today }}">
+    <input id="on_day" name="on_day" type="date" value="{{ today }}" max="{{ today }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
     {% if 'screen_fail' in sub.next or 'withdrawn' in sub.next %}
     <label for="reason">{{ t('life.step.reason') }}</label>
     <select id="reason" name="reason" data-testid="step-reason"><option value=""></option>
@@ -56,7 +56,7 @@
 <h2>{{ t('life.visits.title') }}</h2>
 {% if not one.visits %}<p class="empty">{{ t('life.visits.none_scheduled') }} <a href="/studies/{{ rs }}/schedule">{{ t('life.to.schedule') }}</a></p>{% else %}
 <div class="scroll" tabindex="0"><table class="candidates">
-<thead><tr><th>{{ t('life.col.visit') }}</th><th>{{ t('life.col.status') }}</th><th>{{ t('life.col.window') }}</th><th></th></tr></thead>
+<thead><tr><th>{{ t('life.col.visit') }}</th><th>{{ t('life.col.status') }}</th><th>{{ t('life.col.window') }}</th><th><span class="sr">{{ t('col.actions') }}</span></th></tr></thead>
 <tbody>{% for v in one.visits %}<tr data-testid="sv-{{ v.visit }}" data-status="{{ v.status }}">
 <td>{{ vlabel(v) }}</td>
 <td><span class="pill v-{{ v.status }}">{{ t('life.vstate.' + v.status) }}</span>{% if v.done_on %} <span class="nowrap">{{ v.done_on }}</span>{% if v.in_window == false %} <span class="hint">{{ t('life.visit.out') }}</span>{% endif %}{% endif %}{% if v.days_late %} <span class="hint">{{ t('life.visit.late', n=v.days_late) }}</span>{% endif %}</td>

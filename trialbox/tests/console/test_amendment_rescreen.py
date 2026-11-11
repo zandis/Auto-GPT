@@ -17,7 +17,7 @@ from console.sitestore import Mark, SiteStore
 from tb_common.crypto import sha256_bytes
 from tb_contracts import Job, JobOutput
 
-from tests.console.test_console_app import _done_screen, _ulid, box, login  # noqa: F401 - box is a fixture
+from tests.console.test_console_app import _done_screen, _ulid, box, login, name_pi  # noqa: F401 - box is a fixture
 from tests.console.test_criterion_labels import _approval_job, _gzqo, _gzqo_rows
 
 PW = "amendment-rescreen-password-01"
@@ -66,6 +66,7 @@ def test_the_planted_set_aside_patient_returns_after_the_amendment(box: dict[str
     _gzqo(box)
     _screen(box, 9701, "3.0.0", [_row(A, "high", "pass"), _row(B, "review", "fail")], 0)
     box["users"].create("pi", "investigator", PW, "pi@hospa.test")
+    name_pi(box, "pi")  # D-380 (ROLE-008): the steward names the PI
     pi, _ = login(box["app"], "pi", PW)
     week = pi.get("/studies/GZQO/week").text
     assert 'data-testid="to-rescreen"' in week
@@ -156,6 +157,7 @@ def test_approve_all_sends_the_effective_date_and_irb_reference(box: dict[str, A
     _gzqo(box)
     job = _approval_job(box, _gzqo_rows("GZQO-INC-01", "GZQO-EXC-01"))
     box["users"].create("pi", "investigator", PW, "pi@hospa.test")
+    name_pi(box, "pi")  # D-380 (ROLE-008): the steward names the PI
     p, csrf = login(box["app"], "pi", PW)
     s20 = p.get(f"/pilot/jobs/{job.job_id}/approval").text
     for amber in ("GZQO-INC-01", "GZQO-EXC-01"):

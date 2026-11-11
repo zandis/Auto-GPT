@@ -60,7 +60,7 @@ def allowed(settings: Settings, command: str, sender: str) -> bool:
 # import, for the callers that list them. ``study_tasks``, ``edc_allowed`` and ``edc_role_may`` are deprecated: a test
 # fails when a new module calls them (``tests/unit/test_authz_matrix.py``); new code calls ``permit``.
 MATRIX_PATH = Path(__file__).with_name("authz_matrix.yaml")
-CONDITIONS: tuple[str, ...] = ("pi", "logged_pi", "logged_tick", "unlogged")  # plus "task:<t>"
+CONDITIONS: tuple[str, ...] = ("pi", "logged_pi", "logged_tick", "unlogged", "monitor")  # plus "task:<t>"
 # D-147: the study tasks of the delegation log (ICH E6): see candidates, mark Approach, ask a treating doctor, enter
 # data; T-512 (D-349): ``run`` lets a sub-investigator start the runs that say ``task:run`` ("screen" only shows them).
 STUDY_TASKS: tuple[str, ...] = ("screen", "approach", "refer", "enter_data", "run")
@@ -73,12 +73,14 @@ class MatrixError(ValueError):
 @dataclass(frozen=True)
 class Standing:
     """An account's standing in one study, from the study's delegation log (the console reads it; ``permit`` only
-    looks). ``is_pi``: the study's PI (the logged PI, or before the log names one, an investigator of the study);
-    ``tasks``: the study tasks (for a ``task.*`` row, the ticks the PI gave); ``log_names_pi``: the log names a PI."""
+    looks). ``is_pi``: the PI the study's log names (D-380, ROLE-008: while the log names none, nobody is PI);
+    ``tasks``: the study tasks (for a ``task.*`` row, the ticks the PI gave); ``log_names_pi``: the log names a PI;
+    ``monitor``: the account holds a monitor grant in the study today (FIT-002)."""
 
     is_pi: bool = False
     tasks: frozenset[str] = frozenset()
     log_names_pi: bool = True
+    monitor: bool = False
 
 
 NO_STANDING = Standing()
@@ -131,6 +133,10 @@ def load_matrix(path: Path = MATRIX_PATH) -> tuple[tuple[str, ...], dict[str, di
 
 
 MATRIX_ROLES, MATRIX = load_matrix()
+MATRIX_WHAT: dict[str, str] = {
+    a: str(row["what"]).strip()
+    for a, row in (yaml.safe_load(MATRIX_PATH.read_text(encoding="utf-8")).get("actions") or {}).items()
+}
 
 
 def _holds(cond: str, action: str, s: Standing) -> bool:
@@ -142,6 +148,8 @@ def _holds(cond: str, action: str, s: Standing) -> bool:
         return s.log_names_pi and action.removeprefix("task.") in s.tasks
     if cond == "unlogged":
         return not s.log_names_pi
+    if cond == "monitor":
+        return s.monitor
     return cond.removeprefix("task:") in s.tasks
 
 
@@ -209,7 +217,7 @@ def study_tasks(role: str, *, log_names_pi: bool, is_pi: bool, ticked: frozenset
     return frozenset(t for t in STUDY_TASKS if permit(role, f"task.{t}", s))
 
 
-# the role rows before a study's log names a PI (an investigator acts as PI with this row)
+# the role rows before a study's log names a PI (D-380, ROLE-008: an investigator has none; nobody acts as PI)
 ROLE_STUDY_TASKS: dict[str, frozenset[str]] = {
     r: t for r in MATRIX_ROLES if (t := study_tasks(r, log_names_pi=False, is_pi=False, ticked=frozenset()))
 }
@@ -312,3 +320,28 @@ BREAK_GLASS_MINUTES = 60
 BREAK_GLASS_NOTE_MIN = 10  # the written "why" every grant needs, in characters
 BREAK_GLASS_ROLE = "breakglass"  # a signed role is a-z only (tb_common.service_auth)
 BREAK_GLASS_REVIEW_DAYS = 7  # the steward reviews each use within a week (owner question Q-20)
+
+
+# ---------------------------------------------------------------------------------------------- D-380 (T-102b)
+# FIT-002 (grant half): a monitor grant opens a study's *enrolled* subjects only, read-only. A candidate, a screen
+# failure or a consented person who never enrolled stays closed; a withdrawn subject counts once it had an enrolment.
+MONITOR_STATES: tuple[str, ...] = ("enrolled", "on_study", "completed")
+
+
+def monitor_may_see(subject: dict[str, object]) -> bool:
+    """May a monitor grant open this lifecycle subject (the data core's subject record)? Enrolled subjects only."""
+    state = str(subject.get("state") or "")
+    if state in MONITOR_STATES:
+        return True
+    return state == "withdrawn" and bool(subject.get("enrolment") or subject.get("enrolled_on"))
+
+
+# ROLE-018: the role descriptions on ``/ops/users`` are generated from the matrix, so a page never says more or less
+# than the rows. Each right is an action's ``what``, with a mark when it holds only in some studies (a condition).
+def role_rights(role: str) -> list[tuple[str, str, bool]]:
+    """The actions a role may take somewhere: ``(action, what, conditional)``, in the matrix's order. A role not in
+    the matrix has none."""
+    if role not in MATRIX_ROLES:
+        return []
+    return [(a, MATRIX_WHAT[a], isinstance(row[role], tuple)) for a, row in MATRIX.items()
+            if row[role] is True or isinstance(row[role], tuple)]  # fmt: skip
