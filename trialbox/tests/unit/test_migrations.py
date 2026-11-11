@@ -380,7 +380,11 @@ ADDED: dict[str, tuple[str, ...]] = {
         "8250b52d4e13e66e149ffa956f83b3a8027f95d4094f1a32b999771e459f7aa5",
         "d9f888838f2280f9e49a6d3f9a9bf210ace25104632200683567a4389fa03884",
     ),
-    "site": ("7f7cf970ce4268ca7fdc4fd725535442b586b8ea1e2b23fa631dddf9d3a7575d",),
+    # D-386 (T-622): site version 5 (the study's state log and identifiers)
+    "site": (
+        "7f7cf970ce4268ca7fdc4fd725535442b586b8ea1e2b23fa631dddf9d3a7575d",
+        "2ab6655ef5282d733ea7c4b2804d496be62b238fee5fbee5d7d4d9ccd78540ff",
+    ),
     "sae": ("78527251f39fb58cd728b207c0fc332740a2d06444492dbd617b4d1b0cb7b6d3",),
     # T-510 (D-331): the feedback store, new after the baseline
     "feedback": ("3981b6201cd514508bed945433f3415993494cb24e52809cca7f37fe3801e368",),
