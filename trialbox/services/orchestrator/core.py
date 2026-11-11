@@ -54,6 +54,7 @@ from tb_contracts import (
 from orchestrator import i18n
 from orchestrator.clients import AdapterAPI, CompilerAPI, MailAPI, ParserAPI, StepFailed
 from orchestrator.db import TERMINAL, JobDB
+from orchestrator.jobs import pinned_services
 
 log = logging.getLogger("orchestrator")
 SYSTEM_SENDERS = ("scheduler", "system")
@@ -116,6 +117,7 @@ class Ctx:
     def __init__(self, orch: Orchestrator, job: Job) -> None:
         self.orch = orch
         self._job = job
+        self._services: Services | None = None
 
     @property
     def job(self) -> Job:
@@ -127,7 +129,10 @@ class Ctx:
 
     @property
     def services(self) -> Services:
-        return self.orch.services
+        """The orchestrator's services with the lake pinned to this job's snapshot (T-305a, D-383)."""
+        if self._services is None:
+            self._services = pinned_services(self)
+        return self._services
 
     @property
     def store(self) -> ObjectStore:
