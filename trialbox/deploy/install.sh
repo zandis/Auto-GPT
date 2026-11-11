@@ -257,8 +257,9 @@ chmod 600 deploy/.env
 chown "$(id -u):10001" deploy/settings.yaml && chmod 640 deploy/settings.yaml
 export TB_SETTINGS_FILE="./settings.yaml"
 if [ "$MODE" = gpu ]; then
-  # D-142 (review R-01): pin the profile's deployed pair from the site's own weights (champion: the status PRODUCTION
-  # routes); without it every PRODUCTION model call is refused (build_unpinned). Builds already pinned are kept.
+  # D-142 (review R-01): pin the profile's deployed pair from the site's own weights, which must be the release
+  # models/registry.yaml expects (D-358), as candidate; PRODUCTION routes it once `trialbox eval qualify` passes and
+  # `pin_model --promote` makes it champion (until then: champion_unqualified / no_eligible_build). Pins are kept.
   mkdir -p deploy/site
   for v in JUDGE_MODEL_DIR JUDGE_MODEL VERIFIER_MODEL_DIR VERIFIER_MODEL; do  # as compose reads them from deploy/.env
     val="$(sed -n "s/^$v=//p" deploy/.env | tail -1)"; [ -z "$val" ] || export "$v=$val"
