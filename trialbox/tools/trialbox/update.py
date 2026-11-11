@@ -1159,8 +1159,9 @@ class ComposeBox(_DockerImages):
             self.env["TB_LLM_API_KEY"] = key
             made = True
         # T-212b (D-437): the gateway and model-guard read the key from deploy/secrets/model/llm.key (a compose secret
-        # of the secrets overlay, which needs its file): a box updated from before it gets the file from .env's key
-        if (self.deploy / "secrets" / "services" / "public" / "tokens.json").is_file():
+        # of the secrets overlay, which needs its file): a box updated from before it gets the file from .env's key.
+        # T-212d (D-450): the vLLM servers read deploy/secrets/model/vllm.env, so every GPU box needs both files
+        if self.gpu() or (self.deploy / "secrets" / "services" / "public" / "tokens.json").is_file():
             from tools.trialbox import svc_secrets
 
             try:
@@ -1185,9 +1186,10 @@ class ComposeBox(_DockerImages):
         if not self.gpu():
             return ""
         image = self.env.get("TB_IMAGE") or "trialbox-py:1.0.0"
+        # D-450: doctor reads the key file, as the gateway does
         argv = ["docker", "run", "--rm", "--network", "trialbox-model-net", "--env-file", str(self.deploy / ".env"),
-                "-v", f"{self.deploy}:/app/deploy:ro", image,
-                "python", "-m", "tools.trialbox", "doctor", "--serving"]  # fmt: skip
+                "-v", f"{self.deploy}:/app/deploy:ro", "-e", "TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key",
+                image, "python", "-m", "tools.trialbox", "doctor", "--serving"]  # fmt: skip
         self.run(argv, timeout=300)
         return "; model servers: pinned names and the key (doctor --serving)"
 

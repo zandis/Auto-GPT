@@ -539,7 +539,7 @@ def _post_open(url: str, timeout: float = 10.0) -> int | None:
 
 
 def check_serving(inp: DoctorInputs) -> Check:
-    from gateway.policy import RoutingPolicy
+    from gateway.policy import RoutingPolicy, endpoint_key
     from registry.registry import DEFAULT_PATH, Registry
 
     env = dict(inp.env)
@@ -563,7 +563,8 @@ def check_serving(inp: DoctorInputs) -> Check:
         ep = policy.endpoints[ep_name]
         url = ep.url(env)
         key_var = ep.api_key_env or "api_key_env (not set in routing.yaml)"
-        key = env.get(ep.api_key_env, "") if ep.api_key_env else ""
+        # the key file (TB_LLM_API_KEY_FILE, deploy/secrets/model/llm.key; D-437, D-450) first, else the variable
+        key = endpoint_key(ep.api_key_env, env) if ep.api_key_env else ""
         if not key:
             (fails if strict else warns).append(
                 f"{ep_name}: no key, {key_var} is empty: anyone on model-net may call it"
@@ -573,7 +574,10 @@ def check_serving(inp: DoctorInputs) -> Check:
             fails.append(f"{ep_name} ({url}) not reachable: {doc}")
             continue
         if status in (401, 403):
-            why = f"{key_var} is missing or is not the server's key (deploy/.env; restart the gateway and the server)"
+            why = (
+                f"{key_var} is missing or is not the server's key (deploy/secrets/model/llm.key and vllm.env, "
+                "`trialbox secrets rotate --service model`)"
+            )
             fails.append(f"{ep_name}: the model server refused the key (HTTP {status}): {why}")
             continue
         if status != 200 or not isinstance(doc, dict):

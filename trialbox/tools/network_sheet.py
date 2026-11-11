@@ -457,6 +457,10 @@ def secrets_rows(svcs: list[Service], lang: str) -> list[tuple[str, str, str]]:
         if sec == "model_key":  # the on-box model servers' key (D-177), a file since T-212b (D-437)
             rows.append(("model key", "deploy/secrets/model/llm.key (0600)",
                          f"{', '.join(names)} only, at /run/secrets/tb_llm_key"))  # fmt: skip
+            vllm = [s.name for s in svcs if s.name in ("llm-service", "llm-verifier")]
+            if vllm:  # T-212d (D-450): vLLM has no *_FILE setting; its own env file, never deploy/.env
+                where = "deploy/secrets/model/vllm.env (0600, root)"
+                rows.append(("model key, the vLLM servers' copy (VLLM_API_KEY)", where, f"{', '.join(vllm)} only"))
             continue
         if not sec.startswith("token_"):  # the identity overlay's OIDC client secret (RUNBOOK §12)
             rows.append((sec, f"deploy/secrets/authelia/{sec}.txt (0600, root)",
@@ -465,7 +469,7 @@ def secrets_rows(svcs: list[Service], lang: str) -> list[tuple[str, str, str]]:
         svc = sec.removeprefix("token_")
         rows.append((f"service token: {svc}", f"deploy/secrets/services/{svc}.token (0600)",
                      f"{', '.join(names)} only, at /run/secrets/tb_service_token"))  # fmt: skip
-    keys = ("IMAP_PASS", "SMTP_PASS", "CLOUD_LLM_API_KEY", "TB_DB_URL", "POSTGRES_WF_PASSWORD")
+    keys = ("IMAP_PASS", "SMTP_PASS", "CLOUD_LLM_API_KEY", "TB_DB_URL", "POSTGRES_WF_PASSWORD", "TB_KMS_TOKEN")
     cleared = {k: [s.name for s in svcs if k in s.cleared] for k in keys}
     py = sorted({s.name for s in svcs if any(x.startswith("token_") for x in s.secrets)})  # the TrialBox services
 
@@ -477,7 +481,14 @@ def secrets_rows(svcs: list[Service], lang: str) -> list[tuple[str, str, str]]:
         ("token registry (sha256 of each token)", "deploy/secrets/services/public/tokens.json", T["every"][lang]),
         ("POSTGRES_PASSWORD (role hapi)", "deploy/.env (0600, root)", "db, fhir-store"),
         ("POSTGRES_WF_PASSWORD, TB_DB_URL (role trialbox)", "deploy/.env (0600, root)", "db; " + keep("TB_DB_URL")),
+        # D-378 / D-450: each service's own password reaches it inside its own TB_DB_URL, never as a variable
+        ("TB_DB_PW_<SERVICE> (one role per service)", "deploy/.env (0600, root)", "db; each service its own only"),
         ("IMAP_PASS, SMTP_PASS", "deploy/.env (0600, root)", keep("IMAP_PASS")),
+        (
+            "TB_KEK_PASSPHRASE, TB_KMS_TOKEN (if the KEK back end uses them)",
+            "deploy/.env (0600, root)",
+            keep("TB_KMS_TOKEN"),
+        ),
         ("CLOUD_LLM_API_KEY (empty by default)", "deploy/.env (0600, root)", keep("CLOUD_LLM_API_KEY")),
         (
             "site_hmac.key, pid_map.key, REDCap API tokens",

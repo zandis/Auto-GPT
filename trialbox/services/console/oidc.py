@@ -22,7 +22,8 @@ import hashlib
 import json
 import secrets
 import time
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+from tb_common.http import EgressGuard, EgressRefused, GuardedTransport
 
 from console.auth import ROLES
 
@@ -174,14 +176,28 @@ class OidcClient:
     _meta: dict[str, Any] = field(default_factory=dict)
     _jwks: dict[str, Any] = field(default_factory=dict)
 
-    def _http(self) -> httpx.Client:
+    def _guard(self) -> EgressGuard:
+        """T-212d (D-450): the issuer the operator set is a declared destination (on the box behind Caddy, or on the
+        LAN); the endpoints the discovery document names are checked like any other address."""
+        u = httpx.URL(self.settings.issuer or "https://invalid")
+        return EgressGuard("console", extra=[(u.host, u.port or 443)])
+
+    @contextmanager
+    def _http(self) -> Iterator[httpx.Client]:
         verify: Any = True
         ca = self.settings.ca_file
         if ca is not None and ca.is_file() and ca.stat().st_size > 0:  # compose mounts /dev/null when unset
             import ssl
 
             verify = ssl.create_default_context(cafile=str(ca))
-        return httpx.Client(timeout=10.0, verify=verify, transport=self.transport, follow_redirects=False)
+        # tests inject a mock transport; every real call goes through the SSRF guard (D-450)
+        transport = self.transport or GuardedTransport(self._guard(), verify=verify)
+        with httpx.Client(timeout=10.0, verify=verify, transport=transport, follow_redirects=False,
+                          trust_env=self.transport is not None) as http:  # fmt: skip
+            try:
+                yield http
+            except EgressRefused as exc:
+                raise OidcError(f"the address is not allowed ({exc.reason}): {exc.host}") from exc
 
     def metadata(self) -> dict[str, Any]:
         if not self._meta:
