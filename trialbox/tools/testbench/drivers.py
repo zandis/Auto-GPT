@@ -6,7 +6,6 @@ from __future__ import annotations
 import json
 import shutil
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,9 +18,9 @@ SITE_KEY = b"trialbox-testbench-site-key-0123456789ab"
 CLASS_TAGS = ("D0", "D1", "D2-L", "D2-K", "D3", "D4")
 
 
-# ------------------------------------------------------------------------------------------------ data platform
+# ------------------------------------------------------------------------------------------------ ingest gate
 @dataclass
-class DataplatRun:
+class IngestRun:
     label: str
     outcome: str
     published: bool
@@ -30,21 +29,19 @@ class DataplatRun:
     conditions: list[dict[str, Any]]
     tables: list[dict[str, Any]]
     quarantine: dict[str, dict[str, int]]
-    notice: dict[str, Any] | None
     current_before: str | None
     current_after: str | None
-    lineage_complete: bool | None
-    lineage_missing: list[str]
+    lineage_complete: bool
     equations: list[dict[str, Any]]
 
 
 @dataclass
-class DataplatResult:
+class IngestGateResult:
     defect: str
     defect_table: str = ""
     expected_reason: str = ""
-    runs: list[DataplatRun] = field(default_factory=list)
-    lineage_jobs: list[dict[str, Any]] = field(default_factory=list)
+    runs: list[IngestRun] = field(default_factory=list)
+    lineage: list[dict[str, Any]] = field(default_factory=list)
 
 
 DEFECT_TABLE: dict[str, tuple[str, str | None]] = {
@@ -56,29 +53,19 @@ DEFECT_TABLE: dict[str, tuple[str, str | None]] = {
 }
 
 
-def _dp_run(label: str, res: Any) -> DataplatRun:
-    rep = res.validation
-    eqs = []
-    for rec in [rep.reconciliation if rep else None, res.reconciliation]:
-        if rec is not None:
-            eqs += [
-                {
-                    "level": e.level,
-                    "table": e.table or "",
-                    "name": e.name,
-                    "verdict": e.verdict,
-                    "lhs": e.lhs,
-                    "rhs": e.rhs,
-                }
-                for e in rec.equations
-            ]
-    return DataplatRun(
+def _ingest_run(label: str, night: Any) -> IngestRun:
+    rep = night.validation
+    eqs = [
+        {"table": e.table or "", "name": e.name, "verdict": e.verdict, "lhs": e.lhs, "rhs": e.rhs}
+        for e in (rep.reconciliation.equations if rep else [])
+    ]
+    return IngestRun(
         label=label,
-        outcome=str(res.outcome),
-        published=bool(res.published),
-        blocking=list(res.blocking_reasons),
-        counts=res.counts,
-        conditions=[c.model_dump(mode="json") for c in res.gate.conditions],
+        outcome=night.outcome,
+        published=night.published,
+        blocking=night.blocking_reasons,
+        counts=night.counts,
+        conditions=[c.model_dump(mode="json") for c in night.gate.conditions],
         tables=[
             {
                 "table": t.table,
@@ -90,24 +77,21 @@ def _dp_run(label: str, res: Any) -> DataplatRun:
             }
             for t in (rep.tables if rep else [])
         ],
-        quarantine=res.quarantine,
-        notice={"to": res.notice.to, "cc": res.notice.cc, "subject": res.notice.subject, "body": res.notice.body}
-        if res.notice
-        else None,
-        current_before=res.gate.current_before,
-        current_after=res.gate.current_after,
-        lineage_complete=res.lineage.complete if res.lineage else None,
-        lineage_missing=list(res.lineage.missing) if res.lineage else [],
+        quarantine=night.quarantine,
+        current_before=night.gate.current_before,
+        current_after=night.gate.current_after,
+        lineage_complete=night.lineage_complete,
         equations=eqs,
     )
 
 
-def run_dataplat(source: Path, defect: str, log: Log, workdir: Path) -> DataplatResult:
-    """Baseline publish of the synthetic site, then (optionally) the same drop with one planted defect."""
-    from dataplat.common import fixed_clock
-    from dataplat.contracts import DEMO_HIS, load_contracts
-    from dataplat.pipeline import run_pipeline
+def run_ingest_gate(source: Path, defect: str, log: Log, workdir: Path) -> IngestGateResult:
+    """A clean night of the synthetic site through the adapter with its data contracts, then (optionally) the same
+    export with one planted defect: the gate holds the second night and the first stays current (T-659b)."""
+    from adapter.governance import DEMO_HIS, load_contracts
     from tb_testkit.defects import Defect, plant, write_source_totals
+
+    from tools.ingest_local import run_local
 
     if defect and defect not in DEFECT_TABLE:
         raise ValueError(f"unknown defect {defect!r}")
@@ -116,42 +100,21 @@ def run_dataplat(source: Path, defect: str, log: Log, workdir: Path) -> Dataplat
     contracts = load_contracts(DEMO_HIS)
     write_source_totals(drop, {t: (c.keys.patient, c.keys.watermark) for t, c in contracts.items()})
     work = workdir / "work"
-    from tools import pglocal
-
-    pglocal.for_work(workdir)  # D-126: the MPI lives in the trial database (TB_DB_URL, or a local throwaway one)
-    out = DataplatResult(defect=defect or "none")
-    log("cycle 1: clean drop, snapshot 2026-10-04")
-    r1 = run_pipeline(
-        drop, work, site_key=SITE_KEY, clock=fixed_clock(datetime(2026, 10, 4, 2, 0, tzinfo=UTC)), snapshot="2026-10-04"
-    )
-    log(f"cycle 1: {r1.outcome}")
-    out.runs.append(_dp_run("cycle 1 (clean)", r1))
+    out = IngestGateResult(defect=defect or "none")
+    log("night 1: clean export, snapshot 2026-10-04")
+    r1 = run_local(drop, work, site_key=SITE_KEY, snapshot="2026-10-04")
+    log(f"night 1: {r1.outcome}")
+    out.runs.append(_ingest_run("night 1 (clean)", r1))
+    out.lineage.append(r1.lineage)
     if defect:
         table, column = DEFECT_TABLE[defect]
         planted = plant(Defect(defect), drop, table, column)
         out.defect_table, out.expected_reason = table, planted.expected_reason.value
         log(f"planted {defect} in {table}; expected reason {planted.expected_reason.value}")
-        r2 = run_pipeline(
-            drop,
-            work,
-            site_key=SITE_KEY,
-            clock=fixed_clock(datetime(2026, 10, 5, 2, 0, tzinfo=UTC)),
-            snapshot="2026-10-05",
-        )
-        log(f"cycle 2: {r2.outcome} {r2.blocking_reasons}")
-        out.runs.append(_dp_run(f"cycle 2 ({defect})", r2))
-    events = work / "lineage" / "events.jsonl"
-    if events.exists():
-        for line in events.read_text(encoding="utf-8").splitlines():
-            ev = json.loads(line)
-            out.lineage_jobs.append(
-                {
-                    "eventType": ev.get("eventType"),
-                    "job": ev.get("job", {}).get("name"),
-                    "inputs": len(ev.get("inputs") or []),
-                    "outputs": len(ev.get("outputs") or []),
-                }
-            )
+        r2 = run_local(drop, work, site_key=SITE_KEY, snapshot="2026-10-05")
+        log(f"night 2: {r2.outcome} {r2.blocking_reasons}")
+        out.runs.append(_ingest_run(f"night 2 ({defect})", r2))
+        out.lineage.append(r2.lineage)
     return out
 
 
@@ -450,7 +413,7 @@ __all__ = [
     "guard_redact",
     "registry_view",
     "route_table",
-    "run_dataplat",
+    "run_ingest_gate",
     "run_recall",
     "run_registry_match",
     "send_test_prompt",

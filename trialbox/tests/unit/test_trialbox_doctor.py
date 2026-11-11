@@ -162,19 +162,19 @@ def test_channel_engine_and_topology_checks() -> None:
 
 @pytest.mark.req("S1-16", "DP-25")
 def test_publish_gate_state(tmp_path: Path) -> None:
-    wd = tmp_path / "dataplat"
-    (wd / "gates").mkdir(parents=True)
-    none = doctor.run(inputs(dataplat_workdir=wd))
+    """T-659b: the adapter's lake, its CURRENT and its one gate record per night."""
+    lake = tmp_path / "lake"
+    (lake / "gates").mkdir(parents=True)
+    none = doctor.run(inputs(ingest_lake=lake))
     assert status(none, "publish_gate").status == "FAIL"  # nothing ever published
-    (wd / "l5").mkdir()
-    (wd / "l5" / "CURRENT.json").write_text(json.dumps({"snapshot_id": "snap-1"}), encoding="utf-8")
-    (wd / "gates" / "000000_g1.json").write_text(json.dumps({"outcome": "PUBLISH"}), encoding="utf-8")
-    assert status(doctor.run(inputs(dataplat_workdir=wd)), "publish_gate").status == "PASS"
-    (wd / "gates" / "000001_g2.json").write_text(
+    (lake / "CURRENT").write_text("2026-10-04", encoding="utf-8")
+    (lake / "gates" / "2026-10-04.json").write_text(json.dumps({"outcome": "PUBLISH"}), encoding="utf-8")
+    assert status(doctor.run(inputs(ingest_lake=lake)), "publish_gate").status == "PASS"
+    (lake / "gates" / "2026-10-05.json").write_text(
         json.dumps({"outcome": "HOLD", "blocking_reasons": ["RECON_ROW_COUNT"]}), encoding="utf-8"
     )
-    held = status(doctor.run(inputs(dataplat_workdir=wd)), "publish_gate")
-    assert held.status == "WARN" and "RECON_ROW_COUNT" in held.detail and "snap-1" in held.detail
+    held = status(doctor.run(inputs(ingest_lake=lake)), "publish_gate")
+    assert held.status == "WARN" and "RECON_ROW_COUNT" in held.detail and "2026-10-04" in held.detail
 
 
 @pytest.mark.req("S1-16")
@@ -309,6 +309,6 @@ def test_backup_check_fails_in_production_on_a_missing_off_box_target_route_cron
     c = status(doctor.run(inputs(env=good, deploy=deploy, cron_dir=cron), (doctor.check_backup,)), "backup")
     assert c.status == "FAIL" and "40 h old" in c.detail
     # the deploy folder comes from --env-file
-    assert doctor.inputs_from(env_file=deploy / ".env", settings=None, routing=None, dataplat=None).deploy == deploy
+    assert doctor.inputs_from(env_file=deploy / ".env", settings=None, routing=None, lake=None).deploy == deploy
     nodeploy = status(doctor.run(inputs(env=good), (doctor.check_backup,)), "backup")
     assert nodeploy.status == "FAIL" and "--env-file" in nodeploy.detail

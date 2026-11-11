@@ -1124,10 +1124,16 @@ def create_app(
     from console import items_page
 
     items_page.register(app, helpers)  # T-107 (D-353): /data/items, the clinical item catalogue for the steward
+    from console import instruments_page
+
+    instruments_page.register(app, helpers)  # T-307 (D-375): /data/instruments, the instrument copyright register
 
     from console import ops_pages
 
     ops_pages.register(app, helpers, raw_env)  # D-178: backups, update and rollback, logs, secrets, network sheet
+    from console import metrics_page
+
+    metrics_page.register(app, helpers)  # T-209a (D-379): /metrics and the box's health for the morning mail
     from console import sae_pages
 
     sae_pages.register(app, helpers)  # the SAE register and its worklist (D-191)

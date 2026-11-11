@@ -33,7 +33,7 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--env-file", type=Path, default=None)
     d.add_argument("--settings", type=Path, default=None)
     d.add_argument("--routing", type=Path, default=None)
-    d.add_argument("--dataplat-workdir", type=Path, default=None)
+    d.add_argument("--lake-dir", type=Path, default=None, help="the adapter's lake (default TB_LAKE_DIR)")
     d.add_argument("--json", action="store_true")
     d.add_argument("--live", action="store_true", help="also ask the model servers (served names, key; D-177)")
     d.add_argument("--serving", action="store_true", help="only the live model-server check (install.sh)")
@@ -76,6 +76,7 @@ def main(argv: list[str] | None = None) -> int:
     v = sub.add_parser("backup-verify", help="decrypt a backup and check every hash (needs the private key)")
     v.add_argument("file", type=Path)
     v.add_argument("--key", type=Path, required=True)
+    v.add_argument("--deploy", type=Path, default=None, help="where deploy/site/backup-verified.json goes (T-209a)")
     r = sub.add_parser("restore", help="restore databases and files from a backup (needs the private key)")
     r.add_argument("file", type=Path)
     r.add_argument("--key", type=Path, required=True)
@@ -126,7 +127,7 @@ def main(argv: list[str] | None = None) -> int:
     u.add_argument("--deploy", type=Path, default=deploy)
     u.add_argument("--no-backup", action="store_true", help="skip the D-126 backup (audited; not for a real box)")
     op = sub.add_parser("ops", help="the console's operations requests: run them, write the status (D-178)")
-    op.add_argument("action", choices=["run", "status"])
+    op.add_argument("action", choices=["run", "status", "metrics-token"])
     op.add_argument("--deploy", type=Path, default=deploy)
     op.add_argument("--ops-dir", type=Path, default=None, help="default: TB_OPS_DIR or deploy/ops")
     op.add_argument("--local", action="store_true", help="a box in this process (no docker compose)")
@@ -182,9 +183,7 @@ def main(argv: list[str] | None = None) -> int:
         from tools.trialbox import doctor
 
         which = doctor.LIVE if a.serving else (doctor.CHECKS + doctor.LIVE if a.live else doctor.CHECKS)
-        inp = doctor.inputs_from(
-            env_file=a.env_file, settings=a.settings, routing=a.routing, dataplat=a.dataplat_workdir
-        )
+        inp = doctor.inputs_from(env_file=a.env_file, settings=a.settings, routing=a.routing, lake=a.lake_dir)
         if a.two_device:
             from tools import two_device as td
 
@@ -235,7 +234,7 @@ def _platform_cmd(a: argparse.Namespace) -> int:
 
         from tools.trialbox.doctor import _egress, inputs_from
 
-        env = pf.platform_env(inputs_from(env_file=a.env_file, settings=None, routing=None, dataplat=None).env)
+        env = pf.platform_env(inputs_from(env_file=a.env_file, settings=None, routing=None, lake=None).env)
         eg = _egress()
         pols, warnings = eg.render_networkpolicy(eg.allowlist(env, eg.ROUTING))
         doctor_pol, doctor_warnings = pf.render_doctor_policy(env)  # the install-check job's own egress (D-211)
@@ -327,7 +326,13 @@ def _backup_cmd(a: argparse.Namespace) -> int:
             print(json.dumps(bk.check(a.file), indent=1, ensure_ascii=False))
             return 0
         if a.cmd == "backup-verify":
-            print(json.dumps(bk.verify(a.file, a.key), indent=1, ensure_ascii=False))
+            res = bk.verify(a.file, a.key)
+            print(json.dumps(res, indent=1, ensure_ascii=False))
+            from tb_common import metrics  # T-209a (D-379, OPS-047): the health check is red 100 days after this
+
+            metrics.record_verified(
+                a.deploy or Path(__file__).resolve().parents[2] / "deploy", {**res, "file": a.file.name}
+            )
             return 0
         if not a.yes:
             print("restore replaces the box's databases and data folders (the old folders are kept aside): add --yes")

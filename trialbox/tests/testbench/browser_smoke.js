@@ -10,7 +10,7 @@ const { chromium } = require("playwright");
 const path = require("path");
 
 const BANNER = "TEST BENCH: synthetic and open data only, not a clinical tool";
-const PAGES = ["/", "/run", "/dataplat", "/llm", "/guard", "/recall", "/match"];
+const PAGES = ["/", "/run", "/ingest", "/llm", "/guard", "/recall", "/match"];
 
 function fail(msg) {
   console.error("FAIL: " + msg);

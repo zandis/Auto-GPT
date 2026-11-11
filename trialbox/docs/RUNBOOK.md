@@ -4,6 +4,8 @@
 
 For the site's IT. Commands run on the box from `/opt/trialbox` as root unless noted. D-numbers are in
 [DECISIONS](DECISIONS.md). Host hardening is in [Security](SECURITY.md); data sources in [Data](DATA.md).
+Sections whose audience is `team` (the table at the end) are for the people who build TrialBox; their way in is
+[Developing](DEVELOPING.md) (T-635, D-390). Support, recovery, keys, patches and leavers are §21 to §25.
 
 **Sections are files (T-669, D-352).** Each numbered section is one file in [`docs/runbook/`](runbook/), named
 `NN-<slug>.md` and starting `# N. Title`. Change a section by editing its file. The list below is generated:
@@ -28,7 +30,7 @@ File: [runbook/03-accounts.md](runbook/03-accounts.md). In it: [Build gate: the 
 
 ## 4. Troubleshooting
 
-File: [runbook/04-troubleshooting.md](runbook/04-troubleshooting.md).
+File: [runbook/04-troubleshooting.md](runbook/04-troubleshooting.md). Parts: [RUNBOOK §4 part: disk full](runbook/04-disk-full.md), [RUNBOOK §4 part: GPU fault](runbook/04-gpu-fault.md), [RUNBOOK §4 part: the morning mail did not arrive](runbook/04-morning-mail-missing.md).
 
 ## 5. Updates, backup, restore, secrets
 
@@ -36,7 +38,7 @@ File: [runbook/05-updates-backup-restore-secrets.md](runbook/05-updates-backup-r
 
 ## 6. Go-live acceptance
 
-File: [runbook/06-go-live-acceptance.md](runbook/06-go-live-acceptance.md).
+File: [runbook/06-go-live-acceptance.md](runbook/06-go-live-acceptance.md). In it: [6.1 The lake from OMOP: the flip (T-202, D-384)](runbook/06-go-live-acceptance.md#61-the-lake-from-omop-the-flip-t-202-d-384).
 
 ## 7. Contacts and escalation
 
@@ -60,7 +62,7 @@ File: [runbook/11-cloud-runs.md](runbook/11-cloud-runs.md). Parts: [RUNBOOK §11
 
 ## 12. Identity and TLS (D-192, D-193)
 
-File: [runbook/12-identity-and-tls.md](runbook/12-identity-and-tls.md).
+File: [runbook/12-identity-and-tls.md](runbook/12-identity-and-tls.md). Parts: [RUNBOOK §12 part: certificate renewal](runbook/12-certificate-renewal.md).
 
 ## 13. Working in parallel on one machine (D-201)
 
@@ -72,7 +74,7 @@ File: [runbook/14-judge-bake-off.md](runbook/14-judge-bake-off.md).
 
 ## 15. Operations screens (D-178)
 
-File: [runbook/15-operations-screens.md](runbook/15-operations-screens.md).
+File: [runbook/15-operations-screens.md](runbook/15-operations-screens.md). In it: [Box health and monitoring (T-209a, D-379)](runbook/15-operations-screens.md#box-health-and-monitoring-t-209a-d-379).
 
 ## 16. Box-install rehearsal: the gate before a site's IQ
 
@@ -94,25 +96,25 @@ Not written yet: the number is held in the table below.
 
 Not written yet: the number is held in the table below.
 
-## 21. Support model and the supervised remote session (reserved for T-635)
+## 21. Support model and the supervised remote session
 
-Not written yet: the number is held in the table below.
+File: [runbook/21-support-model-and-the-supervised-remote-session.md](runbook/21-support-model-and-the-supervised-remote-session.md). In it: [Who answers](runbook/21-support-model-and-the-supervised-remote-session.md#who-answers), [Hours and languages](runbook/21-support-model-and-the-supervised-remote-session.md#hours-and-languages), [Ticket priority](runbook/21-support-model-and-the-supervised-remote-session.md#ticket-priority), [The ticket channel](runbook/21-support-model-and-the-supervised-remote-session.md#the-ticket-channel), [The supervised remote session](runbook/21-support-model-and-the-supervised-remote-session.md#the-supervised-remote-session), [Hardware return](runbook/21-support-model-and-the-supervised-remote-session.md#hardware-return).
 
-## 22. Disaster recovery with measured RPO and RTO (reserved for T-635)
+## 22. Disaster recovery with measured RPO and RTO
 
-Not written yet: the number is held in the table below.
+File: [runbook/22-disaster-recovery-with-measured-rpo-and-rto.md](runbook/22-disaster-recovery-with-measured-rpo-and-rto.md). In it: [The numbers](runbook/22-disaster-recovery-with-measured-rpo-and-rto.md#the-numbers), [What a restore needs (have it before the day)](runbook/22-disaster-recovery-with-measured-rpo-and-rto.md#what-a-restore-needs-have-it-before-the-day), [The restore, with the clock](runbook/22-disaster-recovery-with-measured-rpo-and-rto.md#the-restore-with-the-clock), [The quarterly drill](runbook/22-disaster-recovery-with-measured-rpo-and-rto.md#the-quarterly-drill). Parts: [RUNBOOK §22 part: moving the box to another address](runbook/22-moving-the-box.md), [RUNBOOK §22 part: a planned power cut](runbook/22-planned-power-cut.md), [RUNBOOK §22 part: replacing hardware](runbook/22-replacing-hardware.md).
 
-## 23. Key inventory and the lost-box list (reserved for T-635)
+## 23. Key inventory and the lost-box list
 
-Not written yet: the number is held in the table below.
+File: [runbook/23-key-inventory-and-the-lost-box-list.md](runbook/23-key-inventory-and-the-lost-box-list.md). In it: [The inventory on the box](runbook/23-key-inventory-and-the-lost-box-list.md#the-inventory-on-the-box), [The lost-box list](runbook/23-key-inventory-and-the-lost-box-list.md#the-lost-box-list).
 
-## 24. Patch policy (reserved for T-635)
+## 24. Patch policy
 
-Not written yet: the number is held in the table below.
+File: [runbook/24-patch-policy.md](runbook/24-patch-policy.md). In it: [The host system](runbook/24-patch-policy.md#the-host-system), [Who, what, how fast](runbook/24-patch-policy.md#who-what-how-fast), [A patch window, step by step](runbook/24-patch-policy.md#a-patch-window-step-by-step), [What Aimedics watches](runbook/24-patch-policy.md#what-aimedics-watches).
 
-## 25. Leavers (reserved for T-635)
+## 25. Leavers
 
-Not written yet: the number is held in the table below.
+File: [runbook/25-leavers.md](runbook/25-leavers.md). In it: [A member of the trial team (coordinator, investigator, PI)](runbook/25-leavers.md#a-member-of-the-trial-team-coordinator-investigator-pi), [The site administrator](runbook/25-leavers.md#the-site-administrator), [A key steward or the holder of the backup key](runbook/25-leavers.md#a-key-steward-or-the-holder-of-the-backup-key), [Hospital IT staff who ran the box](runbook/25-leavers.md#hospital-it-staff-who-ran-the-box), [An Aimedics person](runbook/25-leavers.md#an-aimedics-person).
 
 ## 26. Platform day 2 (reserved for T-633)
 
@@ -127,7 +129,7 @@ by adding its row here before the card's branch is cut; the card then adds `docs
 `python -m tools.doclint --write`. A number is never given twice and never reused. Extending a section that exists
 (for example T-111b on §5) is an edit of its file and needs no row. T-633's plan row says §14, which is the judge bake-off on master; it takes §26. `doclint` fails when a section file
 has no row here. *Audience* is who the section is for: `site` (the site's IT) or `team` (the people who build
-TrialBox; OPS-073: these move to the team's own document with T-635).
+TrialBox; OPS-073: [Developing](DEVELOPING.md) lists them, D-390).
 
 | § | Title | Holder | Audience |
 | --- | --- | --- | --- |
@@ -151,9 +153,9 @@ TrialBox; OPS-073: these move to the team's own document with T-635).
 | 18 | Developing a site mapping without the site's data | on master | team |
 | 19 | Model misbehaviour: note reading off, the runs a build touched | T-609 | site |
 | 20 | Close-out and decommissioning | T-628 | site |
-| 21 | Support model and the supervised remote session | T-635 | site |
-| 22 | Disaster recovery with measured RPO and RTO | T-635 | site |
-| 23 | Key inventory and the lost-box list | T-635 | site |
-| 24 | Patch policy | T-635 | site |
-| 25 | Leavers | T-635 | site |
+| 21 | Support model and the supervised remote session | on master | site |
+| 22 | Disaster recovery with measured RPO and RTO | on master | site |
+| 23 | Key inventory and the lost-box list | on master | site |
+| 24 | Patch policy | on master | site |
+| 25 | Leavers | on master | site |
 | 26 | Platform day 2 | T-633 | site |
