@@ -70,7 +70,7 @@ jobs:
           cache-dependency-glob: trialbox/pyproject.toml
 
       - name: PostgreSQL server binaries
-        run: ls /usr/lib/postgresql/*/bin/initdb >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y postgresql)
+        run: tools/ci_postgres.sh  # the one major of deploy/images.lock, pg_config --version checked (D-371)
 
       - name: pytest on the merged config and the identity code
         run: |
