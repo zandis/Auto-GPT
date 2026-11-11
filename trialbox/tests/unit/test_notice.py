@@ -163,7 +163,7 @@ def test_a_new_vocabulary_folder_fails_the_check(tmp_path: Path, monkeypatch: py
 
 
 def test_the_jar_and_font_lists_are_named_in_notice() -> None:
-    """The translator's direct dependency and every fetched jar (when ``tools/fetch_jvm_deps.sh`` has run), and
+    """The translator's direct dependency and every pinned jar (``tools/jvm-deps.sha256``), and
     every font of ``tools/fetch_fonts.py``, are named in NOTICE."""
     from tools.fetch_fonts import FONTS
 
@@ -176,7 +176,9 @@ def test_the_jar_and_font_lists_are_named_in_notice() -> None:
             assert f"{artifact} {version}" in text, artifact
     for family in FONTS:
         assert re.sub(r"(?<=[a-z])(?=[A-Z])", " ", family) in text, family
-    lib = ROOT / ".cache/jvm/cql-translator/lib"
-    jars = sorted(lib.glob("*.jar")) if lib.is_dir() else []
-    missing = [j.name for j in jars if j.name.removesuffix(".jar") not in text]
+    # every jar the image ships: the pinned list tools/fetch_jvm_deps.sh checks the fetch against (T-110b)
+    pins = (ROOT / "tools/jvm-deps.sha256").read_text(encoding="utf-8").splitlines()
+    jars = [ln.split()[1] for ln in pins if ln.strip() and not ln.startswith("#")]
+    assert jars
+    missing = [j for j in jars if j.removesuffix(".jar") not in text]
     assert not missing, f"jars fetched for the image but not named in NOTICE: {missing}"
