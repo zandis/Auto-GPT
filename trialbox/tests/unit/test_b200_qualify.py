@@ -188,6 +188,10 @@ def test_the_owners_script_end_to_end_on_stand_ins(tmp_path: Path) -> None:
     calls = (tmp_path / "state" / "nvidia-smi.calls").read_text(encoding="utf-8")
     assert "mig -i 0 -cgi 2g.45gb,1g.23gb -C" in calls and "mig -i 0 -cgi 3g.90gb,3g.90gb -C" in calls
     assert "gcloud" not in res.stdout + res.stderr
+    # the servers' logs follow the qualify run, so its log_marker step searches what they wrote during it
+    docker = (tmp_path / "state" / "docker.calls").read_text(encoding="utf-8").splitlines()
+    assert "logs -f judge-standin" in docker and "logs -f verifier-standin" in docker
+    assert "logs judge-standin" not in docker
     assert "standin" in (run / "G1b.md").read_text(encoding="utf-8")
     with tarfile.open(run / "g1b-results.tar.gz") as t:
         names = t.getnames()
@@ -210,6 +214,28 @@ def test_the_record_passes_only_from_a_commit_without_stand_ins(tmp_path: Path) 
     tampered = json.loads(json.dumps(rec))
     tampered["layouts"][0]["fingerprint"]["driver"] = "999"
     assert any("fingerprint_sha256" in p for p in bq.problems(tampered))
+
+
+def test_the_record_takes_the_throughput_numbers_from_the_qualification_record(tmp_path: Path) -> None:
+    # LLM-025: the numbers come from the qualification record's throughput step (tools/qualify.py); nothing writes
+    # a throughput.json
+    _run(tmp_path)
+    run = tmp_path / "run"
+    qual = json.loads((run / "small" / "qualification.json").read_text(encoding="utf-8"))
+    qual["steps"] = {"throughput": {"status": "passed", "detail": {
+        "workers": 4,
+        "seconds_per_note_stage_patient": {"p50": 6.3, "p95": 9.1, "n": 40},
+        "seconds_per_criterion_check": {"p50": 0.3, "p95": 0.8, "n": 400},
+        "note_stage_share": "not measured here: the G1 run reports it per trial (LLM-025)",
+    }}}  # fmt: skip
+    (run / "small" / "qualification.json").write_text(json.dumps(qual), encoding="utf-8")
+    rec = bq.make_record(run, operator="operator-a", standin=True)
+    jsonschema.validate(rec, SCHEMA)
+    by = {r["name"]: r for r in rec["layouts"]}
+    assert by["small"]["throughput"] == {"note_stage_share": None, "note_stage_s_p50": 6.3, "note_stage_s_p95": 9.1,
+                                         "criterion_s_p50": 0.3, "criterion_s_p95": 0.8}  # fmt: skip
+    assert set(by["large"]["throughput"].values()) == {None}  # the stand-in qualification record has no steps
+    assert "| 6.3 / 9.1 |" in bq.render(rec)
 
 
 def test_the_script_refuses_a_stand_in_qualify_on_a_real_run_and_a_wrong_sha(tmp_path: Path) -> None:

@@ -14,13 +14,13 @@
   change or withdraw it the person gives a reason and types their password (and code) again.
 * ``/studies/{rs}/edc/trail/{record}``: every draft, decision, signature and send of one subject.
 
-Who may do what is ``tb_common.authz.edc_allowed`` (``enter_data`` for the work, the PI alone to switch on, the PI or
-an admin to switch off; never a viewer or a CRO account), read through the delegation log (``console.team``). To sign,
-the person needs their own active entry on the study's delegation log, whose name is the printed name; to switch on,
-the log must name them as the PI (D-162). Every call that changes something carries the person's signed assertion
-(``actor_header``) and the orchestrator takes the person and role from it, never from the body; the signature call
-carries an assertion made right after the password check. The orchestrator checks the switch and every review rule
-again (``edc.service``). Each action is one function used by the page and by ``/api/v1``.
+Who may do what is the matrix's ``edc.*`` rows (``tb_common.authz.permit``: ``enter_data`` for the work, the PI alone to
+switch on, the PI or an admin to switch off; never a viewer or a CRO account), read through the delegation log
+(``console.team``). To sign, the person needs their own active entry on the study's delegation log, whose name is the
+printed name; to switch on, the log must name them as the PI (D-162). Every call that changes something carries the
+person's signed assertion (``actor_header``) and the orchestrator takes the person and role from it, never from the
+body; the signature call carries an assertion made right after the password check. The orchestrator checks the switch
+and every review rule again (``edc.service``). Each action is one function used by the page and by ``/api/v1``.
 """
 
 from __future__ import annotations
@@ -37,7 +37,8 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 from httpx import HTTPError
 from pydantic import BaseModel, Field
-from tb_common.authz import edc_allowed
+from tb_common.authz import Standing as Grant
+from tb_common.authz import permit
 from tb_common.service_auth import actor_header
 
 from console import s28
@@ -57,6 +58,7 @@ WHAT = {"none": ("",), "patient": ("birth_date", "sex"), "observation": ("value"
         "condition": ("presence", "date"), "medication": ("presence", "term", "start"), "note": ("value",)}  # fmt: skip
 ACK_KINDS = ("sponsor_letter", "iit_pi_sponsor")
 OIDC_METHOD = "oidc+mfa"  # T-205: the signer typed their credentials and a second factor at the provider again
+EDC_PAGE_ACTIONS = ("map", "draft", "review", "sign", "send", "export", "switch_on", "switch_off")  # the page's buttons
 SIGN_TTL = 720.0  # seconds between the sign button and the return from the provider (its ten minutes, and two)
 
 
@@ -269,15 +271,15 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = rs.strip().upper()
         if not _RS.match(rid) or not sess.user.sees_study(rid) or not known_study(bk, rid):
             raise h.problem(404, "notfound")
-        tasks, pi, _ = stand(sess, rid)
-        if not edc_allowed(sess.user.role, action, tasks=tasks, is_pi=pi):
+        if not may(sess, rid, (action,))[action]:
             raise deny(sess, path)
         return rid
 
-    def may(sess: Session, rid: str) -> dict[str, bool]:
+    def may(sess: Session, rid: str, actions: tuple[str, ...] = EDC_PAGE_ACTIONS) -> dict[str, bool]:
+        """The ``edc.*`` rows (T-102c, D-425) with the account's standing in the study, read once."""
         tasks, pi, _ = stand(sess, rid)
-        return {a: edc_allowed(sess.user.role, a, tasks=tasks, is_pi=pi) for a in
-                ("map", "draft", "review", "sign", "send", "export", "switch_on", "switch_off")}  # fmt: skip
+        grant = Grant(is_pi=pi, tasks=tasks)
+        return {a: permit(sess.user.role, f"edc.{a}", grant).allowed for a in actions}
 
     def pid_of(rid: str, record: str) -> str:
         """The subject's pseudonymous id from its screening number (the record key in the EDC); never a chart no."""

@@ -2,8 +2,8 @@
 
 *Owner: Product owner. Status: living; changed in the same pull request as the code it describes. History: the git log of this file and of `docs/user-guide/`; the merge into eight documents is D-139; the split into section files is D-352.*
 
-For the people who use the console: investigators (PI), coordinators (CRC), administrators, CRO specialists and
-viewers. The console speaks Japanese, Traditional Chinese and English; this page is in English and points to the help
+For the people who use the console: investigators (PI), coordinators (CRC), administrators, data stewards, the privacy office,
+CRO specialists and viewers. The console speaks Japanese, Traditional Chinese and English; this page is in English and points to the help
 in each language. Setting up the box is in the [Runbook](RUNBOOK.md).
 
 **Sections are files (T-669, D-352).** Each numbered section is one file in [`docs/user-guide/`](user-guide/), named

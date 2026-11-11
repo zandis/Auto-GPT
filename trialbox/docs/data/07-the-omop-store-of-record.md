@@ -16,7 +16,7 @@ file, row), the history of every record, and open and resolved conflicts. It is 
   that patient's records out. A lift removes the row only: the records come back with the next load. Erasing the
   before-images and the lake snapshots is the retention run's (T-206b).
 - **Disagreements are recorded.** Two sources that give a patient different birth dates, sexes or dates of death open
-  a conflict; screening reads the item as unknown until the steward (or the PI, for their study) resolves it. A
+  a conflict; screening reads the item as unknown until the steward resolves it (only the steward holds the right; the row keeps on whose authority). A
   conflict ends only when the sources agree again or a person resolves it: a source that stops sending the item (a
   feed that lacks the patient one night, a deleted sheet row) ends nothing (T-201, D-426). The steward's page
   **Clinical conflicts** (`/data/conflicts`) lists them with each source's value and keeps one value, or keeps the

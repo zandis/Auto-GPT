@@ -53,8 +53,8 @@ from datacore.lifecycle import reconsent_due
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
+from tb_common.authz import STUDY_TASKS, conditional, monitor_may_see, permit
 from tb_common.authz import Standing as Grant
-from tb_common.authz import conditional, monitor_may_see, permit, study_tasks
 from tb_common.config import environment_name
 from tb_common.optout import SOURCES, OptOutError, OptOutRegister
 
@@ -132,7 +132,7 @@ def on_log(user: User) -> bool:
 
 def standing(team: TeamStore, user: User, rs: str, today: date) -> Standing:
     """The one permission function of D-147: pages and ``/api/v1`` both ask it. The rights per role come from the
-    role table (``tb_common.authz.study_tasks``); this reads the study's delegation log into it."""
+    matrix's ``task.*`` rows (``tb_common.authz.permit``); this reads the study's delegation log into them."""
     if not user.sees_study(rs):
         return Standing(False, frozenset(), False)
     entries = team.entries(rs)
@@ -145,7 +145,8 @@ def standing(team: TeamStore, user: User, rs: str, today: date) -> Standing:
     # D-380 (ROLE-008): the bootstrap is closed. Only the PI the log names is PI; with no PI named, nobody is.
     is_pi = log_account(user) and pi is not None and pi.username == user.username
     ticked = frozenset(t for e in mine if e.role == "sub_pi" for t in e.tasks)
-    tasks = study_tasks(user.role, log_names_pi=pi is not None, is_pi=is_pi, ticked=ticked)
+    held = Grant(is_pi=is_pi, tasks=ticked, log_names_pi=pi is not None)  # the log as the ``task.*`` rows read it
+    tasks = frozenset(t for t in STUDY_TASKS if permit(user.role, f"task.{t}", held))
     return Standing(is_pi, tasks, pi is not None, pi if is_pi else own)
 
 
