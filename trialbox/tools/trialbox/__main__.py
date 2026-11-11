@@ -8,6 +8,7 @@ path behind ``tools/apply_update.sh``, ``update.py``); ``doctor --platform``, ``
 ``tb_common.flowledger``); ``ops`` runs the console's operations requests and writes their status (D-178, ``ops.py``);
 ``watchdog`` restarts an unhealthy service and audits it (T-108a, D-360, ``watchdog.py``);
 ``eval qualify`` qualifies a model pair for a hardware profile and writes the record (D-313, ``tools/qualify.py``);
+``model hold|release|status|report`` is the model misbehaviour procedure (T-609, ``model_report.py``);
 ``mail status`` and ``mail resolve`` show and settle the mail outbox, in the mail-gateway container (T-108c, D-401,
 ``services/mail_gateway/admin.py``).
 ``support-bundle`` writes one PHI-free file for a support ticket (T-209b, D-405, ``tools/support_bundle.py``).
@@ -30,6 +31,10 @@ def main(argv: list[str] | None = None) -> int:
         from tools import qualify
 
         return qualify.main(args[2:])
+    if args[:1] == ["model"]:  # hold, release, status and report of a misbehaving model build (T-609, RUNBOOK §19)
+        from tools.trialbox import model_report
+
+        return model_report.main(args[1:])
     if args[:1] == ["support-bundle"]:  # its own options (tools/support_bundle.py)
         from tools import support_bundle
 
