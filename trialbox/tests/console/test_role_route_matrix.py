@@ -15,9 +15,11 @@ DELETE), every role in the column order, form posts with the role's CSRF token a
 Parameters: ``rs``/``ruleset`` GZQO, ``pid`` the SCREEN job's first candidate, ``job_id`` the SCREEN job, every
 other one ``1``.
 
-Columns as TB-DR-02b: ``admin``; ``crc`` a hospital coordinator; ``pi`` an investigator (the study's log names no PI);
-``smo`` an SMO coordinator scoped to GZQO; ``cra`` a CRO account; ``viewer``; and ``steward`` (D-280). The test
-then holds the rows whose guard is one row of ``authz_matrix.yaml`` to that row: the walk and ``permit`` agree."""
+Columns as TB-DR-02b: ``admin``; ``crc`` a hospital coordinator; ``pi`` an investigator the GZQO log does not name
+(D-380, ROLE-008: no right in the study); ``lpi`` the investigator the GZQO log names as PI (D-380); ``smo`` an SMO
+coordinator scoped to GZQO; ``cra`` a CRO account scoped to GZQO (D-380, ROLE-011: it must name its studies);
+``viewer``; ``steward`` (D-280); and ``privacy`` the privacy office (D-380). The test then holds the rows whose guard
+is one row of ``authz_matrix.yaml`` to that row: the walk and ``permit`` agree."""
 
 from __future__ import annotations
 
@@ -28,7 +30,7 @@ from typing import Any
 
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
-from tb_common.authz import permit
+from tb_common.authz import BEST_STANDING, NO_STANDING, permit
 
 from tests.console.test_console_app import (  # noqa: F401 - the fixture is used by name
     ADMIN_PW,
@@ -48,10 +50,12 @@ COLUMNS: dict[str, tuple[str, str, str, str]] = {
     "admin": ("admin", "admin", "hospital", ""),
     "crc": ("crc", "coordinator", "hospital", ""),
     "pi": ("pi", "investigator", "hospital", ""),
+    "lpi": ("lpi", "investigator", "hospital", ""),
     "smo": ("smo", "coordinator", "smo", "GZQO"),
-    "cra": ("cra", "cro", "cro", ""),
+    "cra": ("cra", "cro", "cro", "GZQO"),
     "viewer": ("viewer", "viewer", "hospital", ""),
     "steward": ("stw", "steward", "hospital", ""),
+    "privacy": ("dpo", "privacy", "hospital", ""),
 }
 # not walked: signing in and out, the session's own routes, static files
 SKIP = re.compile(r"^/(login|logout|lang|static|healthz|favicon|api/v1/session)(/|$|\.)")
@@ -108,6 +112,12 @@ def _clients(b: dict[str, Any]) -> dict[str, tuple[TestClient, str, TestClient]]
         token, _ = users.new_session(users.get(name), via="api")
         api = TestClient(b["app"], headers={"Authorization": f"Bearer {token}"})
         out[col] = (page, csrf, api)
+    from console.teamstore import TeamStore
+
+    team = TeamStore()  # D-380: the GZQO log names ``lpi`` as its PI (the steward wrote it from the signed log)
+    team.add_entry("GZQO", username="lpi", name="Dr L", role="pi", tasks=(), start="2026-01-01", end=None,
+                   training_day="2026-01-01", training_ref=None, by="stw", at="2026-01-01T00:00:00+00:00")  # fmt: skip
+    team.close()
     return out
 
 
@@ -184,7 +194,17 @@ ROUTE_ACTIONS: dict[tuple[str, str], str] = {
     ("POST", "/studies/{rs}/patients/{pid}/mark"): "list.mark",
     ("POST", "/pilot/jobs/{job_id}/approve"): "criteria.approve",
     ("POST", "/breakglass"): "breakglass.open",
+    ("GET", "/site/opt-outs"): "optout.keep",  # D-380 (ROLE-005)
+    ("POST", "/site/opt-outs"): "optout.keep",
+    ("GET", "/api/v1/site/opt-outs"): "optout.keep",
+    ("GET", "/data/items"): "items.view",  # D-380: the steward's page, not the administrator's
 }
+
+
+# D-380 (ROLE-008): an investigator the study's log does not name has no right in the study, whatever the role row
+# says; on a study's route the delegation log refuses ``pi`` before the row is read (``test_t102b_roles`` holds it).
+UNLOGGED = ("pi",)
+STANDING = {"lpi": BEST_STANDING}  # the logged PI: every task of GZQO (the walk's study)
 
 
 def agree_with_permit(walked: list[tuple[str, str, dict[str, str]]]) -> None:
@@ -192,5 +212,8 @@ def agree_with_permit(walked: list[tuple[str, str, dict[str, str]]]) -> None:
     for key, action in ROUTE_ACTIONS.items():
         assert key in have, key
         for col, (_, role, _, _) in COLUMNS.items():
+            if col in UNLOGGED and key[1].startswith("/studies/"):
+                assert have[key][col] == "-", (key, col)
+                continue
             refused = have[key][col] == "-"
-            assert refused == (not permit(role, action)), (key, col, have[key][col])
+            assert refused == (not permit(role, action, STANDING.get(col, NO_STANDING))), (key, col, have[key][col])

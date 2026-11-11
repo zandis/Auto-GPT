@@ -18,7 +18,9 @@
   Each session has its own CSRF token, checked on every state-changing request.
 * Local accounts carry an optional TOTP secret (``console.totp``), sealed with a key outside the database; the
   sign-in in two steps, the enrolment and the hospital identity provider (OIDC) are in ``console.identity`` (D-192).
-* Roles: ``admin`` (start requests, approve, operate) and ``viewer`` (read only).
+* Roles: the matrix's (``tb_common.authz_matrix.yaml``): administrator (IT operator, no patient data), coordinator,
+  investigator, viewer, CRO, data steward and privacy office (D-280, D-380). What each may do is generated from the
+  matrix (``tb_common.authz.role_rights``) for ``/ops/users``.
 """
 
 from __future__ import annotations
@@ -41,12 +43,17 @@ from tb_common.authz import permit
 from console.storedb import open_db
 from console.timefmt import local_today, site_zone
 
-Role = Literal["admin", "coordinator", "investigator", "viewer", "cro", "steward"]
+Role = Literal["admin", "coordinator", "investigator", "viewer", "cro", "steward", "privacy"]
 # D-280 (OD-5): the data steward keeps the opt-out register and the staff directory and reviews every break-glass use;
-# the administrator (IT operator) sees no patient data except by break-glass (``console.breakglass``).
-ROLES: tuple[Role, ...] = ("admin", "coordinator", "investigator", "viewer", "cro", "steward")
+# the administrator (IT operator) sees no patient data except by break-glass (``console.breakglass``). D-380 (T-102b):
+# the privacy office keeps the opt-out register and the staff directory with the steward, and nobody else does.
+ROLES: tuple[Role, ...] = ("admin", "coordinator", "investigator", "viewer", "cro", "steward", "privacy")
 # D-104: where an account sits. An SMO coordinator is a study-scoped coordinator; a CRO account is aggregate-only.
 AFFILIATIONS: tuple[str, ...] = ("hospital", "smo", "cro")
+# D-380 (ROLE-011): an SMO or CRO account (by affiliation, or a CRO-role account) names its studies; saving one without
+# is refused, and one stored without any sees no study (``NO_STUDY`` stands for "none", never a ruleset id).
+SCOPED_AFFILIATIONS: tuple[str, ...] = ("smo", "cro")
+NO_STUDY = "-"
 SSO_MARK = "sso"  # pw_hash of an account the hospital identity provider signs in (no console password)
 OIDC_MARK = "oidc"  # pw_hash of an account signed in through the OIDC provider (Authelia; D-192)
 MIN_PASSWORD = 12
@@ -128,7 +135,11 @@ CREATE INDEX login_failures_source ON login_failures (source, at);
 CREATE INDEX login_failures_at ON login_failures (at);
 ALTER TABLE sessions ADD COLUMN via TEXT NOT NULL DEFAULT ''
 """
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3)
+# T-209c (D-406, review OPS-059): when each account last opened a session, for the unused-account report
+SCHEMA_V4 = """
+ALTER TABLE users ADD COLUMN last_login TEXT
+"""
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4)
 _COLS = "username, role, mailbox, affiliation, studies, expires"
 
 
@@ -221,8 +232,13 @@ class User:
     role: Role
     mailbox: str | None
     affiliation: str = "hospital"
-    studies: tuple[str, ...] = ()  # empty = every study (D-104)
+    studies: tuple[str, ...] = ()  # empty = every study (D-104); never empty for an SMO or CRO account (D-380)
     expires: str | None = None  # ISO date; sign-in refused after it
+
+    def __post_init__(self) -> None:
+        # D-380 (ROLE-011): an SMO or CRO account without studies sees none (fails closed), never every study
+        if not self.studies and needs_studies(self.role, self.affiliation):
+            object.__setattr__(self, "studies", (NO_STUDY,))
 
     @property
     def is_admin(self) -> bool:
@@ -295,14 +311,22 @@ def _row_user(row: tuple[object, ...]) -> User:
     return User(str(u), r, m, str(aff or "hospital"), st, str(exp) if exp else None)  # type: ignore[arg-type]
 
 
-def scope_values(affiliation: str, studies: str, expires: str | None) -> tuple[str, str, str | None]:
-    """Checked affiliation, study list and end date of an account (D-104); raises AuthError."""
+def needs_studies(role: str, affiliation: str) -> bool:
+    """D-380 (ROLE-011): an SMO or CRO account must name its studies (by affiliation, or a CRO-role account)."""
+    return affiliation in SCOPED_AFFILIATIONS or role == "cro"
+
+
+def scope_values(affiliation: str, studies: str, expires: str | None, role: str = "") -> tuple[str, str, str | None]:
+    """Checked affiliation, study list and end date of an account (D-104); raises AuthError. D-380 (ROLE-011): an SMO
+    or CRO account without a study is refused."""
     aff = (affiliation or "hospital").strip().lower()
     if aff not in AFFILIATIONS:
         raise AuthError(f"affiliation must be one of {', '.join(AFFILIATIONS)}")
     st = ",".join(x for x in studies.upper().replace(" ", "").split(",") if x)
     if st and not all(re.fullmatch(r"[A-Z0-9][A-Z0-9_-]{0,31}", x) for x in st.split(",")):
         raise AuthError("studies are ruleset ids separated by commas")
+    if not st and needs_studies(role, aff):
+        raise AuthError("an SMO or CRO account names its studies (ruleset ids separated by commas)")
     exp = (expires or "").strip() or None
     if exp is not None:
         try:
@@ -363,8 +387,10 @@ class UserStore:
         self, username: str, affiliation: str = "hospital", studies: str = "", expires: str | None = None
     ) -> User:
         """Affiliation, study scope and end date of an account (D-104). An SMO coordinator is normally scoped to
-        the studies on its contract with an end date; a CRO account is aggregate-only whatever its scope."""
-        aff, st, exp = scope_values(affiliation, studies, expires)
+        the studies on its contract with an end date; a CRO account is aggregate-only whatever its scope. D-380
+        (ROLE-011): an SMO or CRO account without a study is refused."""
+        role = self.db.fetchval("SELECT role FROM users WHERE username = ?", (username,))
+        aff, st, exp = scope_values(affiliation, studies, expires, str(role or ""))
         with self.db.transaction() as tx:
             n = tx.execute(
                 "UPDATE users SET affiliation = ?, studies = ?, expires = ? WHERE username = ?",
@@ -507,6 +533,12 @@ class UserStore:
             if tx.execute("UPDATE users SET disabled = 0 WHERE username = ? AND disabled = 1", (username,)) != 1:
                 raise AuthError(f"no disabled account {username}")
 
+    def activity(self) -> dict[str, tuple[str, str | None]]:
+        """(created, last sign-in) of every active account, both UTC ISO text; the last sign-in is None when the
+        account never opened a session since T-209c (D-406, OPS-059: the unused-account report)."""
+        rows = self.db.fetchall("SELECT username, created, last_login FROM users WHERE disabled = 0")
+        return {str(u): (str(c or ""), str(last) if last else None) for u, c, last in rows}
+
     def disabled_users(self) -> list[User]:
         rows = self.db.fetchall(f"SELECT {_COLS} FROM users WHERE disabled = 1 ORDER BY username")
         return [_row_user(r) for r in rows]
@@ -617,6 +649,7 @@ class UserStore:
             "INSERT INTO sessions (token_sha, username, csrf, created, last_seen, lang, via) VALUES (?,?,?,?,?,?,?)",
             (_sha(token), user.username, csrf, now, now, lang, via[:16]),
         )
+        self.db.execute("UPDATE users SET last_login = ? WHERE username = ?", (now, user.username))  # D-406
         return token, Session(user, csrf, lang, _sha(token))
 
     def session(self, token: str | None, touch: bool = True, api: bool = False) -> Session | None:

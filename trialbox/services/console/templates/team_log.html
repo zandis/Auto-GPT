@@ -22,10 +22,10 @@
 <td>{{ e.training_day or '–' }}{% if e.training_ref %} <span class="hint">{{ e.training_ref }}</span>{% endif %}{% if e.role in ('pi', 'sub_pi') and not e.training_day %} <span class="pill warn">{{ t('team.log.no_training') }}</span>{% endif %}</td>
 <td class="nowrap">{{ e.signed_by }} · {{ e.signed_at|local(10) }}</td>
 </tr>
-{% if can_edit and e.role != 'pi' %}<tr><td colspan="{{ 5 + tasks|length }}"><form method="post" action="/studies/{{ rs }}/team/{{ e.id }}" class="inline" data-testid="edit-{{ e.id }}">
+{% if can_tick and e.role not in ('pi', 'monitor') %}<tr><td colspan="{{ 5 + tasks|length }}"><form method="post" action="/studies/{{ rs }}/team/{{ e.id }}" class="inline" data-testid="edit-{{ e.id }}">
 <input type="hidden" name="csrf" value="{{ csrf }}">{% for k in tasks %}<label class="nowrap"><input type="checkbox" name="tasks" value="{{ k }}"{% if k in e.tasks %} checked{% endif %} data-testid="edit-{{ e.id }}-{{ k }}"> {{ t('team.task.' + k) }}</label> {% endfor %}
-<label for="end-{{ e.id }}">{{ t('team.log.end') }}</label> <input id="end-{{ e.id }}" name="end" type="date" lang="{{ lang }}" value="{{ e.end or '' }}">
-<label for="tr-{{ e.id }}">{{ t('team.log.training') }}</label> <input id="tr-{{ e.id }}" name="training_day" type="date" lang="{{ lang }}" value="{{ e.training_day or '' }}"><input type="hidden" name="training_ref" value="{{ e.training_ref or '' }}">
+<label for="end-{{ e.id }}">{{ t('team.log.end') }}</label> <input id="end-{{ e.id }}" name="end" type="date" lang="{{ lang }}" value="{{ e.end or '' }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
+<label for="tr-{{ e.id }}">{{ t('team.log.training') }}</label> <input id="tr-{{ e.id }}" name="training_day" type="date" lang="{{ lang }}" value="{{ e.training_day or '' }}"><span class="hint datefmt">{{ t('date.fmt') }}</span><input type="hidden" name="training_ref" value="{{ e.training_ref or '' }}">
 <button type="submit" class="small secondary" data-testid="save-{{ e.id }}">{{ t('team.log.save') }}</button></form></td></tr>{% endif %}
 {% endfor %}</tbody></table></div>{% endif %}
 </section>
@@ -37,9 +37,9 @@
 <label for="add-name">{{ t('team.log.name') }}</label><input id="add-name" name="name" maxlength="120" data-testid="add-name">
 <label for="add-role">{{ t('team.log.role') }}</label><select id="add-role" name="role" data-testid="add-role">{% for r in log_roles %}<option value="{{ r }}"{% if r == ('sub_pi' if has_pi else 'pi') %} selected{% endif %}>{{ t('team.role.' + r) }}</option>{% endfor %}</select>
 <fieldset><legend>{{ t('team.log.tasks') }}</legend>{% for k in tasks %}<label class="nowrap"><input type="checkbox" name="tasks" value="{{ k }}" data-testid="add-{{ k }}"> {{ t('team.task.' + k) }}</label> {% endfor %}</fieldset>
-<label for="add-start">{{ t('team.log.start') }}</label><input id="add-start" name="start" type="date" lang="{{ lang }}" value="{{ today.isoformat() }}" required>
-<label for="add-end">{{ t('team.log.end') }}</label><input id="add-end" name="end" type="date" lang="{{ lang }}">
-<label for="add-train">{{ t('team.log.training') }}</label><input id="add-train" name="training_day" type="date" lang="{{ lang }}" data-testid="add-training">
+<label for="add-start">{{ t('team.log.start') }}</label><input id="add-start" name="start" type="date" lang="{{ lang }}" value="{{ today.isoformat() }}" required><span class="hint datefmt">{{ t('date.fmt') }}</span>
+<label for="add-end">{{ t('team.log.end') }}</label><input id="add-end" name="end" type="date" lang="{{ lang }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
+<label for="add-train">{{ t('team.log.training') }}</label><input id="add-train" name="training_day" type="date" lang="{{ lang }}" data-testid="add-training"><span class="hint datefmt">{{ t('date.fmt') }}</span>
 <label for="add-ref">{{ t('team.log.training_ref') }}</label><input id="add-ref" name="training_ref" maxlength="80">
 <button type="submit" data-testid="add-save">{{ t('team.log.add.save') }}</button>
 </form></section>{% elif user.role == 'investigator' %}<p class="hint" data-testid="log-pi-only">{{ t('team.log.pi_only') }}</p>{% endif %}

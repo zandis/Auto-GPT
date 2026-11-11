@@ -11,7 +11,7 @@ and the KEK shares only, with no file from the first machine; the clock runs as 
    and the lost-box list (§23) the same day. The steps below then rebuild the service.
 2. **A part that can be swapped with the disk staying** (power supply, fan, a GPU of the same model): the supplier
    swaps it on site; the disk never leaves. After the swap: `nvidia-smi`, `trialbox doctor`, the pair canary
-   (`make selftest` in the box). A GPU of another model is a new hardware form: the model pair must be qualified for
+   (`trialbox selftest` on the box). A GPU of another model is a new hardware form: the model pair must be qualified for
    it first (§11, "qualify a model pair"), so it is a release step, not a repair.
 3. **A new box:** install it from the release media (§1). The KEK of the old box was sealed to its TPM, so the new
    box unseals it from the stewards' shares or the passphrase (§23); then restore (§22, "The restore, with the

@@ -29,6 +29,7 @@ from tests.console.test_console_app import (  # noqa: F401 - the fixture is used
     _ulid,
     box,
     login,
+    name_pi,
 )
 from tests.console.test_role_pages import PW, _csrf
 from tests.console.test_team_pages import _log_pi_and_sub
@@ -203,6 +204,7 @@ def test_the_refusal_and_the_record_in_three_languages(box: dict[str, Any]) -> N
     _done_screen(box["backend"], _ulid(972))
     app = _gated_app(box)
     box["users"].create("drsato", "investigator", PW, "drsato@hospa.test")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     pi, csrf = login(app, "drsato", PW)
     for lang, refused, sentence in (
         ("ja", "まだ記録していません", "診療科をまたぐ識別可能な事前スクリーニング"),
@@ -222,6 +224,7 @@ def test_off_in_a_test_environment_the_view_is_as_before(box: dict[str, Any]) ->
     """TB_ENV=TEST (the fixture): the view does not wait, and the page says so."""
     _done_screen(box["backend"], _ulid(973))
     box["users"].create("drsato", "investigator", PW, "drsato@hospa.test")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     pi, _ = login(box["app"], "drsato", PW)
     assert pi.get(f"/studies/GZQO/candidates/{A}?purpose=eligibility").status_code == 200
     assert 'data-testid="irbt-off"' not in pi.get("/studies/GZQO/candidates").text

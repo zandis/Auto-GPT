@@ -21,9 +21,9 @@
 <ul>{% for r in unenrolled %}<li data-user="{{ r.user.username }}">{{ r.user.username }}{% if r.enrol_live %} · {{ t('identity.code.live') }}{% endif %}</li>{% endfor %}</ul>
 </section>{% endif %}
 <table data-testid="identity-table">
-<thead><tr><th>{{ t('identity.col.user') }}</th><th>{{ t('identity.col.kind') }}</th><th>{{ t('identity.col.totp') }}</th><th>{{ t('identity.col.lock') }}</th><th></th></tr></thead>
+<thead><tr><th>{{ t('identity.col.user') }}</th><th>{{ t('identity.col.kind') }}</th><th>{{ t('identity.col.totp') }}</th><th>{{ t('identity.col.lock') }}</th><th><span class="sr">{{ t('col.actions') }}</span></th></tr></thead>
 <tbody>
-{% for r in rows %}<tr data-user="{{ r.user.username }}">
+{% for r in rows %}<tr data-user="{{ r.user.username }}" id="u-{{ r.user.username }}">
 <td>{{ r.user.username }} · {{ t('role.' + r.user.role) }}</td>
 <td>{{ t('identity.kind.idp') if r.idp else t('identity.kind.local') }}</td>
 <td>{% if r.idp %}–{% else %}{{ t('identity.yes') if r.totp else t('identity.no') }}{% endif %}</td>
