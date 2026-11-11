@@ -50,6 +50,7 @@ def test_default_install_passes() -> None:
         "site_tz",
         "flags",
         "site_key",
+        "key_custody",
     }
 
 
