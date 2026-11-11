@@ -1,0 +1,63 @@
+# The two-device form, workstation side (plan TB-PLAN-05 §1.5 form A; T-214, D-373). The workstation runs everything
+# but the gateway and the models: the database, the lake, HAPI, the services and the console. No GPU file here.
+#
+#   cd deploy && docker compose -f docker-compose.yml -f docker-compose.secrets.yml \
+#       -f two-device/docker-compose.workstation.yml up -d --wait db fhir-store lake embed-service doc-parser \
+#       criteria-compiler adapter orchestrator mail-gateway console link
+#   python -m tools.trialbox doctor --env-file deploy/.env --two-device      # TB_LINK_ROLE=workstation in deploy/.env
+#
+# The link (tools/two_device.py) answers to `gateway` here, so every TB_GATEWAY_URL=http://gateway:8020/v1 reaches the
+# Spark's gateway, and exports `db` to the Spark. Mutual TLS 1.3 with this device's pair from the install ceremony
+# in deploy/secrets/link. deploy/.env: TB_LINK_ROLE=workstation, TB_LINK_ADDR=<this address>, TB_LINK_PEER=<the Spark's>.
+services:
+  console:
+    depends_on: !override   # the gateway is on the Spark: through the link
+      db: {condition: service_healthy}
+      orchestrator: {condition: service_healthy}
+      mail-gateway: {condition: service_healthy}
+      link: {condition: service_healthy}
+
+  # Memory limits on the workstation follow deploy/gb10-profile.yaml (unmeasured, D-373), not the one-box defaults of
+  # docker-compose.yml (T-108a); the same TB_MEM_* names override them.
+  db: {mem_limit: "${TB_MEM_DB:-8g}"}
+  fhir-store: {mem_limit: "${TB_MEM_FHIR:-8g}"}
+  lake: {mem_limit: "${TB_MEM_LAKE:-6g}"}
+  criteria-compiler: {mem_limit: "${TB_MEM_COMPILER:-1g}"}
+  adapter: {mem_limit: "${TB_MEM_ADAPTER:-3g}"}
+  orchestrator: {mem_limit: "${TB_MEM_ORCH:-3g}"}
+
+  link:
+    image: ${TB_IMAGE:-trialbox-py:1.0.0}
+    command: ["python", "-m", "tools.two_device", "link"]
+    user: "10001:10001"
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    mem_limit: 1g   # deploy/gb10-profile.yaml (unmeasured, D-373)
+    logging:
+      driver: json-file
+      options: {max-size: "50m", max-file: "5"}
+    environment:
+      TB_LINK_ROLE: workstation
+      TB_LINK_ADDR: "${TB_LINK_ADDR:?set TB_LINK_ADDR in deploy/.env to this workstation's address on the hospital network}"
+      TB_LINK_PEER: "${TB_LINK_PEER:?set TB_LINK_PEER in deploy/.env to the Spark's address}"
+      TB_LINK_PORT: "8443"
+      TB_LINK_PEER_PORT: "${TB_LINK_PORT:-8443}"
+      TB_LINK_CERTS: /run/secrets/tb_link
+    ports: ["${TB_LINK_ADDR:?set TB_LINK_ADDR}:${TB_LINK_PORT:-8443}:8443"]
+    volumes: ["./secrets/link:/run/secrets/tb_link:ro"]
+    networks:
+      trialbox-net: {aliases: [gateway]}   # the Spark's gateway, through the link
+      link-net: {}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8443), 4).close()"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+networks:
+  link-net:
+    name: trialbox-link   # not internal: the link reaches the peer device; nothing else joins it

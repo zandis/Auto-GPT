@@ -19,11 +19,9 @@ console at `/data/ops`), and the host's runner runs the command this runbook alr
 | Collect yesterday's logs | `trialbox logs collect` |
 | Write the network sheet again | `tools/network_sheet.py` into the folder's network part |
 
-**Turn the runner on once** (as root, in `/opt/trialbox`): a systemd timer that runs
-`python3 -m tools.trialbox ops run` every minute (it needs only the host's `python3`). Make
-`/etc/systemd/system/trialbox-ops.service` with `[Service]`, `Type=oneshot`, `WorkingDirectory=/opt/trialbox`,
-`ExecStart=/usr/bin/python3 -m tools.trialbox ops run`, and `trialbox-ops.timer` with `[Timer]`, `OnBootSec=1min`,
-`OnUnitActiveSec=1min`, `[Install]`, `WantedBy=timers.target`; then `systemctl enable --now trialbox-ops.timer`. The
+**Turn the runner on once** (as root): a systemd timer that runs `python3 -m tools.trialbox ops run` every minute
+(it needs only the host's `python3`). `install.sh` installs `trialbox-ops.service` and `trialbox-ops.timer` from
+`deploy/systemd` (D-377) and leaves them off: `systemctl enable --now trialbox-ops.timer`. The
 first run makes the folder (requests writable by the console's user, uid 10001). The page warns when the runner has
 not answered for 15 minutes. A request cut off by a restart shows as interrupted and is not run again; a request
 that waited more than 60 minutes (the runner was off) is not run: ask again. `python3 -m tools.trialbox ops status` prints what the page shows. Manual rollback after
