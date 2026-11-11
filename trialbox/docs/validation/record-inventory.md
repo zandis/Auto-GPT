@@ -43,7 +43,7 @@ bundle of card T-304 builds from this table.
 | R-05 | Consent and approval checks: IRB approval and consent-form version per study, every Approach marked despite a warning | aid | the IRB file and the signed consent forms at the site (never in the box) | trial office | kept | page only | `console.irb`, `console.approach_override` |
 | R-06 | Research-use opt-out register | copy | the patient's opt-out form at the research office | research office | kept (an event log: an opt-out and a lift) | page only | `console.opt_out` |
 | R-07 | SAE register: the case, its deadlines, receipts and follow-ups, its trail, and the study's confirmed SAE rule set | essential | the AE form of the data core (R-09) or the sponsor's CRF for the facts; the register for the clock and the receipts | PI | kept | page only | `console.sae`, `console.sae_ack`, `life.sae_ack`, `life.report`, `life.sae_rule` |
-| R-08 | EDC prefill: the switch, the item map, drafts and their fate, decisions, electronic signatures and their voids, what was sent | essential | the sponsor's EDC holds the CRF; the box holds the trail of each prefilled value | PI | kept (drafts are never deleted; decisions and sends are append-only) | `/studies/{rs}/edc/export.odm.xml` | `edc.switch`, `edc.map`, `edc.drafts`, `edc.decide`, `edc.sent`, `console.edc` |
+| R-08 | EDC prefill: the switch, the item map, drafts and their fate, decisions, electronic signatures and their voids, what was sent | essential | the sponsor's EDC holds the CRF; the box holds the trail of each prefilled value | PI | kept (drafts are never deleted; decisions and sends are append-only) | `/studies/{rs}/edc/export.odm.xml` | `edc.switch`, `edc.map`, `edc.drafts`, `edc.decide`, `edc.sent`, `edc.reentry`, `console.edc` |
 | R-09 | Data core: study forms, entered values and their history, conflicts, field owners | source | per field (`owner`): the box for a field TrialBox owns; REDCap or another source for a field it owns | PI | kept | `/studies/{rs}/export.{fmt}` (CSV, XLSX, ODM) | `data.entry`, `data.sync`, `data.import`, `data.resolve`, `data.export`, `data.forms`, `data.source` |
 | R-10 | Subject lifecycle: the subject's state and every step, the schedule of events | copy | R-09 and the screening log; a step a person enters is written here first | PI | kept | page only | `life.step`, `life.schedule`, `console.life_step`, `console.life_schedule` |
 | R-11 | Referrals to treating physicians and their answers | aid | the box | CRC | kept | page only | `console.referral` |
@@ -99,7 +99,7 @@ are marked "files".
 | `libs/tb_common/optout.py` | `optout_events` | R-06 |
 | `services/console/saerecord.py` | `sae_case`, `sae_report`, `sae_trail` | R-07 |
 | `services/datacore/lifecycle.py` | `ae_ack`, `sae_rule` | R-07 |
-| `services/edc/store.py` | `switch`, `switch_event`, `item_map`, `map_event`, `target`, `draft`, `decision`, `signature`, `signature_void`, `sent` | R-08 |
+| `services/edc/store.py` | `switch`, `switch_event`, `item_map`, `map_event`, `target`, `draft`, `decision`, `signature`, `signature_void`, `sent`, `reentry_record` | R-08 |
 | `services/datacore/store.py` | `form`, `value`, `history`, `conflict`, `owner`, `source_cfg`, `src_record` | R-09 |
 | `services/datacore/lifecycle.py` | `subject`, `subject_step`, `schedule` | R-10 |
 | `services/console/teamstore.py` | `referrals`, `referral_events` | R-11 |

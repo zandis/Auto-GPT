@@ -171,10 +171,14 @@ def service(tmp_path: Path, facts: FakeFacts | None = None, llm: Any = None,
 
 
 def ready(svc: EdcService, on: bool = True) -> None:
-    """Dictionary read from REDCap, map saved, switch on."""
+    """Dictionary read from REDCap, map saved, switch on (with a stored re-entry result where typed numbers do
+    not count)."""
     svc.import_dictionary(STUDY, "edc", "crc", "record_id")
     svc.put_map(STUDY, MAP, TARGET, "crc")
     if on:
+        if not svc.typed_reentry():  # VALIDATION or PRODUCTION (D-368, E-14): the switch reads a stored result
+            svc.record_reentry(STUDY, pages=int(ACK["reentry_pages"]), accuracy=float(ACK["reentry_accuracy"]),
+                               document="DOC-REENTRY-1", by="admin")  # fmt: skip
         svc.set_switch(STUDY, True, by="pi", role="investigator", **ACK)
 
 
