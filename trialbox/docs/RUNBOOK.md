@@ -36,7 +36,7 @@ File: [runbook/05-updates-backup-restore-secrets.md](runbook/05-updates-backup-r
 
 ## 6. Go-live acceptance
 
-File: [runbook/06-go-live-acceptance.md](runbook/06-go-live-acceptance.md).
+File: [runbook/06-go-live-acceptance.md](runbook/06-go-live-acceptance.md). In it: [6.1 The lake from OMOP: the flip (T-202, D-384)](runbook/06-go-live-acceptance.md#61-the-lake-from-omop-the-flip-t-202-d-384).
 
 ## 7. Contacts and escalation
 
