@@ -1148,6 +1148,15 @@ EN.update(_AM_EN)
 JA.update(_AM_JA)
 ZH.update(_AM_ZH)
 
+# D-386 (T-622): the study's state and its identifiers
+from console.i18n_state import EN as _SS_EN  # noqa: E402
+from console.i18n_state import JA as _SS_JA  # noqa: E402
+from console.i18n_state import ZH as _SS_ZH  # noqa: E402
+
+EN.update(_SS_EN)
+JA.update(_SS_JA)
+ZH.update(_SS_ZH)
+
 # T-506 (TB-IU-01 §1, REG-020): the intended-use statement in the footer comes from its one source in tb_common
 from tb_common.wording import STATEMENT as _STATEMENT  # noqa: E402
 

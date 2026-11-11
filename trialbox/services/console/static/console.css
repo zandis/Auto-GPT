@@ -260,6 +260,8 @@ table.worklist .bad { color: var(--bad); font-weight: 600; }
 .critl .clab { font-weight: 600; }
 .critl q.quote { display: block; margin-top: 4px; padding: 4px 8px; border-left: 3px solid var(--accent); background: var(--bg); quotes: none; font-size: 15px; }
 .chartlinks { margin: 0; padding: 10px 12px; font-size: 15px; }
+/* T-516: the lines above the mark bar (why Approach is absent or paused) keep the panel's side gutter */
+.chartp > p.hint, .chartp > p.warn { margin: 8px 12px; }
 .tasks { list-style: none; margin: 0; padding: 0; }
 .tasks li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
 .tasks li .hint { grid-column: 1; }

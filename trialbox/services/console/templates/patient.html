@@ -29,5 +29,5 @@
 <p class="hint">{{ t('patient.footer2', job=job.job_id[-8:]) }}</p>
 {# T-684 (UX-025): the mark bar of the full page is the last thing in main and sticks to the bottom of the window,
    as on the week page's sheet; its buttons reach the mark forms above with the form attribute #}
-{% if user.can_mark %}<div class="markdock" data-testid="markdock">{{ mark_bar(pid) }}</div>{% endif %}
+{% if user.can_mark %}<div class="markdock" data-testid="markdock">{{ mark_bar(pid, '', mark) }}</div>{% endif %}
 {% endblock %}
