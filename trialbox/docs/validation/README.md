@@ -18,6 +18,8 @@ names. Every record is written by the pull request or the tool that does the wor
 | [`soup.csv`](soup.csv) | the SOUP list, model weights included | T-654 |
 | [`problems.csv`](problems.csv) | the problem log; deviations and CAPA (VMP §6) | T-654 |
 | [`record-inventory.md`](record-inventory.md) | every record the box makes or holds: class, system of record, keeper, retention, export, audit events; the store map | T-643 |
+| [`ai-governance.md`](ai-governance.md) | the AI governance note (REG-006, REG-030) | T-649b |
+| [`model-change-protocol.md`](model-change-protocol.md) | the model change protocol (REG-032) | T-649b |
 | `protocols/` | IQ, OQ, PQ protocols, only under TB-PLAN-06 §0.3 item 2 (planned) | T-315b |
 
 Not here, by D-311: `gates/` (gate records, B1), `risk-register.md` (one risk file, B18; the risk file stays TB-PLAN-05
