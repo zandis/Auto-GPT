@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from tb_common.optout import OptOutRegister
 from tb_contracts import RegistryUpdate
 
-from tests.console.test_console_app import _done_screen, _ulid, box, login  # noqa: F401 - the fixture by name
+from tests.console.test_console_app import _done_screen, _ulid, box, login, name_pi  # noqa: F401 - the fixture by name
 from tests.console.test_excluded_page import _with_excluded
 from tests.console.test_role_pages import PW, _csrf, _user
 from tests.console.test_site_setup_pages import KEY as SITE_KEY
@@ -43,8 +43,16 @@ def _api(b: dict[str, Any], user: str) -> tuple[TestClient, dict[str, str]]:
     return api, {"Authorization": f"Bearer {tok}"}
 
 
+def _steward(b: dict[str, Any]) -> TestClient:
+    """D-380 (ROLE-005): the opt-out register is kept by the steward (or the privacy office) only."""
+    if b["users"].get("stw") is None:
+        b["users"].create("stw", "steward", PW, "stw@hospa.test")
+    return login(b["app"], "stw", PW)[0]
+
+
 def _opt_out(b: dict[str, Any], crc: TestClient, pid: str) -> None:
-    r = crc.post("/site/opt-outs", data={"csrf": _csrf(crc.get("/site/opt-outs").text), "pid": pid},
+    stw = _steward(b)  # D-380: no longer the coordinator (``crc`` kept for the callers)
+    r = stw.post("/site/opt-outs", data={"csrf": _csrf(stw.get("/site/opt-outs").text), "pid": pid},
                  follow_redirects=False)  # fmt: skip
     assert r.status_code == 303
 
@@ -150,13 +158,13 @@ def test_the_opt_out_door_gives_no_pseudonym_back_and_caps_chart_lookups(
         raise Unavailable("no study store in this test")
 
     monkeypatch.setattr(box["backend"], "study_api", study_api, raising=False)
-    crc = _user(box, "crc1", "coordinator")
+    crc = _user(box, "dpo1", "privacy")  # D-380 (ROLE-005): the privacy office keeps the register
     r = crc.post("/site/opt-outs", data={"csrf": _csrf(crc.get("/site/opt-outs").text), "chart_no": "SYN-0001"},
                  follow_redirects=False)  # fmt: skip
     assert r.status_code == 303 and "p=" not in r.headers["location"] and "bbbbbbbb" not in r.headers["location"]
     page = crc.get(r.headers["location"]).text
     assert 'data-testid="optout-done"' in page
-    api, hdr = _api(box, "crc1")
+    api, hdr = _api(box, "dpo1")
     out = api.post("/api/v1/site/opt-outs", json={"chart_no": "SYN-0002"}, headers=hdr)
     assert out.status_code == 200 and out.json() == {"opted_out": True, "changed": False}  # no pid, even unchanged
     lookups = _events(box, "console.chart_lookup")
@@ -197,7 +205,8 @@ def test_no_mark_number_or_opt_out_is_kept_without_its_audit_event(
 ) -> None:
     _done_screen(box["backend"], _ulid(984))
     pi = _user(box, "drsato", "investigator")
-    crc = _user(box, "crc1", "coordinator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
+    _user(box, "crc1", "coordinator")
     store = box["app"].state.helpers.store
     real = box["audit"].append
 
@@ -211,8 +220,9 @@ def test_no_mark_number_or_opt_out_is_kept_without_its_audit_event(
     with pytest.raises(OSError):
         pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": _csrf(wk), "mark": "approach"})
     assert A not in store.latest_marks("GZQO") and store.screening_no("GZQO", A) is None
+    stw = _steward(box)  # D-380 (ROLE-005): the steward keeps the register
     with pytest.raises(OSError):
-        crc.post("/site/opt-outs", data={"csrf": _csrf(crc.get("/site/opt-outs").text), "pid": B})
+        stw.post("/site/opt-outs", data={"csrf": _csrf(stw.get("/site/opt-outs").text), "pid": B})
     assert B not in OptOutRegister().active()
     monkeypatch.setattr(box["audit"], "append", real)
     r = pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": _csrf(wk), "mark": "approach"},
@@ -262,9 +272,10 @@ def test_a_pasted_chart_gives_no_pseudonym_back_and_counts_as_a_chart_lookup(
     assert out.status_code == 200 and "pid" not in out.json() and B not in out.text
     ev = _events(box, "console.chart_lookup")
     assert len(ev) == 1 and ev[0]["detail"]["for"] == "chart" and ev[0]["actor"] == "console:crc1"
-    # the pasted chart and the opt-out door share one cap (30 an hour)
+    # the pasted chart counts on the chart-lookup cap (30 an hour; the opt-out door shares it, but since D-380 the
+    # door is the steward's and the privacy office's, so a coordinator reaches the cap through the charts)
     for i in range(2, 31):
-        r = api.post("/api/v1/site/opt-outs", json={"chart_no": f"SYN-{i:04d}"}, headers=hdr)
+        r = api.post("/api/v1/site/charts", json={"chart_no": f"SYN-{i:04d}", "text": "synthetic note"}, headers=hdr)
         assert r.status_code == 200
     n = len(calls)
     r = api.post("/api/v1/site/charts", json={"chart_no": "SYN-0031", "text": "synthetic note"}, headers=hdr)

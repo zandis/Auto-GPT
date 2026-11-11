@@ -32,6 +32,7 @@ _T = datetime(2026, 11, 7, 9, 0, tzinfo=UTC)
 def b4(box: dict[str, Any]) -> dict[str, Any]:  # noqa: F811
     for name, role in (("crc", "coordinator"), ("pi", "investigator"), ("cra", "cro")):
         box["users"].create(name, role, PW, f"{name}@hospa.test")
+    box["users"].set_scope("cra", "cro", "GZQO", None)  # D-380 (ROLE-011): a CRO account names its studies
     return {**box, "h": box["app"].state.helpers}
 
 

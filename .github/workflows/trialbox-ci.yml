@@ -395,11 +395,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      # gates on errors; the warnings are listed. 2026-11-09 (D-206): ten warnings in deploy/*.sh are open findings
+      # gates on warnings (OPS-076): the warnings D-206 listed are fixed, so a new one fails the job
       - name: shellcheck
         run: |
-          git ls-files -z '*.sh' | xargs -0 shellcheck --severity=error
-          git ls-files -z '*.sh' | xargs -0 shellcheck --severity=warning --format=gcc || true
+          git ls-files -z '*.sh' | xargs -0 shellcheck --severity=warning --format=gcc
       # T-509 (D-330): the PoC host's scripts at warning level, and its Caddyfile through caddy itself (the image the VM
       # runs, by digest)
       - name: PoC host scripts and Caddyfile

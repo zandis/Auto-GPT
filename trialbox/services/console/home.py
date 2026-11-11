@@ -451,6 +451,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             return RedirectResponse("/reports", status_code=303)
         if role == "steward":  # D-280: the steward starts on the break-glass review list
             return RedirectResponse("/breakglass", status_code=303)
+        if role == "privacy":  # D-380: the privacy office starts on the opt-out register it keeps
+            return RedirectResponse("/site/opt-outs", status_code=303)
         if role == "admin" and view != "studies":
             admin_page = getattr(h, "admin_page", None)  # step 4: S13 with its tabs (console.step4)
             return admin_page(request, sess, "health") if admin_page else admin_home(request, sess)
