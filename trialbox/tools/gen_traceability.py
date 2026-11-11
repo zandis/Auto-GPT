@@ -4,6 +4,7 @@
     python tools/gen_traceability.py --check    # print what is stale as warnings; exit 0 (CI job `trace`)
     python tools/gen_traceability.py --strict   # as --check, but exit 1 when anything is stale
     python tools/gen_traceability.py --write    # also rewrite the §5 "Plan" cells and the §3 totals table in the plan
+    python tools/gen_traceability.py --records  # print the record inventory section of a release record (T-643)
 
 D-311: the matrix is a planning aid, not a merge gate, so ``--check`` only warns. The commitments-register check of
 T-641 was removed; the register is archived in ``docs/plan/sites/archive/``.
@@ -13,11 +14,16 @@ requirement tables carry an FS id per requirement; the test table carries the le
 derives one CSV row per (requirement, fs, risk, test, plan item) link, the "Plan" column of every requirement row and
 the agent-session and review-hour totals per workstream. It also reports orphans: an id used but never defined, or
 defined but never traced (independent review of 2026-11-09, PR-23 and PR-27).
+
+One more check (card T-643, REG-022, D-363): every table a store module creates (``CREATE TABLE`` in ``services/`` and
+``libs/``) has a row in the store map of ``docs/validation/record-inventory.md``, and every row there still names a
+table its module creates. ``--records`` prints the inventory's records table for the release record.
 """
 
 from __future__ import annotations
 
 import csv
+import hashlib
 import re
 import sys
 from dataclasses import dataclass, field
@@ -34,6 +40,11 @@ WS = re.compile(r"WS-\d+\.\d+")
 FS = re.compile(r"FS-\d+")
 SIZE = re.compile(r"(\d+(?:\.\d+)?)\s*([SR])\b")
 TOTALS_HEADER = "### Totals"
+INVENTORY = ROOT / "docs" / "validation" / "record-inventory.md"
+STORE_DIRS = ("services", "libs")
+CREATE = re.compile(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_]\w*)", re.I)
+MAP_ROW = re.compile(r"^\| `([^`]+\.py)` \| ([^|]+) \| ([RO]-\d{2}) \|$", re.M)
+ID_ROW = re.compile(r"^\| ([RO]-\d{2}) \| (.+) \|$", re.M)
 
 
 def cells(line: str) -> list[str]:
@@ -198,13 +209,95 @@ def rewrite(text: str, plan: Plan) -> str:
     return "\n".join(out) + "\n"
 
 
+def store_tables(root: Path = ROOT) -> dict[str, set[str]]:
+    """``{module path: table names}`` for every non-test module under ``services/`` and ``libs/`` that creates one."""
+    out: dict[str, set[str]] = {}
+    for d in STORE_DIRS:
+        for p in sorted((root / d).rglob("*.py")):
+            rel = p.relative_to(root).as_posix()
+            if "/tests/" in rel or "/generated/" in rel or p.name.startswith("test_"):
+                continue
+            names = set(CREATE.findall(p.read_text(encoding="utf-8")))
+            if names:
+                out[rel] = names
+    return out
+
+
+def inventory_ids(text: str) -> dict[str, list[str]]:
+    """``{R-nn or O-nn: the cells of its row}`` from §2 and §3 of the inventory."""
+    return {m.group(1): cells(m.group(0))[1:] for m in ID_ROW.finditer(text)}
+
+
+def inventory_map(text: str) -> list[tuple[str, set[str] | None, str]]:
+    """The store map: ``(module, tables or None for a file store, id)`` per row."""
+    out: list[tuple[str, set[str] | None, str]] = []
+    for module, tables, rid in MAP_ROW.findall(text):
+        names = None if tables.strip().startswith("files:") else set(re.findall(r"`([^`]+)`", tables))
+        out.append((module, names, rid))
+    return out
+
+
+def inventory_gaps(text: str, tables: dict[str, set[str]], root: Path = ROOT) -> list[str]:
+    """What the record inventory misses or names wrongly, one line each; empty when it matches the code."""
+    errs: list[str] = []
+    ids = inventory_ids(text)
+    mapped: dict[tuple[str, str], str] = {}
+    used: set[str] = set()
+    for module, names, rid in inventory_map(text):
+        used.add(rid)
+        if rid not in ids:
+            errs.append(f"record inventory: {module} maps to {rid}, which has no row")
+        if not (root / module).is_file():
+            errs.append(f"record inventory: {module} does not exist")
+        for t in sorted(names or ()):
+            if (module, t) in mapped:
+                errs.append(f"record inventory: {module} table {t} is mapped twice")
+            mapped[(module, t)] = rid
+            if t not in tables.get(module, set()):
+                errs.append(f"record inventory: {module} no longer creates table {t}")
+    for module, names in sorted(tables.items()):
+        for t in sorted(names - {t for (m, t) in mapped if m == module}):
+            errs.append(f"record inventory: {module} creates table {t}, which has no row in the store map")
+    for rid in sorted(set(ids) - used):
+        errs.append(f"record inventory: {rid} has no row in the store map")
+    return errs
+
+
+def records_section(text: str, gaps: list[str]) -> str:
+    """The record inventory section of a release record (``release-records/README.md`` item 9)."""
+    ids = inventory_ids(text)
+    recs = {k: v for k, v in ids.items() if k.startswith("R-")}
+    by_class: dict[str, int] = {}
+    for row in recs.values():
+        by_class[row[1]] = by_class.get(row[1], 0) + 1
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+    classes = ", ".join(f"{k} {n}" for k, n in sorted(by_class.items()))
+    out = [
+        "## Record inventory",
+        "",
+        f"`docs/validation/record-inventory.md` (sha256 {digest}): {len(recs)} records ({classes}), "
+        f"{len(ids) - len(recs)} other stores; store map: {'complete' if not gaps else f'{len(gaps)} problem(s)'}.",
+        "",
+        "| Id | Record | Class | Keeper | Retention |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    out += [f"| {k} | {v[0]} | {v[1]} | {v[3]} | {v[4]} |" for k, v in recs.items()]
+    out += [f"- {g}" for g in gaps]
+    return "\n".join(out) + "\n"
+
+
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
+    inventory = INVENTORY.read_text(encoding="utf-8") if INVENTORY.exists() else ""
+    gaps = inventory_gaps(inventory, store_tables()) if inventory else [f"{INVENTORY.name} is missing"]
+    if "--records" in args:
+        print(records_section(inventory, gaps), end="")
+        return 1 if gaps else 0
     text = PLAN.read_text(encoding="utf-8")
     plan = parse(text)
     m = re.search(r"\*\*(\d+) agent sessions\*\* \| \*\*\d+(?:\.\d+)? owner and reviewer hours\*\*(.*?) \|", text)
     plan.engineer_hours = m.group(2) if m else ""
-    errs = orphans(plan)
+    errs = orphans(plan) + gaps
     new_csv = rows(plan)
     new_text = rewrite(text, plan)
     if "--write" in args:

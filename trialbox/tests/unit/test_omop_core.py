@@ -128,7 +128,7 @@ def test_schema_has_the_cdm_tables_beside_the_extension_tables(db: Any) -> None:
     assert db.schema.endswith("omop")
     assert db.fetchval("SELECT concept_name FROM concept WHERE concept_id = 0") == "No matching concept"
     again = schema.connect(db.url)  # a re-connect migrates nothing
-    assert again.fetchval("SELECT max(version) FROM _schema_version") == 4  # D-301 vocabulary; T-106 partitions
+    assert again.fetchval("SELECT max(version) FROM _schema_version") == 5  # D-301 vocab; T-106 partitions; T-106b
     again.close()
 
 

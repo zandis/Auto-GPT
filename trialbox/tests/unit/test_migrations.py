@@ -366,14 +366,21 @@ ADDED: dict[str, tuple[str, ...]] = {
     "auth": ("44f1f94e5797899b13e8b807b4b20ace62bd584cf226dd4e207cf500b466deb6",),
     # D-301: migration 3, the one-million block and the vocabulary tables
     # T-106 (D-339): migration 4, the large clinical tables partitioned by year
+    # T-106b (STD-032): migration 5, the other fifteen CDM v5.4 tables
     "omop": (
         "0eec88a07c4476ca00fdfb2e8fc414fb2257a293e381d8115a668fa7df0dc6f9",
         "36aaec4b30675bd3f2fa9006cbb7e9869f5df899613d179dde3068d19156094c",
+        "5e12313c13360ff7f760649cce2f8bd954e6cfbace79c3dc399b47ae842055c6",
     ),
     # T-612: pidmap version 2, the site key's fingerprint
     "pidmap": ("b7cf6c229898b30f609be2151ff4422b2a0bc0cd068b0b5150e1d58c07c98ae3",),
     # D-277: datacore version 4 (the study's SAE rule set); sae version 3 (one initial report per party, CR-011)
-    "datacore": ("8250b52d4e13e66e149ffa956f83b3a8027f95d4094f1a32b999771e459f7aa5",),
+    # D-364 (T-621): datacore version 5 (schedule versions); site version 4 (the criteria version on each mark)
+    "datacore": (
+        "8250b52d4e13e66e149ffa956f83b3a8027f95d4094f1a32b999771e459f7aa5",
+        "d9f888838f2280f9e49a6d3f9a9bf210ace25104632200683567a4389fa03884",
+    ),
+    "site": ("7f7cf970ce4268ca7fdc4fd725535442b586b8ea1e2b23fa631dddf9d3a7575d",),
     "sae": ("78527251f39fb58cd728b207c0fc332740a2d06444492dbd617b4d1b0cb7b6d3",),
     # T-510 (D-331): the feedback store, new after the baseline
     "feedback": ("3981b6201cd514508bed945433f3415993494cb24e52809cca7f37fe3801e368",),

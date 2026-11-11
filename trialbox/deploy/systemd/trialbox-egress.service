@@ -1,0 +1,21 @@
+# TrialBox egress table at boot (T-108b, D-377; CR-043, OPS-049). Installed by deploy/install.sh, which writes the
+# install folder for @TB_ROOT@. Loads the closed nftables table for the box's saved subnets BEFORE Docker starts, so
+# a container that Docker restarts by itself (restart: unless-stopped) never has a way out. No allow rule is loaded
+# here: trialbox.service runs `network.sh apply` once the stack is up. Stopping this unit leaves the table in place.
+[Unit]
+Description=TrialBox egress table (closed until the stack is up)
+Documentation=file://@TB_ROOT@/docs/decisions/D-377-systemd-and-egress-at-boot.md
+DefaultDependencies=no
+After=local-fs.target
+Wants=network-pre.target
+Before=network-pre.target docker.service trialbox.service shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=@TB_ROOT@/deploy/network.sh restore
+
+[Install]
+WantedBy=multi-user.target
+RequiredBy=docker.service trialbox.service

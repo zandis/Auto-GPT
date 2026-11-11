@@ -1,0 +1,10 @@
+# Every minute (T-108b, D-377). Installed and enabled by deploy/install.sh.
+[Unit]
+Description=TrialBox watchdog every minute
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1min
+
+[Install]
+WantedBy=timers.target
