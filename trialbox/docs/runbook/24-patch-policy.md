@@ -24,7 +24,8 @@ server: the hospital patches the server and the platform, and only the TrialBox 
 | firmware (BIOS, BMC, disk) | hospital IT, with the supplier | yearly, or as the supplier says | as the supplier says |
 
 The box has no route to the internet (A.3). OS packages come through the hospital's own mirror or update server, or
-as an offline bundle on media. An offline OS patch bundle from Aimedics is T-408 and is not built yet.
+as an offline bundle on media: an OS patch bundle from Aimedics is applied with `tools/apply_update.sh ospatch
+<bundle>` (T-634, D-408; SECURITY §1).
 
 ## A patch window, step by step
 

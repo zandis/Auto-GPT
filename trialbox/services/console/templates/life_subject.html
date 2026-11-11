@@ -33,7 +33,11 @@
     <select id="reason" name="reason" data-testid="step-reason"><option value=""></option>
       {% if 'screen_fail' in sub.next %}<optgroup label="{{ t('life.state.screen_fail') }}">{% for r in sf_reasons %}<option value="{{ r }}">{{ t('life.reason.sf.' + r) }}</option>{% endfor %}</optgroup>{% endif %}
       {% if 'withdrawn' in sub.next %}<optgroup label="{{ t('life.state.withdrawn') }}">{% for r in wd_reasons %}<option value="{{ r }}">{{ t('life.reason.wd.' + r) }}</option>{% endfor %}</optgroup>{% endif %}
-    </select>{% endif %}
+    </select>
+    {% if 'screen_fail' in sub.next and sf_criteria %}
+    <label for="criterion">{{ t('life.step.criterion') }}</label>
+    <select id="criterion" name="criterion" data-testid="step-criterion"><option value=""></option>{% for c in sf_criteria %}<option value="{{ c }}">{{ c }}</option>{% endfor %}</select>
+    <p class="hint">{{ t('life.step.criterion.help', version=sf_version) }}</p>{% endif %}{% endif %}
     <label for="note">{{ t('life.step.note') }}</label>
     <input id="note" name="note" maxlength="300">
     <div class="markbar" data-testid="step-bar">{% for s in sub.next %}{% if s == 'consented' and sub.consent and sub.consent.here %}<a class="button" href="/studies/{{ rs }}/entry?record={{ record|urlencode }}&amp;form=tb_consent&amp;back=subject" data-testid="go-consented">{{ t('consent.record.do') }}</a>{% else %}<button type="submit" name="to" value="{{ s }}"{% if s in ('withdrawn', 'screen_fail') %} class="secondary danger"{% endif %} data-testid="go-{{ s }}">{{ t('life.go.' + s) }}</button>{% endif %}{% endfor %}</div>
@@ -86,7 +90,7 @@
 <thead><tr><th>{{ t('life.col.day') }}</th><th>{{ t('life.col.step') }}</th><th>{{ t('life.col.who') }}</th><th>{{ t('life.col.source') }}</th><th>{{ t('life.col.note') }}</th></tr></thead>
 <tbody>{% for s in one.steps %}<tr data-testid="step-{{ s.id }}">
 <td class="nowrap">{{ s.on_day }}</td>
-<td>{% if s.old %}{{ t('life.state.' + s.old) }} → {% endif %}<b>{{ t('life.state.' + s.new) }}</b>{% if s.reason %} <span class="hint">({{ t_or('life.reason.sf.' + s.reason, t_or('life.reason.wd.' + s.reason, s.reason)) }})</span>{% endif %}</td>
+<td>{% if s.old %}{{ t('life.state.' + s.old) }} → {% endif %}<b>{{ t('life.state.' + s.new) }}</b>{% if s.reason %} <span class="hint">({{ t_or('life.reason.sf.' + s.reason, t_or('life.reason.wd.' + s.reason, s.reason)) }})</span>{% endif %}{% if s.criterion %} <span class="hint" data-testid="step-criterion-{{ s.id }}">{{ t('life.trail.criterion', c=s.criterion ~ (' (v' ~ s.criteria_version ~ ')' if s.criteria_version else '')) }}</span>{% endif %}</td>
 <td class="mono">{{ s.who|replace('console:', '') }}</td>
 <td>{{ src(s.source) }}</td>
 <td>{% if s.note.startswith('implied by ') %}{{ t('life.note.implied', src=src(s.note[11:])) }}{% else %}<span data-authored>{{ s.note }}</span>{% endif %}</td>

@@ -115,6 +115,10 @@ class Helpers:
     ops_summary: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages (D-178): the health tile
     ops_status: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages: the host runner's status
     health: Callable[[], Any] | None = None  # set by console.metrics_page (T-209a): tb_common.metrics.Health now
+    # set by console.admin_accounts (T-209c, D-406): the /admin health tab's backup, update and account facts, and the
+    # unused-account report the Monday health mail carries
+    admin_extra: Callable[[Session], dict[str, Any]] | None = None
+    accounts_report: Callable[[], dict[str, Any]] | None = None
     identity: Any = None  # console.identity.Identity (D-279): the second factor at signing; None in bare test apps
     recorded: Any = None  # console.recorded_opinions.Recorded (T-515): demo opinions laid over the candidate list
     # set by console.breakglass (D-280): the administrator's open grant covering one patient or one job, else None;
