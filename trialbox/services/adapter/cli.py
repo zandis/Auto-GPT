@@ -57,7 +57,7 @@ def build_config() -> tuple[AdapterConfig, str, str]:
             from embed_service.embedder import from_env as embedder_from_env
             from lake.store import Lake
 
-            st = Lake(lake_dir, cfg.env.tz).rebuild(
+            st = Lake(lake_dir, cfg.env.tz, cfg.settings.mrn_regex).rebuild(
                 snapshot, embedder_from_env(os.environ.get("TB_LAKE_EMBEDDER", "hash")), ndjson_dir
             )
             return RebuildResult(
