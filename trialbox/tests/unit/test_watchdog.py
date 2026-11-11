@@ -270,7 +270,7 @@ def test_the_site_audit_is_written_inside_the_orchestrator(tmp_path: Path, monke
     argv = seen[0]
     assert argv[:4] == ["docker", "compose", "--project-directory", str(tmp_path)]
     assert argv[4:9] == ["exec", "-T", "orchestrator", "python", "-c"]
-    assert "AuditLog('/data/audit').append" in argv[9] and json.loads(argv[10])["detail"] == {"service": "x"}
+    assert "open_audit().append" in argv[9] and json.loads(argv[10])["detail"] == {"service": "x"}
 
 
 def test_no_container_without_the_label_is_touched(tmp_path: Path) -> None:

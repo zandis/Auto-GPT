@@ -6,7 +6,7 @@
 | Version | 0.1 (2026-11-11, T-635, D-390): the empty template |
 | For | the site administrator, hospital IT (資訊室) and Aimedics tier 2, once before go-live and then yearly |
 | How it is used | Copy this file for each run and fill it on paper or in the hospital's own system. **A filled copy stays with the hospital**: it names people, so it is never committed to this repository (TB-PLAN-06 §10.4 Q-21). Only the outcome line of §4 (date, scenarios run, gaps found, no names) may be reported back to Aimedics. |
-| Source | RUNBOOK §21 to §25 and the parts of §4, §12 and §22 written by T-635; each scenario names its drill in T-213b |
+| Source | RUNBOOK §21 to §25 and the parts of §4, §12 and §22 written by T-635, and §20 (T-628, scenario 12); each scenario names its drill in T-213b |
 | Form | TrialBox runs in containers on CGMH's shared B200 server (RUNBOOK §17). The hospital runs the platform, so scenarios 3, 4, 10 and 11 are mostly the hospital's own procedure; the tabletop checks the hand-over points with TrialBox. |
 | Not covered | the incident plan's tabletop (severity, notification clocks, the six cases) is T-318's |
 
@@ -40,6 +40,7 @@ available, a target that cannot hold). 每個情境由主持人宣讀狀況，�
 | 9 | Certificate ends / 憑證到期 | `check-tls` warns: 20 days left / `check-tls` 警告剩 20 天 | §12 certificate renewal | `test_runbook_12_certificate_renewal` | | new certificate in before the end | |
 | 10 | Platform patch / 平台修補 | the platform team plans a node upgrade / 平台團隊預定升級節點 | §24, §17 | `test_runbook_24_patch_window` | | `doctor --platform` and the canary pass after | |
 | 11 | New address / 位址變更 | the console's host name changes / 主控台主機名稱變更 | §22 moving the box | `test_runbook_22_moving_the_box` | | console answers on the new name | |
+| 12 | Study close-out and volumes retired / 試驗結案與磁區除役 | the last study closes on the 30th; the platform team will reclaim the volumes / 最後一個試驗於 30 日結案，平台團隊將回收磁區 | §20 | `test_runbook_20_decommission` | | archive verified and handed to the trial office before any purge; certificate from the platform team | |
 
 ## 3. Gaps and actions (缺漏與改善)
 
@@ -51,4 +52,4 @@ available, a target that cannot hold). 每個情境由主持人宣讀狀況，�
 
 One line that may be sent to Aimedics, with no names / 可送交 Aimedics 的一行摘要（不含姓名）：
 
-`CGMH, YYYY-MM-DD: scenarios run __ of 11; gaps __; actions open __.`
+`CGMH, YYYY-MM-DD: scenarios run __ of 12; gaps __; actions open __.`

@@ -2,7 +2,13 @@
 
 * **Screening log** (ICH E6(R3) §2.8 / Appendix C "subject screening log", pseudonymous): one line per patient the
   study approached, by screening number (FR-STUDY-08), with the PI's mark, the contact outcomes and the registry
-  status. The chart number stays off the log; the site's existing registry export resolves it on the box.
+  status. The chart number stays off the log; the site's existing registry export resolves it on the box. D-387
+  (LIFE-015, LIFE-016) adds the criteria version of the mark, the criterion not met on a screen failure with its
+  version ("GZQO-EXC-06 (v3.0.0)"), the day of consent, the consent form version and the day of enrolment.
+* **Pre-screen log** (D-387, LIFE-015): one pseudonymous line per investigator mark, approached or not, so a patient
+  set aside or not approached is on a per-patient log too: first listed, the criteria version the mark was made on,
+  the mark and its reason, a later mark or withdrawal, the screening number if one was given, the referral answer
+  and the screening-log status and reason. No screening number is needed. Same page and XLSX as the screening log.
 * **Cohort list** for a registry or observational study (RA-BIO, RA-COH, GOUT-COH): the members found by the latest
   run who were not listed before. There is no contact step and no PI mark: a cohort study counts and follows members,
   it does not approach them for a trial (FR-SCR-12).
@@ -17,6 +23,7 @@ import json
 import re
 from typing import Any
 
+from datacore.lifecycle import failed_label
 from fastapi import FastAPI, Request, Response
 from tb_contracts import Job
 
@@ -42,6 +49,64 @@ def _rc_note(reason: str) -> tuple[str, str] | None:
     page shows it in the reader's language (step 4, FR-I18N-01)."""
     m = _RC_NOTE.match(reason)
     return (m.group(1), m.group(2) or "") if m else None
+
+
+def criteria_choices(bk: Any, rid: str) -> tuple[str, list[str]]:
+    """The criteria a "not eligible" screen failure can name (D-387, LIFE-016): the ids on the latest candidate list
+    of the study and the criteria version it screened under. ``("", [])`` when no list has run."""
+    try:
+        job = st.latest_job(bk.list_jobs(limit=500), rid, ("SCREEN", "MICROBATCH"))
+        out = st.output(job, "candidate_list_", ".json")
+        data = json.loads(bk.get_object(out.minio_key)) if out is not None else None
+    except (KeyError, ValueError, OSError, Unavailable):
+        return "", []
+    if not isinstance(data, dict):
+        return "", []
+    ids: list[str] = []
+    for r in data.get("rows") or []:
+        for v in r.get("criteria") or []:
+            cid = str(v.get("id") or "")
+            if cid and cid not in ids:
+                ids.append(cid)
+    version = str(data.get("version") or (job.ruleset_version if job is not None else "") or "")
+    return version, ids
+
+
+def prescreen_rows(marks: list[Any], numbers: dict[str, str], seen: dict[str, tuple[str, str]],
+                   reg: dict[str, Any], refs: dict[str, Any], gone: set[str]) -> list[dict[str, Any]]:  # fmt: skip
+    """The pre-screen log (D-387, LIFE-015): one row per investigator mark, oldest first. A withdrawal is not a mark
+    of its own: it shows on the mark it took back (``later`` "withdrawn"); a newer mark shows as "replaced"."""
+    rows: list[dict[str, Any]] = []
+    by_pid: dict[str, list[dict[str, Any]]] = {}
+    for m in marks:
+        if m.pid in gone:
+            continue
+        mine = by_pid.setdefault(m.pid, [])
+        if m.mark == "withdrawn":
+            if mine and not mine[-1]["later"]:
+                mine[-1]["later"] = "withdrawn"
+            continue
+        if mine and not mine[-1]["later"]:
+            mine[-1]["later"] = "replaced"
+        e = reg.get(m.pid)
+        row = {
+            "pid": m.pid,
+            "short": m.pid[:8],
+            "listed": (seen.get(m.pid) or ("", ""))[1],
+            "version": m.version or "",
+            "mark": m,
+            # a "not now" mark's reason is the recheck date, a plan rather than something that happened: this log
+            # records what happened (nothing after today, T-513), so the date stays on the patient page and week list
+            "mark_reason": "" if m.mark == "not_now" else (m.reason or ""),
+            "later": "",
+            "no": numbers.get(m.pid, ""),
+            "referral": refs.get(m.pid),
+            "status": e.status if e else "",
+            "reason": (e.reason if e else "") or "",
+        }
+        mine.append(row)
+        rows.append(row)
+    return rows
 
 
 def suppress(n: int, k: int) -> int | str:
@@ -105,9 +170,26 @@ def register(app: FastAPI, h: Helpers) -> None:
             return None
         return out if isinstance(out, dict) else None
 
+    def life_detail(rs: str) -> dict[str, dict[str, Any]]:
+        """Per screening number, the lifecycle's consent, enrolment and screen-failure detail (D-387)."""
+        if not s28.has_api(bk):
+            return {}
+        try:
+            out = s28.call(bk, "GET", f"/studies/{rs}/subjects")
+        except (Problem, Unavailable):
+            return {}
+        return {str(x.get("record")): x for x in (out or {}).get("subjects") or [] if isinstance(x, dict)}
+
+    def prescreen(rs: str) -> list[dict[str, Any]]:
+        refs: dict[str, Any] = h.team.latest_referrals(rs) if h.team is not None else {}
+        gone = h.optout.active() if h.optout is not None else set()
+        return prescreen_rows(store.all_marks(rs), store.screening_nos(rs), store.first_seen(rs), registry_rows(rs),
+                              refs, set(gone))  # fmt: skip
+
     def log_rows(rs: str) -> list[dict[str, Any]]:
         reg = registry_rows(rs)
         rc = rc_records(rs)
+        life = life_detail(rs)
         marks: dict[str, list[Any]] = {}
         for m in store.all_marks(rs):
             marks.setdefault(m.pid, []).append(m)
@@ -129,6 +211,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             e = reg.get(pid)
             mk = [m for m in marks.get(pid, []) if m.mark != "withdrawn"]
             oc = outs.get(pid, [])
+            lf = life.get(no) or {}
             rows.append(
                 {
                     "no": no,
@@ -147,6 +230,11 @@ def register(app: FastAPI, h: Helpers) -> None:
                     "subject_no": (rc.get(pid) or {}).get("subject_no") or "",
                     "referral": refs.get(pid),
                     "override": overrides.get(pid),
+                    "version": (mk[-1].version or "") if mk else "",
+                    "failed": failed_label(str(lf.get("criterion") or ""), str(lf.get("criteria_version") or "")),
+                    "consented": str(lf.get("consented") or ""),
+                    "icf_version": str(lf.get("icf_version") or ""),
+                    "enrolled": str(lf.get("enrolled") or ""),
                 }
             )
         return rows
@@ -166,6 +254,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             sess,
             rs=rid,
             rows=log_rows(rid),
+            pre=prescreen(rid),
             link=link,
             last=reads[0] if reads else None,
             back="log",
@@ -208,6 +297,11 @@ def register(app: FastAPI, h: Helpers) -> None:
                 "referral_requested",
                 "referral_answered",
                 "approach_irb_override",
+                "criteria_version",
+                "criterion_not_met",
+                "consent_date",
+                "consent_form_version",
+                "enrolment_date",
             ]
         )
         for r in log_rows(rid):
@@ -234,14 +328,29 @@ def register(app: FastAPI, h: Helpers) -> None:
                     local_date(rf.requested_at, tz) if rf else "",
                     local_date(rf.answered_at, tz) if rf and rf.answered_at else "",
                     ",".join(ov[1]) if ov else "",
+                    r["version"],
+                    r["failed"],
+                    r["consented"],
+                    r["icf_version"],
+                    r["enrolled"],
                 ]
             )
+        pre = wb.create_sheet("pre-screen log")  # D-387 (LIFE-015): one row per investigator mark
+        pre.append(["pseudonym", "first_listed", "criteria_version", "pi_mark", "pi_mark_reason", "pi_mark_date",
+                    "pi_mark_by", "later", "screening_no", "referral_outcome", "referral_reason", "status",
+                    "reason"])  # fmt: skip
+        for p in prescreen(rid):
+            mk, rf = p["mark"], p["referral"]
+            pre.append([p["pid"], local_date(p["listed"], tz), p["version"], mk.mark, mk.reason or "",
+                        local_date(mk.at, tz), mk.by, p["later"], p["no"], rf.state if rf else "",
+                        rf.reason if rf else "", p["status"], p["reason"]])  # fmt: skip
         about = wb.create_sheet("about")
         about.append(["study", rid])
         about.append(["made", h.clock().isoformat(timespec="seconds")])
         about.append(["note", "Pseudonymous ICH E6(R3) screening log. Chart numbers are not in this file."])
         for row in study_lines(store, rid):  # D-386 (LIFE-008, LIFE-013): identifiers and the state's dates
             about.append(row)
+        about.append(["pre-screen log", "One row per investigator mark, approached or not (D-387)."])
         buf = io.BytesIO()
         wb.save(buf)
         au.append("console.export", ruleset=rid, actor=h.actor(sess), detail={"filename": "screening_log.xlsx"})

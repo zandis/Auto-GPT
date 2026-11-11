@@ -152,6 +152,10 @@ point-in-time recovery).
 which belong to group roles. A restore made as `trialbox` leaves its tables owned by `trialbox`, so run the role
 script once after it: `docker compose --project-directory deploy exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh`
 (`deploy/install.sh` runs it on every install and upgrade). It is safe to run any time.
+The script also gives the audit journal back to its owner and the services their right to write to it (D-394): until
+it runs, a restored box refuses actions that must be audited. When the database is older than the audit chain (an
+update rollback), the `audit-writer` service writes an `audit.journal_resync` event and goes on; `docker compose logs
+audit-writer` says what it found.
 
 
 ## Secrets (D-128, D-138): the one place to rotate them
