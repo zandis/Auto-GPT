@@ -28,7 +28,7 @@ from tb_common.derived import (
     UNITS,
 )
 from tb_common.fhir import library_name
-from tb_common.labunit import ANALYTES, DIGITS, UNITLESS_KEYS, conversion, key
+from tb_common.labunit import ANALYTES, DIGITS, UNITLESS_KEYS, conversion, key, scale_arms
 from tb_contracts import Atom, BoolExpr, CriterionIR
 
 from criteria_compiler.semantics import (
@@ -139,6 +139,9 @@ def unit_function(name: str, want: str | None) -> str:
                         f"when exists (Cd C where C.system.value = '{sy}' and C.code.value = '{cd}') "
                         f"and {have} = '{u}' then Round(Q.value.value {op} {_cql_dec(k)}, {DIGITS})"
                     )
+        for u, op, k in scale_arms(need):  # units of one kind, any analyte, after the analytes' own (D-418)
+            esc_u = u.replace("\\", "\\\\").replace("'", "\\'")
+            arms.append(f"when {have} = '{esc_u}' then Round(Q.value.value {op} {_cql_dec(k)}, {DIGITS})")
     body = "\n    ".join(arms)
     return f"define function {q(name)}(Q FHIR.Quantity, Cd List<FHIR.Coding>):\n  case\n    {body}\n    else null end"
 
