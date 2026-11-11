@@ -10,11 +10,17 @@ a fact only when its quote is found in the chart, character for character (after
 code systems to their URIs) and is **proposed**: it waits beside its quote for a coordinator's one-tap Confirm,
 Correct or Reject, and until then it can only send the patient to "needs information" (``matching.proposed``).
 The chart itself stays in the box's protected data folder; the lake gets the text with identifiers redacted.
+
+A chart longer than the model can read at once is read in parts (T-603, review LLM-015): each part is sized from the
+model's context (:meth:`tb_common.llm.LlmClient.text_budget`), so 60,000 characters of Japanese or Chinese, which
+fit no profile in one prompt, are read on the 8k, 16k and 32k profiles alike. Facts found in several parts are kept
+once.
 """
 
 from __future__ import annotations
 
 import io
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -22,6 +28,7 @@ from typing import Any, Protocol
 from doc_parser.hidden_text import hidden_text
 from tb_common import catalogue, encoding
 from tb_common.quotes import quote_in
+from tb_llm.budget import estimate_tokens
 
 from sitesetup import messy
 from sitesetup.ocr import Ocr
@@ -30,7 +37,8 @@ TEXT_EXT = (".txt", ".md")
 IMAGE_EXT = (".png", ".jpg", ".jpeg", ".tif", ".tiff")
 CHART_EXT = (*TEXT_EXT, ".docx", ".pdf", *IMAGE_EXT)
 MAX_CHART_BYTES = 20 * 1024 * 1024
-MAX_CHART_CHARS = 60_000
+MAX_CHART_CHARS = 60_000  # what a coordinator may upload; read in parts sized from the model's context (T-603)
+MIN_PART_TOKENS = 200  # a context that leaves less than this for chart text cannot read a chart
 ICD10CM = "http://hl7.org/fhir/sid/icd-10-cm"
 LOINC = "http://loinc.org"
 ATC = "http://www.whocc.no/atc"
@@ -197,18 +205,65 @@ def normalise(raw: dict[str, Any]) -> dict[str, str] | None:
     return None
 
 
+def _part_tokens(text: str) -> int:
+    """What ``text`` adds to the chart prompt, which renders it as a JSON string (``tojson_pretty``)."""
+    return estimate_tokens(json.dumps(text, ensure_ascii=False))
+
+
+def chart_parts(text: str, budget: int | None) -> list[str]:
+    """``text`` cut at line ends into parts of at most ``budget`` tokens each (T-603); a line longer than the budget
+    is cut inside. ``None``: the context is not known, one part. Every character is in exactly one part."""
+    if budget is None or _part_tokens(text) <= budget:
+        return [text]
+    if budget < MIN_PART_TOKENS:
+        raise ChartError("CHART-SIZE", "the model on this box cannot read a chart: its context is too small")
+    parts: list[str] = []
+    cur = ""
+    for line in text.splitlines(keepends=True):
+        while _part_tokens(line) > budget:  # one very long line: cut it where it still fits
+            lo, hi = 1, len(line)
+            while lo < hi:
+                mid = (lo + hi + 1) // 2
+                lo, hi = (mid, hi) if _part_tokens(line[:mid]) <= budget else (lo, mid - 1)
+            if cur:
+                parts.append(cur)
+                cur = ""
+            parts.append(line[:lo])
+            line = line[lo:]
+        if cur and _part_tokens(cur + line) > budget:
+            parts.append(cur)
+            cur = ""
+        cur += line
+    if cur:
+        parts.append(cur)
+    return parts
+
+
+def part_budget(llm: _Llm, lang: str) -> int | None:
+    """Tokens of chart text one ``chart_facts`` prompt may hold on this model (None: the context is not known)."""
+    fn = getattr(llm, "text_budget", None)
+    if not callable(fn):
+        return None
+    room = fn("chart_facts", {"text": "", "language": lang, "language_name": LANGUAGE_NAMES.get(lang, "English")})
+    return int(room) if isinstance(room, int) else None
+
+
 def extract(llm: _Llm, text: str, lang: str, job_id: str | None = None) -> tuple[list[dict[str, str]], int]:
-    """``(proposed facts, facts dropped)``: a fact whose quote is not in the chart is dropped, never kept."""
-    res = llm.chat_json(
-        "chart_facts",
-        {"text": text, "language": lang, "language_name": LANGUAGE_NAMES.get(lang, "English")},
-        job_id=job_id,
-    )
-    data = res.data if hasattr(res, "data") else res
+    """``(proposed facts, facts dropped)``: a fact whose quote is not in the chart is dropped, never kept. A chart
+    longer than the model's context allows is read in parts (:func:`chart_parts`), each fact kept once."""
+    facts: list[dict[str, Any]] = []
+    for part in chart_parts(text, part_budget(llm, lang)):
+        res = llm.chat_json(
+            "chart_facts",
+            {"text": part, "language": lang, "language_name": LANGUAGE_NAMES.get(lang, "English")},
+            job_id=job_id,
+        )
+        data = res.data if hasattr(res, "data") else res
+        facts.extend(data.get("facts") or [])
     kept: list[dict[str, str]] = []
     dropped = 0
     seen: set[tuple[str, ...]] = set()
-    for raw in data.get("facts") or []:
+    for raw in facts:
         if not quote_in(str(raw.get("quote") or ""), text):
             dropped += 1
             continue

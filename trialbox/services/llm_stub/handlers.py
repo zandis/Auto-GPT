@@ -597,6 +597,10 @@ PERSONAS: dict[str, Any] = {
     "stub-olddate": _olddate,
     "stub-down": lambda a: a,
     **dict.fromkeys(OBEYING, lambda a: a),  # every prompt, in ``app.py`` through :func:`obey`
+    # T-603: a model that enforces a context of 8k, 16k or 32k tokens (llm_stub.app.CONTEXT_PERSONAS)
+    "stub-ctx-8k": lambda a: a,
+    "stub-ctx-16k": lambda a: a,
+    "stub-ctx-32k": lambda a: a,
 }
 
 HANDLERS = {
