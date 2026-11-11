@@ -46,10 +46,12 @@ def test_default_install_passes() -> None:
         "secure_cookie",
         "publish_gate",
         "note_block",
+        "judge_route",
         "registry_pins",
         "site_tz",
         "flags",
         "site_key",
+        "key_custody",
     }
 
 

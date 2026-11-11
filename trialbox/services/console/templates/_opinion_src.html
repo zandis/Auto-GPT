@@ -1,0 +1,4 @@
+{# Where a first or second check came from (T-515, review UX-007): the box's test model, a recorded run of a real
+   model pair, or a synthetic example made up for the demonstration. Needs c (the criterion row) and o (the opinion). #}
+{%- set lk = 'model.test' if o.label == 'test_model' else 'opinion.src.' + o.label -%}
+<span class="pill warn" data-testid="opinion-src-{{ c.id }}-{{ o.role }}" data-source="{{ o.label }}" title="{{ t(lk + '.why') }}{% if o.source_name %} ({{ o.source_name }}){% endif %}">{{ t(lk) }}</span>

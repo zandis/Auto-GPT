@@ -18,6 +18,7 @@ from typing import Any
 from tb_common.config import environment_name
 from tb_contracts import Job
 
+from console.recorded_opinions import view
 from console.sitestore import DEFAULT_REASONS, Mark, SiteProfile, StudySettings
 
 TERMINAL_REGISTRY = frozenset({"screen_fail", "declined", "withdrawn"})
@@ -526,10 +527,14 @@ def patient_rows(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Crite
                 "quote": ev.get("quote"),
                 "date": ev.get("quote_date"),
                 "reason": ev.get("reason"),
-                "opinions": [o for o in ev.get("opinions") or [] if o.get("quote")],  # both quotes (D-120)
+                # both quotes (D-120); each says where it came from: the test model, a recorded run or a synthetic
+                # example (T-515)
+                "opinions": [view(o, test_model_in_use()) for o in ev.get("opinions") or [] if o.get("quote")],
                 "source": VERIFIED_BY.get(meta.cls, "records") if meta else "records",
             }
         )
+        verdicts = {o.get("verdict") for o in ev.get("opinions") or [] if o.get("quote")}
+        out[-1]["disagree"] = len(verdicts) > 1  # the two checks differ (T-515)
     return out
 
 

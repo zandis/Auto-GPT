@@ -12,7 +12,9 @@ site's local concepts (D-151).
   ...; ``vocabulary_reference`` is the FHIR system URI, so the lake export gets the system back exactly). A local
   concept is never standard (``standard_concept`` NULL). It is the record's ``*_source_concept_id``; the record's
   ``*_concept_id`` is the standard concept when the vocabulary holds one for the same code (a LOINC code with the
-  Athena LOINC loaded), else 0 (design §2.2 question 2: no SNOMED, ICD-10-CM as the condition standard).
+  Athena LOINC loaded), else the one its OHDSI source concept ``Maps to`` (an ATC class its RxNorm ingredient,
+  :func:`maps_to`, STD-030), else 0. Conditions stay 0: ICD-10-CM maps to SNOMED, which the box does not hold
+  (no licence, Q-22; design §2.2 question 2).
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from omop.schema import LOCAL_MIN, OmopError
 
 VALID_FROM, VALID_TO = date(1970, 1, 1), date(2099, 12, 31)
 
+OPERATOR_VOCAB = "None"  # OHDSI's own placeholder vocabulary (concept 0's); TB-* is for ids >= 2e9 only
 # OHDSI standard concepts written by the loader (id, name, domain, vocabulary, class, code)
 STANDARD: tuple[tuple[int, str, str, str, str, str], ...] = (
     (0, "No matching concept", "Metadata", "None", "Undefined", "No matching concept"),
@@ -38,11 +41,13 @@ STANDARD: tuple[tuple[int, str, str, str, str, str], ...] = (
     (9202, "Outpatient Visit", "Visit", "Visit", "Visit", "OP"),
     (9203, "Emergency Room Visit", "Visit", "Visit", "Visit", "ER"),
     (32817, "EHR", "Type Concept", "Type Concept", "Type Concept", "OMOP4976890"),
-    (4171756, "<", "Meas Value Operator", "SNOMED", "Qualifier Value", "276139006"),
-    (4171754, "<=", "Meas Value Operator", "SNOMED", "Qualifier Value", "276140008"),
-    (4172703, "=", "Meas Value Operator", "SNOMED", "Qualifier Value", "276136004"),
-    (4172704, ">", "Meas Value Operator", "SNOMED", "Qualifier Value", "276138003"),
-    (4171755, ">=", "Meas Value Operator", "SNOMED", "Qualifier Value", "276137008"),
+    # the measurement value operators keep OHDSI's concept ids (what operator_concept_id means to OHDSI tools), but
+    # not the SNOMED CT vocabulary and codes they carry in Athena: the box ships no SNOMED CT (T-617b, STD-044)
+    (4171756, "<", "Meas Value Operator", OPERATOR_VOCAB, "Qualifier Value", "<"),
+    (4171754, "<=", "Meas Value Operator", OPERATOR_VOCAB, "Qualifier Value", "<="),
+    (4172703, "=", "Meas Value Operator", OPERATOR_VOCAB, "Qualifier Value", "="),
+    (4172704, ">", "Meas Value Operator", OPERATOR_VOCAB, "Qualifier Value", ">"),
+    (4171755, ">=", "Meas Value Operator", OPERATOR_VOCAB, "Qualifier Value", ">="),
     (32678, "UTF-8", "Metadata", "Note Encoding", "Undefined", "UTF-8"),
     (21, "Measurement", "Metadata", "Domain", "Domain", "OMOP generated"),
 )
@@ -195,6 +200,39 @@ def _insert_concept(tx: Any, cid: int, name: str, dom: str, voc: str, cls: str, 
     )
 
 
+# How a source code reaches its standard concept, in order (STD-030): OMOP's ``Maps to``; for an ATC class with
+# no ``Maps to`` row, its RxNorm ingredient (the primary lateral link first). The first relationship the code has
+# decides, and only when it gives one concept: a combination (two ingredients) stays 0 rather than half-coded.
+MAP_RELATIONSHIPS = ("Maps to", "ATC - RxNorm pr lat", "ATC - RxNorm")
+INGREDIENT_VOCABS = ("RxNorm", "RxNorm Extension")
+
+
+def maps_to(tx: Any, vocabulary: str, codes: Iterable[str]) -> dict[str, int]:
+    """``code -> standard concept id`` for the codes of an OHDSI ``vocabulary`` (ids below 2e9: the Athena bundle,
+    ``omop.vocab_load.load_athena``) that reach exactly one valid standard concept by :data:`MAP_RELATIONSHIPS`.
+    ICD-10-CM maps to SNOMED, which is not on the box (no licence): a condition code finds nothing and stays 0."""
+    want = sorted(set(codes))
+    if not want:
+        return {}
+    found: dict[str, dict[str, set[int]]] = {}
+    for code, rel, cid in tx.fetchall(
+        "SELECT s.concept_code, r.relationship_id, t.concept_id FROM concept s JOIN concept_relationship r ON "
+        "r.concept_id_1 = s.concept_id AND r.invalid_reason IS NULL AND r.relationship_id = ANY(?) JOIN concept t "
+        "ON t.concept_id = r.concept_id_2 AND t.standard_concept = 'S' AND t.invalid_reason IS NULL "
+        "AND t.concept_id > 0 AND t.concept_id < ? WHERE s.vocabulary_id = ? AND s.concept_code = ANY(?) "
+        "AND s.concept_id > 0 AND s.concept_id < ? AND (r.relationship_id = 'Maps to' OR "
+        "(t.concept_class_id = 'Ingredient' AND t.vocabulary_id = ANY(?)))",
+        (list(MAP_RELATIONSHIPS), LOCAL_MIN, vocabulary, want, LOCAL_MIN, list(INGREDIENT_VOCABS)),
+    ):
+        found.setdefault(str(code), {}).setdefault(str(rel), set()).add(int(cid))
+    out: dict[str, int] = {}
+    for code, by_rel in found.items():
+        first = next(by_rel[r] for r in MAP_RELATIONSHIPS if r in by_rel)
+        if len(first) == 1:
+            out[code] = next(iter(first))
+    return out
+
+
 @dataclass(frozen=True)
 class Code:
     system: str | None
@@ -288,6 +326,9 @@ class Concepts:
                 (sv, sorted(codes), LOCAL_MIN),
             ):
                 self.standard[(sv, str(code))] = int(cid)
+            rest = sorted(c for c in codes if (sv, c) not in self.standard)
+            if rest:
+                self.standard.update({(sv, c): cid for c, cid in maps_to(self.tx, sv, rest).items()})
 
     def _vocabulary(self, vid: str, system: str | None) -> None:
         have = self.tx.fetchone("SELECT vocabulary_reference FROM vocabulary WHERE vocabulary_id = ?", (vid,))

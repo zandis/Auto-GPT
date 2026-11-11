@@ -21,15 +21,6 @@
    {
     "concept": [
      {
-      "code": "40617009",
-      "display": "Artificial respiration (procedure)"
-     }
-    ],
-    "system": "http://snomed.info/sct"
-   },
-   {
-    "concept": [
-     {
       "code": "5A1935Z",
       "display": "Respiratory Ventilation, Less than 24 Consecutive Hours"
      },
@@ -52,5 +43,5 @@
  "status": "active",
  "title": "Invasive mechanical ventilation",
  "url": "http://trialbox.local/fhir/ValueSet/EMPULSE-VS-MECHANICAL-VENTILATION",
- "version": "1.0.0-veac4a5e7"
+ "version": "1.0.0-va7722637"
 }

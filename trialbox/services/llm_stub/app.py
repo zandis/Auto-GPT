@@ -20,7 +20,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from tb_common.http import make_app
 
-from llm_stub.handlers import HANDLERS, MESSAGE_HANDLERS, PERSONAS
+from llm_stub.handlers import HANDLERS, MESSAGE_HANDLERS, OBEYING, PERSONAS, obey
 
 app = make_app("llm-stub", service_token=False)  # the stub stands in for vLLM, which has no box token
 _BLOCK = re.compile(r"```json\s*(.*?)```", re.S)
@@ -88,8 +88,11 @@ async def completions(request: Request) -> Any:
         m = _BLOCK.search(user)
         if not m:
             raise HTTPException(status_code=400, detail="no ```json input block in the user message")
-        answer = handler(json.loads(m.group(1)))
-        if prompt_id == "judge" and model in PERSONAS:
+        inp = json.loads(m.group(1))
+        answer = handler(inp)
+        if model in OBEYING:  # the injection suite's negative control (T-208): it follows a planted instruction
+            answer = obey(prompt_id, inp, answer)
+        elif prompt_id == "judge" and model in PERSONAS:
             answer = PERSONAS[model](answer)
         content = json.dumps(answer, ensure_ascii=False)
     return _completion(body, {"role": "assistant", "content": content}, "stop")
