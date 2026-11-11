@@ -325,7 +325,7 @@ class Lake:
     # ------------------------------------------------------------------ rebuild
     def _source(self, snapshot: str) -> Path:
         """The NDJSON folder of ``snapshot``: ``ndjson/<snapshot>``, else the folder the snapshot was last built from
-        (``db/<snapshot>.duckdb.source``; a lake built from ``dataplat`` snapshots has no ``ndjson/<snapshot>``)."""
+        (``db/<snapshot>.duckdb.source``; a lake built elsewhere may have no ``ndjson/<snapshot>``)."""
         own = self.dir / "ndjson" / snapshot
         rec = self.dir / "db" / f"{snapshot}.duckdb.source"
         if not own.is_dir() and rec.exists():

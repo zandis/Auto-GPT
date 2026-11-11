@@ -95,7 +95,7 @@ class DoctorInputs:
     settings: Mapping[str, Any] = field(default_factory=dict)
     routing_path: Path = ROOT / "models" / "routing.yaml"
     datasets_path: Path = ROOT / "eval" / "DATASETS.yaml"
-    dataplat_workdir: Path | None = None
+    ingest_lake: Path | None = None  # T-659b: the adapter's lake folder (its CURRENT and gates/), when given
     host_tz: str | None = None  # the host's zone; None: TB_HOST_TZ, else read from /etc (check site_tz)
     platform: bool = False  # doctor --platform: pods on a cluster, no host cron, so no host zone to compare
     deploy: Path | None = None  # the deploy folder (from --env-file): the backup record and the cron file (D-274)
@@ -230,22 +230,24 @@ def check_secure_cookie(inp: DoctorInputs) -> Check:
 
 
 def check_publish_gate(inp: DoctorInputs) -> Check:
-    wd = inp.dataplat_workdir
-    if wd is None:
-        return Check("publish_gate", "WARN", "no data-platform workdir configured (TB_DATAPLAT_DIR)")
-    pointer = wd / "l5" / "CURRENT.json"
-    gates = sorted((wd / "gates").glob("*.json")) if (wd / "gates").is_dir() else []
+    """T-659b (D-370): the adapter's lake: its ``CURRENT`` and the newest of its one-per-night gate records
+    (``gates/<night>.json``)."""
+    lake = inp.ingest_lake
+    if lake is None:
+        return Check("publish_gate", "WARN", "no ingest lake given (--lake-dir or TB_LAKE_DIR)")
+    pointer = lake / "CURRENT"
+    gates = sorted((lake / "gates").glob("*.json")) if (lake / "gates").is_dir() else []
     last = json.loads(gates[-1].read_text(encoding="utf-8")) if gates else None
-    if not pointer.exists():
+    cur = pointer.read_text(encoding="utf-8").strip() if pointer.exists() else ""
+    if not cur:
         outcome = last.get("outcome") if last else "none"
-        return Check("publish_gate", "FAIL", f"no current snapshot pinned (last gate outcome: {outcome})")
-    cur = json.loads(pointer.read_text(encoding="utf-8"))
+        return Check("publish_gate", "FAIL", f"no current snapshot (last gate outcome: {outcome})")
     if last is None:
-        return Check("publish_gate", "WARN", f"snapshot {cur.get('snapshot_id')} pinned but no gate record found")
+        return Check("publish_gate", "WARN", f"snapshot {cur} current but no gate record found")
     if last.get("outcome") == "HOLD":
         reasons = ", ".join(last.get("blocking_reasons") or [])
-        return Check("publish_gate", "WARN", f"last cycle held ({reasons}); serving stays on {cur.get('snapshot_id')}")
-    return Check("publish_gate", "PASS", f"snapshot {cur.get('snapshot_id')} current; last gate {last.get('outcome')}")
+        return Check("publish_gate", "WARN", f"last night held ({reasons}); the box stays on {cur}")
+    return Check("publish_gate", "PASS", f"snapshot {cur} current; last gate {last.get('outcome')}")
 
 
 def _override(inp: DoctorInputs) -> Path:
@@ -808,7 +810,7 @@ def ok(checks: list[Check]) -> bool:
 
 
 def inputs_from(
-    *, env_file: Path | None, settings: Path | None, routing: Path | None, dataplat: Path | None
+    *, env_file: Path | None, settings: Path | None, routing: Path | None, lake: Path | None
 ) -> DoctorInputs:
     env: dict[str, str] = {}
     if env_file is not None and env_file.exists():
@@ -826,13 +828,13 @@ def inputs_from(
     doc: dict[str, Any] = {}
     if settings is not None:
         doc = yaml.safe_load(settings.read_text(encoding="utf-8")) or {}
-    wd = dataplat or (Path(env["TB_DATAPLAT_DIR"]) if env.get("TB_DATAPLAT_DIR") else None)
+    wd = lake or (Path(env["TB_LAKE_DIR"]) if env.get("TB_LAKE_DIR") else None)
     deploy = env_file.resolve().parent if env_file is not None and env_file.exists() else None
     return DoctorInputs(
         env=env,
         settings=doc,
         routing_path=routing or ROOT / "models" / "routing.yaml",
-        dataplat_workdir=wd,
+        ingest_lake=wd,
         deploy=deploy,
     )
 

@@ -178,9 +178,9 @@ def test_box_env_file_gets_the_compose_gateway_url(tmp_path: Path, monkeypatch: 
         monkeypatch.delenv(k)
     env = tmp_path / ".env"
     env.write_text("TB_ENV=PRODUCTION\nTB_GATEWAY_VERIFIER_MODEL=v-verifier\nCOMPOSE_FILE=/opt/trialbox/deploy/x.yml\n")
-    inp = doctor.inputs_from(env_file=env, settings=None, routing=None, dataplat=None)
+    inp = doctor.inputs_from(env_file=env, settings=None, routing=None, lake=None)
     assert inp.env["TB_GATEWAY_URL"] == "http://gateway:8020/v1"
     assert doctor.check_note_block(inp).status == "PASS"
     env.write_text("TB_ENV=PRODUCTION\nTB_GATEWAY_VERIFIER_MODEL=v-verifier\n")  # not a box: nothing assumed
-    inp = doctor.inputs_from(env_file=env, settings=None, routing=None, dataplat=None)
+    inp = doctor.inputs_from(env_file=env, settings=None, routing=None, lake=None)
     assert "TB_GATEWAY_URL" not in inp.env and doctor.check_note_block(inp).status == "FAIL"
