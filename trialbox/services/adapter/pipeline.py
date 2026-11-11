@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from tb_common import feedguard
+from tb_common import feedguard, labvalue
 from tb_common.audit import AuditLog
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
@@ -213,6 +213,39 @@ def apply_unit_defaults(observations: list[Resource], defaults: dict[str, str]) 
         q.update({"unit": unit, "code": unit, "system": UCUM})
         meta = r.setdefault("meta", {})
         meta.setdefault("tag", []).append({"system": UNIT_SOURCE, "code": "site-default"})
+        n += 1
+    return n
+
+
+VALUE_SOURCE = "urn:trialbox:value-source"
+# the LOINC answers of a presence test (answer list LL360-9), as the shipped lab lookups write them (D-334)
+PRESENCE_ANSWERS = {labvalue.POSITIVE: ("LA6576-8", "Positive"), labvalue.NEGATIVE: ("LA6577-6", "Negative")}
+
+
+def apply_presence_words(observations: list[Resource]) -> int:
+    """D-418 (T-619c, DATA-016): a ``fhir_bulk`` feed has no mapping step, so a qualitative result it sends as text
+    (``valueString`` 陰性, 陽性, 未檢出, Non-reactive, 2+) was never read: every criterion on it stayed unknown. The
+    shared presence reader of the mapped sources (``tb_common.labvalue.presence``, D-334) now reads it into the LOINC
+    answer the shipped lookups use (``LA6576-8`` Positive, ``LA6577-6`` Negative), keeps the text as written in
+    ``valueCodeableConcept.text``, and tags the result ``urn:trialbox:value-source|presence-word``. Only a result
+    coded in LOINC is read. A held or borderline word (判定保留, ±, equivocal) and any other text stay text, which the
+    engines read as unknown. Returns how many results were read."""
+    n = 0
+    for r in observations:
+        text = r.get("valueString")
+        if not isinstance(text, str) or not any(
+            c.get("system") == LOINC for c in (r.get("code") or {}).get("coding") or []
+        ):
+            continue
+        answer = PRESENCE_ANSWERS.get(labvalue.presence(text) or "")
+        if answer is None:
+            continue
+        del r["valueString"]
+        r["valueCodeableConcept"] = {
+            "coding": [{"system": LOINC, "code": answer[0], "display": answer[1]}],
+            "text": text,
+        }
+        r.setdefault("meta", {}).setdefault("tag", []).append({"system": VALUE_SOURCE, "code": "presence-word"})
         n += 1
     return n
 
@@ -462,6 +495,8 @@ def _run_ingest(
     at.update(step="snapshot", table=None)
     unit_defaults = mapping.unit_defaults if source_kind != "fhir_bulk" else _bulk_unit_defaults(cfg.mapping_path)
     defaulted = apply_unit_defaults(by_type.get("Observation", []), unit_defaults)
+    # D-418: the mapped sources read presence words in the mapping step; a FHIR feed has none, so here
+    presence_read = apply_presence_words(by_type.get("Observation", [])) if source_kind == "fhir_bulk" else 0
     # D-275 (review S-9): an order with no authoredOn and no validity start is kept. It was dropped here, so a
     # patient whose only order had no date failed "on the drug" with no trace; the compiled SQL and CQL place an
     # undated order in no window and leave the criterion unknown (a person checks)
@@ -701,6 +736,7 @@ def _run_ingest(
                 "tombstoned": tombstoned,
                 "held": held,
                 "unit_defaults_applied": defaulted,
+                "presence_words_read": presence_read,
                 "drop_override": "; ".join(overrides) or None,
                 # T-611: what the readiness page shows for a held night (tables only, never a row)
                 "incomplete": completeness["problems"] or None,
