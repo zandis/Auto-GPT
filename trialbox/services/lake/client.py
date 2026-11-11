@@ -79,6 +79,20 @@ class LakeHttp:
         body: dict[str, Any] = resp.json()
         return body
 
+    def hold(self, snapshot: str, holder: str) -> None:
+        """T-305b (D-403): ``holder`` (a job) reads ``snapshot`` to its end: not rebuilt, not pruned."""
+        self.client.post(f"{self.base}/holds", json={"snapshot": snapshot, "holder": holder}).raise_for_status()
+
+    def release(self, holder: str) -> bool:
+        resp = self.client.delete(f"{self.base}/holds/{holder}")
+        resp.raise_for_status()
+        return bool(resp.json().get("released"))
+
+    def holds(self) -> dict[str, str]:
+        resp = self.client.get(f"{self.base}/holds")
+        resp.raise_for_status()
+        return {str(k): str(v) for k, v in resp.json()["holds"].items()}
+
     def snapshot(self) -> str | None:
         body = self.client.get(f"{self.base}/healthz").json()
         snap = body.get("checks", {}).get("snapshot")
@@ -113,6 +127,15 @@ class LakeLocal:
 
     def put_site(self, resources: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
         return self.lake.put_site(resources)
+
+    def hold(self, snapshot: str, holder: str) -> None:
+        self.lake.hold(snapshot, holder)
+
+    def release(self, holder: str) -> bool:
+        return self.lake.release(holder)
+
+    def holds(self) -> dict[str, str]:
+        return self.lake.holds()
 
     def rebuild(self, snapshot: str, allow_empty: bool = False) -> dict[str, Any]:
         st = self.lake.rebuild(snapshot, self.embedder, allow_empty=allow_empty)
