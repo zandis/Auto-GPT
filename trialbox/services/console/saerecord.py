@@ -23,9 +23,21 @@ computes them for the site's local date). The register adds what the AE form doe
 (``ae1`` ...), the pseudonym, dates, parties and short references. Never the AE term, a chart number or a name.
 
 **Time.** Dates are the site's calendar dates (``site.tz``: Asia/Tokyo, Asia/Taipei; neither has daylight saving).
-"Today" is the site's date at the server's clock, so a server on UTC never counts a Tokyo deadline a day late.
-Deadlines are calendar days: a weekend or a public holiday neither extends nor shortens one (J-GCP's 直ちに and the
-Taiwanese IRB SOPs count calendar days); the worklist says so.
+"Today" is the site's date at the server's clock, so a server on UTC never counts a Tokyo deadline a day late. The
+24-hour report (a one-day rule: J-GCP's 直ちに, the Taiwanese 立即) is counted in hours from the time the site learned
+of the event (``ae_aware_time``; without it from the start of that day, the strictest reading), so it is overdue at
++24 h, not two days later (LIFE-022, D-277). Longer deadlines are calendar days: a weekend or a public holiday neither
+extends nor shortens one; the worklist says so.
+
+**Rules per study (D-277).** Each study names its rule set on the set-up page (``datacore.lifecycle.RULE_SETS``);
+the worklist and the case page name the set, the regulator (from the set's country, the same word in every
+language) and who confirmed it. An unknown set, a site zone of no known country, an unreadable override or a clock
+with no party left is an alert (CR-009, S-16), never a quiet fallback.
+
+**Written on the write path (CR-012).** A page view never writes: the register is brought up to date when an AE form
+is saved through the console, when a person records something on the case page, when the investigator acknowledges,
+and by the daily notice job (for answers that reached the data core another way). A new case is copied to the trial
+office's mailbox (``TB_SAE_OFFICE_MAILBOX``) without the AE term.
 
 Stored in the trial database (PostgreSQL ``trialbox_wf``, schema ``sae``; D-126).
 """
@@ -34,7 +46,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from datacore import lifecycle as lc
@@ -99,7 +111,13 @@ CREATE INDEX sae_trail_case ON sae_trail (ruleset, record, event, at)
 """
 # version 2 (review of PR #60, H4): an open report of a case no longer serious can be closed
 SCHEMA_V2 = "ALTER TABLE sae_report ADD COLUMN closed_on TEXT"
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2)
+# version 3 (CR-011, PR #60 M7): one initial report and one rule follow-up per party and case
+SCHEMA_V3 = """
+CREATE UNIQUE INDEX sae_report_initial ON sae_report (ruleset, record, event, party) WHERE kind = 'initial';
+CREATE UNIQUE INDEX sae_report_rule_fu ON sae_report (ruleset, record, event, party)
+  WHERE kind = 'followup' AND origin = 'rule'
+"""
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3)
 SYNC = "system:sync"  # the actor of every row the register writes from the AE form (never the person viewing)
 
 
@@ -123,16 +141,7 @@ def followup_rules(override: str = "") -> dict[str, tuple[int, int]]:
     """The follow-up days per party (fatal or life-threatening / other) after the first report to that party was
     sent: :data:`FOLLOWUP_RULES`, then ``override`` in ``TB_SAE_REPORT_DAYS``'s form."""
     out = dict(FOLLOWUP_RULES)
-    for part in (override or "").split(","):
-        key, _, val = part.partition("=")
-        key, val = key.strip().lower(), val.strip()
-        if key not in PARTIES or not val:
-            continue
-        a, _, b = val.partition("/")
-        try:
-            out[key] = (max(0, int(a)), max(0, int(b or a)))
-        except ValueError:
-            continue
+    lc.apply_override(out, override)
     return out
 
 
@@ -165,14 +174,16 @@ def rule_followups(ae: dict[str, Any], today: date, rules: dict[str, tuple[int, 
     return out
 
 
-def state_of(due: str, done: str, today: date, start: date | None = None) -> str:
+def state_of(due: str, done: str, today: date, start: date | None = None, due_at: str = "",
+             now: datetime | None = None) -> str:  # fmt: skip
     """One report's state on the site's ``today``:
 
     * ``sent``: sent on or before its due day;
     * ``sent_late``: sent after its due day (counts as sent, stays in the alert);
     * ``bad_sent``: the day sent is unreadable, after today, or before the clock's day 0 (the AE form takes any
       date): it does **not** count as sent and stays in the alert until the form is corrected;
-    * ``overdue``, ``due_today``, ``open``; ``nostart`` when there is no due day (no start date).
+    * ``overdue``, ``due_today``, ``open``; ``nostart`` when there is no due day (no start date). The 24-hour report
+      (``due_at``, a site-local moment) is overdue once ``now`` is past it (LIFE-022), not at the next midnight.
     """
     if done:
         d = day_of(done)
@@ -183,9 +194,18 @@ def state_of(due: str, done: str, today: date, start: date | None = None) -> str
     d = day_of(due)
     if d is None:
         return "nostart"
-    if today > d:
+    at = _moment(due_at)
+    if (now is not None and at is not None and now > at) or today > d:
         return "overdue"
     return "due_today" if today == d else "open"
+
+
+def _moment(text: str) -> datetime | None:
+    try:
+        out = datetime.fromisoformat(text) if text else None
+    except ValueError:
+        return None
+    return out if out is not None and out.tzinfo is not None else None
 
 
 def flags_of(ae: dict[str, Any], today: date | None = None) -> list[str]:
@@ -537,16 +557,18 @@ def _case(row: dict[str, Any]) -> dict[str, Any]:
 
 # ---------------------------------------------------------------------------------------------- the worklist
 OPEN = ("overdue", "due_today", "open", "nostart", "bad_sent")  # a report still to send (or whose day is wrong)
-ALERT_FLAGS = ("nostart", "aware_before_onset", "future_date")
+ALERT_FLAGS = ("nostart", "aware_before_onset", "future_date", "noclock", "serious_mismatch", *lc.RULE_ALERTS)
 
 
 def _row(party: str, kind: str, origin: str, days: Any, due: str, sent: str, rec: dict[str, Any],
-         start: date | None, today: date, rid: Any = None) -> dict[str, Any]:  # fmt: skip
+         start: date | None, today: date, rid: Any = None, due_at: str = "",
+         now: datetime | None = None) -> dict[str, Any]:  # fmt: skip
     closed = str(rec.get("closed_on") or "")
     return {"party": party, "kind": kind, "origin": origin, "days": days, "due": due or "", "sent_on": sent or "",
+            "due_at": due_at, "hours": 24 if due_at else None,
             "ref": rec.get("ref") or "", "receipt_on": rec.get("receipt_on") or "", "closed_on": closed,
             "id": None if kind == "initial" else (rid if rid is not None else rec.get("id")),  # initial: by party
-            "state": "closed" if closed and not sent else state_of(due, sent, today, start)}  # fmt: skip
+            "state": "closed" if closed and not sent else state_of(due, sent, today, start, due_at, now)}  # fmt: skip
 
 
 def _summary(rows: list[dict[str, Any]], flags: list[str]) -> dict[str, Any]:
@@ -560,13 +582,15 @@ def _summary(rows: list[dict[str, Any]], flags: list[str]) -> dict[str, Any]:
 
 
 def case_view(ae: dict[str, Any], case: dict[str, Any] | None, reports: list[dict[str, Any]], today: date,
-              fu_rules: dict[str, tuple[int, int]]) -> dict[str, Any]:  # fmt: skip
-    """One serious AE as the worklist shows it: every report (initial and follow-up) with its due day, sent day,
-    receipt and state on the site's ``today``, the date checks, and the counts the alert needs. No AE term."""
+              fu_rules: dict[str, tuple[int, int]], now: datetime | None = None,
+              rules: dict[str, Any] | None = None) -> dict[str, Any]:  # fmt: skip
+    """One serious AE as the worklist shows it: every report (initial and follow-up) with its due day (and the
+    24-hour report's due moment), sent day, receipt and state at the site's ``now`` / ``today``, the date checks,
+    the rule problems (``rules``, :func:`lc.clock_rules`), and the counts the alert needs. No AE term."""
     start = start_of(ae)
     initial = {r["party"]: r for r in reports if r["kind"] == "initial"}
     rows = [_row(c["party"], "initial", "rule", c.get("days"), str(c.get("due") or ""), str(c.get("done") or ""),
-                 initial.get(c["party"], {}), start, today, rid=None)
+                 initial.get(c["party"], {}), start, today, rid=None, due_at=str(c.get("due_at") or ""), now=now)
             for c in ae.get("clock") or []]  # fmt: skip
     stored = {r["party"]: r for r in reports if r["kind"] == "followup" and r["origin"] == "rule"}
     shown: set[str] = set()
@@ -582,15 +606,24 @@ def case_view(ae: dict[str, Any], case: dict[str, Any] | None, reports: list[dic
                   start, today)
              for r in reports if r["kind"] == "followup" and r["origin"] == "request"]  # fmt: skip
     flags = flags_of(ae, today)
-    if ae.get("ae_serious") == "1" and not ae.get("clock") and "nostart" not in flags:
-        flags.append("noclock")
+    if lc.is_serious(ae) and not ae.get("clock") and "nostart" not in flags:
+        flags.append("noclock")  # S-16: a serious AE with no clock at all is an alert, never a quiet row
+    if lc.is_serious(ae) and ae.get("ae_serious") != "1":
+        flags.append("serious_mismatch")  # CR-008: fatal (or a "why serious" reason) with Serious = No
     if any(r["state"] == "bad_sent" for r in rows):
         flags.append("bad_sent")
+    flags += [p for p in (rules or {}).get("problems") or [] if p != "noclock" or "noclock" not in flags]
+    if any(r.get("due_at") for r in rows) and ae.get("ae_aware") and lc.aware_time(ae) is None:
+        flags.append("aware_time_missing")  # the 24-hour report counts from 00:00 of the day learned
+    if ae.get("ae_expected") == "1" and ((rules or {}).get("parties") or {}).get("regulator", (0, 0)) != (0, 0):
+        flags.append("expected_noreg")  # expected per the reference safety information: no regulator clock
     return {
         "record": ae["record"], "event": ae["event"], "pid": str(ae.get("pid") or ""),
         "short": str(ae.get("pid") or "")[:8], "onset": ae.get("ae_onset") or "", "aware": ae.get("ae_aware") or "",
         "grave": lc.grave(ae), "fatal": ae.get("ae_outcome") == "5", "serious": True, "downgraded": False,
         "ack_by": ae.get("ack_by") or "", "ack_at": ae.get("ack_at") or "", "needs_ack": bool(ae.get("needs_ack")),
+        "expected": str(ae.get("ae_expected") or ""), "unblinded": str(ae.get("ae_unblinded") or ""),
+        "unblind_date": str(ae.get("ae_unblind_date") or ""), "aware_time": str(ae.get("ae_aware_time") or ""),
         "reports": rows, "flags": flags, "first_seen": (case or {}).get("created_at") or "",
         **_summary(rows, flags),
     }  # fmt: skip
@@ -620,6 +653,24 @@ def downgraded_view(case: dict[str, Any], reports: list[dict[str, Any]], today: 
         "ack_by": case.get("pi_ack_by") or "", "ack_at": case.get("pi_ack_at") or "", "needs_ack": False,
         "reports": rows, "flags": flags, "first_seen": case.get("created_at") or "", **summary,
     }  # fmt: skip
+
+
+def office_notice(rs: str, v: dict[str, Any], rules: dict[str, Any]) -> tuple[str, str]:
+    """The copy of a new SAE case to the trial office's mailbox (FIT-025): the study, the screening number, the
+    event, the dates, the rule set and each deadline. Never the AE term, a chart number or a name."""
+    subject = f"[TrialBox] SAE {rs} {v['record']} {v['event']}"
+    lines = [f"New serious adverse event in the TrialBox SAE register: study {rs}, screening number {v['record']}, "
+             f"event {v['event']}.", "",
+             f"- Onset: {v.get('onset') or '-'}; the site learned of it: {v.get('aware') or '-'} "
+             f"{v.get('aware_time') or ''}".rstrip(),
+             f"- Fatal or life-threatening: {'yes' if v.get('grave') else 'no'}",
+             f"- Rule set: {rules.get('name') or '-'} (regulator {rules.get('regulator') or '-'}; confirmed by "
+             f"{rules.get('confirmed_by') or 'nobody yet'})"]  # fmt: skip
+    for r in v.get("reports") or []:
+        due = r.get("due_at") or r.get("due") or "-"
+        lines.append(f"- {r['kind']} report to the {r['party']}: due {due}")
+    lines += ["", "The office log stays the record (D-191). Open the case in TrialBox for the details."]
+    return subject, "\n".join(lines)
 
 
 def sort_key(v: dict[str, Any]) -> tuple[Any, ...]:

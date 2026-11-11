@@ -23,8 +23,8 @@ def test_report_rules_jp_tw_and_the_site_override() -> None:
     e = {"ae_serious": "1", "ae_outcome": "5", "ae_onset": "2026-11-01", "ae_aware": "2026-11-03",
          "ae_rep_sponsor": "2026-11-03"}  # fmt: skip
     clock = {c["party"]: c for c in lc.report_clock(e, date(2026, 11, 11), lc.report_rules("Asia/Taipei"))}
-    assert clock["sponsor"] == {"party": "sponsor", "days": 1, "due": "2026-11-04", "done": "2026-11-03",
-                                "overdue": False}  # fmt: skip
+    assert clock["sponsor"] == {"party": "sponsor", "days": 1, "hours": 24, "due_at": "2026-11-04T00:00",
+                                "due": "2026-11-04", "done": "2026-11-03", "overdue": False, "bad_done": False}  # fmt: skip
     assert clock["irb"]["due"] == "2026-11-10" and clock["irb"]["overdue"]  # fatal: 7 days from the day learned
     other = {**e, "ae_outcome": "2", "ae_serious_why": "3", "ae_rep_sponsor": ""}
     clock = {c["party"]: c for c in lc.report_clock(other, date(2026, 11, 11), lc.report_rules("Asia/Taipei"))}

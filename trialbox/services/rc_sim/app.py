@@ -26,7 +26,7 @@ from typing import Any
 from xml.etree import ElementTree as ET
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 # ``record`` is the export, or the import when ``data`` is sent
@@ -269,8 +269,8 @@ def create_app(fixtures_dir: Path | None = None, version: str | None = None, rat
             return _err(400, "This simulator answers format=json only (and takes ODM for a record import)")
         if content not in SUPPORTED:
             return _err(501, f"The content '{content}' is not supported by the TrialBox REDCap simulator")
-        if content == "version":
-            return JSONResponse(state.version)
+        if content == "version":  # REDCap answers this one call with plain text, not JSON (STD-060)
+            return PlainTextResponse(state.version)
         if content == "project":
             return proj["project"]
         if content == "metadata":

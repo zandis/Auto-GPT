@@ -56,7 +56,7 @@ def compiler() -> Compiler:
             repo=RulesetRepo(cfg.env.rulesets_path, SEED),
             llm=LlmClient.from_config(audit),
             # D-172: the loaded zh-TW synonym dictionary; the source and release from the resolver (D-301)
-            term=resolver.terminology(name_synonyms=synonym_lookup()),
+            term=resolver.jp_ingredients(resolver.terminology(name_synonyms=synonym_lookup())),  # T-610: JP stems
             settings_thresholds={
                 "equivalence_min_pct": th.equivalence_min_pct,
                 "tier_high_confidence": th.tier_high_confidence,
