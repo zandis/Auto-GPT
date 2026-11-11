@@ -6,7 +6,7 @@
 | Version | 0.1 (2026-11-11, T-635, D-390): the empty template |
 | For | the site administrator, hospital IT (医療情報部) and Aimedics tier 2, once before go-live and then yearly |
 | How it is used | Copy this file for each run and fill it on paper or in the hospital's own system. **A filled copy stays with the hospital**: it names people, so it is never committed to this repository (TB-PLAN-06 §10.4 Q-21). Only the outcome line of §4 (date, scenarios run, gaps found, no names) may be reported back to Aimedics. |
-| Source | RUNBOOK §21 to §25 and the parts of §4, §12 and §22 written by T-635; each scenario names its drill in T-213b |
+| Source | RUNBOOK §21 to §25 and the parts of §4, §12 and §22 written by T-635, and §20 (T-628, scenario 12); each scenario names its drill in T-213b |
 | Not covered | the incident plan's tabletop (severity, notification clocks, the six cases) is T-318's |
 
 ## 1. The run (実施概要)
@@ -40,6 +40,7 @@ available, a target that cannot hold). 各シナリオについて、進行役�
 | 9 | Certificate ends / 証明書の期限切れ | `check-tls` warns: 20 days left / `check-tls` が残り 20 日を警告 | §12 certificate renewal | `test_runbook_12_certificate_renewal` | | new certificate in before the end | |
 | 10 | Patch window / パッチ適用 | hospital IT plans the monthly OS window / 病院が月例の OS 更新を予定 | §24 | `test_runbook_24_patch_window` | | `doctor` and the canary pass after | |
 | 11 | Moving the box / 装置の移設 | the server room moves to another building / サーバ室が別棟へ移転 | §22 moving the box | `test_runbook_22_moving_the_box` | | console answers on the new address | |
+| 12 | Study close-out and the box retired / 試験終了と装置の廃棄 | the last study closes on the 30th; the box is returned / 最後の試験が 30 日に終了し、装置を返却 | §20 | `test_runbook_20_decommission` | | archive verified and handed to the trial office before any purge; one certificate per disk | |
 
 ## 3. Gaps and actions (不足点と対応)
 
@@ -51,4 +52,4 @@ available, a target that cannot hold). 各シナリオについて、進行役�
 
 One line that may be sent to Aimedics, with no names / Aimedics に送ってよい一行（氏名なし）：
 
-`Japan head hospital, YYYY-MM-DD: scenarios run __ of 11; gaps __; actions open __.`
+`Japan head hospital, YYYY-MM-DD: scenarios run __ of 12; gaps __; actions open __.`

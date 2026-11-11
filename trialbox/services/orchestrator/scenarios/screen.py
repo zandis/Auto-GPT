@@ -68,6 +68,23 @@ ORDER BY p.pid
 """
 
 
+# FIT-U04 (T-629, D-415): who of a list the current snapshot records as dead, with a date or without one (T-616)
+DECEASED_SQL = """
+SELECT pid FROM patient
+WHERE list_contains(CAST($1 AS VARCHAR[]), pid) AND (deceased_date IS NOT NULL OR deceased IS TRUE)
+ORDER BY pid
+"""
+
+
+def deceased_now(lake: Any, pids: list[str]) -> list[str]:
+    """The pseudonyms of ``pids`` whose record in the lake's current snapshot says the patient died. The console
+    asks at each view of a list, so a death recorded after the run takes the patient off it at once. A snapshot
+    built before schema 4 reads ``deceased`` as unknown and still gives the death date (``lake.store``)."""
+    if not pids:
+        return []
+    return [str(r["pid"]) for r in lake.query(DECEASED_SQL, [list(pids)]).to_pylist()]
+
+
 @dataclass
 class Scoped:
     pid: str
