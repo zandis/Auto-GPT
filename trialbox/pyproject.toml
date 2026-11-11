@@ -54,6 +54,9 @@ dev = [
   "types-python-dateutil",
   "types-jsonschema",
   "types-Markdown",
+  # the security scans of CI job `security` (T-654, ENG-010, ENG-011; tools/security_scan.py), pinned exactly
+  "bandit==1.9.4",
+  "detect-secrets==1.5.0",
 ]
 
 # The test plugin set (D-201, T-003): exactly these, pinned, and locked in uv.lock with everything else. `make venv`

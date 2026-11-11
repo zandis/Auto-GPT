@@ -1,0 +1,10 @@
+id,title,found_by,severity,class,state,fix_pr,verifying_test,notes
+PRB-001,No secret scanning in CI,ENG-010 (deep review 2026-11-10),medium,A,fixed,T-654,tests/unit/test_security_scan.py::test_planted_fake_key_fails_the_secret_scan,CI job security; reviewed exceptions in tools/security_scan_ignores.yaml
+PRB-002,No static security scan beyond ruff S rules,ENG-011 (deep review 2026-11-10),medium,A,fixed,T-654,tests/unit/test_security_scan.py::test_planted_shell_injection_fails_the_static_scan,bandit at medium severity and confidence in CI job security; ruff's own S608 and tools/** ignores are unchanged (see PRB-008)
+PRB-003,No problem-resolution log,ENG-003 (deep review 2026-11-10),high,A,fixed,T-654,,this file; process in development-plan.md section 5
+PRB-004,No software safety classification,ENG-001 (deep review 2026-11-10),high,B,fixed,T-654,,software-safety-classification.md; no signature (D-311 B14)
+PRB-005,The pull-request template is Auto-GPT's,ENG-004 (deep review 2026-11-10),medium,A,fixed,T-654,,.github/PULL_REQUEST_TEMPLATE.md
+PRB-006,The SOUP list is only an SBOM,ENG-008 (deep review 2026-11-10),medium,B,fixed,T-654,,soup.csv
+PRB-007,JVM jars FHIR packages and fonts are fetched without a pinned hash,ENG-013 (deep review 2026-11-10),medium,B,open,,,the validator jar is pinned; cql-to-elm transitive jars FHIR packages and fonts are not
+PRB-008,Ruff ignores S608 S105 S106 for the whole tree and every S rule under tools/,ENG-011 (deep review 2026-11-10),low,A,open,,,bandit now gates the same classes at medium severity; turning the ruff rules back on needs per-line reasons in many files
+PRB-009,No secret scan of the git history,ENG-010 (deep review 2026-11-10),low,A,open,,,CI scans the tracked tree on every run; a one-off history scan is not done
