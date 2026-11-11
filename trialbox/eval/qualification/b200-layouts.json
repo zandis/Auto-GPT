@@ -1,0 +1,18 @@
+{
+ "schema": "tb-b200-layouts/1",
+ "about": "G1b on the owner's B200 (T-114, D-428): the two MIG layouts qualified, so CGMH's answer to survey question 51 is covered either way. Each server runs on its own MIG instance (D-409). max_len is the context rule of serving_config.MIG_MIN_LEN for the instance; max_seqs and gpu_mem_util are starting values the run measures, not results.",
+ "layouts": [
+  {
+   "name": "small",
+   "why": "the smallest layout that fits the pair: three of the seven compute slices",
+   "judge": {"mig_profile": "2g.45gb", "max_len": 16384, "max_seqs": 4, "gpu_mem_util": 0.9},
+   "verifier": {"mig_profile": "1g.23gb", "max_len": 8192, "max_seqs": 4, "gpu_mem_util": 0.9}
+  },
+  {
+   "name": "large",
+   "why": "one larger layout: each server on a 3g.90gb instance, six of the seven compute slices",
+   "judge": {"mig_profile": "3g.90gb", "max_len": 32768, "max_seqs": 8, "gpu_mem_util": 0.9},
+   "verifier": {"mig_profile": "3g.90gb", "max_len": 32768, "max_seqs": 8, "gpu_mem_util": 0.9}
+  }
+ ]
+}

@@ -365,6 +365,9 @@ DECLARED: dict[str, Declared] = {
     "TB_AUDIT_WRITER": Declared("str", "file", "db: send audit events to the journal (D-394); file: write the chain"),
     "TB_AUDIT_WRITER_ALIVE": Declared("path", "", "the audit drain's heartbeat file (default in the temp folder)"),
     "TB_AUTH_HOSTNAME": Declared("str", "", "compose: the identity provider's DNS name (network sheet, T-632)"),
+    "TB_B200_STANDIN": Declared(
+        "bool", "", "tools/b200_qualify.sh: stand-in nvidia-smi and docker (tests); the record is never passed (T-114)"
+    ),
     "TB_BACKUP_ALERT_CMD": Declared("str", "", "command run when the newest good backup is too old"),
     "TB_BACKUP_DIRS": Declared("str", "", "extra host folders put in a backup"),
     "TB_BACKUP_KEEP": Declared("int", "14", "backups kept per target"),
@@ -609,6 +612,9 @@ DECLARED: dict[str, Declared] = {
         "str", "", "platform check: how the GPU is shared (mig, whole, time-slicing, mps; D-409)"
     ),
     "TB_PLATFORM_GPU_STANDIN": Declared("bool", "", "platform check: stand-in GPU devices on a test cluster (D-409)"),
+    "TB_PLATFORM_HOST_FINGERPRINT": Declared(
+        "str", "", "platform check: this host's fingerprint file, compared with the serving record's (T-114)"
+    ),
     "TB_PLATFORM_NETWORK_POLICY_EVIDENCE": Declared("str", "", "platform: network policy evidence"),
     "TB_PLATFORM_NO_GPU": Declared("bool", "", "platform: test cluster without a GPU"),
     "TB_PLATFORM_QUOTA": Declared("str", "", "platform: quota"),

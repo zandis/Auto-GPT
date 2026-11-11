@@ -150,6 +150,8 @@ def snapshot_dir(models_dir: Path, model: str) -> Path | None:
     direct = Path(model)
     if direct.is_dir():
         return direct
+    if model.startswith("/models/") and (host := _host_path(models_dir, model)).is_dir():
+        return host  # the compose form names the folder inside the container (shared-quota, T-114)
     for base in (models_dir, models_dir / "hub"):
         snaps = base / ("models--" + model.replace("/", "--")) / "snapshots"
         if snaps.is_dir():

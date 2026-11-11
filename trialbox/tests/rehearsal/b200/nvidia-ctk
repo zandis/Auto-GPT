@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Stand-in nvidia-ctk (T-114).
+echo "NVIDIA Container Toolkit CLI version 1.17.8"

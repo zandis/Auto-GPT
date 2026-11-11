@@ -33,13 +33,13 @@ DECLARE
   access CONSTANT jsonb := '{
     "tb_lake": ["app", "omop", "refdata", "terminology"],
     "tb_criteria_compiler": ["app", "derived", "library", "omop", "refdata", "terminology"],
-    "tb_adapter": ["app", "derived", "mpi", "omop", "pidmap", "refdata", "sitesetup", "terminology"],
-    "tb_orchestrator": ["app", "datacore", "derived", "edc", "library", "mail", "mpi", "omop", "optout", "orch",
-                        "pidmap", "recall", "refdata", "site", "sitesetup", "study", "terminology", "wf"],
+    "tb_adapter": ["app", "dataops", "derived", "mpi", "omop", "pidmap", "refdata", "sitesetup", "terminology"],
+    "tb_orchestrator": ["app", "datacore", "dataops", "derived", "edc", "library", "mail", "mpi", "omop", "optout",
+                        "orch", "pidmap", "recall", "refdata", "site", "sitesetup", "study", "terminology", "wf"],
     "tb_mail_gateway": ["app", "mail"],
     "tb_gateway": ["app", "trace"],
-    "tb_console": ["app", "auth", "breakglass", "datacore", "derived", "edc", "feedback", "library", "mpi", "omop",
-                   "optout", "orch", "pidmap", "recall", "refdata", "sae", "site", "sitesetup", "study", "team",
+    "tb_console": ["app", "auth", "breakglass", "datacore", "dataops", "derived", "edc", "feedback", "library", "mpi",
+                   "omop", "optout", "orch", "pidmap", "recall", "refdata", "sae", "site", "sitesetup", "study", "team",
                    "terminology", "wf"]
   }';
   -- END SERVICE SCHEMAS

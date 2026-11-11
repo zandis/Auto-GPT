@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "be80e5a12dae221208e82de578d818e6dac47612",
+  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-616 (D-400): patient.deceased column, lake schema 4, base cohort leaves out a deceased patient with no date",
+  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
   "ref_date": "2026-11-01",
   "ruleset": "GZQO",
   "ruleset_version": "1.0.0",
@@ -471,7 +471,7 @@
     "ffd49b25f1d323069cb65e0fdab23958"
    ],
    "candidates": 49,
-   "outcomes_sha": "cba46ec668a527ad973c0276ced5f5a71ec537b283a2bafb6c16c2b27c8a4115",
+   "outcomes_sha": "f53fe22343e1d35928faab734f4c8d9f980305055a03f10d4966de36410d9923",
    "patients": 2500,
    "structured_criteria": [
     "GZQO-INC-01",
@@ -550,9 +550,9 @@
      "unknown": 1820
     },
     "GZQO-INC-01": {
-     "met": 2417,
+     "met": 2413,
      "not_met": 79,
-     "unknown": 4
+     "unknown": 8
     },
     "GZQO-INC-02": {
      "met": 701,
@@ -575,9 +575,9 @@
      "unknown": 7
     },
     "GZQO-INC-08": {
-     "met": 898,
+     "met": 897,
      "not_met": 249,
-     "unknown": 1353
+     "unknown": 1354
     },
     "GZQO-INC-09": {
      "met": 1481,

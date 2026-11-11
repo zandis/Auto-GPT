@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "be80e5a12dae221208e82de578d818e6dac47612",
+  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-616 (D-400): patient.deceased column, lake schema 4, base cohort leaves out a deceased patient with no date",
+  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
   "ref_date": "2026-11-01",
   "ruleset": "NEUR-COH",
   "ruleset_version": "1.0.0",
@@ -99,7 +99,7 @@
   "synthetic-jp-a-deletes": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "36e6ab1a62fce91a8f24235ab02dfc7b464494d35938da3018a231764916af1e",
+   "outcomes_sha": "1488d2d68e5b4677360488eeed7da0c80a0afd49b9bffc92fbb167ba5abbc5b7",
    "patients": 2500,
    "structured_criteria": [
     "NEUR-COH-INC-01",
@@ -118,9 +118,9 @@
      "unknown": 0
     },
     "NEUR-COH-INC-03": {
-     "met": 1763,
-     "not_met": 733,
-     "unknown": 4
+     "met": 1760,
+     "not_met": 732,
+     "unknown": 8
     }
    }
   },

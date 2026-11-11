@@ -171,6 +171,8 @@ def test_any_ingest_exception_writes_ingest_failed(tmp_path: Path, monkeypatch: 
         _night(cfg, feed)
     ev = _audit(tmp_path)[-1]
     assert ev["event"] == "ingest.failed" and ev["snapshot"] == SNAP
+    batch = ev["detail"].pop("batch")  # T-112a (D-427): the night's dataops row (None when the store is unreachable)
+    assert batch is None or batch["state"] == "FAILED"
     assert ev["detail"] == {"source": "csv", "since": None, "error": "RuntimeError", "step": "read", "table": "lab"}
     assert "SYN-0002" not in json.dumps(ev)
 

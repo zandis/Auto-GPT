@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "be80e5a12dae221208e82de578d818e6dac47612",
+  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-616 (D-400): patient.deceased column, lake schema 4, base cohort leaves out a deceased patient with no date",
+  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
   "ref_date": "2026-11-01",
   "ruleset": "RA-JAK",
   "ruleset_version": "1.0.0",
@@ -499,7 +499,7 @@
     "fd7be4962be6aaa2c61387ff84e3f27b"
    ],
    "candidates": 96,
-   "outcomes_sha": "90f339a5b811a5a8597fcdaf3500eeb292799a9679a3807e8e0d7bfb70f36bdb",
+   "outcomes_sha": "8f26ef514f6e4dcc44afb3633f9d346de27331306ec41a52c195d0c3d498aea9",
    "patients": 2500,
    "structured_criteria": [
     "RA-JAK-INC-01",
@@ -565,13 +565,13 @@
     },
     "RA-JAK-EXC-11": {
      "met": 299,
-     "not_met": 848,
-     "unknown": 1353
+     "not_met": 847,
+     "unknown": 1354
     },
     "RA-JAK-INC-01": {
-     "met": 2049,
+     "met": 2045,
      "not_met": 447,
-     "unknown": 4
+     "unknown": 8
     },
     "RA-JAK-INC-02": {
      "met": 518,

@@ -56,6 +56,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/auth/oidc/start` | n | n | n | n | n | n | n | n | n |
 | GET | `/breakglass` | Y | - | - | Y | - | - | - | Y | - |
 | GET | `/cmd` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| GET | `/data/conflicts` | - | - | - | - | - | - | - | Y | - |
 | GET | `/data/instruments` | Y | - | - | - | - | - | - | - | - |
 | GET | `/data/items` | - | - | - | - | - | - | - | Y | - |
 | GET | `/demo/ack` | n | n | n | n | n | n | n | n | n |
@@ -133,7 +134,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/studies/{rs}/sae/{record}/{event}` | - | n | - | n | n | - | - | - | - |
 | GET | `/studies/{rs}/schedule` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/screening-log` | - | Y | - | Y | Y | - | - | - | - |
-| GET | `/studies/{rs}/screening-log.xlsx` | Y | Y | - | - | Y | - | - | - | - |
+| GET | `/studies/{rs}/screening-log.xlsx` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/setup` | - | Y | Y | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/sources` | Y | Y | Y | Y | Y | - | - | Y | Y |
 | GET | `/studies/{rs}/state` | - | Y | Y | Y | Y | - | - | - | - |
@@ -178,6 +179,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/breakglass` | Y | - | - | - | - | - | - | - | - |
 | POST | `/breakglass/{gid}/end` | Y | - | - | - | - | - | - | - | - |
 | POST | `/breakglass/{gid}/review` | - | - | - | - | - | - | - | Y | - |
+| POST | `/data/conflicts/{cid}/resolve` | - | - | - | - | - | - | - | Y | - |
 | POST | `/data/instruments/{iid}` | Y | - | - | - | - | - | - | - | - |
 | POST | `/demo/ack` | n | n | n | n | n | n | n | n | n |
 | POST | `/feedback` | Y | Y | Y | Y | Y | Y | Y | Y | Y |

@@ -11,7 +11,8 @@ TrialBox's own data lives in schema `datacore` of `trialbox_wf` (D-123, D-126):
 - **Ownership** is per field: TrialBox or one source. A source-owned change is taken. A TrialBox-owned field is pushed
   when it changed. A different value on the other side is a **conflict**: listed once, never forced, closed by a
   person (keep TrialBox's or take the source's), and the trail kept.
-- **Sync** runs at 03:00 and on a button. Pages: Sources, Conflicts, Forms; the same calls under `/api/v1`.
+- **Sync** runs at 03:00 and on a button. Pages: Sources, Trial-record differences (`/studies/<study>/conflicts`;
+  named "Conflicts" before T-201, FIT-018), Forms; the same calls under `/api/v1`.
 - **Exports:** CDISC ODM 1.3, REDCap CSV and XLSX (D-129). An ODM export re-imports into the REDCap simulator with
   every value equal (`e2e_simple` stage 10).
 - **Adverse events and CDISC scope** ([D-396](../decisions/D-396-ae-grading-cdash-ie-ds.md)). AE terms are kept as

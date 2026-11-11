@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "be80e5a12dae221208e82de578d818e6dac47612",
+  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-616 (D-400): patient.deceased column, lake schema 4, base cohort leaves out a deceased patient with no date",
+  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
   "ref_date": "2026-11-01",
   "seed": 42,
   "written_with_source": "legacy+omop"
@@ -70,7 +70,7 @@
       },
       "AD-MAB-INC-01": {
        "coded": 1363,
-       "confirmed": 11,
+       "confirmed": 8,
        "proposed": 9
       },
       "AD-MAB-INC-02": {
@@ -223,7 +223,7 @@
       },
       "EMPULSE-INC-01": {
        "coded": 2392,
-       "confirmed": 19,
+       "confirmed": 15,
        "proposed": 5
       },
       "EMPULSE-INC-02": {
@@ -604,22 +604,22 @@
       },
       "GZQO-INC-01": {
        "coded": 2392,
-       "confirmed": 19,
+       "confirmed": 15,
        "proposed": 5
       },
       "GZQO-INC-02": {
        "coded": 672,
-       "confirmed": 6,
+       "confirmed": 4,
        "proposed": 12
       },
       "GZQO-INC-03": {
        "coded": 287,
-       "confirmed": 2,
+       "confirmed": 1,
        "proposed": 15
       },
       "GZQO-INC-04": {
        "coded": 177,
-       "confirmed": 1,
+       "confirmed": 0,
        "proposed": 18
       },
       "GZQO-INC-06": {
@@ -850,22 +850,22 @@
      "basis": {
       "ONC-OSI-EXC-01": {
        "coded": 42,
-       "confirmed": 1,
+       "confirmed": 0,
        "proposed": 20
       },
       "ONC-OSI-INC-01": {
        "coded": 2392,
-       "confirmed": 19,
+       "confirmed": 15,
        "proposed": 5
       },
       "ONC-OSI-INC-02": {
        "coded": 92,
-       "confirmed": 1,
+       "confirmed": 0,
        "proposed": 20
       },
       "ONC-OSI-INC-03": {
        "coded": 53,
-       "confirmed": 1,
+       "confirmed": 0,
        "proposed": 20
       }
      },
@@ -1018,12 +1018,12 @@
       },
       "RA-BIO-INC-01": {
        "coded": 2392,
-       "confirmed": 19,
+       "confirmed": 15,
        "proposed": 5
       },
       "RA-BIO-INC-02": {
        "coded": 501,
-       "confirmed": 4,
+       "confirmed": 3,
        "proposed": 19
       },
       "RA-BIO-INC-03": {
@@ -1359,12 +1359,12 @@
       },
       "RA-JAK-INC-01": {
        "coded": 2152,
-       "confirmed": 18,
+       "confirmed": 14,
        "proposed": 5
       },
       "RA-JAK-INC-02": {
        "coded": 475,
-       "confirmed": 4,
+       "confirmed": 3,
        "proposed": 19
       },
       "RA-JAK-INC-03": {
@@ -1547,7 +1547,7 @@
       },
       "STARRT-AKI-INC-01": {
        "coded": 2392,
-       "confirmed": 19,
+       "confirmed": 15,
        "proposed": 5
       },
       "STARRT-AKI-INC-02": {

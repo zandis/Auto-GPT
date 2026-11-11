@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Stand-in nvidia-smi for G1b on the owner's B200 (T-114): one B200 whose MIG state lives in $TB_B200_SHIM_STATE
+# (mig: Enabled|Disabled; profiles: the GPU instances made by `mig -cgi`). Nothing here touches a GPU.
+set -euo pipefail
+S="${TB_B200_SHIM_STATE:?stand-in state folder}"
+mkdir -p "$S"
+echo "$*" >> "$S/nvidia-smi.calls"
+mig="$(cat "$S/mig" 2>/dev/null || echo Disabled)"
+profiles="$(cat "$S/profiles" 2>/dev/null || true)"
+case "$*" in
+  "-i 0 -mig 1") echo Enabled > "$S/mig"; echo "Enabled MIG Mode for GPU 00000000:1B:00.0" ;;
+  "-i 0 -mig 0") echo Disabled > "$S/mig"; : > "$S/profiles" ;;
+  "mig -i 0 -dci"|"mig -i 0 -dgi") : > "$S/profiles" ;;
+  "mig -i 0 -cgi "*" -C")
+    [ "$mig" = Enabled ] || { echo "MIG mode is not enabled" >&2; exit 6; }
+    set -- $*; echo "$5" | tr ',' '\n' > "$S/profiles"; echo "Successfully created GPU instances" ;;
+  *--query-gpu=name,uuid,memory.total,driver_version,vbios_version,mig.mode.current*)
+    sed "s/@MIG@/$mig/" "$(dirname "$0")/fixtures/query.txt" ;;
+  *--query-gpu=name,memory.total,memory.used,driver_version*) echo "NVIDIA B200, 183359, 61440, 580.95.05" ;;
+  *--query-gpu=mig.mode.current*) echo "$mig" ;;
+  "-L")
+    echo "GPU 0: NVIDIA B200 (UUID: GPU-5f1c0d2e-0000-4b00-8b20-0000000000b2)"
+    n=0
+    for p in $profiles; do
+      echo "  MIG $p Device  $n: (UUID: MIG-0000000$n-b200-4000-8000-standin0000$n)"; n=$((n + 1))
+    done ;;
+  *) cat "$(dirname "$0")/fixtures/banner.txt" ;;
+esac

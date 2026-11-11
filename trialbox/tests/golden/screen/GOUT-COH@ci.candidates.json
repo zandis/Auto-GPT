@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "be80e5a12dae221208e82de578d818e6dac47612",
+  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-616 (D-400): patient.deceased column, lake schema 4, base cohort leaves out a deceased patient with no date",
+  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
   "ref_date": "2026-11-01",
   "ruleset": "GOUT-COH",
   "ruleset_version": "1.0.0",
@@ -185,7 +185,7 @@
     "d591edeb5920715e0bd200fdec855805"
    ],
    "candidates": 6,
-   "outcomes_sha": "d70b0226fca99463db58f89e39e11d1e50d2cd712a21e82b01be786f1e59493b",
+   "outcomes_sha": "1167f3672a6f9669664e0d0ba73e1ee3863e0037d02e8a1fcd02f63d79c500b7",
    "patients": 2500,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -218,9 +218,9 @@
      "unknown": 10
     },
     "GOUT-COH-INC-05": {
-     "met": 478,
+     "met": 477,
      "not_met": 669,
-     "unknown": 1353
+     "unknown": 1354
     },
     "GOUT-COH-INC-06": {
      "met": 450,
