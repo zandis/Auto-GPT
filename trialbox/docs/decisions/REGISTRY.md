@@ -105,7 +105,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-257 | reserved | T-315 | Test strategy executed: the journeys as the PQ script, IQ/OQ/PQ … (second record) |
 | D-258 | reserved | T-316 | Consortium: the shared code-map registry, signed counts, the … |
 | D-259 | reserved | T-317 | Documents made true, role guides in ja and zh-TW, the independent … |
-| D-260 | reserved | T-318 | Privacy documentation, the incident plan and the one-page "what this … |
+| D-260 | unused | T-318 | TB-ASSESS-01 reservation for T-318, void: T-318 takes D-411 |
 | D-261 | reserved | T-319 | Shared-host isolation on the acceptance cluster and the platform KEK … |
 | D-262 | reserved | T-320 | Site set-up limits, the EMR launch link, the work log, admin console … |
 | D-263..D-269 | unused | — | below the fix-group block; never given |
@@ -214,3 +214,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-398 | merged | T-511 | PoC-path words: help examples name the tester's own study (page, then delegation log) and the candidate, referral and EDC pages get help text; the referral selects say "Choose a doctor" / "Choose a department"; the EDC review shows the item name in the reader's language first, coded values with their words, a readable source line and the next step after "no REDCap record" (file) |
 | D-399 | merged | T-302a | consent record: approved ICF versions as a list with history rows (team store version 2); the consent version checked on save as a logged warning; an enrolment or visit before consent flagged; re-consent on `rcN` events and the re-consent list; one way to record consent (the consent form) (file) |
 | D-405 | merged | T-209b | the support bundle: `trialbox support-bundle` writes one 0600 archive with a manifest; TrialBox's own service logs only (never PostgreSQL, HAPI or vLLM logs, `/data`, volumes, secrets, keys, backups or the audit chain); scrubbed, every line the data-handling scan flags removed and reported, the finished archive scanned again or nothing is written (file) |
+| D-411 | merged | T-318 | privacy documents per site in `docs/plan/sites/privacy/` and the incident plan `docs/plan/sites/incident-response.md`: severity S1 to S4, roles, clocks C1 to C9 (the vendor tells the hospital within 1 hour for S1), the six cases, first-hour list, templates in ja and zh-TW; the legal-basis memo is a slot (D-311 B26); the one-pager rendered by `tools/onepager.py` (file) |
