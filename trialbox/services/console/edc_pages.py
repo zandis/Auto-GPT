@@ -13,6 +13,9 @@
   Then send. A signed value is locked (D-281): to
   change or withdraw it the person gives a reason and types their password (and code) again.
 * ``/studies/{rs}/edc/trail/{record}``: every draft, decision, signature and send of one subject.
+* ``POST /studies/{rs}/edc/import`` (T-302c): an ODM file read into open drafts that cite it (D-435), proposals the
+  coordinator reviews and signs like any draft; ``/studies/{rs}/edc/copy/...`` is copy-assist
+  (``console.copy_assist_page``, D-434).
 
 Who may do what is the matrix's ``edc.*`` rows (``tb_common.authz.permit``: ``enter_data`` for the work, the PI alone to
 switch on, the PI or an admin to switch off; never a viewer or a CRO account), read through the delegation log
@@ -25,6 +28,7 @@ and every review rule again (``edc.service``). Each action is one function used 
 
 from __future__ import annotations
 
+import base64
 import re
 import secrets
 import time
@@ -36,12 +40,13 @@ from datacore.export import BASE_EVENT
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 from httpx import HTTPError
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
+from starlette.datastructures import UploadFile as StarletteUpload
 from tb_common.authz import Standing as Grant
 from tb_common.authz import permit
 from tb_common.service_auth import actor_header
 
-from console import s28
+from console import demo_guard, s28
 from console.auth import Session, source_of
 from console.backend import Problem, Unavailable
 from console.home import Helpers
@@ -58,7 +63,9 @@ WHAT = {"none": ("",), "patient": ("birth_date", "sex"), "observation": ("value"
         "condition": ("presence", "date"), "medication": ("presence", "term", "start"), "note": ("value",)}  # fmt: skip
 ACK_KINDS = ("sponsor_letter", "iit_pi_sponsor")
 OIDC_METHOD = "oidc+mfa"  # T-205: the signer typed their credentials and a second factor at the provider again
-EDC_PAGE_ACTIONS = ("map", "draft", "review", "sign", "send", "export", "switch_on", "switch_off")  # the page's buttons
+# the page's buttons (``copy``: the copy-assist link, D-434)
+EDC_PAGE_ACTIONS = ("map", "draft", "review", "sign", "send", "export", "switch_on", "switch_off", "copy")
+ODM_MAX = 6 * 1024 * 1024  # bytes of an ODM file the page reads; the orchestrator's own bound (5 MB) decides
 SIGN_TTL = 720.0  # seconds between the sign button and the return from the provider (its ten minutes, and two)
 
 
@@ -129,6 +136,7 @@ class ApiSwitch(BaseModel):
     reentry_pages: int = Field(default=0, ge=0, le=100000)
     reentry_accuracy: float = Field(default=0.0, ge=0.0, le=1.0)
     reason: str = Field(default="", max_length=300)
+    copy_assist: bool = False  # D-434: on as copy-assist (no acknowledgement; never a write to the sponsor's EDC)
 
 
 class ApiEdcDictionary(BaseModel):
@@ -170,6 +178,11 @@ class ApiSign(BaseModel):
     otp: str = Field(default="", max_length=12)  # D-279 (SEC-1 P-2): the second component when TOTP is on
     meaning_ack: bool = False  # the signer read the meaning of the signature
     seen: dict[int, str] = Field(max_length=2000)  # draft id -> ``sha`` of each value the signer saw (GET drafts)
+
+
+class ApiImport(BaseModel):
+    name: str = Field(default="", max_length=120)
+    data: str = Field(min_length=1, max_length=8_000_000)  # the ODM file, base64 (the orchestrator bounds the bytes)
 
 
 class ApiSend(BaseModel):
@@ -304,7 +317,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             if entry is None or not entry.name or not logged:
                 raise h.problem(409, "edc.err.edc.no_log_pi")  # only a PI the log names turns it on (E-10)
         out = act(sess, "POST", f"/studies/{rid}/edc/switch", body.model_dump())
-        au.append("console.edc", ruleset=rid, actor=h.actor(sess), detail={"action": "switch", "on": body.on})
+        au.append("console.edc", ruleset=rid, actor=h.actor(sess),
+                  detail={"action": "switch", "on": body.on, "copy": body.copy_assist})  # fmt: skip
         return dict(out)
 
     def do_dictionary(sess: Session, path: str, rs: str, body: ApiEdcDictionary) -> dict[str, Any]:
@@ -418,6 +432,15 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(400, "edc.err.edc.record")
         return dict(act(sess, "POST", f"/studies/{rid}/edc/send/redcap", {"record": rec}))
 
+    def do_import(sess: Session, path: str, rs: str, body: ApiImport) -> dict[str, Any]:
+        """An ODM file read into open drafts that cite it (D-435): proposals a person confirms and signs; the same
+        question as a draft run (T-302c)."""
+        rid = study_or_404(sess, rs, "draft", path)
+        out = dict(act(sess, "POST", f"/studies/{rid}/edc/import/odm", body.model_dump()))
+        au.append("console.edc", ruleset=rid, actor=h.actor(sess),
+                  detail={"action": "import_odm", "file": str(out.get("file") or "")[:16]})  # fmt: skip
+        return out
+
     def do_export(sess: Session, path: str, rs: str) -> dict[str, Any]:
         rid = study_or_404(sess, rs, "export", path)
         return dict(act(sess, "GET", f"/studies/{rid}/edc/export/odm"))
@@ -466,7 +489,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             acc = percent(str(form.get("reentry_accuracy") or ""))
             body = ApiSwitch(on=on, kind=str(form.get("kind") or ""), reference=str(form.get("reference") or ""),
                              ack_date=str(form.get("ack_date") or ""), reentry_pages=pages,
-                             reentry_accuracy=min(acc, 1.0), reason=str(form.get("reason") or ""))  # fmt: skip
+                             reentry_accuracy=min(acc, 1.0), reason=str(form.get("reason") or ""),
+                             copy_assist=on and str(form.get("mode") or "") == "copy")  # fmt: skip
         except ValueError:
             return status_page(request, sess, rid, {"code": "edc.reentry", "fields": "", "problems": []}, 400)
         try:
@@ -505,6 +529,26 @@ def register(app: FastAPI, h: Helpers) -> None:
             return RedirectResponse(f"/studies/{rid}/edc/review/{rec.upper()}?visit={form.get('visit') or ''}&{q}",
                                     status_code=303)  # fmt: skip
         return RedirectResponse(f"/studies/{rid}/edc?{q}", status_code=303)
+
+    @app.post("/studies/{rs}/edc/import")
+    async def edc_import(request: Request, rs: str) -> Response:
+        """T-302c: the page of D-435's ODM import. Who, before the file is read."""
+        sess = h.need(request)
+        rid = study_or_404(sess, rs, "draft", request.url.path)
+        demo_guard.guard(request, h.problem)  # T-502: no upload in demo mode
+        form = await form_of(request, sess)
+        up = form.get("file")
+        data = await up.read(ODM_MAX + 1) if isinstance(up, StarletteUpload) else b""
+        name = str(getattr(up, "filename", "") or "")[:120]
+        if not data or len(data) > ODM_MAX:
+            return status_page(request, sess, rid, {"code": "odm.size", "fields": "", "problems": []}, 400)
+        try:
+            out = do_import(sess, request.url.path, rid,
+                            ApiImport(name=name, data=base64.b64encode(data).decode("ascii")))  # fmt: skip
+        except (Problem, Unavailable) as exc:
+            return back(rid, sess, request, exc)
+        q = "&".join(f"imp_{key}={len(out.get(key) or [])}" for key in ("drafted", "decided", "same"))
+        return RedirectResponse(f"/studies/{rid}/edc?imported=1&{q}", status_code=303)
 
     @app.get("/studies/{rs}/edc/export.odm.xml")
     def edc_odm(request: Request, rs: str) -> Response:
@@ -794,6 +838,17 @@ def register(app: FastAPI, h: Helpers) -> None:
         return {"study": rs.upper(),
                 "signature": api_call(do_sign, sess, request.url.path, rs, body,
                                       source_of(request.client.host if request.client else None))}  # fmt: skip
+
+    @app.post("/api/v1/studies/{rs}/edc/import/odm")
+    async def api_import(request: Request, rs: str) -> dict[str, Any]:
+        sess = api(request)
+        study_or_404(sess, rs, "draft", request.url.path)  # the session and the right first; the body only then
+        try:
+            body = ApiImport.model_validate_json(await request.body() or b"{}")
+        except ValidationError as exc:
+            raise h.problem(400, "request.refused", code="ODM-BODY", reason="name and data (base64)",
+                            fields="") from exc  # fmt: skip
+        return {"study": rs.upper(), **api_call(do_import, sess, request.url.path, rs, body)}
 
     @app.post("/api/v1/studies/{rs}/edc/send")
     def api_send(request: Request, rs: str, body: ApiSend) -> dict[str, Any]:

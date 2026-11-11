@@ -55,8 +55,15 @@ with the switch off nothing could be drafted, reviewed or signed at all.
    (`review`). Each state-changing page route has its `/api/v1` twin, and the twin reads the body only after the
    session and the right are checked.
 
+8. **D-435's console part.** The prefill page reads an ODM file into drafts (`POST /studies/{rs}/edc/import`,
+   multipart; `/api/v1/studies/{rs}/edc/import/odm`, base64 JSON), with the row `edc.draft` as for a draft run, the
+   switch `on` or `copy`, and refused in demo mode (T-502). A refused file shows one sentence and its `odm.*` code
+   under "Technical details". The screening-log page links the XLSX in the sponsor's columns once a layout naming
+   them is saved.
+
 ## Not in this decision
 
 - The layout's XLSX for the copy file (the sponsor layout of D-435 names screening-log columns, not CRF items).
-- A console page for the sponsor layout and the weekly sheet (D-435's routes); the REDCap preview and "erase hidden
-  values" pages (D-414).
+- Console pages for the sponsor layout and the weekly sheet (D-435's orchestrator routes; they take `by` from the
+  body, so their pages need a matrix row and an actor assertion first); the REDCap preview and "erase hidden values"
+  pages (D-414).

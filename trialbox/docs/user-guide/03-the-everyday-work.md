@@ -115,6 +115,15 @@ off at any time. The CRC then:
    event, and a patient who opted out are listed and not sent. Every value sent is read back and compared. For another EDC, download
    the signed values as CDISC ODM 1.3.2 and import them there; TrialBox never types into another system's screens.
 
+**Copy-assist (CRC, PI; D-434).** Without the sponsor's acknowledgement the PI may turn the study to
+*copy-assist* instead (the blind re-entry result is still needed). Map, draft, review and sign work as above, and an
+ODM file from another system can be read into drafts on the same page; nothing is sent to the sponsor's EDC. Each
+subject's *Copy-assist* page lists the signed values visit by visit and form by form, in the order of the sponsor's
+form, each with its source and who signed it; a value that is not signed yet is only counted, never shown. Type each
+value into the sponsor's EDC and tick it *copied* (one value, or the whole form); undoing a tick needs a reason. A
+value changed and signed again shows as not copied. The same sheet downloads as a CSV file. Every view, tick and
+download is recorded. A patient who opted out is never on the sheet.
+
 *Audit trail* shows, per subject, every draft, decision (old and new value, reason), signature and send. Viewer and
 CRO accounts never see these pages. An account that signs in only through the hospital's single sign-on cannot sign
 yet; ask the administrator for a local password.
