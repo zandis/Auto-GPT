@@ -114,6 +114,10 @@ CTGOV_QUESTION = {
     "  live    = 可以。TrialBox 直接查詢 ClinicalTrials.gov：資料隨時最新；只對外連一個位址；不傳送病人資料。",
 }
 CTGOV_MODES = ("offline", "live")
+# T-607 (D-429, LLM-013): the embed service's modes (services/embed_service/embedder.py MODES). A GPU box runs the
+# pinned local embedder; a stub box the hash stub, which an embed service with TB_ENV PRODUCTION refuses to start.
+EMBED_MODE_GPU = "model"
+EMBED_MODE_STUB = "hash"
 
 
 class WizardError(ValueError):
@@ -369,7 +373,7 @@ def build(
         "models": {
             "judge": "qwen3.5-35b-a3b-q4",
             "extract_local": "gpt-oss-120b-mxfp4",
-            "embed": "bge-m3",
+            "embed": "e-embed",  # the registry alias; the build is e-embed-1 (D-429)
             "cloud_enabled": _bool(a.get("cloud_enabled", "no")),
         },
         "thresholds": {
@@ -401,12 +405,13 @@ def build(
         },
     }
     intake = str(get("intake_address"))
+    embed_mode = EMBED_MODE_GPU if str(a.get("llm_mode", "gpu")) == "gpu" else EMBED_MODE_STUB
     env = {
         "TB_SITE_ID": site_id,
         "TB_TZ": settings["site"]["tz"],
         "COMPOSE_PROFILES": "gpu" if str(a.get("llm_mode", "gpu")) == "gpu" else "stub",
         "TB_LLM_MODE": "vllm" if str(a.get("llm_mode", "gpu")) == "gpu" else "stub",
-        "TB_EMBED_MODE": "model" if str(a.get("llm_mode", "gpu")) == "gpu" else "hash",
+        "TB_EMBED_MODE": embed_mode,
         "IMAP_HOST": str(a.get("imap_host", "")),
         "IMAP_PORT": str(a.get("imap_port", "993")),
         "IMAP_SSL": "true",

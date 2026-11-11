@@ -576,6 +576,30 @@ builds:
     licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
     origin: {developer: OpenAI, country: US, non_prc: true}
 
+  # ---------------------------------------------------------------- the embedder (T-607, D-429; LLM-013, LLM-014)
+  # One build for the e-embed alias, served by embed-service (routing endpoint `embed`, route `vectors`). The
+  # embedder is pinned like a model: tools/pin_model.py --build e-embed-1 --endpoint embed writes its manifest digest
+  # into the site override, and embed-service in PRODUCTION loads only the weights that match it
+  # (services/embed_service/embedder.py). D-429's criterion: safetensors weights from the publisher, so the
+  # pickle-only incumbent is out and is never converted here. Which candidate wins is measured in G1 (T-004); until
+  # that record names it, repository, revision, expected and the licence are null and the build can only be pinned
+  # with --trust-first-use (an evaluation candidate, never promoted). The values to fill are listed in D-429.
+  - build_id: e-embed-1
+    alias: e-embed
+    status: candidate
+    serving: local
+    served: {embed: null}
+    sha256: null
+    revision: null
+    repository: null
+    expected: {manifest_sha256: null, revision: null}  # from the G1 record (T-004): D-429 "Remains"
+    quantisation: none
+    context_length: null
+    family: embedder
+    model_name: the embedder (1024 dimensions, safetensors from the publisher; chosen in G1)
+    licence: {name: set with the chosen embedder (D-429), spdx: null, verified: false}
+    origin: {developer: set with the chosen embedder (D-429), country: to record, non_prc: null}
+
   # ---------------------------------------------------------------- hosted bake-off builds (S1-14, DEV / D0 only)
   # A hosted build is one dated provider version of a model served by a third party (OpenRouter). It has no weights
   # to hash: a site pins it with tools/pin_provider.py, which writes a provider_pin descriptor (model id, dated

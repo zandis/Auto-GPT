@@ -41,6 +41,16 @@ and ``manifests/<build_id>.template.sha256`` holds its ``sha256sum`` line. A fil
 as ``trust: first_use``. ``--install`` refuses a judge build whose template file is missing, because vLLM would not
 start with the flag. The weight manifest and its digest are unchanged: the template is a second file of the pin.
 
+**The embedder** (T-607, D-429; LLM-014, DEP-010). The embedder is one build of the ``e-embed`` alias
+(:data:`EMBED_BUILD`), pinned like a model on the ``embed`` endpoint::
+
+    python -m tools.pin_model --build e-embed-1 --model-dir deploy/models/embedder --served-name e-embed-1 \
+        --endpoint embed
+
+Its folder must hold safetensors weights (sentence-transformers loads no GGUF; D-429: "safetensors from the
+publisher"). ``embed-service`` in PRODUCTION reads this pin from the site override and refuses weights whose manifest
+differs (``services/embed_service/embedder.py``); ``--verify-all`` re-checks it with the other builds.
+
 ``--verify`` recomputes the manifest and exits 1 when it differs from the pinned sha256 (SEC-64: weights changed
 since the pin); it writes nothing. ``--verify-all deploy/models`` does that for every build in the override (each
 under its recorded ``model_dir``); ``deploy/install.sh`` runs it before a GPU stack starts. Exit 2 on a usage error
@@ -64,6 +74,10 @@ DEFAULT_OVERRIDE = ROOT / "deploy" / "site" / "registry.site.yaml"
 WEIGHT_SUFFIXES = (".safetensors", ".gguf")
 REFUSED_SUFFIXES = (".bin", ".pt", ".pth", ".pkl", ".pickle", ".ckpt", ".py", ".pyc")
 CHUNK = 8 << 20
+
+
+EMBED_BUILD = "e-embed-1"  # the embedder's build (D-429); services/embed_service/embedder.py names the same
+EMBED_ALIAS = "e-embed"
 
 
 class PinError(RuntimeError):
@@ -212,6 +226,10 @@ def pin(
             "--served-name is required (the name the serving endpoint reports, e.g. vLLM --served-model-name)"
         )
     m = weight_manifest(model_dir)
+    if known[build_id].get("alias") == EMBED_ALIAS and not any(
+        line.endswith(".safetensors") for line in m.text.splitlines()
+    ):
+        raise PinError(f"{model_dir}: the embedder needs .safetensors weights (D-429), not GGUF; refused")
     want_sha, want_rev = expected_of(known[build_id])
     if want_sha and m.sha256 != want_sha:
         raise PinError(
