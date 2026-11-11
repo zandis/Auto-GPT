@@ -12,7 +12,7 @@
 # tools/make_bundle.sh --gates refuses an image that is not in it.
 # The vulnerability gate blocks for every image a bundle can carry (T-110b, D-340, ENG-007): ours and the third-party
 # HAPI FHIR and vLLM images, whose open findings are dated per-image entries of the allow-list. `--vuln-mode report`
-# is left for the test-only mail servers (MailHog, GreenMail), which no bundle carries; tools/make_bundle.sh refuses
+# is left for the test-only mail servers (Mailpit, GreenMail), which no bundle carries; tools/make_bundle.sh refuses
 # any image with a report-mode finding. Open findings: trialbox/deploy/security/known-image-findings.md.
 # Every action is pinned to a commit (tag in the comment); Syft and Trivy come with pinned sha256.
 name: TrialBox image gates

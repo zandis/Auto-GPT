@@ -115,6 +115,23 @@ def test_sheet_import_pseudonymises_and_drops_identifiers(tmp_path: Path) -> Non
     assert rows[0].record == "GZQO-0009" and rows[0].values == {"consent_date": "2026-11-02"}
 
 
+def test_sheet_in_big5_is_read_as_big5_and_its_name_column_dropped(tmp_path: Path) -> None:
+    """D-215: a Big5 sheet tried as CP932 first decoded without an error into mojibake, so the name guard missed 姓名."""
+    sheet = tmp_path / "tw.csv"
+    sheet.write_bytes("screening no,姓名,電話,consent\nGZQO-0001,,,2026-10-30\n".encode("big5"))  # CP932: ｩmｦW
+    src = SheetSource(sheet, {"consent": "consent_date"}, key_column="screening no")
+    rows = src.pull()
+    assert src.dropped == ["姓名", "電話"]
+    assert rows[0].record == "GZQO-0001" and rows[0].values == {"consent_date": "2026-10-30"}
+
+
+def test_sheet_chart_number_column_is_never_imported_as_a_value(tmp_path: Path) -> None:
+    sheet = tmp_path / "pi.csv"
+    sheet.write_text("chart,consent\n00123,2026-10-30\n", encoding="utf-8")
+    with pytest.raises(DataError, match="DATA-PHI"):
+        SheetSource(sheet, {"chart": "consent_date"}, mrn_column="chart", pseudonymise=str).pull()
+
+
 def test_record_key_screening_number_then_pseudonym_else_refused_and_listed(tmp_path: Path) -> None:
     """TB-PLAN-04 §2: one rule for the record key; a row with neither is refused and listed, never guessed."""
     dc = core(tmp_path)
