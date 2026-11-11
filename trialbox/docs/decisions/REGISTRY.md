@@ -189,3 +189,6 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-363 | merged | T-643 | record inventory in `docs/validation/record-inventory.md`, mapped to every table the code creates; the release record carries it (file) |
 | D-371 | merged | T-104b | one PostgreSQL major (16) for the db image, the demo and CI: `postgres_major` in `deploy/images.lock`, Debian 13 base, pgBackRest pinned from PGDG in the db image, `tools/ci_postgres.sh` checks `pg_config --version` (file) |
 | D-372 | merged | T-676 | the FHIR package set from packages.fhir.org; TWPAS by `profiles.twpas_version` (1.2.5 until CGMH answers), the cache holds that version; extensions 5.4.0 and terminology 7.5.0 for the whole cache; supersedes D-63 (file) |
+| D-360 | merged | T-108a | compose limits: a memory and a pids cap on every service, health checks, capped logs, the lake sized from its cap, the host watchdog that restarts an unhealthy service and audits it (file) |
+| D-363 | merged | T-643 | record inventory in `docs/validation/record-inventory.md`, mapped to every table the code creates; the release record carries it (file) |
+| D-364 | merged | T-621 | amendment handling: effective date and IRB record per criteria version (a record, not a gate), screening on the version in force, the version on every mark, the re-screen list, schedule versions judged by visit date (file) |
