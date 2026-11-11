@@ -1,10 +1,11 @@
 {
   "format": "trialbox-images-lock/1",
-  "decision": "D-204, D-348",
-  "about": "The container images the box runs, pinned: the one digest list (D-204, D-348). `images`: the images the box builds (only db so far; the others move here with T-110). For a built image: the base it is built FROM (reference and multi-arch index digest), the exact OS packages it adds (each installed at that version and held; the build fails otherwise), the signing keys it trusts, the extensions it provides with their versions and whether the image marks them trusted, and `digest`: the built image's digest, written by the release build (T-110 release.json carries the same value). `digest` is null until a release pins it: a locally built image is a mutable tag, and the update path must refuse a bundle while it is null or differs (T-111). tests/integration/test_db_image.py keeps this file equal to the Dockerfile's ARG defaults and the compose `db` image line. `third_party`: every image the box pulls as published (D-348): `image` (repository:tag), `digest` (the multi-arch index digest, read from the registry), `platforms` (each platform's manifest digest; for a GPU image the CUDA architectures it is built for), `variables` (the compose variables that name it; every compose file writes ${VAR:-image@digest} with exactly these values: tools/images_lock.py check-compose and tests/unit/test_images_lock.py). `gpu` holds what the host must give the image (deploy/check_host.sh reads it): the CUDA version, the lowest NVIDIA driver it runs on, and the structured-output backend the serving record names. Moving the vLLM entry is a model change: requalify first.",
+  "decision": "D-204, D-348, D-371",
+  "about": "The container images the box runs, pinned: the one digest list (D-204, D-348). `images`: the images the box builds (only db so far; the others move here with T-110). For a built image: the base it is built FROM (reference and multi-arch index digest), the exact OS packages it adds (each installed at that version and held; the build fails otherwise), the signing keys it trusts, the extensions it provides with their versions and whether the image marks them trusted, and `digest`: the built image's digest, written by the release build (T-110 release.json carries the same value). `digest` is null until a release pins it: a locally built image is a mutable tag, and the update path must refuse a bundle while it is null or differs (T-111). tests/integration/test_db_image.py keeps this file equal to the Dockerfile's ARG defaults and the compose `db` image line. `postgres_major` is the one PostgreSQL major of the db image, the demo image and CI (D-371; tests/unit/test_pg_major.py, tools/ci_postgres.sh). `third_party`: every image the box pulls as published (D-348): `image` (repository:tag), `digest` (the multi-arch index digest, read from the registry), `platforms` (each platform's manifest digest; for a GPU image the CUDA architectures it is built for), `variables` (the compose variables that name it; every compose file writes ${VAR:-image@digest} with exactly these values: tools/images_lock.py check-compose and tests/unit/test_images_lock.py). `gpu` holds what the host must give the image (deploy/check_host.sh reads it): the CUDA version, the lowest NVIDIA driver it runs on, and the structured-output backend the serving record names. Moving the vLLM entry is a model change: requalify first.",
   "images": {
     "db": {
       "image": "trialbox-postgres:16-1",
+      "postgres_major": "16",
       "dockerfile": "deploy/docker/db.Dockerfile",
       "context": "deploy/docker",
       "base": {
@@ -18,7 +19,8 @@
       "packages": {
         "postgresql-16-pgvector": "0.8.7-1.pgdg13+1",
         "postgresql-16-pgdg-pgroonga": "4.1.0-1",
-        "libgroonga0": "16.1.5-1"
+        "libgroonga0": "16.1.5-1",
+        "pgbackrest": "2.60.0-1.pgdg13+1"
       },
       "keys": {
         "groonga": {
