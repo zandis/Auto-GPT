@@ -3,6 +3,8 @@
 Each check returns PASS, WARN or FAIL; any FAIL makes the command exit 1, and a check that raises is a FAIL (fail
 closed). Checks:
 
+* ``inputs`` (OPS-016): one FAIL line per input that cannot be read (a ``--settings`` file that is missing or does not
+  parse); the other checks still run, on empty settings;
 * ``topology``: ``TB_TOPOLOGY`` (A/B/C) and ``TB_ENV`` (DEV/TEST/VALIDATION/PRODUCTION) are valid;
 * ``env_class_ceiling``: no configured data store (``settings.data_stores``), dataset (``eval/DATASETS.yaml``, in
   DEV and TEST) or ``TB_DATA_CLASS`` exceeds the environment ceiling of §17.8 (D3 data in DEV fails);
@@ -25,7 +27,8 @@ closed). Checks:
   no step outside the box policy) or another alias answers: the box would screen no note. PASS when the judge does
   not use the gateway;
 * ``registry_pins``: the committed registry with the site override (``TB_REGISTRY_OVERRIDE``, default
-  ``deploy/site/registry.site.yaml``) loads; lists the site-pinned builds. WARN when no model build is pinned
+  ``site/registry.site.yaml`` in the deploy folder of ``--env-file``, else the repository's ``deploy/``; OPS-016)
+  loads; lists the site-pinned builds. WARN when no model build is pinned
   (production routes nothing) or, in VALIDATION/PRODUCTION, when no pinned build is ``champion``;
 * ``site_tz`` (D-315; STD-016, OPS-056): the site's time zone is one setting. ``site.tz`` (settings.yaml), ``TB_TZ``
   (the containers' zone), the ``tz`` of the data source mapping (``data_source.mapping``) and the host's zone (cron
@@ -54,8 +57,9 @@ closed). Checks:
 as the ``trialbox-weights`` timer before the night's runs and an update after its restart do; T-677, D-393):
 
 * ``weights`` (LLM-008, SEC-64): every build pinned in the site override (``TB_REGISTRY_OVERRIDE``, default
-  ``deploy/site/registry.site.yaml``) still hashes to its pin under the models folder (``TB_MODELS_DIR``, default
-  ``deploy/models``; ``tools/pin_model.py --verify-all``). FAIL on any difference: it writes the weights flag
+  ``site/registry.site.yaml`` in the deploy folder) still hashes to its pin under the models folder (``TB_MODELS_DIR``,
+  default ``models/`` in the deploy folder of ``--env-file``, else the repository's ``deploy/models``;
+  ``tools/pin_model.py --verify-all``). FAIL on any difference: it writes the weights flag
   ``weights_changed.json`` beside the override (``TB_WEIGHTS_FLAG`` moves it), and the gateway refuses every model
   call while the flag is there (``gateway.app.StartCheck``). A pass removes the flag. WARN when nothing is pinned.
 
@@ -119,6 +123,12 @@ class DoctorInputs:
     deploy: Path | None = None  # the deploy folder (from --env-file): the backup record and the cron file (D-274)
     cron_dir: Path = Path("/etc/cron.d")
     compose_config: Mapping[str, Any] | None = None  # doctor --two-device: the device's rendered compose (D-373)
+    input_errors: tuple[str, ...] = ()  # OPS-016: a settings file that is missing or does not parse is a FAIL line
+
+
+def _site_dir(inp: DoctorInputs) -> Path:
+    """The site folder: ``site/`` beside ``--env-file`` when it is given, else the repository's (OPS-016)."""
+    return (inp.deploy or ROOT / "deploy") / "site"
 
 
 def _egress() -> ModuleType:
@@ -271,7 +281,7 @@ def check_publish_gate(inp: DoctorInputs) -> Check:
 
 def _override(inp: DoctorInputs) -> Path:
     raw = inp.env.get("TB_REGISTRY_OVERRIDE")
-    return Path(raw) if raw else ROOT / "deploy" / "site" / "registry.site.yaml"
+    return Path(raw) if raw else _site_dir(inp) / "registry.site.yaml"
 
 
 def check_registry_pins(inp: DoctorInputs) -> Check:
@@ -595,7 +605,7 @@ def _host_zone(inp: DoctorInputs) -> str | None:
     return link.split("zoneinfo/", 1)[1] if "zoneinfo/" in link else None
 
 
-def _mapping_zone(settings: Mapping[str, Any]) -> tuple[str | None, str]:
+def _mapping_zone(settings: Mapping[str, Any], site_dir: Path = ROOT / "deploy" / "site") -> tuple[str | None, str]:
     ds = settings.get("data_source") or {}
     raw = ds.get("mapping") if isinstance(ds, Mapping) else None
     if not raw:
@@ -604,7 +614,7 @@ def _mapping_zone(settings: Mapping[str, Any]) -> tuple[str | None, str]:
     if not path.is_absolute():
         # T-632: the site's mapping folder first, then the image's, as the adapter looks it up (adapter.mapping.site;
         # not imported: the host tree has no services/)
-        site = ROOT / "deploy" / "site" / "mapping" / Path(*path.parts[(1 if path.parts[:1] == ("mapping",) else 0) :])
+        site = site_dir / "mapping" / Path(*path.parts[(1 if path.parts[:1] == ("mapping",) else 0) :])
         path = site if site.is_file() else MAPPING_ROOT / path
     doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return (str(doc["tz"]) if doc.get("tz") else None), path.name
@@ -628,7 +638,7 @@ def check_site_tz(inp: DoctorInputs) -> Check:
     from zoneinfo import ZoneInfo
 
     site = inp.settings.get("site")
-    mapped, mapping_name = _mapping_zone(inp.settings)
+    mapped, mapping_name = _mapping_zone(inp.settings, _site_dir(inp))
     sources: dict[str, str | None] = {
         "site.tz": str((site if isinstance(site, Mapping) else {}).get("tz") or "").strip() or None,
         "TB_TZ": (inp.env.get("TB_TZ") or "").strip() or None,
@@ -820,7 +830,7 @@ LIVE: tuple[Callable[[DoctorInputs], Check], ...] = (check_serving,)
 
 def _models_root(inp: DoctorInputs) -> Path:
     raw = (inp.env.get("TB_MODELS_DIR") or "").strip()
-    return Path(raw) if raw else ROOT / "deploy" / "models"
+    return Path(raw) if raw else (inp.deploy or ROOT / "deploy") / "models"
 
 
 def check_weights(inp: DoctorInputs) -> Check:
@@ -888,7 +898,7 @@ TWO_DEVICE: tuple[Callable[[DoctorInputs], Check], ...] = (check_two_device,)
 
 
 def run(inp: DoctorInputs, checks: tuple[Callable[[DoctorInputs], Check], ...] = CHECKS) -> list[Check]:
-    out: list[Check] = []
+    out: list[Check] = [Check("inputs", "FAIL", why) for why in inp.input_errors]
     for fn in checks:
         name = fn.__name__.removeprefix("check_")
         try:
@@ -919,8 +929,20 @@ def inputs_from(
         # gateway address, so note_block judges the box as it runs (found by the box rehearsal, D-176)
         env["TB_GATEWAY_URL"] = "http://gateway:8020/v1"
     doc: dict[str, Any] = {}
+    errors: list[str] = []
     if settings is not None:
-        doc = yaml.safe_load(settings.read_text(encoding="utf-8")) or {}
+        # OPS-016: a FAIL line, not a traceback, when the settings file is missing or does not parse
+        try:
+            loaded = yaml.safe_load(settings.read_text(encoding="utf-8")) or {}
+        except FileNotFoundError:
+            errors.append(f"settings file {settings} not found: pass the box's settings.yaml with --settings")
+        except (OSError, UnicodeDecodeError, yaml.YAMLError) as e:
+            errors.append(f"settings file {settings} cannot be read: {type(e).__name__}: {e}")
+        else:
+            if isinstance(loaded, dict):
+                doc = loaded
+            else:
+                errors.append(f"settings file {settings} is not a mapping")
     wd = lake or (Path(env["TB_LAKE_DIR"]) if env.get("TB_LAKE_DIR") else None)
     deploy = env_file.resolve().parent if env_file is not None and env_file.exists() else None
     return DoctorInputs(
@@ -929,6 +951,7 @@ def inputs_from(
         routing_path=routing or ROOT / "models" / "routing.yaml",
         ingest_lake=wd,
         deploy=deploy,
+        input_errors=tuple(errors),
     )
 
 

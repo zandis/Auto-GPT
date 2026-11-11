@@ -42,8 +42,8 @@ SERVICE_LABEL = "com.docker.compose.service"
 PROJECT_LABEL = "com.docker.compose.project"
 ACTOR = "trialbox-watchdog"
 AUDIT_CODE = (
-    "import json, sys\nfrom tb_common.audit import AuditLog\ne = json.loads(sys.argv[1])\n"
-    "AuditLog('/data/audit').append(e['event'], actor=e['actor'], detail=e['detail'])\n"
+    "import json, sys\nfrom tb_common.audit_writer import open_audit\ne = json.loads(sys.argv[1])\n"
+    "open_audit().append(e['event'], actor=e['actor'], detail=e['detail'])\n"
 )
 
 

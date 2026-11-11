@@ -2,7 +2,8 @@
 
 The matrix is total and checked at load; a role or an action not in it is refused; every older helper and every
 ``console.auth.User`` property gives the same answer as before T-102a (the reference rules below are copied from master
-before the change, D-280 and T-512 included); the three deprecated wrappers get no new caller."""
+before the change, D-280 and T-512 included, with T-102b's one meant change: D-380 closes the delegation bootstrap, so
+an investigator has no study task while the log names no PI); the three deprecated wrappers get no new caller."""
 
 from __future__ import annotations
 
@@ -27,7 +28,7 @@ from tb_common.authz import (
 
 pytestmark = pytest.mark.nodb
 ROOT = Path(__file__).resolve().parents[2]
-ROLES = ("admin", "coordinator", "investigator", "viewer", "cro", "steward")
+ROLES = ("admin", "coordinator", "investigator", "viewer", "cro", "steward", "privacy")
 ODD_ROLES = ("", "ADMIN", "root", "breakglass", "monitor")
 
 
@@ -49,7 +50,8 @@ _PREPARE = {
 _RUNS = {"pi": {"FEAS", "SCREEN", "CASE"}, "run": {"FEAS", "SCREEN", "CASE"}}
 _INV = {"APPROVE", "STATUS"}
 _ROLE_COMMANDS = {"admin": _PREPARE, "coordinator": _PREPARE, "investigator": _INV | _RUNS["pi"] | _RUNS["run"]}
-_ROLE_TASKS = {"coordinator": {"screen", "enter_data"}, "investigator": {"screen", "approach", "refer"}}
+# D-380 (ROLE-008): the investigator's "unlogged" row (screen, approach, refer) is gone; nobody acts as PI unnamed
+_ROLE_TASKS = {"coordinator": {"screen", "enter_data"}}
 
 
 def old_can_request(role: str, cmd: str, is_pi: bool, tasks: frozenset[str]) -> bool:
@@ -70,6 +72,8 @@ def old_study_tasks(role: str, log_names_pi: bool, is_pi: bool, ticked: frozense
 
 def old_edc_allowed(role: str, action: str, tasks: frozenset[str], is_pi: bool) -> bool:
     if action not in EDC_ACTIONS or role in ("viewer", "cro"):
+        return False
+    if role in ("admin", "steward", "privacy") and action != "switch_off":  # D-380: never a study task (D-280)
         return False
     if action == "switch_on":
         return role == "investigator" and is_pi
@@ -246,3 +250,47 @@ def test_no_new_caller_of_the_deprecated_wrappers() -> None:
                     found[name].add(rel)
     for name, allowed in WRAPPER_CALLERS.items():
         assert found[name] <= allowed, f"new caller of the deprecated authz.{name}: {sorted(found[name] - allowed)}"
+
+
+# ---------------------------------------------------------------------------------------------- T-102b (D-380)
+def test_d380_registers_are_kept_by_the_steward_and_the_privacy_office_only() -> None:
+    for action in ("optout.keep", "staff.keep"):
+        assert {r for r in ROLES if permit(r, action, authz.BEST_STANDING)} == {"steward", "privacy"}, action
+
+
+def test_d380_no_pi_named_means_nobody_acts_as_pi() -> None:
+    unlogged = Standing(is_pi=False, tasks=frozenset(), log_names_pi=False)
+    for t in STUDY_TASKS:
+        assert not permit("investigator", f"task.{t}", unlogged), t
+    assert not permit("investigator", "delegation.keep", unlogged)
+    assert permit("investigator", "delegation.keep", Standing(is_pi=True, log_names_pi=True))
+    assert {r for r in ROLES if permit(r, "delegation.name_pi")} == {"steward"}
+
+
+def test_d380_irb_dates_and_the_monitor_grant() -> None:
+    assert {r for r in ROLES if permit(r, "irb.edit", authz.BEST_STANDING)} == {"coordinator", "investigator"}
+    assert not permit("investigator", "irb.edit", Standing(is_pi=False, log_names_pi=True))
+    assert {r for r in ROLES if permit(r, "monitor.read", Standing(monitor=True))} == {"cro"}
+    assert not permit("cro", "monitor.read", Standing(monitor=False))
+    assert authz.monitor_may_see({"state": "enrolled"}) and authz.monitor_may_see({"state": "on_study"})
+    for state in ("candidate", "approached", "consented", "screen_fail", "withdrawn", ""):
+        assert not authz.monitor_may_see({"state": state}), state
+    assert authz.monitor_may_see({"state": "withdrawn", "enrolment": "2026-05-01"})
+
+
+def test_d380_the_administrator_reads_no_patient_row_at_all() -> None:
+    patient = [a for a in MATRIX if a.split(".")[0] in ("phi", "id", "list", "task", "sae", "optout", "monitor")]
+    patient += ["audit.ids", "irb.edit"]
+    for action in patient:
+        assert not permit("admin", action, authz.BEST_STANDING), action
+
+
+def test_d380_role_rights_are_the_matrix_rows() -> None:
+    best = Standing(is_pi=True, tasks=frozenset(STUDY_TASKS), log_names_pi=True, monitor=True)
+    for role in ROLES:
+        rights = authz.role_rights(role)
+        assert {a for a, _, _ in rights} == {a for a in MATRIX if permit(role, a, best)}, role
+        for action, what, conditional in rights:
+            assert what, (role, action)
+            assert conditional == isinstance(MATRIX[action][role], tuple)
+    assert authz.role_rights("root") == []

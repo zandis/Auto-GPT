@@ -24,6 +24,7 @@ from tests.console.test_console_app import (  # noqa: F401 - the fixture is used
     _ulid,
     box,
     login,
+    name_pi,
 )
 
 PW = "role-pages-password-01"
@@ -180,9 +181,10 @@ def test_each_role_lands_on_its_own_home_with_at_most_four_items(box: dict[str, 
     r = crc.get("/")
     assert r.url.path == "/home" and 'data-testid="study-GZQO"' in r.text and 'data-testid="next-GZQO"' in r.text
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     r = pi.get("/")
     assert r.url.path == "/studies/GZQO/week"
-    cro = _user(box, "cra1", "cro", affiliation="cro")
+    cro = _user(box, "cra1", "cro", affiliation="cro", studies="GZQO")
     r = cro.get("/")
     assert r.url.path == "/reports" and 'data-testid="cro-note"' in r.text
     for c in (admin, crc, pi, cro):
@@ -227,6 +229,7 @@ def test_feasibility_report_sections_site_fields_and_sponsor_view(box: dict[str,
 def test_weekly_list_marks_and_patient_page_in_three_languages(box: dict[str, Any]) -> None:
     _done_screen(box["backend"], _ulid(951))
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     page = pi.get("/studies/GZQO/week").text
     assert 'data-testid="row-aaaaaaaa"' in page and 'data-testid="row-bbbbbbbb"' in page
     assert page.index("row-aaaaaaaa") < page.index("row-bbbbbbbb")  # booked visit first, no visit last
@@ -273,7 +276,7 @@ def test_weekly_list_marks_and_patient_page_in_three_languages(box: dict[str, An
 def test_cro_and_scoped_accounts_see_only_what_they_may(box: dict[str, Any]) -> None:
     feas = _done_feas(box["backend"])
     _done_screen(box["backend"], _ulid(952))
-    cro = _user(box, "cra1", "cro", affiliation="cro")
+    cro = _user(box, "cra1", "cro", affiliation="cro", studies="GZQO")
     assert cro.get("/studies/GZQO/feasibility").status_code == 200
     assert 'data-testid="sponsor-banner"' in cro.get("/studies/GZQO/feasibility").text  # always the sponsor copy
     for path in (
@@ -407,6 +410,7 @@ def test_pi_workbench_selects_marks_and_creates_coordinator_task(box: dict[str, 
     _done_feas(box["backend"])
     _done_screen(box["backend"], _ulid(953))
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     page = pi.get("/studies/GZQO/week?list=all")
     assert page.status_code == 200 and 'data-testid="workbench"' in page.text and 'data-testid="chart"' in page.text
     assert 'data-testid="steps"' in page.text and 'data-testid="list-review"' in page.text
@@ -457,7 +461,8 @@ def test_public_data_banner_own_studies_and_site_labels(tmp_path: Path) -> None:
     assert ConsoleSettings.from_env(base).data_source == "synthetic" and ConsoleSettings.from_env(base).studies == ()
     for lang in ("en", "ja", "zh-TW"):
         words = CATALOGUES[lang]["pilot.banner.public"]
-        assert "D0" in words and words != CATALOGUES[lang]["pilot.banner"]
+        # T-685 (UX-041): plain words, no "TB_ENV" or "D0" (the footer names both)
+        assert "TB_ENV" not in words and "D0" not in words and words != CATALOGUES[lang]["pilot.banner"]
     store = SiteStore()
     store.save_label("pub-onc", "PUB-ONC-INC-01", "ja", "18歳以上", "crc", "2026-11-08T00:00:00Z")
     assert store.labels("PUB-ONC", "ja") == {"PUB-ONC-INC-01": "18歳以上"} and store.labels("PUB-ONC", "zh-TW") == {}
@@ -471,6 +476,7 @@ def test_api_v1_does_what_the_pages_do_with_a_bearer_token(box: dict[str, Any]) 
 
     _done_screen(box["backend"], _ulid(952))
     _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     _user(box, "crc1", "coordinator")
     api = TestClient(box["app"])
     assert api.get("/api/v1/studies").status_code == 401

@@ -269,10 +269,10 @@ def test_who_may_change_the_state(box: dict[str, Any]) -> None:  # noqa: F811
     a CRO account do not; a refusal is audited."""
     _done_screen(box["backend"], _ulid(9802))
     pi = _user(box, "drsato", "investigator")
-    page = pi.get("/studies/GZQO/state")
-    assert page.status_code == 200 and 'data-testid="state-form"' in page.text
     sub = _user(box, "drkato", "investigator")
     _log_pi_and_sub(box, pi, ("screen",))  # the log names drsato PI; drkato is a sub-investigator
+    page = pi.get("/studies/GZQO/state")  # D-380 (ROLE-008): the PI the log names
+    assert page.status_code == 200 and 'data-testid="state-form"' in page.text
     page = sub.get("/studies/GZQO/state")
     assert page.status_code == 200 and 'data-testid="state-readonly"' in page.text
     assert 'data-testid="state-form"' not in page.text

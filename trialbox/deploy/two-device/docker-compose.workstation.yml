@@ -3,7 +3,7 @@
 #
 #   cd deploy && docker compose -f docker-compose.yml -f docker-compose.secrets.yml \
 #       -f two-device/docker-compose.workstation.yml up -d --wait db fhir-store lake embed-service doc-parser \
-#       criteria-compiler adapter orchestrator mail-gateway console link
+#       criteria-compiler adapter orchestrator mail-gateway console audit-writer link
 #   python -m tools.trialbox doctor --env-file deploy/.env --two-device      # TB_LINK_ROLE=workstation in deploy/.env
 #
 # The link (tools/two_device.py) answers to `gateway` here, so every TB_GATEWAY_URL=http://gateway:8020/v1 reaches the

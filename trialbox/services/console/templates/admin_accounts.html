@@ -7,7 +7,7 @@
 <p>{{ t('accounts.help', days=unused_days, ending=ending_days, max=max_days) }}</p>
 {% if rep.rows %}
 <section class="card"><div class="scroll" tabindex="0"><table data-testid="accounts-report">
-<thead><tr><th scope="col">{{ t('accounts.col.user') }}</th><th scope="col">{{ t('accounts.col.role') }}</th><th scope="col">{{ t('accounts.col.last') }}</th><th scope="col">{{ t('accounts.col.end') }}</th><th scope="col">{{ t('accounts.col.why') }}</th><th scope="col"></th></tr></thead>
+<thead><tr><th scope="col">{{ t('accounts.col.user') }}</th><th scope="col">{{ t('accounts.col.role') }}</th><th scope="col">{{ t('accounts.col.last') }}</th><th scope="col">{{ t('accounts.col.end') }}</th><th scope="col">{{ t('accounts.col.why') }}</th><th scope="col"><span class="sr">{{ t('col.actions') }}</span></th></tr></thead>
 <tbody>{% for r in rep.rows %}<tr data-user="{{ r.username }}">
 <td class="mono">{{ r.username }}{% if r.idp %} <span class="pill">{{ t('accounts.idp') }}</span>{% endif %}</td>
 <td>{{ t('role.' + r.role) }}</td>

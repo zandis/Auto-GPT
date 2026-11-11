@@ -53,7 +53,7 @@
   {% else %}
     <label for="f_{{ f.name }}">{{ lab(f) }}{% if f.required %} <span class="req" aria-label="{{ t('dc.required') }}">*</span>{% endif %}</label>
     {% if f.kind == 'notes' %}<textarea id="f_{{ f.name }}" name="f_{{ f.name }}" rows="3"{% if ro %} disabled{% endif %} data-testid="f-{{ f.name }}">{{ v }}</textarea>
-    {% else %}<input id="f_{{ f.name }}" name="f_{{ f.name }}" value="{{ v }}"{% if f.kind == 'date' %} type="date"{% if f.vmin|length == 10 %} min="{{ f.vmin }}"{% endif %}{% if f.vmax|length == 10 %} max="{{ f.vmax }}"{% endif %}{% elif f.kind in ('integer', 'decimal') %} inputmode="decimal"{% else %} type="text"{% endif %}{% if ro %} disabled{% endif %} data-testid="f-{{ f.name }}">{% endif %}
+    {% else %}<input id="f_{{ f.name }}" name="f_{{ f.name }}" value="{{ v }}"{% if f.kind == 'date' %} type="date"{% if f.vmin|length == 10 %} min="{{ f.vmin }}"{% endif %}{% if f.vmax|length == 10 %} max="{{ f.vmax }}"{% endif %}{% elif f.kind in ('integer', 'decimal') %} inputmode="decimal"{% else %} type="text"{% endif %}{% if ro %} disabled{% endif %} data-testid="f-{{ f.name }}">{% if f.kind == 'date' %}<span class="hint datefmt">{{ t('date.fmt') }}</span>{% endif %}{% endif %}
   {% endif %}
   {% if f.kind in ('integer', 'decimal') and (f.vmin or f.vmax) %}<p class="hint">{{ t('dc.entry.range', min=f.vmin or '–', max=f.vmax or '–') }}</p>{% endif %}
   {% if own != 'trialbox' %}<p class="hint" data-testid="owned-{{ f.name }}">{{ t('dc.owned_by', o=src(own)) }}</p>{% endif %}

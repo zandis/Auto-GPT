@@ -1,3 +1,7 @@
 {# FIT-U01 (T-512): the day of the data this list was made from; amber when it is more than two days old #}
 {% set a = asof if asof is defined and asof else ((wk or {}).get('asof') if wk is defined else none) %}
 {% if a %}<p class="{{ 'warn' if a.stale else 'hint' }}" data-testid="data-asof" data-stale="{{ 'yes' if a.stale else 'no' }}">{{ t('asof.stale' if a.stale else 'asof.line', day=a.day) }}</p>{% endif %}
+{# FIT-U04 (T-629): a death recorded since the run takes the patient off this list; when the records cannot be read,
+   the page says so and Approach and calls wait #}
+{% if a and a.dead %}<p class="hint" data-testid="dead-removed">{{ t('asof.dead', n=a.dead) }}</p>{% endif %}
+{% if a and a.dead_unchecked %}<p class="error" role="alert" data-testid="dead-unchecked">{{ t('asof.dead_unchecked') }}</p>{% endif %}

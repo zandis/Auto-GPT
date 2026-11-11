@@ -110,7 +110,7 @@
   <label for="f-study">{{ t('col.ruleset') }}</label><select id="f-study" name="study"><option value="">{{ t('admin.jobs.all') }}</option>{% for s in studies %}<option {{ 'selected' if flt.study == s else '' }}>{{ s }}</option>{% endfor %}</select>
   <label for="f-type">{{ t('col.type') }}</label><select id="f-type" name="type"><option value="">{{ t('admin.jobs.all') }}</option>{% for s in types %}<option {{ 'selected' if flt.type == s else '' }}>{{ s }}</option>{% endfor %}</select>
   <label for="f-state">{{ t('col.state') }}</label><select id="f-state" name="state"><option value="">{{ t('admin.jobs.all') }}</option>{% for s in ['received', 'parsing', 'compiling', 'awaiting_approval', 'running', 'reporting', 'done', 'failed'] %}<option value="{{ s }}" {{ 'selected' if flt.state == s else '' }}>{{ state(s) }}</option>{% endfor %}</select>
-  <label for="f-day">{{ t('admin.jobs.day') }}</label><input id="f-day" name="day" type="date" value="{{ flt.day }}">
+  <label for="f-day">{{ t('admin.jobs.day') }}</label><input id="f-day" name="day" type="date" value="{{ flt.day }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
   <button type="submit" class="small">{{ t('admin.jobs.filter') }}</button>
 </form>
 {% if jobs %}
