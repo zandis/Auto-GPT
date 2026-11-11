@@ -39,6 +39,7 @@ from console.auth import ROLES
 ALGS = ("RS256", "ES256")
 MFA_AMR = frozenset({"mfa", "otp", "hwk", "swk", "pop", "sc", "fido"})  # RFC 8176 values that are a second factor
 SKEW = 120  # seconds of clock difference tolerated for exp/iat
+FRESH_SKEW = 30  # seconds a fresh authentication (T-205) may seem to precede the round trip that asked for it
 
 
 class OidcError(Exception):
@@ -162,6 +163,7 @@ class Identity:
     role: str
     mailbox: str | None
     amr: tuple[str, ...] = ()
+    auth_time: float | None = None  # when the person typed their credentials at the provider (``auth_time``)
 
 
 @dataclass
@@ -196,26 +198,30 @@ class OidcClient:
             self._meta = meta
         return self._meta
 
-    def start(self) -> Start:
+    def start(self, fresh: bool = False) -> Start:
+        """The provider's address for one round trip. ``fresh`` (T-205, signing): the person must type their
+        credentials again (``prompt=login``, ``max_age=0``), whatever session the provider already holds."""
         meta = self.metadata()
         state, nonce, verifier = secrets.token_urlsafe(32), secrets.token_urlsafe(32), secrets.token_urlsafe(48)
         challenge = _b64url(hashlib.sha256(verifier.encode("ascii")).digest())
-        query = urlencode(
-            {
-                "response_type": "code",
-                "client_id": self.settings.client_id,
-                "redirect_uri": self.settings.redirect_url,
-                "scope": self.settings.scopes,
-                "state": state,
-                "nonce": nonce,
-                "code_challenge": challenge,
-                "code_challenge_method": "S256",
-            }
-        )
-        return Start(f"{meta['authorization_endpoint']}?{query}", state, nonce, verifier)
+        params = {
+            "response_type": "code",
+            "client_id": self.settings.client_id,
+            "redirect_uri": self.settings.redirect_url,
+            "scope": self.settings.scopes,
+            "state": state,
+            "nonce": nonce,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+        }
+        if fresh:
+            params.update({"prompt": "login", "max_age": "0"})
+        return Start(f"{meta['authorization_endpoint']}?{urlencode(params)}", state, nonce, verifier)
 
-    def finish(self, code: str, nonce: str, verifier: str) -> Identity:
-        """Exchange the code, verify the ID token and map the person to one role."""
+    def finish(self, code: str, nonce: str, verifier: str, fresh_since: float | None = None) -> Identity:
+        """Exchange the code, verify the ID token and map the person to one role. With ``fresh_since`` (T-205, a
+        re-authentication for a signature) the token must say the person authenticated at or after that time
+        (``auth_time``) and with a second factor (``amr``), whatever ``TB_OIDC_REQUIRE_MFA`` says."""
         if not code or len(code) > 2048:
             raise OidcError("no code")
         meta = self.metadata()
@@ -249,8 +255,12 @@ class OidcClient:
             mail = info.get("email") if mail is None else mail
         amr = claims.get("amr")
         amr_t = tuple(a for a in amr if isinstance(a, str)) if isinstance(amr, list) else ()
-        if self.settings.require_mfa and not (MFA_AMR & set(amr_t)):
+        if (self.settings.require_mfa or fresh_since is not None) and not (MFA_AMR & set(amr_t)):
             raise OidcError("the identity provider did not report a second factor")
+        auth_time = claims.get("auth_time")
+        at = float(auth_time) if isinstance(auth_time, int | float) and not isinstance(auth_time, bool) else None
+        if fresh_since is not None and (at is None or at < fresh_since - FRESH_SKEW or at > self.now() + SKEW):
+            raise OidcError("the identity provider did not authenticate the person again")
         if not isinstance(name, str) or not name.strip():
             raise OidcError("no user name claim")
         role = self.settings.role_for(groups)
@@ -260,6 +270,7 @@ class OidcClient:
             role=role,
             mailbox=mail.strip().lower() if isinstance(mail, str) and "@" in mail else None,
             amr=amr_t,
+            auth_time=at,
         )
 
     def _userinfo(self, url: str, access_token: str) -> dict[str, Any]:

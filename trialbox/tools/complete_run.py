@@ -90,6 +90,7 @@ HOSPITAL_PAGES = [
     ("14 ", "admin", "/admin/notice"),  # the offline trial registry: its sources and licences (D-140)
     ("15 ", "pi", f"/studies/{H_TRIAL}/candidates"),  # the hospital's candidates, the log, referrals (D-147)
     ("16 ", "crc", f"/studies/{H_TRIAL}/edc"),  # EDC prefill: drafts, the CRC's review and e-signature (D-160, PR #56)
+    ("17 ", "pi", f"/studies/{H_TRIAL}/week?list=clinic"),  # the new booked patient on the clinic list (D-397)
     ("re-run", "admin", "/jobs"),
     ("runtime", "admin", "/admin?tab=health"),
 ]
