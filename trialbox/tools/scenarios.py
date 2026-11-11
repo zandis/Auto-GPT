@@ -413,7 +413,7 @@ def world(work: Path, lake: Path, sec: Path, a: Any, ocr: Any = None) -> World:
     if llm is not None:
         attach_models(box, llm, verifier)
     capture_screens()
-    clock = ld.Clock(box.today[0])
+    clock = ld.Clock(box.today[0], ld.site_tz_of(box))
     app = ld.console(work, box, orch_client(orch_app.app), work / "box" / "repo", a.password, clock)
     svc = setup_of(box.orch)
     if ocr is not None:
