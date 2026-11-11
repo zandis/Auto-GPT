@@ -16,8 +16,8 @@ seen. :meth:`PidMap.site_key_problem` says when the key in hand is another one: 
 stored one, or it does not give back the pseudonyms the map holds (a box from before the table).
 
 The map's key under the KEK (T-210b, D-347). :func:`load_map_key` opens ``pid_map.key`` wrapped under the box's KEK
-(``tb_common.kek``) or plain. It is made on first use only in DEV and TEST: in VALIDATION and PRODUCTION (and with
-``TB_ENV`` unset) only the install ceremony makes it, so a lost or locked key is refused instead of replaced by an
+(``tb_common.kek``) or plain. A box whose ``TB_ENV`` says VALIDATION or PRODUCTION (``install.sh`` writes it) never
+makes it on first use: only the install ceremony does, so a lost or locked key is refused instead of replaced by an
 empty map. :meth:`PidMap.rekey` re-encrypts every row under a new key (``python -m tools.keys rotate pid_map``).
 """
 
@@ -31,7 +31,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from tb_common import chartno
-from tb_common.config import environment_name
 from tb_common.crypto import KeyMissingError, aes_decrypt, aes_encrypt, key_fingerprint, pid_for_mrn
 from tb_common.db import ENV as DB_URL_ENV
 from tb_common.db import Database
@@ -79,7 +78,8 @@ def key_id(key: bytes) -> str:
 
 def load_map_key(key_path: Path, env: Mapping[str, str] | None = None) -> bytes:
     """T-210b: the key of ``key_path`` (``secrets/pid_map.key``), wrapped under the KEK or plain. Made when absent in
-    DEV and TEST only (it encrypts the rows and changes no pseudonym); in VALIDATION and PRODUCTION
+    DEV and TEST, and by tools that set no ``TB_ENV`` (demos, fixtures; it encrypts the rows and changes no
+    pseudonym); with ``TB_ENV`` VALIDATION or PRODUCTION
     ``KeyMissingError``: the install ceremony makes it, and a lost key is put back from the backup. A locked KEK is
     ``tb_common.kek.KekLockedError`` (nothing is made)."""
     from tb_common.kek import create_key_file, load_key_file
@@ -88,9 +88,10 @@ def load_map_key(key_path: Path, env: Mapping[str, str] | None = None) -> bytes:
     try:
         key = load_key_file(key_path, env)
     except KeyMissingError:
-        if environment_name(env) not in ("DEV", "TEST"):
+        named = (env.get("TB_ENV") or "").strip().upper()
+        if named in ("VALIDATION", "PRODUCTION"):  # set on purpose, as install.sh does (D-127)
             raise KeyMissingError(
-                f"{key_path} is missing: in {environment_name(env)} it is made only by the install ceremony "
+                f"{key_path} is missing: in {named} it is made only by the install ceremony "
                 f"(`python -m adapter.cli keys-init`); on a box that has run before, put it back from the backup"
             ) from None
         create_key_file(key_path, 32, env)
@@ -103,7 +104,7 @@ def load_map_key(key_path: Path, env: Mapping[str, str] | None = None) -> bytes:
 class PidMap:
     def __init__(self, key_path: Path, url: str | None = None) -> None:
         """``key_path``: ``secrets/pid_map.key``, plain or wrapped under the KEK (:func:`load_map_key`; made on first
-        use in DEV and TEST only; the site key never is, T-612). ``url``: the trial database
+        use outside VALIDATION and PRODUCTION; the site key never is, T-612). ``url``: the trial database
         (``TB_DB_URL`` when None; :class:`tb_common.db.DatabaseError` if unset)."""
         self.key = load_map_key(key_path)
         self.key_id = key_id(self.key)

@@ -196,11 +196,12 @@ def test_a_plain_copy_beside_a_wrapped_key_is_refused(box: dict[str, Path], caps
 
 
 def test_the_pid_map_key_is_never_auto_created_in_validation_or_production(tmp_path: Path) -> None:
-    for env in ({"TB_ENV": "PRODUCTION"}, {"TB_ENV": "VALIDATION"}, {}):
+    for env in ({"TB_ENV": "PRODUCTION"}, {"TB_ENV": "VALIDATION"}, {"TB_ENV": " production "}):
         with pytest.raises(KeyMissingError, match="install ceremony"):
             load_map_key(tmp_path / "pid_map.key", env)
         assert not (tmp_path / "pid_map.key").exists()
-    assert len(load_map_key(tmp_path / "pid_map.key", {"TB_ENV": "DEV"})) == 32  # DEV and TEST: made on first use
+    # DEV, TEST and tools that set no TB_ENV (the demo walks): made on first use; install.sh always writes TB_ENV
+    assert len(load_map_key(tmp_path / "pid_map.key", {})) == 32
 
 
 def test_in_a_folder_with_a_kek_the_pid_map_key_is_made_wrapped(tmp_path: Path) -> None:

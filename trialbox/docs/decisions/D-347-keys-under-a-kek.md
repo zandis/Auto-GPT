@@ -29,7 +29,8 @@ rule for most keys.
 4. **The unseal.** `python -m tools.keys unseal` writes the KEK to `/run/trialbox/kek` (tmpfs, 0600; `TB_KEK_FILE`).
    Services look there, then at `$CREDENTIALS_DIRECTORY/trialbox-kek`, then at `TB_KEK_PASSPHRASE`. A KEK file in the
    secrets folder, readable by others, or with another id is refused. With no KEK the load fails closed.
-5. **No auto-created keys outside DEV and TEST.** `pid_map.key` is made on first use only in DEV and TEST.
+5. **No auto-created keys on a real box.** `pid_map.key` is never made on first use when `TB_ENV` is VALIDATION
+   or PRODUCTION (`install.sh` writes it). Tools that set no `TB_ENV` (the demo walks, fixtures) still make it.
 6. **Checks.** `doctor` check `key_custody` FAILs a plain site key in VALIDATION and PRODUCTION (WARN in DEV/TEST) and
    every custody problem; `tools/apply_update.sh` runs `tools.keys check --for-update` first and refuses an update
    when the keys are wrapped and the KEK is not unsealed.
