@@ -175,3 +175,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-349 | merged | T-512 | the PI starts FEAS, SCREEN and CASE on own study; a sub-investigator with the `run` tick; one table `authz.INVESTIGATOR_RUNS`; "data as of" on the patient lists (file) |
 | D-339 | merged | T-106 | OMOP second slice: schema name stays `omop`; the adapter's dual write behind the flag `omop.dual_write` (a failure never holds the night); the large CDM tables partitioned by year; the Relational checks after every load in the ingest report; parity timings (file) |
 | D-354 | merged | T-210c | uploads and outputs sealed at rest: AES-GCM per object under objects.key wrapped by the KEK, the seal file, seal-objects (file) |
+| D-371 | merged | T-104b | one PostgreSQL major (16) for the db image, the demo and CI: `postgres_major` in `deploy/images.lock`, Debian 13 base, pgBackRest pinned from PGDG in the db image, `tools/ci_postgres.sh` checks `pg_config --version` (file) |
