@@ -133,8 +133,8 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-300 | merged | T-101 | prompt registry, renumbered from the PR's D-201 (file) |
 | D-301 | merged | T-105, PR #82 | vocabulary schema (renumbered from the PR's D-205) (file) |
 | D-302 | reserved | T-102a | permission matrix |
-| D-303 | reserved | T-106 | OMOP schema name |
-| D-304 | reserved | T-106 | dual write |
+| D-303 | unused | T-106 | was reserved for the OMOP schema name; T-106 took D-339 (the integrator gave it) |
+| D-304 | unused | T-106 | was reserved for the dual write; T-106 took D-339 (the integrator gave it) |
 | D-305 | unused | — | was reserved for T-012a, which took D-313 |
 | D-306 | merged | T-002 | decisions as files, one number registry, CODEOWNERS and CONTRIBUTING (file) |
 | D-307 | unused | T-508 | was reserved for T-508, which took D-332 (the integrator gave D-332) |
@@ -167,5 +167,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-344 | merged | T-215 | QMS-lite records in `docs/validation/`, VMP v1.1 without signatures, change classes CC1 to CC6, staged roll-out, standards position (file) |
 | D-346 | merged | T-208 | the prompt-injection and false-positive suite: facts not words, a stub that obeys as the negative control, the fence escaped, hidden text flagged, traces 7 days in PRODUCTION (file) |
 | D-347 | merged | T-210b | the site keys under a KEK: wrapped files, three back ends, the unseal, the key inventory (file) |
+| D-348 | merged | T-673 | third-party images in `deploy/images.lock` by digest, no image by tag, the GPU host checked against the vLLM image (arch, driver, compute capability), Mailpit for MailHog (file) |
 | D-349 | merged | T-512 | the PI starts FEAS, SCREEN and CASE on own study; a sub-investigator with the `run` tick; one table `authz.INVESTIGATOR_RUNS`; "data as of" on the patient lists (file) |
+| D-339 | merged | T-106 | OMOP second slice: schema name stays `omop`; the adapter's dual write behind the flag `omop.dual_write` (a failure never holds the night); the large CDM tables partitioned by year; the Relational checks after every load in the ingest report; parity timings (file) |
 | D-362 | merged | T-514 | a coded criterion row shows the record's own value, unit, date and code (evidence.coded, display only; latest first, at most three; an empty list says no record is behind the answer) on the patient page and the not-matched list (file) |
