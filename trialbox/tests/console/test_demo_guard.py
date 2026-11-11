@@ -124,7 +124,8 @@ def test_every_upload_and_paste_route_is_refused_in_the_readers_language(box: di
     c, csrf = _signed_in(box, "admin", "admin", lang)
     jobs = len(box["backend"].jobs)
     routes = sorted(_upload_routes(box["app"]))
-    planted = "chart no " + str(4_417_239 * 10 + 1) + "\nsynthetic"  # never written to disk by the console
+    number = str(4_417_239 * 10 + 1)  # built here: the repository scan stays clean
+    planted = "chart no " + number + "\nsynthetic"  # never written to disk by the console
     for path in routes:
         r = c.post(path, data={"csrf": csrf, "ruleset": "GZQO", "text": planted, "chart_no": "A1"},
                    files={"file": ("chart.txt", planted.encode()), "charts": ("chart.txt", planted.encode())})  # fmt: skip
@@ -140,7 +141,9 @@ def test_every_upload_and_paste_route_is_refused_in_the_readers_language(box: di
     assert len(box["backend"].jobs) == jobs  # nothing was submitted
     refused = _events(box, dg.REFUSED_EVENT)
     assert len(refused) >= len(routes) and all(e["actor"] == "console:admin" for e in refused[: len(routes)])
-    assert not any("4417" in json.dumps(e) for e in refused)  # the path only: never the content
+    # the path only: never the content. The whole planted number, not a few of its digits: an event's hashes and
+    # times hold digits too, and "4417" was found in one by chance (T-653)
+    assert not any(number in json.dumps(e) or "chart no" in json.dumps(e) for e in refused)
 
 
 def test_the_route_guard_call_refuses_on_its_own() -> None:
