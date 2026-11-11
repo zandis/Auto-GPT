@@ -259,7 +259,7 @@ def build(
         {"path": dest, "kind": kind, "sha256": sha256_file(src), "size": src.stat().st_size}
         for kind, src, dest in [*items, *extra_items]
     ]
-    paths = [c["path"] for c in components]
+    paths = [dest for _, _, dest in [*items, *extra_items]]
     if len(paths) != len(set(paths)):
         raise ReleaseError(f"two bundle files share a path: {sorted({p for p in paths if paths.count(p) > 1})}")
     rel = {

@@ -41,8 +41,9 @@ packages and fonts were downloaded without a pinned sum (ENG-013). CI tested on 
    `trialbox-postgres` joins the images the gates scan (`SC_OWN_IMAGES`).
 5. **The image gate blocks for every image a bundle can carry.** Report mode is left for MailHog and GreenMail only
    (test only, never in a bundle). An allow-list vulnerability entry may name an `image:` repository and then
-   accepts the finding in that image only. The 52 open findings of HAPI FHIR and vLLM of 2026-11-10 are such entries,
-   each dated `review_by: 2026-12-10`; a new finding blocks.
+   accepts the finding in that image only. The 52 open findings of HAPI FHIR and vLLM of 2026-11-10, and the 29 of the
+   `trialbox-postgres` base (gosu's Go runtime, zlib1g), are such entries, each dated `review_by: 2026-12-10`, with a
+   golang licence budget of 3 for `trialbox-postgres`; a new finding blocks.
 6. **Build downloads are pinned.** Maven runs with strict checksums and the copied jars must match
    `tools/jvm-deps.sha256` exactly (no missing, extra or changed jar, cached or fresh); FHIR package tarballs must
    match `tools/fhir-packages.sha256`; the fonts come from one google/fonts commit and must match their sums.

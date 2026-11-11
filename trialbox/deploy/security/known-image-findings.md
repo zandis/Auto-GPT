@@ -10,7 +10,7 @@ The open findings of the HAPI FHIR and vLLM images are no longer waved through a
 `deploy/supply-chain-allowlist.yaml`, scoped to that image (`image:`), with `review_by: 2026-12-10`. A new finding in
 either image fails the gate; on 2026-12-10 the entries lapse and the gate fails until each image has moved or each entry
 is reviewed again. The postgres row moved to our own `trialbox-postgres` image (T-104, built on `postgres:16-trixie`),
-which the gates now scan and block on. The licence gate, `make lock-check`, `make allowlist-check` and `make pip-audit`
+which the gates now scan and block on; its base's findings are dated entries the same way. The licence gate, `make lock-check`, `make allowlist-check` and `make pip-audit`
 block as before. The list of images in report mode is `VULN_REPORT_ONLY` in `tools/supply_chain/release.py`; a test
 checks that each one has a row here.
 
@@ -21,6 +21,7 @@ Owner of every row: security owner (to assign). Target date of every row: 2026-1
 | mailhog/mailhog | amd64 (no arm64 image) | 1,590 | Go stdlib 1.14.7, busybox, ssl_client, libcrypto1.1, libssl1.1, apk-tools | report (test only, never in a bundle) | replace MailHog with Mailpit in the test profile |
 | greenmail/standalone | amd64, arm64 | 16 each | jackson-databind, jackson-core, openssl/libssl3, apt, gpgv | report (test only, never in a bundle) | move to a patched GreenMail tag (digest-pinned) |
 | vllm/vllm-openai | amd64, arm64 | 29 each | pyasn1, openssl/libssl3t64, certifi, msgpack, urllib3, setuptools, gnupg, apt, brotli, uv | block; 29 dated per-image entries | move to a patched vLLM release tag (digest-pinned) |
+| trialbox-postgres (base postgres:16-trixie) | amd64, arm64 | 29 each | Go stdlib 1.24.6 and golang.org/x/sys in gosu, zlib1g | block; 29 dated per-image entries | move the base digest (deploy/images.lock and db.Dockerfile together) |
 | hapiproject/hapi | amd64, arm64 | 23 each | libexpat1, zlib1g, jackson-core, jackson-databind, guava, spring-webmvc, ca-certificates | block; 23 dated per-image entries | move to a patched HAPI FHIR tag (digest-pinned) |
 
 When a row is fixed, remove the image's entries from the allow-list (or the image from `VULN_REPORT_ONLY`) and its row

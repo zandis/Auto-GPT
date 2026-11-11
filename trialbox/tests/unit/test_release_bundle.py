@@ -339,11 +339,12 @@ def test_an_image_scoped_exception_accepts_the_finding_in_that_image_only() -> N
     assert any("image must be an image repository" in e for e in bad)
 
 
-def test_the_committed_exceptions_are_scoped_dated_and_cover_no_image_of_ours() -> None:
+def test_the_committed_exceptions_are_scoped_and_dated() -> None:
     allow, errors = allowlist.load(today=allowlist.today())
     assert errors == []
     scoped = [e for e in allow.vulnerabilities if e.image]
-    assert scoped and all(e.image in {"hapiproject/hapi", "vllm/vllm-openai"} for e in scoped)
+    assert scoped and {e.image for e in scoped} == {"hapiproject/hapi", "vllm/vllm-openai", "trialbox-postgres"}
+    assert not any(e.image in {"trialbox-py", "trialbox-jvm", "trialbox-demo"} for e in scoped)
     assert all(e.review_by <= dt.date(2026, 12, 10) for e in scoped)
     assert not [e for e in allow.vulnerabilities if not e.image]  # nothing accepted everywhere
 

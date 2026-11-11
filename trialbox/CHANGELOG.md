@@ -15,7 +15,7 @@ new heading with the version and date, in the same pull request that sets the ve
   `--gates` and `--release-seq`, carries the SBOMs, the gate record, `NOTICE` and this file, and no longer carries
   the test mail servers.
 - The image vulnerability gate blocks for every image a bundle can carry; report mode is left only for the test-only
-  mail servers. Open findings of the HAPI FHIR and vLLM images are dated, per-image exceptions in
+  mail servers. Open findings of the HAPI FHIR, vLLM and `trialbox-postgres` base images are dated, per-image exceptions in
   `deploy/supply-chain-allowlist.yaml`.
 - Build downloads are checked against pinned sha256 sums: the CQL translator jars (`tools/jvm-deps.sha256`), the FHIR
   packages (`tools/fhir-packages.sha256`) and the report fonts (`tools/fetch_fonts.py`).
