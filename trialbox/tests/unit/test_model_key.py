@@ -14,11 +14,19 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 DEPLOY = ROOT / "deploy"
 VLLM_FILES = ["docker-compose.yml", "docker-compose.gb10.yml", "docker-compose.rtx5090.yml",
-              "docker-compose.rtxpro6000.yml"]  # fmt: skip
+              "docker-compose.rtxpro6000.yml", "docker-compose.shared-quota.yml"]  # fmt: skip
+
+
+class _Loader(yaml.SafeLoader):
+    """Compose's ``!override`` and ``!reset`` tags (docker-compose.shared-quota.yml) read as plain values."""
+
+
+_Loader.add_constructor("!override", lambda ld, node: ld.construct_sequence(node, deep=True))  # type: ignore[arg-type]
+_Loader.add_constructor("!reset", lambda ld, node: None)
 
 
 def _load(name: str) -> dict[str, Any]:
-    doc: dict[str, Any] = yaml.safe_load((DEPLOY / name).read_text(encoding="utf-8"))
+    doc: dict[str, Any] = yaml.load((DEPLOY / name).read_text(encoding="utf-8"), Loader=_Loader)
     return doc
 
 
@@ -30,7 +38,7 @@ def test_every_vllm_server_gets_the_key() -> None:
                 env = body.get("environment") or {}
                 assert env.get("VLLM_API_KEY") == "${TB_LLM_API_KEY:-}", f"{name} {svc}"
                 seen += 1
-    assert seen == 7  # base llm-service; gb10, rtx5090, rtxpro6000: the pair each
+    assert seen == 9  # base llm-service; gb10, rtx5090, rtxpro6000, shared-quota (D-409): the pair each
 
 
 def test_only_the_gateway_keeps_the_key() -> None:

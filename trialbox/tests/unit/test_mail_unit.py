@@ -44,8 +44,13 @@ def _msg(
     return m.as_bytes(policy=policy.SMTP)
 
 
+def _read(raw: bytes) -> intake.Inbound:
+    """As the gateway reads a mail behind the hospital MTA ``mx`` (the authserv-id of :func:`_msg`'s header)."""
+    return intake.read(raw, "mx")
+
+
 def test_authentication_results() -> None:
-    def auth(h: str, server: str = "", sender: str = "crc1@hospa.test") -> bool:
+    def auth(h: str, server: str = "mx.hospa.test", sender: str = "crc1@hospa.test") -> bool:
         return intake.authentication(message_from_bytes(_msg(auth=h), policy=policy.default), server, sender)[0]
 
     assert auth("mx.hospa.test; spf=pass smtp.mailfrom=hospa.test")
@@ -62,7 +67,7 @@ def test_authentication_results() -> None:
     assert not auth("mx.hospa.test; spf=pass", sender="pi@hospa.test")  # pass without a domain cannot be aligned
     ok, detail = intake.authentication(
         message_from_bytes(_msg(auth="mx.hospa.test; spf=pass smtp.mailfrom=evil.example"), policy=policy.default),
-        "",
+        "mx.hospa.test",
         "pi@hospa.test",
     )
     assert not ok and "no pass aligned with hospa.test" in detail
@@ -71,7 +76,7 @@ def test_authentication_results() -> None:
 
 def test_intake_decisions(tmp_path: Path) -> None:
     db = MailDB()
-    m = intake.read(_msg("Re: FEAS gzqo lookback=24 -- for sponsor"))
+    m = _read(_msg("Re: FEAS gzqo lookback=24 -- for sponsor"))
     d = intake.decide(m, SETTINGS, db, NOW)
     assert d.action == "job" and d.job is not None
     assert (d.job.type, d.job.ruleset, d.job.options, d.job.comment) == (
@@ -85,15 +90,15 @@ def test_intake_decisions(tmp_path: Path) -> None:
     files = intake.store_inputs(store, "01JB0000000000000000000000", m)
     assert store.get(files[0].minio_key) == b"%PDF-1.4 fake" and len(files[0].sha256) == 64
     assert store.get("attachments/01JB0000000000000000000000/message.eml") == m.raw
-    unknown = intake.decide(intake.read(_msg(sender="x@evil.example")), SETTINGS, db, NOW)
+    unknown = intake.decide(_read(_msg(sender="x@evil.example")), SETTINGS, db, NOW)
     assert unknown.action == "reject" and not unknown.detailed_reply
-    st = intake.decide(intake.read(_msg("STATUS 01JB0000000000000000000000")), SETTINGS, db, NOW)
+    st = intake.decide(_read(_msg("STATUS 01JB0000000000000000000000")), SETTINGS, db, NOW)
     assert st.job is not None and st.job.ruleset is None and st.job.options == {"target": "01JB0000000000000000000000"}
     for _ in range(20):
         db.record_intake(f"<{_}@x>", "crc1@hospa.test", NOW.isoformat(), "job", "J")
-    huge = intake.decide(intake.read(_msg("FEAS GZQO -- " + "A" * 200_000)), SETTINGS, db, NOW)
+    huge = intake.decide(_read(_msg("FEAS GZQO -- " + "A" * 200_000)), SETTINGS, db, NOW)
     assert huge.action == "reject" and "longer than 998" in huge.reason  # stress test #4
-    limited = intake.decide(intake.read(_msg("FEAS GZQO")), SETTINGS, db, NOW)
+    limited = intake.decide(_read(_msg("FEAS GZQO")), SETTINGS, db, NOW)
     assert limited.action == "reject" and "daily limit" in limited.reason
     db.record_sent(
         "<review-1@hospa.test>",
@@ -104,7 +109,7 @@ def test_intake_decisions(tmp_path: Path) -> None:
         NOW.isoformat(),
     )
     reply = intake.decide(
-        intake.read(_msg("ok!", sender="pi@hospa.test", In_Reply_To="<review-1@hospa.test>")), SETTINGS, db, NOW
+        _read(_msg("ok!", sender="pi@hospa.test", In_Reply_To="<review-1@hospa.test>")), SETTINGS, db, NOW
     )
     assert reply.job is not None and (reply.job.type, reply.job.options) == ("APPROVE", {"version": "1.0.0"})
 
@@ -141,7 +146,8 @@ def test_outbound_zip_encryption_and_routing(tmp_path: Path) -> None:
             sender="trialbox@hospa.test",
             internal_domains=["hospa.test"],
         )
-    p = prepare(_req(["PI@hospa.test"]), store=store, sender="trialbox@hospa.test", internal_domains=["hospa.test"])
+    p = prepare(_req(["PI@hospa.test"]), store=store, sender="trialbox@hospa.test", internal_domains=["hospa.test"],
+                mode="zip", allow_phi_zip=True)  # fmt: skip
     assert p.encrypted and p.recipients == ["pi@hospa.test"] and len(p.password_mails) == 1
     msg = message_from_bytes(p.data, policy=policy.default)
     assert isinstance(msg, EmailMessage)
@@ -241,9 +247,11 @@ def test_reply_to_subject_with_encoded_crlf(tmp_path: Path) -> None:
         lambda _frm, _to, data: sent.append(data),
         jobs=lambda req: pytest.fail("no job for a malformed subject"),
         secrets_dir=tmp_path,
+        authserv_id="mx.hospa.test",
     )
     raw = (
         b"From: crc1@hospa.test\r\nTo: trialbox@hospa.test\r\nMessage-ID: <crlf@hospa.test>\r\n"
+        b"Authentication-Results: mx.hospa.test; spf=pass smtp.mailfrom=hospa.test\r\n"
         b"Subject: =?utf-8?q?hello=0D=0ABcc:_evil@evil.example?=\r\n\r\nx"
     )
     assert gw.handle(raw) == "Rejected"
@@ -279,12 +287,13 @@ def test_outbound_subject_with_a_middle_dot_has_no_empty_encoded_word(tmp_path: 
     assert b"=?utf-8?q??=" not in head and all(len(line) <= 998 for line in head.split(b"\r\n"))
     msg = message_from_bytes(p.data, policy=policy.default)
     assert msg["Subject"] == req.subject
-    enc = prepare(_req(["pi@hospa.test"]), store=store, sender="trialbox@hospa.test", internal_domains=["hospa.test"])
+    enc = prepare(_req(["pi@hospa.test"]), store=store, sender="trialbox@hospa.test", internal_domains=["hospa.test"],
+                  mode="zip", allow_phi_zip=True)  # fmt: skip
     pw = message_from_bytes(enc.password_mails[0][1], policy=policy.default)
     assert str(pw["Subject"]).startswith("Password: ")
 
 
-def _send_gateway(tmp_path: Path, transport):  # type: ignore[no-untyped-def]
+def _send_gateway(tmp_path: Path, transport, allow_phi_zip: bool = True):  # type: ignore[no-untyped-def]
     from mail_gateway.gateway import Gateway
     from tb_common.audit import AuditLog
     from tb_common.config import Config, load_env
@@ -298,6 +307,7 @@ def _send_gateway(tmp_path: Path, transport):  # type: ignore[no-untyped-def]
         transport,
         jobs=lambda req: pytest.fail("no job"),
         secrets_dir=tmp_path,
+        allow_phi_zip=allow_phi_zip,  # the example settings' zip mode: a synthetic box unless a test says otherwise
     )
 
 
@@ -313,10 +323,10 @@ def test_the_same_send_key_never_mails_twice(tmp_path: Path) -> None:
     assert gw.send(req.model_copy(update={"idempotency_key": "tbmail-k2"})).message_id != first.message_id
 
 
-def test_a_refusal_before_sending_frees_the_key_and_a_lost_answer_never_resends(tmp_path: Path) -> None:
+def test_a_refusal_before_sending_is_held_and_a_lost_answer_never_resends(tmp_path: Path) -> None:
+    """D-127 with T-108c (D-401): a 5xx refusal is held as ``failed`` and a lost answer as ``uncertain``; neither is
+    an error for the caller, neither key stays in ``sending``, and the same key never sends again by itself."""
     import smtplib
-
-    from mail_gateway.store import SendUncertain
 
     state = {"fail": "refused"}
     sent: list[bytes] = []
@@ -331,19 +341,17 @@ def test_a_refusal_before_sending_frees_the_key_and_a_lost_answer_never_resends(
 
     gw = _send_gateway(tmp_path, transport)
     req = _req(["pi@hospa.test"], tag="aggregate", enc=False).model_copy(update={"idempotency_key": "tbmail-a"})
-    with pytest.raises(smtplib.SMTPRecipientsRefused):
-        gw.send(req)
+    out = gw.deliver(req)
+    assert out.state == "failed" and out.result.sent_to == [] and gw.db.get("tbmail-a").state == "failed"
     state["fail"] = ""
-    gw.send(req)  # the refused key was freed: this try sends
-    assert len(sent) == 1
+    assert gw.deliver(req).state == "failed" and sent == []  # held for a person: not sent again by itself
     req2 = req.model_copy(update={"idempotency_key": "tbmail-b"})
     state["fail"] = "lost"
-    with pytest.raises(TimeoutError):
-        gw.send(req2)
+    assert gw.deliver(req2).state == "uncertain"
     state["fail"] = ""
-    with pytest.raises(SendUncertain):
-        gw.send(req2)  # may have arrived: never resent automatically
-    assert len(sent) == 2
+    assert gw.deliver(req2).state == "uncertain"  # may have arrived: never resent automatically
+    assert gw.drain(force=True) == {} and len(sent) == 1
+    assert {r.state for r in gw.db.open_keys()} == {"failed", "uncertain"}
 
 
 def test_orchestrator_send_keys_are_stable() -> None:

@@ -1602,9 +1602,9 @@ class Settings(BaseModel):
     schedule: Schedule = Field(..., title="Schedule")
     site_capabilities: dict[str, bool] | None = None
     registry_source: RegistrySource | None = Field(None, title="RegistrySource")
-    attachment_encryption: Literal["zip", "smime", "link"] = "zip"
+    attachment_encryption: Literal["zip", "smime", "link"] = "link"
     """
-    Patient files by mail, chosen per site: zip (7z + password in a second mail, PPAP), smime, or link (no attachment; a link to the job on the box, sign-in to download; needs TB_CONSOLE_URL). D-127.
+    Patient files by mail, chosen per site: link (the default, D-369: no attachment; a link to the job on the box, where the named recipients download after sign-in; needs TB_CONSOLE_URL), smime, or zip (7z + password in a second mail, PPAP; refused for patient files outside TB_ENV DEV and TEST, D-369). D-127.
     """
     smime_certs: dict[str, str] | None = None
     """
@@ -2236,7 +2236,7 @@ class FeasibilityResult(BaseModel):
 
 class IngestReport(BaseModel):
     """
-    adapter ingest_report.json (SPEC 4.6). Schema version 1.4.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held; 1.4.0: omop).
+    adapter ingest_report.json (SPEC 4.6). Schema version 1.5.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held; 1.4.0: omop; 1.5.0: fhir_unread).
     """
 
     model_config = ConfigDict(
@@ -2270,6 +2270,10 @@ class IngestReport(BaseModel):
     held: bool = False
     """
     the night failed before loading: fhir-store and the lake were not loaded and CURRENT still names the previous snapshot (dataflow review P0-2)
+    """
+    fhir_unread: dict[str, dict[str, int]] | None = None
+    """
+    per resource type, how many resources carry each top-level element the box does not read (the inbound FHIR contract, docs/data/01, T-616); '*' counts a resource type not read at all. Element names only, never values
     """
     omop: OmopLoadSummary | None = None
     """

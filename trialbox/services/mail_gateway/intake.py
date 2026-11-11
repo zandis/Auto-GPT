@@ -11,7 +11,7 @@ from email.message import EmailMessage
 from email.utils import getaddresses, parseaddr
 from typing import Any, cast
 
-from tb_common.authz import allowed, known_senders, norm
+from tb_common.authz import allowed, daily_limit, known_senders, norm
 from tb_common.crypto import sha256_bytes
 from tb_common.objstore import ObjectStore
 from tb_common.subject import Subject, SubjectError, parse_subject
@@ -64,13 +64,16 @@ def authentication(msg: EmailMessage, authserv_id: str = "", sender: str = "") -
     """The top-most ``Authentication-Results`` header (added by our MTA, RFC 8601) decides. It passes on
     ``dmarc=pass``, or on an ``spf=pass`` / ``dkim=pass`` whose domain (``smtp.mailfrom`` / ``header.d``) is aligned
     with the From: domain of ``sender`` — a pass for some other domain proves nothing about the From: address — and
-    never with ``dmarc=fail``. With ``authserv_id`` set, a header from any other server is ignored (forged headers
-    the sender put further down)."""
+    never with ``dmarc=fail``. Only a header from ``authserv_id`` counts: one from any other server is ignored (forged
+    headers the sender put further down). D-369 (SEC-11): with no ``authserv_id`` nothing is trusted, so the check
+    fails closed instead of believing whoever wrote the top-most header."""
+    if not authserv_id.strip():
+        return False, "TB_MAIL_AUTHSERV_ID is not set: no Authentication-Results header is trusted"
     headers = msg.get_all("Authentication-Results") or []
     for h in headers:
         text = str(h)
         server, _, rest = text.partition(";")
-        if authserv_id and server.strip().lower() != authserv_id.lower():
+        if server.strip().lower() != authserv_id.strip().lower():
             continue
         results: list[tuple[str, str, dict[str, str]]] = []
         for clause in rest.split(";"):
@@ -137,7 +140,8 @@ def decide(m: Inbound, settings: Settings, db: MailDB, now: datetime, intake_add
         # unknown senders get a generic reply, and only when the domain authenticated (no backscatter)
         return Decision("reject", "sender not on the allowlist", detailed_reply=False, reply=m.auth_ok)
     if settings.require_spf_dkim is not False and not m.auth_ok:
-        return Decision("reject", f"sender authentication failed ({m.auth_detail})")
+        # D-369 (SEC-11): the From: address is not proven, so nothing is sent to it (no backscatter, no oracle)
+        return Decision("reject", f"sender authentication failed ({m.auth_detail})", reply=False)
     if len(m.subject) > MAX_SUBJECT_CHARS:  # stress test #4: a 200 KB subject became a job and its audit record
         return Decision("reject", f"subject longer than {MAX_SUBJECT_CHARS} characters")
     try:
@@ -160,9 +164,13 @@ def decide(m: Inbound, settings: Settings, db: MailDB, now: datetime, intake_add
     assert subj is not None
     if not allowed(settings, subj.cmd, m.sender):
         return Decision("reject", f"{m.sender} is not permitted to send {subj.cmd}", subject=subj)
-    limit = settings.rate_limit_per_sender_per_day or 20
-    if db.jobs_since(m.sender, (now - timedelta(days=1)).isoformat()) >= limit:
-        return Decision("reject", f"daily limit of {limit} requests reached; try again tomorrow", subject=subj)
+    # D-146 (J-02) for mail too (T-108c): each heavy job type has its own daily limit; STATUS, APPROVE, CASE and the
+    # other light commands are not counted, as in the console
+    limit = daily_limit(settings, subj.cmd)
+    if limit is not None and db.jobs_since(m.sender, (now - timedelta(days=1)).isoformat(), subj.cmd) >= limit:
+        return Decision(
+            "reject", f"daily limit of {limit} {subj.cmd} requests reached; try again tomorrow", subject=subj
+        )
     if len(m.attachments) > MAX_ATTACHMENTS or any(len(b) > MAX_ATTACHMENT_BYTES for _, b, _ in m.attachments):
         return Decision(
             "reject", f"too many or too large attachments (max {MAX_ATTACHMENTS}, 50 MB each)", subject=subj
