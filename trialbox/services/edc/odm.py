@@ -68,6 +68,8 @@ def source_id(c: dict[str, Any] | None) -> str:
         return ""
     if c.get("kind") == "manual":
         return f"manual:{c.get('day') or ''}"
+    if c.get("kind") == "odm":  # an imported ODM value a person confirmed (D-435): the file and the place in it
+        return f"odm:{str(c.get('file') or '')[:16]}:{c.get('path') or ''}"
     return f"{c.get('kind', '')}:{c.get('table', '')}:{c.get('row', '')}@{c.get('snapshot', '')}"
 
 

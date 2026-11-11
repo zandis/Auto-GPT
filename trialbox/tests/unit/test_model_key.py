@@ -41,14 +41,21 @@ def test_every_vllm_server_gets_the_key() -> None:
     assert seen == 9  # base llm-service; gb10, rtx5090, rtxpro6000, shared-quota (D-409): the pair each
 
 
-def test_only_the_gateway_keeps_the_key() -> None:
+def test_only_the_gateway_and_the_guard_hold_the_key_and_from_a_file() -> None:
+    """T-212b (D-437, LLM-039): the key is a compose secret (deploy/secrets/model/llm.key) of the gateway and
+    model-guard only; no container of the secrets overlay holds it in its environment."""
     doc = _load("docker-compose.secrets.yml")
+    assert doc["secrets"]["model_key"] == {"file": "./secrets/model/llm.key"}
+    holders = set()
     for svc, body in doc["services"].items():
         env = body.get("environment") or {}
-        if svc == "gateway":
-            assert "TB_LLM_API_KEY" not in env
+        assert env.get("TB_LLM_API_KEY") == "", svc
+        if {"source": "model_key", "target": "tb_llm_key"} in (body.get("secrets") or []):
+            assert env["TB_LLM_API_KEY_FILE"] == "/run/secrets/tb_llm_key", svc
+            holders.add(svc)
         else:
-            assert env.get("TB_LLM_API_KEY") == "", svc
+            assert "TB_LLM_API_KEY_FILE" not in env, svc
+    assert holders == {"gateway", "model-guard"}
 
 
 def test_routing_sends_the_key_to_the_on_box_endpoints() -> None:
@@ -84,7 +91,9 @@ def _rendered(tmp_path: Path, profile_file: str | None) -> dict[str, Any]:
 def test_rendered_config_only_the_gateway_and_the_guard_hold_the_key(tmp_path: Path, profile: str | None) -> None:
     svcs = _rendered(tmp_path, profile)["services"]
     holders = {n for n, s in svcs.items() if (s.get("environment") or {}).get("TB_LLM_API_KEY") == "key-0123456789"}
-    assert holders == {"gateway", "model-guard"}
+    assert holders == set()  # D-437: the gateway and the guard read the compose secret, not the environment
+    files = {n for n, s in svcs.items() if any(x.get("source") == "model_key" for x in s.get("secrets") or [])}
+    assert files == {"gateway", "model-guard"}
     on_model_net = {n for n, s in svcs.items() if "model-net" in (s.get("networks") or {})}
     assert on_model_net == {"gateway", "model-guard"}
     for n in ("llm-service", "llm-verifier"):

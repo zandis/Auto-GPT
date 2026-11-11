@@ -19,9 +19,13 @@ trigger on ``batch`` refuses, at commit, a batch row whose state has no step row
 written without its trail. The audit event is appended while that transaction is open, before the step rows
 that name it: if the audit refuses (disk full, journal down), nothing is stored.
 
-What is not here yet (T-112b): the record status and consent tables, the ``/data-ops`` page and ``/api/v1/data/*``,
-the readiness lights read from this schema, and the promotion of an accepted night into the lake. The steward check
-(``permit``) is the page's; this module only refuses a decision without a person and a reason.
+**Reading (T-112b, D-443).** ``history`` (newest first, filtered and cut here), ``sources`` (the newest night of each
+source) and ``counts`` feed the steward's ``/data-ops`` page and ``/api/v1/data/*`` (``console.dataops_page``);
+``newest_night`` feeds the readiness page without migrating. The steward check (``permit``) is the page's; this module
+only refuses a decision without a person and a reason.
+
+What is not here yet: the record status and consent tables, the promotion of an accepted night into the lake (the
+console refuses accept until a promoter is wired; see D-443), and a row while a night is running.
 """
 
 from __future__ import annotations
@@ -32,7 +36,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from tb_common.db import ENV, Database
+from tb_common.db import ENV, Database, DatabaseError
 
 LANDED, VALIDATED, MAPPED, PSEUDONYMISED, PUBLISHED = "LANDED", "VALIDATED", "MAPPED", "PSEUDONYMISED", "PUBLISHED"
 HELD, FAILED, REJECTED = "HELD", "FAILED", "REJECTED"
@@ -54,6 +58,7 @@ EVENT_DECIDE = "dataops.decide"
 EVENT_STEP = "dataops.step"
 # what a batch row keeps from the night's audit detail (tables and counts only, never a row)
 DETAIL_KEYS = ("gate", "incomplete", "orphans", "quarantined", "duplicate_keys", "error", "step", "table")
+MAX_PAGE = 200  # T-112b: the most batch rows one page or API call reads
 
 _STATE_LIST = ", ".join(f"'{s}'" for s in STATES)
 SCHEMA = f"""
@@ -151,6 +156,20 @@ def _batch(row: Mapping[str, Any]) -> Batch:
                  json.loads(row["detail"] or "{}"))  # fmt: skip
 
 
+def newest_night(url: str | None = None) -> Batch | None:
+    """T-112b (D-443): the newest night of any source, read without migrating (the readiness page asks on every
+    view). ``None`` when no night is recorded; raises ``DatabaseError`` when the store or the schema is not there, so
+    the caller can fall back to the audit chain."""
+    db = Database.connect(url or os.environ.get(ENV), "dataops")
+    try:
+        rows = db.fetchdicts("SELECT * FROM batch ORDER BY snapshot DESC, attempt DESC, id DESC LIMIT 1")
+    except Exception as exc:  # no table yet (no night ever recorded with this schema)
+        raise DatabaseError(f"dataops not readable: {type(exc).__name__}") from exc
+    finally:
+        db.close()
+    return _batch(rows[0]) if rows else None
+
+
 class DataOps:
     """The ``dataops`` schema of the trial database (D-126)."""
 
@@ -190,6 +209,28 @@ class DataOps:
 
     def held(self) -> list[Batch]:
         return self.batches(HELD)
+
+    def history(self, state: str | None = None, source: str | None = None, *, limit: int = 50,
+                before: int | None = None) -> list[Batch]:  # fmt: skip
+        """T-112b (D-443): the ingest history the console shows, newest first, filtered and cut by the store (never
+        a whole table read and filtered in the page). ``before``: the id the previous page ended on."""
+        sql, args = "SELECT * FROM batch WHERE 1 = 1", list[Any]()
+        for col, val in (("state", state), ("source", source)):
+            if val is not None:
+                sql, args = sql + f" AND {col} = ?", [*args, val]
+        if before is not None:
+            sql, args = sql + " AND id < ?", [*args, before]
+        limit = max(1, min(int(limit), MAX_PAGE))
+        return [_batch(r) for r in self._db.fetchdicts(sql + " ORDER BY id DESC LIMIT ?", (*args, limit))]
+
+    def sources(self) -> list[Batch]:
+        """T-112b: the newest night of every source (its light on the console)."""
+        sql = "SELECT DISTINCT ON (source) * FROM batch ORDER BY source, snapshot DESC, attempt DESC, id DESC"
+        return [_batch(r) for r in self._db.fetchdicts(sql)]
+
+    def counts(self) -> dict[str, int]:
+        """T-112b: how many nights are in each state."""
+        return {str(r[0]): int(r[1]) for r in self._db.fetchall("SELECT state, count(*) FROM batch GROUP BY state")}
 
     def steps(self, batch_id: int) -> list[dict[str, Any]]:
         return self._db.fetchdicts("SELECT * FROM batch_step WHERE batch = ? ORDER BY seq", (batch_id,))

@@ -317,7 +317,7 @@ def store_migrations() -> dict[str, list[str]]:
     from adapter import licensed, pidmap
     from console import auth, breakglass, feedback, saerecord, sitestore, teamstore
     from criteria_compiler.library import ddl as library
-    from datacore import dataops, lifecycle
+    from datacore import dataops, lifecycle, sponsor
     from datacore import store as datacore
     from edc import store as edc
     from mail_gateway import store as mail
@@ -325,9 +325,11 @@ def store_migrations() -> dict[str, list[str]]:
     from orchestrator import db as orch
     from orchestrator import db_pg, studystore
     from orchestrator.recall import ledger
+    from patient_profile import twin
     from sitesetup import store as sitesetup
     from tb_common import derived_store, flags, notmatched, optout, refdata
     from tracestore import store as trace
+    from vec import store as vec
 
     return {
         "refdata": list(refdata.MIGRATIONS),
@@ -343,7 +345,7 @@ def store_migrations() -> dict[str, list[str]]:
         "pidmap": list(pidmap.MIGRATIONS),
         "omop": omop.migrations(),
         "trace": [trace.SCHEMA_V1],
-        "datacore": [datacore.SCHEMA, lifecycle.SCHEMA, *lifecycle.SAE_MIGRATIONS],
+        "datacore": [datacore.SCHEMA, lifecycle.SCHEMA, *lifecycle.SAE_MIGRATIONS, sponsor.SCHEMA],
         "auth": list(auth.MIGRATIONS),
         "site": list(sitestore.MIGRATIONS),
         "team": list(teamstore.MIGRATIONS),
@@ -355,6 +357,8 @@ def store_migrations() -> dict[str, list[str]]:
         "derived": list(derived_store.MIGRATIONS),
         "dataops": [dataops.SCHEMA],
         "tuned": list(notmatched.MIGRATIONS),
+        "vec": list(vec.MIGRATIONS),
+        "profile": list(twin.MIGRATIONS),
     }
 
 
@@ -393,6 +397,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         "668c23320ea6fe609efb7a779800ad02501c28559dc45abac20610e63f6f7a5a",
         # D-407 (T-620): datacore version 7 (the contact-attempt rule and the answers to possible deviations)
         "4a4c7c69ae18a17beda387cb3524504041d44a99212609f07d25f897b8735e35",
+        # D-435 (T-302d): datacore version 8 (the sponsor's layout: screening-log columns, the weekly sheet)
+        "cd15f0cb005567fbcaa623030a4e5ea5dd4bc947add082f57bcbe23b1cb7547d",
     ),
     # D-386 (T-622): site version 5 (the study's state log and identifiers)
     # D-395 (T-310b): site version 6 (the IRB-text record of the cross-department candidate view)
@@ -424,7 +430,15 @@ ADDED: dict[str, tuple[str, ...]] = {
     "dataops": ("01925afb0e82837617a880fa2d2b32f7efaa6d5e98945e7144f57510d76efbcf",),
     # T-310a (D-446): the weekly PI sample of criteria not matched and the site's check, new after the baseline
     "tuned": ("e8565a9e2288df90d120272ab2956fafe4595465ecd7c58c2e2debb35ee934a1",),
+    # T-203a (D-439): the vector store, new after the baseline (needs pgvector: the db image)
+    "vec": ("cd645d93e9d8d0a809c92eeaf6ff8997c201fb0e32b07a2d112288447f86b429",),
+    # T-204 (D-440): the patient twin, new after the baseline
+    "profile": ("e1107c0c7de613b72141fb70237b6eb35c1f98f5a1549f9c60f8537512a751b6",),
 }
+#: stores whose DDL needs an extension of the box's db image (D-204); a cluster without it cannot migrate them, so
+#: :func:`test_every_store_migrates_twice_and_checks_its_record` creates the extension where the server offers it and
+#: leaves the store to ``tests/integration/test_vec_store.py`` only where it does not
+NEEDS_EXTENSION = {"vec": "vector"}
 #: stores of the baseline whose code is gone (T-659b: ``mpi``, the retired data platform's patient index)
 RETIRED = {"mpi"}
 PINNED: dict[str, tuple[str, ...]] = {
@@ -439,7 +453,8 @@ STORE_FILES = {
     "services/datacore/dataops.py", "services/datacore/store.py", "services/edc/store.py",
     "services/mail_gateway/store.py", "services/omop/schema.py", "services/orchestrator/db.py",
     "services/orchestrator/db_pg.py", "services/orchestrator/outbox.py", "services/orchestrator/recall/ledger.py",
-    "services/orchestrator/studystore.py", "services/sitesetup/store.py", "services/tracestore/store.py",
+    "services/orchestrator/studystore.py", "services/patient_profile/twin.py", "services/sitesetup/store.py",
+    "services/tracestore/store.py", "services/vec/store.py",
 }  # fmt: skip
 #: files that migrate but are not a store: the machinery, the update path's bundle-driven ``release``, the drill's
 #: throwaway database
@@ -482,8 +497,19 @@ def test_no_applied_ddl_string_changed(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_every_store_migrates_twice_and_checks_its_record(db_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TB_OMOP_CONCEPT_BLOCK", raising=False)
+    migrated: list[str] = []
     for store, scripts in store_migrations().items():
         with Database.connect(db_url, f"pin_{store}") as db:
+            ext = NEEDS_EXTENSION.get(store)
+            if ext and not extensions(db, (ext,))[ext]:
+                if not db.fetchval("SELECT count(*) FROM pg_available_extensions WHERE name = ?", (ext,)):
+                    continue  # the server has no pgvector: tests/integration/test_vec_store.py migrates it on the image
+                db.execute(f"CREATE EXTENSION IF NOT EXISTS {ext} WITH SCHEMA public")  # offered: never skip then
             db.migrate(scripts)
             db.migrate(scripts)
             assert [r.sha256 for r in db.applied()] == [script_sha256(s) for s in scripts], store
+            migrated.append(store)
+    with Database.connect(db_url, "pin_probe") as db:
+        offered = {str(r[0]) for r in db.fetchall("SELECT name FROM pg_available_extensions")}
+    # a store is left out only where its extension is not on the server at all
+    assert set(store_migrations()) - set(migrated) == {s for s, e in NEEDS_EXTENSION.items() if e not in offered}

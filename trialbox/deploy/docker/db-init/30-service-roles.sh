@@ -31,7 +31,7 @@ DO $roles$
 DECLARE
   -- BEGIN SERVICE SCHEMAS (D-378)
   access CONSTANT jsonb := '{
-    "tb_lake": ["app", "omop", "refdata", "terminology"],
+    "tb_lake": ["app", "omop", "refdata", "terminology", "vec"],
     "tb_criteria_compiler": ["app", "derived", "library", "omop", "refdata", "terminology"],
     "tb_adapter": ["app", "dataops", "derived", "mpi", "omop", "pidmap", "refdata", "sitesetup", "terminology"],
     "tb_orchestrator": ["app", "datacore", "dataops", "derived", "edc", "library", "mail", "mpi", "omop", "optout",
