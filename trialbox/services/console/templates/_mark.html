@@ -54,7 +54,7 @@
 </div>{% endif %}
 {% endmacro %}
 
-{% macro outcome_box(rs, pid, back, keys, screening_no, outcomes, mark=none) %}
+{% macro outcome_box(rs, pid, back, keys, screening_no, outcomes, mark=none, contact=none) %}
 {% if user.can_request %}
 {% if not mark or mark.mark != 'approach' %}
 <div class="actp outform" data-testid="outcome-wait"><strong>{{ t('outcome.title') }}</strong><p class="hint">{{ t('outcome.wait_pi.hint') }}</p></div>
@@ -64,7 +64,11 @@
 <form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/outcome" class="actp outform" data-testid="outcomes">
   <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}">
   <strong>{{ t('outcome.title') }}</strong>{% if screening_no %} <span class="pill" data-testid="screening-no">{{ t('log.no') }} <span class="mono">{{ screening_no }}</span></span>{% endif %}
-  <div class="markrow">{% for k in keys %}<button type="submit" name="outcome" value="{{ k }}" class="{{ '' if k == 'reached_booked' else 'secondary' }}" data-testid="outcome-{{ k }}">{{ t('outcome.' + k) }}</button>{% endfor %}</div>
+  {# D-407 (LIFE-017): attempt n of the study's limit; after the limit only the closing outcomes remain and the investigator decides #}
+  {% set ck = contact %}
+  {% if ck %}<p class="hint" data-testid="contact-attempts">{{ t('outcome.attempts', n=ck.attempts, max=ck.max) }}{% if ck.why == 'too_soon' %} · <span class="warn" data-testid="contact-too-soon">{{ t('outcome.next_from', d=ck.next) }}</span>{% endif %}</p>
+  {% if ck.why == 'limit' %}<p class="pill warn" data-testid="contact-limit">{{ t('outcome.limit.ask_pi', max=ck.max) }}</p>{% endif %}{% endif %}
+  <div class="markrow">{% for k in keys %}{% if not (ck and ck.why and k in ('reached_booked', 'reached_declined', 'not_reached')) %}<button type="submit" name="outcome" value="{{ k }}" class="{{ '' if k == 'reached_booked' else 'secondary' }}" data-testid="outcome-{{ k }}">{{ t('outcome.' + k) }}</button>{% endif %}{% endfor %}</div>
   <label for="retry-{{ pid[:8] }}">{{ t('outcome.retry') }}</label><input id="retry-{{ pid[:8] }}" name="retry" type="date" lang="{{ lang }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
   <label for="onote-{{ pid[:8] }}">{{ t('outcome.note') }}</label><input id="onote-{{ pid[:8] }}" name="note" maxlength="300">
   {% if outcomes %}<ul class="plain hint">{% for o in outcomes[-3:] %}<li>{{ o.at|local }} · {{ o.by }} · {{ t('outcome.' + o.outcome) }}{% if o.retry %} · {{ t('outcome.retry_on', d=o.retry) }}{% endif %}</li>{% endfor %}</ul>{% endif %}

@@ -13,8 +13,11 @@ The file is ``FileType="Transactional"``: each ``ItemData`` is an ``Upsert`` and
 ``AdminData`` lists the users, the site and one ``SignatureDef`` per meaning text and language a signer actually saw
 (E-23 e). Each ``ItemDef`` carries ``Length`` (and ``SignificantDigits`` for a float), its unit as a
 ``MeasurementUnitRef`` to ``BasicDefinitions`` and its CDASH tag as an ``Alias`` with ``Context="CDASH"``;
-``SDSVarName`` only when the CDASH name is also an SDTM variable (a CDASH date such as ``BRTHDAT`` is not). Repeat
-keys are not written: no event, form or group here repeats (E-23 a to c, STD-062; T-115). OIDs follow REDCap's
+``SDSVarName`` only when the CDASH name is also an SDTM variable (a CDASH date such as ``BRTHDAT`` is not). A value
+on an instance of a repeating instrument (visit ``<event>__<instrument>__<n>``, :mod:`edc.layout`) is written in
+``FormData`` with ``FormRepeatKey="n"`` and its ``FormDef`` says ``Repeating="Yes"``; one on an instance of a
+repeating event (``<event>__<n>``) in ``StudyEventData`` with ``StudyEventRepeatKey="n"`` (T-302b, D-414). Item
+groups never repeat (E-23 a to c, STD-062; T-115). OIDs follow REDCap's
 (``Project.<study>``, ``Event.<event>``, ``Form.<form>``, the field name as ``ItemOID``) so a REDCap project takes
 the file back as it is. The file holds each value as decided and signed; its earlier values stay in the trail
 (D-368). The file is checked against the ODM 1.3.2 schema in the tests (E-25).
@@ -32,6 +35,7 @@ from datacore.export import BASE_EVENT, ODM_NS, _sub, _texts, item_def_attrs
 from datacore.forms import Field
 
 from edc.cdash import sds_name
+from edc.layout import Slot, split_visit
 
 LOCATION_OID = "LOC.site"
 #: the signature's legal reason in the file (D-281, REG-021): a plain statement, no claim of conformance with 21 CFR
@@ -90,7 +94,11 @@ def build(study: str, fields: dict[str, Field], items: list[dict[str, Any]], val
         for unit in units:
             _texts(_sub(bd, "MeasurementUnit", OID=unit_oid(unit), Name=unit), "Symbol", unit, {})
     mdv = _sub(st, "MetaDataVersion", OID=mdv_oid, Name=f"{study} prefill items")
-    events = sorted({str(v["visit"]) or BASE_EVENT for v in values}) or [BASE_EVENT]
+    form_names = {f.form for f in used}
+    slots: dict[str, Slot] = {str(v["visit"]): split_visit(str(v["visit"]) or BASE_EVENT, form_names) for v in values}
+    events = sorted({s.event for s in slots.values()}) or [BASE_EVENT]
+    repeat_events = {s.event for s in slots.values() if s.repeat and not s.instrument}
+    repeat_forms = {s.instrument for s in slots.values() if s.instrument}
     proto = _sub(mdv, "Protocol")
     for i, ev in enumerate(events, 1):
         _sub(proto, "StudyEventRef", StudyEventOID=f"Event.{ev}", OrderNumber=str(i), Mandatory="No")
@@ -99,11 +107,12 @@ def build(study: str, fields: dict[str, Field], items: list[dict[str, Any]], val
         groups.setdefault(f.form, []).append(f)
     group_oid = {fm: f"{fm}.{fs[0].name}" for fm, fs in groups.items()}
     for ev in events:
-        sed = _sub(mdv, "StudyEventDef", OID=f"Event.{ev}", Name=ev, Repeating="No", Type="Common")
+        sed = _sub(mdv, "StudyEventDef", OID=f"Event.{ev}", Name=ev,
+                   Repeating="Yes" if ev in repeat_events else "No", Type="Common")  # fmt: skip
         for i, fm in enumerate(groups, 1):
             _sub(sed, "FormRef", FormOID=f"Form.{fm}", OrderNumber=str(i), Mandatory="No")
     for fm in groups:
-        fd = _sub(mdv, "FormDef", OID=f"Form.{fm}", Name=fm, Repeating="No")
+        fd = _sub(mdv, "FormDef", OID=f"Form.{fm}", Name=fm, Repeating="Yes" if fm in repeat_forms else "No")
         _sub(fd, "ItemGroupRef", ItemGroupOID=group_oid[fm], Mandatory="No")
     for fm, fs in groups.items():
         ig = _sub(mdv, "ItemGroupDef", OID=group_oid[fm], Name=fm, Repeating="No")
@@ -155,41 +164,52 @@ def build(study: str, fields: dict[str, Field], items: list[dict[str, Any]], val
         _sub(sd, "LegalReason").text = LEGAL_REASON
     # ClinicalData: signed values only
     cd = _sub(root, "ClinicalData", StudyOID=study_oid, MetaDataVersionOID=mdv_oid)
-    data: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    # record -> (event, event repeat key) -> (form, form repeat key) -> values
+    data: dict[str, dict[tuple[str, int], dict[tuple[str, int], list[dict[str, Any]]]]] = {}
     for v in values:
         if str(v["item"]) in by_item and str(v["item"]) in fields:
-            data.setdefault(str(v["record"]), {}).setdefault(str(v["visit"]) or BASE_EVENT, []).append(v)
+            sl = slots[str(v["visit"])]
+            form = fields[str(v["item"])].form
+            ev_key = (sl.event, sl.instance if sl.repeat and not sl.instrument else 0)
+            form_key = (form, sl.instance if sl.instrument == form else 0)
+            data.setdefault(str(v["record"]), {}).setdefault(ev_key, {}).setdefault(form_key, []).append(v)
     for rec in sorted(data):
         sdat = _sub(cd, "SubjectData", SubjectKey=rec, TransactionType="Upsert")
-        for ev in sorted(data[rec]):
-            se = _sub(sdat, "StudyEventData", StudyEventOID=f"Event.{ev}")
+        for ev, ev_rep in sorted(data[rec]):
+            se = _sub(sdat, "StudyEventData", StudyEventOID=f"Event.{ev}",
+                      **({"StudyEventRepeatKey": str(ev_rep)} if ev_rep else {}))  # fmt: skip
+            here_forms = data[rec][(ev, ev_rep)]
             for fm, fs in groups.items():
-                here = {str(v["item"]): v for v in data[rec][ev] if fields[str(v["item"])].form == fm}
-                if not here:
-                    continue
-                fdata = _sub(se, "FormData", FormOID=f"Form.{fm}")
-                igd = _sub(fdata, "ItemGroupData", ItemGroupOID=group_oid[fm])
-                for f in fs:
-                    val = here.get(f.name)
-                    if val is None:
-                        continue
-                    v = val
-                    idat = _sub(igd, "ItemData", ItemOID=f.name, Value=str(v["final"]), TransactionType="Upsert")
-                    ar = _sub(idat, "AuditRecord")
-                    _sub(ar, "UserRef", UserOID=user_oid(str(v["decided_by"])))
-                    _sub(ar, "LocationRef", LocationOID=LOCATION_OID)
-                    _sub(ar, "DateTimeStamp").text = str(v["decided_at"])
-                    if v["fate"] == "edited" and v.get("reason"):
-                        _sub(ar, "ReasonForChange").text = str(v["reason"])
-                    sid = source_id(v.get("final_citation"))
-                    if sid:
-                        _sub(ar, "SourceID").text = sid
-                    sig = signatures.get(int(v["signature_id"]))
-                    if sig is not None:
-                        sg = _sub(idat, "Signature")
-                        _sub(sg, "UserRef", UserOID=user_oid(str(sig["signer"])))
-                        _sub(sg, "LocationRef", LocationOID=LOCATION_OID)
-                        _sub(sg, "SignatureRef", SignatureOID=signature_def_oid(*words(sig)))
-                        _sub(sg, "DateTimeStamp").text = str(sig["at"])
+                for form_rep in sorted(r for f2, r in here_forms if f2 == fm):
+                    here = {str(v["item"]): v for v in here_forms[(fm, form_rep)]}
+                    fdata = _sub(se, "FormData", FormOID=f"Form.{fm}",
+                                 **({"FormRepeatKey": str(form_rep)} if form_rep else {}))  # fmt: skip
+                    _items(_sub(fdata, "ItemGroupData", ItemGroupOID=group_oid[fm]), fs, here, signatures, words)
     ET.indent(root, space=" ")
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode") + "\n"
+
+
+def _items(igd: ET.Element, fs: list[Field], here: dict[str, dict[str, Any]], signatures: dict[int, dict[str, Any]],
+           words: Any) -> None:  # fmt: skip
+    """The ``ItemData`` of one item group: each signed value with its audit record and signature."""
+    for f in fs:
+        v = here.get(f.name)
+        if v is None:
+            continue
+        idat = _sub(igd, "ItemData", ItemOID=f.name, Value=str(v["final"]), TransactionType="Upsert")
+        ar = _sub(idat, "AuditRecord")
+        _sub(ar, "UserRef", UserOID=user_oid(str(v["decided_by"])))
+        _sub(ar, "LocationRef", LocationOID=LOCATION_OID)
+        _sub(ar, "DateTimeStamp").text = str(v["decided_at"])
+        if v["fate"] == "edited" and v.get("reason"):
+            _sub(ar, "ReasonForChange").text = str(v["reason"])
+        sid = source_id(v.get("final_citation"))
+        if sid:
+            _sub(ar, "SourceID").text = sid
+        sig = signatures.get(int(v["signature_id"]))
+        if sig is not None:
+            sg = _sub(idat, "Signature")
+            _sub(sg, "UserRef", UserOID=user_oid(str(sig["signer"])))
+            _sub(sg, "LocationRef", LocationOID=LOCATION_OID)
+            _sub(sg, "SignatureRef", SignatureOID=signature_def_oid(*words(sig)))
+            _sub(sg, "DateTimeStamp").text = str(sig["at"])

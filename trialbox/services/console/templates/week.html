@@ -66,8 +66,8 @@
     {% if p.fit.not_met or p.fit.open or p.fit.person or p.row.actions %}<p class="openp">{{ open_items(p.fit, p.row.actions or []) }}</p>{% endif %}
     <p class="hint"><a href="/studies/{{ rs }}/candidates/{{ p.pid }}?purpose=referral" data-testid="ask-doctor">{{ t('mark.ask_doctor') }}</a>{% if p.ref_wait %} · <span class="pill ref-{{ p.ref_wait.state }}">{{ t('team.state.' + p.ref_wait.state) }}</span>{% endif %}</p>
     {{ toast(rs, p.pid, 'list:' + lst, request.query_params.get('done', '')) }}
-    {% if user.can_mark %}{{ mark_box(rs, p.pid, 'list:' + lst, reasons, p.mark, p.today) }}
-    {% else %}<p class="hint">{{ t('wb.crc_hint') }}</p>{{ outcome_box(rs, p.pid, 'list:' + lst, p.outcome_keys, p.screening_no, p.outcomes, p.mark) }}{% endif %}
+    {% if user.can_mark %}{{ mark_box(rs, p.pid, 'list:' + lst, reasons, p.mark, p.today) }}{% if p.contact and p.contact.why == 'limit' %}<p class="pill warn" data-testid="contact-limit-pi">{{ t('outcome.limit.pi', max=p.contact.max) }}</p>{% endif %}
+    {% else %}<p class="hint">{{ t('wb.crc_hint') }}</p>{{ outcome_box(rs, p.pid, 'list:' + lst, p.outcome_keys, p.screening_no, p.outcomes, p.mark, p.contact) }}{% endif %}
     {% for kind in ('inclusion', 'exclusion') %}{% set cs = p.crits|selectattr('kind', 'equalto', kind)|list %}{% if cs %}
     <h3 class="grp">{{ t('wb.' + kind) }}</h3>
     <ul class="critl">{% for c in cs %}<li>

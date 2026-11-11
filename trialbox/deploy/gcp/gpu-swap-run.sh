@@ -9,11 +9,15 @@
 #   2. this script waits until a caller puts the judge to sleep (POST /judge/sleep?level=1), then starts the
 #      verifier, which finds the card free;
 #   3. from then on the caller swaps them (/judge/wake_up, /verifier/sleep ...), as the gateway would.
-# nginx :80: /judge/ and /verifier/ (whole servers: /v1, /health, /sleep, /wake_up, /is_sleeping), /record/ (this
+# nginx 127.0.0.1:80 (an ssh tunnel, T-119): /judge/ and /verifier/ (whole servers: /v1, /health, /sleep, /wake_up, /is_sleeping), /record/ (this
 # script's measurements: gpu_peak.json, a 2-second sample of the card's used memory, and serving_config.json).
-# The API key comes from the instance metadata "tb-key"; it is never written to the record.
+# The API key is made on the VM (/root/tb-key, T-119); it is never written to the record.
 exec > >(tee -a /var/log/tb-swap.log /dev/ttyS0) 2>&1
-KEY=$(curl -s -H Metadata-Flavor:Google http://metadata.google.internal/computeMetadata/v1/instance/attributes/tb-key)
+# the API key (T-119, CR-048): made here at the first boot, root-only in /root/tb-key, never in the metadata. Port 80
+# is on loopback only: reach it with `gcloud compute ssh <vm> --zone <zone> -- -N -L 8080:127.0.0.1:80` and read the
+# key over the same ssh (`sudo cat /root/tb-key`); nothing crosses the internet in plain HTTP.
+[ -s /root/tb-key ] || (umask 077; head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 43 > /root/tb-key)
+KEY=$(cat /root/tb-key)
 # no `set -x`: the API key is on the docker command lines
 VLLM=vllm/vllm-openai:v0.32.0
 J=nvidia/Gemma-4-26B-A4B-NVFP4
@@ -36,7 +40,7 @@ http { resolver 127.0.0.11 valid=5s ipv6=off;
   location /verifier/ { set $up verifier; rewrite ^/verifier/(.*)$ /$1 break; proxy_pass http://$up:8000; }
   location /record/   { alias /srv/record/; default_type application/json; } } }
 NG
-docker run -d --name front --network tb -p 80:80 -v /root/nginx.conf:/etc/nginx/nginx.conf:ro \
+docker run -d --name front --network tb -p 127.0.0.1:80:80 -v /root/nginx.conf:/etc/nginx/nginx.conf:ro \
   -v $REC:/srv/record:ro nginx:1.27-alpine
 
 # card memory every 2 s: the current and the peak, with the phase the caller is in (who is awake)
