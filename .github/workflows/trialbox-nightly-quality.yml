@@ -13,8 +13,6 @@ on:
   schedule:
     - cron: "47 16 * * *"  # 00:47 in Taipei, before the other nightly (03:17), outside both sites' working day
   workflow_dispatch:
-  push:  # TEMPORARY (T-651 validation run), removed before review
-    branches: [agent/T-651-mutation]
 
 permissions:
   contents: read
