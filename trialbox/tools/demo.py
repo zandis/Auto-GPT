@@ -36,6 +36,12 @@ T-505b, the PoC accounts (ROLE-004, OPS-002, UX-040, FIT-027, LIFE-006):
   also how the owner resets a site: one start without ``--keep``.
 * ``TB_CONSOLE_MFA``, ``TB_CONSOLE_IDLE_MINUTES``, ``TB_CONSOLE_SESSION_HOURS``, ``TB_CONSOLE_TOTP_KEY_FILE``,
   ``TB_CONSOLE_TOTP_ISSUER`` and ``TB_CONSOLE_SECURE_COOKIE`` reach the served console from the environment.
+
+T-513, one demo clock (UX-003, D-329): ``--day`` (or ``TB_DEMO_DAY``) is ``today`` by default. The demo day is then
+the real day in the site's time zone (on a Saturday or Sunday, the Friday before, the last morning with a digest): the
+synthetic hospital's dates are moved so that its data is as of the day before, the seed plays that morning, and then
+the console's clock and the box's day follow the real time, also after a ``--keep`` restart. ``--day data`` keeps the
+synthetic data's own day (2026-11-02) and a frozen clock, as the tests and drills use it.
 """
 
 from __future__ import annotations
@@ -393,8 +399,10 @@ def _reopen(work: Path) -> tuple[Any, Any, Callable[[], datetime]]:
     pglocal.for_work(work)  # the seed's schemas: named after --dir (its first for_work), not after the box folder
     box, client, repo = fd.reopen_site(work)
     box.today[0] = date.fromisoformat(st["box_today"])
-    clock = ld.Clock(box.today[0])
+    clock = ld.Clock(box.today[0], ld.site_tz_of(box))
     clock.now = datetime.fromisoformat(st["clock"])
+    if st.get("live"):  # T-513: a demo seeded on the real day goes on with the real day after a restart
+        ld.go_live(box, clock)
     sim = sim_app()  # the REDCap simulator of the seed, with the projects it held at the last clean stop
     if (work / RC_SIM).exists():
         sim.state.sim.projects = json.loads((work / RC_SIM).read_text(encoding="utf-8"))
@@ -427,12 +435,19 @@ def start(a: argparse.Namespace, environ: Mapping[str, str] | None = None) -> di
         res = seeded["result"]
         box, h = res["list"]["box"], res["app"].state.helpers
         backend, clock = h.bk, h.users.clock
+        live = bool(res["list"].get("live"))
+        out["day"] = res["list"]["day"]
         if a.keep:
             _save_sim(a.dir, res["sim"])
             atexit.register(_save_sim, a.dir, res["sim"])
             state = {"version": 1, "box_today": box.today[0].isoformat(), "clock": clock().isoformat(),
-                     "lang": a.lang, "seeded_at": datetime.now(UTC).isoformat(timespec="seconds")}  # fmt: skip
+                     "lang": a.lang, "seeded_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                     "live": live}  # fmt: skip
             (a.dir / STATE).write_text(json.dumps(state, indent=1) + "\n", encoding="utf-8")
+        if live:  # T-513: the seed played this morning; from now on the console and the box follow the real clock
+            from tools import list_demo as ld
+
+            ld.go_live(box, clock)
     url = pglocal.for_work(a.dir)
     users = UserStore(url, clock=clock)
     app = create_app(console_env(a.dir, env, bool(accounts)), backend=backend, audit=AuditLog(box.audit_dir),
@@ -474,7 +489,11 @@ def main(argv: list[str] | None = None) -> int:
                     help="reopen the data of an earlier --keep start (TB_DEMO_KEEP=1); wins over --fresh")  # fmt: skip
     ap.add_argument("--accounts", default=os.environ.get("TB_DEMO_ACCOUNTS") or None,
                     help="the per-tester accounts file (TB_DEMO_ACCOUNTS; JSON, kept outside the image)")  # fmt: skip
+    ap.add_argument("--day", default=os.environ.get("TB_DEMO_DAY") or "today",
+                    help="the demo day (T-513, TB_DEMO_DAY): today (the default: the real day in the site's zone, "
+                         "the synthetic dates moved to it), data (the data's own day) or YYYY-MM-DD")  # fmt: skip
     a = ap.parse_args(argv)
+    os.environ["TB_DEMO_DAY"] = a.day
     os.environ.setdefault("TB_ENV", "DEV")
     logging.disable(logging.INFO)
     try:
@@ -486,6 +505,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"kept demo reopened from {a.dir} (no rebuild)")
     else:
         print(out["report"])
+        print(f"demo day {out['day']} (TB_DEMO_DAY={a.day})")
     done = out["done"]
     if out["accounts"]:
         off = ", ".join(done["off"]) or "-"

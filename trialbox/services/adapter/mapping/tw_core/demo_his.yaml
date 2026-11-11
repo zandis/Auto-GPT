@@ -26,6 +26,18 @@ systems:
   condition_clinical: http://terminology.hl7.org/CodeSystem/condition-clinical
   condition_verification: http://terminology.hl7.org/CodeSystem/condition-ver-status
   v2_0203: http://terminology.hl7.org/CodeSystem/v2-0203
+# D-149, D-334: the unit a feed result with a number and no unit is read in, per analyte (LOINC -> UCUM). It is the
+# unit the lab lookup writes (its `ucum` column), so a lab row without a unit and a FHIR result without one land in
+# the same unit; `tools/mapping_check.py` fails when the two disagree. Change both together.
+unit_defaults:
+  "3084-1": mg/dL     # urate
+  "2160-0": mg/dL     # creatinine
+  "4548-4": "%"       # HbA1c (NGSP)
+  "1742-6": U/L       # ALT
+  "4537-7": mm/h      # ESR
+  "1988-5": mg/L      # CRP
+  "8302-2": cm        # body height
+  "29463-7": kg       # body weight
 # logical table -> source table; `delta` = change-tracking column used by `adapter run --since`
 tables:
   patient: {source: patient, key: mrn, identity: {name: name, national_id: id_no}}  # identity: pid map only

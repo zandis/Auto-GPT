@@ -35,6 +35,7 @@ import re
 import secrets
 import shutil
 import sys
+from collections.abc import Mapping
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
@@ -73,17 +74,77 @@ SCENARIOS: dict[str, dict[str, Any]] = {
 }
 
 
-class Clock:
-    """The console's clock, set to 07:00 (site time, UTC+9) on the demo day so marks and mail agree with the box."""
+# T-513 (UX-003): which day the demo plays. Unset or "data": the synthetic data's own day (tests, drills, the complete
+# run). "today": the real day in the site's time zone; the hospital's dates are moved to it, and once the seed is done
+# the console and the box follow the real clock (tools.demo sets it). YYYY-MM-DD: that day, with the dates moved.
+DAY_ENV = "TB_DEMO_DAY"
 
-    def __init__(self, day: date) -> None:
+
+def seed_day(today: date) -> date:
+    """The day the seed plays for a demo started on ``today``: today, or on a Saturday or Sunday the Friday before
+    (the coordinator's digest goes out on working days only, so a weekend seed would have no morning mail)."""
+    return today - timedelta(days=max(0, today.weekday() - 4))
+
+
+def demo_day(
+    tz: str | None = None, environ: Mapping[str, str] | None = None, now: datetime | None = None
+) -> date | None:
+    """The demo day ``TB_DEMO_DAY`` asks for (see :data:`DAY_ENV`); None for the data's own day. ``tz``: the site's
+    zone (else ``TB_TZ``), which decides what "today" is."""
+    from console.timefmt import local_today
+    from tb_common.config import site_zone
+
+    value = str((os.environ if environ is None else environ).get(DAY_ENV) or "").strip().lower()
+    if value in ("", "data"):
+        return None
+    if value == "today":
+        return seed_day(local_today(now or datetime.now(UTC), site_zone(tz)))
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise SystemExit(f"{DAY_ENV}={value!r}: use today, data or a date YYYY-MM-DD") from exc
+
+
+def is_live(environ: Mapping[str, str] | None = None) -> bool:
+    """True when the demo follows the real clock after its seed (``TB_DEMO_DAY=today``)."""
+    return str((os.environ if environ is None else environ).get(DAY_ENV) or "").strip().lower() == "today"
+
+
+def site_tz_of(box: Any) -> str:
+    """The box's site zone (settings ``site.tz``)."""
+    return str(box.orch.cfg.settings.site.tz)
+
+
+class Clock:
+    """The console's clock. While the demo seeds it stands at 07:00 site time on the demo day, so marks and mail agree
+    with the box; :meth:`go_live` then lets it follow the real time (T-513: one clock for the served demo)."""
+
+    def __init__(self, day: date, tz: str | None = None) -> None:
+        from tb_common.config import site_zone
+
+        self.zone = site_zone(tz)  # D-315: the site's zone (else TB_TZ), never a zone of the code's own
+        self.live = False
         self.set(day)
 
     def set(self, day: date, at: time = time(7, 0)) -> None:
-        self.now = datetime.combine(day, at, tzinfo=UTC) - timedelta(hours=9)
+        self.now = datetime.combine(day, at, tzinfo=self.zone).astimezone(UTC)
+
+    def go_live(self) -> None:
+        self.live = True
 
     def __call__(self) -> datetime:
-        return self.now
+        return datetime.now(UTC) if self.live else self.now
+
+
+def go_live(box: Any, clock: Clock) -> None:
+    """T-513: after the seed, the console's clock and the box's day follow the real time in the site's zone, so a demo
+    left running (or reopened with --keep) on a later day shows that day everywhere."""
+    from console.timefmt import local_today
+
+    zone = clock.zone
+    clock.go_live()
+    box.today[0] = local_today(datetime.now(UTC), zone)
+    box.orch._today = lambda: local_today(datetime.now(UTC), zone)  # the in-process box's day, read on every call
 
 
 def criteria_text(ruleset: str, trial: str = TRIAL) -> str:
@@ -156,21 +217,33 @@ def ok(r: Any, what: str) -> Any:
     return r
 
 
-def run(work: Path, password: str, lang: str = "ja", trial: str = TRIAL) -> dict[str, Any]:
+def run(work: Path, password: str, lang: str = "ja", trial: str = TRIAL, day: date | None = None) -> dict[str, Any]:
+    """``day`` (T-513): the demo day, with the hospital's dates moved to it; None reads ``TB_DEMO_DAY`` (unset: the
+    data's own day, the PI's first clinic day)."""
     from console import notify
+    from console.timefmt import local_today
 
     sc = SCENARIOS[trial]
     cohort_rs, pi_pr = str(sc["cohort"]), str(sc["pi"])
-    if sc["profile"] == "ci" and not sc["settings"]:
+    tz = ((sc["settings"] or {}).get("site") or {}).get("tz")
+    target = day or demo_day(tz)
+    if target is not None:
+        box, client, repo, summary = fd.build_site(work, str(sc["profile"]), sc["settings"], day=target)
+    elif sc["profile"] == "ci" and not sc["settings"]:
         box, client, repo, summary = fd.build(work)  # the form tools.complete_run wraps
     else:
         box, client, repo, summary = fd.build_site(work, sc["profile"], sc["settings"])
-    clock = Clock(box.today[0])
+    clock = Clock(box.today[0], site_tz_of(box))
+    live = day is None and is_live()
+    if live and target == local_today(datetime.now(UTC), clock.zone):
+        # T-513: seeding on the real day, the console's clock is the real one from the start, as the box's job times
+        # are: a 07:00 clock ahead of the real time dated an opt-out after the screening run that should honour it
+        clock.go_live()
     app = console(work, box, client, repo, password, clock)
     h = app.state.helpers
     crc = sign_in(app, "crc", password, lang, pi_pr)
     pi = sign_in(app, "pi", password, lang, pi_pr)
-    out: dict[str, Any] = {"summary": summary, "box": box, "app": app, "approvals": {}}
+    out: dict[str, Any] = {"summary": summary, "box": box, "app": app, "approvals": {}, "clock": clock, "live": live}
 
     # 1-2 the coordinator pastes both studies and prepares S20
     jobs = {}
@@ -251,7 +324,10 @@ def run(work: Path, password: str, lang: str = "ja", trial: str = TRIAL) -> dict
     rows = week["rows"]
     days = sorted(notify.clinic_days(rows, pi_pr))
     assert days, "no listed candidate is booked with the investigator"
-    day = days[0] if days[0].weekday() < 5 else next(d for d in days if d.weekday() < 5)
+    if target is not None:  # T-513: the demo day is the day asked for (its dates were moved to it), never a later one
+        day = target
+    else:
+        day = days[0] if days[0].weekday() < 5 else next(d for d in days if d.weekday() < 5)
     if day != box.today[0]:  # a later clinic day (another hospital size): sessions end after 8 h, so sign in again
         box.today[0] = day  # the box moves with the console: one site has one date (an EDC acknowledgement or visit
         clock.set(day)  # dated "today" by the console is otherwise "in the future" for the box, finding EDC-16)
@@ -312,7 +388,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--host", default=os.environ.get("TB_DEMO_HOST", "127.0.0.1"))
     ap.add_argument("--fresh", action="store_true", help="delete --dir first")
     ap.add_argument("--trial", default=TRIAL, choices=sorted(SCENARIOS), help="AD-MAB: scenario J1 (T-503)")
+    ap.add_argument("--day", default=os.environ.get(DAY_ENV) or "data",
+                    help="today, data (the synthetic data's own day) or YYYY-MM-DD (T-513; TB_DEMO_DAY)")  # fmt: skip
     a = ap.parse_args(argv)
+    os.environ[DAY_ENV] = a.day
     if a.fresh and a.dir.exists():
         shutil.rmtree(a.dir)
     a.dir.mkdir(parents=True, exist_ok=True)
@@ -331,6 +410,9 @@ def main(argv: list[str] | None = None) -> int:
     good = len(res["mails"]) == 2
     if a.serve:
         import uvicorn
+
+        if res["live"]:
+            go_live(res["box"], res["clock"])
 
         print(f"\nconsole on http://{a.host}:{a.port}/home  accounts: {', '.join(x[0] for x in fd.ACCOUNTS)}")
         if not os.environ.get("TB_DEMO_PASSWORD"):
