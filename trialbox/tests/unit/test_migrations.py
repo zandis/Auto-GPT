@@ -381,9 +381,11 @@ ADDED: dict[str, tuple[str, ...]] = {
         "d9f888838f2280f9e49a6d3f9a9bf210ace25104632200683567a4389fa03884",
     ),
     # D-386 (T-622): site version 5 (the study's state log and identifiers)
+    # D-395 (T-310b): site version 6 (the IRB-text record of the cross-department candidate view)
     "site": (
         "7f7cf970ce4268ca7fdc4fd725535442b586b8ea1e2b23fa631dddf9d3a7575d",
         "2ab6655ef5282d733ea7c4b2804d496be62b238fee5fbee5d7d4d9ccd78540ff",
+        "cc5a0e95c1dc50da9a3d8c9fa782fa1f5d6138e370dd9e7bad0c484ac3904996",
     ),
     "sae": ("78527251f39fb58cd728b207c0fc332740a2d06444492dbd617b4d1b0cb7b6d3",),
     # T-510 (D-331): the feedback store, new after the baseline

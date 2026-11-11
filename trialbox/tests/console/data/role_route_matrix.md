@@ -216,6 +216,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/studies/{rs}/forms/dictionary` | - | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/identity` | - | Y | Y | Y | - | - | - |
 | POST | `/studies/{rs}/irb` | Y | Y | Y | Y | - | - | - |
+| POST | `/studies/{rs}/irb-text` | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/not-matched/{pid}/review` | - | n | n | n | - | - | - |
 | POST | `/studies/{rs}/patients/{pid}/mark` | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/patients/{pid}/outcome` | Y | Y | - | Y | - | - | - |
