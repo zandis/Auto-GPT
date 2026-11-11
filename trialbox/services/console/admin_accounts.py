@@ -27,7 +27,7 @@ from typing import Any
 from fastapi import FastAPI, Request, Response
 
 from console import admin_i18n
-from console.auth import AuthError, Session, User
+from console.auth import AuthError, Session, User, is_operator
 from console.home import Helpers
 from console.i18n import CATALOGUES, translate
 
@@ -47,7 +47,7 @@ def end_date(role: str, expires: str | None, today: date, *, sso: bool = False) 
         return expires
     limit = today + timedelta(days=MAX_END_DAYS)
     if expires is None:
-        return None if role == "admin" else limit.isoformat()
+        return None if is_operator(role) else limit.isoformat()
     if date.fromisoformat(expires) > limit:
         raise AuthError(f"the end date is at most {MAX_END_DAYS} days ahead ({limit.isoformat()} at the latest)")
     return expires
@@ -81,7 +81,7 @@ def report(
         unused = idle is None or idle >= UNUSED_DAYS
         left = (date.fromisoformat(u.expires) - today).days if u.expires else None
         ending = left is not None and left <= ENDING_DAYS
-        no_end = u.username not in idp and u.role != "admin" and not u.expires
+        no_end = u.username not in idp and not u.is_admin and not u.expires
         if unused or ending or no_end:
             rows.append(
                 {

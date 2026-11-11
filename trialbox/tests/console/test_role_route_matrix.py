@@ -179,9 +179,10 @@ def test_the_generated_matrix_equals_the_design_table(box: dict[str, Any]) -> No
     assert not diff, "the role x route matrix changed:\n" + "\n".join(diff)
     assert not [k for k, c in have.items() if "E" in c.values()], "a route answered with a server error"
     agree_with_permit(walked)
+    same_answer(have)
 
 
-# The routes whose guard is one row of the matrix, today (T-102c moves the other call sites to ``permit``): the walk
+# The routes whose guard is one row of the matrix alone (T-102c, D-425: every call site asks ``permit``): the walk
 # must refuse exactly the roles ``permit`` refuses (with no standing in the study; the column's role, not its scope).
 # Only routes that check the role before they read the body: the job page's and the candidate page's reveal answer an
 # empty body with 400 before the role check (one reveal path, D-273, refuses the administrator after it).
@@ -198,7 +199,32 @@ ROUTE_ACTIONS: dict[tuple[str, str], str] = {
     ("POST", "/site/opt-outs"): "optout.keep",
     ("GET", "/api/v1/site/opt-outs"): "optout.keep",
     ("GET", "/data/items"): "items.view",  # D-380: the steward's page, not the administrator's
+    ("GET", "/reports/research-office"): "report.office",  # T-102c (ROLE-017): one row for the page and its XLSX
+    ("GET", "/reports/research-office.xlsx"): "report.office",
 }
+
+# T-102c (D-425, ROLE-017): a page, its download and its /api/v1 twin ask one question, so every role gets the same
+# answer from each (the PI was refused the XLSX the API gave it; the administrator got the XLSX the page refused).
+SAME_ANSWER: tuple[tuple[tuple[str, str], ...], ...] = (
+    (("GET", "/studies/{rs}/screening-log"), ("GET", "/studies/{rs}/screening-log.xlsx"),
+     ("GET", "/api/v1/studies/{rs}/screening-log")),
+    (("GET", "/reports/research-office"), ("GET", "/reports/research-office.xlsx")),
+)  # fmt: skip
+
+
+def same_answer(have: dict[tuple[str, str], dict[str, str]]) -> None:
+    for group in SAME_ANSWER:
+        first = have[group[0]]
+        for key in group[1:]:
+            assert have[key] == first, (group[0], key, first, have[key])
+
+
+def test_role017_page_and_api_agree_in_the_design_table() -> None:
+    """ROLE-017: in the committed design table (which the walk above must equal) page, XLSX and API agree."""
+    have = parse(TABLE.read_text(encoding="utf-8"))
+    same_answer(have)
+    log = have[("GET", "/api/v1/studies/{rs}/screening-log")]
+    assert log["lpi"] == "Y" and log["admin"] == "-"  # the logged PI reads its log; the administrator no patient row
 
 
 # D-380 (ROLE-008): an investigator the study's log does not name has no right in the study, whatever the role row

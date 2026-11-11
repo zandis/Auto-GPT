@@ -242,7 +242,14 @@ class User:
 
     @property
     def is_admin(self) -> bool:
-        return self.role == "admin"
+        """The administrator (the IT operator): the account the operations rows name (T-102c, D-425)."""
+        return is_operator(self.role)
+
+    @property
+    def sponsor_form(self) -> bool:
+        """A sponsor's account (CRO): reports in the sponsor form and the sponsor pack only, never a site page of one
+        study (D-104; the matrix's ``report.sponsor_form`` row, T-102c)."""
+        return permit(self.role, "report.sponsor_form").allowed
 
     @property
     def can_request(self) -> bool:
@@ -313,7 +320,13 @@ def _row_user(row: tuple[object, ...]) -> User:
 
 def needs_studies(role: str, affiliation: str) -> bool:
     """D-380 (ROLE-011): an SMO or CRO account must name its studies (by affiliation, or a CRO-role account)."""
-    return affiliation in SCOPED_AFFILIATIONS or role == "cro"
+    return affiliation in SCOPED_AFFILIATIONS or permit(role, "report.sponsor_form").allowed
+
+
+def is_operator(role: str) -> bool:
+    """The administrator role: the one the operations rows (``ops.view``) name (T-102c, D-425). An operator account
+    is the one account without an end date (D-406)."""
+    return permit(role, "ops.view").allowed
 
 
 def scope_values(affiliation: str, studies: str, expires: str | None, role: str = "") -> tuple[str, str, str | None]:
