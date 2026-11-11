@@ -101,6 +101,7 @@ def render(
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.append([])
     ws.append([meta.footer])
+    ws.append([meta.statement])  # TB-IU-01 C1 (T-116)
 
     cs = wb.create_sheet("criteria")
     cs.append(["id", "kind", "class", "label", "protocol_text", "how_computed", "action"])

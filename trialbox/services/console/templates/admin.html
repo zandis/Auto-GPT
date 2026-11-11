@@ -32,6 +32,12 @@
     {% if c.code != 'off' and not c.running %}<form method="post" action="/admin/models/canary" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="small secondary" data-testid="canary-run">{{ t('overview.models.canary.run') }}</button></form>{% endif %}
     {% endif %}
     {% else %}<p class="hint">{{ t('overview.models.unavailable') }}</p>{% endif %}
+    {% if model_builds is not none %}<h3>{{ t('models.builds') }}</h3>
+    {% if model_builds %}<ul class="plain" data-testid="models-records">{% for b in model_builds %}<li data-testid="model-build-{{ b.build_id }}">{{ b.build_id }} · <span class="pill{{ ' ok' if b.status == 'champion' and b.qualified else '' }}">{{ b.status }}</span>
+      {% if b.unexpected %}<span class="pill bad">{{ t('models.weights.unexpected') }}</span>
+      {% elif b.qualified %}<span class="hint">{{ t('models.record', record=b.record, at=b.at) }}</span>
+      {% elif b.status == 'champion' %}<span class="pill warn">{{ t('models.record.none') }}</span>{% endif %}</li>{% endfor %}</ul>
+    {% else %}<p class="hint">{{ t('models.builds.none') }}</p>{% endif %}{% endif %}
     <a href="/">{{ t('admin.overview') }}</a>
   </section>
   <section class="card tile" data-testid="tile-refdata">

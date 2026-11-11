@@ -380,12 +380,20 @@ ADDED: dict[str, tuple[str, ...]] = {
         "8250b52d4e13e66e149ffa956f83b3a8027f95d4094f1a32b999771e459f7aa5",
         "d9f888838f2280f9e49a6d3f9a9bf210ace25104632200683567a4389fa03884",
     ),
-    "site": ("7f7cf970ce4268ca7fdc4fd725535442b586b8ea1e2b23fa631dddf9d3a7575d",),
+    # D-386 (T-622): site version 5 (the study's state log and identifiers)
+    "site": (
+        "7f7cf970ce4268ca7fdc4fd725535442b586b8ea1e2b23fa631dddf9d3a7575d",
+        "2ab6655ef5282d733ea7c4b2804d496be62b238fee5fbee5d7d4d9ccd78540ff",
+    ),
     "sae": ("78527251f39fb58cd728b207c0fc332740a2d06444492dbd617b4d1b0cb7b6d3",),
     # T-510 (D-331): the feedback store, new after the baseline
     "feedback": ("3981b6201cd514508bed945433f3415993494cb24e52809cca7f37fe3801e368",),
     # D-281: edc version 2, the signature's version and key id, and signature_void
-    "edc": ("660d794773184321ebd80015911a26e65973b24d93fa2415c39b6114a22f561b",),
+    # T-115 (D-368): edc version 3, what each draft was built under and the stored re-entry result
+    "edc": (
+        "660d794773184321ebd80015911a26e65973b24d93fa2415c39b6114a22f561b",
+        "7307dbdcdff73f68593da4a33739e1803bcc90079eff738c175f3ad13bd26003",
+    ),
     # D-280: the break-glass grants, new after the baseline
     "breakglass": ("0347aae3f58f7558d041191f25bd2fc5bc654e6f5139c9ee28b1588e91544b83",),
 }
