@@ -1,0 +1,4 @@
+relationship_id	relationship_name	is_hierarchical	defines_ancestry	reverse_relationship_id	relationship_concept_id
+Maps to	Non-standard to Standard map (OMOP)	0	0	Mapped from	0
+ATC - RxNorm	ATC to RxNorm	0	0	RxNorm - ATC	0
+ATC - RxNorm pr lat	ATC to RxNorm (primary lateral)	0	0	RxNorm - ATC pr lat	0

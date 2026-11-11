@@ -42,6 +42,9 @@ Date 2026-11-10.
   cluster a partitioned table). A record whose date was imputed (no date in the source: the batch date, D-151) lands
   in the partition of that year and keeps its `tb_record.date_imputed` flag; there is no separate partition for it,
   because the CDM row has no column that says it.
+* **Vocabulary version.** `cdm_source.vocabulary_version` is the active Athena release (its `tb_vocab_release`
+  row with `vocabulary_id = 'None'`, T-105b), cut to the CDM's 20 characters; "TB local, no Athena" until a bundle
+  is loaded.
 * **Backups.** `pg_dump` of the schema carries the partitions; the backup drill now compares the partition layout and
   each partition's rows before and after the restore.
 * **Timings.** `tools/omop_parity.py --profile ci|50k` records each lake rebuild's wall seconds, the loader's seconds

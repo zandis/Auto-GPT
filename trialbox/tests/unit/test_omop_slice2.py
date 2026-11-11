@@ -309,3 +309,16 @@ def test_an_undeclared_dual_write_seed_is_refused_not_guessed(
     cfg = _cfg(tmp_path, db_url)
     got = load_night(cfg, NIGHT1, tmp_path)
     assert got is not None and got.state == "failed" and got.error == "ValueError"
+
+
+def test_cdm_source_names_the_athena_release_once_loaded(store: Any) -> None:
+    """``cdm_source.vocabulary_version`` is the active Athena release (its ``None`` vocabulary row, T-105b), cut to
+    the CDM's 20 characters; before any Athena load it says the vocabulary is local."""
+    from omop import vocab_load
+    from omop.load import load_batch
+
+    load_batch(store, "feed", "2026-10-05", _feed(), tz="Asia/Taipei")
+    assert store.fetchval("SELECT vocabulary_version FROM cdm_source") == "TB local, no Athena"
+    vocab_load.load_athena(store, ROOT / "tests/fixtures/vocab/athena-test", by="test")
+    load_batch(store, "feed", "2026-10-06", _feed(), tz="Asia/Taipei")
+    assert store.fetchval("SELECT vocabulary_version FROM cdm_source") == "v5.0 TEST-SYNTHETIC 10-NOV-26"[:20]

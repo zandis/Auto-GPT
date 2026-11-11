@@ -41,6 +41,7 @@ sast:
     reason: "snapshot table names from the lake's own list, DIM and int() constants, WHERE text made of bound `?` terms"
   - {path: services/omop/load.py, rule: B608, count: 5, reason: "OMOP table and column names from module constants"}
   - {path: services/omop/partitions.py, rule: B608, count: 2, reason: "partition and date column names from PARTITIONED (module constants); the year bounds are bound `?` values"}
+  - {path: services/omop/vocab_load.py, rule: B608, count: 1, reason: "column list from the module constant _CONCEPT_COLS; no outside input"}
   - path: services/orchestrator/db.py
     rule: B608
     count: 4

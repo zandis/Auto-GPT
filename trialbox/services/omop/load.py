@@ -1059,6 +1059,10 @@ def _derive(tx: Any, persons: set[int], providers: set[int], batch: str, rep: Lo
             (vocab.DOMAIN_MEASUREMENT, vocab.DOMAIN_MEASUREMENT, rel),
         )
     rep.conflicts_open = int(tx.fetchval("SELECT count(*) FROM tb_conflict WHERE state = 'open'"))
+    # the active Athena release (T-105b: its row is vocabulary_id 'None', OMOP's convention); none loaded: local only
+    vocab_version = tx.fetchval(
+        "SELECT version FROM tb_vocab_release WHERE vocabulary_id = 'None' AND active ORDER BY loaded_at DESC LIMIT 1"
+    )
     tx.execute("DELETE FROM cdm_source")
     tx.execute(
         "INSERT INTO cdm_source (cdm_source_name, cdm_source_abbreviation, cdm_holder, source_description, "
@@ -1073,7 +1077,7 @@ def _derive(tx: Any, persons: set[int], providers: set[int], batch: str, rep: Lo
             "trialbox/services/omop/load.py",
             _batch_date(batch),
             date.today(),
-            "TB local, no Athena",
+            str(vocab_version)[:20] if vocab_version else "TB local, no Athena",
         ),
     )
 

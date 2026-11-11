@@ -633,7 +633,8 @@ def _one_set(
     name: str, work: Path, url: str, prefix: str, report: dict[str, Any], allow_skip: bool, profile: str = "ci"
 ) -> None:
     t0 = time.perf_counter()
-    dsets = synthetic(work, profile=profile) if name == "synthetic" else BUILDERS[name](work)
+    # the ci profile goes through BUILDERS (a test replaces it there); a bigger one names its sites
+    dsets = synthetic(work, profile=profile) if name == "synthetic" and profile != "ci" else BUILDERS[name](work)
     prepared = round(time.perf_counter() - t0, 2)  # synthetic data made and ingested (all of the set's sites)
     if not dsets:
         report["sets"][name] = {"skipped": "data not fetched"}
