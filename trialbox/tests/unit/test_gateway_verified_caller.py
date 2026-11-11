@@ -131,7 +131,7 @@ class _Swap:
         self.urls: dict[str, str] = {}
         self.calls: list[str] = []
 
-    def activate(self, endpoint: str, hold: bool = False) -> dict[str, Any]:
+    def activate(self, endpoint: str, hold: bool = False, *, holder: str = "") -> dict[str, Any]:
         self.calls.append(f"activate:{endpoint}")
         return {"swap": "sleep", "active": endpoint}
 

@@ -35,6 +35,13 @@ when a :class:`StartCheck` is given too.
 which names each service may claim, and ``serving_control`` which services may drive the swap. See
 :meth:`gateway.policy.RoutingPolicy.check_claim`.
 
+**Under load (T-608, D-445; review LLM-023).** Chat calls run on their own thread limit (``TB_GATEWAY_MAX_INFLIGHT``,
+64; 8 of them kept for interactive roles), never on the pool ``/healthz`` and the registry view use; a call that
+finds the limit full is answered ``model_busy`` (503, ``Retry-After``) at once, without a thread. ``/readyz`` and
+``/v1/serving/status`` take no thread; ``/readyz`` lists each endpoint's breaker (:mod:`gateway.load`) and says
+``degraded`` while one is open. A watch thread (``TB_GATEWAY_WATCH_S``, 5 s) opens the breaker of a stalled endpoint
+whose server does not answer.
+
 The perimeter is checked (T-604, D-388; review LLM-036): in PRODUCTION on topology A, ``phi_on_box`` lets D3 go to
 the perimeter endpoints without a study step because they are the box itself. So every perimeter endpoint's host must
 resolve to box addresses only (:func:`gateway.policy.perimeter_addresses`). When one does not, the gateway does not
@@ -44,6 +51,7 @@ that now points off the box makes every chat call a ``perimeter_unverified`` ref
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import logging
@@ -54,6 +62,7 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+import anyio
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from registry.app import create_app as registry_app
@@ -64,7 +73,7 @@ from tb_common.config import site_tz
 from tb_common.http import make_app
 from tracestore.store import TraceStore
 
-from gateway.core import Gateway, GatewayConfig
+from gateway.core import BUSY_MESSAGE, RETRY_AFTER, Gateway, GatewayConfig
 from gateway.policy import DEFAULT_PATH as ROUTING_PATH
 from gateway.policy import Resolver, RoutingPolicy, endpoint_key, perimeter_checked, perimeter_problems, resolve_host
 from gateway.swap import SWAPPABLE, ModelSwap
@@ -73,6 +82,8 @@ log = logging.getLogger("gateway.start_check")
 WEIGHTS_FLAG = "weights_changed.json"  # written by `trialbox doctor --verify-all` on a mismatch, removed on a pass
 RECHECK_S = 3600.0  # a passed check is repeated every hour (LLM-009)
 PENDING_S = 30.0  # a model server that did not answer yet is asked again this often
+MAX_INFLIGHT = 64  # chat calls on threads at once (T-608); the default pool (40) stays for health and reads
+INTERACTIVE_RESERVE = 8  # of those, kept for interactive roles: a batch flood cannot shut out the front desk
 
 
 def weights_flag_path(env: Mapping[str, str]) -> Path | None:
@@ -230,11 +241,17 @@ def _service(request: Request) -> str | None:
     return str(got) if got else None
 
 
-def _refused(gw: Gateway, code: str, message: str) -> JSONResponse:
-    gw.audit.append("llm.gateway.refuse", detail={"reason": code, "message": message})
-    return JSONResponse(
-        {"error": {"type": "tb_refusal", "code": code, "message": message}}, 403, headers={"X-TB-Refusal": code}
+def _refused(gw: Gateway, code: str, message: str, request: Request | None = None, status: int = 403) -> JSONResponse:
+    """An audited refusal before the pipeline runs; the record names the caller and the verified service (D-437)."""
+    caller = request.headers.get("x-tb-caller", "") if request is not None else ""
+    service = (_service(request) or "") if request is not None else ""
+    gw.audit.append(
+        "llm.gateway.refuse", detail={"reason": code, "message": message, "caller": caller, "service": service}
     )
+    headers = {"X-TB-Refusal": code}
+    if code in RETRY_AFTER:
+        headers["Retry-After"] = RETRY_AFTER[code]
+    return JSONResponse({"error": {"type": "tb_refusal", "code": code, "message": message}}, status, headers=headers)
 
 
 def from_env() -> Gateway:
@@ -315,24 +332,42 @@ def create_app(
             return {"perimeter": "on_box"}
 
         checks.append(perimeter_on_box)
-    lifespan = None
     if sc is not None:
         checks.append(sc.health)
 
-        @contextlib.asynccontextmanager
-        async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    @contextlib.asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        stop = threading.Event()
+        if sc is not None:
             await run_in_threadpool(sc.run_safe)  # before the first call is served
-            stop = threading.Event()
             threading.Thread(target=sc.loop, args=(stop,), name="gateway-start-check", daemon=True).start()
-            yield
-            stop.set()
+        # T-608: the stall watch opens the breaker of an endpoint whose server stopped answering
+        threading.Thread(target=gw.load.loop, args=(stop,), name="gateway-load-watch", daemon=True).start()
+        yield
+        stop.set()
+
+    max_inflight = max(2, int(float(gw.env.get("TB_GATEWAY_MAX_INFLIGHT") or MAX_INFLIGHT)))
+    reserve = min(INTERACTIVE_RESERVE, max_inflight // 4)
+    # made on the event loop that serves the call (anyio needs a running one; a test client runs several)
+    limiters: dict[int, anyio.CapacityLimiter] = {}
+    inflight = {"n": 0}  # changed on the event loop only: no lock needed
 
     # review LLM-043: reads need the token too
     app = make_app("gateway", checks=checks, lifespan=lifespan, protect_reads=True)
 
     @app.get("/readyz")
-    def readyz() -> dict[str, Any]:
-        return {"status": "ready", "policy_version": gw.policy.version, "registry_version": gw.registry.version}
+    async def readyz() -> dict[str, Any]:
+        """Ready, or ``degraded`` while an endpoint's breaker is open (T-608); takes no thread."""
+        open_now = gw.load.open()
+        return {
+            "status": "degraded" if open_now else "ready",
+            "policy_version": gw.policy.version,
+            "registry_version": gw.registry.version,
+            "breakers_open": open_now,
+            "endpoints": gw.load.snapshot(),
+            "in_flight": inflight["n"],
+            "max_in_flight": max_inflight,
+        }
 
     @app.get("/v1/models")
     def models() -> dict[str, Any]:
@@ -370,13 +405,27 @@ def create_app(
             return JSONResponse({"error": err}, 403, headers={"X-TB-Refusal": "perimeter_unverified"})
         refused = sc.refusal() if sc is not None else None
         if refused is not None:  # T-677: weights or served model not the pin's; no model is called
-            return _refused(gw, *refused)
+            return _refused(gw, *refused, request=request)
+        # T-608: a call that finds the chat threads taken is told busy now, without a thread of its own
+        interactive = bool(gw.policy.roles.get(request.headers.get("x-tb-role", ""), {}).get("interactive"))
+        if inflight["n"] >= max_inflight - (0 if interactive else reserve):
+            return _refused(gw, "model_busy", BUSY_MESSAGE, request, status=503)
         # upstream calls block; keep the loop free. The verified service binds X-TB-Caller (T-212b, D-437)
-        res = await run_in_threadpool(lambda: gw.chat(dict(request.headers), body, service=_service(request)))
+        loop = id(asyncio.get_running_loop())
+        if loop not in limiters:
+            limiters.clear()
+            limiters[loop] = anyio.CapacityLimiter(max_inflight)
+        inflight["n"] += 1
+        try:
+            res = await anyio.to_thread.run_sync(
+                lambda: gw.chat(dict(request.headers), body, service=_service(request)), limiter=limiters[loop]
+            )
+        finally:
+            inflight["n"] -= 1
         return JSONResponse(res.body, status_code=res.status, headers=res.headers)
 
     @app.get("/v1/serving/status")
-    def serving_status() -> dict[str, Any]:
+    async def serving_status() -> dict[str, Any]:
         return gw.swap.status() if gw.swap is not None else {"swap": "off", "active": None}
 
     @app.post("/v1/serving/activate")
