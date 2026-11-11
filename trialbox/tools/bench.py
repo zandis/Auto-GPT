@@ -611,6 +611,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--adopt", type=Path, help="--gate: write the baseline from a bench_gate.json (the nightly's "
                     "artifact), so the baseline is the runner's own numbers; nothing is measured")  # fmt: skip
     args = ap.parse_args(argv)
+    from tb_common.config import adopt_site_tz
+
+    adopt_site_tz()  # a synthetic site in one process: its site.tz as TB_TZ when unset (D-315)
     if args.gate and args.adopt:
         return adopt(args.adopt, args.baseline)
     if args.gate:
