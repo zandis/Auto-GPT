@@ -2,7 +2,7 @@
 
 Bundle = an uncompressed tar holding exactly:
 
-* ``manifest.json``     — ``UpdateManifest`` 1.2.0 (schemas/update_manifest.schema.json): bundle id, signer,
+* ``manifest.json``     — ``UpdateManifest`` 1.3.0 (schemas/update_manifest.schema.json): bundle id, signer,
                           ``release_seq``, ``min_installed_version``, ``key_id``, ``not_after``, the sha256 of the
                           members below, an optional key ``rotation``, and the files with path, kind, sha256, size;
 * ``manifest.json.sig`` — base64 Ed25519 signature of the manifest bytes by a vendor key the box trusts;
@@ -11,7 +11,9 @@ Bundle = an uncompressed tar holding exactly:
 * ``release.json``, ``images.lock`` — the release record (provisional until T-110: ``images`` = {name: {image,
                           digest}}) and the release's image lock (T-104); required when the bundle carries images
                           (``images.lock``: else the box's own ``--images-lock``);
-* ``files/<path>``      — one payload per manifest entry, nothing else.
+* ``files/<path>``      — one payload per manifest entry, nothing else. At most one of kind ``host``: the host tree
+                          (``trialbox-host.tar``, T-631, D-367: compose files, host tools, configuration), whose own
+                          ``HOST-SHA256SUMS`` and member rules (``tools/host_tree.py``) are checked with its sha256.
 
 Everything that decides whether the bundle may be applied is checked **before any payload is read or staged**:
 members safe (regular files only, no absolute or ``..`` paths, no duplicates), the signature with a trusted key
@@ -320,6 +322,8 @@ def verify(
             listed_files[f"{PAYLOAD}{p}"] = f
         if len(listed_files) != len(manifest["files"]):
             raise Rejected("manifest lists a path twice")
+        if sum(f["kind"] == "host" for f in manifest["files"]) > 1:
+            raise Rejected("more than one host tree (payload kind host) in the bundle")
         names = set(listed_files)
         for n in names:
             if {str(q) for q in PurePosixPath(n).parents} & names:
@@ -369,7 +373,7 @@ def _schema_errors(manifest: Any) -> list[str]:
     return list(schema_errors("update_manifest", manifest))
 
 
-KINDS = ("model", "ruleset", "image", "refdata", "other")
+KINDS = ("model", "ruleset", "image", "refdata", "other", "host")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 KEY_ID = re.compile(r"^ed25519:[0-9a-f]{16}$")
 BUNDLE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
@@ -391,7 +395,7 @@ def _is_time(v: Any) -> bool:
 
 
 def _stdlib_schema_errors(m: Any) -> list[str]:
-    """The rules of schemas/update_manifest.schema.json 1.2.0 (D-210) in the standard library;
+    """The rules of schemas/update_manifest.schema.json 1.3.0 (D-210; kind host: D-367) in the standard library;
     tests/unit/test_verify_update_stdlib.py holds the two in step."""
     if not isinstance(m, dict):
         return ["manifest is not an object"]
@@ -482,6 +486,24 @@ def _check_payloads(
                 out.close()
         if h.hexdigest() != entry["sha256"]:
             raise Rejected(f"{entry['path']}: sha256 mismatch")
+        if entry["kind"] == "host":  # T-631: the tree's own sums and member rules, before anything is unpacked
+            _check_host(tf, m, stage, entry)
+
+
+def _check_host(tf: tarfile.TarFile, m: tarfile.TarInfo, stage: Path | None, entry: dict[str, Any]) -> None:
+    from tools import host_tree
+
+    try:
+        if stage is not None:
+            target = stage / "host" / str(_safe(entry["path"]))
+            with target.with_suffix(target.suffix + ".part").open("rb") as fh:
+                host_tree.check_tar(fh)
+        else:
+            f = tf.extractfile(m)
+            assert f is not None
+            host_tree.check_tar(f)
+    except host_tree.HostTreeError as exc:
+        raise Rejected(f"{entry['path']}: host tree: {exc}") from exc
 
 
 def _cleanup(stage: Path) -> None:
