@@ -59,8 +59,8 @@ def _walk(b: dict[str, Any], user: str, lang: str) -> tuple[list[str], list[str]
 
 # the pages that carried the old words, per role: a clean walk that never reached them would mean nothing
 MUST_REACH: dict[str, tuple[str, ...]] = {
-    "investigator": ("/studies/GZQO/excluded", "/studies/GZQO/feasibility", "/studies/GZQO/week", "/help"),
-    "coordinator": ("/studies/GZQO/excluded", "/studies/GZQO/feasibility", "/studies/GZQO/week", "/site/codes"),
+    "investigator": ("/studies/GZQO/not-matched", "/studies/GZQO/feasibility", "/studies/GZQO/week", "/help"),
+    "coordinator": ("/studies/GZQO/not-matched", "/studies/GZQO/feasibility", "/studies/GZQO/week", "/site/codes"),
     "admin": ("/admin", "/site/codes", "/site/start", "/pilot/case"),
     "viewer": ("/reports", "/help"),
     "cro": ("/reports", "/about"),

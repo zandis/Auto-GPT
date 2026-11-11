@@ -54,8 +54,9 @@ not on the list.
 - The literal grep of TB-ASSESS-01's acceptance (1) still prints the protocol heading 選択・除外基準 / 納入／排除條件
   and the template's `data-testid="excluded"`. Both are allowed by design (a heading kind; an attribute nobody
   reads). The tests read what a reader sees instead.
-- The route `/studies/{rs}/excluded` keeps its path. Its alias and 301 are in `services/console/home.py`, which is
-  T-512's while that card is open; it waits for T-512.
+- The page moves to `/studies/{rs}/not-matched`. The old `/studies/{rs}/excluded` answers 301 (query kept) for one
+  release, and a review form posted to the old path still lands. The console has no `/api/v1` path for this list,
+  so there is no API alias to add.
 - NAV's sheet names (`likely_eligible`, `maybe_ineligible`) are contract keys of the reimbursement lists, not a study
   verdict; they are unchanged.
 - The `.docx` reimbursement draft (RA-BIO template) has no statement field; adding one changes the template.
