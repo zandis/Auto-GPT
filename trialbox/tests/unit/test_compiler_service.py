@@ -261,3 +261,19 @@ def test_one_uncompilable_criterion_goes_to_review_instead_of_failing_the_protoc
     assert hit.class_ == "human" and hit.human_question and {"needs_review", "compile_error"} <= set(hit.flags or [])
     assert res.needs_review and hit.id in res.needs_review
     assert sum(1 for x in res.criteria if x.class_ == "structured") == 17  # every other criterion still compiled
+
+
+def test_a_model_down_during_concept_mapping_fails_the_compile_by_step(env: dict[str, Any]) -> None:
+    """Audit 2026-11-11: a concept_map call the model did not answer was an unhandled error (HTTP 500, "internal
+    error" in the requester's mail); ir_extract already failed by its step."""
+    from tb_common.llm import LlmError
+
+    class Down:
+        def chat_json(self, *a: Any, **kw: Any) -> Any:
+            raise LlmError("LLM endpoint unreachable (local): connection refused")
+
+    comp: Compiler = env["comp"]
+    comp.d.llm = Down()  # type: ignore[assignment]
+    with pytest.raises(CompileFailed) as got:
+        comp._concept_map("J")("gout flare", "condition", [])
+    assert got.value.step == "concept_map" and "gout flare" in str(got.value)
