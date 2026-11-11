@@ -172,7 +172,7 @@ def test_review_confirm_sign_with_password_and_send(eb: dict[str, Any]) -> None:
     assert r.status_code == 303, r.text[-400:]
     sig = eb["svc"].store.signatures("GZQO")[0]
     assert sig["printed_name"] == "Chen Mei"
-    assert sig["signer"] == "crc" and sig["meaning"] == "transcribed" and "checked each value" in sig["meaning_text"]
+    assert sig["signer"] == "crc" and sig["meaning"] == "transcribed" and "compared each value" in sig["meaning_text"]
     r = crc.post("/studies/GZQO/edc/send", data={"csrf": csrf, "record": NO}, follow_redirects=False)
     assert r.status_code == 303 and "sent=3" in r.headers["location"]
     row = k.client_for(eb["sim"], eb["token"]).records()[0]

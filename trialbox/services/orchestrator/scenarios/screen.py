@@ -63,6 +63,7 @@ SELECT p.pid, CAST(a.next_appt AS VARCHAR) AS next_appt, coalesce(a.pr, e.pr) AS
 FROM patient p LEFT JOIN a ON a.pid = p.pid LEFT JOIN e ON e.pid = p.pid
 WHERE (a.pid IS NOT NULL OR e.pid IS NOT NULL)
   AND (p.deceased_date IS NULL OR p.deceased_date > CAST($2 AS DATE))
+  AND (p.deceased_date IS NOT NULL OR p.deceased IS NOT TRUE)
 ORDER BY p.pid
 """
 
@@ -450,7 +451,15 @@ def practitioners_of(ctx: Ctx, rs: Ruleset) -> list[str] | None:
     return pract
 
 
-def run_screen(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> ScreenRun:
+def run_screen(
+    ctx: Ctx,
+    rs: Ruleset,
+    run_date: date,
+    snapshot: str,
+    select: Callable[[list[Scoped]], list[Scoped]] | None = None,
+) -> ScreenRun:
+    """``select`` (MICROBATCH, D-397): picks the patients to evaluate from the scope (the new ones, within the night
+    budget); SCREEN evaluates the whole scope."""
     opts = ctx.job.options or {}
     sc = rs.manifest.scopes.screen if rs.manifest.scopes and rs.manifest.scopes.screen else None
     practitioners = practitioners_of(ctx, rs)
@@ -462,8 +471,15 @@ def run_screen(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> ScreenRu
     recent = int(sc.recent_encounter_months if sc and sc.recent_encounter_months else 12)
     # D-147: the research office's opt-out register applies to every screening run (and MICROBATCH's incident run)
     scoped = drop_opted_out(ctx, scope_patients(ctx, practitioners, run_date, window, recent, depts, snapshot))
+    if select is not None:
+        scoped = select(scoped)
     ctx.metrics(patients_scoped=len(scoped))
     judge = judge_for(ctx, rs)
+    if select is not None and not scoped:  # nobody to evaluate: no model call, no audit of an empty run
+        return ScreenRun(
+            rs, run_date, snapshot, [], {}, [], list(practitioners or []), depts, window, judge, judging_info(judge),
+            whole_hospital=practitioners is None,
+        )  # fmt: skip
     judging = judging_info(judge)
     cascade: dict[str, Any] | None = None
     if pipeline() == "cascade":  # D-103: the v4 cascade is the screening engine

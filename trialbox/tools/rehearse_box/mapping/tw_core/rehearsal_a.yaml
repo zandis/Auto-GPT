@@ -1,0 +1,22 @@
+# The box rehearsal's site mapping (D-176; T-632, D-382): synthetic hospital A's export under the shared TW Core
+# mapping, as a site keeps it. It is not in the image: install.sh copies this folder (mapping/ beside the answers
+# file) into deploy/site/mapping, the adapter finds it at /etc/trialbox/mapping and `extends` finds the shared
+# mapping in the image (adapter.mapping.site). Synthetic only.
+version: 1
+name: rehearsal_a_his
+extends: ../tw_core/demo_his.yaml
+tz: Asia/Taipei
+tables:
+  patient: {source: patient, key: mrn, identity: {name: name, national_id: id_no}}  # identity: pid map only
+  practitioner: {source: practitioner, key: staff_id}
+  encounter: {source: encounter, key: enc_no, delta: updated_at}
+  appointment: {source: appointment, key: appt_no}
+  diagnosis: {source: diagnosis, key: diag_no, delta: updated_at}
+  lab: {source: lab, key: lab_no, delta: updated_at}
+  vital: {source: vital, key: vital_no, delta: updated_at}
+  medication: {source: medication, key: rx_no, delta: updated_at}
+  procedure: {source: procedure, key: proc_no, delta: updated_at}
+  report: {source: report, key: rpt_no, delta: updated_at}
+  note: {source: note, key: note_no, delta: updated_at}
+  claim: {source: claim, key: claim_no, delta: updated_at}
+  registry: {source: registry, key: mrn}  # research-contact consent; settings.registry_source may point elsewhere
