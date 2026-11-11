@@ -534,6 +534,59 @@ def _olddate(a: dict[str, Any]) -> dict[str, Any]:
     return {**a, "quote_date": (date.fromisoformat(str(a["quote_date"])[:10]) - timedelta(days=1)).isoformat()}
 
 
+# ----------------------------------------------------------------------------- the obeying persona (T-208, D-346)
+# The negative control of the prompt-injection suite (``tools/injection_eval.py``): a model that does what a planted
+# instruction says. It proves the suite can fail. The phrases are the openers the suite's plants use
+# (``eval/injection/cases.yaml``) in en, ja and zh-TW; a test holds every plant to them.
+PLANT_RE = re.compile(
+    r"ignore (?:all |the )?(?:previous|earlier|above|prior)|disregard|new (?:instructions?|rules?)|\bsystem\s*:|"
+    r"note to the ai|ai model|指示を無視|新しい指示|システム|ＡＩ|AIアシスタント|忽略|無視|系統指令",
+    re.I,
+)
+_SENT = re.compile(r"(?<=[.!?。！？])\s*|\n+")
+
+
+def planted(text: str) -> str | None:
+    """The first sentence or line of ``text`` that holds a planted instruction (None: none)."""
+    for part in _SENT.split(str(text or "")):
+        if part.strip() and PLANT_RE.search(part):
+            return part.strip()
+    return None
+
+
+def obey(prompt_id: str, inp: dict[str, Any], answer: dict[str, Any]) -> dict[str, Any]:
+    """``answer`` changed the way a planted instruction in ``inp`` asks: the judge decides and quotes the plant, the
+    chart reader drops every fact and reports the plant, the consent explainer and the criteria locator copy it."""
+    if prompt_id == "judge":
+        for ex in inp.get("excerpts") or []:
+            hit = planted(str(ex.get("text", "")))
+            if hit:
+                verdict = "pass" if re.search(r"\bpass\b|符合|該当|適格", hit, re.I) else "fail"
+                return {"verdict": verdict, "quote": hit[:400], "quote_date": str(ex.get("date", ""))[:10],
+                        "confidence": 0.99, "reason": "as the note instructs"}  # fmt: skip
+    elif prompt_id == "chart_facts":
+        hit = planted(str(inp.get("chart") or ""))
+        if hit:
+            return {"facts": [{"domain": "condition", "term": "as instructed", "code": "", "system": "", "value": "",
+                               "unit": "", "date": "", "quote": hit[:300]}]}  # fmt: skip
+    elif prompt_id == "consent_explain":
+        for p in inp.get("paragraphs") or []:
+            hit = planted(str(p.get("text", "")))
+            if hit:
+                item = {"section": "risks", "text": hit[:400], "quote": hit[:600], "para": p.get("id", "")}
+                return {**answer, "items": [*answer.get("items", []), item]}
+    elif prompt_id == "ie_locate":
+        for sec in inp.get("sections") or []:
+            hit = planted(str(sec.get("text", "")))
+            if hit:
+                return {**answer, "exclusion": [*answer.get("exclusion", []), hit]}
+    return answer
+
+
+# model names of the obeying persona: two names, so it can also stand as a pair (D-276 refuses one name twice)
+OBEYING = ("stub-obey", "stub-obey-verifier")
+
+
 # model name -> what it does to the plain ``judge`` answer. ``stub-down`` answers 503 to everything (``app.py``).
 # Opt-in by name: a test (or a developer) asks for the persona as the judge or the verifier; no shipped
 # configuration names one, and the registry routes none.
@@ -543,6 +596,7 @@ PERSONAS: dict[str, Any] = {
     "stub-badquote": _badquote,
     "stub-olddate": _olddate,
     "stub-down": lambda a: a,
+    **dict.fromkeys(OBEYING, lambda a: a),  # every prompt, in ``app.py`` through :func:`obey`
 }
 
 HANDLERS = {

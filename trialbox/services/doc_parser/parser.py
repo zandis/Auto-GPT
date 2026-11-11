@@ -7,7 +7,9 @@ Backends produce a list of markdown-like lines (``# heading`` lines + text + ``|
 
 The same deterministic section and I/E heuristics then run on those lines (``Inclusion Criteria|納入條件|選択基準``,
 ``Exclusion|排除條件|除外基準``, plus ``續用``/renewal and ``應檢附``/documentation for NHI rules). If no block is
-found, the ``ie_locate`` LLM prompt is used. Scanned PDFs (< 50 chars/page) go to PaddleOCR when installed.
+found, the ``ie_locate`` LLM prompt is used. Text drawn so nobody can see it (white, invisible, tiny, Word's hidden
+format) is counted and named in ``warnings`` (:mod:`doc_parser.hidden_text`, T-208). Scanned PDFs (< 50 chars/page)
+go to PaddleOCR when installed.
 """
 
 from __future__ import annotations
@@ -22,6 +24,8 @@ from typing import Any, Literal
 
 from tb_common.crypto import sha256_bytes
 from tb_contracts import DocSection, DocTable, IEBlock, ParsedDoc
+
+from doc_parser.hidden_text import hidden_text
 
 HEADINGS = {
     "inclusion": re.compile(
@@ -324,6 +328,9 @@ def parse(data: bytes, filename: str, ie_locator: IeLocator | None = None, backe
             doc = _text(data)
     except Exception as exc:  # corrupt, truncated or mislabelled file: a reason for the requester, not a 500
         raise UnreadableDocument(f"{filename} could not be read as {kind.upper()} ({type(exc).__name__})") from exc
+    hidden = hidden_text(kind, data)  # T-208 (D-346): text nobody sees on the page is flagged, never dropped
+    if hidden.found:
+        doc.warnings.append(hidden.warning())
     secs = sections(doc.lines)
     block = ie_block(secs)
     source: Literal["heuristic", "llm", "none"] = "heuristic" if (block.inclusion or block.exclusion) else "none"
