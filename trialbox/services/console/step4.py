@@ -199,9 +199,9 @@ def register(app: FastAPI, h: Helpers) -> None:
             error = "account.err.current"
         else:
             try:
-                h.users.set_password(u.username, new, must_change=False)  # D-279: the owner chose it
-            except AuthError:
-                error = "account.err.policy"
+                h.users.set_password(u.username, new, must_change=False, owner=True)  # D-279, D-447: the owner chose it
+            except AuthError as exc:  # D-447: which rule refused it (history, breached list, length)
+                error = getattr(exc, "code", "account.err.policy")
         if not error:
             au.append("console.user", actor=h.actor(sess), detail={"action": "password", "user": u.username})
             return RedirectResponse("/login", status_code=303)  # set_password signs the account out everywhere

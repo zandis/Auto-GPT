@@ -216,3 +216,26 @@ ZH.update(
         "edc.err.edc.must_change": "簽章前請先在「我的帳號」設定您自己的密碼。未簽章。",
     }
 )
+
+# D-447 (T-109b): password history and the operator's breached-password list
+EN.update(
+    {
+        "account.err.reused": "You used this password recently. Choose one that is not among your last five.",
+        "account.err.breached": "This password is on a list of passwords known from data breaches. Choose another one.",
+        "account.err.breached_list": "The list of breached passwords on this box cannot be read, so no new password can be checked. Ask the box's operator.",
+    }
+)
+JA.update(
+    {
+        "account.err.reused": "このパスワードは最近使われました。直近5回に使っていないパスワードを選んでください。",
+        "account.err.breached": "このパスワードは、情報漏えいで知られたパスワードの一覧にあります。別のパスワードを選んでください。",
+        "account.err.breached_list": "このボックスの漏えいパスワード一覧を読めないため、新しいパスワードを確認できません。運用担当者に連絡してください。",
+    }
+)
+ZH.update(
+    {
+        "account.err.reused": "您最近使用過此密碼。請選擇不在最近五次之中的密碼。",
+        "account.err.breached": "此密碼在已知外洩密碼的清單中。請選擇其他密碼。",
+        "account.err.breached_list": "無法讀取此設備上的外洩密碼清單，因此無法檢查新密碼。請聯絡設備管理者。",
+    }
+)
