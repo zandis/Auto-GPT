@@ -30,6 +30,8 @@ x-vllm-shared: &vllmshared
     VLLM_NO_USAGE_STATS: "1"
   volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
   ipc: host
+  pids_limit: 4096   # T-108a (D-360); the memory caps are per server below
+  labels: {tb.watchdog: restart}   # the host's watchdog restarts a hung server (OPS-029)
   networks: [model-net]
   restart: unless-stopped
   healthcheck:
@@ -42,6 +44,7 @@ x-vllm-shared: &vllmshared
 services:
   llm-service:
     <<: *vllmshared
+    mem_limit: ${TB_MEM_LLM:-48g}   # host memory, not the card's
     command:
       - --model=/models/${JUDGE_MODEL_DIR:-gemma-4-26b-a4b-it-4bit}
       - --served-model-name=${JUDGE_MODEL:-local/gemma-4-26b-a4b-nvfp4}
@@ -57,6 +60,7 @@ services:
 
   llm-verifier:
     <<: *vllmshared
+    mem_limit: ${TB_MEM_VERIFIER:-48g}   # host memory, not the card's
     command:
       - --model=/models/${VERIFIER_MODEL_DIR:-qwen3.5-9b-4bit}
       - --served-model-name=${VERIFIER_MODEL:-local/qwen3.5-9b-awq}
