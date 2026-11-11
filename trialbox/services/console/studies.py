@@ -454,6 +454,112 @@ def weekly_rows(
     return rows
 
 
+# ---------------------------------------------------------------------------------------------- amendment re-screen
+RESCREEN_GROUPS = ("returns", "no_longer", "in_screening")  # D-364 (LIFE-010), in the order the page shows them
+SET_ASIDE_MARKS = ("not_suitable", "not_now")
+LISTED = ("high", "review")
+
+
+def semver(v: str | None) -> tuple[int, ...]:
+    """``1.2.0`` -> (1, 2, 0); no version (a mark made before D-364) sorts before every version."""
+    try:
+        return tuple(int(x) for x in str(v or "").split("."))
+    except ValueError:
+        return ()
+
+
+def rescreen_list(
+    cl: Mapping[str, Any] | None,
+    marks: Mapping[str, Mark],
+    registry: Mapping[str, str],
+    crit: Mapping[str, CriterionMeta] | None = None,
+    old: Mapping[str, Any] | None = None,
+    changed: Sequence[str] = (),
+) -> list[dict[str, Any]]:
+    """The amendment re-screen list (D-364, LIFE-010): who the investigator looks at again once a new criteria
+    version screens. ``cl`` is the latest candidate list (run on the new version); ``old`` the latest list of an
+    earlier version, when one is stored; ``changed`` the criterion ids the amendment added or changed.
+
+    * ``returns``: set aside ("Not suitable", "Not now") under an earlier version, or a screen failure in the
+      screening log, and on the new list with a better answer: off the old list, or a criterion that did not pass
+      under the old version passes now (a relaxed criterion).
+    * ``no_longer``: approached or waiting for information under an earlier version, or in the log as a candidate or
+      contacted, and excluded by the new version.
+    * ``in_screening``: consented and not yet enrolled: the investigator confirms them against the new version.
+
+    A patient leaves the list once the investigator marks them on a list of the new version. Each row names the
+    criteria behind it, as labels: those whose answer changed between the two lists, else the amendment's changes."""
+    version = str((cl or {}).get("version") or "")
+    if not version or old is None or semver(str(old.get("version") or "")) >= semver(version):
+        return []  # no list of an earlier version: no amendment has screened yet
+    crit = crit or {}
+    label = {cid: (m.label or cid) for cid, m in crit.items()}
+    rows = {str(r.get("pid") or ""): r for r in (cl or {}).get("rows") or []}
+    before = {str(r.get("pid") or ""): r for r in old.get("rows") or []}
+
+    def verdicts(r: Mapping[str, Any] | None) -> dict[str, str]:
+        return {str(v.get("id")): str(v.get("verdict") or "") for v in (r or {}).get("criteria") or []}
+
+    def why(pid: str, want: str) -> list[str]:
+        now, then = verdicts(rows.get(pid)), verdicts(before.get(pid))
+        ids = [c for c, v in now.items() if then and then.get(c) not in (None, v) and v == want]
+        if not ids:
+            ids = [c for c in changed if c in now] or list(changed)
+        return [label.get(c, c) for c in ids]
+
+    def improved(pid: str) -> bool:
+        """The new version answers better: the patient was off the old list, or a criterion that did not pass
+        passes now."""
+        then = before.get(pid)
+        if then is None or str(then.get("tier") or "") not in LISTED:
+            return True
+        now, was = verdicts(rows.get(pid)), verdicts(then)
+        return any(v == "pass" and was.get(c) not in (None, "pass") for c, v in now.items())
+
+    def earlier(mk: Mark | None) -> bool:
+        return mk is not None and semver(mk.version) < semver(version)
+
+    out: list[dict[str, Any]] = []
+    pids = sorted(set(rows) | {p for p, st in registry.items() if st == "consented"})
+    for pid in pids:
+        if not pid:
+            continue
+        mk, reg, row = marks.get(pid), registry.get(pid), rows.get(pid)
+        if mk is not None and not earlier(mk):
+            continue  # the investigator already looked at this patient on a list of the new version
+        tier = str((row or {}).get("tier") or "")
+        group = ""
+        was = ""
+        if reg == "consented":
+            group, was = "in_screening", "consented"
+        elif tier in LISTED and improved(pid):
+            if mk is not None and mk.mark in SET_ASIDE_MARKS and reg in (None, "candidate"):
+                group, was = "returns", mk.mark
+            elif reg == "screen_fail":
+                group, was = "returns", "screen_fail"
+        elif tier == "excluded" and (
+            (mk is not None and mk.mark in ("approach", "need_info")) or reg in ("candidate", "contacted")
+        ):
+            group, was = "no_longer", (mk.mark if mk is not None else str(reg))
+        if not group:
+            continue
+        out.append(
+            {
+                "pid": pid,
+                "short": pid[:8],
+                "group": group,
+                "was": was,
+                "was_version": (mk.version or "") if mk is not None else "",
+                "version": version,
+                "criteria": why(pid, "fail" if group == "no_longer" else "pass") if group != "in_screening" else [],
+                "tier": tier,
+            }
+        )
+    order = {g: i for i, g in enumerate(RESCREEN_GROUPS)}
+    out.sort(key=lambda r: (order[r["group"]], r["pid"]))
+    return out
+
+
 def list_bridge(rep: Mapping[str, Any] | None, rows: Sequence[Mapping[str, Any]] | None, today: date) -> dict[str, Any]:
     """S3 (D-120): why the screening list is longer than the feasibility count. The count leaves out unknown
     inclusions and keeps unknown exclusions; the list keeps every patient whose answer is unknown (needs information)
