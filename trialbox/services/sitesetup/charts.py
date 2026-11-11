@@ -19,6 +19,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from doc_parser.hidden_text import hidden_text
 from tb_common import catalogue, encoding
 from tb_common.quotes import quote_in
 
@@ -51,6 +52,7 @@ class ChartText:
     method: str  # paste | text | docx | pdf | ocr
     pages: int = 1
     notes: list[str] = field(default_factory=list)
+    hidden_chars: int = 0  # characters nobody sees on the page (T-208): named in ``notes`` and the chart summary
 
 
 # D-146 (review J-07): a PDF's text layer may carry NUL and other control characters (a CJK font without a usable
@@ -126,6 +128,11 @@ def chart_text(name: str, data: bytes, ocr: Ocr) -> ChartText:
         out = ChartText(ocr.image_text(data), "ocr", 1, ["read by OCR: check the facts against the paper"])
     else:
         raise ChartError("CHART-TYPE", "charts are pasted text, .txt, Word (.docx), PDF or a scanned image")
+    if out.method in ("pdf", "docx"):  # T-208 (D-346): a planted instruction hides best where nobody reads
+        hidden = hidden_text(out.method, data)
+        if hidden.found:
+            out.hidden_chars = hidden.chars
+            out.notes.append(hidden.warning())
     out.text = clean(out.text)
     if not out.text.strip():
         raise ChartError("CHART-EMPTY", "no text found in this file")

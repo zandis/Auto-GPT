@@ -160,7 +160,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         s = stand(user, rid)
         return user.can_approve and (s.pi or not s.logged)
 
-    h.may, h.may_approve = may, may_approve
+    h.may, h.may_approve, h.stand = may, may_approve, stand  # T-512: h.may_run reads the standing too
     h.team_due = lambda rid: check_due(team, rid, today(), site_zone(bk))
 
     def deny(sess: Session, path: str) -> Exception:
