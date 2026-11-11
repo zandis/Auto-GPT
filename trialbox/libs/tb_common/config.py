@@ -123,7 +123,7 @@ class Env:
     embed_mode: str = "bge-m3"
     object_store: str = "fs:/data/objects"
     nhi_twpas_base_url: str = ""
-    attach_password_mode: str = "zip"
+    attach_password_mode: str = "link"  # D-369: patient files by a sign-in link, not a password zip
     log_level: str = "INFO"
     settings_path: str = ""
     data_dir: str = "/data"
@@ -217,8 +217,8 @@ def load_env(dotenv: Path | None = None, environ: dict[str, str] | None = None) 
     env = Env(**kwargs)  # type: ignore[arg-type]
     if env.tz:  # unset is allowed here: load() takes site.tz from settings.yaml (D-315)
         _check_zone("TB_TZ", env.tz)
-    if env.attach_password_mode not in ("zip", "smime"):
-        raise ConfigError("ATTACH_PASSWORD_MODE must be zip or smime")
+    if env.attach_password_mode not in ("link", "smime", "zip"):
+        raise ConfigError("ATTACH_PASSWORD_MODE must be link, smime or zip")
     if env.llm_mode not in ("vllm", "llamacpp", "stub", "openai"):
         raise ConfigError("TB_LLM_MODE must be vllm, llamacpp, openai or stub")
     return env

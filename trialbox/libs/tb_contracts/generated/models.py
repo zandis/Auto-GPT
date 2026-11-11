@@ -1582,9 +1582,9 @@ class Settings(BaseModel):
     schedule: Schedule = Field(..., title="Schedule")
     site_capabilities: dict[str, bool] | None = None
     registry_source: RegistrySource | None = Field(None, title="RegistrySource")
-    attachment_encryption: Literal["zip", "smime", "link"] = "zip"
+    attachment_encryption: Literal["zip", "smime", "link"] = "link"
     """
-    Patient files by mail, chosen per site: zip (7z + password in a second mail, PPAP), smime, or link (no attachment; a link to the job on the box, sign-in to download; needs TB_CONSOLE_URL). D-127.
+    Patient files by mail, chosen per site: link (the default, D-369: no attachment; a link to the job on the box, where the named recipients download after sign-in; needs TB_CONSOLE_URL), smime, or zip (7z + password in a second mail, PPAP; refused for patient files outside TB_ENV DEV and TEST, D-369). D-127.
     """
     smime_certs: dict[str, str] | None = None
     """

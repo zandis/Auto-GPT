@@ -54,7 +54,9 @@ QUESTIONS: list[tuple[str, str, Any, str]] = [
     ("practitioners", "Practitioners id=name|dept|email|capacity|license (comma separated)", None, "practitioners"),
     ("llm_mode", "LLM (gpu | stub)", "gpu", "str"),
     ("cloud_enabled", "Allow the cloud LLM for protocol extraction (yes/no)", "no", "bool"),
-    ("attachment_encryption", "PHI attachments (zip | smime)", "zip", "str"),
+    # D-369 (OD-1): patient files by a sign-in link by default; zip (a password zip) is refused for them on a real box
+    ("attachment_encryption", "Patient files by mail (link | smime)", "link", "str"),
+    ("console_url", "Address of the console that mail links point to (e.g. https://trialbox.hospital.tw)", "", "str"),
     ("twpas_enabled", "TWPAS bundles in NAV (yes/no)", "no", "bool"),
     ("twpas_org_id", "NHI hospital code (TWPAS)", "", "str"),
     ("alliance_root", "This box is the alliance root (yes/no)", "no", "bool"),
@@ -238,10 +240,17 @@ def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]
     if not alliance_root and _split(a.get("cohort_rulesets")) and not root_addr:
         warnings.append("cohort rulesets without an alliance root address: tables stay on this box")
     if not str(a.get("mta_authserv_id") or "").strip():
-        warnings.append(
-            "mta_authserv_id is empty: the top-most Authentication-Results header is trusted whoever wrote it; set it "
-            "unless the MTA always adds its own header in front of the intake mailbox"
+        warnings.append(  # D-369 (SEC-11): sender authentication fails closed without it
+            "mta_authserv_id is empty: no sender can be authenticated, so the box refuses every request mail until "
+            "TB_MAIL_AUTHSERV_ID is set"
         )
+    attach = str(a.get("attachment_encryption") or "link").strip().lower()
+    if attach not in ("link", "smime", "zip"):
+        errors.append(f"attachment_encryption must be link or smime, not {attach!r}")
+    elif attach == "zip":
+        warnings.append("attachment_encryption zip: patient files are refused by mail outside TB_ENV DEV, TEST (D-369)")
+    elif attach == "link" and not str(a.get("console_url") or "").strip():
+        warnings.append("attachment_encryption link without console_url: mails with patient files are refused")
     ctgov = str(a.get("ctgov_mode") or os.environ.get("TB_CTGOV_MODE") or "offline").strip().lower()
     if ctgov not in CTGOV_MODES:
         errors.append(f"ctgov_mode must be offline or live, not {ctgov!r}")
@@ -318,7 +327,7 @@ def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]
             "calibration": "1st 05:30",
         },
         "registry_source": registry,
-        "attachment_encryption": str(a.get("attachment_encryption", "zip")),
+        "attachment_encryption": attach,
         "departments": depts,
         "practitioners": prac,
         "retention": retention,
@@ -362,6 +371,7 @@ def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]
         "TB_SERVICE_TOKEN": secrets.token_urlsafe(24),
         "NHI_TWPAS_BASE_URL": "",
         "ATTACH_PASSWORD_MODE": settings["attachment_encryption"],
+        "TB_CONSOLE_URL": str(a.get("console_url") or "").strip(),
         "LOG_LEVEL": "INFO",
         "POSTGRES_PASSWORD": secrets.token_urlsafe(24),
         "TB_SETTINGS": "/etc/trialbox/settings.yaml",

@@ -20,7 +20,8 @@ practitioners:
   P12345: {name: Dr. C1 (synthetic), department: RHEU, email: pi@hospc.test, capacity_per_month: 3}
 llm_mode: stub
 cloud_enabled: no
-attachment_encryption: zip
+attachment_encryption: link
+console_url: https://trialbox.hospc.test
 twpas_enabled: no
 alliance_root: no
 alliance_root_address: trialbox@hospa.test
