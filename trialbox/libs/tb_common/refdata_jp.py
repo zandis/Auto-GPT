@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import logging
 import re
 import unicodedata
@@ -264,6 +265,146 @@ def yj_atc_targets(code: str, url: str | None = None) -> list[dict[str, Any]]:
     nothing is loaded."""
     c = code.strip().upper()
     return map_targets_or_empty(YJ_STEM, c[:7], url) if _YJ.match(c) else []
+
+
+# ------------------------------------------------------------------------------------------------ T-610 ingredients
+# STD-042: Japan's drug criteria are ATC value sets, and almost no Japanese order line carries ATC. Every order line
+# carries (or, through the site's drug master, leads to) a YJ code, whose first 7 characters name the ingredient and
+# route. A line is *resolved* when it reaches an ingredient (a stem); the stem reaches ATC through the
+# ingredient-to-ATC table (TrialBox's shipped stems, then the site's own table, which wins), and a drug value set can
+# carry the stems beside its ATC codes (criteria_compiler.terminology.mapper), so a line with a stem and no ATC is
+# still read by drug criteria. No real master is shipped or read here (CR-015): the site loads its own.
+_DASHES = re.compile(r"[\s\-‐－―ー]")
+_HOT = re.compile(r"^\d{7}(\d{2}(\d{4})?)?$")  # HOT7, HOT9 or HOT13 (処方用 7 + 会社 2 + 調剤 2 + 物流 2)
+
+
+def norm_drug_code(code: str) -> str:
+    """A drug code as masters and feeds print it, read: NFKC (full-width digits), no spaces or dashes, upper case."""
+    return _DASHES.sub("", unicodedata.normalize("NFKC", code or "")).upper()
+
+
+def yj_stem(code: str) -> str:
+    """The 7-character ingredient-and-route stem of a 12-character YJ or 薬価基準 code; ``""`` for another shape."""
+    c = norm_drug_code(code)
+    return c[:7] if _YJ.match(c) else ""
+
+
+def ingredient_atc(*paths: Path) -> dict[str, dict[str, str]]:
+    """``stem -> {atc, ingredient, route, source}``: TrialBox's shipped table (:data:`REPO_YJ_ATC`), then each table
+    in ``paths`` in order (the site's own, the same columns as the shipped one); a later table's row replaces an
+    earlier one's. A path that does not exist is skipped."""
+    out: dict[str, dict[str, str]] = {}
+    for path in (REPO_YJ_ATC, *paths):
+        if not path or not Path(path).is_file():
+            continue
+        for r in parse_jp_yj_atc(Path(path)):
+            out[r["source_code"]] = {"atc": r["target_code"], "ingredient": r["source_display"],
+                                     "route": r["extra"]["route"], "source": Path(path).name}  # fmt: skip
+    return out
+
+
+MASTER_COLS: dict[str, tuple[str, ...]] = {
+    "local": ("院内コード", "院内薬品コード", "薬品コード", "医薬品コード", "local_code"),
+    "yj": ("YJコード", "個別医薬品コード", "個別医薬品コード(YJコード)", "YJ", "yj_code"),
+    "price": ("薬価基準収載医薬品コード", "薬価基準コード", "price_code"),
+    "hot": ("HOTコード", "基準番号(HOTコード)", "HOT13", "HOT9", "HOT", "hot_code"),
+    "name": ("医薬品名", "販売名", "薬品名", "名称", "name"),
+    "ingredient": ("一般名", "成分名", "ingredient"),
+    "atc": ("ATC", "ATCコード", "atc"),
+}
+
+
+def parse_drug_master(path: Path) -> list[dict[str, str]]:
+    """The site's own drug master (医薬品マスター; CSV, TSV or XLSX, UTF-8 or Shift_JIS): one row per product with
+    its local code, YJ (or 薬価基準) code, HOT code, name and, when the site has it, ATC. A row is kept when it has
+    a local, YJ or HOT code; codes are read as :func:`norm_drug_code` reads them."""
+    rows = read_table(path, columns_beside(path))
+    head, idx = find_header(rows, MASTER_COLS, ("name",), "a drug master")
+    if not ({"local", "yj", "price", "hot"} & set(idx)):
+        raise ValueError(f"{path.name}: a drug master needs a local, YJ, 薬価基準 or HOT code column")
+    out = []
+    for r in rows[head + 1 :]:
+        row = {k: _cell(r, idx, k) for k in MASTER_COLS}
+        for k in ("local", "yj", "price", "hot", "atc"):
+            row[k] = norm_drug_code(row[k])
+        if row["local"] or row["yj"] or row["price"] or row["hot"]:
+            out.append(row)
+    return out
+
+
+class DrugResolver:
+    """An order line's drug code -> its ingredient (YJ stem) and ATC (STD-042, T-610).
+
+    In order: a YJ or 薬価基準-shaped code is its own stem (``yj``); a HOT13, HOT9 or HOT7 code, or a local code,
+    is looked up in the site's drug master and the master's YJ (else 薬価基準) code gives the stem (``master``). ATC:
+    the master row's own ATC, else the ingredient table's ATC for the stem. ``licensed_yj`` (the rows of the site's
+    licensed YJ release, ``adapter.licensed``) adds its HOT13 -> YJ pairs and its ATC to the master."""
+
+    def __init__(self, ingredients: dict[str, dict[str, str]] | None = None,
+                 master: Iterable[dict[str, str]] = (),
+                 licensed_yj: dict[str, dict[str, Any]] | None = None) -> None:  # fmt: skip
+        self.ingredients = ingredient_atc() if ingredients is None else ingredients
+        self.by_code: dict[str, dict[str, str]] = {}
+        for yj, lic in (licensed_yj or {}).items():
+            raw = lic.get("extra") or {}
+            extra: dict[str, Any] = json.loads(raw) if isinstance(raw, str) else dict(raw)
+            row = {"yj": norm_drug_code(yj), "hot": norm_drug_code(str(extra.get("hot13") or "")),
+                   "atc": norm_drug_code(lic.get("target_code") or ""), "name": lic.get("display") or ""}  # fmt: skip
+            self._index(row)
+        for row in master:  # the site's master is read last: its rows win
+            self._index(row)
+
+    def _index(self, row: dict[str, str]) -> None:
+        yj = row.get("yj") or row.get("price") or ""
+        if not _YJ.match(yj):
+            yj = ""
+        entry = {"yj": yj, "atc": row.get("atc") or "", "name": row.get("name") or ""}
+        hot = row.get("hot") or ""
+        keys = [row.get("local") or ""]
+        if _HOT.match(hot):
+            keys += [hot, hot[:9], hot[:7]] if len(hot) == 13 else [hot]
+        for k in keys:
+            if k and (k not in self.by_code or not self.by_code[k]["yj"]):
+                self.by_code[k] = entry
+
+    def resolve(self, code: str) -> dict[str, str]:
+        """``{code, stem, yj, atc, via}`` for one drug code; ``stem`` and ``via`` are empty when nothing resolves."""
+        c = norm_drug_code(code)
+        out = {"code": c, "stem": "", "yj": "", "atc": "", "via": ""}
+        if not c:
+            return out
+        row = self.by_code.get(c)
+        if _YJ.match(c):
+            out.update(stem=c[:7], yj=c, via="yj")
+        elif row is not None and row["yj"]:
+            out.update(stem=row["yj"][:7], yj=row["yj"], via="master")
+        atc = (row or {}).get("atc") or ""
+        if not _ATC5.match(atc):
+            atc = self.ingredients.get(out["stem"], {}).get("atc", "") if out["stem"] else ""
+        out["atc"] = atc
+        return out
+
+    def report(self, lines: Iterable[tuple[str, int]], top: int = 50) -> dict[str, Any]:
+        """Resolution of order lines ``(code, count)``: lines, the share that reach an ingredient and ATC, and the
+        codes that reach no ingredient, by volume (the steward's work list)."""
+        total = stems = atcs = 0
+        missed: dict[str, int] = {}
+        for code, n in lines:
+            r = self.resolve(code)
+            total += n
+            if r["stem"]:
+                stems += n
+            else:
+                missed[r["code"] or code] = missed.get(r["code"] or code, 0) + n
+            if r["atc"]:
+                atcs += n
+
+        def pct(k: int) -> float:
+            return round(100.0 * k / total, 2) if total else 0.0
+
+        worst = sorted(missed.items(), key=lambda kv: (-kv[1], kv[0]))[:top]
+        return {"lines": total, "ingredient": stems, "ingredient_pct": pct(stems), "atc": atcs, "atc_pct": pct(atcs),
+                "unresolved": [{"code": c, "lines": n} for c, n in worst]}  # fmt: skip
 
 
 # ------------------------------------------------------------------------------------------------ D-174 JLAC10

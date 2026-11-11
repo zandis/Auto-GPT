@@ -92,6 +92,7 @@ class Helpers:
     life_mail: Callable[[str, date], dict[str, Any]] | None = None
     life_sae: Callable[[str], list[dict[str, Any]]] | None = None  # one study's unacknowledged SAEs (the week page)
     life_reports: Callable[[str], list[dict[str, Any]]] | None = None  # one study's overdue SAE reports (P-03)
+    sae_sync: Callable[[str], None] | None = None  # set by console.sae_pages (D-277): the SAE register's write path
     # P-10 (D-143): one confirmation page before an action that is hard to take back
     confirm: Callable[..., Response] | None = None
     # D-146 (review J-03): the role and study scope rules of every page, applied to /api/v1 calls too
