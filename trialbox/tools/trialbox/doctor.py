@@ -342,6 +342,7 @@ def check_judge_route(inp: DoctorInputs) -> Check:
     from guard.guard import Guard
     from registry.registry import DEFAULT_PATH, Registry
     from tb_common.audit import AuditLog
+    from tb_common.config import environment_name
     from tb_common.llm import load_prompt, render
     from tb_contracts import inline_schema
     from tb_llm import GatewayClient, GatewayError, GatewayRefused, json_schema_format
@@ -373,7 +374,7 @@ def check_judge_route(inp: DoctorInputs) -> Check:
             return httpx.Response(res.status, json=res.body, headers=res.headers)
 
         http = httpx.Client(transport=httpx.MockTransport(gateway))
-        p = load_prompt("judge")
+        p = load_prompt("judge", environment_name(env))  # the version this box's environment serves (D-359)
         labels = v1_labels(
             p.meta.id,
             p.meta.version,

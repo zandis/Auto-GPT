@@ -76,6 +76,26 @@ def approval_pins(manifest: RulesetManifest) -> dict[str, Any]:
     return {"models": {**models, "judge_prompt": f"{pid}_v{pins[pid]['version']}"}, "prompt_pins": pins}
 
 
+def amendment_record(req: ApproveRequest, today: date) -> dict[str, Any]:
+    """D-364 (LIFE-009): when the approved version starts to screen and which IRB approval it rests on. The effective
+    date is the approver's; none given = in force from the approval (``review.approved_at``). It is never before the
+    approval day, so a version cannot reach back over lists already sent. The IRB number and date are a record printed
+    with the approval, not a gate (D-311): an empty one is allowed. A field of the version before is never carried
+    over: each version states its own record or none."""
+    out: dict[str, Any] = {"effective_from": None, "irb_reference": None, "irb_approved_on": None}
+    if req.effective_from is not None:
+        if req.effective_from < today:
+            raise CompileFailed("approve", f"the effective date {req.effective_from} is before the approval {today}")
+        out["effective_from"] = req.effective_from.isoformat()
+    if req.irb_reference and req.irb_reference.strip():
+        out["irb_reference"] = req.irb_reference.strip()
+    if req.irb_approved_on is not None:
+        if req.irb_approved_on > today:
+            raise CompileFailed("approve", f"the IRB approval date {req.irb_approved_on} is after today {today}")
+        out["irb_approved_on"] = req.irb_approved_on.isoformat()
+    return out
+
+
 def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", text)).strip().lower()
 
@@ -419,6 +439,8 @@ class Compiler:
         m.pop("review", None)
         m.pop("equivalence", None)
         m.pop("prompt_pins", None)  # pinned again at approval (D-318)
+        for k in ("effective_from", "irb_reference", "irb_approved_on"):  # each version's own record (D-364)
+            m.pop(k, None)
         return RulesetManifest.model_validate(m)
 
     def _package(
@@ -486,7 +508,8 @@ class Compiler:
         guard_hit = False
         criteria_new: list[CriterionIR] = []
         valuesets: dict[str, dict[str, Any]] = dict(approved.valuesets) if approved else {}
-        warnings: list[str] = []
+        # the parser's warnings (hidden text, a planted instruction, masked contact lines; T-208, T-606): to the review
+        warnings: list[str] = list(parsed.warnings or [])
         if todo:
             extracted, guard = self._extract(req.job_id, ruleset, parsed.language, todo)
             guard_hit = guard.hit
@@ -787,6 +810,7 @@ class Compiler:
             {
                 **dump(manifest),
                 **approval_pins(manifest),
+                **amendment_record(req, now.date()),
                 "status": "approved",
                 "review": {
                     "approved_by": req.by,
@@ -825,7 +849,12 @@ class Compiler:
             ruleset=req.ruleset,
             ruleset_version=req.version,
             actor=req.by,
-            detail={"tag": tag, "rounds": round_no},
+            detail={
+                "tag": tag,
+                "rounds": round_no,
+                "effective_from": str(manifest.effective_from or ""),
+                "irb_reference": manifest.irb_reference or "",
+            },
         )
         return ApproveResult(
             ruleset=req.ruleset,

@@ -1,4 +1,5 @@
-"""guard-service v0 HTTP surface: ``POST /v1/scan`` (tripwire verdict) and ``POST /v1/redact``.
+"""guard-service v0 HTTP surface: ``POST /v1/scan`` (tripwire verdict), ``POST /v1/redact`` and ``POST /v1/screen``
+(the planted-instruction screen, T-606).
 
 Responses carry kinds, counts and offsets only, never the matched text.
 """
@@ -30,6 +31,16 @@ def create_app(guard: Guard | None = None) -> FastAPI:
             "kinds": list(v.kinds),
             "count": v.count,
             "spans": [{"kind": f.kind, "start": f.start, "end": f.end} for f in v.findings],
+        }
+
+    @app.post("/v1/screen")
+    def screen(body: TextIn) -> dict[str, Any]:
+        v = g.screen(body.text)
+        return {
+            "hit": v.hit,
+            "kinds": list(v.kinds),
+            "count": v.count,
+            "spans": [{"kind": f.kind, "start": f.start, "end": f.end} for f in v.spans],
         }
 
     @app.post("/v1/redact")

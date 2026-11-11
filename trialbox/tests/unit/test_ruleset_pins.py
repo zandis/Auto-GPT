@@ -122,3 +122,40 @@ def test_a_manifest_from_before_the_pins_reads_its_version_only() -> None:
     assert pinned_judge(Ruleset(m, [], {})) == "judge_v4"
     assert manifest_pins(_manifest()) == {}
     assert pinned_judge(Ruleset(_manifest(), [], {})) == "judge"
+
+
+def test_a_newer_version_waiting_for_its_qualification_leaves_the_study_approved(tmp_path: Path) -> None:
+    """D-359: an unqualified candidate does not send the approved study back; its qualification record does."""
+    import json
+
+    from tb_llm.prompt_registry import QUALIFICATION_DIR
+
+    def qualified(versions: list[int]) -> PromptRegistry:
+        reg = _registry(tmp_path, [1, 2])
+        rows = []
+        for e in reg.entries():
+            row = {
+                "id": e.id,
+                "version": e.version,
+                "file": f"judge_v{e.version}.md",
+                "sha256": e.sha256,
+                "approved_by": "synthetic test",
+                "date": "2026-11-10",
+                "qualification": None,
+            }
+            if e.version in versions:
+                rec = tmp_path / QUALIFICATION_DIR / f"judge_v{e.version}.json"
+                rec.parent.mkdir(parents=True, exist_ok=True)
+                rec.write_text(json.dumps({"prompt": e.ref, "sha256": e.sha256, "schema_sha256": e.schema_sha256}))
+                row["qualification"] = {
+                    "record": f"{QUALIFICATION_DIR}/{rec.name}",
+                    "sha256": sha256_bytes(rec.read_bytes()),
+                }
+            rows.append(row)
+        return PromptRegistry({"version": "t", "prompts": rows}, tmp_path, root=tmp_path)
+
+    reg = qualified([1])
+    m = _manifest(prompt_pins={"judge": {"version": 1, "sha256": reg.entry("judge", 1).sha256}})
+    assert reg.pin_drift(manifest_pins(m)) == []
+    drift = qualified([1, 2]).pin_drift(manifest_pins(m))
+    assert drift == [{"id": "judge", "pinned": "judge@1", "active": "judge@2", "state": "newer"}]

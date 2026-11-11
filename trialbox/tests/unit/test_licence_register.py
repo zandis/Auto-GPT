@@ -130,14 +130,15 @@ def test_a_shipped_snomed_code_fails_the_build(tmp_path: Path) -> None:
 
 
 def test_the_snomed_remnants_are_gone() -> None:
-    """STD-044 (3): the MIMIC ICU map, the OMOP operator concepts and the TWPAS route code held SNOMED CT."""
+    """STD-044 (3): the MIMIC ICU map and the OMOP operator concepts held SNOMED CT. The TWPAS route is the one
+    SNOMED CT code the box writes, because the IG's required value set has no other oral code (D-376, amends D-342)."""
     from omop import vocab
 
     assert not (ROOT / "services/adapter/mapping/mimic/tables/icu_item_to_snomed.csv").exists()
     assert all(c[3] != "SNOMED" for c in vocab.STANDARD)
     assert {vocab.OPERATOR[k] for k in ("<", "<=", "=", ">", ">=")} == {4171756, 4171754, 4172703, 4172704, 4171755}
     src = (ROOT / "services/orchestrator/reports/twpas_bundle.py").read_text(encoding="utf-8")
-    assert "snomed.info" not in src and "26643006" not in src
+    assert src.count("snomed.info") == 1 and "Oral route" not in src  # the one route code, no SNOMED CT description
 
 
 # ------------------------------------------------------------------------------------------------ model rows
