@@ -1,5 +1,5 @@
-# ingest_fhir_demo: MIMIC-IV Clinical Database Demo on FHIR v2.1.0 through services/dataplat L0-L5 (spec v4 S1-04,
-# S1-13, VV-12). The data is fetched at run time by tools/fetch_open_data.py into .cache/open_data (ODbL; never
+# ingest_fhir_demo: MIMIC-IV Clinical Database Demo on FHIR v2.1.0 through services/adapter, the one ingest path
+# (D-370, T-659b; spec v4 S1-04, S1-13, VV-12). The data is fetched at run time by tools/fetch_open_data.py into .cache/open_data (ODbL; never
 # committed). The suite skips cleanly when the data is not fetched.
 suite: ingest_fhir_demo
 version: 1

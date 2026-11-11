@@ -18,6 +18,7 @@ no record-level page (403), a CRO account and an account scoped to another study
 from __future__ import annotations
 
 import base64
+import contextlib
 import re
 from typing import Any
 from urllib.parse import quote, urlencode
@@ -162,6 +163,11 @@ def register(app: FastAPI, h: Helpers) -> None:
                   detail={"form": form, "event": ev, "changed": out.get("changed", 0)})  # fmt: skip
         if form == "tb_adverse_event" and h.sae_sync is not None:
             h.sae_sync(rid)  # D-277 (CR-012): the SAE register is written on the write path, never on a page view
+        if out.get("life"):  # T-516 (UX-011): a lifecycle form moved the participant; the screening log follows now,
+            with contextlib.suppress(Problem, Unavailable):  # with the screening numbers the console issued
+                s28.call(
+                    bk, "POST", f"/studies/{rid}/subjects/refresh", {"screening": issued(rid), "by": h.actor(sess)}
+                )
         return out
 
     def read_export(sess: Session, rs: str, fmt: str) -> tuple[str, str, bytes]:

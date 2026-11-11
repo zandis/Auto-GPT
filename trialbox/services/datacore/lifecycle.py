@@ -10,9 +10,11 @@ the trail keeps both).
 done (``vs_status`` 1) and withdrawal (``wd_date``, ``wd_reason``). A step that the answers imply but no form records
 (a visit done means the subject was enrolled) is taken too and says so (``implied``). Second, the screening log's
 status (the candidate registry, which the REDCap read-back also feeds): for a sponsor study the sponsor's CRF holds
-consent and enrolment, TrialBox does not, and the state still follows. Third, a person's step on the subject page or
-through ``/api/v1``. Derivation never moves a subject backwards and never past an end state: what does not fit is
-reported (``held``), not forced.
+consent and enrolment, TrialBox does not, and the state still follows (labelled ``implied by screening_log``).
+Consent is never implied by a TrialBox form (T-516, LIFE-019): an enrolment or a visit without a consent form holds
+the subject before ``consented`` (``held`` with ``consent_missing``) until the consent form is saved. Third, a
+person's step on the subject page or through ``/api/v1``. Derivation never moves a subject backwards and never past
+an end state: what does not fit is reported (``held``), not forced.
 
 **Every change** is a row in ``subject_step`` (old, new, the day it happened, reason, note, who, when, source); the
 callers add the audit record.
@@ -482,6 +484,17 @@ class Lifecycle:
                 out[want] = {"day": "", "source": "screening_log", "reason": reason, "note": ""}
         return out
 
+    def consent_missing(self, study: str, record: str, state: str) -> str:
+        """T-516 (LIFE-019): the form that shows enrolment or a visit while no consent form exists and the subject is
+        not yet consented, else "". The subject page and the participants list raise it as an alert."""
+        if state not in LINE or LINE.index(state) >= LINE.index("consented"):
+            return ""
+        ev = self.evidence(study, record)
+        if "consented" in ev:
+            return ""
+        later = [ev[s] for s in LINE[LINE.index("consented") + 1 :] if s in ev]
+        return next((str(e["source"]) for e in later if str(e["source"]).startswith("form:")), "")
+
     def derive(self, study: str, record: str, *, by: str, at: str, registry: str | None = None,
                schedule: list[Visit] | None = None) -> dict[str, Any]:  # fmt: skip
         """Walk the subject forward to what the answers say; never backwards, never past an end state.
@@ -507,6 +520,11 @@ class Lifecycle:
                 implied = e is None
                 by_ev = next(ev[x] for x in LINE[i : line_target + 1] if x in ev)  # the nearest later evidence
                 src = by_ev["source"]
+                if implied and s == "consented" and src.startswith("form:"):
+                    # T-516 (LIFE-019, D-385): a TrialBox form never implies consent. The study records consent here,
+                    # so an enrolment or a visit without a consent form holds the subject and says why
+                    held.append({"state": "consented", "why": "consent_missing", "current": state, "source": src})
+                    break
                 d = day_for(s, by_ev["day"] or today)
                 note = (f"implied by {src}" if implied else (e or {}).get("note", ""))[:300]
                 self._move(study, record, state, s, d, (e or {}).get("reason", ""), note, by, at, src)
