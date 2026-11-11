@@ -28,6 +28,7 @@ ALLOWED = {
     "tools/cgmh_demo.py": "test harness: the synthetic Taiwan rheumatology site's settings (T-504)",
     "tools/build_scenario_ruleset.py": "build tool: the synthetic Taiwan rheumatology site (T-504)",
     "tools/testbench/e2e_adapter.py": "test harness: the synthetic Taiwan demo site",
+    "tools/ingest_local.py": "local ingest harness: the synthetic Taiwan demo CSV site (T-659b)",
     # owned by open fix groups (worker rules): their defaults go when those groups close (T-656 Remains)
     "libs/tb_common/audit.py": "AuditLog default zone; fix-group file",
     "services/adapter/pipeline.py": "AdapterConfig default zone; fix-group file",
