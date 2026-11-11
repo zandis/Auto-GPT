@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{# D-280 (owner decision OD-5): the administrator's break-glass grants, the steward's review list, the PI's view. #}
+{% block title %}{{ t('bg.title') }}{% endblock %}
+{% block content %}
+<h1>{{ t('bg.title') }}</h1>
+{% if mode == 'admin' %}<p>{{ t('bg.help.admin', minutes=minutes) }}</p>
+{% elif mode == 'steward' %}<p>{{ t('bg.help.steward', days=review_days) }}</p>
+{% else %}<p>{{ t('bg.help.pi') }}</p>{% endif %}
+{% if done %}<p class="notice" role="status" data-testid="bg-done">{{ t('bg.done.' + done) }}</p>{% endif %}
+{% if err %}<p class="error" role="alert" data-testid="bg-err">{{ t(err) }}</p>{% endif %}
+{% if mode == 'admin' %}
+{% for g in active %}
+<section class="card" data-testid="bg-active" data-grant="{{ g.id }}">
+<h2>{{ t('bg.active') }}</h2>
+<p>#{{ g.id }} · {{ t('bg.reason.' + g.reason) }} · {% if g.kind == 'patient' %}{{ g.ruleset }} · <span class="mono">{{ g.pid[:8] }}</span>{% else %}{{ t('bg.kind.job') }} <span class="mono">{{ g.job_id }}</span>{% endif %} · {{ t('bg.until', t=g.ends_at|local(16)) }}</p>
+<p>{% if g.kind == 'patient' %}<a class="button secondary" href="/studies/{{ g.ruleset }}/patients/{{ g.pid }}" data-testid="bg-go">{{ t('bg.go') }}</a>{% else %}<a class="button secondary" href="/pilot/jobs/{{ g.job_id }}" data-testid="bg-go">{{ t('bg.go') }}</a>{% endif %}</p>
+<form method="post" action="/breakglass/{{ g.id }}/end" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="secondary" data-testid="bg-end">{{ t('bg.end') }}</button></form>
+</section>
+{% endfor %}
+<section class="card" aria-labelledby="bg-open-h">
+<h2 id="bg-open-h">{{ t('bg.open') }}</h2>
+<form method="post" action="/breakglass" class="formstack" data-testid="bg-form">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="bg-reason">{{ t('bg.reason') }}</label>
+<select id="bg-reason" name="reason" required><option value="">{{ t('mark.reason.choose') }}</option>{% for k in reasons %}<option value="{{ k }}">{{ t('bg.reason.' + k) }}</option>{% endfor %}</select>
+<label for="bg-note">{{ t('bg.note', n=note_min) }}</label>
+<input id="bg-note" name="note" required minlength="{{ note_min }}" maxlength="300">
+<fieldset><legend>{{ t('bg.kind') }}</legend>
+<label class="inline"><input type="radio" name="kind" value="patient" required> {{ t('bg.kind.patient') }}</label>
+<label class="inline"><input type="radio" name="kind" value="job"> {{ t('bg.kind.job') }}</label></fieldset>
+<label for="bg-rs">{{ t('bg.study') }}</label><input id="bg-rs" name="ruleset" maxlength="32">
+<label for="bg-pid">{{ t('bg.pid') }}</label><input id="bg-pid" name="pid" maxlength="64" class="mono">
+<label for="bg-job">{{ t('bg.job') }}</label><input id="bg-job" name="job_id" maxlength="64" class="mono">
+<button type="submit" data-testid="bg-submit">{{ t('bg.submit', minutes=minutes) }}</button>
+</form>
+</section>
+{% endif %}
+<section class="card" aria-labelledby="bg-list-h">
+<h2 id="bg-list-h">{{ t('bg.list') }}</h2>
+{% if grants %}
+<div class="scroll" tabindex="0"><table data-testid="bg-list">
+<thead><tr><th scope="col">{{ t('bg.col.opened') }}</th><th scope="col">{{ t('bg.col.who') }}</th><th scope="col">{{ t('bg.reason') }}</th><th scope="col">{{ t('bg.col.what') }}</th><th scope="col">{{ t('bg.col.uses') }}</th><th scope="col">{{ t('bg.col.state') }}</th></tr></thead>
+<tbody>{% for g in grants %}<tr data-grant="{{ g.id }}" data-reviewed="{{ 'yes' if g.reviewed_at else 'no' }}">
+<td>#{{ g.id }} · {{ g.opened_at|local(16) }}</td>
+<td>{{ g.username }}</td>
+<td>{{ t('bg.reason.' + g.reason) }}<br><span class="hint">{{ g.note }}</span></td>
+<td>{% if g.kind == 'patient' %}{{ g.ruleset }} · <span class="mono">{{ g.pid[:8] }}</span>{% else %}{{ t('bg.kind.job') }} <span class="mono">{{ g.job_id[-8:] }}</span>{% endif %}</td>
+<td>{{ g.uses }}</td>
+<td>{% if g.active(now) %}{{ t('bg.state.open') }} · {{ t('bg.until', t=g.ends_at|local(16)) }}{% elif g.reviewed_at %}{{ t('bg.state.reviewed', who=g.reviewed_by) }}{% if g.review_note %}<br><span class="hint">{{ g.review_note }}</span>{% endif %}{% elif g.overdue(now) %}<span class="pill warn" data-testid="bg-overdue">{{ t('bg.state.overdue') }}</span>{% else %}<span data-testid="bg-waiting">{{ t('bg.state.waiting') }}</span>{% endif %}
+{% if mode == 'steward' and not g.reviewed_at and not g.active(now) %}<form method="post" action="/breakglass/{{ g.id }}/review" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="note" maxlength="300" aria-label="{{ t('bg.review.note') }}" placeholder="{{ t('bg.review.note') }}"><button type="submit" class="small secondary" data-testid="bg-review">{{ t('bg.review') }}</button></form>{% endif %}</td>
+</tr>{% endfor %}</tbody>
+</table></div>
+{% else %}<p>{{ t('bg.none') }}</p>{% endif %}
+</section>
+{% endblock %}
