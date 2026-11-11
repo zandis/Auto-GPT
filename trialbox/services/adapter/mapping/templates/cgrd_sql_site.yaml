@@ -3,6 +3,11 @@
 # 2. For every table: set `source` (table or view name), `rename` local -> canonical columns (CANONICAL.md),
 #    `values` local -> canonical codes. `source` may name a view the DBA creates for TrialBox (read-only account).
 # 3. Copy lab_local_to_loinc.csv next to it and replace the local lab codes (local_code -> LOINC).
+#    The lab table must map the result's own unit column to `unit` (`UNIT: unit` below): every lab row is checked
+#    against the lookup's unit (R-31, D-215) and a row in another unit has no value (`unit_mismatch`). When the
+#    site reports an analyte in another unit, set the lookup's `source_unit` and `factor` (mapping_check proposes
+#    the factor) and, if the lookup's `ucum` changes, the matching `unit_defaults` line (D-149, D-334; inherited
+#    from tw_core/demo_his.yaml until this file declares its own).
 # 4. python tools/mapping_check.py --mapping <file> --source cgrd_sql --dsn "$HIS_DSN"
 # 5. settings.yaml: data_source: {type: cgrd_sql, dsn_env: HIS_DSN, mapping: mapping/tw_core/<site>.yaml}
 # `delta: updated_at` is the row's change time (`--since` nights); map the column that changes on every edit.
