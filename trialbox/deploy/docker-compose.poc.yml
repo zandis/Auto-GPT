@@ -64,6 +64,7 @@ services:
   mail-gateway:
     environment:
       TB_MAIL_POLL_SECONDS: "${TB_MAIL_POLL_SECONDS:-5}"
+      TB_ENV: "${TB_ENV:-TEST}"  # synthetic data only: the settings' zip mode may still mail patient files (D-369)
 
 volumes:
   console-data:

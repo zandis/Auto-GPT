@@ -39,12 +39,12 @@
 <fieldset><legend>{{ t('team.ref.who') }}</legend>
 {% if doctor.known %}<label><input type="radio" name="route" value="suggested" checked data-testid="route-suggested"> {{ t('team.ref.confirm', name=doctor.name) }}</label>{% endif %}
 <label><input type="radio" name="route" value="directory" data-testid="route-directory"> {{ t('team.route.directory') }}</label>
-<select name="staff_id" aria-label="{{ t('team.route.directory') }}" data-testid="staff-pick"><option value="">{{ t('mark.reason.choose') }}</option>{% for s in staff %}<option value="{{ s.id }}">{{ s.name }}{% if s.department %} · {{ s.department }}{% endif %}</option>{% endfor %}</select>
+<select name="staff_id" aria-label="{{ t('team.route.directory') }}" data-testid="staff-pick"><option value="">{{ t('team.ref.choose_doctor') }}</option>{% for s in staff %}<option value="{{ s.id }}">{{ s.name }}{% if s.department %} · {{ s.department }}{% endif %}</option>{% endfor %}</select>
 <label><input type="radio" name="route" value="typed" data-testid="route-typed"> {{ t('team.route.typed') }}</label>
 <label for="ref-name">{{ t('team.ref.name') }}</label><input id="ref-name" name="name" maxlength="120" data-testid="ref-name">
 <label><input type="radio" name="route" value="outside" data-testid="route-outside"> {{ t('team.route.outside') }}</label>
 <label><input type="radio" name="route" value="department"{% if not doctor.known %} checked{% endif %} data-testid="route-department"> {{ t('team.route.department') }}</label>
-<select name="department" aria-label="{{ t('team.route.department') }}" data-testid="dept-pick"><option value="">{{ row.department or '' }}</option>{% for c in contacts %}<option value="{{ c.department }}">{{ c.department }} · {{ c.name }}</option>{% endfor %}</select>
+<select name="department" aria-label="{{ t('team.route.department') }}" data-testid="dept-pick"><option value="">{{ row.department or t('team.ref.choose_department') }}</option>{% for c in contacts %}<option value="{{ c.department }}">{{ c.department }} · {{ c.name }}</option>{% endfor %}</select>
 </fieldset>
 <p class="hint">{{ t('team.ref.never_stalls') }}</p>
 {% if mark and mark.mark == 'approach' %}<p class="warn" data-testid="referral-pauses">{{ t('team.ref.pauses') }}</p>{% endif %}
