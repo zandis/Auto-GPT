@@ -16,6 +16,10 @@ Which rows reach which table is the flattener's rule, written on the record stat
 and the suspected diagnoses (D-135, D-142); a proposed fact never reaches a coded table; a ``rejected``,
 ``superseded`` or ``tombstoned`` record reaches none. Rows come out in the order the flattener gives (the hospital
 feed first, then the site's inputs, each in file order), so even order-sensitive readers see the same lake.
+
+A record's lake table is its resource type's, wherever OMOP put it: a condition, lab or procedure the loader routed
+to OBSERVATION by its concept's domain (T-106b, STD-031) is read back from there. The row provenance columns
+(DATA-010) come from the record's ``extra``, as the other FHIR fields OMOP has no column for.
 """
 
 from __future__ import annotations
@@ -25,7 +29,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from lake.flatten import DEMOGRAPHIC, SCHEMAS, sex_of
+from lake.flatten import DEMOGRAPHIC, PROVENANCE_COLS, SCHEMAS, sex_of
 from tb_common.db import Database
 
 from omop import vocab
@@ -68,6 +72,11 @@ def _apply(table: str, row: Row, extra: dict[str, Any]) -> Row:
     return {c: row.get(c) for c in _TYPES[table]}
 
 
+def _prov(extra: dict[str, Any]) -> Row:
+    """The provenance columns a record keeps in ``extra`` (none: all None)."""
+    return {c: _typed("site_fact", c, extra.get(c)) for c in PROVENANCE_COLS}
+
+
 def _basis(basis: str | None, status: str) -> str | None:
     """The basis a site fact is listed with: the source's tag, moved on by a person's confirm / sign (D-135)."""
     if basis is None:
@@ -104,16 +113,17 @@ def _export(tx: Any) -> dict[str, list[Row]]:
 
     # -- patient: the merged sources, an item in open conflict unknown
     for r in tx.fetchdicts(
-        "SELECT p.person_id, p.birth_datetime, p.gender_source_value, d.death_date FROM person p "
-        "LEFT JOIN death d USING (person_id) JOIN LATERAL (SELECT (r.source_kind = 'site') AS s, r.source_row "
-        "FROM tb_record r WHERE r.cdm_table = 'person' AND r.record_id = p.person_id AND r.status <> 'tombstoned' "
-        "ORDER BY 1, 2 LIMIT 1) o ON true ORDER BY o.s, o.source_row"
+        "SELECT p.person_id, p.birth_datetime, p.gender_source_value, d.death_date, o.extra FROM person p "
+        "LEFT JOIN death d USING (person_id) JOIN LATERAL (SELECT (r.source_kind = 'site') AS s, r.source_row, "
+        "r.extra FROM tb_record r WHERE r.cdm_table = 'person' AND r.record_id = p.person_id "
+        "AND r.status <> 'tombstoned' ORDER BY 1, 2 LIMIT 1) o ON true ORDER BY o.s, o.source_row"
     ):
         row = {
             "pid": person[r["person_id"]],
             "birth_date": _day(r["birth_datetime"]),
             "sex": sex_of(r["gender_source_value"]),
             "deceased_date": r["death_date"],
+            **_prov(r["extra"]),  # the first record's (the hospital's), as the flattener's merge keeps
         }
         for item in ("birth_date", "sex", "deceased_date"):
             got = conflicts.get((r["person_id"], item))
@@ -128,7 +138,8 @@ def _export(tx: Any) -> dict[str, list[Row]]:
     # -- encounter
     for r in tx.fetchdicts(
         "SELECT r.source_record_id, r.extra, v.person_id, v.visit_start_datetime, v.care_site_id, v.provider_id, "
-        f"v.visit_source_value FROM tb_record r JOIN visit_occurrence v ON v.visit_occurrence_id = r.record_id "
+        "v.visit_source_value, v.visit_end_datetime FROM tb_record r JOIN visit_occurrence v "
+        "ON v.visit_occurrence_id = r.record_id "
         f"WHERE r.cdm_table = 'visit_occurrence' AND {LIVE} AND r.status <> 'rejected' {ORDER}"
     ):
         out["encounter"].append(
@@ -141,6 +152,7 @@ def _export(tx: Any) -> dict[str, list[Row]]:
                     "dept": site.get(r["care_site_id"]),
                     "practitioner_id": provider.get(r["provider_id"]),
                     "class": r["visit_source_value"],
+                    "end": r["visit_end_datetime"],
                 },
                 r["extra"],
             )
@@ -169,9 +181,14 @@ def _export(tx: Any) -> dict[str, list[Row]]:
     for r in tx.fetchdicts(
         "SELECT r.source_record_id, r.extra, r.status, r.basis, c.person_id, c.condition_source_value, "
         "c.condition_source_concept_id, c.condition_start_datetime, c.condition_status_source_value, "
-        "c.condition_status_concept_id, vr.source_record_id AS eid FROM tb_record r JOIN condition_occurrence c "
-        "ON c.condition_occurrence_id = r.record_id LEFT JOIN tb_record vr ON vr.cdm_table = 'visit_occurrence' "
-        f"AND vr.record_id = c.visit_occurrence_id WHERE r.cdm_table = 'condition_occurrence' AND {LIVE} "
+        "c.condition_status_concept_id, vr.source_record_id AS eid FROM tb_record r JOIN (SELECT "
+        "condition_occurrence_id AS rid, person_id, condition_source_value, condition_source_concept_id, "
+        "condition_start_datetime, condition_status_source_value, condition_status_concept_id, visit_occurrence_id "
+        "FROM condition_occurrence UNION ALL SELECT observation_id, person_id, observation_source_value, "
+        "observation_source_concept_id, observation_datetime, qualifier_source_value, qualifier_concept_id, "
+        "visit_occurrence_id FROM observation) c ON c.rid = r.record_id LEFT JOIN tb_record vr "
+        "ON vr.cdm_table = 'visit_occurrence' AND vr.record_id = c.visit_occurrence_id WHERE r.resource_type = "
+        f"'Condition' AND r.cdm_table IN ('condition_occurrence', 'observation') AND {LIVE} "
         f"AND r.status <> 'rejected' {ORDER}"
     ):
         onset = _day(r["condition_start_datetime"])
@@ -200,6 +217,7 @@ def _export(tx: Any) -> dict[str, list[Row]]:
             "value_num": None,
             "unit": None,
             "value_text": None,
+            **_prov(r["extra"]),
         }
         if r["condition_status_concept_id"] == vocab.SUSPECTED and b != "proposed":
             facts["Condition"].append({**fact, "basis": "suspected"})  # D-142: listed, never coded
@@ -217,8 +235,9 @@ def _export(tx: Any) -> dict[str, list[Row]]:
         f"ON m.measurement_id = r.record_id WHERE r.cdm_table = 'measurement' AND {LIVE} AND r.status <> 'rejected' "
         "UNION ALL SELECT r.source_record_id, r.part, r.extra, r.status, r.basis, r.source_kind, r.source_row, "
         "o.person_id, o.observation_source_value, o.observation_source_concept_id, o.observation_datetime, "
-        "o.value_as_number, o.unit_source_value, o.value_as_concept_id, NULL, o.value_source_value, true "
-        "FROM tb_record r JOIN observation o ON o.observation_id = r.record_id WHERE r.cdm_table = 'observation' "
+        "o.value_as_number, o.unit_source_value, o.value_as_concept_id, NULL, o.value_source_value, "
+        "coalesce((r.extra->>'demographic')::boolean, false) FROM tb_record r JOIN observation o "
+        "ON o.observation_id = r.record_id WHERE r.cdm_table = 'observation' AND r.resource_type = 'Observation' "
         f"AND {LIVE} AND r.status <> 'rejected' ORDER BY 6, 7, 2"
     )
     for r in obs_rows:
@@ -262,6 +281,7 @@ def _export(tx: Any) -> dict[str, list[Row]]:
                     "unit": row["unit"],
                     "value_text": text,
                     "basis": b or "coded",
+                    **_prov(r["extra"]),
                 }
             )
         if r["status"] in COUNTED and not demographic:
@@ -307,6 +327,7 @@ def _export(tx: Any) -> dict[str, list[Row]]:
                     "unit": None,
                     "value_text": row["name"],
                     "basis": b,
+                    **_prov(x),
                 }
             )
         if r["status"] in COUNTED:
@@ -314,8 +335,11 @@ def _export(tx: Any) -> dict[str, list[Row]]:
     # -- procedure
     for r in tx.fetchdicts(
         "SELECT r.source_record_id, r.extra, p.person_id, p.procedure_source_value, p.procedure_source_concept_id, "
-        "p.procedure_datetime FROM tb_record r JOIN procedure_occurrence p ON p.procedure_occurrence_id = "
-        f"r.record_id WHERE r.cdm_table = 'procedure_occurrence' AND {LIVE} AND r.status <> 'rejected' {ORDER}"
+        "p.procedure_datetime FROM tb_record r JOIN (SELECT procedure_occurrence_id AS rid, person_id, "
+        "procedure_source_value, procedure_source_concept_id, procedure_datetime FROM procedure_occurrence UNION ALL "
+        "SELECT observation_id, person_id, observation_source_value, observation_source_concept_id, "
+        "observation_datetime FROM observation) p ON p.rid = r.record_id WHERE r.resource_type = 'Procedure' "
+        f"AND r.cdm_table IN ('procedure_occurrence', 'observation') AND {LIVE} AND r.status <> 'rejected' {ORDER}"
     ):
         out["procedure"].append(
             _apply(

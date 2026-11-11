@@ -351,7 +351,8 @@ def _run_ingest(
             at["step"] = "delta check"
             check_delta(mapping, source_kind)
             at["step"] = "read"
-        mapper = Mapper(mapping, key, cfg.site_id)
+        # T-106b (DATA-010): every resource carries its source row, mapping version and the night it was ingested
+        mapper = Mapper(mapping, key, cfg.site_id, ingest_instant(snap, mapping.tz))
         fhir_profiles = mapping.fhir_profiles
         source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)
         for res in mapper.static_resources():
@@ -757,6 +758,13 @@ REFUSALS = ("RebuildError", "OmopError", "RebuildRefused")
 
 class RebuildRefused(RuntimeError):
     """The lake service answered 409: it refused the snapshot (the detail says why)."""
+
+
+def ingest_instant(snap: str, zone: Any) -> str:
+    """The night ``snap`` as a FHIR instant (midnight in the source's zone): a row's ``meta.lastUpdated``. The same
+    night ingested twice stamps the same instant, so its NDJSON stays byte for byte the same."""
+    d = date.fromisoformat(snap[:10])
+    return datetime(d.year, d.month, d.day, tzinfo=zone).isoformat()
 
 
 def _current(lake_dir: Path) -> str | None:

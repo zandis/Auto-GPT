@@ -43,7 +43,7 @@ PYPROJECT = ROOT / "pyproject.toml"
 IMAGES_LOCK = ROOT / "deploy" / "images.lock"
 FORMAT = "trialbox-release/1"
 TAG_PREFIX = "trialbox-v"
-KINDS = ("model", "ruleset", "image", "refdata", "other")
+KINDS = ("model", "ruleset", "image", "refdata", "other", "host")
 # what the bundle carries next to the image SBOMs (tools/supply_chain release-gates writes them in the SBOM folder)
 SBOM_EXTRAS = ("requirements.lock.cdx.json", "licences.md", "index.json")
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")

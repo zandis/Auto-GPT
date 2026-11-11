@@ -44,6 +44,8 @@ class Reason(StrEnum):
     UNKNOWN_VALUE = "unknown_value"  # a lab result that is not a readable number ("see note", 陰性; D-142, D-215)
     ORDER_DATES_MISSING = "order_dates_missing"  # a medicine order with no end date, or no date at all (D-275)
     RULES_CHANGED = "rules_changed"  # an approved answer the current safety rules do not confirm (D-275)
+    # the model's quote is a sentence written as an instruction to a model (the guard's screen, T-606, D-359)
+    PLANTED_INSTRUCTION = "planted_instruction"
 
 
 CODES = frozenset(r.value for r in Reason)
@@ -184,6 +186,11 @@ LABELS: dict[str, dict[str, str]] = {
         "en": "the approved check and the current safety rules give different answers: please check",
         "ja": "承認済みの判定と現在の安全ルールの結果が異なる：確認してください",
         "zh-TW": "已核准的判定與目前的安全規則結果不同：請確認",
+    },
+    "planted_instruction": {
+        "en": "the model quoted a sentence written as an instruction to it, not a finding: please check the note",
+        "ja": "モデルへの指示のような文を根拠として引用：所見ではないため、記録を確認してください",
+        "zh-TW": "模型引用了像是給它的指令的句子，而非臨床發現：請確認病歷",
     },
 }
 

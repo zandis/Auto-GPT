@@ -62,6 +62,7 @@ def test_master_registry_holds_the_agreed_rows() -> None:
     assert rows[(273, 273)].state == "merged" and "D-273" in rows[(273, 273)].holder  # fix group D-273, a file
     assert rows[(274, 274)].state == "merged" and "T-117b" in rows[(274, 274)].holder  # D-274 with card T-117b, a file
     assert rows[(277, 277)].state == "merged" and "T-602" in rows[(277, 277)].holder  # D-277, the SAE clock
+    assert rows[(364, 364)].state == "merged" and "T-621" in rows[(364, 364)].holder  # D-364, amendment handling
     assert rows[(278, 278)].state == "reserved"  # the rest of the fix groups
     assert rows[(275, 275)].state == "merged"  # D-275 (fix group FG-F)
     assert rows[(276, 276)].state == "merged" and "PR #101" in rows[(276, 276)].holder  # D-276, the two-model check
@@ -83,7 +84,12 @@ def test_master_registry_holds_the_agreed_rows() -> None:
 def test_index_prints_every_number(capsys: pytest.CaptureFixture[str]) -> None:
     assert di.main([]) == 0
     out = capsys.readouterr().out
-    assert "| D-201 | merged | T-003 |" in out and "| D-302 | reserved |" in out and "| D-99 | missing |" in out
+    assert (
+        "| D-201 | merged | T-003 |" in out
+        and "| D-302 | unused |" in out
+        and "| D-366 | merged | T-102a |" in out
+        and "| D-99 | missing |" in out
+    )
 
 
 def test_two_files_in_different_ranges_pass(tmp_path: Path) -> None:
