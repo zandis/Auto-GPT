@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "be80e5a12dae221208e82de578d818e6dac47612",
+  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-616 (D-400): patient.deceased column, lake schema 4, base cohort leaves out a deceased patient with no date",
+  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
   "ref_date": "2026-11-01",
   "ruleset": "RA-BIO",
   "ruleset_version": "1.0.0",
@@ -475,7 +475,7 @@
     "f98d30f6a9ffe6bfb42a2bc7e5707416"
    ],
    "candidates": 66,
-   "outcomes_sha": "4c6167aaf7e5187d9c41c6c7a020f6a6eb7b43af202a690bb7f5afa9a5922762",
+   "outcomes_sha": "6c83d7c401778c7b01d2f4ad750ab757c0c1bcfd209ed58d1b2c17f148fea62d",
    "patients": 2500,
    "structured_criteria": [
     "RA-BIO-INC-01",
@@ -549,9 +549,9 @@
      "unknown": 0
     },
     "RA-BIO-INC-01": {
-     "met": 2417,
+     "met": 2413,
      "not_met": 79,
-     "unknown": 4
+     "unknown": 8
     },
     "RA-BIO-INC-02": {
      "met": 518,

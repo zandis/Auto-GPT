@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "be80e5a12dae221208e82de578d818e6dac47612",
+  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-616 (D-400): patient.deceased column, lake schema 4, base cohort leaves out a deceased patient with no date",
+  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
   "ref_date": "2026-11-01",
   "ruleset": "ONC-OSI",
   "ruleset_version": "1.0.0",
@@ -286,7 +286,7 @@
     "ff2d14c2149040c52d6c9654709d8405"
    ],
    "candidates": 49,
-   "outcomes_sha": "ef40149ee09a52ab24d68caad91ea74032cb2897de0dc136b68b86c5ed8b90c5",
+   "outcomes_sha": "c08bd9e127a849ae7ca214d2d61999fb7a8d58472f1f152c2a6fd2ee853a2ec2",
    "patients": 2500,
    "structured_criteria": [
     "ONC-OSI-INC-01",
@@ -311,9 +311,9 @@
      "unknown": 0
     },
     "ONC-OSI-INC-01": {
-     "met": 2417,
+     "met": 2413,
      "not_met": 79,
-     "unknown": 4
+     "unknown": 8
     },
     "ONC-OSI-INC-02": {
      "met": 95,

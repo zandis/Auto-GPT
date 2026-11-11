@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "be80e5a12dae221208e82de578d818e6dac47612",
+  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-616 (D-400): patient.deceased column, lake schema 4, base cohort leaves out a deceased patient with no date",
+  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
   "ref_date": "2026-11-01",
   "ruleset": "ONC-OSI",
   "ruleset_version": "1.0.0",
@@ -99,7 +99,7 @@
    "first_eligible": {
     "2025-11": 1,
     "2025-12": 1,
-    "2026-01": 4,
+    "2026-01": 3,
     "2026-02": 2,
     "2026-03": 1,
     "2026-04": 8,
@@ -110,18 +110,18 @@
     "2026-09": 2,
     "2026-10": 1
    },
-   "prevalent": 33,
-   "prevalent_pids_sha": "85297a02f58315c42d9a87d3d9125e1ef5d4a432e7a069bc955d8e529a71a1de",
+   "prevalent": 32,
+   "prevalent_pids_sha": "c04f036b51d66f172a8a6167093409d0f9f0216d7c0517b2f3c68c705e2c43ad",
    "remaining": {
-    "ONC-OSI-EXC-01": 43,
-    "ONC-OSI-INC-01": 2411,
-    "ONC-OSI-INC-02": 93,
-    "ONC-OSI-INC-03": 54
+    "ONC-OSI-EXC-01": 42,
+    "ONC-OSI-INC-01": 2407,
+    "ONC-OSI-INC-02": 92,
+    "ONC-OSI-INC-03": 53
    },
    "start": 2493,
    "unknown": {
     "ONC-OSI-EXC-01": 0,
-    "ONC-OSI-INC-01": 4,
+    "ONC-OSI-INC-01": 8,
     "ONC-OSI-INC-02": 0,
     "ONC-OSI-INC-03": 19
    },

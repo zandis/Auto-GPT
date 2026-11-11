@@ -175,7 +175,10 @@ def build_sets(work: Path) -> list[Built]:
             snap2 = REF.isoformat()
             nd2 = work / "night2" / snap2
             next_night(ds.ndjson, nd2)
-            site2 = {k: _drop(v, 2) for k, v in ds.site.items()}
+            # half the site's inputs go, its patients stay (as the feed's do), so both lakes read the planted birth-date
+            # conflicts alike; a sheet patient gone silent keeps its conflict open in the OMOP store only (D-426: the
+            # legacy lake has no memory of it), which tests/unit/test_conflicts.py holds
+            site2 = {k: v if k == "Patient" else _drop(v, 2) for k, v in ds.site.items()}
             lake.put_site(site2)
             lake.rebuild(snap2, HashEmbedder(), nd2)
             out.append(

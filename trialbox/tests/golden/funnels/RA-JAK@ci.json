@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "be80e5a12dae221208e82de578d818e6dac47612",
+  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-616 (D-400): patient.deceased column, lake schema 4, base cohort leaves out a deceased patient with no date",
+  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
   "ref_date": "2026-11-01",
   "ruleset": "RA-JAK",
   "ruleset_version": "1.0.0",
@@ -157,8 +157,8 @@
     "RA-JAK-EXC-09": 102,
     "RA-JAK-EXC-10": 98,
     "RA-JAK-EXC-11": 98,
-    "RA-JAK-INC-01": 2170,
-    "RA-JAK-INC-02": 479,
+    "RA-JAK-INC-01": 2166,
+    "RA-JAK-INC-02": 478,
     "RA-JAK-INC-03": 358,
     "RA-JAK-INC-04": 208
    },
@@ -172,7 +172,7 @@
     "RA-JAK-EXC-09": 0,
     "RA-JAK-EXC-10": 0,
     "RA-JAK-EXC-11": 98,
-    "RA-JAK-INC-01": 4,
+    "RA-JAK-INC-01": 8,
     "RA-JAK-INC-02": 0,
     "RA-JAK-INC-03": 0,
     "RA-JAK-INC-04": 112

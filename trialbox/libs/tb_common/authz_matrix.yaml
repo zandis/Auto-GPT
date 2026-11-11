@@ -654,3 +654,12 @@ actions:
     cro: false
     steward: true
     privacy: false
+  conflicts.resolve:
+    what: read and resolve the clinical conflicts of the whole database (/data/conflicts; T-201, D-426)
+    admin: false
+    coordinator: false
+    investigator: false
+    viewer: false
+    cro: false
+    steward: true
+    privacy: false
