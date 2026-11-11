@@ -127,8 +127,9 @@ def test_age_and_sex_come_from_the_patient_row_on_the_run_date() -> None:
     sex = crit("T-INC-06", {"domain": "demographic", "quantifier": "any", "valueset": "NONE", "sex": "female"})
     vs = [verdict(AGE, "pass"), verdict(sex, "pass")]
     cv.attach(DuckLake(LAKE), [AGE, sex], {"P1": vs}, RUN, None)
+    # born 1961-11-20: 64 on 2026-10-05, 65 in November
     assert coded(vs[0]) == [{"record": "patient", "domain": "demographic", "code": "age", "date": "2026-10-05",
-                             "value": 64.0}]  # fmt: skip  (born 1961-11-20: 64 on 2026-10-05, 65 in November)
+                             "value": 64.0}]  # fmt: skip
     assert coded(vs[1]) == [{"record": "patient", "domain": "demographic", "code": "sex", "value_code": "female"}]
     assert cv.age_on(date(1961, 11, 20), date(2026, 11, 20)) == 65
 
