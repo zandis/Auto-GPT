@@ -60,11 +60,14 @@ def test_master_registry_holds_the_agreed_rows() -> None:
     assert rows[(271, 271)].state == "merged"  # fix group D-271 (PR #97), a file since the log froze
     assert rows[(272, 272)].state == "merged"  # fix group D-272 (audit integrity), a file
     assert rows[(273, 273)].state == "merged" and "D-273" in rows[(273, 273)].holder  # fix group D-273, a file
-    assert rows[(274, 274)].state == "reserved" and rows[(277, 278)].state == "reserved"  # the rest of the fix groups
+    assert rows[(274, 274)].state == "merged" and "T-117b" in rows[(274, 274)].holder  # D-274 with card T-117b, a file
+    assert rows[(277, 278)].state == "reserved"  # the rest of the fix groups
     assert rows[(275, 275)].state == "merged"  # D-275 (fix group FG-F)
     assert rows[(276, 276)].state == "merged" and "PR #101" in rows[(276, 276)].holder  # D-276, the two-model check
     assert rows[(279, 279)].state == "merged"  # fix group D-279, a file
-    assert rows[(280, 289)].state == "reserved"
+    assert rows[(280, 280)].state == "merged" and "D-280" in rows[(280, 280)].holder  # fix group D-280, a file
+    assert rows[(281, 281)].state == "merged" and "D-281" in rows[(281, 281)].holder  # FG D-281, a file
+    assert rows[(282, 289)].state == "reserved"
     assert rows[(152, 159)].state == "unused" and rows[(164, 169)].state == "unused"
     assert rows[(99, 99)].state == "missing"
     for num, card in [(300, "T-101"), (301, "T-105"), (302, "T-102a"), (303, "T-106"), (304, "T-106"),

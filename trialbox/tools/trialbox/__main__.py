@@ -1,6 +1,7 @@
 """``python -m tools.trialbox <command>`` (spec v4 §18). Commands: ``doctor``, ``eval``, ``backup-keygen``,
 ``backup``, ``backup-check`` (D-178), ``backup-verify``, ``restore`` (D-126, ``tools/trialbox/backup.py``);
-``backup-nightly`` and ``backup-status`` (the schedule and the age alert, D-187, ``backup_schedule.py``); ``secrets``
+``backup-nightly``, ``backup-status`` and ``backup-install`` (the schedule, the age alert and install.sh's backup
+step, D-187, D-274, ``backup_schedule.py``); ``secrets``
 (per-service tokens, D-128 / D-138, ``svc_secrets.py``), ``logs`` (retention, ``logs.py``) and ``update`` (the update
 path behind ``tools/apply_update.sh``, ``update.py``); ``doctor --platform``, ``platform-images`` and
 ``platform-egress`` for a hospital platform (D-211, ``platform.py``); ``exports`` lists the export ledger (D-149,
@@ -74,6 +75,21 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--key", type=Path, required=True)
     r.add_argument("--dir", action="append", default=[])
     r.add_argument("--yes", action="store_true", help="replace the current data (moved aside, not deleted)")
+    r.add_argument(
+        "--public",
+        type=Path,
+        default=Path(os.environ.get("TB_BACKUP_PUBKEY", "deploy/secrets/backup.pub")),
+        help="the box's public key: a box that holds data is first kept as an encrypted copy (D-274)",
+    )
+    r.add_argument(
+        "--keep-to",
+        type=Path,
+        default=Path(os.environ.get("TB_RESTORE_KEEP_DIR", "deploy/pre-restore")),
+        help="where that copy goes (default: TB_RESTORE_KEEP_DIR or deploy/pre-restore)",
+    )
+    r.add_argument("--no-copy", action="store_true", help="keep no copy of the box first (audited)")
+    r.add_argument("--other-site", action="store_true", help="restore a backup of another site (new hardware)")
+    r.add_argument("--older-ok", action="store_true", help="restore a backup older than 14 days")
     kept = Path(__file__).resolve().parents[2] / "deploy" / "refdata" / "loaded"
     r.add_argument("--refdata", type=Path, default=Path(os.environ.get("TB_REFDATA_DIR") or kept),
                    help="the kept reference packs (default: TB_REFDATA_DIR or deploy/refdata/loaded)")  # fmt: skip
@@ -84,6 +100,10 @@ def main(argv: list[str] | None = None) -> int:
     bs.add_argument("--deploy", type=Path, default=deploy)
     bs.add_argument("--json", action="store_true")
     bs.add_argument("--quiet", action="store_true", help="print nothing when all is well (cron)")
+    bi = sub.add_parser("backup-install", help="install.sh's backup step: cron, WAL archiving, first backup (D-274)")
+    bi.add_argument("--deploy", type=Path, default=deploy)
+    bi.add_argument("--cron-dir", type=Path, default=Path("/etc/cron.d"))
+    bi.add_argument("--no-first-run", action="store_true", help="install the cron file only; no first backup")
     s = sub.add_parser("secrets", help="per-service tokens: init, status, rotate (never prints a value)")
     s.add_argument("action", choices=["init", "status", "rotate"])
     s.add_argument("--service", action="append", default=[], help="rotate only these (a service, operator or db)")
@@ -140,9 +160,11 @@ def main(argv: list[str] | None = None) -> int:
         from tools.trialbox import update as tb_update
 
         return tb_update.main_apply(a.stage, a.summary, a.target, a.deploy, backup=not a.no_backup)
-    if a.cmd in ("backup-nightly", "backup-status"):
+    if a.cmd in ("backup-nightly", "backup-status", "backup-install"):
         from tools.trialbox import backup_schedule as bsch
 
+        if a.cmd == "backup-install":
+            return bsch.main_install(a.deploy, a.cron_dir, first=not a.no_first_run)
         if a.cmd == "backup-nightly":
             return bsch.main_nightly(a.deploy)
         return bsch.main_status(a.deploy, a.json, a.quiet)
@@ -297,7 +319,9 @@ def _backup_cmd(a: argparse.Namespace) -> int:
         if not a.yes:
             print("restore replaces the box's databases and data folders (the old folders are kept aside): add --yes")
             return 2
-        out = bk.restore(a.file, a.key, dirs=bk.layout(os.environ, a.dir), refdata_dir=a.refdata)
+        out = bk.restore(a.file, a.key, dirs=bk.layout(os.environ, a.dir), refdata_dir=a.refdata,
+                         public_key=a.public, keep_to=a.keep_to, no_copy=a.no_copy, other_site=a.other_site,
+                         max_age_days=None if a.older_ok else bk.RESTORE_MAX_AGE_DAYS)  # fmt: skip
         print(json.dumps(out, indent=1, ensure_ascii=False))
         for w in out["warnings"]:
             print(f"restore: warning: {w}", file=sys.stderr)

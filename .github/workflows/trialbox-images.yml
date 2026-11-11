@@ -1,6 +1,6 @@
 # TrialBox image gates (trialbox/docs/SECURITY.md §8; DECISIONS D-186). What ships is scanned, on both platforms:
-#   images:     on each of amd64 and arm64, build trialbox-py, trialbox-jvm and trialbox-demo as `make images` and
-#               demo/Dockerfile build them, then `make release-gates`: each image pinned by image id, the
+#   images:     on each of amd64 and arm64, build trialbox-py, trialbox-jvm, trialbox-postgres and trialbox-demo as
+#               `make images` and demo/Dockerfile build them, then `make release-gates`: each image pinned by image id, the
 #               third-party compose images pinned by registry digest for that platform; Trivy (DB loaded first, the
 #               scan offline), Syft SBOMs, the licence gate, one record (gates.json) and dist/sbom/index.json.
 #   multiarch:  for a release tag or a manual run, `make images-multiarch` into a registry on the runner, then the
@@ -8,10 +8,10 @@
 # Runs on pull requests that change what goes into an image, on release tags, weekly (new advisories arrive without a
 # code change) and by hand. A release is made only from a passing record: `make release-bundle` runs the gates and
 # tools/make_bundle.sh --gates refuses an image that is not in it.
-# REPORT MODE (owner decision 2026-11-10, until plan v6 §9 batch 1): fixable CRITICAL/HIGH findings in the third-party
-# images are listed in the job summary and do not fail the job; the vulnerability gate of our own images (trialbox-py,
-# trialbox-jvm and trialbox-demo since T-672), the licence gate and every scan or report error still fail it. A bundle never carries an image
-# that passed only in report mode. Open findings: trialbox/deploy/security/known-image-findings.md.
+# The vulnerability gate blocks for every image a bundle can carry (T-110b, D-340, ENG-007): ours and the third-party
+# HAPI FHIR and vLLM images, whose open findings are dated per-image entries of the allow-list. `--vuln-mode report`
+# is left for the test-only mail servers (MailHog, GreenMail), which no bundle carries; tools/make_bundle.sh refuses
+# any image with a report-mode finding. Open findings: trialbox/deploy/security/known-image-findings.md.
 # Every action is pinned to a commit (tag in the comment); Syft and Trivy come with pinned sha256.
 name: TrialBox image gates
 
@@ -66,7 +66,7 @@ jobs:
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78  # v6.2.0
         with:
           distribution: temurin
-          java-version: "21"
+          java-version-file: trialbox/.java-version
           cache: maven
           cache-dependency-path: trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
 
@@ -82,11 +82,10 @@ jobs:
       - name: Trivy DB into the cache
         run: make trivy-db
 
-      # --vuln-mode report (owner decision 2026-11-10, D-186): fixable CRITICAL/HIGH findings in the images of
-      # tools/supply_chain/release.py VULN_REPORT_ONLY are listed in the job summary instead of failing, until the
-      # follow-up (deploy/security/known-image-findings.md). Everything else still fails this step: the findings of our
-      # own images (trialbox-py, trialbox-jvm, trialbox-demo), the licence gate, a build or scan error, a missing or
-      # empty report, an image not named by its scan.
+      # --vuln-mode report touches only the test-only mail servers of tools/supply_chain/release.py VULN_REPORT_ONLY
+      # (T-110b): their fixable CRITICAL/HIGH findings are listed in the job summary. Everything else fails this step:
+      # a finding in any image a bundle carries that no dated allow-list entry accepts, the licence gate, a build or
+      # scan error, a missing or empty report, an image not named by its scan.
       - name: Release gates (Trivy offline, SBOMs, licences, record)
         run: make release-gates SC_PLATFORM=${{ matrix.platform }} RELEASE_GATES_ARGS="--vuln-mode report"
 
@@ -130,7 +129,7 @@ jobs:
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78  # v6.2.0
         with:
           distribution: temurin
-          java-version: "21"
+          java-version-file: trialbox/.java-version
           cache: maven
           cache-dependency-path: trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
 

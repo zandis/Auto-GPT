@@ -49,6 +49,7 @@ def test_default_install_passes() -> None:
         "judge_route",
         "registry_pins",
         "site_tz",
+        "backup",
         "flags",
         "site_key",
         "key_custody",
@@ -250,3 +251,62 @@ def test_site_tz_reads_the_host_zone_from_tb_host_tz_inside_a_container() -> Non
     env = {"TB_ENV": "DEV", "TB_TOPOLOGY": "A", "TB_TZ": "Asia/Tokyo", "TB_HOST_TZ": "UTC"}
     c = status(doctor.run(doctor.DoctorInputs(env=env)), "site_tz")
     assert c.status == "FAIL" and "host zone UTC" in c.detail
+
+
+def _backup_box(tmp_path: Path, env: str) -> tuple[Path, Path]:
+    deploy = tmp_path / "deploy"
+    deploy.mkdir(parents=True, exist_ok=True)
+    (deploy / ".env").write_text(env)
+    cron = tmp_path / "cron.d"
+    cron.mkdir(exist_ok=True)
+    return deploy, cron
+
+
+def test_backup_check_fails_in_production_on_a_missing_off_box_target_route_cron_or_age(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-274 (CR-058, OPS-028, OPS-048): doctor checks the backup age and the off-box target."""
+    from datetime import UTC, datetime, timedelta
+
+    from tools.trialbox import backup_schedule as bs
+
+    for k in ("TB_BACKUP_TARGETS", "TB_BACKUP_OFFBOX", "TB_BACKUP_ALERT_CMD", "TB_BACKUP_MAILTO", "TB_PG_ARCHIVE_MODE"):
+        monkeypatch.delenv(k, raising=False)
+    local = tmp_path / "local"
+    deploy, cron = _backup_box(tmp_path, f"TB_BACKUP_TARGETS={local}\n")
+    prod = {"TB_ENV": "PRODUCTION", "TB_TOPOLOGY": "A", "TB_BACKUP_TARGETS": str(local)}
+    c = status(doctor.run(inputs(env=prod, deploy=deploy, cron_dir=cron), (doctor.check_backup,)), "backup")
+    assert c.status == "FAIL" and "no off-box backup target" in c.detail and "no alert route" in c.detail
+    assert f"no {cron / bs.CRON_NAME}" in c.detail
+    dev = status(doctor.run(inputs(env={**prod, "TB_ENV": "DEV"}, deploy=deploy, cron_dir=cron),
+                            (doctor.check_backup,)), "backup")  # fmt: skip
+    assert dev.status == "WARN"
+    # an off-box share, a route, the cron file and a good backup two hours old: PASS, but WARN while archiving is off
+    nas = tmp_path / "nas"
+    nas.mkdir()
+    (nas / bs.OFFBOX_MARKER).write_text("")
+    good = {**prod, "TB_BACKUP_TARGETS": str(nas), "TB_BACKUP_OFFBOX": str(nas), "TB_BACKUP_MAILTO": "it@x.example"}
+    (cron / bs.CRON_NAME).write_text("# installed\n")
+    at = datetime.now(UTC) - timedelta(hours=2)
+    f = nas / f"trialbox-CGMH-{at.strftime('%Y%m%dT%H%M%SZ')}.tbbak"
+    f.write_bytes(b"x")
+    bs.sidecar(f).write_text(f"{'a' * 64}  {f.name}\n")
+    (deploy / "site").mkdir()
+    (deploy / "site" / "backup-last.json").write_text(json.dumps({"ok": True, "good_at": at.isoformat(),
+        "good_file": {"name": f.name, "bytes": 1, "sha256": "a" * 64}}))  # fmt: skip
+    c = status(doctor.run(inputs(env=good, deploy=deploy, cron_dir=cron), (doctor.check_backup,)), "backup")
+    assert c.status == "WARN" and "WAL archiving is off" in c.detail and "1 off-box" in c.detail
+    # 40 hours old: too old
+    old = datetime.now(UTC) - timedelta(hours=40)
+    g = nas / f"trialbox-CGMH-{old.strftime('%Y%m%dT%H%M%SZ')}.tbbak"
+    f.rename(g)
+    bs.sidecar(f).unlink()
+    bs.sidecar(g).write_text(f"{'a' * 64}  {g.name}\n")
+    (deploy / "site" / "backup-last.json").write_text(json.dumps({"ok": True, "good_at": old.isoformat(),
+        "good_file": {"name": g.name, "bytes": 1, "sha256": "a" * 64}}))  # fmt: skip
+    c = status(doctor.run(inputs(env=good, deploy=deploy, cron_dir=cron), (doctor.check_backup,)), "backup")
+    assert c.status == "FAIL" and "40 h old" in c.detail
+    # the deploy folder comes from --env-file
+    assert doctor.inputs_from(env_file=deploy / ".env", settings=None, routing=None, dataplat=None).deploy == deploy
+    nodeploy = status(doctor.run(inputs(env=good), (doctor.check_backup,)), "backup")
+    assert nodeploy.status == "FAIL" and "--env-file" in nodeploy.detail

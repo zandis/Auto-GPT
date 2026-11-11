@@ -30,6 +30,7 @@ from typing import Any
 from packaging.markers import InvalidMarker, Marker
 
 from tools.supply_chain.allowlist import Allowlist, norm
+from tools.supply_chain.allowlist import image_matches as allowlist_image_matches
 from tools.supply_chain.lock import parse_requirements
 
 SEVERITIES = ("CRITICAL", "HIGH", "MEDIUM", "LOW")
@@ -255,15 +256,17 @@ def gate(
     *,
     fails: Callable[[Finding], bool] | None = None,
     errors: list[str] | None = None,
+    subject: str | None = None,
 ) -> GateResult:
     """Sort findings into failing, accepted (with the entry's reason) and reported.
 
-    ``fails(finding) -> bool`` says whether a finding is above the bar; by default every finding is.
+    ``fails(finding) -> bool`` says whether a finding is above the bar; by default every finding is. ``subject`` is
+    the scanned image: an allow-list entry scoped to an image accepts findings of that image only.
     """
     result = GateResult(errors=list(errors or []))
     used: set[int] = set()
     for f in findings:
-        entry = allow.vuln(f.ids(), f.package)
+        entry = allow.vuln(f.ids(), f.package, subject)
         if entry is not None:
             used.add(id(entry))
             result.accepted.append((f, entry.reason))
@@ -271,7 +274,9 @@ def gate(
             result.failing.append(f)
         else:
             result.reported.append(f)
-    result.unused_entries = [e.id for e in allow.vulnerabilities if id(e) not in used]
+    result.unused_entries = [
+        e.id for e in allow.vulnerabilities if id(e) not in used and allowlist_image_matches(e.image, subject)
+    ]
     return result
 
 
