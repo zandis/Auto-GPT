@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -105,16 +106,27 @@ def load_approved(
     ruleset_id: str,
     version: str | None = None,
     terminology: Callable[[RulesetManifest], None] | None = None,
+    on: date | None = None,
 ) -> Ruleset:
     """Approved ruleset from the materialized repo copy; refuses drafts and version mismatches (SPEC §5 step 4).
     ``terminology`` (``criteria_compiler.terminology.resolver.guard()``, D-301) refuses a ruleset compiled against
-    another terminology release than the box's until it is recompiled; its refusal is :class:`RulesetNotApproved`."""
+    another terminology release than the box's until it is recompiled; its refusal is :class:`RulesetNotApproved`.
+
+    ``on`` (the run date, D-364, LIFE-009): the version in force that day. A newer approved version whose
+    ``effective_from`` is later is not used; the approved version before it (read from its approval tag) screens
+    until then. Without ``on`` the newest approved version is returned, whatever its effective date."""
     directory = rulesets_dir / ruleset_id
     if not (directory / "manifest.yaml").exists():
         raise RulesetNotApproved(f"ruleset {ruleset_id} has no approved version on this box")
     rs = Ruleset.load(directory)
     if rs.manifest.status != "approved":
         raise RulesetNotApproved(f"ruleset {ruleset_id} is not approved")
+    if on is not None and not in_force(rs.manifest, on):
+        if version and version == rs.version:
+            raise RulesetNotApproved(
+                f"ruleset {ruleset_id} v{version} takes effect on {rs.manifest.effective_from}, not before"
+            )
+        rs = _earlier_in_force(rulesets_dir, ruleset_id, rs.version, on)
     if version and rs.version != version:
         raise RulesetNotApproved(f"ruleset {ruleset_id} approved version is {rs.version}, not {version}")
     tag_ok = (rulesets_dir / ".git").exists() is False or _has_tag(rulesets_dir, f"{ruleset_id}/v{rs.version}")
@@ -128,6 +140,57 @@ def load_approved(
         except RuntimeError as exc:  # TerminologyMismatch: recompile needed (D-301)
             raise RecompileNeeded(str(exc)) from exc
     return rs
+
+
+def in_force(manifest: RulesetManifest, on: date) -> bool:
+    """D-364: an approved version screens from its ``effective_from`` (none = from its approval)."""
+    eff = manifest.effective_from
+    return eff is None or eff <= on
+
+
+def _semver(v: str) -> tuple[int, ...]:
+    try:
+        return tuple(int(x) for x in v.split("."))
+    except ValueError:
+        return (-1,)
+
+
+def _earlier_in_force(rulesets_dir: Path, ruleset_id: str, newest: str, on: date) -> Ruleset:
+    """The newest approved version before ``newest`` that is in force ``on``, from its approval tag in the rulesets
+    repository (the materialized copy holds only the newest). None found: the study has no version in force yet."""
+    from dulwich.object_store import iter_tree_contents
+    from dulwich.objects import Commit, Tag
+    from dulwich.repo import Repo
+
+    when = f"v{newest} takes effect on a later day"
+    if not (rulesets_dir / ".git").exists():
+        raise RulesetNotApproved(f"ruleset {ruleset_id} {when} and no earlier version is on this box")
+    repo = Repo(str(rulesets_dir))
+    refs: Any = repo.refs
+    prefix = f"refs/tags/{ruleset_id}/v"
+    tags = sorted(
+        (k.decode()[len(prefix) :] for k in refs.keys() if k.decode().startswith(prefix)),  # noqa: SIM118
+        key=_semver,
+        reverse=True,
+    )
+    for v in tags:
+        if _semver(v) >= _semver(newest):
+            continue
+        obj: Any = repo[refs[f"{prefix}{v}".encode()]]
+        while isinstance(obj, Tag):
+            obj = repo[obj.object[1]]
+        assert isinstance(obj, Commit)
+        files: dict[str, bytes] = {}
+        for entry in iter_tree_contents(repo.object_store, obj.tree):
+            path = entry.path.decode() if entry.path else ""
+            if path.startswith(f"{ruleset_id}/") and entry.sha is not None:
+                files[path[len(ruleset_id) + 1 :]] = repo[entry.sha].as_raw_string()
+        if "manifest.yaml" not in files:
+            continue
+        rs = Ruleset.from_files(files)
+        if rs.manifest.status == "approved" and in_force(rs.manifest, on):
+            return rs
+    raise RulesetNotApproved(f"ruleset {ruleset_id} {when} and no earlier approved version is in force on {on}")
 
 
 def approval_state(

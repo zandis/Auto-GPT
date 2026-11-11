@@ -13,7 +13,9 @@ key, every payload's size and sha256: ``tools/verify_update.py``, D-77) and stag
    it overwrites is copied aside; the trial database (and HAPI's) is dumped locally, 0600 under
    ``deploy/updates/<bundle>/rollback/``. The encrypted backup needs the hospital's private key, which the box does
    not hold (D-126), so the automatic rollback uses this local dump; it is removed after a good update.
-3. **Apply**: images (``docker load``), models, other files; **migrate and restart**: the services run their
+3. **Apply**: the host tree (payload kind ``host``, T-631, D-367: the compose files, host tools and configuration,
+   unpacked to ``<install>/releases/<bundle>`` and named by the ``<install>/current`` link, ``tools/host_tree.py``),
+   images (``docker load``), models, other files; **migrate and restart**: the services run their
    versioned migrations at start (``tb_common.db``, D-126), so a restart on the new images is the migration;
    then the rulesets of the bundle (criteria-compiler import with the approval and equivalence gates) and its
    reference data pack (payload kind ``refdata``, ``trialbox-refdata-<date>.tar``: verified and loaded into the
@@ -22,8 +24,9 @@ key, every payload's size and sha256: ``tools/verify_update.py``, D-77) and stag
 4. **Check**: every service healthy (``up --wait``), plus ``TB_UPDATE_CHECK_CMD`` when set; the demo box runs
    ``e2e_simple`` in the updated container.
 5. **Success**: ``update.applied`` in the hash-chained audit log, the history line, the local dump removed.
-   **Any failure** after step 2: the old images are tagged back, the models put back, the database restored from the
-   local dump, the services restarted and checked again; ``update.rolled_back`` is audited; exit 1.
+   **Any failure** after step 2: ``current`` names the previous release again, the old images are tagged back, the
+   models put back, the database restored from the local dump, the services restarted and checked again;
+   ``update.rolled_back`` is audited; exit 1.
 
 Every step is written to ``deploy/updates/history.jsonl`` (no secret in it). Three boxes implement the steps:
 :class:`ComposeBox` (a site box, ``docker compose``), :class:`DemoBox` (the one-container demo VM, D-111) and
@@ -49,7 +52,7 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
 
-from tools import image_pins
+from tools import host_tree, image_pins
 
 ROOT = Path(__file__).resolve().parents[2]
 PY_SERVICES = (
@@ -250,6 +253,37 @@ def refdata_packs(plan: Plan) -> list[Path]:
     """The reference data packs of a bundle (payload kind ``refdata``), oldest date first."""
     rd = plan.kind("refdata")
     return sorted(p for p in rd.rglob("*.tar") if p.is_file()) if rd.is_dir() else []
+
+
+def host_tars(plan: Plan) -> list[Path]:
+    """The bundle's host tree (payload kind ``host``; verify_update.py allows at most one)."""
+    d = plan.kind("host")
+    return sorted(p for p in d.rglob("*.tar") if p.is_file()) if d.is_dir() else []
+
+
+def apply_host(plan: Plan, base: Path, rb: Path, point: Point) -> list[str]:
+    """T-631, D-367: the release's host tree to ``base/releases/<bundle>``, ``base/current`` switched to it. What a
+    rollback needs is in the rollback point before anything moves (a crash mid-way still knows the previous release)."""
+    tars = host_tars(plan)
+    if not tars:
+        return []
+    point.extra["host"] = {"previous": host_tree.current(base), "release": plan.bundle_id,
+                           "fresh": not (base / "releases" / plan.bundle_id).exists()}  # fmt: skip
+    save_point(rb, point)
+    try:
+        info = host_tree.install(tars[0], base, plan.bundle_id)
+    except host_tree.HostTreeError as exc:
+        raise UpdateFailed(f"host tree: {exc}") from exc
+    point.extra["host"] = info
+    save_point(rb, point)
+    return [f"host tree {plan.bundle_id}: {base / 'current'} -> releases/{plan.bundle_id} (previous: "
+            f"{info['previous'] or 'none'}; {len(info['moved'])} copied files set aside)"]  # fmt: skip
+
+
+def restore_host(base: Path, point: Point) -> None:
+    info = point.extra.get("host")
+    if info:
+        host_tree.restore(base, info)
 
 
 def copy_other(src: Path, dest: Path) -> list[str]:
@@ -721,7 +755,8 @@ class Updater:
         try:
             self.box.rollback(plan, rb, point)
             self._restore_state(rb)
-            self._history(plan, "rollback", True, "images, models, database, rulesets and update state put back")
+            put_back = "host tree, images, models, database, rulesets and update state put back"
+            self._history(plan, "rollback", True, put_back)
             self._history(plan, "check after rollback", True, self.box.check(plan))
             return True
         except Exception as exc:
@@ -1069,7 +1104,8 @@ class ComposeBox(_DockerImages):
             if plan.kind("model").is_dir() else 0  # fmt: skip
         needs = [(root, plan.payload_bytes("image"), "images"), (self.models, plan.payload_bytes("model"), "models"),
                  (updates, kept, "models kept aside"), (updates, 2 * sizes, "database dumps"),
-                 (updates, plan.payload_bytes("other"), "other files")]  # fmt: skip
+                 (updates, plan.payload_bytes("other"), "other files"),
+                 (self.deploy.parent, 2 * plan.payload_bytes("host"), "host tree (unpacked)")]  # fmt: skip
         for t in [t for t in (self.env.get("TB_BACKUP_TARGETS") or "").replace(",", " ").split() if t]:
             needs.append((Path(t), sizes, "backup (at least the databases)"))
         return needs
@@ -1089,7 +1125,8 @@ class ComposeBox(_DockerImages):
         point.extra["rulesets_refs"] = _last_json(out)  # rulesets-data at a tag (D-210, review D-16)
 
     def apply(self, plan: Plan, rb: Path, point: Point) -> list[str]:
-        done = self.load_images(plan)
+        done = apply_host(plan, self.deploy.parent, rb, point)  # first: the restart runs the new compose files
+        done += self.load_images(plan)
         done += copy_models(plan.kind("model"), self.models, rb, point)
         done += copy_other(plan.kind("other"), self.deploy / "updates" / plan.bundle_id / "files")
         pins = plan.kind("other") / image_pins.PINS
@@ -1206,6 +1243,7 @@ class ComposeBox(_DockerImages):
         self.run(self._c("stop", *PY_SERVICES, "fhir-store"), timeout=600)  # nobody holds the databases open
         self.restore_images(point)
         restore_models(self.models, rb, point)
+        restore_host(self.deploy.parent, point)  # the previous release's compose files for the restart below
         self.restore_databases(rb, point)
         refs = point.extra.get("rulesets_refs")
         if refs:  # rulesets-data back to the tag of the rollback point (imports of this update dropped)

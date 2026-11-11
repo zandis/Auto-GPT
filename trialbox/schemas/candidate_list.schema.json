@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trialbox.local/schemas/v1/candidate_list.schema.json",
   "title": "CandidateList",
-  "description": "SPEC 3.6 candidate_list (tag phi). Schema version 1.1.0 (1.1.0: optional evidence.opinions, D-120).",
+  "description": "SPEC 3.6 candidate_list (tag phi). Schema version 1.2.0 (1.1.0: optional evidence.opinions, D-120; 1.2.0: optional evidence.coded, D-362).",
   "type": "object",
   "required": ["ruleset", "version", "snapshot", "scope", "rows", "summary"],
   "additionalProperties": false,
@@ -51,6 +51,27 @@
               "verdict": {"type": "string"},
               "quote": {"type": ["string", "null"]},
               "quote_date": {"type": ["string", "null"]}
+            }
+          }
+        },
+        "coded": {
+          "description": "T-514 (D-362, review UX-008): the coded records behind the answer as a person checks them, latest first (at most three): the record's own value and unit, its date and its code. Shown beside the answer; never read by matching.",
+          "type": ["array", "null"],
+          "items": {
+            "title": "CodedValue",
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["record", "domain"],
+            "properties": {
+              "record": {"type": "string"},
+              "domain": {"type": "string"},
+              "code": {"type": ["string", "null"]},
+              "system": {"type": ["string", "null"]},
+              "date": {"type": ["string", "null"]},
+              "value": {"type": ["number", "null"]},
+              "unit": {"type": ["string", "null"]},
+              "value_code": {"type": ["string", "null"]},
+              "comparator": {"type": ["string", "null"]}
             }
           }
         }
