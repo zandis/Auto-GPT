@@ -78,7 +78,7 @@ from console.identity import (
 from console.identity import register as register_identity
 from console.proposals import Classifier, Proposal, ProposalError, job_create, propose
 from console.refusals import localize as localize_refusal
-from console.registry_view import STATUSES, status_options
+from console.registry_view import RECORDED_ELSEWHERE, STATUSES, status_options
 from console.timefmt import local_time, local_today, site_zone
 
 HERE = Path(__file__).resolve().parent
@@ -1847,6 +1847,10 @@ def create_app(
         rs = ruleset.strip().upper()
         if not _RULESET_ID.match(rs) or status not in STATUSES:
             raise _Problem(400, "request.refused", reason="choose a ruleset and a status")
+        if status in RECORDED_ELSEWHERE:  # D-399 (UX-012): one way to record consent, the consent form
+            raise _Problem(
+                400, "request.refused", reason="record consent on the participant page: it opens the consent form"
+            )
         who = sess.user.mailbox or sess.user.username
         upd = RegistryUpdate(
             pid=pid.strip() or None,

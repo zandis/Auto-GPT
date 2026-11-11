@@ -6,9 +6,13 @@ import contextlib
 import imaplib
 import logging
 import smtplib
+import socket
 import threading
+import uuid
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from email.message import EmailMessage
 from email.utils import format_datetime, make_msgid
 from pathlib import Path
@@ -23,8 +27,8 @@ from tb_common.timeutil import now
 from tb_contracts import Job, JobCreate, SendRequest, SendResult
 
 from mail_gateway import intake
-from mail_gateway.outbound import Transport, mail_statement, prepare
-from mail_gateway.store import MailDB
+from mail_gateway.outbound import NotSent, Transport, mail_statement, prepare
+from mail_gateway.store import MailDB, SendUncertain
 
 log = logging.getLogger("mail-gateway")
 GENERIC = "This mailbox accepts requests only from authorised hospital addresses. Your message was not processed."
@@ -56,6 +60,7 @@ def http_job_sink(base_url: str) -> JobSink:
 # the transport refused before the server accepted the message (D-127, F-02): safe to try again later
 REFUSED_BEFORE_SENDING = (
     ConnectionRefusedError,
+    socket.gaierror,
     smtplib.SMTPConnectError,
     smtplib.SMTPHeloError,
     smtplib.SMTPAuthenticationError,
@@ -63,6 +68,38 @@ REFUSED_BEFORE_SENDING = (
     smtplib.SMTPRecipientsRefused,
     smtplib.SMTPNotSupportedError,
 )
+
+# T-108c (D-401): the outbox. Back-off 1, 2, 4 ... minutes up to an hour between tries; after MAX_ATTEMPTS tries
+# (about seven hours) the key is "failed" and waits for a person. A key in "sending" longer than SENDING_STALE_S belongs
+# to a process that died (a send still running then is marked by its own end). A recipient over the daily limit waits
+# LIMIT_WAIT_S.
+RETRY_BASE_S = 60
+RETRY_MAX_S = 3600
+MAX_ATTEMPTS = 12
+SENDING_STALE_S = 900
+LIMIT_WAIT_S = 3600
+PER_RECIPIENT_PER_DAY = 200  # TB_MAIL_PER_RECIPIENT_PER_DAY; 0: no limit
+REPLIES_PER_SENDER_PER_DAY = 10  # refusal replies to one address in 24 hours (a mail loop gets no more)
+HELD = ("queued", "uncertain", "failed", "dropped")
+
+
+def permanent(exc: BaseException) -> bool:
+    """A refusal that a later try will meet again (an SMTP 5xx): the key fails at once and waits for a person."""
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        codes = [c for c, _ in exc.recipients.values()]
+        return bool(codes) and all(int(c) >= 500 for c in codes)
+    if isinstance(exc, smtplib.SMTPResponseException):
+        return int(exc.smtp_code) >= 500
+    return isinstance(exc, smtplib.SMTPNotSupportedError)
+
+
+@dataclass(frozen=True)
+class Outcome:
+    """What one send did: ``sent``, ``duplicate`` (sent before), or held: ``queued``, ``failed``, ``uncertain``,
+    ``dropped``. A held send is not an error for the caller: the job stays done and the mail waits (T-108c)."""
+
+    result: SendResult
+    state: str
 
 
 @dataclass
@@ -76,6 +113,7 @@ class Gateway:
     secrets_dir: Path
     authserv_id: str = ""  # D-369 (SEC-11): empty means no Authentication-Results header is trusted (fails closed)
     allow_phi_zip: bool = False  # D-369 (OD-1): a patient file as a password zip only on a synthetic box (DEV, TEST)
+    per_recipient_per_day: int = PER_RECIPIENT_PER_DAY  # T-108c: mails to one address in 24 hours; 0 = no limit
 
     @property
     def sender(self) -> str:
@@ -87,31 +125,134 @@ class Gateway:
 
     # ------------------------------------------------------------------ outbound
     def send(self, req: SendRequest) -> SendResult:
-        key = req.idempotency_key
-        if key:
-            done = self.db.claim_send(key, req.job_id, now(self.cfg.env.tz).isoformat())  # SendUncertain propagates
-            if done is not None:
-                self.audit.append("mail.duplicate_suppressed", job_id=req.job_id, detail={"key": key})
-                return SendResult.model_validate_json(done)
+        return self.deliver(req).result
+
+    def _ts(self, delta_s: float = 0) -> str:
+        return (now(self.cfg.env.tz) + timedelta(seconds=delta_s)).isoformat()
+
+    def deliver(self, req: SendRequest) -> Outcome:
+        """Send once per idempotency key (D-127). A send that fails is held, never left in ``sending`` (T-108c):
+        ``queued`` when nothing can have left, ``uncertain`` when it may have, ``failed`` when refused for good."""
+        key = req.idempotency_key or f"auto-{uuid.uuid4().hex}"  # a key-less send is tracked as well
         try:
-            p = self._prepare(req)  # routing, encryption, attachments: nothing has left yet
-        except BaseException:
-            if key:
-                self.db.release_send(key)
-            raise
+            done = self.db.claim_send(key, req.job_id, self._ts())
+        except SendUncertain:
+            row = self.db.get(key)
+            if row is not None and row.state == "sending" and row.at < self._ts(-SENDING_STALE_S):
+                self._mark_stale()
+                row = self.db.get(key)
+            if row is None or row.state not in HELD or not row.result:
+                raise  # in flight in another request right now (D-127): 409, never a second send
+            self.audit.append("mail.duplicate_suppressed", job_id=req.job_id, detail={"key": key, "state": row.state})
+            return Outcome(SendResult.model_validate_json(row.result), row.state)
+        if done is not None:
+            self.audit.append("mail.duplicate_suppressed", job_id=req.job_id, detail={"key": key})
+            return Outcome(SendResult.model_validate_json(done), "duplicate")
+        return self._attempt(req, key, None, 0, from_outbox=False)
+
+    def _attempt(self, req: SendRequest, key: str, message_id: str | None, attempts: int, from_outbox: bool) -> Outcome:
+        try:
+            p = self._prepare(req, message_id)  # routing, encryption, attachments: nothing has left yet
+        except Exception as exc:
+            if not from_outbox:
+                self.db.release_send(key)  # the request itself is wrong: the caller hears it (422)
+                raise
+            # the settings or the files changed while it waited: a person decides
+            return self._hold(req, key, message_id or "", False, [], "failed", attempts, f"prepare: {exc}")
+        over = self._over_limit(p.recipients)
+        if over:  # T-108c: a recipient over the daily limit waits; the try is not counted
+            return self._hold(req, key, p.message_id, p.encrypted, p.recipients, "queued", attempts,
+                              f"recipient limit reached: {', '.join(over)}", wait_s=LIMIT_WAIT_S)  # fmt: skip
         try:
             self.transport(self.sender, p.recipients, p.data)
-        except REFUSED_BEFORE_SENDING:
-            if key:
-                self.db.release_send(key)  # refused before the server accepted anything: a later try may send it
-            raise
-        # from here on the message has left: any failure keeps the key in "sending", so it is never resent
-        res = self._after_main(req, p)
-        if key:
-            self.db.finish_send(key, res.message_id, res.model_dump_json(), now(self.cfg.env.tz).isoformat())
-        return res
+        except NotSent as exc:  # the transport says nothing can have left (DNS, connect, TLS, a refusal)
+            return self._not_sent(req, key, p, attempts, exc.cause)
+        except REFUSED_BEFORE_SENDING as exc:
+            return self._not_sent(req, key, p, attempts, exc)
+        except Exception as exc:  # the answer was lost: the message may have arrived; never resent automatically
+            return self._hold(req, key, p.message_id, p.encrypted, p.recipients, "uncertain", attempts + 1,
+                              f"{type(exc).__name__}: {exc}")  # fmt: skip
+        # from here on the message has left: a failure makes the key "uncertain", never a second send
+        try:
+            res = self._after_main(req, p)
+            self.db.finish_send(key, res.message_id, res.model_dump_json(), self._ts())
+        except Exception as exc:
+            return self._hold(req, key, p.message_id, p.encrypted, p.recipients, "uncertain", attempts + 1,
+                              f"after the message left: {type(exc).__name__}: {exc}")  # fmt: skip
+        return Outcome(res, "sent")
 
-    def _prepare(self, req: SendRequest) -> Any:
+    def _not_sent(self, req: SendRequest, key: str, p: Any, attempts: int, exc: BaseException) -> Outcome:
+        n = attempts + 1
+        state = "failed" if permanent(exc) or n >= MAX_ATTEMPTS else "queued"
+        wait = min(RETRY_BASE_S * 2 ** (n - 1), RETRY_MAX_S)
+        return self._hold(req, key, p.message_id, p.encrypted, p.recipients, state, n, f"{type(exc).__name__}: {exc}",
+                          wait_s=wait)  # fmt: skip
+
+    def _hold(
+        self,
+        req: SendRequest,
+        key: str,
+        message_id: str,
+        encrypted: bool,
+        recipients: list[str],
+        state: str,
+        attempts: int,
+        error: str,
+        wait_s: float = 0,
+    ) -> Outcome:
+        res = SendResult(message_id=message_id, sent_to=[], encrypted=encrypted, password_sent=False, rejected=[])
+        next_at = self._ts(wait_s) if state == "queued" else None
+        error = " ".join(error.split())[:500]
+        self.db.hold(key, state, request_json=req.model_dump_json(), message_id=message_id,
+                     result_json=res.model_dump_json(), recipients=recipients, attempts=attempts, next_at=next_at,
+                     error=error, at=self._ts())  # fmt: skip
+        event = {"queued": "mail.deferred", "failed": "mail.failed", "uncertain": "mail.uncertain"}[state]
+        self.audit.append(
+            event,
+            job_id=req.job_id,
+            recipients=recipients,
+            detail={"key": key, "message_id": message_id, "attempts": attempts, "next_at": next_at,
+                    "error": mask_ids(error), "subject": mask_ids(req.subject)},
+        )  # fmt: skip
+        log.warning("mail %s %s (try %d): %s", key[:16], state, attempts, error)
+        return Outcome(res, state)
+
+    def _over_limit(self, recipients: list[str]) -> list[str]:
+        if self.per_recipient_per_day <= 0:
+            return []
+        sent = self.db.sent_to_since(self._ts(-86400))
+        return [r for r in recipients if sent.get(r, 0) >= self.per_recipient_per_day]
+
+    def _mark_stale(self) -> list[str]:
+        stale = self.db.stale_sending(self._ts(-SENDING_STALE_S))
+        for k in stale:
+            self.audit.append("mail.uncertain", detail={"key": k, "error": "the send never finished"})
+        return stale
+
+    def drain(self, force: bool = False, limit: int = 50) -> dict[str, int]:
+        """One dispatcher pass (T-108c): stale ``sending`` keys become ``uncertain``; queued keys that are due (all of
+        them with ``force``, ``trialbox mail resolve``) are tried again. Returns the outcome counts."""
+        out: Counter[str] = Counter()
+        out["stale"] = len(self._mark_stale())
+        for key in self.db.due(None if force else self._ts(), limit):
+            taken = self.db.take(key, self._ts())
+            if taken is None:
+                continue
+            request, message_id, attempts = taken
+            req = SendRequest.model_validate_json(request)
+            out[self._attempt(req, key, message_id, attempts, from_outbox=True).state] += 1
+        return {k: v for k, v in out.items() if v}
+
+    def resolve(self, key: str, decision: str, actor: str) -> str:
+        """A person's decision on a held key (``trialbox mail resolve KEY --sent|--resend|--drop``); audited."""
+        before = self.db.resolve(key, decision, actor, self._ts())
+        if before is None:
+            row = self.db.get(key)
+            raise KeyError(f"{key}: " + (f"is {row.state}, nothing to resolve" if row else "no such send key"))
+        self.audit.append("mail.resolved", actor=actor, detail={"key": key, "from": before, "decision": decision})
+        return before
+
+    def _prepare(self, req: SendRequest, message_id: str | None = None) -> Any:
         return prepare(
             req,
             store=self.store,
@@ -123,6 +264,7 @@ class Gateway:
             tz=self.cfg.env.tz,
             link_base=self.cfg.env.extra.get("TB_CONSOLE_URL", ""),
             allow_phi_zip=self.allow_phi_zip,
+            message_id=message_id,
         )
 
     def _after_main(self, req: SendRequest, p: Any) -> SendResult:
@@ -165,7 +307,7 @@ class Gateway:
         msg.set_content(text.rstrip("\n") + "\n\n-- \n" + mail_statement(text) + "\n")  # TB-IU-01 C1 (T-116)
         try:
             self.transport(self.sender, [m.sender], bytes(msg))
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, NotSent) as exc:
             log.warning("reply to %s failed: %s", m.sender, exc)
 
     # ------------------------------------------------------------------ inbound
@@ -189,7 +331,7 @@ class Gateway:
                 return None
             except JobRefused as exc:
                 return self._reject(m, ts.isoformat(), f"request refused: {exc}", True, True)
-            self.db.record_intake(m.message_id, m.sender, ts.isoformat(), "job", job_id)
+            self.db.record_intake(m.message_id, m.sender, ts.isoformat(), "job", job_id, cmd=req.type)
             self.audit.append(
                 "mail.received",
                 ts=ts,
@@ -214,7 +356,11 @@ class Gateway:
             input_sha=sha256_bytes(m.raw),
             detail={"reason": mask_ids(reason), "auth": m.auth_detail},
         )
-        if reply:
+        since = (datetime.fromisoformat(ts) - timedelta(days=1)).isoformat()
+        if reply and self.db.rejects_since(m.sender, since) > REPLIES_PER_SENDER_PER_DAY:
+            # T-108c: a mail loop or a flood gets no more refusal replies today; the refusal is still audited
+            log.warning("no refusal reply to %s: over %d refusals today", m.sender, REPLIES_PER_SENDER_PER_DAY)
+        elif reply:
             self._reply(m, f"TrialBox could not process your message: {reason.rstrip('.')}." if detailed else GENERIC)
         return "Rejected"
 

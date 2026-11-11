@@ -231,7 +231,10 @@ def _bulk_unit_defaults(mapping_path: Path) -> dict[str, str]:
 
 def _undated_order(r: dict[str, Any]) -> bool:
     period = (r.get("dispenseRequest") or {}).get("validityPeriod") or {}
-    return not r.get("authoredOn") and not period.get("start")
+    bounds = ((((r.get("dosageInstruction") or [{}])[0] or {}).get("timing") or {}).get("repeat") or {}).get(
+        "boundsPeriod"
+    ) or {}  # T-616 (STD-012): the therapy period, read first
+    return not r.get("authoredOn") and not period.get("start") and not bounds.get("start")
 
 
 def check_delta(mapping: Mapping, source_kind: str) -> None:
@@ -634,6 +637,8 @@ def _run_ingest(
     passed = not errors
     if passed:  # D-271: the only NDJSON a later delta night may merge over
         (out_dir / PASSED).write_text(json.dumps({"snapshot": snap}) + "\n", encoding="utf-8")
+    from lake.flatten import unread_elements  # the inbound FHIR contract (T-616), the lake's own reading
+
     report = IngestReport(
         snapshot=date.fromisoformat(snap),
         source=source_kind,
@@ -652,6 +657,7 @@ def _run_ingest(
         tombstoned=tombstoned,
         held=held,
         omop=omop_load,
+        fhir_unread=unread_elements(by_type),  # T-616: the inbound contract, what each resource carries unread
     )
     body = json.dumps(dump(report), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
     (out_dir / "ingest_report.json").write_bytes(body)

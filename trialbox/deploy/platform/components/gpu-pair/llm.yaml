@@ -1,9 +1,59 @@
-# The judge and the verifier (vLLM, the flags of docker-compose.rtxpro6000.yml and docker-compose.shared-quota.yml).
-# Only tb-gateway reaches them (base/networkpolicy.yaml, trialbox-model-isolation).
+# The judge and the verifier (vLLM, the flags of docker-compose.rtxpro6000.yml and docker-compose.shared-quota.yml)
+# behind model-guard, as on the appliance (D-177, D-409; LLM-028). vLLM checks its key (VLLM_API_KEY) on /v1 only and
+# answers /invocations, /tokenize and /metrics without it, so the gateway never reaches vLLM: the Services the gateway
+# calls (llm-service, llm-verifier, models/routing.yaml) select model-guard, which wants the key on every call and
+# passes only /v1/models, /v1/chat/completions, /v1/completions and /health; vLLM is behind llm-service-vllm and
+# llm-verifier-vllm, which only model-guard reaches (base/networkpolicy.yaml, trialbox-model-isolation). The key is
+# the Secret trialbox-model-key (key TB_LLM_API_KEY; RUNBOOK §17): the two servers, the guard and the gateway read
+# it, nothing else. `doctor --platform` checks this (model_key) and, in the cluster, that the guard refuses a call
+# without the key.
 ---
 apiVersion: v1
 kind: Service
-metadata: {name: llm-service, labels: {app.kubernetes.io/component: llm-service}}
+metadata: {name: llm-service, labels: {app.kubernetes.io/component: model-guard}}
+spec:
+  selector: {app.kubernetes.io/component: model-guard}
+  ports: [{name: http, port: 8000, targetPort: 8000}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: llm-verifier, labels: {app.kubernetes.io/component: model-guard}}
+spec:
+  selector: {app.kubernetes.io/component: model-guard}
+  ports: [{name: http, port: 8000, targetPort: 8000}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: model-guard, labels: {app.kubernetes.io/component: model-guard, trialbox.io/tier: model-guard}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/component: model-guard}}
+  template:
+    metadata: {labels: {app.kubernetes.io/component: model-guard, trialbox.io/tier: model-guard}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: model-guard
+          image: trialbox-py
+          command: ["python", "-m", "model_guard"]
+          env:
+            - {name: PORT, value: "8000"}
+            - {name: TB_GUARD_ROUTES, value: "llm-service=llm-service-vllm:8000,llm-verifier=llm-verifier-vllm:8000"}
+            - {name: TB_GUARD_ADMIN, value: "0"}  # both resident: no sleep swap, no admin route
+            - {name: TB_LLM_API_KEY, valueFrom: {secretKeyRef: {name: trialbox-model-key, key: TB_LLM_API_KEY}}}
+          ports: [{containerPort: 8000}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8000}, periodSeconds: 10, timeoutSeconds: 5, failureThreshold: 12}
+          resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {memory: 512Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: llm-service-vllm, labels: {app.kubernetes.io/component: llm-service}}
 spec:
   selector: {app.kubernetes.io/component: llm-service}
   ports: [{name: http, port: 8000, targetPort: 8000}]
@@ -26,6 +76,8 @@ spec:
           args:
             - --model=/models/$(JUDGE_MODEL_DIR)
             - --served-model-name=$(JUDGE_MODEL)
+            # the developer's chat template at a pinned revision, not the quantised folder's (DEP-007, D-392)
+            - --chat-template=/models/$(JUDGE_CHAT_TEMPLATE)
             - --max-model-len=$(JUDGE_MAX_LEN)
             - --max-num-seqs=$(JUDGE_MAX_SEQS)
             - --enforce-eager
@@ -35,6 +87,7 @@ spec:
           env:
             - {name: HF_HUB_OFFLINE, value: "1"}
             - {name: VLLM_NO_USAGE_STATS, value: "1"}
+            - {name: VLLM_API_KEY, valueFrom: {secretKeyRef: {name: trialbox-model-key, key: TB_LLM_API_KEY}}}
           ports: [{containerPort: 8000}]
           readinessProbe: {httpGet: {path: /health, port: 8000}, periodSeconds: 30, timeoutSeconds: 10, failureThreshold: 40}
           startupProbe: {httpGet: {path: /health, port: 8000}, periodSeconds: 30, failureThreshold: 40}
@@ -51,7 +104,7 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-metadata: {name: llm-verifier, labels: {app.kubernetes.io/component: llm-verifier}}
+metadata: {name: llm-verifier-vllm, labels: {app.kubernetes.io/component: llm-verifier}}
 spec:
   selector: {app.kubernetes.io/component: llm-verifier}
   ports: [{name: http, port: 8000, targetPort: 8000}]
@@ -84,6 +137,7 @@ spec:
           env:
             - {name: HF_HUB_OFFLINE, value: "1"}
             - {name: VLLM_NO_USAGE_STATS, value: "1"}
+            - {name: VLLM_API_KEY, valueFrom: {secretKeyRef: {name: trialbox-model-key, key: TB_LLM_API_KEY}}}
           ports: [{containerPort: 8000}]
           readinessProbe: {httpGet: {path: /health, port: 8000}, periodSeconds: 30, timeoutSeconds: 10, failureThreshold: 40}
           startupProbe: {httpGet: {path: /health, port: 8000}, periodSeconds: 30, failureThreshold: 40}
