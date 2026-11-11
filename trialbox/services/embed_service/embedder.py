@@ -127,6 +127,9 @@ class LocalEmbedder:
         from sentence_transformers import SentenceTransformer
 
         self._st = SentenceTransformer(path, device=os.environ.get("TB_EMBED_DEVICE", "cpu"), trust_remote_code=False)
+        # the dimension is the loaded embedder's own (D-429: known only after G1; the vector store reads it, D-439)
+        size = getattr(self._st, "get_sentence_embedding_dimension", lambda: None)()
+        self.dim = int(size) if size else DIM
         self.batch_size = batch_size
         self.weights_sha256 = weights_sha256
 
@@ -155,6 +158,7 @@ class HttpEmbedder:
             resp.raise_for_status()
             body = resp.json()
             self.model = body["model"]
+            self.dim = int(body.get("dim") or self.dim)  # the service's embedder decides (D-439)
             out.extend(body["vectors"])
         return out
 

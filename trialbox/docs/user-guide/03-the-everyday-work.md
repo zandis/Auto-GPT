@@ -88,7 +88,7 @@ register with it each month, and use the office log when the box is down.
 and on a button. When TrialBox and REDCap disagree on a field, the study's *Trial-record differences* page lists it (one
 row per field, TrialBox's value against the source's); you choose which value stays. The data steward has a separate page,
 `/data/conflicts`, for the clinical conflicts of the whole database (two sources giving different values for one patient
-item; the item stays unknown until the steward keeps one value or keeps it unknown, with a reason). A spreadsheet with a name column imports with that column dropped.
+item; the item stays unknown until the steward keeps one value or keeps it unknown, with a reason). The steward's `/data-ops` page lists every night of every data source; a held night (the box still shows the night before) is rejected there with a reason (DATA §10). A spreadsheet with a name column imports with that column dropped.
 
 **EDC prefill (CRC, PI; D-160).** TrialBox can draft a subject's eCRF values from the hospital record, so the CRC
 does not type them twice. It is **off** for every study until the PI turns it on, on the study's *EDC prefill* page,
