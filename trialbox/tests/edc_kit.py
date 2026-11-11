@@ -177,7 +177,7 @@ def ready(svc: EdcService, on: bool = True) -> None:
     svc.put_map(STUDY, MAP, TARGET, "crc")
     if on:
         if not svc.typed_reentry():  # VALIDATION or PRODUCTION (D-368, E-14): the switch reads a stored result
-            svc.record_reentry(STUDY, pages=int(ACK["reentry_pages"]), accuracy=float(ACK["reentry_accuracy"]),
+            svc.record_reentry(STUDY, pages=30, accuracy=0.985,
                                document="DOC-REENTRY-1", by="admin")  # fmt: skip
         svc.set_switch(STUDY, True, by="pi", role="investigator", **ACK)
 
