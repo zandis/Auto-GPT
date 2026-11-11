@@ -184,13 +184,13 @@ def test_the_lifespan_starts_the_load_watch(tmp_path: Path) -> None:
 
 
 # ------------------------------------------------------------------------------------------------ one budget
-def test_one_timeout_budget_across_the_three_layers() -> None:
+def test_one_timeout_budget_across_the_three_layers(tmp_path: Path) -> None:
     assert tt.CALLER_TIMEOUT_S > tt.CALL_BUDGET_S > tt.UPSTREAM_READ_S + tt.RETRY_DELAY_S
     t = tt.caller_timeout({})
     assert t.read == tt.CALLER_TIMEOUT_S and t.connect == tt.CONNECT_S
     assert tt.caller_timeout({"TB_LLM_TIMEOUT_S": "60"}).read == 60
     assert GatewayClient("http://gw/v1", "x").http.timeout.read == tt.CALLER_TIMEOUT_S
-    gw = Gateway(RoutingPolicy.load(), Registry.load(), AuditLog(Path("/nonexistent")), env={})
+    gw = Gateway(RoutingPolicy.load(), Registry.load(), AuditLog(tmp_path / "audit"), env={})
     assert gw.http.timeout.read == tt.UPSTREAM_READ_S and gw.http.timeout.connect == tt.CONNECT_S
     assert gw.call_budget_s == tt.CALL_BUDGET_S
 
