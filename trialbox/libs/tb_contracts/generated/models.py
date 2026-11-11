@@ -1006,6 +1006,15 @@ class PatientEvaluation(BaseModel):
     """
 
 
+class ProfileBasis(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    snapshot: str = Field(..., min_length=1)
+    mapping_versions: list[str]
+
+
 class PopulationSpec(BaseModel):
     """
     The protocol's population in words the box can show next to every count: disease stage and study arm are explicit fields because a criteria list alone does not say that a dementia patient is out of an MCI trial (D-101).
@@ -1034,6 +1043,76 @@ class Precheck(BaseModel):
     passed: bool | None
     issues: list[str]
     validator_errors: int = 0
+
+
+class ProfileDerivedInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    component: str | None
+    table: str
+    row: str
+    row_hash: str | None
+    date: str | None
+
+
+class ProfileOpenLayer(BaseModel):
+    """
+    A layer another card builds (eligibility: T-311a; setpoint, gap: T-313; similarity: T-203). Its items are that card's to define, each with a source.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    version: str = Field(..., pattern="^[a-z]+@[0-9]+$")
+    items: list[dict[str, Any]]
+
+
+class ProfileSource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    table: str
+    row_hash: str | None
+    lake_table: str | None
+    row: str
+    date: str | None
+
+
+class ProfileTimelineItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    kind: Literal[
+        "encounter",
+        "condition",
+        "observation",
+        "medication",
+        "procedure",
+        "report",
+        "document",
+    ]
+    date: str | None
+    code: str | None
+    system: str | None
+    value: str | float | bool | None
+    unit: str | None
+    comparator: str | None
+    status: str | None
+    source: ProfileSource
+
+
+class ProfileTimelineLayer(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    version: str = Field(..., pattern="^[a-z]+@[0-9]+$")
+    items: list[ProfileTimelineItem]
 
 
 class PromptMeta(BaseModel):
@@ -2507,6 +2586,72 @@ class NavRow(BaseModel):
     precheck: Precheck | None = None
 
 
+class ProfileDerivedItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    score: str
+    value: float | None
+    reason: str | None
+    unit: str | None
+    date: str | None
+    def_version: str | None
+    source: ProfileSource
+    inputs: list[ProfileDerivedInput]
+
+
+class ProfileDerivedLayer(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    version: str = Field(..., pattern="^[a-z]+@[0-9]+$")
+    items: list[ProfileDerivedItem]
+
+
+class ProfilePhenotypeItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    system: str | None
+    code: str
+    first: str | None
+    last: str | None
+    count: int = Field(..., ge=1)
+    status: str | None
+    sources: list[ProfileSource] = Field(..., min_length=1)
+
+
+class ProfilePhenotypeLayer(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    version: str = Field(..., pattern="^[a-z]+@[0-9]+$")
+    items: list[ProfilePhenotypeItem]
+
+
+class ProfileRecordItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    field: Literal["birth_date", "sex", "deceased", "deceased_date"]
+    value: str | float | bool | None
+    source: ProfileSource
+
+
+class ProfileRecordLayer(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    version: str = Field(..., pattern="^[a-z]+@[0-9]+$")
+    items: list[ProfileRecordItem]
+
+
 class QualificationBuilds(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2721,6 +2866,36 @@ class NavLists(BaseModel):
     run_date: date_aliased | None = None
     department: str
     lists: NavListSet = Field(..., title="NavListSet")
+
+
+class ProfileLayers(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    record: ProfileRecordLayer | None
+    timeline: ProfileTimelineLayer | None
+    phenotype: ProfilePhenotypeLayer | None
+    derived: ProfileDerivedLayer | None
+    eligibility: ProfileOpenLayer | None
+    setpoint: ProfileOpenLayer | None = None
+    gap: ProfileOpenLayer | None = None
+    similarity: ProfileOpenLayer | None
+
+
+class PatientProfile(BaseModel):
+    """
+    The patient twin tb_patient_profile v1 (T-204, D-440; tag phi, pseudonymous). Every layer is null until built, else stamped with the version that built it; every item names its source row. Schema version 1.0.0.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    profile: Literal["tb_patient_profile/1"]
+    pid: str = Field(..., min_length=1)
+    basis: ProfileBasis = Field(..., title="ProfileBasis")
+    layers: ProfileLayers = Field(..., title="ProfileLayers")
 
 
 class RulesetManifest(BaseModel):

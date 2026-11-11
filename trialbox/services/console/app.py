@@ -1201,6 +1201,9 @@ def create_app(
     from console import breakglass
 
     breakglass.register(app, helpers)  # D-280 (OD-5): the administrator's break-glass grants and the steward's review
+    from console import twin_api
+
+    twin_api.register(app, helpers)  # T-204 (D-440): the patient twin's read route, after break-glass (it uses grants)
     from console import timers
 
     timers.plan(raw_env)  # a bad HH:MM fails at start, not at 07:00

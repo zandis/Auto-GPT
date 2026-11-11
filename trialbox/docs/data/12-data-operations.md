@@ -1,4 +1,4 @@
-# 10. Data operations: the nights of every source
+# 12. Data operations: the nights of every source
 
 Every ingest run of every source is one row of `dataops.batch` in the trial database (T-112a, D-427): the source,
 the night (snapshot), the attempt (a re-run of a night is the next attempt), its state and the trail of every change

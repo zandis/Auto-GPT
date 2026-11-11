@@ -43,6 +43,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/api/v1/studies/{rs}/irb` | Y | Y | Y | Y | Y | - | - | Y | Y |
 | GET | `/api/v1/studies/{rs}/monitor/{record}` | - | - | - | - | - | - | - | - | - |
 | GET | `/api/v1/studies/{rs}/patients` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/patients/{pid}/twin` | - | n | - | n | n | - | - | - | - |
 | GET | `/api/v1/studies/{rs}/reconsent` | - | U | - | U | U | - | - | - | - |
 | GET | `/api/v1/studies/{rs}/records` | - | U | - | U | U | - | - | - | - |
 | GET | `/api/v1/studies/{rs}/records/{record}` | - | U | - | U | U | - | - | - | - |

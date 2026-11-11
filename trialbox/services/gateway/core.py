@@ -2,7 +2,9 @@
 
 Processing order for ``POST /v1/chat/completions`` (each step passes or refuses; every refusal is audited):
 
-1. caller identity: ``X-TB-Caller`` must be on the allowlist, with the role and purpose it asks for (LLM-48);
+1. caller identity: ``X-TB-Caller`` must be on the allowlist, with the role and purpose it asks for (LLM-48), and a
+   name the verified service may claim: the service the request's service token identifies (T-212b, D-437, CR-040;
+   :meth:`gateway.policy.RoutingPolicy.check_claim`), else ``caller_unverified``;
 2. header validation: class, purpose, role, study, context of use and prompt are required (LLM-2, ENG-04); D3/D4
    also need a study and step that the step confirmer accepts as live, except a D3 (never D4) call without a step
    on the intake role of a conversation engine whose caller entry sets ``d3_intake_without_step`` (FR-CONV-8: intake
@@ -79,7 +81,7 @@ from tb_llm.prompt_registry import (
 )
 from tracestore.store import TraceStore
 
-from gateway.policy import Candidate, Refusal, RoutingPolicy, _match, parse_label
+from gateway.policy import Candidate, Refusal, RoutingPolicy, _match, endpoint_key, parse_label
 from gateway.swap import ModelSwap
 
 StepConfirm = Callable[[str, str, str], bool]  # (caller, study, step) -> live and delegated
@@ -107,6 +109,9 @@ UPSTREAM_FIELDS = frozenset(
 _TRANSIENT_4XX = (408, 429)
 # what vLLM (and OpenAI-compatible servers) say when the prompt plus max_tokens is over the model's context
 _TOO_LONG = ("maximum context length", "context length", "context_length", "too many tokens", "prompt is too long")
+# chat() and activate() called inside the gateway's own process (``trialbox doctor``'s judge-route check, tests): no
+# network boundary, so no service token to bind the caller to (D-437). The HTTP app always passes the verified service
+IN_PROCESS = "<in-process>"
 REQUIRED = ("x-tb-caller", "x-tb-data-class", "x-tb-purpose", "x-tb-role", "x-tb-study", "x-tb-context-of-use")
 
 
@@ -139,6 +144,7 @@ class GatewayResponse:
 class _Call:
     call_id: str
     caller: str = ""
+    service: str = ""  # the verified service (its token's identity, D-437); "" when none or in-process
     role: str = ""
     purpose: str = ""
     study: str = ""
@@ -235,18 +241,48 @@ class Gateway:
             self.prompts.check(Environment.PRODUCTION.value)
 
     # ------------------------------------------------------------------------------------------------ public
-    def activate(self, caller: str, endpoint: str, hold: bool = False) -> GatewayResponse:
+    def _auth_open(self) -> bool:
+        """The service-token layer admits calls without a token here (``TB_ENV`` DEV or TEST, as
+        :func:`tb_common.service_auth.authorize` reads it, from this process's environment); a call without a service
+        identity can only come from it."""
+        return environment_name(os.environ) in ("DEV", "TEST")
+
+    def _swap_refusal(self, caller: str, service: str | None) -> GatewayResponse | None:
+        """None when ``service`` (the verified token identity, D-437) may drive the swap as ``caller``: a service of
+        ``serving_control`` with a caller it may claim whose entry may use the ``judge`` role; else the audited 403."""
+        c = self.policy.callers.get(caller)
+        code, msg = "", ""
+        if c is None or not _match("judge", c.roles):
+            code, msg = "caller_unknown", f"caller {caller!r} may not swap models"
+        elif service != IN_PROCESS:
+            try:
+                self.policy.check_claim(service, caller, self.config.environment, auth_open=self._auth_open())
+            except Refusal as r:
+                code, msg = r.reason, str(r)
+            else:
+                verified = service and service != "legacy"
+                if verified and service not in self.policy.serving_control:
+                    code, msg = "caller_unverified", f"service {service} may not swap models"
+        if not code:
+            return None
+        who = "" if service == IN_PROCESS else (service or "")
+        self.audit.append("llm.gateway.swap_refused", detail={"caller": caller, "service": who, "reason": code})
+        return GatewayResponse(403, {"error": {"type": "tb_refusal", "code": code, "message": msg}})
+
+    def activate(
+        self, caller: str, endpoint: str, hold: bool = False, *, service: str | None = IN_PROCESS
+    ) -> GatewayResponse:
         """Wake ``endpoint`` and put the other swappable one to sleep (``POST /v1/serving/activate``). Allowed for
-        callers whose allowlist entry may use the ``judge`` role (the orchestrator, matching, eval). ``hold``: a
-        screening run keeps the card until :meth:`release` (no wake on demand meanwhile, D-116)."""
+        the verified services of ``serving_control`` (the orchestrator, the operator) calling as a caller they may
+        claim whose allowlist entry may use the ``judge`` role (T-212b, D-437). ``hold``: a screening run keeps the
+        card until :meth:`release` (no wake on demand meanwhile, D-116)."""
         from gateway.swap import SwapError
 
         if self.swap is None:
             return GatewayResponse(200, {"swap": "off", "active": None})
-        c = self.policy.callers.get(caller)
-        if c is None or not _match("judge", c.roles):
-            msg = f"caller {caller!r} may not swap models"
-            return GatewayResponse(403, {"error": {"type": "tb_refusal", "code": "caller_unknown", "message": msg}})
+        refused = self._swap_refusal(caller, service)
+        if refused is not None:
+            return refused
         try:
             st = self.swap.activate(endpoint, hold=hold)
         except SwapError as e:
@@ -257,14 +293,14 @@ class Gateway:
         self.audit.append("llm.gateway.swap", detail={"caller": caller, **st})
         return GatewayResponse(200, st)
 
-    def release(self, caller: str) -> GatewayResponse:
-        """``POST /v1/serving/release``: the screening run lets go of the card; nothing is swapped back now."""
+    def release(self, caller: str, *, service: str | None = IN_PROCESS) -> GatewayResponse:
+        """``POST /v1/serving/release``: the screening run lets go of the card; nothing is swapped back now. Same
+        rule as :meth:`activate`."""
         if self.swap is None:
             return GatewayResponse(200, {"swap": "off", "active": None})
-        c = self.policy.callers.get(caller)
-        if c is None or not _match("judge", c.roles):
-            msg = f"caller {caller!r} may not swap models"
-            return GatewayResponse(403, {"error": {"type": "tb_refusal", "code": "caller_unknown", "message": msg}})
+        refused = self._swap_refusal(caller, service)
+        if refused is not None:
+            return refused
         st = self.swap.release()
         self.audit.append("llm.gateway.swap_release", detail={"caller": caller, **st})
         return GatewayResponse(200, st)
@@ -293,11 +329,16 @@ class Gateway:
             out[alias] = min(sizes) if sizes else None
         return out
 
-    def chat(self, headers: Mapping[str, str], body: dict[str, Any]) -> GatewayResponse:
+    def chat(
+        self, headers: Mapping[str, str], body: dict[str, Any], *, service: str | None = IN_PROCESS
+    ) -> GatewayResponse:
+        """One model call. ``service``: the service the request's token identifies (``request.state.tb_caller``;
+        None without one), which binds ``X-TB-Caller`` (D-437); :data:`IN_PROCESS` for a call from inside this
+        process."""
         call = _Call(call_id=new_ulid())
         h = {k.lower(): v for k, v in headers.items()}
         try:
-            return self._chat(call, h, body)
+            return self._chat(call, h, body, service)
         except Refusal as r:
             self._record("llm.gateway.refuse", call, reason=r.reason, message=str(r))
             return GatewayResponse(
@@ -312,8 +353,9 @@ class Gateway:
             )
 
     # ------------------------------------------------------------------------------------------------ pipeline
-    def _chat(self, call: _Call, h: dict[str, str], body: dict[str, Any]) -> GatewayResponse:
+    def _chat(self, call: _Call, h: dict[str, str], body: dict[str, Any], service: str | None) -> GatewayResponse:
         call.caller = h.get("x-tb-caller", "")
+        call.service = "" if service == IN_PROCESS else (service or "")
         call.role = h.get("x-tb-role", "")
         call.purpose = h.get("x-tb-purpose", "")
         call.study = h.get("x-tb-study", "")
@@ -329,6 +371,9 @@ class Gateway:
         # 1-2 identity and headers
         if not call.caller or call.caller not in self.policy.callers:
             raise Refusal("caller_unknown", f"caller {call.caller!r} is not on the gateway allowlist")
+        if service != IN_PROCESS:
+            # T-212b (D-437, CR-040): the header is a claim; the token's service must be allowed to make it
+            self.policy.check_claim(service, call.caller, self.config.environment, auth_open=self._auth_open())
         missing = [k for k in REQUIRED if not h.get(k)]
         free_form = bool(self.policy.roles.get(call.role, {}).get("free_form"))
         if not free_form and not call.prompt:
@@ -529,8 +574,9 @@ class Gateway:
             headers["X-TB-Prompt-Version"] = ver
             if call.prompt_sha:
                 headers["X-TB-Prompt-Sha"] = call.prompt_sha
-        if ep.api_key_env and self.env.get(ep.api_key_env):
-            headers["Authorization"] = f"Bearer {self.env[ep.api_key_env]}"
+        ep_key = endpoint_key(ep.api_key_env, self.env) if ep.api_key_env else ""
+        if ep_key:  # TB_LLM_API_KEY_FILE (a compose secret, D-437) before TB_LLM_API_KEY
+            headers["Authorization"] = f"Bearer {ep_key}"
         url = ep.url(dict(self.env))
         if not url:
             errors.append(f"{ep.name}: no URL configured")
@@ -708,6 +754,7 @@ class Gateway:
     def _record(self, event: str, call: _Call, **extra: Any) -> None:
         detail = {
             "call_id": call.call_id,
+            "service": call.service,  # the verified service behind X-TB-Caller (D-437)
             "decision": "refuse" if event.endswith("refuse") else "allow",
             "class": call.data_class,
             "purpose": call.purpose,
