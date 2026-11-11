@@ -7,7 +7,7 @@ python -m omop vocab terminology [--rulesets DIR]        # the compiler's Parque
 python -m omop vocab code-list --system URI --version FY2027 --file F [--rulesets DIR]   # e.g. ICD-10-CM FY2027
 python -m omop vocab licensed | refdata | local --ws main                     # JP masters, refdata terms, local maps
 python -m omop vocab athena --file DIR                    # an Athena bundle (allow-listed vocabularies only)
-python -m omop vocab status                                                   # releases, release id, recompile list
+python -m omop vocab status                               # releases, release id, code-map release, recompile list
 """
 
 from __future__ import annotations
@@ -124,7 +124,10 @@ def _vocab(db: Any, a: argparse.Namespace) -> Any:
         return vl.load_athena(db, a.file, by=a.by).as_dict()
     if a.what == "local":
         return {"mapped": vl.load_local_codes(db, vl.local_code_rows(None, a.ws), by=a.by)}
-    return {"terminology_release": vl.terminology_release(db), "releases": vl.releases(db),
+    from omop import vocab
+
+    return {"terminology_release": vl.terminology_release(db), "release": vocab.release(db),
+            "releases": vl.releases(db),
             "licence_acknowledgements": vl.licence_acks(db),
             "recompile_needed": vl.recompile_needed(db)}  # fmt: skip
 

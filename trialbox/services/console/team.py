@@ -3,9 +3,13 @@
 * **Rights by delegation** (:func:`standing`, :func:`may`): the PI adds sub-investigators to the study's delegation
   log (``/studies/{rs}/team``) and ticks what each may do: ``screen`` (see the candidates and their candidate page),
   ``approach`` (mark Approach), ``refer`` (ask a treating doctor), ``enter_data``. Only the PI approves the criteria
-  and keeps the log. Until a study's log names a PI, every investigator of the study acts as its PI, as before.
-  Coordinators and administrators keep their role's rights. Every action records who did it (the audit trail and the
-  rows' ``by``).
+  and keeps the log. D-380 (ROLE-008): the study's first PI entry is written by the steward from the signed log;
+  until the log names a PI, nobody acts as PI and an investigator has no right in the study. Coordinators keep their
+  role's rights. Every action records who did it (the audit trail and the rows' ``by``).
+* **Monitor grant** (D-380, FIT-002 grant half): the PI or the steward gives a CRO account a ``monitor`` entry of the
+  log for the visit dates, with the monitoring-visit id. Under it the account reads the study's *enrolled* subjects
+  only (``/studies/{rs}/monitor/{record}``), read-only; a candidate, a screen failure or another study is refused;
+  each view is audited with the visit id.
 * **Candidates** (``/studies/{rs}/candidates``): every candidate the study's screening run found, whoever the treating
   doctor is. A candidate's page opens only with a purpose, is logged with the study and the purpose, and is
   rate-limited per person (``TB_CANDIDATE_VIEWS_PER_HOUR``, default 60). On it the PI and delegated sub-PIs see the
@@ -17,7 +21,9 @@
   records the doctor's answer (agree to introduce / decline with a reason / discuss), so the doctor needs no account.
   While a referral waits or was declined, Approach is refused: the PI contacts the patient only after agreement.
 * **IRB approval and the current consent-form version** (``/studies/{rs}/irb``): missing or expired gives a warning
-  before Approach, not a gate; every override is recorded.
+  before Approach, not a gate; every override is recorded. D-380 (ROLE-015): kept by a hospital coordinator or the
+  logged PI (never an SMO account or the administrator); an approval date needs its approval number, a change needs
+  a written reason, and the audit event holds the old and the new values.
 * **The IRB text's coverage** (D-395, RSK-42): a candidate's page and its chart number open only while the study's PI
   has recorded, on the study set-up page (``/studies/{rs}/state``), that the approved IRB text covers "identified
   pre-screening across departments by the investigator before referral". Without it: 403 with the reason, audited.
@@ -26,8 +32,9 @@
   date, the IRB's approval, the first day it is used, re-consent asked or not). The consent form's version is checked
   against it on save (``entry_pages``); ``/studies/{rs}/reconsent`` lists the subjects on study still on an older
   version than the newest in force that asks for re-consent.
-* **Opt-out register** (``/site/opt-outs``, kept by the research office or the steward): an opted-out patient leaves
-  screening, every candidate list and later exports (``tb_common.optout``); each registration is audited.
+* **Opt-out register** (``/site/opt-outs``, kept by the steward or the privacy office only, D-380, ROLE-005): an
+  opted-out patient leaves screening, every candidate list and later exports (``tb_common.optout``); each
+  registration is audited; a lift needs a written reason.
 
 The same actions are on ``/api/v1`` (D-125) with the same rules.
 """
@@ -39,13 +46,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from datacore.lifecycle import reconsent_due
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
-from tb_common.authz import study_tasks
+from tb_common.authz import Standing as Grant
+from tb_common.authz import monitor_may_see, permit, study_tasks
 from tb_common.config import environment_name
 from tb_common.optout import SOURCES, OptOutError, OptOutRegister
 
@@ -69,40 +78,57 @@ from console.teamstore import (
     Entry,
     IcfVersion,
     Irb,
+    Referral,
     TeamError,
     TeamStore,
 )
 from console.timefmt import local_date, site_zone
 
+DOCTOR_LANGS = ("ja", "zh-TW", "en")  # D-407 (UX-034): the languages of the request for the treating doctor
+
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _PID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 _CHART = re.compile(r"^[A-Za-z0-9-]{1,40}$")
+_REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")  # a screening number (record id), as on the lifecycle pages
+MONITOR_HIDDEN = frozenset({"pid"})  # a monitor reads the subject by its screening number, never the pseudonym
 CHECK_DAYS = 30  # the copy is compared with the office's signed log every month
+IRB_REASON_MIN = 10  # D-380 (ROLE-015): the written reason for a change to a study's IRB record
+LIFT_REASON_MIN = 10  # D-380 (ROLE-005): the written reason for lifting an opt-out
+IRB_FIELDS = ("approval_no", "approved_on", "expires_on", "icf_version", "icf_date")  # the stored IRB record
 
 
 @dataclass(frozen=True)
 class Standing:
     """What one account may do in one study."""
 
-    pi: bool  # the study's PI (or, before the log names one, any investigator of the study)
+    pi: bool  # the PI the study's log names (D-380: no PI named, nobody is PI)
     tasks: frozenset[str]
     logged: bool  # the study's log names a PI
     entry: Entry | None = None  # the account's own active entry, if any
+    monitor: Entry | None = None  # the account's monitor grant in the study today (FIT-002)
+
+    def grant(self) -> Grant:
+        """This standing as ``tb_common.authz.permit`` reads it."""
+        return Grant(is_pi=self.pi, tasks=self.tasks, log_names_pi=self.logged, monitor=self.monitor is not None)
 
 
 def standing(team: TeamStore, user: User, rs: str, today: date) -> Standing:
     """The one permission function of D-147: pages and ``/api/v1`` both ask it. The rights per role come from the
     role table (``tb_common.authz.study_tasks``); this reads the study's delegation log into it."""
-    if not user.sees_study(rs) or user.aggregate_only:
+    if not user.sees_study(rs):
         return Standing(False, frozenset(), False)
     entries = team.entries(rs)
     pi = next((e for e in reversed(entries) if e.role == "pi" and e.active_on(today)), None)
     mine = [e for e in entries if e.username == user.username and e.active_on(today)]
+    if user.aggregate_only:  # a CRO account: only a monitor grant (FIT-002), never a study task
+        grant = next((e for e in reversed(mine) if e.role == "monitor"), None) if user.role == "cro" else None
+        return Standing(False, frozenset(), pi is not None, grant, grant)
     own = mine[-1] if mine else None
-    is_pi = user.role == "investigator" and (pi is None or pi.username == user.username)
+    # D-380 (ROLE-008): the bootstrap is closed. Only the PI the log names is PI; with no PI named, nobody is.
+    is_pi = user.role == "investigator" and pi is not None and pi.username == user.username
     ticked = frozenset(t for e in mine if e.role == "sub_pi" for t in e.tasks)
     tasks = study_tasks(user.role, log_names_pi=pi is not None, is_pi=is_pi, ticked=ticked)
-    return Standing(is_pi, tasks, pi is not None, pi if is_pi and pi is not None else own)
+    return Standing(is_pi, tasks, pi is not None, pi if is_pi else own)
 
 
 def check_due(team: TeamStore, rs: str, today: date, tz: ZoneInfo) -> bool:
@@ -153,6 +179,7 @@ class ApiIrb(BaseModel):
     expires_on: str = ""
     icf_version: str = Field(default="", max_length=40)
     icf_date: str = ""
+    reason: str = Field(default="", max_length=300)  # D-380 (ROLE-015): why a saved record changes
 
 
 class ApiIcf(BaseModel):
@@ -198,9 +225,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return task in stand(user, rid).tasks
 
     def may_approve(user: User, rid: str) -> bool:
-        """FR-AUTH-13 and D-147: the investigator approves, and once the log names a PI, only that PI."""
-        s = stand(user, rid)
-        return user.can_approve and (s.pi or not s.logged)
+        """FR-AUTH-13 and D-147: only the PI the study's log names approves (D-380: no PI named, nobody)."""
+        return user.can_approve and stand(user, rid).pi
 
     h.may, h.may_approve, h.stand = may, may_approve, stand  # T-512: h.may_run reads the standing too
     h.team_due = lambda rid: check_due(team, rid, today(), site_zone(bk))
@@ -477,6 +503,79 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
                           "channel": ref.channel, "route": ref.route, "id": ref.id})  # fmt: skip
         return rid, ref
 
+    # ------------------------------------------------------------------ the request for the doctor (D-407, UX-034)
+    def doctor_request(sess: Session, rid: str, ref: Referral, lang: str, mrn: str = "") -> list[str]:
+        """What the CRC hands or sends to the treating doctor, who has no account (LIFE-017, UX-034): the study, the
+        patient's code and screening number, the inclusion criteria the records meet (labels and counts, never a
+        note's words), what is asked, and the study contact. The chart number only after a recorded reveal
+        (``mrn``); otherwise a line the study team fills in by hand. Plain lines in ``lang``, for the copy text and
+        the one-page print alike."""
+        lang = lang if lang in DOCTOR_LANGS else "en"
+        fit = None
+        if h.patient_ctx is not None:
+            try:
+                fit = h.patient_ctx(sess, rid, ref.pid).get("fit")
+            except Exception:  # the patient is not on the latest list any more: the request names no criteria
+                fit = None
+        no = store.screening_nos(rid).get(ref.pid) or ""
+        crc = next((m for m in team.staff() if m.username and m.username == ref.requested_by), None)
+        who = (crc.name if crc else "") or ref.requested_by.removeprefix("console:")
+        lines = [translate(lang, "ref.doc.heading", study=rid)]
+        if ref.physician or ref.department:
+            lines.append(translate(lang, "ref.doc.to", doctor=ref.physician or "–", dept=ref.department or "–"))
+        lines.append(translate(lang, "ref.doc.patient", code=ref.pid[:8], no=no or "–"))
+        lines.append(translate(lang, "ref.doc.chart_shown", mrn=mrn) if mrn else translate(lang, "ref.doc.chart"))
+        if fit is not None and fit.inc_total:
+            lines.append(translate(lang, "ref.doc.criteria", met=fit.inc_met, total=fit.inc_total))
+            lines += [f"- {k['label']}" for k in fit.key[:12]]
+        lines.append(translate(lang, "ref.doc.ask", study=rid))
+        lines.append(translate(lang, "ref.doc.contact", name=who, contact=(crc.contact if crc else "") or "–"))
+        lines.append(translate(lang, "ref.doc.note"))
+        return lines
+
+    def ref_or_404(sess: Session, path: str, rs: str, ref_id: int) -> tuple[str, Referral]:
+        rid = study_or_404(sess, rs)
+        if "screen" not in stand(sess.user, rid).tasks:
+            raise deny(sess, path)
+        ref = team.referral(rid, ref_id)
+        if ref is None or ref.pid in optout.active():
+            raise h.problem(404, "notfound")
+        return rid, ref
+
+    def print_page(request: Request, sess: Session, rid: str, ref: Referral, lang: str, mrn: str = "") -> Response:
+        lang = lang if lang in DOCTOR_LANGS else (sess.lang if sess.lang in DOCTOR_LANGS else "en")
+        au.append("console.referral", ruleset=rid, actor=h.actor(sess),
+                  detail={"pid": ref.pid, "action": "printed", "id": ref.id, "lang": lang,
+                          "chart_no": bool(mrn)})  # fmt: skip
+        may_reveal = "screen" in stand(sess.user, rid).tasks and sess.user.sees_ids(rid)
+        return h.page(request, "team_referral_print.html", sess, rs=rid, ref=ref, doc_lang=lang, langs=DOCTOR_LANGS,
+                      lines=doctor_request(sess, rid, ref, lang, mrn), mrn=mrn, may_reveal=may_reveal,
+                      reveal_reasons=REVEAL_REASONS)  # fmt: skip
+
+    @app.get("/studies/{rs}/referrals/{ref_id}/print")
+    def referral_print(request: Request, rs: str, ref_id: int, lang: str = "") -> Response:
+        """A one-page print of the request for the treating doctor, in the doctor's language (UX-034)."""
+        sess = h.need(request)
+        rid, ref = ref_or_404(sess, request.url.path, rs, ref_id)
+        return print_page(request, sess, rid, ref, lang)
+
+    @app.post("/studies/{rs}/referrals/{ref_id}/print")
+    async def referral_print_reveal(request: Request, rs: str, ref_id: int) -> Response:
+        """The same page with the chart number, through the one reveal path (a reason, the audit record on both
+        sides and the per-person cap); the reveal is recorded as a candidate view for the referral."""
+        sess = h.need(request)
+        form = await request.form()
+        need_csrf(sess, form)
+        rid, ref = ref_or_404(sess, request.url.path, rs, ref_id)
+        need_irb_text(sess, rid, request.url.path)
+        if h.apply_reveal is None:
+            raise deny(sess, request.url.path)
+        _ctx, mrn = h.apply_reveal(sess, request.url.path, rid, ref.pid, str(form.get("reason") or ""),
+                                   via="candidates", purpose="referral",
+                                   note=str(form.get("note") or "")[:200])  # fmt: skip
+        team.record_view(rid, ref.pid, "referral", "reveal", sess.user.username, now())
+        return print_page(request, sess, rid, ref, str(form.get("lang") or ""), mrn)
+
     @app.get("/studies/{rs}/referrals")
     def referrals(request: Request, rs: str) -> Response:
         sess = h.need(request)
@@ -494,9 +593,12 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             counts[f"state.{r.state}"] = counts.get(f"state.{r.state}", 0) + 1
         nos = store.screening_nos(rid)
         may_answer = sess.user.role == "coordinator" or "refer" in s.tasks
+        lang = sess.lang if sess.lang in DOCTOR_LANGS else "en"
+        asks = {r.id: "\n".join(doctor_request(sess, rid, r, lang)) for r in open_refs}  # UX-034: the copy text
         return h.page(request, "team_referrals.html", sess, rs=rid, refs=list(reversed(refs)), open_refs=open_refs,
                       counts=counts, nos=nos, routes=ROUTES, answers=ANSWERS, channels=CHANNELS,
-                      reasons=DECLINE_REASONS, may_answer=may_answer, contacts=team.contacts())  # fmt: skip
+                      reasons=DECLINE_REASONS, may_answer=may_answer, contacts=team.contacts(), asks=asks,
+                      doc_langs=DOCTOR_LANGS)  # fmt: skip
 
     @app.post("/studies/{rs}/referrals/{ref_id}/answer")
     async def referral_answer(request: Request, rs: str, ref_id: int) -> Response:
@@ -510,7 +612,20 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
 
     # ------------------------------------------------------------------ delegation log
     def accounts(rid: str) -> list[User]:
-        return [u for u in h.users.users() if u.role in ("investigator", "coordinator") and u.sees_study(rid)]
+        """Accounts a log entry may name: investigators and coordinators of the study, and CRO accounts of the study
+        for a monitor grant (FIT-002)."""
+        return [u for u in h.users.users() if u.role in ("investigator", "coordinator", "cro") and u.sees_study(rid)]
+
+    def log_roles_for(sess: Session, s: Standing) -> tuple[str, ...]:
+        """The log roles this account may write (D-380): the logged PI every role; the steward the PI entry (study
+        set-up, from the signed log) and monitor grants; nobody else any."""
+        g = s.grant()
+        out = set(LOG_ROLES) if permit(sess.user.role, "delegation.keep", g) else set()
+        if permit(sess.user.role, "delegation.name_pi", g):
+            out.add("pi")
+        if permit(sess.user.role, "monitor.grant", g):
+            out.add("monitor")
+        return tuple(r for r in LOG_ROLES if r in out)
 
     @app.get("/studies/{rs}/team")
     def team_page(request: Request, rs: str) -> Response:
@@ -520,10 +635,11 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             raise deny(sess, request.url.path)
         s = stand(sess.user, rid)
         entries = team.entries(rid)
+        writable = log_roles_for(sess, s)
         return h.page(request, "team_log.html", sess, rs=rid, entries=entries, standing=s, tasks=TASKS,
-                      log_roles=LOG_ROLES, accounts=accounts(rid), checks=team.checks(rid)[:12],
+                      log_roles=writable, accounts=accounts(rid), checks=team.checks(rid)[:12],
                       due=check_due(team, rid, today(), site_zone(bk)), history=team.history(rid)[-30:], today=today(),
-                      can_edit=sess.user.role == "investigator" and s.pi,
+                      can_edit=bool(writable), can_tick=permit(sess.user.role, "delegation.keep", s.grant()).allowed,
                       can_check=sess.user.role == "coordinator" or (sess.user.role == "investigator" and s.pi),
                       results=CHECK_RESULTS, has_pi=team.pi_of(rid, today()) is not None)  # fmt: skip
 
@@ -534,18 +650,30 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         need_csrf(sess, form)
         rid = study_or_404(sess, rs)
         s = stand(sess.user, rid)
-        if not (sess.user.role == "investigator" and s.pi):
+        role = str(form.get("role") or "")
+        writable = log_roles_for(sess, s)
+        if not writable:  # D-380 (ROLE-008): no PI named, no investigator writes the log
+            raise deny(sess, request.url.path)
+        if role in LOG_ROLES and role not in writable:
             raise deny(sess, request.url.path)
         username = str(form.get("username") or "").strip().lower() or None
-        role = str(form.get("role") or "")
         acct = next((u for u in accounts(rid) if u.username == username), None) if username else None
         if username and acct is None:
             raise refused(TeamError("no such account for this study"))
         if role in ("pi", "sub_pi") and acct is not None and acct.role != "investigator":
             raise refused(TeamError("a sub-investigator signs in with an investigator account"))
+        if role != "monitor" and acct is not None and acct.role == "cro":
+            raise refused(TeamError("a CRO account is on the log only as a monitor"))
+        if role == "monitor" and (acct is None or acct.role != "cro"):
+            raise refused(TeamError("a monitor grant names a CRO account of this study"))
+        if role == "monitor" and not str(form.get("end") or "").strip():
+            raise refused(TeamError("a monitor grant ends with the visit: give the end date"))
+        if role == "monitor" and not str(form.get("training_ref") or "").strip():
+            raise refused(TeamError("a monitor grant names the monitoring visit"))
+        tasks = [] if role == "monitor" else form.getlist("tasks")
         try:
             eid = team.add_entry(rid, username=username, name=str(form.get("name") or "").strip() or (username or ""),
-                                 role=role, tasks=form.getlist("tasks"), start=str(form.get("start") or ""),
+                                 role=role, tasks=tasks, start=str(form.get("start") or ""),
                                  end=str(form.get("end") or ""), training_day=str(form.get("training_day") or ""),
                                  training_ref=str(form.get("training_ref") or ""), by=sess.user.username,
                                  at=now())  # fmt: skip
@@ -581,7 +709,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         need_csrf(sess, form)
         rid = study_or_404(sess, rs)
         s = stand(sess.user, rid)
-        if not (sess.user.role == "investigator" and s.pi):
+        if not permit(sess.user.role, "delegation.keep", s.grant()):
             raise deny(sess, request.url.path)
         try:
             e = team.update_entry(rid, eid, tasks=form.getlist("tasks"), end=str(form.get("end") or ""),
@@ -596,21 +724,37 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
 
     # ------------------------------------------------------------------ IRB approval and consent-form version
     def may_edit_irb(sess: Session, rid: str) -> bool:
-        return sess.user.role in ("coordinator", "admin") or (sess.user.role == "investigator" and stand(
-            sess.user, rid).pi)  # fmt: skip
+        """D-380 (ROLE-015): the matrix's ``irb.edit`` (a coordinator, the logged PI) and hospital staff only: an SMO
+        or CRO account and the administrator never set the dates that silence the IRB warning."""
+        if sess.user.affiliation != "hospital":
+            return False
+        return permit(sess.user.role, "irb.edit", stand(sess.user, rid).grant()).allowed
 
     def save_irb(sess: Session, path: str, rs: str, body: ApiIrb) -> tuple[str, Irb]:
+        """D-380 (ROLE-015): an approval date needs its approval number; a change to a saved record needs a written
+        reason; the API body is the whole record (a field left out is cleared, never kept silently); the audit event
+        holds the old and the new values."""
         rid = study_or_404(sess, rs)
         if not may_edit_irb(sess, rid):
             raise deny(sess, path)
+        before = team.irb(rid)
+        new = Irb(body.approval_no, body.approved_on, body.expires_on, body.icf_version, body.icf_date)
+        if new.approved_on.strip() and not new.approval_no.strip():
+            raise refused(TeamError("give the IRB approval number with the approval date"))
+        fields = IRB_FIELDS
+        changed = [k for k in fields if str(getattr(before, k) or "") != str(getattr(new, k) or "").strip()]
+        reason = body.reason.strip()
+        if before.at and changed and len(reason) < IRB_REASON_MIN:
+            raise refused(TeamError(f"say why the IRB record changes (at least {IRB_REASON_MIN} characters)"))
         try:
-            rec = team.save_irb(rid, Irb(body.approval_no, body.approved_on, body.expires_on, body.icf_version,
-                                         body.icf_date), sess.user.username, now())  # fmt: skip
+            rec = team.save_irb(rid, new, sess.user.username, now())
         except TeamError as exc:
             raise refused(exc) from exc
         au.append("console.irb", ruleset=rid, actor=h.actor(sess),
                   detail={"action": "save", "approved_on": rec.approved_on, "expires_on": rec.expires_on,
-                          "icf_version": rec.icf_version})  # fmt: skip
+                          "icf_version": rec.icf_version, "approval_no": rec.approval_no,
+                          "changed": ",".join(changed), "reason": reason[:300],
+                          "before": {k: str(getattr(before, k) or "") for k in fields}})  # fmt: skip
         return rid, rec
 
     @app.get("/studies/{rs}/irb")
@@ -621,19 +765,68 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             raise deny(sess, request.url.path)
         rec = team.irb(rid)
         on = optout.active()
+        # D-380: the overrides name patients (pseudonyms): only a patient-level reader sees them, never the admin
+        overrides = [o for o in team.overrides(rid) if o[0] not in on][-50:] if sess.user.can_view_phi else []
         return h.page(request, "team_irb.html", sess, rs=rid, irb=rec, warnings=rec.warnings(today()),
                       can_edit=may_edit_irb(sess, rid), icf=team.icf_list(rid), icf_history=team.icf_history(rid),
                       reads_subjects=sess.user.can_view_phi and sess.user.role != "cro",
-                      overrides=[o for o in team.overrides(rid) if o[0] not in on][-50:])  # fmt: skip
+                      overrides=overrides)  # fmt: skip
 
     @app.post("/studies/{rs}/irb")
     async def irb_save(request: Request, rs: str) -> Response:
         sess = h.need(request)
         form = await request.form()
         need_csrf(sess, form)
-        body = ApiIrb(**{k: str(form.get(k) or "")[:60] for k in ApiIrb.model_fields})
+        body = ApiIrb(**{k: str(form.get(k) or "")[: 300 if k == "reason" else 60] for k in ApiIrb.model_fields})
         rid, _ = save_irb(sess, request.url.path, rs, body)
         return RedirectResponse(f"/studies/{rid}/irb?done=1", status_code=303)
+
+    # ------------------------------------------------------------------ monitor grant (D-380, FIT-002 grant half)
+    def monitor_grant(sess: Session, path: str, rid: str) -> Standing:
+        """The account's monitor grant in the study today (``monitor.read``), or a refusal (audited)."""
+        s = stand(sess.user, rid)
+        if s.monitor is None or not permit(sess.user.role, "monitor.read", s.grant()):
+            raise deny(sess, path)
+        return s
+
+    def monitor_subject(sess: Session, path: str, rs: str, record: str) -> tuple[str, Standing, dict[str, Any]]:
+        """One subject for the monitor: read-only, enrolled subjects only (``tb_common.authz.monitor_may_see``). A
+        candidate, a screen failure or a consented person who never enrolled is refused and the refusal audited;
+        each view is audited with the monitoring-visit id the grant names."""
+        rid = study_or_404(sess, rs)
+        s = monitor_grant(sess, path, rid)
+        rec = record.strip()[:64]
+        if not _REC.match(rec):
+            raise h.problem(404, "notfound")
+        try:
+            one = dict(s28.call(bk, "GET", f"/studies/{rid}/subjects/{quote(rec)}?today={today().isoformat()}"))
+        except Problem as exc:
+            if exc.status == 404:
+                raise h.problem(404, "notfound") from exc
+            raise h.problem(409, "request.refused", reason="the data core refused the subject") from exc
+        except Unavailable as exc:
+            raise h.problem(503, "request.refused", reason="the data core did not answer") from exc
+        visit = s.monitor.training_ref if s.monitor else ""
+        if not monitor_may_see(one):
+            au.append("console.denied", ruleset=rid, actor=h.actor(sess),
+                      detail={"action": path[:80], "why": "not_enrolled", "visit": visit or ""})  # fmt: skip
+            raise h.problem(403, "forbidden")
+        au.append("console.monitor_view", ruleset=rid, actor=h.actor(sess),
+                  detail={"record": rec, "visit": visit or "", "state": str(one.get("state") or "")})  # fmt: skip
+        shown = {k: v for k, v in one.items() if k not in MONITOR_HIDDEN}
+        return rid, s, shown
+
+    @app.get("/studies/{rs}/monitor/{record}")
+    def monitor_page(request: Request, rs: str, record: str) -> Response:
+        sess = h.need(request)
+        rid, s, one = monitor_subject(sess, request.url.path, rs, record)
+        return h.page(request, "team_monitor.html", sess, rs=rid, record=record[:64], one=one, grant=s.monitor)
+
+    @app.get("/api/v1/studies/{rs}/monitor/{record}")
+    def api_monitor(request: Request, rs: str, record: str) -> dict[str, Any]:
+        sess = api(request)
+        rid, s, one = monitor_subject(sess, request.url.path, rs, record)
+        return {"study": rid, "visit": s.monitor.training_ref if s.monitor else None, "subject": one}
 
     # ------------------------------------------------------------------ approved ICF versions, re-consent (D-399)
     def icf_json(v: IcfVersion) -> dict[str, Any]:
@@ -739,14 +932,15 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
 
     # ------------------------------------------------------------------ staff directory (kept by the steward)
     def can_keep(user: User) -> bool:
-        """The staff directory and department contacts: the research office's coordinator, the steward (D-280) or
-        the administrator, as the site set-up (``site_pages.can_setup``). No patient data on these lists."""
-        return user.role in ("coordinator", "admin", "steward")
+        """The staff directory and department contacts: the matrix's ``staff.keep`` (D-380: the steward and the
+        privacy office only). No patient data on these lists."""
+        return permit(user.role, "staff.keep").allowed
 
     def can_keep_optouts(user: User) -> bool:
-        """The opt-out register (patient level: pseudonyms, a chart-number lookup): the coordinator and the steward.
-        D-280 (OD-5, CR-023): never the administrator, now that a steward role keeps the list."""
-        return user.role in ("coordinator", "steward")
+        """The opt-out register (patient level: pseudonyms, a chart-number lookup): the matrix's ``optout.keep``.
+        D-380 (ROLE-005): the steward and the privacy office only; never a coordinator (an SMO one least of all) and
+        never the administrator."""
+        return permit(user.role, "optout.keep").allowed
 
     @app.get("/site/staff")
     def staff_page(request: Request) -> Response:
@@ -813,6 +1007,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         the register's transaction, so a failed append keeps no opt-out without its event."""
         if not can_keep_optouts(sess.user):
             raise deny(sess, path)
+        if body.lift and len(body.note.strip()) < LIFT_REASON_MIN:  # D-380 (ROLE-005): a lift says why
+            raise refused(OptOutError(f"say why the opt-out is lifted (at least {LIFT_REASON_MIN} characters)"))
         by_chart = bool(body.chart_no.strip()) and not body.pid.strip()
         if by_chart:
             chart_lookup(sess, "optout")
@@ -824,6 +1020,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
                 detail={"pid": pid, "for": "lift" if body.lift else "opt_out", "role": sess.user.role},
             )
         detail = {"pid": pid, "action": "lift" if body.lift else "opt_out",
+                  "reason": body.note.strip()[:300] if body.lift else "",
                   "source": "" if body.lift else (body.source if body.source in SOURCES else "other"),
                   "removed_from": "" if body.lift else "screening, candidate lists, exports"}  # fmt: skip
 
@@ -959,14 +1156,14 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         if sess.user.aggregate_only:
             raise deny(sess, request.url.path)
         rec = team.irb(rid)
-        return {"study": rid, **{k: getattr(rec, k) or None for k in ApiIrb.model_fields},
+        return {"study": rid, **{k: getattr(rec, k) or None for k in IRB_FIELDS},
                 "warnings": rec.warnings(today())}  # fmt: skip
 
     @app.post("/api/v1/studies/{rs}/irb")
     def api_irb_save(request: Request, rs: str, body: ApiIrb) -> dict[str, Any]:
         sess = api(request)
         rid, rec = save_irb(sess, request.url.path, rs, body)
-        return {"study": rid, **{k: getattr(rec, k) or None for k in ApiIrb.model_fields},
+        return {"study": rid, **{k: getattr(rec, k) or None for k in IRB_FIELDS},
                 "warnings": rec.warnings(today())}  # fmt: skip
 
     @app.get("/api/v1/site/opt-outs")

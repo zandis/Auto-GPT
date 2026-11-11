@@ -75,6 +75,7 @@ sast:
   - {path: tools/jpcore_rules.py, rule: B310, count: 1, reason: "fixed https package URL, checked by sha256"}
   - {path: tools/supply_chain/scanners.py, rule: B310, count: 1, reason: "fixed https release URLs, checked by sha256"}
   - {path: tools/trialbox/platform.py, rule: B310, count: 1, reason: "the in-cluster API URL, with the service account's CA"}
+  - {path: tools/trialbox/platform_day2.py, rule: B310, count: 1, reason: "the in-cluster API URL (the log job), with the service account's CA"}
   - {path: tools/trialbox/update.py, rule: B310, count: 1, reason: "the box's own health URL, given by the update code"}
   # B314: xml.etree on an outside file. Python 3.12's expat limits entity expansion and ElementTree never loads
   # external entities.
@@ -101,6 +102,7 @@ sast:
   - {path: tools/vllm_standin.py, rule: B104, count: 1, reason: "test stand-in for the model server inside its container"}
   - {path: tools/trialbox/logs.py, rule: B103, count: 1, reason: "0o750 on the log folder: owner and group only"}
   - {path: tools/trialbox/svc_secrets.py, rule: B103, count: 1, reason: "0o755 on the folder of public files; the secret files are elsewhere, 0600"}
+  - {path: tools/acceptance_env.py, rule: B103, count: 1, reason: "0o755 on the acceptance folder so the containers' users enter it; every secret file inside is 0600 (T-213a)"}
   - path: tools/bench_embed.py
     rule: B615
     count: 2

@@ -10,6 +10,12 @@ REDCap project with the same data dictionary takes them back unchanged:
 * ODM uses REDCap's OIDs: ``Project.<study>``, ``Metadata.<study>_<stamp>``, ``Event.<event>``, ``Form.<form>``,
   item groups ``<form>.<first field>`` and the field name as ``ItemOID``; labels carry every language as
   ``TranslatedText`` with ``xml:lang``.
+
+``cdisc`` (D-396, T-619b, STD-063) is the same ODM with the CDISC content TrialBox holds: the built-in items carry
+their CDASH tag as an ``Alias`` (and ``SDSVarName`` where it is an SDTM name), and one more form, ``Form.cdash``, on
+the first event holds the CDASH IE rows (the criterion a screen failure did not meet) and DS rows (consent, screen
+failure, completion, withdrawal) fed from the screening log's steps. A REDCap project does not have these items, so
+the REDCap round trip uses ``odm``; ``cdisc`` is for a sponsor or an EDC that reads CDASH.
 """
 
 from __future__ import annotations
@@ -20,13 +26,20 @@ import re
 from typing import Any
 from xml.etree import ElementTree as ET  # building only; nothing is parsed here
 
+from edc import cdash
+
 from datacore.forms import LANGS, Field, fields_of, titles_of
+from datacore.lifecycle import Lifecycle, live_steps
 from datacore.store import DataCore
 
 RECORD_ID = "record_id"
 BASE_EVENT = "event_1_arm_1"  # REDCap's one event of a classic (not longitudinal) project
 ODM_NS = "http://www.cdisc.org/ns/odm/v1.3"
 XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
+FORMATS = ("odm", "cdisc", "csv", "xlsx")
+CDASH_FORM = "cdash"  # the CDISC export's own form (IE and DS rows)
+BUILTIN_FORMS = ("tb_screening_log", "tb_consent", "tb_enrolment", "tb_visit", "tb_adverse_event", "tb_deviation",
+                 "tb_withdrawal")  # fmt: skip
 _DTYPE = {"integer": "integer", "decimal": "float", "date": "date", "dateTime": "datetime", "multi": "boolean"}
 
 
@@ -157,9 +170,36 @@ def _oid(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]", "_", text)
 
 
-def odm(dc: DataCore, study: str, at: str) -> str:
+def cdash_rows(dc: DataCore, study: str) -> dict[str, list[tuple[str, dict[str, str]]]]:
+    """Per record, its CDASH IE and DS rows (``("IE", row)``, ``("DS", row)``) from the screening log's standing
+    steps (D-396)."""
+    by_rec: dict[str, list[dict[str, Any]]] = {}
+    for st in Lifecycle(dc).steps(study):
+        by_rec.setdefault(str(st["record"]), []).append(st)
+    out: dict[str, list[tuple[str, dict[str, str]]]] = {}
+    for rec, steps in by_rec.items():
+        live = live_steps(steps)
+        rows = [("IE", r) for r in cdash.ie_rows(live)] + [("DS", r) for r in cdash.ds_rows(live)]
+        if rows:
+            out[rec] = rows
+    return out
+
+
+def _cdash_alias(idf: ET.Element, f: Field) -> None:
+    """A built-in item's CDASH tag (D-396), and the CTCAE version item's SDTM trial summary parameter."""
+    if f.form not in BUILTIN_FORMS:
+        return
+    tag = cdash.BUILTIN.get(f.name, "")
+    if tag:
+        _sub(idf, "Alias", Context="CDASH", Name=tag)
+    elif f.name == "ae_ctcae_version":
+        _sub(idf, "Alias", Context="SDTM", Name=cdash.TOXGRV)
+
+
+def odm(dc: DataCore, study: str, at: str, cdisc: bool = False) -> str:
     """CDISC ODM 1.3.2 (``FileType="Snapshot"``): ``Study``/``MetaDataVersion`` from the forms, ``ClinicalData``
-    from the values. ``at`` is the creation time (ISO 8601 with offset)."""
+    from the values. ``at`` is the creation time (ISO 8601 with offset). ``cdisc`` adds the CDASH tags and the IE
+    and DS rows (D-396)."""
     fields = export_fields(dc, study)
     by_name = {f.name: f for f in fields}
     qs = dc.forms(study)
@@ -174,7 +214,8 @@ def odm(dc: DataCore, study: str, at: str) -> str:
         _sub(gv, tag).text = study
     mdv = _sub(st, "MetaDataVersion", OID=mdv_oid, Name=study)
     events = _events(dc, study)
-    with_base = any(not r["event"] for r in dc.values(study)) or not events
+    extra = cdash_rows(dc, study) if cdisc else {}
+    with_base = any(not r["event"] for r in dc.values(study)) or not events or bool(extra)
     event_names = ([BASE_EVENT] if with_base else []) + [e for e in events if e != BASE_EVENT]
     proto = _sub(mdv, "Protocol")
     for i, ev in enumerate(event_names, 1):
@@ -184,6 +225,8 @@ def odm(dc: DataCore, study: str, at: str) -> str:
         sed = _sub(mdv, "StudyEventDef", OID=f"Event.{ev}", Name=ev, Repeating="No", Type="Common")
         for i, fm in enumerate(forms, 1):
             _sub(sed, "FormRef", FormOID=f"Form.{fm}", OrderNumber=str(i), Mandatory="No")
+        if cdisc and ev == event_names[0]:
+            _sub(sed, "FormRef", FormOID=f"Form.{CDASH_FORM}", OrderNumber=str(len(forms) + 1), Mandatory="No")
     groups: dict[str, list[Field]] = {}
     for f in fields:
         groups.setdefault(f.form, []).append(f)
@@ -194,11 +237,20 @@ def odm(dc: DataCore, study: str, at: str) -> str:
         fd = _sub(mdv, "FormDef", OID=f"Form.{fm}", Name=tt.get("en") or fm, Repeating="No")
         if fm in groups:
             _sub(fd, "ItemGroupRef", ItemGroupOID=group_oid[fm], Mandatory="No")
+    domains = (("IE", cdash.IE_ITEMS), ("DS", cdash.DS_ITEMS)) if cdisc else ()
+    if cdisc:
+        fd = _sub(mdv, "FormDef", OID=f"Form.{CDASH_FORM}", Name="CDASH IE and DS", Repeating="No")
+        for dom, _ in domains:
+            _sub(fd, "ItemGroupRef", ItemGroupOID=f"IG.{dom}", Mandatory="No")
     for fm, fs in groups.items():
         ig = _sub(mdv, "ItemGroupDef", OID=group_oid[fm], Name=fm, Repeating="No")
         for f in fs:
             for oid in _item_oids(f):
                 _sub(ig, "ItemRef", ItemOID=oid, Mandatory="Yes" if f.required else "No")
+    for dom, items in domains:  # repeating: one group per IE criterion or DS event
+        ig = _sub(mdv, "ItemGroupDef", OID=f"IG.{dom}", Name=dom, Repeating="Yes", SASDatasetName=dom, Domain=dom)
+        for var, _ in items:
+            _sub(ig, "ItemRef", ItemOID=f"{dom}.{var}", Mandatory="No")
     codelists: list[Field] = []
     for f in fields:
         if f.kind == "multi":
@@ -216,6 +268,14 @@ def odm(dc: DataCore, study: str, at: str) -> str:
         if f.kind == "choice":
             _sub(idf, "CodeListRef", CodeListOID=f"{f.name}.choices")
             codelists.append(f)
+        if cdisc:
+            _cdash_alias(idf, f)
+    for dom, items in domains:
+        for var, dtype in items:
+            attrs = {"DataType": "text", "Length": "200"} if dtype == "text" else {"DataType": dtype}
+            idf = _sub(mdv, "ItemDef", OID=f"{dom}.{var}", Name=var, **attrs, SDSVarName=cdash.sds_name(var))
+            _texts(idf, "Question", cdash.VARIABLES.get(f"{dom}.{var}", var), {})
+            _sub(idf, "Alias", Context="CDASH", Name=f"{dom}.{var}")
     for f in codelists:
         cl = _sub(mdv, "CodeList", OID=f"{f.name}.choices", Name=f.name, DataType="text")
         for c, d in f.options.items():
@@ -228,6 +288,8 @@ def odm(dc: DataCore, study: str, at: str) -> str:
         if fld is None or fld.name == RECORD_ID or r["value"] == "":
             continue
         data.setdefault(str(r["record"]), {}).setdefault(event_name(str(r["event"])), {})[fld.name] = str(r["value"])
+    for rec in extra:
+        data.setdefault(rec, {}).setdefault(event_names[0], {})
     for rec in sorted(data):
         sd = _sub(cd, "SubjectData", SubjectKey=rec)  # a Snapshot file has no TransactionType (the XSD, T-115)
         for ev in sorted(data[rec], key=lambda e: event_names.index(e) if e in event_names else 99):
@@ -246,6 +308,15 @@ def odm(dc: DataCore, study: str, at: str) -> str:
                             _sub(igd, "ItemData", ItemOID=f"{f.name}___{c}", Value="1" if c in picked else "0")
                     else:
                         _sub(igd, "ItemData", ItemOID=f.name, Value=vals[f.name])
+            if ev == event_names[0] and extra.get(rec):
+                fdata = _sub(se, "FormData", FormOID=f"Form.{CDASH_FORM}", FormRepeatKey="1")
+                n = {"IE": 0, "DS": 0}
+                for dom, row in extra[rec]:
+                    n[dom] += 1
+                    igd = _sub(fdata, "ItemGroupData", ItemGroupOID=f"IG.{dom}", ItemGroupRepeatKey=str(n[dom]))
+                    for var, _ in dict(domains)[dom]:
+                        if row.get(var):
+                            _sub(igd, "ItemData", ItemOID=f"{dom}.{var}", Value=row[var])
     ET.indent(root, space=" ")
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode") + "\n"
 
@@ -263,14 +334,15 @@ def values_of(dc: DataCore, study: str) -> dict[tuple[str, str, str], str]:
 
 def media(fmt: str) -> tuple[str, str]:
     """(file suffix, media type) of an export format."""
-    return {"odm": (".odm.xml", "application/xml"), "csv": (".csv", "text/csv"),
-            "xlsx": (".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}[fmt]  # fmt: skip
+    xlsx = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    return {"odm": (".odm.xml", "application/xml"), "cdisc": (".cdisc.odm.xml", "application/xml"),
+            "csv": (".csv", "text/csv"), "xlsx": (".xlsx", xlsx)}[fmt]  # fmt: skip
 
 
 def export(dc: DataCore, study: str, fmt: str, at: str) -> Any:
-    """``odm`` and ``csv`` as text, ``xlsx`` as bytes."""
-    if fmt == "odm":
-        return odm(dc, study, at)
+    """``odm``, ``cdisc`` and ``csv`` as text, ``xlsx`` as bytes."""
+    if fmt in ("odm", "cdisc"):
+        return odm(dc, study, at, cdisc=fmt == "cdisc")
     if fmt == "csv":
         return redcap_csv(dc, study)
     if fmt == "xlsx":

@@ -29,6 +29,7 @@ from tests.console.test_console_app import (  # noqa: F401 - the fixture is used
     _ulid,
     box,
     login,
+    name_pi,
 )
 from tests.console.test_site_setup_pages import PW as SB_PW
 from tests.console.test_site_setup_pages import _csrf, sb  # noqa: F401 - the fixture is used by name
@@ -274,6 +275,7 @@ def test_a_closing_outcome_asks_first_and_an_outcome_can_be_undone(box: dict[str
     _done_screen(box["backend"], _ulid(971))
     for name, role in (("crc1", "coordinator"), ("drsato", "investigator")):
         box["users"].create(name, role, PW, f"{name}@hospa.test")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     pi, _ = login(box["app"], "drsato", PW)
     pp = pi.get(f"/studies/GZQO/patients/{a}").text
     pi.post(f"/studies/GZQO/patients/{a}/mark", data={"csrf": _csrf(pp), "mark": "approach"})

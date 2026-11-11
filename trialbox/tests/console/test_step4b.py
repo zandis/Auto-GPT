@@ -17,6 +17,7 @@ from tests.console.test_console_app import (  # noqa: F401 - the fixture is used
     _ulid,
     box,
     login,
+    name_pi,
 )
 from tests.console.test_step3 import _connect, b3  # noqa: F401 - the fixture is used by name
 
@@ -46,6 +47,7 @@ def test_not_suitable_needs_a_reason_on_the_page_and_the_api_and_undo_restores(b
     mark before (here: none)."""
     _done_screen(box["backend"], _ulid(961))
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     page = pi.get(f"/studies/GZQO/week?pid={B}").text
     sel = page.split(f'<select id="reason-{B[:8]}"')[1][:300]
     assert " required " in sel and '<option value="">' in sel  # "Choose a reason" first, empty, required
@@ -94,6 +96,7 @@ def test_contact_outcome_only_after_the_investigators_approach(box: dict[str, An
     assert r.status_code == 409 and r.json()["error"] == "outcome.wait_pi"
     assert not _events(box, "console.contact_outcome") and _events(box, "console.refused")
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     pp = pi.get(f"/studies/GZQO/patients/{A}").text
     pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": _csrf(pp), "mark": "need_info"})
     r = crc.post(f"/api/v1/studies/GZQO/patients/{A}/outcome", json={"outcome": "reached_booked"}, headers=hdr)

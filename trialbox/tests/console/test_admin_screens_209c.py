@@ -104,7 +104,7 @@ def test_the_report_is_refused_to_other_roles(ob: dict[str, Any], who: str) -> N
 def test_the_report_page_lists_unused_ending_and_open_ended_accounts(ob: dict[str, Any]) -> None:
     us = ob["users"]
     today = us.today()
-    us.set_scope("cro", "cro", "", (today + timedelta(days=5)).isoformat())
+    us.set_scope("cro", "cro", "GZQO", (today + timedelta(days=5)).isoformat())
     us.db.execute("UPDATE users SET created = ? WHERE username = 'viewe'",
                   ((datetime.now(UTC) - timedelta(days=90)).isoformat(),))  # fmt: skip
     c, _ = login(ob["app"])
@@ -174,7 +174,7 @@ def test_a_new_local_account_gets_an_end_date_within_twelve_months(ob: dict[str,
                                    "expires": far})  # fmt: skip
     assert r.status_code == 400 and "at most 365 days" in r.text
     r = c.post("/ops/users", data={"csrf": csrf, "action": "scope", "username": "smo.a", "affiliation": "smo",
-                                   "studies": "", "expires": ""}, follow_redirects=False)  # fmt: skip
+                                   "studies": "GZQO", "expires": ""}, follow_redirects=False)  # fmt: skip
     assert r.status_code == 303 and next(u for u in us.users() if u.username == "smo.a").expires
     r = c.post("/ops/users", data={"csrf": csrf, "action": "add", "username": "adm.b", "role": "admin"},
                follow_redirects=False)  # fmt: skip

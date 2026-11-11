@@ -27,7 +27,7 @@ import pytest
 from console.i18n import CATALOGUES
 from console.i18n_layout import EN as LAYOUT_EN
 
-from tests.console.test_console_app import _done_screen, _ulid, box, login  # noqa: F401 - the fixture is used by name
+from tests.console.test_console_app import _done_screen, _ulid, box, login, name_pi  # noqa: F401 - the fixture is used by name
 
 ROOT = Path(__file__).resolve().parents[2]
 CSS = ROOT / "services" / "console" / "static" / "console.css"
@@ -64,6 +64,7 @@ def _setup(b: dict[str, Any]) -> None:
     _done_screen(b["backend"], _ulid(961))
     b["users"].create("drsato", "investigator", PW, "drsato@hospa.test")
     b["users"].create("crc", "coordinator", PW, "crc@hospa.test")
+    name_pi(b, "drsato")  # D-380 (ROLE-008): the steward names the PI
     h = b["app"].state.helpers
     h.life_sae = lambda rid: [
         {"record": "S-0001", "event": "ae1", "ae_term": "synthetic event", "ae_onset": "2026-10-01", "fatal": False}
