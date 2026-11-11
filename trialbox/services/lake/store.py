@@ -23,6 +23,7 @@ with a plain message (WS-03.1), instead of failing later on a missing column.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -68,8 +69,9 @@ _CACHE_LOCK = threading.Lock()
 
 # 1: tables + document_chunk with its own embedding column (before D-149); 2: no embedding in the snapshot, chunk sha,
 # lake_meta.schema_version / schema_sha / embed_store; 3 (T-106b): the encounter's end and status, and the four
-# provenance columns on every table (``lake.flatten.PROVENANCE``). A reader serves every version from MIN to CURRENT.
-LAKE_SCHEMA_VERSION = 3
+# provenance columns on every table (``lake.flatten.PROVENANCE``); 4 (T-616): ``patient.deceased``. A reader serves
+# every version from MIN to CURRENT (an older snapshot reads ``patient.deceased`` as unknown: :func:`_compat_views`).
+LAKE_SCHEMA_VERSION = 4
 MIN_READABLE_SCHEMA = 1
 CHUNK_COLUMNS: list[tuple[str, str]] = [
     ("did", "VARCHAR"),
@@ -222,6 +224,17 @@ def _tombstones(src: Path) -> dict[str, list[str]]:
     except (OSError, ValueError):
         return {}
     return {str(t): [str(i) for i in ids] for t, ids in body.items()} if isinstance(body, dict) else {}
+
+
+def _compat_views(con: duckdb.DuckDBPyConnection, version: int) -> None:
+    """A snapshot built before schema 4 has no ``patient.deceased``: a temporary view of this connection adds it as
+    unknown (NULL), so the compiled SQL of today reads a pinned older snapshot as it read it before (T-616)."""
+    if version >= 4:
+        return
+    row = con.execute("SELECT current_database()").fetchone()
+    db = str(row[0]).replace('"', '""') if row else "main"
+    with contextlib.suppress(duckdb.Error):  # no patient table (a partial test lake): nothing to add
+        con.execute(f'CREATE TEMP VIEW patient AS SELECT *, CAST(NULL AS BOOLEAN) AS deceased FROM "{db}".main.patient')
 
 
 def _file_sha(path: Path) -> str:
@@ -728,7 +741,7 @@ class Lake:
                 con.execute("SET enable_external_access = false")
                 con.execute("SET lock_configuration = true")
         try:
-            check_schema(con, snapshot or self.current() or "")
+            _compat_views(con, check_schema(con, snapshot or self.current() or ""))
         except LakeSchemaError:
             con.close()
             raise

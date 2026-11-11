@@ -54,7 +54,7 @@ from tb_contracts import (
 from orchestrator import i18n
 from orchestrator.clients import AdapterAPI, CompilerAPI, MailAPI, ParserAPI, StepFailed
 from orchestrator.db import TERMINAL, JobDB
-from orchestrator.jobs import pinned_services, release_hold
+from orchestrator.jobs import guarded_services, pinned_services, release_hold
 
 log = logging.getLogger("orchestrator")
 SYSTEM_SENDERS = ("scheduler", "system")
@@ -129,9 +129,11 @@ class Ctx:
 
     @property
     def services(self) -> Services:
-        """The orchestrator's services with the lake pinned to this job's snapshot (T-305a, D-383)."""
+        """The orchestrator's services for this job: the lake pinned to the job's snapshot (T-305a, D-383) and the model
+        clients guarded by the cancel check and the SCREEN breaker (T-108d, D-389). One per job, so the judge and the
+        verifier keep their identity."""
         if self._services is None:
-            self._services = pinned_services(self)
+            self._services = guarded_services(self, pinned_services(self))
         return self._services
 
     @property
