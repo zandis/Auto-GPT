@@ -66,7 +66,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-216 | reserved | T-119 | Cloud hygiene remainder |
 | D-217..D-219 | unused | — | no card of TB-ASSESS-01 took them |
 | D-220 | reserved | T-103 | One reveal path |
-| D-221 | reserved | T-107 | The catalogue loaded as data |
+| D-221 | unused | T-107 | The catalogue loaded as data (voided: T-107 took D-353) |
 | D-222 | reserved | T-109 | Identity v1: Caddy, Authelia, local TOTP, step-up, forced password … |
 | D-223 | reserved | T-112 | The data-operations console v1 |
 | D-224 | reserved | T-116 | "Criteria not matched", the forbidden-word check and the intended-use … |
@@ -121,7 +121,8 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-274 | merged | fix group D-274 with card T-117b | backups and restore: one point in time, a content hash of any size, a copy and an audit row on restore, the cron at install; `docs/decisions/D-274-backup-restore-wiring.md` |
 | D-275 | merged | fix group FG-F (PR #115) | structured criteria: unusable data is unknown, never an exclusion; `docs/decisions/D-275-criteria-unusable-data-unknown.md` |
 | D-276 | merged | fix group FG-G (PR #101) | the two-model check needs two different models; `docs/decisions/D-276-two-model-check.md` |
-| D-277..D-278 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
+| D-277 | merged | fix group D-277 (FG-H) with card T-602 | the SAE clock: the 24-hour report in hours, named rule sets per study, no quiet fallback, the register on the write path; `docs/decisions/D-277-sae-clock-and-register.md` |
+| D-278 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
 | D-279 | merged | fix group D-279 | identity follow-ups: forced first password change, sign-in lock per account and address, OIDC session lifetime, second factor at signing; `docs/decisions/D-279-identity-follow-ups.md` (file) |
 | D-280 | merged | fix group D-280 (FG-K) | the administrator sees no patient data; break-glass for one patient or one job, 60 minutes, reviewed by the steward; a steward role; `docs/decisions/D-280-steward-and-break-glass.md` (file) |
 | D-281 | merged | fix group FG D-281 (built as a card, branch `agent/FG-D281-signing`) | EDC signature controls: record lock, keyed signature over the whole act checked before send and export, append-only trail tables, audit inside the transaction, audited refusals, plain ODM legal reason, REDCap version as text; `docs/decisions/D-281-edc-signature-controls.md` (file) |
@@ -171,8 +172,13 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-344 | merged | T-215 | QMS-lite records in `docs/validation/`, VMP v1.1 without signatures, change classes CC1 to CC6, staged roll-out, standards position (file) |
 | D-346 | merged | T-208 | the prompt-injection and false-positive suite: facts not words, a stub that obeys as the negative control, the fence escaped, hidden text flagged, traces 7 days in PRODUCTION (file) |
 | D-347 | merged | T-210b | the site keys under a KEK: wrapped files, three back ends, the unseal, the key inventory (file) |
+| D-339 | merged | T-106 | OMOP second slice: schema name stays `omop`; the adapter's dual write behind the flag `omop.dual_write` (a failure never holds the night); the large CDM tables partitioned by year; the Relational checks after every load in the ingest report; parity timings (file) |
 | D-348 | merged | T-673 | third-party images in `deploy/images.lock` by digest, no image by tag, the GPU host checked against the vLLM image (arch, driver, compute capability), Mailpit for MailHog (file) |
 | D-349 | merged | T-512 | the PI starts FEAS, SCREEN and CASE on own study; a sub-investigator with the `run` tick; one table `authz.INVESTIGATOR_RUNS`; "data as of" on the patient lists (file) |
 | D-339 | merged | T-106 | OMOP second slice: schema name stays `omop`; the adapter's dual write behind the flag `omop.dual_write` (a failure never holds the night); the large CDM tables partitioned by year; the Relational checks after every load in the ingest report; parity timings (file) |
+| D-353 | merged | T-107 | the clinical item catalogue loaded as data: one concept per item at stable ids, LOINC unmapped never invented, the storable gate in chart extraction, the steward items page (file) |
 | D-354 | merged | T-210c | uploads and outputs sealed at rest: AES-GCM per object under objects.key wrapped by the KEK, the seal file, seal-objects (file) |
+| D-355 | merged | T-211a | signed audit heads with the KEK-wrapped Ed25519 key, write-once off-box anchor folders, key rotation, the clock a doctor FAIL (file) |
+| D-352 | merged | T-669 | hot documents as section files with a generated index; RUNBOOK section numbers in one table (file) |
+| D-357 | merged | T-603 | prompt budgets from the model's context: the gateway gives each alias's context and refuses `prompt_too_long` before dispatch; callers size excerpts, full record, chart and the retry from it; the cache keeps complete answers only and keys on `max_tokens`; a note over the budget is flagged (`notes_over_budget`) (file) |
 | D-360 | merged | T-108a | compose limits: a memory and a pids cap on every service, health checks, capped logs, the lake sized from its cap, the host watchdog that restarts an unhealthy service and audits it (file) |

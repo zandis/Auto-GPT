@@ -71,7 +71,7 @@ PATIENT_CLASS = "D3"  # every cascade output is patient level (§7.1)
 NOT_AT_INDEX = "not alive at an index date"
 UNKNOWN_KEPT = "unknown_kept"  # v1: an unknown exclusion does not exclude (FEAS D-18)
 CODE_OUTSIDE_LIST = "code_outside_list"  # D-113: coded inside a grouper's family, not in its list: kept, unknown
-EXCERPT_TOKENS = 2500
+EXCERPT_TOKENS = 2500  # fits beside the judge prompt and its answer on every profile (8k and up, T-603)
 EXCLUSION_POWER_PRIOR = 0.5  # CAS-3 prior until the criterion library has site history
 _SENT = re.compile(r"[^。！？!?\n]+[。！？!?]?")
 
@@ -829,6 +829,11 @@ class _Run:
         condition_present = reply.verdict == "pass"
         eligible = condition_present if c.kind == "inclusion" else not condition_present
         if eligible:
+            if left_out:
+                # T-603 (review LLM-016, CR-004 flag half): the answer that keeps the patient stands, flagged; the
+                # caller marks the patient (PatientTrace.notes_over_budget) and the tier is never "strong"
+                why = f"notes_over_budget: {left_out} evidence note(s) did not fit the excerpts"
+                return Outcome(c.id, "pass", stage, evidence=[*ev, meta], reason=why)
             return Outcome(c.id, "pass", stage, evidence=[*ev, meta], reason=reply.reason[:200])
         if left_out:
             # D-276 (review S-10): the judge and the verifier read the same excerpts. With an evidence note left out
@@ -900,6 +905,8 @@ class _Run:
                 lo, hi = window_of(c, t.index_date)
                 o = self._map(c, reply, verify_span(reply, r.excerpts, lo, hi), "S3", r.left_out)
                 t.outcomes[r.cid] = o
+                if r.left_out:
+                    self._flag(t, r.cid)
                 done.append(r)
                 if o.hard:
                     self.exclude(t, "S3", r.cid)
@@ -964,6 +971,15 @@ class _Run:
         self.log("S4", p_in, len(alive_after), len(pairs), len(pairs) - disagreements, disagreements=disagreements)
         self.metrics.n_after["S4"] = len(alive_after)
 
+    def _flag(self, t: PatientTrace, cid: str) -> None:
+        """T-603 (CR-004 flag half): an evidence note of ``cid`` did not fit what the models read; the candidate
+        carries the flag and its tier is never "strong" (:meth:`tiers`)."""
+        with self._lock:
+            if cid not in t.notes_over_budget:
+                if not t.notes_over_budget:
+                    self.metrics.notes_over_budget += 1
+                t.notes_over_budget.append(cid)
+
     def _would_be_strong(self, t: PatientTrace) -> bool:
         return all(o.status == "pass" for o in t.outcomes.values()) and any(
             o.stage == "S3" for o in t.outcomes.values()
@@ -985,6 +1001,8 @@ class _Run:
             kinds = {o.unknown_kind for o in t.outcomes.values() if o.status == "unknown"}
             if any(o.status == "fail" and not o.hard for o in t.outcomes.values()):
                 kinds.add("uncertain")  # soft note fail (D-97): a person decides
+            if t.notes_over_budget:
+                kinds.add("uncertain")  # T-603: a note the models did not read in full: a person looks
             if "uncertain" in kinds:
                 t.tier = "potential:uncertain"
             elif "data_gap" in kinds:
