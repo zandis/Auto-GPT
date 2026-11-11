@@ -1,14 +1,21 @@
 #!/bin/sh
 # Appliance host checks (SPEC §10.1; docs/SECURITY.md). Prints PASS / WARN / FAIL per item; exit 1 on any FAIL.
 #
-#   deploy/check_host.sh [--gb10] [--env deploy/.env] [--secrets <dir>]
+#   deploy/check_host.sh [--gb10 | --gpu <profile>] [--gpu-only] [--env deploy/.env] [--secrets <dir>]
 #
 # Read-only: changes nothing. Run as root on the appliance after installation and after every update.
+# --gpu names the GPU profile (rtxpro6000, gb10, rtx5090, rtx4090, default; --gb10 is --gpu gb10). With a profile, or
+# TB_LLM_MODE=vllm in the env file, the host is checked against the vLLM image of deploy/images.lock (D-348): its
+# architecture, the NVIDIA driver (FAIL below the image's CUDA need) and the GPU's compute capability.
+# --gpu-only runs only those GPU checks (install.sh runs it before it loads anything).
 set -u
-GB10=0; ENV_FILE="$(dirname "$0")/.env"; SECRETS="${TB_SECRETS_HOST_DIR:-/var/lib/docker/volumes/trialbox_tb-secrets/_data}"
+GB10=0; GPU_PROFILE=""; GPU_ONLY=0; ENV_FILE="$(dirname "$0")/.env"
+SECRETS="${TB_SECRETS_HOST_DIR:-/var/lib/docker/volumes/trialbox_tb-secrets/_data}"
 while [ $# -gt 0 ]; do
   case "$1" in
-    --gb10) GB10=1 ;;
+    --gb10) GB10=1; GPU_PROFILE=gb10 ;;
+    --gpu) GPU_PROFILE="$2"; [ "$2" = gb10 ] && GB10=1; shift ;;
+    --gpu-only) GPU_ONLY=1 ;;
     --env) ENV_FILE="$2"; shift ;;
     --secrets) SECRETS="$2"; shift ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
@@ -20,6 +27,32 @@ pass() { echo "PASS  $1"; }
 warn() { echo "WARN  $1"; }
 fail() { echo "FAIL  $1"; FAILS=$((FAILS + 1)); }
 mode() { stat -c %a "$1" 2>/dev/null; }
+envget() { [ -r "$ENV_FILE" ] && sed -n "s/^$1=//p" "$ENV_FILE" | tail -1; }
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+# the vLLM image of deploy/images.lock against this host (D-348; tools/images_lock.py, standard library only)
+gpu_image_check() {
+  if [ "$GB10" = 1 ]; then img="${VLLM_GB10_IMAGE:-$(envget VLLM_GB10_IMAGE)}"; else img="${VLLM_IMAGE:-$(envget VLLM_IMAGE)}"; fi
+  drv=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
+  cap=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1)
+  if ! command -v python3 >/dev/null 2>&1; then
+    fail "python3 not found: the GPU host cannot be checked against deploy/images.lock"; return
+  fi
+  out=$(cd "$ROOT_DIR" && python3 -m tools.images_lock host --arch "$(uname -m)" --driver "$drv" \
+    --compute-cap "$cap" --image "$img" 2>&1)
+  echo "$out" | grep -E '^(PASS|WARN|FAIL) ' || echo "FAIL  tools.images_lock: $out"
+  n=$(echo "$out" | grep -c '^FAIL ')
+  [ "$n" -gt 0 ] && FAILS=$((FAILS + n))
+  echo "$out" | grep -qE '^(PASS|WARN|FAIL) ' || FAILS=$((FAILS + 1))
+}
+[ -n "$GPU_PROFILE" ] || [ "$(envget TB_LLM_MODE)" != vllm ] || GPU_PROFILE=default
+if [ "$GPU_ONLY" = 1 ]; then
+  [ -n "$GPU_PROFILE" ] || { echo "--gpu-only needs --gpu <profile> or --gb10" >&2; exit 2; }
+  [ "$GB10" = 1 ] && { [ "$(uname -m)" = "aarch64" ] && pass "aarch64 host" || fail "GB10 profile on $(uname -m)"; }
+  gpu_image_check
+  echo "---"
+  [ "$FAILS" -eq 0 ] && { echo "GPU host checks passed"; exit 0; } || { echo "$FAILS GPU check(s) failed"; exit 1; }
+fi
 
 # disk encryption and swap (§10.1 "Disk")
 if command -v lsblk >/dev/null 2>&1 && lsblk -rno TYPE 2>/dev/null | grep -qx crypt; then
@@ -73,14 +106,17 @@ if [ "$GB10" = 1 ]; then
   if [ "$d" = "580.142" ]; then pass "NVIDIA driver 580.142 (pinned)"; else fail "NVIDIA driver '${d:-none}' (GB10 requires 580.142; hold it with apt-mark)"; fi
   if apt-mark showhold 2>/dev/null | grep -q nvidia; then pass "NVIDIA driver packages held"; else warn "driver packages not held (apt-mark hold)"; fi
   if docker info 2>/dev/null | grep -qi nvidia; then pass "nvidia container runtime"; else fail "nvidia-container-toolkit not configured"; fi
+  gpu_image_check
 elif command -v nvidia-smi >/dev/null 2>&1; then
   pass "GPU: $(nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null | head -1)"
+  [ -z "$GPU_PROFILE" ] || gpu_image_check
+elif [ -n "$GPU_PROFILE" ]; then
+  fail "GPU profile $GPU_PROFILE but no nvidia-smi (NVIDIA driver not installed)"
 else
   warn "no NVIDIA GPU: run with TB_LLM_MODE=stub or the cloud flag"
 fi
 # trialbox doctor (spec v4 S1-16): topology, class ceiling, gateway-only model reach, channel engine, Hermes pin,
 # publish gate. TB_SETTINGS names the site settings file; TB_DATAPLAT_DIR the data-platform workdir.
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>/dev/null \
     && command -v docker >/dev/null 2>&1 && docker image inspect "${TB_IMAGE:-trialbox-py:1.0.0}" >/dev/null 2>&1; then
   # a site host has no pydantic (found by the box rehearsal, D-176): the doctor runs in the box's own image

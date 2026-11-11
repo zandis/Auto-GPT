@@ -92,7 +92,8 @@ def test_pro6000_fits_the_card_with_headroom() -> None:
         fracs.append(float(flag.split(f"${{{var}:-")[1].rstrip("}")))
     # weights 17.1 + 7.5 GiB of 95.6 GiB: each share must hold its weights and leave room for 32k of KV
     assert fracs[0] * 95.6 > 17.1 + 10 and fracs[1] * 95.6 > 7.5 + 5 and sum(fracs) <= 0.7
-    assert svc["llm-service"]["image"].endswith("vllm/vllm-openai:v0.32.0}")
+    lock = json.loads((ROOT / "deploy/images.lock").read_text(encoding="utf-8"))["third_party"]["vllm"]  # D-348
+    assert svc["llm-service"]["image"].endswith(f"{lock['image']}@{lock['digest']}}}")
 
 
 def test_registry_has_the_pair_for_every_profile() -> None:

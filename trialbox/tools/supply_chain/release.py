@@ -33,7 +33,6 @@ from tools.supply_chain.allowlist import Allowlist
 # (translator jars without findings, Temurin 21). A bundle never carries a report-mode finding.
 VULN_REPORT_ONLY = frozenset(
     {
-        "mailhog/mailhog",
         "vllm/vllm-openai",
         "postgres",
         "hapiproject/hapi",
