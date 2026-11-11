@@ -33,7 +33,7 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--env-file", type=Path, default=None)
     d.add_argument("--settings", type=Path, default=None)
     d.add_argument("--routing", type=Path, default=None)
-    d.add_argument("--dataplat-workdir", type=Path, default=None)
+    d.add_argument("--lake-dir", type=Path, default=None, help="the adapter's lake (default TB_LAKE_DIR)")
     d.add_argument("--json", action="store_true")
     d.add_argument("--live", action="store_true", help="also ask the model servers (served names, key; D-177)")
     d.add_argument("--serving", action="store_true", help="only the live model-server check (install.sh)")
@@ -192,9 +192,7 @@ def main(argv: list[str] | None = None) -> int:
             which = (doctor.LIVE if a.serving else ()) + doctor.WEIGHTS
         elif a.verify_all:
             which = which + doctor.WEIGHTS
-        inp = doctor.inputs_from(
-            env_file=a.env_file, settings=a.settings, routing=a.routing, dataplat=a.dataplat_workdir
-        )
+        inp = doctor.inputs_from(env_file=a.env_file, settings=a.settings, routing=a.routing, lake=a.lake_dir)
         if a.two_device:
             from tools import two_device as td
 
@@ -245,7 +243,7 @@ def _platform_cmd(a: argparse.Namespace) -> int:
 
         from tools.trialbox.doctor import _egress, inputs_from
 
-        env = pf.platform_env(inputs_from(env_file=a.env_file, settings=None, routing=None, dataplat=None).env)
+        env = pf.platform_env(inputs_from(env_file=a.env_file, settings=None, routing=None, lake=None).env)
         eg = _egress()
         pols, warnings = eg.render_networkpolicy(eg.allowlist(env, eg.ROUTING))
         doctor_pol, doctor_warnings = pf.render_doctor_policy(env)  # the install-check job's own egress (D-211)

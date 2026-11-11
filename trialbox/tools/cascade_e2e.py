@@ -1,4 +1,4 @@
-"""End-to-end run of the MS1 slice: dataplat L0–L5 → cascade S0–S5 → DL-1 feasibility pack + recall certificate.
+"""End-to-end run of the MS1 slice: the adapter's night → cascade S0–S5 → DL-1 feasibility pack + recall certificate.
 
     from tools.cascade_e2e import run_end_to_end
     result = run_end_to_end(Path("tests/fixtures/.../site-a"), "GZQO", Path("out"))
@@ -19,10 +19,13 @@ call goes to that gateway instead, as caller ``orchestrator``; with ``TB_GATEWAY
 and ``TB_GATEWAY_EXPECT_SHA`` makes the run fail unless every answer came from the build with that sha256 (the
 ``gateway_build_pinned`` check).
 
-Outputs in ``out_dir``: ``dataplat/`` (the publish cycle), ``cascade/`` (D3: traces, review queue, final list,
-stage log, manifest block), ``dl1/`` (D1: PDF, XLSX, JSON, figures; plus the INTERNAL exact comparison for these
-open/synthetic data), ``recall/`` (ledger and certificate or refusal), ``audit/`` (gateway audit chain),
-``e2e_summary.json`` and ``e2e_summary.md``.
+The night runs through the one ingest path, ``services/adapter`` (D-370, D-381; :mod:`tools.ingest_local`), with the
+data contracts on; its one gate record must say PUBLISH before the cascade reads the lake.
+
+Outputs in ``out_dir``: ``ingest/`` (the night: lake, gate record, lineage), ``cascade/`` (D3: traces, review
+queue, final list, stage log, manifest block), ``dl1/`` (D1: PDF, XLSX, JSON, figures; plus the INTERNAL exact
+comparison for these open/synthetic data), ``recall/`` (ledger and certificate or refusal), ``audit/`` (gateway
+audit chain), ``e2e_summary.json`` and ``e2e_summary.md``.
 """
 
 from __future__ import annotations
@@ -35,7 +38,7 @@ import sys
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -199,32 +202,28 @@ def gateway_client(audit_dir: Path) -> RecordingClient:
 
 @dataclass
 class _Truth:
-    """Synthetic ground truth (``note_truth.json``, ``human_truth.json``) keyed by pid through the MPI stand-in.
-    Used only as the simulated adjudicator of the recall audit and as the S5 reviewer. Never on real data."""
+    """Synthetic ground truth (``note_truth.json``, ``human_truth.json``) keyed by pid: the adapter's pseudonym of the
+    chart number (``adapter.pidmap.pseudonym``). Used only as the simulated adjudicator of the recall audit and as the
+    S5 reviewer. Never on real data."""
 
     notes: dict[str, dict[str, str]]
     human: dict[str, dict[str, str]]
 
     @classmethod
-    def load(cls, source_dir: Path, workdir: Path, site_id: str) -> _Truth | None:
+    def load(cls, source_dir: Path) -> _Truth | None:
         nt, ht = source_dir / "note_truth.json", source_dir / "human_truth.json"
         if not nt.exists():
             return None
-        from dataplat.mpi import Mpi, SiteKeys, workdir_scope
+        from adapter.pidmap import pseudonym
 
-        keys = SiteKeys.derive(SITE_KEY, site_id)
         notes_by_mrn: dict[str, dict[str, str]] = json.loads(nt.read_text("utf-8"))
         human_by_mrn: dict[str, dict[str, str]] = json.loads(ht.read_text("utf-8")) if ht.exists() else {}
         notes: dict[str, dict[str, str]] = {}
         human: dict[str, dict[str, str]] = {}
-        with Mpi(keys, scope=workdir_scope(workdir)) as mpi:
-            for mrn in sorted(set(notes_by_mrn) | set(human_by_mrn)):
-                mid = mpi.lookup(mrn)
-                if mid is None:
-                    continue
-                pid = mpi.pid(mid)
-                notes[pid] = notes_by_mrn.get(mrn, {})
-                human[pid] = human_by_mrn.get(mrn, {})
+        for mrn in sorted(set(notes_by_mrn) | set(human_by_mrn)):
+            pid = pseudonym(SITE_KEY, mrn)[0]
+            notes[pid] = notes_by_mrn.get(mrn, {})
+            human[pid] = human_by_mrn.get(mrn, {})
         return cls(notes, human)
 
 
@@ -295,11 +294,12 @@ def _reviewer(truth: _Truth | None, rs: Any) -> Callable[[Any, Any], dict[str, A
     return review
 
 
-def _data_fitness(pres: Any) -> list[dict[str, Any]]:
-    rep = pres.validation
+def _data_fitness(night: Any) -> list[dict[str, Any]]:
+    rep = night.validation
     rows: list[dict[str, Any]] = []
     if rep is None:
         return rows
+    failed_eq = {e.table for e in rep.reconciliation.equations if e.verdict == "fail"}
     for tv in rep.tables:
         failed = [c for c in tv.checks if c.result not in ("pass",)]
         rows.append(
@@ -310,10 +310,19 @@ def _data_fitness(pres: Any) -> list[dict[str, Any]]:
                 "completeness_pct_key_vars": None,
                 "freshness_days": 0,
                 "dq_grade": "A" if not failed else ("B" if tv.quarantined == 0 else "C"),
-                "reconciliation_status": rep.reconciliation.status if hasattr(rep.reconciliation, "status") else "ok",
+                "reconciliation_status": "fail" if tv.table in failed_eq else "ok",
             }
         )
     return rows
+
+
+@dataclass(frozen=True)
+class _Snapshot:
+    """The night the cascade reads: the snapshot date, its id (the gate record's), the data cut."""
+
+    snapshot: str
+    snapshot_id: str
+    data_cut: str
 
 
 # ------------------------------------------------------------------------------------------------ the run
@@ -326,14 +335,11 @@ def run_end_to_end(
     kind: str | None = None,
     repro: bool = True,
 ) -> E2EResult:
-    """Run dataplat → cascade → DL-1 pack + recall certificate for one trial; return a PASS/FAIL summary.
+    """Run the adapter's night → cascade → DL-1 pack + recall certificate for one trial; return a PASS/FAIL summary.
 
     ``recipient_class`` selects the disclosure profile (``external_sponsor`` → ``dc.sponsor``, k = 11;
     ``internal`` → ``dc.internal``, k = 5). ``repro`` re-runs the cascade and the pack and requires an identical
     object hash."""
-    from dataplat.common import fixed_clock
-    from dataplat.pipeline import mimic_default_window, run_pipeline
-    from dataplat.serving import Serving
     from deliverables.disclosure import profile_for, released_ok
     from deliverables.pack import PackInputs, all_released_counts, build_pack
     from deliverables.render import render_all
@@ -359,7 +365,9 @@ def run_end_to_end(
     checks: dict[str, bool] = {}
     artefacts: dict[str, str] = {}
 
-    # -------------------------------------------------------------------------------------- dataplat L0–L5
+    # -------------------------------------------------------------------------------------- the adapter's night
+    from tools.ingest_local import mimic_default_window, run_local
+
     if kind == "csv":
         meta = json.loads((source_dir / "meta.json").read_text("utf-8")) if (source_dir / "meta.json").exists() else {}
         run_date = date.fromisoformat(str(meta.get("ref_date", "2026-10-05")))
@@ -369,36 +377,31 @@ def run_end_to_end(
     else:
         run_date, site_id, tz, snapshot = date(2026, 10, 1), "MIMIC-DEMO", "America/New_York", "2026-09-30"
         window = mimic_default_window(run_date)
-    workdir = out_dir / "dataplat"
-    from tools import pglocal
-
-    pglocal.for_work(out_dir)  # D-126: the run's trial database (TB_DB_URL, or a local throwaway one)
-    clock = fixed_clock(datetime(run_date.year, run_date.month, run_date.day, 2, 0, tzinfo=UTC))
-    pres = run_pipeline(
+    night = run_local(
         source_dir,
-        workdir,
+        out_dir / "ingest",
         kind=cast(Literal["csv", "mimic_fhir"], kind),
         site_id=site_id,
         site_key=SITE_KEY,
         snapshot=snapshot,
-        clock=clock,
         tz=tz,
         mimic_window=window,
     )
+    lake_tables = dict(night.report.lake.tables) if night.report.lake is not None else {}
     pipeline = {
-        "outcome": pres.outcome,
-        "published": pres.published,
-        "blocking_reasons": pres.blocking_reasons,
-        "snapshot_id": pres.manifest.snapshot_id if pres.manifest else None,
-        "lake_tables": pres.manifest.lake_tables if pres.manifest else {},
-        "lineage_complete": bool(pres.lineage and pres.lineage.complete),
-        "quarantine": pres.quarantine,
+        "outcome": night.outcome,
+        "published": night.published,
+        "blocking_reasons": night.blocking_reasons,
+        "snapshot_id": f"snap_{snapshot}" if night.published else None,
+        "lake_tables": lake_tables,
+        "lineage_complete": night.lineage_complete,
+        "quarantine": night.quarantine,
     }
-    checks["pipeline_published"] = pres.published
-    checks["zero_blocking_dq"] = not pres.blocking_reasons
-    checks["lineage_complete"] = bool(pres.lineage and pres.lineage.complete)
-    if not pres.published or pres.manifest is None:
-        problems.append(f"publish gate held the cycle: {pres.blocking_reasons}")
+    checks["pipeline_published"] = night.published
+    checks["zero_blocking_dq"] = not night.blocking_reasons
+    checks["lineage_complete"] = night.lineage_complete
+    if not night.published:
+        problems.append(f"the ingest gate held the night: {night.blocking_reasons or night.report.errors}")
         return _finish(
             out_dir,
             trial_id,
@@ -416,16 +419,15 @@ def run_end_to_end(
             problems,
             t0,
         )
-    serving = Serving(workdir / "l5", workdir / "l4", workdir / "l4" / "lake", tz=tz)
-    manifest = serving.manifest()  # DP-32: signature and pin verified before any read
-    lake = LakeLocal(workdir / "l4" / "lake", HashEmbedder(), tz)
+    manifest = _Snapshot(snapshot, f"snap_{snapshot}", snapshot)
+    lake = LakeLocal(night.lake_dir, HashEmbedder(), tz)
 
     # -------------------------------------------------------------------------------------- cascade
     rs = load_trial(trial_id)
     lookback = 36
     if rs.manifest.scopes and rs.manifest.scopes.feas and rs.manifest.scopes.feas.lookback_months:
         lookback = int(rs.manifest.scopes.feas.lookback_months)
-    truth = _Truth.load(source_dir, workdir, site_id) if kind == "csv" else None
+    truth = _Truth.load(source_dir) if kind == "csv" else None
     client = gateway_client(out_dir / "audit")
     verifier = verifier_client()
     agreement: list[AgreementJudge] = []
@@ -532,11 +534,11 @@ def run_end_to_end(
                 site_name="MIMIC-IV demo (open data)" if kind == "mimic_fhir" else f"Synthetic site {site_id}",
                 snapshot_id=manifest.snapshot_id,
                 snapshot=manifest.snapshot,
-                data_cut=next(iter(manifest.data_cut_per_source.values()), manifest.snapshot),
+                data_cut=manifest.data_cut,
                 run_date=run_date,
                 recipient_class=recipient_class,
                 feas_raw=raw,
-                data_fitness=_data_fitness(pres),
+                data_fitness=_data_fitness(night),
                 certificate=cert.as_pack_input(),
                 include_exact=True,
             )
