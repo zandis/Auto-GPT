@@ -301,7 +301,7 @@ class _Builder:
         if rtype == "Patient":
             p = fl.patient(r)
             out = rec("person", p["pid"])
-            out.extra = {k: _iso(p[k]) for k in ("birth_date", "sex", "deceased_date")}
+            out.extra = {k: _iso(p[k]) for k in ("birth_date", "sex", "deceased_date", "deceased")}
             return [out]
         if rtype == "Practitioner":
             p = fl.practitioner(r)
@@ -340,7 +340,7 @@ class _Builder:
             return [self.condition(r, rec(None, None))]
         if rtype == "Observation":
             return self.observation(r, rec)
-        if rtype == "MedicationRequest":
+        if rtype in ("MedicationRequest", "MedicationStatement"):
             return [self.medication(r, rec(None, None))]
         if rtype == "Procedure":
             p = fl.procedure(r)
@@ -438,7 +438,7 @@ class _Builder:
     def medication(self, r: Resource, out: Rec) -> Rec:
         m = self.fl.medication(r)
         out.table, out.pid = "drug_exposure", m["pid"]
-        cc = r.get("medicationCodeableConcept") or {}
+        cc = self.fl.medication_concept(r)  # T-616: a medicationReference resolved as the lake resolves it
         nhi = atc = nhi_sys = atc_sys = None
         for c in cc.get("coding") or []:  # the flattener's own reading (``Flattener.medication``), systems kept
             if "atc" in (c.get("system") or ""):
@@ -600,6 +600,8 @@ def load_batch(
     files = files or {}
     tz = site_tz(tz)  # the site's zone; TB_TZ when not given, never a default (D-315)
     b = _Builder(tz, kind, stats)
+    # T-616 (STD-014): a medicationReference to a Medication of the batch (the flattener's own index)
+    b.fl.medications = {str(m["id"]): m for m in by_type.get("Medication", []) if m.get("id")}
     responses = {}
     for cr in by_type.get("ClaimResponse", []):  # the flattener's join: the last response to a claim wins
         req = ((cr.get("request") or {}).get("reference") or "").split("/")[-1]
@@ -1087,6 +1089,14 @@ def _write(
     return persons, providers
 
 
+def _batch_day(batch: str) -> date:
+    """The night a batch holds (``2026-10-31``, ``site@2026-10-31``): the latest a death it reports can have been."""
+    try:
+        return date.fromisoformat(batch.rsplit("@", 1)[-1][:10])
+    except ValueError:
+        return date.today()
+
+
 def _merge_person(sources: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, list[Any]]]:
     """The lake's own merge (``flatten.merge_patients``): a field the sources agree on is kept; a field they give
     different values for is a conflict (the value of the first source, the hospital's, is what OMOP holds)."""
@@ -1098,6 +1108,8 @@ def _merge_person(sources: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[s
         distinct = list(dict.fromkeys(vals))
         if len(distinct) > 1:
             clash[item] = distinct
+    # T-616 (STD-013): any source that says the patient died (a date or a flag) makes a death; never a conflict
+    merged["deceased"] = bool(merged["deceased_date"]) or any(s.get("deceased") is True for s in sources)
     return merged, clash
 
 
@@ -1147,6 +1159,8 @@ def _derive(tx: Any, persons: set[int], providers: set[int], batch: str, rep: Lo
             )
             if merged["deceased_date"]:
                 drow.append((pid, date.fromisoformat(merged["deceased_date"]), vocab.EHR))
+            elif merged["deceased"]:  # STD-013: dead, no date: the batch's night, flagged as imputed (D-400)
+                drow.append((pid, _batch_day(batch), vocab.DEATH_DATE_IMPUTED))
             _conflicts(tx, pid, clash, srcs[pid], claims[pid], batch)
         tx.copy_rows(
             "person",

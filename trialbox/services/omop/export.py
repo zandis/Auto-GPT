@@ -113,7 +113,8 @@ def _export(tx: Any) -> dict[str, list[Row]]:
 
     # -- patient: the merged sources, an item in open conflict unknown
     for r in tx.fetchdicts(
-        "SELECT p.person_id, p.birth_datetime, p.gender_source_value, d.death_date, o.extra FROM person p "
+        "SELECT p.person_id, p.birth_datetime, p.gender_source_value, d.death_date, d.death_type_concept_id, "
+        "o.extra FROM person p "
         "LEFT JOIN death d USING (person_id) JOIN LATERAL (SELECT (r.source_kind = 'site') AS s, r.source_row, "
         "r.extra FROM tb_record r WHERE r.cdm_table = 'person' AND r.record_id = p.person_id "
         "AND r.status <> 'tombstoned' ORDER BY 1, 2 LIMIT 1) o ON true ORDER BY o.s, o.source_row"
@@ -122,7 +123,10 @@ def _export(tx: Any) -> dict[str, list[Row]]:
             "pid": person[r["person_id"]],
             "birth_date": _day(r["birth_datetime"]),
             "sex": sex_of(r["gender_source_value"]),
-            "deceased_date": r["death_date"],
+            # T-616 (STD-013, D-400): a death recorded without a date is deceased with no date (the imputed night
+            # stays in OMOP only)
+            "deceased_date": None if r["death_type_concept_id"] == vocab.DEATH_DATE_IMPUTED else r["death_date"],
+            "deceased": True if r["death_date"] is not None else None,
             **_prov(r["extra"]),  # the first record's (the hospital's), as the flattener's merge keeps
         }
         for item in ("birth_date", "sex", "deceased_date"):
@@ -291,7 +295,8 @@ def _export(tx: Any) -> dict[str, list[Row]]:
         "SELECT r.source_record_id, r.extra, r.status, r.basis, d.person_id, d.drug_source_value, "
         "d.drug_exposure_start_datetime, d.verbatim_end_date, d.sig FROM tb_record r JOIN drug_exposure d "
         f"ON d.drug_exposure_id = r.record_id WHERE r.cdm_table = 'drug_exposure' AND {LIVE} "
-        f"AND r.status <> 'rejected' {ORDER}"
+        # T-616: orders, then statements (the flattener's order), each in file order
+        f"AND r.status <> 'rejected' {ORDER.replace('ORDER BY ', 'ORDER BY r.resource_type, ', 1)}"
     ):
         x = r["extra"]
         start = _day(r["drug_exposure_start_datetime"])

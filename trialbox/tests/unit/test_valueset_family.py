@@ -36,12 +36,12 @@ def _crit(kind: str, quantifier: str | None = None) -> CriterionIR:
 
 def _run(sql: str, codes: dict[str, list[str]]) -> dict[str, bool | None]:
     con = duckdb.connect()
-    con.execute("CREATE TABLE patient (pid VARCHAR, birth_date DATE, sex VARCHAR, deceased_date DATE)")
+    con.execute("CREATE TABLE patient (pid VARCHAR, birth_date DATE, sex VARCHAR, deceased_date DATE, deceased BOOLEAN)")
     con.execute(
         "CREATE TABLE condition (pid VARCHAR, cid VARCHAR, system VARCHAR, code VARCHAR, onset DATE, recorded DATE)"
     )
     for i, (pid, cs) in enumerate(codes.items()):
-        con.execute("INSERT INTO patient VALUES (?, DATE '1960-01-01', 'female', NULL)", [pid])
+        con.execute("INSERT INTO patient VALUES (?, DATE '1960-01-01', 'female', NULL, NULL)", [pid])
         for j, c in enumerate(cs):
             con.execute("INSERT INTO condition VALUES (?, ?, ?, ?, DATE '2025-01-01', NULL)", [pid, f"c{i}{j}", ICD, c])
     rows = con.execute(sql, [[date(2026, 1, 1).isoformat()], list(codes)]).fetchall()
@@ -117,12 +117,12 @@ WHO = "http://hl7.org/fhir/sid/icd-10"
 
 def _run_coded(sql: str, codes: dict[str, list[tuple[str, str]]]) -> dict[str, bool | None]:
     con = duckdb.connect()
-    con.execute("CREATE TABLE patient (pid VARCHAR, birth_date DATE, sex VARCHAR, deceased_date DATE)")
+    con.execute("CREATE TABLE patient (pid VARCHAR, birth_date DATE, sex VARCHAR, deceased_date DATE, deceased BOOLEAN)")
     con.execute(
         "CREATE TABLE condition (pid VARCHAR, cid VARCHAR, system VARCHAR, code VARCHAR, onset DATE, recorded DATE)"
     )
     for i, (pid, cs) in enumerate(codes.items()):
-        con.execute("INSERT INTO patient VALUES (?, DATE '1960-01-01', 'female', NULL)", [pid])
+        con.execute("INSERT INTO patient VALUES (?, DATE '1960-01-01', 'female', NULL, NULL)", [pid])
         for j, (sy, c) in enumerate(cs):
             con.execute("INSERT INTO condition VALUES (?, ?, ?, ?, DATE '2025-01-01', NULL)", [pid, f"c{i}{j}", sy, c])
     rows = con.execute(sql, [[date(2026, 1, 1).isoformat()], list(codes)]).fetchall()
