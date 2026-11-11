@@ -143,7 +143,28 @@ def unit_function(name: str, want: str | None) -> str:
     return f"define function {q(name)}(Q FHIR.Quantity, Cd List<FHIR.Coding>):\n  case\n    {body}\n    else null end"
 
 
-def cmp_expr(atom: Atom, value: str, code: str | None = None) -> str:
+# T-619a (CR-001, CR-098, CR-115), as the SQL's ``_CENSORED`` (D-142): a censored result ("<0.3": at most the bound,
+# ">1000": at least) decides a comparison only when every value on that side of the bound gives the same answer, else
+# null. The bound counts as reachable, so the answer can only stay unknown, never be wrong. (side, op) -> (when, answer)
+_CENSORED: dict[tuple[str, str], tuple[str, str]] = {
+    ("below", ">="): ("{x} < {n}", "false"),
+    ("below", ">"): ("{x} <= {n}", "false"),
+    ("below", "<"): ("{x} < {n}", "true"),
+    ("below", "<="): ("{x} <= {n}", "true"),
+    ("below", "="): ("{x} < {n}", "false"),
+    ("below", "between"): ("{x} < {n}", "false"),
+    ("above", ">="): ("{x} >= {n}", "true"),
+    ("above", ">"): ("{x} > {n}", "true"),
+    ("above", "<"): ("{x} >= {n}", "false"),
+    ("above", "<="): ("{x} > {n}", "false"),
+    ("above", "="): ("{x} > {n}", "false"),
+    ("above", "between"): ("{x} > {n2}", "false"),
+}
+
+
+def cmp_expr(atom: Atom, value: str, code: str | None = None, censor: str | None = None) -> str:
+    """The comparison of one value. ``censor``: the CQL of the result's ``Quantity.comparator`` (T-619a); with it a
+    censored result is compared as the SQL compares ``value_cmp``."""
     v = atom.value
     assert v is not None and v.op is not None
     if v.op == "in":
@@ -151,9 +172,22 @@ def cmp_expr(atom: Atom, value: str, code: str | None = None) -> str:
         return f"({code} in {{ {codes} }})"
     if v.op == "between":
         assert v.num is not None and v.num2 is not None
-        return f"({value} >= {fmt_num(v.num)} and {value} <= {fmt_num(v.num2)})"
-    assert v.num is not None
-    return f"({value} {v.op} {fmt_num(v.num)})"
+        plain = f"({value} >= {fmt_num(v.num)} and {value} <= {fmt_num(v.num2)})"
+    else:
+        assert v.num is not None
+        plain = f"({value} {v.op} {fmt_num(v.num)})"
+    if censor is None:
+        return plain
+    n, n2 = fmt_num(v.num), fmt_num(v.num2) if v.num2 is not None else ""
+    side = {}
+    for s in ("below", "above"):
+        cond, answer = _CENSORED[(s, v.op)]
+        side[s] = f"if {cond.format(x=value, n=n, n2=n2)} then {answer} else null"
+    # no comparator, or one the lake does not read as censored ("ad"): the plain comparison, as the SQL
+    return (
+        f"(case when {censor} in {{ '<', '<=' }} then ({side['below']}) "
+        f"when {censor} in {{ '>', '>=' }} then ({side['above']}) else {plain} end)"
+    )
 
 
 @dataclass
@@ -267,6 +301,9 @@ class CqlGenerator:
 
             def code(o: str) -> str:
                 return f"First(({o}.component C where C.code in {vsname}).value as FHIR.CodeableConcept).coding"
+
+            def censor(o: str) -> str:
+                return f"(First({o}.component C where C.code in {vsname}).value as FHIR.Quantity).comparator.value"
         else:
             retrieve = f"[Observation: {vsname}] X where TB.ObsDate(X) in {win}"
 
@@ -275,6 +312,9 @@ class CqlGenerator:
 
             def code(o: str) -> str:
                 return f"TB.ObsCode({o})"
+
+            def censor(o: str) -> str:
+                return f"({o}.value as FHIR.Quantity).comparator.value"
 
         if comp and atom.value is not None and atom.value.op == "in":
             raise CompileError("coded comparisons on panel components are not supported")
@@ -287,10 +327,10 @@ class CqlGenerator:
         if quant == "latest":
             defs.append(f"define {q('L_' + p)}:\n  TB.LatestObs({qn})")
             ln = q("L_" + p)
-            a = f"if {ln} is null then null else {cmp_expr(atom, val(ln), code(ln))}"
+            a = f"if {ln} is null then null else {cmp_expr(atom, val(ln), code(ln), censor(ln))}"
             ev = f"if {ln} is null then List<String>{{}} else {{ {ln}.id + '|' + ToString(TB.ObsDate({ln})) }}"
             return defs, a, ev
-        c = cmp_expr(atom, val("X"), code("X"))
+        c = cmp_expr(atom, val("X"), code("X"), censor("X"))
         # D-142 (review B-01), as the SQL: a record without a readable number leaves the answer unknown unless the
         # readable records settle it; it never counts as a failed test
         unread = f"exists ({qn} X where ({c}) is null)"

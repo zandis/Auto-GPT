@@ -23,6 +23,7 @@ from tb_contracts import IngestReport, RebuildResult, ValidationSummary, dump
 from tb_contracts.landing import Severity
 
 from adapter import governance
+from adapter.instants import to_site_offset
 from adapter.load_fhir import sync_snapshot
 from adapter.mapping.engine import Mapper, Mapping, resource_id
 from adapter.ndjson import is_deleted_flag, list_snapshots, snapshot_dir, tombstone_count, write_snapshot
@@ -500,6 +501,8 @@ def _run_ingest(
     at.update(step="snapshot", table=None)
     unit_defaults = mapping.unit_defaults if source_kind != "fhir_bulk" else _bulk_unit_defaults(cfg.mapping_path)
     defaulted = apply_unit_defaults(by_type.get("Observation", []), unit_defaults)
+    # T-619a (STD-070): an instant stated in another offset is written in the site's, so SQL and CQL read one date
+    shifted = to_site_offset((r for items in by_type.values() for r in items), zone)
     # D-275 (review S-9): an order with no authoredOn and no validity start is kept. It was dropped here, so a
     # patient whose only order had no date failed "on the drug" with no trace; the compiled SQL and CQL place an
     # undated order in no window and leave the criterion unknown (a person checks)
@@ -739,6 +742,7 @@ def _run_ingest(
                 "tombstoned": tombstoned,
                 "held": held,
                 "unit_defaults_applied": defaulted,
+                "instants_to_site_offset": shifted,
                 "drop_override": "; ".join(overrides) or None,
                 # T-611: what the readiness page shows for a held night (tables only, never a row)
                 "incomplete": completeness["problems"] or None,
