@@ -54,7 +54,7 @@ from tb_contracts import (
 from orchestrator import i18n
 from orchestrator.clients import AdapterAPI, CompilerAPI, MailAPI, ParserAPI, StepFailed
 from orchestrator.db import TERMINAL, JobDB
-from orchestrator.jobs import pinned_services
+from orchestrator.jobs import pinned_services, release_hold
 
 log = logging.getLogger("orchestrator")
 SYSTEM_SENDERS = ("scheduler", "system")
@@ -250,6 +250,9 @@ class Orchestrator:
         self._wake = threading.Condition()
         self._threads: list[threading.Thread] = []
         self._notify = ThreadPoolExecutor(max_workers=2, thread_name_prefix="notify") if async_notify else None
+        # T-305b (D-403): called after a job ends and its lake hold is released (the site's batched publish waits
+        # for the jobs that read the snapshot it would rebuild)
+        self.after_job: list[Callable[[], None]] = []
 
     # ------------------------------------------------------------------ time
     def today(self) -> date:
@@ -353,7 +356,13 @@ class Orchestrator:
         self.db.request_cancel(job_id)
         if job.state in ("received", "awaiting_approval"):  # not in a worker: fail now
             job = self.set_state(job, "failed", error=JobError(step="cancelled", message=f"Cancelled by {norm(by)}."))
+            self._release_waiting(job)
         return job
+
+    def _release_waiting(self, job: Job) -> None:
+        """A job that ends outside a worker (cancelled or failed while it waited) releases its lake hold (D-403)."""
+        if job.snapshot_date is not None:
+            release_hold(self.services, job.job_id)
 
     def requeue(self, job_id: str) -> None:
         self.db.enqueue(job_id)
@@ -375,6 +384,7 @@ class Orchestrator:
         for job in self.db.find(state="awaiting_approval", ruleset=ruleset, version=version):
             job = self.set_state(job, "failed", error=JobError(step=step, message=message))
             self._failed_mail(job)
+            self._release_waiting(job)
             ids.append(job.job_id)
         return ids
 
@@ -412,7 +422,20 @@ class Orchestrator:
                 log.exception("job %s failed in %s", job_id, job.state)
             job = self.set_state(job, "failed", error=err)
             self._failed_mail(job)
+        if job.state in TERMINAL:
+            self._end_hold(ctx, job)
         return job
+
+    def _end_hold(self, ctx: Ctx, job: Job) -> None:
+        """T-305b (D-403): the ended job's lake hold is released, then the hooks waiting for it run."""
+        if ctx._services is None and job.snapshot_date is None:
+            return  # the job never read the lake
+        release_hold(ctx._services, job.job_id)
+        for hook in list(self.after_job):
+            try:
+                hook()
+            except Exception:  # a hook's failure is its own; the job is already finished
+                log.exception("after-job hook failed")
 
     def _deliver(self, job: Job, outcome: Outcome) -> None:
         requester_served = False

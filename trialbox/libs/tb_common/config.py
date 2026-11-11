@@ -133,6 +133,9 @@ class Env:
     # T-305a (D-383): a job refuses to pin a lake snapshot more than this many days older than its run date; 0 = no
     # check (the code default: tests and demos run old synthetic nights). The production compose file sets 3.
     lake_max_snapshot_age_days: int = 0
+    # T-305b (D-403): site-setup decisions on the hospital's lake within this many seconds of the last publish wait
+    # and are published as one batch; 0 = every decision publishes at once (the code default). Compose sets 300.
+    site_publish_batch_seconds: int = 0
     extra: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -190,6 +193,7 @@ _ENV_MAP: dict[str, str] = {
     "TB_AUDIT_DIR": "audit_dir",
     "TB_SECRETS_DIR": "secrets_dir",
     "TB_LAKE_MAX_SNAPSHOT_AGE_DAYS": "lake_max_snapshot_age_days",
+    "TB_SITE_PUBLISH_BATCH_SECONDS": "site_publish_batch_seconds",
 }
 
 _BOOL_TRUE = {"1", "true", "yes", "on"}
@@ -223,6 +227,8 @@ def load_env(dotenv: Path | None = None, environ: dict[str, str] | None = None) 
         _check_zone("TB_TZ", env.tz)
     if env.lake_max_snapshot_age_days < 0:
         raise ConfigError("TB_LAKE_MAX_SNAPSHOT_AGE_DAYS must be 0 (no check) or a number of days")
+    if env.site_publish_batch_seconds < 0:
+        raise ConfigError("TB_SITE_PUBLISH_BATCH_SECONDS must be 0 (publish every decision) or a number of seconds")
     if env.attach_password_mode not in ("zip", "smime"):
         raise ConfigError("ATTACH_PASSWORD_MODE must be zip or smime")
     if env.llm_mode not in ("vllm", "llamacpp", "stub", "openai"):

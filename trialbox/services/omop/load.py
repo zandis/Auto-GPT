@@ -15,7 +15,10 @@ the whole hospital, deltas merged) or ``site`` (the site's published inputs, ``l
   nothing (every record ``same``); a changed record is replaced in place (same OMOP id) with its before-image in
   ``tb_record_event``.
 * **Tombstones.** A record of this kind that the batch no longer carries is deleted from the standard table and
-  its ``tb_record`` becomes ``tombstoned`` (before-image kept); sent again, it is restored with the same id.
+  its ``tb_record`` becomes ``tombstoned`` (before-image kept); sent again, it is restored with the same id. A record
+  the source itself deleted (the snapshot's ``tombstones.json``: a delta night's SS-MIX2 flag, FHIR ``deleted[]`` or
+  CSV ``deleted`` row; passed as ``deleted``) has the reason ``deleted at the source`` on its tombstone event
+  (T-305b, D-149); any other is ``left the feed``.
 * **Status and provenance** per record in ``tb_record`` (batch, file, row; first and last batch). A proposed fact is
   loaded (its type concept says so) but never reaches a coded lake table; a refuted diagnosis is ``rejected``.
 * **Conflicts.** Two sources that give a patient different birth dates, sexes or dates of death open a
@@ -590,8 +593,10 @@ def load_batch(
     files: Mapping[str, str] | None = None,
     tz: str | None = None,
     site_name: str = "",
+    deleted: Mapping[str, Iterable[str]] | None = None,
 ) -> LoadReport:
-    """Load one complete batch of ``kind``; return what changed. See the module docstring."""
+    """Load one complete batch of ``kind``; return what changed. See the module docstring. ``deleted``: resource
+    type -> source ids the source deleted in this batch (``tombstones.json``), for the tombstone's reason."""
     if kind not in KINDS:
         raise OmopError(f"unknown source kind {kind!r}")
     t0 = time.perf_counter()
@@ -618,8 +623,9 @@ def load_batch(
                     del keyed[rec.key]
                 keyed[rec.key] = rec
     recs = list(keyed.values())
+    dead = {(str(t), str(i)) for t, ids in (deleted or {}).items() for i in ids}
     try:
-        return _load(db, kind, batch, recs, files, tz, site_name, stats, rep, t0)
+        return _load(db, kind, batch, recs, files, tz, site_name, stats, rep, t0, dead)
     except _Refused as r:  # rolled back; the refusal itself is kept (D-271)
         with db.transaction() as tx:
             tx.execute(
@@ -647,6 +653,7 @@ def _load(
     stats: dict[str, int],
     rep: LoadReport,
     t0: float,
+    dead: set[tuple[str, str]] | None = None,
 ) -> LoadReport:
     with db.transaction() as tx:
         tx.execute("SELECT pg_advisory_xact_lock(hashtext('trialbox-omop-load'))")
@@ -665,7 +672,7 @@ def _load(
         concepts = Concepts(tx)
         concepts.prepare((c for r in recs for c in r.codes), (p for r in recs for p in r.std_only))
         _resolve(tx, kind, batch, recs, concepts, rep)
-        affected_persons, affected_providers = _write(tx, kind, batch, recs, files, rep)
+        affected_persons, affected_providers = _write(tx, kind, batch, recs, files, rep, dead or set())
         _derive(tx, affected_persons, affected_providers, batch, rep, site_name)
         if kind == "site":
             _note_nlp(tx, kind, batch)
@@ -975,8 +982,19 @@ def _omop_row(r: Rec) -> dict[str, Any]:
     return row
 
 
+#: the reasons on a tombstone event (T-305b): the source said so, or the record is simply not in the batch any more
+DELETED_AT_SOURCE = "deleted at the source"
+LEFT_THE_FEED = "left the feed"
+
+
 def _write(
-    tx: Any, kind: str, batch: str, recs: list[Rec], files: Mapping[str, str], rep: LoadReport
+    tx: Any,
+    kind: str,
+    batch: str,
+    recs: list[Rec],
+    files: Mapping[str, str],
+    rep: LoadReport,
+    dead: set[tuple[str, str]] | None = None,
 ) -> tuple[set[int], set[int]]:
     """Diff the batch against ``tb_record`` and write inserts, updates, tombstones and restores."""
     old = {
@@ -1107,7 +1125,7 @@ def _write(
             "(g.resource_type, g.source_record_id, g.part)",
             (batch, kind),
         )
-    ev_rows = []
+    ev_rows: list[tuple[Any, ...]] = []
     keys = {k: v[0] for k, v in old.items()}
     new_keys = [e[0] for e in events if e[0] not in keys]
     if new_keys:
@@ -1125,14 +1143,26 @@ def _write(
     for key, action, frm, to, bsha in events:
         prev = old.get(key)
         bjs = before.get((str(prev[1]), int(prev[2]))) if prev and prev[1] in ID_COL and prev[2] else None
-        ev_rows.append((keys[key], batch, action, frm, to, bsha, bjs, rec_before.get(keys[key])))
-    for _, v in gone:
+        ev_rows.append((keys[key], batch, action, frm, to, bsha, bjs, rec_before.get(keys[key]), None))
+    dead = dead or set()
+    for k, v in gone:
         bjs = before.get((str(v[1]), int(v[2]))) if v[1] in ID_COL and v[2] is not None else None
-        ev_rows.append((v[0], batch, "tombstone", v[4], "tombstoned", v[3], bjs, rec_before.get(v[0])))
+        why = DELETED_AT_SOURCE if (k[0], k[1]) in dead else LEFT_THE_FEED
+        ev_rows.append((v[0], batch, "tombstone", v[4], "tombstoned", v[3], bjs, rec_before.get(v[0]), why))
     if ev_rows:
         tx.copy_rows(
             "tb_record_event",
-            ["record_key", "batch", "event", "from_status", "to_status", "before_sha", "before", "record_before"],
+            [
+                "record_key",
+                "batch",
+                "event",
+                "from_status",
+                "to_status",
+                "before_sha",
+                "before",
+                "record_before",
+                "reason",
+            ],
             ev_rows,
         )
     return persons, providers

@@ -897,7 +897,7 @@ def completeness_check(
 
 RERUN_DIR = "ndjson-rerun"  # a re-run of a promoted night until it passes (D-271)
 # exceptions by which the lake refuses a snapshot (lake.store.RebuildError, omop.schema.OmopError, the HTTP 409)
-REFUSALS = ("RebuildError", "OmopError", "RebuildRefused")
+REFUSALS = ("RebuildError", "OmopError", "RebuildRefused", "SnapshotHeld")
 
 
 class RebuildRefused(RuntimeError):
@@ -939,9 +939,11 @@ def merge_base(lake_dir: Path, snap: str) -> str | None:
 
 def prune_snapshots(cfg: AdapterConfig, today: date) -> list[str]:
     """SPEC §10.3: keep the last N nightly snapshots and each month's last snapshot for M months (NDJSON, parquet,
-    DuckDB); the current snapshot is always kept."""
+    DuckDB); the current snapshot is always kept, and so is every snapshot a running job holds (T-305b, D-403: a
+    long SCREEN, or one waiting for an approval, still reads its night after N newer ones arrived)."""
     import shutil
 
+    from lake.store import held_snapshots
     from tb_common.retention import snapshots_to_keep
 
     current = (cfg.lake_dir / "CURRENT").read_text().strip() if (cfg.lake_dir / "CURRENT").exists() else None
@@ -951,6 +953,7 @@ def prune_snapshots(cfg: AdapterConfig, today: date) -> list[str]:
     good = {s for s in snaps if (snapshot_dir(cfg.lake_dir, s) / PASSED).exists()}
     good |= {p.stem for p in (cfg.lake_dir / "db").glob("*.duckdb")} | ({current} if current else set())
     keep = snapshots_to_keep(snaps, today, cfg.keep_nightly, cfg.keep_month_end_months, good) | {current or ""}
+    keep |= set(held_snapshots(cfg.lake_dir).values())
     gone = sorted(s for s in snaps if s not in keep)
     for s in gone:
         shutil.rmtree(cfg.lake_dir / "ndjson" / s, ignore_errors=True)

@@ -10,11 +10,17 @@ that landed mid-job moved the later queries to the new night, so one candidate l
 * when it pins ``CURRENT``, the snapshot's age is checked against ``TB_LAKE_MAX_SNAPSHOT_AGE_DAYS`` (the job's run
   date, so a frozen clock decides): a stale snapshot fails the job with a plain message instead of screening on a
   lake that stopped updating days ago. A recorded pin is not checked again (a re-run of an old job must work).
+
+T-305b (D-403): the pin is also a *hold* on the lake (``Lake.hold``, keyed by the job id): while the job runs, or
+waits for an approval, its snapshot is never rebuilt under it (a site publish on ``main`` waits and is applied after;
+see ``sitesetup.service``) and never pruned. The orchestrator releases the hold when the job ends
+(:func:`release_hold`).
 """
 
 from __future__ import annotations
 
 import contextlib
+import logging
 import threading
 from collections.abc import Callable
 from dataclasses import replace
@@ -25,6 +31,8 @@ from orchestrator.clients import StepFailed
 
 if TYPE_CHECKING:
     from orchestrator.core import Ctx, Services
+
+log = logging.getLogger("orchestrator")
 
 
 class PinnedLake:
@@ -37,9 +45,12 @@ class PinnedLake:
         max_age_days: int,
         pinned: str | None = None,
         on_pin: Callable[[str], None] | None = None,
+        holder: str | None = None,
     ) -> None:
         self.lake = lake
         self.pinned = pinned
+        self.holder = holder
+        self.held = False
         self._today = today
         self._max_age = max_age_days
         self._on_pin = on_pin
@@ -62,7 +73,32 @@ class PinnedLake:
                 self.pinned = snap
                 if self._on_pin is not None:
                     self._on_pin(snap)
+            if not self.held:
+                self._hold(self.pinned)
             return self.pinned
+
+    def _hold(self, snap: str) -> None:
+        """Hold the pinned snapshot on the lake for this job (D-403). A lake without holds (a test's fake) or a
+        snapshot that is gone (an old re-run) is said in the log, never a failure: the pin still names the snapshot."""
+        hold = getattr(self.lake, "hold", None)
+        self.held = True
+        if hold is None or not self.holder:
+            return
+        try:
+            hold(snap, self.holder)
+        except Exception as exc:
+            log.warning("job %s: lake snapshot %s not held (%s)", self.holder, snap, type(exc).__name__)
+
+    def release(self) -> None:
+        """End this job's hold (the job is done, failed or cancelled)."""
+        release = getattr(self.lake, "release", None)
+        if not self.held or release is None or not self.holder:
+            return
+        try:
+            release(self.holder)
+        except Exception as exc:  # a lake that is down keeps the hold until it expires (Lake.HOLD_TTL_SECONDS)
+            log.warning("job %s: lake hold not released (%s)", self.holder, type(exc).__name__)
+        self.held = False
 
     def snapshot(self) -> str | None:
         return self.pin()
@@ -103,5 +139,23 @@ def pinned_services(ctx: Ctx) -> Services:
         max_age_days=ctx.cfg.env.lake_max_snapshot_age_days,
         pinned=job.snapshot_date.isoformat() if job.snapshot_date else None,
         on_pin=record,
+        holder=job.job_id,
     )
     return replace(base, lake=lake)
+
+
+def release_hold(services: Services | None, holder: str | None = None) -> None:
+    """End the job's lake hold (D-403): its pinned lake's, or, for a job that resumed in a new process and never
+    touched the lake again, the hold the lake still keeps under the job's id."""
+    lake = services.lake if services is not None else None
+    if isinstance(lake, PinnedLake):
+        if lake.held:
+            lake.release()
+            return
+        lake = lake.lake
+    release = getattr(lake, "release", None)
+    if release is not None and holder:
+        try:
+            release(holder)
+        except Exception as exc:
+            log.warning("job %s: lake hold not released (%s)", holder, type(exc).__name__)

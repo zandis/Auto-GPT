@@ -10,7 +10,7 @@ file, row), the history of every record, and open and resolved conflicts. It is 
   sent in `*_source_value` (ICD-10, LOINC, ATC, NHI, YJ, ...) with a local source concept (ids from 2,100,000,000;
   `TB_OMOP_CONCEPT_BLOCK`); the standard `*_concept_id` is 0 until the vocabulary bundle is loaded.
 - **Deletes are tombstones.** A record the hospital no longer sends leaves the standard table; its last content and
-  the night it went are kept in `tb_record_event`.
+  the night it went are kept in `tb_record_event`, with the reason `deleted at the source` or `left the feed` (§9).
 - **Disagreements are recorded.** Two sources that give a patient different birth dates, sexes or dates of death open
   a conflict; screening reads the item as unknown until the steward (or the PI, for their study) resolves it.
 - **The lake.** The flag `lake.source=omop` builds the screening lake from OMOP with the same tables and rows; the

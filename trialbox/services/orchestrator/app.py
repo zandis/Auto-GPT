@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import os
 import re
 from collections.abc import AsyncIterator, Callable
@@ -127,6 +128,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         from orchestrator.scheduler import start
 
         sched = start(o)
+    if sched is not None and o.cfg.env.site_publish_batch_seconds > 0:  # T-305b (D-403): the batch's own tick
+        sched.add_job(lambda: _flush_main(setup_of(o)), "interval", seconds=60, id="site-publish-batch")
     try:
         yield
     finally:
@@ -498,6 +501,7 @@ app.include_router(lifecycle_router(lambda: data_service_of(orch())))  # TB-PLAN
 
 # ---------------------------------------------------------------------------- site set-up (step 5b, D-131/132/135)
 _setups: dict[str, Any] = {}
+log = logging.getLogger("orchestrator")
 
 
 def setup_of(o: Orchestrator) -> Any:
@@ -512,10 +516,21 @@ def setup_of(o: Orchestrator) -> Any:
         def site_key() -> bytes:
             return load_key(Path(o.cfg.env.secrets_dir) / "site_hmac.key")  # plain or under the KEK (T-210b)
 
-        _setups[key] = SiteSetup(SetupStore(o.db.url), Path(o.data_dir) / "sitesetup", o.services.lake,
-                                 o.services.llm, o.audit, lambda: _now(o), o.today, site_key,
-                                 mrn_regex=o.cfg.settings.mrn_regex)  # fmt: skip
+        svc = SiteSetup(SetupStore(o.db.url), Path(o.data_dir) / "sitesetup", o.services.lake,
+                        o.services.llm, o.audit, lambda: _now(o), o.today, site_key,
+                        mrn_regex=o.cfg.settings.mrn_regex,
+                        publish_batch_seconds=o.cfg.env.site_publish_batch_seconds)  # fmt: skip
+        _setups[key] = svc
+        o.after_job.append(lambda: _flush_main(svc))  # T-305b (D-403): a batch held by the job goes after it
     return _setups[key]
+
+
+def _flush_main(svc: Any) -> None:
+    """Apply the hospital lake's waiting batch of site decisions, if its window closed and no job holds it."""
+    try:
+        svc.flush("main")
+    except Exception:  # the next tick or the next job tries again; the decisions are stored
+        log.exception("site publish batch not applied")
 
 
 def study_info(o: Orchestrator, rid: str) -> dict[str, Any]:

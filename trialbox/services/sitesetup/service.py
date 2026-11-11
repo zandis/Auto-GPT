@@ -57,6 +57,9 @@ class SiteSetup:
     site_key: Callable[[], bytes]
     ocr: Ocr = field(default_factory=default_ocr)
     mrn_regex: str | None = None
+    # T-305b (D-403): decisions on ``main`` within this many seconds of the last publish wait and go as one batch
+    # (``TB_SITE_PUBLISH_BATCH_SECONDS``; 0 = every decision publishes, as before)
+    publish_batch_seconds: int = 0
     _lakes: dict[str, Any] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
@@ -350,8 +353,41 @@ class SiteSetup:
                 out.append({"id": inp["id"], "pid": inp["pid"], "day": inp["ref_day"], "text": p.read_text("utf-8")})
         return out
 
+    def _batch_wait(self, last: dict[str, Any] | None) -> int:
+        """Seconds until the batch window since the last publish of ``main`` closes (0: it is closed)."""
+        if self.publish_batch_seconds <= 0 or last is None:
+            return 0
+        try:
+            at = datetime.fromisoformat(str(last["at"]))
+            gone = (self.now() - at).total_seconds()
+        except (TypeError, ValueError):
+            return 0
+        return max(0, int(self.publish_batch_seconds - gone + 0.999))
+
+    def _held_by(self, lake: Any, snap: str | None) -> int:
+        """How many running jobs hold ``snap`` (T-305b, D-403); 0 for a lake without holds."""
+        holds = getattr(lake, "holds", None)
+        if not snap or holds is None:
+            return 0
+        try:
+            return sum(1 for s in holds().values() if s == snap)
+        except Exception:  # a lake that cannot say: the rebuild itself refuses a held snapshot (SnapshotHeld)
+            return 0
+
+    def flush(self, ws: str = "main", by: str = "batch") -> dict[str, Any]:
+        """Apply a waiting batch of ``ws`` when its window has closed and no job holds the snapshot (the scheduler
+        every minute, and the orchestrator after each job). Nothing waiting: nothing done."""
+        return self.publish(ws, by)
+
     def publish(self, ws: str, by: str, force: bool = False) -> dict[str, Any]:
-        """The workspace's facts into its lake (a rebuild); skipped when nothing changed since the last time."""
+        """The workspace's facts into its lake (a rebuild); skipped when nothing changed since the last time.
+
+        T-305b (D-403), the hospital's lake (``main``) is published in batches: a decision inside
+        ``publish_batch_seconds`` of the last publish waits (``pending``) and the waiting decisions go together when
+        the window closes (:meth:`flush`) or a person presses Publish (``force``). Nothing is published while a
+        running job holds the snapshot it would rebuild, forced or not: the job reads its snapshot to the end, and
+        the batch follows when it ends. What waits is the difference between the facts and the last publish, so a
+        restart loses nothing."""
         with self._lock:
             res = publish.resources(self.store.facts(ws), self.store.mapping(ws), self.chart_texts(ws))
             dg = publish.digest(res)
@@ -360,11 +396,23 @@ class SiteSetup:
             if not force and last is not None and last["digest"] == dg and lake.snapshot():
                 return {"snapshot": last["snapshot"], "unchanged": True, "counts": last["counts"]}
             snap = (lake.snapshot() if ws == "main" else None) or self.today().isoformat()
+            if ws == "main":
+                wait = 0 if force else self._batch_wait(last)
+                held = self._held_by(lake, snap)
+                if wait or held:
+                    return _pending(last, wait, held)
             # D-273 (CR-055, DI-5): the audit event goes first; if it cannot be written, nothing is published
             self.audit.append("setup.publish_begin", actor=by, detail={"ws": ws, "snapshot": snap, "digest": dg[:16]})
             lake.put_site(res)
             if ws == "main":  # the hospital's lake: never rebuilt from a missing or empty feed once it had one (D-271)
-                lake.rebuild(snap)
+                try:
+                    lake.rebuild(snap)
+                except Exception as exc:
+                    if not _held_refusal(exc):
+                        raise
+                    # a job pinned the snapshot between the check and the rebuild: the batch waits for it (D-403)
+                    self.audit.append("setup.publish_deferred", actor=by, detail={"ws": ws, "snapshot": snap})
+                    return _pending(last, 0, max(1, self._held_by(lake, snap)))
             else:  # a practice site holds the site's own inputs only
                 lake.rebuild(snap, allow_empty=True)
             counts = publish.counts(res)
@@ -384,6 +432,26 @@ class SiteSetup:
             shutil.rmtree(self.root / ws)
         self._lakes.pop(ws, None)
         self.audit.append("setup.reset", actor=by, detail={"ws": ws})
+
+
+def _pending(last: dict[str, Any] | None, wait: int, held: int) -> dict[str, Any]:
+    """What a publish that waits answers (T-305b, D-403): the last published snapshot and why it waits."""
+    return {
+        "snapshot": last["snapshot"] if last else None,
+        "unchanged": False,
+        "pending": True,
+        "wait_seconds": wait,
+        "held_by_jobs": held,
+        "counts": last["counts"] if last else {},
+    }
+
+
+def _held_refusal(exc: Exception) -> bool:
+    """The lake refused the rebuild because a running job holds the snapshot (in process, or the service's 409)."""
+    if type(exc).__name__ == "SnapshotHeld":
+        return True
+    resp = getattr(exc, "response", None)
+    return getattr(resp, "status_code", None) == 409 and "running job" in str(getattr(resp, "text", ""))
 
 
 def _first_date(text: str) -> str | None:

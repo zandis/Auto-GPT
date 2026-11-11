@@ -44,4 +44,8 @@ File: [data/07-the-omop-store-of-record.md](data/07-the-omop-store-of-record.md)
 
 File: [data/08-derived-scores.md](data/08-derived-scores.md).
 
+## 9. All-history back-fill and held snapshots
+
+File: [data/09-all-history-back-fill-and-held-snapshots.md](data/09-all-history-back-fill-and-held-snapshots.md).
+
 <!-- end of the generated index -->

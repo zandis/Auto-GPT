@@ -11,6 +11,7 @@ Layout under ``<lake_dir>``::
     CURRENT                                  snapshot served by default
     FEED                                     the lake has held a hospital feed: an empty rebuild is refused (D-271)
     db/<snapshot>.duckdb.siteonly            the snapshot was built from the site's own inputs only (D-271)
+    holds/<holder>.json                      a running job reads this snapshot: never rebuilt or pruned (T-305b)
 
 Dataflow review P0 (D-149): the embeddings live only in ``embed_cache.duckdb`` and are read by chunk sha at query
 time; a snapshot file holds the chunk text, its tokens for BM25 and its sha. Before, every snapshot carried its own
@@ -26,6 +27,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import threading
 import time
@@ -96,6 +98,37 @@ class RebuildError(RuntimeError):
     """A rebuild refused before anything was written (D-271): its NDJSON folder is missing or holds no record. An
     empty lake made ``CURRENT`` would screen every patient out (and with ``TB_LAKE_SOURCE=omop`` tombstone the whole
     feed in the store of record); the previous ``CURRENT`` stays."""
+
+
+class SnapshotHeld(RebuildError):
+    """A rebuild of a snapshot that a running job holds (T-305b, D-403, FR-REP-02): the job reads it to its end, so
+    its bytes may not change under it. Nothing is written; the publish waits for the job (``sitesetup`` batches it)."""
+
+
+#: a hold older than this is a job that died without releasing it; it no longer protects its snapshot (D-403)
+HOLD_TTL_SECONDS = 14 * 24 * 3600
+_HOLDER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+
+
+def _holds_dir(lake_dir: Path) -> Path:
+    return lake_dir / "holds"
+
+
+def held_snapshots(lake_dir: Path, now: float | None = None) -> dict[str, str]:
+    """``holder -> snapshot`` of every live hold on the lake in ``lake_dir`` (T-305b, D-403). A hold older than
+    :data:`HOLD_TTL_SECONDS` or unreadable is left out (a job that died holds nothing). The adapter's pruning and
+    every rebuild read this; it needs no lake service."""
+    now = time.time() if now is None else now
+    out: dict[str, str] = {}
+    for f in sorted(_holds_dir(lake_dir).glob("*.json")):
+        try:
+            body = json.loads(f.read_text(encoding="utf-8"))
+            at, snap = float(body["at"]), str(body["snapshot"])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if now - at <= HOLD_TTL_SECONDS:
+            out[f.stem] = snap
+    return out
 
 
 class StaleSnapshotError(RuntimeError):
@@ -179,6 +212,16 @@ def check_schema(con: duckdb.DuckDBPyConnection, snapshot: str) -> int:
             f"{MIN_READABLE_SCHEMA} to {LAKE_SCHEMA_VERSION}). Finish the update of every service before using it."
         )
     return v
+
+
+def _tombstones(src: Path) -> dict[str, list[str]]:
+    """The ids the source deleted in this snapshot (``tombstones.json`` beside its NDJSON, written by the adapter on a
+    delta night), by resource type; {} when there is none or it cannot be read."""
+    try:
+        body = json.loads((src / "tombstones.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {str(t): [str(i) for i in ids] for t, ids in body.items()} if isinstance(body, dict) else {}
 
 
 def _file_sha(path: Path) -> str:
@@ -317,6 +360,32 @@ class Lake:
         check_snapshot_age(snap, today, max_age_days)
         return snap
 
+    # ------------------------------------------------------------------ holds (T-305b, D-403)
+    def hold(self, snapshot: str, holder: str) -> None:
+        """``holder`` (a job id) reads ``snapshot`` until :meth:`release`: the snapshot is neither rebuilt
+        (:class:`SnapshotHeld`) nor pruned meanwhile. Holding again refreshes the hold's time."""
+        if not _HOLDER.match(holder):
+            raise ValueError(f"lake hold: {holder!r} is not a job id")
+        self.db_path(snapshot)
+        d = _holds_dir(self.dir)
+        d.mkdir(parents=True, exist_ok=True)
+        tmp = d / f".{holder}.tmp"
+        tmp.write_text(json.dumps({"snapshot": snapshot, "holder": holder, "at": time.time()}), encoding="utf-8")
+        tmp.replace(d / f"{holder}.json")
+
+    def release(self, holder: str) -> bool:
+        """End ``holder``'s hold; False when it held nothing."""
+        if not _HOLDER.match(holder):
+            return False
+        p = _holds_dir(self.dir) / f"{holder}.json"
+        existed = p.exists()
+        p.unlink(missing_ok=True)
+        return existed
+
+    def holds(self) -> dict[str, str]:
+        """``holder -> snapshot`` of the live holds (expired ones left out)."""
+        return held_snapshots(self.dir)
+
     def snapshots(self) -> list[str]:
         return sorted(p.stem for p in (self.dir / "db").glob("*.duckdb"))
 
@@ -427,6 +496,12 @@ class Lake:
         refused (``RebuildError``) before anything is written, unless ``allow_empty``. A lake that never had a feed
         (the practice site, a box before its first night) is built from the site's own inputs alone."""
         t0 = time.perf_counter()
+        # T-305b (D-403, FR-REP-02): a built snapshot a running job holds is never rebuilt under it
+        if (self.dir / "db" / f"{snapshot}.duckdb").exists() and snapshot in held_snapshots(self.dir).values():
+            raise SnapshotHeld(
+                f"lake snapshot {snapshot} is being read by a running job; it is not rebuilt until the job ends "
+                "(nothing built, CURRENT unchanged)"
+            )
         cur = self.current()
         if promote and cur is not None and snapshot < cur:
             log.warning("lake snapshot %s is older than CURRENT %s: built, not promoted (DATA-007)", snapshot, cur)
@@ -458,7 +533,7 @@ class Lake:
             with f.open(encoding="utf-8") as fh:
                 site.setdefault(f.stem, []).extend(json.loads(line) for line in fh if line.strip())
         # D-151: flattened from the NDJSON (TB_LAKE_SOURCE=legacy) or exported from the OMOP store (omop)
-        rows = lake_rows(by_type, site, tz=self.tz, snapshot=snapshot, lake_dir=self.dir)
+        rows = lake_rows(by_type, site, tz=self.tz, snapshot=snapshot, lake_dir=self.dir, deleted=_tombstones(src))
         by_type.clear()  # the flat rows replace the resources; free them before the embedding pass
         site.clear()
         counts = {name: len(rows[name]) for name in SCHEMAS}
