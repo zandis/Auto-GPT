@@ -3,13 +3,19 @@
 {% from "_steps.html" import steps_bar with context %}
 {% from "_mark.html" import mark_box, mark_bar, toast, outcome_box with context %}
 {% block title %}{{ t('week.title') }} · {{ rs }}{% endblock %}
+{% block skips %}{% if wk %}<a class="skip" href="#worklist" data-testid="skip-worklist">{{ t('skip.worklist') }}</a>{% endif %}{% endblock %}
 {% block content %}
 {% from "_life.html" import sae_banner, report_banner with context %}
 <div class="headrow"><h1>{{ t('wb.title') }} · {{ rs }}</h1>
 {% if wk %}<span class="hint" data-testid="week-counts">{{ t('week.counts', n=wk.counts.total, new=wk.counts.new, pending=wk.counts.pending, marked=wk.counts.marked) }} · <a href="/studies/{{ rs }}/excluded" data-testid="to-excluded">{{ t('ex.link') }}</a> · <a href="/studies/{{ rs }}/rescreen" data-testid="to-rescreen">{{ t('rescreen.link') }}</a></span>{% endif %}</div>
-{{ steps_bar(steps, step) }}
-{{ sae_banner(sae, 'week') }}{{ report_banner(sae_reports) }}
+{# T-684 (UX-037): once the study is set up the procedure folds to one line and the SAE banners to one line each,
+   so the first patient row is on the first screen #}
+{% if step < 2 %}{{ steps_bar(steps, step) }}{% endif %}
+<div class="firstrow" data-testid="first-row">
+{% if step >= 2 %}<details class="stepsfold" data-testid="steps-fold"><summary>{{ t('steps.fold', n=step + 1, of=steps|length, name=t('steps.' + steps[step])) }}</summary>{{ steps_bar(steps, step) }}</details>{% endif %}
+{{ sae_banner(sae, 'week', compact=true) }}{{ report_banner(sae_reports, compact=true) }}
 {% if team_due %}<p class="warn" data-testid="team-due"><a href="/studies/{{ rs }}/team#check">{{ t('team.log.check_due') }}</a></p>{% endif %}
+</div>
 {% include "_team_nav.html" %}
 {% for j in approvals or [] %}<p class="warn" data-testid="approval-waiting"><a href="/pilot/jobs/{{ j.job_id }}/approval">{{ t('s20.waiting', rs=j.ruleset, v=j.ruleset_version) }}</a></p>{% endfor %}
 {% if not wk %}
@@ -22,17 +28,17 @@
     {% for k in lists %}<a href="?list={{ k }}" class="{{ 'active' if k == lst else '' }}" data-testid="list-{{ k }}"{% if k == lst %} aria-current="page"{% endif %}><span>{{ t('wb.list.' + k) }}</span><span class="n{{ ' hot' if k == 'review' and counts[k] else '' }}">{{ counts[k] }}</span></a>{% endfor %}
     <p class="hint" data-testid="week-run">{{ t('week.meta', job=wk.job.type, date=(wk.job.run_date.isoformat() if wk.job.run_date else wk.job.updated_at|local(10)), snapshot=(wk.job.snapshot_date.isoformat() if wk.job.snapshot_date else '–')) }}</p>
   </nav>
-  <section class="wlist">
+  <section class="wlist" id="worklist" tabindex="-1">
     <div class="headrow"><h2>{{ t('wb.list.' + lst) }}</h2><span class="hint">{{ t('wb.list.' + lst + '.help') }}</span></div>
     {% if not rows %}<p class="empty">{{ t('wb.empty') }}</p>{% else %}
     <div class="scroll" tabindex="0" role="region" aria-label="{{ t('wb.list.' + lst) }}"><table class="worklist" data-testid="worklist">
       <thead><tr><th>{{ t('wb.c.visit') }}</th><th>{{ t('wb.c.patient') }}</th><th>{{ t('wb.c.met') }}</th><th>{{ t('wb.c.needed') }}</th><th>{{ t('wb.c.status') }}</th></tr></thead>
       <tbody>{% for r in rows %}{% set on = sel and sel.pid == r.pid %}
       <tr class="{{ 'sel' if on else '' }} st-{{ r.status }}" id="p-{{ r.short }}" data-testid="row-{{ r.short }}">
-        <td class="num">{{ r.visit_text or t('week.no_visit') }}</td>
+        <td class="num visit">{% if r.visit_text %}{% for part in r.visit_text.split(' ') %}<span class="nowrap">{{ part }}</span> {% endfor %}{% else %}{{ t('week.no_visit') }}{% endif %}</td>
         <td><a class="rowlink" href="?list={{ lst }}&amp;page={{ page_no }}&amp;pid={{ r.pid }}#chart" data-testid="open-{{ r.short }}"{% if on %} aria-current="true"{% endif %}><b class="nowrap">{{ t('week.patient', p=r.short) }}</b></a>{% if r.practitioner %}<br>{{ given(r.practitioner, 'hint') }}{% endif %}</td>
         <td class="num nowrap"><span class="meter" aria-hidden="true"><i class="w{{ ((r.score[0] * 10) // (r.score[1] or 1)) }}"></i></span>{{ r.score[0] }}/{{ r.score[1] }}</td>
-        <td class="needed">{% if r.n_open %}<span class="pill warn" data-testid="open-n-{{ r.short }}">{{ t('wb.n_open', n=r.n_open) }}</span><br>{% endif %}{% if r.fit.not_met %}<span class="bad">{{ t('fit.not_met') }} {{ r.fit.not_met[:2]|join(' · ') }}</span><br>{% endif %}{{ (r.fit.open + r.fit.person)[:3]|join(' · ') or '–' }}</td>
+        <td class="needed">{% if r.n_open %}<span class="pill warn nowrap" data-testid="open-n-{{ r.short }}">{{ t('wb.n_open', n=r.n_open) }}</span><br>{% endif %}{% if r.fit.not_met %}<span class="bad">{{ t('fit.not_met') }} {{ r.fit.not_met[:2]|join(' · ') }}</span><br>{% endif %}{{ (r.fit.open + r.fit.person)[:3]|join(' · ') or '–' }}</td>
         <td><span class="pill tier-{{ r.tier }}">{{ t('tier.' + r.tier) }}</span> <span class="pill stt-{{ r.status }}">{{ t('wstatus.' + r.status) }}</span>{% if r.mark %}<br><span class="pill mk-{{ r.mark.mark }}" data-testid="mark-{{ r.short }}">{{ t('mark.' + r.mark.mark) }}</span>{% endif %}
         {% if quick_outcomes and r.mark and r.mark.mark == 'approach' and r.status not in ('contacted', 'screened') %}<details class="quick" data-testid="quick-{{ r.short }}"><summary>{{ t('outcome.quick') }}</summary><form method="post" action="/studies/{{ rs }}/patients/{{ r.pid }}/outcome" class="markrow"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="list:{{ lst }}">{% for k in quick_outcomes %}<button type="submit" name="outcome" value="{{ k }}" class="{{ '' if k == 'reached_booked' else 'secondary' }} small" data-testid="quick-{{ r.short }}-{{ k }}">{{ t('outcome.' + k) }}</button>{% endfor %}</form></details>{% endif %}</td>
       </tr>{% endfor %}</tbody>

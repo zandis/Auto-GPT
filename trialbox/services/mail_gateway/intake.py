@@ -11,7 +11,7 @@ from email.message import EmailMessage
 from email.utils import getaddresses, parseaddr
 from typing import Any, cast
 
-from tb_common.authz import allowed, known_senders, norm
+from tb_common.authz import allowed, daily_limit, known_senders, norm
 from tb_common.crypto import sha256_bytes
 from tb_common.objstore import ObjectStore
 from tb_common.subject import Subject, SubjectError, parse_subject
@@ -164,9 +164,13 @@ def decide(m: Inbound, settings: Settings, db: MailDB, now: datetime, intake_add
     assert subj is not None
     if not allowed(settings, subj.cmd, m.sender):
         return Decision("reject", f"{m.sender} is not permitted to send {subj.cmd}", subject=subj)
-    limit = settings.rate_limit_per_sender_per_day or 20
-    if db.jobs_since(m.sender, (now - timedelta(days=1)).isoformat()) >= limit:
-        return Decision("reject", f"daily limit of {limit} requests reached; try again tomorrow", subject=subj)
+    # D-146 (J-02) for mail too (T-108c): each heavy job type has its own daily limit; STATUS, APPROVE, CASE and the
+    # other light commands are not counted, as in the console
+    limit = daily_limit(settings, subj.cmd)
+    if limit is not None and db.jobs_since(m.sender, (now - timedelta(days=1)).isoformat(), subj.cmd) >= limit:
+        return Decision(
+            "reject", f"daily limit of {limit} {subj.cmd} requests reached; try again tomorrow", subject=subj
+        )
     if len(m.attachments) > MAX_ATTACHMENTS or any(len(b) > MAX_ATTACHMENT_BYTES for _, b, _ in m.attachments):
         return Decision(
             "reject", f"too many or too large attachments (max {MAX_ATTACHMENTS}, 50 MB each)", subject=subj

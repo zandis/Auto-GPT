@@ -11,6 +11,7 @@
 </head>
 <body>
 <a class="skip" href="#main">{{ t('skip') }}</a>
+{% block skips %}{% endblock %}
 <header class="top">
   {% include "_demo_banner.html" %}
   {% if pilot %}<div class="banner" role="note" data-testid="banner"><span class="long">{{ t('pilot.banner.public' if settings.data_source == 'public' else 'pilot.banner', env=settings.environment) }}</span><span class="short">{{ t('pilot.banner.short') }}</span></div>
