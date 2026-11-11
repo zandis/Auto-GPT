@@ -22,6 +22,10 @@ investigator may see chart numbers on the pages after sign-in, but N1 still carr
 links to the person's notice settings (FR-NOTIF-09). Mail leaves through the orchestrator's ``POST /notices`` and
 the mail gateway, tagged ``aggregate`` and internal addresses only.
 
+T-209a (D-379, review OPS-027 and OPS-032): N2 begins with one line on the box's health (``tb_common.metrics``), and
+a red line sends N2 even on a morning with nothing else in it, so the coordinator sees that note reading was off
+last night. ``HEALTH``, the administrators' daily health mail, gives one line per check every day (weekends too).
+
 D-386 (T-622, LIFE-008): the mails follow the study's state. A study in start-up or closed is left out; a paused
 study gives no list rows, marks, calls or new pre-screens, so a paused study with no participant visit or serious AE
 due gives no mail. Its participants' visits and unacknowledged serious AEs are still mailed (:data:`CARE_STATES`).
@@ -191,9 +195,11 @@ def build_n2(
     studies: Sequence[tuple[str, list[dict[str, Any]], dict[str, Any]]],
     since: str | None,
     life: dict[str, dict[str, Any]] | None = None,
+    health: Any = None,
 ) -> Notice | None:
     """The coordinator's digest. ``studies``: (study, weekly rows, extra) with extra = {marks: [Mark], retry: {pid:
-    date}, registry: {pid: status}}; ``since``: the time of the last digest (None = the last 24 hours)."""
+    date}, registry: {pid: status}}; ``since``: the time of the last digest (None = the last 24 hours); ``health``:
+    the box's health now (``tb_common.metrics.Health``, T-209a), one line at the top."""
     if today.weekday() >= 5:
         return None
     lang = person.lang
@@ -232,9 +238,12 @@ def build_n2(
     reports = [translate(lang, "n2.life.report.row", p=r["short"], rs=rs, day=r["due"],
                          party=translate(lang, "life.clock.party." + r["party"]))
                for rs, lf in by_study for r in lf.get("reports", [])]  # fmt: skip
-    if not (visits or steps or new or marks or due or late or reports):
+    red = health is not None and health.level == "red"
+    if not (visits or steps or new or marks or due or late or reports or red):
         return None
     parts = [translate(lang, "n2.hello"), ""]
+    if health is not None:  # T-209a: a missing line means the box could not say; a red one is never left out
+        parts += [translate(lang, f"health.line.{health.level}", what=health.details()), ""]
     sections = [("n2.visits", visits), ("n2.steps", steps), ("n2.new", new), ("n2.marks", marks)]
     if due or late:  # D-134: the participants' study visits (only when the study has a visit schedule)
         sections = [("n2.life.today", due), ("n2.life.overdue", late), *sections]
@@ -261,18 +270,52 @@ def build_n2(
         counts |= {"study_visits": len(due), "overdue": len(late)}
     if reports:
         counts["sae_reports"] = len(reports)
+    if health is not None:
+        counts["health_red"] = int(red)
     return Notice("N2", user.username, user.mailbox or "", subject, "\n".join(parts), today.isoformat(), counts)
+
+
+def build_health(user: User, person: NotifyPerson, today: date, health: Any) -> Notice:
+    """The administrators' daily health mail (T-209a, D-379): the level, then one line per check. Ages, counts and
+    percentages only."""
+    lang = person.lang
+    marks = {"ok": "ok", "warn": "WARN", "red": "RED"}
+    parts = [translate(lang, f"health.line.{health.level}", what=health.details()), ""]
+    parts += [f"- [{marks[c.level]}] {c.text}" for c in health.checks]
+    parts += ["", "---", translate(lang, "health.why"), translate(lang, "notice.settings",
+                                                                    url=f"{base_url()}/settings/notices")]  # fmt: skip
+    subject = translate(lang, "health.subject", day=today.isoformat(), level=marks[health.level])
+    red = sum(c.level == "red" for c in health.checks)
+    return Notice("HEALTH", user.username, user.mailbox or "", subject, "\n".join(parts), today.isoformat(),
+                  {"red": red, "warn": sum(c.level == "warn" for c in health.checks)})  # fmt: skip
 
 
 # ---------------------------------------------------------------------------------------------- collecting and sending
 def collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[Notice]:
     store = h.store
     out: list[Notice] = []
+    got: list[Any] = []
+
+    def health_now() -> Any:  # once per round; None when the console has no health (a bare test app)
+        if not got:
+            fn = getattr(h, "health", None)
+            try:
+                got.append(fn() if fn is not None else None)
+            except Exception:  # a failed health must not stop the digests: the line is then missing
+                got.append(None)
+        return got[0]
+
     for u in h.users.users():
         if not u.mailbox or (u.expires and u.expires < today.isoformat()):
             continue
         person = store.notify_person(u.username)
         if not person.enabled:
+            continue
+        if u.is_admin:  # T-209a: the daily health mail
+            if "HEALTH" in kinds and not store.notice_sent("HEALTH", u.username, today.isoformat()):
+                hl = health_now()
+                if hl is not None:
+                    out.append(build_health(u, person, today, hl))
             continue
         sess = Session(u, "", person.lang, "")
         kind = "N1" if u.role == "investigator" else "N2" if u.role == "coordinator" else None
@@ -317,7 +360,7 @@ def collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[No
         n = (
             build_n1(u, person, today, studies, life)
             if kind == "N1"
-            else build_n2(u, person, today, studies, store.last_notice("N2", u.username), life)
+            else build_n2(u, person, today, studies, store.last_notice("N2", u.username), life, health_now())
         )
         if n is not None:
             out.append(n)
@@ -383,7 +426,7 @@ def main(argv: list[str] | None = None) -> int:
     """``python -m console.notify [--kind N1|N2] [--day YYYY-MM-DD]``: build and send today's notices with the
     console's own settings (TB_CONSOLE_* environment), as the production timer does."""
     ap = argparse.ArgumentParser(prog="console.notify")
-    ap.add_argument("--kind", choices=("N1", "N2"), action="append")
+    ap.add_argument("--kind", choices=("N1", "N2", "HEALTH"), action="append")
     ap.add_argument("--day", default="")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args(argv)
