@@ -313,7 +313,7 @@ def main(argv: list[str] | None = None) -> int:
         ("crc", "coordinator", {}),
         ("pi", "investigator", {}),
         ("smo", "coordinator", {"affiliation": "smo", "studies": "GZQO", "expires": "2027-03-31"}),
-        ("cra", "cro", {"affiliation": "cro"}),
+        ("cra", "cro", {"affiliation": "cro", "studies": "GZQO,GOUT-COH"}),  # D-380: names its studies
         ("viewer", "viewer", {}),
     ]
     for name, role, scope in accounts:
@@ -323,6 +323,9 @@ def main(argv: list[str] | None = None) -> int:
             users.set_password(name, password)
         if scope:
             users.set_scope(name, **scope)
+    from tools.feas_demo import seed_pi
+
+    seed_pi()  # D-380: the demo investigator is each study's logged PI
     seed_activity(a.dir, InprocBackend(box, client, repo))
     env = {
         "TB_ENV": "DEV",

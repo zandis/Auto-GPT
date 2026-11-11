@@ -25,6 +25,7 @@ from tests.console.test_console_app import (  # noqa: F401 - the fixture is used
     _ulid,
     box,
     login,
+    name_pi,
     review_book,
 )
 from tests.console.test_role_pages import PW, _csrf, _user
@@ -50,11 +51,8 @@ def _no_doctor(b: dict[str, Any], jid: str) -> None:
 
 
 def _log_pi_and_sub(b: dict[str, Any], pi: TestClient, tasks: tuple[str, ...]) -> None:
+    name_pi(b, "drsato")  # D-380 (ROLE-008): the steward writes the PI entry; the PI adds the sub-investigator
     page = pi.get("/studies/GZQO/team").text
-    r = pi.post("/studies/GZQO/team", data={"csrf": _csrf(page), "username": "drsato", "role": "pi",
-                                            "start": "2026-01-01", "training_day": "2025-06-01"},
-                follow_redirects=False)  # fmt: skip
-    assert r.status_code == 303, r.text[-400:]
     r = pi.post("/studies/GZQO/team", data={"csrf": _csrf(page), "username": "drkato", "role": "sub_pi",
                                             "tasks": list(tasks), "start": "2026-01-01"}, follow_redirects=False)  # fmt: skip
     assert r.status_code == 303, r.text[-400:]
@@ -108,8 +106,8 @@ def test_sub_investigator_rights_come_from_the_delegation_log(box: dict[str, Any
     pi = _user(box, "drsato", "investigator")
     sub = _user(box, "drkato", "investigator")
     other = _user(box, "drito", "investigator")
-    # before the log names a PI, every investigator of the study acts as its PI (as before D-147)
-    assert other.get("/studies/GZQO/candidates").status_code == 200
+    # D-380 (ROLE-008): before the log names a PI, nobody acts as PI
+    assert other.get("/studies/GZQO/candidates").status_code == 403
     _log_pi_and_sub(box, pi, ("screen", "refer"))
     page = pi.get("/studies/GZQO/team").text
     assert 'data-testid="tick-2-screen">✓' in page and 'data-testid="tick-2-approach">–' in page
@@ -178,7 +176,7 @@ def test_only_the_logged_pi_approves(box: dict[str, Any]) -> None:
 
 def test_cro_and_viewer_stay_masked(box: dict[str, Any]) -> None:
     _done_screen(box["backend"], _ulid(964))
-    cro = _user(box, "cro1", "cro", affiliation="cro")
+    cro = _user(box, "cro1", "cro", affiliation="cro", studies="GZQO")  # D-380 (ROLE-011): names its studies
     vc = _user(box, "view2", "viewer")
     for c in (cro, vc):
         for path in ("/studies/GZQO/candidates", f"/studies/GZQO/candidates/{A}?purpose=eligibility",
@@ -198,6 +196,7 @@ def test_cro_and_viewer_stay_masked(box: dict[str, Any]) -> None:
 def test_candidate_view_needs_a_purpose_is_logged_and_reveals_for_the_pi(box: dict[str, Any]) -> None:
     _done_screen(box["backend"], _ulid(965))
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     page = pi.get("/studies/GZQO/candidates").text
     assert 'data-testid="cand-aaaaaaaa"' in page and 'data-testid="cand-bbbbbbbb"' in page
     assert "Dr Lin" in page and "(suggested from the data)" in page
@@ -242,6 +241,7 @@ def test_candidate_views_are_rate_limited_and_reveals_meet_the_d143_cap(box: dic
     env = {**PILOT_ENV, "TB_CONSOLE_DIR": str(box["dir"] / "console2"), "TB_CANDIDATE_VIEWS_PER_HOUR": "2"}
     app = create_app(env, backend=box["backend"], audit=box["audit"], users=box["users"])
     box["users"].create("drsato", "investigator", PW, "drsato@hospa.test")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     pi, _ = login(app, "drsato", PW)
     for _ in range(2):
         assert pi.get(f"/studies/GZQO/candidates/{A}?purpose=eligibility").status_code == 200
@@ -269,12 +269,14 @@ def test_referral_never_stalls_on_an_unknown_doctor(box: dict[str, Any]) -> None
     _done_screen(box["backend"], jid)
     _no_doctor(box, jid)
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     crc = _user(box, "crc1", "coordinator")
+    stw = _user(box, "stw", "steward")  # D-380 (ROLE-005): the steward keeps the directory
     # the steward's directory and department contact
-    sp = crc.get("/site/staff").text
-    crc.post("/site/staff", data={"csrf": _csrf(sp), "kind": "person", "name": "Dr Mori", "department": "RHEU",
+    sp = stw.get("/site/staff").text
+    stw.post("/site/staff", data={"csrf": _csrf(sp), "kind": "person", "name": "Dr Mori", "department": "RHEU",
                                   "practitioner_id": "DR-MORI"})  # fmt: skip
-    crc.post("/site/staff", data={"csrf": _csrf(sp), "kind": "contact", "department": "RHEU", "name": "Ward clerk Abe",
+    stw.post("/site/staff", data={"csrf": _csrf(sp), "kind": "contact", "department": "RHEU", "name": "Ward clerk Abe",
                                   "contact": "ext 4410"})  # fmt: skip
     cand = pi.get("/studies/GZQO/candidates?show=unknown").text
     assert 'data-testid="cand-bbbbbbbb"' in cand and 'data-testid="cand-aaaaaaaa"' not in cand
@@ -335,6 +337,7 @@ def test_referral_never_stalls_on_an_unknown_doctor(box: dict[str, Any]) -> None
 def test_outside_referral_outcome_recorded_later_by_the_pi_and_api(box: dict[str, Any]) -> None:
     _done_screen(box["backend"], _ulid(968))
     _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     _user(box, "crc1", "coordinator")
     api = TestClient(box["app"])
     tok = api.post("/api/v1/session", json={"username": "drsato", "password": PW}).json()["token"]
@@ -357,6 +360,7 @@ def test_outside_referral_outcome_recorded_later_by_the_pi_and_api(box: dict[str
 def test_irb_warning_is_not_a_gate_and_each_override_is_logged(box: dict[str, Any]) -> None:
     _done_screen(box["backend"], _ulid(969))
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     crc = _user(box, "crc1", "coordinator")
     wk = pi.get(f"/studies/GZQO/patients/{A}").text
     assert 'data-testid="irb-warning"' in wk and "no IRB approval date" in wk
@@ -384,8 +388,11 @@ def test_irb_warning_is_not_a_gate_and_each_override_is_logged(box: dict[str, An
     assert r.status_code == 200 and r.json()["irb_override"] is None
     assert len(_events(box, "console.approach_override")) == 1
     # an expired approval warns again, and the override says why
-    crc.post("/studies/GZQO/irb", data={"csrf": _csrf(irb), "approved_on": "2024-01-01", "expires_on": "2025-01-01",
-                                        "icf_version": "v2.0"})  # fmt: skip
+    r = crc.post("/studies/GZQO/irb", data={"csrf": _csrf(irb), "approval_no": "IRB-2024-01",
+                                            "approved_on": "2024-01-01", "expires_on": "2025-01-01",
+                                            "icf_version": "v2.0", "reason": "the older approval was the one in force"},
+                 follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303  # D-380 (ROLE-015): a change needs its approval number and a reason
     pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": _csrf(wk), "mark": "approach"})
     assert _events(box, "console.approach_override")[-1]["detail"]["reason"] == "irb_expired"
     log = crc.get("/studies/GZQO/screening-log").text
@@ -396,16 +403,19 @@ def test_irb_warning_is_not_a_gate_and_each_override_is_logged(box: dict[str, An
 def test_opt_out_removes_the_patient_from_lists_pages_and_exports(box: dict[str, Any]) -> None:
     _done_screen(box["backend"], _ulid(970 + 1))
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     crc = _user(box, "crc1", "coordinator")
     wk = pi.get("/studies/GZQO/week?list=all").text
     pi.post(f"/studies/GZQO/patients/{B}/mark", data={"csrf": _csrf(wk), "mark": "need_info"})
     crc.post(f"/studies/GZQO/patients/{B}/outcome", data={"csrf": _csrf(wk), "outcome": "not_reached"})
-    assert pi.get("/site/opt-outs").status_code == 403  # kept by the research office / the steward
-    op = crc.get("/site/opt-outs").text
-    r = crc.post("/site/opt-outs", data={"csrf": _csrf(op), "pid": B, "source": "paper"}, follow_redirects=True)
+    assert pi.get("/site/opt-outs").status_code == 403  # D-380 (ROLE-005): kept by the steward or privacy office
+    assert crc.get("/site/opt-outs").status_code == 403
+    stw = _user(box, "stw", "steward")
+    op = stw.get("/site/opt-outs").text
+    r = stw.post("/site/opt-outs", data={"csrf": _csrf(op), "pid": B, "source": "paper"}, follow_redirects=True)
     assert r.status_code == 200 and 'data-testid="optout-bbbbbbbb"' in r.text
     gone = _events(box, "console.opt_out")
-    assert len(gone) == 1 and gone[0]["detail"]["pid"] == B and gone[0]["actor"] == "console:crc1"
+    assert len(gone) == 1 and gone[0]["detail"]["pid"] == B and gone[0]["actor"] == "console:stw"
     assert 'data-testid="row-bbbbbbbb"' not in pi.get("/studies/GZQO/week?list=all").text
     cand = pi.get("/studies/GZQO/candidates").text
     assert 'data-testid="cand-bbbbbbbb"' not in cand and 'data-testid="optout-count"' in cand
@@ -419,8 +429,8 @@ def test_opt_out_removes_the_patient_from_lists_pages_and_exports(box: dict[str,
     assert B not in {p["pid"] for p in api.get("/api/v1/studies/GZQO/patients", headers=hdr).json()["patients"]}
     assert B not in {p["pid"] for p in api.get("/api/v1/studies/GZQO/screening-log", headers=hdr).json()}
     # the patient takes it back: on the lists again
-    op = crc.get("/site/opt-outs").text
-    crc.post("/site/opt-outs", data={"csrf": _csrf(op), "pid": B, "lift": "1"})
+    op = stw.get("/site/opt-outs").text
+    stw.post("/site/opt-outs", data={"csrf": _csrf(op), "pid": B, "lift": "1", "note": "the patient took it back"})
     assert 'data-testid="row-bbbbbbbb"' in pi.get("/studies/GZQO/week?list=all").text
     assert [e["detail"]["action"] for e in _events(box, "console.opt_out")] == ["opt_out", "lift"]
 
@@ -456,7 +466,9 @@ def test_orchestrator_screen_drops_opted_out_patients() -> None:
 def test_team_pages_render_in_three_languages_with_their_strings(box: dict[str, Any]) -> None:
     _done_screen(box["backend"], _ulid(972))
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     crc = _user(box, "crc1", "coordinator")
+    stw = _user(box, "stw", "steward")
     for lang in ("en", "ja", "zh-TW"):
         for c in (pi, crc):
             c.post("/lang", data={"csrf": _csrf(c.get("/home").text), "lang": lang, "back": "/home"})
@@ -465,7 +477,7 @@ def test_team_pages_render_in_three_languages_with_their_strings(box: dict[str, 
             r = pi.get(path)
             text = re.sub(r"<[^>]+>", " ", r.text)
             assert r.status_code == 200 and "team." not in text and not re.search(r"\bNone\b", text), (lang, path)
-        r = crc.get("/site/opt-outs")
+        r = stw.get("/site/opt-outs")  # D-380: the steward's register
         assert r.status_code == 200 and "team." not in re.sub(r"<[^>]+>", " ", r.text), lang
     from console import i18n_team
 
@@ -480,7 +492,8 @@ def test_study_tasks_live_in_the_role_table() -> None:
     from tb_common.authz import ROLE_STUDY_TASKS, STUDY_TASKS, study_tasks
 
     none: frozenset[str] = frozenset()
-    assert study_tasks("investigator", log_names_pi=False, is_pi=True, ticked=none) == ROLE_STUDY_TASKS["investigator"]
+    assert study_tasks("investigator", log_names_pi=False, is_pi=True, ticked=none) == none  # D-380 (ROLE-008)
+    assert "investigator" not in ROLE_STUDY_TASKS
     assert study_tasks("investigator", log_names_pi=True, is_pi=True, ticked=none) == frozenset(STUDY_TASKS)
     assert study_tasks("investigator", log_names_pi=True, is_pi=False, ticked=frozenset({"refer", "x"})) == {"refer"}
     assert study_tasks("investigator", log_names_pi=True, is_pi=False, ticked=none) == none
@@ -494,6 +507,7 @@ def test_candidates_say_whose_patients_the_run_screened(box: dict[str, Any]) -> 
     jid = _ulid(973)
     _done_screen(box["backend"], jid)
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     page = pi.get("/studies/GZQO/candidates").text
     assert 'data-testid="scope-pract"' in page and "DR-LIN" in page and "/studies/GZQO/setup#who" in page
     key = next(k for k in box["backend"].objects if k.startswith(f"outputs/{jid}/screen_"))

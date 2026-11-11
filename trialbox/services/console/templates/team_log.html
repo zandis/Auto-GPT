@@ -22,7 +22,7 @@
 <td>{{ e.training_day or '–' }}{% if e.training_ref %} <span class="hint">{{ e.training_ref }}</span>{% endif %}{% if e.role in ('pi', 'sub_pi') and not e.training_day %} <span class="pill warn">{{ t('team.log.no_training') }}</span>{% endif %}</td>
 <td class="nowrap">{{ e.signed_by }} · {{ e.signed_at|local(10) }}</td>
 </tr>
-{% if can_edit and e.role != 'pi' %}<tr><td colspan="{{ 5 + tasks|length }}"><form method="post" action="/studies/{{ rs }}/team/{{ e.id }}" class="inline" data-testid="edit-{{ e.id }}">
+{% if can_tick and e.role not in ('pi', 'monitor') %}<tr><td colspan="{{ 5 + tasks|length }}"><form method="post" action="/studies/{{ rs }}/team/{{ e.id }}" class="inline" data-testid="edit-{{ e.id }}">
 <input type="hidden" name="csrf" value="{{ csrf }}">{% for k in tasks %}<label class="nowrap"><input type="checkbox" name="tasks" value="{{ k }}"{% if k in e.tasks %} checked{% endif %} data-testid="edit-{{ e.id }}-{{ k }}"> {{ t('team.task.' + k) }}</label> {% endfor %}
 <label for="end-{{ e.id }}">{{ t('team.log.end') }}</label> <input id="end-{{ e.id }}" name="end" type="date" lang="{{ lang }}" value="{{ e.end or '' }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
 <label for="tr-{{ e.id }}">{{ t('team.log.training') }}</label> <input id="tr-{{ e.id }}" name="training_day" type="date" lang="{{ lang }}" value="{{ e.training_day or '' }}"><span class="hint datefmt">{{ t('date.fmt') }}</span><input type="hidden" name="training_ref" value="{{ e.training_ref or '' }}">
