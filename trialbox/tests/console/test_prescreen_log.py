@@ -25,7 +25,7 @@ from openpyxl import load_workbook
 from tb_common.wording import check_page
 
 from tests.console.test_amendment_rescreen import _screen
-from tests.console.test_console_app import box, login  # noqa: F401 - the fixture is used by name
+from tests.console.test_console_app import box, login, name_pi  # noqa: F401 - the fixture is used by name
 from tests.console.test_lifecycle_pages import PW as LIFE_PW
 from tests.console.test_lifecycle_pages import lb  # noqa: F401 - the fixture is used by name
 
@@ -60,6 +60,7 @@ def test_three_marks_give_three_pre_screen_rows_and_one_log_row(box: dict[str, A
     _screen(box, 9801, "3.0.0", [_row(A), _row(B), _row(C)], 0)
     box["users"].create("pi", "investigator", PW, "pi@hospa.test")
     box["users"].create("crc", "coordinator", PW, "crc@hospa.test")
+    name_pi(box, "pi")  # D-380 (ROLE-008): the steward names the PI
     pi, _ = login(box["app"], "pi", PW)
     week = pi.get("/studies/GZQO/week").text
     for pid, mark, extra in ((A, "approach", {}), (B, "not_suitable", {"reason": "comorbidity"}),

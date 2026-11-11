@@ -43,14 +43,10 @@
 </section>
 <section class="card">
 <h2>{{ t('users.roles') }}</h2>
-<ul>
-<li><strong>{{ t('role.admin') }}</strong>: {{ t('users.role.admin') }}</li>
-<li><strong>{{ t('role.coordinator') }}</strong>: {{ t('users.role.coordinator') }}</li>
-<li><strong>{{ t('role.investigator') }}</strong>: {{ t('users.role.investigator') }}</li>
-<li><strong>{{ t('role.viewer') }}</strong>: {{ t('users.role.viewer') }}</li>
-<li><strong>{{ t('role.cro') }}</strong>: {{ t('users.role.cro') }}</li>
-<li><strong>{{ t('role.steward') }}</strong>: {{ t('users.role.steward') }}</li>
-</ul>
+{# ROLE-018 (D-380): generated from the permission matrix, so the page says what the routes do #}
+<ul data-testid="role-rights">
+{% for r in roles %}<li data-role="{{ r }}"><strong>{{ t('role.' + r) }}</strong>: {{ role_desc[r] }}</li>
+{% endfor %}</ul>
 </section>
 </div>
 <section class="card">

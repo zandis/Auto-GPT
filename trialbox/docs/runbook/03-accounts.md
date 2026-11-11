@@ -43,7 +43,7 @@ push to a pull request cancels the older run (pushes to master are never cancell
 | `e2e-simple` | `make e2e-simple` (D-111) | yes |
 | `goldens` | `make goldens-check` (T-006, D-205) | yes |
 | `data-scan` | `make data-scan` (D-203) | yes |
-| `shell` | shellcheck: errors gate, warnings listed (2026-11-09: ten in `deploy/`) | errors |
+| `shell` | shellcheck on every `*.sh` (OPS-076: every warning listed on 2026-11-09 is fixed) | warnings |
 | `images` | hadolint on the three Dockerfiles | listed only (2026-11-09: first runs to triage) |
 
 `trialbox-e2e.yml` is the nightly (and on demand): `public_e2e`, the backup drill and the update drill. The
