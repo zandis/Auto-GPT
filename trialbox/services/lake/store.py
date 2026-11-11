@@ -33,7 +33,7 @@ import shutil
 import threading
 import time
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -607,7 +607,7 @@ class Lake:
                 "? AS embed_store, ? AS embed_model, ? AS note_mask",
                 [
                     snapshot,
-                    time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    datetime.now(UTC).isoformat(timespec="seconds"),  # D-315: never the container's own zone
                     LAKE_SCHEMA_VERSION,
                     schema_sha(),
                     "embed_cache.duckdb",
