@@ -1,6 +1,7 @@
 """The site keys under a key-encryption key (KEK), and the unseal (T-210b; CR-041 second third, OPS-058; D-347).
 
-The two keys of the secrets folder (``site_hmac.key``, ``pid_map.key``) are kept wrapped: ``<name>.wrapped`` is a
+The keys of the secrets folder (``site_hmac.key``, ``pid_map.key``, and ``objects.key`` once the object store is
+sealed, T-210c) are kept wrapped: ``<name>.wrapped`` is a
 small JSON document (format ``tb-wrapped-key/1``) with the key sealed by AES-256-GCM under the KEK. The associated
 data binds the format, the key's file name and the KEK's id, so a wrapped file renamed to another key, or opened with
 another KEK, is refused. The document also carries the key's fingerprint (``tb_common.crypto.key_fingerprint``), so
@@ -50,8 +51,10 @@ META_FORMAT = "tb-kek/1"
 WRAP_FORMAT = "tb-wrapped-key/1"
 WRAPPED_SUFFIX = ".wrapped"
 KEK_LEN = 32
-#: the keys of the secrets folder that are kept under the KEK
-PROTECTED = ("site_hmac.key", "pid_map.key")
+#: the keys of the secrets folder that are kept under the KEK; ``objects.key`` seals the object store (T-210c)
+PROTECTED = ("site_hmac.key", "pid_map.key", "objects.key")
+#: protected keys a box may not have (a store never sealed): not listed by :func:`custody` while absent
+OPTIONAL = ("objects.key",)
 BACKENDS = ("passphrase", "shamir", "file")
 DEFAULT_KEK_FILE = "/run/trialbox/kek"
 CREDENTIAL = "trialbox-kek"  # systemd LoadCredentialEncrypted= name
@@ -485,6 +488,8 @@ def custody(secrets_dir: Path, env: Mapping[str, str] | None = None) -> Custody:
     for name in PROTECTED:
         p = secrets_dir / name
         plain, wrapped = p.exists(), wrapped_path(p).exists()
+        if name in OPTIONAL and not plain and not wrapped:
+            continue
         c.keys[name] = "both" if plain and wrapped else "wrapped" if wrapped else "plain" if plain else "missing"
         if plain and wrapped:
             c.problems.append(f"{name} is there in plain beside its wrapped form")
