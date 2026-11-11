@@ -32,6 +32,25 @@ ZONES: dict[str, Destination] = {
     "dev_public": Destination.DEV_PUBLIC,
 }
 EXTERNAL_CONDITIONS = ("processing_geography", "retention", "training_use")
+# token identities of tb_common.service_auth (OPERATOR, LEGACY), repeated so this module needs no tb_common import
+OPERATOR = "operator"
+LEGACY = "legacy"
+SANDBOX_ENVS = ("DEV", "TEST")  # synthetic data only: a call without a service identity is believed (D-437)
+
+
+def endpoint_key(name: str, env: Mapping[str, str] | None = None) -> str:
+    """The value of an endpoint's key setting ``name`` (``api_key_env``): the file ``<name>_FILE`` names (a compose
+    secret, D-437) first, else the variable itself; "" when neither gives one."""
+    e = os.environ if env is None else env
+    path = (e.get(f"{name}_FILE") or "").strip() if name else ""
+    if path:
+        try:
+            got = Path(path).read_text(encoding="utf-8").strip()
+        except OSError:
+            got = ""
+        if got:
+            return got
+    return (e.get(name) or "").strip() if name else ""
 
 
 class Refusal(PermissionError):
@@ -206,6 +225,22 @@ class RoutingPolicy:
         unknown = [c for c in self.box_phi.callers if c not in self.callers]
         if unknown:
             raise ValueError(f"routing: phi_on_box names unknown callers {unknown}")
+        # T-212b (D-437, CR-040): the caller names each verified service (the identity of its service token) may claim
+        # in X-TB-Caller; "*" (any caller) only for the administrator's host token
+        self.service_callers: dict[str, tuple[str, ...]] = {}
+        for svc, names in (doc.get("service_callers") or {}).items():
+            got = tuple(str(x) for x in names or ())
+            if "*" in got and str(svc) != OPERATOR:
+                raise ValueError(f"routing: service_callers {svc}: only {OPERATOR} may claim any caller")
+            bad = [n for n in got if n != "*" and n not in self.callers]
+            if bad:
+                raise ValueError(f"routing: service_callers {svc} names unknown callers {bad}")
+            self.service_callers[str(svc)] = got
+        # the verified services that may wake, sleep and hold the one-GPU swap (/v1/serving/activate, release)
+        self.serving_control = frozenset(str(x) for x in doc.get("serving_control") or ())
+        bad_sc = sorted(self.serving_control - set(self.service_callers))
+        if bad_sc:
+            raise ValueError(f"routing: serving_control names services without service_callers {bad_sc}")
         self.routes: list[Route] = []
         for raw in doc.get("routes") or []:
             builds: list[tuple[str, str]] = []
@@ -268,6 +303,26 @@ class RoutingPolicy:
         if role.startswith("shadow:"):
             return role.removeprefix("shadow:") in self.roles
         return role in self.roles
+
+    def check_claim(
+        self, service: str | None, caller: str, environment: Environment, *, auth_open: bool = False
+    ) -> None:
+        """T-212b (D-437, CR-040): may the verified ``service`` (the token's identity, :mod:`tb_common.service_auth`)
+        call as ``caller``? With no identity (no token on the box, or the old shared token) only DEV and TEST believe
+        the header; everywhere else it is refused, as is a name outside ``service_callers``. ``auth_open``: the
+        service-token layer runs open (no token configured, ``TB_ENV`` DEV or TEST: ``service_auth`` admits such a
+        call nowhere else), so a call without an identity (``service`` None) is believed too."""
+        if not service or service == LEGACY:
+            if environment.value in SANDBOX_ENVS or (service is None and auth_open):
+                return
+            raise Refusal(
+                "caller_unverified",
+                f"the gateway cannot tell which service called as {caller!r} (no per-service token): run "
+                "`trialbox secrets init` or `trialbox secrets rotate` (D-138, D-437)",
+            )
+        allowed = self.service_callers.get(service, ())
+        if caller not in allowed and "*" not in allowed:
+            raise Refusal("caller_unverified", f"service {service} may not call the gateway as {caller!r}")
 
     def check_caller(self, caller: str | None, role: str, purpose: str) -> Caller:
         if not caller or caller not in self.callers:

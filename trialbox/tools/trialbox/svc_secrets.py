@@ -5,6 +5,7 @@
     sudo python3 -m tools.trialbox secrets rotate                # every token and the database passwords
     sudo python3 -m tools.trialbox secrets rotate --service orchestrator [--service console ...]
     sudo python3 -m tools.trialbox secrets rotate --service db   # the two database passwords only
+    sudo python3 -m tools.trialbox secrets rotate --service model  # the on-box model servers' key only (D-437)
 
 **Files** (all under ``deploy/secrets/services/``, the folder 0700, owned by root):
 
@@ -19,6 +20,14 @@
   hex; the current one and, during a console rotation, the previous one), mode 0600 in a 0700 folder, mounted into
   the orchestrator only (``TB_ACTOR_KEYS_FILE``), which verifies ``X-TB-Actor-Assertion`` with it (review
   2026-11-09 S-09, D-143). It is derived from the console's token, so ``init`` and ``rotate`` rewrite it.
+
+**The model key** (T-212b, D-437; review LLM-039): the key of the on-box model servers (D-177) is
+``deploy/secrets/model/llm.key`` (0600, the service user, in a 0700 folder), made by ``init`` (from the
+``TB_LLM_API_KEY`` that install.sh or an older box put in ``deploy/.env``, else new). The secrets overlay mounts it
+into the gateway and model-guard only, as a compose secret (``TB_LLM_API_KEY_FILE``). The vLLM servers still take it
+from ``deploy/.env`` by compose interpolation (``VLLM_API_KEY``), so ``init`` and ``rotate`` keep that copy equal to
+the file. ``rotate --service model`` writes a new key and recreates the model servers, model-guard and the gateway
+in one command: the old key is refused from then on.
 
 The database passwords (``POSTGRES_PASSWORD`` for HAPI, ``POSTGRES_WF_PASSWORD`` and ``TB_DB_URL`` for the trial
 database) stay in ``deploy/.env`` (0600, root), which compose reads; the overlay clears them, the mail passwords and
@@ -70,6 +79,8 @@ SERVICES: tuple[str, ...] = (
 OPERATOR = "operator"
 IDENTITIES: tuple[str, ...] = (*SERVICES, OPERATOR)
 DB = "db"
+MODEL = "model"  # the on-box model servers' key (D-177, D-437): ``rotate --service model``
+MODEL_KEY_ENV = "TB_LLM_API_KEY"
 DB_USERS: tuple[str, ...] = (*SERVICES, "fhir-store")  # every service that reads deploy/.env's database settings
 SERVICE_UID = 10001  # the ``tb`` user of trialbox-py / trialbox-jvm (deploy/docker/python.Dockerfile)
 
@@ -96,6 +107,58 @@ ACTOR_LABEL = b"tb-actor-assertion/1"  # tb_common.service_auth.ACTOR_LABEL
 
 def actor_keys_path(deploy: Path) -> Path:
     return secrets_dir(deploy) / "actor" / "keys"
+
+
+def model_key_path(deploy: Path) -> Path:
+    return deploy / "secrets" / "model" / "llm.key"
+
+
+def _model_key_write(deploy: Path, env_file: Path, key: str, uid: int | None) -> None:
+    folder = model_key_path(deploy).parent
+    folder.mkdir(parents=True, exist_ok=True)
+    os.chmod(folder, 0o700)
+    if uid is not None and os.geteuid() == 0:
+        os.chown(folder, uid, uid)
+    _write_private(model_key_path(deploy), key + "\n", uid)  # the gateway and model-guard run as ``uid``
+    if _read_env(env_file).get(MODEL_KEY_ENV) != key:
+        _set_env(env_file, {MODEL_KEY_ENV: key})  # the vLLM servers' copy (compose interpolation), kept equal
+
+
+def ensure_model_key(deploy: Path, env_file: Path | None = None, uid: int | None = SERVICE_UID) -> bool:
+    """Make ``deploy/secrets/model/llm.key`` when it is missing: the key ``deploy/.env`` holds, else a new one (so
+    the compose secret always has its file); keep ``deploy/.env``'s copy equal to the file. True when made now."""
+    env_file = env_file or deploy / ".env"
+    p = model_key_path(deploy)
+    cur = p.read_text(encoding="utf-8").strip() if p.is_file() else ""
+    if cur:
+        if _read_env(env_file).get(MODEL_KEY_ENV) != cur:
+            _set_env(env_file, {MODEL_KEY_ENV: cur})
+        return False
+    _model_key_write(deploy, env_file, _read_env(env_file).get(MODEL_KEY_ENV) or _new_token(), uid)
+    return True
+
+
+def _compose_files(deploy: Path, env_file: Path) -> list[Path]:
+    """The compose files of this box (``COMPOSE_FILE`` in ``deploy/.env``, written by install.sh)."""
+    env = _read_env(env_file)
+    raw = env.get("COMPOSE_FILE") or "docker-compose.yml"
+    sep = env.get("COMPOSE_PATH_SEPARATOR") or ":"
+    return [deploy / f if not Path(f).is_absolute() else Path(f) for f in raw.split(sep) if f.strip()]
+
+
+def model_services(deploy: Path, env_file: Path | None = None) -> list[str]:
+    """The services that hold the model key, in restart order: the vLLM servers and model-guard (GPU boxes, the
+    ``gpu`` compose profile; ``llm-verifier`` where a compose file of the box defines it), then the gateway."""
+    env_file = env_file or deploy / ".env"
+    profiles = (_read_env(env_file).get("COMPOSE_PROFILES") or "").replace(",", " ").split()
+    out: list[str] = []
+    if "gpu" in profiles:
+        out.append("llm-service")
+        files = [f for f in _compose_files(deploy, env_file) if f.is_file()]
+        if any("\n  llm-verifier:" in f.read_text(encoding="utf-8") for f in files):
+            out.append("llm-verifier")
+        out.append("model-guard")
+    return [*out, "gateway"]
 
 
 def actor_key_hex(token: str) -> str:
@@ -232,6 +295,8 @@ def init(deploy: Path, env_file: Path | None = None, uid: int | None = SERVICE_U
     legacy = _sha(legacy_token(env_file)) if legacy_token(env_file) else (old if isinstance(old, str) else None)
     _write_public(registry_path(deploy), _registry(deploy, None, legacy))
     write_actor_keys(deploy, uid)
+    if ensure_model_key(deploy, env_file, uid):
+        created.append(MODEL)
     return Result(created, [], [], legacy is not None)
 
 
@@ -280,17 +345,17 @@ def rotate(
 ) -> Result:
     """Rotate the named tokens (``db``: the database passwords); none named: every token and the database."""
     env_file = env_file or deploy / ".env"
-    want = [*IDENTITIES, DB] if not names else list(dict.fromkeys(names))
+    want = [*IDENTITIES, DB, MODEL] if not names else list(dict.fromkeys(names))
     every = set(IDENTITIES) <= set(want)  # every token rotated: the old shared one can go
-    bad = [n for n in want if n not in IDENTITIES and n != DB]
+    bad = [n for n in want if n not in IDENTITIES and n not in (DB, MODEL)]
     if bad:
-        raise SecretsError(f"unknown service {', '.join(bad)}: one of {', '.join((*IDENTITIES, DB))}")
+        raise SecretsError(f"unknown service {', '.join(bad)}: one of {', '.join((*IDENTITIES, DB, MODEL))}")
     if not registry_path(deploy).is_file():
         init(deploy, env_file, uid)
     reg = _load_registry(deploy)
     raw_legacy = reg.get("legacy")
     legacy: str | None = raw_legacy if isinstance(raw_legacy, str) else None
-    tokens = [n for n in want if n != DB]
+    tokens = [n for n in want if n not in (DB, MODEL)]
     old = {
         n: _sha(token_path(deploy, n).read_text(encoding="utf-8").strip())
         for n in tokens
@@ -307,6 +372,11 @@ def rotate(
     affected = [n for n in tokens if n != OPERATOR]
     if DB in want:
         affected += [s for s in _rotate_db(deploy, env_file, runner) if s not in affected]
+    if MODEL in want:
+        # T-212b (D-437, LLM-039): a new key in the file and in deploy/.env's copy, then the servers that hold it are
+        # recreated together, so the old key is refused from then on
+        _model_key_write(deploy, env_file, _new_token(), uid)
+        affected += [s for s in model_services(deploy, env_file) if s not in affected]
     if do_restart:
         restart(deploy, affected, runner)
     if every:  # the end of the migration: the old shared token is gone from the registry and from deploy/.env
@@ -340,6 +410,12 @@ def status(deploy: Path, env_file: Path | None = None) -> list[dict[str, object]
                 }
             )
         rows.append(row)
+    mk = model_key_path(deploy)
+    row = {"name": "model key", "file": str(mk), "present": mk.is_file()}
+    if mk.is_file():
+        st = mk.stat()
+        row.update({"mode": oct(st.st_mode & 0o777), "age_days": round((now - st.st_mtime) / 86400, 1)})
+    rows.append(row)
     rows.append(
         {
             "name": "legacy shared token",

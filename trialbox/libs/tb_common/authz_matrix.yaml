@@ -19,7 +19,7 @@
 # * ``permit`` is pure: no audit, no I/O. The caller audits.
 #
 # Sources: D-93, D-101, D-104, D-108, D-143, D-146, D-147, D-160, D-162, D-178, D-191, D-280 (OD-5), D-349 (T-512),
-# D-380 (T-102b), D-386 (T-622), D-395 (T-310b), D-425 (T-102c).
+# D-380 (T-102b), D-386 (T-622), D-395 (T-310b), D-425 (T-102c), D-440 (T-204).
 # D-280: the administrator (the IT operator) has no patient-level row; one patient or one job only through
 # break-glass (``console.breakglass``, the ``breakglass.*`` rows). D-380: the data steward and the privacy office
 # keep the opt-out register and the staff directory, and nobody else; the steward writes a study's first PI entry;
@@ -554,6 +554,28 @@ actions:
     privacy: false
 
 
+  # ---------------------------------------------------------------- the patient twin (T-204, D-440; console.twin_api)
+  # The route asks ``profile.read`` and ``Helpers.reads`` (``phi.view``, the delegation log); outside one's own rights
+  # only an open break-glass grant for the patient opens it (D-430), as on the patient page: the administrator (no
+  # patient-level row, D-280) reads a twin only under a grant.
+  profile.read:
+    what: read one study patient's twin through /api/v1 (pseudonymous, every read audited; T-204, D-440)
+    admin: false
+    coordinator: true
+    investigator: true
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
+  profile.research_layers:
+    what: see the twin's setpoint and gap layers (research use; empty until T-313)
+    admin: false
+    coordinator: false
+    investigator: [pi]
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
   # ---------------------------------------------------------------- registers and study set-up (D-380, T-102b)
   optout.keep:
     what: keep the research-use opt-out register (pseudonyms, a chart-number lookup; a lift needs a written reason)

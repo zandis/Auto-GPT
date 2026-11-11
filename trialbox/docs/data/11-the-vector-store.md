@@ -1,4 +1,4 @@
-# 10. The vector store
+# 11. The vector store
 
 Note text is chunked and embedded on the box, into the box's own PostgreSQL (schema `vec`, pgvector; T-203a,
 D-439). The vectors never leave the box and are never written into a lake snapshot file.

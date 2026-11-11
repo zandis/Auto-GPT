@@ -1152,12 +1152,19 @@ class ComposeBox(_DockerImages):
     def ensure_model_key(self) -> bool:
         """D-177 on a box installed before the key: make TB_LLM_API_KEY (as install.sh does) so the model servers and
         model-guard never start open. True when it was made now."""
-        if not self.gpu() or self.env.get("TB_LLM_API_KEY"):
-            return False
-        key = secrets.token_urlsafe(36)
-        image_pins.write_env(self.deploy / ".env", {"TB_LLM_API_KEY": key})
-        self.env["TB_LLM_API_KEY"] = key
-        return True
+        made = False
+        if self.gpu() and not self.env.get("TB_LLM_API_KEY"):
+            key = secrets.token_urlsafe(36)
+            image_pins.write_env(self.deploy / ".env", {"TB_LLM_API_KEY": key})
+            self.env["TB_LLM_API_KEY"] = key
+            made = True
+        # T-212b (D-437): the gateway and model-guard read the key from deploy/secrets/model/llm.key (a compose secret
+        # of the secrets overlay, which needs its file): a box updated from before it gets the file from .env's key
+        if (self.deploy / "secrets" / "services" / "public" / "tokens.json").is_file():
+            from tools.trialbox import svc_secrets
+
+            svc_secrets.ensure_model_key(self.deploy)
+        return made
 
     def restart(self, plan: Plan) -> None:
         # new images: the containers are recreated and every service runs its migrations at start (tb_common.db)

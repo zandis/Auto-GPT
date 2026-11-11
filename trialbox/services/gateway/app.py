@@ -30,6 +30,11 @@ Either refusal is HTTP 403 ``tb_refusal``, audited, and makes ``/healthz`` unhea
 (install, update) fails and an update rolls back. A gateway given to :func:`create_app` (tests) runs the check only
 when a :class:`StartCheck` is given too.
 
+**The verified caller (T-212b, D-437; CR-040).** Each call's ``X-TB-Caller`` is bound to the service its
+``X-TB-Service-Token`` identifies (``request.state.tb_caller``): ``service_callers`` in ``models/routing.yaml`` says
+which names each service may claim, and ``serving_control`` which services may drive the swap. See
+:meth:`gateway.policy.RoutingPolicy.check_claim`.
+
 The perimeter is checked (T-604, D-388; review LLM-036): in PRODUCTION on topology A, ``phi_on_box`` lets D3 go to
 the perimeter endpoints without a study step because they are the box itself. So every perimeter endpoint's host must
 resolve to box addresses only (:func:`gateway.policy.perimeter_addresses`). When one does not, the gateway does not
@@ -61,7 +66,7 @@ from tracestore.store import TraceStore
 
 from gateway.core import Gateway, GatewayConfig
 from gateway.policy import DEFAULT_PATH as ROUTING_PATH
-from gateway.policy import Resolver, RoutingPolicy, perimeter_checked, perimeter_problems, resolve_host
+from gateway.policy import Resolver, RoutingPolicy, endpoint_key, perimeter_checked, perimeter_problems, resolve_host
 from gateway.swap import SWAPPABLE, ModelSwap
 
 log = logging.getLogger("gateway.start_check")
@@ -101,7 +106,7 @@ def served_problems(
             if not name or ep is None or ep.zone != "perimeter":
                 continue
             url = ep.url(dict(env)).rstrip("/")
-            key = env.get(ep.api_key_env, "") if ep.api_key_env else ""
+            key = endpoint_key(ep.api_key_env, env) if ep.api_key_env else ""
             if url not in answers:
                 answers[url] = fetch(url, key)
             status, doc = answers[url]
@@ -216,6 +221,13 @@ class StartCheck:
             if stop.wait(wait):
                 return
             self.run_safe()
+
+
+def _service(request: Request) -> str | None:
+    """The service the request's ``X-TB-Service-Token`` identifies (``make_app`` sets it from
+    ``service_auth.authorize``); None when the box has no token (DEV and TEST only) (T-212b, D-437)."""
+    got = getattr(request.state, "tb_caller", None)
+    return str(got) if got else None
 
 
 def _refused(gw: Gateway, code: str, message: str) -> JSONResponse:
@@ -351,16 +363,16 @@ def create_app(
         if problems:
             # T-604: a perimeter name now points off the box; no call goes anywhere until it is back
             caller = request.headers.get("x-tb-caller", "")
-            gw.audit.append(
-                "llm.gateway.perimeter_refused", detail={"phase": "call", "caller": caller, "problems": problems}
-            )
+            detail = {"phase": "call", "caller": caller, "service": _service(request) or "", "problems": problems}
+            gw.audit.append("llm.gateway.perimeter_refused", detail=detail)
             msg = "a perimeter endpoint is not on the box"
             err = {"type": "tb_refusal", "code": "perimeter_unverified", "message": msg}
             return JSONResponse({"error": err}, 403, headers={"X-TB-Refusal": "perimeter_unverified"})
         refused = sc.refusal() if sc is not None else None
         if refused is not None:  # T-677: weights or served model not the pin's; no model is called
             return _refused(gw, *refused)
-        res = await run_in_threadpool(gw.chat, dict(request.headers), body)  # upstream calls block; keep the loop free
+        # upstream calls block; keep the loop free. The verified service binds X-TB-Caller (T-212b, D-437)
+        res = await run_in_threadpool(lambda: gw.chat(dict(request.headers), body, service=_service(request)))
         return JSONResponse(res.body, status_code=res.status, headers=res.headers)
 
     @app.get("/v1/serving/status")
@@ -379,13 +391,14 @@ def create_app(
         if not isinstance(endpoint, str):
             return JSONResponse({"error": {"type": "invalid_request", "message": "endpoint required"}}, 400)
         hold = bool(body.get("hold")) if isinstance(body, dict) else False
-        res = await run_in_threadpool(gw.activate, request.headers.get("x-tb-caller", ""), endpoint, hold)
+        caller, service = request.headers.get("x-tb-caller", ""), _service(request)
+        res = await run_in_threadpool(lambda: gw.activate(caller, endpoint, hold, service=service))
         return JSONResponse(res.body, status_code=res.status)
 
     @app.post("/v1/serving/release")
     def serving_release(request: Request) -> JSONResponse:
         """A screening run lets go of the card (D-116): nothing swaps back now; the next call wakes what it needs."""
-        res = gw.release(request.headers.get("x-tb-caller", ""))
+        res = gw.release(request.headers.get("x-tb-caller", ""), service=_service(request))
         return JSONResponse(res.body, status_code=res.status)
 
     app.mount("/registry", registry_app(gw.registry))

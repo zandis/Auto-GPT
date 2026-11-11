@@ -64,6 +64,7 @@ bundle of card T-304 builds from this table.
 | R-26 | Mail and notice logs | aid | the mail server; the box keeps the index | site administrator | `mail_log_days` (five years Japan, seven years Taiwan) | page only | `mail.received`, `mail.duplicate_suppressed`, `mail.deferred`, `mail.failed`, `mail.uncertain`, `mail.resolved`, `retention.mail`, `console.notice` |
 | R-27 | Study state and identifiers: the state (start-up, open, paused, closed) with every change, who, when and why; sponsor, protocol number, SIV date, registry ids (D-386) | control | the box; the sponsor's and the registries' own records for the identifiers | trial office | kept (the state is an event log) | the screening log's "about" sheet (`/studies/{rs}/screening-log.xlsx`) | `console.study_state`, `console.study_identity`, `scheduler.held` |
 | R-28 | Ingest batch register: one row per ingest run (source, snapshot, attempt) with its state (landed, validated, mapped, pseudonymised, published, held, failed, rejected), every step with who, when and the audit event that recorded it, and the steward's accept or reject of a held night with its reason (D-427) | control | the box | data steward | kept (the steps are append-only) | page only | `ingest.done`, `ingest.held`, `ingest.failed`, `dataops.decide`, `dataops.step` |
+| R-29 | Patient twin (`tb_patient_profile` v1): one pseudonymous document per study patient and version, built with no model from a named lake snapshot (R-25) and the derived rows (R-23); every item names its source table, row hash and date (D-440) | copy | the hospital data copy (R-25) it is built from | data steward | kept: every version (a new one only when the content changes); erased with every version when the patient opts out (R-06; the opt-out worker, T-206a) | never exported as such | `console.twin_view` |
 
 R-01 and R-02 also hold the training evidence of `qms-lite.md` §3 (first sign-in and the acknowledgement event).
 
@@ -133,6 +134,7 @@ are marked "files".
 | `services/console/sitestore.py` | `notify_log` | R-26 |
 | `services/console/sitestore.py` | `study_state`, `study_identity` | R-27 |
 | `services/datacore/dataops.py` | `batch`, `batch_step` | R-28 |
+| `services/patient_profile/twin.py` | `tb_patient_profile` | R-29 |
 | `services/console/auth.py` | `sessions`, `pending_logins`, `oidc_pending`, `login_failures` | O-01 |
 | `services/console/feedback.py` | `entry` | O-02 |
 | `services/tracestore/store.py` | `traces`, `access_log` | O-03 |

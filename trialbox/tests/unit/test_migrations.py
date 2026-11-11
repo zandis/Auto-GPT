@@ -325,6 +325,7 @@ def store_migrations() -> dict[str, list[str]]:
     from orchestrator import db as orch
     from orchestrator import db_pg, studystore
     from orchestrator.recall import ledger
+    from patient_profile import twin
     from sitesetup import store as sitesetup
     from tb_common import derived_store, flags, optout, refdata
     from tracestore import store as trace
@@ -356,6 +357,7 @@ def store_migrations() -> dict[str, list[str]]:
         "derived": list(derived_store.MIGRATIONS),
         "dataops": [dataops.SCHEMA],
         "vec": list(vec.MIGRATIONS),
+        "profile": list(twin.MIGRATIONS),
     }
 
 
@@ -425,6 +427,8 @@ ADDED: dict[str, tuple[str, ...]] = {
     "dataops": ("01925afb0e82837617a880fa2d2b32f7efaa6d5e98945e7144f57510d76efbcf",),
     # T-203a (D-439): the vector store, new after the baseline (needs pgvector: the db image)
     "vec": ("cd645d93e9d8d0a809c92eeaf6ff8997c201fb0e32b07a2d112288447f86b429",),
+    # T-204 (D-440): the patient twin, new after the baseline
+    "profile": ("e1107c0c7de613b72141fb70237b6eb35c1f98f5a1549f9c60f8537512a751b6",),
 }
 #: stores whose DDL needs an extension of the box's db image (D-204); a cluster without it cannot migrate them, so
 #: :func:`test_every_store_migrates_twice_and_checks_its_record` creates the extension where the server offers it and
@@ -444,7 +448,8 @@ STORE_FILES = {
     "services/datacore/dataops.py", "services/datacore/store.py", "services/edc/store.py",
     "services/mail_gateway/store.py", "services/omop/schema.py", "services/orchestrator/db.py",
     "services/orchestrator/db_pg.py", "services/orchestrator/outbox.py", "services/orchestrator/recall/ledger.py",
-    "services/orchestrator/studystore.py", "services/sitesetup/store.py", "services/tracestore/store.py", "services/vec/store.py",
+    "services/orchestrator/studystore.py", "services/patient_profile/twin.py", "services/sitesetup/store.py",
+    "services/tracestore/store.py", "services/vec/store.py",
 }  # fmt: skip
 #: files that migrate but are not a store: the machinery, the update path's bundle-driven ``release``, the drill's
 #: throwaway database
