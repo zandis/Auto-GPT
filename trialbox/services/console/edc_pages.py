@@ -71,6 +71,54 @@ class PendingSign:
     created: float
 
 
+_CHOICE_WORDS = frozenset({"male", "female", "yes", "no", "true", "false", "unknown"})
+
+
+def _key(lang: str, key: str) -> str:
+    """The catalogue's text for ``key``, or "" when no catalogue has it."""
+    text = translate(lang, key)
+    return "" if text == key else text
+
+
+def item_words(d: Mapping[str, Any], f: Mapping[str, Any] | None, m: Mapping[str, Any] | None,
+               lang: str) -> dict[str, Any]:  # fmt: skip
+    """D-398 (TB-DR-02a UX-010): what the review page shows for one draft in words, not codes.
+
+    ``label``: the item's name in the reader's language: the dictionary's own label in that language, else the
+    standard name of its CDASH variable (``edc.var.<cdash>[.<test>]``), else the dictionary's label as written
+    (``given`` is then true, so the page marks it as the source's word), else the variable name.
+    ``options``: code -> word in the reader's language (the dictionary's choice label in that language, else a common
+    word such as Male or Yes from the catalogue, else the choice label as written).
+    ``source``: one readable line for the citation ("Test or measurement 2026-11-01: 72.5 kg"); the table, row and
+    snapshot stay on the page under "Record reference"."""
+    f = f or {}
+    m = m or {}
+    labels = f.get("labels") or {}
+    cdash, test = str(d.get("cdash") or ""), str(d.get("test") or "")
+    std = (_key(lang, f"edc.var.{cdash}.{test}") if test else "") or (_key(lang, f"edc.var.{cdash}") if cdash else "")
+    own = str(f.get("label") or "") if lang == "en" else str(labels.get(lang) or "")
+    label, given = own or std, False
+    if not label:
+        label, given = str(f.get("label") or "") or str(d.get("item") or ""), lang != "en"
+    tr = (f.get("option_labels") or {}).get(lang) or {}
+    options: dict[str, str] = {}
+    for code, text in (f.get("options") or {}).items():
+        word = str(tr.get(code) or "")
+        if not word and lang != "en" and str(text).strip().lower() in _CHOICE_WORDS:
+            word = translate(lang, f"edc.word.{str(text).strip().lower()}")
+        options[str(code)] = word or str(text)
+    c = d.get("final_citation") or d.get("citation") or {}
+    source = ""
+    if c and c.get("kind") != "manual":
+        what = _key(lang, f"edc.src.{c.get('table')}")
+        if what:
+            source = what + (f" {c['day']}" if c.get("day") else "")
+            unit = str(m.get("unit") or "")
+            if c.get("table") == "observation" and m.get("what", "value") == "value" and d.get("value") and unit:
+                source += f": {d['value']} {unit}"
+    return {"label": label, "given": given, "options": options, "source": source}
+
+
 class ApiSwitch(BaseModel):
     on: bool
     kind: str = ""
@@ -547,9 +595,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         here = visit or BASE_EVENT  # the sign call signs this one visit: show and count only its values (E-11)
         unsigned = [d for d in drafts if d["fate"] in ("confirmed", "edited") and d["signature_id"] is None
                     and d["visit"] == here]  # fmt: skip
+        lang = sess.lang if sess.lang in ("ja", "zh-TW", "en") else "en"
+        maps = {str(m.get("item")): m for m in (st.get("map") or [])}
+        words = {d["id"]: item_words(d, fields.get(d["item"]), maps.get(d["item"]), lang) for d in drafts}
         resp = h.page(request, "edc_review.html", sess, rs=rid, record=rec, visit=visit, visits=visits, drafts=drafts,
-                      fields=fields, st=st, unsigned=unsigned, printed_name=name, err=err, may=may(sess, rid),
-                      sso=h.users.is_sso(sess.user.username), oidc_sign=oidc_signer(sess))  # fmt: skip
+                      fields=fields, words=words, st=st, unsigned=unsigned, printed_name=name, err=err,
+                      may=may(sess, rid), sso=h.users.is_sso(sess.user.username),
+                      oidc_sign=oidc_signer(sess))  # fmt: skip
         resp.status_code = status
         return resp
 

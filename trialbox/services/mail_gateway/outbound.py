@@ -1,5 +1,6 @@
 """Outbound mail (SPEC §4.1): Markdown body -> text + HTML, attachments from the object store, routing enforcement,
-encryption of PHI attachments (7z AES-256 with a separately mailed password, or S/MIME sign + encrypt)."""
+delivery of PHI attachments: a sign-in link (the default, D-369), S/MIME sign + encrypt, or 7z AES-256 with a
+separately mailed password (PPAP; refused for patient files outside DEV and TEST, D-369)."""
 
 from __future__ import annotations
 
@@ -166,12 +167,16 @@ def prepare(
     store: ObjectStore,
     sender: str,
     internal_domains: list[str],
-    mode: str = "zip",
+    mode: str = "link",
     smime_certs: dict[str, str] | None = None,
     smime_dir: Path | None = None,
     tz: str | None = None,
     link_base: str = "",
+    allow_phi_zip: bool = False,
 ) -> Prepared:
+    """``allow_phi_zip``: D-369 (OD-1, CR-025) mails no patient file as a password zip, because the password goes to
+    the same person on the same channel. Only a synthetic box (TB_ENV DEV or TEST) may still do so; elsewhere a ``phi``
+    attachment in ``zip`` mode is refused before anything is built or sent."""
     to = sorted({norm(r) for r in req.to if r})
     if not to:
         raise RoutingRefused("no recipients")
@@ -183,6 +188,11 @@ def prepare(
             f"phi content may not be sent outside {', '.join(internal_domains)}: {', '.join(external)}"
         )
     encrypt = bool(atts) and (req.encrypt or phi)
+    if mode == "zip" and phi and atts and not allow_phi_zip:
+        raise EncryptionError(
+            "patient files are not mailed as a password zip (D-369): set attachment_encryption to link (with "
+            "TB_CONSOLE_URL) or smime"
+        )
     domain = sender.rsplit("@", 1)[-1] or "trialbox.local"
     mid = make_msgid(idstring=(req.job_id or "trialbox")[:26], domain=domain)
     text, html = render_body(req.body_md)
