@@ -33,7 +33,9 @@ applied migration never changes); migration 3 narrows the sequence to the one-mi
 tables of D-301 (``omop.vocab_load``). Migration 4 (T-106, D-339, ``ddl/partitions.sql``) partitions the large
 clinical tables by the year of their required date (``omop.partitions``). Migration 5 (T-106b, STD-032) creates the
 other fifteen tables of the pinned DDL (:data:`CDM_TABLES_ADDED`) the same way as migration 1, so the store holds all
-39 CDM v5.4 tables; the loader writes none of the fifteen yet.
+39 CDM v5.4 tables; the loader writes none of the fifteen yet. Migration 6 (T-202, D-384) gives
+``tb_record_event`` the record's own before-image (``record_before``: the ``tb_record`` row as it was before the
+change), so the lake can be exported as of an earlier time (``omop.export.export_rows(db, as_of=...)``).
 """
 
 from __future__ import annotations
@@ -379,10 +381,16 @@ CREATE TABLE tb_ruleset_release (
 """
 
 
+#: migration 6 (T-202, D-384): the before-image of the ``tb_record`` row itself, beside the CDM row's (``before``);
+#: NULL on an insert, and on every event written before this migration (an export as of a time before such an event
+#: is refused, never guessed)
+HISTORY_DDL = "ALTER TABLE tb_record_event ADD COLUMN record_before JSONB"
+
+
 def migrations() -> list[str]:
     from omop.partitions import migration as partitions_ddl
 
-    return [cdm_ddl(), tb_ddl(), vocab_ddl(), partitions_ddl(), cdm_ddl(CDM_TABLES_ADDED)]
+    return [cdm_ddl(), tb_ddl(), vocab_ddl(), partitions_ddl(), cdm_ddl(CDM_TABLES_ADDED), HISTORY_DDL]
 
 
 def db_url() -> str | None:

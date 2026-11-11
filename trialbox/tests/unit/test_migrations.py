@@ -365,10 +365,12 @@ ADDED: dict[str, tuple[str, ...]] = {
     # D-301: migration 3, the one-million block and the vocabulary tables
     # T-106 (D-339): migration 4, the large clinical tables partitioned by year
     # T-106b (STD-032): migration 5, the other fifteen CDM v5.4 tables
+    # T-202 (D-384): migration 6, the record's own before-image on tb_record_event
     "omop": (
         "0eec88a07c4476ca00fdfb2e8fc414fb2257a293e381d8115a668fa7df0dc6f9",
         "36aaec4b30675bd3f2fa9006cbb7e9869f5df899613d179dde3068d19156094c",
         "5e12313c13360ff7f760649cce2f8bd954e6cfbace79c3dc399b47ae842055c6",
+        "139401a1b2873fdd27e3b299507dd52005abea7bc62666af95c9af45ec85fcf8",
     ),
     # T-612: pidmap version 2, the site key's fingerprint
     # T-659b (D-370): pidmap version 3, the patient index as the append-only pid_alias table
@@ -383,9 +385,11 @@ ADDED: dict[str, tuple[str, ...]] = {
         "d9f888838f2280f9e49a6d3f9a9bf210ace25104632200683567a4389fa03884",
     ),
     # D-386 (T-622): site version 5 (the study's state log and identifiers)
+    # D-395 (T-310b): site version 6 (the IRB-text record of the cross-department candidate view)
     "site": (
         "7f7cf970ce4268ca7fdc4fd725535442b586b8ea1e2b23fa631dddf9d3a7575d",
         "2ab6655ef5282d733ea7c4b2804d496be62b238fee5fbee5d7d4d9ccd78540ff",
+        "cc5a0e95c1dc50da9a3d8c9fa782fa1f5d6138e370dd9e7bad0c484ac3904996",
     ),
     "sae": ("78527251f39fb58cd728b207c0fc332740a2d06444492dbd617b4d1b0cb7b6d3",),
     # T-510 (D-331): the feedback store, new after the baseline
