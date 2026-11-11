@@ -176,6 +176,21 @@ def _limit_key(request: Request, who: Actor) -> str:
     return f"{getattr(request.state, 'tb_caller', None) or '-'}|{who.name}"
 
 
+def _service_key(request: Request) -> str:
+    """T-103 (D-438): the calling service as a whole, so a token holder who signs a new name per call is capped too."""
+    return f"{getattr(request.state, 'tb_caller', None) or '-'}|*"
+
+
+def _over_cap(o: Any, request: Request, claim: Actor, person: Any, service: Any) -> str:
+    """Take one use of the calling service's total cap, then of the person's; the reason of a refusal, or ""."""
+    now = o._now()
+    if not service.allow(_service_key(request), o.db, now):
+        return "service rate limit"
+    if not person.allow(_limit_key(request, claim), o.db, now):
+        return "rate limit"
+    return ""
+
+
 def id_authority(role: str) -> bool:
     """T-103 (D-438): may a signed role receive identifiers? The ``id.reveal`` row of the permission matrix (the same
     row as ``console.auth.User.can_reveal``, D-143, D-280: never the administrator), or the break-glass rule: the
@@ -185,13 +200,17 @@ def id_authority(role: str) -> bool:
 
 
 def _id_authority(o: Any, claim: Actor, rid: str | None, event: str, job_id: str | None = None,
-                  pid: str | None = None) -> None:  # fmt: skip
+                  pid: str | None = None, whole_list: bool = False) -> None:  # fmt: skip
     """D-273 (PV-5, PV-15): a chart number goes out only to a person whose signed role has identifier authority and
     whose signed study scope covers the study. A verified assertion must carry both; on a DEV/TEST box without a
-    token, a role or scope that is sent is checked all the same. A refusal is one audit event."""
+    token, a role or scope that is sent is checked all the same. A refusal is one audit event. T-103 (D-438): a whole
+    list (``whole_list``, the registry export) never goes to ``BREAK_GLASS_ROLE``: a grant covers one patient or one
+    job."""
     why = ""
     if (claim.verified or claim.role) and not id_authority(claim.role):
         why = "role"
+    elif whole_list and claim.role == BREAK_GLASS_ROLE:
+        why = "break-glass covers one patient or one job"
     elif (claim.verified or claim.scope) and not in_scope(claim.scope, rid):
         why = "study scope"
     if why:
@@ -329,9 +348,9 @@ class RevealLimit:
     variable and default for exports (S-09). T-103 (D-438): counted in the store (``orch.id_limits``), not in process
     memory, so a restart or a second worker does not reset it."""
 
-    def __init__(self, env: str = "TB_REVEAL_MAX_PER_HOUR", default: int = 60) -> None:
+    def __init__(self, env: str = "TB_REVEAL_MAX_PER_HOUR", default: int = 60, kind: str = "") -> None:
         self.env, self.default = env, default
-        self.kind = env.removeprefix("TB_").removesuffix("_MAX_PER_HOUR").lower()  # ``reveal``, ``export``
+        self.kind = kind or env.removeprefix("TB_").removesuffix("_MAX_PER_HOUR").lower()  # ``reveal``, ``export``
 
     def allow(self, who: str, db: Any, at: datetime) -> bool:
         cap = int(os.environ.get(self.env, str(self.default)))
@@ -342,6 +361,9 @@ REVEALS = RevealLimit()
 
 
 EXPORTS = RevealLimit("TB_EXPORT_MAX_PER_HOUR", 10)  # screening-log exports with chart numbers (S-09)
+# T-103 (D-438): the calling service's total across every name it signs
+REVEALS_SERVICE = RevealLimit("TB_REVEAL_MAX_PER_HOUR_PER_SERVICE", 600, "reveal_service")
+EXPORTS_SERVICE = RevealLimit("TB_EXPORT_MAX_PER_HOUR_PER_SERVICE", 60, "export_service")
 
 
 def listed_pids(o: Any, job: Any) -> set[str]:
@@ -391,9 +413,9 @@ def reveal(job_id: str, req: RevealRequest, request: Request) -> dict[str, Any]:
         o.audit.append("screen.reveal_refused", job_id=job_id, ruleset=job.ruleset, actor=who,
                        detail={"pid": req.pid, "reason": "opted out"})  # fmt: skip
         raise HTTPException(status_code=403, detail="this patient opted out")
-    if not REVEALS.allow(_limit_key(request, claim), o.db, o._now()):
+    if over := _over_cap(o, request, claim, REVEALS, REVEALS_SERVICE):
         o.audit.append("screen.reveal_refused", job_id=job_id, ruleset=job.ruleset, actor=who,
-                       detail={"pid": req.pid, "reason": "rate limit"})  # fmt: skip
+                       detail={"pid": req.pid, "reason": over})  # fmt: skip
         raise HTTPException(status_code=429, detail="too many chart numbers revealed in the last hour")
     found = resolve_mrns(Path(o.cfg.env.secrets_dir), [req.pid], o.db.url)
     o.audit.append(
@@ -692,10 +714,11 @@ def registry_export(ruleset: str, request: Request, by: str | None = None) -> Re
     o = orch()
     claim = _claim(request, by)  # ``by`` counts only on a DEV/TEST box without a token
     rid = ruleset.strip().upper()
-    _id_authority(o, claim, rid, "registry.export_refused")  # D-273 (PV-5): the role and the study, not only a name
-    if not EXPORTS.allow(_limit_key(request, claim), o.db, o._now()):
+    # D-273 (PV-5): the role and the study, not only a name; T-103: never to a break-glass grant (a whole list)
+    _id_authority(o, claim, rid, "registry.export_refused", whole_list=True)
+    if over := _over_cap(o, request, claim, EXPORTS, EXPORTS_SERVICE):
         o.audit.append("registry.export_refused", ruleset=rid, actor=claim.name,
-                       detail={"reason": "rate limit"})  # fmt: skip
+                       detail={"reason": over})  # fmt: skip
         raise HTTPException(status_code=429, detail="too many exports with chart numbers in the last hour")
     try:
         data = registry_of(o).export_xlsx(ruleset, o.cfg.settings.site.id)

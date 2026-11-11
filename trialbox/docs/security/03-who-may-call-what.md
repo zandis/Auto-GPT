@@ -34,16 +34,21 @@
   unchanged. Not done: WebAuthn in the console itself (Authelia offers it), step-up before a reveal, the
   breached-password list and password history (master plan WS-13.1), and removing the trusted-header SSO.
 - **Chart numbers.** The coordinator and the study's investigator (owner's decision of 2026-11-09, D-143, reversing
-  D-133; the delegation log for an investigator, D-147; the administrator only under a break-glass grant, D-280,
-  D-430) may reveal one, for a listed patient, with a purpose and a reason ("other" needs a written reason of 10
-  characters or more); viewer, CRO, steward and privacy accounts never see one. One reveal path (T-103, D-438): every surface (the
-  patient page, `/api/v1`, the job page, the candidate page, the referral print, next the EMR link) calls
-  `console.reveal.Reveal.identifier`, which asks the `id.reveal` row and the break-glass rule, takes one use of a
-  per-person cap shared by every surface (`TB_REVEAL_MAX_PER_HOUR`, 60 an hour, kept in the study-team store, so a
-  restart or a second console process does not reset it; a chart number in a request line counts too), and writes
-  one audit shape: `console.reveal_patient` (pid, role, study, purpose, reason, basis, cap, via) or
-  `console.reveal_refused` (the same and why). The orchestrator gives identifiers to a signed role the `id.reveal`
-  row allows or to `breakglass`, and keeps its own cap and the export cap (`TB_EXPORT_MAX_PER_HOUR`, 10) in its
-  store (`orch.id_limits`). Mail never carries a chart number, also not the investigator's N1.
+  D-133; the delegation log for an investigator, D-147; the administrator only under a break-glass grant for one
+  patient or one job, D-280, D-430) may reveal one, for a listed patient, with a purpose and a reason ("other" needs a
+  written reason of 10 characters that are not spaces); viewer, CRO, steward and privacy accounts never see one. One
+  reveal path (T-103, D-438): `console.reveal` is the only console code that obtains a chart number: one patient's
+  (the patient page, `/api/v1`, the job page, the candidate page, the referral print, next the EMR link), the request
+  line of a job, the screening log with chart numbers (a reason form on the registry page) and a job's patient
+  workbook downloaded in the browser (refused when it names a patient who has opted out since). It asks the
+  `id.reveal` row and the break-glass rule (a grant never opens a whole list), takes one use of a per-person cap shared
+  by every surface (`TB_REVEAL_MAX_PER_HOUR`, 60 an hour, in the study-team store; a request line once per job and
+  hour, the page's auto-refresh never), asks the back end, then writes exactly one record: `console.reveal_patient`
+  (pid, role, study, purpose, reason, basis, cap, via, a count for a list) or `console.reveal_refused` (the same and
+  why). A pid that is not a pseudonym is written `invalid`; the note is kept only for "other", masked. The
+  orchestrator gives identifiers to a signed role the `id.reveal` row allows or, for one patient or one job, to
+  `breakglass`, and keeps its caps in its store (`orch.id_limits`): per calling service and name, and per calling
+  service in total (`TB_REVEAL_MAX_PER_HOUR_PER_SERVICE`, `TB_EXPORT_MAX_PER_HOUR_PER_SERVICE`); the export cap is
+  `TB_EXPORT_MAX_PER_HOUR` (10). Mail never carries a chart number, also not the investigator's N1.
 - **Mail commands** need an allowed sender, a passing `Authentication-Results` (DMARC, or SPF/DKIM for the From:
   domain), the command's permission group and the daily rate limit.

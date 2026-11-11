@@ -185,6 +185,7 @@ def approval_state_of(rulesets_dir: Path, ruleset: str) -> dict[str, Any] | None
 _SHOWN_DETAIL = (
     "from", "to", "type", "filename", "tag", "bytes", "subject", "reason", "action", "line", "role", "run",
     "source", "validation_error_pct", "intent",  # S24 ingest rows, the header command field (step 4)
+    "via", "purpose",  # T-103 (D-438): where a chart number was shown and what for
 )  # fmt: skip
 
 

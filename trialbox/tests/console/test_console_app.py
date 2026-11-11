@@ -1325,7 +1325,7 @@ def test_registry_pages_add_promote_export(box: dict[str, Any]) -> None:
     page = c.get("/pilot/registry").text
     assert 'data-testid="registry-summary"' in page
     # export carries chart numbers: requesters only, audited
-    r = c.get("/pilot/registry/GZQO/export.xlsx")
+    r = c.get("/pilot/registry/GZQO/export.xlsx?reason=contact")  # T-103 (D-438): a reason, as every reveal
     assert (
         r.status_code == 200
         and r.content.startswith(b"PK")
@@ -1365,7 +1365,7 @@ def test_the_export_names_the_signed_in_user_signed_with_the_session(
 
     monkeypatch.setattr(box["backend"], "registry_export", spy)
     c, _ = login_crc(box)
-    assert c.get("/pilot/registry/GZQO/export.xlsx").status_code == 200
+    assert c.get("/pilot/registry/GZQO/export.xlsx?reason=contact").status_code == 200
     h = seen[0]
     who = sa.verify_actor(h[sa.ACTOR_HEADER], h[sa.ASSERTION_HEADER], role=h[sa.ROLE_HEADER], scope=h[sa.SCOPE_HEADER])
     assert who.name == "console:crc" and who.verified and len(who.session) == 16
@@ -1683,18 +1683,25 @@ def test_case_request_row_shows_the_chart_number_to_the_study_team_only(box: dic
     thread = page[page.index('data-testid="thread"') :]
     assert "mrn=70000054" in thread[: thread.index("</table>")]
     assert "mrn=70000054" not in page[page.index('data-testid="audit"') :]  # the audit table masks it
-    views = [r for r in box["backend"].audit(job.job_id) if r.event == "console.view_id"]
+    views = _line_reveals(box, job.job_id)  # T-103 (D-438): the one record shape, via the request line
     assert len(views) == 1 and views[0].actor == "console:pi" and views[0].detail["role"] == "investigator"
     viewer, _ = login(box["app"], "viewer", VIEWER_PW)
     vpage = viewer.get(f"/pilot/jobs/{job.job_id}")
     assert vpage.status_code == 403 and "70000054" not in vpage.text  # D-146 (J-04): no CASE job page at all
     other, _ = login(box["app"], "pi2", VIEWER_PW)
     assert "70000054" not in other.get(f"/pilot/jobs/{job.job_id}").text
-    assert len([r for r in box["backend"].audit(job.job_id) if r.event == "console.view_id"]) == 1
+    assert len(_line_reveals(box, job.job_id)) == 1
+
+
+def _line_reveals(b: dict[str, Any], job_id: str) -> list[Any]:
+    """T-103 (D-438): the records of a chart number shown in a job's request line (one shape for every reveal)."""
+    return [r for r in b["backend"].audit(job_id)
+            if r.event == "console.reveal_patient" and r.detail.get("via") == "request_line"]  # fmt: skip
 
 
 def test_identifier_views_are_rate_limited(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
-    """D-143: a view of an identifier counts against the reveal cap; over it the line is masked and refused."""
+    """D-143, T-103 (D-438): a view of an identifier counts against the one reveal cap, once per person, job and
+    hour; over the cap the line is masked and refused."""
     monkeypatch.setenv("TB_REVEAL_MAX_PER_HOUR", "1")
     # a row written before D-272: the page masks it the same way
     job = _done_case(box["backend"], {"mrn": "70000054", "lang": "en"})
@@ -1704,8 +1711,21 @@ def test_identifier_views_are_rate_limited(box: dict[str, Any], monkeypatch: pyt
     assert "mrn=70000054" not in a.get(f"/pilot/jobs/{job.job_id}").text
     c, _ = login_crc(box)
     assert "mrn=70000054" in c.get(f"/pilot/jobs/{job.job_id}").text
-    assert "mrn=70000054" not in c.get(f"/pilot/jobs/{job.job_id}").text
-    assert any(r.event == "console.view_id_refused" for r in box["backend"].audit(job.job_id))
+    assert "mrn=70000054" in c.get(f"/pilot/jobs/{job.job_id}").text  # the same job again: no second use
+    assert len(_line_reveals(box, job.job_id)) == 1
+    _done_screen(box["backend"], _ulid(951))
+    csrf = _csrf_of(c.get("/home").text)
+    r = c.post(f"/studies/GZQO/patients/{'a' * 32}/reveal", data={"csrf": csrf, "reason": "contact"})
+    assert r.status_code == 429  # the cap of 1 is spent by the request line: one cap for every surface
+    refused = [json.loads(x) for f in sorted((box["dir"] / "audit").glob("*.jsonl")) for x in f.read_text().splitlines()
+               if '"console.reveal_refused"' in x]  # fmt: skip
+    assert [e["detail"]["refused"] for e in refused] == ["cap"]
+
+
+def _csrf_of(page: str) -> str:
+    m = re.search(r'name="csrf" value="([^"]+)"', page)
+    assert m
+    return m.group(1)
 
 
 def test_request_subjects_are_masked() -> None:
