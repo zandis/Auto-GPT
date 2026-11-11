@@ -33,11 +33,11 @@ from tools.supply_chain.allowlist import Allowlist
 # (translator jars without findings, Temurin 21). A bundle never carries a report-mode finding.
 VULN_REPORT_ONLY = frozenset(
     {
-        "mailhog/mailhog",
         "vllm/vllm-openai",
         "postgres",
         "hapiproject/hapi",
         "greenmail/standalone",
+        "axllent/mailpit",  # D-348: replaced MailHog; GO-2026-5932 (golang.org/x/crypto) in v1.33.1
     }
 )
 VULN_MODES = ("block", "report")
