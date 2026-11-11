@@ -29,8 +29,10 @@ refused a whole criteria-locator call when a protocol's front page held a doctor
    check fails when an entry's text or schema changed, or when an id has no qualified version; a newer version
    waiting for its record is listed by `python -m tb_llm.prompt_registry --env PRODUCTION`, not refused. An explicit
    unqualified version (`judge@5`) stays refused in PRODUCTION (`prompt_unqualified`). An approval pins the served
-   version, and the pin-drift check compares against it. Without this, registering any new version stopped every
-   PRODUCTION gateway until a record existed.
+   version. The pin-drift check (D-318) compares against the newest qualified version, so a version waiting for its
+   record does not send every approved study back to the investigator (an id with no qualified version compares
+   against its newest). Without this, registering any new version stopped every PRODUCTION gateway until a record
+   existed.
 3. **The planted-instruction screen** (`guard.injection.screen`, `Guard.screen`, `POST /v1/screen`): deterministic
    patterns in en, ja and zh-TW. Each needs a cue that the reader addressed is a model (instructions, prompt, a
    system or assistant line, the AI, a verdict or JSON to output, a code fence), so clinical orders ("stop alcohol",
@@ -65,8 +67,8 @@ refused a whole criteria-locator call when a protocol's front page held a doctor
 
 - PRODUCTION keeps serving the baseline prompts until a qualification record names each new text. Writing those
   records from a passed `qualify` record (its serving record lists every active prompt sha) is not built here.
-- A ruleset approved on `judge@4` keeps `judge@4` (D-318); the approval page shows that a newer prompt exists where
-  it is served.
+- A ruleset approved on `judge@4` keeps `judge@4` (D-318) and stays approved until `judge@5` has its qualification
+  record; then the approval page shows that a newer prompt exists and the study needs the investigator again.
 - Charts and consent forms get no screen action of their own yet; their prompts carry the rule and the suite covers
   them.
 

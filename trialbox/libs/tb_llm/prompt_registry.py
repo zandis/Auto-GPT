@@ -42,9 +42,10 @@ Ruleset pins (D-318, URS-PI-06). An approved ruleset names the prompts it runs w
 (``prompt_pins``: id -> version, text sha256, schema sha256; :meth:`PromptRegistry.pins` writes them at approval).
 :meth:`PromptRegistry.pinned` resolves a pin only when the registry still holds that version with the same text and
 schema (``prompt_pin_changed`` otherwise), so SCREEN keeps the approved text after a newer version is registered.
-:meth:`PromptRegistry.pin_drift` lists the pins whose prompt has a newer registered version: that study needs the
-investigator's re-approval. A manifest from before D-318 pins only a version, through ``models.judge_prompt``
-(``judge_v4``): :func:`manifest_pins` reads it as a pin without shas.
+:meth:`PromptRegistry.pin_drift` lists the pins whose prompt has a newer qualified version (D-359; the newest
+version when none is qualified): that study needs the investigator's re-approval. A manifest from before D-318 pins
+only a version, through ``models.judge_prompt`` (``judge_v4``): :func:`manifest_pins` reads it as a pin without
+shas.
 """
 
 from __future__ import annotations
@@ -581,9 +582,13 @@ class PromptRegistry:
         return r
 
     def pin_drift(self, pins: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-        """One row per pin that is no longer the registry's current prompt: ``newer`` (a newer version is registered:
-        the study needs re-approval, SCREEN keeps the pinned one), ``changed`` (the pinned version is gone or its text
-        or schema differs: SCREEN refuses it) or ``unknown`` (the id is not registered)."""
+        """One row per pin that is no longer the registry's current prompt: ``newer`` (a newer qualified version is
+        registered: the study needs re-approval, SCREEN keeps the pinned one), ``changed`` (the pinned version is gone
+        or its text or schema differs: SCREEN refuses it) or ``unknown`` (the id is not registered).
+
+        D-359: a newer version still waiting for its qualification record does not send approved studies back to the
+        investigator; it counts once its record holds. An id with no qualified version at all compares against its
+        newest version."""
         out: list[dict[str, Any]] = []
         for pid in sorted(pins):
             pin = pins[pid]
@@ -593,7 +598,7 @@ class PromptRegistry:
                 out.append({"id": pid, "pinned": ref, "active": None, "state": "unknown"})
                 continue
             try:
-                top = self.served(pid).version  # what an approval now would pin (D-359)
+                top = self.served(pid, "PRODUCTION").version  # the newest qualified version (D-359)
             except PromptRegistryError:
                 top = vs[-1]
             active = f"{pid}@{top}"
