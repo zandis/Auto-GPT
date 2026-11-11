@@ -406,6 +406,16 @@ class HttpBackend:
         report: dict[str, Any] = resp.json()
         return report
 
+    def deceased(self, pids: list[str]) -> set[str]:
+        """FIT-U04 (T-629, D-415): which of ``pids`` the lake's current snapshot records as dead (the orchestrator's
+        ``POST /patients/deceased``). Raises :class:`Unavailable` when it cannot be asked: the caller then stops
+        contacts instead of reading "nobody died"."""
+        try:
+            data = self.orch.post_raw("/patients/deceased", {"pids": list(pids)}).json()
+        except ServiceError as exc:
+            raise Unavailable(str(exc)) from exc
+        return {str(p) for p in (data.get("deceased") or [])} if isinstance(data, dict) else set()
+
     # ------------------------------------------------------------------ candidate registry (D-92)
     def _registry_call(self, method: str, path: str, body: Any = None) -> Any:
         try:

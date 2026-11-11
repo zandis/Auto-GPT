@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from tb_common import feedguard
+from tb_common import chartno, feedguard
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
@@ -27,7 +27,7 @@ from adapter.load_fhir import sync_snapshot
 from adapter.mapping.engine import Mapper, Mapping, resource_id
 from adapter.ndjson import is_deleted_flag, list_snapshots, snapshot_dir, tombstone_count, write_snapshot
 from adapter.pidmap import PidMap
-from adapter.sources.base import CHANGE_COLUMNS, Source, has_table, quarantine_reason
+from adapter.sources.base import CHANGE_COLUMNS, Row, Source, has_table, quarantine_reason
 from adapter.validate.validator import Hl7Validator, StructuralValidator, missing_required, sample
 
 log = logging.getLogger("adapter")
@@ -60,6 +60,9 @@ class AdapterConfig:
     source_encoding: str | None = None  # T-615b: settings.data_source.encoding, the csv reader's first candidate
     # T-659b (D-370): the folder of data contracts (adapter/governance.py); None: no contract checks
     contracts_dir: Path | None = None
+    # FIT-U09 (T-629): settings.mrn_regex, the site's chart-number pattern; a column whose all-digit values match it
+    # only with leading zeros put back is refused (``tb_common.chartno.column_refusal``)
+    mrn_regex: str | None = None
 
     def site_key(self) -> bytes:
         """The site's pseudonymisation key. Never made here (T-612): :class:`SiteKeyError` when it is missing."""
@@ -235,6 +238,36 @@ def _undated_order(r: dict[str, Any]) -> bool:
         "boundsPeriod"
     ) or {}  # T-616 (STD-012): the therapy period, read first
     return not r.get("authoredOn") and not period.get("start") and not bounds.get("start")
+
+
+CHART_COLUMNS = ("mrn",)  # the canonical chart-number column of every table (mapping/templates/CANONICAL.md)
+
+
+def chart_column_refused(
+    mapping: Mapping, table: str, tspec: dict[str, Any], rows: list[Row], mrn_regex: str | None
+) -> str | None:
+    """FIT-U09 (T-629, D-415): why this table's chart-number column is refused, naming the column as the export
+    writes it, or None. The patient table's key and every table's ``mrn`` are checked: a column that Excel turned
+    into numbers (``tb_common.chartno.column_refusal``) would give some patients a second pseudonym, so the whole
+    table is set aside and the night is held; nothing is guessed back."""
+    if not rows:
+        return None
+    cols = list(CHART_COLUMNS)
+    if table == "patient" and tspec.get("key") and tspec["key"] not in cols:
+        cols.insert(0, str(tspec["key"]))
+    for col in cols:
+        if col not in rows[0]:
+            continue
+        why = chartno.column_refusal((str(r.get(col) or "") for r in rows), mrn_regex)
+        if why:
+            local = mapping.source_column(table, col) or col
+            what = {
+                "excel_number": "holds numbers written the way Excel writes them (123456.0, 1.2E+11)",
+                "lost_zeros": "holds chart numbers that match the site's pattern only with leading zeros put back",
+            }[why]
+            return (f"chart-number column {local!r} refused ({why}): it {what}; the leading zeros are lost. Export "
+                    "the column as text and run the night again")  # fmt: skip
+    return None
 
 
 def check_delta(mapping: Mapping, source_kind: str) -> None:
@@ -422,6 +455,11 @@ def _run_ingest(
                 if chk.validation.quarantined:
                     keep = {id(r) for r in chk.accepted}
                     rows = [n for r, n in zip(raw, rows, strict=True) if id(r) in keep]
+            refused = chart_column_refused(mapping, table, tspec, rows, cfg.mrn_regex)
+            if refused:  # FIT-U09 (T-629, D-415): the table is set aside whole and the night is held
+                quarantined[table] = refused
+                errors.append(f"{table}: {refused}")
+                rows = []
             # a row marked deleted (``deleted`` column, or the table's ``deleted:`` column) is a tombstone, never a
             # record; a source that keeps deletes apart (SS-MIX2 flag 0) gives them through ``deleted_rows``
             dcol = str(tspec.get("deleted") or "deleted")
