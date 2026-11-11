@@ -24,13 +24,18 @@
 {% endif %}
 {% endmacro %}
 
-{% macro mark_bar(pid, next_href='') %}
+{% macro mark_bar(pid, next_href='', current=none) %}
 {% if user.can_mark %}{% set s = pid[:8] %}
 {# D-147: Approach needs the "approach" tick of the delegation log; it waits for the treating doctor's agreement when
    a referral is open or declined; a missing or expired IRB approval / consent form is a warning, never a gate: an
-   Approach marked under it is recorded as an override #}
+   Approach marked under it is recorded as an override.
+   T-516: a referral asked after Approach pauses it (UX-013); where the button is absent, the reason and who marks
+   Approach instead (UX-015) #}
 {% set can_approach = may_approach is not defined or may_approach %}
-{% if can_approach and ref_wait is defined and ref_wait %}<p class="warn" data-testid="ref-wait">{{ t('team.approach.wait', state=t('team.state.' + ref_wait.state)) }}</p>
+{% set waiting = ref_wait is defined and ref_wait %}
+{% if not can_approach %}<p class="hint" data-testid="approach-absent">{% if approach_by is defined and approach_by %}{{ t('team.approach.not_delegated.pi', name=approach_by) }}{% else %}{{ t('team.approach.not_delegated') }}{% endif %}</p>{% endif %}
+{% if waiting and current and current.mark == 'approach' %}<p class="warn" role="status" data-testid="approach-paused">{{ t('team.approach.paused', state=t('team.state.' + ref_wait.state)) }}</p>
+{% elif can_approach and waiting %}<p class="warn" data-testid="ref-wait">{{ t('team.approach.wait', state=t('team.state.' + ref_wait.state)) }}</p>
 {% elif can_approach and irb_warn is defined and irb_warn %}<p class="warn" role="alert" data-testid="irb-warning">{{ t('team.irb.warn') }} {% for w in irb_warn %}<span class="pill warn">{{ t('team.irb.w.' + w) }}</span> {% endfor %}<a href="/studies/{{ rs }}/irb">{{ t('team.irb.title') }}</a></p>{% endif %}
 <div class="markbar" data-testid="markbar">
   {% if can_approach and not (ref_wait is defined and ref_wait) %}<button type="submit" form="mk-{{ s }}" name="mark" value="approach" data-testid="approach-{{ s }}">{{ t('mark.approach') }}</button>{% endif %}
@@ -52,6 +57,8 @@
 {% if user.can_request %}
 {% if not mark or mark.mark != 'approach' %}
 <div class="actp outform" data-testid="outcome-wait"><strong>{{ t('outcome.title') }}</strong><p class="hint">{{ t('outcome.wait_pi.hint') }}</p></div>
+{% elif ref_wait is defined and ref_wait %}{# T-516 (UX-013): Approach is paused while the treating doctor has not agreed #}
+<div class="actp outform" data-testid="outcome-paused"><strong>{{ t('outcome.title') }}</strong><p class="hint">{{ t('team.approach.paused', state=t('team.state.' + ref_wait.state)) }}</p></div>
 {% else %}
 <form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/outcome" class="actp outform" data-testid="outcomes">
   <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}">

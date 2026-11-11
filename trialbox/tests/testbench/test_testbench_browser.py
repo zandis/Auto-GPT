@@ -89,5 +89,5 @@ def test_browser_smoke_every_page_and_run_end_to_end(bench: str) -> None:
     r = subprocess.run(args, cwd=ROOT, capture_output=True, text=True, timeout=900, check=False)
     assert r.returncode == 0, r.stdout + r.stderr
     assert "ok run end to end: PASS" in r.stdout
-    for p in ("/", "/run", "/dataplat", "/llm", "/guard", "/recall", "/match"):
+    for p in ("/", "/run", "/ingest", "/llm", "/guard", "/recall", "/match"):
         assert f"ok page {p}\n" in r.stdout

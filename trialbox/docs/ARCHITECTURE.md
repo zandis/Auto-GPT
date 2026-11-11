@@ -43,9 +43,11 @@ with versioned migrations, D-126), service tokens (`service_auth.py`), crypto, t
 and retention.
 
 Packages inside the services: `datacore` (forms, answers, sync, lifecycle; D-123, D-129, D-134), `sitesetup`
-(readiness, chart upload, proposed facts, code mapping; D-135), `matching` (the cascade, coverage), `dataplat` (data
-platform L0–L5), `deliverables` (the feasibility pack), `rc_bridge` and `rc_sim` (REDCap and its simulator),
-`registry`, `guard`, `tracestore` (model registry, PHI recognisers, redacted traces).
+(readiness, chart upload, proposed facts, code mapping; D-135), `matching` (the cascade, coverage), `deliverables`
+(the feasibility pack), `rc_bridge` and `rc_sim` (REDCap and its simulator), `registry`, `guard`, `tracestore` (model
+registry, PHI recognisers, redacted traces). The adapter is the one ingest stack (D-370, D-381): its data contracts,
+row quarantine, one gate record per night, `pid_alias` and `lineage.json` live in `adapter/governance.py` and
+`adapter/pidmap.py`.
 
 Removed and not coming back: the Hermes agent, the MCP front door, the channel relay and MinIO (D-121); SQLite
 stores (D-126); gpt-oss-120b on the Spark (D-124).
