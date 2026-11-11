@@ -58,6 +58,12 @@
   {% else %}
   <form method="post" action="/pilot/jobs/{{ job.job_id }}/approve" class="inline">
     <input type="hidden" name="csrf" value="{{ csrf }}">
+    <fieldset class="amend" data-testid="amend-record"><legend>{{ t('amend.legend') }}</legend>
+      <p class="hint">{{ t('amend.help') }}</p>
+      <label for="amend-eff">{{ t('amend.effective') }}</label> <input id="amend-eff" type="date" name="effective_from" data-testid="amend-effective">
+      <label for="amend-irb">{{ t('amend.irb') }}</label> <input id="amend-irb" name="irb_reference" maxlength="32" pattern="[A-Za-z0-9,.:\-]{1,32}" data-testid="amend-irb">
+      <label for="amend-irbdate">{{ t('amend.irb_date') }}</label> <input id="amend-irbdate" type="date" name="irb_approved_on" data-testid="amend-irbdate">
+    </fieldset>
     <button type="submit" data-testid="approve">{{ t('s20.approve_all') }}</button>
   </form>{% endif %}
   <p class="hint">{{ t('s20.legal') }}</p>
