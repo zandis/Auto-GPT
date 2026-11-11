@@ -25,7 +25,8 @@ files, and the steward had no list of nights (ROLE-022: "Ingest synthetic site A
    trail. The history is filtered (state, source) and paged (50, `before`) by the store (`DataOps.history`, `ORDER BY
    id DESC LIMIT`): the console never reads a whole table and filters it in the page (the pattern of
    `HttpBackend.list_jobs` is not copied). The page and `/data/conflicts` link to each other; both are in the
-   steward's menu, `/data-ops` also in the administrator's.
+   steward's menu, `/data-ops` also on the administrator's home (the system tile: the admin's menu keeps its
+   four links).
 2. **Who.** Two matrix rows: `dataops.view` (steward and administrator: the rows hold tables and counts, never a
    patient; ROLE-022's ingest history for both) and `dataops.decide` (steward only). Everyone else gets 403 and
    `console.denied`; the administrator's decision is 403 (TB-ASSESS-01 T-112 acceptance 4).
