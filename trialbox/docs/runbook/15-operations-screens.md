@@ -30,6 +30,19 @@ a good update: apply the previous release's bundle. Restore stays a command with
 The in-process box, the demo and the tests run the same runner inside the console (`TB_OPS_RUNNER=inline`). Held by
 `tests/console/test_ops_pages.py`.
 
+## From /admin (T-209c, D-406)
+
+The health tab of `/admin` shows a Backups tile (age of the newest backup, the last key check, the last check run
+here) and an Update tile (the last bundle and how it ended, bundles waiting, rollback points), each one click from its
+tab here. The Accounts tile names the locked accounts and links to **Unlock, sign-in codes and authenticators**
+(`/ops/identity`), the unused-account report (`/admin/accounts`) and **Feature flags** (`/ops/flags`): a locked
+colleague is two clicks from `/admin`.
+
+Third-party logs (PostgreSQL, HAPI, the model server, Authelia, Caddy, Prometheus) are not scrubbed. `trialbox logs
+collect` keeps them apart in `logs/third-party/<day>/` (0600, class D3, a `CLASS` file says so) for
+`retention.third_party_logs_days` (30) days. Never forward them to the SIEM and never put them in a support bundle;
+the scrubbed logs of TrialBox's own services are in `logs/services/<day>/`.
+
 ## Box health and monitoring (T-209a, D-379)
 
 The runner also writes the box's health facts each minute: the backup as `backup-status` sees it, the last key check

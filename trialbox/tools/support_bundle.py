@@ -148,6 +148,7 @@ def refused_roots(deploy: Path, env: Mapping[str, str]) -> list[Path]:
                 "TB_LAKE_DIR", "TB_AUDIT_DIR", "TB_BACKUP_DIRS"):  # fmt: skip
         roots += [Path(v.partition("=")[2] or v) for v in str(env.get(key) or "").replace(",", " ").split() if v]
     roots += [Path(t) for t in str(env.get("TB_BACKUP_TARGETS") or "").replace(",", " ").split() if t]
+    roots.append(Path(env.get("TB_LOG_DIR") or deploy / "logs") / "third-party")  # D-406: class D3, never in a bundle
     return roots
 
 
