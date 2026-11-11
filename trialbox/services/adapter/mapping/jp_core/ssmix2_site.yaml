@@ -7,6 +7,9 @@
 #    only when PRB-3 carries no ICD-10 and the site's licensed MEDIS release has no row; WHO ICD-10, not ICD-10-CM)
 #    and yj_to_atc.csv (YJ -> ATC, used only when RXE-2 carries no ATC). Every sample row says `verify`: they are synthetic. Load the site's own
 #    MEDIS, JLAC10 and YJ releases with `python -m adapter.licensed load` (D-137).
+#    T-610: put the hospital's drug master (院内コード, YJ, HOT columns) here as drug_master.csv and its own
+#    ingredient-to-ATC table (the columns of libs/tb_common/refdata_src/jp_yj_atc.csv) as ingredient_atc.csv; the
+#    reader then resolves HOT and local codes to their ingredient and lists the codes it cannot read in reader.json.
 # 3. python tools/mapping_check.py --mapping <file> --source ssmix2 --path <storage root>
 # 4. settings.yaml: data_source: {type: ssmix2, path: <storage root>, mapping: mapping/jp_core/<site>.yaml}
 # JP Core (D-137): the shared resources carry JP Core 1.1.0 profiles here (`profiles`), with the elements JP Core asks

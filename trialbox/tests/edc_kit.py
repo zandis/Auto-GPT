@@ -155,13 +155,16 @@ def client_for(sim: Any, token: str) -> RedcapClient:
     return rc
 
 
+SIGN_KEY = b"tests-edc-signature-key-0123456789"  # D-281: the kit's own key, whatever TB_ENV the test sets
+
+
 def service(tmp_path: Path, facts: FakeFacts | None = None, llm: Any = None,
             records: list[dict[str, str]] | None = None) -> tuple[EdcService, Any, str]:  # fmt: skip
     """(service, simulator, token) on the test's own database schemas."""
     sim = create_app()
     token = sim_project(sim, records if records is not None else [{"record_id": "1", "tb_screening_no": RECORD}])
     the_llm = llm if llm is not None else StubLlm()
-    svc = EdcService(EdcStore(), DataCore(), AuditLog(tmp_path / "audit"), lambda: STAMP, lambda: TODAY,
+    svc = EdcService(EdcStore(sign_key=SIGN_KEY), DataCore(), AuditLog(tmp_path / "audit"), lambda: STAMP, lambda: TODAY,
                      lambda _ref: client_for(sim, token), lambda: facts or FakeFacts(),
                      lambda job: gateway_drafter(the_llm, job))  # fmt: skip
     return svc, sim, token
