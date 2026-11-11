@@ -42,7 +42,13 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--release", type=Path, default=None, help="--platform: release.json (default: the provisional one)")
     d.add_argument("--manifests", type=Path, default=None, help="--platform: rendered manifests instead of the cluster")
     d.add_argument(
-        "--compose-config", type=Path, default=None, help="--platform: `docker compose config --format json`"
+        "--compose-config",
+        type=Path,
+        default=None,
+        help="--platform, --two-device: `docker compose config --format json` (--two-device: its services)",
+    )
+    d.add_argument(
+        "--two-device", action="store_true", help="also check this device of the GB10 two-device form (T-214, D-373)"
     )
     pi = sub.add_parser("platform-images", help="the release-images component from release.json (D-211)")
     pi.add_argument("--release", type=Path, default=None)
@@ -164,6 +170,13 @@ def main(argv: list[str] | None = None) -> int:
         inp = doctor.inputs_from(
             env_file=a.env_file, settings=a.settings, routing=a.routing, dataplat=a.dataplat_workdir
         )
+        if a.two_device:
+            from tools import two_device as td
+
+            which = which + doctor.TWO_DEVICE
+            inp.compose_config = td.compose_config_for(
+                inp.env.get("TB_LINK_ROLE", ""), a.compose_config, inp.deploy or td.ROOT / "deploy"
+            )
         if not a.platform:
             checks = doctor.run(inp, which)
         else:
