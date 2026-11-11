@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 from tb_common.service_auth import bind_session, scope_of
 from tb_contracts import Job
 
-from console import s28
+from console import coded_view, s28
 from console import studies as st
 from console.auth import REVEAL_REASONS, Session, reveal_reason, source_of
 from console.backend import Refused
@@ -695,13 +695,17 @@ def register(app: FastAPI, h: Helpers) -> None:
                 {"id": c["id"], "label": crit[c["id"]].label if c["id"] in crit else c["id"],
                  "kind": crit[c["id"]].kind if c["id"] in crit else "", "source": c.get("source") or "coded",
                  "quote": c.get("quote"), "date": c.get("quote_date"), "reason": c.get("reason"),
-                 "records": len(c.get("resource_refs") or [])}
+                 "records": len(c.get("resource_refs") or []),
+                 # T-514 (D-362): the coded records' value, unit, date and code; the test model's note answers say so
+                 "coded": coded_view.view(c, "fail"),
+                 "test_model": c.get("source") == "notes" and st.test_model_in_use()}
                 for c in r.get("criteria") or []
             ]  # fmt: skip
             if not items:  # excluded by the run's own rules: scope, research-contact consent
                 items = [{"id": "", "label": "consent" if "consent" in a.lower() or a.startswith("contact")
                           else "scope", "kind": "", "source": "rule", "quote": None, "date": None, "reason": None,
-                          "records": 0} for a in r.get("actions") or ["scope"]]  # fmt: skip
+                          "records": 0, "coded": None, "test_model": False}
+                         for a in r.get("actions") or ["scope"]]  # fmt: skip
             out.append({"pid": str(r["pid"]), "short": str(r["pid"])[:8], "items": items})
         return out
 

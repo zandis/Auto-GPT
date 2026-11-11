@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from matching import coded_values
 from matching.coverage import unknown_system_counts
 from tb_common.authz import norm
 from tb_common.ruleset import Ruleset
@@ -498,6 +499,11 @@ def run_screen(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> ScreenRu
         )
     else:
         results = evaluate_scope(ctx, rs, run_date, snapshot, scoped)
+    # T-514 (D-362, review UX-008): each coded answer carries the record's value, unit, date and code for the person
+    # who checks it; display only, after every answer is decided
+    coded_values.attach(
+        ctx.services.lake, rs.active(), {p: pv.verdicts for p, pv in results.items()}, run_date, snapshot
+    )
     by_pid = {s.pid: s for s in scoped}
     stamp = job_stamp(ctx)  # evaluation time = the job's receipt: same inputs → same bytes (D-82)
     rows = [

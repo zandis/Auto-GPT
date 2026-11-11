@@ -161,3 +161,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-331 | merged | T-510 | in-product feedback: a flag, a rating and a comment on every page, stored with path, language, role and time; CSV export to issues; the comment in the demo scan (file) |
 | D-332 | merged | T-508 | the clinician PoC is product evaluation, not research: no protocol, subject consent or committee step; the acknowledgement only (file) |
 | D-334 | merged | T-613b | lab units read per row: one conversion table in labvalue (engines' factors reused), mapping_check unit pairs and raw values, one presence reader in ja, zh-TW, en (file) |
+| D-362 | merged | T-514 | a coded criterion row shows the record's own value, unit, date and code (evidence.coded, display only; latest first, at most three; an empty list says no record is behind the answer) on the patient page and the not-matched list (file) |

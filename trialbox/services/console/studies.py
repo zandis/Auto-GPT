@@ -18,6 +18,7 @@ from typing import Any
 from tb_common.config import environment_name
 from tb_contracts import Job
 
+from console import coded_view
 from console.recorded_opinions import view
 from console.sitestore import DEFAULT_REASONS, Mark, SiteProfile, StudySettings
 
@@ -531,6 +532,8 @@ def patient_rows(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Crite
                 # example (T-515)
                 "opinions": [view(o, test_model_in_use()) for o in ev.get("opinions") or [] if o.get("quote")],
                 "source": VERIFIED_BY.get(meta.cls, "records") if meta else "records",
+                # T-514 (D-362): the coded records' value, unit, date and code
+                "coded": coded_view.view(ev, v.get("verdict")),
             }
         )
         verdicts = {o.get("verdict") for o in ev.get("opinions") or [] if o.get("quote")}
