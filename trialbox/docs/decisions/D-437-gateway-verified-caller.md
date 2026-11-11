@@ -19,11 +19,12 @@
    service). The role and purpose rights stay on the caller entry, so they are now bound to the verified service:
    a doc-parser token cannot use role `judge`, neither as `doc-parser` (`role_not_allowed`) nor by claiming
    `orchestrator` or `testbench` (`caller_unverified`).
-2. **No identity, no claim, outside DEV and TEST.** Where the gateway cannot tell which service called (no token
-   configured, or the old shared token, `legacy`), the header is believed in DEV and TEST only (synthetic data, as
-   `service_auth` already treats them). Everywhere else such a call is refused `caller_unverified`: run
-   `trialbox secrets init` / `rotate`. A call made inside the gateway's own process (`trialbox doctor`'s judge
-   route check) has no network boundary and is not bound.
+2. **No identity, no claim, outside DEV and TEST.** Where the gateway cannot tell which service called, the header
+   is believed in DEV and TEST only (synthetic data). The old shared token (`legacy`) is believed only when the
+   gateway's own environment is DEV or TEST; a call with no token at all reaches the gateway only where the token
+   layer runs open (`TB_ENV` DEV or TEST, as `service_auth` decides). Everywhere else such a call is refused
+   `caller_unverified`: run `trialbox secrets init` / `rotate`. A call made inside the gateway's own process
+   (`trialbox doctor`'s judge route check) has no network boundary and is not bound.
 3. **The GPU swap belongs to its owners.** `POST /v1/serving/activate` and `/v1/serving/release` are allowed only to
    the verified services in `serving_control` (`orchestrator`, `operator`), with a caller they may claim that may
    use the judge role. A refusal is audited (`llm.gateway.swap_refused`).
@@ -40,9 +41,15 @@
 - A new service that calls the gateway needs a `service_callers` row (and a `service_auth.CALLERS` entry); a test
   holds the two together.
 - The legacy shared token no longer reaches a model outside DEV and TEST.
+- Every gateway audit record carries `service` (the verified service, or empty).
+- `trialbox update` makes the key file from `deploy/.env` on a box with per-service tokens, because the compose
+  secret needs its file. The network sheet lists the key file.
 
 ## Open
 
 - The vLLM servers still read the key from `deploy/.env` (compose interpolation into `VLLM_API_KEY`), and so do the
   host tools (`doctor --serving`, `noisy_neighbour`, `update`). `secrets` keeps that copy equal to the file. Moving
   them off `.env` (an `env_file` per vLLM service in every GPU overlay) is a follow-up.
+- The box rehearsal's "the gateway loses the key" drill (`tools/rehearse_box/box.sh`) empties `TB_LLM_API_KEY` in
+  `deploy/.env`; with the secrets overlay the gateway now reads the file, so the drill must empty the file instead.
+  Not changed here (it runs only on a rehearsal box).

@@ -139,7 +139,9 @@ def main(argv: list[str] | None = None) -> int:
     bi.add_argument("--no-first-run", action="store_true", help="install the cron file only; no first backup")
     s = sub.add_parser("secrets", help="per-service tokens: init, status, rotate (never prints a value)")
     s.add_argument("action", choices=["init", "status", "rotate"])
-    s.add_argument("--service", action="append", default=[], help="rotate only these (a service, operator or db)")
+    s.add_argument(
+        "--service", action="append", default=[], help="rotate only these (a service, operator, db or model)"
+    )
     s.add_argument("--deploy", type=Path, default=deploy)
     s.add_argument("--no-restart", action="store_true", help="rotate the files only; restart the services yourself")
     lg = sub.add_parser("logs", help="log retention: collect, prune, archive-audit, daily (all three)")

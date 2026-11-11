@@ -531,6 +531,9 @@ DECLARED: dict[str, Declared] = {
     "TB_LINK_PORT": Declared("int", "", "two-device link: this device's port"),
     "TB_LINK_ROLE": Declared("str", "", "two-device link: this device's role"),
     "TB_LLM_API_KEY": Declared("str", "", "gateway: key of the model admin endpoints (secret)"),
+    "TB_LLM_API_KEY_FILE": Declared(
+        "path", "", "gateway, model-guard: the model key file (compose secret, D-437), read before TB_LLM_API_KEY"
+    ),
     "TB_LLM_CONTEXT": Declared("int", "", "direct model call: context size (DEV)"),
     "TB_LLM_MODE": Declared("str", "", "model client (vllm, llamacpp, openai, stub)"),
     "TB_LOG_DIR": Declared("path", "deploy/logs", "host folder of collected logs"),
