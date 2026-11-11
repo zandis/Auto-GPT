@@ -137,6 +137,7 @@ def _helpers(store: SiteStore, life: dict[str, Any] | None = None) -> Any:
         week_bundle=lambda _sess, _rs: {"rows": [dict(r) for r in rows], "cl": None},
         life_mail=(lambda _rs, _day: life) if life else None,
         bk=SimpleNamespace(registry_rows=lambda _rs: []),
+        delegated_ok=lambda _u, _rs, *_: True,  # T-102c: the log's answer (the pi is delegated); no fallback in notify
     )
 
 

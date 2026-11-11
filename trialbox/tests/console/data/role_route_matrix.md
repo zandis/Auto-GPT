@@ -134,7 +134,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/studies/{rs}/sae/{record}/{event}` | - | n | - | n | n | - | - | - | - |
 | GET | `/studies/{rs}/schedule` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/screening-log` | - | Y | - | Y | Y | - | - | - | - |
-| GET | `/studies/{rs}/screening-log.xlsx` | Y | Y | - | - | Y | - | - | - | - |
+| GET | `/studies/{rs}/screening-log.xlsx` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/setup` | - | Y | Y | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/sources` | Y | Y | Y | Y | Y | - | - | Y | Y |
 | GET | `/studies/{rs}/state` | - | Y | Y | Y | Y | - | - | - | - |
