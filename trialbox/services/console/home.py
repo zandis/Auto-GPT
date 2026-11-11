@@ -111,6 +111,7 @@ class Helpers:
     chart_lookup: Callable[[Session, str], None] | None = None  # set by console.team: the lookup cap (D-273)
     ops_summary: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages (D-178): the health tile
     identity: Any = None  # console.identity.Identity (D-279): the second factor at signing; None in bare test apps
+    recorded: Any = None  # console.recorded_opinions.Recorded (T-515): demo opinions laid over the candidate list
 
     def gone(self) -> set[str]:
         """D-273 (PV-4): the pseudonyms on the opt-out register now. Every patient-level reader (lists, the excluded
@@ -263,6 +264,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         if job is None:
             return None
         cl = load(job, "candidate_list_", ".json")
+        if h.recorded:  # T-515 (D-323): recorded first and second checks on a DEV demo, each with its source
+            cl = h.recorded.apply(cl, rs)
         removed: list[str] = []
         if cl is not None and h.optout is not None:  # D-147: an opted-out patient is on no list, page or mail
             out = h.optout.active()
