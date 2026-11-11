@@ -367,8 +367,10 @@ spark-e2e:
 verify-models:
 	PYTHONPATH=libs:services:. $(PY) -m tools.pin_model --verify-all deploy/models
 
+# the pair canary in the box with the box's own compose files (COMPOSE_FILE in deploy/.env; OPS-033). On a box
+# without make: `sudo python3 -m tools.trialbox selftest`
 selftest:
-	docker compose --project-directory deploy -f deploy/docker-compose.yml exec orchestrator python -m orchestrator.selftest
+	python3 -m tools.trialbox selftest --deploy deploy
 
 # the same 54-case canary from this checkout against the models in the environment (TB_GATEWAY_URL ...): each model,
 # then the pair as the box decides (both must give the same decided answer); exit 1 when it fails (D-115). The box
