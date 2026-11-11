@@ -79,6 +79,20 @@ def test_a_declared_target_counts_only_off_the_boxs_disk_or_with_its_marker(tmp_
         assert bs.target_kind(share / "tb", "", [str(share)], local=(tmp_path,)).kind == "declared off-box"
 
 
+@pytest.fixture(autouse=True)
+def _hermetic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test here reads the runner's docker state, volumes or compose settings: every variable the compose steps
+    read from the process is removed, and the docker volume root is an empty folder."""
+    import os
+
+    for k in list(os.environ):
+        if k.startswith(("TB_COMPOSE", "TB_DOCKER", "TB_IMAGE", "TB_UPDATE_", "TB_BACKUP_", "TB_PG_", "TB_PGBACKREST",
+                         "COMPOSE_", "DOCKER_")) or k in ("TB_MODELS_DIR", "TB_SITE_ID", "TB_SETTINGS_FILE"):  # fmt: skip
+            monkeypatch.delenv(k, raising=False)
+    (tmp_path / "no-docker-volumes").mkdir(exist_ok=True)
+    monkeypatch.setenv("TB_DOCKER_VOLUMES", str(tmp_path / "no-docker-volumes"))
+
+
 def _cfg(tmp_path: Path, **kw: Any) -> bs.Config:
     pub = tmp_path / "keys" / "box.pub"
     if not pub.exists():

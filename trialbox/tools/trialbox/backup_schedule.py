@@ -684,7 +684,8 @@ class ComposeOps:
                 shutil.copytree(self.deploy / sub, dest / sub, symlinks=True, ignore=skip, dirs_exist_ok=True)
                 taken.append(sub)
         for vol in HOST_VOLUMES:
-            src = Path(self.env.get("TB_DOCKER_VOLUMES") or "/var/lib/docker/volumes") / f"trialbox_{vol}" / "_data"
+            root = self.env.get("TB_DOCKER_VOLUMES") or os.environ.get("TB_DOCKER_VOLUMES") or "/var/lib/docker/volumes"
+            src = Path(root) / f"trialbox_{vol}" / "_data"
             try:
                 if not src.is_dir():
                     continue
