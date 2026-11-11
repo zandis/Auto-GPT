@@ -131,7 +131,7 @@ def test_rejections_status_cancel(box: Box) -> None:
     assert box.mail("FEAS GZQO", sender="stranger@evil.example", auth="mx.hospa.test; spf=fail") == "Rejected"
     assert not box.sent  # no backscatter to unauthenticated unknown senders
     assert box.mail("FEAS GZQO", auth="mx.hospa.test; spf=fail; dkim=fail") == "Rejected"
-    assert "authentication failed" in box.sent[-1].text()
+    assert not box.sent  # D-369 (SEC-11): a failed sender authentication sends nothing, not even a refusal
     assert box.mail("PLEASE COUNT GZQO") == "Rejected"
     assert "unknown command" in box.sent[-1].text()
     assert box.mail("APPROVE GZQO version=1.0.0", sender="nurse-rheu@hospa.test") == "Rejected"
