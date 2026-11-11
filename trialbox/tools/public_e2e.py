@@ -225,7 +225,7 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     stages: list[Stage] = []
     t0 = time.perf_counter()
     box, client, repo, site = build(work, llm, verifier)
-    clock = ld.Clock(box.today[0])
+    clock = ld.Clock(box.today[0], ld.site_tz_of(box))
     # D-178: the operations screens run their actions in this process (no host runner in the in-process box)
     ops_env = {"TB_OPS_DIR": str(work / "ops"), "TB_OPS_RUNNER": "inline", "TB_OPS_DEPLOY": str(work / "ops-deploy")}
     shutil.rmtree(work / "ops", ignore_errors=True)
