@@ -420,6 +420,10 @@ if [ "$(id -u)" = 0 ] && [ -d /etc/cron.d ] && command -v python3 >/dev/null; th
     > /etc/cron.d/trialbox-retention && chmod 644 /etc/cron.d/trialbox-retention
   echo "    log retention: /etc/cron.d/trialbox-retention (00:20 daily)"
 fi
+if [ "$(id -u)" = 0 ] && [ -d /etc/logrotate.d ]; then
+  # D-389 (OPS-037): /var/log/trialbox-*.log (the retention and backup cron logs) rotate weekly, 53 kept
+  install -m 644 deploy/logrotate/trialbox /etc/logrotate.d/trialbox && echo "    host logs: /etc/logrotate.d/trialbox"
+fi
 # D-138: the site's one-page network, port and secret sheet, from the compose files this box runs
 SHEET_MOUNT=(); SHEET_FILES="$(echo "$FILES" | sed "s#$ROOT/deploy/#deploy/#g")"
 if [ -n "${OVR:-}" ]; then  # the override is outside deploy/: mount it where the sheet tool looks
