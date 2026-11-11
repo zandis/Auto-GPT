@@ -253,7 +253,7 @@ Chia corpus
 
 MIMIC-IV Clinical Database Demo on FHIR
   Version: 2.1.0. Not in the image: fetched at run time. services/adapter/mapping/mimic/tables and
-    services/dataplat/contracts/mimic_fhir carry MIMIC item ids and labels used to map it.
+    services/adapter/contracts/mimic_fhir carry MIMIC item ids and labels used to map it.
   Licence: Open Data Commons Open Database License v1.0, https://opendatacommons.org/licenses/odbl/1-0/
   Attribution: Johnson A., Bulgarelli L., Pollard T., et al. MIMIC-IV Clinical Database Demo on FHIR, PhysioNet.
 

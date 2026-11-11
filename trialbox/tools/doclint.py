@@ -1,13 +1,14 @@
-"""doclint: the repository's documents stay eight, and every link and path in them resolves (TB-PLAN-04 step 9, D-139).
+"""doclint: the repository's documents stay nine, and every link and path in them resolves (TB-PLAN-04 step 9, D-139).
 
     python tools/doclint.py            # exit 0 unless a set, head or gone problem; part of `make lint`
     python tools/doclint.py --strict   # link and path problems fail too
     python tools/doclint.py --write    # rewrite the indexes of the four documents kept as section files (T-669)
 
-Checks, on the eight documents and the handover sheets (``docs/handover/*.md``):
+Checks, on the nine documents and the handover sheets (``docs/handover/*.md``):
 
-* **set**   exactly the eight documents of D-139 exist, and no other Markdown file sits in ``docs/`` (the records
-            live in ``docs/reviews``, ``docs/plan``, ``docs/research`` and ``spec/archive``);
+* **set**   exactly the nine documents (the eight of D-139 and DEVELOPING, D-390) exist, and no other Markdown
+            file sits in ``docs/`` (the records live in ``docs/reviews``, ``docs/plan``, ``docs/research`` and
+            ``spec/archive``);
 * **head**  one ``#`` title on the first line, no skipped heading level, no heading twice in a file;
 * **link**  every relative Markdown link reaches a file or folder, and an ``#anchor`` into a Markdown file names
             one of its headings;
@@ -63,6 +64,7 @@ DOCS = [
     "docs/VALIDATION.md",
     "docs/USER_GUIDE.md",
     "docs/DECISIONS.md",
+    "docs/DEVELOPING.md",  # the team's document, split from the RUNBOOK (T-635, D-390)
 ]
 # the documents merged away in D-139 (their facts are in the eight, in spec/archive, or listed there as dropped)
 RETIRED = [
@@ -325,7 +327,7 @@ def whole(hub: str) -> str:
 def check_set() -> list[str]:
     errs = [f"{d}: set: missing" for d in DOCS if not (ROOT / d).exists()]
     extra = sorted(p.name for p in (ROOT / "docs").glob("*.md") if f"docs/{p.name}" not in DOCS)
-    errs += [f"docs/{x}: set: not one of the eight documents (merge it, or move it to a record folder)" for x in extra]
+    errs += [f"docs/{x}: set: not one of the nine documents (merge it, or move it to a record folder)" for x in extra]
     return errs
 
 

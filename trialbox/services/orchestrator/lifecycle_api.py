@@ -206,6 +206,17 @@ def mirror(registry: Any, rs: str, pid: str, state: str, by: str, now: Any) -> s
     return None
 
 
+def behind(status: str | None, state: str) -> bool:
+    """T-516 (UX-011): the screening log's status is behind the participant's state on the main line (or the log has
+    no row yet while the participant moved on). An end state on the log, or a log ahead, is never pulled back."""
+    if state not in lc.LINE or state == "candidate":
+        return False
+    if status is None:
+        return True
+    have = lc.FROM_REGISTRY.get(status, "")
+    return have in lc.LINE and lc.LINE.index(have) < lc.LINE.index(state)
+
+
 def registry_status(svc: Host, rs: str) -> dict[str, str]:
     if svc.registry is None:
         return {}
@@ -237,15 +248,23 @@ def refresh(svc: Host, rs: str, screening: dict[str, str], by: str,
         for st in out["steps"]:
             made.append({"record": rec, **st})
         held += [{"record": rec, **h} for h in out["held"]]
-        if out["steps"]:
-            now = life.subject(rs, rec)
-            assert now is not None
-            why = mirror(svc.registry, rs, str(now["pid"]), str(now["state"]), by, svc.now())
+        now = life.subject(rs, rec)
+        assert now is not None
+        # T-516 (UX-011): the log follows the participant also when a step was taken before the screening number
+        # was known (a consent form saved first): a log behind the participant's state is brought up to it
+        pid, state = str(now["pid"]), str(now["state"])
+        if out["steps"] or (pid and svc.registry is not None and behind(reg.get(pid), state)):
+            why = mirror(svc.registry, rs, pid, state, by, svc.now())
             if why:
-                held.append({"record": rec, "state": str(now["state"]), "why": "screening_log", "detail": why})
-            svc.audit.append("life.step", ruleset=rs, actor=by,
-                             detail={"record": rec, "steps": [[s["from"], s["to"]] for s in out["steps"]],
-                                     "source": "derived"})  # fmt: skip
+                held.append({"record": rec, "state": state, "why": "screening_log", "detail": why})
+            if out["steps"]:
+                svc.audit.append("life.step", ruleset=rs, actor=by,
+                                 detail={"record": rec, "steps": [[s["from"], s["to"]] for s in out["steps"]],
+                                         "source": "derived"})  # fmt: skip
+            else:
+                svc.audit.append("life.log_sync", ruleset=rs, actor=by,
+                                 detail={"record": rec, "to": lc.REGISTRY_OF[state], "from": reg.get(pid) or "",
+                                         "ok": not why})  # fmt: skip
     return {"made": made, "held": held}
 
 
@@ -260,7 +279,9 @@ def subject_view(life: Lifecycle, rs: str, sub: dict[str, Any], today: date,
                  sched: list[Visit]) -> dict[str, Any]:  # fmt: skip
     visits = life.visits(rs, str(sub["record"]), today, sched, sub)
     n = {k: sum(1 for v in visits if v["status"] == k) for k in lc.VISIT_STATES}
-    return {**sub, "visits": n, "next": list(lc.NEXT.get(str(sub["state"]), ()))}
+    # T-516 (LIFE-019): an enrolment or a visit recorded without a consent form; the subject is held before consent
+    missing = life.consent_missing(rs, str(sub["record"]), str(sub["state"]))
+    return {**sub, "visits": n, "next": list(lc.NEXT.get(str(sub["state"]), ())), "consent_missing": missing}
 
 
 def visit_rows(life: Lifecycle, rs: str, today: date) -> list[dict[str, Any]]:

@@ -16,7 +16,13 @@ class LakeAPI(Protocol):
     def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> pa.Table: ...
 
     def chunks_search(
-        self, pid: str, query: str, k: int = 5, date_from: date | None = None, date_to: date | None = None
+        self,
+        pid: str,
+        query: str,
+        k: int = 5,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        snapshot: str | None = None,
     ) -> list[dict[str, Any]]: ...
 
     def snapshot(self) -> str | None: ...
@@ -39,9 +45,22 @@ class LakeHttp:
         return pa.ipc.open_stream(resp.content).read_all()
 
     def chunks_search(
-        self, pid: str, query: str, k: int = 5, date_from: date | None = None, date_to: date | None = None
+        self,
+        pid: str,
+        query: str,
+        k: int = 5,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        snapshot: str | None = None,
     ) -> list[dict[str, Any]]:
-        req = ChunkSearchRequest(pid=pid, query=query, k=k, date_from=date_from, date_to=date_to)
+        req = ChunkSearchRequest(
+            pid=pid,
+            query=query,
+            k=k,
+            date_from=date_from,
+            date_to=date_to,
+            snapshot=date.fromisoformat(snapshot) if snapshot else None,
+        )
         resp = self.client.post(f"{self.base}/chunks/search", json=dump(req))
         resp.raise_for_status()
         hits: list[dict[str, Any]] = resp.json()["hits"]
@@ -79,9 +98,15 @@ class LakeLocal:
         return self.lake.query(sql, params, snapshot)
 
     def chunks_search(
-        self, pid: str, query: str, k: int = 5, date_from: date | None = None, date_to: date | None = None
+        self,
+        pid: str,
+        query: str,
+        k: int = 5,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        snapshot: str | None = None,
     ) -> list[dict[str, Any]]:
-        return self.lake.search(pid, query, self.embedder, k, date_from, date_to)
+        return self.lake.search(pid, query, self.embedder, k, date_from, date_to, snapshot)
 
     def snapshot(self) -> str | None:
         return self.lake.current()

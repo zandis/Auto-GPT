@@ -119,8 +119,7 @@ are marked "files".
 | `services/console/sitestore.py` | `site_profile` | R-21 |
 | `services/console/sitestore.py` | `criterion_labels`, `code_ticks`, `approval_opened`, `excluded_review` | R-22 |
 | `libs/tb_common/derived_store.py` | `definition`, `score_row`, `input_link`, `conflict` | R-23 |
-| `services/adapter/pidmap.py` | `pid_map`, `identity`, `site_key` | R-24 |
-| `services/dataplat/mpi/__init__.py` | `mpi_person`, `mpi_identifier`, `mpi_merge`, `pid_alias` | R-24 |
+| `services/adapter/pidmap.py` | `pid_map`, `identity`, `site_key`, `pid_alias` | R-24 |
 | `services/omop/schema.py` | `tb_record`, `tb_record_event`, `tb_conflict`, `tb_id_map`, `tb_appointment`, `tb_claim`, `tb_consent`, `tb_load` | R-25 |
 | `services/lake/store.py` | `document_chunk`, `lake_meta` | R-25 |
 | `services/mail_gateway/store.py` | `intake`, `sent`, `send_keys` | R-26 |

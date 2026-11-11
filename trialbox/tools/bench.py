@@ -431,11 +431,11 @@ def _timed(module: Any, name: str, into: dict[str, float], key: str) -> Callable
 
 
 def measure_stub(work: Path, patients: int = GATE_PATIENTS, trial: str = GATE_TRIAL) -> dict[str, Any]:
-    """One stub run of the cascade at ``patients`` (the ``hospital_sim scale`` path: synthetic site, the data platform
-    L0 to L5 with the lake build, the cascade S0 to S5, the pack and the certificate), timed per phase."""
-    import dataplat.pipeline
+    """One stub run of the cascade at ``patients`` (the ``hospital_sim scale`` path: synthetic site, the adapter's
+    night with the lake build, the cascade S0 to S5, the pack and the certificate), timed per phase."""
     import matching.cascade
 
+    import tools.ingest_local
     from tools.cascade_e2e import run_end_to_end
     from tools.make_fixtures import write_site
     from tools.synth.generator import generate
@@ -444,7 +444,7 @@ def measure_stub(work: Path, patients: int = GATE_PATIENTS, trial: str = GATE_TR
     t0 = time.perf_counter()
     write_site(generate(42, "DEMO-A", date(2026, 10, 5), patients, "1"), site)
     phases: dict[str, float] = {"generate_s": time.perf_counter() - t0}
-    restore = [_timed(dataplat.pipeline, "run_pipeline", phases, "lake_s"),
+    restore = [_timed(tools.ingest_local, "run_local", phases, "lake_s"),
                _timed(matching.cascade, "run_cascade", phases, "cascade_s")]  # fmt: skip
     try:
         t1 = time.perf_counter()
