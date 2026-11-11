@@ -41,6 +41,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/api/v1/studies/{rs}/forms` | U | U | U | U | U | - | - | U | U |
 | GET | `/api/v1/studies/{rs}/icf` | Y | Y | Y | Y | Y | - | - | Y | Y |
 | GET | `/api/v1/studies/{rs}/irb` | Y | Y | Y | Y | Y | - | - | Y | Y |
+| GET | `/api/v1/studies/{rs}/monitor` | - | - | - | Y | - | - | - | Y | - |
 | GET | `/api/v1/studies/{rs}/monitor/{record}` | - | - | - | - | - | - | - | - | - |
 | GET | `/api/v1/studies/{rs}/not-matched/check` | - | - | - | - | - | - | - | Y | - |
 | GET | `/api/v1/studies/{rs}/not-matched/sample` | - | - | - | Y | - | - | - | - | - |
@@ -132,6 +133,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/studies/{rs}/forms` | Y | Y | Y | Y | Y | - | - | Y | Y |
 | GET | `/studies/{rs}/history` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/irb` | Y | Y | Y | Y | Y | - | - | Y | Y |
+| GET | `/studies/{rs}/monitor` | - | - | - | Y | - | - | - | Y | - |
 | GET | `/studies/{rs}/monitor/{record}` | - | - | - | - | - | - | - | - | - |
 | GET | `/studies/{rs}/not-matched` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/not-matched/check` | - | - | - | - | - | - | - | Y | - |
@@ -181,6 +183,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/api/v1/studies/{rs}/forms/dictionary` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | POST | `/api/v1/studies/{rs}/icf` | - | Y | - | Y | - | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/irb` | - | Y | - | Y | - | - | - | - | - |
+| POST | `/api/v1/studies/{rs}/monitor/visits` | - | - | - | - | - | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/not-matched/check` | - | - | - | - | - | - | - | Y | - |
 | POST | `/api/v1/studies/{rs}/not-matched/sample/{pid}` | - | - | - | Y | - | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/not-matched/{pid}/review` | - | n | - | n | n | - | - | - | - |
@@ -249,6 +252,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/studies/{rs}/irb` | - | Y | - | Y | - | - | - | - | - |
 | POST | `/studies/{rs}/irb-text` | - | - | - | Y | - | - | - | - | - |
 | POST | `/studies/{rs}/irb/icf` | - | Y | - | Y | - | - | - | - | - |
+| POST | `/studies/{rs}/monitor/visits` | - | - | - | - | - | - | - | - | - |
 | POST | `/studies/{rs}/not-matched/check` | - | - | - | - | - | - | - | Y | - |
 | POST | `/studies/{rs}/not-matched/sample/{pid}` | - | - | - | Y | - | - | - | - | - |
 | POST | `/studies/{rs}/not-matched/{pid}/review` | - | n | - | n | n | - | - | - | - |

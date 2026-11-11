@@ -421,7 +421,11 @@ ADDED: dict[str, tuple[str, ...]] = {
     # T-108c (D-401): mail version 3, the send keys as the outbox and the job type on each intake row
     "mail": ("dc540a482b5619e6226318becb615e79a639ab2be3c2d47154b43029886f8579",),
     # D-399 (T-302a): team version 2, the approved consent-form versions as history rows
-    "team": ("ad5cea87a2f6b2b0210c392f8c698a0c72253a93cbbb6ec74915bf0cefbd076f",),
+    # T-303 (D-436): team version 3, the monitoring-visit records
+    "team": (
+        "ad5cea87a2f6b2b0210c392f8c698a0c72253a93cbbb6ec74915bf0cefbd076f",
+        "e3f9d90d7bb93b34988eed53250d15178b95f8b39de74d715c67a7bae376574f",
+    ),
     # D-280: the break-glass grants, new after the baseline
     # T-309 (D-430): version 2, each use of a grant (the steward's review list)
     "breakglass": (

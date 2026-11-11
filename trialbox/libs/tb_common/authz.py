@@ -342,11 +342,14 @@ MONITOR_STATES: tuple[str, ...] = ("enrolled", "on_study", "completed")
 
 
 def monitor_may_see(subject: dict[str, object]) -> bool:
-    """May a monitor grant open this lifecycle subject (the data core's subject record)? Enrolled subjects only."""
+    """May a monitor grant open this lifecycle subject (the data core's subject record, ``reply["subject"]``, not the
+    whole reply: D-436)? Enrolled subjects only. A withdrawn subject counts once it had an enrolment: the day of its
+    enrolment step (``enrolled``, as the data core's subject list gives it) or an ``enrolment`` date."""
     state = str(subject.get("state") or "")
     if state in MONITOR_STATES:
         return True
-    return state == "withdrawn" and bool(subject.get("enrolment") or subject.get("enrolled_on"))
+    when = subject.get("enrolment") or subject.get("enrolled_on") or subject.get("enrolled")
+    return state == "withdrawn" and isinstance(when, str) and bool(when.strip())
 
 
 # ROLE-018: the role descriptions on ``/ops/users`` are generated from the matrix, so a page never says more or less

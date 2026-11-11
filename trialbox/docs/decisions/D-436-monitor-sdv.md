@@ -43,7 +43,7 @@ The owner's rule (2026-11-10): "SDV access to enrolled subjects only, limited to
      checked before the body is read): the monitoring-visit record: the visit date, the CRA (the signed-in account,
      never typed), the monitoring-visit id the grant names, the subjects verified (each must be an enrolled subject of
      this study the monitor may open) and the findings (free text, at most 2,000 characters). Kept in
-     `team.monitor_visits` (team version 3), append-only by code; record inventory R-04 beside the delegation log.
+     `team.monitor_visits` (team version 3), append-only by code; record inventory R-30.
 3. **Rights are matrix rows.** `monitor.read` (existing: a CRO account under a grant) for every read; new
    `monitor.visit` (a CRO account under a grant) for the visit record; `monitor.grant` (existing) also reads the
    visit records. No inline role check.
