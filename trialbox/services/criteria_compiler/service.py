@@ -471,7 +471,8 @@ class Compiler:
         guard_hit = False
         criteria_new: list[CriterionIR] = []
         valuesets: dict[str, dict[str, Any]] = dict(approved.valuesets) if approved else {}
-        warnings: list[str] = []
+        # the parser's warnings (hidden text, a planted instruction, masked contact lines; T-208, T-606): to the review
+        warnings: list[str] = list(parsed.warnings or [])
         if todo:
             extracted, guard = self._extract(req.job_id, ruleset, parsed.language, todo)
             guard_hit = guard.hit

@@ -264,9 +264,9 @@ def ie_locate(inp: dict[str, Any]) -> dict[str, Any]:
     current: list[str] | None = None
     for sec in inp.get("sections", []):
         title = str(sec.get("title", ""))
-        if re.search(r"inclusion|納入|選択基準", title, re.I):
+        if re.search(r"inclusion|納入|選択基準|組み?入れ基準", title, re.I):
             current = inc
-        elif re.search(r"exclusion|排除|除外基準", title, re.I):
+        elif re.search(r"exclusion|排除|除外", title, re.I):
             current = exc
         else:
             current = None
@@ -416,7 +416,10 @@ _STUB_DRUG = (
     (r"フェブキソスタット|febuxostat", "M04AA03"),
     (r"コルヒチン|colchicine|秋水仙素", "M04AC01"),
 )
-_NEG = re.compile(r"なし|否定|無し|否認|未見|no (?:history|evidence)|denies|ruled out|家族歴|家族史|family history")
+# case-insensitive: "No history of hypertension" at the start of a line is a negation too (T-606, found by T-208)
+_NEG = re.compile(
+    r"なし|否定|無し|否認|未見|no (?:history|evidence)|denies|ruled out|家族歴|家族史|family history", re.I
+)
 _DATE_ANY = dates.CHART_SPAN  # 和暦, 民國 or Gregorian (D-215)
 
 

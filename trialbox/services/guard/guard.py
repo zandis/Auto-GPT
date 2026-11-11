@@ -4,6 +4,8 @@
 * :meth:`Guard.redact` replaces each span with a type tag (``[TW_NATIONAL_ID]``); the trace store calls it at write.
 * :meth:`Guard.tripwire` is the independent check the gateway runs (LLM-15, PRIV-29): a hit from these recognisers
   or from the v1 :func:`tb_common.phi_guard.scan` blocks, whatever the class label says.
+* :meth:`Guard.screen` is the planted-instruction screen (T-606, D-359; :mod:`guard.injection`): it flags text written
+  as an instruction to a model. It never blocks a call; the caller decides what a flag does.
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ from typing import Any
 
 from tb_common import phi_guard
 
+from guard.injection import Screen, screen
 from guard.recognisers import Finding, recognisers
 
 
@@ -87,3 +90,7 @@ class Guard:
         kinds = sorted({f.kind for f in spans} | {k.upper() for k, _ in v1.findings})
         hit = bool(spans) or v1.hit
         return Verdict(hit, tuple(kinds), len(spans) + len(v1.findings), spans)
+
+    def screen(self, text: str) -> Screen:
+        """The planted-instruction screen (:func:`guard.injection.screen`)."""
+        return screen(text)

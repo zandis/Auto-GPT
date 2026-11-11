@@ -11,6 +11,9 @@
 * A re-approval shows **Changes since vN**: criteria added, with new text or check class, and removed.
 * **Approval needed** (D-318): the approved version pins its judge prompt and terminology release; when the box has a
   newer prompt or another release, the page says so and that SCREEN keeps the approved prompt until this approval.
+* **Planted instruction** (T-606, D-359): a criterion whose text the guard's screen flags as written to a model
+  ("ignore the above criteria", a note to the AI) is amber with its own warning: the investigator opens it and
+  checks it against the protocol before approval.
 * **Approve all** sends ``APPROVE <study> version=<v>`` with the review workbook the compiler wrote, exactly what a
   reply to the review mail does; the orchestrator checks the approver's role (D-146).
 """
@@ -24,6 +27,7 @@ from typing import Any
 
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
+from guard.injection import screen
 from tb_contracts import Job
 
 from console import ruleset_labels
@@ -103,6 +107,8 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         changed = set(diff["added"]) | set(diff["text"]) | set(diff["class"])
         for r in rows:
             r["amber"] = st.amber(r, changed)
+            if screen(str(r.get("text") or "")).hit:  # T-606 (D-359): a criterion that reads as an order to a model
+                r["amber"].append("instruction")
         ambers = [str(r["id"]) for r in rows if r["amber"]]
         opened = store.opened_rows(job.job_id, sess.user.username)
         old = {str(a["id"]): a for a in approved}

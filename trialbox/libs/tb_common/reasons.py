@@ -42,6 +42,8 @@ class Reason(StrEnum):
     UNKNOWN_VALUE = "unknown_value"  # a lab result that is not a readable number ("see note", 陰性; D-142, D-215)
     ORDER_DATES_MISSING = "order_dates_missing"  # a medicine order with no end date, or no date at all (D-275)
     RULES_CHANGED = "rules_changed"  # an approved answer the current safety rules do not confirm (D-275)
+    # the model's quote is a sentence written as an instruction to a model (the guard's screen, T-606, D-359)
+    PLANTED_INSTRUCTION = "planted_instruction"
 
 
 CODES = frozenset(r.value for r in Reason)
