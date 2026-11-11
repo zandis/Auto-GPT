@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "3dc4b7d24b34ac9221e21b1d051e6d56198c4a7a",
-  "lake_schema_version": 2,
+  "head": "e31dd293513c382adf5101f332ef0c55439ab2a2",
+  "lake_schema_version": 3,
   "profile": "ci",
-  "reason": "D-321: T-504 adds the RA-JAK ruleset",
+  "reason": "T-106b lake schema 3",
   "ref_date": "2026-11-01",
   "ruleset": "RA-JAK",
   "ruleset_version": "1.0.0",

@@ -102,6 +102,14 @@ def test_ecog_is_a_quantity_for_twpas_1_2_5() -> None:
     assert ecog["valueQuantity"] == {"value": 1} and "valueInteger" not in ecog
 
 
+def test_route_is_the_oral_code_of_the_twpas_value_set() -> None:
+    """TWPAS 1.2.5 binds the route (one coding, required) to ``medication-path-sct-tw``; its only oral code is SNOMED
+    CT 26643006. TW Core #PO is not in it and failed the validator (D-376, amends D-342)."""
+    med = _by_type(tb.build(INP))["MedicationRequest"][0]
+    route = med["dosageInstruction"][0]["route"]
+    assert route == {"coding": [{"system": "http://snomed.info/sct", "code": "26643006"}], "text": "口服"}
+
+
 @pytest.mark.parametrize(
     ("change", "word"),
     [

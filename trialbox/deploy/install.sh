@@ -17,7 +17,11 @@
 #   1. host:      Docker Engine + compose plugin present and running; GPU driver when --mode gpu (auto when nvidia-smi
 #                 works); vendor public key installed (deploy/keys/vendor_ed25519.pub)
 #   2. bundle:    verify the Ed25519 signature and every payload hash, then load images, models and rulesets
-#                 (tools/apply_update.sh; a tampered bundle changes nothing)
+#                 (tools/apply_update.sh; a tampered bundle changes nothing). The bundle's host tree (compose files,
+#                 host tools, configuration; T-631, D-367) is unpacked to releases/<id> beside this folder and
+#                 `current` names it; the folder's release files become links through `current` (a copied file is
+#                 moved to releases/.replaced-<time>/), the site's own files in deploy/ stay. The install then goes
+#                 on from the signed tree: deploy/install.sh, now a link into it, runs again
 #   3. settings:  deploy/settings.yaml + deploy/.env from the settings wizard (questions, or --answers), random
 #                 service passwords; .env 0600, settings.yaml 0640 for group tb; an existing settings.yaml is kept
 #                 and re-validated
@@ -37,6 +41,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+ARGS=("$@")  # D-367: the install goes on from the signed tree with the same arguments
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
 TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0
 while [ $# -gt 0 ]; do
@@ -50,7 +55,7 @@ while [ $# -gt 0 ]; do
     --ctgov) CTGOV="$2"; shift ;;
     --ctgov-check) CTGOV_CHECK=1 ;;
     --check) CHECK=1 ;;
-    -h|--help) sed -n 2,36p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,40p "$0"; exit 0 ;;
     -*) echo "install: unknown option $1" >&2; exit 2 ;;
     *) BUNDLE="$1" ;;
   esac
@@ -156,10 +161,24 @@ fi
 echo "    docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), model profile: $MODE, gpu: $GPU, vendor key: $PUBKEY"
 
 # ------------------------------------------------------------------------------------------------ 2. bundle
-say "bundle: verify and load (images, models, rulesets)"
-sh "$ROOT/tools/apply_update.sh" "$BUNDLE" --dry-run >/dev/null || die "the bundle is not a valid signed TrialBox release; nothing was changed"
-TB_SKIP_AUDIT=1 sh "$ROOT/tools/apply_update.sh" "$BUNDLE" 2>&1 | sed 's/^/    /' || die "loading the bundle failed"
+say "bundle: verify and load (host tree, images, models, rulesets)"
+# D-367: the second run, from the signed tree this run's load switched `current` to, does not load again
+if [ -z "${TB_INSTALL_SIGNED:-}" ] || [ "$TB_INSTALL_SIGNED" != "$(readlink "$ROOT/current" 2>/dev/null)" ]; then
+  sh "$ROOT/tools/apply_update.sh" "$BUNDLE" --dry-run >/dev/null || die "the bundle is not a valid signed TrialBox release; nothing was changed"
+  TB_SKIP_AUDIT=1 sh "$ROOT/tools/apply_update.sh" "$BUNDLE" 2>&1 | sed 's/^/    /' || die "loading the bundle failed"
+fi
 docker image inspect "$IMAGE_PY" >/dev/null 2>&1 || die "the bundle carried no $IMAGE_PY image"
+# T-631, D-367: compose files, host tools and configuration come only from the signed release
+[ -L "$ROOT/current" ] && [ -d "$ROOT/current/deploy" ] \
+  || die "the bundle carried no host tree (payload kind host, D-367): build the release with tools/make_bundle.sh of T-631 or later"
+RELEASE="$(readlink "$ROOT/current")"
+echo "    release: $ROOT/current -> $RELEASE"
+if [ "${TB_INSTALL_SIGNED:-}" != "$RELEASE" ]; then
+  # deploy/install.sh is now a link into the signed tree (run by that path, so ROOT stays this folder)
+  [ -L "$ROOT/deploy/install.sh" ] || die "deploy/install.sh is not the signed release's (tools/host_tree.py status)"
+  say "continuing from the signed release ($ROOT/deploy/install.sh -> $(readlink "$ROOT/deploy/install.sh"))"
+  TB_INSTALL_SIGNED="$RELEASE" exec bash "$ROOT/deploy/install.sh" ${ARGS[@]+"${ARGS[@]}"}
+fi
 
 # ------------------------------------------------------------------------------------------------ 3. settings
 say "settings"

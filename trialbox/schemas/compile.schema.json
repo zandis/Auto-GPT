@@ -374,6 +374,30 @@
           ],
           "description": "how the approval reached the box: 'web console' or 'e-mail' (D-101)"
         },
+        "effective_from": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date",
+          "description": "the first site day the approved version screens (D-364); empty = the day of approval"
+        },
+        "irb_reference": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 64,
+          "description": "the IRB approval number of the protocol version, a record (D-364, D-311)"
+        },
+        "irb_approved_on": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date",
+          "description": "the day the IRB approved the protocol version, a record (D-364)"
+        },
         "decisions": {
           "type": "array",
           "items": {

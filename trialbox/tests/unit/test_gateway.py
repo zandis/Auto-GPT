@@ -43,7 +43,7 @@ JUDGE_VARS: dict[str, Any] = {
 
 
 def _judge_body(variables: dict[str, Any] | None = None) -> dict[str, Any]:
-    p = load_prompt("judge")
+    p = load_prompt("judge_v4")
     return {
         "messages": render(p, variables or JUDGE_VARS),
         "response_format": json_schema_format("judge", inline_schema(p.meta.output_schema)),
@@ -52,7 +52,7 @@ def _judge_body(variables: dict[str, Any] | None = None) -> dict[str, Any]:
 
 
 def _ir_body() -> dict[str, Any]:
-    p = load_prompt("ir_extract")
+    p = load_prompt("ir_extract_v2")
     v = {"ruleset": "GZQO", "language": "en", "criteria": [{"text": "Age >= 18", "kind": "inclusion"}]}
     return {"messages": render(p, v), "response_format": json_schema_format("ir", inline_schema(p.meta.output_schema))}
 
@@ -66,7 +66,7 @@ def H(**over: str) -> dict[str, str]:
         "X-TB-Study": "STUDY-1",
         "X-TB-Step": "step-1",
         "X-TB-Context-Of-Use": "s3_note_judgement",
-        "X-TB-Prompt": "judge@4",  # the body helpers render the newest judge (D-300: the text must be this version's)
+        "X-TB-Prompt": "judge@4",  # the body helpers render judge_v4, the baseline every environment serves (D-300, D-359)
     }
     for k, v in over.items():
         key = "X-TB-" + k.replace("_", "-")
@@ -422,7 +422,7 @@ def test_http_app_and_tb_llm_client(tmp_path: Path) -> None:
         context_of_use="s3_note_judgement",
         role="judge",
         prompt="judge@4",
-        prompt_sha=load_prompt("judge").sha256,
+        prompt_sha=load_prompt("judge_v4").sha256,
     )
     body = _judge_body()
     out = client.chat(body["messages"], labels, response_format=body["response_format"])
@@ -451,5 +451,5 @@ def test_tb_common_llm_shim_goes_through_gateway(tmp_path: Path) -> None:
     r = llm.chat_json("judge", JUDGE_VARS, job_id="J1", data_class="D0")
     assert r.data["verdict"] == "pass" and r.target == "gateway" and r.model == "trialbox-stub"
     (rec,) = _records(tmp_path)
-    assert rec["prompt_version"] == "judge@4" and rec["detail"]["study"] == "J1"
+    assert rec["prompt_version"] == "judge@5" and rec["detail"]["study"] == "J1"
     assert rec["detail"]["context_of_use"] == "s3_note_judgement"
