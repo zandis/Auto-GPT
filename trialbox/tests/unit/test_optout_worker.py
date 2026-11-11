@@ -79,7 +79,7 @@ class Jobs:
 def test_the_latest_registry_statement_decides() -> None:
     st = registry_rule([(A, "active", True), (A, "rejected", None), (B, "rejected", None), (B, "active", True),
                         (C, "active", False)])  # fmt: skip
-    assert st == RegistryState(frozenset({A}), frozenset({C}))
+    assert st == RegistryState(frozenset({A}), frozenset({C}), frozenset({B, C}))
 
 
 def test_registry_state_reads_the_lake_with_the_cohort_rule() -> None:
@@ -116,8 +116,9 @@ def test_sync_adds_refusals_and_lifts_only_its_own(db_url: str) -> None:
     assert reg.active() == {A, B}
     assert [(e.source, e.by) for e in reg.events(A)] == [("emr", REGISTRY_ACTOR)]
     assert sync_registry(reg, RegistryState(frozenset({A, B}), frozenset()), T1) == (0, 0)  # idempotent
-    # the registry no longer refuses either: its own opt-out is lifted, the office's stays
-    assert sync_registry(reg, RegistryState(frozenset(), frozenset()), "2026-11-03T09:00:00+00:00") == (0, 1)
+    # the registry records an active consent for both: its own opt-out is lifted, the office's stays
+    both = RegistryState(frozenset(), frozenset(), frozenset({A, B}))
+    assert sync_registry(reg, both, "2026-11-03T09:00:00+00:00") == (0, 1)
     assert reg.active() == {B}
     reg.close()
 
@@ -210,7 +211,10 @@ def test_the_interval_setting(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(w.MINUTES_ENV, raising=False)
     assert w.minutes() == 5
     monkeypatch.setenv(w.MINUTES_ENV, "0")
-    assert w.minutes() == 0 and w.start(SimpleNamespace()) is None
+    orch = SimpleNamespace(cfg=SimpleNamespace(env=SimpleNamespace(tz="Asia/Taipei")))
+    assert w.minutes() == 0 and w.start(orch) is None
+    with pytest.raises(RuntimeError, match="PRODUCTION"):  # review LOW-a: never off in PRODUCTION
+        w.start(orch, production=True)
     monkeypatch.setenv(w.MINUTES_ENV, "often")
     assert w.minutes() == 5
 
@@ -340,3 +344,191 @@ def test_after_one_tick_no_screening_path_lists_the_patient(db_url: str) -> None
     before = _ctx(datetime(2026, 10, 1, tzinfo=UTC), Audit())
     assert [r["pid"] for r in nav._without_opted_out(before, [{"pid": p} for p in (A, B, C)])] == [A, B, C]
     reg.close()
+
+
+# ------------------------------------------------------------------------------------------------ review fixes
+def _with_consent(pids: list[str], statements: list[tuple[str, str, str]]) -> dict[str, list[dict[str, Any]]]:
+    out = _batch(pids)
+    out["Consent"] = [
+        {"resourceType": "Consent", "id": f"k-{p}-{i}", "status": st, "patient": {"reference": f"Patient/{p}"},
+         "dateTime": d, "provision": {"type": "deny" if st == "rejected" else "permit"}}
+        for i, (p, st, d) in enumerate(statements)
+    ]  # fmt: skip
+    return out
+
+
+def _omop_lake(db: Any) -> Lake:
+    """The lake as an OMOP-built rebuild exports it (``lake.source=omop``): its consent table."""
+    from omop.export import export_rows
+
+    rows = export_rows(db)["consent"]
+    return Lake([(r["pid"], r["status"], r["contact_ok"], str(r["date"]) if r["date"] else None) for r in rows])
+
+
+def test_high1_the_feed_does_not_undo_its_own_opt_out_on_the_omop_lake(db_url: str) -> None:
+    """Review HIGH-1: tick, rebuild, tick, load, rebuild, tick: the patient stays out. Before the fix the withheld
+    patient's consent row was tombstoned with the rest, the OMOP-built lake had no refusal, the next tick lifted the
+    opt-out and the next load restored the patient."""
+    from datacore.optout_worker import _omop_store, run_once
+    from omop import schema
+    from omop.load import load_batch
+
+    batch = _with_consent([A, B], [(A, "rejected", "2026-10-01")])
+    db = schema.connect(db_url)
+    load_batch(db, "feed", "2026-10-04", batch, tz="Asia/Taipei")
+    reg = OptOutRegister()
+    omop = _omop_store(reg)
+    for night, snap in enumerate(("2026-10-05", "2026-10-06")):
+        out = run_once(_env(reg, jobs=Jobs(), omop=omop, lake=_omop_lake(db)))
+        assert out["registry"]["lifted"] == 0 and reg.active() == {A}, night
+        assert _omop_lake(db).query("SELECT count(*) AS n FROM consent WHERE pid = $1", [A]).to_pylist()[0]["n"] == 1
+        load_batch(db, "feed", snap, batch, tz="Asia/Taipei")
+        assert _live(db, A) == 1 and _live(db, B) == 3  # only the consent statement of A is live
+    assert omop is not None
+    omop.close()
+    db.close()
+    reg.close()
+
+
+def test_high1_med1_only_a_later_active_statement_lifts(db_url: str) -> None:
+    reg = OptOutRegister()
+    sync_registry(reg, RegistryState(frozenset({A}), frozenset()), T0)
+    for latest in ("", "inactive", "proposed", "draft"):  # no row at all, or a latest that is not a consent
+        st = registry_rule([(A, "rejected", None), *([(A, latest, None)] if latest else [])])
+        assert sync_registry(reg, st, T1) == (0, 0) and reg.active() == {A}, latest
+    st = registry_rule([(A, "rejected", None), (A, "active", True)])
+    assert sync_registry(reg, st, T1) == (0, 1) and reg.active() == set()
+    reg.close()
+
+
+def test_high2_an_office_opt_out_after_the_registry_is_its_own_and_never_lifted(db_url: str) -> None:
+    reg = OptOutRegister()
+    sync_registry(reg, RegistryState(frozenset({A}), frozenset()), T0)
+    audited: list[str] = []
+    assert (
+        reg.add(A, "paper", "", "console:office1", T1, before_commit=lambda: audited.append("console.opt_out")) is False
+    )
+    assert audited == ["console.opt_out"]  # the office's action left its event and its audit row
+    assert [e.by for e in reg.events(A)] == [REGISTRY_ACTOR, "console:office1"]
+    consenting = registry_rule([(A, "rejected", None), (A, "active", True)])
+    assert sync_registry(reg, consenting, "2026-11-03T09:00:00+00:00") == (0, 0) and reg.active() == {A}
+    assert reg.add(A, "emr", "", REGISTRY_ACTOR, T1) is False and len(reg.events(A)) == 2  # the feed's repeat: none
+    # after a lift by the office, a new refusal from the registry is the registry's again
+    reg.lift(A, "", "console:office1", "2026-11-04T09:00:00+00:00")
+    sync_registry(reg, RegistryState(frozenset({A}), frozenset()), "2026-11-05T09:00:00+00:00")
+    assert sync_registry(reg, consenting, "2026-11-06T09:00:00+00:00") == (0, 1)
+    reg.close()
+
+
+@pytest.mark.parametrize("order", [1, -1])
+def test_med2_two_statements_on_one_day_are_read_fail_closed(order: int) -> None:
+    rows: list[tuple[str, str | None, bool | None, str | None]] = [
+        (A, "active", True, "2026-10-20"),
+        (A, "rejected", None, "2026-10-20"),
+        (B, "inactive", False, "2026-10-20"),
+        (B, "active", True, "2026-10-20"),
+    ]
+    rows = rows[::order]
+    st = registry_state(Lake(rows), "2026-11-02", "2026-11-02")
+    assert st is not None and st.refused == {A} and B not in st.consenting and B in st.no_contact
+
+
+class _Pool:
+    def __init__(self) -> None:
+        self.rows: list[str] = []
+
+    def pool_upsert(self, rs: str, ver: str, rows: list[dict[str, Any]], job: str, at: str) -> None:
+        self.rows += [r["pid"] for r in rows]
+
+
+def test_med3_a_run_that_publishes_after_the_opt_out_drops_the_patient(db_url: str) -> None:
+    """Review MED-3: a job received before the opt-out reads its scope as of then (D-82), but its pool and its
+    mailed lists read the register again as it stands at publish."""
+    from orchestrator.scenarios.screen import opted_out_now, persist_pool
+    from tb_contracts import CandidateRow
+
+    audit, pool = Audit(), _Pool()
+    ctx = SimpleNamespace(
+        job=SimpleNamespace(job_id="J1", ruleset="GZQO", received_at=datetime(2026, 10, 1, tzinfo=UTC)),
+        orch=SimpleNamespace(audit=audit, db=pool, _now=lambda: NOW),
+    )
+    reg = OptOutRegister()
+    reg.add(A, "paper", "", "console:office1", T0)  # after the job was received
+    rs = SimpleNamespace(id="GZQO", version="1")
+    rows = [CandidateRow.model_validate({"pid": p, "tier": "high", "criteria": [], "actions": []}) for p in (A, B)]
+    persist_pool(ctx, rs, rows)  # type: ignore[arg-type]
+    assert pool.rows == [B]
+    assert opted_out_now(ctx, [B], "list") == frozenset()  # type: ignore[arg-type]
+    assert audit.events == [("screen.opt_out_at_publish", {"job_id": "J1", "ruleset": "GZQO",
+                                                          "detail": {"removed": 1, "where": "pool",
+                                                                     "register": "optout"}})]  # fmt: skip
+    reg.close()
+
+
+def test_med4_an_opt_out_under_a_merged_chart_hides_the_surviving_pid(db_url: str) -> None:
+    from tb_common.db import Database
+    from tb_common.optout import opted_out
+
+    pm = Database.connect(db_url, "pidmap")
+    pm.execute("CREATE TABLE pid_alias (old_pid TEXT PRIMARY KEY, pid TEXT NOT NULL, reason TEXT NOT NULL, "
+               "ticket TEXT NOT NULL, merged_at TEXT NOT NULL)")  # fmt: skip
+    pm.execute("INSERT INTO pid_alias VALUES (?, ?, 'merge', 'T-1', ?)", (A, B, T0))
+    pm.execute("INSERT INTO pid_alias VALUES (?, ?, 'merge', 'T-2', ?)", (B, C, T1))  # a chain
+    pm.close()
+    reg = OptOutRegister()
+    reg.add(A, "paper", "", "console:office1", T0)
+    assert opted_out() == {A, B, C} and reg.effective() == {A, B, C} and reg.active() == {A}
+    reg.close()
+
+
+def test_low_b_a_failing_tick_is_audited_and_turns_the_health_line_red(
+    db_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from datacore import optout_worker as w
+    from tb_common import metrics
+
+    class Down:
+        def snapshot(self) -> str:
+            raise RuntimeError("lake down")
+
+    audit = Audit()
+    orch = SimpleNamespace(cfg=SimpleNamespace(env=SimpleNamespace(tz="Asia/Taipei")), audit=audit,
+                           services=SimpleNamespace(lake=Down()), db=Jobs())  # fmt: skip
+    monkeypatch.setattr(w, "STATUS", {"every": 5, "started": NOW.isoformat(), "ok_at": None, "failed": []})
+    out = w.tick(orch)
+    assert out is not None and out["failed"] == ["registry"] and w.status()["failed"] == ["registry"]
+    assert metrics.check_optout(w.status(), NOW).level == metrics.RED
+    monkeypatch.setattr(orch.services, "lake", None)
+    w.tick(orch)
+    st = w.status()
+    assert st["failed"] == [] and st["ok_at"] is not None
+    now = datetime.fromisoformat(st["ok_at"])
+    assert metrics.check_optout(st, now).level == metrics.OK
+    assert metrics.check_optout(st, now.replace(hour=(now.hour + 1) % 24)).level == metrics.RED  # 60 min > 3 x 5
+    assert metrics.check_optout({"every": 0}, now).level == metrics.RED
+    monkeypatch.setattr(w, "OptOutRegister", lambda: (_ for _ in ()).throw(RuntimeError("no db")))
+    assert w.tick(orch) is None
+    assert audit.events[-1] == ("optout.worker_failed", {"actor": w.ACTOR, "detail": {"failed": ["register"]}})
+    health = metrics.evaluate({}, None, now, optout=w.status())
+    assert any(c.name == "optout_worker" and c.level == metrics.RED for c in health.checks)
+
+
+def test_low_b_the_first_tick_runs_at_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    from datacore import optout_worker as w
+
+    monkeypatch.setenv(w.MINUTES_ENV, "5")
+    ran: list[int] = []
+    monkeypatch.setattr(w, "tick", lambda orch: ran.append(1))
+    orch = SimpleNamespace(cfg=SimpleNamespace(env=SimpleNamespace(tz="Asia/Taipei")))
+    sched = w.start(orch)
+    assert sched is not None
+    try:
+        import time
+
+        for _ in range(50):
+            if ran:
+                break
+            time.sleep(0.1)
+        assert ran, "the first tick waits for one interval"
+    finally:
+        sched.shutdown(wait=False)

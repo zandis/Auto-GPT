@@ -134,7 +134,7 @@ def run_once(env: WorkerEnv) -> dict[str, Any]:
         except Exception as exc:  # the register still applies; the next tick tries the registry again
             log.error("opt-out worker: the registry was not read (%s)", type(exc).__name__)
             out["failed"].append("registry")
-    pids = frozenset(env.register.active())
+    pids = frozenset(env.register.effective())  # merged charts: the surviving pid too (review MED-4)
     out["opted_out"] = len(pids)
     for name, store in sorted(STORES.items()):
         try:
@@ -168,46 +168,76 @@ def _omop_store(reg: OptOutRegister) -> Any | None:
     return schema.connect(reg.db.url)
 
 
+#: what the orchestrator's ``/models`` reports for the health line (``tb_common.metrics.check_optout``)
+STATUS: dict[str, Any] = {"every": 0, "started": None, "ok_at": None, "failed": []}
+
+
+def status() -> dict[str, Any]:
+    return {**STATUS, "failed": list(STATUS["failed"])}
+
+
+def _failed(orch: Any, what: list[str], now: datetime) -> None:
+    STATUS["failed"] = what
+    try:
+        orch.audit.append("optout.worker_failed", actor=ACTOR, detail={"failed": what})
+    except Exception as exc:  # the log line stays; the health line shows the failure
+        log.error("opt-out worker failure not audited: %s", type(exc).__name__)
+
+
 def tick(orch: Any) -> dict[str, Any] | None:
-    """One tick with the orchestrator's own handles. Never raises (a scheduler job)."""
+    """One tick with the orchestrator's own handles. Never raises (a scheduler job): a tick that fails or leaves a
+    store not cleared is audited (``optout.worker_failed``) and turns the health line red (:data:`STATUS`)."""
+    now = datetime.now(ZoneInfo(orch.cfg.env.tz))
     try:
         reg = OptOutRegister()
     except Exception as exc:
         log.error("opt-out worker: no trial database (%s)", type(exc).__name__)
+        _failed(orch, ["register"], now)
         return None
     omop = None
     try:
         omop = _omop_store(reg)
-        env = WorkerEnv(
-            register=reg,
-            audit=orch.audit,
-            now=datetime.now(ZoneInfo(orch.cfg.env.tz)),
-            lake=orch.services.lake,
-            jobs=orch.db,
-            omop=omop,
-        )
-        return run_once(env)
+        env = WorkerEnv(register=reg, audit=orch.audit, now=now, lake=orch.services.lake, jobs=orch.db, omop=omop)
+        out = run_once(env)
     except Exception as exc:
         log.exception("opt-out worker tick failed: %s", type(exc).__name__)
+        _failed(orch, ["tick"], now)
         return None
     finally:
         if omop is not None:
             omop.close()
         reg.close()
+    if out["failed"]:
+        STATUS["failed"] = list(out["failed"])  # run_once's own audit event names them
+    else:
+        STATUS["failed"], STATUS["ok_at"] = [], now.isoformat(timespec="seconds")
+    return out
 
 
-def start(orch: Any) -> Any | None:
-    """The worker's own interval job in the orchestrator (not the night schedule, which DEV runs on demand)."""
+def start(orch: Any, production: bool = False) -> Any | None:
+    """The worker's own interval job in the orchestrator (not the night schedule, which DEV runs on demand). The
+    first tick runs at once. PRODUCTION refuses ``TB_OPTOUT_WORKER_MINUTES=0``: an opt-out must reach the stores."""
     every = minutes()
+    STATUS.update(every=every, started=datetime.now(ZoneInfo(orch.cfg.env.tz)).isoformat(timespec="seconds"))
     if every == 0:
+        if production:
+            raise RuntimeError(f"{MINUTES_ENV}=0 is refused in PRODUCTION: the opt-out worker must run (D-441)")
         log.info("opt-out worker off (%s=0)", MINUTES_ENV)
         return None
     from apscheduler.schedulers.background import BackgroundScheduler
 
     sched = BackgroundScheduler(timezone=orch.cfg.env.tz)
-    sched.add_job(lambda: tick(orch), "interval", minutes=every, id="optout-worker", max_instances=1, coalesce=True)
+    sched.add_job(
+        lambda: tick(orch),
+        "interval",
+        minutes=every,
+        id="optout-worker",
+        max_instances=1,
+        coalesce=True,
+        next_run_time=datetime.now(ZoneInfo(orch.cfg.env.tz)),  # the first tick at start, not one interval later
+    )
     sched.start()
     return sched
 
 
-__all__ = ["BUILTIN", "STORES", "Store", "WorkerEnv", "register_store", "run_once", "start", "tick"]
+__all__ = ["BUILTIN", "STATUS", "STORES", "Store", "WorkerEnv", "register_store", "run_once", "start", "status", "tick"]

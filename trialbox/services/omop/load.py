@@ -1429,13 +1429,22 @@ def set_status(db: Database, key: tuple[str, str, str, int], to: str, by: str, r
 
 
 # ------------------------------------------------------------------------------------------------ D-441 withheld
+#: the tables a withheld patient keeps: the consent statements that say no (D-441)
+KEEP_WITHHELD = ("tb_consent",)
+
+
 def _without_withheld(tx: Any, recs: list[Rec]) -> tuple[list[Rec], set[tuple[str, str, int]]]:
-    """The batch without the records of withheld patients (``tb_withheld``), and the keys left out."""
+    """The batch without the records of withheld patients (``tb_withheld``), and the keys left out. The patient's
+    consent statements stay (:data:`KEEP_WITHHELD`): the refusal itself must reach the lake, or the registry would
+    read as silent and an OMOP-built lake would undo the opt-out (review HIGH-1)."""
     held = {str(r[0]) for r in tx.fetchall("SELECT pid FROM tb_withheld")}
     if not held:
         return recs, set()
-    keep = [r for r in recs if r.pid not in held]
-    return keep, {r.key for r in recs if r.pid in held}
+
+    def out(r: Rec) -> bool:
+        return r.pid in held and r.table not in KEEP_WITHHELD
+
+    return [r for r in recs if not out(r)], {r.key for r in recs if out(r)}
 
 
 EVENT_COLS = [
@@ -1492,8 +1501,9 @@ def withhold(db: Database, pids: Iterable[str], actor: str = "optout-worker") ->
             return rep
         live = tx.fetchall(
             "SELECT record_key, cdm_table, record_id, status, content_sha FROM tb_record WHERE status <> 'tombstoned' "
-            "AND (person_id = ANY(?) OR (cdm_table = 'person' AND record_id = ANY(?)))",
-            (persons, persons),
+            "AND (person_id = ANY(?) OR (cdm_table = 'person' AND record_id = ANY(?))) "
+            "AND coalesce(cdm_table, '') <> ALL(?)",
+            (persons, persons, list(KEEP_WITHHELD)),
         )
         if not live:
             return rep

@@ -32,6 +32,7 @@ from orchestrator.scenarios.screen import (
     judge_for,
     judging_info,
     local_iso,
+    opted_out_now,
     pid_names,
     practitioner_names,
     report_meta,
@@ -212,6 +213,10 @@ def run(ctx: Ctx) -> Outcome:
         ):
             lists[r["dept"]]["doc_gaps"].append(row)
     ctx.state("reporting")
+    # D-441 (review MED-3): the register again, as it stands now, before anything is published or mailed
+    gone = opted_out_now(ctx, [r.pid for d in lists.values() for rows in d.values() for r in rows], "publish")
+    if gone:
+        lists = {d: {k: [r for r in v if r.pid not in gone] for k, v in sets.items()} for d, sets in lists.items()}
     meta = report_meta(ctx, rs, snapshot, run_date, judging_info(judge))
     all_rows = [row for d in lists.values() for name in ("likely_eligible", "renewal_due") for row in d[name]]
     mrns = pid_names(ctx, [r.pid for d in lists.values() for rows in d.values() for r in rows])

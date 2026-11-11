@@ -49,7 +49,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         except Exception:  # the orchestrator is down: the canary check says unknown
             models = None
         canary = (models or {}).get("canary") if isinstance(models, dict) else None
-        return metrics.evaluate((st or {}).get("health"), canary, now)
+        worker = (models or {}).get("optout_worker") if isinstance(models, dict) else None  # D-441
+        return metrics.evaluate((st or {}).get("health"), canary, now, optout=worker)
 
     h.health = health
 

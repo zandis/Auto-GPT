@@ -221,3 +221,15 @@ def test_no_consent_table_is_not_available_and_any_other_failure_stops() -> None
 
     with pytest.raises(RuntimeError, match="503"):
         cohort.contactable_pids(_ctx(Down(None)), date(2026, 6, 30))
+
+
+@pytest.mark.parametrize("first", [True, False])
+def test_two_statements_on_one_day_are_read_fail_closed(first: bool) -> None:
+    """D-441 (review MED-2): whole-day dates tie; whatever the rows' order, a same-day withdrawal wins."""
+    rows: list[tuple[str, str, bool, str | None]] = [
+        ("P1", "active", True, "2026-03-01"),
+        ("P1", "inactive", False, "2026-03-01"),
+    ]
+    rows += [("P2", "active", True, "2026-03-01"), ("P2", "active", False, "2026-03-01")]
+    lake = _ConsentLake(rows if first else rows[::-1])
+    assert cohort.contactable_pids(_ctx(lake), date(2026, 6, 30)) == set()
