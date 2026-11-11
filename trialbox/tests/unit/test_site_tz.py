@@ -31,7 +31,6 @@ ALLOWED = {
     "tools/ingest_local.py": "test harness: the synthetic Taiwan CSV demo site (DEMO-A), when no zone is passed",
     # owned by open fix groups (worker rules): their defaults go when those groups close (T-656 Remains)
     "libs/tb_common/audit.py": "AuditLog default zone; fix-group file",
-    "services/adapter/pipeline.py": "AdapterConfig default zone; fix-group file",
     "tools/trialbox/backup_schedule.py": "backup schedule fallback zone; fix-group file",
 }
 

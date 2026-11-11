@@ -41,7 +41,7 @@ class AdapterConfig:
     secrets_dir: Path
     mapping_path: Path
     site_id: str
-    tz: str = "Asia/Taipei"
+    tz: str = ""  # the site's zone; empty: TB_TZ, never a zone of the code's own (D-315)
     fhir_base_url: str | None = None
     audit_dir: Path | None = None
     validation_max_pct: float = 0.5
@@ -64,6 +64,11 @@ class AdapterConfig:
     # FIT-U09 (T-629): settings.mrn_regex, the site's chart-number pattern; a column whose all-digit values match it
     # only with leading zeros put back is refused (``tb_common.chartno.column_refusal``)
     mrn_regex: str | None = None
+
+    def __post_init__(self) -> None:
+        from tb_common.config import site_tz
+
+        self.tz = site_tz(self.tz or None)  # ConfigError when neither the caller nor TB_TZ names a zone (D-315)
 
     def site_key(self) -> bytes:
         """The site's pseudonymisation key. Never made here (T-612): :class:`SiteKeyError` when it is missing."""

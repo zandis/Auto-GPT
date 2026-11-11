@@ -9,7 +9,7 @@
   token); the orchestrator verifies it with the key in `deploy/secrets/services/actor/keys`, which only the
   orchestrator mounts, before a reveal, a screening-log export, a notice or a cancel. An unsigned name is refused
   and audited (`actor.refused`); the reveal and export caps count per calling service and verified person.
-- **People** (`services/console/auth.py`). Five roles; study scope, affiliation and expiry per account; scrypt
+- **People** (`services/console/auth.py`). Seven roles (administrator, coordinator, investigator, viewer, CRO, data steward, privacy office; one permission matrix, `tb_common/authz_matrix.yaml`, D-366, D-380); study scope, affiliation and expiry per account; scrypt
   hashes; lockout after 5 failures for 15 minutes with a countdown; CSRF token on every form; a
   Content-Security-Policy that allows no outside script. Hospital SSO through a trusted header from listed proxies
   ([Runbook §1](../RUNBOOK.md#1-install-a-new-site-about-one-day)).
@@ -33,9 +33,10 @@
   over a local account. The role table (`console.auth.User`, `tb_common/authz.py`) and the signed actor assertion are
   unchanged. Not done: WebAuthn in the console itself (Authelia offers it), step-up before a reveal, the
   breached-password list and password history (master plan WS-13.1), and removing the trusted-header SSO.
-- **Chart numbers.** The coordinator, the administrator and the study's investigator (owner's decision of
-  2026-11-09, D-143, reversing D-133) may reveal one, for a listed patient, with a reason, under a rate limit
-  (`TB_REVEAL_MAX_PER_HOUR`, 60); viewer and CRO accounts never see one. Each reveal or view is in the audit. The
+- **Chart numbers.** The coordinator and the study's investigator (owner's decision of 2026-11-09, D-143,
+  reversing D-133) may reveal one, for a listed patient, with a reason, under a rate limit (`TB_REVEAL_MAX_PER_HOUR`,
+  60). The administrator has no such right (D-280); only under a break-glass grant for one patient or one job (60
+  minutes, reviewed by the steward; D-430). Viewer, CRO, steward and privacy accounts never see one. Each reveal or view is in the audit. The
   screening-log export with chart numbers is audited at the orchestrator too and capped (`TB_EXPORT_MAX_PER_HOUR`,
   10). Mail never carries a chart number, also not the investigator's N1.
 - **Mail commands** need an allowed sender, a passing `Authentication-Results` (DMARC, or SPF/DKIM for the From:

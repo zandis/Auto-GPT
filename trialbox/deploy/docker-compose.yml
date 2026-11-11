@@ -358,7 +358,7 @@ services:
     logging: *logging
     profiles: [gpu]
     # the vLLM release the 2026-11-06 GPU run measured (deploy/gcp/gpu-sim-startup.sh), by the digest of
-    # deploy/images.lock (D-348); a new release is a model change: re-run `make selftest` and the TrialGPT check
+    # deploy/images.lock (D-348); a new release is a model change: re-run `python3 -m tools.trialbox selftest` and the TrialGPT check
     # before moving the lock entry. Structured output uses vLLM's default backend, `auto` (no flag; the lock and the
     # serving record name it; --guided-decoding-backend no longer exists in this release).
     image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}

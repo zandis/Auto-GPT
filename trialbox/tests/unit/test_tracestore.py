@@ -197,3 +197,23 @@ def test_scheduled_prune_deletes_an_8_day_trace_and_keeps_pre_d431_rows() -> Non
     ids = {r[0] for r in store.db.fetchall("SELECT call_id FROM traces")}
     assert ids == {"legacy", "new"}
     assert [r for r in store.access_log() if r["action"] == "prune"][-1]["detail"].startswith('{"deleted": 1')
+
+
+@pytest.mark.parametrize("tag", ["D3+sc", "D4+sc", "d3"])
+def test_a_special_category_d3_or_d4_trace_keeps_no_text_in_production(tag: str) -> None:
+    """The gateway labels a special-category call ``D3+sc`` (``ClassLabel.tag``): it is still D3, so in PRODUCTION
+    its prompt and output are kept as digests only (D-431), like a plain D3 call."""
+    store = _production_store(Clock())
+    store.write(
+        {
+            "call_id": "call-sc",
+            "span": "chat",
+            "sc": True,
+            "attributes": {"tb.data_class": tag},
+            "prompt": [{"role": "user", "content": MARKER}],
+            "output": MARKER,
+        }
+    )
+    assert "T605-PLANTED-MARKER" not in stored_text(store)
+    (t,) = store.read("call-sc", user="qa1", purpose="dispute review", roles=frozenset({"trace:read"}))
+    assert "prompt" not in t and "output" not in t and set(t) >= {"prompt_digest", "output_digest"}
