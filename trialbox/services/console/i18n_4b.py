@@ -17,7 +17,7 @@ EN: dict[str, str] = {
     "nav.week": "This week's patients",
     "week.title": "This week's patients",
     "wb.title": "This week's patients",
-    "nav.patients": "Screening log",
+    "nav.patients": "Candidate registry",  # T-684: the name the page itself has
     "nav.jobs": "Runs",
     # header
     "menu": "Menu",
@@ -131,7 +131,7 @@ JA: dict[str, str] = {
     "nav.week": "今週の患者",
     "week.title": "今週の患者",
     "wb.title": "今週の患者",
-    "nav.patients": "スクリーニングログ",
+    "nav.patients": "候補者レジストリ",
     "nav.jobs": "処理",
     "menu": "メニュー",
     "pilot.banner.short": "テスト環境・実在の患者なし",
@@ -234,7 +234,7 @@ ZH: dict[str, str] = {
     "nav.week": "本週病人",
     "week.title": "本週病人",
     "wb.title": "本週病人",
-    "nav.patients": "篩選紀錄",
+    "nav.patients": "候選者登錄",
     "nav.jobs": "作業",
     "menu": "選單",
     "pilot.banner.short": "測試環境・無真實病人",

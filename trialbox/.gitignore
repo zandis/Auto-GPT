@@ -31,3 +31,5 @@ deploy/logs/
 deploy/ops/
 # the complete run (tools/complete_run.py, D-139): screenshots and work folders are never committed
 eval/complete_run/**/shots/
+# the browser test tools lock (DEP-025, D-393); the repository root ignores every package-lock.json
+!tools/package-lock.json

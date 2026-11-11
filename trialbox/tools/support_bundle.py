@@ -1,0 +1,479 @@
+"""``trialbox support-bundle``: one PHI-free file for a support ticket (T-209b, D-405; WS-17.4, R-61, D-23, OPS-047).
+
+    sudo python3 -m tools.trialbox support-bundle --out /media/usb [--days 3] [--add ingest_report.json]
+    python -m tools.support_bundle --out DIR [--deploy deploy] [--no-commands]
+
+Writes ``trialbox-support-<UTC time>.tar.gz`` (0600) with a ``MANIFEST.json`` that lists every file inside, its
+sha256, what was left out and why, and every line the scrubber changed or removed (counts and pattern ids, never a
+value). What goes in:
+
+==========================  ======================================================================================
+``ops-snapshot.json``       what the Operations page shows (``trialbox ops``): version, updates, rollback points,
+                            backups by name and age, secrets by name, presence and age (never a value), log days
+``health.json``             the host half of the box's health (T-209a, ``tb_common.metrics``)
+``release.json``            the release identity: the version, ``deploy/updates/installed.json``,
+                            ``deploy/release.json`` when there is one
+``history.jsonl``           the last 400 lines of the update history
+``env.redacted``            ``deploy/.env`` with every secret-like value replaced by ``[redacted]``
+``audit-verify.json``       the audit chain's verification (counts and errors; no event)
+``cmd/*.txt``               ``doctor --json``, ``check_host.sh``, ``docker compose config`` (redacted), ``compose
+                            ps``, container restart counts, ``df -h``, ``nvidia-smi``
+``logs/<day>/<svc>.log``    the last ``--days`` collected days (``trialbox logs collect``) of TrialBox's own services
+``added/<name>``            each ``--add`` file (text only)
+==========================  ======================================================================================
+
+What never goes in: ``/data`` or any Docker volume, the secrets folder, a key, a backup, a rollback dump, the audit
+chain, the pid map, the lake, ``settings.yaml``, and the logs of the third-party services (PostgreSQL, HAPI FHIR,
+vLLM: they log statement values and prompts unscrubbed, OPS-035). An ``--add`` path in one of those places is
+refused and nothing is written.
+
+How it is kept free of patient data: the logs and added files go through the log scrubber
+(``tb_common.logging.redact``: Taiwan IDs, マイナンバー, insurer numbers, postcodes, phone numbers) and the site's
+chart-number pattern (``settings.yaml`` ``mrn_regex``); then every file is read by the data-handling scan
+(``tools.data_scan``) and each line it flags is removed, and the run says so. The finished archive is scanned once
+more; a hit there, or a file the scan cannot read, means no bundle is written.
+"""
+
+from __future__ import annotations
+
+import argparse
+import gzip
+import hashlib
+import io
+import json
+import os
+import re
+import subprocess
+import sys
+import tarfile
+import tempfile
+from collections import Counter
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "libs") not in sys.path:  # the host's python3 from the install folder
+    sys.path.insert(0, str(ROOT / "libs"))
+
+# TrialBox's own services: their logs are written through the scrubber (tb_common.logging). Only these are collected.
+OWN_SERVICES = frozenset({"lake", "embed-service", "doc-parser", "criteria-compiler", "adapter", "orchestrator",
+                          "mail-gateway", "gateway", "console", "llm-stub", "model-guard"})  # fmt: skip
+NEVER_LOGS = {"db": "PostgreSQL logs a failed statement with its values (OPS-035)",
+              "fhir-store": "HAPI FHIR logs resources unscrubbed (OPS-035)",
+              "llm-service": "vLLM may log prompts, which hold note text"}  # fmt: skip
+REFUSED_SUFFIXES = (".key", ".tbbak", ".dump", ".sql", ".sql.gz", ".parquet", ".duckdb", ".db", ".sqlite", ".age")
+REFUSED_NAMES = re.compile(r"^(?:\.env|secrets\.env|pidmap.*|.*\.token|id_[a-z0-9]+)$", re.I)
+SECRET_KEY = re.compile(r"PASSW(?:OR)?D|SECRET|TOKEN|KEY|CREDENTIAL|PRIVATE|DSN|AUTH|SALT|PEPPER|COOKIE|PIN", re.I)
+SAFE_KEY = re.compile(r"_(?:FILE|PATH|DIR|DAYS|HOURS|MODE|TARGETS)$", re.I)  # a path or a number, not a secret
+ASSIGN = re.compile(r"^(?P<lead>\s*-?\s*)(?P<key>[A-Za-z_][A-Za-z0-9_.\-]*)(?P<sep>\s*[:=]\s*)(?P<val>.*)$")
+USERINFO = re.compile(r"(?P<scheme>[A-Za-z][A-Za-z0-9+.\-]*://)[^/@\s:]+:[^/@\s]+@")
+MAX_MEMBER = 16 * 2**20  # below the scan's 32 MB limit: a longer file keeps its last 16 MB
+HISTORY_LINES = 400
+DEFAULT_DAYS = 3
+DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+Runner = Callable[[Sequence[str], int], tuple[int, str]]  # (argv, timeout seconds) -> (exit code, output)
+
+
+class BundleRefused(RuntimeError):
+    """Nothing was written: the bundle would hold something it must never hold."""
+
+
+def run_cmd(argv: Sequence[str], timeout: int) -> tuple[int, str]:
+    try:
+        r = subprocess.run(list(argv), capture_output=True, check=False, timeout=timeout, cwd=ROOT)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return 127, f"not run: {type(exc).__name__}: {exc}"
+    return r.returncode, (r.stdout + r.stderr).decode("utf-8", errors="replace")
+
+
+# ------------------------------------------------------------------------------------------------ redaction
+def redact_secrets(text: str) -> tuple[str, int]:
+    """Values of secret-like names (``KEY=v``, ``key: v``) and the user:password of URLs become ``[redacted]``.
+    A name ending ``_FILE``, ``_PATH`` or ``_DIR`` keeps its value: it is where a secret is, not the secret."""
+    n = 0
+    out = []
+    for line in text.splitlines():
+        line, k = USERINFO.subn(r"\g<scheme>[redacted]@", line)
+        n += k
+        m = ASSIGN.match(line)
+        if m and SECRET_KEY.search(m["key"]) and not SAFE_KEY.search(m["key"]):
+            val = m["val"].strip()
+            if val and val not in ("[redacted]", "''", '""', "{}", "[]", "null") and not val.endswith(":"):
+                line = f"{m['lead']}{m['key']}{m['sep']}[redacted]"
+                n += 1
+        out.append(line)
+    return "\n".join(out) + ("\n" if text.endswith("\n") else ""), n
+
+
+def mrn_pattern(deploy: Path) -> re.Pattern[str] | None:
+    """The site's chart-number pattern (``settings.yaml`` ``mrn_regex``) as the log scrubber uses it."""
+    f = deploy / "settings.yaml"
+    if not f.is_file():
+        return None
+    m = re.search(r"(?m)^mrn_regex:\s*(['\"]?)(.+?)\1\s*(?:#.*)?$", f.read_text(encoding="utf-8"))
+    if not m:
+        return None
+    body = m.group(2).replace("\\\\", "\\").strip("^$")
+    try:
+        return re.compile(rf"(?<![0-9A-Za-z]){body}(?![0-9A-Za-z])")
+    except re.error:
+        return None
+
+
+def scrub(text: str, mrn: re.Pattern[str] | None) -> tuple[str, int]:
+    """The log scrubber's patterns, then the site's chart number; returns the text and the number replaced."""
+    from tb_common.logging import _PHI_PATTERNS  # the same patterns the services log through
+
+    n = 0
+    for pat, repl in _PHI_PATTERNS:
+        text, k = pat.subn(repl, text)
+        n += k
+    if mrn is not None:
+        text, k = mrn.subn("[MRN]", text)
+        n += k
+    return text, n
+
+
+# ------------------------------------------------------------------------------------------------ what is refused
+def refused_roots(deploy: Path, env: Mapping[str, str]) -> list[Path]:
+    """Folders nothing is ever copied from: patient data, volumes, secrets, keys, backups, the audit chain."""
+    docker = Path(env.get("TB_DOCKER_ROOT") or "/var/lib/docker")
+    roots = [Path("/data"), docker / "volumes", Path("/var/lib/docker/volumes"), deploy / "secrets",
+             deploy / "pre-restore", deploy / "refdata", deploy / "updates" / "incoming"]  # fmt: skip
+    for key in ("TB_SECRETS_HOST_DIR", "TB_AUDIT_HOST_DIR", "TB_AUDIT_ARCHIVE_DIR", "TB_RESTORE_KEEP_DIR",
+                "TB_LAKE_DIR", "TB_AUDIT_DIR", "TB_BACKUP_DIRS"):  # fmt: skip
+        roots += [Path(v.partition("=")[2] or v) for v in str(env.get(key) or "").replace(",", " ").split() if v]
+    roots += [Path(t) for t in str(env.get("TB_BACKUP_TARGETS") or "").replace(",", " ").split() if t]
+    return roots
+
+
+def refusal(path: Path, deploy: Path, env: Mapping[str, str]) -> str | None:
+    """Why ``path`` may not go into a bundle, or None. The path is resolved first (a link to /data is /data)."""
+    try:
+        real = path.resolve()
+    except OSError as exc:
+        return f"cannot be resolved ({exc})"
+    for root in refused_roots(deploy, env):
+        for r in {root, root.resolve()}:
+            if real == r or real.is_relative_to(r):
+                return f"under {root}: patient data, secrets, keys, backups or the audit chain never leave the box"
+    if "rollback" in real.parts:
+        return "a rollback point holds database dumps"
+    name = real.name
+    if REFUSED_NAMES.match(name) or name.lower().endswith(REFUSED_SUFFIXES):
+        return f"{name}: a key, token, backup, dump, database or the raw .env never goes in a bundle"
+    return None
+
+
+# ------------------------------------------------------------------------------------------------ the bundle
+@dataclass
+class Bundle:
+    members: dict[str, str] = field(default_factory=dict)
+    sources: dict[str, str] = field(default_factory=dict)
+    left_out: list[dict[str, str]] = field(default_factory=list)
+    changed: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    def add(
+        self, name: str, text: str, source: str, *, scrubbed: bool = False, mrn: re.Pattern[str] | None = None
+    ) -> None:
+        if len(text.encode("utf-8")) > MAX_MEMBER:
+            text = text.encode("utf-8")[-MAX_MEMBER:].decode("utf-8", errors="ignore").partition("\n")[2]
+            self.note(name, "truncated", 1)
+        if scrubbed:
+            text, n = scrub(text, mrn)
+            self.note(name, "redacted", n)
+        self.members[name] = text
+        self.sources[name] = source
+
+    def note(self, name: str, what: str, n: int) -> None:
+        if n:
+            row = self.changed.setdefault(name, {})
+            row[what] = row.get(what, 0) + n
+
+    def leave_out(self, what: str, why: str) -> None:
+        self.left_out.append({"what": what, "why": why})
+
+
+def _json(d: Any) -> str:
+    return json.dumps(d, indent=1, ensure_ascii=False, sort_keys=True, default=str) + "\n"
+
+
+def _read(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _env_file(deploy: Path) -> dict[str, str]:
+    from tools.trialbox import logs as tb_logs
+
+    return {k: v.strip("\"'") for k, v in tb_logs.env_file(deploy).items()}
+
+
+def _box_part(b: Bundle, deploy: Path, env: Mapping[str, str], now: datetime) -> None:
+    from tb_common import metrics
+
+    from tools.trialbox import ops as tb_ops
+
+    box = tb_ops.Box.compose(deploy)
+    try:
+        snap = tb_ops.snapshot(box)
+    except Exception as exc:  # the bundle reports, it does not stop
+        snap = {"error": f"{type(exc).__name__}: {exc}"[:300]}
+    b.add("ops-snapshot.json", _json(snap), "trialbox ops snapshot")
+    facts = snap.get("health") if isinstance(snap.get("health"), dict) else None
+    health = metrics.evaluate(facts, None, now, metrics.Thresholds.from_env(env)).as_dict()
+    health["checks"] = [c for c in health["checks"] if c["name"] != "canary"]
+    health["note"] = "the model self-test (canary) is read by the console from the orchestrator, not on the host"
+    b.add("health.json", _json(health), "tb_common.metrics.evaluate (host facts)")
+    updates = deploy / "updates"
+    rel: dict[str, Any] = {"trialbox": tb_ops._version()}
+    for key, f in (("installed", updates / "installed.json"), ("release", deploy / "release.json")):
+        text = _read(f)
+        if text is not None:
+            try:
+                rel[key] = json.loads(text)
+            except ValueError:
+                rel[key] = {"error": f"{f.name} is not JSON"}
+    b.add("release.json", _json(rel), "pyproject version, deploy/updates/installed.json, deploy/release.json")
+    hist = _read(updates / "history.jsonl")
+    if hist is not None:
+        b.add("history.jsonl", "\n".join(hist.splitlines()[-HISTORY_LINES:]) + "\n", "deploy/updates/history.jsonl")
+    else:
+        b.leave_out("history.jsonl", "no update has run on this box yet")
+    raw_env = _read(deploy / ".env")
+    if raw_env is not None:
+        text, n = redact_secrets(raw_env)
+        b.add("env.redacted", text, "deploy/.env, secret values redacted")
+        b.note("env.redacted", "secrets_redacted", n)
+    b.leave_out("deploy/.env (raw), deploy/secrets/", "secrets: only names and ages, in ops-snapshot.json")
+    b.leave_out("deploy/settings.yaml", "holds the site's contacts; the doctor output says what is wrong in it")
+
+
+def _audit_part(b: Bundle, env: Mapping[str, str]) -> None:
+    from tb_common import audit
+
+    from tools.trialbox import logs as tb_logs
+
+    d = Path(env.get("TB_AUDIT_HOST_DIR") or tb_logs.DEFAULT_AUDIT)
+    if not d.is_dir():
+        b.add("audit-verify.json", _json({"dir": str(d), "ok": None, "error": "the audit folder is not here"}),
+              "tb_common.audit.verify")  # fmt: skip
+    else:
+        try:
+            r = audit.verify(d)
+            res: dict[str, Any] = {"dir": str(d), "ok": r.ok, "files": r.files, "lines": r.lines,
+                                   "errors": r.errors[:20], "notes": r.notes[:20]}  # fmt: skip
+        except Exception as exc:
+            res = {"dir": str(d), "ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
+        b.add("audit-verify.json", _json(res), "tb_common.audit.verify")
+    b.leave_out("the audit chain", "its events name pseudonyms and jobs; only the verification is included")
+
+
+def _cmd_part(b: Bundle, deploy: Path, runner: Runner) -> None:
+    from tools.trialbox import logs as tb_logs
+
+    comp = tb_logs.compose(deploy)
+    env_file = str(deploy / ".env")
+    cmds: list[tuple[str, list[str], int, bool]] = [
+        (
+            "doctor.json",
+            [sys.executable, "-m", "tools.trialbox", "doctor", "--json", "--env-file", env_file],
+            300,
+            False,
+        ),
+        ("check_host.txt", ["sh", str(deploy / "check_host.sh"), "--env", env_file], 300, False),
+        ("compose-config.yaml", [*comp, "config"], 120, True),
+        ("compose-ps.txt", [*comp, "ps", "--all"], 60, False),
+        ("df.txt", ["df", "-h"], 30, False),
+        ("nvidia-smi.txt", ["nvidia-smi"], 60, False),
+    ]
+    for name, argv, timeout, secret in cmds:
+        rc, out = runner(argv, timeout)
+        if secret:
+            out, n = redact_secrets(out)
+            b.note(f"cmd/{name}", "secrets_redacted", n)
+        b.add(f"cmd/{name}", out if rc == 0 else f"# exit {rc}\n{out}", " ".join(argv[-4:]))
+    rc, ids = runner([*comp, "ps", "--all", "-q"], 60)
+    fmt = ("{{.Name}} restarts={{.RestartCount}} status={{.State.Status}} "
+           "health={{if .State.Health}}{{.State.Health.Status}}{{end}} started={{.State.StartedAt}}")  # fmt: skip
+    if rc == 0 and ids.split():
+        rc, out = runner(["docker", "inspect", "--format", fmt, *ids.split()], 60)
+    else:
+        out = f"no containers listed (exit {rc}): {ids.strip()[:200]}"
+    b.add("cmd/restarts.txt", out, "docker inspect (restart counts)")
+
+
+def _logs_part(b: Bundle, deploy: Path, env: Mapping[str, str], days: int, mrn: re.Pattern[str] | None) -> list[str]:
+    base = Path(env.get("TB_LOG_DIR") or deploy / "logs") / "services"
+    got = sorted((d for d in base.iterdir() if d.is_dir() and DAY.match(d.name)), reverse=True) if base.is_dir() else []
+    chosen = got[:days]
+    third: set[str] = set()
+    for d in chosen:
+        for f in sorted(d.glob("*.log.gz")):
+            svc = f.name[: -len(".log.gz")]
+            if svc not in OWN_SERVICES:
+                third.add(svc)
+                continue
+            try:
+                with gzip.open(f, "rb") as fh:
+                    data = fh.read(MAX_MEMBER * 4)
+            except (OSError, EOFError) as exc:
+                b.leave_out(f"logs/{d.name}/{svc}.log", f"unreadable ({type(exc).__name__})")
+                continue
+            b.add(f"logs/{d.name}/{svc}.log", data.decode("utf-8", errors="replace"), str(f), scrubbed=True, mrn=mrn)
+    for svc in sorted(third):
+        b.leave_out(f"logs of {svc}", NEVER_LOGS.get(svc, "not a TrialBox service: its log is not scrubbed"))
+    if not chosen:
+        b.leave_out("logs", f"no collected days in {base} (trialbox logs collect)")
+    return [d.name for d in chosen]
+
+
+def clean_lines(b: Bundle, say: Callable[[str], None]) -> None:
+    """Remove every line the data-handling scan flags, in every member, and say so (counts and pattern ids only)."""
+    from tools import data_scan as ds
+
+    patterns, allow = ds.load_patterns(), ds.load_allow()
+    for name in sorted(b.members):
+        lines = ds._lines(b.members[name])
+        removed: Counter[str] = Counter()
+        while True:
+            hits = [h for h in ds.scan_lines(lines, name, patterns, allow) if h.line > 0]
+            if not hits:
+                break
+            # a name flags the dated lines just after it too (the scan's name-date window): drop the first flagged
+            # line and every flagged line outside its window, then scan again, so a timestamp is not taken for a
+            # birth date once the name is gone
+            hits.sort(key=lambda h: h.line)
+            first = hits[0].line
+            kept = [h for h in hits if h.line == first or h.line > first + ds.NEAR_LINES]
+            drop = {h.line for h in kept}
+            removed.update(h.pattern for h in kept)
+            lines = [x if i not in drop else "[line removed by the data-handling scan]" for i, x in enumerate(lines, 1)]
+        if removed:
+            b.members[name] = "\n".join(lines)
+            b.note(name, "lines_removed", sum(removed.values()))
+            b.changed[name]["patterns"] = dict(sorted(removed.items()))
+            say(f"removed {sum(removed.values())} line(s) from {name}: {', '.join(sorted(removed))}")
+
+
+def _write_tar(target: Path, members: Mapping[str, str], at: datetime) -> None:
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as raw, tarfile.open(fileobj=raw, mode="w:gz") as tar:
+        for name in sorted(members):
+            data = members[name].encode("utf-8")
+            info = tarfile.TarInfo(f"support/{name}")
+            info.size, info.mode, info.mtime = len(data), 0o600, int(at.timestamp())
+            tar.addfile(info, io.BytesIO(data))
+
+
+def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterable[Path] = (),
+          runner: Runner = run_cmd, commands: bool = True, now: datetime | None = None,
+          say: Callable[[str], None] = print) -> Path:  # fmt: skip
+    """Make the bundle in ``out_dir``; return its path. :class:`BundleRefused` when it would hold something it must
+    not (an ``--add`` path under /data, a key, a file the scan cannot read); then nothing is written."""
+    from tools import data_scan as ds
+
+    now = now or datetime.now(UTC)
+    deploy = deploy.resolve()
+    env = {**_env_file(deploy), **{k: v for k, v in os.environ.items() if k in ("TB_LOG_DIR", "TB_AUDIT_HOST_DIR")}}
+    extra = list(add)
+    for p in extra:  # before any work: a refused path stops the whole bundle
+        why = refusal(p, deploy, env)
+        if why:
+            raise BundleRefused(f"{p}: {why}")
+    for p in extra:
+        if not p.is_file():
+            raise BundleRefused(f"{p}: not a file")
+        if p.stat().st_size > MAX_MEMBER:
+            raise BundleRefused(f"{p}: larger than {MAX_MEMBER // 2**20} MB")
+    b = Bundle()
+    mrn = mrn_pattern(deploy)
+    _box_part(b, deploy, env, now)
+    _audit_part(b, env)
+    if commands:
+        _cmd_part(b, deploy, runner)
+    else:
+        b.leave_out("cmd/", "--no-commands")
+    log_days = _logs_part(b, deploy, env, days, mrn)
+    used: set[str] = set()
+    for p in extra:
+        text = _read(p)
+        if text is None:
+            raise BundleRefused(f"{p}: not a UTF-8 text file; the scan could not read it")
+        name = p.name if p.name not in used else f"{len(used)}-{p.name}"
+        used.add(name)
+        b.add(f"added/{name}", text, str(p), scrubbed=True, mrn=mrn)
+    clean_lines(b, say)
+    manifest = {
+        "made": now.isoformat(timespec="seconds"),
+        "tool": "tools/support_bundle.py (T-209b, D-405)",
+        "log_days": log_days,
+        "files": [
+            {
+                "name": n,
+                "bytes": len(t.encode("utf-8")),
+                "sha256": hashlib.sha256(t.encode("utf-8")).hexdigest(),
+                "from": b.sources.get(n, ""),
+            }
+            for n, t in sorted(b.members.items())
+        ],
+        "changed": b.changed,
+        "left_out": b.left_out,
+        "never": [
+            "/data and every Docker volume",
+            "secrets, keys, tokens",
+            "backups and rollback dumps",
+            "the audit chain",
+            "the pid map and the lake",
+            "settings.yaml",
+            *(f"logs of {s}: {why}" for s, why in sorted(NEVER_LOGS.items())),
+        ],
+    }
+    b.members["MANIFEST.json"] = _json(manifest)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    target = out_dir / f"trialbox-support-{now:%Y%m%dT%H%M%SZ}.tar.gz"
+    part = out_dir / f".{target.name}.part"
+    part.unlink(missing_ok=True)
+    try:
+        _write_tar(part, b.members, now)
+        with tempfile.TemporaryDirectory(prefix="tb-support-scan-") as tmp:  # the scan names a member by path
+            scan_copy = Path(tmp) / target.name
+            scan_copy.write_bytes(part.read_bytes())
+            hits = ds.run([scan_copy], in_repo=False)
+        if hits:
+            raise BundleRefused("the finished bundle still holds what the scan flags: " + "; ".join(
+                f"{Path(h.where).name}:{h.line}: {h.pattern}" for h in hits[:5]))  # fmt: skip
+        part.replace(target)
+    finally:
+        part.unlink(missing_ok=True)
+    total = sum(int(v.get("lines_removed", 0)) for v in b.changed.values())
+    red = sum(int(v.get("redacted", 0)) for v in b.changed.values())
+    say(f"wrote {target}: {len(b.members)} files; scrubber replaced {red} value(s); scan removed {total} line(s); "
+        "the finished bundle scans clean")  # fmt: skip
+    return target
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="trialbox support-bundle", description=__doc__.split("\n\n")[0])
+    ap.add_argument("--out", type=Path, required=True, help="the folder the bundle goes to (a USB stick)")
+    ap.add_argument("--deploy", type=Path, default=ROOT / "deploy")
+    ap.add_argument("--days", type=int, default=DEFAULT_DAYS, help="collected log days to include (default 3)")
+    ap.add_argument("--add", type=Path, action="append", default=[], help="one more text file support asked for")
+    ap.add_argument("--no-commands", action="store_true", help="run no command (doctor, docker, df, nvidia-smi)")
+    a = ap.parse_args(argv)
+    try:
+        build(a.deploy, a.out, days=max(0, a.days), add=a.add, commands=not a.no_commands)
+    except BundleRefused as exc:
+        print(f"support-bundle: refused, nothing written: {exc}", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
