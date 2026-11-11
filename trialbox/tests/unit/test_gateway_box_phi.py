@@ -147,6 +147,7 @@ def box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
         "TB_REGISTRY_PATH": str(tmp_path / "registry.release.yaml"),  # the synthetic release (T-012b)
         "TB_SETTINGS": str(ROOT / "deploy" / "settings.example.yaml"),
         "TB_DB_URL": os.environ["TB_DB_URL"],  # the test's private trial database (trace store)
+        "TB_AUDIT_WRITER": "file",  # the test's database has no audit journal (D-394): the chain in TB_AUDIT_DIR
         # install replaces the example's shared token with secrets (docker-compose.secrets.yml); one synthetic token
         "TB_SERVICE_TOKEN": secrets.token_hex(16),
     }

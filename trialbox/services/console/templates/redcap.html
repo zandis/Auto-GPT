@@ -8,7 +8,7 @@
 <section class="card" data-testid="s36-list">
 {% if not conns %}<p class="empty">{{ t('s36.none') }}</p>{% else %}
 <div class="scroll" tabindex="0"><table class="candidates">
-<thead><tr><th>{{ t('s36.name') }}</th><th>{{ t('s36.url') }}</th><th>{{ t('rc.token') }}</th><th>{{ t('rc.project') }}</th><th>{{ t('s36.studies') }}</th><th></th></tr></thead>
+<thead><tr><th>{{ t('s36.name') }}</th><th>{{ t('s36.url') }}</th><th>{{ t('rc.token') }}</th><th>{{ t('rc.project') }}</th><th>{{ t('s36.studies') }}</th><th><span class="sr">{{ t('col.actions') }}</span></th></tr></thead>
 <tbody>{% for c in conns %}<tr data-testid="conn-{{ c.token_ref }}">
 <td class="mono">{{ c.token_ref }}</td><td class="mono">{{ c.url }}</td><td class="mono">{{ c.token_hint }}</td>
 <td>{% if c.project_id %}{{ c.project_id }} · {{ c.project_title }}{% else %}–{% endif %}</td>

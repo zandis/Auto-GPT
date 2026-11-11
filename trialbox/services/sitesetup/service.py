@@ -122,7 +122,9 @@ class SiteSetup:
         if kind not in ("sheet", "dump"):
             raise SetupError("SETUP-KIND", "a sheet or a dump")
         clean_name = SAFE_NAME.sub("_", Path(name).name)[-80:] or f"{kind}.csv"
-        intake.read_grid(clean_name, data)  # refuse an unreadable file before anything is stored
+        grid, merged = intake.read_grid(clean_name, data)  # refuse an unreadable file before anything is stored
+        # FIT-U09 (T-629): and a chart-number column that Excel turned into numbers, naming the column
+        intake.refuse_chart_column(clean_name, data, messy.clean(grid, merged, roles), self.mrn_regex)
         iid = self.store.add_input(ws, kind, clean_name, sha256_bytes(data), "", "", by, self.stamp(), roles)
         self.store.set_input(iid, path=self._save(ws, iid, clean_name, data))
         out = self.reread(iid, by, first=True)
@@ -141,15 +143,18 @@ class SiteSetup:
         inp = self.store.input(input_id)
         if inp is None or inp["kind"] not in ("sheet", "dump"):
             raise SetupError("SETUP-INPUT", "no such sheet")
+        data = (self.root / inp["path"]).read_bytes()
+        grid, merged = intake.read_grid(inp["name"], data)
+        answers = self.store.answers(input_id)
         if roles is not None:
             bad = [r for r in roles.values() if r not in messy.ROLES]
             if bad:
                 raise SetupError("SETUP-ROLE", f"not a column role: {', '.join(bad)}")
+            # FIT-U09 (T-629): a column made the chart number must not be one Excel turned into numbers
+            intake.refuse_chart_column(inp["name"], data, messy.clean(grid, merged, roles, answers), self.mrn_regex)
             self.store.set_input(input_id, roles=roles)
             inp["roles"] = roles
         ws = inp["ws"]
-        grid, merged = intake.read_grid(inp["name"], (self.root / inp["path"]).read_bytes())
-        answers = self.store.answers(input_id)
         cleaned = messy.clean(grid, merged, inp["roles"], answers)
         facts, locs, pids = intake.sheet_facts(cleaned, self.pseudonym)
         for domain, system, code, display in locs:

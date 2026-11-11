@@ -105,9 +105,9 @@ def record_source(lake_dir: Path | None, snapshot: str, source: str, origin: str
                 fh.write(json.dumps(entry, sort_keys=True) + "\n")
         audit_dir = os.environ.get("TB_AUDIT_DIR")
         if audit_dir:
-            from tb_common.audit import AuditLog
+            from tb_common.audit_writer import open_audit
 
-            AuditLog(Path(audit_dir)).append(
+            open_audit(Path(audit_dir)).append(
                 "lake.rebuild.source", actor="lake", detail={**entry, "lake": str(lake_dir or "")}
             )
     except Exception as e:  # the record is evidence, not a gate

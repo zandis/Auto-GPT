@@ -16,16 +16,17 @@ from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any
 
-from tb_common import encoding
+from tb_common import chartno, encoding
 
 from sitesetup import mapping, messy
 
 
 class IntakeError(ValueError):
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, column: str = "") -> None:
         super().__init__(f"{code}: {message}")
         self.code = code
         self.message = message
+        self.column = column  # the column the refusal is about, as the sheet's header writes it (FIT-U09)
 
 
 def _cell(v: Any) -> str:
@@ -58,6 +59,41 @@ def read_grid(name: str, data: bytes) -> tuple[messy.Grid, list[tuple[int, int, 
     except encoding.EncodingRefused as exc:
         raise IntakeError("SHEET-READ", str(exc)) from exc
     return [list(r) for r in csv.reader(io.StringIO(text))], []
+
+
+def _numeric_cells(data: bytes, col: int, header_row: int) -> bool:
+    """Whether column ``col`` (0-based) of the first sheet of an XLSX holds a number cell below the header row
+    (``header_row`` 1-based, counted as :func:`read_grid` counts): Excel stored a number there, so the leading zeros
+    it had are gone."""
+    from openpyxl import load_workbook
+
+    ws = load_workbook(io.BytesIO(data), data_only=True).worksheets[0]
+    for i, row in enumerate(ws.iter_rows(values_only=True)):  # the rows exactly as :func:`read_grid` reads them
+        v = row[col] if i >= header_row and col < len(row) else None
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return True
+    return False
+
+
+def refuse_chart_column(name: str, data: bytes, cleaned: messy.Cleaned, pattern: str | None = None) -> None:
+    """FIT-U09 (T-629, D-415): a chart-number column that Excel turned into numbers is refused, naming the column,
+    before anything of the sheet is stored. An XLSX column with a number cell is refused (Excel kept no zeros); in a
+    CSV, where cells have no type, a value written as Excel writes a number, or one that matches the site's pattern
+    only with leading zeros put back, is (``tb_common.chartno.column_refusal``). A wrong chart number is never guessed:
+    the coordinator saves the column as text and uploads again."""
+    key_col = next((h for h, r in cleaned.roles.items() if r == "chart_no"), None)
+    if key_col is None or key_col not in cleaned.head:
+        return
+    idx = cleaned.head.index(key_col)
+    xlsx = name.lower().endswith((".xlsx", ".xlsm")) or data[:2] == b"PK"
+    why = "excel_number" if xlsx and _numeric_cells(data, idx, cleaned.header_row) else None
+    why = why or chartno.column_refusal((r.key for r in cleaned.records), pattern)
+    if why:
+        raise IntakeError(
+            "SHEET-CHARTNO",
+            f"the chart-number column {key_col!r} holds numbers ({why}): the leading zeros are lost; save it as text",
+            key_col,
+        )
 
 
 def sheet_facts(
