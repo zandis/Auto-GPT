@@ -33,7 +33,10 @@ mark Approach, ask a treating doctor, enter data) and their GCP training dates. 
 the log names a PI, every investigator of the study acts as its PI. *Candidates* lists every patient the study's run
 found anywhere in the hospital; a candidate opens with a purpose (recorded, and limited per hour), shows why the
 patient fits or not with the quotes, and lets the PI or a sub-investigator ticked "see candidates" show the chart
-number (D-143's reveal: a reason, the record, the hourly limit). **Ask treating doctor**: TrialBox only suggests the doctor the data names; confirm it, pick one from the
+number (D-143's reveal: a reason, the record, the hourly limit). On a site's box a candidate's page opens only after
+the study's PI records, under *Study state and identifiers* in the study's set-up, that the approved IRB text covers
+"identified pre-screening across departments by the investigator before referral", with the approval number (D-395);
+until then the page says so and refuses. **Ask treating doctor**: TrialBox only suggests the doctor the data names; confirm it, pick one from the
 *Staff directory*, type a name, choose "arranged outside TrialBox" or leave it to the department contact. Nothing is
 required. The CRC asks the doctor and records the answer (agrees to introduce, declines with a reason, wants to
 discuss) on *Referrals*; Approach waits until the doctor agrees. A missing or expired IRB approval or consent-form

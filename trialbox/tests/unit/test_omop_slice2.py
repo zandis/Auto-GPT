@@ -139,9 +139,13 @@ def test_migration_4_keeps_the_rows_of_a_store_made_before_it(db_url: str, monke
     from omop import vocab
 
     vocab.seed(old)
+    # today's loader writes tb_record_event.record_before (migration 6, T-202): give the old store the column for
+    # this one load and take it away after, so the store is again one from before T-106 when migrations 4 to 6 run
+    old.execute("ALTER TABLE tb_record_event ADD COLUMN record_before JSONB")
     with monkeypatch.context() as m:
         m.setattr(load, "PARTITIONED", {})  # the loader before T-106 knew no partition
         load_batch(old, "feed", "2026-10-04", _feed(), tz="Asia/Taipei")
+    old.execute("ALTER TABLE tb_record_event DROP COLUMN record_before")
     before = old.fetchall("SELECT * FROM condition_occurrence ORDER BY condition_occurrence_id")
     old.close()
     db = schema.connect(db_url, "omop_t106old")  # migration 4 runs

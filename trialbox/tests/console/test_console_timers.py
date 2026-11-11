@@ -28,7 +28,7 @@ def test_timers_follow_the_environment(env: dict[str, str], on: bool) -> None:
 
 def test_plan_reads_local_times_and_refuses_bad_ones() -> None:
     p = {t.name: (t.hour, t.minute) for t in timers.plan({"TB_NOTICE_N1_AT": "06:45"})}
-    assert p == {"redcap_read": (3, 0), "notice_n1": (6, 45), "notice_n2": (7, 30)}
+    assert p == {"redcap_read": (3, 0), "notice_n1": (6, 45), "notice_n2": (7, 30), "health_mail": (7, 0)}
     for bad in ("7am", "24:00", "07:60", ""):
         if bad:
             with pytest.raises(timers.TimerError):
@@ -66,19 +66,20 @@ def test_jobs_are_the_button_calls(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(notify, "send_all", send_all)
     monkeypatch.setattr(rc_read, "run", run)
     jobs = timers.jobs(_Helpers())
-    for name in ("redcap_read", "notice_n1", "notice_n2"):
+    for name in ("redcap_read", "notice_n1", "notice_n2", "health_mail"):
         jobs[name]()
     assert calls == [
         ("redcap",),
         ("notice", date(2026, 11, 9), ("N1",), "console:timer"),
         ("notice", date(2026, 11, 9), ("N2",), "console:timer"),
+        ("notice", date(2026, 11, 9), ("HEALTH",), "console:timer"),  # T-209a: the daily health mail
     ]
 
 
-def test_start_schedules_three_jobs_in_the_site_zone() -> None:
+def test_start_schedules_the_jobs_in_the_site_zone() -> None:
     sched = timers.start(_Helpers(), {"TB_CONSOLE_TIMERS": "on"}, ZoneInfo("Asia/Tokyo"))
     try:
-        assert sorted(j.id for j in sched.get_jobs()) == ["notice_n1", "notice_n2", "redcap_read"]
+        assert sorted(j.id for j in sched.get_jobs()) == ["health_mail", "notice_n1", "notice_n2", "redcap_read"]
         assert str(sched.timezone) == "Asia/Tokyo"
         # review F-14 (D-130): a run missed by a reboot (up to 6 h) still runs once; missed runs coalesce
         assert all(j.misfire_grace_time == 6 * 3600 and j.coalesce for j in sched.get_jobs())

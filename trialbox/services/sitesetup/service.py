@@ -26,7 +26,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from tb_common import chartno, dates
+from tb_common import chartno, dates, instruments
 from tb_common.audit import AuditLog
 from tb_common.crypto import pid_for_mrn, sha256_bytes
 
@@ -209,7 +209,8 @@ class SiteSetup:
         (self.root / f"{ws}/inputs/{iid}.txt").write_text(ct.text, encoding="utf-8")
         (self.root / f"{ws}/inputs/{iid}.lake.txt").write_text(self.redact(ct.text, chart_no), encoding="utf-8")
         self.store.set_input(iid, path=rel)
-        found, dropped = charts.extract(self.llm, ct.text, lang)
+        switches = instruments.switches(self.store.setting(instruments.SETTING))  # T-307: the site's licences
+        found, dropped = charts.extract(self.llm, ct.text, lang, switches=switches)
         for f in found:
             for k, v in list(f.items()):  # D-146 (J-07): nothing the model wrote back may carry a NUL either
                 if isinstance(v, str):
