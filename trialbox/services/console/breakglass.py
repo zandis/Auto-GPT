@@ -20,6 +20,13 @@ The steward reviews each grant; an unreviewed grant stays on the steward's list,
 
 Who sees this page: the administrator (open, end, own history), the steward (every grant, review) and an investigator
 who is the PI of a study (that study's grants, read only). Anyone else gets 403.
+
+T-309 (D-430): **one rule** for every reader. An account reads a study's patients by its own rights
+(``Helpers.reads``: the ``phi.view`` row, then the delegation log) or, outside them, only under a grant of its own for
+that patient or that job; the ``breakglass.open`` row says who may hold one: the administrator and the investigator
+(an investigator the study's log does not reach, or a study with no PI named yet). There is no second person (the old
+contract of TB-PLAN-05 WS-06.6 is void). A grant for what the account already reads is refused (``bg.err.needless``).
+Every use is a row of the ``uses`` table and shows, one line each, on the steward's review list.
 """
 
 from __future__ import annotations
@@ -75,7 +82,21 @@ CREATE TABLE grants (
 );
 CREATE INDEX grants_user ON grants (username, ends_at)
 """
-MIGRATIONS = (SCHEMA_V1,)
+# T-309 (D-430): each use of a grant, so the steward's review list shows every one (page, chart number, time)
+SCHEMA_V2 = """
+CREATE TABLE uses (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  grant_id BIGINT NOT NULL,
+  at TEXT COLLATE "C" NOT NULL,
+  what TEXT NOT NULL,
+  ruleset TEXT NOT NULL DEFAULT '',
+  pid TEXT NOT NULL DEFAULT '',
+  job_id TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX uses_grant ON uses (grant_id, id)
+"""
+MIGRATIONS = (SCHEMA_V1, SCHEMA_V2)
+WHATS = ("patient_page", "reveal", "job_page", "case_sheet")
 _COLS = ("id, username, reason, note, kind, ruleset, pid, job_id, opened_at, ends_at, ended_at, uses, reviewed_by, "
          "reviewed_at, review_note")  # fmt: skip
 
@@ -122,6 +143,16 @@ class Grant:
         if self.kind == "patient":
             return bool(pid) and self.pid == pid and self.ruleset == (ruleset or self.ruleset)
         return bool(job_id) and self.job_id == job_id
+
+
+@dataclass(frozen=True)
+class Use:
+    grant_id: int
+    at: str
+    what: str
+    ruleset: str
+    pid: str
+    job_id: str
 
 
 def _grant(r: Any) -> Grant:
@@ -198,8 +229,24 @@ class BreakGlassStore:
         """The person's grant open now that covers this patient or this job, else None."""
         return next((g for g in self.active(username, now) if g.covers(ruleset=ruleset, pid=pid, job_id=job_id)), None)
 
-    def used(self, gid: int) -> None:
-        self.db.execute("UPDATE grants SET uses = uses + 1 WHERE id = ?", (gid,))
+    def used(self, gid: int, *, what: str, now: datetime, ruleset: str = "", pid: str = "", job_id: str = "") -> None:
+        """One use: the grant's count and a row of ``uses`` (what was opened, when)."""
+        with self.db.transaction() as tx:
+            tx.execute("UPDATE grants SET uses = uses + 1 WHERE id = ?", (gid,))
+            tx.execute("INSERT INTO uses (grant_id, at, what, ruleset, pid, job_id) VALUES (?, ?, ?, ?, ?, ?)",
+                       (gid, _iso(now), what, ruleset, pid, job_id))  # fmt: skip
+
+    def uses_of(self, gids: list[int]) -> dict[int, list[Use]]:
+        """Every use of these grants, oldest first, by grant."""
+        out: dict[int, list[Use]] = {g: [] for g in gids}
+        if not gids:
+            return out
+        marks = ", ".join("?" for _ in gids)
+        rows = self.db.fetchall(f"SELECT grant_id, at, what, ruleset, pid, job_id FROM uses WHERE grant_id IN "
+                                f"({marks}) ORDER BY id", tuple(gids))  # fmt: skip  # nosec B608 - placeholders only
+        for r in rows:
+            out[int(r[0])].append(Use(int(r[0]), r[1], r[2], r[3], r[4], r[5]))
+        return out
 
     def end(self, gid: int, username: str, now: datetime) -> Grant:
         g = self.get(gid)
@@ -230,10 +277,13 @@ class BreakGlassStore:
 
 def study_of(h: Helpers, g: Grant) -> str:
     """The study a grant is about: its own for a patient grant, the job's for a job grant ('' when unknown)."""
-    if g.kind == "patient":
-        return g.ruleset
+    return g.ruleset if g.kind == "patient" else job_study(h, g.job_id)
+
+
+def job_study(h: Helpers, job_id: str) -> str:
+    """A job's study ('' when the job or its study is unknown)."""
     try:
-        job = h.bk.get_job(g.job_id)
+        job = h.bk.get_job(job_id)
     except Exception:
         return ""
     return str(getattr(job, "ruleset", "") or "")
@@ -252,7 +302,7 @@ def register(app: FastAPI, h: Helpers, store: BreakGlassStore | None = None) -> 
 
     def pi_studies(user: User) -> set[str]:
         """The studies whose delegation log names this investigator as PI today."""
-        if not conditional(user.role, "breakglass.read") or h.team is None:  # T-102c: the row's "pi" condition
+        if not conditional(user.role, "breakglass.study") or h.team is None:  # T-102c: the row's "pi" condition
             return set()
         out = set()
         for s in h.bk.rulesets():
@@ -262,13 +312,14 @@ def register(app: FastAPI, h: Helpers, store: BreakGlassStore | None = None) -> 
         return out
 
     def use(sess: Session, *, ruleset: str = "", pid: str = "", job_id: str = "", what: str = "") -> Grant | None:
-        """The administrator's open grant that covers this patient or job; each use is one audit event."""
-        if not sess.user.is_admin:
+        """The account's open grant that covers this patient or job; each use is one audit event and one row of
+        ``uses``. The callers ask only where the account does not read by its own rights (``Helpers.reads``)."""
+        if not permit(sess.user.role, "breakglass.open"):
             return None
         g = bg.covering(sess.user.username, now(), ruleset=ruleset, pid=pid, job_id=job_id)
         if g is None:
             return None
-        bg.used(g.id)
+        bg.used(g.id, what=what.replace(" ", "_")[:40], now=now(), ruleset=ruleset, pid=pid, job_id=job_id)
         au.append("console.breakglass_use", actor=h.actor(sess), ruleset=ruleset or None, job_id=job_id or None,
                   detail={"grant": g.id, "reason": g.reason, "kind": g.kind, "what": what[:80],
                           **({"pid": pid} if pid else {})})  # fmt: skip
@@ -304,26 +355,35 @@ def register(app: FastAPI, h: Helpers, store: BreakGlassStore | None = None) -> 
 
     def view(sess: Session, path: str) -> dict[str, Any]:
         t = now()
-        role = sess.user.role
-        if permit(role, "breakglass.open"):  # the administrator: its own grants
-            mine = bg.of(sess.user.username)
-            return {"mode": "admin", "grants": mine, "active": [g for g in mine if g.active(t)]}
-        if permit(role, "breakglass.review"):  # the steward: every grant
+        user = sess.user
+        if permit(user.role, "breakglass.review"):  # the steward: every grant, unreviewed first
             rows = bg.grants()
             rows.sort(key=lambda g: (g.reviewed_at is not None, g.id * -1))
-            return {"mode": "steward", "grants": rows, "active": []}
-        studies = pi_studies(sess.user)
-        if studies:
-            rows = [g for g in bg.grants() if study_of(h, g) in studies]
-            return {"mode": "pi", "grants": rows, "active": []}
-        raise deny(sess, path)
+            return {"mode": "steward", "grants": rows, "active": [], "help": "bg.help.steward"}
+        mine = bg.of(user.username) if permit(user.role, "breakglass.open") else []
+        studies = pi_studies(user)  # the PI: also the grants that touched its studies
+        theirs = [g for g in bg.grants() if g.username != user.username and study_of(h, g) in studies]
+        if not mine and not theirs and not permit(user.role, "breakglass.read"):
+            raise deny(sess, path)
+        rows = sorted(mine + theirs, key=lambda g: -g.id)
+        can_open = permit(user.role, "breakglass.open").allowed
+        hint = "bg.help.admin" if user.is_admin else "bg.help.reader" if can_open else "bg.help.pi"
+        return {"mode": "open" if can_open else "pi", "grants": rows, "active": [g for g in mine if g.active(t)],
+                "help": hint}  # fmt: skip
+
+    def reads_target(user: User, kind: str, ruleset: str, job_id: str) -> tuple[str, bool]:
+        """The study of the target and whether the account reads it by its own rights (then no grant is needed)."""
+        rid = ruleset.strip().upper() if kind == "patient" else job_study(h, job_id.strip()) if kind == "job" else ""
+        return rid, bool(rid) and h.reads(user, rid)
 
     @app.get("/breakglass")
     def page(request: Request, done: str = "", err: str = "") -> Response:
         sess = h.need(request)
         ctx = view(sess, request.url.path)
-        return h.page(request, "breakglass.html", sess, **ctx, now=now(), reasons=BREAK_GLASS_REASONS,
-                      minutes=BREAK_GLASS_MINUTES, note_min=BREAK_GLASS_NOTE_MIN, review_days=BREAK_GLASS_REVIEW_DAYS,
+        uses = bg.uses_of([g.id for g in ctx["grants"]])
+        return h.page(request, "breakglass.html", sess, **ctx, uses=uses, whats=WHATS, now=now(),
+                      reasons=BREAK_GLASS_REASONS, minutes=BREAK_GLASS_MINUTES, note_min=BREAK_GLASS_NOTE_MIN,
+                      review_days=BREAK_GLASS_REVIEW_DAYS,
                       done=done if done in ("open", "end", "review") else "",
                       err=err if err.startswith("bg.err.") else "")  # fmt: skip
 
@@ -334,11 +394,15 @@ def register(app: FastAPI, h: Helpers, store: BreakGlassStore | None = None) -> 
         sess = h.need(request)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
-        if not sess.user.is_admin:
+        if not permit(sess.user.role, "breakglass.open"):
             raise deny(sess, request.url.path)
         try:
-            if kind == "patient" and not sess.user.sees_study(ruleset.strip().upper()):
+            # T-309 (D-430): a study the account sees, and only outside its own rights (the one rule)
+            rid, own = reads_target(sess.user, kind, ruleset[:40], job_id[:80])
+            if rid and not sess.user.sees_study(rid):
                 raise BreakGlassError("bg.err.target")
+            if own:
+                raise BreakGlassError("bg.err.needless")
             g, ended = bg.open(sess.user.username, reason=reason, note=note[:NOTE_MAX * 2], kind=kind,
                                ruleset=ruleset[:40], pid=pid[:80], job_id=job_id[:80], now=now())  # fmt: skip
         except BreakGlassError as exc:
@@ -356,7 +420,7 @@ def register(app: FastAPI, h: Helpers, store: BreakGlassStore | None = None) -> 
         sess = h.need(request)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
-        if not sess.user.is_admin:
+        if not permit(sess.user.role, "breakglass.open"):
             raise deny(sess, request.url.path)
         try:
             bg.end(gid, sess.user.username, now())

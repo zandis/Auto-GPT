@@ -110,6 +110,7 @@ are marked "files".
 | `services/console/teamstore.py` | `referrals`, `referral_events` | R-11 |
 | `services/console/teamstore.py` | `candidate_views` | R-12 |
 | `services/console/breakglass.py` | `grants` | R-12 |
+| `services/console/breakglass.py` | `uses` | R-12 |
 | `services/console/auth.py` | `users` | R-13 |
 | `libs/tb_common/flags.py` | `flag`, `flag_event` | R-14 |
 | `services/orchestrator/studystore.py` | `study_settings`, `rc_connection`, `rc_project_link`, `screen_scope` | R-15 |
