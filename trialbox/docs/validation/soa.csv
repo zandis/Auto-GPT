@@ -1,0 +1,94 @@
+control,theme,title,applies,evidence,reason
+5.1,organisational,Security policies set and kept current,product;vendor,docs/SECURITY.md;docs/validation/qms-lite.md,The Aimedics ISMS statement is a company record outside the repository (IT pack A.9)
+5.2,organisational,Who holds which security role,product;vendor;hospital,docs/runbook/07-contacts-and-escalation.md;docs/plan/sites/site-survey.md,No security officer named at Aimedics yet (REG-031); the hospital names its own
+5.3,organisational,Conflicting duties kept apart,product;hospital,libs/tb_common/authz_matrix.yaml;tests/unit/test_authz_matrix.py,
+5.4,organisational,Managers make staff follow the rules,vendor;hospital,,"Aimedics company record, kept outside the repository; the hospital holds its own"
+5.5,organisational,Contacts with authorities,vendor;hospital,docs/security/07-laws-a-site-must-check.md,
+5.6,organisational,Contacts with expert and interest groups,vendor,,Aimedics holds no membership today; reviewed when an ISMS is set up
+5.7,organisational,Threat information gathered and used,product;vendor,tools/supply_chain/vulns.py;tests/unit/test_supply_chain.py,
+5.8,organisational,Security built into project work,product;vendor,docs/plan/design/03-security-privacy.md;docs/validation/development-plan.md,
+5.9,organisational,Inventory of information and assets,product;vendor;hospital,docs/validation/record-inventory.md;docs/validation/soup.csv;docs/runbook/23-key-inventory-and-the-lost-box-list.md,
+5.10,organisational,Rules for acceptable use,product;vendor;hospital,docs/plan/sites/data-handling-rule.md;docs/user-guide/02-roles.md,
+5.11,organisational,Assets handed back at the end,vendor;hospital,docs/runbook/25-leavers.md,
+5.12,organisational,Information classified,product,docs/validation/record-inventory.md;tests/unit/test_dataclass.py,
+5.13,organisational,Information labelled,product,tests/unit/test_dataclass.py;tests/unit/test_record_inventory.py,
+5.14,organisational,Rules for moving information,product;hospital,tests/unit/test_mail_boundary.py;tests/unit/test_export_ledger.py;tests/console/test_phi_link_download.py,
+5.15,organisational,Access control rules,product;hospital,libs/tb_common/authz_matrix.yaml;docs/security/03-who-may-call-what.md;tests/unit/test_authz_matrix.py,
+5.16,organisational,Identities managed over their life,product;hospital,docs/runbook/03-accounts.md;tests/console/test_identity.py,
+5.17,organisational,"Passwords, keys and other sign-in secrets",product;vendor;hospital,docs/security/04-secrets.md;tests/unit/test_service_secrets.py;tests/console/test_api_identity.py,
+5.18,organisational,"Access rights given, reviewed and removed",product;hospital,docs/runbook/25-leavers.md;tests/console/test_team_pages.py,
+5.19,organisational,Security with suppliers,vendor,docs/validation/supplier-assessments.md,
+5.20,organisational,Security terms in supplier agreements,vendor;hospital,,"The data-processing agreement and responsibility sheet are held by counsel, not in the repository (IT pack A.9)"
+5.21,organisational,Security across the ICT supply chain,product;vendor,docs/security/08-supply-chain.md;deploy/supply-chain-allowlist.yaml;tests/unit/test_supply_chain.py,
+5.22,organisational,Supplier services watched and changes reviewed,vendor,docs/validation/soup.csv;docs/validation/supplier-assessments.md,
+5.23,organisational,Security of cloud services used,vendor,docs/runbook/11-cloud-runs.md;tests/unit/test_cloud_run.py,
+5.24,organisational,Incident management planned and prepared,vendor;hospital,docs/plan/sites/tabletop-record-cgmh.md;docs/plan/sites/support-sheet.md,
+5.25,organisational,Security events assessed and decided,product;vendor;hospital,docs/user-guide/07-when-something-goes-wrong.md;docs/runbook/04-troubleshooting.md,
+5.26,organisational,Incidents responded to,vendor;hospital,docs/plan/sites/tabletop-record-cgmh.md;docs/runbook/07-contacts-and-escalation.md,
+5.27,organisational,Lessons taken from incidents,vendor,docs/validation/problems.csv,
+5.28,organisational,Evidence collected and kept,product;vendor,tools/support_bundle.py;tools/audit_verify.py;tests/unit/test_support_bundle.py,
+5.29,organisational,Security kept during a disruption,product;hospital,docs/runbook/22-disaster-recovery-with-measured-rpo-and-rto.md;docs/runbook/22-planned-power-cut.md,
+5.30,organisational,ICT ready for business continuity,product;hospital,docs/runbook/22-disaster-recovery-with-measured-rpo-and-rto.md;tools/backup_drill.py;tests/unit/test_backup.py,
+5.31,organisational,"Legal, statutory and contract duties known",vendor;hospital,docs/security/07-laws-a-site-must-check.md,
+5.32,organisational,Intellectual property rights respected,product;vendor,docs/licences/register.csv;tests/unit/test_licence_register.py,
+5.33,organisational,Records protected,product;hospital,docs/validation/record-inventory.md;tests/unit/test_record_inventory.py;tests/unit/test_audit_integrity.py,
+5.34,organisational,Privacy and personal data protected,product;vendor;hospital,docs/security/05-data-protection.md;tests/unit/test_phi_recognisers.py;tests/console/test_consent_pages.py,
+5.35,organisational,Independent review of security,product;vendor,docs/reviews/2026-11-10-deep-review/00-index.md,The external penetration test is later work (IT pack A.9)
+5.36,organisational,Compliance with own policies checked,product;vendor,tools/doclint.py;tools/data_scan.py;tests/unit/test_validation_records.py,
+5.37,organisational,Operating procedures written down,product;hospital,docs/RUNBOOK.md;docs/runbook/02-daily-operation.md,
+6.1,people,Staff screened before they join,vendor;hospital,,"Aimedics company record, kept outside the repository (HR); the hospital screens its own staff"
+6.2,people,Security in employment terms,vendor;hospital,,"Aimedics company record, kept outside the repository (contracts); the hospital holds its own"
+6.3,people,Security awareness and training,product;vendor;hospital,docs/validation/qms-lite.md;docs/user-guide/02-roles.md,
+6.4,people,Disciplinary process,vendor;hospital,,"Aimedics company record, kept outside the repository (HR); the hospital holds its own"
+6.5,people,Duties after a job ends or changes,vendor;hospital,docs/runbook/25-leavers.md,
+6.6,people,Confidentiality agreements,vendor;hospital,,"Aimedics company record, kept outside the repository (contracts); the hospital holds its own"
+6.7,people,Working remotely,product;vendor,docs/runbook/21-support-model-and-the-supervised-remote-session.md;docs/plan/sites/support-sheet.md,
+6.8,people,Reporting security events,product;vendor;hospital,docs/user-guide/07-when-something-goes-wrong.md;tests/console/test_feedback.py,
+7.1,physical,Physical perimeters,hospital,docs/plan/sites/site-survey.md,the hospital's own ISMS covers it; the site survey asks for it
+7.2,physical,Physical entry,hospital,docs/plan/sites/site-survey.md,the hospital's own ISMS covers it; the site survey asks for it
+7.3,physical,"Offices, rooms and facilities secured",vendor;hospital,,the hospital's own ISMS covers it; the site survey asks for it; Aimedics holds no patient data in its office (data-handling rule)
+7.4,physical,Physical security watched,hospital,docs/plan/sites/site-survey.md,the hospital's own ISMS covers it; the site survey asks for it
+7.5,physical,Protection from physical and environmental threats,hospital,docs/plan/sites/site-survey.md,the hospital's own ISMS covers it; the site survey asks for it
+7.6,physical,Working in secure areas,hospital,docs/plan/sites/site-survey.md,the hospital's own ISMS covers it; the site survey asks for it
+7.7,physical,Clear desk and clear screen,product;hospital,tests/console/test_identity.py,Screen locks and desk rules on clinical workstations are the hospital's
+7.8,physical,Equipment sited and protected,product;hospital,docs/security/01-the-host.md;docs/handover/WINDOWS-INSTALL-CHECKLIST.md,
+7.9,physical,Assets away from the premises,product;vendor;hospital,docs/runbook/22-moving-the-box.md;docs/runbook/23-key-inventory-and-the-lost-box-list.md,
+7.10,physical,Storage media,product;vendor;hospital,docs/handover/OFFLINE-MEDIA.md;docs/security/01-the-host.md,
+7.11,physical,Supporting utilities,hospital,docs/runbook/22-planned-power-cut.md,the hospital's own ISMS covers it; the site survey asks for it
+7.12,physical,Cabling protected,hospital,docs/plan/sites/site-survey.md,the hospital's own ISMS covers it; the site survey asks for it
+7.13,physical,Equipment maintained,product;vendor;hospital,docs/runbook/22-replacing-hardware.md;docs/runbook/04-gpu-fault.md,
+7.14,physical,Equipment disposed of or reused safely,product;hospital,docs/runbook/05-updates-backup-restore-secrets.md;docs/runbook/22-replacing-hardware.md,
+8.1,technological,User end-point devices,vendor;hospital,,the hospital's own ISMS covers it; the site survey asks for it (clinical workstations); Aimedics laptops hold synthetic data only (data-handling rule)
+8.2,technological,Privileged access rights,product;hospital,tests/console/test_d280_breakglass.py;docs/runbook/21-support-model-and-the-supervised-remote-session.md,
+8.3,technological,Information access restricted,product,tests/console/test_d273_privacy_guards.py;tests/console/test_role_route_matrix.py,
+8.4,technological,Access to source code,vendor,../.github/CODEOWNERS;docs/validation/development-plan.md,
+8.5,technological,Secure authentication,product;hospital,deploy/identity/Caddyfile;docs/decisions/D-320-api-sign-in-second-factor.md;tests/console/test_api_identity.py,
+8.6,technological,Capacity managed,product;hospital,tests/unit/test_compose_limits.py;tests/unit/test_gpu_sizing.py;docs/runbook/04-disk-full.md,
+8.7,technological,Protection against malware,product;hospital,tools/supply_chain/scanners.py;tests/unit/test_images_lock.py,The hospital's own anti-malware runs on its host and workstations
+8.8,technological,Technical vulnerabilities managed,product;vendor;hospital,docs/runbook/24-patch-policy.md;tools/security_scan.py;tests/unit/test_security_scan.py,
+8.9,technological,Configuration managed,product,docs/plan/design/12-configuration-management.md;libs/tb_common/config.py;tests/unit/test_config_declared.py,
+8.10,technological,Information deleted when no longer needed,product,libs/tb_common/retention.py;tests/unit/test_retention.py,
+8.11,technological,Data masked,product,tests/unit/test_phi_note_mask.py;tests/unit/test_log_scrubber_jp.py,
+8.12,technological,Data leakage prevented,product;hospital,deploy/egress.py;tests/unit/test_egress_rules.py;tests/unit/test_gateway_box_phi.py,
+8.13,technological,Information backed up,product;hospital,deploy/backup/trialbox-backup.cron;tests/unit/test_backup.py;tests/unit/test_backup_schedule.py,
+8.14,technological,Redundant processing facilities,product;hospital,docs/runbook/08-two-device.md;tests/unit/test_two_device_config.py,
+8.15,technological,Logging,product,libs/tb_common/audit.py;tests/unit/test_audit.py;tests/unit/test_audit_integrity.py,
+8.16,technological,Activities monitored,product;hospital,deploy/monitoring/rules.yml;tests/unit/test_metrics.py;tests/unit/test_watchdog.py,
+8.17,technological,Clocks kept in step,product;hospital,tools/trialbox/doctor.py;tests/unit/test_audit_integrity.py,
+8.18,technological,Privileged utility programs,product,tests/console/test_d280_breakglass.py;docs/runbook/21-support-model-and-the-supervised-remote-session.md,
+8.19,technological,Software installed on running systems,product;hospital,deploy/images.lock;tests/unit/test_update_safety.py;tests/unit/test_image_pins.py,
+8.20,technological,Network security,product;hospital,docs/security/02-network.md;docs/handover/network-sheet.en.md;tests/unit/test_network_sheet.py,
+8.21,technological,Network services secured,product;hospital,deploy/identity/Caddyfile;tests/unit/test_extra_ca.py,
+8.22,technological,Networks segregated,product;hospital,deploy/docker-compose.yml;tests/platform/test_isolation_probe.py;tests/integration/test_egress.py,
+8.23,technological,Web filtering,product;hospital,deploy/egress.py;tests/unit/test_egress_rules.py,
+8.24,technological,Use of cryptography,product,libs/tb_common/kek.py;tests/unit/test_kek.py;docs/decisions/D-347-keys-under-a-kek.md,
+8.25,technological,Secure development life cycle,vendor,docs/validation/development-plan.md;docs/validation/change-control.md,
+8.26,technological,Application security requirements,product,docs/plan/design/03-security-privacy.md;tests/unit/test_injection_hardening.py,
+8.27,technological,Secure architecture and engineering,product,docs/ARCHITECTURE.md;docs/plan/design/02-architecture.md,
+8.28,technological,Secure coding,vendor,tools/security_scan.py;tools/security_scan_ignores.yaml;tests/unit/test_security_scan.py,
+8.29,technological,Security testing in development and acceptance,product;vendor,tests/unit/test_injection_suite.py;tests/console/test_d273_privacy_guards.py,The external penetration test is later work (IT pack A.9)
+8.30,technological,Outsourced development,vendor,docs/validation/development-plan.md;docs/validation/supplier-assessments.md,
+8.31,technological,"Development, test and live kept apart",product;vendor,tests/unit/test_test_isolation.py;tests/unit/test_env_settings_gate.py,
+8.32,technological,Change management,product;vendor,docs/validation/change-control.md;tests/unit/test_update_path.py,
+8.33,technological,Test information,product;vendor,docs/plan/sites/data-handling-rule.md;tools/data_scan.py;tests/unit/test_synth_hospital.py,
+8.34,technological,Systems protected during audit testing,product;hospital,docs/runbook/21-support-model-and-the-supervised-remote-session.md,Audit tests on the live box run under the hospital's supervision
