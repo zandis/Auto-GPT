@@ -163,6 +163,7 @@ services:
       - lake-data:/data/lake
       - audit-data:/data/audit
       - tb-secrets:/run/secrets/trialbox
+      - ${TB_KEK_HOST_DIR:-/run/trialbox}:/run/trialbox:ro   # the KEK the unseal writes (tb_common.kek, D-347): read-only
 
   orchestrator:
     <<: *py
@@ -183,6 +184,7 @@ services:
       - objects-data:/data/objects
       - tb-secrets:/run/secrets/trialbox
       - ${TB_EXTRA_CA:-/dev/null}:/run/tb-extra-ca.pem:ro   # hospital TLS-inspection CA (tb_common.extra_ca)
+      - ${TB_KEK_HOST_DIR:-/run/trialbox}:/run/trialbox:ro   # the KEK the unseal writes (tb_common.kek, D-347): read-only
 
   mail-gateway:
     <<: *py

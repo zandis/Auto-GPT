@@ -48,6 +48,10 @@ driver can run a CUDA 13 image outside the GB10 profile (DEP-005); MailHog, aban
    (`tests/stack.py outbound_mail`). Mailpit v1.33.1 carries one finding (GO-2026-5932, golang.org/x/crypto), so it
    joins the report-mode images with a row in `deploy/security/known-image-findings.md`. `SC_AMD64_ONLY` is empty.
 8. **GreenMail** moves from 2.1.3 to 2.1.15, by digest.
+9. **The KEK in the containers** (with D-347, T-210b): the adapter and the orchestrator mount the host's
+   `/run/trialbox` (`TB_KEK_HOST_DIR`) read-only at `/run/trialbox`, where `tb_common.kek` finds `kek`.
+   `check_host.sh` mounts it the same way for the doctor when the host has it. The directory is mounted, not the
+   file: a missing file would otherwise become a directory on the host and block the unseal.
 
 ## Consequences
 

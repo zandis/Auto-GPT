@@ -124,7 +124,11 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
   # the host's zone for doctor's site_tz check (D-315): the container's /etc is the image's, not the host's
   HOST_TZ="$(timedatectl show -p Timezone --value 2>/dev/null || cat /etc/timezone 2>/dev/null \
     || readlink /etc/localtime 2>/dev/null | sed 's|.*zoneinfo/||')"
-  if docker run --rm --network none --env-file "$ENV_FILE" -e TB_HOST_TZ="$HOST_TZ" -v "$ROOT_DIR/deploy:/app/deploy:ro" --user 0:0 \
+  # the KEK the unseal writes (tb_common.kek, D-347), read-only, when this host has one
+  KEK_DIR="${TB_KEK_HOST_DIR:-/run/trialbox}"; KEK_MOUNT=""
+  [ -d "$KEK_DIR" ] && KEK_MOUNT="$KEK_DIR:/run/trialbox:ro"
+  if docker run --rm --network none --env-file "$ENV_FILE" -e TB_HOST_TZ="$HOST_TZ" -v "$ROOT_DIR/deploy:/app/deploy:ro" \
+      ${KEK_MOUNT:+-v "$KEK_MOUNT"} --user 0:0 \
       "${TB_IMAGE:-trialbox-py:1.0.0}" python -m tools.trialbox doctor "$@"; then
     pass "trialbox doctor"
   else

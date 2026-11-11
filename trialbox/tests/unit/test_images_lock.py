@@ -224,3 +224,14 @@ def test_the_serving_record_names_the_structured_output_backend() -> None:
     assert rec["extra_args"] == ["--structured-outputs-config.backend", "xgrammar"]
     rec = sc.parse_args(['--structured-outputs-config={"backend":"guidance"}'])
     assert rec["structured_outputs_backend"] == "guidance"
+
+
+# ------------------------------------------------------------------------------------------------ the KEK (D-347)
+def test_the_services_that_unwrap_site_keys_see_the_kek_read_only() -> None:
+    import yaml
+
+    svc = yaml.safe_load((DEPLOY / "docker-compose.yml").read_text(encoding="utf-8"))["services"]
+    for name in ("adapter", "orchestrator"):
+        assert "${TB_KEK_HOST_DIR:-/run/trialbox}:/run/trialbox:ro" in svc[name]["volumes"], name
+    text = (DEPLOY / "check_host.sh").read_text(encoding="utf-8")
+    assert 'KEK_MOUNT="$KEK_DIR:/run/trialbox:ro"' in text and '${KEK_MOUNT:+-v "$KEK_MOUNT"}' in text
