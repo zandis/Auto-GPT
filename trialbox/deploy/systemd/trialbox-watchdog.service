@@ -1,0 +1,10 @@
+# One pass of the host watchdog (T-108a D-360, unit T-108b D-377): an unhealthy labelled service is restarted and
+# audited. Standard library only. Run by trialbox-watchdog.timer.
+[Unit]
+Description=TrialBox watchdog pass
+After=trialbox.service docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=@TB_ROOT@
+ExecStart=/usr/bin/env python3 -m tools.trialbox watchdog --deploy @TB_ROOT@/deploy

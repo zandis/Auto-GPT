@@ -1,0 +1,10 @@
+# Every minute (D-178, RUNBOOK §15). Not enabled by the installer.
+[Unit]
+Description=TrialBox operations runner every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+
+[Install]
+WantedBy=timers.target
