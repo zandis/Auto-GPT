@@ -341,6 +341,22 @@ class Opinion(BaseModel):
     quote_date: str | None = None
 
 
+class CodedValue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    record: str
+    domain: str
+    code: str | None = None
+    system: str | None = None
+    date: str | None = None
+    value: float | None = None
+    unit: str | None = None
+    value_code: str | None = None
+    comparator: str | None = None
+
+
 class Evidence(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -354,6 +370,10 @@ class Evidence(BaseModel):
     opinions: list[Opinion] | None = None
     """
     When the two checks disagree (D-120): each model's answer and its quote, so a person sees both.
+    """
+    coded: list[CodedValue] | None = None
+    """
+    T-514 (D-362, review UX-008): the coded records behind the answer as a person checks them, latest first (at most three): the record's own value and unit, its date and its code. Shown beside the answer; never read by matching.
     """
 
 
@@ -2650,7 +2670,7 @@ class RulesetManifest(BaseModel):
 
 class CandidateList(BaseModel):
     """
-    SPEC 3.6 candidate_list (tag phi). Schema version 1.1.0 (1.1.0: optional evidence.opinions, D-120).
+    SPEC 3.6 candidate_list (tag phi). Schema version 1.2.0 (1.1.0: optional evidence.opinions, D-120; 1.2.0: optional evidence.coded, D-362).
     """
 
     model_config = ConfigDict(

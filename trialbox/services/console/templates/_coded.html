@@ -1,0 +1,14 @@
+{# The coded records behind an answer (T-514, D-362, review UX-008): per record its own value and unit, its date and
+   its code, latest first; a coded answer with no record says so. Needs cid (the row's test id) and cv
+   (console.coded_view.view). #}
+{%- if cv and (cv.lines or cv.none) -%}
+<div class="coded" data-testid="coded-{{ cid }}">
+{%- for x in cv.lines %}<div class="hint" data-testid="coded-{{ cid }}-{{ loop.index }}">
+{%- if x.age is not none %}<b>{{ t('coded.age', n=x.age) }}</b>{% elif x.sex %}<b>{{ t_or('coded.sex.' + x.sex, x.sex) }}</b>{% elif x.value %}<b class="nowrap">{{ x.value }}</b>{% endif %}
+{%- if x.date %}{% if x.value or x.age is not none or x.sex %} · {% endif %}<span class="nowrap">{{ x.date }}</span>{% endif %}
+{%- if x.code %} · <span class="mono nowrap"{% if x.system_uri %} title="{{ x.system_uri }}"{% endif %}>{% if x.dept %}{{ t('coded.dept') }} {% elif x.system %}{{ x.system }} {% endif %}{{ x.code }}</span>{% endif %}
+</div>{% endfor %}
+{%- if cv.more %}<div class="hint" data-testid="coded-more-{{ cid }}">{{ t('coded.more', n=cv.more) }}</div>{% endif %}
+{%- if cv.none %}<div class="hint" data-testid="coded-none-{{ cid }}">{{ t('coded.none') }}</div>{% endif %}
+</div>
+{%- endif -%}

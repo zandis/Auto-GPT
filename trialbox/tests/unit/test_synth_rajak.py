@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -18,6 +17,7 @@ from typing import Any
 import pytest
 import yaml
 
+from tests.rulesets_guard import copy_rulesets
 from tools.synth import rajak
 from tools.synth.generator import RATES, Generator
 
@@ -132,7 +132,7 @@ def test_committed_ruleset_is_the_current_compilers_output(tmp_path: Path) -> No
 
     rid = "RA-JAK"
     seed = tmp_path / "seed"
-    shutil.copytree(ROOT / "rulesets", seed, ignore=shutil.ignore_patterns(rid))
+    copy_rulesets(seed, rid)
     store = FsStore(tmp_path / "obj")
     audit = AuditLog(tmp_path / "audit")
     llm = LlmClient("http://stub/v1", "stub", audit=audit)
