@@ -275,13 +275,20 @@ def build_n2(
     return Notice("N2", user.username, user.mailbox or "", subject, "\n".join(parts), today.isoformat(), counts)
 
 
-def build_health(user: User, person: NotifyPerson, today: date, health: Any) -> Notice:
+def build_health(
+    user: User, person: NotifyPerson, today: date, health: Any, accounts: dict[str, Any] | None = None
+) -> Notice:
     """The administrators' daily health mail (T-209a, D-379): the level, then one line per check. Ages, counts and
-    percentages only."""
+    percentages only. On Mondays ``accounts`` (T-209c, D-406, OPS-059) adds the unused-account report: user names,
+    roles and dates, never a patient."""
     lang = person.lang
     marks = {"ok": "ok", "warn": "WARN", "red": "RED"}
     parts = [translate(lang, f"health.line.{health.level}", what=health.details()), ""]
     parts += [f"- [{marks[c.level]}] {c.text}" for c in health.checks]
+    if accounts is not None:
+        from console.admin_accounts import mail_lines
+
+        parts += ["", *mail_lines(accounts, lang)]
     parts += ["", "---", translate(lang, "health.why"), translate(lang, "notice.settings",
                                                                     url=f"{base_url()}/settings/notices")]  # fmt: skip
     subject = translate(lang, "health.subject", day=today.isoformat(), level=marks[health.level])
@@ -305,6 +312,20 @@ def collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[No
                 got.append(None)
         return got[0]
 
+    def accounts_now(day: date) -> dict[str, Any] | None:  # T-209c (D-406): the Monday unused-account report
+        from console.admin_accounts import MAIL_WEEKDAY
+
+        fn = getattr(h, "accounts_report", None)
+        if fn is None or day.weekday() != MAIL_WEEKDAY:
+            return None
+        if not acc:
+            try:
+                acc.append(fn())
+            except Exception:  # a failed report must not stop the health mail
+                acc.append(None)
+        return acc[0]
+
+    acc: list[dict[str, Any] | None] = []
     for u in h.users.users():
         if not u.mailbox or (u.expires and u.expires < today.isoformat()):
             continue
@@ -315,7 +336,7 @@ def collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[No
             if "HEALTH" in kinds and not store.notice_sent("HEALTH", u.username, today.isoformat()):
                 hl = health_now()
                 if hl is not None:
-                    out.append(build_health(u, person, today, hl))
+                    out.append(build_health(u, person, today, hl, accounts_now(today)))
             continue
         sess = Session(u, "", person.lang, "")
         kind = "N1" if u.role == "investigator" else "N2" if u.role == "coordinator" else None

@@ -18,6 +18,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from lake.client import LakeHttp
 from pydantic import BaseModel, Field
 from tb_common.audit import AuditLog
+from tb_common.audit_writer import open_audit
 from tb_common.authz import BREAK_GLASS_ROLE
 from tb_common.config import get_config, tb_env
 from tb_common.crypto import load_key
@@ -89,7 +90,7 @@ def orch() -> Orchestrator:
     if _orch is None:
         cfg = get_config()
         data = Path(os.environ.get("TB_ORCH_DIR", str(Path(cfg.env.data_dir) / "orchestrator")))
-        audit = AuditLog(cfg.env.audit_path, cfg.env.tz)
+        audit = open_audit(cfg.env.audit_path, cfg.env.tz)
         services = Services(
             lake=LakeHttp(cfg.env.lake_url),
             parser=ParserHttp(cfg.env.doc_parser_url),

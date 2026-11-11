@@ -29,7 +29,7 @@
     <p class="hint" data-testid="week-run">{{ t('week.meta', job=wk.job.type, date=(wk.job.run_date.isoformat() if wk.job.run_date else wk.job.updated_at|local(10)), snapshot=(wk.job.snapshot_date.isoformat() if wk.job.snapshot_date else '–')) }}</p>
   </nav>
   <section class="wlist" id="worklist" tabindex="-1">
-    <div class="headrow"><h2>{{ t('wb.list.' + lst) }}</h2><span class="hint">{{ t('wb.list.' + lst + '.help') }}</span></div>
+    <div class="headrow"><h2>{{ t('wb.list.' + lst) }}</h2>{% set hk = 'wb.list.' + lst + '.help' %}<span class="hint" data-testid="list-help">{{ t_or(hk + '.' + user.role, t(hk)) }}</span></div>
     {% if not rows %}<p class="empty">{{ t('wb.empty') }}</p>{% else %}
     <div class="scroll" tabindex="0" role="region" aria-label="{{ t('wb.list.' + lst) }}"><table class="worklist" data-testid="worklist">
       <thead><tr><th>{{ t('wb.c.visit') }}</th><th>{{ t('wb.c.patient') }}</th><th>{{ t('wb.c.met') }}</th><th>{{ t('wb.c.needed') }}</th><th>{{ t('wb.c.status') }}</th></tr></thead>
