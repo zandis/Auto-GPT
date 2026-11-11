@@ -316,3 +316,27 @@ def schedule_on_demand(settings: Settings, environment: str) -> bool:
 def get_config() -> Config:
     """Process-wide cached configuration."""
     return load()
+
+
+# ------------------------------------------------------------------------------------- the declared TB_* list
+# T-108d (D-389, PR #206) declares every TB_* setting here once: type, default ("" when unset means off or the reading
+# code's own constant) and one doc line. Until that list lands, the settings T-113b adds (D-409) are declared in the
+# same form; when both are on master their rows are one dict (the merge keeps T-108d's block and adds these rows).
+
+
+@dataclass(frozen=True)
+class Declared:
+    """One declared ``TB_*`` setting."""
+
+    kind: str
+    default: str
+    doc: str
+
+
+DECLARED: dict[str, Declared] = {
+    "TB_PLATFORM_GPU_EVIDENCE": Declared("str", "", "platform check: reference of the MIG configuration dump (D-409)"),
+    "TB_PLATFORM_GPU_SHARING": Declared(
+        "str", "", "platform check: how the GPU is shared (mig, whole, time-slicing, mps; D-409)"
+    ),
+    "TB_PLATFORM_GPU_STANDIN": Declared("bool", "", "platform check: stand-in GPU devices on a test cluster (D-409)"),
+}
