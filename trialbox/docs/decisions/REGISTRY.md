@@ -77,7 +77,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-229 | reserved | T-205 | Second factor at signing and the record lock |
 | D-230 | reserved | T-206 | Opt-out worker v1 |
 | D-231 | reserved | T-207 | The derived-data framework: stored rows and definitions as data |
-| D-232 | reserved | T-208 | Prompt-injection and false-positive suite |
+| D-232 | unused | T-208 | was reserved for T-208, which took D-346 |
 | D-233 | reserved | T-209 | Monitoring, admin screens and the support bundle |
 | D-234 | reserved | T-210 | Windows/WSL2 hardening, keys under a KEK, the unseal path |
 | D-235 | reserved | T-211 | Audit integrity: signed heads, one writer, NTP as a FAIL, the audit … |
@@ -158,3 +158,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-330 | merged | T-509 | the PoC host: one VM, the image by digest, Cloudflare Access through a tunnel, kept data on its own disk, daily snapshot, purge (file) |
 | D-331 | merged | T-510 | in-product feedback: a flag, a rating and a comment on every page, stored with path, language, role and time; CSV export to issues; the comment in the demo scan (file) |
 | D-332 | merged | T-508 | the clinician PoC is product evaluation, not research: no protocol, subject consent or committee step; the acknowledgement only (file) |
+| D-346 | merged | T-208 | the prompt-injection and false-positive suite: facts not words, a stub that obeys as the negative control, the fence escaped, hidden text flagged, traces 7 days in PRODUCTION (file) |
