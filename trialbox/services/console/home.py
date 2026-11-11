@@ -133,7 +133,7 @@ class Helpers:
     accounts_report: Callable[[], dict[str, Any]] | None = None
     identity: Any = None  # console.identity.Identity (D-279): the second factor at signing; None in bare test apps
     recorded: Any = None  # console.recorded_opinions.Recorded (T-515): demo opinions laid over the candidate list
-    # set by console.breakglass (D-280): the administrator's open grant covering one patient or one job, else None;
+    # set by console.breakglass (D-280, T-309): the account's open grant covering one patient or one job, else None;
     # each call that finds one is one audited use. None in bare test apps (no grant, so no access)
     breakglass: Callable[..., Any] | None = None
 
@@ -166,6 +166,12 @@ class Helpers:
         if not any(conditional(user.role, f"task.{t}") for t in tasks):
             return True
         return bool(rid) and any(self.permit(user, f"task.{t}", rid) for t in tasks)
+
+    def reads(self, user: Any, rid: str | None) -> bool:
+        """T-309 (D-430): does the account read this study's patients by its own rights (the ``phi.view`` row, then the
+        delegation log)? Where it does not, the one break-glass rule decides, for the administrator and for an
+        investigator alike: an open grant for that patient or that job (``console.breakglass``)."""
+        return bool(user.can_view_phi) and self.delegated_ok(user, rid)
 
     def permit(self, user: Any, action: str, rid: str | None = None) -> Decision:
         """T-102c (D-425): the one question pages and ``/api/v1`` ask: ``tb_common.authz.permit`` for ``action``,
@@ -952,13 +958,15 @@ def register(app: FastAPI, h: Helpers) -> None:
     def patient(request: Request, rs: str, pid: str) -> Response:
         sess = h.need(request)
         rid = study_or_404(sess, rs)
-        # D-280 (OD-5): the administrator opens one patient only under a break-glass grant for that patient
+        # D-280 (OD-5), T-309 (D-430): an account outside its own rights opens one patient only under a break-glass
+        # grant for that patient (the administrator always; an investigator the delegation log does not reach)
         grant = None
-        if not sess.user.can_view_phi:
+        if not h.reads(sess.user, rid):
             grant = h.breakglass(sess, ruleset=rid, pid=pid, what="patient page") if h.breakglass else None
             if grant is None:
+                if sess.user.can_view_phi:
+                    screen_or_403(sess, rid, request.url.path)  # the delegation refusal, audited
                 raise h.problem(403, "forbidden")
-        screen_or_403(sess, rid, request.url.path)
         return h.page(request, "patient.html", sess, **patient_ctx(sess, rid, pid), breakglass=grant)
 
     def apply_reveal(
@@ -984,12 +992,12 @@ def register(app: FastAPI, h: Helpers) -> None:
         ``BREAK_GLASS_ROLE`` and its audit record names the grant."""
         rid = study_or_404(sess, rs)
         delegated = h.delegated_ok(sess.user, rid)
-        grant = None
-        if not sess.user.sees_ids(rid) and sess.user.is_admin and h.breakglass is not None and _PID.match(pid or ""):
+        grant = None  # T-309 (D-430): the one rule, for the administrator and an undelegated investigator alike
+        if not (sess.user.sees_ids(rid) and delegated) and h.breakglass is not None and _PID.match(pid or ""):
             grant = h.breakglass(sess, ruleset=rid, pid=pid, what="reveal") or (
                 h.breakglass(sess, job_id=job_id, what="reveal") if job_id else None
             )
-        if (not sess.user.sees_ids(rid) and grant is None) or not delegated:
+        if grant is None and (not sess.user.sees_ids(rid) or not delegated):
             au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
             raise h.problem(403, "forbidden")
         if reason not in REVEAL_REASONS:
