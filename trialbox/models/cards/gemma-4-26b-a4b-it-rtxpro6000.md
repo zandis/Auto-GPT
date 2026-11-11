@@ -14,6 +14,10 @@ Generated from `models/registry.yaml` by `python -m registry.cards --write`. Do 
 | Context length | 32768 |
 | Licence | Apache-2.0 (Gemma 4) (SPDX: Apache-2.0; verified: yes) |
 | Origin | Google (US); non-PRC: yes |
+| Source | `nvidia/Gemma-4-26B-A4B-NVFP4` at a19cfe00be84568a6867111c9a68c9c44fdcffe6 (publisher-quantisation) |
+| Base model | `google/gemma-4-26B-A4B-it` at 4d7ae4984b7d |
+| Licence file | none in the source repository (the licence register row holds the text) |
+| Chat template | `google/gemma-4-26B-A4B-it` at 4d7ae4984b7d, `chat-templates/gemma-4-26b-a4b-it/chat_template.jinja` (recorded in the site pin) |
 
 ## Contexts of use
 
