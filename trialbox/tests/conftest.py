@@ -116,7 +116,6 @@ PURE_MODULES: tuple[str, ...] = (
     "tests/unit/test_cql_eval.py",
     "tests/unit/test_cql_sql_generators.py",
     "tests/unit/test_dataclass.py",
-    "tests/unit/test_dataplat_landing.py",
     "tests/unit/test_dates.py",
     "tests/unit/test_derived_definitions.py",
     "tests/unit/test_derived_phi.py",
