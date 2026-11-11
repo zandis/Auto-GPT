@@ -62,8 +62,8 @@ def test_round_trip_restores_rows_and_files(box: dict[str, object], tmp_path: Pa
     box["auth"].execute("DROP TABLE users")  # type: ignore[attr-defined]
     (dirs["audit"] / "2026" / "log.jsonl").write_text("tampered\n")  # type: ignore[index]
     (dirs["lake"] / "new.parquet").write_bytes(b"x")  # type: ignore[index]
-    out = bk.restore(files[1], box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=dirs,  # type: ignore[arg-type]
-                     now=datetime(2026, 11, 9, tzinfo=UTC))  # fmt: skip
+    out = bk.restore(files[1], box["priv"], env={"TB_DB_URL": str(box["url"]), "TB_SITE_ID": "CGMH"},  # type: ignore[arg-type]
+                     dirs=dirs, public_key=box["pub"], keep_to=tmp_path / "kept")  # type: ignore[arg-type]  # fmt: skip
     assert out["ok"] and out["rows"]["trialbox_wf"] == 5 and out["dirs"] == ["audit", "lake"]
     db2 = Database.connect(str(box["url"]), "site")
     assert db2.fetchall("SELECT pid, mark, note FROM marks ORDER BY pid") == [
@@ -71,8 +71,17 @@ def test_round_trip_restores_rows_and_files(box: dict[str, object], tmp_path: Pa
     assert Database.connect(str(box["url"]), "auth").fetchall("SELECT name FROM users") == [("admin",)]
     assert (dirs["audit"] / "2026" / "log.jsonl").read_text() == '{"e": 1}\n'  # type: ignore[index]
     assert not (dirs["lake"] / "new.parquet").exists()  # type: ignore[index]
-    aside = tmp_path / "lake.pre-restore-20261109T000000Z"
+    (aside,) = tmp_path.glob("lake.pre-restore-*")
     assert (aside / "new.parquet").exists()  # the replaced data is kept aside, never deleted
+    # D-274 (CR-056): the box as it was is kept as one more encrypted backup, which restores the changed state
+    kept = Path(out["kept_copy"])
+    assert kept.parent == tmp_path / "kept" and bk.read_sidecar(kept) and bk.verify(kept, box["priv"])["ok"]  # type: ignore[arg-type]
+    # D-274 (DI-10): the restore is a row in the restored audit log
+    assert out["audit"] == str(dirs["audit"])  # type: ignore[index]
+    rows = [json.loads(ln) for p in sorted(dirs["audit"].rglob("*.jsonl")) for ln in p.read_text().splitlines()  # type: ignore[index]
+            if ln.startswith("{") and '"event"' in ln]  # fmt: skip
+    done = [r for r in rows if r.get("event") == "backup.restored"]
+    assert len(done) == 1 and done[0]["detail"]["kept_copy"] == str(kept) and done[0]["detail"]["file"] == files[1].name
 
 
 def test_tampered_truncated_and_wrong_key_backups_are_refused(box: dict[str, object], tmp_path: Path) -> None:
@@ -165,8 +174,8 @@ def test_a_backup_in_a_previous_format_still_restores(
     assert bk.verify(f, box["priv"])["layout"] == 1  # type: ignore[arg-type]
     box["db"].execute("UPDATE marks SET mark = ? WHERE pid = ?", ("withdrawn", "P1"))  # type: ignore[attr-defined]
     (lake / "ndjson" / "2026-01-31" / "Patient.ndjson").unlink()
-    out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"],  # type: ignore[arg-type]
-                     now=datetime(2026, 11, 9, tzinfo=UTC))  # fmt: skip
+    out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"], no_copy=True,  # type: ignore[arg-type]
+                     now=datetime(2026, 11, 9, tzinfo=UTC), max_age_days=None)  # fmt: skip
     assert (
         out["ok"]
         and out["layout"] == 1
@@ -329,8 +338,8 @@ def test_the_lake_keeps_current_and_the_merge_base_ndjson_and_leaves_out_old_ndj
     f = _backup(box, tmp_path)[0]
     m = bk.unpack(f, box["priv"], tmp_path / "x")  # type: ignore[arg-type]
     assert m["excluded"]["lake"] == left and m["dirs"]["lake"]["files"] == len(keep)
-    out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"],  # type: ignore[arg-type]
-                     now=datetime(2026, 11, 9, tzinfo=UTC))  # fmt: skip
+    out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"], no_copy=True,  # type: ignore[arg-type]
+                     )  # fmt: skip
     assert out["ok"]
     assert sorted(str(p.relative_to(lake)) for p in (lake / "ndjson").rglob("*.ndjson")) == nd
     assert not (lake / "tmp").exists() and (lake / "db" / "2026-10-31.duckdb").exists()
@@ -378,8 +387,8 @@ def test_rows_are_counted_in_the_dumps_own_snapshot_while_the_box_writes(
     m = bk.unpack(f, box["priv"], tmp_path / "x")  # type: ignore[arg-type]
     twf = m["databases"]["trialbox_wf"]
     assert twf["rows_from"] == "snapshot" and twf["rows"][f"{db.schema}.marks"][0] == 2
-    out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"],  # type: ignore[arg-type]
-                     now=datetime(2026, 11, 9, tzinfo=UTC))  # fmt: skip
+    out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"], no_copy=True,  # type: ignore[arg-type]
+                     )  # fmt: skip
     assert out["ok"] and out["warnings"] == [] and db.fetchall("SELECT count(*) FROM marks") == [(2,)]
 
 
@@ -388,9 +397,11 @@ def test_a_snapshot_backup_whose_rows_do_not_come_back_fails_the_restore(
 ) -> None:
     f = _backup(box, tmp_path)[0]
     real = bk.row_counts
-    monkeypatch.setattr(bk, "row_counts", lambda src, skip=(): {**real(src, skip), "x.lost": [1, "0"]})
+    monkeypatch.setattr(
+        bk, "row_counts", lambda src, skip=(), scheme="rs1": {**real(src, skip, scheme), "x.lost": [1, "0"]}
+    )
     with pytest.raises(bk.BackupError, match="differs from the backup"):
-        bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"])  # type: ignore[arg-type]
+        bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"], no_copy=True)  # type: ignore[arg-type]
 
 
 def test_a_backup_counted_on_a_live_box_warns_on_a_row_mismatch(box: dict[str, object], tmp_path: Path) -> None:
@@ -403,7 +414,7 @@ def test_a_backup_counted_on_a_live_box_warns_on_a_row_mismatch(box: dict[str, o
     box["db"].execute("INSERT INTO marks VALUES (?, ?, ?)", ("P9", "late", None))  # type: ignore[attr-defined]
     env = {"TB_DB_URL": str(box["url"]), "TB_PG_DUMP_DIR": str(pre), "TB_SITE_ID": "CGMH"}
     f = bk.backup([tmp_path / "nas"], box["pub"], env=env, dirs=box["dirs"])[0]  # type: ignore[arg-type]
-    out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"])  # type: ignore[arg-type]
+    out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"], no_copy=True)  # type: ignore[arg-type]
     assert out["ok"] and len(out["warnings"]) == 1 and "running box" in out["warnings"][0]
 
 
@@ -500,7 +511,7 @@ def test_vendor_reference_rows_are_left_out_and_loaded_again_on_restore(box: dic
     dump = (tmp_path / "x" / "db" / "trialbox_wf.dump").read_bytes()
     assert b"NCT99000001" not in dump  # the vendor's rows are not
     assert [p["pack_id"] for p in m["refdata_packs"]] == [tar.name.removesuffix(".tar")]
-    out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"],  # type: ignore[arg-type]
+    out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"], no_copy=True,  # type: ignore[arg-type]
                      refdata_dir=tar.parent)  # fmt: skip
     assert out["ok"] and out["refdata"] == {"reloaded": [tar.name.removesuffix(".tar")], "missing": []}
     after = _refdata_state(Database.connect(str(box["url"]), "refdata"))
@@ -512,7 +523,7 @@ def test_a_restore_without_the_pack_keeps_the_site_rows_and_says_it_is_not_done(
 ) -> None:
     tar, _ref = _refdata_box(box, tmp_path)
     f = _backup(box, tmp_path)[0]
-    out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"],  # type: ignore[arg-type]
+    out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"], no_copy=True,  # type: ignore[arg-type]
                      refdata_dir=tmp_path / "empty")  # fmt: skip
     assert not out["ok"] and out["refdata"]["missing"] == [tar.name.removesuffix(".tar")]
     ref2 = Database.connect(str(box["url"]), "refdata")
@@ -521,10 +532,11 @@ def test_a_restore_without_the_pack_keeps_the_site_rows_and_says_it_is_not_done(
     assert ref2.fetchall("SELECT count(*) FROM pack") == [(1,)] and ref2.fetchall(
         "SELECT count(*) FROM _schema_version"
     )
-    rc = cli(["restore", str(f), "--key", str(box["priv"]), "--yes", "--refdata", str(tmp_path / "empty"),
+    rc = cli(["restore", str(f), "--key", str(box["priv"]), "--yes", "--no-copy", "--refdata", str(tmp_path / "empty"),
               "--dir", f"audit={box['dirs']['audit']}", "--dir", f"lake={box['dirs']['lake']}"])  # type: ignore[index]  # fmt: skip
     assert rc == 3 and "reference data is NOT loaded" in capsys.readouterr().err
     assert cli(["restore", str(f), "--key", str(box["priv"]), "--yes", "--refdata", str(tar.parent),
+                "--public", str(box["pub"]), "--keep-to", str(tmp_path / "kept"),
                 "--dir", f"audit={box['dirs']['audit']}", "--dir", f"lake={box['dirs']['lake']}"]) == 0  # type: ignore[index]  # fmt: skip
 
 
@@ -537,3 +549,155 @@ def test_the_update_paths_full_dump_keeps_every_row(box: dict[str, object], tmp_
 
     listing = subprocess.run(["pg_restore", "-f", "-", str(tmp_path / "full.dump")], capture_output=True, check=True)
     assert b"NCT99000001" in listing.stdout
+
+
+# ------------------------------------------------------------------------------------------------ D-274 (FG D-274)
+def _env(box: dict[str, object], **kw: str) -> dict[str, str]:
+    return {"TB_DB_URL": str(box["url"]), "TB_SITE_ID": "CGMH", **kw}
+
+
+def _marks(box: dict[str, object]) -> list[tuple[object, ...]]:
+    return Database.connect(str(box["url"]), "site").fetchall("SELECT pid, mark FROM marks ORDER BY pid")
+
+
+def test_restore_refuses_another_site_an_old_or_a_future_backup_before_touching_anything(
+    box: dict[str, object], tmp_path: Path
+) -> None:
+    """CR-056: the site and the age are checked before anything changes."""
+    f = _backup(box, tmp_path, now=datetime(2026, 10, 1, tzinfo=UTC))[0]
+    box["db"].execute("UPDATE marks SET mark = ? WHERE pid = ?", ("withdrawn", "P1"))  # type: ignore[attr-defined]
+    kw: dict[str, Any] = {"dirs": box["dirs"], "no_copy": True, "now": datetime(2026, 10, 2, tzinfo=UTC)}
+    with pytest.raises(bk.BackupError, match="site 'CGMH', this box is 'NTUH'"):
+        bk.restore(f, box["priv"], env=_env(box, TB_SITE_ID="NTUH"), **kw)  # type: ignore[arg-type]
+    with pytest.raises(bk.BackupError, match="30 days old"):
+        bk.restore(f, box["priv"], env=_env(box), **{**kw, "now": datetime(2026, 10, 31, tzinfo=UTC)})  # type: ignore[arg-type]
+    with pytest.raises(bk.BackupError, match="in the future"):
+        bk.restore(f, box["priv"], env=_env(box), **{**kw, "now": datetime(2026, 9, 30, tzinfo=UTC)})  # type: ignore[arg-type]
+    assert _marks(box)[0] == ("P1", "withdrawn")  # nothing was touched
+    assert not list(tmp_path.glob("*.pre-restore-*"))
+    out = bk.restore(f, box["priv"], env=_env(box, TB_SITE_ID="NTUH"), other_site=True, max_age_days=None,  # type: ignore[arg-type]
+                     **{**kw, "now": datetime(2026, 10, 31, tzinfo=UTC)})  # fmt: skip
+    assert out["ok"] and _marks(box)[0] == ("P1", "approach")
+
+
+def test_restore_over_a_box_with_data_needs_the_key_for_its_copy(
+    box: dict[str, object], tmp_path: Path, capsys: Any
+) -> None:
+    f = _backup(box, tmp_path)[0]
+    with pytest.raises(bk.BackupError, match="a copy is kept before a restore"):
+        bk.restore(f, box["priv"], env=_env(box), dirs=box["dirs"], keep_to=tmp_path / "kept")  # type: ignore[arg-type]
+    rc = cli(["restore", str(f), "--key", str(box["priv"]), "--yes", "--public", str(tmp_path / "none.pub"),
+              "--dir", f"audit={box['dirs']['audit']}", "--dir", f"lake={box['dirs']['lake']}"])  # type: ignore[index]  # fmt: skip
+    assert rc == 1 and "--no-copy" in capsys.readouterr().err
+    out = bk.restore(f, box["priv"], env=_env(box), dirs=box["dirs"], no_copy=True)  # type: ignore[arg-type]
+    assert out["kept_copy"] is None and "no copy was kept" in out["copy"]
+
+
+def test_a_failed_row_check_names_the_kept_copy_is_audited_and_moves_no_folder(
+    box: dict[str, object], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CR-056: the rows are checked before any folder moves; the copy taken first puts the box back."""
+    f = _backup(box, tmp_path)[0]
+    box["db"].execute("UPDATE marks SET mark = ? WHERE pid = ?", ("withdrawn", "P1"))  # type: ignore[attr-defined]
+    real = bk.row_counts
+    monkeypatch.setattr(
+        bk, "row_counts", lambda src, skip=(), scheme="rs1": {**real(src, skip, scheme), "x.y": [1, "0"]}
+    )
+    with pytest.raises(bk.BackupError, match="differs from the backup.*kept in .*trialbox restore") as err:
+        bk.restore(f, box["priv"], env=_env(box), dirs=box["dirs"], public_key=box["pub"],  # type: ignore[arg-type]
+                   keep_to=tmp_path / "kept")  # fmt: skip
+    assert not list(tmp_path.glob("*.pre-restore-*"))  # no folder was moved
+    events = [json.loads(ln) for p in box["dirs"]["audit"].rglob("*.jsonl") for ln in p.read_text().splitlines()  # type: ignore[index]
+              if '"backup.restore_failed"' in ln]  # fmt: skip
+    assert len(events) == 1 and events[0]["detail"]["kept_copy"] in str(err.value)
+    monkeypatch.setattr(bk, "row_counts", real)
+    (kept,) = (tmp_path / "kept").glob("*.tbbak")
+    out = bk.restore(kept, box["priv"], env=_env(box), dirs=box["dirs"], no_copy=True)  # type: ignore[arg-type]
+    assert out["ok"] and _marks(box)[0] == ("P1", "withdrawn")  # the box as it was before the failed restore
+
+
+def test_a_whole_database_restore_leaves_no_table_the_backup_does_not_hold(pg_cluster_url: str, tmp_path: Path) -> None:
+    """CR-056: on a box (no tb_prefix) a table or schema made after the backup is gone after the restore, and the
+    row check passes; before D-274 it stayed and the check failed after everything was replaced."""
+    from urllib.parse import urlsplit, urlunsplit
+
+    import psycopg
+    from tb_common.db import split_url
+
+    dsn, _ = split_url(pg_cluster_url)
+    name = f"tb_restore_{os.getpid()}_{datetime.now(UTC).strftime('%H%M%S%f')}"
+    try:
+        with psycopg.connect(dsn, autocommit=True) as con:
+            con.execute(f'CREATE DATABASE "{name}"')
+    except psycopg.Error as e:
+        pytest.skip(f"cannot create a database here: {e}")
+    parts = urlsplit(dsn)
+    url = urlunsplit((parts.scheme, parts.netloc, f"/{name}", parts.query, parts.fragment))
+    try:
+        with psycopg.connect(url, autocommit=True) as con:
+            con.execute("CREATE SCHEMA site; CREATE TABLE site.marks (pid text PRIMARY KEY, mark text)")
+            con.execute("INSERT INTO site.marks VALUES ('P1', 'approach')")
+        priv, pub = tmp_path / "k.key", tmp_path / "k.pub"
+        bk.keygen(priv, pub)
+        env = {"TB_DB_URL": url, "TB_SITE_ID": "CGMH"}
+        f = bk.backup([tmp_path / "nas"], pub, env=env, dirs={})[0]
+        with psycopg.connect(url, autocommit=True) as con:
+            con.execute("CREATE SCHEMA later; CREATE TABLE later.t (x int); CREATE TABLE public.extra (x int)")
+            con.execute("INSERT INTO later.t VALUES (1); UPDATE site.marks SET mark = 'withdrawn'")
+        out = bk.restore(f, priv, env=env, dirs={}, public_key=pub, keep_to=tmp_path / "kept")
+        assert out["ok"] and out["warnings"] == [] and out["kept_copy"]
+        with psycopg.connect(url, autocommit=True) as con:
+            names = {r[0] for r in con.execute("SELECT table_schema || '.' || table_name FROM information_schema.tables "
+                                               "WHERE table_schema NOT IN ('pg_catalog', 'information_schema')")}  # fmt: skip
+            assert names == {"site.marks"}
+            assert con.execute("SELECT mark FROM site.marks").fetchall() == [("approach",)]
+    finally:
+        with psycopg.connect(dsn, autocommit=True) as con:
+            con.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+
+
+def test_the_row_hash_builds_no_string_over_a_table_and_ignores_row_order(db_url: str) -> None:
+    """CR-057: ``rs1`` sums each row's hash, so no value grows with the table; the same rows in another order hash the
+    same, one changed row does not. ``md5`` (every backup before D-274) is still computed for their restore."""
+    from tools.trialbox import backup_schedule as bs
+
+    assert "string_agg" not in bs.row_agg() and "string_agg" in bs.row_agg("md5")
+    a, b = Database.connect(db_url, "a"), Database.connect(db_url, "b")
+    for db, order in ((a, ("P1", "P2", "P3")), (b, ("P3", "P1", "P2"))):
+        db.migrate(["CREATE TABLE marks (pid TEXT PRIMARY KEY, mark TEXT)"])
+        for pid in order:
+            db.execute("INSERT INTO marks VALUES (?, ?)", (pid, "approach"))
+    src = bk.db_sources({"TB_DB_URL": db_url})[0]
+    h = bk.row_counts(src)
+    assert h[f"{a.schema}.marks"] == h[f"{b.schema}.marks"] and h[f"{a.schema}.marks"][1].startswith("rs1:")
+    b.execute("UPDATE marks SET mark = ? WHERE pid = ?", ("not_now", "P2"))
+    h2 = bk.row_counts(src)
+    assert (
+        h2[f"{a.schema}.marks"][0] == h2[f"{b.schema}.marks"][0] and h2[f"{a.schema}.marks"] != h2[f"{b.schema}.marks"]
+    )
+    assert (
+        bk.row_counts(src, scheme="md5")[f"{a.schema}.marks"][1]
+        == bk.row_counts(src, scheme="md5")[f"{a.schema}.marks"][1]
+    )
+    a.migrate(["CREATE TABLE marks (pid TEXT PRIMARY KEY, mark TEXT)", "CREATE TABLE empty (x int)"])
+    assert bk.row_counts(src)[f"{a.schema}.empty"] == [0, bs.EMPTY_HASH["rs1"]]
+    assert bk.row_counts(src, scheme="md5")[f"{a.schema}.empty"] == [0, bs.EMPTY_HASH["md5"]]
+
+
+def test_the_host_part_is_in_the_backup_and_restored_only_where_named(box: dict[str, object], tmp_path: Path) -> None:
+    """DI-12: the nightly run's host files (deploy/.env, settings) are in the backup; a restore writes them only to a
+    folder named ``host`` and otherwise says where they are."""
+    pre = tmp_path / "dumps"
+    (pre / "host").mkdir(parents=True)
+    src = bk.db_sources({"TB_DB_URL": str(box["url"])})[0]
+    bk.dump(src, pre / "trialbox_wf.dump", {"TB_DB_URL": str(box["url"])})
+    (pre / "host" / "deploy.env").write_text("TB_SITE_ID=CGMH\n")
+    (pre / "host" / "settings.yaml").write_text("site: {tz: Asia/Taipei}\n")
+    f = bk.backup([tmp_path / "nas"], box["pub"], env=_env(box, TB_PG_DUMP_DIR=str(pre)), dirs=box["dirs"])[0]  # type: ignore[arg-type]
+    m = bk.unpack(f, box["priv"], tmp_path / "x")  # type: ignore[arg-type]
+    assert {"dirs/host/deploy.env", "dirs/host/settings.yaml"} <= set(m["files"])
+    out = bk.restore(f, box["priv"], env=_env(box), dirs=box["dirs"], no_copy=True)  # type: ignore[arg-type]
+    assert out["ok"] and "not restored" in out["host"]
+    where = tmp_path / "host-restored"
+    out = bk.restore(f, box["priv"], env=_env(box), dirs={**box["dirs"], "host": where}, no_copy=True)  # type: ignore[dict-item,arg-type]
+    assert (where / "deploy.env").read_text() == "TB_SITE_ID=CGMH\n" and out["host"].startswith("restored to")
