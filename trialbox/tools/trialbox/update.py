@@ -1163,7 +1163,10 @@ class ComposeBox(_DockerImages):
         if (self.deploy / "secrets" / "services" / "public" / "tokens.json").is_file():
             from tools.trialbox import svc_secrets
 
-            svc_secrets.ensure_model_key(self.deploy)
+            try:
+                svc_secrets.ensure_model_key(self.deploy)
+            except svc_secrets.SecretsError as e:  # T-608 (D-445): two different model keys stop the update
+                raise UpdateFailed(str(e)) from e
         return made
 
     def restart(self, plan: Plan) -> None:

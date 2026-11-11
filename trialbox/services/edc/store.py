@@ -457,6 +457,47 @@ class EdcStore:
                      str(d.get("target") or "")))))  # fmt: skip
         return ids
 
+    def add_proposals(self, study: str, proposals: list[dict[str, Any]], run_id: str, by: str,
+                      at: str) -> dict[str, list[dict[str, Any]]]:  # fmt: skip
+        """Values read from an outside file (an ODM import, D-435) as open drafts, in one transaction. Unlike a draft
+        run, only the open or rejected draft of the **same** record, visit and item is superseded; an item a person
+        confirmed or edited keeps its decision (``decided``), and the same value from the same file is not drafted
+        again (``same``). Each proposal: ``record``, ``pid``, ``visit``, ``visit_date`` and a draft row as in
+        :meth:`add_drafts`. A record key stays bound to its one subject (D-162). Nothing is decided or signed."""
+        out: dict[str, list[dict[str, Any]]] = {"drafted": [], "decided": [], "same": []}
+        with self._db.transaction() as tx:
+            for rec, pid in sorted({(str(p["record"]), str(p["pid"])) for p in proposals}):
+                other = tx.fetchval("SELECT pid FROM draft WHERE study = ? AND record = ? AND pid <> ? LIMIT 1",
+                                    (study, rec, pid))  # fmt: skip
+                if other is not None:
+                    raise EdcError("edc.pid_mismatch", "this record key was drafted for another subject")
+            for p in proposals:
+                key = (study, p["record"], p["visit"], p["item"])
+                cur = tx.fetchdicts("SELECT id, fate, value, citation FROM draft WHERE study = ? AND record = ? AND "
+                                    "visit = ? AND item = ? AND fate <> 'superseded' ORDER BY id FOR UPDATE",
+                                    key)  # fmt: skip
+                brief = {"record": p["record"], "visit": p["visit"], "item": p["item"]}
+                if any(r["fate"] in DECIDED for r in cur):
+                    out["decided"].append(brief)
+                    continue
+                last = cur[-1] if cur else None
+                if (last is not None and last["fate"] == "open" and last["value"] == p["value"]
+                        and (_cit(last["citation"]) or {}).get("file") == p["citation"]["file"]):  # fmt: skip
+                    out["same"].append(brief)
+                    continue
+                tx.execute("UPDATE draft SET fate = 'superseded' WHERE study = ? AND record = ? AND visit = ? AND "
+                           "item = ? AND fate IN ('open', 'rejected')", key)  # fmt: skip
+                did = int(tx.fetchval(
+                    "INSERT INTO draft (study, record, pid, visit, visit_date, item, form, cdash, test, value, state, "
+                    "why, citation, version, run_id, built_by, built_at, map_sha, dict_sha, target) VALUES "
+                    "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
+                    (study, p["record"], p["pid"], p["visit"], p["visit_date"], p["item"], p["form"], p["cdash"],
+                     p["test"], p["value"], "drafted", p["why"], json.dumps(p["citation"], ensure_ascii=False),
+                     p["version"], run_id, by, at, str(p.get("map_sha") or ""), str(p.get("dict_sha") or ""),
+                     str(p.get("target") or ""))))  # fmt: skip
+                out["drafted"].append({**brief, "id": did})
+        return out
+
     def _row(self, r: dict[str, Any]) -> dict[str, Any]:
         r = dict(r)
         r["citation"] = _cit(r.get("citation"))

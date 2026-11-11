@@ -12,6 +12,11 @@ persona makes the stub enforce a context as vLLM does: a request whose prompt (e
 :func:`tb_llm.budget.estimate_messages`) plus ``max_tokens`` is over it gets vLLM's HTTP 400 "maximum context
 length", and ``/v1/models`` reports ``max_model_len``. So a test shows that what callers size from the gateway's
 context is accepted by a server that enforces it.
+
+**Token counts are estimates (T-608, D-445; review LLM-046).** ``usage`` counts tokens with the same estimate as the
+callers' budgets (:mod:`tb_llm.budget`: a CJK character about one token, Latin about four characters per token) and
+says so (``usage.estimated: true``); the gateway's call record carries ``tokens_estimated``. No figure from a stub run
+is a measured token count.
 """
 
 from __future__ import annotations
@@ -25,7 +30,7 @@ from typing import Any
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from tb_common.http import make_app
-from tb_llm.budget import estimate_messages
+from tb_llm.budget import estimate_messages, estimate_tokens
 
 from llm_stub.handlers import HANDLERS, MESSAGE_HANDLERS, OBEYING, PERSONAS, obey
 
@@ -136,13 +141,14 @@ async def completions(request: Request) -> Any:
 
 
 def _completion(body: dict[str, Any], message: dict[str, Any], finish: str) -> dict[str, Any]:
-    n_in = sum(len(str(x.get("content", ""))) for x in body.get("messages", [])) // 4
-    n_out = len(json.dumps(message, ensure_ascii=False)) // 4
+    # LLM-046: the callers' estimate (CJK-aware), marked as one; characters / 4 was four times low for CJK
+    n_in = estimate_messages(body.get("messages") or [])
+    n_out = estimate_tokens(str(message.get("content") or ""))
     return {
         "id": f"stub-{int(time.time() * 1000)}",
         "object": "chat.completion",
         "created": int(time.time()),
         "model": body["model"],  # the served name it was asked under, as vLLM answers
         "choices": [{"index": 0, "message": message, "finish_reason": finish}],
-        "usage": {"prompt_tokens": n_in, "completion_tokens": n_out, "total_tokens": n_in + n_out},
+        "usage": {"prompt_tokens": n_in, "completion_tokens": n_out, "total_tokens": n_in + n_out, "estimated": True},
     }
