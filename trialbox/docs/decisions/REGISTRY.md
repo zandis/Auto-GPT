@@ -66,7 +66,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-216 | reserved | T-119 | Cloud hygiene remainder |
 | D-217..D-219 | unused | — | no card of TB-ASSESS-01 took them |
 | D-220 | reserved | T-103 | One reveal path |
-| D-221 | reserved | T-107 | The catalogue loaded as data |
+| D-221 | unused | T-107 | The catalogue loaded as data (voided: T-107 took D-353) |
 | D-222 | reserved | T-109 | Identity v1: Caddy, Authelia, local TOTP, step-up, forced password … |
 | D-223 | reserved | T-112 | The data-operations console v1 |
 | D-224 | reserved | T-116 | "Criteria not matched", the forbidden-word check and the intended-use … |
@@ -160,3 +160,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-331 | merged | T-510 | in-product feedback: a flag, a rating and a comment on every page, stored with path, language, role and time; CSV export to issues; the comment in the demo scan (file) |
 | D-332 | merged | T-508 | the clinician PoC is product evaluation, not research: no protocol, subject consent or committee step; the acknowledgement only (file) |
 | D-334 | merged | T-613b | lab units read per row: one conversion table in labvalue (engines' factors reused), mapping_check unit pairs and raw values, one presence reader in ja, zh-TW, en (file) |
+| D-353 | merged | T-107 | the clinical item catalogue loaded as data: one concept per item at stable ids, LOINC unmapped never invented, the storable gate in chart extraction, the steward items page (file) |
