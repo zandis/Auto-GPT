@@ -353,9 +353,13 @@ def run_ingest(
     except Exception as exc:
         if cfg.audit_dir:
             try:
-                open_audit(cfg.audit_dir, cfg.tz).append(
+                night_event(
+                    cfg,
                     "ingest.failed",
                     snapshot=snapshot or datetime.now(ZoneInfo(cfg.tz)).date().isoformat(),
+                    source=source_kind,
+                    passed=False,
+                    held=False,
                     actor="adapter",
                     detail={
                         "source": source_kind,
@@ -763,9 +767,14 @@ def _run_ingest(
             encoding="utf-8",
         )
     if cfg.audit_dir:
-        open_audit(cfg.audit_dir, cfg.tz).append(
+        night_event(
+            cfg,
             "ingest.done" if passed else "ingest.held" if held else "ingest.failed",
             snapshot=snap,
+            source=source_kind,
+            passed=passed,
+            held=held,
+            started_at=started.isoformat(),
             output_sha=sha256_bytes(body),
             actor="adapter",
             detail={
@@ -815,6 +824,29 @@ def _run_ingest(
 
 
 _REFERENCE = re.compile(r"^Patient/(.+)$")
+
+
+def night_event(cfg: AdapterConfig, event: str, *, snapshot: str, source: str, passed: bool, held: bool,
+                started_at: str = "", **fields: Any) -> None:  # fmt: skip
+    """The night's audit event and its ``dataops.batch`` row, in one transaction (T-112a, D-427): the one adapter
+    hook of the data-operations schema. A trial database that cannot be reached does not hide the night's event: it
+    is written without a row, says so (``detail.batch`` is ``None``) and the log names the error."""
+    from datacore.dataops import DataOps
+
+    audit = open_audit(cfg.audit_dir, cfg.tz)
+    at = datetime.now(ZoneInfo(cfg.tz)).isoformat()
+    try:
+        ops = DataOps(cfg.db_url or os.environ.get(DB_URL_ENV))
+    except Exception as exc:  # the store's own failure must not hide the night's event
+        log.error("the night's batch row was not written", extra={"error": type(exc).__name__})
+        fields["detail"] = {**(fields.get("detail") or {}), "batch": None}
+        audit.append(event, snapshot=snapshot, **fields)
+        return
+    try:
+        ops.record_night(audit, event, source=source, snapshot=snapshot, passed=passed, held=held, by="adapter",
+                         at=at, started_at=started_at, **fields)  # fmt: skip
+    finally:
+        ops.close()
 
 
 def apply_aliases(by_type: dict[str, list[Resource]], aliases: dict[str, str]) -> int:
