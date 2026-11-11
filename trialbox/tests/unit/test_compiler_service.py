@@ -14,6 +14,7 @@ import tb_contracts as c
 from criteria_compiler.compile_cql.translator import Translation
 from criteria_compiler.repo import RulesetRepo
 from criteria_compiler.review import parse_review_xlsx
+from criteria_compiler.semantics import compiled
 from criteria_compiler.service import CompileFailed, Compiler, CompilerDeps
 from criteria_compiler.terminology.mapper import Terminology
 from doc_parser.parser import parse
@@ -42,7 +43,7 @@ class FakeGate:
         self, criteria: list[c.CriterionIR], sql: str, library: str, index_date: date, seed: str
     ) -> c.EquivalenceReport:
         self.calls += 1
-        ids = [x.id for x in criteria if x.class_ == "structured"]
+        ids = [x.id for x in compiled(criteria)]  # T-652: a gate answers for every compiled criterion, mixed too
         per = {i: (50.0 if i in self.failing else 100.0) for i in ids}
         return c.EquivalenceReport(
             overall_pct=100.0 if not self.failing else 90.0,

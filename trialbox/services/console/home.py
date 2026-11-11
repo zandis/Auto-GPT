@@ -25,6 +25,7 @@ from typing import Any, cast
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
+from tb_common.authz import can_request
 from tb_common.service_auth import bind_session, scope_of
 from tb_contracts import Job
 
@@ -56,6 +57,16 @@ _PID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 REVEAL_NOTE_MIN = 10  # D-273 (ROLE-016): the written "why" a reveal for "other" needs, in characters
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 SCREEN_TYPES = ("MICROBATCH", "SCREEN")
+
+
+STALE_DAYS = 2  # FIT-U01: a list whose data is older than this many days is shown amber
+
+
+def data_as_of(job: Job, today: date) -> dict[str, Any]:
+    """FIT-U01 (T-512): the day of the data a list was made from (the run's snapshot, else the run's own day), and
+    whether it is more than :data:`STALE_DAYS` old. Every patient list shows it, so nobody acts on old data unawares."""
+    day = job.snapshot_date or job.run_date or (job.updated_at or job.received_at).date()
+    return {"day": day.isoformat(), "stale": (today - day).days > STALE_DAYS}
 
 
 @dataclass
@@ -94,11 +105,13 @@ class Helpers:
     optout: Any = None
     may: Callable[..., bool] | None = None
     may_approve: Callable[..., bool] | None = None
+    stand: Callable[..., Any] | None = None  # console.team.standing for one account and study (T-512)
     team_due: Callable[[str], bool] | None = None
     apply_reveal: Callable[..., tuple[dict[str, Any], str]] | None = None  # set by register(): D-143's reveal
     chart_lookup: Callable[[Session, str], None] | None = None  # set by console.team: the lookup cap (D-273)
     ops_summary: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages (D-178): the health tile
     identity: Any = None  # console.identity.Identity (D-279): the second factor at signing; None in bare test apps
+    recorded: Any = None  # console.recorded_opinions.Recorded (T-515): demo opinions laid over the candidate list
 
     def gone(self) -> set[str]:
         """D-273 (PV-4): the pseudonyms on the opt-out register now. Every patient-level reader (lists, the excluded
@@ -118,6 +131,16 @@ class Helpers:
         if user.role != "investigator" or self.may is None:
             return True
         return bool(rid) and any(self.may(user, rid, t) for t in tasks)
+
+    def may_run(self, user: Any, rid: str | None, command: str) -> bool:
+        """T-512 (D-349, Q-04): may this account start ``command`` on study ``rid``? ``tb_common.authz.can_request``
+        decides, with the account's standing in the study (the delegation log) for an investigator."""
+        if user.role != "investigator":
+            return can_request(user.role, command)
+        if not rid or not user.sees_study(rid) or self.stand is None:
+            return False
+        s = self.stand(user, rid)
+        return can_request(user.role, command, is_pi=s.pi, tasks=s.tasks)
 
     def today(self) -> date:
         """The site's calendar date now (site.tz), the one "today" of every console rule (D-270).
@@ -241,6 +264,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         if job is None:
             return None
         cl = load(job, "candidate_list_", ".json")
+        if h.recorded:  # T-515 (D-323): recorded first and second checks on a DEV demo, each with its source
+            cl = h.recorded.apply(cl, rs)
         removed: list[str] = []
         if cl is not None and h.optout is not None:  # D-147: an opted-out patient is on no list, page or mail
             out = h.optout.active()
@@ -262,7 +287,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             today=h.today(),
         )
         return {"job": job, "rows": rows, "counts": st.week_counts(rows), "summary": summary or {}, "cl": cl,
-                "removed": removed}  # fmt: skip
+                "removed": removed, "asof": data_as_of(job, h.today())}  # fmt: skip
 
     def study_card(sess: Session, r: Any, jobs: list[Job]) -> dict[str, Any]:
         rs = r.id
@@ -476,6 +501,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             cap_keys=keys,
             cap_values=CAP_VALUES,
             can_edit=sess.user.can_request,
+            can_refresh=h.may_run(sess.user, rid, "FEAS"),  # T-512 (D-349): the PI refreshes feasibility too
             saved=saved == "1",
             refreshed=refreshed == "1",
             registry=next((r.kind for r in bk.rulesets() if r.id == rid), "") in st.REGISTRY_KINDS,
@@ -488,7 +514,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
-        if not sess.user.can_request or h.submit is None:
+        if not h.may_run(sess.user, rid, "FEAS") or h.submit is None:  # T-512 (D-349): the PI may refresh
             au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
         if not any(r.id == rid and r.status == "approved" for r in bk.rulesets()):
@@ -649,6 +675,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             "rs": rid,
             "pid": pid,
             "job": wk["job"],
+            "asof": wk["asof"],
             "row": row,
             "listed": listed,
             "fit": st.fit_facts(row.get("criteria") or [], crit),

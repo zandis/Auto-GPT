@@ -1,8 +1,11 @@
 # Qualification records
 
 `python -m tools.trialbox eval qualify --profile <profile>` (`tools/qualify.py`, D-313) writes one record here per
-run: `<profile>-<judge build>-<UTC time>.json`. It follows `schemas/qualification_record.schema.json`. A record is
-`passed` only when every step of `tools.qualify.STEPS` is in it and `passed`; a missing step is a failed step.
+run: `<profile>-<judge build>-<UTC time>.json`. It follows `schemas/qualification_record.schema.json`. Each record
+cites the model change protocol (`docs/validation/model-change-protocol.md`, D-343) by path, sha256 and change id:
+give the change with `--change MC-n` (default `MC-0`, a first qualification). The `n12` evidence must say `"basis":
+"unadjusted"`. A record is `passed` only when every step of `tools.qualify.STEPS` is in it and `passed`; a missing
+step is a failed step.
 
 Check a record before you rely on it:
 
