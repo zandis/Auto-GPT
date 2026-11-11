@@ -105,7 +105,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-257 | reserved | T-315 | Test strategy executed: the journeys as the PQ script, IQ/OQ/PQ … (second record) |
 | D-258 | reserved | T-316 | Consortium: the shared code-map registry, signed counts, the … |
 | D-259 | reserved | T-317 | Documents made true, role guides in ja and zh-TW, the independent … |
-| D-260 | reserved | T-318 | Privacy documentation, the incident plan and the one-page "what this … |
+| D-260 | unused | T-318 | TB-ASSESS-01 reservation for T-318, void: T-318 takes D-411 |
 | D-261 | reserved | T-319 | Shared-host isolation on the acceptance cluster and the platform KEK … |
 | D-262 | reserved | T-320 | Site set-up limits, the EMR launch link, the work log, admin console … |
 | D-263..D-269 | unused | — | below the fix-group block; never given |
@@ -221,3 +221,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-401 | merged | T-108c | the mail outbox: a send key leaves `sending` in the same call (queued, failed, uncertain), a stale one becomes uncertain; an outage answers 202 so the job stays done; back-off retries; `trialbox mail status` and `mail resolve`; 200 mails per recipient a day, 10 refusal replies per sender a day; the mail intake limit per heavy job type (D-146 J-02) (file) |
 | D-405 | merged | T-209b | the support bundle: `trialbox support-bundle` writes one 0600 archive with a manifest; TrialBox's own service logs only (never PostgreSQL, HAPI or vLLM logs, `/data`, volumes, secrets, keys, backups or the audit chain); scrubbed, every line the data-handling scan flags removed and reported, the finished archive scanned again or nothing is written (file) |
 | D-409 | merged | T-113b | the shared-quota profile on two MIG instances: `gpu_profile.sh` knows a B200 (`b200-no-mig`), registry builds and a pin job, the serving rule keyed on the MIG profile, `doctor --platform` checks `mig_instances` (not time-sliced, two of them) and `model_key` (model-guard and the key on the platform; a call without the key is refused); stand-in devices on kind (file) |
+| D-411 | merged | T-318 | privacy documents per site in `docs/plan/sites/privacy/` and the incident plan `docs/plan/sites/incident-response.md`: severity S1 to S4, roles, clocks C1 to C9 (the vendor tells the hospital within 1 hour for S1), the six cases, first-hour list, templates in ja and zh-TW; the legal-basis memo is a slot (D-311 B26); the one-pager rendered by `tools/onepager.py` (file) |
