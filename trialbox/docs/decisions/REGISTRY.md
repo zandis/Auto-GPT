@@ -188,3 +188,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-372 | merged | T-676 | the FHIR package set from packages.fhir.org; TWPAS by `profiles.twpas_version` (1.2.5 until CGMH answers), the cache holds that version; extensions 5.4.0 and terminology 7.5.0 for the whole cache; supersedes D-63 (file) |
 | D-360 | merged | T-108a | compose limits: a memory and a pids cap on every service, health checks, capped logs, the lake sized from its cap, the host watchdog that restarts an unhealthy service and audits it (file) |
 | D-363 | merged | T-643 | record inventory in `docs/validation/record-inventory.md`, mapped to every table the code creates; the release record carries it (file) |
+| D-383 | merged | T-305a | snapshot pinning: every job reads the lake snapshot it pinned at its first lake call (`Job.snapshot_date`); a snapshot older than `TB_LAKE_MAX_SNAPSHOT_AGE_DAYS` (3 in production compose, 0 = off) is refused with `LAKE-STALE` (file) |

@@ -197,7 +197,8 @@ services:
                   TB_GATEWAY_URL: "http://gateway:8020/v1", TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}",
                   TB_GATEWAY_VERIFIER_MODEL: "${TB_GATEWAY_VERIFIER_MODEL:-}", TB_DATA_CLASS: "${TB_DATA_CLASS:-}",
                   TB_NOTE_BLOCK: "${TB_NOTE_BLOCK:-both_agree}", TB_MODEL_SWAP: "${TB_MODEL_SWAP:-}",
-                  TB_SELFTEST: "${TB_SELFTEST:-on}"}
+                  TB_SELFTEST: "${TB_SELFTEST:-on}",
+                  TB_LAKE_MAX_SNAPSHOT_AGE_DAYS: "${TB_LAKE_MAX_SNAPSHOT_AGE_DAYS:-3}"}  # D-383
     networks: [trialbox-net, egress-net]   # only service allowed to reach NHI_TWPAS_BASE_URL (network.sh)
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
