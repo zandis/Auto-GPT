@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from tb_common import kek as K
 from tb_common import objstore as O
 from tb_common.audit import verify
 
@@ -18,7 +19,7 @@ from tests.integration.test_case_inproc import CHART, KEY, _sheet
 from tools import keys as keys_cli
 
 RUN = date(2026, 10, 5)
-MRN_IN_CHART = "病歷號 88123456"  # a synthetic chart number written in the uploaded chart
+MRN_IN_CHART = "病歷號 SYNTH-CHART-X1"  # a synthetic chart number marker written in the uploaded chart
 
 
 @pytest.fixture(scope="module")
@@ -66,7 +67,7 @@ def test_no_phi_output_or_upload_is_plaintext_on_disk_after_a_run(world: dict[st
     assert {f"outputs/{job.job_id}/{o.filename}" for o in job.outputs or []} <= names
     assert not O.plain_objects(root), "a plaintext file in a sealed bucket"
     # the acceptance grep: no patient text anywhere in the object store, as bytes or as UTF-8
-    needles = [s.encode() for s in ("急性痛風發作", "88123456", "allopurinol", "適格性檢核表")]
+    needles = [s.encode() for s in ("急性痛風發作", "SYNTH-CHART-X1", "allopurinol", "適格性檢核表")]
     for p in root.rglob("*"):
         if p.is_file():
             data = p.read_bytes()
@@ -78,6 +79,6 @@ def test_no_phi_output_or_upload_is_plaintext_on_disk_after_a_run(world: dict[st
 def test_the_box_with_the_kek_locked_refuses_new_uploads(world: dict[str, Any], tmp_path: Path) -> None:
     box: Box = world["box"]
     locked = O.FsStore(box.store.root, world["sec"], {"TB_KEK_FILE": str(tmp_path / "absent")})
-    with pytest.raises(O.K.KekLockedError):
+    with pytest.raises(K.KekLockedError):
         locked.put("attachments/JX/chart.md", b"chart")
     assert not (box.store.root / "attachments/JX").exists()
