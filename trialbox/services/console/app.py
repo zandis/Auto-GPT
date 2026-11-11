@@ -45,7 +45,7 @@ from tb_common.authz import admin_allowed
 from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
-from tb_common.flowledger import record_export
+from tb_common.flowledger import level_of_tag, record_export
 from tb_common.reasons import label as reason_label
 from tb_common.service_auth import bind_session, scope_of
 from tb_common.ulid import new_ulid
@@ -1131,6 +1131,9 @@ def create_app(
     from console import ops_pages
 
     ops_pages.register(app, helpers, raw_env)  # D-178: backups, update and rollback, logs, secrets, network sheet
+    from console import metrics_page
+
+    metrics_page.register(app, helpers)  # T-209a (D-379): /metrics and the box's health for the morning mail
     from console import sae_pages
 
     sae_pages.register(app, helpers)  # the SAE register and its worklist (D-191)
@@ -1316,6 +1319,7 @@ def create_app(
             barriers=_barriers(feas),
             aggregate=[o for o in job.outputs or [] if o.tag == "aggregate"],
             phi=[o for o in job.outputs or [] if o.tag == "phi"],
+            phi_dl={o.filename for o in job.outputs or [] if o.tag == "phi" and phi_download_ok(sess, job, o)},
             review=_review_book(job) if job.state == "awaiting_approval" else None,
             review_html=review_html,
             split=_check_split(review_html) if job.state == "awaiting_approval" else None,
@@ -1490,6 +1494,21 @@ def create_app(
             "subject": rec.get("subject") or {},
         }
 
+    def phi_download_ok(sess: Session, job: Job, out: JobOutput) -> bool:
+        """D-369 (OD-1, PV-18): the guarded download of link mode. A patient-level file leaves by the browser only
+        to a person the job mailed it to (its named recipients, by the account's mailbox), who may read patient data
+        (coordinator or investigator) for that study. The administrator, viewers and every other account never."""
+        box = (sess.user.mailbox or "").strip().lower()
+        named = {r.strip().lower() for r in out.recipients}
+        return (
+            out.tag == "phi"
+            and bool(box)
+            and box in named
+            and sess.user.can_view_phi
+            and sess.user.sees_study(job.ruleset or "")
+            and helpers.delegated_ok(sess.user, job.ruleset)
+        )
+
     @app.get("/pilot/jobs/{job_id}/files/{filename}")
     def job_file(request: Request, job_id: str, filename: str) -> Response:
         sess = need(request)
@@ -1497,7 +1516,8 @@ def create_app(
         if not _FILE.match(filename):
             raise _Problem(404, "notfound")
         out = next((o for o in job.outputs or [] if o.filename == filename), None)
-        if out is None or out.tag != "aggregate":  # patient-level files never leave by the browser
+        # patient-level files leave by the browser only to their named recipients (D-369 guarded download)
+        if out is None or (out.tag != "aggregate" and not phi_download_ok(sess, job, out)):
             raise _Problem(404, "notfound")
         data = bk.get_object(out.minio_key)
         au.append(
@@ -1507,8 +1527,11 @@ def create_app(
             output_sha=sha256_bytes(data),
             detail={"filename": filename, "tag": out.tag},
         )
-        record_export(au, channel="console_download", filename=filename, data=data, identifier_level="aggregate",
-                      approval=f"console role {sess.user.role}; aggregate output of job {job_id}",
+        level = level_of_tag(out.tag)
+        record_export(au, channel="console_download", filename=filename, data=data, identifier_level=level,
+                      approval=f"console role {sess.user.role}; {out.tag} output of job {job_id}"
+                      + ("; named recipient (D-369)" if out.tag == "phi" else ""),
+                      recipients=[sess.user.mailbox] if out.tag == "phi" and sess.user.mailbox else (),
                       actor=actor(sess), ruleset=job.ruleset, job_id=job_id)  # fmt: skip
         ctype = {
             ".pdf": "application/pdf",
