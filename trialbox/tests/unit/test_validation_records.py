@@ -29,10 +29,10 @@ T215_FILES = [
     "supplier-assessments.md",
     "release-records/README.md",
 ]
-# Card T-654's records (PR #142). They are linked, not written, here; until that card merges they may be absent.
+# Card T-654's records (PR #142): all four are in the folder now, so a link to one must resolve like any other.
 T654_FILES = {"software-safety-classification.md", "development-plan.md", "soup.csv", "problems.csv"}
-# Named in the layout as planned by other cards.
-PLANNED = {"record-inventory.md", "protocols/"}
+# Named in the layout as planned by other cards and not in the folder yet (record-inventory.md has landed).
+PLANNED = {"protocols/"}
 # Made by a build or on the box, not committed.
 MADE = {"release.json"}
 # Named in the README as struck by D-311; they must not exist.
@@ -67,7 +67,7 @@ def looks_like_path(token: str) -> bool:
 def resolves(token: str, here: Path = VAL) -> bool:
     name = token.split("#", maxsplit=1)[0].split("::", maxsplit=1)[0].rstrip("/")
     short = name.removeprefix("docs/validation/").removeprefix("../")
-    if short in {p.rstrip("/") for p in T654_FILES | PLANNED | MADE | STRUCK}:
+    if short in {p.rstrip("/") for p in PLANNED | MADE | STRUCK}:
         return True
     return any((base / name).exists() for base in (here, ROOT, REPO, VAL))
 

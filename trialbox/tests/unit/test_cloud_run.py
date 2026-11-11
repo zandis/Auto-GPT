@@ -108,6 +108,20 @@ def test_the_heartbeat_follows_the_part_working_not_its_output(tmp_path: Path, b
         assert (hb.stat().st_mtime > 0) is busy
 
 
+@pytest.mark.skipif(not Path("/proc").is_dir(), reason="the CPU check reads /proc (Linux)")
+def test_a_part_that_has_ended_gives_no_heartbeat(tmp_path: Path) -> None:
+    # the window between the part's end (p.wait()) and Heartbeat.close(): a process that is gone is not busy
+    hb = tmp_path / "hb"
+    hb.touch()
+    os.utime(hb, (0, 0))
+    p = subprocess.Popen([sys.executable, "-c", "pass"])
+    p.wait()
+    beat = cr.Heartbeat(str(hb), p.pid, every=0.05)
+    time.sleep(0.5)
+    beat.close()
+    assert beat.beats == 0 and hb.stat().st_mtime == 0
+
+
 # ------------------------------------------------------------------------------------------------ C-02, C-03: data
 def test_a_part_without_its_data_fails_at_once_and_says_so(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from tools import medtxt_eval, trec_ct_eval

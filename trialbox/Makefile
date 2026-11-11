@@ -18,7 +18,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked test-random test-random-locked test-pure test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
+.PHONY: security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked test-random test-random-locked test-pure test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
 	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle supply-chain release-version release-tag
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
@@ -150,13 +150,16 @@ security-scan:
 # the CI gate's jobs, in the order of .github/workflows/trialbox-ci.yml (D-206): lint, types, docs, contracts, trace,
 # unit (+ the scan of its log), e2e-simple, goldens, data-scan, security, shell, images (if hadolint is installed); then the
 # offline supply-chain checks (lock-check, allowlist-check; `make supply-chain` is trialbox-supply-chain.yml). Stops at
-# the first failing job.
+# the first failing job. Not here: the `standards` job (Maven and the FHIR registries) and the coverage ratchet.
 CI_LOG ?= $(TB_TEST_ROOT)/unit.log
 ci: venv-check
 	$(PY) -m ruff check . && $(PY) -m ruff format --check .
 	$(PY) -m mypy libs services tools tests
 	$(PY) tools/doclint.py
+	PYTHONPATH=libs:services:. $(PY) -m tools.decisions_index --check
+	PYTHONPATH=libs:services:. $(PY) -m tools.licence_register --check
 	$(MAKE) contracts-check
+	TB_ENV=DEV TB_TZ=Asia/Taipei PYTHONPATH=libs:services:. $(PY) -m tools.build_rulesets --check
 	$(PY) tools/gen_traceability.py --check  # warnings only (D-311)
 	@mkdir -p "$(TB_TEST_ROOT)"
 	set -o pipefail; $(MAKE) test 2>&1 | tee "$(CI_LOG)"
@@ -166,7 +169,7 @@ ci: venv-check
 	$(MAKE) data-scan
 	$(MAKE) security-scan
 	git ls-files -z '*.sh' | xargs -0 shellcheck --severity=warning  # OPS-076: warnings gate, as in CI
-	@if command -v hadolint >/dev/null; then hadolint --failure-threshold warning deploy/docker/python.Dockerfile deploy/docker/jvm.Dockerfile demo/Dockerfile || true; else echo "ci: images: hadolint not installed, skipped"; fi
+	@if command -v hadolint >/dev/null; then hadolint --failure-threshold warning deploy/docker/python.Dockerfile deploy/docker/jvm.Dockerfile demo/Dockerfile; else echo "ci: images: hadolint not installed, skipped"; fi
 	$(MAKE) lock-check allowlist-check
 
 HL7_ENV := TB_HL7_VALIDATOR_JAR=$(CURDIR)/.cache/jvm/validator_cli.jar TB_FHIR_PACKAGE_HOME=$(CURDIR)/.cache/jvm/fhir-home
@@ -217,7 +220,7 @@ test-e2e:
 
 # the nightly compose job (ENG-017, T-653; trialbox-e2e.yml): with `make up-test` running, every test marked
 # integration or e2e (HAPI CQL and the equivalence gate against HAPI, the compose data, the database image, mail
-# through GreenMail and MailHog, the role walk) except the egress test (root and nftables: `make test-egress`) and the
+# through GreenMail and Mailpit, the role walk) except the egress test (root and nftables: `make test-egress`) and the
 # console POC (`make poc`, `make test-console-e2e`). TB_STRICT_SKIPS=1: a skipped test fails, so a missing stack,
 # browser or jar never passes for green. COMPOSE_JUNIT names the junit file.
 COMPOSE_JUNIT ?= $(TB_TEST_ROOT)/compose-junit.xml

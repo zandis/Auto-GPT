@@ -124,11 +124,17 @@ for LAY in $("${PY[@]}" layouts); do
     --out "$D/serving_config.json" || true
   "${PY[@]}" fingerprint --out "$D/fingerprint.json"
   [ -f "$D/serving_config.json" ] && "${PY[@]}" stamp "$D/serving_config.json" "$D/fingerprint.json"
-  docker logs "$JC" > "$D/judge.log" 2>&1 || true
-  docker logs "$VC" > "$D/verifier.log" 2>&1 || true
+  # the servers' logs follow the run (the log_marker step searches what the servers wrote during it; a copy taken
+  # before the run could never hold the planted marker)
+  docker logs -f "$JC" > "$D/judge.log" 2>&1 &
+  JL=$!
+  docker logs -f "$VC" > "$D/verifier.log" 2>&1 &
+  VL=$!
   if [ -n "$QUALIFY" ]; then read -r -a QCMD <<< "$QUALIFY"; else QCMD=(python3 -m tools.trialbox eval qualify); fi
   "${QCMD[@]}" --profile shared-quota --gateway-url "$GATEWAY" --server-log "$D/judge.log" \
     --server-log "$D/verifier.log" --operator "$OPERATOR" --out "$D/qualification" ${EXTRA[@]+"${EXTRA[@]}"} || true
+  kill "$JL" "$VL" 2>/dev/null || true
+  wait "$JL" "$VL" 2>/dev/null || true
   newest="$(ls -t "$D"/qualification/*.json 2>/dev/null | head -1 || true)"
   [ -n "$newest" ] && cp "$newest" "$D/qualification.json"
   "${COMPOSE[@]}" down

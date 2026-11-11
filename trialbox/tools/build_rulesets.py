@@ -71,6 +71,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, default=ROOT / "rulesets")
     ap.add_argument("--approver", default="crc1@hospa.test")
     args = ap.parse_args(argv)
+    from tb_common.config import adopt_site_tz
+
+    adopt_site_tz()  # a synthetic site in one process: its site.tz as TB_TZ when unset (D-315)
     if args.check is not None or args.recompile is not None:
         ids = args.check if args.check is not None else args.recompile
         return offline(args.out, ids or shipped(args.out), write=args.recompile is not None)

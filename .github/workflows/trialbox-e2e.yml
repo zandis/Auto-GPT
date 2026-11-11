@@ -6,7 +6,7 @@
 # network call shows here, not on a pull request), the performance gate on the stub at 5,000 patients (ENG-030,
 # T-653: a phase more than 20 % slower than tools/bench_baseline.json fails), and the compose job (ENG-017, T-653):
 # the images built, `make up-test`, every integration and e2e test (HAPI CQL, the equivalence gate against HAPI, mail
-# through GreenMail and MailHog, the role walk), the browser walk of the public console, then `make poc` and the
+# through GreenMail and Mailpit, the role walk), the browser walk of the public console, then `make poc` and the
 # console POC test. The compose job allows no skip (TB_STRICT_SKIPS=1) and keeps its junit files and walk result.
 # workflow_dispatch runs the same jobs by hand; the first scheduled run after a change to this file is its proof.
 name: TrialBox nightly
@@ -33,7 +33,7 @@ env:
 
 jobs:
   nightly:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -125,7 +125,7 @@ jobs:
           path: |
             trialbox/.cache/jvm
             trialbox/.cache/fonts
-          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
+          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/tools/jvm-deps.sha256', 'trialbox/tools/fhir-packages.sha256', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
       - name: JVM dependencies and fonts
         run: make jvm-deps fonts
       - name: PostgreSQL server binaries and gpg
