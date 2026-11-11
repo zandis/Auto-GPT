@@ -32,7 +32,7 @@ verification and no file; the event names were raw codes in every language (ROLE
    counts per kind: reveals and their refusals, break-glass uses, exports and downloads. It shows what the events hold
    (study, purpose, reason, basis, cap, via, role) and joins in nothing: no name, no chart number. A chart-number
    lookup is not offered here (it would be a reveal; it would go through `Reveal.identifier`, D-438).
-4. **The file.** `/audit/patients/{pid}.csv` is the same report through the same guard, with the same filter, written
+4. **The file.** `/audit/patients/{pid}/report.csv` is the same report through the same guard, with the same filter, written
    as it is read; a cell that a spreadsheet would run as a formula is quoted.
 5. **Reading is audited.** One `console.audit_search` per browser page and one `console.audit_report` per report or
    file (with `format`), each with the filter (pseudonym, kind, event, person, dates), never the result.

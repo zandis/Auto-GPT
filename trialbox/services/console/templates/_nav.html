@@ -16,11 +16,12 @@
       {% if permit(r, 'items.view') %}{{ item('/data/items', 'items.title', path.startswith('/data/items')) }}{% endif %}
       {% if permit(r, 'conflicts.resolve') %}{{ item('/data/conflicts', 'conflicts.title', path.startswith('/data/conflicts')) }}{% endif %}
       {% if permit(r, 'dataops.view') %}{{ item('/data-ops', 'dataops.title', path.startswith('/data-ops')) }}{% endif %}
+      {% if permit(r, 'audit.browse') %}{{ item('/audit', 'nav.audit', path.startswith('/audit')) }}{% endif %}{# T-211c (D-451) #}
     {% elif r == 'admin' %}
       {{ item('/home', 'nav.admin', path == '/home') }}
       {{ item('/home?view=studies', 'nav.studies', false) }}
       {{ item('/ops/users', 'nav.users', path.startswith('/ops/users')) }}
-      {{ item('/audit', 'nav.audit', path.startswith('/audit')) }}
+      {% if permit(r, 'audit.browse') %}{{ item('/audit', 'nav.audit', path.startswith('/audit')) }}{% endif %}
       {% if permit(r, 'dataops.view') %}{{ item('/data-ops', 'dataops.title', path.startswith('/data-ops')) }}{% endif %}
     {% else %}
       {{ item('/home', 'nav.studies', path == '/home') }}
@@ -65,7 +66,7 @@
         <a href="/pilot/case">{{ t('nav.case') }}</a>
         <a href="/pilot/registry">{{ t('nav.registry') }}</a>
         {% if settings.test_smtp and not user.studies %}<a href="/pilot/mailbox">{{ t('nav.mailbox') }}</a>{% endif %}
-        {% if not user.studies %}<a href="/audit">{{ t('nav.audit') }}</a>{% endif %}
+        {% if not user.studies and permit(r, 'audit.browse') %}<a href="/audit">{{ t('nav.audit') }}</a>{% endif %}
         {% endif %}
         <a href="/settings/notices">{{ t('notices.title') }}</a>
         {% if r == 'admin' %}<a href="/admin/redcap">{{ t('s36.title') }}</a>{% endif %}
@@ -77,7 +78,7 @@
   {% else %}
     <a href="/" class="{{ 'active' if path == '/' else '' }}">{{ t('nav.overview') }}</a>
     {% if not user.aggregate_only %}<a href="/jobs" class="{{ 'active' if path.startswith('/jobs') else '' }}">{{ t('nav.jobs') }}</a>
-    <a href="/audit" class="{{ 'active' if path.startswith('/audit') else '' }}">{{ t('nav.audit') }}</a>{% endif %}
+    {% endif %}{% if permit(user.role, 'audit.browse') %}<a href="/audit" class="{{ 'active' if path.startswith('/audit') else '' }}">{{ t('nav.audit') }}</a>{% endif %}
     {% if user.is_admin %}<a href="/ops/users" class="{{ 'active' if path.startswith('/ops/users') else '' }}">{{ t('nav.users') }}</a>{% endif %}
   {% endif %}
 </nav>

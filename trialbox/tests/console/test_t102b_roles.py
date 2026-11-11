@@ -73,7 +73,7 @@ def test_the_administrator_sees_no_patient_row(box: dict[str, Any]) -> None:  # 
     assert r.status_code == 303
     admin, _ = login(box["app"])
     assert admin.get(f"/studies/GZQO/candidates/{A}").status_code == 403  # its refusal is audited with the path
-    assert A in crc.get("/audit").text  # a patient-level reader sees it: the probe below is not empty by accident
+    assert A in stw.get("/audit").text  # the steward's audit browser (D-451) shows it: the probe below is not empty
     api = _api(box, "admin")
     opened = 0
     for method, path in _routes(box["app"]):

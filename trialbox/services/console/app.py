@@ -18,7 +18,6 @@ adds ``console.*`` events to the shared audit chain before it acts.
 from __future__ import annotations
 
 import base64
-import dataclasses
 import hashlib
 import io
 import ipaddress
@@ -35,7 +34,7 @@ from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import urlencode
 
-from fastapi import FastAPI, File, Form, Query, Request, Response, UploadFile
+from fastapi import FastAPI, File, Form, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -66,7 +65,7 @@ from console.auth import (
     random_password,
     scope_values,
 )
-from console.backend import AuditRecord, Backend, MailItem, Refused, RulesetInfo, Unavailable
+from console.backend import Backend, MailItem, Refused, RulesetInfo, Unavailable
 from console.cascade import CascadeRuns
 from console.i18n import CATALOGUES, LANGS, pick_language, translate
 from console.identity import (
@@ -87,7 +86,6 @@ HERE = Path(__file__).resolve().parent
 COOKIE = "tb_console"
 LOGIN_COOKIE = "tb_console_login"
 LANG_COOKIE = "tb_console_lang"  # D-133: the language picked on the sign-in page (a preference, not a secret)
-AUDIT_PAGE, AUDIT_PAGES = 50, 20  # D-133: the audit trail page by page (the newest 1,000 events)
 TERMINAL = frozenset({"done", "failed", "cancelled"})
 DOC_EXT = (".pdf", ".docx", ".txt", ".md")
 MAX_UPLOAD = 50 * 1024 * 1024
@@ -277,22 +275,6 @@ def role_description(role: str, lang: str) -> str:
         return translate(lang, "roles.none")
     parts = [translate(lang, k) for k in seen]
     return "; ".join(translate(lang, "roles.cond", what=p) if seen[k] else p for k, p in zip(seen, parts, strict=True))
-
-
-_PSEUDONYM = re.compile(r"\b[0-9a-f]{32}\b")
-_PID_KEYS = frozenset({"pid", "pids"})
-
-
-def hide_pids(records: list[AuditRecord]) -> list[AuditRecord]:
-    """D-380 (CR-023): the audit trail for a reader without ``audit.ids`` (the administrator): every pseudonym in an
-    event's detail is hidden, the event itself stays."""
-
-    def one(k: str, v: Any) -> Any:
-        if k in _PID_KEYS:
-            return "•••"
-        return _PSEUDONYM.sub("•••", v) if isinstance(v, str) else v
-
-    return [dataclasses.replace(r, detail={k: one(k, v) for k, v in dict(r.detail or {}).items()}) for r in records]
 
 
 # D-272 (CR-016): one rule for the job line, the pages and the audit's stored form (``tb_common.audit``): ``mask_ids``
@@ -971,20 +953,6 @@ def create_app(
         running = any(j.state not in TERMINAL and j.state != "awaiting_approval" for j in items)
         return page(request, "jobs.html", sess, jobs=items, refresh=running)
 
-    @app.get("/audit", response_class=HTMLResponse)
-    def audit_view(
-        request: Request, page_no: Annotated[int, Query(alias="page", ge=1, le=AUDIT_PAGES)] = 1
-    ) -> Response:
-        """The audit trail, newest first, AUDIT_PAGE events per page (D-133, review F-07: one page used to hold 300
-        events, 130 phone screens)."""
-        sess = need(request)
-        recs = bk.audit(None, AUDIT_PAGE * page_no + 1)
-        more = len(recs) > AUDIT_PAGE * page_no
-        rows = recs[AUDIT_PAGE * (page_no - 1) : AUDIT_PAGE * page_no]
-        if not permit(sess.user.role, "audit.ids"):  # D-380 (CR-023): the administrator sees no pseudonym here
-            rows = hide_pids(list(rows))
-        return page(request, "audit.html", sess, records=rows, page_no=page_no, more=more and page_no < AUDIT_PAGES)
-
     # D-133 (review F-02): a new or reset one-time password never travels in a URL (history, proxy and access logs,
     # a forwarded link). It is kept here, in memory, for the session that made it, and shown once by the next page.
     # Never written to a log, the audit trail or a database; a restart forgets it (reset the password again).
@@ -1115,6 +1083,13 @@ def create_app(
         except AuthError as exc:
             raise _Problem(400, "request.refused", reason=str(exc)) from exc
         raise _Problem(400, "request.refused", reason="unknown action")
+
+    from console import audit_page
+
+    # T-211c (D-451): /audit, the privacy office's and the steward's audit browser, with or without the workspace
+    audit_page.register(
+        app, audit_page.Hooks(need=need, page=page, problem=_Problem, csrf_ok=csrf_ok, actor=actor, au=au)
+    )
 
     # ------------------------------------------------------------------ pilot workspace
     if not settings.pilot:

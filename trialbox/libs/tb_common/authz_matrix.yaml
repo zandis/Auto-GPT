@@ -19,7 +19,7 @@
 # * ``permit`` is pure: no audit, no I/O. The caller audits.
 #
 # Sources: D-93, D-101, D-104, D-108, D-143, D-146, D-147, D-160, D-162, D-178, D-191, D-280 (OD-5), D-349 (T-512),
-# D-380 (T-102b), D-386 (T-622), D-395 (T-310b), D-425 (T-102c), D-440 (T-204), D-443 (T-112b).
+# D-380 (T-102b), D-386 (T-622), D-395 (T-310b), D-425 (T-102c), D-440 (T-204), D-443 (T-112b), D-451 (T-211c).
 # D-280: the administrator (the IT operator) has no patient-level row; one patient or one job only through
 # break-glass (``console.breakglass``, the ``breakglass.*`` rows). D-380: the data steward and the privacy office
 # keep the opt-out register and the staff directory, and nobody else; the steward writes a study's first PI entry;
@@ -663,6 +663,15 @@ actions:
     admin: false
     coordinator: true
     investigator: true
+    viewer: false
+    cro: false
+    steward: true
+    privacy: true
+  audit.browse:
+    what: read the site's audit trail by filter, one patient's report and its file, and verify the chain (/audit; T-211c, D-451, ROLE-013)
+    admin: false
+    coordinator: false
+    investigator: false
     viewer: false
     cro: false
     steward: true

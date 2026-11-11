@@ -1173,7 +1173,8 @@ def test_audit_chain_stays_valid(box: dict[str, Any]) -> None:
     c.post("/pilot/request", data={"csrf": csrf, "kind": "FEAS", "ruleset": "GZQO"})
     c.post("/logout", data={"csrf": csrf})
     assert verify(box["dir"] / "audit").ok
-    page = login(box["app"])[0].get("/audit").text
+    box["users"].create("dpo", "privacy", ADMIN_PW, "dpo@hospa.test")  # D-451: the privacy office reads the trail
+    page = login(box["app"], "dpo", ADMIN_PW)[0].get("/audit").text
     assert "console.login" in page and "console.request" in page
 
 
@@ -1734,7 +1735,9 @@ def test_the_web_request_line_is_audited_masked(box: dict[str, Any]) -> None:
     req = next(x for x in rows if x["event"] == "console.request")
     assert "mrn=•••" in req["detail"]["line"]
     assert box["backend"].created[-1].options["mrn"] == "TEST-0000001"
-    assert "TEST-0000001" not in c.get("/audit").text
+    box["users"].create("dpo", "privacy", ADMIN_PW, "dpo@hospa.test")  # D-451: the privacy office reads the trail
+    trail = login(box["app"], "dpo", ADMIN_PW)[0].get("/audit").text
+    assert "console.request" in trail and "TEST-0000001" not in trail
 
 
 def test_healthz_touches_the_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

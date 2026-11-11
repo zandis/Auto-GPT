@@ -201,6 +201,11 @@ ROUTE_ACTIONS: dict[tuple[str, str], str] = {
     ("GET", "/data/items"): "items.view",  # D-380: the steward's page, not the administrator's
     ("GET", "/reports/research-office"): "report.office",  # T-102c (ROLE-017): one row for the page and its XLSX
     ("GET", "/reports/research-office.xlsx"): "report.office",
+    ("GET", "/audit"): "audit.browse",  # T-211c (D-451, ROLE-013): the privacy office and the steward only
+    ("GET", "/audit/patients"): "audit.browse",
+    ("GET", "/audit/patients/{pid}"): "audit.browse",
+    ("GET", "/audit/patients/{pid}/report.csv"): "audit.browse",
+    ("POST", "/audit/verify"): "audit.browse",
 }
 
 # T-102c (D-425, ROLE-017): a page, its download and its /api/v1 twin ask one question, so every role gets the same
@@ -209,6 +214,8 @@ SAME_ANSWER: tuple[tuple[tuple[str, str], ...], ...] = (
     (("GET", "/studies/{rs}/screening-log"), ("GET", "/studies/{rs}/screening-log.xlsx"),
      ("GET", "/api/v1/studies/{rs}/screening-log")),
     (("GET", "/reports/research-office"), ("GET", "/reports/research-office.xlsx")),
+    (("GET", "/audit"), ("GET", "/audit/patients/{pid}"), ("GET", "/audit/patients/{pid}/report.csv"),
+     ("POST", "/audit/verify")),
 )  # fmt: skip
 
 

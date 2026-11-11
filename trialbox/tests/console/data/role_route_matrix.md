@@ -55,7 +55,10 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/api/v1/studies/{rs}/subjects/{record}` | - | U | - | U | U | - | - | - | - |
 | GET | `/api/v1/studies/{rs}/visits` | - | U | - | U | U | - | - | - | - |
 | GET | `/ask` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
-| GET | `/audit` | Y | Y | Y | Y | - | - | - | Y | Y |
+| GET | `/audit` | - | - | - | - | - | - | - | Y | Y |
+| GET | `/audit/patients` | - | - | - | - | - | - | - | Y | Y |
+| GET | `/audit/patients/{pid}` | - | - | - | - | - | - | - | Y | Y |
+| GET | `/audit/patients/{pid}/report.csv` | - | - | - | - | - | - | - | Y | Y |
 | GET | `/auth/oidc/callback` | n | n | n | n | n | n | n | n | n |
 | GET | `/auth/oidc/start` | n | n | n | n | n | n | n | n | n |
 | GET | `/breakglass` | Y | - | Y | Y | - | - | - | Y | - |
@@ -183,6 +186,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/api/v1/studies/{rs}/referrals/{ref_id}/answer` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | POST | `/api/v1/studies/{rs}/sources/{name}/sync` | - | n | - | - | n | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/subjects/{record}/step` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| POST | `/audit/verify` | - | - | - | - | - | - | - | Y | Y |
 | POST | `/breakglass` | Y | - | Y | Y | - | - | - | - | - |
 | POST | `/breakglass/{gid}/end` | Y | - | Y | Y | - | - | - | - | - |
 | POST | `/breakglass/{gid}/review` | - | - | - | - | - | - | - | Y | - |
