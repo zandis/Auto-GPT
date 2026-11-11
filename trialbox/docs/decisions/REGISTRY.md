@@ -179,4 +179,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-353 | merged | T-107 | the clinical item catalogue loaded as data: one concept per item at stable ids, LOINC unmapped never invented, the storable gate in chart extraction, the steward items page (file) |
 | D-354 | merged | T-210c | uploads and outputs sealed at rest: AES-GCM per object under objects.key wrapped by the KEK, the seal file, seal-objects (file) |
 | D-355 | merged | T-211a | signed audit heads with the KEK-wrapped Ed25519 key, write-once off-box anchor folders, key rotation, the clock a doctor FAIL (file) |
+| D-352 | merged | T-669 | hot documents as section files with a generated index; RUNBOOK section numbers in one table (file) |
+| D-357 | merged | T-603 | prompt budgets from the model's context: the gateway gives each alias's context and refuses `prompt_too_long` before dispatch; callers size excerpts, full record, chart and the retry from it; the cache keeps complete answers only and keys on `max_tokens`; a note over the budget is flagged (`notes_over_budget`) (file) |
+| D-371 | merged | T-104b | one PostgreSQL major (16) for the db image, the demo and CI: `postgres_major` in `deploy/images.lock`, Debian 13 base, pgBackRest pinned from PGDG in the db image, `tools/ci_postgres.sh` checks `pg_config --version` (file) |
 | D-364 | merged | T-621 | amendment handling: effective date and IRB record per criteria version (a record, not a gate), screening on the version in force, the version on every mark, the re-screen list, schedule versions judged by visit date (file) |
