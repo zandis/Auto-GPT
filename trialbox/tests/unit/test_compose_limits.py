@@ -33,6 +33,8 @@ STACKS: list[tuple[tuple[str, ...], tuple[str, ...]]] = [
     ((BASE, "docker-compose.secrets.yml", "docker-compose.rtxpro6000.yml"), ("gpu",)),
     ((BASE, "docker-compose.secrets.yml", "docker-compose.identity.yml"), ("stub", "oidc")),
     ((BASE, "docker-compose.secrets.yml", "docker-compose.monitoring.yml"), ("stub",)),  # T-209a (D-379)
+    ((BASE, "docker-compose.secrets.yml", "docker-compose.identity.yml", "docker-compose.acceptance.yml"),
+     ("stub", "oidc")),  # T-213a (D-410)
     ((BASE, "docker-compose.secrets.yml", "docker-compose.shared-quota.yml", "platform/docker-compose.platform.yml"),
      ("gpu", "doctor")),
     (("docker-compose.testbench.yml",), ("dev",)),
@@ -203,6 +205,8 @@ TB_JVM_IMAGE=trialbox-jvm:1.0.0
 POSTGRES_IMAGE=trialbox-postgres:16-1
 HAPI_IMAGE=hapi:x
 VLLM_IMAGE=vllm:x
+TB_ACCEPTANCE_MAIL_PASSWORD=x
+TB_ACCEPTANCE_MAIL_KEYSTORE_PASSWORD=x
 """
 
 

@@ -64,3 +64,8 @@ wd_reason,tb_withdrawal,radio,Reason,理由,原因,"1, Participant's decision | 
 wd_reason_other,tb_withdrawal,text,Other reason,その他の理由,其他原因,,,,,,,[wd_reason] = '6',y
 wd_data_use,tb_withdrawal,radio,Data collected so far may be used,これまでのデータを使用してよい,已收集的資料可以使用,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,y
 wd_note,tb_withdrawal,notes,Note,メモ,備註,,,,,,,,
+en_rand,tb_enrolment,radio,Randomised in the sponsor's IRT,治験依頼者のIRTで割付済み,已於試驗委託者的IRT完成隨機分配,"1, Yes | 0, No | 8, Not a randomised study","1, はい | 0, いいえ | 8, 無作為化しない試験","1, 是 | 0, 否 | 8, 非隨機分配試驗",,,,,
+en_rand_date,tb_enrolment,text,Date of randomisation,割付日,隨機分配日期,,,,date_ymd,2000-01-01,,[en_rand] = '1',y
+en_rand_no,tb_enrolment,text,Randomisation number (from the IRT),割付番号(IRTの番号),隨機分配編號(IRT編號),,,,,,,[en_rand] = '1',
+dv_class,tb_deviation,radio,Class,分類,分級,"1, Major | 2, Minor | 9, Not yet classed","1, 重大 | 2, 軽微 | 9, 未分類","1, 重大 | 2, 輕微 | 9, 尚未分級",,,,,
+dv_rep_sponsor,tb_deviation,text,Reported to the sponsor on,治験依頼者への報告日,通報試驗委託者日期,,,,date_ymd,2000-01-01,,,

@@ -28,6 +28,8 @@ VERIFIER_GPU_MEM_UTIL=0.2
 VERIFIER_MAX_LEN=16384
 VERIFIER_MAX_SEQS=8
 POSTGRES_PASSWORD=x
+TB_ACCEPTANCE_MAIL_PASSWORD=x
+TB_ACCEPTANCE_MAIL_KEYSTORE_PASSWORD=x
 """
 PROFILES = ("stub", "test", "gpu", "oidc", "dev")  # every profile any overlay defines
 OVERLAYS = [
@@ -41,6 +43,7 @@ OVERLAYS = [
     "testbench",
     "secrets",
     "monitoring",
+    "identity,acceptance",  # T-213a (D-410): the acceptance overlay extends the identity overlay's Authelia
 ]
 
 
@@ -60,8 +63,8 @@ def _env() -> dict[str, str]:
 
 def _images(project: Path, overlay: str) -> set[str]:
     files = ["-f", str(DEPLOY / "docker-compose.yml"), "-f", str(DEPLOY / "docker-compose.test.yml")]
-    if overlay:
-        files += ["-f", str(DEPLOY / f"docker-compose.{overlay}.yml")]
+    for name in filter(None, overlay.split(",")):
+        files += ["-f", str(DEPLOY / f"docker-compose.{name}.yml")]
     r = subprocess.run(
         ["docker", "compose", "--project-directory", str(project), *files,
          *(x for p in PROFILES for x in ("--profile", p)), "config", "--images"],
@@ -77,7 +80,7 @@ def test_compose_renders_only_locked_digests_for_every_overlay(tmp_path: Path) -
     pinned = {il.pinned(e) for e in lock["third_party"].values()}
     seen: set[str] = set()
     for overlay in OVERLAYS:
-        if overlay and not (DEPLOY / f"docker-compose.{overlay}.yml").is_file():
+        if any(not (DEPLOY / f"docker-compose.{name}.yml").is_file() for name in filter(None, overlay.split(","))):
             continue
         third = {i for i in _images(tmp_path, overlay) if not i.startswith(il.OWN_PREFIX)}
         assert all("@sha256:" in i for i in third), (overlay, third)

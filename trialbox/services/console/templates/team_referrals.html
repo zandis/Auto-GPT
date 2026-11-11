@@ -15,6 +15,12 @@
 {% for r in open_refs %}<div class="actp outform" id="r{{ r.id }}" data-testid="ref-{{ r.id }}">
 <p><b>{{ t('week.patient', p=r.pid[:8]) }}</b>{% if nos.get(r.pid) %} <span class="mono">{{ nos.get(r.pid) }}</span>{% endif %} · <span class="pill ref-{{ r.state }}">{{ t('team.state.' + r.state) }}</span> · {{ t('team.route.' + r.route) }} · {% if r.physician %}{{ given(r.physician) }}{% else %}<span class="pill warn">{{ t('team.doctor.unknown') }}</span>{% endif %}{% if r.department %} · {{ given(r.department) }}{% endif %}</p>
 <p class="hint">{{ t('team.ref.asked_by', by=r.requested_by, at=(r.requested_at|local)) }}{% if r.suggested and r.suggested != r.physician %} · {{ t('team.ref.suggested_was', name=r.suggested) }}{% endif %}{% if r.note %} · {{ r.note }}{% endif %}</p>
+{# D-407 (UX-034): what the CRC hands or sends to the doctor, who has no account: copy text and a one-page print in the doctor's language #}
+{% if asks.get(r.id) %}<details class="refdoc" data-testid="ref-doc-{{ r.id }}"><summary>{{ t('ref.doc.title') }}</summary>
+<textarea id="ask-{{ r.id }}" rows="8" readonly class="refdoc-text" data-testid="ref-doc-text-{{ r.id }}">{{ asks.get(r.id) }}</textarea>
+<p><button type="button" class="secondary" data-copy="ask-{{ r.id }}" data-done="{{ t('ref.doc.copied') }}" hidden data-testid="ref-doc-copy-{{ r.id }}">{{ t('ref.doc.copy') }}</button>
+{{ t('ref.doc.print') }}:{% for g in doc_langs %} <a href="/studies/{{ rs }}/referrals/{{ r.id }}/print?lang={{ g }}" data-testid="ref-doc-print-{{ r.id }}-{{ g }}">{{ t('ref.doc.lang.' + g) }}</a>{% endfor %}</p>
+</details>{% endif %}
 {% if not r.physician %}<p class="hint">{{ t('team.ref.find') }}{% for c in contacts if c.department == r.department %} {{ c.name }}{% if c.contact %} ({{ c.contact }}){% endif %}{% endfor %} <a href="/site/staff">{{ t('team.staff.title') }}</a></p>{% endif %}
 {% if may_answer %}<form method="post" action="/studies/{{ rs }}/referrals/{{ r.id }}/answer" class="markform">
 <input type="hidden" name="csrf" value="{{ csrf }}">

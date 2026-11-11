@@ -78,10 +78,13 @@ from console.teamstore import (
     Entry,
     IcfVersion,
     Irb,
+    Referral,
     TeamError,
     TeamStore,
 )
 from console.timefmt import local_date, site_zone
+
+DOCTOR_LANGS = ("ja", "zh-TW", "en")  # D-407 (UX-034): the languages of the request for the treating doctor
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _PID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
@@ -500,6 +503,79 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
                           "channel": ref.channel, "route": ref.route, "id": ref.id})  # fmt: skip
         return rid, ref
 
+    # ------------------------------------------------------------------ the request for the doctor (D-407, UX-034)
+    def doctor_request(sess: Session, rid: str, ref: Referral, lang: str, mrn: str = "") -> list[str]:
+        """What the CRC hands or sends to the treating doctor, who has no account (LIFE-017, UX-034): the study, the
+        patient's code and screening number, the inclusion criteria the records meet (labels and counts, never a
+        note's words), what is asked, and the study contact. The chart number only after a recorded reveal
+        (``mrn``); otherwise a line the study team fills in by hand. Plain lines in ``lang``, for the copy text and
+        the one-page print alike."""
+        lang = lang if lang in DOCTOR_LANGS else "en"
+        fit = None
+        if h.patient_ctx is not None:
+            try:
+                fit = h.patient_ctx(sess, rid, ref.pid).get("fit")
+            except Exception:  # the patient is not on the latest list any more: the request names no criteria
+                fit = None
+        no = store.screening_nos(rid).get(ref.pid) or ""
+        crc = next((m for m in team.staff() if m.username and m.username == ref.requested_by), None)
+        who = (crc.name if crc else "") or ref.requested_by.removeprefix("console:")
+        lines = [translate(lang, "ref.doc.heading", study=rid)]
+        if ref.physician or ref.department:
+            lines.append(translate(lang, "ref.doc.to", doctor=ref.physician or "–", dept=ref.department or "–"))
+        lines.append(translate(lang, "ref.doc.patient", code=ref.pid[:8], no=no or "–"))
+        lines.append(translate(lang, "ref.doc.chart_shown", mrn=mrn) if mrn else translate(lang, "ref.doc.chart"))
+        if fit is not None and fit.inc_total:
+            lines.append(translate(lang, "ref.doc.criteria", met=fit.inc_met, total=fit.inc_total))
+            lines += [f"- {k['label']}" for k in fit.key[:12]]
+        lines.append(translate(lang, "ref.doc.ask", study=rid))
+        lines.append(translate(lang, "ref.doc.contact", name=who, contact=(crc.contact if crc else "") or "–"))
+        lines.append(translate(lang, "ref.doc.note"))
+        return lines
+
+    def ref_or_404(sess: Session, path: str, rs: str, ref_id: int) -> tuple[str, Referral]:
+        rid = study_or_404(sess, rs)
+        if "screen" not in stand(sess.user, rid).tasks:
+            raise deny(sess, path)
+        ref = team.referral(rid, ref_id)
+        if ref is None or ref.pid in optout.active():
+            raise h.problem(404, "notfound")
+        return rid, ref
+
+    def print_page(request: Request, sess: Session, rid: str, ref: Referral, lang: str, mrn: str = "") -> Response:
+        lang = lang if lang in DOCTOR_LANGS else (sess.lang if sess.lang in DOCTOR_LANGS else "en")
+        au.append("console.referral", ruleset=rid, actor=h.actor(sess),
+                  detail={"pid": ref.pid, "action": "printed", "id": ref.id, "lang": lang,
+                          "chart_no": bool(mrn)})  # fmt: skip
+        may_reveal = "screen" in stand(sess.user, rid).tasks and sess.user.sees_ids(rid)
+        return h.page(request, "team_referral_print.html", sess, rs=rid, ref=ref, doc_lang=lang, langs=DOCTOR_LANGS,
+                      lines=doctor_request(sess, rid, ref, lang, mrn), mrn=mrn, may_reveal=may_reveal,
+                      reveal_reasons=REVEAL_REASONS)  # fmt: skip
+
+    @app.get("/studies/{rs}/referrals/{ref_id}/print")
+    def referral_print(request: Request, rs: str, ref_id: int, lang: str = "") -> Response:
+        """A one-page print of the request for the treating doctor, in the doctor's language (UX-034)."""
+        sess = h.need(request)
+        rid, ref = ref_or_404(sess, request.url.path, rs, ref_id)
+        return print_page(request, sess, rid, ref, lang)
+
+    @app.post("/studies/{rs}/referrals/{ref_id}/print")
+    async def referral_print_reveal(request: Request, rs: str, ref_id: int) -> Response:
+        """The same page with the chart number, through the one reveal path (a reason, the audit record on both
+        sides and the per-person cap); the reveal is recorded as a candidate view for the referral."""
+        sess = h.need(request)
+        form = await request.form()
+        need_csrf(sess, form)
+        rid, ref = ref_or_404(sess, request.url.path, rs, ref_id)
+        need_irb_text(sess, rid, request.url.path)
+        if h.apply_reveal is None:
+            raise deny(sess, request.url.path)
+        _ctx, mrn = h.apply_reveal(sess, request.url.path, rid, ref.pid, str(form.get("reason") or ""),
+                                   via="candidates", purpose="referral",
+                                   note=str(form.get("note") or "")[:200])  # fmt: skip
+        team.record_view(rid, ref.pid, "referral", "reveal", sess.user.username, now())
+        return print_page(request, sess, rid, ref, str(form.get("lang") or ""), mrn)
+
     @app.get("/studies/{rs}/referrals")
     def referrals(request: Request, rs: str) -> Response:
         sess = h.need(request)
@@ -517,9 +593,12 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             counts[f"state.{r.state}"] = counts.get(f"state.{r.state}", 0) + 1
         nos = store.screening_nos(rid)
         may_answer = sess.user.role == "coordinator" or "refer" in s.tasks
+        lang = sess.lang if sess.lang in DOCTOR_LANGS else "en"
+        asks = {r.id: "\n".join(doctor_request(sess, rid, r, lang)) for r in open_refs}  # UX-034: the copy text
         return h.page(request, "team_referrals.html", sess, rs=rid, refs=list(reversed(refs)), open_refs=open_refs,
                       counts=counts, nos=nos, routes=ROUTES, answers=ANSWERS, channels=CHANNELS,
-                      reasons=DECLINE_REASONS, may_answer=may_answer, contacts=team.contacts())  # fmt: skip
+                      reasons=DECLINE_REASONS, may_answer=may_answer, contacts=team.contacts(), asks=asks,
+                      doc_langs=DOCTOR_LANGS)  # fmt: skip
 
     @app.post("/studies/{rs}/referrals/{ref_id}/answer")
     async def referral_answer(request: Request, rs: str, ref_id: int) -> Response:
