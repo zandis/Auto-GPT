@@ -93,7 +93,7 @@
 <p data-testid="setup-sae-now">{{ t('sae.rule.set', rs=rs, name=t('sae.set.' + sr.name) if sr.name else '–', regulator=sr.regulator or '–') }}{% if sr.confirmed_by %} {{ t('sae.rule.by', who=sr.confirmed_by|who, at=sr.confirmed_at|local) }}{% else %} <span class="warn">{{ t('sae.rule.unconfirmed') }}</span>{% endif %}</p>
 {% if editable %}<form method="post" action="/studies/{{ rs }}/setup/sae" class="markform"><input type="hidden" name="csrf" value="{{ csrf }}">
 <label for="rule_set">{{ t('sae.setup.field') }}</label>
-<select id="rule_set" name="rule_set" data-testid="setup-sae-set">{% for k, v in (sae_rule.sets or {}).items() %}<option value="{{ k }}"{% if sae_rule.rule_set == k %} selected{% endif %}>{{ t('sae.set.' + k) }} · {{ v.regulator }}</option>{% endfor %}</select>
+<select id="rule_set" name="rule_set" data-testid="setup-sae-set">{% for k, v in (sae_rule.sets or {}).items() if not sae_country or v.country == sae_country %}<option value="{{ k }}"{% if sae_rule.rule_set == k %} selected{% endif %}>{{ t('sae.set.' + k) }} · {{ v.regulator }}</option>{% endfor %}</select>
 <button type="submit" data-testid="setup-sae-save">{{ t('sae.setup.save') }}</button></form>{% endif %}
 </section>
 {% endif %}
