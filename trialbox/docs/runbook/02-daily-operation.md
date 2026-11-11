@@ -16,11 +16,15 @@ The console's timers run when `TB_ENV` is VALIDATION or PRODUCTION (`TB_CONSOLE_
 `TB_NOTICE_N1_AT`, `TB_NOTICE_N2_AT`, `TB_REDCAP_READ_AT` move them). Everything is a job: see it on the
 administrator's Jobs page, or `docker compose exec orchestrator` with the operator token.
 
+`TB_IRB_TEXT_GATE` (D-395): the whole-hospital candidate pages wait for the study's IRB-text record. `auto` (default)
+is on in VALIDATION and PRODUCTION; `on` forces it in DEV or TEST; `off` is refused in VALIDATION and PRODUCTION.
+
 ## Logs (D-138)
 
 | Log | Where | Kept | How |
 | --- | --- | --- | --- |
-| Service logs (JSON, pseudonyms only) | containers (5 × 50 MB each), then `TB_LOG_DIR/services/<day>/<service>.log.gz` | `logs_days` (365) | `trialbox logs daily` |
+| Service logs (JSON, pseudonyms only) | containers (`TB_LOG_MAX_SIZE` × `TB_LOG_MAX_FILE`, 100 MB × 10 each), then `TB_LOG_DIR/services/<day>/<service>.log.gz` | `logs_days` (365) | `trialbox logs daily` |
+| Host logs `/var/log/trialbox-*.log` (retention and backup cron) | the host | 53 weeks | `/etc/logrotate.d/trialbox`, from `install.sh` (D-389) |
 | Audit chain | volume `audit-data`, copied to `TB_AUDIT_ARCHIVE_DIR/<year>/<day>.jsonl.gz` | never deleted (10 years on the box) | copied, compressed and verified nightly |
 | Mail logs | trial database, schemas `mail` and `site` | `mail_log_days` (JP 1,825, TW 2,555) | RETENTION job; an unfinished send stays |
 | Job outputs, attachments | objects volume | 365 and 90 days | RETENTION job; hashes kept in the audit |
@@ -29,6 +33,14 @@ Set `TB_LOG_DIR` and `TB_AUDIT_ARCHIVE_DIR` in `deploy/.env` to the hospital sha
 `sudo python3 -m tools.trialbox logs collect --day 2026-11-08`, `logs prune`, `logs archive-audit`. A chain that does
 not verify is not archived: run `tools/audit_verify.py` first. Never use `rsync --delete` on the audit volume.
 Held by `tests/unit/test_log_retention.py`.
+
+**Log gaps (D-389, OPS-034).** Each collected day has `COVERAGE.json`: per service the day's bytes and lines, the share
+of the container's cap it used and `gap`. A gap means docker had already rotated away the start of the day before the
+00:20 collection, so lines are missing. `logs daily` then exits 1 (the cron log says `LOG GAP` and names the
+services) and warns earlier, when a day used over three quarters of the cap. The fix: raise `TB_LOG_MAX_SIZE` or
+`TB_LOG_MAX_FILE` in `deploy/.env` and run `docker compose up -d` (the containers are recreated with the new cap). The
+caps of 100 MB × 10 are provisional and not measured: they rest on the review's estimate of the busiest night (about
+300 MB). Re-size them from the `COVERAGE.json` of the first full night. Held by `tests/unit/test_log_caps.py`.
 
 ## EDC prefill (D-160)
 

@@ -16,7 +16,7 @@
 # * ``permit`` is pure: no audit, no I/O. The caller audits.
 #
 # Sources: D-93, D-101, D-104, D-108, D-143, D-146, D-147, D-160, D-162, D-178, D-191, D-280 (OD-5), D-349 (T-512),
-# D-386 (T-622).
+# D-386 (T-622), D-395 (T-310b).
 # D-280: the administrator has no patient-level row; one patient or one job only through break-glass
 # (``console.breakglass``, the ``breakglass.*`` rows). The steward keeps no study task here (T-102b adds the steward's
 # own pages).
@@ -124,6 +124,18 @@ actions:
     what: change the study's state (start-up, open, paused, closed) and its identifiers (D-386, T-622)
     admin: false
     coordinator: true
+    investigator: [pi]
+    viewer: false
+    cro: false
+    steward: false
+
+  # ---------------------------------------------------------------- the IRB text's coverage (D-395, RSK-42)
+  # The PI records that the study's approved IRB text covers the cross-department identified view; the whole-hospital
+  # candidate view (D-147) opens only while that record says so. A record, not a review step of the developers.
+  study.irb_text:
+    what: record whether the study's approved IRB text covers the cross-department identified view (D-395, T-310b)
+    admin: false
+    coordinator: false
     investigator: [pi]
     viewer: false
     cro: false

@@ -585,7 +585,29 @@ def snapshot(box: Box) -> dict[str, Any]:
         "secrets": secret_rows,
         "logs": {"days": log_days},
         "disk": disks,
+        "health": health_facts(box),
     }
+
+
+def health_facts(box: Box) -> dict[str, Any]:
+    """T-209a (D-379): the host half of the box's health (backup age as ``backup-status`` sees it, the last key
+    check, the disks, the certificate's end), for the console's health line, health mail and ``/metrics``."""
+    import sys
+
+    try:
+        from tools.trialbox import backup_schedule as bsch
+
+        backup: dict[str, Any] | None = bsch.status(bsch.config(box.deploy, box.env))
+    except Exception:  # a box without a backup set-up yet: the check says unknown
+        backup = None
+    if str(ROOT / "libs") not in sys.path:
+        sys.path.insert(0, str(ROOT / "libs"))  # the host's python3 (logs.py does the same); standard library only
+    from tb_common import metrics
+
+    try:
+        return metrics.host_facts(box.deploy, box.env, backup)
+    except Exception as exc:  # health must report, not stop the runner's status
+        return {"error": type(exc).__name__}
 
 
 def prepare(ops: OpsDir, uid: int | None = SERVICE_UID) -> None:
@@ -600,8 +622,26 @@ def prepare(ops: OpsDir, uid: int | None = SERVICE_UID) -> None:
                 os.chown(d, uid, uid)
 
 
+def metrics_token(deploy: Path) -> Path:
+    """T-209a (D-379): ``deploy/secrets/metrics.token``, the token the monitoring overlay's scraper sends to the
+    console's ``/metrics``. Made once and never printed. The folder stays 0700 (root); the file is 0444 so the two
+    containers that mount it (the console, the scraper) read it under their own users."""
+    d = deploy / "secrets"
+    d.mkdir(mode=0o700, parents=True, exist_ok=True)
+    f = d / "metrics.token"
+    if not f.is_file():
+        fd = os.open(f, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o444)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(secrets.token_hex(32) + "\n")
+    return f
+
+
 def main(action: str, deploy: Path, ops_dir: Path | None, local: bool, watch: int) -> int:
-    """``trialbox ops run``: the pending requests, then the status (``--watch N``: again every N seconds)."""
+    """``trialbox ops run``: the pending requests, then the status (``--watch N``: again every N seconds);
+    ``trialbox ops metrics-token``: the scraper's token for ``/metrics`` (T-209a)."""
+    if action == "metrics-token":
+        print(f"metrics token in {metrics_token(deploy)} (not printed)")
+        return 0
     box = Box.local(deploy, os.environ) if local else Box.compose(deploy)
     ops = OpsDir(ops_dir or Path(box.env.get("TB_OPS_DIR") or deploy / "ops"))
     prepare(ops)

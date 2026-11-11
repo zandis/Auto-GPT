@@ -74,7 +74,7 @@ File: [runbook/14-judge-bake-off.md](runbook/14-judge-bake-off.md).
 
 ## 15. Operations screens (D-178)
 
-File: [runbook/15-operations-screens.md](runbook/15-operations-screens.md).
+File: [runbook/15-operations-screens.md](runbook/15-operations-screens.md). In it: [Box health and monitoring (T-209a, D-379)](runbook/15-operations-screens.md#box-health-and-monitoring-t-209a-d-379).
 
 ## 16. Box-install rehearsal: the gate before a site's IQ
 

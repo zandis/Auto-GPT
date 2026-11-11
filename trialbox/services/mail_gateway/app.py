@@ -12,7 +12,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from tb_common.audit_writer import open_audit
-from tb_common.config import get_config
+from tb_common.config import environment_name, get_config
 from tb_common.http import make_app
 from tb_common.objstore import from_config
 from tb_contracts import SendRequest, SendResult
@@ -30,10 +30,10 @@ def gateway() -> Gateway:
         cfg = get_config()
         env = cfg.env
         authserv = os.environ.get("TB_MAIL_AUTHSERV_ID", "").strip()
-        if not authserv:
-            log.warning(
-                "TB_MAIL_AUTHSERV_ID is not set: the top-most Authentication-Results header is trusted whoever "
-                "wrote it. Set it to the authserv-id of the hospital MTA (RUNBOOK, mail)."
+        if not authserv:  # D-369 (SEC-11): fails closed
+            log.error(
+                "TB_MAIL_AUTHSERV_ID is not set: no sender can be authenticated, so every request mail is refused "
+                "and nothing is sent back. Set it to the authserv-id of the hospital MTA (RUNBOOK, mail)."
             )
         _gw = Gateway(
             cfg=cfg,
@@ -44,6 +44,8 @@ def gateway() -> Gateway:
             jobs=http_job_sink(env.orchestrator_url),
             secrets_dir=Path(env.secrets_dir),
             authserv_id=authserv,
+            # D-369 (OD-1): a password zip for patient files only on a synthetic box
+            allow_phi_zip=environment_name(os.environ) in ("DEV", "TEST"),
         )
     return _gw
 
@@ -65,7 +67,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 def _mode() -> dict[str, Any]:
-    return {"encryption": gateway().mode}
+    gw = gateway()
+    return {"encryption": gw.mode, "sender_auth": "on" if gw.authserv_id else "closed: TB_MAIL_AUTHSERV_ID unset"}
 
 
 def _db() -> dict[str, Any]:

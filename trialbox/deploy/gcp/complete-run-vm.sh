@@ -346,7 +346,7 @@ if [ ! -x /opt/node-$NODE_V-linux-x64/bin/node ]; then
     || setup_failed "node $NODE_V"
 fi
 ln -sf /opt/node-$NODE_V-linux-x64/bin/node /opt/node-$NODE_V-linux-x64/bin/npm /opt/node-$NODE_V-linux-x64/bin/npx /usr/local/bin/
-mkdir -p /opt/node-tools && (cd /opt/node-tools && npm i -s playwright@1.63.0 axe-core && npx playwright install --with-deps chromium) \
+mkdir -p /opt/node-tools && (cd /opt/node-tools && npm i -s playwright@1.63.0 && npx playwright install --with-deps chromium) \
   >>"$LOG" 2>&1 || setup_failed "playwright"
 # a half-installed Chromium would show only as every screenshot missing (review L-05): launch it once
 (cd /opt/node-tools && node -e "require('playwright').chromium.launch().then(b => b.close())") >>"$LOG" 2>&1 \

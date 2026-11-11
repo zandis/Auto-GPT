@@ -43,6 +43,7 @@ import secrets
 import shlex
 import shutil
 import subprocess
+import sys
 import tarfile
 import time
 import urllib.request
@@ -1180,6 +1181,21 @@ class ComposeBox(_DockerImages):
         self.run(argv, timeout=300)
         return "; model servers: pinned names and the key (doctor --serving)"
 
+    def check_weights(self) -> str:
+        """``trialbox doctor --weights`` after the restart (T-677, D-393; LLM-008): every pinned build's weights in the
+        models folder against its pin. A mismatch writes the weights flag the gateway refuses on and fails the update,
+        which is then rolled back; a pass removes a flag left from before."""
+        if not self.gpu():
+            return ""
+        image = self.env.get("TB_IMAGE") or "trialbox-py:1.0.0"
+        argv = ["docker", "run", "--rm", "--network", "none", "--env-file", str(self.deploy / ".env"),
+                "-e", "TB_MODELS_DIR=/app/deploy/models",
+                "-e", "TB_REGISTRY_OVERRIDE=/app/deploy/site/registry.site.yaml",
+                "-v", f"{self.deploy}:/app/deploy", "-v", f"{self.models}:/app/deploy/models:ro", image,
+                "python", "-m", "tools.trialbox", "doctor", "--weights"]  # fmt: skip
+        self.run(argv, timeout=3600)
+        return "; weights match their pins (doctor --weights)"
+
     def post_apply(self, plan: Plan) -> list[str]:
         return self.rulesets(plan) + self.refdata(plan)
 
@@ -1215,8 +1231,9 @@ class ComposeBox(_DockerImages):
         return done
 
     def check(self, plan: Plan) -> str:
+        weights = self.check_weights()  # first: a flag it writes makes the gateway unhealthy for the wait below
         self.run(self._c("up", "-d", "--wait", "--wait-timeout", "300"), timeout=420)  # every service healthy
-        serving = self.check_serving()
+        serving = weights + self.check_serving()
         cmd = os.environ.get("TB_UPDATE_CHECK_CMD")
         if cmd:
             self.run(shlex.split(cmd), timeout=3600)
@@ -1251,6 +1268,11 @@ class ComposeBox(_DockerImages):
             self.run(self._c("run", "--rm", "--no-deps", "-T", "criteria-compiler", "python", "-c", RULESETS_PY,
                              "restore", json.dumps(refs)))  # fmt: skip
         self.restart(plan)
+        try:  # the previous weights are back: a pass clears the flag the failed update may have set (D-393)
+            self.check_weights()
+        except Exception as exc:  # the rollback stands; the gateway keeps refusing until the weights match
+            print(f"rollback: the weights check failed after the restore ({exc}): run trialbox doctor --verify-all",
+                  file=sys.stderr)  # fmt: skip
 
     def audit(self, event: str, plan: Plan, detail: dict[str, Any]) -> None:
         code = (

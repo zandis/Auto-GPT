@@ -59,6 +59,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/help` | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/home` | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/jobs` | Y | Y | Y | - | - | - | Y |
+| GET | `/metrics` | Y | - | - | - | - | - | - |
 | GET | `/notices/received` | Y | Y | Y | Y | - | Y | Y |
 | GET | `/ops/flags` | Y | - | - | - | - | - | - |
 | GET | `/ops/identity` | Y | - | - | - | - | - | - |
@@ -218,6 +219,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/studies/{rs}/forms/dictionary` | - | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/identity` | - | Y | Y | Y | - | - | - |
 | POST | `/studies/{rs}/irb` | Y | Y | Y | Y | - | - | - |
+| POST | `/studies/{rs}/irb-text` | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/not-matched/{pid}/review` | - | n | n | n | - | - | - |
 | POST | `/studies/{rs}/patients/{pid}/mark` | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/patients/{pid}/outcome` | Y | Y | - | Y | - | - | - |
