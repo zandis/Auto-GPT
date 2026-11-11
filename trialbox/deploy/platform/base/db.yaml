@@ -2,7 +2,9 @@
 # postgres:16 with pgvector and PGroonga, deploy/docker/db.Dockerfile, pinned in deploy/images.lock), databases hapi
 # and trialbox_wf and the two extensions (db-init: 10-trialbox-wf.sh, 20-extensions.sh), the same flags. It runs as
 # the image's postgres user, uid and gid 999 (the Debian postgres image; the alpine one used 70), and is ready only
-# when the image's `tb-db-check` passes (server up, trialbox_wf there, vector and pgroonga installed).
+# when the image's `tb-db-check` passes (server up, trialbox_wf there, vector and pgroonga installed). Its claim is
+# block storage (ReadWriteOnce), never the shared file system of the other claims (OPS-069): a site overlay sets
+# storageClassName of the claim template db-pg to TB_PLATFORM_DB_STORAGE_CLASS (doctor --platform, check db_storage).
 apiVersion: v1
 kind: Service
 metadata: {name: db, labels: {app.kubernetes.io/component: db}}
