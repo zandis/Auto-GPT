@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import date as date_aliased
 from typing import Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
 
 
 class AgeRange(BaseModel):
@@ -55,6 +55,75 @@ class AuditEvent(BaseModel):
     detail: dict[str, Any] | None = None
     prev_hash: str
     hash: str
+
+
+class B200QualificationRecordFileRef(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    path: str
+    sha256: str | None = Field(..., pattern="^[0-9a-f]{64}$")
+
+
+class MigLayoutItem(RootModel[str]):
+    root: str = Field(..., pattern="^\\d+g\\.\\d+gb$")
+
+
+class B200QualificationRecordFingerprint(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    schema_: Literal["tb-host-fingerprint/1"] = Field(..., alias="schema")
+    host_id: str
+    gpu_name: str
+    gpu_count: int = Field(..., ge=0)
+    memory_total_mib: int | None
+    driver: str
+    cuda: str
+    vbios: str
+    mig_mode: str
+    mig_layout: list[MigLayoutItem]
+    kernel: str
+    os: str
+    container_toolkit: str
+    docker: str
+    vllm_image_digests: list[str]
+    fingerprint_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+
+
+class ServingRecord(B200QualificationRecordFileRef):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    measured: bool
+    why: list[str]
+
+
+class Qualification(B200QualificationRecordFileRef):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    status: str
+
+
+class B200QualificationRecordLayout(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    name: str
+    mig_profile: str = Field(
+        ..., pattern="^judge=\\d+g\\.\\d+gb(\\+me)?,verifier=\\d+g\\.\\d+gb(\\+me)?$"
+    )
+    fingerprint: B200QualificationRecordFingerprint
+    serving_record: ServingRecord
+    qualification: Qualification
+    throughput: dict[str, float | None]
+    status: Literal["passed", "failed"]
 
 
 class ChunkHit(BaseModel):
@@ -423,6 +492,47 @@ class FunnelStep(BaseModel):
     """
     false for note/human criteria (not applied in counts)
     """
+
+
+class Host(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    kind: Literal["owner-b200"]
+    site_host: Literal[False]
+    statement: str = Field(..., min_length=20)
+
+
+class Bundle(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    sha256: str | None = Field(..., pattern="^[0-9a-f]{64}$")
+    commit: str | None
+    built_at: str | None
+
+
+class G1bRecordTheModelPairQualifiedOnTheOwnerSB200T114D428(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    schema_: Literal["tb-b200-qualification/1"] = Field(..., alias="schema")
+    card: Literal["T-114"]
+    gate: Literal["G1b"]
+    captured_at: AwareDatetime
+    operator: str = Field(..., min_length=1)
+    standin: bool
+    host: Host
+    bundle: Bundle
+    fingerprint: B200QualificationRecordFingerprint
+    layouts: list[B200QualificationRecordLayout] = Field(
+        ..., max_length=2, min_length=2
+    )
+    status: Literal["passed", "failed", "standin"]
+    failed: list[str]
 
 
 class IEBlock(BaseModel):
