@@ -27,6 +27,7 @@ ALLOWED: dict[str, str] = {
     "tools/mlbench.py": "bake-off harness on D0 data (Z-DEV); moves behind the gateway bakeoff route in S1-14",
     "tests/unit/test_gateway.py": "drives the stub app in-process as the gateway's upstream (no network)",
     "tests/unit/test_pin_model.py": "drives the stub app in-process as the gateway's upstream (no network)",
+    "tests/unit/test_context_budgets.py": "T-603: shows the in-process stub enforces a context (no network)",
     "tests/unit/test_no_direct_model_calls.py": "holds the patterns of this check",
     "tools/vllm_standin.py": "D-177: the box rehearsal's stand-in for a vLLM server: serves the model API, calls none",
     "tests/unit/test_vllm_standin.py": "drives the vLLM stand-in on a local port (no model, no network)",
