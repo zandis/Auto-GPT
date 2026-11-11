@@ -698,7 +698,7 @@ DECLARED: dict[str, Declared] = {
     "TB_TLS_CERT_FILE": Declared("path", "", "console TLS certificate"),
     "TB_TLS_HOSTNAME": Declared("str", "", "console TLS host name"),
     "TB_TLS_KEY_FILE": Declared("path", "", "console TLS key"),
-    "TB_TLS_MODE": Declared("str", "internal", "console TLS mode (internal or site)"),
+    "TB_TLS_MODE": Declared("str", "internal", "console TLS mode (internal or hospital)"),
     "TB_TODAY": Declared("str", "", "pins the clock (test stack)"),
     "TB_TOPOLOGY": Declared("str", "A", "deployment topology (A or B)"),
     "TB_TRACESTORE": Declared("str", "", "gateway trace store on"),
