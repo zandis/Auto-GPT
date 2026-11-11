@@ -31,7 +31,7 @@ env:
 
 jobs:
   mutation:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
     timeout-minutes: 300  # the runner starts no mutant after 200 minutes (--budget-minutes); the rest are listed
     strategy:
       fail-fast: false
@@ -115,7 +115,7 @@ jobs:
           if-no-files-found: ignore
 
   branch-coverage:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1

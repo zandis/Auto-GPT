@@ -223,7 +223,7 @@ jobs:
           if-no-files-found: ignore
 
   unit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
     needs: changes
     if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 60  # each xdist worker starts its own throwaway cluster; the suite now takes 30 to 40 minutes (two runs hit 40 at 94-96% on 2026-11-11)
@@ -280,7 +280,7 @@ jobs:
   # required check of branch protection); the OMOP run is "<job> (omop)". Neither may fail (fail-fast off).
   e2e-simple:
     name: ${{ matrix.lake_source == 'legacy' && 'e2e-simple' || 'e2e-simple (omop)' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
     needs: changes
     if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
@@ -326,7 +326,7 @@ jobs:
 
   goldens:
     name: ${{ matrix.lake_source == 'legacy' && 'goldens' || 'goldens (omop)' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
     needs: changes
     if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15

@@ -33,7 +33,7 @@ env:
 
 jobs:
   nightly:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
     timeout-minutes: 45
     strategy:
       fail-fast: false
