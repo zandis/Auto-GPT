@@ -25,6 +25,7 @@ from urllib.parse import quote, urlencode
 
 from datacore.branching import css_rules
 from datacore.forms import fields_of, titles_of
+from datacore.lifecycle import icf_check
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
@@ -161,6 +162,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                             {"form": form, "event": ev, "values": values, "by": h.actor(sess)}))  # fmt: skip
         au.append("console.data_entry", ruleset=rid, actor=h.actor(sess),
                   detail={"form": form, "event": ev, "changed": out.get("changed", 0)})  # fmt: skip
+        if form == "tb_consent":  # D-399 (FIT-009, URS-CRC-07): the version against the study's approved ICF list
+            out["icf_warnings"] = consent_version_check(sess, rid, rec, ev, values)
         if form == "tb_adverse_event" and h.sae_sync is not None:
             h.sae_sync(rid)  # D-277 (CR-012): the SAE register is written on the write path, never on a page view
         if out.get("life"):  # T-516 (UX-011): a lifecycle form moved the participant; the screening log follows now,
@@ -169,6 +172,28 @@ def register(app: FastAPI, h: Helpers) -> None:
                     bk, "POST", f"/studies/{rid}/subjects/refresh", {"screening": issued(rid), "by": h.actor(sess)}
                 )
         return out
+
+    def consent_version_check(sess: Session, rid: str, rec: str, ev: str, values: dict[str, str]) -> list[str]:
+        """D-399: each consent version on the saved form (the consent and the re-consent slot) against the approved
+        ICF list on the consent's day. A warning, never a refusal (PI-15): the form is saved as entered, and each
+        version saved under a warning is logged as ``console.consent_version_override``."""
+        rows = [v.as_row() for v in h.team.icf_list(rid)] if h.team is not None else []
+        if not rows:  # no list yet: the IRB page and Approach already warn that the consent form is missing
+            return []
+        pairs = [(values.get("ic_version", ""), values.get("ic_date", ""))]
+        if values.get("ic_reconsent") == "1":
+            pairs.append((values.get("ic_reconsent_version", ""), values.get("ic_reconsent_date", "")))
+        warned: list[str] = []
+        for version, day in pairs:
+            if not version.strip():
+                continue
+            got = icf_check(rows, version, day)
+            if got:
+                au.append("console.consent_version_override", ruleset=rid, actor=h.actor(sess),
+                          detail={"record": rec, "event": ev, "version": version.strip()[:40], "day": day[:10],
+                                  "warnings": ",".join(got)})  # fmt: skip
+            warned += [w for w in got if w not in warned]
+        return warned
 
     def read_export(sess: Session, rs: str, fmt: str) -> tuple[str, str, bytes]:
         """An export of every record: (file name, media type, bytes). Who reads the records may download them."""
@@ -184,7 +209,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def entry_page(request: Request, sess: Session, rid: str, record: str, event: str, form: str,
                    posted: dict[str, str] | None = None, problems: list[dict[str, str]] | None = None,
                    err: dict[str, str] | None = None, back: str = "", prefill: str = "",
-                   win: str = "") -> Response:  # fmt: skip
+                   win: str = "", icf_warn: list[str] | None = None) -> Response:  # fmt: skip
         lang = sess.lang if sess.lang in ("ja", "zh-TW", "en") else "en"
         try:
             fms = read_forms(rid)
@@ -242,6 +267,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             err=err,
             back=back if back in BACKS else "",
             ae=ae,
+            icf_warn=icf_warn or [],
+            icf_list=[v.as_row() for v in h.team.icf_list(rid)] if form == "tb_consent" and h.team else [],
         )
 
     @app.get("/studies/{rs}/entry")
@@ -280,13 +307,16 @@ def register(app: FastAPI, h: Helpers) -> None:
             got = [str(v).strip() for v in data.getlist(f"f_{f['name']}") if str(v).strip()]
             values[f["name"]] = ",".join(got) if f["kind"] == "multi" else (got[0] if got else "")
         try:
-            apply_save(sess, request.url.path, rid, record, event, form, values)
+            out = apply_save(sess, request.url.path, rid, record, event, form, values)
         except Problem as exc:
             return entry_page(request, sess, rid, record, event.lower(), form, posted=values,
                               problems=exc.problems, err=None if exc.problems else err_of(exc), back=back)  # fmt: skip
         except Unavailable as exc:
             return entry_page(request, sess, rid, record, event.lower(), form, posted=values, err=err_of(exc),
                               back=back)  # fmt: skip
+        if out.get("icf_warnings"):  # D-399: saved, and the page says why the version needs a second look
+            return entry_page(request, sess, rid, record, event.lower(), form, back=back,
+                              icf_warn=list(out["icf_warnings"]))  # fmt: skip
         if back == "visits":
             q = urlencode({"saved": f"{record_key(record)} {event.lower()}".strip()})
             return RedirectResponse(f"/studies/{rid}/visits?{q}", status_code=303)

@@ -50,6 +50,8 @@ ALLOWED: dict[str, str] = {
     "box's gateway, answering from the stub (no network)",
     "deploy/gcp/complete-run-vm.sh": "D-150 runs on the GPU VM: one smoke prompt (no patient data) to each of its own "
     "servers before READY, to prove the served names and the key",
+    "tests/unit/test_weights_verified.py": "D-393 posts to the gateway app in-process (refused before any model) and "
+    "fakes vLLM's GET /v1/models (no network)",
     "tests/rehearsal/": "D-150 the rehearsal's vLLM stand-in serves the API (the repository stub behind it); "
     "it calls nothing",
 }

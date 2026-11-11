@@ -44,7 +44,7 @@
 x-vllm-5090: &vllm5090
   logging:
     driver: json-file
-    options: {max-size: "50m", max-file: "5"}
+    options: {max-size: "${TB_LOG_MAX_SIZE:-100m}", max-file: "${TB_LOG_MAX_FILE:-10}"}  # D-389
   profiles: [gpu]
   image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}
   environment:
@@ -94,6 +94,8 @@ services:
     command:
       - --model=/models/${JUDGE_MODEL_DIR:-gemma-4-26b-a4b-it-4bit}
       - --served-model-name=${JUDGE_MODEL:-local/gemma-4-26b-a4b-nvfp4}
+      # the developer's chat template at a pinned revision, not the quantised folder's (DEP-007, D-392)
+      - --chat-template=/models/${JUDGE_CHAT_TEMPLATE:-chat-templates/gemma-4-26b-a4b-it/chat_template.jinja}
       - --max-model-len=${JUDGE_MAX_LEN:-8192}
       - --max-num-seqs=${JUDGE_MAX_SEQS:-4}
       - --enforce-eager

@@ -28,6 +28,15 @@ not edited, for this build and for PRODUCTION), checks that it qualified exactly
 ``status: champion`` with the record's reference. ``pin`` never writes ``champion``, and a re-pin drops the status and
 the reference.
 
+**The chat template** (T-674, D-392, DEP-007). A judge build's registry row names ``chat_template``: the
+developer's template at a pinned revision, a file under the models root that compose passes to vLLM with
+``--chat-template``. ``--chat-template FILE`` (and ``--install``, from ``JUDGE_CHAT_TEMPLATE`` or the row's ``file``)
+hashes it into the pin: ``weights.chat_template`` holds its path under the models root, sha256, source and revision,
+and ``manifests/<build_id>.template.sha256`` holds its ``sha256sum`` line. A file whose sha256 differs from the row's
+``chat_template.sha256`` is refused; while the row has none (not yet fetched from the publisher) the file is recorded
+as ``trust: first_use``. ``--install`` refuses a judge build whose template file is missing, because vLLM would not
+start with the flag. The weight manifest and its digest are unchanged: the template is a second file of the pin.
+
 ``--verify`` recomputes the manifest and exits 1 when it differs from the pinned sha256 (SEC-64: weights changed
 since the pin); it writes nothing. ``--verify-all deploy/models`` does that for every build in the override (each
 under its recorded ``model_dir``); ``deploy/install.sh`` runs it before a GPU stack starts. Exit 2 on a usage error
@@ -116,6 +125,39 @@ def _committed(registry_path: Path | None = None) -> tuple[dict[str, Any], dict[
     return doc, {str(b.get("build_id")): b for b in doc.get("builds") or []}
 
 
+def template_of(row: dict[str, Any]) -> dict[str, Any] | None:
+    """The row's ``chat_template`` (source, revision, file, sha256), or None for a build served with its own."""
+    tpl = row.get("chat_template")
+    return dict(tpl) if isinstance(tpl, dict) and tpl.get("file") else None
+
+
+def pin_template(build_id: str, row: dict[str, Any], path: Path) -> dict[str, Any]:
+    """The pin's ``chat_template`` entry for ``path``; :class:`PinError` when the build names no template, the file
+    is missing, or its sha256 is not the one the registry names."""
+    tpl = template_of(row)
+    if tpl is None:
+        raise PinError(f"{build_id}: models/registry.yaml names no chat_template for this build")
+    if not path.is_file():
+        raise PinError(
+            f"{build_id}: no chat template at {path}: the judge starts with --chat-template (DEP-007); put "
+            f"{tpl.get('source')} {tpl.get('file')} at revision {tpl.get('revision')} there; refused"
+        )
+    sha = file_sha256(path)
+    want = tpl.get("sha256")
+    if want and sha != want:
+        raise PinError(
+            f"{build_id}: chat template {path.name} {sha[:12]} is not the expected {str(want)[:12]} of "
+            f"{tpl.get('source')} at {tpl.get('revision')}; refused"
+        )
+    return {
+        "file": str(tpl["file"]),
+        "sha256": sha,
+        "source": tpl.get("source"),
+        "revision": tpl.get("revision"),
+        "trust": "expected" if want else "first_use",
+    }
+
+
 def expected_of(row: dict[str, Any]) -> tuple[str | None, str | None]:
     exp = row.get("expected") or {}
     return (exp.get("manifest_sha256") or None), (exp.get("revision") or None)
@@ -143,10 +185,12 @@ def pin(
     registry_path: Path | None = None,
     now: datetime | None = None,
     trust_first_use: bool = False,
+    chat_template: Path | None = None,
 ) -> tuple[Manifest, Path]:
     """Compute the manifest, check it against the build's expected weights, write it and the override entry; returns
-    (manifest, override path). The merged registry is loaded before anything is written, so an override the gateway
-    would refuse is never produced."""
+    (manifest, override path). ``chat_template`` is the template file the server is started with (T-674): it is
+    checked after the weights and recorded in the pin. The merged registry is loaded before anything is written, so
+    an override the gateway would refuse is never produced."""
     from registry.registry import Registry, apply_override
 
     committed, known = _committed(registry_path)
@@ -180,6 +224,7 @@ def pin(
         )
     if not want_sha and status not in (None, "candidate"):
         raise PinError(f"{build_id}: weights trusted on first use are pinned as candidate only")
+    template = pin_template(build_id, known[build_id], chat_template) if chat_template is not None else None
     revision = revision or want_rev
     doc = load_override(out)
     doc["base_version"] = committed.get("version")
@@ -195,6 +240,8 @@ def pin(
             "trust": "expected" if want_sha else "first_use",
         },
     }
+    if template:
+        entry["weights"]["chat_template"] = template
     if status:
         entry["status"] = status
     if revision:
@@ -205,6 +252,11 @@ def pin(
     manifest_path = out.parent / "manifests" / f"{build_id}.sha256"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(m.text, encoding="utf-8")
+    template_manifest = manifest_path.with_name(f"{build_id}.template.sha256")
+    if template:
+        template_manifest.write_text(f"{template['sha256']}  {Path(template['file']).name}\n", encoding="utf-8")
+    elif template_manifest.exists():
+        template_manifest.unlink()
     _write_override(out, doc)
     return m, out
 
@@ -235,11 +287,34 @@ def set_served(build_id: str, endpoint: str, served_name: str, out: Path = DEFAU
     _write_override(out, doc)
 
 
-def verify(build_id: str, model_dir: Path, out: Path = DEFAULT_OVERRIDE) -> tuple[bool, str]:
-    """(ok, message): the directory's manifest digest equals the pinned sha256 of ``build_id`` in the override, and
-    the pin is the build's expected manifest when the registry names one."""
+def add_template(build_id: str, path: Path, out: Path = DEFAULT_OVERRIDE, registry_path: Path | None = None) -> None:
+    """Record the chat template in the pin of a build pinned without one (a box pinned before T-674)."""
+    from registry.registry import Registry, apply_override
+
+    committed, known = _committed(registry_path)
     doc = load_override(out)
-    pinned = (doc.get("builds") or {}).get(build_id, {}).get("sha256")
+    entry = doc["builds"].get(build_id)
+    if not entry:
+        raise PinError(f"{build_id} is not pinned in {out}")
+    template = pin_template(build_id, known.get(build_id) or {}, path)
+    entry.setdefault("weights", {})["chat_template"] = template
+    Registry(apply_override(committed, doc))  # validates the merged registry; raises before writing
+    (out.parent / "manifests").mkdir(parents=True, exist_ok=True)
+    (out.parent / "manifests" / f"{build_id}.template.sha256").write_text(
+        f"{template['sha256']}  {Path(template['file']).name}\n", encoding="utf-8"
+    )
+    _write_override(out, doc)
+
+
+def verify(
+    build_id: str, model_dir: Path, out: Path = DEFAULT_OVERRIDE, models_root: Path | None = None
+) -> tuple[bool, str]:
+    """(ok, message): the directory's manifest digest equals the pinned sha256 of ``build_id`` in the override, and
+    the pin is the build's expected manifest when the registry names one. A pinned chat template is re-checked under
+    ``models_root`` (default: the model directory's parent)."""
+    doc = load_override(out)
+    entry = (doc.get("builds") or {}).get(build_id, {})
+    pinned = entry.get("sha256")
     if not pinned:
         return False, f"{build_id} is not pinned in {out}"
     want = expected_of(_committed()[1].get(build_id) or {})[0]
@@ -248,6 +323,17 @@ def verify(build_id: str, model_dir: Path, out: Path = DEFAULT_OVERRIDE) -> tupl
     m = weight_manifest(model_dir)
     if m.sha256 != pinned:
         return False, f"{build_id}: weights changed since the pin ({m.sha256[:12]} != pinned {pinned[:12]})"
+    tpl = (entry.get("weights") or {}).get("chat_template") or {}
+    if tpl:
+        path = (models_root or model_dir.parent) / str(tpl.get("file"))
+        if not path.is_file():
+            return False, f"{build_id}: the pinned chat template {path} is missing"
+        if file_sha256(path) != tpl.get("sha256"):
+            return False, f"{build_id}: chat template changed since the pin ({path.name})"
+        return True, (
+            f"{build_id}: {m.files} files match the pinned manifest {pinned[:12]}; chat template "
+            f"{str(tpl.get('sha256'))[:12]}"
+        )
     return True, f"{build_id}: {m.files} files match the pinned manifest {pinned[:12]}"
 
 
@@ -274,7 +360,7 @@ def verify_all(models_root: Path, out: Path = DEFAULT_OVERRIDE) -> tuple[bool, l
             lines.append(f"{build_id}: model directory {d} is missing")
             continue
         try:
-            good, msg = verify(str(build_id), d, out)
+            good, msg = verify(str(build_id), d, out, models_root)
         except PinError as exc:
             good, msg = False, f"{build_id}: {exc}"
         ok = ok and good
@@ -287,6 +373,8 @@ def verify_all(models_root: Path, out: Path = DEFAULT_OVERRIDE) -> tuple[bool, l
 # tools/complete_run.py. A pin with any other name makes vLLM answer 404 to every call the gateway sends (the first
 # complete run, 2026-11-09: compose said gemma-4-26b-a4b-it, the card served local/gemma-4-26b-a4b-nvfp4).
 JUDGE_SERVED = "local/gemma-4-26b-a4b-nvfp4"
+# T-674: the compose variable that names the judge's chat template under the models root (--chat-template)
+TEMPLATE_VAR = "JUDGE_CHAT_TEMPLATE"
 VERIFIER_SERVED = "local/qwen3.5-9b-awq"
 
 # D-142 (review R-01): the pair each GPU profile's compose file serves, as (build, endpoint, model dir variable and
@@ -346,13 +434,24 @@ def install_pins(
             lines.append(f"{build}: pinned {pinned[:12]} is not the expected manifest {want[:12]}: it routes nothing; "
                          "put the release's weights in place and re-pin it")  # fmt: skip
             continue
+        tpl = template_of(known.get(build) or {})
+        tpl_path = models_root / (e.get(TEMPLATE_VAR) or str(tpl["file"])) if tpl else None
         if pinned:
+            note = ""
+            if tpl_path is not None and not ((have.get(build) or {}).get("weights") or {}).get("chat_template"):
+                try:  # pinned before T-674: the template the server now starts with joins the pin
+                    add_template(build, tpl_path, out, registry_path)
+                except PinError as exc:
+                    ok = False
+                    lines.append(f"{build}: {exc}")
+                    continue
+                note = f"; chat template {tpl_path.name} added to the pin"
             was = ((have.get(build) or {}).get("served") or {}).get(endpoint)
             if was != name:
                 set_served(build, endpoint, name, out)
-                lines.append(f"{build}: already pinned; served name on {endpoint} now {name!r} (was {was!r})")
+                lines.append(f"{build}: already pinned; served name on {endpoint} now {name!r} (was {was!r}){note}")
             else:
-                lines.append(f"{build}: already pinned")
+                lines.append(f"{build}: already pinned{note}")
             continue
         d = models_root / (e.get(dir_var) or dir_default)
         if not d.is_dir():
@@ -361,7 +460,14 @@ def install_pins(
             continue
         try:
             m, _ = pin(
-                build, d, served_name=name, endpoint=endpoint, out=out, status="candidate", registry_path=registry_path
+                build,
+                d,
+                served_name=name,
+                endpoint=endpoint,
+                out=out,
+                status="candidate",
+                registry_path=registry_path,
+                chat_template=tpl_path,
             )
         except PinError as exc:
             ok = False
@@ -370,6 +476,7 @@ def install_pins(
         lines.append(
             f"{build}: pinned {m.sha256[:12]} ({m.files} files) as candidate on {endpoint}; "
             "champion after trialbox eval qualify and --promote"
+            + (f"; chat template {tpl['source']} at {tpl['revision']}" if tpl else "")
         )
     return ok, lines
 
@@ -448,6 +555,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--record", type=Path, help="--promote: the qualification record (eval/qualification/*.json)")
     ap.add_argument("--environment", default="PRODUCTION", help="--promote: the environment the record must qualify")
     ap.add_argument("--revision", default=None, help="upstream revision (commit or tag) of the weights")
+    ap.add_argument(
+        "--chat-template",
+        type=Path,
+        default=None,
+        help="the template file the server gets with --chat-template (a judge build's registry chat_template)",
+    )
     ap.add_argument("--verify", action="store_true", help="re-check the weights against the pin; write nothing")
     ap.add_argument(
         "--verify-all",
@@ -506,6 +619,7 @@ def main(argv: list[str] | None = None) -> int:
             status=args.status,
             revision=args.revision,
             trust_first_use=args.trust_first_use,
+            chat_template=args.chat_template,
         )
     except (PinError, ValueError) as exc:
         print(f"pin_model: {exc}", file=sys.stderr)

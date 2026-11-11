@@ -50,6 +50,15 @@ closed). Checks:
   VALIDATION and PRODUCTION also FAIL when the kernel clock is not NTP-synchronised, when the time server does not
   answer, or when neither can be read. WARN for those in DEV and TEST.
 
+``--verify-all`` adds one check that hashes the model weights (minutes for tens of GB; ``--weights`` runs it alone,
+as the ``trialbox-weights`` timer before the night's runs and an update after its restart do; T-677, D-393):
+
+* ``weights`` (LLM-008, SEC-64): every build pinned in the site override (``TB_REGISTRY_OVERRIDE``, default
+  ``deploy/site/registry.site.yaml``) still hashes to its pin under the models folder (``TB_MODELS_DIR``, default
+  ``deploy/models``; ``tools/pin_model.py --verify-all``). FAIL on any difference: it writes the weights flag
+  ``weights_changed.json`` beside the override (``TB_WEIGHTS_FLAG`` moves it), and the gateway refuses every model
+  call while the flag is there (``gateway.app.StartCheck``). A pass removes the flag. WARN when nothing is pinned.
+
 ``--two-device`` adds one check, for a device of the GB10 two-device form (T-214, D-373; ``deploy/two-device/``):
 
 * ``two_device``: ``TB_LINK_ROLE`` (spark or workstation) names this device; its rendered compose (``--compose-config``,
@@ -80,6 +89,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Literal
@@ -828,6 +838,51 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
 
 
 LIVE: tuple[Callable[[DoctorInputs], Check], ...] = (check_serving,)
+
+
+def _models_root(inp: DoctorInputs) -> Path:
+    raw = (inp.env.get("TB_MODELS_DIR") or "").strip()
+    return Path(raw) if raw else ROOT / "deploy" / "models"
+
+
+def check_weights(inp: DoctorInputs) -> Check:
+    """Every pinned build's weights against its pin; a FAIL sets the flag the gateway refuses on (T-677, D-393)."""
+    from gateway.app import weights_flag_path
+
+    from tools import pin_model
+
+    override = _override(inp)
+    flag = weights_flag_path({**inp.env, "TB_REGISTRY_OVERRIDE": str(override)})
+    assert flag is not None
+    root = _models_root(inp)
+    try:
+        if not (pin_model.load_override(override).get("builds") if override.is_file() else None):
+            flag.unlink(missing_ok=True)
+            return Check("weights", "WARN", f"no model build pinned in {override}: no weights to check")
+        good, lines = pin_model.verify_all(root, override)
+    except (pin_model.PinError, OSError, ValueError, yaml.YAMLError) as e:
+        good, lines = False, [f"{override}: {type(e).__name__}: {e}"]
+    if good:
+        flag.unlink(missing_ok=True)
+        return Check("weights", "PASS", "; ".join(lines))
+    doc = {
+        "format": "trialbox-weights-flag/1",
+        "override": str(override),
+        "models_root": str(root),
+        "lines": lines,
+        "checked_at": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
+    try:
+        flag.parent.mkdir(parents=True, exist_ok=True)
+        flag.write_text(json.dumps(doc, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        held = f"the gateway refuses every model call while {flag} exists"
+    except OSError as e:
+        held = f"the weights flag could not be written ({flag}: {e}); stop the gateway by hand"
+    fix = "restore the pinned files or re-pin (tools/pin_model.py, RUNBOOK §8), then run doctor --verify-all again"
+    return Check("weights", "FAIL", f"{'; '.join(lines)}: {held}; {fix}")
+
+
+WEIGHTS: tuple[Callable[[DoctorInputs], Check], ...] = (check_weights,)
 
 
 def check_two_device(inp: DoctorInputs) -> Check:
