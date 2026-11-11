@@ -32,6 +32,9 @@ then be the same box.
    ``pg_dump`` / ``pg_restore --clean --if-exists --single-transaction`` (``tools.trialbox.backup``) as the drill's
    role, the extensions included. On a server without them (the local throwaway cluster) both checks say so and pass,
    unless ``--require-extensions``.
+8. The vector store (schema ``vec``, D-439): where the database has ``vector``, synthetic notes are indexed before the
+   backup (hash embedder) and, after the restore, every chunk, every vector, the model's HNSW index and a search read
+   back the same. Without the extension the check says so and passes, unless ``--require-extensions``.
 """
 
 from __future__ import annotations
@@ -93,6 +96,7 @@ def run(base: Path, require_extensions: bool = False) -> dict[str, Any]:
     refrows_before = _refdata_rows()
     omop_before = _omop(work, load=True)
     ext_before = _extensions()
+    vec_before = _vec(fill=True)
     charts_before = sorted(str(p.relative_to(work)) for p in (work / "box").rglob("sitesetup/*/inputs/*"))
 
     # 2. the nightly run, as the schedule runs it, with the in-process backup in place of the compose container
@@ -210,6 +214,7 @@ def run(base: Path, require_extensions: bool = False) -> dict[str, Any]:
 
     checks.append(_extensions_check(ext_before, _extensions(), require_extensions))
     checks.append(_extensions_roundtrip(url, require_extensions))
+    checks.append(_vec_check(vec_before, _vec(fill=False), require_extensions))
 
     # 5. a backup in the previous format restores
     rows_now = bk.row_counts(bk.db_sources(env)[0])
@@ -313,6 +318,47 @@ def _extensions_roundtrip(url: str, require: bool) -> tuple[str, bool, str]:
     finally:
         with psycopg.connect(dsn, autocommit=True) as con:
             con.execute(f'DROP DATABASE IF EXISTS "{scratch}" WITH (FORCE)')
+
+
+VEC_NOTES = (  # synthetic notes for the vector store's check (D-439)
+    ("drill-p1", "drill-d1", "Gout flare. Allopurinol continued. Uric acid 9.2."),
+    ("drill-p2", "drill-d2", "痛風發作，尿酸9.2。持續服藥。"),
+    ("drill-p2", "drill-d3", "Gout flare. Allopurinol continued. Uric acid 9.2."),
+)
+
+
+def _vec(fill: bool) -> dict[str, Any] | None:
+    """The vector store of the run's schemas (``vec``, D-439): its chunks, vectors, HNSW index and one search; with
+    ``fill`` the drill's synthetic notes are indexed first. None when the database has no ``vector`` extension."""
+    from embed_service.embedder import HashEmbedder
+    from tb_common.db import Database, extensions
+    from vec.index import Note, index_notes
+    from vec.store import VecStore, index_name
+
+    url = os.environ["TB_DB_URL"]
+    with Database.connect(url, "site") as db:
+        if not extensions(db, ("vector",))["vector"]:
+            return None
+    e = HashEmbedder()
+    with VecStore(url, model=e.model, dim=e.dim) as st:
+        if fill:
+            index_notes(st, [Note(p, d, t, "2026-01-01", "progress") for p, d, t in VEC_NOTES], e)
+        q = e.embed([VEC_NOTES[0][2]])[0]
+        return {
+            "chunks": st.db.fetchall("SELECT pid, did, chunk_no, start_char, end_char, text, sha FROM note_chunk "
+                                     "ORDER BY did, chunk_no"),
+            "vectors": st.db.fetchall("SELECT sha, model, dim, emb::text FROM embedding ORDER BY sha, model"),
+            "index": index_name(e.model) in st.indexes(),
+            "search": [(h["did"], h["chunk_no"]) for h in st.search(q, e.model, k=3)],
+        }  # fmt: skip
+
+
+def _vec_check(before: dict[str, Any] | None, after: dict[str, Any] | None, require: bool) -> tuple[str, bool, str]:
+    name = "restore: the vector store reads back the same: chunks, vectors, the HNSW index, a search (D-439)"
+    if before is None:
+        return (name, not require, "no vector extension in this database (no db image); --require-extensions fails")
+    ok = bool(before["chunks"]) and before["index"] and after == before
+    return (name, ok, f"{len(before['chunks'])} chunks, {len(before['vectors'])} vectors")
 
 
 def _refdata_rows() -> dict[str, list[tuple[Any, ...]]]:

@@ -78,11 +78,14 @@ also checks that `/invocations` and `/tokenize` refuse a call without the key.
 **The host itself.** `deploy/network.sh apply` also drops every new connection from a box network to the host
 (sshd, a database), except an allowed destination that is on the host.
 
-**The model key** (D-177). In GPU mode `install.sh` writes `TB_LLM_API_KEY` to `deploy/.env` once. Compose gives it to
-vLLM as `VLLM_API_KEY`, and only the gateway sends it (`models/routing.yaml`, endpoints `serving` and `verifier`). The
-secrets overlay clears it in every other service. After the stack starts, the installer runs `trialbox doctor
+**The model key** (D-177, D-437). `trialbox secrets init` (run by the installer) writes the key to
+`deploy/secrets/model/llm.key` (0600), taking the `TB_LLM_API_KEY` that `install.sh` or an older box put in
+`deploy/.env`. The secrets overlay gives the file to the gateway and model-guard only, as a compose secret
+(`TB_LLM_API_KEY_FILE`), and clears `TB_LLM_API_KEY` in every container. Compose still gives the vLLM servers the copy
+in `deploy/.env` as `VLLM_API_KEY`; `trialbox secrets` keeps that copy equal to the file. Only the gateway sends the
+key (`models/routing.yaml`, endpoints `serving` and `verifier`). After the stack starts, the installer runs `trialbox doctor
 --serving` on the model network and stops when a server is down, refuses the key, does not serve a pinned name, or
 answers without the key in PRODUCTION. An update (`trialbox update`) makes the key on a GPU box that has none and runs
-the same check after the restart; a FAIL rolls the update back. To change the key: set a new value in
-`deploy/.env`, then `docker compose --project-directory deploy up -d gateway model-guard llm-service llm-verifier`
-(`trialbox secrets rotate` does not rotate it yet).
+the same check after the restart; a FAIL rolls the update back; on a box with per-service tokens it also makes the key
+file from `deploy/.env` when it is missing. To change the key: `trialbox secrets rotate --service model` (the old key
+is refused from then on). Do not change the key in `deploy/.env` by hand: the gateway and model-guard read the file.
