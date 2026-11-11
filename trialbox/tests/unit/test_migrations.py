@@ -387,7 +387,11 @@ ADDED: dict[str, tuple[str, ...]] = {
     # T-510 (D-331): the feedback store, new after the baseline
     "feedback": ("3981b6201cd514508bed945433f3415993494cb24e52809cca7f37fe3801e368",),
     # D-281: edc version 2, the signature's version and key id, and signature_void
-    "edc": ("660d794773184321ebd80015911a26e65973b24d93fa2415c39b6114a22f561b",),
+    # T-115 (D-368): edc version 3, what each draft was built under and the stored re-entry result
+    "edc": (
+        "660d794773184321ebd80015911a26e65973b24d93fa2415c39b6114a22f561b",
+        "7307dbdcdff73f68593da4a33739e1803bcc90079eff738c175f3ad13bd26003",
+    ),
     # D-280: the break-glass grants, new after the baseline
     "breakglass": ("0347aae3f58f7558d041191f25bd2fc5bc654e6f5139c9ee28b1588e91544b83",),
 }

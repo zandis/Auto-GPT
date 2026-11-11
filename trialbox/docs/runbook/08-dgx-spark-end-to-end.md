@@ -14,7 +14,8 @@ store tests. PASS means every step passed and every answer came from the pinned 
 **Prerequisites.** Driver 580.142 held (`apt-mark hold`; later 580.x builds break vLLM on GB10, D-79);
 `nvidia-container-toolkit`; amd64 emulation for MailHog (test profile only); weights (safetensors or GGUF, never
 pickle or Python files) in `deploy/models/gemma-4-26b-a4b-it-4bit` and `deploy/models/qwen3.5-9b-4bit`; about 55 GB of
-disk. Spark memory as set, not yet measured on a Spark: `JUDGE_GPU_MEM_UTIL` 0.30, `VERIFIER_GPU_MEM_UTIL` 0.15.
+disk. Spark memory as set, not yet measured on a Spark: `JUDGE_GPU_MEM_UTIL` 0.30, `VERIFIER_GPU_MEM_UTIL` 0.15, and a
+memory limit per service (`deploy/gb10-profile.yaml`, D-373). The driver hold is re-tested every 28 days (D-373).
 
 **Pinning by hand.**
 
@@ -27,8 +28,10 @@ python -m tools.pin_model --build qwen3.5-9b-spark --model-dir deploy/models/qwe
 ```
 
 `deploy/install.sh` does this for the GPU profile's pair (`python -m tools.pin_model --install <gpu>`, D-142): the
-sha256 of the weights under deploy/models, the served names compose gives vLLM, and status `champion`, the only status
-a PRODUCTION route accepts (a pin by hand without `--status champion` routes in DEV and TEST only). A build already
+sha256 of the weights under deploy/models, which must be the release `models/registry.yaml` expects (a folder of other
+files is refused), the served names compose gives vLLM, and status `candidate` (D-358). A candidate routes in DEV and
+TEST only. PRODUCTION routes a `champion`, and only `python -m tools.pin_model --promote <build> --record <record>`
+makes one, from a passing qualification record (`docs/runbook/11-qualify.md`). A build already
 pinned is kept; missing weights are reported and that model routes nothing until install runs again.
 
 `--verify` re-checks the weights. Restart the gateway after a new pin. `make verify-models` checks every pin at
@@ -44,3 +47,6 @@ install.
 | mailhog `exec format error` | install amd64 emulation (`tonistiigi/binfmt --install amd64`) |
 
 A `public_agency: true` site needs non-PRC builds for every role; the default pair qualifies.
+
+The Spark beside a CPU workstation, two devices with one encrypted link: [the two-device section](08-two-device.md)
+(D-373).
