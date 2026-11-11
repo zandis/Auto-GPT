@@ -78,6 +78,13 @@ def schema_errors(name: str, data: Any) -> list[str]:
     return [f"{'/'.join(str(p) for p in e.absolute_path) or '<root>'}: {e.message}" for e in errs]
 
 
+def schema_error_codes(name: str, data: Any) -> list[str]:
+    """Like :func:`schema_errors`, but ``path: validator`` only (``verdict: enum``): never the offending value, which
+    can be model output and so note text. For audit details, exceptions and logs (T-605, review LLM-041)."""
+    errs = sorted(_validator(name).iter_errors(data), key=lambda e: list(e.absolute_path))
+    return [f"{'/'.join(str(p) for p in e.absolute_path) or '<root>'}: {e.validator}" for e in errs]
+
+
 def validate(name: str, data: Any) -> None:
     """Raise ``ValueError`` listing every violation of schema ``name``."""
     errs = schema_errors(name, data)

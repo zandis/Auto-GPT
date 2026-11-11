@@ -131,3 +131,21 @@ def test_truncated_answer_is_asked_again_with_a_larger_budget(tmp_path: Path) ->
     assert r.attempts == 2 and r.data["verdict"] == "unknown"
     assert bodies[1]["max_tokens"] == 4 * bodies[0]["max_tokens"]
     assert bodies[1]["messages"] == bodies[0]["messages"]  # the same question, not a "fix your JSON" turn
+
+
+def test_schema_violation_detail_holds_no_model_output(tmp_path: Path) -> None:
+    """LLM-041: the audit detail and the exception name the path and the rule broken, never what the model wrote."""
+    marker = "T605-PLANTED-MARKER 急性痛風發作"
+
+    def bad(request: httpx.Request) -> httpx.Response:
+        content = json.dumps({"verdict": marker, "confidence": 0.5}, ensure_ascii=False)
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}], "usage": {}})
+
+    c = LlmClient("http://x/v1", "m", audit=AuditLog(tmp_path))
+    c.http = httpx.Client(transport=httpx.MockTransport(bad))
+    with pytest.raises(LlmSchemaError) as err:
+        c.chat_json("judge", {"criterion_text": "x", "note_question": "q", "index_date": "2026-01-01", "excerpts": []})
+    assert "T605-PLANTED-MARKER" not in str(err.value) and "verdict: enum" in str(err.value)
+    audit = "\n".join(f.read_text(encoding="utf-8") for f in tmp_path.rglob("*.jsonl"))
+    assert "llm.schema_violation" in audit and "verdict: enum" in audit
+    assert "T605-PLANTED-MARKER" not in audit and "急性痛風" not in audit

@@ -41,6 +41,7 @@ import httpx
 import yaml
 from jinja2 import Environment, StrictUndefined
 from tb_contracts import PromptMeta, inline_schema, load_schema, null_absent, schema_errors
+from tb_contracts.schema import schema_error_codes
 from tb_llm.budget import MIN_ANSWER_TOKENS, answer_room, estimate_messages, retry_max_tokens, text_budget
 
 from tb_common.audit import AuditLog
@@ -330,6 +331,7 @@ class LlmClient:
         tokens_in = tokens_out = 0
         build_sha = ""
         errors: list[str] = []
+        codes: list[str] = []
         convo = list(messages)
         max_tokens = prompt.meta.max_tokens
         context = self.context_tokens()
@@ -376,8 +378,9 @@ class LlmClient:
             try:
                 data = null_absent(load_schema(schema_name), _extract_json(content))  # null == absent
                 errors = schema_errors(schema_name, data)
+                codes = schema_error_codes(schema_name, data)  # what leaves the call: no model output (T-605)
             except (json.JSONDecodeError, ValueError) as exc:
-                data, errors = None, [f"not JSON: {exc}"]
+                data, errors, codes = None, [f"not JSON: {exc}"], ["<root>: not JSON"]
             if not errors and isinstance(data, dict):
                 output_sha = sha256_text(json.dumps(data, sort_keys=True, ensure_ascii=False))
                 if self.audit is not None:
@@ -418,7 +421,7 @@ class LlmClient:
                 # the prompt (T-603, review LLM-018); when nothing larger fits, the retry is not sent
                 more = retry_max_tokens(context, estimate_messages(messages), max_tokens)
                 if more is None:
-                    errors = [*errors, "the answer was cut off and no larger answer fits the model's context"]
+                    codes = [*codes, "the answer was cut off and no larger answer fits the model's context"]
                     break
                 max_tokens = more
                 convo = list(messages)
@@ -440,9 +443,10 @@ class LlmClient:
                 model=served,
                 input_sha=input_sha,
                 prompt_version=f"{prompt.meta.id}_v{prompt.meta.version}",
-                detail={"errors": errors[:5]},
+                detail={"errors": codes[:5]},
             )
-        raise LlmSchemaError(f"{prompt_id}: output violated schema twice: {errors[:5]}")
+        # path and validator only: the model's words never reach the audit chain, job errors or logs (LLM-041)
+        raise LlmSchemaError(f"{prompt_id}: output violated schema twice: {codes[:5]}")
 
     def _via_gateway(
         self, body: dict[str, Any], prompt: Prompt, job_id: str | None, data_class: str | None

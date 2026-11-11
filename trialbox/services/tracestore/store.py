@@ -10,11 +10,17 @@
   ``production_retention_days`` (7; T-208, D-346).
 * **No text for the suite.** A trace whose ``tb.study_id`` is in ``no_text_studies`` (the prompt-injection suite)
   keeps its call id, span, special-category mark and safe attributes only (T-208).
+* **No D3/D4 text in PRODUCTION (T-605, D-431).** In PRODUCTION a trace whose ``tb.data_class`` is in
+  ``production_no_text_classes`` keeps the prompt and the output as a sha256 and a size only, never as text.
+* **Scheduled prune (T-605, D-431).** A write prunes when the last prune is older than ``prune_every_hours`` by the
+  injected clock, so retention holds without an operator. Every prune touches only rows written under D-431
+  (``policy`` 1); older rows wait for the owner's ruling on existing trace rows.
 * **Not the audit trail.** Each trace carries ``call_id``, which resolves to the gateway's ledger record (LLM-46).
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from collections.abc import Callable
@@ -47,6 +53,8 @@ class TraceSettings:
     read_role: str
     safe_attributes: frozenset[str]
     no_text_studies: frozenset[str] = frozenset()
+    no_text_classes: frozenset[str] = frozenset()  # PRODUCTION only (T-605): hashes and sizes, no text
+    prune_every_hours: float = 0.0  # 0: no prune on write
 
     @classmethod
     def load(cls, path: Path = SETTINGS_PATH, environment: str | None = None) -> TraceSettings:
@@ -55,15 +63,19 @@ class TraceSettings:
         doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         days, sc_days = int(doc["retention_days"]), int(doc["sc_retention_days"])
         env = environment if environment is not None else environment_name(os.environ)
-        if env.strip().upper() == "PRODUCTION" and doc.get("production_retention_days") is not None:
+        production = env.strip().upper() == "PRODUCTION"
+        if production and doc.get("production_retention_days") is not None:
             cap = int(doc["production_retention_days"])
             days, sc_days = min(days, cap), min(sc_days, cap)
+        no_text_classes = (doc.get("production_no_text_classes") or ()) if production else ()
         return cls(
             retention_days=days,
             sc_retention_days=sc_days,
             read_role=str(doc["read_role"]),
             safe_attributes=frozenset(str(x) for x in doc.get("safe_attributes") or ()),
             no_text_studies=frozenset(str(x) for x in doc.get("no_text_studies") or ()),
+            no_text_classes=frozenset(str(x).upper() for x in no_text_classes),
+            prune_every_hours=float(doc.get("prune_every_hours") or 0),
         )
 
 
@@ -79,6 +91,18 @@ CREATE TABLE IF NOT EXISTS access_log (
   action TEXT NOT NULL, call_id TEXT, granted INTEGER NOT NULL, detail TEXT
 );
 """
+# T-605 (D-431): rows written from now on carry policy 1 and are the only rows a prune deletes; rows from before
+# (policy 0) are kept as they are until the owner rules on existing trace rows
+SCHEMA_V2 = "ALTER TABLE traces ADD COLUMN IF NOT EXISTS policy INTEGER NOT NULL DEFAULT 0"
+POLICY = 1
+
+
+def _digest(value: Any) -> dict[str, Any] | None:
+    """A sha256 and a size of ``value`` (text or JSON), never the value itself."""
+    if value is None:
+        return None
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return {"sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(), "chars": len(text)}
 
 
 class TraceStore:
@@ -96,7 +120,8 @@ class TraceStore:
         self.clock = clock
         self.settings = settings or TraceSettings.load()
         self.db = Database.connect(url or os.environ.get(ENV), "trace")
-        self.db.migrate([SCHEMA_V1])
+        self.db.migrate([SCHEMA_V1, SCHEMA_V2])
+        self._last_prune: datetime | None = None
 
     def close(self) -> None:
         self.db.close()
@@ -120,6 +145,10 @@ class TraceStore:
         if str(attrs.get("tb.study_id") or "") in self.settings.no_text_studies:  # T-208: no text at all
             safe = {k: v for k, v in attrs.items() if k in self.settings.safe_attributes}
             return {k: trace[k] for k in ("call_id", "span", "sc") if k in trace} | {"attributes": safe}
+        if str(attrs.get("tb.data_class") or "").upper() in self.settings.no_text_classes:  # T-605: no D3/D4 text
+            safe = {k: v for k, v in attrs.items() if k in self.settings.safe_attributes}
+            kept = {k: trace[k] for k in ("call_id", "span", "sc") if k in trace} | {"attributes": safe}
+            return kept | {f"{k}_digest": _digest(trace.get(k)) for k in ("prompt", "output") if k in trace}
         out: dict[str, Any] = {}
         for key, val in trace.items():
             if key in ("call_id", "span", "sc"):
@@ -138,12 +167,16 @@ class TraceStore:
         if not call_id:
             raise ValueError("a trace needs tb.call_id (LLM-46)")
         body = self._redact_trace(trace)
-        ts = self._now().isoformat()
+        now = self._now()
+        ts = now.isoformat()
         body["ts"] = ts
         self.db.execute(
-            "INSERT INTO traces (call_id, ts, sc, body) VALUES (?, ?, ?, ?)",
-            (call_id, ts, int(bool(trace.get("sc"))), json.dumps(body, ensure_ascii=False, sort_keys=True)),
+            "INSERT INTO traces (call_id, ts, sc, body, policy) VALUES (?, ?, ?, ?, ?)",
+            (call_id, ts, int(bool(trace.get("sc"))), json.dumps(body, ensure_ascii=False, sort_keys=True), POLICY),
         )
+        every = self.settings.prune_every_hours
+        if every > 0 and (self._last_prune is None or now - self._last_prune >= timedelta(hours=every)):
+            self.prune()  # the schedule: no separate job to forget (T-605)
         return call_id
 
     # ------------------------------------------------------------------------------------------------ read
@@ -168,14 +201,17 @@ class TraceStore:
 
     # ------------------------------------------------------------------------------------------------ retention
     def prune(self) -> int:
-        """Delete traces past retention (90 days; sc traces sooner). Returns the number deleted; logged."""
+        """Delete traces past retention (90 days; sc traces sooner; 7 in PRODUCTION). Returns the number deleted;
+        logged. Only rows written under D-431 (``policy`` 1) are deleted; older rows await the owner's ruling."""
         now = self._now()
+        self._last_prune = now
         cut = (now - timedelta(days=self.settings.retention_days)).isoformat()
         cut_sc = (now - timedelta(days=self.settings.sc_retention_days)).isoformat()
         with self.db.transaction() as tx:
             # ISO strings in one offset; compared byte-wise as SQLite did
             n = tx.execute(
-                'DELETE FROM traces WHERE ts < ? COLLATE "C" OR (sc = 1 AND ts < ? COLLATE "C")', (cut, cut_sc)
+                'DELETE FROM traces WHERE policy >= ? AND (ts < ? COLLATE "C" OR (sc = 1 AND ts < ? COLLATE "C"))',
+                (POLICY, cut, cut_sc),
             )
             tx.execute(
                 'INSERT INTO access_log (ts, "user", purpose, action, call_id, granted, detail) '
