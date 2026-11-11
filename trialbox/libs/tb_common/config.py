@@ -573,6 +573,9 @@ DECLARED: dict[str, Declared] = {
     "TB_NOTE_BLOCK": Declared("str", "both_agree", "note-block policy"),
     "TB_NOTICE_N1_AT": Declared("str", "07:00", "console: first notice time"),
     "TB_NOTICE_N2_AT": Declared("str", "07:30", "console: second notice time"),
+    "TB_NOT_MATCHED_GATE": Declared(
+        "str", "auto", "console, orchestrator: not-matched list held until the site's check (auto, on, off; D-446)"
+    ),
     "TB_NPM_REGISTRY": Declared("str", "", "FHIR package fetch: registry"),
     "TB_NTP_MAX_OFFSET_S": Declared("float", "", "platform: largest NTP offset"),
     "TB_NTP_SERVER": Declared("str", "", "NTP server checked for the audit clock"),

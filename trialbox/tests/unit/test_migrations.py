@@ -327,7 +327,7 @@ def store_migrations() -> dict[str, list[str]]:
     from orchestrator.recall import ledger
     from patient_profile import twin
     from sitesetup import store as sitesetup
-    from tb_common import derived_store, flags, optout, refdata
+    from tb_common import derived_store, flags, notmatched, optout, refdata
     from tracestore import store as trace
     from vec import store as vec
 
@@ -356,6 +356,7 @@ def store_migrations() -> dict[str, list[str]]:
         "app": list(flags.MIGRATIONS),
         "derived": list(derived_store.MIGRATIONS),
         "dataops": [dataops.SCHEMA],
+        "tuned": list(notmatched.MIGRATIONS),
         "vec": list(vec.MIGRATIONS),
         "profile": list(twin.MIGRATIONS),
     }
@@ -427,6 +428,8 @@ ADDED: dict[str, tuple[str, ...]] = {
     ),
     # T-112a (D-427): the data-operations batches, new after the baseline
     "dataops": ("01925afb0e82837617a880fa2d2b32f7efaa6d5e98945e7144f57510d76efbcf",),
+    # T-310a (D-446): the weekly PI sample of criteria not matched and the site's check, new after the baseline
+    "tuned": ("e8565a9e2288df90d120272ab2956fafe4595465ecd7c58c2e2debb35ee934a1",),
     # T-203a (D-439): the vector store, new after the baseline (needs pgvector: the db image)
     "vec": ("cd645d93e9d8d0a809c92eeaf6ff8997c201fb0e32b07a2d112288447f86b429",),
     # T-204 (D-440): the patient twin, new after the baseline
@@ -444,7 +447,7 @@ PINNED: dict[str, tuple[str, ...]] = {
 
 #: every file that opens a store and migrates it, covered by :func:`store_migrations` (or not a store of its own)
 STORE_FILES = {
-    "libs/tb_common/derived_store.py", "libs/tb_common/flags.py", "libs/tb_common/optout.py", "libs/tb_common/refdata.py", "services/adapter/licensed.py",
+    "libs/tb_common/derived_store.py", "libs/tb_common/flags.py", "libs/tb_common/notmatched.py", "libs/tb_common/optout.py", "libs/tb_common/refdata.py", "services/adapter/licensed.py",
     "services/adapter/pidmap.py", "services/console/auth.py", "services/console/breakglass.py", "services/console/feedback.py", "services/console/saerecord.py",
     "services/console/sitestore.py", "services/console/teamstore.py", "services/criteria_compiler/library/repository.py",
     "services/datacore/dataops.py", "services/datacore/store.py", "services/edc/store.py",
