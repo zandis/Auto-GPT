@@ -460,7 +460,7 @@ DECLARED: dict[str, Declared] = {
     "TB_EMBED_DEVICE": Declared("str", "cpu", "embedder device (cpu or cuda)"),
     "TB_EMBED_IMAGE": Declared("str", "", "platform: embedder image"),
     "TB_EMBED_MODE": Declared(
-        "str", "hash", "embedder: model (pinned local weights) or hash (stub; refused in PRODUCTION)"
+        "str", "hash", "embedder: model or hash (stub, refused in PRODUCTION); unset: model in PRODUCTION (D-429)"
     ),
     "TB_EMBED_MODEL_PATH": Declared("path", "/models/embedder", "embedder weights folder (pinned as e-embed-1)"),
     "TB_ENV": Declared("str", "PRODUCTION", "DEV, TEST or PRODUCTION (unset is PRODUCTION)"),
@@ -486,7 +486,7 @@ DECLARED: dict[str, Declared] = {
     "TB_GPU_KEY": Declared("str", "", "GPU profile tool: GPU key"),
     "TB_GPU_PROFILE": Declared("str", "", "platform: GPU profile"),
     "TB_GUARD_ADMIN": Declared("bool", "", "model guard: allow admin routes"),
-    "TB_GUARD_ROUTES": Declared("bool", "", "model guard: route check on"),
+    "TB_GUARD_ROUTES": Declared("str", "", "model guard: host=upstream:port routes, comma-separated (D-177)"),
     "TB_GUARD_TIMEOUT_S": Declared("float", "", "model guard: upstream timeout"),
     "TB_HAPI_DB_URL": Declared("str", "", "backup: HAPI database URL"),
     "TB_HEALTH_CERT_RED_DAYS": Declared("int", "30", "health: certificate red within these days (D-379)"),
@@ -515,8 +515,8 @@ DECLARED: dict[str, Declared] = {
     "TB_KEK_FILE": Declared("path", "", "the key-encryption key file"),
     "TB_KEK_NEW_PASSPHRASE": Declared("str", "", "keys tool: new KEK passphrase (secret)"),
     "TB_KEK_PASSPHRASE": Declared("str", "", "KEK passphrase (secret)"),
-    "TB_LAKE_DIR": Declared("path", "", "lake folder"),
-    "TB_LAKE_EMBEDDER": Declared("str", "hash", "adapter CLI: embedder for the lake"),
+    "TB_LAKE_DIR": Declared("path", "/data/lake", "lake folder"),
+    "TB_LAKE_EMBEDDER": Declared("str", "http", "embedder of a lake build (lake: http; adapter local build: hash)"),
     "TB_LAKE_MAX_TEMP": Declared("str", "", "lake: temporary space cap"),
     "TB_LAKE_MAX_SNAPSHOT_AGE_DAYS": Declared("int", "0", "oldest lake snapshot a job accepts, days (0: off; D-383)"),
     "TB_LAKE_MEMORY_LIMIT": Declared("str", "", "lake: memory cap"),
@@ -530,11 +530,11 @@ DECLARED: dict[str, Declared] = {
     "TB_LINK_ROLE": Declared("str", "", "two-device link: this device's role"),
     "TB_LLM_API_KEY": Declared("str", "", "gateway: key of the model admin endpoints (secret)"),
     "TB_LLM_CONTEXT": Declared("int", "", "direct model call: context size (DEV)"),
-    "TB_LLM_MODE": Declared("str", "", "model client (vllm, llamacpp, openai, stub)"),
+    "TB_LLM_MODE": Declared("str", "vllm", "model client (vllm, llamacpp, openai, stub)"),
     "TB_LOG_DIR": Declared("path", "deploy/logs", "host folder of collected logs"),
     "TB_LOG_MAX_FILE": Declared("int", "10", "container log files kept per service (provisional, D-389)"),
     "TB_LOG_MAX_SIZE": Declared("str", "100m", "size of one container log file (provisional, D-389)"),
-    "TB_MAIL_AUTHSERV_ID": Declared("str", "mx.", "authserv-id trusted in mail auth results"),
+    "TB_MAIL_AUTHSERV_ID": Declared("str", "", "authserv-id trusted in mail auth results (unset: none, D-369)"),
     "TB_MAIL_DIR": Declared("path", "", "testbench: mail folder"),
     "TB_MAIL_PER_RECIPIENT_PER_DAY": Declared(
         "int", "", "mail gateway: sends per recipient per day; empty = the built-in limit (T-108c)"
@@ -561,7 +561,7 @@ DECLARED: dict[str, Declared] = {
     "TB_NPM_REGISTRY": Declared("str", "", "FHIR package fetch: registry"),
     "TB_NTP_MAX_OFFSET_S": Declared("float", "", "platform: largest NTP offset"),
     "TB_NTP_SERVER": Declared("str", "", "NTP server checked for the audit clock"),
-    "TB_OBJECT_STORE": Declared("str", "", "object store (fs:<path>)"),
+    "TB_OBJECT_STORE": Declared("str", "fs:/data/objects", "object store (fs:<path>)"),
     "TB_OIDC_CA_FILE": Declared("path", "", "OIDC: CA file"),
     "TB_OIDC_CLIENT_ID": Declared("str", "", "OIDC: client id"),
     "TB_OIDC_CLIENT_SECRET_FILE": Declared("path", "", "OIDC: file with the client secret"),
