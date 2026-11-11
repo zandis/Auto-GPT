@@ -2,6 +2,10 @@
 {# EDC prefill (D-160): the coordinator's review of one subject and visit, then the electronic signature, then send. #}
 {% block title %}{{ t('edc.review.title') }} · {{ record }}{% endblock %}
 {% set q = request.query_params %}
+{# D-281 (CR-035): a signed value is locked; changing or withdrawing it needs the password (and code) again #}
+{% macro unlock(d, what) %}{% if d.signature_id %}<span class="hint" data-testid="locked-{{ what }}-{{ d.item }}">{{ t('edc.review.locked') }}</span>
+<label for="up{{ what }}{{ d.id }}">{{ t('edc.sign.password') }}</label><input id="up{{ what }}{{ d.id }}" name="password" type="password" required autocomplete="current-password" data-testid="unlock-password-{{ what }}-{{ d.item }}">
+{% if settings.identity.totp_required %}<label for="uo{{ what }}{{ d.id }}">{{ t('edc.sign.otp') }}</label><input id="uo{{ what }}{{ d.id }}" name="otp" inputmode="numeric" pattern="[0-9 ]*" maxlength="12" required autocomplete="one-time-code">{% endif %}{% endif %}{% endmacro %}
 {% block content %}
 <div class="headrow"><h1>{{ rs }} · {{ t('edc.review.title') }} · <span class="mono">{{ record }}</span>{% if visit %} · <span class="mono">{{ visit }}</span>{% endif %}</h1></div>
 {% include "_edc_nav.html" %}
@@ -31,8 +35,9 @@
 <label for="v{{ d.id }}">{{ t('edc.col.value') }}</label>{% if f.options %}<select id="v{{ d.id }}" name="value" data-testid="edit-value-{{ d.item }}">{% for code, lbl in f.options.items() %}<option value="{{ code }}"{% if code == (d.final or d.value) %} selected{% endif %}>{{ code }} · {{ lbl }}</option>{% endfor %}</select>{% else %}<input id="v{{ d.id }}" name="value" value="{{ d.final or d.value }}" data-testid="edit-value-{{ d.item }}">{% endif %}
 <label for="r{{ d.id }}">{{ t('edc.review.reason') }}</label><input id="r{{ d.id }}" name="reason" maxlength="300" required data-testid="edit-reason-{{ d.item }}">
 <label for="s{{ d.id }}">{{ t('edc.review.source') }}</label><input id="s{{ d.id }}" name="source" maxlength="300" data-testid="edit-source-{{ d.item }}"><label for="sd{{ d.id }}">{{ t('edc.review.source_day') }}</label><input id="sd{{ d.id }}" name="source_day" type="date" lang="{{ lang }}">
+{{ unlock(d, 'edit') }}
 <button type="submit" class="small" data-testid="edit-save-{{ d.item }}">{{ t('edc.action.save') }}</button></form></details>
-{% if not (d.sent_at) and d.fate != 'rejected' %}<form method="post" action="/studies/{{ rs }}/edc/decide/{{ d.id }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="record" value="{{ record }}"><input type="hidden" name="visit" value="{{ visit }}">{% if d.fate in ('confirmed', 'edited') %}<input name="reason" maxlength="300" required placeholder="{{ t('edc.review.reason') }}" aria-label="{{ t('edc.review.reason') }}">{% endif %}<button type="submit" name="action" value="reject" class="small secondary" data-testid="reject-{{ d.item }}">{{ t('edc.action.reject') }}</button></form>{% endif %}
+{% if not (d.sent_at) and d.fate != 'rejected' %}<form method="post" action="/studies/{{ rs }}/edc/decide/{{ d.id }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="record" value="{{ record }}"><input type="hidden" name="visit" value="{{ visit }}">{% if d.fate in ('confirmed', 'edited') %}<input name="reason" maxlength="300" required placeholder="{{ t('edc.review.reason') }}" aria-label="{{ t('edc.review.reason') }}">{% endif %}{{ unlock(d, 'reject') }}<button type="submit" name="action" value="reject" class="small secondary" data-testid="reject-{{ d.item }}">{{ t('edc.action.reject') }}</button></form>{% endif %}
 {% endif %}</td>
 </tr>{% endfor %}</tbody></table></div>{% endif %}
 </section>
