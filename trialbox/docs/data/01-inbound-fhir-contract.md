@@ -48,6 +48,11 @@ Every resource also gives its `id` and its `meta` (the row provenance and the ba
   mapped with an offset keeps that offset in the snapshot; only a naive time takes the mapping's `tz` (STD-015).
 - **Status.** The states of D-275 apply: an entered-in-error, cancelled or not-done record is not a fact. For a
   MedicationStatement, `not-taken` and `intended` are not facts either; `unknown` keeps the record without a date.
+- **Presence words.** A LOINC-coded Observation whose `valueString` is a presence word (陽性, 陰性, 未檢出,
+  Non-reactive, 2+) is read as the LOINC answer `LA6576-8` Positive or `LA6577-6` Negative, as the mapped sources
+  read it (D-334). The text stays in `valueCodeableConcept.text`, and the result is tagged
+  `urn:trialbox:value-source|presence-word`. A held or borderline word (判定保留, ±, equivocal) stays text, and
+  screening reads it as unknown. The audit entry of the night counts them (`presence_words_read`; D-418).
 
 **Not read.** AllergyIntolerance, MedicationAdministration, MedicationDispense, Immunization, Specimen and any other
 type; and any element not in the table (for example `Condition.abatement[x]`, `Condition.onsetPeriod`,
