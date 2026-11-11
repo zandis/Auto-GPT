@@ -24,7 +24,7 @@ x-vllm-shared: &vllmshared
     driver: json-file
     options: {max-size: "50m", max-file: "5"}
   profiles: [gpu]
-  image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0}
+  image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}
   environment:
     HF_HUB_OFFLINE: "1"
     VLLM_NO_USAGE_STATS: "1"

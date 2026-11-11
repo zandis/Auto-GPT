@@ -17,6 +17,8 @@ names. Every record is written by the pull request or the tool that does the wor
 | [`development-plan.md`](development-plan.md) | how a change is made, checked and recorded | T-654 |
 | [`soup.csv`](soup.csv) | the SOUP list, model weights included | T-654 |
 | [`problems.csv`](problems.csv) | the problem log; deviations and CAPA (VMP §6) | T-654 |
+| [`ai-governance.md`](ai-governance.md) | the AI governance note: who answers for the models, what they may and may not do | T-649b |
+| [`model-change-protocol.md`](model-change-protocol.md) | the model change protocol: the qualify steps and their thresholds | T-649b |
 | `record-inventory.md` | every GxP record the box makes or holds (planned) | T-643 |
 | `protocols/` | IQ, OQ, PQ protocols, only under TB-PLAN-06 §0.3 item 2 (planned) | T-315b |
 

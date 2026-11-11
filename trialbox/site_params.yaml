@@ -7,7 +7,7 @@ his:
   code_systems: {diagnosis: ICD10CM-TW, drug: NHI, lab_local_to_loinc: "mapping/tw_core/lab_local_to_loinc.csv", order: NHI}
   note_types_available: ["progress", "admission", "discharge", "consult", "nursing"]
   height_weight_source: "lab (local codes HT/WT, vital-signs)"
-mail: {imap_host: greenmail, smtp_host: mailhog, intake_addr: trialbox@hospa.test, from_addr: trialbox@hospa.test}
+mail: {imap_host: greenmail, smtp_host: mailpit, intake_addr: trialbox@hospa.test, from_addr: trialbox@hospa.test}
 people:
   reviewers: ["crc1@hospa.test", "pi@hospa.test"]
   physicians: ["pi@hospa.test", "rheu-dr@hospa.test"]

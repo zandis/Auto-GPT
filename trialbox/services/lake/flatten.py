@@ -22,6 +22,11 @@ LOINC = "http://loinc.org"
 BASIS = "urn:trialbox:basis"
 DEMOGRAPHIC = "urn:trialbox:demographic"
 
+# T-600 (FR-DEID-01, D-337): the columns that hold free text as the hospital wrote it, names, phone numbers and chart
+# numbers included. They stay in the lake under the ``phi`` label only: the chunker, the full-text index and the
+# embedder read them through ``tb_common.phi_guard.mask_note`` (``lake.store.Lake.rebuild``), never as they are.
+PHI_COLUMNS: dict[str, tuple[str, ...]] = {"document": ("text",)}
+
 SCHEMAS: dict[str, list[tuple[str, str]]] = {
     "patient": [("pid", "VARCHAR"), ("birth_date", "DATE"), ("sex", "VARCHAR"), ("deceased_date", "DATE")],
     "practitioner": [("practitioner_id", "VARCHAR"), ("staff_id", "VARCHAR"), ("name", "VARCHAR")],
