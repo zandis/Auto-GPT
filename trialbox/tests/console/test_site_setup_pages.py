@@ -36,7 +36,7 @@ from tb_common.audit import AuditLog
 from tb_common.crypto import pid_for_mrn
 from tb_common.llm import LlmClient
 
-from tests.console.test_console_app import VIEWER_PW, box, login  # noqa: F401 - the fixture is used by name
+from tests.console.test_console_app import VIEWER_PW, box, login, name_pi  # noqa: F401 - the fixture is used by name
 from tests.unit.test_site_setup import site_ruleset
 
 PW = "site-setup-password-0001"
@@ -244,6 +244,7 @@ def test_set_up_through_the_pages_to_green(sb: dict[str, Any]) -> None:
 
 
 def test_every_page_in_three_languages_and_roles(sb: dict[str, Any]) -> None:
+    name_pi(sb, "pi")  # D-380 (ROLE-008): the steward names the PI
     sb["svc"].add_chart(
         "main",
         *site_help.PRACTICE_CHARTS[1][:1],

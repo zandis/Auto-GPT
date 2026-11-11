@@ -304,8 +304,8 @@ class OpsRunner:
         detail = {"action": f"{res.get('action')}.done", "request": res.get("id"), "ok": bool(res.get("ok")),
                   "state": res.get("state"), "by": res.get("by")}  # fmt: skip
         code = (
-            "import json, sys\nfrom tb_common.audit import AuditLog\n"
-            "AuditLog('/data/audit').append('console.ops', actor='trialbox-ops', detail=json.loads(sys.argv[1]))\n"
+            "import json, sys\nfrom tb_common.audit_writer import open_audit\n"
+            "open_audit().append('console.ops', actor='trialbox-ops', detail=json.loads(sys.argv[1]))\n"
         )
         argv = [*ComposeBox(self.box.deploy).compose, "exec", "-T", "orchestrator", "python", "-c", code,
                 json.dumps(detail)]  # fmt: skip

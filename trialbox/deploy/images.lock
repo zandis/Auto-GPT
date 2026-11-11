@@ -167,6 +167,22 @@
         "PROMETHEUS_IMAGE"
       ],
       "note": "monitoring overlay only (deploy/docker-compose.monitoring.yml, T-209a, D-379): scrapes the console's /metrics on the box; the 3.5 long-term-support release"
+    },
+    "lldap": {
+      "image": "lldap/lldap:v0.6.3-alpine-rootless",
+      "digest": "sha256:ba2c50930ea998eefd5454aa678a7977448019248b1827da87d330df0b71c284",
+      "platforms": {
+        "linux/amd64": {
+          "manifest": "sha256:356dc844b8486135d0e1a795ed80e977a00bd0dc8417b85bc4a525ecd53e98b2"
+        },
+        "linux/arm64": {
+          "manifest": "sha256:4156d58332b7bcf83ff347d1632353e2979a666a19b461c9a27f207b82911c03"
+        }
+      },
+      "variables": [
+        "LLDAP_IMAGE"
+      ],
+      "note": "acceptance overlay only (deploy/docker-compose.acceptance.yml, T-213a, D-410): the test directory the identity overlay signs in against on the acceptance box; never on a hospital box and never in a bundle. The newest tag on 2026-11-11, read from Docker Hub."
     }
   }
 }

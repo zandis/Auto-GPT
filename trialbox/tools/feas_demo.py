@@ -47,7 +47,7 @@ ACCOUNTS = [
     ("admin", "admin", "admin@hospa.test", {}),
     ("crc", "coordinator", "crc1@hospa.test", {}),
     ("pi", "investigator", "pi@hospa.test", {}),
-    ("cra", "cro", "cra@hospa.test", {"affiliation": "cro"}),
+    ("cra", "cro", "cra@hospa.test", {"affiliation": "cro", "studies": "GZQO,GOUT-COH"}),  # D-380: names its studies
     ("viewer", "viewer", "viewer@hospa.test", {}),
 ]
 
@@ -219,6 +219,23 @@ def fresh_console_db(work: Path) -> str:
     return url
 
 
+def seed_pi(url: str | None = None, pi: str = "pi", studies: tuple[str, ...] = ()) -> None:
+    """D-380 (ROLE-008): only the PI a study's delegation log names acts as PI, so the demo writes the signed log's
+    PI entry for the demo investigator on every demo study (or on ``studies``) that has none (as the steward
+    would)."""
+    from console.teamstore import TeamStore
+
+    team = TeamStore(url)
+    try:
+        for rs in studies or tuple(sorted(p.name for p in (ROOT / "rulesets").iterdir() if (p / "ir").is_dir())):
+            if team.pi_of(rs, date.today()) is None:
+                team.add_entry(rs, username=pi, name="PI (demo)", role="pi", tasks=(), start="2026-01-01",
+                               end=None, training_day="2025-06-01", training_ref="demo seed (synthetic)",
+                               by="demo-seed", at="2026-01-01T00:00:00+00:00")  # fmt: skip
+    finally:
+        team.close()
+
+
 def console(work: Path, box: Any, client: Any, repo: Path, password: str) -> Any:
     from console.app import create_app
     from console.auth import UserStore
@@ -228,11 +245,13 @@ def console(work: Path, box: Any, client: Any, repo: Path, password: str) -> Any
 
     shutil.rmtree(work / "console", ignore_errors=True)  # the console's files start fresh with the box
     (work / "console").mkdir(parents=True)
-    users = UserStore(fresh_console_db(work))  # and so do its accounts and sessions
+    url = fresh_console_db(work)
+    users = UserStore(url)  # and so do its accounts and sessions
     for name, role, mailbox, scope in ACCOUNTS:
         users.create(name, role, password, mailbox)  # type: ignore[arg-type]
         if scope:
             users.set_scope(name, **scope)
+    seed_pi(url)
     env = {
         "TB_ENV": "DEV",
         "TB_CONSOLE_PILOT": "1",

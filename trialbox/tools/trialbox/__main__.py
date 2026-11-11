@@ -14,8 +14,10 @@ logs, audit archive and digest updates (T-633, D-416, ``platform_day2.py``); ``e
 ``services/mail_gateway/admin.py``).
 ``support-bundle`` writes one PHI-free file for a support ticket (T-209b, D-405, ``tools/support_bundle.py``).
 ``decommission-plan`` prints the close-out and purge checklist of the box (dry run; T-628, D-413, ``decommission.py``).
-``secrets``, ``logs``, ``update``, ``ops``, ``watchdog`` and ``decommission-plan`` need only the standard library, so
-they run with the host's ``python3`` from the install folder: ``sudo python3 -m tools.trialbox secrets rotate``."""
+``selftest`` runs the pair canary in the box with the compose files of ``deploy/.env`` (OPS-033, ``selftest.py``).
+``secrets``, ``logs``, ``update``, ``ops``, ``watchdog``, ``selftest`` and ``decommission-plan`` need only the standard
+library, so they run with the host's ``python3`` from the install folder:
+``sudo python3 -m tools.trialbox secrets rotate``."""
 
 from __future__ import annotations
 
@@ -169,6 +171,9 @@ def main(argv: list[str] | None = None) -> int:
     fl.add_argument("--audit", type=Path, default=Path(os.environ.get("TB_AUDIT_DIR", "/data/audit")))
     fl.add_argument("--days", type=int, default=30)
     fl.add_argument("--json", action="store_true")
+    st = sub.add_parser("selftest", help="the pair canary in the box, with the compose files of deploy/.env (OPS-033)")
+    st.add_argument("--deploy", type=Path, default=deploy)
+    st.add_argument("--dry-run", action="store_true", help="print the command; run nothing")
     dp = sub.add_parser("decommission-plan", help="close-out and purge checklist of every store; changes nothing")
     dp.add_argument("--deploy", type=Path, default=deploy)
     dp.add_argument("--json", action="store_true")
@@ -181,6 +186,10 @@ def main(argv: list[str] | None = None) -> int:
     ml.add_argument("--by", default=None, help="who decides (default: the user)")
     ml.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
+    if a.cmd == "selftest":
+        from tools.trialbox import selftest
+
+        return selftest.main(a.deploy, dry_run=a.dry_run)
     if a.cmd == "decommission-plan":
         from tools.trialbox import decommission
 

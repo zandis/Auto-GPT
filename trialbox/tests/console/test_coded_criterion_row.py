@@ -21,7 +21,7 @@ from tb_common.crypto import sha256_bytes
 from tb_common.wording import FORBIDDEN, LATER, check
 from tb_contracts import JobOutput
 
-from tests.console.test_console_app import _done_screen, _ulid, box, login  # noqa: F401 - box is a fixture
+from tests.console.test_console_app import _done_screen, _ulid, box, login, name_pi  # noqa: F401 - box is a fixture
 from tests.console.test_criterion_labels import _gzqo, english_words
 
 PW = "coded-criterion-row-pw-01"
@@ -108,6 +108,7 @@ def _run(b: dict[str, Any]) -> None:
 
 def _client(b: dict[str, Any], lang: str) -> Any:
     b["users"].create("walker", "investigator", PW, "walker@hospa.test")
+    name_pi(b, "walker")  # D-380 (ROLE-008): the steward names the PI
     c, csrf = login(b["app"], "walker", PW)
     c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/"})
     return c

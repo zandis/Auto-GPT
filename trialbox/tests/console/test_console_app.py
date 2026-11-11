@@ -10,7 +10,7 @@ import io
 import json
 import re
 import zipfile
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -363,6 +363,34 @@ def login(app: Any, user: str = "admin", pw: str = ADMIN_PW) -> tuple[TestClient
 
 
 CRC_PW = "coordinator-password-01"
+STW_PW = "steward-password-0001"
+
+
+def name_pi(b: dict[str, Any], username: str, rs: str = "GZQO") -> None:
+    """D-380 (ROLE-008): a study's PI entry is written by the steward from the signed log; until then nobody acts as
+    PI. The tests that need a PI name one here, through the steward's log page."""
+    if b["users"].get("stw-setup") is None:
+        b["users"].create("stw-setup", "steward", STW_PW, "stw-setup@hospa.test")
+    stw, csrf = login(b["app"], "stw-setup", STW_PW)
+    r = stw.post(f"/studies/{rs}/team", data={"csrf": csrf, "username": username, "role": "pi",
+                                              "start": "2026-01-01", "training_day": "2025-06-01"},
+                 follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303, r.text[-300:]
+
+
+def sub_investigator(b: dict[str, Any], username: str, tasks: tuple[str, ...] = ("screen", "approach", "refer"),
+                     rs: str = "GZQO") -> None:  # fmt: skip
+    """D-380 (ROLE-008): the rights an unnamed investigator had before the bootstrap was closed (screen, approach,
+    refer), now given the only way left: a named PI (``lead``) ticks them for ``username`` on the study's log."""
+    from console.teamstore import TeamStore
+
+    team = TeamStore()
+    if team.pi_of(rs, date.today()) is None:
+        team.add_entry(rs, username="lead", name="Lead PI", role="pi", tasks=(), start="2026-01-01", end=None,
+                       training_day="2025-06-01", training_ref=None, by="stw-setup", at="2026-01-01T00:00:00+00:00")  # fmt: skip
+    team.add_entry(rs, username=username, name=username, role="sub_pi", tasks=tasks, start="2026-01-01", end=None,
+                   training_day="2025-06-01", training_ref=None, by="lead", at="2026-01-01T00:00:00+00:00")  # fmt: skip
+    team.close()
 
 
 def login_crc(b: dict[str, Any]) -> tuple[TestClient, str]:
@@ -714,6 +742,12 @@ def test_protocol_upload_and_approve_loop(box: dict[str, Any]) -> None:
     r = c.post(f"/pilot/jobs/{job.job_id}/approval/tick", data={"csrf": csrf, "crit": "GZQO-DEMO-INC-01"})
     assert r.status_code == 403
     box["users"].create("pi", "investigator", "pi-password-12345", "pi@hospa.test")
+    from console.teamstore import TeamStore  # D-380 (ROLE-008): only the PI the log names approves; this test's
+
+    # study is not in the fake backend's ruleset list, so the steward's entry is written to the store directly
+    TeamStore().add_entry((job.ruleset or "").upper(), username="pi", name="PI", role="pi", tasks=(),
+                          start="2026-01-01", end=None, training_day=None, training_ref=None, by="stw",
+                          at="2026-01-01T00:00:00+00:00")  # fmt: skip
     p, pcsrf = login(box["app"], "pi", "pi-password-12345")
     assert 'data-testid="tick-btn-GZQO-DEMO-INC-01"' in p.get(f"/pilot/jobs/{job.job_id}/approval").text
     r = p.post(f"/pilot/jobs/{job.job_id}/approval/tick", data={"csrf": pcsrf, "crit": "GZQO-DEMO-INC-01"})
@@ -1559,6 +1593,7 @@ def test_sponsor_pack_is_audited_and_for_requesters_only(box: dict[str, Any]) ->
 def test_investigator_sees_candidate_rows_and_case_sheet_and_reveals(box: dict[str, Any]) -> None:
     """D-143 (owner, 2026-11-09): the study's investigator may reveal a chart number, audited like a coordinator."""
     box["users"].create("pi", "investigator", VIEWER_PW, "pi@hospa.test")
+    name_pi(box, "pi")  # D-380 (ROLE-008): the steward names the study's PI
     screen = _done_screen(box["backend"], _ulid(951))
     c, csrf = login(box["app"], "pi", VIEWER_PW)
     page = c.get(f"/pilot/jobs/{screen.job_id}").text
@@ -1639,6 +1674,7 @@ def test_case_request_row_shows_the_chart_number_to_the_study_team_only(box: dic
     box["audit"].append("console.request", job_id=job.job_id, ruleset="GZQO", actor="console:admin",
                         detail={"line": "CASE GZQO mrn=••• lang=en", "channel": "web"})  # fmt: skip
     box["users"].create("pi", "investigator", VIEWER_PW, "pi@hospa.test")
+    name_pi(box, "pi")  # D-380 (ROLE-008): the steward names the study's PI
     box["users"].create("pi2", "investigator", VIEWER_PW, "pi2@hospa.test")
     box["users"].set_scope("pi2", studies="OTHER")
     pi, _ = login(box["app"], "pi", VIEWER_PW)
