@@ -521,6 +521,9 @@ DECLARED: dict[str, Declared] = {
     "TB_LOG_MAX_SIZE": Declared("str", "100m", "size of one container log file (provisional, D-389)"),
     "TB_MAIL_AUTHSERV_ID": Declared("str", "mx.", "authserv-id trusted in mail auth results"),
     "TB_MAIL_DIR": Declared("path", "", "testbench: mail folder"),
+    "TB_MAIL_PER_RECIPIENT_PER_DAY": Declared(
+        "int", "", "mail gateway: sends per recipient per day; empty = the built-in limit (T-108c)"
+    ),
     "TB_MAIL_POLL_SECONDS": Declared("float", "60", "mail gateway poll interval"),
     "TB_MATCH_CACHE_DIR": Declared("path", "", "registry match: cache folder"),
     "TB_MATCH_CASSETTE_DIR": Declared("path", "", "registry match: recorded answers folder"),
