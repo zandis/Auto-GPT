@@ -1,0 +1,10 @@
+# Every two minutes (T-108b, D-377). Installed and enabled by deploy/install.sh.
+[Unit]
+Description=TrialBox egress table refresh every two minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=2min
+
+[Install]
+WantedBy=timers.target
