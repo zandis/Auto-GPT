@@ -25,22 +25,34 @@ _lock = threading.Lock()
 _stores: dict[str, DerivedStore] = {}
 
 
+def url_of(orch: Any) -> str | None:
+    """The trial database the job runner's own tables live in (its job database), else None (``TB_DB_URL``)."""
+    url = getattr(getattr(orch, "db", None), "url", None)
+    return url if isinstance(url, str) and url else None
+
+
 def store(url: str | None = None) -> DerivedStore | None:
     """One derived store per trial database URL for the process (``TB_DB_URL`` when None); None without one."""
     url = url or os.environ.get(ENV)
     if not url:
         return None
     with _lock:
-        if url not in _stores:
-            _stores[url] = DerivedStore(url)
-        return _stores[url]
+        st = _stores.get(url)
+        if st is not None:
+            try:  # a store whose connection or schema went away (a restarted database) is opened again
+                st.batch("")
+            except Exception:
+                st = None
+        if st is None:
+            st = _stores[url] = DerivedStore(url)
+        return st
 
 
 def after_ingest(orch: Any, snapshot: str) -> dict[str, Any] | None:
     """Recompute the stored derived rows of ``snapshot``; returns the batch's counts, or None when there is no trial
     database or the batch failed (logged and audited). Never raises."""
     try:
-        st = store()
+        st = store(url_of(orch))
         if st is None:
             log.info("derive batch skipped: no trial database (%s unset)", ENV)
             return None

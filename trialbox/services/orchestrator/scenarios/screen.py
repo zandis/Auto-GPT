@@ -224,7 +224,11 @@ def structured_engine(ctx: Ctx, snapshot: str) -> StructuredEngine:
     from orchestrator import derive
 
     return engine_from_env(
-        os.environ.get("TB_SCREEN_ENGINE", "sql"), ctx.services.fhir, ctx.services.lake, snapshot, derive.store()
+        os.environ.get("TB_SCREEN_ENGINE", "sql"),
+        ctx.services.fhir,
+        ctx.services.lake,
+        snapshot,
+        derive.store(derive.url_of(ctx.orch)),
     )
 
 

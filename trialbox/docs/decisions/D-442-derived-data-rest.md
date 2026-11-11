@@ -18,7 +18,10 @@
    keep their own age: the SQL and CQL the age at the index date, a stored row the age at its anchor. New reason code
    `derived_adult_only` with words in ja, zh-TW and en. **This changes screening results on purpose**: the goldens are
    regenerated with the tool (every eGFR criterion of a patient under 18 at the index date with a creatinine in the
-   window moves from met or not met to unknown).
+   window moves from met or not met to unknown). The recorded CQL test sets move the same way: `rulesets/GOUT-COH`
+   and `GZQO` `tests/expected.json` re-recorded with the local CQL engine (`tools.cql_eval`), `RA-JAK` with
+   `tools.build_scenario_ruleset` (its gold, `tools/synth/rajak.py`, says no eGFR for the 15-16 band); the e2e
+   pinned GOUT-COH screen numbers move by one patient to review.
 2. **Rulesets pin the score definitions.** An approval writes `derived_pins` (schema `RulesetManifest`, new
    `DerivedPin`: `def_version`, `sha256`) for every engine score its compiled criteria follow
    (`scores.FOLLOWS`: `egfr` pins CKD-EPI 2021, `das28` both DAS28 variants; BMI, BASDAI and ASDAS have no catalogue
@@ -29,7 +32,8 @@
 3. **Screening reads the stored rows.** The SQL keeps computing the score (the engines agree), and the stored row of
    record must stand behind every decided answer on a stored score (CDAI, SDAI, DAS28, both eGFRs):
    `matching.stored_scores.StoredScores`, applied by `SqlEngine` after the coverage and proposed-fact rules when it is
-   given the store (`screen.structured_engine` gives it whenever there is a trial database). It can only turn a
+   given the store (`screen.structured_engine` gives it whenever there is a trial database: the job runner's own,
+   `derive.url_of`). It can only turn a
    decided answer into unknown, never decide one: `derived_not_stored` when there is no finished batch of the
    snapshot, the batch ran under other definitions or failed for the patient, there is no current row in the window,
    the row is of another definition than pinned, or it is anchored on another visit than the SQL used; the row's own

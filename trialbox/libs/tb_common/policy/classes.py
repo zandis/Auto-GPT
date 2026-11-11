@@ -173,6 +173,7 @@ _D1 = {
     "IEBlock",
     "PromptMeta",
     "PromptPin",
+    "DerivedPin",  # D-442: a score definition's version and sha, no patient data
     "ModelEntry",
     "ModelManifest",
     # the qualification record (D-313): build ids, hashes, counts and codes, no note text

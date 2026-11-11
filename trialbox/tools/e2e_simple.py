@@ -760,9 +760,10 @@ GOUT_COH_BEFORE_STEP7: dict[str, Any] = {
         },
     },
     "screen": {
-        "funnel": {"S0": 3341, "S1": 9, "S3": 0, "S4": 9},
-        "listed": 9,
-        "tiers": {"excluded": 3332, "high": 5, "review": 4},
+        # D-442: one patient under 18 at the index date has no eGFR now (unknown, not "not met"): to review
+        "funnel": {"S0": 3341, "S1": 10, "S3": 0, "S4": 10},
+        "listed": 10,
+        "tiers": {"excluded": 3331, "high": 5, "review": 5},
     },
 }
 
