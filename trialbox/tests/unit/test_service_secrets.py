@@ -229,8 +229,13 @@ def test_the_compose_overlay_gives_each_service_only_its_own_token() -> None:
     over = yaml.safe_load((ROOT / "deploy/docker-compose.secrets.yml").read_text(encoding="utf-8"))
     base = yaml.safe_load((ROOT / "deploy/docker-compose.yml").read_text(encoding="utf-8"))["services"]
     py = {n for n, s in base.items() if "uvicorn" in json.dumps(s.get("command", "")) and n != "llm-stub"}
-    assert py == set(sx.SERVICES) == set(over["services"])
+    assert py == set(sx.SERVICES) == set(over["services"]) - {"audit-writer"}
     for name, svc in over["services"].items():
+        if name == "audit-writer":  # D-394: the audit drain serves no HTTP and calls no service: no token, no key
+            env = svc["environment"]
+            assert "secrets" not in svc and env["TB_SERVICE_TOKEN"] == "" and env["POSTGRES_PASSWORD"] == ""
+            assert env["IMAP_PASS"] == env["CLOUD_LLM_API_KEY"] == env["TB_LLM_API_KEY"] == ""
+            continue
         assert svc["secrets"] == [{"source": f"token_{name}", "target": "tb_service_token"}]
         assert over["secrets"][f"token_{name}"] == {"file": f"./secrets/services/{name}.token"}
         env = svc["environment"]

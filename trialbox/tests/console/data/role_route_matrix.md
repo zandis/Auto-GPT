@@ -10,6 +10,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/about/NOTICE.txt` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/account` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/admin` | Y | - | - | - | - | - | - | - | - |
+| GET | `/admin/accounts` | Y | - | - | - | - | - | - | - | - |
 | GET | `/admin/notice` | Y | - | - | - | - | - | - | - | - |
 | GET | `/admin/ops` | Y | - | - | - | - | - | - | - | - |
 | GET | `/admin/ops/network/{name}` | n | - | - | - | - | - | - | - | - |

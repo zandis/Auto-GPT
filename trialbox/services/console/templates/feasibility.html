@@ -55,7 +55,7 @@
 <section class="card" id="funnel">
 <h2>3 · {{ t('feas.s3') }}</h2>
 <div class="scroll" tabindex="0"><table class="funnel" data-testid="funnel">
-<thead><tr><th>{{ t('feas.f.criterion') }}</th><th class="barcol"></th><th class="num">{{ t('feas.f.remaining') }}</th><th class="num">{{ t('feas.f.dropped') }}</th><th class="num">{{ t('feas.f.unknown') }}</th><th>{{ t('feas.f.how') }}</th></tr></thead>
+<thead><tr><th>{{ t('feas.f.criterion') }}</th><th class="barcol"><span class="sr">{{ t('col.bar') }}</span></th><th class="num">{{ t('feas.f.remaining') }}</th><th class="num">{{ t('feas.f.dropped') }}</th><th class="num">{{ t('feas.f.unknown') }}</th><th>{{ t('feas.f.how') }}</th></tr></thead>
 <tbody>
 <tr><td>{{ t('feas.f.scope') }}</td><td class="barcol"><svg viewBox="0 0 100 10" preserveAspectRatio="none" class="bar" aria-hidden="true"><rect x="0" y="1" width="100" height="8" class="b"/></svg></td><td class="num">{{ s.start }}</td><td></td><td></td><td></td></tr>
 {% for f in rep.funnel %}

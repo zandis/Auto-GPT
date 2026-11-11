@@ -36,12 +36,12 @@ from console.auth import AuthError, UserStore, random_password
 
 
 def _audit(event: str, **fields: Any) -> None:
-    from tb_common.audit import AuditLog
+    from tb_common.audit_writer import open_audit
     from tb_common.config import site_tz
 
     directory = Path(os.environ.get("TB_AUDIT_DIR", "/data/audit"))
     try:
-        AuditLog(directory, site_tz()).append(event, actor="console-cli", **fields)
+        open_audit(directory, site_tz()).append(event, actor="console-cli", **fields)
     except OSError as exc:  # no audit volume (developer shell): say so, never fail silently
         print(f"warning: audit not written ({exc})", file=sys.stderr)
 
@@ -179,9 +179,9 @@ def main(argv: list[str] | None = None) -> int:
         from console.backend import HttpBackend
 
         cfg = get_config()
-        from tb_common.audit import AuditLog
+        from tb_common.audit_writer import open_audit
 
-        backend = HttpBackend(cfg, from_config(), AuditLog(cfg.env.audit_path, cfg.env.tz))
+        backend = HttpBackend(cfg, from_config(), open_audit(cfg.env.audit_path, cfg.env.tz))
         _audit("console.operate", detail={"action": "ingest"})
         rep = backend.ingest()
         _audit("console.operate", detail={"action": "ingest.done", "reason": "passed" if rep.get("passed") else "no"})
