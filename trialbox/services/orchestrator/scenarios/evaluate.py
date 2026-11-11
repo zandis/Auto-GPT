@@ -45,6 +45,19 @@ Verdict = Literal["pass", "fail", "unknown", "pending_human"]
 CHUNK_TOKENS = 2500  # the retrieval budget (k=5 chunks); cut further to the models' context (T-603)
 FULL_RECORD_TOKENS = 28000  # used only when neither model's context is known; else the context decides (T-603)
 FULL_RECORD_MAX_CANDIDATES = 100
+NOTES_FLAG = "notes.reading"  # T-609 (OPS-042): off holds note reading (tb_common.flags, RUNBOOK §19)
+NOTES_HELD = "note reading is held (flag notes.reading is off): note answers never exclude"
+
+
+def notes_held() -> bool:
+    """True while an operator holds note reading (``trialbox model hold``, the flag ``notes.reading`` set to off).
+
+    Read before every model call of the note stage, through the flag's five-second cache, so a hold stops the note
+    stage within one step of a running job, without a restart. A flag store that cannot be read (no ``TB_DB_URL``,
+    the database down) is not a hold: the job's own database calls fail then anyway."""
+    from tb_common.flags import read
+
+    return read(NOTES_FLAG) == "off"
 
 
 class StructuredEngine(Protocol):
@@ -214,6 +227,7 @@ class NoteJudge:
     failures: int = 0  # model calls that got no answer (model down, timeout, out-of-schema)
     disagreements: int = 0  # decided answers the verifier did not confirm (became unknown)
     same_model: int = 0  # decided answers the "verifier" gave as the judge's own model (became unknown, D-276)
+    held: int = 0  # note questions not put to a model because note reading was held (T-609)
     # the counters are bumped from the evaluator's worker threads: one lock, so the >10 % model-down rule and the
     # audit counts never lose an increment (review F-27)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
@@ -329,6 +343,9 @@ class NoteJudge:
     def _ask(
         self, client: LlmClient, variables: dict[str, Any], excerpts: list[dict[str, Any]], source: str
     ) -> NoteResult:
+        if notes_held():  # T-609: no model is asked while note reading is held; a person reads the notes instead
+            self._count(held=1)
+            return NoteResult("unknown", 0.0, reason=Reason.NOT_EVALUATED.value, source=source)
         try:
             res = client.chat_json(self.prompt, variables, job_id=self.job_id)
         except LlmPromptTooLong:
@@ -578,6 +595,8 @@ def effective_note_block(judge: NoteJudge | None) -> tuple[bool, str, str]:
     pair has not passed its canary (:mod:`orchestrator.canary_gate`, D-117). Returns
     ``(may_block, effective_policy, reason)``."""
     policy = note_block_policy()
+    if notes_held():  # T-609: before the configured policy, so a run under a hold always says why
+        return False, "never", NOTES_HELD
     if policy == "never":
         return False, "never", "configured: note answers never exclude"
     if judge is None:
@@ -691,6 +710,11 @@ def evaluate_patients(
 
         # one GPU for both models (TB_MODEL_SWAP=sleep): judge pass, then the verifier pass, then the merge
         note_res = two_phase(judge, judge_all, workers=workers)
+        if note_res and notes_held():
+            # T-609: a hold that came during the note stage: the answers got before it are not used either (each
+            # becomes unknown, not evaluated: review), so a run that ends under a hold uses no note answer
+            note_res = {}
+            note_block = False
     out: dict[str, PatientVerdicts] = {}
     for p in pids:
         ev = evals.get(p)

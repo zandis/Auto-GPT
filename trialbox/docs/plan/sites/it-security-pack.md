@@ -54,7 +54,7 @@ Sign-in through the hospital's directory (AD/LDAP or OIDC) with a second factor 
 | Retention | audit 10 years; service logs 365 days; mail logs 5 years (JP) or 7 years (TW); patient data per the hospital's policy; chart originals 1 year after their facts are decided; a written retention table per data kind |
 | Opt-out | a consent register the research office maintains; an opt-out removes the patient from screening, profiles, vectors and future exports within minutes and is logged |
 | De-identification | anything that leaves the study team is suppressed at k = 5 with controlled rounding; research exports use project pseudonyms, date shifts and k = 5 over quasi-identifiers |
-| Destruction | study-level identified lists destroyed at study end; decommissioning by NIST 800-88 purge with a certificate |
+| Destruction | study-level identified lists destroyed at study end; decommissioning by NIST 800-88 purge with a certificate (RUNBOOK §20; certificate TB-SITE-12, `purge-certificate.md`) |
 
 ### A.6 Shared-host rules (CGMH B200 and any private cloud)
 
@@ -103,6 +103,7 @@ The administrator page shows health, disk, GPU, the last backup and its age, the
 | OWASP ASVS 5.0 L2 self-assessment and CIS benchmark output | the acceptance box *(at G2)* |
 | Service specification disclosure sheet (サービス仕様適合開示書) and SLA (Japan); SSDLC evidence pack and scan result (Taiwan) | Aimedics |
 | ISMS statement mapped to ISO 27002 themes | Aimedics |
+| Statement of applicability: the 93 ISO/IEC 27001:2022 Annex A controls, each marked for the product, Aimedics or the hospital, with the evidence file or the reason | `docs/validation/soa.csv` (checked by `tests/unit/test_soa.py`) |
 | Incident-response plan with the legal clocks; tabletop record | Aimedics and the site *(at PQ)* |
 | Data-processing agreement and responsibility-boundary sheet | counsel |
 | Intended-use statement and non-device position | TB-DS-16 |
@@ -158,7 +159,7 @@ TrialBox は病院内で動く臨床研究支援ソフトウェアです。病�
 
 ### B.9 パックに含める証拠
 
-§A.9 の表と同じ：端末セキュリティシート（アプライアンス）または基盤説明（共用ホスト）、ネットワーク・ポート・秘密情報シート（日本語）、SBOM・第三者ライセンス・脆弱性スキャン、リリースノートと release.json、導入・更新・バックアップ・復元・撤去手順、ペネトレーションテスト報告書、OWASP ASVS 5.0 L2 自己評価と CIS ベンチマーク結果、サービス仕様適合開示書と SLA、ISMS 宣言、インシデント対応計画と机上訓練記録、データ処理契約（委託契約）と責任分界表、使用目的の記載と非医療機器の立場、倫理審査向けの一枚のシステム説明、実施済み IQ・OQ プロトコル。
+§A.9 の表と同じ：端末セキュリティシート（アプライアンス）または基盤説明（共用ホスト）、ネットワーク・ポート・秘密情報シート（日本語）、SBOM・第三者ライセンス・脆弱性スキャン、リリースノートと release.json、導入・更新・バックアップ・復元・撤去手順、ペネトレーションテスト報告書、OWASP ASVS 5.0 L2 自己評価と CIS ベンチマーク結果、サービス仕様適合開示書と SLA、ISMS 宣言、ISO/IEC 27001:2022 附属書 A の適用宣言書（93 管理策、docs/validation/soa.csv）、インシデント対応計画と机上訓練記録、データ処理契約（委託契約）と責任分界表、使用目的の記載と非医療機器の立場、倫理審査向けの一枚のシステム説明、実施済み IQ・OQ プロトコル。
 
 ### B.10 よくある質問への回答
 
@@ -200,7 +201,7 @@ TrialBox 是在醫院內運行的臨床研究支援軟體。它讀取醫院自�
 
 ### C.9 資料包所含證據
 
-與 §A.9 相同：設備資安表（專用主機）或平台說明（共用主機）、網路與連接埠與機密表（繁體中文）、SBOM、第三方授權、弱點掃描、發布說明與 release.json、安裝、更新、備份、還原與汰除程序、滲透測試報告、OWASP ASVS 5.0 L2 自評與 CIS 基準結果、SSDLC 證據包與掃描結果、ISMS 聲明、事件應變計畫與桌上演練紀錄、資料處理契約與責任分界表、預期用途聲明與非醫療器材立場、IRB 用的一頁系統說明、已執行的 IQ 與 OQ 程序。
+與 §A.9 相同：設備資安表（專用主機）或平台說明（共用主機）、網路與連接埠與機密表（繁體中文）、SBOM、第三方授權、弱點掃描、發布說明與 release.json、安裝、更新、備份、還原與汰除程序、滲透測試報告、OWASP ASVS 5.0 L2 自評與 CIS 基準結果、SSDLC 證據包與掃描結果、ISMS 聲明、ISO/IEC 27001:2022 附錄 A 適用性聲明（93 項控制措施，docs/validation/soa.csv）、事件應變計畫與桌上演練紀錄、資料處理契約與責任分界表、預期用途聲明與非醫療器材立場、IRB 用的一頁系統說明、已執行的 IQ 與 OQ 程序。
 
 ### C.10 常見問題的回答
 
