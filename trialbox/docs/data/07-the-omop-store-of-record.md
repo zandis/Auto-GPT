@@ -40,9 +40,16 @@ The OMOP vocabulary tables of schema `omop` are the one home of the codes the bo
   maps** such as the NHIA ICD-10-CM 2014 to 2023 map (`source_to_concept_map`, relation in `tb_map_relation`; a record
   before 2025-01-01 gets the 2023 code with a provenance tag, a split or a candidate gives none);
 - **the site's local codes** once a person mapped them (`sitesetup.local_code`): a local concept in the site block and
-  a `source_to_concept_map` row (not a release: a map changes data, not a compiled ruleset).
+  a `source_to_concept_map` row (not a release: a map changes data, not a compiled ruleset);
+- **a release of the consortium's code-map registry** (T-316b, D-419): `tools/codemap_release.py load` verifies the
+  release (a refdata pack part with its signed record `codemap.json`; a changed file or a bad signature is refused)
+  and loads it in one transaction: the registry's shared concepts at fixed ids, each map as `map:codemap-<id>`, a map
+  the release dropped taken out, and the active `CODEMAP` release row. `omop.vocab.release` (and `python -m omop
+  vocab status`) names it beside the terminology release.
 
-Ids: reference codes loaded without the Athena bundle take box-local ids 2,010,000,000 to 2,099,999,999; the site's
+Ids: the code-map registry's concepts take fixed ids in 2,005,000,000 to 2,009,999,999, the same on every box, in the
+ranges its `registry.json` gives each owner; reference codes loaded without the Athena bundle take box-local ids
+2,010,000,000 to 2,099,999,999; the site's
 local codes take the site block of one million ids from `TB_OMOP_CONCEPT_BLOCK` (default 2,100,000,000; a block that
 would end above 2,147,483,647 is refused). No id at or above 2,000,000,000 is ever `standard_concept = 'S'`.
 
