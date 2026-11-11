@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "1b3051cba638bf14f495ce397dccc72e5dd956f4",
-  "lake_schema_version": 2,
+  "head": "e31dd293513c382adf5101f332ef0c55439ab2a2",
+  "lake_schema_version": 3,
   "profile": "ci",
-  "reason": "D-322: the five shipped rulesets recompiled with family expansion (T-613a)",
+  "reason": "T-106b lake schema 3",
   "ref_date": "2026-11-01",
   "ruleset": "GZQO",
   "ruleset_version": "1.0.0",
