@@ -324,6 +324,22 @@ def test_response_cache_keyed_by_prompt_and_model_sha(tmp_path: Path) -> None:
     assert [r["detail"]["cache"] for r in _records(tmp_path)] == ["miss", "hit", "miss", "miss"]
 
 
+def test_only_allow_listed_fields_go_upstream(tmp_path: Path) -> None:
+    sent: list[dict[str, Any]] = []
+
+    def capture(req: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(req.content))
+        r = TestClient(stub).post("/v1/chat/completions", content=req.content, headers=dict(req.headers))
+        return httpx.Response(r.status_code, json=r.json())
+
+    gw = _gw(tmp_path, http=httpx.Client(transport=httpx.MockTransport(capture)))
+    extra = {"n": 5, "logit_bias": {"1": 100}, "stop": ["x"], "chat_template_kwargs": {"enable_thinking": True}}
+    res = gw.chat(H(), {**_judge_body(), **extra, "user": "someone"})
+    assert res.status == 200 and len(sent) == 1
+    assert not set(extra) & set(sent[0]) and "user" not in sent[0]
+    assert {"messages", "response_format", "max_tokens", "model"} <= set(sent[0])
+
+
 @pytest.mark.req("LLM-45", "LLM-46", "S1-08")
 def test_d3_production_call_traced_redacted(tmp_path: Path) -> None:
     traces = TraceStore(None, Guard("^\\d{8}$"))

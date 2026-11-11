@@ -89,6 +89,20 @@ INTERACTIVE_TIMEOUT_S = 30.0
 BUSY_MESSAGE = "the model is busy (a screening run is using the GPU); try again in a few minutes"
 # T-601: a transport error or HTTP 5xx is tried once more on the same build after this pause
 RETRY_DELAY_S = 0.5
+# the body fields a caller may send on to the model server (T-605, D-431, review LLM-019); sampling is then forced
+UPSTREAM_FIELDS = frozenset(
+    {
+        "messages",
+        "max_tokens",
+        "max_completion_tokens",
+        "response_format",
+        "temperature",
+        "top_p",
+        "seed",
+        "reasoning",
+        "reasoning_effort",
+    }
+)
 # an upstream 4xx is the call's own fault or a configuration fault, so no other build is tried; except these two
 _TRANSIENT_4XX = (408, 429)
 # what vLLM (and OpenAI-compatible servers) say when the prompt plus max_tokens is over the model's context
@@ -501,7 +515,8 @@ class Gateway:
             call.cache = "hit"
             return self._allow(call, hit, label, body)
 
-        upstream = {k: v for k, v in body.items() if k not in ("model", "stream")}
+        # only allow-listed fields go upstream (T-605, review LLM-019): no n, logit_bias, stop or chat_template_kwargs
+        upstream = {k: v for k, v in body.items() if k in UPSTREAM_FIELDS}
         upstream.update(sampling)
         upstream.pop("provider", None)  # provider routing comes from the registry pin only, never from the caller
         upstream["model"] = res.served_name

@@ -174,8 +174,10 @@ def test_d280_the_administrator_has_no_patient_row() -> None:
         assert not permit("admin", action, authz.BEST_STANDING), action
     assert permit("admin", "breakglass.open") and not permit("admin", "breakglass.review")
     assert permit("steward", "breakglass.review") and not permit("steward", "breakglass.open")
-    assert permit("investigator", "breakglass.read", Standing(is_pi=True))
-    assert not permit("investigator", "breakglass.read", Standing(tasks=frozenset(STUDY_TASKS)))
+    assert permit("investigator", "breakglass.study", Standing(is_pi=True))  # T-309: a study's grants, its PI
+    assert not permit("investigator", "breakglass.study", Standing(tasks=frozenset(STUDY_TASKS)))
+    # T-309 (D-430): one rule for the administrator and an investigator outside its own rights; never the steward
+    assert permit("investigator", "breakglass.open") and permit("investigator", "breakglass.read")
     assert not any(permit("steward", f"task.{t}", authz.BEST_STANDING) for t in STUDY_TASKS)
 
 
