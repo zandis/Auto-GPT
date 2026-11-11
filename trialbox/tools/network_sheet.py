@@ -42,8 +42,9 @@ FILES = (
 LANGS = ("en", "ja", "zh-TW")
 # ports of third-party images that do not say them on the command line
 IMAGE_PORTS = {"postgres": 5432, "hapiproject/hapi": 8080, "vllm/vllm-openai": 8000}
-# one-shot jobs that listen on nothing (the 5090 sleep swap's start order)
-NO_LISTEN = frozenset({"judge-sleep-init", "model-swap-init", "judge-wake-init"})
+# services that listen on nothing: the one-shot jobs of the 5090 sleep swap's start order, and the audit drain
+# (D-394), which only reads the database and writes the audit volume
+NO_LISTEN = frozenset({"judge-sleep-init", "model-swap-init", "judge-wake-init", "audit-writer"})
 _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?-([^}]*))?\}")
 
 T: dict[str, dict[str, str]] = {
@@ -70,7 +71,7 @@ T: dict[str, dict[str, str]] = {
     "when": {"en": "Runs", "ja": "起動条件", "zh-TW": "啟動條件"},
     "always": {"en": "always", "ja": "常時", "zh-TW": "常駐"},
     "not_published": {"en": "not published", "ja": "公開なし", "zh-TW": "未對外"},
-    "none": {"en": "none (one-shot job)", "ja": "なし（一回限りの処理）", "zh-TW": "無（一次性工作）"},
+    "none": {"en": "none (listens on no port)", "ja": "なし（待ち受けなし）", "zh-TW": "無（不監聽）"},
     "callers": {
         "en": "with its own token, only: ",
         "ja": "自身のトークンを持つ次のみ: ",

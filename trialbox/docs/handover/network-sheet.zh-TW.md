@@ -9,6 +9,7 @@
 | 服務 | 連接埠 | 主機端 | 網路 | 可連線者 | 啟動條件 |
 | --- | --- | --- | --- | --- | --- |
 | adapter | 8016 | 未對外 | trialbox-net | 僅限持有自身權杖者: console, orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
+| audit-writer | 無（不監聽） | 未對外 | trialbox-net | - | 常駐 |
 | console | 8090 | 127.0.0.1:8090:8090 | console-net, trialbox-net | 院內人員瀏覽器: 預設僅 127.0.0.1；院內網路僅經由院方 TLS 代理 | 常駐 |
 | criteria-compiler | 8012 | 未對外 | egress-net, trialbox-net | 僅限持有自身權杖者: orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
 | db | 5432 | 未對外 | trialbox-net | TrialBox 各服務與 fhir-store（需密碼） | 常駐 |
@@ -16,15 +17,15 @@
 | embed-service | 8014 | 未對外 | trialbox-net | 僅限持有自身權杖者: lake; 主機上的管理者（operator 權杖） | 常駐 |
 | fhir-store | 8080 | 未對外 | trialbox-net | adapter、orchestrator、criteria-compiler（僅網路隔離，尚無權杖） | 常駐 |
 | gateway | 8020 | 未對外 | egress-net, model-net, trialbox-net | 僅限持有自身權杖者: console, criteria-compiler, doc-parser, orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
-| judge-sleep-init | 無（一次性工作） | 未對外 | model-backend-net | - | GPU 設定 (rtx5090) |
-| judge-wake-init | 無（一次性工作） | 未對外 | model-backend-net | - | GPU 設定 (rtx5090) |
+| judge-sleep-init | 無（不監聽） | 未對外 | model-backend-net | - | GPU 設定 (rtx5090) |
+| judge-wake-init | 無（不監聽） | 未對外 | model-backend-net | - | GPU 設定 (rtx5090) |
 | lake | 8013 | 未對外 | trialbox-net | 僅限持有自身權杖者: adapter, criteria-compiler, orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
 | llm-service | 8000 | 未對外 | model-backend-net | 僅 model-guard（model-backend-net；每次呼叫皆需金鑰，D-177） | GPU 設定 |
 | llm-stub | 8000 | 未對外 | model-net | 僅 gateway（model-net） | 無 GPU 設定 |
 | llm-verifier | 8000 | 未對外 | model-backend-net | 僅 model-guard（model-backend-net；每次呼叫皆需金鑰，D-177） | GPU 設定 (rtx5090, gb10, rtxpro6000) |
 | mail-gateway | 8015 | 未對外 | egress-net, trialbox-net | 僅限持有自身權杖者: console, orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
 | model-guard | 8000 | 未對外 | model-backend-net, model-net | 僅 gateway（model-net） | GPU 設定 |
-| model-swap-init | 無（一次性工作） | 未對外 | model-backend-net | - | GPU 設定 (rtx5090) |
+| model-swap-init | 無（不監聽） | 未對外 | model-backend-net | - | GPU 設定 (rtx5090) |
 | orchestrator | 8010 | 未對外 | egress-net, trialbox-net | 僅限持有自身權杖者: console, mail-gateway; 主機上的管理者（operator 權杖） | 常駐 |
 
 ## 網路
