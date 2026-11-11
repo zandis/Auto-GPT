@@ -158,4 +158,4 @@ TrialBox; OPS-073: [Developing](DEVELOPING.md) lists them, D-390).
 | 23 | Key inventory and the lost-box list | on master | site |
 | 24 | Patch policy | on master | site |
 | 25 | Leavers | on master | site |
-| 26 | Platform day 2 | T-633 | site |
+| 26 | Platform day 2 | on master | site |
