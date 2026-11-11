@@ -21,6 +21,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
+from urllib.parse import quote
 
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
@@ -749,6 +750,14 @@ def register(app: FastAPI, h: Helpers) -> None:
         return rid
 
     @app.get("/studies/{rs}/excluded")
+    def excluded_moved(request: Request, rs: str) -> Response:
+        """T-116 (D-351): the page is "Criteria not matched"; the old path answers 301 for one release, query kept.
+        Access is checked first, so an account that may not see the list gets the same 403 here as on the page."""
+        rid = need_excluded(h.need(request), rs, request.url.path)
+        q = f"?{request.url.query}" if request.url.query else ""
+        return RedirectResponse(f"/studies/{quote(rid, safe='')}/not-matched{q}", status_code=301)
+
+    @app.get("/studies/{rs}/not-matched")
     def excluded(request: Request, rs: str, src: str = "", page: int = 1, done: str = "") -> Response:
         sess = h.need(request)
         rid = need_excluded(sess, rs, request.url.path)
@@ -768,7 +777,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                       src=src if src in ex_sources else "", sources=ex_sources, page_no=page_no, pages=pages,
                       done=done == "sent")  # fmt: skip
 
-    @app.post("/studies/{rs}/excluded/{pid}/review")
+    @app.post("/studies/{rs}/not-matched/{pid}/review")
+    @app.post("/studies/{rs}/excluded/{pid}/review")  # the old path still takes a form posted from an open page
     def excluded_review(request: Request, rs: str, pid: str, csrf: str = Form(""), crit: str = Form(""),
                         note: str = Form("")) -> Response:  # fmt: skip
         """ "This is wrong, send to review": recorded with the person and the time, audited (P-04)."""
@@ -788,7 +798,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         store.send_excluded_review(rid, pid, job.job_id, crit, note.strip()[:300], h.actor(sess), h.clock().isoformat())
         au.append("console.excluded_review", job_id=job.job_id, ruleset=rid, actor=h.actor(sess),
                   detail={"pid": pid, "criterion": crit, "role": sess.user.role})  # fmt: skip
-        return RedirectResponse(f"/studies/{rid}/excluded?done=sent#x-{pid[:8]}", status_code=303)
+        return RedirectResponse(f"/studies/{rid}/not-matched?done=sent#x-{pid[:8]}", status_code=303)
 
     # ------------------------------------------------------------------ amendment re-screen list (D-364, LIFE-010)
     def rescreen_bundle(sess: Session, rid: str) -> dict[str, Any]:
