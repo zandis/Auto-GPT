@@ -128,7 +128,7 @@ def test_the_runbook_answers_example_works(tmp_path: Path) -> None:
     assert settings_wizard.main(["--check", str(out)]) == 0
     e = dict(ln.split("=", 1) for ln in env.read_text(encoding="utf-8").splitlines() if "=" in ln and ln[0] != "#")
     assert e["TB_SOURCE_DIR"] == "/srv/hospc/his-export" and e["TB_SOURCE_MOUNT"] == "/data/source/site-c"
-    assert e["TB_TLS_HOSTNAME"] == "trialbox.hospc.test" and e["TB_TLS_MODE"] == "internal"
+    assert e["TB_TLS_HOSTNAME"] == "trialbox.hospc.test" and e["TB_TLS_MODE"] == "hospital"
     assert yaml.safe_load(out.read_text(encoding="utf-8").split("\n", 3)[3])["data_source"]["mapping"] == (
         "mapping/tw_core/site_c.yaml"
     )
@@ -138,7 +138,7 @@ def test_the_wizard_checks_tls_answers() -> None:
     a = yaml.safe_load(ANSWERS_C.read_text(encoding="utf-8"))
     dirs = [ANSWERS_C.parent / "mapping"]
     with pytest.raises(settings_wizard.WizardError, match="needs tls_cert_file"):
-        settings_wizard.build({**a, "tls_mode": "hospital"}, dirs)
+        settings_wizard.build({**a, "tls_mode": "hospital", "tls_cert_file": ""}, dirs)
     with pytest.raises(settings_wizard.WizardError, match="not a DNS name"):
         settings_wizard.build({**a, "tls_hostname": "https://x"}, dirs)
     _, env, warnings = settings_wizard.build({**a, "tls_hostname": ""}, dirs)
@@ -155,7 +155,8 @@ def test_the_wizard_makes_the_hospital_certificate_the_first_choice() -> None:
     (q,) = [q for q in settings_wizard.QUESTIONS if q[0] == "tls_mode"]
     assert q[2] == "hospital" and "first choice" in q[1]
     a = yaml.safe_load(ANSWERS_C.read_text(encoding="utf-8"))
-    a.pop("tls_mode")
+    for k in ("tls_mode", "tls_cert_file", "tls_key_file"):
+        a.pop(k)
     dirs = [ANSWERS_C.parent / "mapping"]
     with pytest.raises(settings_wizard.WizardError, match=r"hospital \(the default\) needs tls_cert_file"):
         settings_wizard.build(a, dirs)
