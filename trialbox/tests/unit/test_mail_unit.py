@@ -323,10 +323,10 @@ def test_the_same_send_key_never_mails_twice(tmp_path: Path) -> None:
     assert gw.send(req.model_copy(update={"idempotency_key": "tbmail-k2"})).message_id != first.message_id
 
 
-def test_a_refusal_before_sending_frees_the_key_and_a_lost_answer_never_resends(tmp_path: Path) -> None:
+def test_a_refusal_before_sending_is_held_and_a_lost_answer_never_resends(tmp_path: Path) -> None:
+    """D-127 with T-108c (D-401): a 5xx refusal is held as ``failed`` and a lost answer as ``uncertain``; neither is
+    an error for the caller, neither key stays in ``sending``, and the same key never sends again by itself."""
     import smtplib
-
-    from mail_gateway.store import SendUncertain
 
     state = {"fail": "refused"}
     sent: list[bytes] = []
@@ -341,19 +341,17 @@ def test_a_refusal_before_sending_frees_the_key_and_a_lost_answer_never_resends(
 
     gw = _send_gateway(tmp_path, transport)
     req = _req(["pi@hospa.test"], tag="aggregate", enc=False).model_copy(update={"idempotency_key": "tbmail-a"})
-    with pytest.raises(smtplib.SMTPRecipientsRefused):
-        gw.send(req)
+    out = gw.deliver(req)
+    assert out.state == "failed" and out.result.sent_to == [] and gw.db.get("tbmail-a").state == "failed"
     state["fail"] = ""
-    gw.send(req)  # the refused key was freed: this try sends
-    assert len(sent) == 1
+    assert gw.deliver(req).state == "failed" and sent == []  # held for a person: not sent again by itself
     req2 = req.model_copy(update={"idempotency_key": "tbmail-b"})
     state["fail"] = "lost"
-    with pytest.raises(TimeoutError):
-        gw.send(req2)
+    assert gw.deliver(req2).state == "uncertain"
     state["fail"] = ""
-    with pytest.raises(SendUncertain):
-        gw.send(req2)  # may have arrived: never resent automatically
-    assert len(sent) == 2
+    assert gw.deliver(req2).state == "uncertain"  # may have arrived: never resent automatically
+    assert gw.drain(force=True) == {} and len(sent) == 1
+    assert {r.state for r in gw.db.open_keys()} == {"failed", "uncertain"}
 
 
 def test_orchestrator_send_keys_are_stable() -> None:

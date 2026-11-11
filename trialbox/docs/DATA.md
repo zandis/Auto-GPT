@@ -14,7 +14,7 @@ after adding or renaming a section file run `python -m tools.doclint --write`, a
 
 ## 1. What the box reads
 
-File: [data/01-what-the-box-reads.md](data/01-what-the-box-reads.md).
+File: [data/01-what-the-box-reads.md](data/01-what-the-box-reads.md). Parts: [DATA §1 part: the inbound FHIR contract](data/01-inbound-fhir-contract.md).
 
 ## 2. Mapping a site
 

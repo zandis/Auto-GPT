@@ -26,6 +26,7 @@
 <button type="submit" data-testid="irb-save">{{ t('team.irb.save') }}</button>
 </form>{% endif %}
 </section>
+{% include "_icf_list.html" %}
 <section class="card"><h2>{{ t('team.irb.overrides', n=overrides|length) }}</h2>
 {% if not overrides %}<p class="empty">{{ t('team.irb.no_overrides') }}</p>{% else %}<ul class="plain hint" data-testid="overrides">{% for pid, ws, by, at in overrides|reverse %}<li>{{ at|local }} · {{ by }} · {{ t('week.patient', p=pid[:8]) }} · {% for w in ws %}{{ t('team.irb.w.' + w) }}{% if not loop.last %}, {% endif %}{% endfor %}</li>{% endfor %}</ul>{% endif %}
 </section>

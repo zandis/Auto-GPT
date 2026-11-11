@@ -133,6 +133,9 @@ class Env:
     # T-305a (D-383): a job refuses to pin a lake snapshot more than this many days older than its run date; 0 = no
     # check (the code default: tests and demos run old synthetic nights). The production compose file sets 3.
     lake_max_snapshot_age_days: int = 0
+    # T-624 (D-397): the most patients the micro-batch jobs of one night evaluate, every study together (pool
+    # re-checks and new patients); the rest carry over to the next run. 0 = no limit.
+    microbatch_night_budget: int = 2000
     extra: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -190,6 +193,7 @@ _ENV_MAP: dict[str, str] = {
     "TB_AUDIT_DIR": "audit_dir",
     "TB_SECRETS_DIR": "secrets_dir",
     "TB_LAKE_MAX_SNAPSHOT_AGE_DAYS": "lake_max_snapshot_age_days",
+    "TB_MICROBATCH_NIGHT_BUDGET": "microbatch_night_budget",
 }
 
 _BOOL_TRUE = {"1", "true", "yes", "on"}
@@ -223,6 +227,8 @@ def load_env(dotenv: Path | None = None, environ: dict[str, str] | None = None) 
         _check_zone("TB_TZ", env.tz)
     if env.lake_max_snapshot_age_days < 0:
         raise ConfigError("TB_LAKE_MAX_SNAPSHOT_AGE_DAYS must be 0 (no check) or a number of days")
+    if env.microbatch_night_budget < 0:
+        raise ConfigError("TB_MICROBATCH_NIGHT_BUDGET must be 0 (no limit) or a number of patients")
     if env.attach_password_mode not in ("link", "smime", "zip"):
         raise ConfigError("ATTACH_PASSWORD_MODE must be link, smime or zip")
     if env.llm_mode not in ("vllm", "llamacpp", "stub", "openai"):
@@ -350,6 +356,7 @@ DECLARED: dict[str, Declared] = {
     "TB_AUDIT_DIR": Declared("path", "/data/audit", "the audit chain's folder"),
     "TB_AUDIT_HOST_DIR": Declared("path", "", "host path of the audit volume (logs archive-audit)"),
     "TB_AUDIT_MIN_FREE_MB": Declared("int", "64", "audit refuses to write below this free space"),
+    "TB_AUTH_HOSTNAME": Declared("str", "", "compose: the identity provider's DNS name (network sheet, T-632)"),
     "TB_BACKUP_ALERT_CMD": Declared("str", "", "command run when the newest good backup is too old"),
     "TB_BACKUP_DIRS": Declared("str", "", "extra host folders put in a backup"),
     "TB_BACKUP_KEEP": Declared("int", "14", "backups kept per target"),
@@ -515,7 +522,11 @@ DECLARED: dict[str, Declared] = {
     "TB_LOG_MAX_SIZE": Declared("str", "100m", "size of one container log file (provisional, D-389)"),
     "TB_MAIL_AUTHSERV_ID": Declared("str", "mx.", "authserv-id trusted in mail auth results"),
     "TB_MAIL_DIR": Declared("path", "", "testbench: mail folder"),
+    "TB_MAIL_PER_RECIPIENT_PER_DAY": Declared(
+        "int", "", "mail gateway: sends per recipient per day; empty = the built-in limit (T-108c)"
+    ),
     "TB_MAIL_POLL_SECONDS": Declared("float", "60", "mail gateway poll interval"),
+    "TB_MAPPING_DIR": Declared("str", "", "adapter: site mapping folders, colon-separated (T-632)"),
     "TB_MATCH_CACHE_DIR": Declared("path", "", "registry match: cache folder"),
     "TB_MATCH_CASSETTE_DIR": Declared("path", "", "registry match: recorded answers folder"),
     "TB_MATCH_DATA_DIR": Declared("path", "", "registry match: data folder"),
@@ -524,6 +535,9 @@ DECLARED: dict[str, Declared] = {
     "TB_MATCH_MODEL": Declared("str", "unspecified", "registry match: model label in the cache key"),
     "TB_MATCH_RESULTS_DIR": Declared("path", "", "registry match: results folder"),
     "TB_METRICS_TOKEN_FILE": Declared("path", "", "metrics: file holding the scraper token (D-379)"),
+    "TB_MICROBATCH_NIGHT_BUDGET": Declared(
+        "int", "2000", "screening cadence: patients per night at most, 0 = no limit (T-624)"
+    ),
     "TB_MIG_PROFILE": Declared("str", "", "platform: GPU MIG profile"),
     "TB_MODELS_DIR": Declared("path", "", "models folder"),
     "TB_MODEL_SWAP": Declared("str", "", "one GPU for two models (sleep) or not"),
@@ -568,6 +582,11 @@ DECLARED: dict[str, Declared] = {
     "TB_PLATFORM_API_SERVER": Declared("str", "", "platform: API server"),
     "TB_PLATFORM_BACKUP_EVIDENCE": Declared("str", "", "platform: backup evidence file"),
     "TB_PLATFORM_BACKUP_HOST": Declared("str", "", "platform: backup host"),
+    "TB_PLATFORM_GPU_EVIDENCE": Declared("str", "", "platform check: reference of the MIG configuration dump (D-409)"),
+    "TB_PLATFORM_GPU_SHARING": Declared(
+        "str", "", "platform check: how the GPU is shared (mig, whole, time-slicing, mps; D-409)"
+    ),
+    "TB_PLATFORM_GPU_STANDIN": Declared("bool", "", "platform check: stand-in GPU devices on a test cluster (D-409)"),
     "TB_PLATFORM_NETWORK_POLICY_EVIDENCE": Declared("str", "", "platform: network policy evidence"),
     "TB_PLATFORM_NO_GPU": Declared("bool", "", "platform: test cluster without a GPU"),
     "TB_PLATFORM_QUOTA": Declared("str", "", "platform: quota"),
@@ -624,6 +643,8 @@ DECLARED: dict[str, Declared] = {
     "TB_SETTINGS_FILE": Declared("path", "settings.yaml", "backup schedule: settings.yaml path"),
     "TB_SITE_ID": Declared("str", "", "the site id"),
     "TB_SKIP_AUDIT": Declared("bool", "", "update: skip the audit check (drills)"),
+    "TB_SOURCE_DIR": Declared("path", "./site/feed", "compose: host folder of the site feed (settings wizard, T-632)"),
+    "TB_SOURCE_MOUNT": Declared("path", "/data/source/site", "compose: where the site feed is mounted (T-632)"),
     "TB_SOURCE_PATH": Declared("path", "", "adapter: source records path"),
     "TB_STANDIN_LOAD_DELAY": Declared("float", "0", "model stand-in: load delay"),
     "TB_STEP_ID": Declared("str", "", "step id a gateway call names"),
@@ -639,6 +660,7 @@ DECLARED: dict[str, Declared] = {
     "TB_TESTBENCH_PORT": Declared("int", "8765", "testbench: port"),
     "TB_TESTBENCH_WORKDIR": Declared("str", "", "testbench: work folder"),
     "TB_TEST_ROOT": Declared("str", "", "test root folder (tools, tests)"),
+    "TB_TLS_BIND": Declared("str", "", "compose: address the TLS front binds (network sheet, T-632)"),
     "TB_TLS_CERT_FILE": Declared("path", "", "console TLS certificate"),
     "TB_TLS_HOSTNAME": Declared("str", "", "console TLS host name"),
     "TB_TLS_KEY_FILE": Declared("path", "", "console TLS key"),

@@ -56,6 +56,15 @@ Acknowledge. Each serious AE shows its reporting clock (sponsor, IRB, regulator)
 confirms against its IRB rules and the protocol (`TB_SAE_REPORT_DAYS`); an overdue report is on both home pages and in
 the CRC's mail.
 
+**Consent (D-399).** Consent is recorded one way: *Record consent* on the participant page opens the consent form
+(the registry's status list no longer offers "consented"). *IRB and consent form* keeps the study's approved
+consent-form versions, each with its IRB approval date and first day of use; every change stays in its history. On
+save, a version that is not on the list, not yet approved or in use on the consent date, or already replaced shows a
+warning; the form is saved as entered and the warning is logged. An enrolment or a visit dated before the consent is
+flagged on the participant page, with a link to record a deviation. When a new version asks for re-consent, the
+*Re-consent list* shows every participant on study still on an older version; *Record the re-consent* opens the
+consent form again on its own event (`rc1`, `rc2` ...).
+
 **SAE register (`/sae`, D-191).** TrialBox's one record of each serious AE: onset, the day the site learned of it, the
 due day of every report (sponsor, IRB, regulator), the day each was sent, the receiver's acknowledgement, follow-ups,
 the PI's acknowledgement, and a trail of every entry and change (who, when, old and new dates). Overdue reports come
