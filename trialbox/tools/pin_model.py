@@ -15,8 +15,18 @@ Only safetensors or GGUF weights are accepted; pickle-format weights and Python 
 refused (SEC-63: no pickle loading, no ``trust_remote_code``). Hidden files and directories (``.cache``, ``.git``)
 are not part of the manifest.
 
+**No trust on first use** (T-012b, LLM-007). The committed registry names each local build's expected weights
+(``expected.manifest_sha256``, ``expected.revision``). A folder whose manifest differs is refused, whatever it holds
+(the review's folder of one 16-byte file). A build with nothing expected is refused too, unless ``--trust-first-use``
+is given: the pin is then a ``candidate`` marked ``weights.trust: first_use``, for evaluation, and it can never be
+promoted.
+
 ``--install <gpu>`` (``deploy/install.sh``, D-142) pins the GPU profile's deployed pair from the site's own weights as
-``champion``, the status PRODUCTION routes accept; a build already pinned is left alone.
+``candidate``; a build already pinned is left alone. ``champion`` is reached only through ``qualify``:
+``--promote BUILD --record <record.json>`` checks the record with ``tools.qualify.check_record`` (passed, every step,
+not edited, for this build and for PRODUCTION), checks that it qualified exactly the pinned weights, and writes
+``status: champion`` with the record's reference. ``pin`` never writes ``champion``, and a re-pin drops the status and
+the reference.
 
 ``--verify`` recomputes the manifest and exits 1 when it differs from the pinned sha256 (SEC-64: weights changed
 since the pin); it writes nothing. ``--verify-all deploy/models`` does that for every build in the override (each
@@ -88,6 +98,29 @@ def weight_manifest(model_dir: Path) -> Manifest:
     )
 
 
+def manifest_sha256_of_files(files: list[dict[str, Any]]) -> str:
+    """The manifest digest of a file list as ``tools/serving_config.py`` records it (``model_files``: path, sha256),
+    in this tool's format: the expected value of a release can be taken from its measured serving record."""
+    keep = sorted(
+        (f for f in files if not any(part.startswith(".") for part in str(f["path"]).split("/"))),
+        key=lambda f: str(f["path"]),
+    )
+    text = "".join(f"{f['sha256']}  {f['path']}\n" for f in keep)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _committed(registry_path: Path | None = None) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    from registry.registry import DEFAULT_PATH
+
+    doc: dict[str, Any] = yaml.safe_load((registry_path or DEFAULT_PATH).read_text(encoding="utf-8")) or {}
+    return doc, {str(b.get("build_id")): b for b in doc.get("builds") or []}
+
+
+def expected_of(row: dict[str, Any]) -> tuple[str | None, str | None]:
+    exp = row.get("expected") or {}
+    return (exp.get("manifest_sha256") or None), (exp.get("revision") or None)
+
+
 def load_override(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {"kind": "registry-site-override", "builds": {}}
@@ -109,14 +142,19 @@ def pin(
     revision: str | None = None,
     registry_path: Path | None = None,
     now: datetime | None = None,
+    trust_first_use: bool = False,
 ) -> tuple[Manifest, Path]:
-    """Compute the manifest, write it and the override entry; returns (manifest, override path). The merged registry
-    is loaded before anything is written, so an override the gateway would refuse is never produced."""
-    from registry.registry import DEFAULT_PATH, Registry, apply_override
+    """Compute the manifest, check it against the build's expected weights, write it and the override entry; returns
+    (manifest, override path). The merged registry is loaded before anything is written, so an override the gateway
+    would refuse is never produced."""
+    from registry.registry import Registry, apply_override
 
-    reg_path = registry_path or DEFAULT_PATH
-    committed = yaml.safe_load(reg_path.read_text(encoding="utf-8")) or {}
-    known = {str(b.get("build_id")): b for b in committed.get("builds") or []}
+    committed, known = _committed(registry_path)
+    if status == "champion":
+        raise PinError(
+            "champion only through qualify: pin as candidate, run `trialbox eval qualify`, then "
+            "`python -m tools.pin_model --promote BUILD --record <record.json>`"
+        )
     if build_id not in known:
         raise PinError(f"unknown build {build_id!r}; known: {', '.join(sorted(known))}")
     if known[build_id].get("serving") == "stub":
@@ -126,6 +164,23 @@ def pin(
             "--served-name is required (the name the serving endpoint reports, e.g. vLLM --served-model-name)"
         )
     m = weight_manifest(model_dir)
+    want_sha, want_rev = expected_of(known[build_id])
+    if want_sha and m.sha256 != want_sha:
+        raise PinError(
+            f"{model_dir}: these are not the weights of {build_id}: manifest {m.sha256[:12]} ({m.files} files, "
+            f"{m.bytes} bytes) differs from the expected {want_sha[:12]} in models/registry.yaml; refused"
+        )
+    if want_rev and revision and revision != want_rev:
+        raise PinError(f"{build_id}: revision {revision} is not the expected {want_rev}; refused")
+    if not want_sha and not trust_first_use:
+        raise PinError(
+            f"{build_id}: models/registry.yaml names no expected weights (expected.manifest_sha256), so these files "
+            "cannot be checked; refused (no trust on first use). Pin with --trust-first-use for an evaluation "
+            "candidate that can never be promoted"
+        )
+    if not want_sha and status not in (None, "candidate"):
+        raise PinError(f"{build_id}: weights trusted on first use are pinned as candidate only")
+    revision = revision or want_rev
     doc = load_override(out)
     doc["base_version"] = committed.get("version")
     entry: dict[str, Any] = {
@@ -137,6 +192,7 @@ def pin(
             "bytes": m.bytes,
             "model_dir": model_dir.name,
             "pinned_at": (now or datetime.now(UTC)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "trust": "expected" if want_sha else "first_use",
         },
     }
     if status:
@@ -180,11 +236,15 @@ def set_served(build_id: str, endpoint: str, served_name: str, out: Path = DEFAU
 
 
 def verify(build_id: str, model_dir: Path, out: Path = DEFAULT_OVERRIDE) -> tuple[bool, str]:
-    """(ok, message): the directory's manifest digest equals the pinned sha256 of ``build_id`` in the override."""
+    """(ok, message): the directory's manifest digest equals the pinned sha256 of ``build_id`` in the override, and
+    the pin is the build's expected manifest when the registry names one."""
     doc = load_override(out)
     pinned = (doc.get("builds") or {}).get(build_id, {}).get("sha256")
     if not pinned:
         return False, f"{build_id} is not pinned in {out}"
+    want = expected_of(_committed()[1].get(build_id) or {})[0]
+    if want and pinned != want:
+        return False, f"{build_id}: the pin {pinned[:12]} is not the expected manifest {want[:12]}; re-pin the release"
     m = weight_manifest(model_dir)
     if m.sha256 != pinned:
         return False, f"{build_id}: weights changed since the pin ({m.sha256[:12]} != pinned {pinned[:12]})"
@@ -256,11 +316,17 @@ PROFILE_PAIRS: dict[str, list[tuple[str, str, str, str, str, str]]] = {
 
 
 def install_pins(
-    gpu: str, models_root: Path, out: Path = DEFAULT_OVERRIDE, env: dict[str, str] | None = None
+    gpu: str,
+    models_root: Path,
+    out: Path = DEFAULT_OVERRIDE,
+    env: dict[str, str] | None = None,
+    registry_path: Path | None = None,
 ) -> tuple[bool, list[str]]:
-    """Pin the profile's deployed pair at install (D-142, review R-01): the sha256 of the site's own weights, the
-    served name compose gives vLLM, and status ``champion``, the one status a PRODUCTION route accepts (the pair is the
-    profile's measured release, D-112). A build already pinned keeps its weights pin (``--verify-all`` checks it), but
+    """Pin the profile's deployed pair at install (D-142, review R-01): the sha256 of the site's own weights, which
+    must be the release's expected manifest (T-012b: a folder of other files is refused and nothing is pinned), the
+    served name compose gives vLLM, and status ``candidate``. A PRODUCTION route accepts only a ``champion``, which
+    ``--promote`` makes from a passing qualification record. A build already pinned keeps its weights pin
+    (``--verify-all`` checks it; a pin that is not the expected manifest is reported and not ok), but
     its served name follows the one compose serves now, so an update that renames the served model does not leave the
     gateway asking vLLM for the old name (HTTP 404). A missing weights directory is reported and nothing is invented,
     so that model routes nothing until it is pinned."""
@@ -269,10 +335,18 @@ def install_pins(
     if pairs is None:
         return False, [f"no deployed pair for GPU profile {gpu!r}"]
     have = (load_override(out).get("builds") or {}) if out.exists() else {}
+    known = _committed(registry_path)[1]
     ok, lines = True, []
     for build, endpoint, dir_var, dir_default, name_var, name_default in pairs:
         name = e.get(name_var) or name_default
-        if (have.get(build) or {}).get("sha256"):
+        pinned = (have.get(build) or {}).get("sha256")
+        want = expected_of(known.get(build) or {})[0]
+        if pinned and want and pinned != want:  # an earlier install trusted these files on first use
+            ok = False
+            lines.append(f"{build}: pinned {pinned[:12]} is not the expected manifest {want[:12]}: it routes nothing; "
+                         "put the release's weights in place and re-pin it")  # fmt: skip
+            continue
+        if pinned:
             was = ((have.get(build) or {}).get("served") or {}).get(endpoint)
             if was != name:
                 set_served(build, endpoint, name, out)
@@ -285,9 +359,74 @@ def install_pins(
             ok = False
             lines.append(f"{build}: no weights in {d}: this model routes nothing until it is pinned (RUNBOOK §8)")
             continue
-        m, _ = pin(build, d, served_name=name, endpoint=endpoint, out=out, status="champion")
-        lines.append(f"{build}: pinned {m.sha256[:12]} ({m.files} files) as champion on {endpoint}")
+        try:
+            m, _ = pin(
+                build, d, served_name=name, endpoint=endpoint, out=out, status="candidate", registry_path=registry_path
+            )
+        except PinError as exc:
+            ok = False
+            lines.append(f"{build}: {exc}")
+            continue
+        lines.append(
+            f"{build}: pinned {m.sha256[:12]} ({m.files} files) as candidate on {endpoint}; "
+            "champion after trialbox eval qualify and --promote"
+        )
     return ok, lines
+
+
+def promote(
+    build_id: str,
+    record_path: Path,
+    out: Path = DEFAULT_OVERRIDE,
+    *,
+    environment: str = "PRODUCTION",
+    now: datetime | None = None,
+) -> str:
+    """Make ``build_id`` the champion from a qualification record (T-012b: the only way to ``champion``). Refused
+    when ``tools.qualify.check_record`` finds a problem (failed or missing step, edited body, another build, synthetic
+    weights for PRODUCTION), when the build is not pinned, was trusted on first use, or when the record qualified other
+    weights than the pinned ones. Returns the record id."""
+    import json
+
+    from registry.registry import Registry, apply_override
+
+    from tools.qualify import check_record
+
+    try:
+        rec = json.loads(record_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise PinError(f"{record_path}: not a readable qualification record ({exc})") from exc
+    problems = check_record(rec, build_id=build_id, environment=environment)
+    if problems:
+        raise PinError(f"{record_path}: does not qualify {build_id}: " + "; ".join(problems))
+    doc = load_override(out)
+    entry = doc["builds"].get(build_id)
+    if not entry or not entry.get("sha256"):
+        raise PinError(f"{build_id} is not pinned in {out}: pin its weights first")
+    if (entry.get("weights") or {}).get("trust") == "first_use":
+        raise PinError(
+            f"{build_id}: weights trusted on first use cannot be promoted; name them in models/registry.yaml"
+        )
+    qualified = next(b for b in rec["builds"].values() if b["build_id"] == build_id)
+    if qualified.get("weights_sha256") != entry["sha256"]:
+        raise PinError(
+            f"{build_id}: the record qualified weights {str(qualified.get('weights_sha256'))[:12]}, "
+            f"the pin is {entry['sha256'][:12]}; qualify the pinned weights"
+        )
+    entry["status"] = "champion"
+    entry["qualification"] = {
+        "record_id": rec["record_id"],
+        "record": record_path.name,
+        "sha256": rec["sha256"],
+        "profile": rec["profile"],
+        "weights_sha256": entry["sha256"],
+        "qualifies_production": bool(rec.get("qualifies_production")),
+        "promoted_at": (now or datetime.now(UTC)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    committed, _ = _committed()
+    Registry(apply_override(committed, doc))  # validates the merged registry; raises before writing
+    _write_override(out, doc)
+    return str(rec["record_id"])
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -297,7 +436,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--served-name", default="", help="name the endpoint reports (vLLM --served-model-name)")
     ap.add_argument("--endpoint", default="serving", help="routing.yaml endpoint that serves the build")
     ap.add_argument("--out", type=Path, default=DEFAULT_OVERRIDE, help="site override file")
-    ap.add_argument("--status", default=None, choices=["candidate", "qualified", "shadow", "champion"])
+    ap.add_argument(
+        "--status", default=None, choices=["candidate", "qualified", "shadow"], help="never champion: see --promote"
+    )
+    ap.add_argument(
+        "--trust-first-use",
+        action="store_true",
+        help="pin a build with no expected weights in the registry, as an evaluation candidate never promoted",
+    )
+    ap.add_argument("--promote", metavar="BUILD", help="make BUILD champion from --record (a passing qualify record)")
+    ap.add_argument("--record", type=Path, help="--promote: the qualification record (eval/qualification/*.json)")
+    ap.add_argument("--environment", default="PRODUCTION", help="--promote: the environment the record must qualify")
     ap.add_argument("--revision", default=None, help="upstream revision (commit or tag) of the weights")
     ap.add_argument("--verify", action="store_true", help="re-check the weights against the pin; write nothing")
     ap.add_argument(
@@ -313,6 +462,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--models-root", type=Path, default=ROOT / "deploy" / "models")
     args = ap.parse_args(argv)
+    if args.promote:
+        if args.record is None:
+            ap.error("--promote needs --record")
+        try:
+            rid = promote(args.promote, args.record, args.out, environment=args.environment)
+        except PinError as exc:
+            print(f"pin_model: {exc}", file=sys.stderr)
+            return 1
+        print(f"promoted {args.promote} to champion on record {rid}")
+        return 0
     if args.install:
         import os
 
@@ -346,6 +505,7 @@ def main(argv: list[str] | None = None) -> int:
             out=args.out,
             status=args.status,
             revision=args.revision,
+            trust_first_use=args.trust_first_use,
         )
     except (PinError, ValueError) as exc:
         print(f"pin_model: {exc}", file=sys.stderr)

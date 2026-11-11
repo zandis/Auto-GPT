@@ -122,6 +122,21 @@ def xlsx(dc: DataCore, study: str) -> bytes:
     return buf.getvalue()
 
 
+def item_def_attrs(f: Field) -> dict[str, str]:
+    """``DataType`` with the ``Length`` ODM 1.3.2 asks of text, integer and float items, and ``SignificantDigits``
+    (decimal places) of a float: the field's own when its REDCap validation names them (``number_1dp``), else 4
+    (E-23 a, STD-062, T-115)."""
+    dtype = _DTYPE.get(f.kind, "text")
+    if dtype == "text":
+        return {"DataType": "text", "Length": "999"}
+    if dtype == "integer":
+        return {"DataType": "integer", "Length": "11"}
+    if dtype == "float":
+        m = re.match(r"^number_(\d)dp", f.validation)
+        return {"DataType": "float", "Length": "16", "SignificantDigits": m.group(1) if m else "4"}
+    return {"DataType": dtype}
+
+
 def _sub(parent: ET.Element, tag: str, **attrs: str) -> ET.Element:
     return ET.SubElement(parent, tag, {k: v for k, v in attrs.items() if v != ""})
 
@@ -192,9 +207,7 @@ def odm(dc: DataCore, study: str, at: str) -> str:
                 tr = {g: f"{f.label_in(g)} ({f.options_in(g).get(c, d)})" for g in f.labels}
                 _texts(idf, "Question", f"{f.label} ({d})", tr)
             continue
-        dtype = _DTYPE.get(f.kind, "text")
-        idf = _sub(mdv, "ItemDef", OID=f.name, Name=f.name, DataType=dtype,
-                   Length="" if dtype != "text" else "999")  # fmt: skip
+        idf = _sub(mdv, "ItemDef", OID=f.name, Name=f.name, **item_def_attrs(f))
         _texts(idf, "Question", f.label or f.name, f.labels)
         for comp, v in (("GE", f.vmin), ("LE", f.vmax)):
             if v:
@@ -216,7 +229,7 @@ def odm(dc: DataCore, study: str, at: str) -> str:
             continue
         data.setdefault(str(r["record"]), {}).setdefault(event_name(str(r["event"])), {})[fld.name] = str(r["value"])
     for rec in sorted(data):
-        sd = _sub(cd, "SubjectData", SubjectKey=rec, TransactionType="Snapshot")
+        sd = _sub(cd, "SubjectData", SubjectKey=rec)  # a Snapshot file has no TransactionType (the XSD, T-115)
         for ev in sorted(data[rec], key=lambda e: event_names.index(e) if e in event_names else 99):
             se = _sub(sd, "StudyEventData", StudyEventOID=f"Event.{ev}", StudyEventRepeatKey="1")
             vals = data[rec][ev]

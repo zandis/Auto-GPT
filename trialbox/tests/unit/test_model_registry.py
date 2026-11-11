@@ -14,6 +14,8 @@ from registry.cards import stale
 from registry.registry import Registry, RegistryError, Status, check_served
 from tb_common.policy.classes import Environment
 
+from tests.model_pins import qualified
+
 ROOT = Path(__file__).resolve().parents[2]
 REG = Registry.load(ROOT / "models" / "registry.yaml")
 
@@ -60,7 +62,7 @@ def test_status_rules_per_role_kind() -> None:
             {"build_id": "r", "status": "retired", "sha256": sha},
             {"build_id": "q", "status": "qualified", "sha256": sha},
             {"build_id": "s", "status": "shadow", "sha256": sha},
-            {"build_id": "c", "status": "champion", "sha256": sha},
+            {"build_id": "c", "status": "champion", "sha256": sha, "qualification": qualified(sha)},
         )
     )
     prod = Environment.PRODUCTION
