@@ -48,4 +48,8 @@ File: [data/08-derived-scores.md](data/08-derived-scores.md).
 
 File: [data/09-all-history-back-fill-and-held-snapshots.md](data/09-all-history-back-fill-and-held-snapshots.md).
 
+## 10. The vector store
+
+File: [data/10-the-vector-store.md](data/10-the-vector-store.md).
+
 <!-- end of the generated index -->

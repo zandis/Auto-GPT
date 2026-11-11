@@ -328,6 +328,7 @@ def store_migrations() -> dict[str, list[str]]:
     from sitesetup import store as sitesetup
     from tb_common import derived_store, flags, optout, refdata
     from tracestore import store as trace
+    from vec import store as vec
 
     return {
         "refdata": list(refdata.MIGRATIONS),
@@ -354,6 +355,7 @@ def store_migrations() -> dict[str, list[str]]:
         "app": list(flags.MIGRATIONS),
         "derived": list(derived_store.MIGRATIONS),
         "dataops": [dataops.SCHEMA],
+        "vec": list(vec.MIGRATIONS),
     }
 
 
@@ -421,7 +423,12 @@ ADDED: dict[str, tuple[str, ...]] = {
     ),
     # T-112a (D-427): the data-operations batches, new after the baseline
     "dataops": ("01925afb0e82837617a880fa2d2b32f7efaa6d5e98945e7144f57510d76efbcf",),
+    # T-203a (D-439): the vector store, new after the baseline (needs pgvector: the db image)
+    "vec": ("cd645d93e9d8d0a809c92eeaf6ff8997c201fb0e32b07a2d112288447f86b429",),
 }
+#: stores whose DDL needs an extension of the box's db image (D-204); a cluster without it cannot migrate them, so
+#: :func:`test_every_store_migrates_twice_and_checks_its_record` leaves them to ``tests/integration/test_vec_store.py``
+NEEDS_EXTENSION = {"vec": "vector"}
 #: stores of the baseline whose code is gone (T-659b: ``mpi``, the retired data platform's patient index)
 RETIRED = {"mpi"}
 PINNED: dict[str, tuple[str, ...]] = {
@@ -436,7 +443,7 @@ STORE_FILES = {
     "services/datacore/dataops.py", "services/datacore/store.py", "services/edc/store.py",
     "services/mail_gateway/store.py", "services/omop/schema.py", "services/orchestrator/db.py",
     "services/orchestrator/db_pg.py", "services/orchestrator/outbox.py", "services/orchestrator/recall/ledger.py",
-    "services/orchestrator/studystore.py", "services/sitesetup/store.py", "services/tracestore/store.py",
+    "services/orchestrator/studystore.py", "services/sitesetup/store.py", "services/tracestore/store.py", "services/vec/store.py",
 }  # fmt: skip
 #: files that migrate but are not a store: the machinery, the update path's bundle-driven ``release``, the drill's
 #: throwaway database
@@ -481,6 +488,8 @@ def test_every_store_migrates_twice_and_checks_its_record(db_url: str, monkeypat
     monkeypatch.delenv("TB_OMOP_CONCEPT_BLOCK", raising=False)
     for store, scripts in store_migrations().items():
         with Database.connect(db_url, f"pin_{store}") as db:
+            if store in NEEDS_EXTENSION and not extensions(db, (NEEDS_EXTENSION[store],))[NEEDS_EXTENSION[store]]:
+                continue  # the local cluster has no pgvector: the integration test migrates it on the db image
             db.migrate(scripts)
             db.migrate(scripts)
             assert [r.sha256 for r in db.applied()] == [script_sha256(s) for s in scripts], store
