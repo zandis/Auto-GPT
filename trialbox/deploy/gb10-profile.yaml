@@ -1,0 +1,93 @@
+# The GB10 profile as data (DGX Spark class: aarch64, 128 GB unified memory; T-214, D-373).
+#
+# status: unmeasured. Every number here is a planning value. None of them was taken on a Spark: no Spark is on the
+# bench yet (plan TB-PLAN-06 T-214, OPS-063). The measured fields (unified_memory_measured_gib, measured_peak_gib,
+# decision_gate result) stay null until the benchmark record of a real Spark run fills them; then status becomes
+# measured and `record:` names that record. `python -m tools.two_device profile` and tests/unit/test_two_device_config.py
+# hold this file together:
+#   * the memory limits plus the OS reserve fit the unified memory, in the one-device and the two-device form;
+#   * docker-compose.gb10.yml sets exactly these limits (mem_limit), and two-device/ the link's;
+#   * no measured field has a value while the status is unmeasured, and none is empty once it is measured;
+#   * the driver hold has a date, a re-test interval and the next re-test date.
+schema: tb-gb10-profile/1
+status: unmeasured
+record: null   # docs/plan/measurements/spark-<date>/ once a Spark run exists
+
+device:
+  card: NVIDIA GB10            # the name nvidia-smi reports (tools/serving_config.py PROFILES["gb10"])
+  platform: linux/arm64
+  unified_memory_gib: 128      # nominal, from the product sheet; shared by CPU and GPU
+  unified_memory_measured_gib: null
+  os_reserve_gib: 8            # the host OS, Docker, the page cache floor; unmeasured
+
+# D-373. The driver is held at one build because later 580.x builds regressed vLLM on the GB10 (D-79). A hold blocks
+# driver security fixes, so it is dated and re-tested: each new 580.x or later build is tried on the bench Spark
+# against `make spark-e2e` (canary 54) at least every retest_every_days, and the hold moves only on a pass.
+driver_hold:
+  version: "580.142"
+  decided: 2026-11-11
+  decision: D-373
+  retest_every_days: 28
+  next_retest_by: 2026-12-09
+  retest_by: the operations engineer of lane 2E (deploy, release, operations), on the bench Spark
+
+# Docker memory limits on the Spark (compose mem_limit), GiB. Unified memory has no separate GPU pool, and nothing
+# capped a container before: one service could starve the models (OPS-063, CR-082). vLLM sizes its KV pool as a
+# fraction of the whole device (--gpu-memory-utilization), so its limit is that fraction plus the host process.
+# Whether the GPU allocations of a vLLM process are charged to its memory cgroup on the GB10 is itself unmeasured:
+# the first Spark run reads it (docker stats against nvidia-smi) and records measured_peak_gib for each.
+memory:
+  llm-service:       {limit_gib: 42, measured_peak_gib: null, basis: "0.30 of 128 GiB (38.4) + vLLM host process"}
+  llm-verifier:      {limit_gib: 32, measured_peak_gib: null, basis: "0.15 of 128 GiB (19.2) + vLLM host process, raised to the 32 GiB floor for a sleeping model (T-108a)"}
+  gateway:           {limit_gib: 2, measured_peak_gib: null, basis: "one Python service with the trace store"}
+  model-guard:       {limit_gib: 1, measured_peak_gib: null, basis: "standard library proxy"}
+  link:              {limit_gib: 1, measured_peak_gib: null, basis: "two-device form only: the TLS relay"}
+  db:                {limit_gib: 8, measured_peak_gib: null, basis: "Postgres, shared_buffers as the db image sets"}
+  fhir-store:        {limit_gib: 8, measured_peak_gib: null, basis: "HAPI_XMX 6g + JVM overhead"}
+  lake:              {limit_gib: 6, measured_peak_gib: null, basis: "DuckDB over the 50,000-patient synthetic lake"}
+  embed-service:     {limit_gib: 4, measured_peak_gib: null, basis: "bge-m3 on CPU or CUDA"}
+  orchestrator:      {limit_gib: 3, measured_peak_gib: null, basis: "the night's SCREEN fan-out"}
+  adapter:           {limit_gib: 3, measured_peak_gib: null, basis: "ingest with the validator (TB_VALIDATOR_XMX 3g shares it)"}
+  doc-parser:        {limit_gib: 2, measured_peak_gib: null, basis: "PDF and Office parsing"}
+  criteria-compiler: {limit_gib: 1, measured_peak_gib: null, basis: "one Python service"}
+  console:           {limit_gib: 2, measured_peak_gib: null, basis: "one Python service"}
+  mail-gateway:      {limit_gib: 1, measured_peak_gib: null, basis: "one Python service"}
+  llm-stub:          {limit_gib: 1, measured_peak_gib: null, basis: "stub profile only, never beside vLLM"}
+
+# The two-device form (plan TB-PLAN-05 §1.5 form A): the Spark holds the gateway and the models, never the repository;
+# the workstation holds the rest. tools/two_device.py ROUTES names what the link carries (gateway one way, db the other).
+devices:
+  spark: [gateway, model-guard, llm-service, llm-verifier, link]
+  workstation: [db, fhir-store, lake, embed-service, doc-parser, criteria-compiler, adapter, orchestrator, mail-gateway, console, link]
+
+# The owner's decision gate (TB-PLAN-05 §1.6): Form A only if every row passes on a real Spark. result stays null
+# until the benchmark record answers the row with a number or a yes/no.
+decision_gate:
+  - id: pair-serves
+    measure: both models resident at the profile's 16k context; canary 54 passes; N-12 <= 5 % on the Spark's build
+    pass: "yes"
+    result: null
+  - id: screening-night
+    measure: the 5,000- and 50,000-patient synthetic SCREEN, five runs each, p95 inside the night window with 30 % headroom
+    pass: "yes"
+    result: null
+  - id: profiles
+    measure: 200 study-patient profiles per night beside the screening, same window
+    pass: "yes"
+    result: null
+  - id: context
+    measure: no G1 scenario's candidate set changes against the 32k record
+    pass: identical candidate sets
+    result: null
+  - id: embeddings
+    measure: the nightly embedding increment finishes inside the window (Spark or workstation CPU)
+    pass: "yes"
+    result: null
+  - id: operations
+    measure: two-device IQ on the bench; the link refuses an unauthenticated peer; one update applies to both devices
+    pass: "yes"
+    result: null
+  - id: reliability
+    measure: 14 consecutive bench nights without an unrecovered failure
+    pass: "yes"
+    result: null

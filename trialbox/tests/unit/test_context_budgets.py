@@ -14,6 +14,7 @@ Synthetic data only.
 from __future__ import annotations
 
 import json
+import tempfile
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -92,7 +93,9 @@ def _box(tmp_path: Path, gpu: str, monkeypatch: pytest.MonkeyPatch) -> tuple[Gat
 
 
 def _client(app: TestClient, caller: str, alias: str) -> LlmClient:
-    return LlmClient("", "", gateway=GatewayClient("http://gateway/v1", caller, http=app, model=alias))
+    # an audit log, as LlmClient.from_config always gives one: the client's prompt fallback is audited (D-359)
+    audit = AuditLog(Path(tempfile.mkdtemp(prefix="llm-audit-")))
+    return LlmClient("", "", gateway=GatewayClient("http://gateway/v1", caller, http=app, model=alias), audit=audit)
 
 
 class _Lake:

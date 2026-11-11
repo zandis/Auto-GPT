@@ -11,8 +11,12 @@ table that drops every packet from the box's networks to the outside, except:
 | orchestrator | `NHI_TWPAS_BASE_URL` | only when set (SUBMIT) |
 | any service | `EGRESS_EXTRA` entries | site additions, listed on the network sheet |
 
-Container addresses change on restart, so re-apply from a systemd unit after Docker starts
-(`ExecStart=/opt/trialbox/deploy/network.sh apply`, plus a path unit or a 5-minute timer). `sudo make test-egress`
+Kept across a reboot (D-377): `apply` writes the box's subnets to `/var/lib/trialbox/egress-state.json`.
+`trialbox-egress.service` runs `network.sh restore` before `docker.service` and `trialbox.service`: the closed table for
+those subnets, with no allow rule, so a container Docker restarts by itself has no way out. `trialbox.service` starts
+the stack, then runs `apply` for the new container addresses; `trialbox-egress-refresh.timer` re-applies every two
+minutes when the table would change (a restarted container gets a new address). With the stack down, `apply` loads the
+closed table, never an empty one. `sudo make test-egress`
 proves it on a running stack: a fake outside host is reachable before the rules and only the allowed pairs after.
 
 Only the console is published, on `127.0.0.1:8090`. For the hospital LAN the identity overlay
