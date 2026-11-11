@@ -27,7 +27,7 @@ from tb_common.authz import STUDY_TASKS
 from console.storedb import open_db
 
 TASKS = STUDY_TASKS  # the role table's study tasks (tb_common.authz, D-147)
-LOG_ROLES = ("pi", "sub_pi", "crc", "other")
+LOG_ROLES = ("pi", "sub_pi", "crc", "other", "monitor")  # D-380: "monitor" is a CRO account's grant for a visit
 ROUTES = ("suggested", "directory", "typed", "outside", "department")
 ANSWERS = ("agree", "decline", "discuss")
 STATES = ("asked", "agreed", "declined", "discuss")
@@ -334,7 +334,7 @@ class TeamStore:
         at: str,
     ) -> int:
         if role not in LOG_ROLES:
-            raise TeamError("choose the role: PI, sub-investigator, CRC or other")
+            raise TeamError("choose the role: PI, sub-investigator, CRC, other or monitor")
         name = name.strip()[:120]
         if not name:
             raise TeamError("give the person's name")
@@ -344,7 +344,7 @@ class TeamStore:
         e = _day(end, "the end date")
         if e is not None and e < s:
             raise TeamError("the end date is before the start date")
-        t = _tasks(TASKS if role == "pi" else tasks)
+        t = _tasks(TASKS if role == "pi" else () if role == "monitor" else tasks)  # a monitor holds no study task
         td = _day(training_day, "the training date")
         body = {"username": username, "name": name, "role": role, "tasks": t, "start": s, "end": e,
                 "training_day": td, "training_ref": (training_ref or "")[:80]}  # fmt: skip

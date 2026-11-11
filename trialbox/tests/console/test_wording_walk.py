@@ -15,7 +15,7 @@ import pytest
 from fastapi.routing import APIRoute
 from tb_common.wording import STATEMENT, check_page
 
-from tests.console.test_console_app import _done_case, _done_feas, box, login  # noqa: F401 - fixture by name
+from tests.console.test_console_app import _done_case, _done_feas, box, login, name_pi  # noqa: F401 - fixture by name
 from tests.console.test_excluded_page import _with_excluded
 
 PW = "wording-walk-password-01"
@@ -62,6 +62,8 @@ def test_no_forbidden_word_on_the_pi_and_crc_pages(box: dict[str, Any], role: st
     _done_feas(box["backend"])
     _done_case(box["backend"])
     box["users"].create("walker", role, PW, "walker@hospa.test")
+    if role == "investigator":
+        name_pi(box, "walker")  # D-380 (ROLE-008): the steward names the PI
     seen, bad = _walk(box, "walker", lang)
     # the pages that carried the old words are reached, so a clean walk means something
     for must in ("/studies/GZQO/excluded", "/studies/GZQO/feasibility", "/studies/GZQO/week"):

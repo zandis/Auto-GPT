@@ -20,7 +20,7 @@ from console.timefmt import local_today
 from datacore import lifecycle as lc
 from tb_common.authz import ROLE_SAE_ACTIONS, sae_allowed
 
-from tests.console.test_console_app import box, login  # noqa: F401 - the fixture is used by name
+from tests.console.test_console_app import box, login, name_pi  # noqa: F401 - the fixture is used by name
 from tests.console.test_lifecycle_pages import PW, _save, lb  # noqa: F401 - the fixture is used by name
 
 TW, JP = lc.report_rules("Asia/Taipei"), lc.report_rules("Asia/Tokyo")
@@ -393,6 +393,7 @@ def test_sae_register_roles_deny_by_default(lb: dict[str, Any]) -> None:  # noqa
                                             "ae_outcome": "2", "ae_related": "9"}, "ae1")  # fmt: skip
     assert c.get("/sae").status_code == 200
     # the investigator reads, never records
+    name_pi(lb, "pi")  # D-380 (ROLE-008): the study's PI, named by the steward
     p, pcsrf = login(lb["app"], "pi", PW)
     assert f'data-testid="sae-row-GZQO-{no}-ae1"' in p.get("/sae").text
     case = p.get(f"/studies/GZQO/sae/{no}/ae1").text

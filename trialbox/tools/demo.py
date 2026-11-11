@@ -70,7 +70,7 @@ for p in (ROOT, ROOT / "libs", ROOT / "services"):
 from tools import e2e_simple  # noqa: E402
 from tools import feas_demo as fd  # noqa: E402
 
-SEEDED = [*(x[0] for x in fd.ACCOUNTS), "subpi"]  # e2e_simple adds the sub-investigator (stage 15)
+SEEDED = [*(x[0] for x in fd.ACCOUNTS), "subpi", "stw"]  # e2e_simple adds the sub-investigator and steward (15)
 STATE = "demo-state.json"  # --keep: written once the seed is done; its presence means "reopen, do not rebuild"
 ISSUED = "issued-credentials.txt"  # new passwords and enrolment codes for the owner to hand out (mode 0600)
 RC_SIM = "rc-sim.json"  # the REDCap simulator's projects, kept across a --keep restart
@@ -175,6 +175,9 @@ def parse_accounts(data: Any) -> list[Account]:
         studies = tuple(str(s).strip().upper() for s in row.get("studies") or [])
         if any(not _STUDY_OK.fullmatch(s) for s in studies):
             raise AccountsError(f"{where}: studies are study ids")
+        affiliation = str(row.get("affiliation") or "hospital")
+        if (role == "cro" or affiliation in ("smo", "cro")) and not studies and not log:
+            raise AccountsError(f"{where}: a CRO or SMO account names its studies (D-380)")
         out.append(
             Account(
                 username=user,
@@ -182,7 +185,7 @@ def parse_accounts(data: Any) -> list[Account]:
                 language=lang,
                 name=str(row.get("name") or user)[:120],
                 mailbox=str(row.get("mailbox") or f"{user}@hospa.test"),
-                affiliation=str(row.get("affiliation") or "hospital"),
+                affiliation=affiliation,
                 studies=studies,
                 expires=expires,
                 password_env=env_name,

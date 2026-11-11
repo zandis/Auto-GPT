@@ -1,27 +1,32 @@
-# The permission matrix (T-102a, D-366): every console role x every action, as data. ``tb_common.authz.permit`` is
-# the one function that reads it; the older helpers of ``tb_common.authz`` (``study_tasks``, ``edc_allowed``,
-# ``edc_role_may``, ``can_request``, ``role_allowed``, ``sae_allowed``, ``admin_allowed``) and the role properties of
-# ``console.auth.User`` are thin wrappers over ``permit``. A different answer is a change to one cell here.
+# The permission matrix (T-102a, D-366; T-102b, D-380): every console role x every action, as data.
+# ``tb_common.authz.permit`` is the one function that reads it; the older helpers of ``tb_common.authz``
+# (``study_tasks``, ``edc_allowed``, ``edc_role_may``, ``can_request``, ``role_allowed``, ``sae_allowed``,
+# ``admin_allowed``) and the role properties of ``console.auth.User`` are thin wrappers over ``permit``. The role
+# descriptions on ``/ops/users`` are generated from this file (``tb_common.authz.role_rights``). A different answer
+# is a change to one cell here.
 #
 # Rules of this file (``tests/unit/test_authz_matrix.py`` holds them):
 # * ``roles`` equals ``console.auth.ROLES``; a role not listed here is refused every action.
 # * the matrix is total: every action names every role.
 # * a cell is ``true`` (the role may), ``false`` (it may not) or a list of conditions; any one condition grants:
-#     pi            the account is the study's PI (the console's standing: the logged PI, or before the study's
-#                   delegation log names one, an investigator of the study)
+#     pi            the account is the PI the study's delegation log names (D-380: no PI named, nobody is PI)
 #     task:<t>      the account holds study task <t> in this study (``study_tasks`` with the delegation log)
 #     logged_pi     the study's delegation log names a PI and the account is that PI
 #     logged_tick   the study's delegation log names a PI and the PI ticked this row's task for the account
-#     unlogged      the study's delegation log names no PI yet
+#     unlogged      the study's delegation log names no PI yet (no row uses it since D-380)
+#     monitor       the account holds a monitor grant in this study today (a ``monitor`` entry of the delegation
+#                   log, inside its visit dates; FIT-002)
 # * ``permit`` is pure: no audit, no I/O. The caller audits.
 #
-# Sources: D-93, D-101, D-104, D-108, D-143, D-146, D-147, D-160, D-162, D-178, D-191, D-280 (OD-5), D-349 (T-512).
-# D-280: the administrator has no patient-level row; one patient or one job only through break-glass
-# (``console.breakglass``, the ``breakglass.*`` rows). The steward keeps no study task here (T-102b adds the steward's
-# own pages).
+# Sources: D-93, D-101, D-104, D-108, D-143, D-146, D-147, D-160, D-162, D-178, D-191, D-280 (OD-5), D-349 (T-512),
+# D-380 (T-102b).
+# D-280: the administrator (the IT operator) has no patient-level row; one patient or one job only through
+# break-glass (``console.breakglass``, the ``breakglass.*`` rows). D-380: the data steward and the privacy office
+# keep the opt-out register and the staff directory, and nobody else; the steward writes a study's first PI entry;
+# a CRO account reads a study's enrolled subjects only under a monitor grant.
 
 version: 1
-roles: [admin, coordinator, investigator, viewer, cro, steward]
+roles: [admin, coordinator, investigator, viewer, cro, steward, privacy]
 
 actions:
   # ---------------------------------------------------------------- console role rights (console.auth.User)
@@ -33,6 +38,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   phi.view:
     what: read patient-level results in the browser, the CASE sheet and the pseudonymous rows (User.can_view_phi; D-101, D-280)
     admin: false
@@ -41,6 +47,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   id.reveal:
     what: see and reveal chart numbers, audited and rate-limited (User.can_reveal; D-143, D-280)
     admin: false
@@ -49,6 +56,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   list.mark:
     what: mark weekly-list patients Approach, Not suitable, Need info (User.can_mark; D-104)
     admin: false
@@ -57,6 +65,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   criteria.approve:
     what: approve a study's criteria (User.can_approve; S20, D-108)
     admin: false
@@ -65,6 +74,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   report.aggregate_only:
     what: a restriction, not a right; the account sees aggregate reports only, suppressed for CRO (User.aggregate_only; D-104)
     admin: false
@@ -73,34 +83,38 @@ actions:
     viewer: true
     cro: true
     steward: false
+    privacy: false
 
   # ---------------------------------------------------------------- study tasks of the delegation log (D-147, D-349)
-  # A coordinator has its row in every study. An investigator: before the study's log names a PI, the "unlogged" row
-  # (screen, approach, refer); after, the logged PI has every task and a sub-investigator the ones the PI ticked.
+  # A coordinator has its row in every study. An investigator: the logged PI has every task and a sub-investigator the
+  # ones the PI ticked. D-380 (ROLE-008): while the log names no PI, an investigator has no task in the study.
   task.screen:
     what: see the candidate list of a study
     admin: false
     coordinator: true
-    investigator: [unlogged, logged_pi, logged_tick]
+    investigator: [logged_pi, logged_tick]
     viewer: false
     cro: false
     steward: false
+    privacy: false
   task.approach:
     what: mark Approach on a patient
     admin: false
     coordinator: false
-    investigator: [unlogged, logged_pi, logged_tick]
+    investigator: [logged_pi, logged_tick]
     viewer: false
     cro: false
     steward: false
+    privacy: false
   task.refer:
     what: ask a treating doctor
     admin: false
     coordinator: false
-    investigator: [unlogged, logged_pi, logged_tick]
+    investigator: [logged_pi, logged_tick]
     viewer: false
     cro: false
     steward: false
+    privacy: false
   task.enter_data:
     what: enter trial data
     admin: false
@@ -109,6 +123,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   task.run:
     what: start the runs of the command.* rows that say task:run (a sub-investigator; T-512)
     admin: false
@@ -117,6 +132,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
 
   # ---------------------------------------------------------------- jobs a console account may start (D-146, D-349)
   # The orchestrator checks the best case (``role_allowed``: as the study's PI with every task); the console adds the
@@ -130,6 +146,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   command.SCREEN:
     what: screening run
     admin: true
@@ -138,6 +155,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   command.CASE:
     what: one case question
     admin: true
@@ -146,6 +164,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   command.COHORT:
     what: cohort run
     admin: true
@@ -154,6 +173,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   command.NAV:
     what: navigation run
     admin: true
@@ -162,6 +182,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   command.MICROBATCH:
     what: the Monday re-screen
     admin: true
@@ -170,6 +191,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   command.STATUS:
     what: job status
     admin: true
@@ -178,6 +200,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   command.CANCEL:
     what: cancel a job
     admin: true
@@ -186,6 +209,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   command.CONSENT:
     what: consent draft
     admin: true
@@ -194,6 +218,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   command.RELEASE:
     what: release a deliverable
     admin: true
@@ -202,6 +227,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   command.FEEDBACK:
     what: feedback on a deliverable
     admin: true
@@ -210,6 +236,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   command.APPROVE:
     what: approve the criteria (the console asks criteria.approve on top; D-108)
     admin: false
@@ -218,64 +245,74 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
 
   # ---------------------------------------------------------------- EDC prefill (D-160, D-162)
+  # D-380: the administrator, the steward and the privacy office never hold a study task (D-280), so their cells are
+  # ``false`` rather than ``[task:enter_data]``: the same answers, and the generated role description says so.
   edc.view:
     what: read the study's prefill pages
-    admin: [task:enter_data]
+    admin: false
     coordinator: [task:enter_data]
     investigator: [task:enter_data, pi]
     viewer: false
     cro: false
-    steward: [task:enter_data]
+    steward: false
+    privacy: false
   edc.map:
     what: map the CRF fields
-    admin: [task:enter_data]
+    admin: false
     coordinator: [task:enter_data]
     investigator: [task:enter_data]
     viewer: false
     cro: false
-    steward: [task:enter_data]
+    steward: false
+    privacy: false
   edc.draft:
     what: make prefill drafts
-    admin: [task:enter_data]
+    admin: false
     coordinator: [task:enter_data]
     investigator: [task:enter_data]
     viewer: false
     cro: false
-    steward: [task:enter_data]
+    steward: false
+    privacy: false
   edc.review:
     what: review a draft
-    admin: [task:enter_data]
+    admin: false
     coordinator: [task:enter_data]
     investigator: [task:enter_data]
     viewer: false
     cro: false
-    steward: [task:enter_data]
+    steward: false
+    privacy: false
   edc.sign:
     what: sign reviewed drafts
-    admin: [task:enter_data]
+    admin: false
     coordinator: [task:enter_data]
     investigator: [task:enter_data]
     viewer: false
     cro: false
-    steward: [task:enter_data]
+    steward: false
+    privacy: false
   edc.send:
     what: send signed drafts to the EDC
-    admin: [task:enter_data]
+    admin: false
     coordinator: [task:enter_data]
     investigator: [task:enter_data]
     viewer: false
     cro: false
-    steward: [task:enter_data]
+    steward: false
+    privacy: false
   edc.export:
     what: export ODM
-    admin: [task:enter_data]
+    admin: false
     coordinator: [task:enter_data]
     investigator: [task:enter_data]
     viewer: false
     cro: false
-    steward: [task:enter_data]
+    steward: false
+    privacy: false
   edc.switch_on:
     what: turn prefill on (the PI holds the sponsor's acknowledgement)
     admin: false
@@ -284,6 +321,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   edc.switch_off:
     what: turn prefill off (stop at once)
     admin: true
@@ -292,6 +330,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
 
   # ---------------------------------------------------------------- the SAE register (D-191, D-280)
   sae.view:
@@ -302,6 +341,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   sae.record:
     what: record a report sent, a receipt or a follow-up
     admin: false
@@ -310,6 +350,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
 
   # ---------------------------------------------------------------- operations and accounts (D-178)
   ops.view:
@@ -320,6 +361,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   ops.backup:
     what: ask for a backup now
     admin: true
@@ -328,6 +370,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   ops.backup_check:
     what: check the newest backups
     admin: true
@@ -336,6 +379,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   ops.update_check:
     what: verify a staged update bundle
     admin: true
@@ -344,6 +388,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   ops.update_apply:
     what: apply a staged, signed bundle
     admin: true
@@ -352,6 +397,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   ops.logs:
     what: collect yesterday's service logs
     admin: true
@@ -360,6 +406,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   ops.network:
     what: write the network sheet again
     admin: true
@@ -368,6 +415,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   account.reset:
     what: a new one-time password for an account
     admin: true
@@ -376,6 +424,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   account.disable:
     what: disable an account
     admin: true
@@ -384,6 +433,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   account.enable:
     what: enable a disabled account again
     admin: true
@@ -392,6 +442,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
 
   # ---------------------------------------------------------------- break-glass (D-280, OD-5; page: console.breakglass)
   # Recorded here for the matrix; ``console.breakglass`` still checks the role itself (T-102c moves the call sites).
@@ -403,6 +454,7 @@ actions:
     viewer: false
     cro: false
     steward: false
+    privacy: false
   breakglass.review:
     what: review every grant (never one's own)
     admin: false
@@ -411,6 +463,7 @@ actions:
     viewer: false
     cro: false
     steward: true
+    privacy: false
   breakglass.read:
     what: read the grant list (admin its own, steward all, a study's PI that study's)
     admin: true
@@ -419,3 +472,88 @@ actions:
     viewer: false
     cro: false
     steward: true
+    privacy: false
+
+
+  # ---------------------------------------------------------------- registers and study set-up (D-380, T-102b)
+  optout.keep:
+    what: keep the research-use opt-out register (pseudonyms, a chart-number lookup; a lift needs a written reason)
+    admin: false
+    coordinator: false
+    investigator: false
+    viewer: false
+    cro: false
+    steward: true
+    privacy: true
+  staff.keep:
+    what: keep the staff directory and the department contacts
+    admin: false
+    coordinator: false
+    investigator: false
+    viewer: false
+    cro: false
+    steward: true
+    privacy: true
+  delegation.keep:
+    what: keep a study's delegation log (sub-investigators, CRCs, their ticks; the PI's own entry)
+    admin: false
+    coordinator: false
+    investigator: [logged_pi]
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
+  delegation.name_pi:
+    what: write a study's PI entry from the signed log (study set-up; until then nobody acts as PI)
+    admin: false
+    coordinator: false
+    investigator: false
+    viewer: false
+    cro: false
+    steward: true
+    privacy: false
+  irb.edit:
+    what: record a study's IRB approval and consent-form version (approval number, reason for a change; hospital staff only)
+    admin: false
+    coordinator: true
+    investigator: [logged_pi]
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
+  monitor.grant:
+    what: give a CRO account a monitor grant in one study for the visit dates (FIT-002)
+    admin: false
+    coordinator: false
+    investigator: [logged_pi]
+    viewer: false
+    cro: false
+    steward: true
+    privacy: false
+  monitor.read:
+    what: read the study's enrolled subjects, read-only, under a monitor grant; each view names the visit
+    admin: false
+    coordinator: false
+    investigator: false
+    viewer: false
+    cro: [monitor]
+    steward: false
+    privacy: false
+  audit.ids:
+    what: see pseudonyms in the audit trail (others see them hidden)
+    admin: false
+    coordinator: true
+    investigator: true
+    viewer: false
+    cro: false
+    steward: true
+    privacy: true
+  items.view:
+    what: read the clinical item catalogue (/data/items)
+    admin: false
+    coordinator: false
+    investigator: false
+    viewer: false
+    cro: false
+    steward: true
+    privacy: false

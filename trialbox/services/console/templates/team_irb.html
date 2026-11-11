@@ -23,6 +23,8 @@
 <label for="irb-ex">{{ t('team.irb.expires') }}</label><input id="irb-ex" name="expires_on" type="date" lang="{{ lang }}" value="{{ irb.expires_on }}" data-testid="irb-expires">
 <label for="irb-icf">{{ t('team.irb.icf') }}</label><input id="irb-icf" name="icf_version" maxlength="40" value="{{ irb.icf_version }}" data-testid="irb-icf">
 <label for="irb-icfd">{{ t('team.irb.icf_date') }}</label><input id="irb-icfd" name="icf_date" type="date" lang="{{ lang }}" value="{{ irb.icf_date }}">
+{% if irb.by %}<label for="irb-why">{{ t('roles.irb.reason') }}</label><input id="irb-why" name="reason" maxlength="300" data-testid="irb-reason">{% endif %}
+<p class="hint">{{ t('roles.irb.rule') }}</p>
 <button type="submit" data-testid="irb-save">{{ t('team.irb.save') }}</button>
 </form>{% endif %}
 </section>
