@@ -15,6 +15,9 @@
   an event log with who, when and why, and the study's sponsor, protocol number, site initiation visit (SIV) date
   and registry ids (ClinicalTrials.gov, jRCT, UMIN-CTR, the Taiwan registry). Lists run and N1/N2 mails go out only
   for an open study; a study with no recorded state counts as open, as before D-386.
+* **The IRB text's coverage (D-395, RSK-42)**: whether the study's approved IRB text covers "identified pre-screening
+  across departments by the investigator before referral", with the approval number, the text's version and date, as
+  an event log recorded by the study's PI. The whole-hospital candidate view (D-147) opens only while it does.
 
 Stored in the trial database (PostgreSQL ``trialbox_wf``, schema ``site``; D-126). Nothing here holds a chart number
 or a name.
@@ -208,7 +211,24 @@ CREATE TABLE study_identity (
   at TEXT NOT NULL
 )
 """
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5)
+# D-395 (T-310b, RSK-42): the IRB approval text's coverage of the cross-department identified view, per study, as an
+# event log (the latest row is the record). The candidate view of D-147 opens only while it says "covers".
+SCHEMA_V6 = """
+CREATE TABLE study_irb_text (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  ruleset TEXT NOT NULL,
+  covers BOOLEAN NOT NULL,
+  sentence TEXT NOT NULL,
+  approval_ref TEXT NOT NULL DEFAULT '',
+  text_version TEXT NOT NULL DEFAULT '',
+  approved_on TEXT,
+  note TEXT NOT NULL DEFAULT '',
+  by TEXT NOT NULL,
+  at TEXT COLLATE "C" NOT NULL
+);
+CREATE INDEX study_irb_text_rs ON study_irb_text (ruleset, at)
+"""
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6)
 
 # ---------------------------------------------------------------------------------------------- D-386 study state
 STUDY_STATES = ("startup", "open", "paused", "closed")
@@ -250,6 +270,56 @@ def registry_id_ok(registry: str, value: str) -> bool:
 
 def state_move_ok(prev: str, new: str) -> bool:
     return new in STATE_MOVES.get(prev, ())
+
+
+# ---------------------------------------------------------------------------------------------- D-395 IRB text
+# The sentence the study's IRB approval text must cover for the cross-department identified candidate view (WS-06.5,
+# RSK-42; item 4 of the site amendments). Its id is stored with each record, so a later wording is a new id and an
+# older record never counts for it.
+IRB_SENTENCE_ID = "cross_dept_identified_v1"
+IRB_SENTENCE_EN = "Identified pre-screening across departments by the investigator before referral"
+_IRB_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._/()#-]{0,59}$")
+_TEXT_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._/()-]{0,39}$")
+NOTE_MAX = 200
+
+
+@dataclass(frozen=True)
+class IrbText:
+    """Whether the study's approved IRB text covers :data:`IRB_SENTENCE_ID` (D-395), as the PI recorded it: the
+    approval number of that text, its version and approval date. ``by`` empty: nothing recorded (the view is off)."""
+
+    covers: bool = False
+    approval_ref: str = ""
+    text_version: str = ""
+    approved_on: str = ""
+    note: str = ""
+    sentence: str = IRB_SENTENCE_ID
+    by: str = ""
+    at: str = ""
+
+    @property
+    def enables(self) -> bool:
+        """The candidate view may open: the latest record says the approved text covers the current sentence."""
+        return self.covers and self.sentence == IRB_SENTENCE_ID and bool(self.approval_ref)
+
+    def problems(self, today: date) -> list[str]:
+        """The fields that are wrong, by name. Covering needs the approval number; withdrawing needs a note."""
+        out: list[str] = []
+        if (self.covers and not self.approval_ref) or (self.approval_ref and not _IRB_REF.match(self.approval_ref)):
+            out.append("approval_ref")
+        if self.text_version and not _TEXT_VERSION.match(self.text_version):
+            out.append("text_version")
+        if self.approved_on:
+            try:
+                ok = bool(_DATE.match(self.approved_on)) and date.fromisoformat(self.approved_on) <= today
+            except ValueError:
+                ok = False
+            if not ok:
+                out.append("approved_on")
+        bad_note = len(self.note) > NOTE_MAX or any(ord(c) < 32 for c in self.note)
+        if bad_note or (not self.covers and not self.note):  # taking the record back needs a note
+            out.append("note")
+        return out
 
 
 @dataclass(frozen=True)
@@ -735,6 +805,51 @@ class SiteStore:
                 (rid, state, prev, reason, by, at),
             )
             new = StudyState(state, reason, by, at, prev)
+            if before_commit is not None:
+                before_commit(new)
+        return new
+
+    # ------------------------------------------------------------------ the IRB text's coverage (D-395)
+    _IRB_COLS = "covers, approval_ref, text_version, approved_on, note, sentence, by, at"
+
+    @staticmethod
+    def _irb_text(row: Any) -> IrbText:
+        return IrbText(bool(row[0]), str(row[1]), str(row[2]), str(row[3] or ""), str(row[4]), str(row[5]),
+                       str(row[6]), str(row[7]))  # fmt: skip
+
+    def irb_text(self, ruleset: str) -> IrbText:
+        """The latest record of the study's IRB-text coverage, or an empty one (nothing recorded: the view is off)."""
+        row = self.db.fetchone(
+            f"SELECT {self._IRB_COLS} FROM study_irb_text WHERE ruleset = ? ORDER BY at DESC, id DESC LIMIT 1",
+            (ruleset.upper(),),
+        )
+        return IrbText() if row is None else self._irb_text(row)
+
+    def irb_text_history(self, ruleset: str) -> list[IrbText]:
+        """Every record, oldest first."""
+        rows = self.db.fetchall(
+            f"SELECT {self._IRB_COLS} FROM study_irb_text WHERE ruleset = ? ORDER BY at, id", (ruleset.upper(),)
+        )
+        return [self._irb_text(r) for r in rows]
+
+    def record_irb_text(
+        self, ruleset: str, rec: IrbText, by: str, at: str, today: date,
+        before_commit: Callable[[IrbText], None] | None = None,
+    ) -> IrbText:  # fmt: skip
+        """Add a record (the approved text covers the sentence, or no longer does). ValueError naming the wrong
+        fields. ``before_commit`` (the audit append) runs inside the transaction, so a failed append keeps nothing."""
+        bad = rec.problems(today)
+        if bad:
+            raise ValueError(", ".join(bad))
+        new = IrbText(rec.covers, rec.approval_ref, rec.text_version, rec.approved_on, rec.note, IRB_SENTENCE_ID, by,
+                      at)  # fmt: skip
+        with self.db.transaction() as tx:
+            tx.execute(
+                "INSERT INTO study_irb_text (ruleset, covers, sentence, approval_ref, text_version, approved_on, note, "
+                "by, at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (ruleset.upper(), new.covers, new.sentence, new.approval_ref, new.text_version,
+                 new.approved_on or None, new.note, by, at),
+            )  # fmt: skip
             if before_commit is not None:
                 before_commit(new)
         return new

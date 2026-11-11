@@ -1,0 +1,59 @@
+# Developing TrialBox
+
+*Owner: Aimedics engineer. Status: living; changed in the same pull request as the code it describes. History: the
+git log of this file. Added by T-635 (D-390, OPS-073): the RUNBOOK is for the site's IT, this page is for the people
+and agent sessions who build TrialBox.*
+
+The [Runbook](RUNBOOK.md) is what a hospital's IT reads. Half of it used to be developer content. This page is the
+team's way in: what to run before a push, where the team's procedures are, and how a change is recorded. The card
+rules are in [`CONTRIBUTING.md`](../CONTRIBUTING.md) and TB-PLAN-06 §6.1 (`docs/plan/28-master-plan-v6.md`); they are
+not repeated here.
+
+## The team's RUNBOOK sections
+
+These sections are numbered in the RUNBOOK because other documents link them by number. Their audience is the team
+(the *Audience* column of the RUNBOOK's section-numbers table), and a site's IT can skip them.
+
+| Section | For |
+| --- | --- |
+| [§3, the build-gate parts](runbook/03-accounts.md#build-gate-the-ci-jobs-d-206) | the data-handling scan and the CI jobs: what gates a merge |
+| [§11 Cloud runs](runbook/11-cloud-runs.md) and [qualify a model pair](runbook/11-qualify.md) | GPU runs on rented machines, with the owner's OK first |
+| [§13 Working in parallel on one machine](runbook/13-parallel-work-on-one-machine.md) | temp roots, ports and databases per branch (D-201) |
+| [§14 Judge bake-off](runbook/14-judge-bake-off.md) | comparing a judge candidate against the current judge |
+| [§16 Box-install rehearsal](runbook/16-box-install-rehearsal.md) | `make rehearse-box` before a site's IQ |
+| [§18 Developing a site mapping without the site's data](runbook/18-site-mapping-without-site-data.md) | the steward's procedure: no row of site data leaves the hospital |
+
+A new section for the team takes the audience `team` in that table. A procedure that is for the team only and that no
+site document links may live here instead.
+
+## Before a push
+
+From `trialbox/`, after `make venv` (the list in `CONTRIBUTING.md` is the source):
+
+```sh
+.venv/bin/python -m ruff check .
+.venv/bin/python -m ruff format --check .
+.venv/bin/python -m tools.doclint
+.venv/bin/python -m tools.decisions_index --check
+.venv/bin/python -m tools.data_scan
+.venv/bin/python -m mypy <every .py file you changed>
+TB_ENV=DEV TB_TZ=Asia/Taipei PYTHONPATH=libs:services:. .venv/bin/python -m pytest <the tests you touched> -p no:cacheprovider -n 0
+```
+
+There is no default site time zone (D-315): a test run names one. The full suite (`make test`) is CI's.
+
+## Documents
+
+* **Nine documents.** README and the eight under `docs/`: Architecture, Runbook, Security, Data, Validation, User
+  guide, Decisions, and this page. `tools/doclint.py` fails on any other Markdown file in `docs/` (D-139, D-390).
+* **Section files.** Runbook, Security, Data and User guide are one file per numbered section (D-352). Edit the
+  section file, then run `python -m tools.doclint --write` to rewrite the index. A part of a section is another
+  `NN-<slug>.md` file whose first line is not `# N. Title` (for example `runbook/22-planned-power-cut.md`).
+* **Decisions are files**: `docs/decisions/D-nnn-<slug>.md` and a row in `docs/decisions/REGISTRY.md` (D-306, D-311).
+  `docs/DECISIONS.md` is frozen.
+
+## Operations drills
+
+Every site page of the RUNBOOK names its drill, in a line `**Drill (T-213b):**` with the name of a test. T-213b
+writes those tests (Docker drills as code, `tests/integration/`); a drill whose recovery step is missing from its
+page fails. `tests/unit/test_operations_docs.py` holds the pages of T-635 to that rule until then.

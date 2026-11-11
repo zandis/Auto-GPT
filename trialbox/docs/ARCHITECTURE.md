@@ -43,9 +43,11 @@ with versioned migrations, D-126), service tokens (`service_auth.py`), crypto, t
 and retention.
 
 Packages inside the services: `datacore` (forms, answers, sync, lifecycle; D-123, D-129, D-134), `sitesetup`
-(readiness, chart upload, proposed facts, code mapping; D-135), `matching` (the cascade, coverage), `dataplat` (data
-platform L0–L5), `deliverables` (the feasibility pack), `rc_bridge` and `rc_sim` (REDCap and its simulator),
-`registry`, `guard`, `tracestore` (model registry, PHI recognisers, redacted traces).
+(readiness, chart upload, proposed facts, code mapping; D-135), `matching` (the cascade, coverage), `deliverables`
+(the feasibility pack), `rc_bridge` and `rc_sim` (REDCap and its simulator), `registry`, `guard`, `tracestore` (model
+registry, PHI recognisers, redacted traces). The adapter is the one ingest stack (D-370, D-381): its data contracts,
+row quarantine, one gate record per night, `pid_alias` and `lineage.json` live in `adapter/governance.py` and
+`adapter/pidmap.py`.
 
 Removed and not coming back: the Hermes agent, the MCP front door, the channel relay and MinIO (D-121); SQLite
 stores (D-126); gpt-oss-120b on the Spark (D-124).
@@ -95,7 +97,10 @@ FHIR R4 NDJSON snapshot ──► fhir-store (delta load: only new or changed re
 - OMOP CDM v5.4 (`services/omop`, schema `omop` of `trialbox_wf`) is the store of record for clinical facts (D-144).
   With `TB_LAKE_SOURCE=omop` the rebuild loads the snapshot and the site's inputs into it (status, provenance,
   tombstones, conflicts in `tb_*` tables) and exports the lake from it, same tables and rows; the default is still
-  `legacy` (D-151). With the flag `omop.dual_write` on, the adapter also loads each passed night into it as soon as
+  `legacy` (D-151). The flip plan (D-384): CI runs the goldens and `e2e_simple` on both sources for every pull
+  request; on the acceptance box `tools.omop_parity` must say IDENTICAL, and its `flip` command sets the flag with the
+  report's sha256 in the reason. The store keeps each record's before-image, so a lake can be exported as of an
+  earlier time; a site's chart facts are NOTE_NLP rows. With the flag `omop.dual_write` on, the adapter also loads each passed night into it as soon as
   the NDJSON is written, apart from the rebuild; a failed load is in the ingest report and never holds the night. The
   seven large clinical tables are partitioned by year (D-339).
 - Feature flags (`tb_common.flags`, MR-090, D-207) are rows of `app.flag` in `trialbox_wf`, each change also a row of

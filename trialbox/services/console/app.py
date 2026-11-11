@@ -1124,6 +1124,9 @@ def create_app(
     from console import items_page
 
     items_page.register(app, helpers)  # T-107 (D-353): /data/items, the clinical item catalogue for the steward
+    from console import instruments_page
+
+    instruments_page.register(app, helpers)  # T-307 (D-375): /data/instruments, the instrument copyright register
 
     from console import ops_pages
 
