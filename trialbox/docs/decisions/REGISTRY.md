@@ -194,3 +194,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-359 | merged | T-606 | injection hardening: every prompt a new version with the "text is data" rule; the guard's planted-instruction screen; contact lines masked before the criteria locator; PRODUCTION serves the newest qualified version (file) |
 | D-364 | merged | T-621 | amendment handling: effective date and IRB record per criteria version (a record, not a gate), screening on the version in force, the version on every mark, the re-screen list, schedule versions judged by visit date (file) |
 | D-376 | merged | T-676b | the TWPAS route is SNOMED CT `26643006` (oral), the code the IG's required value set lists, with no SNOMED CT description; amends D-342 item 4 (file) |
+| D-377 | merged | T-108b | systemd units: the egress table saved by `apply` and restored closed before Docker at boot, the stack unit after it, the egress refresh and watchdog timers (file) |
