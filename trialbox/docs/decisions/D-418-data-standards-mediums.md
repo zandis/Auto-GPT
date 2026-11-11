@@ -41,8 +41,11 @@ whatever the analyte. The analytes' own factors are read first and agree. Python
   only. HbA1c % and mmol/mol never convert. Enzyme units and international units stay apart.
 
 The factor is written as the shorter plain decimal (1000000000, not 0.000000001), so CQL, whose decimals stop at 8
-places, holds it exactly. The shipped rulesets are not recompiled: the overlay guard of D-275 renders the new rule
-beside the approved SQL and keeps an answer only where both agree. The goldens are identical from both lake sources.
+places, holds it exactly. GOUT-COH and GZQO, whose SQL and CQL T-613a regenerated with the D-275 rules, are
+regenerated again by `tools.build_rulesets --recompile` (ValueSets, IR, manifest and recorded tests unchanged; the
+new arms are the only change, and `tests/expected.json` still holds). The other shipped rulesets carry their approved
+SQL: the overlay guard of D-275 renders the new rule beside it and keeps an answer only where both agree. The goldens
+are identical from both lake sources.
 
 **D-418b. A FHIR feed's presence words are read.** In the adapter, after `unit_defaults`, a `fhir_bulk`
 Observation coded in LOINC whose `valueString` the shared presence reader (`labvalue.presence`) reads as positive or
@@ -80,7 +83,7 @@ reference range are not checked. The criterion itself is never changed: the revi
 - No molar-mass conversion in the engines (mg/dL to mmol/L). It needs an analyte table reviewed per analyte in all
   three engines; the adapter's check proposes the factor to the site instead (D-334).
 - The presence reader is not applied to `component.valueString` of a FHIR feed.
-- The shipped rulesets are not recompiled (T-613a owns that); the guard carries the new rule until then.
+- The rulesets that still carry their approved SQL are not recompiled; the guard carries the new rule for them.
 
 *Evidence.* D-418a: `tests/unit/test_unit_scales.py` (Python, SQL and CQL twins on every family unit, CQL factors
 exact, a lake run deciding Hb in g/L and WBC in 10*4/uL and /uL); `tests/unit/test_criteria_safety.py` (the
