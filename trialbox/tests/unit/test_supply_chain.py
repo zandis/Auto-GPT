@@ -983,7 +983,7 @@ def test_report_mode_defers_only_fixable_high_findings_of_named_images() -> None
     assert [f.id for f in deferred] == ["CVE-1", "CVE-2"]
     assert [f.id for f in blocking] == ["CVE-3", "CVE-4", "CVE-5"]
     assert release.split_report_mode(failing, "docker.io/greenmail/standalone@sha256:ab", "report")[1]
-    assert release.split_report_mode(failing, "mailhog/mailhog@sha256:ab", "report")[1]
+    assert release.split_report_mode(failing, "axllent/mailpit@sha256:ab", "report")[1]
     # T-110b: every image a bundle can carry blocks, the third-party ones too
     for shipped in ("hapiproject/hapi:v8.12.0-2", "vllm/vllm-openai@sha256:ab", "trialbox-postgres:16-1"):
         assert release.split_report_mode(failing, shipped, "report") == (failing, [])
@@ -1042,10 +1042,12 @@ def test_summary_lists_every_finding_and_bundle_refuses_report_mode_images() -> 
 
 
 def test_arm64_gates_name_the_amd64_only_images() -> None:
+    # none since D-348: MailHog (amd64 only) gave way to Mailpit, and every locked third-party image has an arm64 build
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-    assert "SC_AMD64_ONLY ?= mailhog/mailhog" in makefile
-    text = (ROOT / "deploy" / "security" / "known-image-findings.md").read_text(encoding="utf-8")
-    assert "no arm64 image" in text
+    assert "SC_AMD64_ONLY ?=\n" in makefile
+    lock = json.loads((ROOT / "deploy" / "images.lock").read_text(encoding="utf-8"))
+    assert all("linux/arm64" in e["platforms"] for e in lock["third_party"].values())
+    assert "mailhog" not in str(release.VULN_REPORT_ONLY)
 
 
 def test_make_bundle_checks_the_gate_record() -> None:

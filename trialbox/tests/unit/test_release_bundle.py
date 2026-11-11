@@ -318,7 +318,7 @@ def test_image_names_follow_the_lock() -> None:
 def test_every_image_a_bundle_can_carry_blocks() -> None:
     """Report mode is left for the test-only mail servers; HAPI and vLLM findings block unless a dated entry
     accepts them in that image."""
-    assert {"mailhog/mailhog", "greenmail/standalone"} == gates_mod.VULN_REPORT_ONLY
+    assert {"axllent/mailpit", "greenmail/standalone"} == gates_mod.VULN_REPORT_ONLY
     test_compose = (ROOT / "deploy" / "docker-compose.test.yml").read_text(encoding="utf-8")
     box_compose = (ROOT / "deploy" / "docker-compose.yml").read_text(encoding="utf-8")
     for name in gates_mod.VULN_REPORT_ONLY:

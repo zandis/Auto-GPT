@@ -33,8 +33,8 @@ from tools.supply_chain.allowlist import Allowlist
 # (deploy/security/known-image-findings.md). `--vuln-mode report` changes nothing for any other image.
 VULN_REPORT_ONLY = frozenset(
     {
-        "mailhog/mailhog",
         "greenmail/standalone",
+        "axllent/mailpit",  # D-348: replaced MailHog; GO-2026-5932 (golang.org/x/crypto) in v1.33.1
     }
 )
 VULN_MODES = ("block", "report")

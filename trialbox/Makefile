@@ -345,7 +345,7 @@ selftest:
 canary:
 	PYTHONPATH=libs:services:. $(PY) -m tools.canary $(ARGS)
 
-# proof of concept in one command (README "Try the POC in 10 minutes", RUNBOOK §9): box + GreenMail/MailHog + admin
+# proof of concept in one command (README "Try the POC in 10 minutes", RUNBOOK §9): box + GreenMail/Mailpit + admin
 # console with the pilot workspace; TB_LLM_MODE=stub|openrouter|gpu. Windows: deploy/poc.ps1.
 poc:
 	deploy/poc.sh up
@@ -388,8 +388,9 @@ SC_THIRD_PARTY ?= $(shell docker compose --project-directory deploy -f deploy/do
 # the third-party images are scanned in their registry, by digest, for this machine's platform (or SC_PLATFORM)
 SC_PLATFORM ?= linux/$(if $(filter aarch64 arm64,$(shell uname -m)),arm64,amd64)
 # third-party images published for amd64 only (named here so nothing is skipped silently; tracked in
-# deploy/security/known-image-findings.md): left out of the arm64 gates, and a GB10 bundle cannot carry them
-SC_AMD64_ONLY ?= mailhog/mailhog
+# deploy/security/known-image-findings.md): left out of the arm64 gates, and a GB10 bundle cannot carry them. None
+# since D-348 (Mailpit replaced MailHog; every deploy/images.lock third_party entry has a linux/arm64 build)
+SC_AMD64_ONLY ?=
 SC_PLATFORM_IMAGES = $(if $(filter linux/arm64%,$(SC_PLATFORM)),$(foreach i,$(SC_THIRD_PARTY),$(if \
 	$(filter $(addsuffix :%,$(SC_AMD64_ONLY)) $(addsuffix @%,$(SC_AMD64_ONLY)),$(i)),,$(i))),$(SC_THIRD_PARTY))
 SC_IMAGES ?= $(SC_OWN_IMAGES) $(foreach i,$(SC_PLATFORM_IMAGES),registry:$(i)=$(SC_PLATFORM))
