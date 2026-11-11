@@ -8,6 +8,7 @@ A finding is accepted only by a written entry: which package, why, and until whe
         reason: Not reachable: ...       # required, a sentence a reviewer can check
         review_by: 2027-01-31            # required ISO date, at most 180 days ahead; after it the gate fails
         owner: security owner            # optional
+        image: hapiproject/hapi          # optional (T-110b): accepts the finding in this image repository only
     licences:
       - package: psycopg
         class: lgpl                      # lgpl, gpl, agpl, unknown or dual, as the licence report flags it
@@ -52,7 +53,7 @@ MIN_REASON = 20
 MAX_AHEAD_DAYS = 180
 LICENCE_CLASSES = ("lgpl", "gpl", "agpl", "unknown", "dual")
 
-_VULN_KEYS = {"id", "package", "reason", "review_by", "owner"}
+_VULN_KEYS = {"id", "package", "reason", "review_by", "owner", "image"}
 _LIC_KEYS = {"package", "class", "chosen", "licence", "reason", "review_by", "owner"}
 _BUDGET_KEYS = {"image", "ecosystem", "max", "reason", "review_by", "owner"}
 # in our own images and the lock, an unknown licence in these ecosystems is never budgeted: each needs an entry
@@ -76,6 +77,7 @@ class VulnEntry:
     package: str
     reason: str
     review_by: dt.date
+    image: str | None = None  # an image repository: the entry accepts the finding in that image only (T-110b)
 
 
 @dataclass(frozen=True)
@@ -103,11 +105,12 @@ class Allowlist:
     licences: list[LicenceEntry]
     budgets: list[BudgetEntry] = field(default_factory=list)
 
-    def vuln(self, ids: set[str], package: str) -> VulnEntry | None:
-        """The entry accepting a finding known by any of ``ids`` in ``package``, if one does."""
+    def vuln(self, ids: set[str], package: str, subject: str | None = None) -> VulnEntry | None:
+        """The entry accepting a finding known by any of ``ids`` in ``package``, if one does. An entry scoped to an
+        image accepts it only when ``subject`` (the scanned image reference) is that image."""
         wanted = {i.upper() for i in ids}
         for e in self.vulnerabilities:
-            if e.id.upper() in wanted and e.package == norm(package):
+            if e.id.upper() in wanted and e.package == norm(package) and image_matches(e.image, subject):
                 return e
         return None
 
@@ -123,6 +126,24 @@ class Allowlist:
             if (subject == e.image or subject.endswith("/" + e.image)) and e.ecosystem in (ecosystem, "*"):
                 return e
         return None
+
+
+def image_repository(ref: str) -> str:
+    """``hapiproject/hapi:v8@sha256:..`` -> ``hapiproject/hapi``; ``localhost:5000/x:1`` -> ``localhost:5000/x``."""
+    ref = ref.split("@", 1)[0]
+    head, _, last = ref.rpartition("/")
+    name = last.split(":", 1)[0]
+    return f"{head}/{name}" if head else name
+
+
+def image_matches(scope: str | None, subject: str | None) -> bool:
+    """An unscoped entry matches everywhere; a scoped one only the scanned image of that repository (any registry)."""
+    if scope is None:
+        return True
+    if not subject:
+        return False
+    repo = image_repository(subject)
+    return repo == scope or repo.endswith("/" + scope)
 
 
 def norm(name: str) -> str:
@@ -204,26 +225,28 @@ def parse(data: Any, *, today: dt.date | None) -> tuple[Allowlist, list[str]]:
         else:
             errors.append(f"'{list_key}' must be a list, got {type(value).__name__}")
             lists[list_key] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str | None]] = set()
     for i, raw in enumerate(lists["vulnerabilities"]):
         if not isinstance(raw, dict):
             errors.append(f"vulnerabilities[{i}]: must be a mapping")
             continue
-        vid, pkg = _text(raw, "id"), _text(raw, "package")
+        vid, pkg, img = _text(raw, "id"), _text(raw, "package"), _text(raw, "image")
         where = f"vulnerabilities[{i}] ({vid})" if vid else f"vulnerabilities[{i}]"
         errs, when = _common(where, raw, _VULN_KEYS, today)
+        if "image" in raw and (img is None or img != image_repository(img)):
+            errs.append(f"{where}: image must be an image repository without tag or digest, got {raw.get('image')!r}")
         if not vid:
             errs.append(f"{where}: no id")
         if not pkg:
             errs.append(f"{where}: no package; an entry covers one package")
         if vid and pkg:
-            key = (vid.upper(), norm(pkg))
+            key = (vid.upper(), norm(pkg), img)
             if key in seen:
                 errs.append(f"{where}: duplicate entry")
             seen.add(key)
         errors += errs
         if not errs and when is not None and vid and pkg:
-            out.vulnerabilities.append(VulnEntry(vid, norm(pkg), str(raw["reason"]).strip(), when))
+            out.vulnerabilities.append(VulnEntry(vid, norm(pkg), str(raw["reason"]).strip(), when, img))
     seen_l: set[tuple[str, str]] = set()
     for i, raw in enumerate(lists["licences"]):
         if not isinstance(raw, dict):

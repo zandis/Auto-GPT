@@ -92,7 +92,7 @@ jobs:
           http.server.ThreadingHTTPServer(("0.0.0.0", 8090), H).serve_forever()
           EOF
           docker run -d --name console --network tb-smoke -v "$RUNNER_TEMP/echo.py:/echo.py:ro" \
-            python:3.12-alpine python /echo.py
+            python:3.12-alpine@sha256:e064671ca452259bab50e8e2c7bd896e39e9a343bb06ca25234adf6fe18d0fc7 python /echo.py
           docker run -d --name caddy --network tb-smoke -p 127.0.0.1:443:443 \
             -e TB_TLS_MODE=internal -e TB_TLS_HOSTNAME -e TB_AUTH_HOSTNAME=auth.hosp.test \
             -e TB_CONSOLE_SSO_HEADER=X-Site-Sso-User \
