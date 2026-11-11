@@ -66,7 +66,7 @@ jobs:
         run: make jvm-deps fonts
       # D-126: tools/pglocal.py starts a throwaway cluster from the server binaries (installed here only if missing)
       - name: PostgreSQL server binaries
-        run: ls /usr/lib/postgresql/*/bin/initdb >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y postgresql)
+        run: tools/ci_postgres.sh  # the one major of deploy/images.lock, pg_config --version checked (D-371)
       - name: public_e2e (stub model, the public-data site)
         if: matrix.run == 'public-e2e'
         run: TB_ENV=DEV PYTHONPATH=libs:services:. .venv/bin/python -m tools.public_e2e --dir "$RUNNER_TEMP/public" --lang en
@@ -130,7 +130,7 @@ jobs:
         run: make jvm-deps fonts
       - name: PostgreSQL server binaries and gpg
         run: |
-          ls /usr/lib/postgresql/*/bin/initdb >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y postgresql)
+          tools/ci_postgres.sh  # the one major of deploy/images.lock (D-371)
           command -v gpg >/dev/null || sudo apt-get install -y gnupg
       - name: Node Playwright with Chromium (outside the repository; NODE_PATH points at it)
         run: |

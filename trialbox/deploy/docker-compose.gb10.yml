@@ -25,6 +25,10 @@
 #   * nvidia-container-toolkit; Docker Engine 27+; cgroup v2.
 #   * TrialBox images built multi-arch (make images-multiarch) or arm64 (make images PLATFORM=linux/arm64).
 #
+# Limits (T-108a, D-360): the base file's caps hold here too; a cap counts the host side of unified memory a
+# container maps, so the vLLM caps (TB_MEM_LLM, TB_MEM_VERIFIER, 48g each) leave room for the weights' page cache.
+# Not measured on a Spark (T-214 measures them).
+#
 # Every third-party image is pinned by digest in deploy/images.lock (D-348). The pins are multi-arch indexes that
 # include arm64. Unified memory is shared with HAPI, DuckDB and the embedder, so vLLM takes a smaller fraction than on
 # a discrete 32 GB GPU.
@@ -81,6 +85,9 @@ services:
     ipc: host
     networks: {model-backend-net: {aliases: [llm-verifier-vllm]}}   # behind model-guard (D-177)
     restart: unless-stopped
+    mem_limit: ${TB_MEM_VERIFIER:-48g}   # host memory (T-108a, D-360), as the judge's
+    pids_limit: 4096
+    labels: {tb.watchdog: restart}   # the host's watchdog restarts a hung server (OPS-029)
     depends_on:
       llm-service: {condition: service_healthy}
     deploy:
@@ -120,6 +127,7 @@ services:
   db: *arm
   fhir-store:
     <<: *arm
+    mem_limit: ${TB_MEM_FHIR:-8g}   # the 6g heap below plus the JVM's own (T-108a, D-360)
     environment:
       # same flags as the base file; explicit heap so HAPI does not size itself from the 128 GB of unified memory
       JAVA_TOOL_OPTIONS: "-Xmx${HAPI_XMX:-6g} -Duser.timezone=${TB_TZ:?set TB_TZ in deploy/.env to site.tz (D-315)}"

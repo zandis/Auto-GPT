@@ -296,7 +296,7 @@ def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]
         "rate_limit_per_sender_per_day": 20,
         "data_source": data_source,
         "mrn_regex": str(get("mrn_regex")),
-        "profiles": {"tw_core": "1.0.0", "twpas_version": "1.2.0"},
+        "profiles": {"tw_core": "1.0.0", "twpas_version": "1.2.5"},
         "models": {
             "judge": "qwen3.5-35b-a3b-q4",
             "extract_local": "gpt-oss-120b-mxfp4",
