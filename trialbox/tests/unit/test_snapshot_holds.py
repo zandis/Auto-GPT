@@ -286,3 +286,48 @@ def test_a_rebuild_passes_the_nights_tombstones_to_the_omop_source(tmp_path: Pat
     assert store._tombstones(nd) == {} and store._tombstones(tmp_path / "none") == {}
     (nd / "tombstones.json").write_text("[1]")
     assert store._tombstones(nd) == {}
+
+
+def test_a_hold_that_lands_during_the_publish_defers_the_batch(tmp_path: Path) -> None:
+    """A job pins the night between the check and the rebuild: the lake's refusal (in process, or the service's 409)
+    turns the publish into a waiting batch; any other error is raised. A lake that cannot list holds counts none."""
+    from sitesetup import service as svc_mod
+
+    class Racing(_Lake):
+        def __init__(self, exc: Exception) -> None:
+            super().__init__()
+            self.exc = exc
+
+        def rebuild(self, snap: str) -> dict[str, Any]:
+            raise self.exc
+
+    class Resp:
+        status_code = 409
+        text = "lake snapshot 2026-10-04 is being read by a running job"
+
+    class HttpError(Exception):
+        response = Resp()
+
+    for exc in (SnapshotHeld("held by a running job"), HttpError()):
+        store = _Store()
+        store.facts_.append(_fact(1))
+        svc = SiteSetup(store, tmp_path / "setup", Racing(exc), None, AuditLog(tmp_path / "audit"),  # type: ignore[arg-type]
+                        lambda: datetime(2026, 10, 5, tzinfo=UTC), lambda: date(2026, 10, 5), lambda: b"k" * 32)  # fmt: skip
+        out = svc.publish("main", "crc")
+        assert out["pending"] and out["held_by_jobs"] == 1 and out["snapshot"] is None and store.pub is None
+    store = _Store()
+    store.facts_.append(_fact(1))
+    svc = SiteSetup(store, tmp_path / "setup", Racing(RuntimeError("disk full")), None,  # type: ignore[arg-type]
+                    AuditLog(tmp_path / "audit"), lambda: datetime(2026, 10, 5, tzinfo=UTC), lambda: date(2026, 10, 5),
+                    lambda: b"k" * 32)  # fmt: skip
+    with pytest.raises(RuntimeError, match="disk full"):
+        svc.publish("main", "crc")
+    assert not svc_mod._held_refusal(ValueError("x"))
+
+    class Blind:
+        def holds(self) -> dict[str, str]:
+            raise OSError("lake down")
+
+    assert svc._held_by(Blind(), NIGHT) == 0 and svc._held_by(object(), NIGHT) == 0 and svc._held_by(Blind(), None) == 0
+    svc.publish_batch_seconds = 300
+    assert svc._batch_wait({"at": "not a time"}) == 0 and svc._batch_wait(None) == 0
