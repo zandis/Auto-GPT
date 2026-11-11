@@ -15,10 +15,19 @@ RUN useradd --uid 1000 --create-home --shell /usr/sbin/nologin tb && mkdir /data
 WORKDIR /app
 # PostgreSQL server binaries: since D-126 the demo's trial data lives in a throwaway local cluster (tools/pglocal.py),
 # and the update path backs it up with pg_dump first (D-138)
-# postgresql comes from the digest-pinned Debian base's release; the release gates scan the built image (D-186)
+ARG PG_MAJOR=16
+# postgresql-<PG_MAJOR> from PGDG (D-371: one major for the db image, the demo and CI; tests/unit/test_pg_major.py),
+# with the PGDG key that Debian's postgresql-common ships; the build stops on another pg_config --version. The release
+# gates scan the built image (D-186); upgrade: Debian security fixes
 # hadolint ignore=DL3008
-RUN apt-get update && apt-get upgrade -y --no-install-recommends \
-    && apt-get install -y --no-install-recommends postgresql && rm -rf /var/lib/apt/lists/*  # upgrade: Debian security fixes (D-186)
+RUN --mount=type=secret,id=extra_ca,required=false \
+    set -eux; if [ -s /run/secrets/extra_ca ]; then echo 'Acquire::https::CAInfo "/run/secrets/extra_ca";' > /etc/apt/apt.conf.d/99-extra-ca; fi; \
+    apt-get update; apt-get upgrade -y --no-install-recommends; \
+    apt-get install -y --no-install-recommends postgresql-common; /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y; \
+    apt-get install -y --no-install-recommends "postgresql-${PG_MAJOR}"; \
+    v="$("/usr/lib/postgresql/${PG_MAJOR}/bin/pg_config" --version)"; echo "$v"; \
+    case "$v" in "PostgreSQL ${PG_MAJOR}."*) ;; *) echo "not PostgreSQL ${PG_MAJOR} (D-371)" >&2; exit 1 ;; esac; \
+    rm -rf /var/lib/apt/lists/* /etc/apt/apt.conf.d/99-extra-ca
 COPY deploy/requirements.lock /tmp/requirements.lock
 # Optional build secret "extra_ca" (PEM) is trusted during the build only (corporate TLS proxies).
 # every package is pinned (the lock file, pytest==); $CERT is empty or "--cert <file>" and must split
