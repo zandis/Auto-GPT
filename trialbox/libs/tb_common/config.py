@@ -453,6 +453,7 @@ DECLARED: dict[str, Declared] = {
     "TB_DOTENV": Declared("str", ".env", "path of the .env file config reads"),
     "TB_DRILL_DIR": Declared("path", "", "backup drill: work folder"),
     "TB_E2E_DIR": Declared("path", "", "e2e tool: work folder"),
+    "TB_EDC_ODM_MAX_BYTES": Declared("int", "5000000", "EDC: largest ODM file an import reads (D-435)"),
     "TB_EDC_SIGN_KEY_FILE": Declared("path", "", "EDC: key that signs eCRF records"),
     "TB_EGRESS_STATE": Declared(
         "str", "/var/lib/trialbox/egress-state.json", "egress: state file of the applied table"
@@ -682,6 +683,7 @@ DECLARED: dict[str, Declared] = {
     "TB_SOURCE_DIR": Declared("path", "./site/feed", "compose: host folder of the site feed (settings wizard, T-632)"),
     "TB_SOURCE_MOUNT": Declared("path", "/data/source/site", "compose: where the site feed is mounted (T-632)"),
     "TB_SOURCE_PATH": Declared("path", "", "adapter: source records path"),
+    "TB_SPONSOR_WEEKLY_MAX_BYTES": Declared("int", "2000000", "largest sponsor weekly sheet read (D-435)"),
     "TB_STANDIN_LOAD_DELAY": Declared("float", "0", "model stand-in: load delay"),
     "TB_STEP_ID": Declared("str", "", "step id a gateway call names"),
     "TB_STUB_CONTEXT": Declared("int", "", "model stub: context size"),
