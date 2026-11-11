@@ -242,6 +242,9 @@ def suggest(domain: str, system: str, code: str, display: str = "") -> dict[str,
         jlac = _jlac10_loinc(up)
         if jlac:
             return jlac
+        same = _jlac10_analyte_material(up)
+        if same:
+            return same
     if kind == "drug-code":
         if up in lk["drug"]:
             atc, name = lk["drug"][up]
@@ -251,7 +254,7 @@ def suggest(domain: str, system: str, code: str, display: str = "") -> dict[str,
         nhi = _nhi_drug(up)
         if nhi:
             return nhi
-        yj = _yj_atc(up)
+        yj = _yj_atc(up) or _yj_ingredient(up)
         if yj:
             return yj
     return _by_name(domain, display or code)
@@ -346,6 +349,116 @@ def _jlac10_loinc(code: str) -> dict[str, str]:
         return {}
     disp = next((t["source_display"] for t in rows), "")
     return {"system": LOINC, "code": loinc[0], "display": disp, "method": "refdata", "confidence": "0.90"}
+
+
+# ------------------------------------------------------------- T-610: ingredient and analyte suggestions
+_JLAC10 = re.compile(r"^[0-9A-Z]{15}([0-9A-Z]{2})?$")
+
+
+def _yj_ingredient(code: str) -> dict[str, str]:
+    """A YJ code -> the ATC code of its ingredient stem in the ingredient-to-ATC table read from the files (the
+    shipped stems and the site's own table, ``TB_JP_INGREDIENT_ATC``), when the reference database is not loaded
+    (``refdata``, 0.90 as :func:`_yj_atc`)."""
+    import os
+
+    from tb_common import refdata_jp as jp
+
+    stem = jp.yj_stem(code)
+    if not stem:
+        return {}
+    site = os.environ.get("TB_JP_INGREDIENT_ATC", "")
+    row = jp.ingredient_atc(*([Path(site)] if site else [])).get(stem)
+    if not row or not _ATC.match(row["atc"]):
+        return {}
+    return {"system": ATC, "code": row["atc"], "display": row["ingredient"], "method": "refdata",
+            "confidence": "0.90"}  # fmt: skip
+
+
+def _jlac10_known() -> dict[str, tuple[str, str]]:
+    """Every JLAC10 code TrialBox knows a LOINC code for: the shipped lookup rows and the site's licensed release."""
+    out = {k: v for k, v in _lookups()["lab"].items() if _JLAC10.match(k)}
+    from adapter import licensed
+
+    try:
+        lic = licensed.tables(cached=True).get("jlac10", {})
+    except Exception:  # no trial database here: the shipped rows only
+        lic = {}
+    for k, r in lic.items():
+        if r.get("target_code") and _LOINC.match(r["target_code"]):
+            out.setdefault(k, (r["target_code"], r.get("display") or ""))
+    return out
+
+
+def _jlac10_analyte_material(code: str) -> dict[str, str]:
+    """STD-043: a JLAC10 code with no map of its own -> the LOINC code that every known JLAC10 code of the same
+    analyte (characters 1-5) and material (10-12) maps to, whatever its identification, method or result code
+    (``analyte``, 0.80: the method may matter, so a person confirms it once). Two LOINC codes, or none: no
+    suggestion."""
+    if not _JLAC10.match(code):
+        return {}
+    same = {k: v for k, v in _jlac10_known().items() if k[:5] == code[:5] and k[9:12] == code[9:12] and k != code}
+    loinc = sorted({v[0] for v in same.values()})
+    if len(loinc) != 1:
+        return {}
+    first = sorted(same)[0]
+    return {"system": LOINC, "code": loinc[0], "display": same[first][1], "method": "analyte",
+            "confidence": "0.80", "basis": first}  # fmt: skip
+
+
+# ------------------------------------------------------------- T-610: confirmed maps into the adapter look-up
+LOOKUP_COLS = ("local_code", "system", "code", "display", "ucum", "factor", "category", "value_type", "answers",
+               "profile", "verified", "source_unit")  # fmt: skip
+_LAB_KINDS = ("lab-code",)
+
+
+def lab_lookup_rows(
+    confirmed: dict[tuple[str, str, str], dict[str, str]], templates: list[dict[str, str]]
+) -> list[dict[str, str]]:
+    """The adapter's lab look-up rows (``lab_local_to_loinc.csv`` / ``jlac10_to_loinc.csv`` columns) for the lab
+    codes a person mapped in site set-up (``SetupStore.mapping``): an NHI order code, a JLAC10 code or a hospital
+    code, whichever suggestion (NHI ConceptMap, JLAC10 analyte and material, name) the person confirmed.
+
+    Unit, factor, category, value type and profile come from a row of ``templates`` (the site's look-up) for the
+    same LOINC code, so the result is read the way the site already reads that test. With no such row the unit is
+    left empty: the adapter then keeps the result coded and gives it no value (a unit nobody checked, R-31), so a
+    value is never read in a unit TrialBox guessed. ``verified`` is ``confirmed``."""
+    by_loinc: dict[str, dict[str, str]] = {}
+    for t in templates:
+        if t.get("code"):
+            by_loinc.setdefault(t["code"], t)
+    out = []
+    for (domain, system, code), m in sorted(confirmed.items()):
+        if domain != "observation" or system.rsplit(":", 1)[-1] not in _LAB_KINDS:
+            continue
+        if not valid_target("observation", m.get("system", ""), m.get("code", "")):
+            continue
+        t = by_loinc.get(m["code"], {})
+        row = {c: t.get(c, "") for c in LOOKUP_COLS}
+        row.update(local_code=code, system="loinc", code=m["code"], display=m.get("display") or t.get("display", ""),
+                   verified="confirmed")  # fmt: skip
+        row["category"] = row["category"] or "laboratory"
+        row["value_type"] = row["value_type"] or "quantity"
+        if not t:
+            row.update(ucum="", factor="1", source_unit="", answers="")
+        out.append(row)
+    return out
+
+
+def merge_lookup(path: Path, rows: list[dict[str, str]]) -> int:
+    """Add ``rows`` to the adapter's look-up file at ``path`` (its own columns, header kept); a key the file already
+    has keeps the file's row (the site's own row wins). Returns how many rows were added."""
+    with path.open(encoding="utf-8", newline="") as fh:
+        reader = csv.DictReader(fh)
+        cols = list(reader.fieldnames or LOOKUP_COLS)
+        have = list(reader)
+    keys = {r["local_code"] for r in have}
+    new = [r for r in rows if r["local_code"] not in keys]
+    if new:
+        with path.open("w", encoding="utf-8", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=cols, extrasaction="ignore", lineterminator="\n")
+            w.writeheader()
+            w.writerows(have + new)
+    return len(new)
 
 
 def valid_target(domain: str, system: str, code: str) -> bool:
