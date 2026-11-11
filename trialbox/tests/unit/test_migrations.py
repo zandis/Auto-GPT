@@ -351,7 +351,7 @@ def store_migrations() -> dict[str, list[str]]:
         "team": list(teamstore.MIGRATIONS),
         "feedback": list(feedback.MIGRATIONS),
         "breakglass": list(breakglass.MIGRATIONS),
-        "edc": [edc.SCHEMA],
+        "edc": list(edc.MIGRATIONS),
         "sae": list(saerecord.MIGRATIONS),
         "app": list(flags.MIGRATIONS),
         "derived": list(derived_store.MIGRATIONS),
@@ -374,6 +374,8 @@ ADDED: dict[str, tuple[str, ...]] = {
     "pidmap": ("b7cf6c229898b30f609be2151ff4422b2a0bc0cd068b0b5150e1d58c07c98ae3",),
     # T-510 (D-331): the feedback store, new after the baseline
     "feedback": ("3981b6201cd514508bed945433f3415993494cb24e52809cca7f37fe3801e368",),
+    # D-281: edc version 2, the signature's version and key id, and signature_void
+    "edc": ("660d794773184321ebd80015911a26e65973b24d93fa2415c39b6114a22f561b",),
     # D-280: the break-glass grants, new after the baseline
     "breakglass": ("0347aae3f58f7558d041191f25bd2fc5bc654e6f5139c9ee28b1588e91544b83",),
 }

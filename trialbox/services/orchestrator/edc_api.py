@@ -15,8 +15,9 @@ here (``edc.service``).
 Who acts (D-162, review E-01): every route that changes something, and the export, takes the person from the
 verified ``X-TB-Actor`` assertion the console signs (``tb_common.service_auth``), and their role from the signed
 ``X-TB-Actor-Role``; never from the body. The role must allow the action (``authz.edc_role_may``). The signature
-needs an assertion the console made right after it re-authenticated the signer (session ``reauth-...``). A ``by`` in
-a body counts only on a DEV or TEST box without a token, as for the other routes.
+needs an assertion the console made right after it re-authenticated the signer (session ``reauth-...``); so does a
+change to a signed value (the record lock, D-281). A ``by`` in a body counts only on a DEV or TEST box without a
+token, as for the other routes. A refused role or a missing re-authentication is audited as ``edc.refused`` (SEC-7).
 """
 
 from __future__ import annotations
@@ -84,6 +85,7 @@ class DecideBody(BaseModel):
     reason: str = Field(default="", max_length=300)
     citation: dict[str, str] | None = None
     by: str | None = Field(default=None, pattern=_USER)
+    unlock: bool = False  # counts only on a DEV or TEST box without a token, as ``by`` (D-281)
 
 
 class SignBody(BaseModel):
@@ -93,6 +95,7 @@ class SignBody(BaseModel):
     printed_name: str = Field(min_length=1, max_length=120)
     meaning: str = "transcribed"
     meaning_text: str = Field(min_length=1, max_length=600)
+    method: str = Field(default="password", pattern=r"^(password|password\+totp)$")  # how the console re-authenticated
     lang: str = Field(default="en", pattern=r"^(en|ja|zh-TW)$")
     seen: dict[int, str] = Field(max_length=2000)  # draft id -> content hash, as the review page showed them
 
@@ -134,10 +137,17 @@ def claim_of(request: Request, fallback: str | None = None) -> Actor:
 def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
     r = APIRouter()
 
-    def who(request: Request, action: str, fallback: str | None = None) -> Actor:
+    def refused(rs: str, a: Actor, action: str, code: str) -> None:
+        """A refusal before the service is reached is audited too (D-281, SEC-7); the study id as given, checked."""
+        rid = rs.strip().upper()
+        get().audit.append("edc.refused", ruleset=rid if _RS.match(rid) else "", actor=a.name or "unknown",
+                           detail={"action": action, "code": code})  # fmt: skip
+
+    def who(request: Request, action: str, fallback: str | None = None, rs: str = "") -> Actor:
         """The verified person and role, allowed to take ``action`` (D-162)."""
         a = claim(request, fallback)
         if not a.role or not edc_role_may(a.role, action):
+            refused(rs, a, action, "edc.role")
             raise HTTPException(status_code=403, detail={"code": "edc.role", "message": "this role may not do that"})
         return a
 
@@ -153,7 +163,7 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
 
     @r.post("/studies/{rs}/edc/switch")
     def switch(rs: str, body: SwitchBody, request: Request) -> dict[str, Any]:
-        a = who(request, "switch_on" if body.on else "switch_off", body.by)
+        a = who(request, "switch_on" if body.on else "switch_off", body.by, rs)
         return run(lambda: get().set_switch(_rs(rs), body.on, by=a.name, role=a.role, kind=body.kind,
                                             reference=body.reference, ack_date=body.ack_date,
                                             reentry_pages=body.reentry_pages,
@@ -161,7 +171,7 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
 
     @r.post("/studies/{rs}/edc/dictionary")
     def dictionary(rs: str, body: DictionaryBody, request: Request) -> dict[str, Any]:
-        a = who(request, "map", body.by)
+        a = who(request, "map", body.by, rs)
         return run(lambda: get().import_dictionary(_rs(rs), body.token_ref, a.name, body.record_field))
 
     @r.get("/studies/{rs}/edc/map/suggest")
@@ -170,12 +180,12 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
 
     @r.put("/studies/{rs}/edc/map")
     def put_map(rs: str, body: MapBody, request: Request) -> dict[str, Any]:
-        a = who(request, "map", body.by)
+        a = who(request, "map", body.by, rs)
         return run(lambda: get().put_map(_rs(rs), body.items, body.target.model_dump(), a.name))
 
     @r.post("/studies/{rs}/edc/drafts")
     def drafts(rs: str, body: DraftBody, request: Request) -> list[dict[str, Any]]:
-        a = who(request, "draft", body.by)
+        a = who(request, "draft", body.by, rs)
         return run(lambda: get().build(_rs(rs), body.record.upper(), body.pid, body.visit, body.visit_date, a.name))
 
     @r.get("/studies/{rs}/edc/drafts")
@@ -186,32 +196,37 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
 
     @r.post("/studies/{rs}/edc/drafts/{draft_id}/decide")
     def decide(rs: str, draft_id: int, body: DecideBody, request: Request) -> dict[str, Any]:
-        a = who(request, "review", body.by)
+        a = who(request, "review", body.by, rs)
+        # the record lock (D-281): a signed value changes only under an assertion made right after a password check
+        # (with a token); on a DEV or TEST box without one, the console says so in the body, as it names the person
+        unlock = a.session.startswith(REAUTH) if a.verified else body.unlock
         return run(lambda: get().decide(_rs(rs), draft_id, body.action, value=body.value, reason=body.reason,
-                                        citation=body.citation, by=a.name))  # fmt: skip
+                                        citation=body.citation, by=a.name, unlock=unlock))  # fmt: skip
 
     @r.post("/studies/{rs}/edc/sign")
     def sign(rs: str, body: SignBody, request: Request) -> dict[str, Any]:
-        a = who(request, "sign", body.signer)
+        a = who(request, "sign", body.signer, rs)
         if a.verified and not a.session.startswith(REAUTH):
+            refused(rs, a, "sign", "edc.reauth_needed")
             raise HTTPException(
                 status_code=403,
                 detail={"code": "edc.reauth_needed", "message": "sign right after typing the password again"},
             )
         return run(lambda: get().sign(_rs(rs), body.record.upper(), body.visit, signer=a.name,
                                       printed_name=body.printed_name, role=a.role, meaning=body.meaning,
-                                      meaning_text=body.meaning_text, lang=body.lang, seen=body.seen))  # fmt: skip
+                                      meaning_text=body.meaning_text, lang=body.lang, seen=body.seen,
+                                      method=body.method))  # fmt: skip
 
     @r.post("/studies/{rs}/edc/send/redcap")
     def send(rs: str, body: SendBody, request: Request) -> dict[str, Any]:
-        a = who(request, "send", body.by)
+        a = who(request, "send", body.by, rs)
         return run(lambda: get().send_redcap(_rs(rs), a.name, body.record.upper() if body.record else None))
 
     @r.get("/studies/{rs}/edc/export/odm")
     def export_odm(rs: str, request: Request, by: str | None = None) -> dict[str, Any]:
         if by is not None and not re.match(_USER, by):
             raise HTTPException(status_code=400, detail={"code": "edc.by", "message": "who is exporting"})
-        a = who(request, "export", by)
+        a = who(request, "export", by, rs)
         rid = _rs(rs)
         text = run(lambda: get().export_odm(rid, a.name))
         return {"name": f"{rid}-edc-prefill.odm.xml", "media_type": "application/xml", "text": text}
