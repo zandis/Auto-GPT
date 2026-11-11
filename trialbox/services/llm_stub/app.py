@@ -6,6 +6,12 @@ fenced JSON block of the first user message. See ``handlers.py`` for what each p
 It serves a fixed list of model names (:func:`served_models`) and answers 404 to any other, as vLLM does. Some names
 are test personas (``handlers.PERSONAS``): a judge that disagrees, is unsure, misquotes, misdates or is down, so the
 rules that keep a contested note answer from excluding a patient can be tested over the real HTTP path (D-276).
+
+**Context limit (T-603).** ``TB_STUB_CONTEXT`` (tokens) or a ``stub-ctx-8k`` / ``stub-ctx-16k`` / ``stub-ctx-32k``
+persona makes the stub enforce a context as vLLM does: a request whose prompt (estimated with
+:func:`tb_llm.budget.estimate_messages`) plus ``max_tokens`` is over it gets vLLM's HTTP 400 "maximum context
+length", and ``/v1/models`` reports ``max_model_len``. So a test shows that what callers size from the gateway's
+context is accepted by a server that enforces it.
 """
 
 from __future__ import annotations
@@ -19,6 +25,7 @@ from typing import Any
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from tb_common.http import make_app
+from tb_llm.budget import estimate_messages
 
 from llm_stub.handlers import HANDLERS, MESSAGE_HANDLERS, PERSONAS
 
@@ -48,10 +55,27 @@ def served_models() -> list[str]:
     return [*names, *(p for p in PERSONAS if p not in names)]
 
 
+CONTEXT_PERSONAS = {"stub-ctx-8k": 8192, "stub-ctx-16k": 16384, "stub-ctx-32k": 32768}
+
+
+def context_limit(model: str) -> int | None:
+    """The context this name enforces: a ``stub-ctx-*`` persona's, else ``TB_STUB_CONTEXT``, else none (T-603)."""
+    if model in CONTEXT_PERSONAS:
+        return CONTEXT_PERSONAS[model]
+    raw = os.environ.get("TB_STUB_CONTEXT", "").strip()
+    return int(raw) if raw.isdigit() and int(raw) > 0 else None
+
+
 @app.get("/v1/models")
 def models() -> dict[str, Any]:
     # ``root`` as vLLM gives it: each name is its own model here (the stub plays every one of them)
-    data = [{"id": n, "object": "model", "owned_by": "trialbox", "root": n} for n in served_models()]
+    data: list[dict[str, Any]] = []
+    for n in served_models():
+        row: dict[str, Any] = {"id": n, "object": "model", "owned_by": "trialbox", "root": n}
+        limit = context_limit(n)
+        if limit:
+            row["max_model_len"] = limit
+        data.append(row)
     return {"object": "list", "data": data}
 
 
@@ -71,6 +95,19 @@ async def completions(request: Request) -> Any:
             status_code=404,
         )
     body = {**body, "model": model}
+    limit = context_limit(model)
+    if limit:
+        mt = body.get("max_tokens")
+        need = estimate_messages(body.get("messages") or []) + (mt if isinstance(mt, int) else 0)
+        if need > limit:  # vLLM's answer to a prompt plus max_tokens over --max-model-len
+            msg = (
+                f"This model's maximum context length is {limit} tokens. However, you requested {need} tokens "
+                f"in the messages and max_tokens. Please reduce the length of the messages or completion."
+            )
+            return JSONResponse(
+                {"object": "error", "message": msg, "type": "BadRequestError", "param": None, "code": 400},
+                status_code=400,
+            )
     if model == "stub-down":
         return JSONResponse({"object": "error", "message": "stub-down: no answer", "code": 503}, status_code=503)
     prompt_id = request.headers.get("x-tb-prompt-id", "")

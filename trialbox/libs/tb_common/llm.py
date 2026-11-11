@@ -15,6 +15,12 @@
   request goes through ``libs/tb_llm`` to ``tb-gateway`` with the v4 labels instead of to an endpoint directly; the
   gateway chooses the route and build. ``data_class=`` on :meth:`LlmClient.chat_json` sets the class (else
   ``TB_DATA_CLASS``, else D3 for ``phi`` prompts and D1 otherwise). Without it nothing changes.
+* **Context (T-603, review LLM-015, LLM-018).** :meth:`LlmClient.context_tokens` is the model's context: the
+  gateway's ``GET /v1/models`` for the alias, or the server's own (vLLM ``max_model_len``) on a direct call.
+  :meth:`LlmClient.text_budget` is what a caller may put in the variable part of a prompt (excerpts, a chart).
+  ``max_tokens`` is cut to what fits beside the prompt; a prompt that leaves less than
+  :data:`tb_llm.budget.MIN_ANSWER_TOKENS` is refused here (:class:`LlmPromptTooLong`) and never sent; the retry of a
+  cut-off answer asks for at most what fits.
 """
 
 from __future__ import annotations
@@ -32,6 +38,7 @@ import httpx
 import yaml
 from jinja2 import Environment, StrictUndefined
 from tb_contracts import PromptMeta, inline_schema, load_schema, null_absent, schema_errors
+from tb_llm.budget import MIN_ANSWER_TOKENS, answer_room, estimate_messages, retry_max_tokens, text_budget
 
 from tb_common.audit import AuditLog
 from tb_common.crypto import sha256_text
@@ -50,6 +57,11 @@ class LlmError(RuntimeError):
 
 class LlmSchemaError(LlmError):
     pass
+
+
+class LlmPromptTooLong(LlmError):
+    """The prompt does not fit the model's context with room for an answer (T-603): not sent. The gateway's refusal
+    ``prompt_too_long`` (before dispatch, or the server's own HTTP 400) is raised as this too."""
 
 
 @dataclass(frozen=True)
@@ -141,6 +153,42 @@ class LlmClient:
         self.audit = audit
         self.http = httpx.Client(timeout=timeout)
         self.gateway = gateway  # tb_llm.GatewayClient (shim path) or None
+        self._context: tuple[float, int | None] | None = None
+
+    CONTEXT_TTL_S = 300.0
+
+    def context_tokens(self) -> int | None:
+        """The model's context in tokens, or None when it cannot be told (T-603). Through the gateway: its
+        ``GET /v1/models`` for this client's alias (:meth:`tb_llm.GatewayClient.context`). Direct: the server's
+        ``GET /models`` entry for this model (vLLM ``max_model_len``). Asked again after :attr:`CONTEXT_TTL_S`."""
+        now = time.monotonic()
+        if self._context is not None and now - self._context[0] < self.CONTEXT_TTL_S:
+            return self._context[1]
+        ctx: int | None = None
+        if self.gateway is not None:
+            ctx = self.gateway.context()
+        else:
+            try:
+                resp = self.http.get(f"{self.base_url}/models")
+                data = resp.json().get("data", []) if resp.status_code == 200 else []
+            except (httpx.HTTPError, ValueError, AttributeError):
+                data = []
+            for m in data if isinstance(data, list) else []:
+                if isinstance(m, dict) and m.get("id") == self.model:
+                    raw = m.get("max_model_len") or m.get("context_length")
+                    ctx = int(raw) if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0 else None
+        self._context = (now, ctx)
+        return ctx
+
+    def text_budget(self, prompt_id: str, fixed: dict[str, Any]) -> int | None:
+        """Tokens a caller may put in the variable part of ``prompt_id`` (T-603): the context, less the safety share,
+        the prompt rendered with ``fixed`` (the variable part empty) and the prompt's ``max_tokens``. None when the
+        context is not known (the caller keeps its own default; the gateway still refuses what is over)."""
+        ctx = self.context_tokens()
+        if not ctx:
+            return None
+        prompt = load_prompt(prompt_id)
+        return text_budget(ctx, estimate_messages(render(prompt, fixed)), prompt.meta.max_tokens)
 
     @classmethod
     def from_config(cls, audit: AuditLog | None = None) -> LlmClient:
@@ -210,6 +258,17 @@ class LlmClient:
         errors: list[str] = []
         convo = list(messages)
         max_tokens = prompt.meta.max_tokens
+        context = self.context_tokens()
+        if context:
+            # T-603 (review LLM-015): the answer budget is what fits beside the prompt; a prompt that leaves no room
+            # for an answer is not sent (the caller sizes its excerpts or chart from text_budget)
+            room = answer_room(context, estimate_messages(messages))
+            if room < MIN_ANSWER_TOKENS:
+                raise LlmPromptTooLong(
+                    f"{prompt_id}: the prompt (about {estimate_messages(messages)} tokens) leaves no room for an "
+                    f"answer in the model's context of {context} tokens"
+                )
+            max_tokens = min(max_tokens, room)
         for attempt in (1, 2):
             body = {
                 "model": model,
@@ -281,8 +340,13 @@ class LlmClient:
                 )
             if truncated:
                 # a reasoning model (gpt-oss, nemotron) spends max_tokens on reasoning before the JSON: the answer was
-                # cut off, not wrong, so ask the same question again with room to finish
-                max_tokens = min(max_tokens * 4, 16384)
+                # cut off, not wrong, so ask the same question again with room to finish, never more than fits beside
+                # the prompt (T-603, review LLM-018); when nothing larger fits, the retry is not sent
+                more = retry_max_tokens(context, estimate_messages(messages), max_tokens)
+                if more is None:
+                    errors = [*errors, "the answer was cut off and no larger answer fits the model's context"]
+                    break
+                max_tokens = more
                 convo = list(messages)
                 continue
             convo = [
@@ -321,6 +385,8 @@ class LlmClient:
         try:
             payload: dict[str, Any] = self.gateway.complete(req, labels)
         except GatewayRefused as exc:
+            if exc.reason == "prompt_too_long":
+                raise LlmPromptTooLong(f"gateway refused {meta.id}: {exc.reason}") from exc
             raise LlmError(f"gateway refused {meta.id}: {exc.reason}") from exc
         except GatewayError as exc:
             raise LlmError(str(exc)) from exc

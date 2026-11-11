@@ -543,6 +543,10 @@ PERSONAS: dict[str, Any] = {
     "stub-badquote": _badquote,
     "stub-olddate": _olddate,
     "stub-down": lambda a: a,
+    # T-603: a model that enforces a context of 8k, 16k or 32k tokens (llm_stub.app.CONTEXT_PERSONAS)
+    "stub-ctx-8k": lambda a: a,
+    "stub-ctx-16k": lambda a: a,
+    "stub-ctx-32k": lambda a: a,
 }
 
 HANDLERS = {
