@@ -45,6 +45,10 @@ closed). Checks:
   is both plain and wrapped, a wrapped key has no ``kek.json`` or names another KEK, the KEK file is in the secrets
   folder or is not this box's KEK, or (in VALIDATION and PRODUCTION) a site key is a plain file; WARN for a plain key
   in DEV/TEST and when the keys are wrapped but the KEK is not unsealed where doctor runs. Opens no key.
+* ``clock`` (T-211a, OPS-055, REG-026): the audit chain's times need a true clock. FAIL when the clock is more than
+  ``TB_CLOCK_MAX_SKEW_S`` (default 60) seconds from the site's time server (``TB_NTP_SERVER``, one SNTP exchange); in
+  VALIDATION and PRODUCTION also FAIL when the kernel clock is not NTP-synchronised, when the time server does not
+  answer, or when neither can be read. WARN for those in DEV and TEST.
 
 ``--live`` adds one check that talks to the model servers, so it runs where the gateway's network is (install.sh
 runs it in a one-off container on ``trialbox-model-net``; ``--serving`` runs it alone):
@@ -740,6 +744,31 @@ def check_key_custody(inp: DoctorInputs) -> Check:
     return Check("key_custody", "PASS", f"{', '.join(c.wrapped)} wrapped under {where}, unsealed")
 
 
+def check_clock(inp: DoctorInputs) -> Check:
+    """T-211a (OPS-055): NTP out of sync is a FAIL, and so is a clock more than the allowed skew from the site's
+    time server. ``tb_common.audit.clock_state`` reads both."""
+    from tb_common import audit
+
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    soft: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
+    st = audit.clock_state(inp.env)
+    limit = audit.max_skew(inp.env)
+    if st.offset is not None and abs(st.offset) > limit:
+        return Check("clock", "FAIL", f"the clock is {st.offset:+.1f} s from {st.server} (more than {limit:g} s): "
+                     "audit times are wrong and sign-in codes fail; fix the host's time sync")  # fmt: skip
+    problems: list[str] = []
+    if st.synced is False:
+        problems.append("the kernel clock is not NTP-synchronised (timedatectl; on WSL2 the host's time sync task)")
+    if st.server and st.offset is None:
+        problems.append(f"the time server {st.server} did not answer ({st.error})")
+    if st.synced is None and st.offset is None:
+        problems.append(f"the clock's sync state cannot be read here and no {audit.NTP_SERVER_ENV} is set")
+    if problems:
+        return Check("clock", soft, "; ".join(problems))
+    where = f"; {st.offset:+.2f} s from {st.server}" if st.offset is not None else ""
+    return Check("clock", "PASS", f"NTP-synchronised{where}" if st.synced else f"clock checked{where}")
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -756,6 +785,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_site_key,
     check_backup,
     check_key_custody,
+    check_clock,
 )
 
 

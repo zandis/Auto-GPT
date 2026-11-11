@@ -171,7 +171,9 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-344 | merged | T-215 | QMS-lite records in `docs/validation/`, VMP v1.1 without signatures, change classes CC1 to CC6, staged roll-out, standards position (file) |
 | D-346 | merged | T-208 | the prompt-injection and false-positive suite: facts not words, a stub that obeys as the negative control, the fence escaped, hidden text flagged, traces 7 days in PRODUCTION (file) |
 | D-347 | merged | T-210b | the site keys under a KEK: wrapped files, three back ends, the unseal, the key inventory (file) |
+| D-339 | merged | T-106 | OMOP second slice: schema name stays `omop`; the adapter's dual write behind the flag `omop.dual_write` (a failure never holds the night); the large CDM tables partitioned by year; the Relational checks after every load in the ingest report; parity timings (file) |
 | D-348 | merged | T-673 | third-party images in `deploy/images.lock` by digest, no image by tag, the GPU host checked against the vLLM image (arch, driver, compute capability), Mailpit for MailHog (file) |
 | D-349 | merged | T-512 | the PI starts FEAS, SCREEN and CASE on own study; a sub-investigator with the `run` tick; one table `authz.INVESTIGATOR_RUNS`; "data as of" on the patient lists (file) |
 | D-339 | merged | T-106 | OMOP second slice: schema name stays `omop`; the adapter's dual write behind the flag `omop.dual_write` (a failure never holds the night); the large CDM tables partitioned by year; the Relational checks after every load in the ingest report; parity timings (file) |
 | D-354 | merged | T-210c | uploads and outputs sealed at rest: AES-GCM per object under objects.key wrapped by the KEK, the seal file, seal-objects (file) |
+| D-355 | merged | T-211a | signed audit heads with the KEK-wrapped Ed25519 key, write-once off-box anchor folders, key rotation, the clock a doctor FAIL (file) |
