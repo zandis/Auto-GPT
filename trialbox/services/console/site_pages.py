@@ -583,7 +583,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         return RedirectResponse(f"/site/checks?{q(w, rs, done='answered')}", status_code=303)
 
     @app.get("/site/sheets")
-    def sheets_page(request: Request, ws: str = "main", study: str = "", done: str = "", err: str = "") -> Response:
+    def sheets_page(request: Request, ws: str = "main", study: str = "", done: str = "", err: str = "",
+                    col: str = "") -> Response:  # fmt: skip
         sess = h.need(request)
         need_view(sess, request.url.path)
         w, rs = ws_of(ws), study_of(sess, study)
@@ -599,6 +600,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             roles=ROLES,
             done=done[:20],
             err=err[:80],
+            col=col[:80],  # T-629 (FIT-U09): the column a refusal names, as the sheet's header writes it
         )
 
     @app.post("/site/sheets")
@@ -633,7 +635,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                 )
             au.append("console.site_sheet", actor=h.actor(sess), detail={"ws": w})
         except Problem as exc:
-            return RedirectResponse(f"/site/sheets?{q(w, rs, err=exc.code)}", status_code=303)
+            col = str(exc.detail.get("column") or "")[:80]  # T-629 (FIT-U09): the refused chart-number column
+            return RedirectResponse(f"/site/sheets?{q(w, rs, err=exc.code, col=col)}", status_code=303)
         return RedirectResponse(f"/site/sheets?{q(w, rs, done='read')}", status_code=303)
 
     @app.get("/site/people")
