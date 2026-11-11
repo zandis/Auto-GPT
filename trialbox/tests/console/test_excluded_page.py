@@ -13,7 +13,7 @@ from typing import Any
 from tb_common.crypto import sha256_bytes
 from tb_contracts import JobOutput
 
-from tests.console.test_console_app import VIEWER_PW, _done_screen, _ulid, box, login  # noqa: F401
+from tests.console.test_console_app import VIEWER_PW, _done_screen, _ulid, box, login, name_pi  # noqa: F401
 
 PW = "excluded-page-password-01"
 EXCLUDED = {
@@ -49,6 +49,8 @@ def test_the_excluded_list_with_criterion_source_and_evidence(box: dict[str, Any
     jid = _with_excluded(box)
     for name, role in (("pi", "investigator"), ("crc", "coordinator"), ("cra", "cro")):
         box["users"].create(name, role, PW, f"{name}@hospa.test")
+    box["users"].set_scope("cra", "cro", "GZQO", None)  # D-380 (ROLE-011): a CRO account names its studies
+    name_pi(box, "pi")  # D-380 (ROLE-008): the steward names the PI
     pi, _ = login(box["app"], "pi", PW)
     page = pi.get("/studies/GZQO/excluded").text
     assert 'data-testid="excluded"' in page and "criteria not matched for 4 patients" in page
@@ -86,6 +88,7 @@ def test_the_old_path_answers_301_to_criteria_not_matched(box: dict[str, Any]) -
     _with_excluded(box)
     for name, role in (("pi", "investigator"), ("crc", "coordinator")):
         box["users"].create(name, role, PW, f"{name}@hospa.test")
+    name_pi(box, "pi")  # D-380 (ROLE-008): the steward names the PI
     pi, _ = login(box["app"], "pi", PW)
     r = pi.get("/studies/GZQO/excluded?src=fact&page=1", follow_redirects=False)
     assert r.status_code == 301 and r.headers["location"] == "/studies/GZQO/not-matched?src=fact&page=1"

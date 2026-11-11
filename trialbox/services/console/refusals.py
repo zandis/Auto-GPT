@@ -13,6 +13,9 @@ from collections.abc import Mapping
 
 # English sentence -> (Japanese, Traditional Chinese)
 REFUSALS: dict[str, tuple[str, str]] = {
+    # D-380 (FIT-002): the monitor's read of the data core
+    "the data core refused the subject": ("データコアがこの被験者を拒否しました", "資料核心拒絕了這位受試者"),
+    "the data core did not answer": ("データコアが応答しませんでした", "資料核心沒有回應"),
     # D-192: sign-in and recovery (/ops/identity, the TOTP step)
     "no such account": ("そのアカウントはありません", "沒有此帳號"),
     "this account signs in through the identity provider": (

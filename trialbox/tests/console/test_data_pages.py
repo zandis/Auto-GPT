@@ -32,7 +32,7 @@ from rc_sim.app import create_app as create_sim
 from rc_sim.app import load_projects
 from tb_common.audit import AuditLog
 
-from tests.console.test_console_app import ADMIN_PW, VIEWER_PW, box, login  # noqa: F401 - the fixture is used by name
+from tests.console.test_console_app import ADMIN_PW, VIEWER_PW, box, login, sub_investigator  # noqa: F401 - the fixture is used by name
 from tests.rc_kit import TOKEN_A
 
 PW = "data-core-password-0001"
@@ -230,6 +230,7 @@ def test_a_sync_of_an_unknown_source_and_a_bad_dictionary_are_shown_not_raised(d
 
 # ---------------------------------------------------------------------------------------------- roles
 def test_roles_that_may_not_change_setup_read_only_and_get_403(dcb: dict[str, Any]) -> None:
+    sub_investigator(dcb, "pi")  # D-380 (ROLE-008): the investigator's old rights, now from the log
     _, _, cid = _with_conflict(dcb)
     dcb["calls"].clear()
     files = {"dictionary": ("d.csv", dictionary(), "text/csv")}
