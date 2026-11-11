@@ -222,6 +222,22 @@ def models() -> dict[str, Any]:
     }
 
 
+@app.get("/metrics")
+def metrics_route() -> Response:
+    """T-209a (D-379): the canary half of the box's health in the Prometheus text format, behind the service token
+    (reads are protected here, D-130); the console's ``/metrics`` has the whole health. Aggregate only."""
+    from datetime import UTC, datetime
+
+    from tb_common import metrics
+
+    from orchestrator import canary_gate
+
+    canary_gate.GATE.configure(orch().data_dir)
+    now = datetime.now(UTC)
+    health = metrics.Health(now, (metrics.check_canary(canary_gate.status()),))
+    return Response(metrics.prometheus(health, "orchestrator"), media_type="text/plain; version=0.0.4; charset=utf-8")
+
+
 @app.post("/models/canary")
 def models_canary() -> dict[str, Any]:
     """Run the 54-case pair canary now (the admin Models tile's "Run now"); it takes a few minutes on the card and
@@ -394,7 +410,7 @@ class NoticeRequest(BaseModel):
     """A console notice (D-108): N1 the investigator's pre-clinic list, N2 the coordinator's digest. Pseudonyms and
     counts only (FR-NOTIF-01/02), so the mail is ``aggregate`` and goes to internal addresses only."""
 
-    kind: Literal["N1", "N2", "BG"]  # D-280: BG tells the steward and the PI of a break-glass grant at once
+    kind: Literal["N1", "N2", "BG", "HEALTH"]  # D-280: BG, a break-glass grant; T-209a: HEALTH, the daily health mail
     to: list[str] = Field(min_length=1, max_length=5)
     subject: str = Field(min_length=1, max_length=200)
     body_md: str = Field(min_length=1, max_length=20_000)

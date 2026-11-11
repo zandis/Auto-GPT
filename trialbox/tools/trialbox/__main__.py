@@ -70,6 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     v = sub.add_parser("backup-verify", help="decrypt a backup and check every hash (needs the private key)")
     v.add_argument("file", type=Path)
     v.add_argument("--key", type=Path, required=True)
+    v.add_argument("--deploy", type=Path, default=None, help="where deploy/site/backup-verified.json goes (T-209a)")
     r = sub.add_parser("restore", help="restore databases and files from a backup (needs the private key)")
     r.add_argument("file", type=Path)
     r.add_argument("--key", type=Path, required=True)
@@ -120,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
     u.add_argument("--deploy", type=Path, default=deploy)
     u.add_argument("--no-backup", action="store_true", help="skip the D-126 backup (audited; not for a real box)")
     op = sub.add_parser("ops", help="the console's operations requests: run them, write the status (D-178)")
-    op.add_argument("action", choices=["run", "status"])
+    op.add_argument("action", choices=["run", "status", "metrics-token"])
     op.add_argument("--deploy", type=Path, default=deploy)
     op.add_argument("--ops-dir", type=Path, default=None, help="default: TB_OPS_DIR or deploy/ops")
     op.add_argument("--local", action="store_true", help="a box in this process (no docker compose)")
@@ -314,7 +315,13 @@ def _backup_cmd(a: argparse.Namespace) -> int:
             print(json.dumps(bk.check(a.file), indent=1, ensure_ascii=False))
             return 0
         if a.cmd == "backup-verify":
-            print(json.dumps(bk.verify(a.file, a.key), indent=1, ensure_ascii=False))
+            res = bk.verify(a.file, a.key)
+            print(json.dumps(res, indent=1, ensure_ascii=False))
+            from tb_common import metrics  # T-209a (D-379, OPS-047): the health check is red 100 days after this
+
+            metrics.record_verified(
+                a.deploy or Path(__file__).resolve().parents[2] / "deploy", {**res, "file": a.file.name}
+            )
             return 0
         if not a.yes:
             print("restore replaces the box's databases and data folders (the old folders are kept aside): add --yes")

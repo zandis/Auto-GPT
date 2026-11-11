@@ -31,3 +31,39 @@ a good update: apply the previous release's bundle. Restore stays a command with
 
 The in-process box, the demo and the tests run the same runner inside the console (`TB_OPS_RUNNER=inline`). Held by
 `tests/console/test_ops_pages.py`.
+
+## Box health and monitoring (T-209a, D-379)
+
+The runner also writes the box's health facts each minute: the backup as `backup-status` sees it, the last key check
+of a backup, the fill of every disk the box writes to and the end date of the hospital's certificate. The console
+adds the model self-test (canary) and gives one level, ok, warn or red (`libs/tb_common/metrics.py`):
+
+| Check | Red when | Warn when | Setting |
+| --- | --- | --- | --- |
+| Model self-test | it failed, or a woken model failed its wake check: note reading was off last night | it has not run, is stale or checked one model | (canary, D-117) |
+| Backup | `backup-status` alerts: the newest good backup is older than 36 h, or the last run failed | no good backup found | `TB_BACKUP_MAX_AGE_HOURS` |
+| Backup verified | no `backup-verify` with the private key for 100 days | after 90 days, or never | `TB_HEALTH_VERIFIED_DAYS` |
+| Disk | over 85 % | over 70 % | `TB_HEALTH_DISK_RED`, `TB_HEALTH_DISK_WARN`; more paths in `TB_HEALTH_DISKS` |
+| Certificate | ends within 30 days | within 45 days | `TB_HEALTH_CERT_RED_DAYS`, `TB_HEALTH_CERT_WARN_DAYS` |
+
+Where it shows:
+
+- **The coordinators' morning mail (N2)** begins with one health line. A red line sends the mail even when nothing
+  else is in it. A coordinator who sees a red line, or no line at all, tells the administrator.
+- **The daily health mail** goes to every administrator with a mailbox at `TB_HEALTH_MAIL_AT` (07:00), every day,
+  with one line per check.
+- **`/metrics`** on the console (Prometheus text): a signed-in administrator, or a scraper with the metrics token.
+
+`backup-verify` now writes `deploy/site/backup-verified.json` (time, file name and sha256; no content). Run it with
+the key from the envelope at least once a quarter (§5).
+
+**Optional monitoring overlay.** Prometheus on the box's loopback, scraping the console's `/metrics`, with the same
+thresholds as alert rules (`deploy/monitoring/rules.yml`):
+
+1. `sudo python3 -m tools.trialbox ops metrics-token` once. It writes `deploy/secrets/metrics.token` and never prints it.
+2. Add `docker-compose.monitoring.yml` to `COMPOSE_FILE` in `deploy/.env`, after the secrets overlay, and run
+   `docker compose --project-directory deploy up -d --wait`.
+3. Open `http://127.0.0.1:9090/alerts` on the box (or over SSH). Hospital IT may point its own Prometheus at the
+   console's `/metrics` with the same token instead.
+
+Held by `tests/unit/test_metrics.py` and `tests/console/test_health_mail.py` (frozen clock).

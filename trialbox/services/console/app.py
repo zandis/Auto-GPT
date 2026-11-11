@@ -1128,6 +1128,9 @@ def create_app(
     from console import ops_pages
 
     ops_pages.register(app, helpers, raw_env)  # D-178: backups, update and rollback, logs, secrets, network sheet
+    from console import metrics_page
+
+    metrics_page.register(app, helpers)  # T-209a (D-379): /metrics and the box's health for the morning mail
     from console import sae_pages
 
     sae_pages.register(app, helpers)  # the SAE register and its worklist (D-191)
