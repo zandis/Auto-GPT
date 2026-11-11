@@ -44,7 +44,10 @@ spec:
           podSelector: {matchLabels: {k8s-app: kube-dns}}
       ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
 ---
-# 4. only tb-gateway reaches a model server (spec v4 NFR-B9; the appliance's model-net)
+# 4. only tb-gateway reaches the models, and only through model-guard (spec v4 NFR-B9; the appliance's model-net and
+#    model-backend-net, D-177, D-409): the model servers take calls from model-guard alone; model-guard takes them
+#    from the gateway (and from the install-check job, which holds no key: it checks that a call without the key is
+#    refused) and reaches only the model servers
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata: {name: trialbox-model-isolation}
@@ -53,9 +56,25 @@ spec:
   policyTypes: [Ingress, Egress]
   ingress:
     - from:
-        - podSelector: {matchLabels: {app.kubernetes.io/component: gateway}}
+        - podSelector: {matchLabels: {app.kubernetes.io/component: model-guard}}
       ports: [{protocol: TCP, port: 8000}]
   egress: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: trialbox-model-guard}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: model-guard}}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/component: gateway}}
+        - podSelector: {matchLabels: {app.kubernetes.io/component: doctor}}
+      ports: [{protocol: TCP, port: 8000}]
+  egress:
+    - to:
+        - podSelector: {matchLabels: {trialbox.io/tier: model}}
+      ports: [{protocol: TCP, port: 8000}]
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -65,7 +84,18 @@ spec:
   policyTypes: [Egress]
   egress:
     - to:
-        - podSelector: {matchLabels: {trialbox.io/tier: model}}
+        - podSelector: {matchLabels: {app.kubernetes.io/component: model-guard}}
+      ports: [{protocol: TCP, port: 8000}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: trialbox-doctor-to-model-guard}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: doctor}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector: {matchLabels: {app.kubernetes.io/component: model-guard}}
       ports: [{protocol: TCP, port: 8000}]
 ---
 # 5. the console from the hospital's TLS proxy or ingress controller only: its namespace carries the label

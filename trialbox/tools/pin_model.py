@@ -28,6 +28,10 @@ not edited, for this build and for PRODUCTION), checks that it qualified exactly
 ``status: champion`` with the record's reference. ``pin`` never writes ``champion``, and a re-pin drops the status and
 the reference.
 
+``--name-judge <gpu>`` prints the judge the profile serves, by its role and the registry's own label (alias, build,
+``model_name``, pinned or not), for ``deploy/install.sh`` to name it (T-632, D-382); it reads only the registry and
+the site override, never the weights.
+
 **The chat template** (T-674, D-392, DEP-007). A judge build's registry row names ``chat_template``: the
 developer's template at a pinned revision, a file under the models root that compose passes to vLLM with
 ``--chat-template``. ``--chat-template FILE`` (and ``--install``, from ``JUDGE_CHAT_TEMPLATE`` or the row's ``file``)
@@ -396,6 +400,14 @@ PROFILE_PAIRS: dict[str, list[tuple[str, str, str, str, str, str]]] = {
          JUDGE_SERVED),
         ("qwen3.5-9b-rtx5090", "verifier", "VERIFIER_MODEL_DIR", "qwen3.5-9b-4bit", "VERIFIER_MODEL", VERIFIER_SERVED),
     ],
+    # D-409: the B200 on two MIG instances (deploy/platform overlays/shared-quota, docker-compose.shared-quota.yml);
+    # the platform's pin job (overlays/shared-quota/pin.yaml) runs --install shared-quota against the models claim
+    "shared-quota": [
+        ("gemma-4-26b-a4b-it-sharedquota", "serving", "JUDGE_MODEL_DIR", "gemma-4-26b-a4b-it-4bit", "JUDGE_MODEL",
+         JUDGE_SERVED),
+        ("qwen3.5-9b-sharedquota", "verifier", "VERIFIER_MODEL_DIR", "qwen3.5-9b-4bit", "VERIFIER_MODEL",
+         VERIFIER_SERVED),
+    ],
     "rtx4090": [  # judge alone (the verifier is scaled to 0; TB_NOTE_BLOCK=never)
         ("gemma-4-26b-a4b-it-rtx5090", "serving", "JUDGE_MODEL_DIR", "gemma-4-26b-a4b-it-4bit", "JUDGE_MODEL",
          JUDGE_SERVED),
@@ -479,6 +491,23 @@ def install_pins(
             + (f"; chat template {tpl['source']} at {tpl['revision']}" if tpl else "")
         )
     return ok, lines
+
+
+def judge_line(gpu: str, out: Path = DEFAULT_OVERRIDE, registry: Path | None = None) -> str:
+    """The judge of a GPU profile in one line, from the configuration only: the role's alias, the build the profile
+    serves, the registry's ``model_name`` for it and the site's pin (T-632, D-382)."""
+    pairs = PROFILE_PAIRS.get(gpu)
+    if not pairs:
+        raise PinError(f"no deployed pair for GPU profile {gpu!r}")
+    build = next(b for b, endpoint, *_ in pairs if endpoint == "serving")
+    reg = yaml.safe_load((registry or ROOT / "models" / "registry.yaml").read_text(encoding="utf-8")) or {}
+    entry = next((b for b in reg.get("builds") or [] if b.get("build_id") == build), None)
+    if entry is None:
+        raise PinError(f"build {build} of profile {gpu} is not in models/registry.yaml")
+    have = ((load_override(out).get("builds") or {}) if out.exists() else {}).get(build) or {}
+    pin_txt = f"pinned {str(have['sha256'])[:12]}" if have.get("sha256") else "not pinned (routes nothing yet)"
+    label = entry.get("model_name") or build
+    return f"judge ({entry.get('alias')}): {label}; build {build}; {pin_txt}"
 
 
 def promote(
@@ -574,7 +603,17 @@ def main(argv: list[str] | None = None) -> int:
         help="pin GPU profile's deployed pair from --models-root (install.sh); exit 1 when weights are missing",
     )
     ap.add_argument("--models-root", type=Path, default=ROOT / "deploy" / "models")
+    ap.add_argument(
+        "--name-judge", metavar="GPU", help="print the judge GPU profile serves (install.sh); write nothing"
+    )
     args = ap.parse_args(argv)
+    if args.name_judge:
+        try:
+            print(judge_line(args.name_judge, args.out))
+        except PinError as exc:
+            print(f"pin_model: {exc}", file=sys.stderr)
+            return 2
+        return 0
     if args.promote:
         if args.record is None:
             ap.error("--promote needs --record")

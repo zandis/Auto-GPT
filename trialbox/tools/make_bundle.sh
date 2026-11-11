@@ -62,11 +62,14 @@ if [ ${#IMAGES[@]} -eq 0 ]; then
   # every image the box's compose file runs, ours included, from the rendered config (profiles stub and gpu; not the
   # test file: no test mail server in a hospital bundle, OPS-017). An empty .env of its own: on a vendor machine
   # without deploy/.env compose renders nothing, and the bundle silently had no third-party image (D-176)
-  mkdir -p "$STAGE/cfg" && : > "$STAGE/cfg/.env"
+  # The identity overlay too (Caddy, Authelia): install.sh adds it on every PRODUCTION box (T-632, D-382); its host
+  # name is a placeholder here, only the images are read
+  mkdir -p "$STAGE/cfg" && echo "TB_TLS_HOSTNAME=bundle.invalid" > "$STAGE/cfg/.env"
   while IFS= read -r img; do
     case "$img" in trialbox-*) IMAGES+=("$img") ;; *) [ "$THIRD" = 1 ] && IMAGES+=("$img") ;; esac
   done < <(docker compose --project-directory "$STAGE/cfg" -f "$ROOT/deploy/docker-compose.yml" \
-             --profile stub --profile gpu config --images 2>/dev/null | sort -u)
+             -f "$ROOT/deploy/docker-compose.identity.yml" \
+             --profile stub --profile gpu --profile oidc config --images 2>/dev/null | sort -u)
   case " ${IMAGES[*]-} " in *" trialbox-py:"*) ;; *)
     echo "make_bundle: compose listed no trialbox-py image (docker compose config)" >&2; exit 2 ;; esac
   if [ "$THIRD" = 1 ]; then
