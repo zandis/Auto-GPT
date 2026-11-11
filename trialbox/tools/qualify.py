@@ -30,6 +30,10 @@ build). The steps, in order (:data:`STEPS`); each one ends ``passed`` or ``faile
   changed verdicts is reported (LLM-021);
 * ``throughput``: the two numbers of LLM-025 from the pair run: seconds per note-stage patient and seconds per
   criterion check, p50 and p95;
+* ``injection``: the prompt-injection and false-positive suite (``eval/injection/cases.yaml``,
+  :mod:`tools.injection_eval`; T-208, D-346): the judge and verifier as the pair, the judge build as the reader of
+  charts, consent forms and protocols; 0 changed facts over the attacks and at most 2 % false positives on the
+  controls (the stub must also give every expected fact);
 * ``n12``, ``public_e2e``, ``goldens``: evidence steps: a JSON result (``--evidence step=file``) written at this git
   HEAD with ``passed`` or ``ok`` true. With ``--stub`` (profile ``ci`` only) they run in wiring form: the tool's
   command answers ``--help``, and the record says so;
@@ -97,6 +101,7 @@ STEPS = (
     "pair_gate",
     "determinism",
     "throughput",
+    "injection",
     "n12",
     "public_e2e",
     "goldens",
@@ -842,6 +847,24 @@ def step_throughput(ctx: Ctx) -> StepResult:
     return ok(detail)
 
 
+def step_injection(ctx: Ctx) -> StepResult:
+    from tools import injection_eval as ie
+
+    # the protocol locator calls as the document parser does (caller doc-parser, role extract_criteria)
+    alias = None if ctx.opts.stub else JUDGE_ALIAS
+    locator = QClient(ctx.target.gateway("doc-parser", model=alias), alias=alias, name=ctx.judge.model)
+    models = ie.Models(judge=ctx.judge, verifier=ctx.verifier, locator=locator)
+    rep = ie.run(ie.load_cases(), models, strict=ctx.opts.stub)
+    s = rep.summary()
+    keys = ("cases", "attacks", "controls", "changed", "changed_ids", "false_positives", "false_positive_ids",
+            "false_positive_share", "not_as_expected", "by_target", "by_language", "checks")  # fmt: skip
+    detail = {k: s[k] for k in keys}
+    if not s["passed"]:
+        return bad("injection suite failed: " + ", ".join(k for k, v in s["checks"].items() if not v), detail)
+    fps = f"{s['false_positives']}/{s['controls']}"
+    return ok(detail, f"{s['attacks']} attacks, 0 changed facts; {fps} false positives")
+
+
 def step_evidence(name: str) -> Callable[[Ctx], StepResult]:
     def run(ctx: Ctx) -> StepResult:
         path = ctx.opts.evidence.get(name)
@@ -914,6 +937,7 @@ STEP_FUNCS: dict[str, Callable[[Ctx], StepResult]] = {
     "pair_gate": step_pair_gate,
     "determinism": step_determinism,
     "throughput": step_throughput,
+    "injection": step_injection,
     "n12": step_evidence("n12"),
     "public_e2e": step_evidence("public_e2e"),
     "goldens": step_evidence("goldens"),
