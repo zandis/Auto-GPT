@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -71,3 +73,165 @@ def test_links_and_paths_only_warn_unless_strict(fake_root: Path, monkeypatch: p
     assert doclint.main(["--strict"]) == 1
     (fake_root / "docs" / "A.md").write_text("no title\n")
     assert doclint.main([]) == 1
+
+
+# --- T-669, D-352: the hot documents as section files ---------------------------------------------------------------
+
+REPO = Path(__file__).resolve().parents[2]
+
+
+def test_the_four_hubs_have_section_folders_and_a_current_index() -> None:
+    for hub, folder in doclint.HUBS.items():
+        assert (REPO / folder).is_dir(), folder
+        secs, errs = doclint.sections(hub)
+        assert errs == [], errs
+        assert any(s.file for s in secs.values())
+        assert doclint.check_sections(hub) == [], hub
+
+
+def test_old_links_and_section_numbers_still_resolve() -> None:
+    """Links into the old single files (README, VALIDATION, the other documents) and "RUNBOOK §N" in code."""
+    for target in (
+        "RUNBOOK.md#1-install-a-new-site-about-one-day",
+        "RUNBOOK.md#9-proof-of-concept-with-docker",
+        "RUNBOOK.md#11-cloud-runs-owners-ok-first",
+        "RUNBOOK.md#12-identity-and-tls-d-192-d-193",
+        "DATA.md#2-mapping-a-site",
+        "DATA.md#6-open-and-public-data-in-the-tests",
+        "SECURITY.md#1-the-host",
+        "SECURITY.md#2-network",
+        "SECURITY.md#7-laws-a-site-must-check",
+    ):
+        file, anchor = target.split("#")
+        assert anchor in doclint.anchors(REPO / "docs" / file), target
+    runbook = doclint.sections("docs/RUNBOOK.md")[0]
+    for n, words in {
+        5: "backup",
+        8: "DGX Spark",
+        12: "Identity",
+        13: "parallel",
+        16: "rehearsal",
+        17: "platform",
+    }.items():
+        assert words.lower() in runbook[n].title.lower(), n
+    assert ("RUNBOOK §11 section: qualify a model pair (D-313)", "runbook/11-qualify.md") in runbook[11].parts
+
+
+def test_runbook_numbers_are_one_table() -> None:
+    table = doclint.numbers_table((REPO / "docs" / "RUNBOOK.md").read_text(encoding="utf-8"))
+    secs = doclint.sections("docs/RUNBOOK.md")[0]
+    assert set(table) == set(secs) and sorted(table) == list(range(1, max(table) + 1))
+    assert {n for n, s in secs.items() if not s.file} == {
+        n for n, (_, holder) in table.items() if holder != "on master"
+    }
+
+
+def _hub(root: Path, table: str = "") -> None:
+    (root / "docs" / "runbook").mkdir(parents=True, exist_ok=True)
+    (root / "docs" / "RUNBOOK.md").write_text(
+        f"# Runbook\n\nOpening.\n\n{doclint.BEGIN}\n\n{doclint.END}\n{table}", encoding="utf-8"
+    )
+
+
+@pytest.fixture
+def hub_root(fake_root: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.setattr(doclint, "HUBS", {"docs/RUNBOOK.md": "docs/runbook"})
+    return fake_root
+
+
+def test_the_index_is_generated_and_checked(hub_root: Path) -> None:
+    table = "\n## Section numbers\n\n| § | Title | Holder | Audience |\n| --- | --- | --- | --- |\n"
+    table += "| 1 | Install | on master | site |\n| 2 | Later | T-999 | site |\n"
+    _hub(hub_root, table)
+    rb = hub_root / "docs" / "runbook"
+    (rb / "01-install.md").write_text("# 1. Install a box\n\nText.\n\n## Before you start\n\nMore.\n")
+    (rb / "01-extra.md").write_text("# An extra page\n\nText.\n")
+    errs = doclint.check_sections("docs/RUNBOOK.md")
+    assert any("index: out of date" in e for e in errs)
+    assert doclint.write_index("docs/RUNBOOK.md") and not doclint.write_index("docs/RUNBOOK.md")
+    assert doclint.check_sections("docs/RUNBOOK.md") == []
+    text = (hub_root / "docs" / "RUNBOOK.md").read_text(encoding="utf-8")
+    assert "## 1. Install a box" in text and "runbook/01-install.md#before-you-start" in text
+    assert "[An extra page](runbook/01-extra.md)" in text
+    assert "## 2. Later (reserved for T-999)" in text
+    assert {"1-install-a-box", "2-later-reserved-for-t-999"} <= doclint.anchors(hub_root / "docs" / "RUNBOOK.md")
+    assert text.endswith(table)  # the hand-kept table is left alone
+    whole = doclint.whole("docs/RUNBOOK.md")
+    assert whole.startswith("# Runbook\n\nOpening.") and "\n## 1. Install a box\n" in whole
+    assert "\n### Before you start\n" in whole and "\n## An extra page\n" in whole
+
+
+def test_number_and_set_problems_fail(hub_root: Path) -> None:
+    table = (
+        "\n## Section numbers\n\n| § | Title | Holder | Audience |\n| --- | --- | --- | --- |\n| 1 | A | x | site |\n"
+    )
+    _hub(hub_root, table)
+    rb = hub_root / "docs" / "runbook"
+    (rb / "01-a.md").write_text("# 1. A\n")
+    (rb / "01-b.md").write_text("# 1. B\n")  # one number twice
+    (rb / "02-c.md").write_text("# 3. C\n")  # name and title disagree
+    (rb / "04-part.md").write_text("# a part of nothing\n")
+    (rb / "05-e.md").write_text("# 5. E\n")  # no row in the table
+    (rb / "notes.md").write_text("# Notes\n")  # not NN-<slug>.md
+    doclint.write_index("docs/RUNBOOK.md")
+    text = "\n".join(doclint.check_sections("docs/RUNBOOK.md"))
+    assert "§1 is written twice" in text
+    assert "the title says §3, the file name says §2" in text
+    assert "a part of §4, which has no section file" in text
+    assert "§5 has no row in the section-numbers table" in text
+    assert "docs/runbook/notes.md: set:" in text
+
+
+def test_a_missing_index_fails(hub_root: Path) -> None:
+    (hub_root / "docs" / "runbook").mkdir(parents=True)
+    (hub_root / "docs" / "RUNBOOK.md").write_text("# Runbook\n")
+    assert any(
+        "index: the generated-index marker lines are missing" in e for e in doclint.check_sections("docs/RUNBOOK.md")
+    )
+    with pytest.raises(SystemExit):
+        doclint.write_index("docs/RUNBOOK.md")
+
+
+def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False)
+
+
+def test_two_branches_each_adding_a_runbook_section_and_a_data_row_merge_cleanly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Acceptance of T-669: on a copy of the real RUNBOOK and DATA, two branches each write a reserved RUNBOOK section
+    (and regenerate the index) and add a row to a DATA table; git merges them with no conflict and the index is
+    still current."""
+    root = tmp_path / "repo"
+    for hub in ("docs/RUNBOOK.md", "docs/DATA.md"):
+        (root / hub).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(REPO / hub, root / hub)
+        shutil.copytree(REPO / doclint.HUBS[hub], root / doclint.HUBS[hub])
+    monkeypatch.setattr(doclint, "ROOT", root)
+    monkeypatch.setattr(doclint, "HUBS", {h: doclint.HUBS[h] for h in ("docs/RUNBOOK.md", "docs/DATA.md")})
+    reserved = [n for n, s in doclint.sections("docs/RUNBOOK.md")[0].items() if not s.file][:2]
+    assert len(reserved) == 2
+    for args in (["init", "-q", "-b", "main"], ["config", "user.email", "t@example.org"], ["config", "user.name", "t"],
+                 ["config", "commit.gpgsign", "false"], ["add", "-A"], ["commit", "-qm", "base"]):  # fmt: skip
+        assert _git(root, *args).returncode == 0
+    data = {"a": "docs/data/01-what-the-box-reads.md", "b": "docs/data/05-integration-scenarios.md"}
+    for (name, rel), number in zip(data.items(), reserved, strict=True):
+        assert _git(root, "checkout", "-q", "-b", name, "main").returncode == 0
+        (root / "docs" / "runbook" / f"{number:02d}-branch-{name}.md").write_text(
+            f"# {number}. Branch {name} page\n\nSteps.\n\n## Check {name}\n\nDone.\n", encoding="utf-8"
+        )
+        lines = (root / rel).read_text(encoding="utf-8").splitlines()
+        last = max(i for i, line in enumerate(lines) if line.startswith("| "))
+        lines.insert(last + 1, "| " + " | ".join([f"row {name}"] * lines[last].count(" | ")) + f" | {name} |")
+        (root / rel).write_text("\n".join(lines) + "\n", encoding="utf-8")
+        for hub in doclint.HUBS:
+            doclint.write_index(hub)
+        assert _git(root, "add", "-A").returncode == 0 and _git(root, "commit", "-qm", name).returncode == 0
+    merged = _git(root, "merge", "-q", "--no-edit", "a")
+    assert merged.returncode == 0, merged.stdout + merged.stderr
+    for hub in doclint.HUBS:
+        assert [e for e in doclint.check_sections(hub) if ": link: " not in e and ": path: " not in e] == [], hub
+    index = (root / "docs" / "RUNBOOK.md").read_text(encoding="utf-8")
+    assert f"## {reserved[0]}. Branch a page" in index and f"## {reserved[1]}. Branch b page" in index
+    assert "| row a |" in (root / data["a"]).read_text(encoding="utf-8")
+    assert "| row b |" in (root / data["b"]).read_text(encoding="utf-8")
