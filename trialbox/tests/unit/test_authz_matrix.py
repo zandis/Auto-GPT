@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import itertools
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -79,7 +80,7 @@ def old_edc_allowed(role: str, action: str, tasks: frozenset[str], is_pi: bool) 
     return "enter_data" in tasks
 
 
-OLD_USER = {
+OLD_USER: dict[str, Callable[[str], bool]] = {
     "can_request": lambda r: r in ("admin", "coordinator"),
     "can_view_phi": lambda r: r in ("coordinator", "investigator"),
     "can_reveal": lambda r: r in ("coordinator", "investigator"),
