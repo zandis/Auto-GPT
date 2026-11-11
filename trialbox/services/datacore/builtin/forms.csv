@@ -4,6 +4,8 @@ sl_date,tb_screening_log,text,Screening date,スクリーニング日,篩選日�
 sl_how,tb_screening_log,radio,How the patient was found,候補者の見つけ方,病人來源,"1, Hospital data search | 2, Referral | 3, Clinic | 4, Other","1, 院内データ検索 | 2, 紹介 | 3, 外来 | 4, その他","1, 院內資料搜尋 | 2, 轉介 | 3, 門診 | 4, 其他",,,,,
 sl_eligible,tb_screening_log,radio,Eligible,適格性,是否符合資格,"1, Eligible | 0, Not eligible | 2, Not known yet","1, 適格 | 0, 不適格 | 2, 未確定","1, 符合 | 0, 不符合 | 2, 尚未確定",,,,,y
 sl_reason,tb_screening_log,text,Reason not eligible,不適格の理由,不符合的原因,,,,,,,[sl_eligible] = '0',y
+sl_criterion,tb_screening_log,text,Criterion not met (its id),満たさなかった基準(ID),未符合的條件(編號),,,,,,,[sl_eligible] = '0',
+sl_crit_version,tb_screening_log,text,Criteria version,基準の版,條件版本,,,,,,,[sl_eligible] = '0',
 sl_approached,tb_screening_log,radio,Told about the study,研究について説明した,已向病人說明研究,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,[sl_eligible] = '1',
 sl_note,tb_screening_log,notes,Note,メモ,備註,,,,,,,,
 ic_date,tb_consent,text,Date of consent,同意取得日,簽署同意日期,,,,date_ymd,2000-01-01,,,y

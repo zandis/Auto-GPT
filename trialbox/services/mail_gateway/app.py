@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Response
-from tb_common.audit import AuditLog
+from tb_common.audit_writer import open_audit
 from tb_common.config import environment_name, get_config
 from tb_common.http import make_app
 from tb_common.objstore import from_config
@@ -41,7 +41,7 @@ def gateway() -> Gateway:
             cfg=cfg,
             store=from_config(),
             db=MailDB(),  # schema "mail" of the trial database (TB_DB_URL, D-126)
-            audit=AuditLog(env.audit_path, env.tz),
+            audit=open_audit(env.audit_path, env.tz),
             transport=smtp_transport(env.smtp_host, env.smtp_port, env.smtp_user, env.smtp_pass, env.smtp_starttls),
             jobs=http_job_sink(env.orchestrator_url),
             secrets_dir=Path(env.secrets_dir),
