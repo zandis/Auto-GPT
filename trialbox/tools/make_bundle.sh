@@ -3,18 +3,24 @@
 # (existing site) accept. Images are exported with `docker save`; models, rulesets and the installer ride along; the
 # manifest is Ed25519-signed with the vendor key (tools/sign_bundle.py, D-77). Nothing in it is site-specific.
 #
-#   tools/make_bundle.sh --key keys/vendor_ed25519.key --id 2026.11-1 --out dist/trialbox-2026.11-1.tar \
-#       [--models deploy/models] [--rulesets dist/rulesets] [--refdata dist/trialbox-refdata-<date>.tar ...]
-#       [--image trialbox-py:1.0.0 --image trialbox-jvm:1.0.0 ...]
+#   tools/make_bundle.sh --key keys/vendor_ed25519.key --id 2026.11-1 --release-seq 3 --out dist/trialbox-2026.11-1.tar \
+#       --gates build/supply-chain/gates.json [--sbom-dir dist/sbom] [--models deploy/models] [--rulesets dist/rulesets] \
+#       [--refdata dist/trialbox-refdata-<date>.tar ...] [--image trialbox-py:1.0.0 --image trialbox-jvm:1.0.0 ...]
 #
-# Default images: trialbox-py:1.0.0, trialbox-jvm:1.0.0 and the third-party images compose pulls (so the site needs no
-# registry access). Add --no-third-party on a site that mirrors them itself. --refdata adds a reference data pack
-# (tools/refdata_fetch.py build; payload kind refdata, D-140), which install.sh loads once the box runs.
-# --gates build/supply-chain/gates.json (D-186, `make release-bundle`): refuse any image whose local image id is not
-# in that passing release-gate record (Trivy, SBOM and licence gates of these exact images, at most 7 days old).
+# The release gates are not optional (T-110b, D-340; CR-046): --gates names the passing record of `make release-gates`
+# (D-186), and the bundle is refused unless every image it carries is a passing image of that record (Trivy, SBOM and
+# licence gates of these exact images, at most 7 days old, no finding left in report mode). `make release-bundle` runs
+# the gates first. tools/release.py then writes release.json (version, commit, every image by digest with its SBOM,
+# every file with its sha256) and the release's images.lock; the SBOMs, NOTICE and CHANGELOG.md ride inside the signed
+# bundle, and `tools/release.py check` re-reads the signed bundle before it is handed over.
+# Default images: every image the box's compose file runs (profiles stub and gpu): ours (trialbox-py, trialbox-jvm,
+# trialbox-postgres) and the third-party ones (so the site needs no registry access). Never the test mail servers of
+# docker-compose.test.yml (OPS-017). --no-third-party keeps ours only, for a site that mirrors the others itself.
+# --refdata adds a reference data pack (tools/refdata_fetch.py build; payload kind refdata, D-140), which install.sh
+# loads once the box runs.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-KEY=""; ID=""; OUT=""; MODELS=""; RULESETS=""; THIRD=1; GATES=""
+KEY=""; ID=""; OUT=""; MODELS=""; RULESETS=""; THIRD=1; GATES=""; SEQ=""; SBOM_DIR=""
 IMAGES=(); REFDATA=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -27,12 +33,21 @@ while [ $# -gt 0 ]; do
     --image) IMAGES+=("$2"); shift ;;
     --no-third-party) THIRD=0 ;;
     --gates) GATES="$2"; shift ;;
-    -h|--help) sed -n 2,14p "$0"; exit 0 ;;
+    --sbom-dir) SBOM_DIR="$2"; shift ;;
+    --release-seq) SEQ="$2"; shift ;;
+    -h|--help) sed -n 2,22p "$0"; exit 0 ;;
     *) echo "make_bundle: unknown option $1" >&2; exit 2 ;;
   esac
   shift
 done
-[ -n "$KEY" ] && [ -n "$ID" ] && [ -n "$OUT" ] || { echo "make_bundle: --key, --id and --out are required" >&2; exit 2; }
+[ -n "$KEY" ] && [ -n "$ID" ] && [ -n "$OUT" ] && [ -n "$SEQ" ] || {
+  echo "make_bundle: --key, --id, --release-seq and --out are required" >&2; exit 2; }
+# no bundle without its checks (T-110b, CR-046): there is no way to build one past the release gates
+[ -n "$GATES" ] || { echo "make_bundle: --gates is required: a bundle is built only from images that passed the release gates (make release-bundle)" >&2; exit 2; }
+[ -f "$GATES" ] || { echo "make_bundle: no such gate record $GATES" >&2; exit 2; }
+GATES="$(cd "$(dirname "$GATES")" && pwd)/$(basename "$GATES")"
+SBOM_DIR="${SBOM_DIR:-$ROOT/dist/sbom}"
+[ -d "$SBOM_DIR" ] || { echo "make_bundle: no SBOM folder $SBOM_DIR (make release-gates writes it)" >&2; exit 2; }
 [ -f "$KEY" ] || { echo "make_bundle: no such key $KEY" >&2; exit 2; }
 command -v docker >/dev/null || { echo "make_bundle: docker is needed to export images" >&2; exit 2; }
 PY="${PY:-$ROOT/.venv/bin/python}"; [ -x "$PY" ] || PY=python3
@@ -40,35 +55,30 @@ PY="${PY:-$ROOT/.venv/bin/python}"; [ -x "$PY" ] || PY=python3
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/tb-bundle.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT INT TERM
 if [ ${#IMAGES[@]} -eq 0 ]; then
-  IMAGES=("${TB_IMAGE:-trialbox-py:1.0.0}" "${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}")
+  # every image the box's compose file runs, ours included, from the rendered config (profiles stub and gpu; not the
+  # test file: no test mail server in a hospital bundle, OPS-017). An empty .env of its own: on a vendor machine
+  # without deploy/.env compose renders nothing, and the bundle silently had no third-party image (D-176)
+  mkdir -p "$STAGE/cfg" && : > "$STAGE/cfg/.env"
+  while IFS= read -r img; do
+    case "$img" in trialbox-*) IMAGES+=("$img") ;; *) [ "$THIRD" = 1 ] && IMAGES+=("$img") ;; esac
+  done < <(docker compose --project-directory "$STAGE/cfg" -f "$ROOT/deploy/docker-compose.yml" \
+             --profile stub --profile gpu config --images 2>/dev/null | sort -u)
+  case " ${IMAGES[*]-} " in *" trialbox-py:"*) ;; *)
+    echo "make_bundle: compose listed no trialbox-py image (docker compose config)" >&2; exit 2 ;; esac
   if [ "$THIRD" = 1 ]; then
-    # every image compose would pull (postgres, hapi, greenmail, mailhog, vllm...), from the rendered config. An empty
-    # .env of its own: on a vendor machine without deploy/.env compose renders nothing, and the bundle silently had
-    # no third-party image (found by the box rehearsal, D-176)
-    mkdir -p "$STAGE/cfg" && : > "$STAGE/cfg/.env"
-    n=${#IMAGES[@]}
-    while IFS= read -r img; do
-      case "$img" in trialbox-*) ;; *) IMAGES+=("$img") ;; esac
-    done < <(docker compose --project-directory "$STAGE/cfg" -f "$ROOT/deploy/docker-compose.yml" \
-               -f "$ROOT/deploy/docker-compose.test.yml" --profile stub --profile test --profile gpu config --images 2>/dev/null | sort -u)
-    [ ${#IMAGES[@]} -gt "$n" ] || { echo "make_bundle: compose listed no third-party image (docker compose config)" >&2; exit 2; }
+    n3=0; for img in "${IMAGES[@]}"; do case "$img" in trialbox-*) ;; *) n3=$((n3 + 1)) ;; esac; done
+    [ "$n3" -gt 0 ] || { echo "make_bundle: compose listed no third-party image (docker compose config)" >&2; exit 2; }
   fi
 fi
 
 for img in "${IMAGES[@]}"; do
   docker image inspect "$img" >/dev/null 2>&1 || { echo "    pulling $img"; docker pull -q "$img" >/dev/null; }
 done
-if [ -n "$GATES" ]; then
-  [ -f "$GATES" ] || { echo "make_bundle: no such gate record $GATES" >&2; exit 2; }
-  GATES="$(cd "$(dirname "$GATES")" && pwd)/$(basename "$GATES")"
-  echo "==> release gates ($GATES)"
-  (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.supply_chain bundle-check --gates "$GATES" \
-    "${IMAGES[@]}") || { echo "make_bundle: images are not covered by a passing gate record" >&2; exit 1; }
-else
-  echo "make_bundle: WARNING no --gates record: these images were not checked by the release gates (D-186)" >&2
-fi
+echo "==> release gates ($GATES)"
+(cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.supply_chain bundle-check --gates "$GATES" \
+  "${IMAGES[@]}") || { echo "make_bundle: images are not covered by a passing gate record" >&2; exit 1; }
 
-ITEMS=(); PINS=()
+ITEMS=(); PINS=(); SAVED=()
 CONFIG_ID='import json, sys
 print(json.load(sys.stdin)[0]["Config"].rsplit("/", 1)[-1].removesuffix(".json"))'
 PINS_JSON='import json, re, sys
@@ -96,6 +106,7 @@ for img in "${IMAGES[@]}"; do
   echo "    $img"
   docker save "$ref" -o "$f"
   ITEMS+=("image:$f=$(basename "$f")")
+  SAVED+=(--image "$img=$f")
   [ "$ref" = "$img" ] || PINS+=("$img=$(tar -xOf "$f" manifest.json | "$PY" -c "$CONFIG_ID")")
 done
 if [ ${#PINS[@]} -gt 0 ]; then
@@ -119,13 +130,30 @@ for f in ${REFDATA[@]+"${REFDATA[@]}"}; do
   [ -f "$f" ] || { echo "make_bundle: no such reference data pack $f" >&2; exit 2; }
   echo "==> reference data $(basename "$f")"; ITEMS+=("refdata:$f=$(basename "$f")")
 done
-echo "==> installer, runbook, settings example"
-for f in deploy/install.sh deploy/check_host.sh deploy/settings.example.yaml .env.example docs/RUNBOOK.md; do
+echo "==> installer, runbook, settings example, notices, changelog"
+for f in deploy/install.sh deploy/check_host.sh deploy/settings.example.yaml .env.example NOTICE CHANGELOG.md; do
   ITEMS+=("other:$ROOT/$f=$(basename "$f")")
 done
+# the whole runbook as one RUNBOOK.md: once T-669 makes docs/RUNBOOK.md an index of section files, `doclint --whole
+# RUNBOOK` joins them (its output is used only when it is a Markdown document: an older doclint ignores --whole and
+# prints its summary); until then docs/RUNBOOK.md is itself the whole text
+if (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.doclint --whole RUNBOOK) \
+     > "$STAGE/RUNBOOK.md" 2>/dev/null && [ "$(head -c 2 "$STAGE/RUNBOOK.md")" = "# " ]; then
+  ITEMS+=("other:$STAGE/RUNBOOK.md=RUNBOOK.md")
+else
+  ITEMS+=("other:$ROOT/docs/RUNBOOK.md=RUNBOOK.md")
+fi
+echo "==> release record (tools/release.py: gates by archive digest, SBOMs, release.json, images.lock)"
+(cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.release build --id "$ID" \
+  --release-seq "$SEQ" --gates "$GATES" --sbom-dir "$SBOM_DIR" --out-dir "$STAGE/meta" "${SAVED[@]}" "${ITEMS[@]}") \
+  || { echo "make_bundle: no release record: the bundle is not built" >&2; exit 1; }
+while IFS= read -r it; do [ -n "$it" ] && ITEMS+=("$it"); done < "$STAGE/meta/items.txt"
 mkdir -p "$(dirname "$OUT")"
-echo "==> signing $OUT (bundle id $ID)"
+echo "==> signing $OUT (bundle id $ID, release_seq $SEQ)"
 PYTHONPATH="$ROOT/libs:$ROOT" "$PY" "$ROOT/tools/sign_bundle.py" build --key "$KEY" --id "$ID" --out "$OUT" \
+  --release-seq "$SEQ" --release "$STAGE/meta/release.json" --images-lock "$STAGE/meta/images.lock" \
   --description "TrialBox release $ID: images, models, rulesets, installer" "${ITEMS[@]}"
+(cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.release check "$OUT") \
+  || { rm -f "$OUT"; echo "make_bundle: the signed bundle does not match its release record; removed" >&2; exit 1; }
 sha256sum "$OUT" | tee "$OUT.sha256"
 echo "done: hand over $OUT and $OUT.sha256 on a USB stick; the site runs: deploy/install.sh $(basename "$OUT")"
