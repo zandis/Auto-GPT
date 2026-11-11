@@ -104,6 +104,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/studies/{rs}/edc/export.odm.xml` | - | U | - | U | - | - | - |
 | GET | `/studies/{rs}/edc/map` | - | U | - | U | - | - | - |
 | GET | `/studies/{rs}/edc/review/{record}` | - | n | - | n | - | - | - |
+| GET | `/studies/{rs}/edc/sign/oidc/{ticket}` | - | Y | - | Y | - | - | - |
 | GET | `/studies/{rs}/edc/trail/{record}` | - | n | n | n | - | - | - |
 | GET | `/studies/{rs}/enrolment` | - | Y | Y | Y | - | - | - |
 | GET | `/studies/{rs}/enrolment.{fmt}` | - | U | U | U | - | - | - |

@@ -79,7 +79,7 @@ def why(lang: str, p: dict[str, str], labels: dict[str, str]) -> str:
     """One refusal reason in the reader's language."""
     key = f"dc.why.{p.get('code', '')}"
     text = translate(lang, key, label=labels.get(p.get("field", ""), p.get("field", "")), min=p.get("min", ""),
-                     max=p.get("max", ""), owner=p.get("owner", ""))  # fmt: skip
+                     max=p.get("max", ""), owner=p.get("owner", ""), places=p.get("places", ""))  # fmt: skip
     return translate(lang, "dc.why.other") if text == key else text
 
 

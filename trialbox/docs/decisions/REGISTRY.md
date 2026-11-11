@@ -197,3 +197,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-373 | merged | T-214 | the GB10 profile as data (unmeasured), memory limits on the Spark, the dated driver hold, the two-device link (mutual TLS relay, the gateway no listener) (file) |
 | D-376 | merged | T-676b | the TWPAS route is SNOMED CT `26643006` (oral), the code the IG's required value set lists, with no SNOMED CT description; amends D-342 item 4 (file) |
 | D-377 | merged | T-108b | systemd units: the egress table saved by `apply` and restored closed before Docker at boot, the stack unit after it, the egress refresh and watchdog timers (file) |
+| D-391 | merged | T-205 | second factor at signing for a directory (OIDC) account: a fresh sign-in at the provider (`prompt=login`, `max_age=0`, `auth_time`, a second factor in `amr`, same subject), method `oidc+mfa`; a `reauth-` assertion counts only with the console's own key (SEC-16); neutral signature meaning text pinned in three languages (file) |

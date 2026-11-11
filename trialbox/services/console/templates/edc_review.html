@@ -49,15 +49,17 @@
 <p>{{ t('edc.sign.count', n=unsigned|length) }}</p>
 <blockquote data-testid="edc-meaning">{{ t('edc.sign.meaning') }}</blockquote>
 <p>{{ t('edc.sign.as', name=printed_name, role=t('role.' + user.role)) }}</p>
-{% if sso %}<p class="warn" data-testid="edc-sso">{{ t('edc.err.edc.sign_sso') }}</p>{% else %}
+{% if sso and not oidc_sign %}<p class="warn" data-testid="edc-sso">{{ t('edc.err.edc.sign_sso') }}</p>{% else %}
 <form method="post" action="/studies/{{ rs }}/edc/sign" class="markform" autocomplete="off">
 <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="record" value="{{ record }}"><input type="hidden" name="visit" value="{{ visit }}">
 <input type="hidden" name="seen" value="{% for d in unsigned %}{{ d.id }}:{{ d.sha }}{% if not loop.last %},{% endif %}{% endfor %}">
 <label class="nowrap"><input type="checkbox" name="meaning_ack" value="1" required data-testid="edc-meaning-ack"> {{ t('edc.sign.ack') }}</label>
+{# T-205 (D-391): a directory account types its password and second factor at the hospital's sign-in page again #}
+{% if oidc_sign %}<p class="hint" data-testid="edc-sign-oidc">{{ t('edc.sign.oidc') }}</p>{% else %}
 <label for="pw">{{ t('edc.sign.password') }}</label><input id="pw" name="password" type="password" required autocomplete="current-password" data-testid="edc-password">
 {# D-279 (SEC-1 P-2): with TOTP on, the second signature component #}
-{% if settings.identity.totp_required %}<label for="otp">{{ t('edc.sign.otp') }}</label><input id="otp" name="otp" inputmode="numeric" pattern="[0-9 ]*" maxlength="12" required autocomplete="one-time-code" data-testid="edc-otp">{% endif %}
-<button type="submit" data-testid="edc-sign-go">{{ t('edc.sign.go') }}</button></form>{% endif %}
+{% if settings.identity.totp_required %}<label for="otp">{{ t('edc.sign.otp') }}</label><input id="otp" name="otp" inputmode="numeric" pattern="[0-9 ]*" maxlength="12" required autocomplete="one-time-code" data-testid="edc-otp">{% endif %}{% endif %}
+<button type="submit" data-testid="edc-sign-go">{{ t('edc.sign.go_oidc') if oidc_sign else t('edc.sign.go') }}</button></form>{% endif %}
 </section>{% endif %}
 
 {% if on and may.send and st.target %}
