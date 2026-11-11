@@ -685,9 +685,13 @@ class ComposeOps:
                 taken.append(sub)
         for vol in HOST_VOLUMES:
             src = Path(self.env.get("TB_DOCKER_VOLUMES") or "/var/lib/docker/volumes") / f"trialbox_{vol}" / "_data"
-            if src.is_dir():
+            try:
+                if not src.is_dir():
+                    continue
                 shutil.copytree(src, dest / "volumes" / vol, symlinks=True, dirs_exist_ok=True)
                 taken.append(f"volume {vol}")
+            except OSError:  # not readable here (not root): the backup goes on without it, and says so
+                taken.append(f"volume {vol}: not readable")
         return taken
 
     def make_backup(self, cfg: Config) -> Callable[[list[Path]], list[Path]]:

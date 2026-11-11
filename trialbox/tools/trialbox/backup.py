@@ -870,9 +870,8 @@ def _audit(dirs: Mapping[str, Path], env: Mapping[str, str], event: str, sha: st
         return "not written: no audit directory in the layout (or TB_AUDIT_DIR)"
     from tb_common.audit import AuditLog
 
-    AuditLog(Path(where), tz=env.get("TB_TZ") or "Asia/Taipei").append(
-        event, actor=env.get("TB_RESTORE_ACTOR") or "trialbox restore", input_sha=sha, detail=detail
-    )
+    log = AuditLog(Path(where), tz=env["TB_TZ"]) if env.get("TB_TZ") else AuditLog(Path(where))
+    log.append(event, actor=env.get("TB_RESTORE_ACTOR") or "trialbox restore", input_sha=sha, detail=detail)
     return str(where)
 
 
