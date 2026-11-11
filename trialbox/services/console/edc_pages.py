@@ -8,7 +8,9 @@
 * ``/studies/{rs}/edc/review/{record}``: the coordinator's review. Per value: the value and its citation; confirm,
   change with a reason, or reject. A value without a citation has no confirm button and is refused anyway. Then the
   electronic signature: the person types their password again, sees the meaning of the signature and their printed
-  name, and signs every confirmed value of that subject and visit. Then send. A signed value is locked (D-281): to
+  name, and signs every confirmed value of that subject and visit. A directory (OIDC) account has no console password:
+  it signs by typing its credentials and second factor at the hospital's identity provider again (T-205, D-391).
+  Then send. A signed value is locked (D-281): to
   change or withdraw it the person gives a reason and types their password (and code) again.
 * ``/studies/{rs}/edc/trail/{record}``: every draft, decision, signature and send of one subject.
 
@@ -25,12 +27,15 @@ from __future__ import annotations
 
 import re
 import secrets
+import time
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from datacore.export import BASE_EVENT
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
+from httpx import HTTPError
 from pydantic import BaseModel, Field
 from tb_common.authz import edc_allowed
 from tb_common.service_auth import actor_header
@@ -40,6 +45,7 @@ from console.auth import Session, source_of
 from console.backend import Problem, Unavailable
 from console.home import Helpers
 from console.i18n import translate
+from console.oidc import OidcError
 from console.studies import known_study
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
@@ -50,6 +56,67 @@ SOURCES = ("none", "patient", "observation", "condition", "medication", "note")
 WHAT = {"none": ("",), "patient": ("birth_date", "sex"), "observation": ("value", "date"),
         "condition": ("presence", "date"), "medication": ("presence", "term", "start"), "note": ("value",)}  # fmt: skip
 ACK_KINDS = ("sponsor_letter", "iit_pi_sponsor")
+OIDC_METHOD = "oidc+mfa"  # T-205: the signer typed their credentials and a second factor at the provider again
+SIGN_TTL = 720.0  # seconds between the sign button and the return from the provider (its ten minutes, and two)
+
+
+@dataclass(frozen=True)
+class PendingSign:
+    """A directory account's signature while the person is at the identity provider (T-205): the session that
+    asked, the study, and what the page showed when they pressed the button."""
+
+    token_sha: str
+    rid: str
+    body: ApiSign
+    created: float
+
+
+_CHOICE_WORDS = frozenset({"male", "female", "yes", "no", "true", "false", "unknown"})
+
+
+def _key(lang: str, key: str) -> str:
+    """The catalogue's text for ``key``, or "" when no catalogue has it."""
+    text = translate(lang, key)
+    return "" if text == key else text
+
+
+def item_words(d: Mapping[str, Any], f: Mapping[str, Any] | None, m: Mapping[str, Any] | None,
+               lang: str) -> dict[str, Any]:  # fmt: skip
+    """D-398 (TB-DR-02a UX-010): what the review page shows for one draft in words, not codes.
+
+    ``label``: the item's name in the reader's language: the dictionary's own label in that language, else the
+    standard name of its CDASH variable (``edc.var.<cdash>[.<test>]``), else the dictionary's label as written
+    (``given`` is then true, so the page marks it as the source's word), else the variable name.
+    ``options``: code -> word in the reader's language (the dictionary's choice label in that language, else a common
+    word such as Male or Yes from the catalogue, else the choice label as written).
+    ``source``: one readable line for the citation ("Test or measurement 2026-11-01: 72.5 kg"); the table, row and
+    snapshot stay on the page under "Record reference"."""
+    f = f or {}
+    m = m or {}
+    labels = f.get("labels") or {}
+    cdash, test = str(d.get("cdash") or ""), str(d.get("test") or "")
+    std = (_key(lang, f"edc.var.{cdash}.{test}") if test else "") or (_key(lang, f"edc.var.{cdash}") if cdash else "")
+    own = str(f.get("label") or "") if lang == "en" else str(labels.get(lang) or "")
+    label, given = own or std, False
+    if not label:
+        label, given = str(f.get("label") or "") or str(d.get("item") or ""), lang != "en"
+    tr = (f.get("option_labels") or {}).get(lang) or {}
+    options: dict[str, str] = {}
+    for code, text in (f.get("options") or {}).items():
+        word = str(tr.get(code) or "")
+        if not word and lang != "en" and str(text).strip().lower() in _CHOICE_WORDS:
+            word = translate(lang, f"edc.word.{str(text).strip().lower()}")
+        options[str(code)] = word or str(text)
+    c = d.get("final_citation") or d.get("citation") or {}
+    source = ""
+    if c and c.get("kind") != "manual":
+        what = _key(lang, f"edc.src.{c.get('table')}")
+        if what:
+            source = what + (f" {c['day']}" if c.get("day") else "")
+            unit = str(m.get("unit") or "")
+            if c.get("table") == "observation" and m.get("what", "value") == "value" and d.get("value") and unit:
+                source += f": {d['value']} {unit}"
+    return {"label": label, "given": given, "options": options, "source": source}
 
 
 class ApiSwitch(BaseModel):
@@ -261,6 +328,11 @@ def register(app: FastAPI, h: Helpers) -> None:
                   detail={"record": record.upper()[:64], "code": key.removeprefix("edc.err.")})  # fmt: skip
         return h.problem(status, key)
 
+    def oidc_signer(sess: Session) -> bool:
+        """Signs at the identity provider (T-205): an OIDC account on a console with OIDC on."""
+        ident = h.identity
+        return ident is not None and ident.oidc_enabled and h.users.is_oidc(sess.user.username)
+
     def reauth(sess: Session, rid: str, password: str, otp: str, source: str, record: str) -> str:
         """The person types their password again and, with TOTP on, a fresh code (two components, 21 CFR 11.200(a);
         D-279), each failure counting toward the lockout of that address. Answers how (``password`` or
@@ -296,25 +368,40 @@ def register(app: FastAPI, h: Helpers) -> None:
             session = "reauth-" + secrets.token_hex(8)
         return dict(act(sess, "POST", f"/studies/{rid}/edc/drafts/{draft_id}/decide", payload, session=session))
 
-    def do_sign(sess: Session, path: str, rs: str, body: ApiSign, source: str = "") -> dict[str, Any]:
+    def sign_checks(sess: Session, rid: str, body: ApiSign) -> Any:
+        """What a signature needs besides the re-authentication: a visit name, the meaning acknowledged, the
+        signer's own entry on the delegation log (its name is the printed name, never a login name; E-10) and what
+        the page showed. Each refusal is audited (D-281, SEC-7). Answers the log entry."""
+        rec = body.record
+        if not _VISIT.match(body.visit):
+            raise refuse(sess, rid, 400, "edc.err.edc.visit", rec)
+        if not body.meaning_ack:
+            raise refuse(sess, rid, 400, "edc.err.edc.meaning_ack", rec)
+        _, _, entry = stand(sess, rid)
+        if entry is None or not entry.name:
+            raise refuse(sess, rid, 409, "edc.err.edc.no_log_entry", rec)
+        if not body.seen:
+            raise refuse(sess, rid, 400, "edc.err.edc.sign_changed", rec)
+        return entry
+
+    def do_sign(sess: Session, path: str, rs: str, body: ApiSign, source: str = "", proved: str = "") -> dict[str, Any]:
         """The electronic signature: the signer types their password again and, with TOTP on, a fresh code from
         their authenticator (two components, 21 CFR 11.200(a); D-279), each failure counting toward the lockout of
-        that address, and acknowledges the meaning; the printed name is the one on the delegation log. Every
+        that address, and acknowledges the meaning; the printed name is the one on the delegation log. ``proved``
+        (T-205): a directory account re-authenticated at the identity provider just before (``oidc+mfa``). Every
         refusal is audited (D-281, SEC-7); the signature records how the signer re-authenticated."""
         rid = study_or_404(sess, rs, "sign", path)
         rec = body.record
         if not _VISIT.match(body.visit):
             raise refuse(sess, rid, 400, "edc.err.edc.visit", rec)
-        if h.users.is_sso(sess.user.username):
+        if not proved and oidc_signer(sess):  # its password is the provider's: the review page sends it there
+            raise refuse(sess, rid, 409, "edc.err.edc.sign_oidc_page", rec)
+        if not proved and h.users.is_sso(sess.user.username):
             raise refuse(sess, rid, 409, "edc.err.edc.sign_sso", rec)
         if not body.meaning_ack:
             raise refuse(sess, rid, 400, "edc.err.edc.meaning_ack", rec)
-        method = reauth(sess, rid, body.password, body.otp, source, rec)
-        _, _, entry = stand(sess, rid)
-        if entry is None or not entry.name:  # the printed name is the delegation log's, never a login name (E-10)
-            raise refuse(sess, rid, 409, "edc.err.edc.no_log_entry", rec)
-        if not body.seen:
-            raise refuse(sess, rid, 400, "edc.err.edc.sign_changed", rec)
+        method = proved or reauth(sess, rid, body.password, body.otp, source, rec)
+        entry = sign_checks(sess, rid, body)
         out = act(sess, "POST", f"/studies/{rid}/edc/sign", {
             "record": body.record.strip().upper(), "visit": body.visit, "printed_name": entry.name,
             "meaning": "transcribed", "lang": sess.lang, "meaning_text": translate(sess.lang, "edc.sign.meaning"),
@@ -508,9 +595,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         here = visit or BASE_EVENT  # the sign call signs this one visit: show and count only its values (E-11)
         unsigned = [d for d in drafts if d["fate"] in ("confirmed", "edited") and d["signature_id"] is None
                     and d["visit"] == here]  # fmt: skip
+        lang = sess.lang if sess.lang in ("ja", "zh-TW", "en") else "en"
+        maps = {str(m.get("item")): m for m in (st.get("map") or [])}
+        words = {d["id"]: item_words(d, fields.get(d["item"]), maps.get(d["item"]), lang) for d in drafts}
         resp = h.page(request, "edc_review.html", sess, rs=rid, record=rec, visit=visit, visits=visits, drafts=drafts,
-                      fields=fields, st=st, unsigned=unsigned, printed_name=name, err=err, may=may(sess, rid),
-                      sso=h.users.is_sso(sess.user.username))  # fmt: skip
+                      fields=fields, words=words, st=st, unsigned=unsigned, printed_name=name, err=err,
+                      may=may(sess, rid), sso=h.users.is_sso(sess.user.username),
+                      oidc_sign=oidc_signer(sess))  # fmt: skip
         resp.status_code = status
         return resp
 
@@ -547,21 +638,64 @@ def register(app: FastAPI, h: Helpers) -> None:
         form = await form_of(request, sess)
         rid = study_or_404(sess, rs, "sign", request.url.path)
         rec, visit = str(form.get("record") or ""), str(form.get("visit") or "")
+        body = ApiSign(
+            record=rec[:64] or "x",
+            visit=visit[:100],
+            password=str(form.get("password") or "")[:200] or " ",
+            otp=str(form.get("otp") or "")[:12],
+            meaning_ack=str(form.get("meaning_ack") or "") == "1",
+            seen=parse_seen(str(form.get("seen") or "")[:200000]),
+        )
+        if oidc_signer(sess):  # T-205: to the identity provider for a fresh sign-in, then back to sign_oidc
+            return start_oidc_sign(request, sess, rid, body)
         try:
-            do_sign(
-                sess,
-                request.url.path,
-                rid,
-                ApiSign(
-                    record=rec[:64] or "x",
-                    visit=visit[:100],
-                    password=str(form.get("password") or "")[:200] or " ",
-                    otp=str(form.get("otp") or "")[:12],
-                    meaning_ack=str(form.get("meaning_ack") or "") == "1",
-                    seen=parse_seen(str(form.get("seen") or "")[:200000]),
-                ),
-                source_of(request.client.host if request.client else None),
-            )
+            do_sign(sess, request.url.path, rid, body, source_of(request.client.host if request.client else None))
+        except (Problem, Unavailable) as exc:
+            return review_page(request, sess, rid, rec, visit, err_of(exc), 409)
+        return RedirectResponse(f"/studies/{rid}/edc/review/{rec.upper()}?visit={visit}&signed=1", status_code=303)
+
+    # ------------------------------------------------------------------ signing with a directory account (T-205)
+    pending: dict[str, PendingSign] = {}
+
+    def start_oidc_sign(request: Request, sess: Session, rid: str, body: ApiSign) -> Response:
+        """Check what can be checked now, keep what the page showed, and send the person to the provider with
+        ``prompt=login`` and ``max_age=0``; the provider's answer comes back to :func:`edc_sign_oidc`."""
+        sign_checks(sess, rid, body)
+        now = time.time()
+        for key in [key for key, p in pending.items() if now - p.created > SIGN_TTL]:
+            del pending[key]
+        if len(pending) > 1000:  # bounded: one console, a handful of signers
+            pending.clear()
+        ticket = secrets.token_urlsafe(24)
+        pending[ticket] = PendingSign(sess.token_sha, rid, body, now)
+        assert h.identity is not None
+        try:
+            resp: Response = h.identity.start_reauth(sess.user.username, f"/studies/{rid}/edc/sign/oidc/{ticket}")
+            return resp
+        except (OidcError, OSError, ValueError, HTTPError) as exc:
+            pending.pop(ticket, None)
+            why = str(exc)[:80] if isinstance(exc, OidcError) else type(exc).__name__
+            au.append("console.edc_reauth_failed", ruleset=rid, actor=h.actor(sess),
+                      detail={"record": body.record.upper()[:64], "factor": "oidc", "reason": why})  # fmt: skip
+            raise h.problem(502, "edc.err.edc.idp_unreachable") from exc
+
+    @app.get("/studies/{rs}/edc/sign/oidc/{ticket}")
+    def edc_sign_oidc(request: Request, rs: str, ticket: str, reauth: str = "") -> Response:
+        """Back from the identity provider: the same session, the same person, a fresh sign-in with a second factor
+        (``Identity.take_reauth``, single use, two minutes), then the signature of what the page showed."""
+        sess = h.need(request)
+        rid = study_or_404(sess, rs, "sign", request.url.path)
+        p = pending.pop(ticket[:64], None)
+        if p is None or p.rid != rid or p.token_sha != sess.token_sha or time.time() - p.created > SIGN_TTL:
+            raise refuse(sess, rid, 409, "edc.err.edc.sign_oidc_expired")
+        rec, visit = p.body.record, p.body.visit
+        found = h.identity.take_reauth(reauth, sess.user.username) if h.identity is not None and reauth else None
+        if found is None:
+            au.append("console.edc_reauth_failed", ruleset=rid, actor=h.actor(sess),
+                      detail={"record": rec.upper()[:64], "factor": "oidc"})  # fmt: skip
+            raise h.problem(401, "edc.err.edc.reauth_oidc")
+        try:
+            do_sign(sess, request.url.path, rid, p.body, proved=OIDC_METHOD)
         except (Problem, Unavailable) as exc:
             return review_page(request, sess, rid, rec, visit, err_of(exc), 409)
         return RedirectResponse(f"/studies/{rid}/edc/review/{rec.upper()}?visit={visit}&signed=1", status_code=303)
