@@ -41,6 +41,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
+from tb_common.audit_writer import open_audit
 from tb_common.authz import admin_allowed
 from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
@@ -315,7 +316,7 @@ def _default_backend(settings: ConsoleSettings) -> tuple[Backend, AuditLog]:
     from console.backend import HttpBackend
 
     cfg = get_config()
-    audit = AuditLog(cfg.env.audit_path, cfg.env.tz)
+    audit = open_audit(cfg.env.audit_path, cfg.env.tz)
     return HttpBackend(cfg, from_config(), audit, gateway_url=settings.gateway_url, test_smtp=settings.test_smtp), audit
 
 

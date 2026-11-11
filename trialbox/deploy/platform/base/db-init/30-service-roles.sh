@@ -14,6 +14,7 @@
 #   empty one leaves the role without a password (it cannot sign in over TCP).
 # * Nobody but its owner connects to `hapi` (the FHIR store); only `trialbox` and the roles here connect to
 #   `trialbox_wf`.
+# * D-394 (T-211b): the audit journal (schema `audit`) and its roles, at the end; see tb_common/audit_writer.py.
 # The list is the one place that says which service reaches which schema; tests/unit/test_db_roles.py reads it.
 set -eu
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "${TB_WF_DB:-trialbox_wf}" \
@@ -23,7 +24,8 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "${TB_WF_DB:-trialb
   -v pw_orchestrator="${TB_DB_PW_ORCHESTRATOR:-}" \
   -v pw_mail_gateway="${TB_DB_PW_MAIL_GATEWAY:-}" \
   -v pw_gateway="${TB_DB_PW_GATEWAY:-}" \
-  -v pw_console="${TB_DB_PW_CONSOLE:-}" <<'SQL'
+  -v pw_console="${TB_DB_PW_CONSOLE:-}" \
+  -v pw_audit_writer="${TB_DB_PW_AUDIT_WRITER:-}" <<'SQL'
 ALTER ROLE trialbox NOCREATEDB;
 DO $roles$
 DECLARE
@@ -101,4 +103,81 @@ ALTER ROLE tb_orchestrator PASSWORD :'pw_orchestrator';
 ALTER ROLE tb_mail_gateway PASSWORD :'pw_mail_gateway';
 ALTER ROLE tb_gateway PASSWORD :'pw_gateway';
 ALTER ROLE tb_console PASSWORD :'pw_console';
+-- D-394 (T-211b, CR-042): one audit writer. The services may only call audit.append; the journal is append-only and
+-- belongs to audit_writer, which nobody signs in as and no service can become (trialbox, the host admin, is its one
+-- member); tb_audit_writer (the audit-writer service, which copies the journal into the hash chain) only reads it. Kept equal to tb_common.audit_writer.JOURNAL_SQL.
+-- BEGIN AUDIT WRITER (D-394)
+DO $aw$
+DECLARE
+  m record;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'audit_writer') THEN
+    CREATE ROLE audit_writer NOLOGIN;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tb_audit_writer') THEN
+    CREATE ROLE tb_audit_writer LOGIN;
+  END IF;
+  -- no service acts as the journal's owner: its one member is trialbox, the host tools' admin (backup, restore),
+  -- as for every store group of D-378
+  FOR m IN SELECT pg_get_userbyid(member) AS who, pg_get_userbyid(grantor) AS by FROM pg_auth_members
+           WHERE roleid = 'audit_writer'::regrole AND member <> 'trialbox'::regrole LOOP
+    EXECUTE format('REVOKE audit_writer FROM %I GRANTED BY %I', m.who, m.by);
+  END LOOP;
+  EXECUTE format('GRANT CONNECT ON DATABASE %I TO tb_audit_writer', current_database());
+END
+$aw$;
+GRANT audit_writer TO trialbox;
+ALTER ROLE audit_writer NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ALTER ROLE tb_audit_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE SCHEMA IF NOT EXISTS audit AUTHORIZATION audit_writer;
+ALTER SCHEMA audit OWNER TO audit_writer;
+REVOKE ALL ON SCHEMA audit FROM PUBLIC;
+SET search_path = audit, pg_catalog;
+CREATE TABLE IF NOT EXISTS journal (
+  seq bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  db_role text NOT NULL,
+  event text NOT NULL CHECK (event <> ''),
+  ts text NOT NULL,
+  fields jsonb NOT NULL
+);
+RESET search_path;
+ALTER TABLE audit.journal OWNER TO audit_writer;
+CREATE OR REPLACE FUNCTION audit.refuse_change() RETURNS trigger LANGUAGE plpgsql AS $fn$
+BEGIN
+  RAISE EXCEPTION 'audit.journal is append-only (D-394): % refused', TG_OP USING ERRCODE = 'insufficient_privilege';
+END
+$fn$;
+ALTER FUNCTION audit.refuse_change() OWNER TO audit_writer;
+DROP TRIGGER IF EXISTS journal_append_only ON audit.journal;
+CREATE TRIGGER journal_append_only BEFORE UPDATE OR DELETE ON audit.journal
+  FOR EACH ROW EXECUTE FUNCTION audit.refuse_change();
+DROP TRIGGER IF EXISTS journal_no_truncate ON audit.journal;
+CREATE TRIGGER journal_no_truncate BEFORE TRUNCATE ON audit.journal
+  FOR EACH STATEMENT EXECUTE FUNCTION audit.refuse_change();
+REVOKE ALL ON audit.journal FROM PUBLIC;
+REVOKE UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON audit.journal FROM audit_writer;
+CREATE OR REPLACE FUNCTION audit.append(p_event text, p_ts text, p_fields jsonb) RETURNS bigint
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
+DECLARE
+  n bigint;
+BEGIN
+  -- one at a time, to the end of the transaction: seq order is commit order, so the drain passes no row over
+  PERFORM pg_advisory_xact_lock(211394);
+  INSERT INTO audit.journal (db_role, event, ts, fields)
+    VALUES (session_user, p_event, p_ts, coalesce(p_fields, '{}'::jsonb)) RETURNING seq INTO n;
+  PERFORM pg_notify('tb_audit', n::text);
+  RETURN n;
+END
+$fn$;
+ALTER FUNCTION audit.append(text, text, jsonb) OWNER TO audit_writer;
+REVOKE ALL ON FUNCTION audit.append(text, text, jsonb), audit.refuse_change() FROM PUBLIC;
+GRANT USAGE ON SCHEMA audit TO tb_lake, tb_criteria_compiler, tb_adapter, tb_orchestrator, tb_mail_gateway,
+  tb_gateway, tb_console, tb_audit_writer, trialbox;
+GRANT EXECUTE ON FUNCTION audit.append(text, text, jsonb) TO tb_lake, tb_criteria_compiler, tb_adapter,
+  tb_orchestrator, tb_mail_gateway, tb_gateway, tb_console;
+-- the drain reads the journal; trialbox (backups) reads it; nobody else does
+GRANT SELECT ON audit.journal TO tb_audit_writer, trialbox;
+-- END AUDIT WRITER
+ALTER ROLE tb_audit_writer PASSWORD :'pw_audit_writer';
 SQL

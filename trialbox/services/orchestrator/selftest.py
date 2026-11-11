@@ -247,14 +247,14 @@ def preflight(orch: Any, force: bool = False) -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from tb_common.audit import AuditLog
+    from tb_common.audit_writer import open_audit
     from tb_common.config import get_config
 
     from orchestrator.app import verifier_client
     from orchestrator.twophase import GatewaySwap
 
     cfg = get_config()
-    audit = AuditLog(cfg.env.audit_path, cfg.env.tz)
+    audit = open_audit(cfg.env.audit_path, cfg.env.tz)
     gs = GatewaySwap.from_env()
     report = run_selftest(
         LlmClient.from_config(audit),

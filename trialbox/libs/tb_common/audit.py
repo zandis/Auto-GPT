@@ -25,7 +25,7 @@ without the anchor all fail; ``verify(..., anchor=...)`` also checks an anchor k
 ``HEAD.json``), which catches a rewrite that rewrote this file too. A writer that finds the chain and the anchor apart
 refuses to write (:class:`AuditAnchorBroken`) until a person looks and runs ``tools/audit_verify.py --reanchor``,
 which records the gap in the chain. A chain made before the anchor existed is adopted by its next write, with an
-``audit.anchored`` event. The anchor is not keyed; the signed heads below are (T-211a); one writer is T-211b.
+``audit.anchored`` event. The anchor is not keyed; the signed heads below are (T-211a).
 
 **Signed heads and off-box anchors** (T-211a, D-355, register CR-042): :meth:`AuditLog.sign_head` signs where the
 chain stands (event count and last hash) with the site's Ed25519 audit key (``audit_sign.key`` in the secrets folder,
@@ -35,6 +35,11 @@ anchor folder (``TB_AUDIT_ANCHOR_TARGETS``: local paths, such as the mounted hos
 hash, which catches a line removed and the rest recomputed even when ``HEAD.json`` was rewritten too: a process that
 can write the audit volume cannot make a signature. A new key is trusted only through an ``audit.signing_key_rotated``
 event endorsed by the old key, and an old key's head over events after its rotation is refused.
+
+**One writer** (T-211b, D-394, register CR-042): on a box the services do not write here. They call
+:func:`tb_common.audit_writer.open_audit`, which sends each event to the append-only ``audit.journal`` table, and one
+process (the ``audit-writer`` service) copies the journal into this chain. An event that came that way carries
+``journal: {seq, role, at}``, the database role that sent it included.
 
 **The clock** (T-211a, OPS-055): :func:`clock_state` reads whether the kernel clock is NTP-synchronised and, when
 ``TB_NTP_SERVER`` names the site's time server, the offset from it. ``doctor`` FAILs beyond
@@ -212,6 +217,7 @@ class AuditLog:
         "output_sha",
         "recipients",
         "detail",
+        "journal",  # set by the drain only (tb_common.audit_writer, D-394): the journal row the event came from
     )
 
     def __init__(self, directory: Path, tz: str = "Asia/Taipei") -> None:

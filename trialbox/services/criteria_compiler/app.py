@@ -9,7 +9,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from lake.client import LakeHttp
-from tb_common.audit import AuditLog
+from tb_common.audit_writer import open_audit
 from tb_common.config import get_config
 from tb_common.fhir import FhirEvaluator
 from tb_common.http import make_app
@@ -49,7 +49,7 @@ def compiler() -> Compiler:
         from tb_common.refdata import synonym_lookup
 
         cfg = get_config()
-        audit = AuditLog(cfg.env.audit_path, cfg.env.tz)
+        audit = open_audit(cfg.env.audit_path, cfg.env.tz)
         th = cfg.settings.thresholds
         deps = CompilerDeps(
             store=from_config(),
