@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{# T-307 (D-375): the instrument copyright register for the data steward (administrators only) and the site's switches. #}
+{% block title %}{{ t('instruments.title') }}{% endblock %}
+{% block content %}
+<h1>{{ t('instruments.title') }}</h1>
+<p>{{ t('instruments.help') }}</p>
+{% if done %}<p class="notice" role="status" data-testid="saved">{{ t('instruments.saved') }}</p>{% endif %}
+{% for r in rows %}{% set ins = r.ins %}
+<section class="card" id="ins-{{ ins.id }}" data-testid="instrument" data-instrument="{{ ins.id }}" data-licence="{{ ins.licence }}" aria-labelledby="ins-{{ ins.id }}-h">
+<h2 id="ins-{{ ins.id }}-h">{{ ins.name }}</h2>
+<dl>
+<dt>{{ t('instruments.holder') }}</dt><dd>{{ ins.holder }}</dd>
+<dt>{{ t('instruments.licence') }}</dt><dd>{{ t('instruments.licence.' + ins.licence) }}</dd>
+<dt>{{ t('instruments.terms') }}</dt><dd data-testid="terms">{{ ins.terms }}</dd>
+</dl>
+<p class="hint">{{ t('instruments.source', source=ins.source, date=ins.checked) }}</p>
+{% if not r['items'] %}
+<p data-testid="not-in-catalogue">{{ t('instruments.none') }}</p>
+{% else %}
+{% if r.switch %}<p data-testid="switch" data-storable="{{ r.switch.storable }}">{{ t('instruments.switched', level=t('items.storable.' + r.switch.storable), by=r.switch.by, at=r.switch.at, ref=r.switch.licence_ref) }}</p>{% endif %}
+<div class="scroll">
+<table>
+<thead><tr><th scope="col">{{ t('instruments.col.items') }}</th><th scope="col">{{ t('items.col.id') }}</th><th scope="col">{{ t('instruments.col.keep') }}</th></tr></thead>
+<tbody>{% for it, level in r['items'] %}<tr data-testid="instrument-item" data-item="{{ it.id }}" data-storable="{{ level }}">
+<td>{{ it.name(lang) }}</td><td class="mono">{{ it.id }}</td><td>{{ t('items.storable.' + level) }}</td></tr>{% endfor %}</tbody>
+</table>
+</div>
+<form method="post" action="/data/instruments/{{ ins.id }}" class="inline">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label for="lvl-{{ ins.id }}">{{ t('instruments.switch') }}</label>
+  <select id="lvl-{{ ins.id }}" name="storable">
+    {% for l in levels %}<option value="{{ l }}" {{ 'selected' if (r.switch and r.switch.storable == l) or (not r.switch and r.default == l) else '' }}>{{ t('items.storable.' + l) }}</option>{% endfor %}
+  </select>
+  <label for="ref-{{ ins.id }}">{{ t('instruments.ref') }}</label>
+  <input id="ref-{{ ins.id }}" name="licence_ref" maxlength="200" value="{{ r.switch.licence_ref if r.switch else '' }}">
+  <button type="submit">{{ t('instruments.save') }}</button>
+</form>
+{% endif %}
+</section>
+{% endfor %}
+{% endblock %}
