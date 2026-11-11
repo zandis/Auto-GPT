@@ -120,6 +120,11 @@ def ensure(root: Path) -> str:
         r = _run([*psql, f"CREATE DATABASE {DB} OWNER {_user()}"])
         if r.returncode != 0:
             raise RuntimeError(f"create database failed: {r.stderr.strip()}")
+    # pgvector, where this server's PostgreSQL has it installed, is created as the image's db-init creates it (D-204,
+    # D-439): by the superuser, in schema public, never by a store; a server without it is left as it is
+    on_db = [*psql[:-3], "-d", DB, "-tAqc"]
+    if _run([*on_db, "SELECT 1 FROM pg_available_extensions WHERE name = 'vector'"]).stdout.strip() == "1":
+        _run([*on_db, "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public"])
     return url_for(root)
 
 
