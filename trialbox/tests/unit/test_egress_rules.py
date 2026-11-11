@@ -37,13 +37,14 @@ def test_allowlist_from_env() -> None:
     assert got == [
         ("mail-gateway", "smtp.hospa.test", 587),
         ("mail-gateway", "imap.hospa.test", 993),
-        ("gateway", "llm.example.com", 443),  # v4: the cloud LLM is reached by tb-gateway only (NFR-B9)
         ("orchestrator", "twpas.nhi.example", 8443),
         ("adapter", "10.1.2.3", 1433),
     ]
     # unset variables add nothing; ClinicalTrials.gov only in live mode (offline is the default, D-140); no dev
     # endpoint outside DEV
     assert eg.allowlist({}) == []
+    # T-604 (review LLM-037 d): CLOUD_LLM_BASE_URL opens nothing, since the gateway never calls it
+    assert "llm.example.com" not in {a.host for a in eg.allowlist(env)}
     assert [(a.service, a.host) for a in eg.allowlist({"TB_CTGOV_MODE": "live"})] == [
         ("criteria-compiler", "clinicaltrials.gov")
     ]
@@ -113,7 +114,7 @@ MODEL_ENV = {
 
 @pytest.mark.req("NFR-B9", "SEC-40", "S1-06")
 def test_only_the_gateway_gets_model_host_rules() -> None:
-    """Rules come from models/routing.yaml; every model host (any zone, plus CLOUD_LLM_BASE_URL) is reachable
+    """Rules come from models/routing.yaml; every model host (any zone, plus CLOUD_LLM_BASE_URL, which opens nothing itself) is reachable
     only from the gateway container. The unapproved external endpoint (no G5 record) gets no rule at all."""
     eg = _egress()
     hosts = eg.model_hosts(MODEL_ENV)
@@ -146,5 +147,6 @@ def test_egress_extra_cannot_give_another_container_a_model_host() -> None:
     ):
         with pytest.raises(SystemExit, match="model host"):
             eg.allowlist({**MODEL_ENV, "EGRESS_EXTRA": item})
-    ok = eg.allowlist({**MODEL_ENV, "EGRESS_EXTRA": "gateway=llm2.example:443,adapter=10.1.2.3:1433"})
+    # T-604: the gateway's extra must be an open model endpoint of the routing table (here the DEV bake-off one)
+    ok = eg.allowlist({**MODEL_ENV, "EGRESS_EXTRA": "gateway=openrouter.example:443,adapter=10.1.2.3:1433"})
     assert ("adapter", "10.1.2.3", 1433) in [(a.service, a.host, a.port) for a in ok]

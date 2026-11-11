@@ -6,18 +6,24 @@ Allowed (only when the variable is set):
 
 * mail-gateway      -> SMTP_HOST:SMTP_PORT, IMAP_HOST:IMAP_PORT
 * gateway           -> every non-perimeter model endpoint of ``models/routing.yaml`` (zone external / dev_public)
-                       whose URL is set, and the host of CLOUD_LLM_BASE_URL (spec v4 NFR-B9, S1-06: only tb-gateway
-                       reaches a model host; the v1 criteria-compiler cloud rule is gone)
+                       whose URL is set and that is open in ``TB_ENV`` (spec v4 NFR-B9, S1-06: only tb-gateway
+                       reaches a model host). CLOUD_LLM_BASE_URL opens nothing: the gateway never calls it (T-604,
+                       review LLM-037 d)
 * criteria-compiler -> clinicaltrials.gov:443 when TB_CTGOV_MODE=live (COHORT, D-76; offline, the default since D-140,
                        reads the reference data pack and needs no outbound access)
 * orchestrator      -> host of NHI_TWPAS_BASE_URL (SUBMIT)
 * EGRESS_EXTRA      -> "service=host:port[,service=host:port]" for site-specific additions (documented in RUNBOOK);
-                       an entry that would give any service other than the gateway a model host is refused
+                       an entry that would give any service other than the gateway a model host is refused, and so is
+                       an entry for the gateway that is not one of the routing table's open model endpoints above
+                       (T-604, review LLM-036: one extra line must not send the box's prompts to another server)
 
 Container addresses come from ``docker inspect`` of the compose project; host names are resolved when the rules are
 applied (re-run after an address change or a container restart: ``deploy/network.sh apply``; the unit
-``trialbox-egress-refresh.timer`` does it every two minutes when the table would change). Traffic between the
-box's own containers, replies to inbound connections (published ports) and the Docker embedded DNS are unaffected.
+``trialbox-egress-refresh.timer`` does it every two minutes when the table would change, and ``network.sh watch``,
+run by ``trialbox-egress-watch.service``, does it at once when a container of the stack starts, so a restarted
+container's new address gets its rule and its old address loses it without the two-minute gap; T-604, LLM-037 b).
+Traffic between the box's own containers, replies to inbound connections (published ports) and the Docker embedded
+DNS are unaffected.
 Inbound, only a published port opens a connection into a box network; a direct route to a container address is dropped.
 A box container opens no connection to the host itself (the input hook), except to an allowed destination there.
 
@@ -27,6 +33,7 @@ A box container opens no connection to the host itself (the input hook), except 
     deploy/network.sh status  # show the live table with counters
     deploy/network.sh save    # write the state file only (apply writes it too)
     deploy/network.sh restore # load the closed table from the state file (root; at boot, before Docker)
+    deploy/network.sh watch   # apply now and again whenever a container of the stack starts (root)
 
 Kept across a reboot (T-108b, D-377; CR-043): ``apply`` writes the box's subnets and the applied script to the state
 file (``--state``, default ``TB_EGRESS_STATE`` or ``/var/lib/trialbox/egress-state.json``). At boot the unit
@@ -49,6 +56,7 @@ import os
 import socket
 import subprocess
 import sys
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
@@ -161,11 +169,9 @@ def allowlist(env: dict[str, str], routing: Path | None = ROUTING) -> list[Allow
         out.append(Allow("mail-gateway", env["SMTP_HOST"], int(env.get("SMTP_PORT") or 587), "outbound mail"))
     if env.get("IMAP_HOST"):
         out.append(Allow("mail-gateway", env["IMAP_HOST"], int(env.get("IMAP_PORT") or 993), "intake mailbox"))
-    for name, ep_host, ep_port, zone in model_endpoints(env, routing):
+    opened = model_endpoints(env, routing)
+    for name, ep_host, ep_port, zone in opened:
         out.append(Allow(GATEWAY, ep_host, ep_port, f"model endpoint {name} ({zone})"))
-    cloud = _url(env.get("CLOUD_LLM_BASE_URL", ""))
-    if cloud:
-        out.append(Allow(GATEWAY, cloud[0], cloud[1], "cloud LLM (through tb-gateway only)"))
     if (env.get("TB_CTGOV_MODE") or "offline").lower() == "live":  # D-140: offline by default
         out.append(Allow("criteria-compiler", CTGOV[0], CTGOV[1], "ClinicalTrials.gov public registry"))
     nhi = _url(env.get("NHI_TWPAS_BASE_URL", ""))
@@ -178,6 +184,11 @@ def allowlist(env: dict[str, str], routing: Path | None = ROUTING) -> list[Allow
             raise SystemExit(f"bad EGRESS_EXTRA entry {item!r} (want service=host:port)")
         if svc.strip() != GATEWAY and host.strip() in model_hosts(env, routing):
             raise SystemExit(f"EGRESS_EXTRA entry {item!r} gives {svc.strip()} a model host; only {GATEWAY} may")
+        if svc.strip() == GATEWAY and (host.strip(), int(port)) not in {(h, p) for _, h, p, _ in opened}:
+            raise SystemExit(
+                f"EGRESS_EXTRA entry {item!r} is not an open model endpoint of the routing table; the gateway "
+                "reaches only those (set the endpoint's URL variable instead)"
+            )
         out.append(Allow(svc.strip(), host.strip(), int(port), "site addition (EGRESS_EXTRA)"))
     return out
 
@@ -357,13 +368,40 @@ def restore_script(state: dict[str, object]) -> str:
     return script
 
 
+def watch(apply: Callable[[], object], events: Iterable[str]) -> int:
+    """Apply once, then again for every event line (a container of the stack started). An apply that fails is
+    reported and the watch goes on; the next event or the refresh timer tries again. Returns 1 when the event stream
+    ends (systemd restarts the watch)."""
+
+    def once() -> None:
+        try:
+            apply()
+        except (SystemExit, subprocess.CalledProcessError, OSError, ValueError) as exc:
+            print(f"watch: apply failed: {exc}", file=sys.stderr)
+
+    once()
+    for line in events:
+        if line.strip():
+            once()
+    return 1
+
+
+def docker_events(project: str) -> Iterable[str]:
+    """One line per container start of the compose project (a restart included), as Docker reports it."""
+    cmd = ["docker", "events", "--format", "{{.ID}}", "--filter", "type=container", "--filter", "event=start"]
+    cmd += ["--filter", f"label=com.docker.compose.project={project}"]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
+    assert proc.stdout is not None
+    yield from proc.stdout
+
+
 def _table_live() -> bool:
     return subprocess.run(["nft", "list", "table", "inet", TABLE], capture_output=True, check=False).returncode == 0
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["print", "apply", "flush", "status", "save", "restore"])
+    ap.add_argument("action", choices=["print", "apply", "flush", "status", "save", "restore", "watch"])
     ap.add_argument("--state", type=Path, default=STATE, help="the state file kept across a reboot")
     ap.add_argument("--no-save", action="store_true", help="apply: do not write the state file")
     ap.add_argument("--if-changed", action="store_true", help="apply: skip when the live table is the saved one")
@@ -391,8 +429,12 @@ def main(argv: list[str] | None = None) -> int:
         n = script.count("intra-box")
         print(f"restored table inet {TABLE}, closed ({n} address families; no allow rule until apply)")
         return 0
+    if args.action == "watch":
+        again = ["apply", "--if-changed", "--env", str(args.env), "--project", args.project, "--state", str(args.state)]
+        return watch(lambda: main(again), docker_events(args.project))
+    allows = allowlist(read_env(args.env))  # a refused entry stops here, before docker is asked anything
     box = docker_box(args.project)
-    script, warnings = render(box, allowlist(read_env(args.env)))
+    script, warnings = render(box, allows)
     for w in warnings:
         print(f"warning: {w}", file=sys.stderr)
     if args.action == "print":

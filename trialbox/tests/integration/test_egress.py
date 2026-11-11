@@ -4,7 +4,9 @@ A network namespace plays the outside world (198.51.100.1, TEST-NET-2) with thre
 endpoint), :2525 (the hospital SMTP relay) and :9443 (anything else). Before the rules every container on a routed
 network reaches all three (the test proves the path exists); after ``deploy/network.sh apply`` only
 orchestrator -> :8443 and mail-gateway -> :2525 connect, everything else times out, and traffic inside the box still
-works. The rules and the namespace are removed afterwards.
+works. The gateway case (T-604, review LLM-037): with the DEV bake-off endpoint pointed at :9443, only the gateway
+reaches it, and ``CLOUD_LLM_BASE_URL`` (:8443) opens nothing for the gateway; an ``EGRESS_EXTRA`` entry that gives the
+gateway a host outside the routing table stops ``network.sh print``. The rules and the namespace are removed afterwards.
 
     sudo make test-egress
 """
@@ -108,3 +110,24 @@ def test_only_allowlisted_egress(outside: None, tmp_path: Path) -> None:
     assert connects("trialbox-mail-gateway-1", "greenmail", 3143)
     status = sh("nft", "list", "table", "inet", "trialbox_egress").stdout
     assert "trialbox default deny" in status
+
+
+def test_gateway_reaches_only_its_model_endpoints(outside: None, tmp_path: Path) -> None:
+    sh(str(ROOT / "deploy/network.sh"), "flush", check=False)
+    assert connects("trialbox-gateway-1", OUTSIDE, 8443)  # without rules the path exists
+    env = tmp_path / "egress-gw.env"
+    env.write_text(
+        f"TB_ENV=DEV\nTB_EP_OPENROUTER_URL=https://{OUTSIDE}:9443/api/v1\nCLOUD_LLM_BASE_URL=https://{OUTSIDE}:8443/v1\n"
+        "SMTP_HOST=\nIMAP_HOST=\nNHI_TWPAS_BASE_URL=\nTB_CTGOV_MODE=offline\n",
+        encoding="utf-8",
+    )
+    sh(str(ROOT / "deploy/network.sh"), "apply", "--env", str(env), "--no-save")
+    for port in PORTS:
+        assert connects("trialbox-gateway-1", OUTSIDE, port) == (port == 9443), port
+    for c in ("trialbox-orchestrator-1", "trialbox-criteria-compiler-1"):
+        assert not connects(c, OUTSIDE, 9443), c  # the model host is the gateway's only
+    # the review's case: an extra line for the gateway outside the table is refused before anything is applied
+    bad = tmp_path / "egress-bad.env"
+    bad.write_text(f"TB_ENV=PRODUCTION\nEGRESS_EXTRA=gateway={OUTSIDE}:2525\n", encoding="utf-8")
+    res = sh(str(ROOT / "deploy/network.sh"), "print", "--env", str(bad), check=False)
+    assert res.returncode == 1 and "not an open model endpoint" in res.stderr

@@ -572,6 +572,7 @@ DECLARED: dict[str, Declared] = {
     "TB_OPTOUT_LOOKUPS_PER_HOUR": Declared("int", "", "opt-out lookups per user per hour"),
     "TB_ORCH_DIR": Declared("path", "", "orchestrator: data folder"),
     "TB_PARSER": Declared("str", "auto", "document parser (auto or a named one)"),
+    "TB_PERIMETER_RECHECK_S": Declared("float", "60", "gateway: seconds between perimeter address checks (D-388)"),
     "TB_PGBACKREST_FULL_DAY": Declared("int", "", "pgBackRest: weekday of the full backup"),
     "TB_PGBACKREST_REPO": Declared("str", "", "pgBackRest: repository"),
     "TB_PG_ARCHIVE_MODE": Declared("str", "off", "PostgreSQL WAL archiving"),

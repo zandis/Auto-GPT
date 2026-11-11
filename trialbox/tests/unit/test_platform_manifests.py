@@ -425,7 +425,7 @@ def test_networkpolicy_names_the_same_hosts_as_nftables() -> None:
         for hp in p["metadata"]["annotations"]["trialbox.io/egress-hosts"].split(",")
     }
     assert nft == k8s == {(a.service, a.host, str(a.port)) for a in allows}
-    assert len(k8s) == 6
+    assert len(k8s) == 5  # T-604: CLOUD_LLM_BASE_URL opens nothing
     nft_addrs = set(re.findall(r"daddr \{ ([^}]+) \} tcp dport (\d+)", script))
     k8s_addrs = {
         (b["ipBlock"]["cidr"].rsplit("/", 1)[0], str(r["ports"][0]["port"]))

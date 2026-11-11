@@ -1,0 +1,16 @@
+# Re-apply the egress table as soon as a container of the stack starts (T-604, D-388; review LLM-037 b): a container
+# that Docker or the watchdog restarted has a new address, and its old one may go to another container. The refresh
+# timer stays as the fallback. Installed and enabled by deploy/install.sh.
+[Unit]
+Description=TrialBox egress table watch (re-apply on container start)
+Requires=trialbox-egress.service docker.service
+After=trialbox-egress.service docker.service trialbox.service
+
+[Service]
+Type=simple
+ExecStart=@TB_ROOT@/deploy/network.sh watch
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
