@@ -24,6 +24,7 @@ to OBSERVATION by its concept's domain (T-106b, STD-031) is read back from there
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from datetime import date, datetime
 from decimal import Decimal
@@ -84,9 +85,131 @@ def _basis(basis: str | None, status: str) -> str | None:
     return status if status in ("proposed", "confirmed", "signed", "derived") else basis
 
 
-def export_rows(db: Database) -> dict[str, list[Row]]:
-    with db.transaction() as tx:
-        return _export(tx)
+class _Discard(Exception):
+    """Ends the transaction of an export "as of": everything it changed is rolled back."""
+
+
+def export_rows(db: Database, as_of: datetime | None = None) -> dict[str, list[Row]]:
+    """The lake rows the store holds now, or as it held them at ``as_of`` (T-202, D-384; an aware instant).
+
+    An export "as of" winds the store back inside one transaction that is always rolled back, under the loader's
+    lock (a load waits for it, never the other way round): every record changed after ``as_of`` gets its before-image
+    back (``tb_record_event.record_before`` and ``before``), a record first loaded after it is set aside, conflicts
+    opened, resolved or withdrawn after it read as they did then, and the merged person rows are derived again from
+    the records of that time. Nothing is written. The clinical content (which records, their values, status, basis
+    and conflicts) is the content of that time; an unchanged record's row provenance and file position are those of
+    the last load that carried it (a new night alone is no event, D-384). An instant before a change whose record
+    before-image was never kept (an event written before migration 6) is refused, never guessed."""
+    if as_of is None:
+        with db.transaction() as tx:
+            return _export(tx)
+    if as_of.tzinfo is None:
+        raise ValueError("an export as of a time needs an aware instant (the zone is never guessed, D-315)")
+    out: dict[str, list[Row]] = {}
+    try:
+        with db.transaction() as tx:
+            tx.execute("SELECT pg_advisory_xact_lock(hashtext('trialbox-omop-load'))")
+            _wind_back(tx, as_of)
+            out = _export(tx)
+            raise _Discard
+    except _Discard:
+        pass
+    return out
+
+
+def _wind_back(tx: Any, at: datetime) -> None:
+    """The store as it was at ``at``, inside the caller's transaction (which is rolled back)."""
+    from omop.load import ID_COL, LoadReport, _derive
+    from omop.schema import OmopError
+
+    lost = tx.fetchval(
+        "SELECT count(*) FROM tb_record_event WHERE at > ? AND record_before IS NULL AND event <> 'insert'", (at,)
+    )
+    if lost:
+        raise OmopError(
+            f"the store cannot be exported as of {at.isoformat()}: {lost} later changes have no record before-image "
+            "(written before migration 6, T-202)"
+        )
+    first = tx.fetchall(
+        "SELECT DISTINCT ON (e.record_key) e.record_key, e.event, e.record_before::text, r.cdm_table, r.record_id, "
+        "r.status FROM tb_record_event e JOIN tb_record r USING (record_key) WHERE e.at > ? "
+        "ORDER BY e.record_key, e.event_id",
+        (at,),
+    )
+    if not first:
+        return
+    cdm_first = {
+        int(k): (str(ev), b)
+        for k, ev, b in tx.fetchall(
+            "SELECT DISTINCT ON (record_key) record_key, event, before::text FROM tb_record_event WHERE at > ? "
+            "AND event <> 'status' ORDER BY record_key, event_id",
+            (at,),
+        )
+    }
+    deletes: dict[str, list[int]] = defaultdict(list)
+    inserts: dict[str, list[str]] = defaultdict(list)
+    gone: list[int] = []
+    olds: list[tuple[int, str]] = []
+    persons: set[int] = set()
+    for key, event, rec_before, table, rid, status in first:
+        old = json.loads(rec_before) if rec_before else None
+        if table == "person" and rid is not None:
+            persons.add(int(rid))
+        if old and old.get("cdm_table") == "person" and old.get("record_id") is not None:
+            persons.add(int(old["record_id"]))
+        cdm = cdm_first.get(int(key))
+        if cdm is not None:  # the record's OMOP row changed after ``at``: its row of then comes back
+            if table in ID_COL and rid is not None and status != "tombstoned":
+                deletes[str(table)].append(int(rid))
+            if cdm[0] != "insert" and cdm[1] and old and old.get("cdm_table") in ID_COL:
+                inserts[str(old["cdm_table"])].append(cdm[1])
+        if event == "insert":
+            gone.append(int(key))  # not loaded yet at ``at``: set aside (events keep the row, so it stays)
+        elif old is not None:
+            olds.append((int(key), rec_before))
+    for table, ids in deletes.items():
+        tx.execute(f"DELETE FROM {table} WHERE {ID_COL[table]} = ANY(?)", (ids,))
+    for table, rows in inserts.items():
+        tx.execute(
+            f"INSERT INTO {table} SELECT * FROM jsonb_populate_recordset(NULL::{table}, ?::jsonb)",
+            ("[" + ",".join(rows) + "]",),
+        )
+    if gone:
+        tx.execute("UPDATE tb_record SET status = 'tombstoned' WHERE record_key = ANY(?)", (gone,))
+    if olds:
+        cols = [
+            str(c)
+            for (c,) in tx.fetchall(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() "
+                "AND table_name = 'tb_record' AND column_name <> 'record_key' ORDER BY ordinal_position"
+            )
+        ]
+        tx.execute("CREATE TEMP TABLE tb_asof_tmp (record_key BIGINT, before JSONB) ON COMMIT DROP")
+        tx.copy_rows("tb_asof_tmp", ["record_key", "before"], olds)
+        sets = ", ".join(f"{c} = b.{c}" for c in cols)
+        tx.execute(
+            f"UPDATE tb_record r SET {sets} FROM tb_asof_tmp t, jsonb_populate_record(NULL::tb_record, t.before) b "
+            "WHERE r.record_key = t.record_key"
+        )
+    # conflicts as they stood: opened after ``at`` not yet there; resolved or withdrawn after it still open
+    later = "SELECT batch FROM tb_load WHERE started_at > ?"
+    tx.execute("DELETE FROM tb_conflict WHERE detected_at > ?", (at,))
+    tx.execute(
+        "UPDATE tb_conflict SET state = CASE WHEN resolved_at IS NOT NULL AND resolved_at <= ? THEN 'resolved' "
+        f"ELSE 'open' END, closed_batch = NULL WHERE state = 'withdrawn' AND closed_batch IN ({later})",
+        (at, at),
+    )
+    tx.execute(
+        "UPDATE tb_conflict SET state = 'open', resolved_value = NULL, resolution = NULL, reason = NULL, "
+        "authority = NULL, resolved_by = NULL, resolved_at = NULL WHERE state = 'resolved' AND resolved_at > ?",
+        (at,),
+    )
+    if persons:  # the merged person and death rows of then (they are derived, not evented)
+        batch = tx.fetchval(
+            "SELECT batch FROM tb_load WHERE source_kind = 'feed' AND started_at <= ? ORDER BY started_at DESC LIMIT 1",
+            (at,),
+        )
+        _derive(tx, persons, set(), str(batch or at.date().isoformat()), LoadReport("feed", "as-of"), "")
 
 
 def _export(tx: Any) -> dict[str, list[Row]]:

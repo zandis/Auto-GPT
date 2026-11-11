@@ -610,8 +610,11 @@ def load_batch(
     for rtype in sorted(by_type):
         for line, r in enumerate(by_type[rtype], start=1):
             prov = {k: _iso(v) for k, v in b.fl.provenance(r).items() if v is not None}
+            from_note = note_source(r)
             for rec in b.build(rtype, r, line, responses):
                 rec.extra.update(prov)  # DATA-010: kept with the record, outside its content sha
+                if from_note and rec.part == 0:  # T-202: a fact read from a chart, for NOTE_NLP
+                    rec.extra["from_note"], rec.extra["from_note_term"] = from_note
                 if rec.key in keyed:  # one id twice in a file: the last line wins, as the NDJSON merge does
                     stats["duplicate_id"] = stats.get("duplicate_id", 0) + 1
                     del keyed[rec.key]
@@ -666,6 +669,8 @@ def _load(
         _resolve(tx, kind, batch, recs, concepts, rep)
         affected_persons, affected_providers = _write(tx, kind, batch, recs, files, rep)
         _derive(tx, affected_persons, affected_providers, batch, rep, site_name)
+        if kind == "site":
+            _note_nlp(tx, kind, batch)
         if dqd_before is not None:
             held = _dqd_hold(tx, batch, dqd_before)
             rep.override = "; ".join(x for x in (rep.override, held) if x)
@@ -677,6 +682,44 @@ def _load(
             (kind, batch, rep.seconds, json.dumps(rep.as_dict())),
         )
     return rep
+
+
+#: the extension a site fact read from a chart carries (``sitesetup.publish``): the chart's DocumentReference id
+NOTE_SOURCE = "urn:trialbox:note-source"
+
+
+def note_source(r: Resource) -> tuple[str, str] | None:
+    """``(DocumentReference id, the term as read)`` of a resource read from a chart (:data:`NOTE_SOURCE`), else None."""
+    for ext in r.get("extension") or []:
+        if ext.get("url") == NOTE_SOURCE:
+            ref = ext.get("valueReference") or {}
+            rid = str(ref.get("reference") or "")
+            if rid.startswith("DocumentReference/") and rid.split("/", 1)[1]:
+                return rid.split("/", 1)[1], str(ref.get("display") or "")
+    return None
+
+
+def _note_nlp(tx: Any, kind: str, batch: str) -> None:
+    """NOTE_NLP from the site's facts (T-202): one row per live fact of ``kind`` read from a chart that is itself a
+    live NOTE of the same kind; rewritten whole at every load of the kind. The term is the fact's own text (the chart
+    text the lake holds is redacted; the fact's quote never leaves site setup); ``term_modifiers`` keeps its status
+    (proposed, confirmed, ...), so a person's decision shows. The id is the fact's own OMOP row id."""
+    tx.execute(
+        "DELETE FROM note_nlp WHERE note_id IN (SELECT record_id FROM tb_record WHERE source_kind = ? "
+        "AND cdm_table = 'note' AND record_id IS NOT NULL)",
+        (kind,),
+    )
+    tx.execute(
+        "INSERT INTO note_nlp (note_nlp_id, note_id, lexical_variant, note_nlp_concept_id, note_nlp_source_concept_id, "
+        "nlp_system, nlp_date, term_exists, term_modifiers) SELECT f.record_id, n.record_id, "
+        "left(coalesce(nullif(f.extra->>'from_note_term', ''), f.resource_type), 250), 0, 0, 'TrialBox site setup', "
+        "coalesce(nt.note_date, ?), 'Y', 'status=' || f.status FROM tb_record f JOIN tb_record n "
+        "ON n.source_kind = f.source_kind AND n.resource_type = 'DocumentReference' "
+        "AND n.source_record_id = f.extra->>'from_note' AND n.part = 0 JOIN note nt ON nt.note_id = n.record_id "
+        "WHERE f.source_kind = ? AND f.part = 0 AND f.record_id IS NOT NULL "
+        "AND f.status NOT IN ('tombstoned', 'superseded') AND n.status NOT IN ('tombstoned', 'superseded')",
+        (_batch_date(batch), kind),
+    )
 
 
 def _tombstone_guard(tx: Any, batch: str, recs: list[Rec]) -> str:
@@ -1013,6 +1056,14 @@ def _write(
         if v[1] == "provider" and v[2] is not None:
             providers.add(int(v[2]))
     rep.tombstoned = len(gone)
+    # T-202 (D-384): the record's own before-image, for the lake exported as of an earlier time (omop.export)
+    changed = [old[e[0]][0] for e in events if e[0] in old] + [v[0] for _, v in gone]
+    rec_before: dict[int, str] = {}
+    if changed:
+        for k, js in tx.fetchall(
+            "SELECT record_key, row_to_json(r)::text FROM tb_record r WHERE record_key = ANY(?)", (changed,)
+        ):
+            rec_before[int(k)] = js
     # before-images of every OMOP row that is replaced or deleted
     before: dict[tuple[str, int], str] = {}
     for table, ids in deletes.items():
@@ -1076,14 +1127,14 @@ def _write(
     for key, action, frm, to, bsha in events:
         prev = old.get(key)
         bjs = before.get((str(prev[1]), int(prev[2]))) if prev and prev[1] in ID_COL and prev[2] else None
-        ev_rows.append((keys[key], batch, action, frm, to, bsha, bjs))
+        ev_rows.append((keys[key], batch, action, frm, to, bsha, bjs, rec_before.get(keys[key])))
     for _, v in gone:
         bjs = before.get((str(v[1]), int(v[2]))) if v[1] in ID_COL and v[2] is not None else None
-        ev_rows.append((v[0], batch, "tombstone", v[4], "tombstoned", v[3], bjs))
+        ev_rows.append((v[0], batch, "tombstone", v[4], "tombstoned", v[3], bjs, rec_before.get(v[0])))
     if ev_rows:
         tx.copy_rows(
             "tb_record_event",
-            ["record_key", "batch", "event", "from_status", "to_status", "before_sha", "before"],
+            ["record_key", "batch", "event", "from_status", "to_status", "before_sha", "before", "record_before"],
             ev_rows,
         )
     return persons, providers
@@ -1321,9 +1372,9 @@ def set_status(db: Database, key: tuple[str, str, str, int], to: str, by: str, r
         rk, frm = int(row[0]), str(row[1])
         if to not in TRANSITIONS[frm]:
             raise OmopError(f"a {frm} record cannot become {to}")
-        tx.execute("UPDATE tb_record SET status = ?, changed_at = now() WHERE record_key = ?", (to, rk))
-        tx.execute(
-            "INSERT INTO tb_record_event (record_key, event, from_status, to_status, actor, reason) "
-            "VALUES (?, 'status', ?, ?, ?, ?)",
-            (rk, frm, to, by, reason),
+        tx.execute(  # the event first: it keeps the record as it was (T-202, the export "as of")
+            "INSERT INTO tb_record_event (record_key, event, from_status, to_status, actor, reason, record_before) "
+            "SELECT ?, 'status', ?, ?, ?, ?, row_to_json(r)::jsonb FROM tb_record r WHERE r.record_key = ?",
+            (rk, frm, to, by, reason, rk),
         )
+        tx.execute("UPDATE tb_record SET status = ?, changed_at = now() WHERE record_key = ?", (to, rk))

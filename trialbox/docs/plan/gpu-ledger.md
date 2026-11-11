@@ -23,7 +23,7 @@ Budget on the spot VM before G3: 60 to 90 GPU-hours for the six runs (TB-PLAN-06
 | S2b | G1 tier run, attempt 2 (only if 1 fails) | Spot VM | T-004 | 2026-11-27 | | | | | | queued |
 | S2c | G1 tier run, attempt 3 (only if 2 fails) | Spot VM | T-004 | 2026-12-01 | | | | | | queued |
 | S3 | Profile cost test and embedding test | Spot VM | T-004 | 2026-12-02 | | | | | | queued |
-| S4 | Judge bake-off with the challenger build | Spot VM | T-674 | 2026-12-15 | | | | | | queued |
+| S4 | Judge bake-off with the challenger build (`bakeoff.ledger: S4` in `models/registry.yaml`, D-392) | Spot VM | T-674 | 2026-12-15 | | | | | | queued: build in the registry, not run; waits for the owner's OK |
 | S5 | Prompt-injection and false-positive suite on the model pair | Spot VM | T-208 | 2026-12-17 | | | | | | queued |
 | S6 | G1 re-run on the release | Spot VM | T-004 | 2027-03-01 | | | | | | queued |
 | B1 | G1 functional run, 50k, the model pair, ja and zh-TW | Owner's B200 | T-004 | 2026-12-02 | | | | none | | queued |
