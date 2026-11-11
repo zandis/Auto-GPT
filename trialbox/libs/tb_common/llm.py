@@ -16,7 +16,7 @@
   gateway chooses the route and build. ``data_class=`` on :meth:`LlmClient.chat_json` sets the class (else
   ``TB_DATA_CLASS``, else D3 for ``phi`` prompts and D1 otherwise). Without it nothing changes.
 * **Context (T-603, review LLM-015, LLM-018).** :meth:`LlmClient.context_tokens` is the model's context: the
-  gateway's ``GET /v1/models`` for the alias, or the server's own (vLLM ``max_model_len``) on a direct call.
+  gateway's ``GET /v1/models`` for the alias, or ``TB_LLM_CONTEXT`` on a direct call (DEV).
   :meth:`LlmClient.text_budget` is what a caller may put in the variable part of a prompt (excerpts, a chart).
   ``max_tokens`` is cut to what fits beside the prompt; a prompt that leaves less than
   :data:`tb_llm.budget.MIN_ANSWER_TOKENS` is refused here (:class:`LlmPromptTooLong`) and never sent; the retry of a
@@ -168,24 +168,19 @@ class LlmClient:
 
     def context_tokens(self) -> int | None:
         """The model's context in tokens, or None when it cannot be told (T-603). Through the gateway: its
-        ``GET /v1/models`` for this client's alias (:meth:`tb_llm.GatewayClient.context`). Direct: the server's
-        ``GET /models`` entry for this model (vLLM ``max_model_len``). Asked again after :attr:`CONTEXT_TTL_S`."""
+        ``GET /v1/models`` for this client's alias (:meth:`tb_llm.GatewayClient.context`). Direct (DEV, no
+        gateway): ``TB_LLM_CONTEXT`` when set. Asked again after :attr:`CONTEXT_TTL_S`."""
         now = time.monotonic()
         if self._context is not None and now - self._context[0] < self.CONTEXT_TTL_S:
             return self._context[1]
         ctx: int | None = None
         if self.gateway is not None:
-            ctx = self.gateway.context()
+            fn = getattr(self.gateway, "context", None)
+            got = fn() if callable(fn) else None
+            ctx = got if isinstance(got, int) and got > 0 else None
         else:
-            try:
-                resp = self.http.get(f"{self.base_url}/models")
-                data = resp.json().get("data", []) if resp.status_code == 200 else []
-            except (httpx.HTTPError, ValueError, AttributeError):
-                data = []
-            for m in data if isinstance(data, list) else []:
-                if isinstance(m, dict) and m.get("id") == self.model:
-                    raw = m.get("max_model_len") or m.get("context_length")
-                    ctx = int(raw) if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0 else None
+            raw = os.environ.get("TB_LLM_CONTEXT", "").strip()  # a direct call (DEV only): the context, if set
+            ctx = int(raw) if raw.isdigit() and int(raw) > 0 else None
         self._context = (now, ctx)
         return ctx
 
