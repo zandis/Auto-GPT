@@ -135,7 +135,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | --- | --- | --- | --- |
 | D-300 | merged | T-101 | prompt registry, renumbered from the PR's D-201 (file) |
 | D-301 | merged | T-105, PR #82 | vocabulary schema (renumbered from the PR's D-205) (file) |
-| D-302 | reserved | T-102a | permission matrix |
+| D-302 | unused | T-102a | was reserved for the permission matrix; T-102a took D-366 (the integrator gave it) |
 | D-303 | unused | T-106 | was reserved for the OMOP schema name; T-106 took D-339 (the integrator gave it) |
 | D-304 | unused | T-106 | was reserved for the dual write; T-106 took D-339 (the integrator gave it) |
 | D-305 | unused | — | was reserved for T-012a, which took D-313 |
@@ -176,6 +176,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-348 | merged | T-673 | third-party images in `deploy/images.lock` by digest, no image by tag, the GPU host checked against the vLLM image (arch, driver, compute capability), Mailpit for MailHog (file) |
 | D-349 | merged | T-512 | the PI starts FEAS, SCREEN and CASE on own study; a sub-investigator with the `run` tick; one table `authz.INVESTIGATOR_RUNS`; "data as of" on the patient lists (file) |
 | D-339 | merged | T-106 | OMOP second slice: schema name stays `omop`; the adapter's dual write behind the flag `omop.dual_write` (a failure never holds the night); the large CDM tables partitioned by year; the Relational checks after every load in the ingest report; parity timings (file) |
+| D-366 | merged | T-102a | one permission function `authz.permit` over `authz_matrix.yaml`; the old helpers and the console role properties are wrappers; the role x route matrix regenerated as a test (file) |
 | D-353 | merged | T-107 | the clinical item catalogue loaded as data: one concept per item at stable ids, LOINC unmapped never invented, the storable gate in chart extraction, the steward items page (file) |
 | D-354 | merged | T-210c | uploads and outputs sealed at rest: AES-GCM per object under objects.key wrapped by the KEK, the seal file, seal-objects (file) |
 | D-370 | merged | T-659 | one ingest stack: the adapter stays, dataplat is deleted by T-659b; the pid rule stays HMAC(site key, chart number); contracts, row quarantine, the gate record, the MPI as a `pid_alias` table and lineage move into the adapter (file) |
