@@ -11,6 +11,11 @@ from the compose files, the egress rules (``deploy/egress.py``) and the token ru
 outside the box, and the name and location of every secret, never a value (``--env`` reads only host names for the
 egress lines). ``tests/unit/test_network_sheet.py`` compares the sheet with the compose files, so a new service or
 port cannot be left out.
+
+Every overlay renders (T-632, D-382; review OPS-014): compose's merge tags ``!reset`` and ``!override`` are read as
+compose reads them (the value replaces the earlier one), and a sheet with the identity overlay shows Caddy on 443 and
+Authelia's LDAPS. The host's own flows (NTP, the off-box backup share, 443 from the clinic PCs) are listed too:
+they are what hospital IT opens in its firewall.
 """
 
 from __future__ import annotations
@@ -31,19 +36,23 @@ for _p in (ROOT / "libs",):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-# the compose files a box we sell runs: the base, the per-service secrets, and the three GPU profiles (D-124)
+# the compose files a box we sell runs: the base, the per-service secrets, the identity and TLS overlay (every
+# PRODUCTION box, install.sh, T-632) and the three GPU profiles (D-124)
 FILES = (
     "deploy/docker-compose.yml",
     "deploy/docker-compose.secrets.yml",
+    "deploy/docker-compose.identity.yml",
     "deploy/docker-compose.rtx5090.yml",
     "deploy/docker-compose.gb10.yml",
     "deploy/docker-compose.rtxpro6000.yml",
 )
 LANGS = ("en", "ja", "zh-TW")
 # ports of third-party images that do not say them on the command line
-IMAGE_PORTS = {"postgres": 5432, "hapiproject/hapi": 8080, "vllm/vllm-openai": 8000}
+IMAGE_PORTS = {"postgres": 5432, "hapiproject/hapi": 8080, "vllm/vllm-openai": 8000, "authelia/authelia": 9091}
 # one-shot jobs that listen on nothing (the 5090 sleep swap's start order)
 NO_LISTEN = frozenset({"judge-sleep-init", "model-swap-init", "judge-wake-init"})
+# the services of the test and demo overlays (docker-compose.test.yml, docker-compose.testbench.yml)
+TEST_ONLY = frozenset({"greenmail", "mailpit", "testbench", "testbench-work"})
 _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?-([^}]*))?\}")
 
 T: dict[str, dict[str, str]] = {
@@ -188,6 +197,27 @@ T: dict[str, dict[str, str]] = {
     },
 }
 
+T["caddy"] = {
+    "en": "clinic PCs on the hospital LAN, port 443 only (https://TB_TLS_HOSTNAME)",
+    "ja": "院内 LAN の端末、443 番のみ（https://TB_TLS_HOSTNAME）",
+    "zh-TW": "院內網路的診間電腦，僅 443（https://TB_TLS_HOSTNAME）",
+}
+T["authelia"] = {
+    "en": "console and Caddy only (sign-in with the hospital account)",
+    "ja": "コンソールと Caddy のみ（病院アカウントでのサインイン）",
+    "zh-TW": "僅主控台與 Caddy（以醫院帳號登入）",
+}
+T["test_only"] = {
+    "en": "test and demo boxes only; never in a hospital bundle",
+    "ja": "試験・デモ機のみ（病院向けバンドルには含めない）",
+    "zh-TW": "僅測試與展示機；不放入醫院安裝包",
+}
+T["host_h"] = {
+    "en": "The host (outside the containers)",
+    "ja": "ホスト（コンテナの外）",
+    "zh-TW": "主機（容器之外）",
+}
+T["flow"] = {"en": "From -> to", "ja": "接続元 -> 接続先", "zh-TW": "來源 -> 目的地"}
 T["profile_gpu"] = {"en": "GPU profile", "ja": "GPU プロファイル", "zh-TW": "GPU 設定"}
 T["profile_stub"] = {"en": "no-GPU profile", "ja": "GPU なしプロファイル", "zh-TW": "無 GPU 設定"}
 
@@ -211,7 +241,42 @@ def interpolate(s: str, env: dict[str, str] | None = None) -> str:
     return _VAR.sub(lambda m: env.get(m.group(1)) or (m.group(2) or ""), s)
 
 
+class _Replace:
+    """A value tagged ``!reset`` or ``!override``: it replaces the earlier files' value instead of merging with it."""
+
+    def __init__(self, value: Any) -> None:
+        self.value = value
+
+
+class _ComposeLoader(yaml.SafeLoader):
+    pass
+
+
+def _replace_tag(loader: yaml.SafeLoader, node: yaml.Node) -> _Replace:
+    if isinstance(node, yaml.MappingNode):
+        return _Replace(loader.construct_mapping(node, deep=True))
+    if isinstance(node, yaml.SequenceNode):
+        return _Replace(loader.construct_sequence(node, deep=True))
+    return _Replace(loader.construct_scalar(node))  # type: ignore[arg-type]
+
+
+for _tag in ("!reset", "!override"):
+    _ComposeLoader.add_constructor(_tag, _replace_tag)
+
+
+def _plain(v: Any) -> Any:
+    if isinstance(v, _Replace):
+        return _plain(v.value)
+    if isinstance(v, dict):
+        return {k: _plain(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_plain(x) for x in v]
+    return v
+
+
 def _merge(a: Any, b: Any) -> Any:
+    if isinstance(b, _Replace):
+        return _plain(b.value)
     if isinstance(a, dict) and isinstance(b, dict):
         out = dict(a)
         for k, v in b.items():
@@ -226,10 +291,11 @@ def load(files: list[str], root: Path = ROOT) -> dict[str, Any]:
     merged: dict[str, Any] = {}
     origin: dict[str, list[str]] = {}
     for f in files:
-        data = yaml.safe_load((root / f).read_text(encoding="utf-8")) or {}
+        data = yaml.load((root / f).read_text(encoding="utf-8"), Loader=_ComposeLoader) or {}
         for name in data.get("services") or {}:
             origin.setdefault(name, []).append(Path(f).name)
         merged = _merge(merged, data)
+    merged = _plain(merged)
     merged["_origin"] = origin
     return merged
 
@@ -246,6 +312,9 @@ def ports_of(svc: dict[str, Any]) -> list[int]:
             out.append(int(interpolate(a.split("=", 1)[1])))
     for e in svc.get("expose") or []:
         out.append(int(str(e).split("/")[0]))
+    if not out:  # a third-party image that says its port only where it is published (caddy, the test mail servers)
+        for p in svc.get("ports") or []:
+            out.append(int(interpolate(str(p)).rsplit(":", 1)[-1].split("/")[0]))
     image = str(svc.get("image") or "")
     if not out:
         for key, port in IMAGE_PORTS.items():
@@ -290,6 +359,12 @@ def who(s: Service, lang: str) -> str:
         return T["model_backend"][lang]
     if s.name in NO_LISTEN:
         return "-"
+    if s.name == "caddy":
+        return T["caddy"][lang]
+    if s.name == "authelia":
+        return T["authelia"][lang]
+    if s.name in TEST_ONLY:
+        return T["test_only"][lang]
     if s.name in CALLERS:
         return T["callers"][lang] + ", ".join(sorted(CALLERS[s.name])) + T["operator"][lang]
     raise KeyError(f"no 'who may reach it' rule for service {s.name}: add one to tools/network_sheet.py")
@@ -333,6 +408,26 @@ def outbound(env: dict[str, str] | None) -> list[tuple[str, str, str, str]]:
     return [(a.service, f"{a.host}:{a.port}", a.why, "") for a in allows]
 
 
+def host_flows(svcs: list[Service], env: dict[str, str] | None) -> list[tuple[str, str, str]]:
+    """What hospital IT opens for the host itself, beside the containers' egress (T-632, OPS-014)."""
+    env = env or {}
+    names = {s.name for s in svcs}
+    host = env.get("TB_TLS_HOSTNAME") or "TB_TLS_HOSTNAME"
+    rows: list[tuple[str, str, str]] = []
+    if "caddy" in names:
+        rows.append((f"clinic PCs -> {host}:443 (caddy)", "the console over https; nothing else is published",
+                     "docker-compose.identity.yml, TB_TLS_HOSTNAME"))  # fmt: skip
+    if "authelia" in names:
+        rows.append(("authelia -> domain controller:636 (LDAPS)", "sign-in with the hospital account (optional)",
+                     "EGRESS_EXTRA authelia=<dc>:636, profile oidc"))  # fmt: skip
+    rows.append(("host -> hospital NTP server, UDP 123", "the clock of every audit row (check_host: clock in sync)",
+                 "the host's time service (systemd-timesyncd or chrony)"))  # fmt: skip
+    target = env.get("TB_BACKUP_TARGETS") or "TB_BACKUP_TARGETS"
+    rows.append((f"host -> backup share ({target}), NFS 2049 or SMB 445", "the off-box backup copy (RUNBOOK §5)",
+                 "TB_BACKUP_TARGETS, a share mounted on the host"))  # fmt: skip
+    return rows
+
+
 def ctgov_key(env: dict[str, str]) -> str:
     """The sheet's ClinicalTrials.gov line for the site's mode (D-140: offline unless live was chosen)."""
     mode = (env.get("TB_CTGOV_MODE") or "offline").strip().lower()
@@ -346,6 +441,10 @@ def secrets_rows(svcs: list[Service], lang: str) -> list[tuple[str, str, str]]:
             by_secret.setdefault(sec, []).append(s.name)
     rows = []
     for sec, names in sorted(by_secret.items()):
+        if not sec.startswith("token_"):  # the identity overlay's OIDC client secret (RUNBOOK §12)
+            rows.append((sec, f"deploy/secrets/authelia/{sec}.txt (0600, root)",
+                         f"{', '.join(names)} only, at /run/secrets/{sec} (OIDC on)"))  # fmt: skip
+            continue
         svc = sec.removeprefix("token_")
         rows.append((f"service token: {svc}", f"deploy/secrets/services/{svc}.token (0600)",
                      f"{', '.join(names)} only, at /run/secrets/tb_service_token"))  # fmt: skip
@@ -367,6 +466,16 @@ def secrets_rows(svcs: list[Service], lang: str) -> list[tuple[str, str, str]]:
             "site_hmac.key, pid_map.key, REDCap API tokens",
             "volume tb-secrets (/run/secrets/trialbox)",
             "adapter, orchestrator",
+        ),
+        *(
+            [("Caddy's internal CA keys (TB_TLS_MODE=internal)", "volume caddy-data", "caddy only; never copied out")]
+            if any(s.name == "caddy" for s in svcs)
+            else []
+        ),
+        *(
+            [("Authelia secrets and the LDAP bind password", "deploy/secrets/authelia/ (0600, root)", "authelia only")]
+            if any(s.name == "authelia" for s in svcs)
+            else []
         ),
         ("backup public key", "deploy/secrets/backup.pub", "the backup (encrypts only)"),
         ("backup private key", "USB stick", T["hospital_it"][lang]),
@@ -400,7 +509,8 @@ def tables(files: list[str], env: dict[str, str] | None, lang: str, root: Path =
         name = (spec or {}).get("name", n)
         kind = "net_internal" if (spec or {}).get("internal") else "net_console" if n == "console-net" else "net_egress"
         nets.append((name, T[kind][lang]))
-    return {"services": svcs, "ports": ports, "nets": nets, "out": outbound(env), "secrets": secrets_rows(svcs, lang)}
+    return {"services": svcs, "ports": ports, "nets": nets, "out": outbound(env), "secrets": secrets_rows(svcs, lang),
+            "host": host_flows(svcs, env)}  # fmt: skip
 
 
 def _md_table(head: list[str], rows: list[tuple[str, ...]]) -> str:
@@ -426,6 +536,8 @@ def render_md(files: list[str], env: dict[str, str] | None, lang: str, root: Pat
         f"## {L('out_h')}",
         L("out_default") if env is None else L(ctgov_key(env)),
         _md_table([L("service"), L("dest"), L("why"), L("setting")], t["out"]) if t["out"] else "-",
+        f"## {L('host_h')}",
+        _md_table([L("flow"), L("why"), L("setting")], t["host"]),
         f"## {L('secrets_h')}",
         _md_table([L("secret"), L("where"), L("given")], t["secrets"]),
         L("rotate"),
@@ -461,6 +573,7 @@ def render_html(files: list[str], env: dict[str, str] | None, lang: str, root: P
         f"<h2>{L('out_h')}</h2>"
         + (f"<p>{L('out_default')}</p>" if env is None else f"<p>{L(ctgov_key(env))}</p>")
         + (table([L("service"), L("dest"), L("why"), L("setting")], t["out"]) if t["out"] else "<p>-</p>"),
+        f"<h2>{L('host_h')}</h2>" + table([L("flow"), L("why"), L("setting")], t["host"]),
         f"<h2>{L('secrets_h')}</h2>"
         + table([L("secret"), L("where"), L("given")], t["secrets"])
         + f"<p>{L('rotate')}</p>",
@@ -483,7 +596,8 @@ def write(out: Path, files: list[str], env: dict[str, str] | None, root: Path = 
 def read_env(path: Path) -> dict[str, str]:
     """Only what the egress rules read (host names, ports, modes); no password is read."""
     keep = {"SMTP_HOST", "SMTP_PORT", "IMAP_HOST", "IMAP_PORT", "CLOUD_LLM_BASE_URL", "TB_CTGOV_MODE",
-            "NHI_TWPAS_BASE_URL", "EGRESS_EXTRA", "TB_CONSOLE_BIND", "TB_HOST_CONSOLE_PORT"}  # fmt: skip
+            "NHI_TWPAS_BASE_URL", "EGRESS_EXTRA", "TB_CONSOLE_BIND", "TB_HOST_CONSOLE_PORT", "TB_TLS_HOSTNAME",
+            "TB_TLS_BIND", "TB_AUTH_HOSTNAME", "TB_BACKUP_TARGETS"}  # fmt: skip
     out = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         k, _, v = line.partition("=")

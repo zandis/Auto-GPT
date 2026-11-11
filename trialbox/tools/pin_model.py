@@ -18,6 +18,10 @@ are not part of the manifest.
 ``--install <gpu>`` (``deploy/install.sh``, D-142) pins the GPU profile's deployed pair from the site's own weights as
 ``champion``, the status PRODUCTION routes accept; a build already pinned is left alone.
 
+``--name-judge <gpu>`` prints the judge the profile serves, by its role and the registry's own label (alias, build,
+``model_name``, pinned or not), for ``deploy/install.sh`` to name it (T-632, D-382); it reads only the registry and
+the site override, never the weights.
+
 ``--verify`` recomputes the manifest and exits 1 when it differs from the pinned sha256 (SEC-64: weights changed
 since the pin); it writes nothing. ``--verify-all deploy/models`` does that for every build in the override (each
 under its recorded ``model_dir``); ``deploy/install.sh`` runs it before a GPU stack starts. Exit 2 on a usage error
@@ -290,6 +294,23 @@ def install_pins(
     return ok, lines
 
 
+def judge_line(gpu: str, out: Path = DEFAULT_OVERRIDE, registry: Path | None = None) -> str:
+    """The judge of a GPU profile in one line, from the configuration only: the role's alias, the build the profile
+    serves, the registry's ``model_name`` for it and the site's pin (T-632, D-382)."""
+    pairs = PROFILE_PAIRS.get(gpu)
+    if not pairs:
+        raise PinError(f"no deployed pair for GPU profile {gpu!r}")
+    build = next(b for b, endpoint, *_ in pairs if endpoint == "serving")
+    reg = yaml.safe_load((registry or ROOT / "models" / "registry.yaml").read_text(encoding="utf-8")) or {}
+    entry = next((b for b in reg.get("builds") or [] if b.get("build_id") == build), None)
+    if entry is None:
+        raise PinError(f"build {build} of profile {gpu} is not in models/registry.yaml")
+    have = ((load_override(out).get("builds") or {}) if out.exists() else {}).get(build) or {}
+    pin_txt = f"pinned {str(have['sha256'])[:12]}" if have.get("sha256") else "not pinned (routes nothing yet)"
+    label = entry.get("model_name") or build
+    return f"judge ({entry.get('alias')}): {label}; build {build}; {pin_txt}"
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--build", help="build_id in models/registry.yaml")
@@ -312,7 +333,17 @@ def main(argv: list[str] | None = None) -> int:
         help="pin GPU profile's deployed pair from --models-root (install.sh); exit 1 when weights are missing",
     )
     ap.add_argument("--models-root", type=Path, default=ROOT / "deploy" / "models")
+    ap.add_argument(
+        "--name-judge", metavar="GPU", help="print the judge GPU profile serves (install.sh); write nothing"
+    )
     args = ap.parse_args(argv)
+    if args.name_judge:
+        try:
+            print(judge_line(args.name_judge, args.out))
+        except PinError as exc:
+            print(f"pin_model: {exc}", file=sys.stderr)
+            return 2
+        return 0
     if args.install:
         import os
 

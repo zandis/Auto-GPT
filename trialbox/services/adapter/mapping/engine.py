@@ -138,8 +138,9 @@ class Mapping:
         digest = hashlib.sha256(path.read_bytes())
         lookup_dirs = {name: path.parent for name in (doc.get("lookups") or {})}
         if doc.get("extends"):
-            base_path = Path(doc["extends"])
-            base_path = base_path if base_path.is_absolute() else (path.parent / base_path).resolve()
+            from adapter.mapping.site import resolve_extends  # a site mapping extends the image's base (T-632)
+
+            base_path = resolve_extends(path, str(doc["extends"]))
             if not base_path.exists():
                 raise MappingError(f"{path}: extends {doc['extends']} not found")
             digest.update(base_path.read_bytes())

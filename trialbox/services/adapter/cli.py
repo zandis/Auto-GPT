@@ -6,7 +6,9 @@
     adapter keys-init [--secrets DIR]          # the install ceremony's key step (T-612)
 
 Configuration comes from the environment/settings (``TB_LAKE_DIR``, ``TB_SECRETS_DIR``, ``FHIR_BASE_URL``, mapping
-from ``settings.data_source.mapping``). Exit status 0 = report passed, 1 = failed, 2 = refused before the night
+from ``settings.data_source.mapping``). A relative mapping is looked up in the site's mapping folder first
+(``deploy/site/mapping``, mounted at ``/etc/trialbox/mapping``; ``TB_MAPPING_DIR``), then in the image
+(``adapter.mapping.site``, T-632). Exit status 0 = report passed, 1 = failed, 2 = refused before the night
 started (configuration, or the site key missing or changed: T-612).
 
 ``keys-init`` makes ``site_hmac.key`` and ``pid_map.key`` in the secrets folder (``TB_SECRETS_DIR``) when absent and
@@ -27,9 +29,10 @@ from tb_common.config import ConfigError, load
 from tb_common.logging import setup_logging
 from tb_contracts import RebuildResult, dump
 
+from adapter.mapping.site import resolve as resolve_mapping
 from adapter.pipeline import AdapterConfig, SiteKeyError, run_ingest
 
-MAPPING_ROOT = Path(__file__).resolve().parent
+MAPPING_ROOT = Path(__file__).resolve().parent  # the image's mappings (adapter.mapping.site: the site's come first)
 
 
 def _registry(reg: Any) -> tuple[str, str] | None:
@@ -46,9 +49,12 @@ def _registry(reg: Any) -> tuple[str, str] | None:
 def build_config() -> tuple[AdapterConfig, str, str]:
     cfg = load()
     ds = cfg.settings.data_source
-    mapping = Path(ds.mapping or "mapping/tw_core/demo_his.yaml")
-    if not mapping.is_absolute():
-        mapping = MAPPING_ROOT / mapping
+    mapping = resolve_mapping(ds.mapping)  # T-632: the site's folder first, then the image
+    if not mapping.is_file():
+        raise ConfigError(
+            f"mapping file {ds.mapping or mapping} not found in the site mapping folder (deploy/site/mapping) "
+            "or the image"
+        )
     lake_dir = Path(os.environ.get("TB_LAKE_DIR", Path(cfg.env.data_dir) / "lake"))
 
     def rebuild(snapshot: str, ndjson_dir: Path) -> RebuildResult:

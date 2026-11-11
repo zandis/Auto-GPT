@@ -13,13 +13,29 @@ from tools import network_sheet as ns
 
 ROOT = Path(__file__).resolve().parents[2]
 SHEET = ROOT / "docs/handover/network-sheet"
+OVERLAYS = sorted(p.name for p in (ROOT / "deploy").glob("docker-compose.*.yml"))
+
+
+class _AnyTag(yaml.SafeLoader):
+    """compose's merge tags (!reset, !override) read as plain values: the test's own reading, not the sheet's."""
+
+
+_AnyTag.add_multi_constructor(
+    "!",
+    lambda loader, suffix, node: (
+        loader.construct_sequence(node) if isinstance(node, yaml.SequenceNode)
+        else loader.construct_mapping(node) if isinstance(node, yaml.MappingNode)
+        else loader.construct_scalar(node)
+    ),
+)  # fmt: skip
 
 
 def _compose_ports() -> dict[str, set[int]]:
     """Independently of the sheet's code: every port the compose files say a service listens on."""
     out: dict[str, set[int]] = {}
     for f in ns.FILES:
-        for name, svc in (yaml.safe_load((ROOT / f).read_text(encoding="utf-8")).get("services") or {}).items():
+        doc = yaml.load((ROOT / f).read_text(encoding="utf-8"), Loader=_AnyTag)
+        for name, svc in (doc.get("services") or {}).items():
             got = out.setdefault(name, set())
             text = " ".join(str(c) for c in (svc.get("command") or []))
             got |= {int(m) for m in re.findall(r"--port[= ](\d+)", text)}
@@ -59,7 +75,8 @@ def test_the_committed_sheet_lists_every_port_and_is_up_to_date(lang: str) -> No
         assert name in rows, f"{name} missing from the {lang} sheet"
         for p in ports:
             assert re.search(rf"\b{p}\b", rows[name]), f"{name}:{p} missing from the {lang} sheet"
-    assert "127.0.0.1:8090" in rows["console"]  # the only published port, on loopback by default
+    # T-632: every PRODUCTION box runs behind Caddy; the console's own port is not published (identity overlay)
+    assert ns.T["not_published"][lang] in rows["console"] and "0.0.0.0:443:443" in rows["caddy"]
     assert "@page" in html and "A4 landscape" in html  # prints on one page
 
 
@@ -89,3 +106,29 @@ def test_every_secret_has_a_place_and_the_services_that_get_it() -> None:
     assert "| IMAP_PASS, SMTP_PASS | deploy/.env (0600, root) | mail-gateway |" in md
     assert "| CLOUD_LLM_API_KEY (empty by default) | deploy/.env (0600, root) | gateway |" in md
     assert "doc-parser" not in md.split("POSTGRES_WF_PASSWORD")[1].split("\n")[0]  # cleared where never used
+
+
+@pytest.mark.parametrize("overlay", OVERLAYS)
+def test_every_overlay_renders(overlay: str, tmp_path: Path) -> None:
+    """OPS-014: the sheet renders the base, the secrets and each overlay (compose's !reset and !override too)."""
+    files = ["deploy/docker-compose.yml", "deploy/docker-compose.secrets.yml", f"deploy/{overlay}"]
+    for lang in ns.LANGS:
+        md = ns.render_md(files, None, lang)
+        assert ns.T["host_h"][lang] in md and "NTP" in md and "backup share" in md
+        assert ns.render_html(files, None, lang).startswith("<!doctype html>")
+    assert ns.main(["--files", ":".join(files), "--out", str(tmp_path / "s")]) == 0
+
+
+def test_the_identity_overlay_shows_443_ldaps_and_no_console_port(tmp_path: Path) -> None:
+    env = tmp_path / ".env"
+    env.write_text("TB_TLS_HOSTNAME=trialbox.hospa.example\nTB_BACKUP_TARGETS=/mnt/tb-backup\n", encoding="utf-8")
+    files = "deploy/docker-compose.yml:deploy/docker-compose.secrets.yml:deploy/docker-compose.identity.yml"
+    out = tmp_path / "site" / "network-sheet"
+    assert ns.main(["--files", files, "--env", str(env), "--out", str(out)]) == 0
+    md = out.with_name("network-sheet.en.md").read_text(encoding="utf-8")
+    rows = {ln.split("|")[1].strip(): ln for ln in md.splitlines() if ln.startswith("| ")}
+    assert "443" in rows["caddy"] and "not published" in rows["console"]  # !reset [] took the console's port away
+    assert "clinic PCs -> trialbox.hospa.example:443 (caddy)" in md
+    assert "authelia -> domain controller:636 (LDAPS)" in md
+    assert "host -> backup share (/mnt/tb-backup)" in md and "UDP 123" in md
+    assert "Caddy's internal CA keys" in md and "| oidc_client_secret |" in md

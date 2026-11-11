@@ -6,6 +6,12 @@ validated against ``schemas/settings.schema.json`` plus the cross-checks that th
 departments exist, mail recipients are inside the internal domains, the MRN regex compiles, the mapping file exists).
 Secrets in ``.env`` (MinIO, Postgres, mailbox) are generated randomly unless given; the file is written with mode 0600.
 
+Site inputs (T-632, D-382): the mapping is looked up in the site's mapping folder first (``--mapping-dir``,
+``TB_MAPPING_DIR``, the ``mapping/`` folder beside the answers file, ``deploy/site/mapping``), then in the image, as
+the adapter does (``adapter.mapping.site``). The feed folder on the host becomes ``TB_SOURCE_DIR`` and the settings'
+``data_source.path`` the folder it is mounted at (``TB_SOURCE_MOUNT``). The console's DNS name and certificate mode
+become ``TB_TLS_HOSTNAME`` and ``TB_TLS_MODE``: ``deploy/install.sh`` turns TLS on from them.
+
     python -m tools.settings_wizard                                   # interactive
     python -m tools.settings_wizard --answers site_c.yaml --out deploy/settings.yaml --env-out deploy/.env
 """
@@ -29,6 +35,8 @@ for _p in ("libs", "services"):
 
 EXAMPLE = ROOT / "deploy" / "settings.example.yaml"
 MAPPING_ROOT = ROOT / "services" / "adapter"
+SITE_MAPPING = ROOT / "deploy" / "site" / "mapping"  # the site's own mappings (kept by every update, D-367)
+TLS_MODES = ("internal", "hospital")
 
 # key, question, default (None = from the example settings), kind
 QUESTIONS: list[tuple[str, str, Any, str]] = [
@@ -44,9 +52,11 @@ QUESTIONS: list[tuple[str, str, Any, str]] = [
     ("reviewers", "Ruleset reviewers / approvers (comma separated)", None, "list"),
     ("alliance_sites", "Alliance member boxes (comma separated, may be empty)", [], "list"),
     ("data_source_type", "HIS source type (csv | cgrd_sql | fhir_bulk)", "csv", "str"),
-    ("data_source_path", "Source directory (csv / fhir_bulk) or empty", "/data/source/site", "str"),
+    ("data_source_path", "Source directory as the adapter sees it (csv / fhir_bulk)", "/data/source/site", "str"),
+    # T-632 (OPS-011): the host folder the nightly export lands in; compose mounts it at data_source_path
+    ("data_source_host_dir", "Feed folder on this host (relative = under deploy/)", "./site/feed", "str"),
     ("data_source_dsn_env", "Env var holding the SQL DSN (cgrd_sql) or empty", "", "str"),
-    ("mapping", "Mapping YAML (relative to services/adapter)", "mapping/tw_core/demo_his.yaml", "str"),
+    ("mapping", "Mapping YAML (in deploy/site/mapping, else the shipped ones)", "mapping/tw_core/demo_his.yaml", "str"),
     ("mrn_regex", "MRN pattern (regular expression)", r"^\d{8}$", "str"),
     ("registry_type", "Consent registry (csv | sql | none)", "none", "str"),
     ("registry_path", "Registry CSV path (csv) or empty", "", "str"),
@@ -66,6 +76,11 @@ QUESTIONS: list[tuple[str, str, Any, str]] = [
     ("imap_port", "IMAP port", "993", "str"),
     ("imap_user", "Intake mailbox user", "trialbox", "str"),
     ("mta_authserv_id", "authserv-id your MTA writes first in Authentication-Results (e.g. mx.hospital.tw)", "", "str"),
+    # T-632 (OPS-013): the console is reached at https://<tls_hostname> through Caddy (RUNBOOK §12)
+    ("tls_hostname", "Console DNS name for https (from hospital IT)", "", "str"),
+    ("tls_mode", "Certificate (internal = Caddy's own CA | hospital = the hospital's)", "internal", "str"),
+    ("tls_cert_file", "Hospital certificate and chain, PEM (hospital mode)", "", "str"),
+    ("tls_key_file", "Its key, PEM (hospital mode)", "", "str"),
     # D-138: log retention per country (tb_common.retention.DEFAULTS); "" = from the report language (ja -> jp)
     ("retention_rules", "Retention defaults (jp | tw; empty = from the report language)", "", "str"),
     ("logs_days", "Days to keep service logs (empty = the default of those rules)", "", "str"),
@@ -189,7 +204,19 @@ def _zone_errors(tz: str, mapping: Path) -> list[str]:
     return []
 
 
-def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]:
+def find_mapping(mapping: str, mapping_dirs: list[Path] | None = None) -> Path:
+    """The mapping file, as the adapter finds it: the site's folders first, then the image (T-632)."""
+    from adapter.mapping.site import resolve
+
+    path = Path(mapping)
+    if path.is_absolute() or path.exists():  # an absolute path, or one relative to where the wizard runs
+        return path
+    return resolve(mapping, [*(mapping_dirs or []), SITE_MAPPING])
+
+
+def build(
+    a: dict[str, Any], mapping_dirs: list[Path] | None = None
+) -> tuple[dict[str, Any], dict[str, str], list[str]]:
     """Answers -> (settings dict, env dict, warnings). Raises WizardError on inconsistent answers."""
     base = defaults()
 
@@ -216,11 +243,15 @@ def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]
     for pid, p in prac.items():
         if p.get("department") and p["department"] not in depts:
             errors.append(f"practitioner {pid}: department {p['department']!r} is not in departments")
-    mapping = str(get("mapping"))
-    if not (MAPPING_ROOT / mapping).exists() and not Path(mapping).exists():
-        errors.append(f"mapping file {mapping} not found (copy a template from services/adapter/mapping/templates)")
+    mapping = str(get("mapping") or "mapping/tw_core/demo_his.yaml")
+    mapping_file = find_mapping(mapping, mapping_dirs)
+    if not mapping_file.is_file():
+        errors.append(
+            f"mapping file {mapping} not found in the site mapping folder (deploy/site/mapping) or the image "
+            "(copy a template from services/adapter/mapping/templates into deploy/site/mapping)"
+        )
     tz = str(a.get("tz") or "").strip()  # the site's zone: one answer, no default (D-315)
-    errors += _zone_errors(tz, MAPPING_ROOT / mapping if (MAPPING_ROOT / mapping).exists() else Path(mapping))
+    errors += _zone_errors(tz, mapping_file)
     ds_type = str(get("data_source_type"))
     data_source: dict[str, Any] = {"type": ds_type, "mapping": mapping, "nightly_at": "02:00"}
     if ds_type == "cgrd_sql":
@@ -249,6 +280,22 @@ def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]
         warnings.append(
             "ClinicalTrials.gov live: the box will reach clinicaltrials.gov:443 (the network sheet lists it)"
         )
+    tls_host = str(a.get("tls_hostname") or "").strip()
+    tls_mode = str(a.get("tls_mode") or "internal").strip().lower()
+    tls_env: dict[str, str] = {}
+    if tls_mode not in TLS_MODES:
+        errors.append(f"tls_mode must be internal or hospital, not {tls_mode!r}")
+    elif tls_host:
+        if not re.fullmatch(r"[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?", tls_host) or "." not in tls_host:
+            errors.append(f"tls_hostname {tls_host!r} is not a DNS name (for example trialbox.hospital.tw)")
+        tls_env = {"TB_TLS_HOSTNAME": tls_host, "TB_TLS_MODE": tls_mode}
+        if tls_mode == "hospital":
+            for k, var in (("tls_cert_file", "TB_TLS_CERT_FILE"), ("tls_key_file", "TB_TLS_KEY_FILE")):
+                if not str(a.get(k) or "").strip():
+                    errors.append(f"tls_mode hospital needs {k}")
+                tls_env[var] = str(a.get(k) or "").strip()
+    else:
+        warnings.append("tls_hostname is empty: install.sh asks for it (a PRODUCTION box runs only behind https)")
     twpas = _bool(a.get("twpas_enabled", "no"))
     if twpas and not a.get("twpas_org_id"):
         errors.append("TWPAS needs the NHI hospital code (twpas_org_id)")
@@ -369,6 +416,10 @@ def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]
     }
     if ds_type == "cgrd_sql" and a.get("data_source_dsn"):
         env[str(get("data_source_dsn_env"))] = str(a["data_source_dsn"])
+    # T-632 (OPS-011): the feed folder on the host and where the adapter sees it (deploy/docker-compose.yml)
+    env["TB_SOURCE_DIR"] = str(a.get("data_source_host_dir") or "./site/feed")
+    env["TB_SOURCE_MOUNT"] = str(data_source.get("path") or "/data/source/site")
+    env.update(tls_env)
     return settings, env, warnings
 
 
@@ -399,6 +450,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, default=ROOT / "deploy" / "settings.yaml")
     ap.add_argument("--env-out", type=Path, help="also write the .env (mode 0600)")
     ap.add_argument("--check", type=Path, help="only validate an existing settings.yaml")
+    ap.add_argument(
+        "--mapping-dir",
+        type=Path,
+        action="append",
+        default=[],
+        help="a site mapping folder to look in first (default: mapping/ beside --answers, deploy/site/mapping)",
+    )
     args = ap.parse_args(argv)
     from tb_common.config import ConfigError, load_settings
 
@@ -413,7 +471,8 @@ def main(argv: list[str] | None = None) -> int:
     answers = yaml.safe_load(args.answers.read_text(encoding="utf-8")) if args.answers else {}
     a = answers if args.answers else ask({})
     try:
-        settings, env, warnings = build(a)
+        dirs = list(args.mapping_dir) + ([args.answers.parent / "mapping"] if args.answers else [])
+        settings, env, warnings = build(a, dirs)
         write(settings, env, args.out, args.env_out)
     except (WizardError, ConfigError) as exc:
         print(f"not written: {exc}", file=sys.stderr)
