@@ -61,6 +61,8 @@ SCREEN_TYPES = ("MICROBATCH", "SCREEN")
 
 
 STALE_DAYS = 2  # FIT-U01: a list whose data is older than this many days is shown amber
+# FIT-U03 (T-629): another study's registry status, as this study's list says it
+OTHER_STATE = {"candidate": "candidate", "contacted": "candidate", "consented": "enrolled", "enrolled": "enrolled"}
 
 
 def data_as_of(job: Job, today: date) -> dict[str, Any]:
@@ -284,6 +286,9 @@ def register(app: FastAPI, h: Helpers) -> None:
             removed = [str(r.get("pid")) for r in cl.get("rows") or [] if str(r.get("pid")) in out]
             if removed:
                 cl = {**cl, "rows": [r for r in cl.get("rows") or [] if str(r.get("pid")) not in out]}
+        dead, unchecked = deceased_now(cl)
+        if dead:  # FIT-U04 (T-629): a death recorded since the run takes the patient off every list at once
+            cl = {**(cl or {}), "rows": [r for r in (cl or {}).get("rows") or [] if str(r.get("pid")) not in dead]}
         summary = load(job, "screen_", ".json")
         names = (summary or {}).get("practitioner_names") or {}
         pids = [str(r.get("pid")) for r in (cl or {}).get("rows") or [] if r.get("tier") in ("high", "review")]
@@ -298,8 +303,47 @@ def register(app: FastAPI, h: Helpers) -> None:
             names,
             today=h.today(),
         )
+        others_of(sess, rs, rows)
+        asof = {**data_as_of(job, h.today()), "dead": len(dead), "dead_unchecked": unchecked}
         return {"job": job, "rows": rows, "counts": st.week_counts(rows), "summary": summary or {}, "cl": cl,
-                "removed": removed, "asof": data_as_of(job, h.today())}  # fmt: skip
+                "removed": removed, "asof": asof, "deceased": dead, "dead_unchecked": unchecked}  # fmt: skip
+
+    def deceased_now(cl: dict[str, Any] | None) -> tuple[set[str], bool]:
+        """FIT-U04 (T-629, D-415): the listed patients whose record in the lake now says they died (T-616's
+        ``patient.deceased``, or a death date), read at every page view, so a death recorded after the run takes the
+        patient off the Approach lists, the call tasks and the morning mail at once. ``(dead, unchecked)``:
+        ``unchecked`` when the lake could not be asked; then nobody may be marked Approach or called until it can."""
+        fn = getattr(bk, "deceased", None)
+        pids = sorted({str(r.get("pid")) for r in (cl or {}).get("rows") or []})
+        if fn is None or not pids:
+            return set(), False
+        try:
+            return set(fn(pids)) & set(pids), False
+        except Exception:  # the lake did not answer: say so, and stop contacts, never a quiet "no deaths"
+            return set(), True
+
+    def others_of(sess: Session | None, rs: str, rows: list[dict[str, Any]]) -> None:
+        """FIT-U03 (T-629, D-415): the same patient in other studies, from their candidate registries. Each row gets
+        ``elsewhere``: ``{"study", "state"}`` per other study (state ``candidate`` or ``enrolled``), the study named
+        only to an account that may see it, else empty ("another study"). Consented or enrolled in another study
+        puts the patient on "needs information" (an open item) until a person checks the protocol's rule."""
+        if not rows:
+            return
+        mine = {str(r["pid"]) for r in rows}
+        found: dict[str, list[dict[str, str]]] = {}
+        for other in bk.rulesets():
+            if other.id == rs or other.status != "approved" or other.kind not in ("trial", ""):
+                continue
+            for pid, status in registry_map(other.id).items():
+                state = OTHER_STATE.get(status)
+                if pid in mine and state:
+                    shown = other.id if sess is not None and sess.user.sees_study(other.id) else ""
+                    found.setdefault(pid, []).append({"study": shown, "state": state})
+        lang = sess.lang if sess else "en"
+        for r in rows:
+            r["elsewhere"] = found.get(str(r["pid"]), [])
+            if any(o["state"] == "enrolled" for o in r["elsewhere"]):
+                r["fit"].open.append(translate(lang, "elsewhere.open"))
 
     def study_card(sess: Session, r: Any, jobs: list[Job]) -> dict[str, Any]:
         rs = r.id
@@ -689,6 +733,10 @@ def register(app: FastAPI, h: Helpers) -> None:
         crit = crit_of(rid, sess.lang)
         listed = next((r for r in wk["rows"] if r["pid"] == pid), None)
         names = (wk["summary"] or {}).get("practitioner_names") or {}
+        fit = st.fit_facts(row.get("criteria") or [], crit)
+        elsewhere = (listed or {}).get("elsewhere") or []
+        if any(o["state"] == "enrolled" for o in elsewhere):  # FIT-U03 (T-629): as on the list
+            fit.open.append(translate(sess.lang, "elsewhere.open"))
         return {
             "rs": rid,
             "pid": pid,
@@ -696,7 +744,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             "asof": wk["asof"],
             "row": row,
             "listed": listed,
-            "fit": st.fit_facts(row.get("criteria") or [], crit),
+            "elsewhere": elsewhere,
+            "fit": fit,
             "crits": st.patient_rows(row.get("criteria") or [], crit),
             "practitioner": names.get(row.get("practitioner_id") or "", row.get("practitioner_id") or ""),
             "history": store.mark_history(rid, pid),
@@ -972,6 +1021,21 @@ def register(app: FastAPI, h: Helpers) -> None:
         lst = lst if lst in st.WORKLISTS else "all"
         return f"/studies/{rid}/week?list={lst}&pid={pid}&done={done}#chart"
 
+    def contact_or_refuse(sess: Session, rid: str, wk: dict[str, Any] | None, pid: str, action: str) -> None:
+        """FIT-U04 (T-629, D-415): nothing is recorded for a patient whose record now says they died (the page and
+        ``/api/v1`` alike); while the death records cannot be read, no Approach and no contact outcome. Audited."""
+        if wk is None:
+            return
+        why = ""
+        if pid in (wk.get("deceased") or ()):
+            why, key, status = "deceased", "patient.deceased", 409
+        elif wk.get("dead_unchecked") and (action == "approach" or action in OUTCOMES):
+            why, key, status = "death records unreadable", "patient.death_unchecked", 503
+        if why:
+            au.append("console.refused", ruleset=rid, actor=h.actor(sess),
+                      detail={"pid": pid, "action": action, "reason": why})  # fmt: skip
+            raise h.problem(status, key)
+
     def apply_mark(
         sess: Session,
         path: str,
@@ -1001,6 +1065,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             # no mark, on the page and on /api/v1 alike
             raise h.problem(400, "mark.reason_needed")
         wk = week_bundle(sess, rid)
+        contact_or_refuse(sess, rid, wk, pid, mark)
         if wk is None or not any(str(r.get("pid")) == pid for r in (wk["cl"] or {}).get("rows") or []):
             raise h.problem(404, "notfound")
         today = h.today()
@@ -1103,6 +1168,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         if (outcome not in OUTCOMES and outcome != "undo") or not _PID.match(pid):
             raise h.problem(400, "request.refused", reason="choose one of the contact outcomes")
         wk = week_bundle(sess, rid)
+        if outcome != "undo":
+            contact_or_refuse(sess, rid, wk, pid, outcome)
         if wk is None or not any(str(r.get("pid")) == pid for r in (wk["cl"] or {}).get("rows") or []):
             raise h.problem(404, "notfound")
         if outcome == "undo":
