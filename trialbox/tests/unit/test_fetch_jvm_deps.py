@@ -47,6 +47,23 @@ def _run(out: Path, tmp_path: Path, **env: str) -> subprocess.CompletedProcess[s
     )
 
 
+def _lib_sums(tmp_path: Path, jars: dict[str, bytes]) -> Path:
+    p = tmp_path / "jvm-deps.sha256"
+    lines = ["# test list"] + [f"{hashlib.sha256(b).hexdigest()}  {n}" for n, b in sorted(jars.items())]
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return p
+
+
+def _cached(tmp_path: Path, jars: dict[str, bytes]) -> tuple[Path, dict[str, str]]:
+    """A cache with the validator jar and these translator jars; env with the validator's sum."""
+    out = tmp_path / "jvm"
+    (out / "cql-translator" / "lib").mkdir(parents=True)
+    (out / "validator_cli.jar").write_bytes(b"stand-in jar")
+    for name, data in jars.items():
+        (out / "cql-translator" / "lib" / name).write_bytes(data)
+    return out, {"VALIDATOR_SHA256": hashlib.sha256(b"stand-in jar").hexdigest()}
+
+
 def test_pin_is_a_sha256() -> None:
     assert re.fullmatch(r"[0-9a-f]{64}", _pinned("PINNED_VALIDATOR_SHA256"))
     assert re.fullmatch(r"\d+\.\d+\.\d+", _pinned("PINNED_VALIDATOR_VERSION"))
@@ -69,7 +86,8 @@ def test_jar_matching_the_sum_passes(tmp_path: Path) -> None:
     (out / "validator_cli.jar").write_bytes(data)
     (out / "cql-translator" / "lib").mkdir(parents=True)
     (out / "cql-translator" / "lib" / "x.jar").write_bytes(b"x")  # Maven step skipped
-    res = _run(out, tmp_path, VALIDATOR_SHA256=hashlib.sha256(data).hexdigest())
+    sums = _lib_sums(tmp_path, {"x.jar": b"x"})
+    res = _run(out, tmp_path, VALIDATOR_SHA256=hashlib.sha256(data).hexdigest(), JVM_LIB_SUMS=str(sums))
     assert res.returncode == 0, res.stderr
     assert (out / "validator_cli.jar.sha256").read_text(encoding="utf-8").startswith(hashlib.sha256(data).hexdigest())
 
@@ -90,3 +108,46 @@ def test_unpinned_version_needs_a_sum(tmp_path: Path) -> None:
     assert res.returncode != 0
     assert "no pinned sha256" in res.stderr
     assert not out.exists()
+
+
+# ENG-013 (T-110b): the translator jars Maven copies are pinned by tools/jvm-deps.sha256
+
+
+def test_jar_list_is_well_formed_and_names_the_translator() -> None:
+    rows = [ln for ln in (ROOT / "tools" / "jvm-deps.sha256").read_text(encoding="utf-8").splitlines()]
+    rows = [ln for ln in rows if ln and not ln.startswith("#")]
+    assert len(rows) > 50
+    names = []
+    for ln in rows:
+        m = re.fullmatch(r"([0-9a-f]{64})  (\S+\.jar)", ln)
+        assert m, ln
+        names.append(m.group(2))
+    assert len(names) == len(set(names))
+    assert any(n.startswith("cql-to-elm") for n in names)
+    assert "-C" in SCRIPT.read_text(encoding="utf-8").split("dependency:copy-dependencies")[0].rsplit("mvn", 1)[1]
+
+
+def test_one_tampered_byte_in_a_cached_translator_jar_fails(tmp_path: Path) -> None:
+    jars = {"a.jar": b"jar a", "b.jar": b"jar b"}
+    out, env = _cached(tmp_path, jars)
+    sums = _lib_sums(tmp_path, jars)
+    assert _run(out, tmp_path, JVM_LIB_SUMS=str(sums), **env).returncode == 0
+    (out / "cql-translator" / "lib" / "b.jar").write_bytes(b"jar c")
+    res = _run(out, tmp_path, JVM_LIB_SUMS=str(sums), **env)
+    assert res.returncode != 0
+    assert "not the ones jvm-deps.sha256 pins" in res.stderr
+    assert "b.jar" in res.stderr
+
+
+@pytest.mark.parametrize("change", ["extra", "missing"])
+def test_an_extra_or_missing_translator_jar_fails(tmp_path: Path, change: str) -> None:
+    jars = {"a.jar": b"jar a", "b.jar": b"jar b"}
+    out, env = _cached(tmp_path, jars)
+    sums = _lib_sums(tmp_path, jars)
+    if change == "extra":
+        (out / "cql-translator" / "lib" / "evil.jar").write_bytes(b"added")
+    else:
+        (out / "cql-translator" / "lib" / "a.jar").unlink()
+    res = _run(out, tmp_path, JVM_LIB_SUMS=str(sums), **env)
+    assert res.returncode != 0
+    assert "refusing them" in res.stderr

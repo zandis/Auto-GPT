@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/release.schema.json",
+  "title": "ReleaseRecord",
+  "description": "release.json, the release record inside a signed offline bundle (T-110b, D-340). Schema version 1.0.0. Written by tools/release.py from the bundle's own files: the version (pyproject.toml, the one place), the source commit and tag, the passing release-gate record, every image by its config digest with its SBOM, and every payload file with its sha256. images is the map verify_update.py checks against the bundle's images.lock (D-210).",
+  "type": "object",
+  "required": [
+    "format",
+    "product",
+    "version",
+    "release_id",
+    "release_seq",
+    "created_at",
+    "source",
+    "gates",
+    "images",
+    "sboms",
+    "components"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "trialbox-release/1"
+    },
+    "product": {
+      "const": "trialbox"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([.+-][0-9A-Za-z.-]+)?$"
+    },
+    "release_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$"
+    },
+    "release_seq": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "commit",
+        "dirty",
+        "tag"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "dirty": {
+          "type": "boolean"
+        },
+        "tag": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "title": "ReleaseSource"
+    },
+    "gates": {
+      "type": "object",
+      "description": "The release-gate record (tools/supply_chain release-gates, D-186) the images passed.",
+      "required": [
+        "record_sha256",
+        "created",
+        "ok",
+        "vuln_mode"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "record_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "created": {
+          "type": "string"
+        },
+        "ok": {
+          "const": true
+        },
+        "vuln_mode": {
+          "type": "string"
+        }
+      },
+      "title": "ReleaseGates"
+    },
+    "images": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/ReleaseImage"
+      }
+    },
+    "sboms": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/ReleaseFile"
+      }
+    },
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Every payload file of the bundle (files/<path> in the tar), SBOMs included.",
+      "items": {
+        "$ref": "#/$defs/ReleaseComponent"
+      }
+    }
+  },
+  "$defs": {
+    "ReleaseImage": {
+      "title": "ReleaseImage",
+      "type": "object",
+      "required": [
+        "image",
+        "digest",
+        "source",
+        "archive",
+        "sbom",
+        "sbom_sha256"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "string",
+          "description": "The tag the saved archive carries (what the box loads)."
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "The image's config digest (its image id), as in the gate record and images.lock."
+        },
+        "source": {
+          "type": "string",
+          "description": "The reference the release was built from (a registry digest when it had one)."
+        },
+        "platform": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "repo_digests": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "archive": {
+          "type": "string"
+        },
+        "sbom": {
+          "type": "string"
+        },
+        "sbom_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "ReleaseFile": {
+      "title": "ReleaseFile",
+      "type": "object",
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "subject": {
+          "type": "string"
+        }
+      }
+    },
+    "ReleaseComponent": {
+      "title": "ReleaseComponent",
+      "type": "object",
+      "required": [
+        "path",
+        "kind",
+        "sha256",
+        "size"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "model",
+            "ruleset",
+            "image",
+            "refdata",
+            "other"
+          ]
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

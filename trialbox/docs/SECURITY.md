@@ -216,13 +216,12 @@ The build side needs the network; the box never runs these tools. Code: `tools/s
   what goes into an image, weekly and for a release tag; a release tag also gates both platforms of
   `make images-multiarch`, by digest. `make release-bundle` makes a bundle only from images in a passing record
   (`tools/make_bundle.sh --gates`, which refuses any other image id or a record older than 7 days).
-- **Report mode for third-party images, for now.** Until plan v6 §9 batch 1 lands (owner decision of 2026-11-10),
-  CI runs the image gates with `--vuln-mode report`: fixable CRITICAL/HIGH findings in the third-party images are
-  listed in the CI job summary and do not fail a pull request. Everything else still blocks: the vulnerability gate
-  of our own images (trialbox-py; trialbox-jvm and trialbox-demo since T-672), the licence gate, `make lock-check`, `make allowlist-check`, `make pip-audit`, and any build,
-  scan or report error. A bundle never carries an image that passed only in report mode. The open findings, with
-  owner, target date (2026-12-10) and planned fix, are in `deploy/security/known-image-findings.md`. MailHog has no
-  arm64 image; it is left out of the arm64 gates by name (`SC_AMD64_ONLY`).
+- **The vulnerability gate blocks for every image a bundle carries** (T-110b, D-340). Report mode
+  (`--vuln-mode report`) is left for the test-only mail servers (MailHog, GreenMail), which no bundle carries. The
+  open findings of HAPI FHIR, vLLM and the `trialbox-postgres` base are dated allow-list entries scoped to that image (`image:`), each with
+  `review_by: 2026-12-10`; a new finding blocks. The list, with planned fixes, is in
+  `deploy/security/known-image-findings.md`. MailHog has no arm64 image; it is left out of the arm64 gates by name
+  (`SC_AMD64_ONLY`).
 - **SBOM per release.** Syft writes CycloneDX JSON for each image and platform, and for the Python lock: Syft over an
   environment installed from the lock with hashes (`make lock-sbom`), so each package carries the licence of its
   installed metadata. The lock's SBOM must name every locked package that installs on the box, at its version.
@@ -247,6 +246,6 @@ The build side needs the network; the box never runs these tools. Code: `tools/s
   at most 180 days ahead; `make allowlist-check` rejects an entry without them, a key given twice and a list given
   as anything else. After
   `review_by` every gate fails until the entry is reviewed or removed. Changes need the security owner's approval.
-- **Not done yet** (WS-14.6): `THIRD_PARTY_NOTICES.md`; the SBOMs inside the signed bundle; `--gates` made
-  mandatory in `tools/make_bundle.sh` (optional today, with a warning, so the demo VM's update script keeps working);
-  the venv installed from the same lock (`make venv` still resolves from `pyproject.toml`).
+- **Done in T-110b** (D-340): `--gates` mandatory in `tools/make_bundle.sh`; the SBOMs, the gate record, `NOTICE`
+  (the third-party notices) and `release.json` inside the signed bundle. **Not done yet** (WS-14.6): the venv
+  installed from the same lock (`make venv` still resolves from `pyproject.toml`).

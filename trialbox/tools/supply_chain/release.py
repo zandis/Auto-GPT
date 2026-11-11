@@ -26,16 +26,13 @@ from typing import Any
 from tools.supply_chain import licences, sbom, vulns
 from tools.supply_chain.allowlist import Allowlist
 
-# The image vulnerability gate is in REPORT mode for these third-party images until plan v6 §9 batch 1 lands (owner
-# decision of 2026-11-10, D-186; tracked with owner and target date in deploy/security/known-image-findings.md). With
-# `--vuln-mode report`, a fixable CRITICAL/HIGH finding in one of them is shown in the CI summary instead of failing.
-# Our own images are never here: trialbox-py always blocked, and trialbox-jvm and trialbox-demo block since T-672
-# (translator jars without findings, Temurin 21). A bundle never carries a report-mode finding.
+# Report mode is left only for the test-only mail servers of deploy/docker-compose.test.yml (T-110b, ENG-007): no
+# bundle carries them (tools/make_bundle.sh leaves the test file out, OPS-017), and bundle_problems refuses any image
+# with a report-mode finding anyway. Every image a bundle can carry blocks: ours, and the third-party HAPI FHIR, vLLM
+# and identity images, whose open findings are dated per-image entries of deploy/supply-chain-allowlist.yaml
+# (deploy/security/known-image-findings.md). `--vuln-mode report` changes nothing for any other image.
 VULN_REPORT_ONLY = frozenset(
     {
-        "vllm/vllm-openai",
-        "postgres",
-        "hapiproject/hapi",
         "greenmail/standalone",
         "axllent/mailpit",  # D-348: replaced MailHog; GO-2026-5932 (golang.org/x/crypto) in v1.33.1
     }
@@ -244,7 +241,7 @@ def run_gates(
             sbom_path = sbom_dir / sbom.file_name(target.ref, plat)
             doc = sbom.run_syft(source, sbom_path, syft_env, platform=plat if remote else None)
             entry["errors"] += identity_problems(target, pinned, report, doc)
-            result = vulns.gate(list(report.findings), allow, fails=fails)
+            result = vulns.gate(list(report.findings), allow, fails=fails, subject=target.ref)
             blocking, deferred = split_report_mode(result.failing, target.ref, vuln_mode)
             entry.update(
                 platform=report.platform,
@@ -310,9 +307,9 @@ def summary_markdown(record: dict[str, Any]) -> str:
         "",
         f"Image vulnerability gate mode: **{mode}**"
         + (
-            " (fixable CRITICAL/HIGH findings in "
+            " (fixable CRITICAL/HIGH findings in the test-only images "
             + ", ".join(sorted(VULN_REPORT_ONLY))
-            + " are reported, not blocking, until the follow-up lands; see deploy/security/known-image-findings.md)"
+            + " are reported, not blocking; no bundle carries them; see deploy/security/known-image-findings.md)"
             if mode == "report"
             else ""
         ),

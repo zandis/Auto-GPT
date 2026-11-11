@@ -96,7 +96,8 @@ class RedcapClient:
     def __exit__(self, *_: object) -> None:
         self.close()
 
-    def _post(self, content: str, extra: dict[str, str] | None = None) -> Any:
+    def _send(self, content: str, extra: dict[str, str] | None = None) -> httpx.Response:
+        """One API call; the answer when REDCap says 200, an :class:`RcError` otherwise."""
         data = {"token": self.token, "content": content, "format": "json", "returnFormat": "json", **(extra or {})}
         url = self.url if self.url.endswith("/") else self.url + "/"
         try:
@@ -104,10 +105,7 @@ class RedcapClient:
         except httpx.HTTPError as exc:
             raise RcError("RC-UPSTREAM", f"REDCap did not answer ({type(exc).__name__})") from exc
         if resp.status_code == 200:
-            try:
-                return resp.json()
-            except ValueError as exc:
-                raise RcError("RC-UPSTREAM", "REDCap answered with something that is not JSON") from exc
+            return resp
         if resp.status_code == 403:
             raise RcError("RC-TOKEN", "REDCap refused the token (no API rights for this project)")
         if resp.status_code in (429, 503):
@@ -118,9 +116,18 @@ class RedcapClient:
             msg = ""
         raise RcError("RC-UPSTREAM", f"REDCap returned {resp.status_code}" + (f": {msg[:200]}" if msg else ""))
 
+    def _post(self, content: str, extra: dict[str, str] | None = None) -> Any:
+        resp = self._send(content, extra)
+        try:
+            return resp.json()
+        except ValueError as exc:
+            raise RcError("RC-UPSTREAM", "REDCap answered with something that is not JSON") from exc
+
     # ------------------------------------------------------------------ ICD-04 R1-R3, R7, R8
     def version(self) -> str:
-        return str(self._post("version")).strip().strip('"')
+        """REDCap answers ``content=version`` with plain text (``16.0.8``), whatever the format asked (STD-060,
+        D-281); a JSON string (``"16.0.8"``) is read too."""
+        return self._send("version").text.strip().strip('"').strip()
 
     def check_version(self) -> str:
         v = self.version()
