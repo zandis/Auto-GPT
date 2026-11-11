@@ -18,3 +18,7 @@ for PRODUCTION, synthetic weights or a stub run.
 probe in the same pull request as a new prompt id: a prompt with no probe fails the step.
 
 Stub runs (`--stub`, profile `ci`) write to `.cache/qualification/`, not here. They prove the wiring only.
+
+`b200-layouts.json` names the two MIG layouts G1b qualifies on the owner's B200 (T-114, D-428; RUNBOOK §11 "G1b on
+the owner's B200"). `tools/b200_qualify.sh` reads it from the bundle; G1b's record lives in
+`docs/plan/measurements/b200-g1b/`.

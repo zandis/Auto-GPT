@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""Stand-in for `trialbox eval qualify` (T-114): writes a record that says it is a stand-in, status passed."""
+
+import json
+import sys
+from pathlib import Path
+
+out = Path(sys.argv[sys.argv.index("--out") + 1])
+out.mkdir(parents=True, exist_ok=True)
+(out / "standin.json").write_text(json.dumps({"record_id": "standin", "status": "passed", "stub": True}))

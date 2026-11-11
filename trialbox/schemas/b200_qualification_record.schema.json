@@ -1,0 +1,311 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/b200_qualification_record.schema.json",
+  "title": "B200QualificationRecord",
+  "description": "The G1b record tools/b200_qualify.py writes on the owner's B200 (T-114, D-428): the host fingerprint, two MIG layouts, each with its serving record and qualification record (paths and sha256), and a statement that the host is not the site's. Hashes, versions and statuses only: no patient data. Schema version 1.0.0 (format tb-b200-qualification/1).",
+  "type": "object",
+  "required": [
+    "schema",
+    "card",
+    "gate",
+    "captured_at",
+    "operator",
+    "standin",
+    "host",
+    "bundle",
+    "fingerprint",
+    "layouts",
+    "status",
+    "failed"
+  ],
+  "properties": {
+    "schema": {
+      "const": "tb-b200-qualification/1"
+    },
+    "card": {
+      "const": "T-114"
+    },
+    "gate": {
+      "const": "G1b"
+    },
+    "captured_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "operator": {
+      "type": "string",
+      "minLength": 1
+    },
+    "standin": {
+      "type": "boolean"
+    },
+    "host": {
+      "type": "object",
+      "required": [
+        "kind",
+        "site_host",
+        "statement"
+      ],
+      "properties": {
+        "kind": {
+          "const": "owner-b200"
+        },
+        "site_host": {
+          "const": false
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 20
+        }
+      },
+      "title": "B200Host"
+    },
+    "bundle": {
+      "type": "object",
+      "required": [
+        "sha256",
+        "commit",
+        "built_at"
+      ],
+      "properties": {
+        "sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "built_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "title": "B200Bundle"
+    },
+    "fingerprint": {
+      "$ref": "#/$defs/fingerprint"
+    },
+    "layouts": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "$ref": "#/$defs/layout"
+      }
+    },
+    "status": {
+      "enum": [
+        "passed",
+        "failed",
+        "standin"
+      ]
+    },
+    "failed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "fingerprint": {
+      "type": "object",
+      "required": [
+        "schema",
+        "captured_at",
+        "host_id",
+        "gpu_name",
+        "gpu_count",
+        "memory_total_mib",
+        "driver",
+        "cuda",
+        "vbios",
+        "mig_mode",
+        "mig_layout",
+        "kernel",
+        "os",
+        "container_toolkit",
+        "docker",
+        "vllm_image_digests",
+        "fingerprint_sha256"
+      ],
+      "properties": {
+        "schema": {
+          "const": "tb-host-fingerprint/1"
+        },
+        "host_id": {
+          "type": "string"
+        },
+        "gpu_name": {
+          "type": "string"
+        },
+        "gpu_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "memory_total_mib": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "driver": {
+          "type": "string"
+        },
+        "cuda": {
+          "type": "string"
+        },
+        "vbios": {
+          "type": "string"
+        },
+        "mig_mode": {
+          "type": "string"
+        },
+        "mig_layout": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "kernel": {
+          "type": "string"
+        },
+        "os": {
+          "type": "string"
+        },
+        "container_toolkit": {
+          "type": "string"
+        },
+        "docker": {
+          "type": "string"
+        },
+        "vllm_image_digests": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "fingerprint_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "title": "HostFingerprint"
+    },
+    "file_ref": {
+      "type": "object",
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "title": "B200FileRef"
+    },
+    "layout": {
+      "type": "object",
+      "required": [
+        "name",
+        "mig_profile",
+        "fingerprint",
+        "serving_record",
+        "qualification",
+        "throughput",
+        "status"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "mig_profile": {
+          "type": "string",
+          "pattern": "^judge=\\d+g\\.\\d+gb(\\+me)?,verifier=\\d+g\\.\\d+gb(\\+me)?$"
+        },
+        "fingerprint": {
+          "$ref": "#/$defs/fingerprint"
+        },
+        "serving_record": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/file_ref"
+            }
+          ],
+          "required": [
+            "measured",
+            "why"
+          ],
+          "properties": {
+            "measured": {
+              "type": "boolean"
+            },
+            "why": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "title": "B200ServingRecordRef"
+        },
+        "qualification": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/file_ref"
+            }
+          ],
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "type": "string"
+            }
+          },
+          "title": "B200QualificationRef"
+        },
+        "throughput": {
+          "type": "object",
+          "required": [
+            "note_stage_share",
+            "note_stage_s_p50",
+            "note_stage_s_p95",
+            "criterion_s_p50",
+            "criterion_s_p95"
+          ],
+          "additionalProperties": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "title": "B200Throughput"
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed"
+          ]
+        }
+      },
+      "title": "B200Layout"
+    }
+  }
+}
