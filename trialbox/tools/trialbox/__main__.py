@@ -7,7 +7,8 @@ path behind ``tools/apply_update.sh``, ``update.py``); ``doctor --platform``, ``
 ``platform-egress`` for a hospital platform (D-211, ``platform.py``); ``exports`` lists the export ledger (D-149,
 ``tb_common.flowledger``); ``ops`` runs the console's operations requests and writes their status (D-178, ``ops.py``);
 ``watchdog`` restarts an unhealthy service and audits it (T-108a, D-360, ``watchdog.py``);
-``eval qualify`` qualifies a model pair for a hardware profile and writes the record (D-313, ``tools/qualify.py``).
+``eval qualify`` qualifies a model pair for a hardware profile and writes the record (D-313, ``tools/qualify.py``);
+``model hold|release|status|report`` is the model misbehaviour procedure (T-609, ``model_report.py``).
 ``secrets``, ``logs``, ``update``, ``ops`` and ``watchdog`` need only the standard library, so they run with the
 host's ``python3`` from the install folder: ``sudo python3 -m tools.trialbox secrets rotate``."""
 
@@ -27,6 +28,10 @@ def main(argv: list[str] | None = None) -> int:
         from tools import qualify
 
         return qualify.main(args[2:])
+    if args[:1] == ["model"]:  # hold, release, status and report of a misbehaving model build (T-609, RUNBOOK §19)
+        from tools.trialbox import model_report
+
+        return model_report.main(args[1:])
     ap = argparse.ArgumentParser(prog="trialbox")
     sub = ap.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("doctor", help="v4 deployment checks; exit 1 on any FAIL")
