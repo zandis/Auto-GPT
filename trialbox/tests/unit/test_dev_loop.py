@@ -79,7 +79,7 @@ def test_the_make_target_marks_the_root_before_the_run() -> None:
 
 def test_the_restore_runbook_names_the_reference_pack() -> None:
     """DATA-018: the restore steps say to bring the vendor pack and how to find which one."""
-    rb = (ROOT / "docs" / "RUNBOOK.md").read_text(encoding="utf-8")
+    rb = (ROOT / "docs" / "runbook" / "05-updates-backup-restore-secrets.md").read_text(encoding="utf-8")  # T-669
     restore = rb.split("**Restore.**", 1)[1].split("\n\n## ", 1)[0]
     assert "reference data" in restore and "pack" in restore
     assert "refdata_packs" in restore and "backup-verify" in restore and "deploy/refdata/loaded" in restore
