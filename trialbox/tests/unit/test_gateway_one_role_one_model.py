@@ -143,7 +143,9 @@ def test_judge_400_or_404_ends_the_call_never_another_alias(box: Any, fault: str
     assert fake.hits(JUDGE_HOST) == 1 and fake.hits(VERIFIER_HOST) == 0  # no retry, no other build
     nj = _pair(llm, verifier)
     r = _ask(nj)
-    assert (r.predicate, r.reason) == ("unknown", "model_down") and nj.failures == 1
+    # T-603: a prompt the server finds too long is said as such (a person looks), and still counts as a failure
+    want = "notes_over_budget" if code == "prompt_too_long" else "model_down"
+    assert (r.predicate, r.reason) == ("unknown", want) and nj.failures == 1
     assert fake.hits(VERIFIER_HOST) == 0
     assert all(c["model"] != "v-verifier" for c in _gateway_calls(tmp_path))
 
