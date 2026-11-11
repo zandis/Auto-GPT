@@ -44,6 +44,9 @@ from tb_common.config import environment_name
 from tb_common.llm import LlmError
 
 from edc import mapping, odm, prefill
+from edc.layout import Layout, Slot, split_visit
+from edc.logic import LogicError
+from edc.rows import Key, Rows, watched
 from edc.store import EdcError, EdcStore
 
 log = logging.getLogger("edc")
@@ -221,6 +224,11 @@ class EdcService:
             err = EdcError("edc.map", "the map no longer fits the data dictionary")
             err.problems = bad  # type: ignore[attr-defined]
             raise err
+        slot = split_visit(visit or BASE_EVENT, {f.form for f in fields.values()})
+        if slot.instrument:  # an instance of a repeating instrument: only that instrument's items (T-302b)
+            items = [m for m in items if m.item in fields and fields[m.item].form == slot.instrument]
+            if not items:
+                raise EdcError("edc.no_map", f"no item of the map is on the instrument {slot.instrument}")
         run_id = hashlib.sha256(f"{rs}|{record}|{visit}|{self.stamp()}".encode()).hexdigest()[:16]
         try:
             drafts = prefill.build(pid, vd, items, fields, self.facts(), self.drafter(run_id))
@@ -337,12 +345,33 @@ class EdcService:
             raise
 
     # ------------------------------------------------------------------ send to REDCap, export ODM
+    def _layout(self, c: RedcapClient, rs: str, by: str, record: str | None) -> Layout:
+        """The project's arms, events, designations and repeating set (T-302b). A project that repeats something
+        but does not say what is refused: a value could land on the wrong instance (E-05)."""
+        proj = c.project()
+        longitudinal = bool(int(proj.get("is_longitudinal") or 0))
+        events = c.events() if longitudinal else []
+        designations = c.form_event_mapping() if longitudinal else []
+        repeating: list[dict[str, Any]] = []
+        if int(proj.get("has_repeating_instruments_or_events") or 0):
+            try:
+                repeating = c.repeating_forms_events()
+            except RcError:
+                repeating = []
+            if not repeating:
+                self._audit("edc.sent", rs, by, {"record": record or "*", "refused": "edc.repeating"})
+                raise EdcError("edc.repeating", "the REDCap project repeats instruments or events but did not say "
+                               "which; prefill does not send to it")  # fmt: skip
+        return Layout.read(proj, events, designations, repeating)
+
     def send_redcap(self, rs: str, by: str, record: str | None = None) -> dict[str, Any]:
         self.store.require_on(rs)
         target = self.store.target(rs)
         if target is None:
             raise EdcError("edc.target", "no REDCap target is set for this study")
         out: dict[str, list[dict[str, Any]]] = {k: [] for k in SEND_RESULTS}
+        calc_out: list[dict[str, Any]] = []
+        hidden_out: list[dict[str, Any]] = []
         at = self.stamp()
         gone = set(self.optouts())
         todo = []
@@ -363,20 +392,14 @@ class EdcService:
                     **({"opted_out": len(out["opted_out"])} if out["opted_out"] else {}),
                 },
             )
-            return {**out, "count": 0}
+            return {**out, "count": 0, "calc": [], "hidden_in_redcap": []}
         key, rid = str(target["key_field"]), str(target["id_field"])
         try:
             with self.client(str(target["token_ref"])) as c:
-                proj = c.project()
-                if int(proj.get("has_repeating_instruments_or_events") or 0):
-                    # a flat export has one more row per repeat; the "never overwrite" check cannot hold (E-05)
-                    self._audit("edc.sent", rs, by, {"record": record or "*", "refused": "edc.repeating"})
-                    raise EdcError("edc.repeating", "the REDCap project has repeating instruments or events; "
-                                   "prefill does not send to it")  # fmt: skip
-                longitudinal = bool(int(proj.get("is_longitudinal") or 0))
-                events = {str(e.get("unique_event_name")) for e in c.events()} if longitudinal else {BASE_EVENT}
+                lay = self._layout(c, rs, by, record)
                 # T-115 (E-15, E-16, STD-061): the project's dictionary of now, the map of now, and the target
-                live = {f.name: f for f in (forms.field_of(m) for m in c.metadata())}
+                meta = {str(m.get("field_name")): m for m in c.metadata()}
+                live = {f.name: f for f in (forms.field_of(m) for m in meta.values())}
                 local = self.dc.fields(rs)
                 rows_now = {str(m["item"]): mapping.item_sha(m) for m in self.store.map(rs)}
                 held = []
@@ -402,22 +425,32 @@ class EdcService:
                 fmt = {int(d["id"]): forms.redcap_value(live[str(d["item"])], str(d["final"])) for d in todo}
                 items = sorted({str(d["item"]) for d in todo})
                 rows = c.records(fields=[rid, key, *items])
+                if lay.repeats and rows and any("redcap_repeat_instance" not in r for r in rows):
+                    self._audit("edc.sent", rs, by, {"record": record or "*", "refused": "edc.repeat_keys"})
+                    raise EdcError("edc.repeat_keys", "the project repeats instruments or events, but REDCap's export "
+                                   "has no redcap_repeat_instance: a value cannot be put on its instance; nothing "
+                                   "is sent")  # fmt: skip
                 found: dict[str, set[str]] = {}
                 for r in rows:
                     if str(r.get(key) or "").strip():
                         found.setdefault(str(r[key]).strip().upper(), set()).add(str(r[rid]))
                 ids = {k: next(iter(v)) for k, v in found.items() if len(v) == 1}
                 twice = {k for k, v in found.items() if len(v) > 1}
-                cur = {(str(r[rid]), str(r.get("redcap_event_name") or "") if longitudinal else ""): r for r in rows}
-                imports: dict[tuple[str, str], dict[str, str]] = {}
-                planned: list[tuple[dict[str, Any], str, str]] = []
+                # the touched records' rows, with every field their branching logic and calculations read (T-302b)
+                recs = sorted({ids[str(d["record"]).upper()] for d in todo if str(d["record"]).upper() in ids})
+                look = watched(meta, {live[i].form for i in items}, items)
+                cur = Rows(lay, meta, rid, c.records(fields=[rid, *items, *sorted(look - set(items))], records=recs)
+                           if recs else [], self.today())  # fmt: skip
+                imports: dict[Key, dict[str, str]] = {}
+                planned: list[tuple[dict[str, Any], str, Slot]] = []
                 for d in todo:
                     if str(d["record"]).upper() in twice:  # a wrong-subject write is worse than none (E-06)
                         out["duplicate"].append(_brief(d))
                         self.store.record_sent(rs, d, "redcap", "", "duplicate", "the screening number is on more "
                                                "than one REDCap record; not sent", by, at)  # fmt: skip
                         continue
-                    if str(d["visit"]) not in events:  # the visit must be an event of the project (E-04)
+                    slot = lay.slot(str(d["visit"]))
+                    if slot is None:  # the visit must be an event (or a repeat instance) of the project (E-04)
                         out["no_event"].append(_brief(d))
                         self.store.record_sent(rs, d, "redcap", "", "no_event", "the visit is not an event of the "
                                                "REDCap project; not sent", by, at)  # fmt: skip
@@ -428,53 +461,216 @@ class EdcService:
                         self.store.record_sent(rs, d, "redcap", "", "no_record", "no REDCap record with this "
                                                "screening number", by, at)  # fmt: skip
                         continue
-                    ev = str(d["visit"]) if longitudinal else ""
-                    there = str((cur.get((rec, ev)) or {}).get(d["item"]) or "")
+                    lf = live[str(d["item"])]
+                    where = lay.misplaced(slot, lf.form, cur.arms(rec))
+                    if where:  # T-302b: the arm, the event's instruments, the repeating instrument's own rows
+                        out[where].append(_brief(d))
+                        self.store.record_sent(rs, d, "redcap", rec, where, PLACEMENT[where], by, at)
+                        continue
+                    there = cur.value(rec, slot, str(d["item"]))
                     value = fmt[int(d["id"])]
                     if there == value:
                         out["already_there"].append(_brief(d))
                         self.store.record_sent(rs, d, "redcap", rec, "already_there", "", by, at)
                         continue
                     last = self.store.last_sent(rs, d["record"], d["visit"], d["item"])
-                    lf = live[str(d["item"])]
                     if there and there != (forms.redcap_value(lf, last) if last else ""):
                         out["conflict"].append({**_brief(d), "redcap": there})
                         self.store.record_sent(rs, d, "redcap", rec, "conflict", "REDCap holds another value that "
                                                "TrialBox did not write; not overwritten", by, at)  # fmt: skip
                         continue
-                    row = imports.setdefault((rec, ev), {rid: rec, **({"redcap_event_name": ev} if ev else {})})
-                    row[str(d["item"])] = value
-                    planned.append((d, rec, ev))
+                    planned.append((d, rec, slot))
+                    cur.lay(rec, slot, str(d["item"]), value)
+                # T-302b: a value for a field REDCap would hide (with what is about to be sent laid over the row) is
+                # not sent; holding one back can hide another, so this runs until nothing changes
+                changed = True
+                while changed:
+                    changed = False
+                    for d, rec, slot in list(planned):
+                        try:
+                            ok, why = cur.shown(rec, slot, str(d["item"])), "hidden"
+                        except LogicError:
+                            ok, why = False, "logic"
+                        if not ok:
+                            planned.remove((d, rec, slot))
+                            cur.unlay(rec, slot, str(d["item"]))
+                            out[why].append(_brief(d))
+                            self.store.record_sent(rs, d, "redcap", rec, why, PLACEMENT[why], by, at)
+                            changed = True
+                for d, rec, slot in planned:
+                    row = imports.setdefault(lay.key(rec, slot), lay.import_row(rid, rec, slot))
+                    row[str(d["item"])] = fmt[int(d["id"])]
                 if imports:
                     # re-read each value just before the import: one edited or withdrawn since is not sent (E-17)
                     still = {int(x["id"]) for x in self.store.sendable(rs, record)}
-                    stale = [(d, rec, ev) for d, rec, ev in planned if int(d["id"]) not in still]
-                    for d, rec, ev in stale:
-                        imports[(rec, ev)].pop(str(d["item"]), None)
+                    stale = [(d, rec, slot) for d, rec, slot in planned if int(d["id"]) not in still]
+                    for d, rec, slot in stale:
+                        imports[lay.key(rec, slot)].pop(str(d["item"]), None)
                         self.store.record_sent(rs, d, "redcap", rec, "changed", "changed since the send began; "
                                                "not sent", by, at)  # fmt: skip
                     planned = [p for p in planned if int(p[0]["id"]) in still]
-                    imports = {k: v for k, v in imports.items() if len(v) > (2 if longitudinal else 1)}
+                    imports = {k: v for k, v in imports.items() if set(v) - KEY_COLS - {rid}}
                 if imports:
                     c.import_records(list(imports.values()))
-                    back = {
-                        (str(r[rid]), str(r.get("redcap_event_name") or "") if longitudinal else ""): r
-                        for r in c.records(fields=[rid, *items], records=sorted({k[0] for k in imports}))
-                    }
-                    for d, rec, ev in planned:
-                        got = str((back.get((rec, ev)) or {}).get(d["item"]) or "")
+                    touched = sorted({k[0] for k in imports})
+                    back = Rows(lay, meta, rid, c.records(fields=[rid, *items, *sorted(look - set(items))],
+                                                          records=touched), self.today())  # fmt: skip
+                    for d, rec, slot in planned:
+                        got = back.value(rec, slot, str(d["item"]))
                         if got == fmt[int(d["id"])]:
                             out["sent"].append(_brief(d))
                             self.store.record_sent(rs, d, "redcap", rec, "sent", "read back equal", by, at)
                         else:
                             out["readback"].append({**_brief(d), "redcap": got})
                             self.store.record_sent(rs, d, "redcap", rec, "readback", "read back differs", by, at)
+                    # T-302b: what REDCap computed beside TrialBox's own reading of the equation, and values REDCap
+                    # now hides (never erased here: see erase_hidden)
+                    names = {(rec, slot): str(d["record"]) for d, rec, slot in planned}
+                    for (rec, slot), name in sorted(names.items(), key=lambda x: (x[0][0], x[0][1].visit)):
+                        for cv in back.calcs(rec, slot):
+                            calc_out.append({"record": name, "visit": slot.visit, **cv})
+                        for f in back.hidden_values(rec, slot):
+                            last = self.store.last_sent(rs, name, slot.visit, f)
+                            mine = last is not None and f in live and forms.redcap_value(live[f], last) == back.value(
+                                rec, slot, f)  # fmt: skip
+                            hidden_out.append({"record": name, "visit": slot.visit, "item": f, "trialbox": mine})
         except RcError as exc:
             self._audit("edc.sent", rs, by, {"record": record or "*", "refused": exc.code})
             raise EdcError(exc.code, exc.message, 502 if exc.code == "RC-UPSTREAM" else 409) from exc
         self._audit("edc.sent", rs, by, {"record": record or "*", "target": target["token_ref"],
-                                         **{k: len(v) for k, v in out.items()}})  # fmt: skip
-        return {**out, "count": len(out["sent"])}
+                                         **{k: len(v) for k, v in out.items()},
+                                         "calc_differs": sum(1 for x in calc_out if x["equal"] is False),
+                                         "hidden_in_redcap": len(hidden_out)})  # fmt: skip
+        return {**out, "count": len(out["sent"]), "calc": calc_out, "hidden_in_redcap": hidden_out}
+
+    def _one_record(self, c: RedcapClient, target: dict[str, Any], record: str) -> str:
+        key, rid = str(target["key_field"]), str(target["id_field"])
+        rows = c.records(fields=[rid, key])
+        hits = {str(r[rid]) for r in rows if str(r.get(key) or "").strip().upper() == record.upper()}
+        if len(hits) > 1:
+            raise EdcError("edc.duplicate_record", "the screening number is on more than one REDCap record")
+        if not hits:
+            raise EdcError("edc.no_record", "no REDCap record with this screening number")
+        return next(iter(hits))
+
+    def _row_of(self, c: RedcapClient, lay: Layout, visit: str) -> Slot:
+        slot = lay.slot(visit or BASE_EVENT)
+        if slot is None:
+            raise EdcError("edc.no_slot", "the visit is not an event, or a repeat instance, of the REDCap project", 400)
+        return slot
+
+    def preview(self, rs: str, record: str, visit: str, by: str) -> dict[str, Any]:
+        """What REDCap would make of one subject and visit's decided values, before they are sent (T-302b): the
+        row they go to, the values that would not be written there and why (``misplaced``, ``hidden``, ``logic``),
+        and each calculated field of the row as TrialBox computes it beside what REDCap holds now. Reads REDCap;
+        writes nothing there. Audited (no value in the audit)."""
+        self.store.require_on(rs)
+        target = self.store.target(rs)
+        if target is None:
+            raise EdcError("edc.target", "no REDCap target is set for this study")
+        vis = visit or BASE_EVENT
+        decided = [d for d in self.store.drafts(rs, record, vis) if d["fate"] in ("confirmed", "edited")]
+        self._not_opted_out(rs, by, "edc.preview", {str(d["pid"]) for d in decided}, {"record": record})
+        rid = str(target["id_field"])
+        try:
+            with self.client(str(target["token_ref"])) as c:
+                lay = self._layout(c, rs, by, record)
+                slot = self._row_of(c, lay, vis)
+                meta = {str(m.get("field_name")): m for m in c.metadata()}
+                live = {f.name: f for f in (forms.field_of(m) for m in meta.values())}
+                rec = self._one_record(c, target, record)
+                items = sorted({str(d["item"]) for d in decided if str(d["item"]) in live})
+                on_row = {str(m.get("form_name")) for m in meta.values()
+                          if not lay.misplaced(slot, str(m.get("form_name")), set())}  # fmt: skip
+                look = watched(meta, on_row | {live[i].form for i in items}, items)
+                cur = Rows(lay, meta, rid, c.records(fields=[rid, *items, *sorted(look - set(items))], records=[rec]),
+                           self.today())  # fmt: skip
+        except RcError as exc:
+            raise EdcError(exc.code, exc.message, 502 if exc.code == "RC-UPSTREAM" else 409) from exc
+        misplaced, hidden = [], []
+        arms = cur.arms(rec)
+        for d in decided:
+            item = str(d["item"])
+            if item not in live:
+                misplaced.append({"item": item, "why": "dictionary_changed"})
+                continue
+            where = lay.misplaced(slot, live[item].form, arms)
+            if where:
+                misplaced.append({"item": item, "why": where})
+            else:
+                cur.lay(rec, slot, item, forms.redcap_value(live[item], str(d["final"])))
+        for d in decided:
+            item = str(d["item"])
+            if item in live and not lay.misplaced(slot, live[item].form, arms):
+                try:
+                    if not cur.shown(rec, slot, item):
+                        hidden.append({"item": item, "why": "hidden"})
+                except LogicError:
+                    hidden.append({"item": item, "why": "logic"})
+        calcs = cur.calcs(rec, slot)
+        out = {"visit": vis, "event": slot.event, "instrument": slot.instrument, "instance": slot.instance,
+               "misplaced": misplaced, "hidden": hidden, "calc": calcs}  # fmt: skip
+        self._audit("edc.preview", rs, by, {"record": record, "visit": vis, "misplaced": len(misplaced),
+                                            "hidden": len(hidden), "calc": len(calcs)})  # fmt: skip
+        return out
+
+    def erase_hidden(self, rs: str, record: str, visit: str, by: str) -> dict[str, Any]:
+        """REDCap's "erase hidden values" for what TrialBox wrote (T-302b): on one subject's row, a field whose
+        branching logic now hides it and that still holds the value TrialBox last sent there is erased in REDCap
+        (``overwriteBehavior=overwrite`` with that field alone). A hidden value someone else wrote is listed, never
+        erased: the coordinator decides on it in REDCap. Each erase is kept in ``sent`` (``erased``) and read back;
+        the call is audited, refusals too."""
+        vis = visit or BASE_EVENT
+        try:
+            self.store.require_on(rs)
+            target = self.store.target(rs)
+            if target is None:
+                raise EdcError("edc.target", "no REDCap target is set for this study")
+        except EdcError as exc:
+            self._audit("edc.erase_hidden", rs, by, {"record": record, "visit": vis, "refused": exc.code})
+            raise
+        mine = self.store.drafts(rs, record, vis)
+        self._not_opted_out(rs, by, "edc.erase_hidden", {str(d["pid"]) for d in mine}, {"record": record})
+        rid, at = str(target["id_field"]), self.stamp()
+        erased: list[str] = []
+        kept: list[dict[str, str]] = []
+        try:
+            with self.client(str(target["token_ref"])) as c:
+                lay = self._layout(c, rs, by, record)
+                slot = self._row_of(c, lay, vis)
+                meta = {str(m.get("field_name")): m for m in c.metadata()}
+                live = {f.name: f for f in (forms.field_of(m) for m in meta.values())}
+                rec = self._one_record(c, target, record)
+                on_row = {str(m.get("form_name")) for m in meta.values()
+                          if not lay.misplaced(slot, str(m.get("form_name")), set())}  # fmt: skip
+                look = sorted(watched(meta, on_row, []))
+                cur = Rows(lay, meta, rid, c.records(fields=[rid, *look], records=[rec]), self.today())
+                for f in cur.hidden_values(rec, slot):
+                    last = self.store.last_sent(rs, record, vis, f)
+                    if last is not None and f in live and forms.redcap_value(live[f], last) == cur.value(rec, slot, f):
+                        erased.append(f)
+                    else:
+                        kept.append({"item": f, "why": "not_written_by_trialbox"})
+                if erased:
+                    c.import_records([{**lay.import_row(rid, rec, slot), **dict.fromkeys(erased, "")}], erase=True)
+                    back = Rows(lay, meta, rid, c.records(fields=[rid, *look], records=[rec]), self.today())
+                    for f in erased:
+                        d = next((x for x in reversed(mine) if str(x["item"]) == f and x.get("sent_at")), None)
+                        if d is None:  # pragma: no cover - last_sent found a send, so its draft exists
+                            continue
+                        ok = back.value(rec, slot, f) == ""
+                        self.store.record_sent(rs, {**d, "final": ""}, "redcap", rec, "erased" if ok else "readback",
+                                               "hidden by REDCap's branching logic; erased" if ok else
+                                               "the erase did not read back blank", by, at)  # fmt: skip
+        except RcError as exc:
+            self._audit("edc.erase_hidden", rs, by, {"record": record, "visit": vis, "refused": exc.code})
+            raise EdcError(exc.code, exc.message, 502 if exc.code == "RC-UPSTREAM" else 409) from exc
+        except EdcError as exc:
+            self._audit("edc.erase_hidden", rs, by, {"record": record, "visit": vis, "refused": exc.code})
+            raise
+        self._audit("edc.erase_hidden", rs, by, {"record": record, "visit": vis, "erased": erased,
+                                                 "kept": [k["item"] for k in kept]})  # fmt: skip
+        return {"erased": erased, "kept": kept}
 
     def export_odm(self, rs: str, by: str, meaning_text: str = ODM_MEANING) -> str:
         self.store.require_on(rs)
@@ -499,7 +695,19 @@ class EdcService:
 
 #: what the send answers per value: written, or held back with the reason (the last four: T-115, D-368)
 SEND_RESULTS = ("sent", "already_there", "conflict", "no_record", "readback", "opted_out", "duplicate", "no_event",
-                "target_changed", "stale_map", "dictionary_changed", "format")  # fmt: skip
+                "target_changed", "stale_map", "dictionary_changed", "format", "not_on_event", "wrong_arm",
+                "repeating_form", "not_repeating_form", "hidden", "logic")  # fmt: skip
+#: why a value is not written to the row its visit names (T-302b, D-414), and the words kept in ``sent``
+PLACEMENT = {
+    "not_on_event": "the item's instrument is not designated for this event; not sent",
+    "wrong_arm": "the record is on another arm of the project; not sent",
+    "repeating_form": "the item is on a repeating instrument: it goes on an instance, not the base row; not sent",
+    "not_repeating_form": "the item is not on this repeat instance's instrument; not sent",
+    "hidden": "REDCap's branching logic hides the field on this row; not sent",
+    "logic": "TrialBox cannot read the field's branching logic, so it cannot tell whether REDCap hides it; not sent",
+}
+#: the key columns of an import row
+KEY_COLS = {"redcap_event_name", "redcap_repeat_instrument", "redcap_repeat_instance"}
 
 
 def _brief(d: dict[str, Any]) -> dict[str, Any]:
