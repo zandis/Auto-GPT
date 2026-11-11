@@ -158,7 +158,20 @@ def parse_seen(text: str) -> dict[int, str]:
     return out
 
 
-SEND_RESULTS = ("sent", "already_there", "conflict", "no_record", "readback", "opted_out", "duplicate", "no_event")
+SEND_RESULTS = (
+    "sent",
+    "already_there",
+    "conflict",
+    "no_record",
+    "readback",
+    "opted_out",
+    "duplicate",
+    "no_event",
+    "target_changed",
+    "stale_map",
+    "dictionary_changed",
+    "format",
+)  # T-115: held back, with the reason
 
 
 def register(app: FastAPI, h: Helpers) -> None:

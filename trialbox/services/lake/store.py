@@ -98,6 +98,38 @@ class RebuildError(RuntimeError):
     feed in the store of record); the previous ``CURRENT`` stays."""
 
 
+class StaleSnapshotError(RuntimeError):
+    """The lake snapshot a job would pin holds a night older than the box allows (T-305a, D-383, CR-063): the
+    nightly ingest has not published for days, and a list built from it would miss every recent record."""
+
+
+def snapshot_age_days(snapshot: str, today: date) -> int:
+    """Whole days from the night ``snapshot`` holds (its name, ``YYYY-MM-DD``) to ``today``; a snapshot named after a
+    later day (a box whose clock is pinned behind the feed) is 0 days old."""
+    try:
+        night = date.fromisoformat(snapshot)
+    except ValueError:
+        raise StaleSnapshotError(
+            f"LAKE-STALE: lake snapshot {snapshot!r} is not named after a night (YYYY-MM-DD); its age is unknown"
+        ) from None
+    return max(0, (today - night).days)
+
+
+def check_snapshot_age(snapshot: str, today: date, max_age_days: int) -> int | None:
+    """The snapshot's age in days, or :class:`StaleSnapshotError` when it is more than ``max_age_days`` old.
+    ``max_age_days`` 0 means no check (None is returned). Pinned jobs are checked once, when they pin (D-383)."""
+    if max_age_days <= 0:
+        return None
+    age = snapshot_age_days(snapshot, today)
+    if age > max_age_days:
+        raise StaleSnapshotError(
+            f"LAKE-STALE: the newest lake snapshot is {snapshot}, {age} days before {today.isoformat()}; this box "
+            f"refuses a snapshot more than {max_age_days} days old (TB_LAKE_MAX_SNAPSHOT_AGE_DAYS). The nightly "
+            "ingest has not published since: check the adapter's last runs (trialbox doctor) before running again."
+        )
+    return age
+
+
 def schema_version(con: duckdb.DuckDBPyConnection) -> int | None:
     """The lake schema version of an open snapshot: None without ``lake_meta``, 1 for a snapshot built before
     the version was recorded."""
@@ -274,6 +306,16 @@ class Lake:
     def current(self) -> str | None:
         p = self.dir / "CURRENT"
         return p.read_text().strip() if p.exists() else None
+
+    def pin(self, today: date, max_age_days: int) -> str:
+        """The snapshot a job starting ``today`` reads to its end (T-305a, D-383): ``CURRENT`` now, checked for age.
+        A later publish moves ``CURRENT`` but never the pin: the job passes its snapshot to every query."""
+        snap = self.current()
+        if not snap:
+            raise FileNotFoundError("lake has no snapshot yet (run adapter / rebuild)")
+        self.db_path(snap)
+        check_snapshot_age(snap, today, max_age_days)
+        return snap
 
     def snapshots(self) -> list[str]:
         return sorted(p.stem for p in (self.dir / "db").glob("*.duckdb"))

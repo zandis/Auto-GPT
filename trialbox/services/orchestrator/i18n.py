@@ -62,24 +62,24 @@ T: dict[str, dict[str, str]] = {
         "screen.whole_hospital": "all (the whole hospital)",
         "screen.scope2": "Scope: practitioners {pract}; appointments in the next {window} days or an encounter in the "
         "last 12 months; {scoped} patients evaluated.",
-        "screen.unknown_system": "Diagnoses or medicines in an unknown code system: {n} patients (their coded "
+        "screen.unknown_system": "Conditions or medicines in an unknown code system: {n} patients (their coded "
         "inclusions are unknown, not failed; a person checks).",
         "screen.budget_hit": "This run's limit of {max} model calls was reached: the notes of {n} patients were not "
-        "all read. They are listed for review, never excluded. Run again with a higher max_pairs to read them.",
-        "screen.judging.none": "Note criteria were not judged (no model on this box): they go to review.",
-        "screen.judging.pair": "Note criteria: judged by {judge} and checked by {verifier}; a note answer excludes a "
-        "patient only when both models agree.",
-        "screen.judging.single": "Note criteria: judged by {judge} alone; note answers could not exclude anyone on this "
-        "run ({why}). Patients with a failing note answer are listed for review.",
-        "screen.done": "Screening **{rs} v{ver}** finished: {scoped} patients in scope, {high} likely eligible, {review} "
-        "to review, {excluded} excluded. The encrypted candidate list went to {to}{referrals}. {judging}",
+        "all read. They are listed for review, never under criteria not matched. Run again with a higher max_pairs to read them.",
+        "screen.judging.none": "Note criteria were not read (no model on this box): they go to review.",
+        "screen.judging.pair": "Note criteria: read by {judge} and checked by {verifier}; a note answer puts a patient "
+        "under criteria not matched only when both models agree.",
+        "screen.judging.single": "Note criteria: read by {judge} alone; on this run a note answer put no one under "
+        "criteria not matched ({why}). Patients with a failing note answer are listed for review.",
+        "screen.done": "Screening **{rs} v{ver}** finished: {scoped} patients in scope, {high} may meet the criteria, "
+        "{review} to review, {excluded} with criteria not matched. The encrypted candidate list went to {to}{referrals}. {judging}",
         "screen.referrals": "; referrals: {items}",
-        "screen.headline": "{high} likely eligible, {review} to review",
-        "screen.list": "Candidate list for **{rs} v{ver}**: {n} patients ({high} likely eligible, {review} to review). "
+        "screen.headline": "{high} may meet the criteria, {review} to review",
+        "screen.list": "Candidate list for **{rs} v{ver}**: {n} patients ({high} may meet the criteria, {review} to review). "
         "The workbook is encrypted; the password follows separately. Coordinators also see this list, with the note "
         "quotes, on the job page of the console.",
         "screen.list.headline": "{n} patients",
-        "screen.referral": "{n} patients of department {dept} may be eligible for **{rs}**. Please consider a referral to "
+        "screen.referral": "{n} patients of department {dept} may meet the criteria of **{rs}**. Please consider a referral to "
         "the study team ({to}).",
         "screen.referral.headline": "{dept}, {n} patients",
         "feas.intro": "Feasibility for **{trial}** (ruleset {rs} v{ver}, snapshot {snapshot}).",
@@ -146,7 +146,7 @@ T: dict[str, dict[str, str]] = {
         "pdf.class": "Class",
         "pdf.how.structured": "{logic}. Codes: {codes}",
         "pdf.how.mixed": "Not applied in counts (coded pre-check at screening: {logic}; the notes decide the rest)",
-        "pdf.how.note": "Not applied in counts (chart review / note judge)",
+        "pdf.how.note": "Not applied in counts (chart review / note reading model)",
         "pdf.how.human": "Not applied in counts (asked at screening)",
         "pdf.fallback": ". Fallback: {text}",
         "pdf.appendix_b": "Appendix B — site capabilities",
@@ -158,9 +158,9 @@ T: dict[str, dict[str, str]] = {
         "pdf.screen.tiers": "Candidates by tier",
         "pdf.tier": "Tier",
         "pdf.patients": "Patients",
-        "pdf.tier.high": "likely eligible",
+        "pdf.tier.high": "may meet the criteria",
         "pdf.tier.review": "to review",
-        "pdf.tier.excluded": "excluded",
+        "pdf.tier.excluded": "criteria not matched",
         "pdf.screen.by_practitioner": "Listed candidates by practitioner",
         "pdf.practitioner": "Practitioner",
         "pdf.screen.open": "Open items among listed candidates",
@@ -178,21 +178,21 @@ T: dict[str, dict[str, str]] = {
         "screen.scope1": "ルールセット {rs} v{ver}、実行日 {run}、スナップショット {snapshot}。",
         "screen.whole_hospital": "全員（病院全体）",
         "screen.scope2": "対象：担当医 {pract}；今後 {window} 日以内の予約、または過去 12 か月の受診がある患者；{scoped} 名を評価。",
-        "screen.unknown_system": "不明なコード体系の病名・薬剤：{n} 人（コードによる選択基準は「不明」とし、除外せず担当者が確認）。",
+        "screen.unknown_system": "不明なコード体系の病名・薬剤：{n} 人（コードによる選択基準は「不明」とし、基準に合致しないとはせず担当者が確認）。",
         "screen.budget_hit": "今回の実行のモデル呼び出し上限 {max} 回に達しました：{n} 名は記録を読み切れていません。"
-        "除外せず確認待ちに回します。max_pairs を上げて再実行すると読みます。",
-        "screen.judging.none": "記録基準は判定していません（この装置にモデルなし）：確認待ちに回します。",
-        "screen.judging.pair": "記録基準：{judge} が判定し {verifier} が検証。両モデルが一致したときのみ記録の回答で除外します。",
-        "screen.judging.single": "記録基準：{judge} のみが判定。この実行では記録の回答で除外した患者はいません（{why}）。"
+        "基準に合致しないとはせず確認待ちに回します。max_pairs を上げて再実行すると読みます。",
+        "screen.judging.none": "記録基準は読み取っていません（この装置にモデルなし）：確認待ちに回します。",
+        "screen.judging.pair": "記録基準：{judge} が読み取り {verifier} が検証。両モデルが一致したときのみ、記録の回答で基準に合致しないとします。",
+        "screen.judging.single": "記録基準：{judge} のみが読み取り。この実行では記録の回答で基準に合致しないとした患者はいません（{why}）。"
         "記録基準に該当しない患者は確認待ちに載せています。",
-        "screen.done": "スクリーニング **{rs} v{ver}** が完了：対象 {scoped} 名、適格の可能性が高い {high} 名、確認待ち {review} 名、"
-        "除外 {excluded} 名。暗号化した候補者リストは {to} に送付{referrals}。{judging}",
-        "screen.referrals": "；紹介：{items}",
-        "screen.headline": "適格の可能性が高い {high} 名、確認待ち {review} 名",
-        "screen.list": "**{rs} v{ver}** の候補者リスト：{n} 名（適格の可能性が高い {high} 名、確認待ち {review} 名）。ワークブックは"
-        "暗号化されており、パスワードは別送します。コーディネーターはコンソールのジョブページでも、記録の引用付きで同じリストを見られます。",
+        "screen.done": "スクリーニング **{rs} v{ver}** が完了：対象 {scoped} 名、条件に合う可能性 {high} 名、確認待ち {review} 名、"
+        "基準に合致しない {excluded} 名。暗号化した候補者リストは {to} に送付{referrals}。{judging}",
+        "screen.referrals": "；主治医への了承依頼：{items}",
+        "screen.headline": "条件に合う可能性 {high} 名、確認待ち {review} 名",
+        "screen.list": "**{rs} v{ver}** の候補者リスト：{n} 名（条件に合う可能性 {high} 名、確認待ち {review} 名）。ワークブックは"
+        "暗号化されており、パスワードは別送します。CRC はコンソールのジョブページでも、記録の引用付きで同じリストを見られます。",
         "screen.list.headline": "{n} 名",
-        "screen.referral": "{dept} の患者 {n} 名が **{rs}** に適格な可能性があります。研究チーム（{to}）への紹介をご検討ください。",
+        "screen.referral": "{dept} の患者 {n} 名が **{rs}** の条件に合う可能性があります。研究チーム（{to}）へのご連絡をご検討ください。",
         "screen.referral.headline": "{dept}、{n} 名",
         "feas.intro": "**{trial}** のフィージビリティ（ルールセット {rs} v{ver}、スナップショット {snapshot}）。",
         "feas.enrol": "- {months} か月の推定登録数：**{low}–{high}**（最尤 {mid}）",
@@ -224,7 +224,7 @@ T: dict[str, dict[str, str]] = {
         "pdf.step": "段階",
         "pdf.criterion": "基準",
         "pdf.remaining": "残り",
-        "pdf.dropped": "除外",
+        "pdf.dropped": "合致せず",
         "pdf.pct_start": "開始時比 %",
         "pdf.unknown": "不明",
         "pdf.not_applied": "{label}（件数に未適用）",
@@ -253,11 +253,11 @@ T: dict[str, dict[str, str]] = {
         "pdf.appendix_a": "付録 A — 基準の定義",
         "pdf.id": "ID",
         "pdf.protocol_text": "プロトコルの文言",
-        "pdf.how": "判定方法",
+        "pdf.how": "確認方法",
         "pdf.class": "区分",
         "pdf.how.structured": "{logic}。コード：{codes}",
-        "pdf.how.mixed": "件数に未適用（スクリーニング時にコードで事前確認：{logic}；残りは記録で判定）",
-        "pdf.how.note": "件数に未適用（カルテ確認／記録判定モデル）",
+        "pdf.how.mixed": "件数に未適用（スクリーニング時にコードで事前確認：{logic}；残りは記録で確認）",
+        "pdf.how.note": "件数に未適用（カルテ確認／記録読み取りモデル）",
         "pdf.how.human": "件数に未適用（スクリーニング時に確認）",
         "pdf.fallback": "。代替：{text}",
         "pdf.appendix_b": "付録 B — 施設の体制",
@@ -269,9 +269,9 @@ T: dict[str, dict[str, str]] = {
         "pdf.screen.tiers": "区分別の候補者",
         "pdf.tier": "区分",
         "pdf.patients": "患者数",
-        "pdf.tier.high": "適格の可能性が高い",
+        "pdf.tier.high": "条件に合う可能性",
         "pdf.tier.review": "確認待ち",
-        "pdf.tier.excluded": "除外",
+        "pdf.tier.excluded": "基準に合致しない",
         "pdf.screen.by_practitioner": "担当医別のリスト掲載候補者",
         "pdf.practitioner": "担当医",
         "pdf.screen.open": "リスト掲載候補者の未確定事項",
@@ -289,20 +289,20 @@ T: dict[str, dict[str, str]] = {
         "screen.scope1": "規則集 {rs} v{ver}，執行日 {run}，快照 {snapshot}。",
         "screen.whole_hospital": "全部（全院）",
         "screen.scope2": "範圍：主治醫師 {pract}；未來 {window} 天內有預約或過去 12 個月內有就診的病人；共評估 {scoped} 位。",
-        "screen.unknown_system": "診斷或藥品使用無法辨識的代碼系統：{n} 位（其結構化納入條件列為未知、不排除，由人員確認）。",
-        "screen.budget_hit": "本次執行已達模型呼叫上限 {max} 次：{n} 位病人的病歷未全部判讀，列為待確認、不排除。"
+        "screen.unknown_system": "疾病或藥品使用無法辨識的代碼系統：{n} 位（其結構化納入條件列為未知，不列為未符合條件，由人員確認）。",
+        "screen.budget_hit": "本次執行已達模型呼叫上限 {max} 次：{n} 位病人的病歷未全部判讀，列為待確認，不列為未符合條件。"
         "提高 max_pairs 後重新執行即可判讀。",
         "screen.judging.none": "病歷條件未經判讀（本機沒有模型）：列為待確認。",
-        "screen.judging.pair": "病歷條件：由 {judge} 判讀、{verifier} 驗證；兩個模型一致時病歷判讀才會排除病人。",
-        "screen.judging.single": "病歷條件：僅由 {judge} 判讀；本次執行中病歷判讀未排除任何人（{why}）。病歷條件不符的病人列入待確認。",
-        "screen.done": "篩選 **{rs} v{ver}** 完成：範圍內 {scoped} 位，{high} 位可能符合、{review} 位待確認、{excluded} 位排除。"
+        "screen.judging.pair": "病歷條件：由 {judge} 判讀、{verifier} 驗證；兩個模型一致時病歷判讀才會將病人列為未符合條件。",
+        "screen.judging.single": "病歷條件：僅由 {judge} 判讀；本次執行中病歷判讀未將任何人列為未符合條件（{why}）。病歷條件不符的病人列入待確認。",
+        "screen.done": "篩選 **{rs} v{ver}** 完成：範圍內 {scoped} 位，{high} 位可能符合條件、{review} 位待確認、{excluded} 位未符合條件。"
         "加密的候選名單已寄給 {to}{referrals}。{judging}",
-        "screen.referrals": "；轉介：{items}",
-        "screen.headline": "{high} 位可能符合、{review} 位待確認",
-        "screen.list": "**{rs} v{ver}** 的候選名單：{n} 位（{high} 位可能符合、{review} 位待確認）。活頁簿已加密，密碼另寄。協調員也可在"
+        "screen.referrals": "；徵詢主治醫師同意：{items}",
+        "screen.headline": "{high} 位可能符合條件、{review} 位待確認",
+        "screen.list": "**{rs} v{ver}** 的候選名單：{n} 位（{high} 位可能符合條件、{review} 位待確認）。活頁簿已加密，密碼另寄。研究護理師（CRC）也可在"
         "主控台的工作頁面看到同一份名單與病歷引文。",
         "screen.list.headline": "{n} 位",
-        "screen.referral": "{dept} 的 {n} 位病人可能符合 **{rs}**。請考慮轉介給研究團隊（{to}）。",
+        "screen.referral": "{dept} 的 {n} 位病人可能符合 **{rs}** 的條件。請考慮與研究團隊（{to}）聯絡。",
         "screen.referral.headline": "{dept}，{n} 位",
         "feas.intro": "**{trial}** 的可行性（規則集 {rs} v{ver}，快照 {snapshot}）。",
         "feas.enrol": "- 預估 {months} 個月收案：**{low}–{high}**（最可能 {mid}）",
@@ -362,10 +362,10 @@ T: dict[str, dict[str, str]] = {
         "pdf.appendix_a": "附錄 A — 條件定義",
         "pdf.id": "編號",
         "pdf.protocol_text": "計畫書原文",
-        "pdf.how": "判定方式",
+        "pdf.how": "確認方式",
         "pdf.class": "類別",
         "pdf.how.structured": "{logic}。代碼：{codes}",
-        "pdf.how.mixed": "未納入計數（篩選時以代碼預先檢查：{logic}；其餘由病歷判定）",
+        "pdf.how.mixed": "未納入計數（篩選時以代碼預先檢查：{logic}；其餘由病歷確認）",
         "pdf.how.note": "未納入計數（病歷審閱／病歷判讀模型）",
         "pdf.how.human": "未納入計數（篩選時詢問）",
         "pdf.fallback": "。替代方式：{text}",
@@ -378,9 +378,9 @@ T: dict[str, dict[str, str]] = {
         "pdf.screen.tiers": "各分級候選人數",
         "pdf.tier": "分級",
         "pdf.patients": "病人數",
-        "pdf.tier.high": "可能符合",
+        "pdf.tier.high": "可能符合條件",
         "pdf.tier.review": "待確認",
-        "pdf.tier.excluded": "排除",
+        "pdf.tier.excluded": "未符合條件",
         "pdf.screen.by_practitioner": "各主治醫師的名單候選人",
         "pdf.practitioner": "主治醫師",
         "pdf.screen.open": "名單候選人的待確認事項",

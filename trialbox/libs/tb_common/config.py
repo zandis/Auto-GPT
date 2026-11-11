@@ -130,6 +130,9 @@ class Env:
     rulesets_dir: str = ""
     audit_dir: str = ""
     secrets_dir: str = "/run/secrets/trialbox"
+    # T-305a (D-383): a job refuses to pin a lake snapshot more than this many days older than its run date; 0 = no
+    # check (the code default: tests and demos run old synthetic nights). The production compose file sets 3.
+    lake_max_snapshot_age_days: int = 0
     extra: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -186,6 +189,7 @@ _ENV_MAP: dict[str, str] = {
     "TB_RULESETS_DIR": "rulesets_dir",
     "TB_AUDIT_DIR": "audit_dir",
     "TB_SECRETS_DIR": "secrets_dir",
+    "TB_LAKE_MAX_SNAPSHOT_AGE_DAYS": "lake_max_snapshot_age_days",
 }
 
 _BOOL_TRUE = {"1", "true", "yes", "on"}
@@ -217,6 +221,8 @@ def load_env(dotenv: Path | None = None, environ: dict[str, str] | None = None) 
     env = Env(**kwargs)  # type: ignore[arg-type]
     if env.tz:  # unset is allowed here: load() takes site.tz from settings.yaml (D-315)
         _check_zone("TB_TZ", env.tz)
+    if env.lake_max_snapshot_age_days < 0:
+        raise ConfigError("TB_LAKE_MAX_SNAPSHOT_AGE_DAYS must be 0 (no check) or a number of days")
     if env.attach_password_mode not in ("zip", "smime"):
         raise ConfigError("ATTACH_PASSWORD_MODE must be zip or smime")
     if env.llm_mode not in ("vllm", "llamacpp", "stub", "openai"):
@@ -480,6 +486,7 @@ DECLARED: dict[str, Declared] = {
     "TB_LAKE_DIR": Declared("path", "", "lake folder"),
     "TB_LAKE_EMBEDDER": Declared("str", "hash", "adapter CLI: embedder for the lake"),
     "TB_LAKE_MAX_TEMP": Declared("str", "", "lake: temporary space cap"),
+    "TB_LAKE_MAX_SNAPSHOT_AGE_DAYS": Declared("int", "0", "oldest lake snapshot a job accepts, days (0: off; D-383)"),
     "TB_LAKE_MEMORY_LIMIT": Declared("str", "", "lake: memory cap"),
     "TB_LAKE_SOURCE": Declared("str", "legacy", "lake source (legacy or omop)"),
     "TB_LAKE_TEMP_DIR": Declared("path", "", "lake: temporary folder"),
@@ -558,6 +565,7 @@ DECLARED: dict[str, Declared] = {
     "TB_PROFILE": Declared("str", "P-GB10", "hardware profile"),
     "TB_PSQL_CMD": Declared("str", "psql", "psql command"),
     "TB_PUBLIC_DIR": Declared("path", "", "public e2e: work folder"),
+    "TB_RC_CASSETTE_TOKEN": Declared("str", "", "REDCap cassette tool: API token for a recording (secret)"),
     "TB_RC_SIM_HOST": Declared("str", "127.0.0.1", "REDCap simulator: address"),
     "TB_RC_SIM_PORT": Declared("int", "8790", "REDCap simulator: port"),
     "TB_RC_SIM_VERSION": Declared("str", "16.0.10", "REDCap simulator: version shown"),

@@ -7,6 +7,11 @@ S-28 study store through its API; the coordinator edits, everyone on the study r
 
 S36 (administrators): the REDCap base URL and the API tokens, entered once and shown masked, with Test connection.
 
+D-386 (T-622, LIFE-008, LIFE-013): ``/studies/{rs}/state`` holds the study's state (start-up, open, paused, closed)
+and its identifiers (sponsor, protocol number, SIV date, registry ids). Everyone who reads the set-up reads it; the
+coordinator and the study's PI change it (``tb_common.authz.permit``, action ``study.state``). Each change is
+audited (``console.study_state``, ``console.study_identity``).
+
 The nightly read-back is ``python -m console.rc_read`` (cron on the box), the same call as Run now.
 """
 
@@ -18,13 +23,25 @@ from urllib.parse import quote
 
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
+from tb_common.authz import NO_STANDING, permit
+from tb_common.authz import Standing as AuthzStanding
 
 from console import s28
 from console import studies as st
 from console.auth import Session, User
 from console.backend import Problem, Unavailable
 from console.home import Helpers
-from console.sitestore import ALL_REASONS, COHORT_KINDS, STUDY_TYPES, StudySettings
+from console.sitestore import (
+    ALL_REASONS,
+    COHORT_KINDS,
+    REGISTRIES,
+    STATE_MOVES,
+    STUDY_STATES,
+    STUDY_TYPES,
+    StudyIdentity,
+    StudySettings,
+    StudyState,
+)
 from console.studies import known_study
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
@@ -65,6 +82,19 @@ def show_map(m: dict[str, str]) -> str:
 def can_change_setup(user: User) -> bool:
     """Who changes a study's set-up (S21) and its data sources, forms and conflicts: the study's coordinator."""
     return user.role == "coordinator"
+
+
+REASON_STATES = ("paused", "closed")  # D-386: a move to these takes a reason
+
+
+def may_change_state(h: Helpers, user: User, rid: str) -> bool:
+    """D-386: may this account change the study's state and identifiers? ``permit`` over ``study.state`` with the
+    account's standing in the study (the delegation log, for the investigator's ``pi`` condition)."""
+    standing = NO_STANDING
+    if user.role == "investigator" and h.stand is not None and user.sees_study(rid):
+        s = h.stand(user, rid)
+        standing = AuthzStanding(is_pi=bool(s.pi), tasks=frozenset(s.tasks), log_names_pi=bool(s.logged))
+    return permit(user.role, "study.state", standing).allowed
 
 
 def screening_map(store: Any, rs: str) -> dict[str, str]:
@@ -378,6 +408,90 @@ def register(app: FastAPI, h: Helpers) -> None:
             return RedirectResponse(f"{target}?rc_err={quote(e['code'])}#redcap", status_code=303)
         au.append("console.redcap_read", ruleset=rid, actor=h.actor(sess), detail={"changes": len(out["changes"])})
         return RedirectResponse(f"{target}?read={len(out['changes'])}#redcap", status_code=303)
+
+    # ------------------------------------------------------------------ D-386: study state and identifiers
+    def state_page(request: Request, sess: Session, rid: str, status: int = 200, ident: StudyIdentity | None = None,
+                   **extra: Any) -> Response:  # fmt: skip
+        cur = store.study_state(rid)
+        return h.page(
+            request,
+            "study_state.html",
+            sess,
+            status=status,
+            rs=rid,
+            cur=cur,
+            moves=STATE_MOVES.get(cur.state, ()),
+            states=STUDY_STATES,
+            history=list(reversed(store.state_history(rid))),
+            ident=ident or store.study_identity(rid),
+            registries=REGISTRIES,
+            editable=may_change_state(h, sess.user, rid),
+            **{"saved": request.query_params.get("saved", ""), "err": None, "bad": [], **extra},
+        )
+
+    def need_state_edit(request: Request, sess: Session, rid: str, csrf: str) -> None:
+        if not h.csrf_ok(sess, csrf):
+            raise h.problem(400, "csrf")
+        if not may_change_state(h, sess.user, rid):
+            au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            raise h.problem(403, "forbidden")
+
+    @app.get("/studies/{rs}/state")
+    def study_state(request: Request, rs: str) -> Response:
+        sess = h.need(request)
+        return state_page(request, sess, study_or_404(sess, rs))
+
+    @app.post("/studies/{rs}/state")
+    def change_state(
+        request: Request, rs: str, csrf: str = Form(""), state: str = Form(""), reason: str = Form("")
+    ) -> Response:
+        """Move the study to ``state`` (D-386). Pausing or closing takes a reason. The audit event is written in the
+        store's transaction, so a change is never kept without it."""
+        sess = h.need(request)
+        rid = study_or_404(sess, rs)
+        need_state_edit(request, sess, rid, csrf)
+        why = " ".join(reason.split())[:200]
+        cur = store.study_state(rid)
+        if state not in STATE_MOVES.get(cur.state, ()):
+            return state_page(request, sess, rid, status=400, err="sstate.bad_move")
+        if state in REASON_STATES and not why:
+            return state_page(request, sess, rid, status=400, err="sstate.need_reason")
+
+        def audit(new: StudyState) -> None:
+            au.append("console.study_state", ruleset=rid, actor=h.actor(sess),
+                      detail={"state": new.state, "prev": new.prev, "reason": why})  # fmt: skip
+
+        try:
+            store.set_study_state(rid, state, why, h.actor(sess), h.clock().isoformat(), before_commit=audit)
+        except ValueError:  # another person changed it first
+            return state_page(request, sess, rid, status=409, err="sstate.bad_move")
+        return RedirectResponse(f"/studies/{rid}/state?saved=state", status_code=303)
+
+    @app.post("/studies/{rs}/identity")
+    async def save_identity(request: Request, rs: str) -> Response:
+        """The study's sponsor, protocol number, SIV date and registry ids (D-386, LIFE-013). A malformed field is
+        shown again with what was typed; nothing is saved."""
+        sess = h.need(request)
+        rid = study_or_404(sess, rs)
+        form = await request.form()
+        need_state_edit(request, sess, rid, str(form.get("csrf") or ""))
+
+        def text(name: str, n: int) -> str:
+            return " ".join(str(form.get(name) or "").split())[:n]
+
+        ident = StudyIdentity(
+            sponsor=text("sponsor", 200),
+            protocol_no=text("protocol_no", 60),
+            siv_date=text("siv_date", 20),
+            registry_ids={r: text(f"registry_{r}", 60) for r in REGISTRIES if text(f"registry_{r}", 60)},
+        )
+        bad = ident.problems()
+        if bad:
+            return state_page(request, sess, rid, status=400, ident=ident, bad=bad, err="sid.bad")
+        saved = store.save_study_identity(rid, ident, h.actor(sess), h.clock().isoformat())
+        au.append("console.study_identity", ruleset=rid, actor=h.actor(sess),
+                  detail={"fields": [k for k, _v in saved.lines()], **saved.registry_ids})  # fmt: skip
+        return RedirectResponse(f"/studies/{rid}/state?saved=identity", status_code=303)
 
     # ------------------------------------------------------------------ S36
     def need_admin_view(sess: Session) -> None:

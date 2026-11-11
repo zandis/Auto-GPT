@@ -32,6 +32,7 @@ configMapGenerator:
     files:
       - db-init/10-trialbox-wf.sh
       - db-init/20-extensions.sh
+      - db-init/30-service-roles.sh  # D-378: the roles; the platform's services still sign in as trialbox
   - name: trialbox-env  # the non-secret part of the appliance's deploy/.env; a site overlay merges its values
     envs:
       - site.env

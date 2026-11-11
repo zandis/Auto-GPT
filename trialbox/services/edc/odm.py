@@ -10,9 +10,14 @@ The file is ``FileType="Transactional"``: each ``ItemData`` is an ``Upsert`` and
   ``SourceID`` (the hospital record or note it came from, never its content);
 * ``Signature``: who signed, where, when, and the ``SignatureDef`` that states the meaning.
 
-``AdminData`` lists the users, the site and the signature's meaning. Each ``ItemDef`` carries its CDASH tag
-(``SDSVarName`` and an ``Alias`` with ``Context="CDASH"``). OIDs follow REDCap's (``Project.<study>``,
-``Event.<event>``, ``Form.<form>``, the field name as ``ItemOID``) so a REDCap project takes the file back as it is.
+``AdminData`` lists the users, the site and one ``SignatureDef`` per meaning text and language a signer actually saw
+(E-23 e). Each ``ItemDef`` carries ``Length`` (and ``SignificantDigits`` for a float), its unit as a
+``MeasurementUnitRef`` to ``BasicDefinitions`` and its CDASH tag as an ``Alias`` with ``Context="CDASH"``;
+``SDSVarName`` only when the CDASH name is also an SDTM variable (a CDASH date such as ``BRTHDAT`` is not). Repeat
+keys are not written: no event, form or group here repeats (E-23 a to c, STD-062; T-115). OIDs follow REDCap's
+(``Project.<study>``, ``Event.<event>``, ``Form.<form>``, the field name as ``ItemOID``) so a REDCap project takes
+the file back as it is. The file holds each value as decided and signed; its earlier values stay in the trail
+(D-368). The file is checked against the ODM 1.3.2 schema in the tests (E-25).
 """
 
 from __future__ import annotations
@@ -23,10 +28,9 @@ import re
 from typing import Any
 from xml.etree import ElementTree as ET  # building only; nothing is parsed here
 
-from datacore.export import BASE_EVENT, ODM_NS, _sub, _texts
+from datacore.export import BASE_EVENT, ODM_NS, _sub, _texts, item_def_attrs
 from datacore.forms import Field
 
-SIGNATURE_OID = "SD.transcribed"
 LOCATION_OID = "LOC.site"
 #: the signature's legal reason in the file (D-281, REG-021): a plain statement, no claim of conformance with 21 CFR
 #: Part 11 or the Japanese ER/ES guideline. It changes only when an assessment of those rules is on file.
@@ -40,6 +44,22 @@ def _oid(text: str) -> str:
 def user_oid(name: str) -> str:
     """One OID per user name; a short hash keeps ``a@b`` and ``a_b`` apart (review E-23)."""
     return f"USR.{_oid(name)}.{hashlib.sha256(name.encode('utf-8')).hexdigest()[:6]}"
+
+
+def unit_oid(unit: str) -> str:
+    """One OID per unit text; a short hash keeps ``mg/dL`` and ``mg_dL`` apart."""
+    return f"MU.{_oid(unit)}.{hashlib.sha256(unit.encode('utf-8')).hexdigest()[:6]}"
+
+
+def signature_def_oid(meaning: str, lang: str, text: str) -> str:
+    """One SignatureDef per meaning, language and the words the signer saw (E-23 e)."""
+    return f"SD.{_oid(meaning)}.{_oid(lang)}.{hashlib.sha256(text.encode('utf-8')).hexdigest()[:6]}"
+
+
+def sds_name(var: str) -> str:
+    """The SDTM variable of a CDASH name, or "" when the CDASH name is not one: CDASH dates and times (``BRTHDAT``,
+    ``VSDAT``, ``VISDAT``, ``--TIM``) become ``--DTC`` in SDTM, so they carry only the CDASH alias (STD-062)."""
+    return "" if re.search(r"(DAT|TIM)$", var) else var
 
 
 def source_id(c: dict[str, Any] | None) -> str:
@@ -66,9 +86,14 @@ def build(study: str, fields: dict[str, Field], items: list[dict[str, Any]], val
     gv = _sub(st, "GlobalVariables")
     for tag in ("StudyName", "StudyDescription", "ProtocolName"):
         _sub(gv, tag).text = study
-    mdv = _sub(st, "MetaDataVersion", OID=mdv_oid, Name=f"{study} prefill items")
     by_item = {str(m["item"]): m for m in items}
     used = [fields[n] for n in by_item if n in fields]
+    units = sorted({str(by_item[f.name]["unit"]) for f in used if by_item[f.name].get("unit")})
+    if units:  # E-23 c: the unit is a MeasurementUnit, not a free text
+        bd = _sub(st, "BasicDefinitions")
+        for unit in units:
+            _texts(_sub(bd, "MeasurementUnit", OID=unit_oid(unit), Name=unit), "Symbol", unit, {})
+    mdv = _sub(st, "MetaDataVersion", OID=mdv_oid, Name=f"{study} prefill items")
     events = sorted({str(v["visit"]) or BASE_EVENT for v in values}) or [BASE_EVENT]
     proto = _sub(mdv, "Protocol")
     for i, ev in enumerate(events, 1):
@@ -89,16 +114,15 @@ def build(study: str, fields: dict[str, Field], items: list[dict[str, Any]], val
         for f in fs:
             _sub(ig, "ItemRef", ItemOID=f.name, Mandatory="No")
     codelists: list[Field] = []
-    dtypes = {"integer": "integer", "decimal": "float", "date": "date", "dateTime": "datetime"}
     for f in used:
         m = by_item[f.name]
         tag = str(m.get("cdash") or "")
-        dtype = dtypes.get(f.kind, "text")
-        idf = _sub(mdv, "ItemDef", OID=f.name, Name=f.name, DataType=dtype, Length="999" if dtype == "text" else "",
-                   SDSVarName=tag.split(".", 1)[1] if "." in tag else "")  # fmt: skip
-        if m.get("unit"):
-            _texts(idf, "Description", f"Unit: {m['unit']}", {})
+        attrs = item_def_attrs(f) if f.kind != "multi" else {"DataType": "text", "Length": "999"}
+        idf = _sub(mdv, "ItemDef", OID=f.name, Name=f.name, **attrs,
+                   SDSVarName=sds_name(tag.split(".", 1)[1]) if "." in tag else "")  # fmt: skip
         _texts(idf, "Question", f.label or f.name, f.labels)
+        if m.get("unit"):
+            _sub(idf, "MeasurementUnitRef", MeasurementUnitOID=unit_oid(str(m["unit"])))
         if f.kind == "choice":
             _sub(idf, "CodeListRef", CodeListOID=f"{f.name}.choices")
             codelists.append(f)
@@ -121,9 +145,18 @@ def build(study: str, fields: dict[str, Field], items: list[dict[str, Any]], val
             _sub(u, "FullName").text = names[p]
     loc = _sub(ad, "Location", OID=LOCATION_OID, Name="Study site", LocationType="Site")
     _sub(loc, "MetaDataVersionRef", StudyOID=study_oid, MetaDataVersionOID=mdv_oid, EffectiveDate=at[:10])
-    sd = _sub(ad, "SignatureDef", OID=SIGNATURE_OID, Methodology="Electronic")
-    _sub(sd, "Meaning").text = meaning_text
-    _sub(sd, "LegalReason").text = LEGAL_REASON
+
+    # E-23 e: one SignatureDef per meaning, language and words a signer saw; a row from before the words were kept
+    # takes the service's text
+    def words(s: dict[str, Any]) -> tuple[str, str, str]:
+        return str(s.get("meaning") or "transcribed"), str(s.get("lang") or "en"), str(s.get("meaning_text") or
+                                                                                         meaning_text)  # fmt: skip
+
+    defs = sorted({words(s) for s in signatures.values()}) or [("transcribed", "en", meaning_text)]
+    for mn, lg, tx in defs:
+        sd = _sub(ad, "SignatureDef", OID=signature_def_oid(mn, lg, tx), Methodology="Electronic")
+        _sub(sd, "Meaning").text = tx
+        _sub(sd, "LegalReason").text = LEGAL_REASON
     # ClinicalData: signed values only
     cd = _sub(root, "ClinicalData", StudyOID=study_oid, MetaDataVersionOID=mdv_oid)
     data: dict[str, dict[str, list[dict[str, Any]]]] = {}
@@ -133,13 +166,13 @@ def build(study: str, fields: dict[str, Field], items: list[dict[str, Any]], val
     for rec in sorted(data):
         sdat = _sub(cd, "SubjectData", SubjectKey=rec, TransactionType="Upsert")
         for ev in sorted(data[rec]):
-            se = _sub(sdat, "StudyEventData", StudyEventOID=f"Event.{ev}", StudyEventRepeatKey="1")
+            se = _sub(sdat, "StudyEventData", StudyEventOID=f"Event.{ev}")
             for fm, fs in groups.items():
                 here = {str(v["item"]): v for v in data[rec][ev] if fields[str(v["item"])].form == fm}
                 if not here:
                     continue
-                fdata = _sub(se, "FormData", FormOID=f"Form.{fm}", FormRepeatKey="1")
-                igd = _sub(fdata, "ItemGroupData", ItemGroupOID=group_oid[fm], ItemGroupRepeatKey="1")
+                fdata = _sub(se, "FormData", FormOID=f"Form.{fm}")
+                igd = _sub(fdata, "ItemGroupData", ItemGroupOID=group_oid[fm])
                 for f in fs:
                     val = here.get(f.name)
                     if val is None:
@@ -160,7 +193,7 @@ def build(study: str, fields: dict[str, Field], items: list[dict[str, Any]], val
                         sg = _sub(idat, "Signature")
                         _sub(sg, "UserRef", UserOID=user_oid(str(sig["signer"])))
                         _sub(sg, "LocationRef", LocationOID=LOCATION_OID)
-                        _sub(sg, "SignatureRef", SignatureOID=SIGNATURE_OID)
+                        _sub(sg, "SignatureRef", SignatureOID=signature_def_oid(*words(sig)))
                         _sub(sg, "DateTimeStamp").text = str(sig["at"])
     ET.indent(root, space=" ")
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode") + "\n"
