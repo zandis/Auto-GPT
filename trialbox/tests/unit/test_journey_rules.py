@@ -42,8 +42,8 @@ def test_a_console_request_is_authorised_by_role_not_by_mailbox(make: Any) -> No
     assert orch.create(JobCreate(type="SCREEN", ruleset="GZQO", requested_by="admin@hospa.test"), role="admin")
     with pytest.raises(Rejected, match="not permitted"):  # mailed: the mailbox rule, as before
         orch.create(JobCreate(type="FEAS", ruleset="GZQO", requested_by="new-crc@hospa.test"))
-    with pytest.raises(Rejected, match="the investigator role may not run SCREEN"):
-        orch.create(JobCreate(type="SCREEN", ruleset="GZQO", requested_by="pi@hospa.test"), role="investigator")
+    with pytest.raises(Rejected, match="the investigator role may not run COHORT"):  # T-512: FEAS/SCREEN/CASE only
+        orch.create(JobCreate(type="COHORT", ruleset="GZQO", requested_by="pi@hospa.test"), role="investigator")
     for role in ("viewer", "cro"):
         with pytest.raises(Rejected, match=f"the {role} role may not run FEAS"):
             orch.create(JobCreate(type="FEAS", ruleset="GZQO", requested_by="v@hospa.test"), role=role)

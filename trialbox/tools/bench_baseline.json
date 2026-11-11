@@ -1,0 +1,26 @@
+{
+ "note": "tools/bench.py --gate --write-baseline, or --adopt <bench_gate.json> from the nightly's artifact (ENG-030, T-653); rewrite it in the pull request that makes the stub run deliberately slower or faster, with the reason in the commit. This first baseline is one measured run on the shared 4-core development machine under load (load average 6 to 8); adopt the runner's numbers from the first nightly artifact",
+ "written": "2026-11-10",
+ "patients": 5000,
+ "trial": "GZQO",
+ "passed": true,
+ "failed_checks": [],
+ "runs": 1,
+ "metrics": {
+  "generate_s": 2.51,
+  "lake_s": 58.01,
+  "cascade_s": 14.67,
+  "rest_s": 18.42,
+  "total_s": 93.62,
+  "peak_rss_mb": 1871
+ },
+ "calibration_s": 0.3241,
+ "host": {
+  "machine": "x86_64",
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+  "cpus": 4,
+  "mem_gb": 16,
+  "python": "3.12.3"
+ },
+ "commit": "2e3f3434"
+}
