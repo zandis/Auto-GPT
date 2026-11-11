@@ -26,6 +26,10 @@ T-209a (D-379, review OPS-027 and OPS-032): N2 begins with one line on the box's
 a red line sends N2 even on a morning with nothing else in it, so the coordinator sees that note reading was off
 last night. ``HEALTH``, the administrators' daily health mail, gives one line per check every day (weekends too).
 
+D-386 (T-622, LIFE-008): the mails follow the study's state. A study in start-up or closed is left out; a paused
+study gives no list rows, marks, calls or new pre-screens, so a paused study with no participant visit or serious AE
+due gives no mail. Its participants' visits and unacknowledged serious AEs are still mailed (:data:`CARE_STATES`).
+
 Run on a schedule with ``python -m console.notify --at 07:00`` (N1) and ``--at 07:30`` (N2), or from the admin home
 ("Send notices now"). A notice is sent at most once per person and day.
 """
@@ -48,6 +52,10 @@ from console.i18n import LANGS, translate
 from console.sitestore import NotifyPerson
 
 MAX_ROWS = 10  # per digest section; the rest is one line and the link
+# D-386 (LIFE-008): the states whose enrolled participants' visits and serious AEs are still mailed. Screening rows
+# (the list, marks, calls, new pre-screens) go out only for an open study (``StudyState.runs``); a paused study keeps
+# its participants' visit and SAE lines, because a pause stops recruitment, not the care of those already enrolled.
+CARE_STATES = ("open", "paused")
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 
@@ -320,10 +328,15 @@ def collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[No
             may = getattr(h, "may", None)
             if kind == "N1" and may is not None and not may(u, r.id, "screen"):
                 continue
+            state = store.study_state(r.id)  # D-386 (LIFE-008): the mails follow the study's state
+            if state.state not in CARE_STATES:
+                continue  # start-up or closed: nothing of this study is mailed
             nos = store.screening_nos(r.id)
             lf = h.life_mail(r.id, today) if getattr(h, "life_mail", None) else None
             if lf and any(lf.get(k) for k in ("today", "week", "overdue", "sae", "reports")):
                 life[r.id] = lf  # its rows already carry the screening number beside the pseudonym (D-136)
+            if not state.runs:
+                continue  # paused: no list rows, marks, calls or new pre-screens; enrolled participants' care stays
             wk = h.week_bundle(sess, r.id)
             if wk is None:
                 continue

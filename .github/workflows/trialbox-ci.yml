@@ -145,7 +145,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.trialbox == 'true'
-    timeout-minutes: 40  # each xdist worker starts its own throwaway cluster; the suite takes 15 to 25 minutes
+    timeout-minutes: 60  # each xdist worker starts its own throwaway cluster; the suite now takes 30 to 40 minutes (two runs hit 40 at 94-96% on 2026-11-11)
     # no service container: the tests start throwaway clusters from the runner's own PostgreSQL (tools/pglocal.py),
     # so pg_dump/pg_restore and the server are one version, as on a developer machine (a postgres:16 service with the
     # runner's newer client tools failed the backup tests on transaction_timeout)
