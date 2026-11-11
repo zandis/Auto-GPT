@@ -699,5 +699,5 @@ def test_the_host_part_is_in_the_backup_and_restored_only_where_named(box: dict[
     out = bk.restore(f, box["priv"], env=_env(box), dirs=box["dirs"], no_copy=True)  # type: ignore[arg-type]
     assert out["ok"] and "not restored" in out["host"]
     where = tmp_path / "host-restored"
-    out = bk.restore(f, box["priv"], env=_env(box), dirs={**box["dirs"], "host": where}, no_copy=True)  # type: ignore[dict-item]
+    out = bk.restore(f, box["priv"], env=_env(box), dirs={**box["dirs"], "host": where}, no_copy=True)  # type: ignore[dict-item,arg-type]
     assert (where / "deploy.env").read_text() == "TB_SITE_ID=CGMH\n" and out["host"].startswith("restored to")

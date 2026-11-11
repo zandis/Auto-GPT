@@ -640,7 +640,7 @@ def test_compose_nightly_holds_the_writers_still_and_takes_the_host_files(tmp_pa
 
     ops = bs.ComposeOps(deploy, fake)
     real_container = ops.box._backup_container
-    ops.box._backup_container = spy  # type: ignore[method-assign]
+    ops.box._backup_container = spy  # type: ignore[method-assign,assignment]
     cfg = _cfg(tmp_path, deploy=deploy)
     make = ops.make_backup(cfg)
     res = bs.nightly(cfg, make, lambda e, d: None, now=T0, classify=_offbox({"nas"}))
@@ -790,7 +790,12 @@ def test_backup_install_installs_the_cron_and_runs_the_first_backup(
     (deploy / "secrets").mkdir()
     bk.keygen(tmp_path / "it.key", deploy / "secrets" / "backup.pub")
     ran: list[Path] = []
-    monkeypatch.setattr(bs, "main_nightly", lambda d: ran.append(d) or 0)
+
+    def nightly(d: Path) -> int:
+        ran.append(d)
+        return 0
+
+    monkeypatch.setattr(bs, "main_nightly", nightly)
     assert cli(["backup-install", "--deploy", str(deploy), "--cron-dir", str(cron)]) == 0
     assert ran == [deploy] and "first backup: done" in capsys.readouterr().out
 

@@ -51,6 +51,7 @@ def test_default_install_passes() -> None:
         "backup",
         "flags",
         "site_key",
+        "key_custody",
     }
 
 
