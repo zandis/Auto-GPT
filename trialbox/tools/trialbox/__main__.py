@@ -37,6 +37,12 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--json", action="store_true")
     d.add_argument("--live", action="store_true", help="also ask the model servers (served names, key; D-177)")
     d.add_argument("--serving", action="store_true", help="only the live model-server check (install.sh)")
+    d.add_argument(
+        "--verify-all",
+        action="store_true",
+        help="also hash every pinned model's weights against its pin; a mismatch makes the gateway refuse (D-393)",
+    )
+    d.add_argument("--weights", action="store_true", help="only the weights check (the timer and the update, D-393)")
     d.add_argument("--platform", action="store_true", help="the install checks on a hospital platform (D-211)")
     d.add_argument("--no-gpu", action="store_true", help="--platform: the GPU checks report 'skipped: no device'")
     d.add_argument("--evidence", type=Path, default=None, help="--platform: write the IQ evidence JSON here")
@@ -182,6 +188,10 @@ def main(argv: list[str] | None = None) -> int:
         from tools.trialbox import doctor
 
         which = doctor.LIVE if a.serving else (doctor.CHECKS + doctor.LIVE if a.live else doctor.CHECKS)
+        if a.weights:
+            which = (doctor.LIVE if a.serving else ()) + doctor.WEIGHTS
+        elif a.verify_all:
+            which = which + doctor.WEIGHTS
         inp = doctor.inputs_from(
             env_file=a.env_file, settings=a.settings, routing=a.routing, dataplat=a.dataplat_workdir
         )

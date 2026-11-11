@@ -14,3 +14,14 @@
 7. `audit --dir <audit copy>`
 
 Also run `make test-egress` (§1 of [Security](../SECURITY.md)) and keep the host check output.
+
+**REDCap version per site** (DEP-026, D-393). The connector accepts REDCap 14, 15 and 16 (`SUPPORTED_MAJORS` in
+`services/rc_bridge/client.py`) but has been tested only against the simulator (`rc_sim`). Before go-live, ask the
+site's REDCap administrator for the version, or read it with the project's token (`content=version`, which the
+bridge also reads at connect and refuses outside those majors with `RC-VERSION`), and record it here. Then run one
+export and one import against the site's REDCap sandbox.
+
+| Site | REDCap version | Read on | How |
+| --- | --- | --- | --- |
+| CGMH | not read yet | | ask the REDCap administrator (`content=version`) |
+| Demo and CI | `rc_sim` (answers 16.x) | | the simulator |
