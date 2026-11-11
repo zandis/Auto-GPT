@@ -52,6 +52,7 @@ from tb_common.ulid import new_ulid
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
 from console import demo_guard, feedback
+from console.admin_accounts import end_date
 from console.auth import (
     AFFILIATIONS,
     ROLES,
@@ -1002,6 +1003,7 @@ def create_app(
                 if role not in ROLES:
                     raise AuthError("unknown role")
                 scope_values(affiliation, studies, expires or None)  # refuse a bad scope before the account exists
+                expires = end_date(role, expires or None, us.today()) or ""  # D-406 (OPS-059): at most 12 months
                 password = random_password()
                 us.create(name, role, password, mailbox.strip() or None, must_change=True)  # D-279: the owner's first
                 made_user = us.set_scope(name, affiliation, studies, expires or None)
@@ -1032,6 +1034,10 @@ def create_app(
                 keep_once(sess, name, password)
                 return RedirectResponse("/ops/users#made", status_code=303)
             if action == "scope":
+                scope_values(affiliation, studies, expires or None)
+                was = next((u for u in us.users() if u.username == name), None)
+                if was is not None:  # D-406 (OPS-059): a local account's end date, at most 12 months ahead
+                    expires = end_date(was.role, expires or None, us.today(), sso=us.is_sso(name)) or ""
                 u2 = us.set_scope(name, affiliation, studies, expires or None)
                 au.append(
                     "console.user",
@@ -1137,6 +1143,9 @@ def create_app(
     from console import sae_pages
 
     sae_pages.register(app, helpers)  # the SAE register and its worklist (D-191)
+    from console import admin_accounts
+
+    admin_accounts.register(app, helpers)  # T-209c (D-406): backup, update and account tiles; unused-account report
     from console import breakglass
 
     breakglass.register(app, helpers)  # D-280 (OD-5): the administrator's break-glass grants and the steward's review

@@ -9,7 +9,14 @@
   site's day: 00:00 to 24:00 in ``TB_TZ``, the zone the audit day files use; D-315, OPS-036) into
   ``TB_LOG_DIR/services/<day>/<service>.log.gz`` (0640). The containers keep their own size-capped JSON logs
   (50 MB x 5); the collected days are what the hospital's SIEM or an auditor reads (security review §6 q.25).
-* **prune**: collected days older than ``settings.yaml`` ``retention.logs_days`` are deleted.
+* **third-party logs** (T-209c, D-406, review OPS-035): the services TrialBox does not write itself
+  (:data:`THIRD_PARTY`: PostgreSQL, the HAPI FHIR store, the model server, the identity provider, Caddy, Prometheus)
+  are not scrubbed: a failed SQL statement or a request body may carry patient values. Their days go apart, into
+  ``TB_LOG_DIR/third-party/<day>/`` (0600, folder 0700) with a ``CLASS`` file that marks them D3: never forwarded to
+  the hospital's SIEM, never put in a support bundle, kept ``retention.third_party_logs_days`` (30) days. The
+  ``services/`` tree holds TrialBox's own, scrubbed logs only.
+* **prune**: collected days older than ``settings.yaml`` ``retention.logs_days`` are deleted (third-party days after
+  ``retention.third_party_logs_days``).
 * **archive-audit**: every closed day file of the audit chain (``TB_AUDIT_HOST_DIR``, default the ``audit-data``
   volume) is copied, gzip-compressed, to ``TB_AUDIT_ARCHIVE_DIR/<year>/<day>.jsonl.gz`` with its sha256 in
   ``MANIFEST.sha256``; the chain is verified before and the archived copy after. Nothing in the audit folder is ever
@@ -40,6 +47,14 @@ DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 AUDIT_DAY = re.compile(r"^(\d{4}-\d{2}-\d{2})\.jsonl$")
 DEFAULT_AUDIT = "/var/lib/docker/volumes/trialbox_audit-data/_data"
 DEFAULT_LOGS_DAYS = 365
+DEFAULT_THIRD_PARTY_DAYS = 30
+#: compose services whose logs TrialBox does not scrub (OPS-035): collected apart, class D3
+THIRD_PARTY = frozenset({"db", "fhir-store", "llm-service", "authelia", "caddy", "prometheus"})
+THIRD_PARTY_CLASS = (
+    "D3: third-party service logs, not scrubbed (they may hold patient values from a failed statement or a "
+    "request). Never forward them, never put them in a support bundle; deleted after "
+    "retention.third_party_logs_days.\n"
+)
 
 Runner = Callable[[Sequence[str]], bytes]
 
@@ -99,30 +114,39 @@ def site_day_bounds(day: date, tz: str) -> tuple[str, str]:
     return start.strftime("%Y-%m-%dT%H:%M:%SZ"), end.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _day_dir(log_dir: Path, tree: str, day: date) -> Path:
+    out = log_dir / tree / day.isoformat()
+    out.mkdir(parents=True, exist_ok=True)
+    os.chmod(out, 0o700 if tree == "third-party" else 0o750)
+    if tree == "third-party":
+        (out / "CLASS").write_text(THIRD_PARTY_CLASS, encoding="utf-8")
+        os.chmod(out / "CLASS", 0o600)
+    return out
+
+
 def collect(deploy: Path, day: date, log_dir: Path, runner: Runner = run_cmd, *, tz: str) -> list[Path]:
-    """One gzip file per compose service for the site's ``day`` in ``tz`` (D-315)."""
+    """One gzip file per compose service for the site's ``day`` in ``tz`` (D-315); a third-party service's file in
+    the ``third-party`` tree (OPS-035)."""
     services = runner([*compose(deploy), "ps", "--all", "--services"]).decode().split()
-    out_dir = log_dir / "services" / day.isoformat()
-    out_dir.mkdir(parents=True, exist_ok=True)
-    os.chmod(out_dir, 0o750)
     since, until = site_day_bounds(day, tz)
     written = []
     for svc in sorted(set(services)):
+        tree = "third-party" if svc in THIRD_PARTY else "services"
         data = runner([*compose(deploy), "logs", "--no-color", "--timestamps", "--since", since, "--until", until, svc])
-        f = out_dir / f"{svc}.log.gz"
+        f = _day_dir(log_dir, tree, day) / f"{svc}.log.gz"
         tmp = f.with_suffix(".gz.part")
         with gzip.open(tmp, "wb") as gz:
             gz.write(data)
-        os.chmod(tmp, 0o640)
+        os.chmod(tmp, 0o600 if tree == "third-party" else 0o640)
         tmp.replace(f)
         written.append(f)
     return written
 
 
-def prune(log_dir: Path, days: int, today: date) -> list[str]:
-    """Delete collected days older than ``days``; return the days deleted."""
+def prune(log_dir: Path, days: int, today: date, tree: str = "services") -> list[str]:
+    """Delete collected days of ``tree`` (``services`` or ``third-party``) older than ``days``; return them."""
     gone = []
-    base = log_dir / "services"
+    base = log_dir / tree
     cutoff = today - timedelta(days=days)
     for d in sorted(base.iterdir()) if base.is_dir() else []:
         if d.is_dir() and DAY.match(d.name) and date.fromisoformat(d.name) < cutoff:
@@ -237,14 +261,19 @@ def main_action(action: str, deploy: Path, day: str | None, runner: Runner = run
     today = today or datetime.now(ZoneInfo(tz)).date()  # the site's day, as the audit day files (OPS-036)
     log_dir = Path(env.get("TB_LOG_DIR") or deploy / "logs")
     days = retention_days(deploy / "settings.yaml", "logs_days", DEFAULT_LOGS_DAYS)
+    tp_days = retention_days(deploy / "settings.yaml", "third_party_logs_days", DEFAULT_THIRD_PARTY_DAYS)
     try:
         if action in ("collect", "daily"):
             d = date.fromisoformat(day) if day else today - timedelta(days=1)
             files = collect(deploy, d, log_dir, runner, tz=tz)
-            print(f"collected {len(files)} service logs of {d} into {log_dir / 'services' / d.isoformat()}")
+            apart = sum(f.parent.parent.name == "third-party" for f in files)
+            print(f"collected {len(files) - apart} service logs of {d} into {log_dir / 'services' / d.isoformat()}"
+                  f" and {apart} third-party logs (D3) apart")  # fmt: skip
         if action in ("prune", "daily"):
             gone = prune(log_dir, days, today)
             print(f"service logs kept {days} days; deleted: {', '.join(gone) or 'none'}")
+            gone = prune(log_dir, tp_days, today, "third-party")
+            print(f"third-party logs (D3) kept {tp_days} days; deleted: {', '.join(gone) or 'none'}")
         if action in ("archive-audit", "daily"):
             audit = Path(env.get("TB_AUDIT_HOST_DIR") or DEFAULT_AUDIT)
             archive = Path(env.get("TB_AUDIT_ARCHIVE_DIR") or log_dir / "audit-archive")

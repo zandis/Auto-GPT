@@ -361,7 +361,11 @@ ADDED: dict[str, tuple[str, ...]] = {
     # D-317: refdata version 3, the record of withdrawn sources
     "refdata": ("9e976b5878b8d5a8d1a89e417b61450471874a0e1122e43764d755d11662af83",),
     # D-279: users.must_change, login_failures.source, sessions.via
-    "auth": ("44f1f94e5797899b13e8b807b4b20ace62bd584cf226dd4e207cf500b466deb6",),
+    # T-209c (D-406): users.last_login, for the unused-account report
+    "auth": (
+        "44f1f94e5797899b13e8b807b4b20ace62bd584cf226dd4e207cf500b466deb6",
+        "d08533082518372c9c3972573a7370f745b1a7bb754798cb3c60408ecd9744a8",
+    ),
     # D-301: migration 3, the one-million block and the vocabulary tables
     # T-106 (D-339): migration 4, the large clinical tables partitioned by year
     # T-106b (STD-032): migration 5, the other fifteen CDM v5.4 tables
