@@ -435,6 +435,26 @@ def _file_ref(p: Path, base: Path) -> dict[str, Any]:
     return {"path": p.relative_to(base).as_posix(), "sha256": _hash_file(p) if p.is_file() else None}
 
 
+def _num(v: Any) -> float | None:
+    return float(v) if isinstance(v, int | float) and not isinstance(v, bool) else None
+
+
+def throughput_of(qual: Mapping[str, Any] | None) -> dict[str, float | None]:
+    """The LLM-025 numbers of a layout from its qualification record's ``throughput`` step (``tools/qualify.py``):
+    seconds per note-stage patient and per criterion check at p50/p95; the note-stage share only when the step gives
+    a number (the qualify run does not measure it)."""
+    detail = (((qual or {}).get("steps") or {}).get("throughput") or {}).get("detail") or {}
+    pat = detail.get("seconds_per_note_stage_patient") or {}
+    chk = detail.get("seconds_per_criterion_check") or {}
+    return {
+        "note_stage_share": _num(detail.get("note_stage_share")),
+        "note_stage_s_p50": _num(pat.get("p50")),
+        "note_stage_s_p95": _num(pat.get("p95")),
+        "criterion_s_p50": _num(chk.get("p50")),
+        "criterion_s_p95": _num(chk.get("p95")),
+    }
+
+
 def make_record(run_dir: Path, *, operator: str, standin: bool, layouts: Path = LAYOUTS) -> dict[str, Any]:
     """The G1b record from a run folder (``tools/b200_qualify.sh``'s layout, see the RUNBOOK section)."""
     man = _read(run_dir / "bundle" / MANIFEST) or {}
@@ -445,7 +465,7 @@ def make_record(run_dir: Path, *, operator: str, standin: bool, layouts: Path = 
         fp = _read(d / "fingerprint.json") or {}
         serving = _read(d / "serving_config.json")
         qual = _read(d / "qualification.json")
-        tput = _read(d / "throughput.json") or {}
+        tput = throughput_of(qual)  # the qualification record's throughput step (LLM-025)
         why = []
         if not fp:
             why.append("no fingerprint")

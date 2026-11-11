@@ -19,7 +19,9 @@ permissions:
 
 concurrency:
   group: trialbox-ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}  # every push to master keeps its run
+  # a running push to master is never cancelled; a push run still waiting in the group is replaced by a newer push
+  # (GitHub keeps one pending run per concurrency group), so master is checked at its newest commit
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
   run:
