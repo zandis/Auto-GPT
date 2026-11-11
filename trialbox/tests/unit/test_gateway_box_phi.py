@@ -34,6 +34,7 @@ from tb_common.config import get_config
 from tb_common.llm import LlmClient, LlmError
 from tb_common.policy.classes import Environment, Topology
 
+from tests.model_pins import promote_pins, release_registry
 from tools import pin_model
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -87,26 +88,41 @@ def _weights(models: Path) -> None:
         (models / name / "model.safetensors").write_bytes(f"synthetic {name}".encode())
 
 
+def _folders(models: Path) -> dict[str, Path]:
+    return {JUDGE: models / "gemma-4-26b-a4b-it-4bit", VERIFIER: models / "qwen3.5-9b-4bit"}
+
+
 def _pin(tmp_path: Path) -> Path:
-    """The pins install.sh makes (tools/pin_model.py --install gb10, review R-01): the box's own weights, champion."""
+    """The pins install.sh makes (tools/pin_model.py --install gb10, review R-01): the box's own weights, as
+    candidates, then promoted to champion as a passing qualification record would (T-012b). The synthetic folders are
+    the expected release of a registry copy (``tmp_path/registry.release.yaml``: give it as ``TB_REGISTRY_PATH``)."""
     out = tmp_path / "site" / "registry.site.yaml"
     _weights(tmp_path / "models")
-    ok, lines = pin_model.install_pins("gb10", tmp_path / "models", out, {})
-    assert ok, lines
-    ok, lines = pin_model.verify_all(tmp_path / "models", out)  # install's next step (SEC-64)
-    assert ok, lines
+    with pytest.MonkeyPatch.context() as mp:
+        release_registry(tmp_path, _folders(tmp_path / "models"), mp)
+        ok, lines = pin_model.install_pins("gb10", tmp_path / "models", out, {})
+        assert ok, lines
+        ok, lines = pin_model.verify_all(tmp_path / "models", out)  # install's next step (SEC-64)
+        assert ok, lines
+    promote_pins(out)
     return out
 
 
-def test_install_pins_the_profile_pair_once_and_reports_missing_weights(tmp_path: Path) -> None:
+def test_install_pins_the_profile_pair_once_and_reports_missing_weights(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     out = tmp_path / "site" / "registry.site.yaml"
     ok, lines = pin_model.install_pins("gb10", tmp_path / "models", out, {})
     assert not ok and all("routes nothing" in x for x in lines) and not out.exists()
     _weights(tmp_path / "models")
+    release = release_registry(tmp_path, _folders(tmp_path / "models"), monkeypatch)
     assert pin_model.install_pins("gb10", tmp_path / "models", out, {})[0]
     again = pin_model.install_pins("gb10", tmp_path / "models", out, {})
     assert again == (True, [f"{JUDGE}: already pinned", f"{VERIFIER}: already pinned"])
-    reg = Registry.from_env({"TB_REGISTRY_OVERRIDE": str(out)})
+    reg = Registry.from_env({"TB_REGISTRY_OVERRIDE": str(out), "TB_REGISTRY_PATH": str(release)})
+    assert {reg.build(b).status.value for b in (JUDGE, VERIFIER)} == {"candidate"}  # T-012b: install pins candidate
+    promote_pins(out)
+    reg = Registry.from_env({"TB_REGISTRY_OVERRIDE": str(out), "TB_REGISTRY_PATH": str(release)})
     for alias, endpoint, served in (
         ("j-workhorse", "serving", "local/gemma-4-26b-a4b-nvfp4"),
         ("v-verifier", "verifier", "local/qwen3.5-9b-awq"),
@@ -128,6 +144,7 @@ def box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     host_paths = {
         "TB_AUDIT_DIR": str(tmp_path / "audit"),
         "TB_REGISTRY_OVERRIDE": str(override),
+        "TB_REGISTRY_PATH": str(tmp_path / "registry.release.yaml"),  # the synthetic release (T-012b)
         "TB_SETTINGS": str(ROOT / "deploy" / "settings.example.yaml"),
         "TB_DB_URL": os.environ["TB_DB_URL"],  # the test's private trial database (trace store)
         # install replaces the example's shared token with secrets (docker-compose.secrets.yml); one synthetic token

@@ -150,7 +150,7 @@ MEDIS standard disease names (標準病名), YJ/HOT master, JLAC10 (licensed mas
   not master content. services/adapter/mapping/jp_core/byomei_to_icd10.csv and jlac10_to_loinc.csv are demo maps
   written for TrialBox (ZBxx codes are invented; rows marked verify).
 
-TrialBox clinical synonyms (ja, zh-TW), diagnosis names, departments
+TrialBox clinical synonyms (ja, zh-TW), condition names, departments
   libs/tb_common/refdata_src/*_clinical_synonyms.csv, services/criteria_compiler/terminology/src/synonyms.csv,
   department.csv, services/sitesetup/dx_names.csv: TrialBox's own work. The ICD-10 codes they point to are
   covered above.
@@ -253,7 +253,7 @@ Chia corpus
 
 MIMIC-IV Clinical Database Demo on FHIR
   Version: 2.1.0. Not in the image: fetched at run time. services/adapter/mapping/mimic/tables and
-    services/dataplat/contracts/mimic_fhir carry MIMIC item ids and labels used to map it.
+    services/adapter/contracts/mimic_fhir carry MIMIC item ids and labels used to map it.
   Licence: Open Data Commons Open Database License v1.0, https://opendatacommons.org/licenses/odbl/1-0/
   Attribution: Johnson A., Bulgarelli L., Pollard T., et al. MIMIC-IV Clinical Database Demo on FHIR, PhysioNet.
 
@@ -389,7 +389,7 @@ Every folder of the image that holds code lists, code maps or value sets, and th
   services/adapter/mapping/jp_core/             demo maps to ICD-10, LOINC, ATC (section 1)
   services/adapter/mapping/tw_core/             local lab to LOINC (section 1)
   services/adapter/mapping/mimic/tables/        MIMIC items to LOINC, ATC, ICD-10-CM, ICD-10-PCS (section 1)
-  services/sitesetup/                           diagnosis names to ICD-10 (section 1)
+  services/sitesetup/                           condition names to ICD-10 (section 1)
   tests/fixtures/refdata/                       samples of the public lists (section 1)
   tests/fixtures/refdata/nhi_pas_sample/        TWPAS package and ConceptMap nhi-loinc (section 1)
   tests/fixtures/licensed/                      invented rows in licensed masters' layout (section 1)

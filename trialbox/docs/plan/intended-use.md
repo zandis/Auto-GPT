@@ -24,7 +24,7 @@ It appears in the console footer, every PDF, XLSX and mail, the 開示書, the I
 | Rule | Where it bites |
 | --- | --- |
 | A patient is "not matched on criterion X by record Y", never "excluded". The list is **"Criteria not matched"** (ja 基準に合致しない患者, zh-TW 未符合條件之病人) in every language, the API and the reports (PR-12) | console, `/api/v1`, PDFs, XLSX, mail |
-| "除外", "排除", "excluded", 診断, 判定, 対象外, 見逃し, 診斷, "diagnosis", "abnormal", "risk score", "AI decides" are forbidden words, checked by the browser walk (WS-13.7). Only the risk file names the hazard plainly | every page in three languages |
+| "除外", "排除", "excluded", 診断, 判定, 対象外, 見逃し, 診斷, "diagnosis", "abnormal", "risk score", "AI decides" are forbidden words, checked by the browser walk (WS-13.7). Only the risk file names the hazard plainly. The list in force is `FORBIDDEN` in `libs/tb_common/wording.py`, with the statement's own words as allowed negations (`ALLOWED`); D-351 says how a record's own field is named | every page in three languages, every role; console, mail and report catalogues; PDFs, XLSX and mail |
 | A drafted eCRF value is a **draft**, shown beside its source, until a person confirms it. It is never called a finding or a result | the EDC prefill screens (D-160) |
 | Setpoints are numbers with a "check" mark, never an alert, colour or the word "abnormal" | profile pages |
 | The clinician (treating physician) role sees setpoint and gap layers **only inside a study-referral context, as numbers without a disease name, behind a switch that is off by default** (owner decision, "Profile" SaMD row). PIs and stewards see them labelled research use. No forecast layer | profile pages, referral pages |

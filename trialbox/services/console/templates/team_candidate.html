@@ -47,6 +47,7 @@
 <select name="department" aria-label="{{ t('team.route.department') }}" data-testid="dept-pick"><option value="">{{ row.department or '' }}</option>{% for c in contacts %}<option value="{{ c.department }}">{{ c.department }} · {{ c.name }}</option>{% endfor %}</select>
 </fieldset>
 <p class="hint">{{ t('team.ref.never_stalls') }}</p>
+{% if mark and mark.mark == 'approach' %}<p class="warn" data-testid="referral-pauses">{{ t('team.ref.pauses') }}</p>{% endif %}
 <label for="ref-note">{{ t('mark.note') }}</label><input id="ref-note" name="note" maxlength="300">
 <button type="submit" data-testid="referral-send">{{ t('team.ref.send') }}</button>
 </form>{% elif not may_refer %}<p class="hint" data-testid="referral-not-yours">{{ t('team.ref.not_yours') }}</p>{% endif %}
@@ -56,6 +57,9 @@
 {% include "_criteria.html" %}
 <section class="card"><h2>{{ t('team.mark.title') }}</h2>
 <p class="hint">{{ t('team.mark.help') }}</p>
+{# T-516 (UX-015): the sub-investigator sees why Approach is not theirs, and who marks it #}
+{% if user.can_mark and not may_approach %}<p class="hint" data-testid="approach-absent">{% if approach_by %}{{ t('team.approach.not_delegated.pi', name=approach_by) }}{% else %}{{ t('team.approach.not_delegated') }}{% endif %}</p>{% endif %}
+{% if mark and mark.mark == 'approach' and ref_wait %}<p class="warn" data-testid="approach-paused">{{ t('team.approach.paused', state=t('team.state.' + ref_wait.state)) }}</p>{% endif %}
 {% if irb_warn %}<p class="warn" data-testid="irb-warning">{{ t('team.irb.warn') }} {% for w in irb_warn %}<span class="pill warn">{{ t('team.irb.w.' + w) }}</span> {% endfor %}</p>{% endif %}
 <a class="button secondary" href="/studies/{{ rs }}/patients/{{ pid }}" data-testid="to-patient">{{ t('team.mark.open') }}</a></section>
 {% if views %}<section class="card"><h2>{{ t('team.views.title') }}</h2><ul class="plain hint" data-testid="views">{% for k, p, b, a in views %}<li>{{ a|local }} · {{ b }} · {{ t('team.view.' + k) }} · {{ t('team.purpose.' + p) }}</li>{% endfor %}</ul></section>{% endif %}
