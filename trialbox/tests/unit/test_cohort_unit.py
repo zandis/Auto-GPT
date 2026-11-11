@@ -153,15 +153,16 @@ def test_live_search_paginates_and_maps_params() -> None:
 
 def test_cohort_schedule_rulesets(tmp_path: Path) -> None:
     """Quarterly COHORT runs settings.cohort.rulesets, else every approved cohort ruleset (D-75)."""
-    import shutil
     from types import SimpleNamespace
 
     from orchestrator.scheduler import cohort_rulesets
     from tb_common.config import load_settings
 
+    from tests.rulesets_guard import copy_rulesets
+
     settings = load_settings(ROOT / "deploy/settings.example.yaml")
     for rid in ("GOUT-COH", "RA-COH", "RA-BIO"):
-        shutil.copytree(ROOT / "rulesets" / rid, tmp_path / rid)
+        copy_rulesets(tmp_path / rid, src=ROOT / "rulesets" / rid)
     orch = SimpleNamespace(cfg=SimpleNamespace(settings=settings), rulesets_dir=tmp_path)
     assert cohort_rulesets(orch) == ["GOUT-COH", "RA-COH"]  # type: ignore[arg-type]
     orch.cfg.settings = settings.model_copy(update={"cohort": None})
