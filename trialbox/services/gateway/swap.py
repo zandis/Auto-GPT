@@ -68,15 +68,18 @@ class ModelSwap:
 
     @classmethod
     def from_env(cls, endpoint_urls: Mapping[str, str], env: Mapping[str, str] | None = None) -> ModelSwap | None:
+        from gateway.policy import endpoint_key
+
         e = os.environ if env is None else env
         if (e.get("TB_MODEL_SWAP") or "").strip().lower() != "sleep":
             return None
+        key = endpoint_key("TB_LLM_API_KEY", e)  # the compose secret file first (D-437)
         return cls(
             {k: endpoint_urls.get(k, "") for k in SWAPPABLE},
             wake_timeout_s=float(e.get("TB_SWAP_WAKE_TIMEOUT_S") or 300),
             hold_s=float(e.get("TB_SWAP_HOLD_S") or 3600),
             # D-177: the admin endpoints sit behind model-guard, which wants the model-server key on every call
-            headers={"Authorization": f"Bearer {e['TB_LLM_API_KEY']}"} if e.get("TB_LLM_API_KEY") else None,
+            headers={"Authorization": f"Bearer {key}"} if key else None,
         )
 
     def awake(self, endpoint: str) -> bool:
