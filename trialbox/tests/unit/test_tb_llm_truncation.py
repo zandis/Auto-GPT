@@ -28,7 +28,8 @@ def test_cut_off_json_is_asked_again_with_four_times_the_budget() -> None:
         else:
             choice = {"message": {"content": '{"verdict": "pass"}'}, "finish_reason": "stop"}
         usage = {"prompt_tokens": 100, "completion_tokens": 1024 if len(bodies) == 1 else 300}
-        return httpx.Response(200, json={"choices": [choice], "usage": usage})
+        tb = {"alias": "j-workhorse", "expected_alias": "j-workhorse", "fallbacks": 0}  # as the gateway says (T-601)
+        return httpx.Response(200, json={"choices": [choice], "usage": usage, "tb": tb})
 
     client = GatewayClient("http://gw/v1", "orchestrator", http=httpx.Client(transport=httpx.MockTransport(handler)))
     res = client.chat(

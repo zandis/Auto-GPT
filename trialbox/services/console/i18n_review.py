@@ -43,6 +43,15 @@ EN: dict[str, str] = {
     "name.",
     # T-507 (D-309): criterion words in the page language, the label step at approval, the test model
     "crit.original": "As written in the protocol",
+    # T-515 (D-323, review UX-007): where a first or second check came from, and what the two checks are
+    "opinion.explain": "First check and second check: two different models read the same notes, each on its own. "
+    "When they disagree the answer stays unknown and a person decides.",
+    "opinion.disagree": "the two checks disagree",
+    "opinion.src.synthetic": "synthetic example",
+    "opinion.src.synthetic.why": "Made up for the demonstration to show how the two checks look. No model wrote it.",
+    "opinion.src.recorded": "recorded run",
+    "opinion.src.recorded.why": "Recorded from a run of the real model pair on the demonstration records, "
+    "not answered on this box.",
     "model.test": "test model",
     "model.test.why": "This answer comes from the test model, which gives fixed answers to the demonstration notes. "
     "It says nothing about how well a real model reads notes.",
@@ -91,6 +100,16 @@ JA: dict[str, str] = {
     "TrialBox にあるデータはそのまま残ります。",
     "confirm.approve_all": "{n} 件の基準をまとめて承認しますか？各基準があなたの氏名で承認として記録されます。",
     "crit.original": "プロトコルの原文",
+    # T-515 (D-323): 1回目・2回目の確認の出どころ
+    "opinion.explain": "1回目の確認と2回目の確認：異なる 2 つのモデルが同じ記録をそれぞれ独立に読みます。"
+    "判断が分かれたときは「不明」のままとし、担当者が判断します。",
+    "opinion.disagree": "2 つの確認で判断が分かれています",
+    "opinion.src.synthetic": "合成した例",
+    "opinion.src.synthetic.why": "2 つの確認の見え方を示すためにデモ用に作成した例です。"
+    "モデルが書いたものではありません。",
+    "opinion.src.recorded": "記録済みの実行結果",
+    "opinion.src.recorded.why": "実際のモデルの組でデモ用の記録を読んだ実行結果を記録したもので、"
+    "この環境で回答したものではありません。",
     "model.test": "テスト用モデル",
     "model.test.why": "この回答は、デモ用の記録に固定の回答を返すテスト用モデルによるものです。"
     "実際のモデルがカルテ記載をどの程度正しく読めるかは示しません。",
@@ -135,6 +154,14 @@ ZH: dict[str, str] = {
     "confirm.detach": "要將 REDCap 從本試驗分離嗎？TrialBox 會停止讀取與寫入該專案。已在 TrialBox 中的資料會保留。",
     "confirm.approve_all": "要一次核准全部 {n} 項條件嗎？每項條件都會以您的姓名記錄為已核准。",
     "crit.original": "計畫書原文",
+    # T-515 (D-323)：第一次與第二次確認的來源
+    "opinion.explain": "第一次確認與第二次確認：兩個不同的模型各自獨立閱讀同一份紀錄。"
+    "兩者判斷不一致時，結果維持「不明」，由人員判斷。",
+    "opinion.disagree": "兩次確認的判斷不一致",
+    "opinion.src.synthetic": "合成範例",
+    "opinion.src.synthetic.why": "為示範兩次確認的呈現方式而製作的範例，並非由模型產生。",
+    "opinion.src.recorded": "已記錄的執行結果",
+    "opinion.src.recorded.why": "以實際的模型組合閱讀示範用紀錄後所記錄的結果，並非在此系統上回答。",
     "model.test": "測試用模型",
     "model.test.why": "此回答來自測試用模型，它對示範用紀錄回傳固定答案，無法說明實際模型閱讀病歷的能力。",
     "s20.labels.missing": "核准前，請為下方標示的 {n} 項條件加上{language}簡短標籤；名單會將標籤與試驗原文並列顯示。",
