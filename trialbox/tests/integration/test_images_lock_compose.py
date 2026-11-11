@@ -30,7 +30,7 @@ VERIFIER_MAX_SEQS=8
 POSTGRES_PASSWORD=x
 """
 PROFILES = ("stub", "test", "gpu", "oidc", "dev")  # every profile any overlay defines
-OVERLAYS = ["", "gb10", "rtx5090", "rtxpro6000", "shared-quota", "identity", "poc", "testbench", "secrets"]
+OVERLAYS = ["", "gb10", "rtx5090", "rtxpro6000", "shared-quota", "identity", "poc", "testbench", "secrets", "monitoring"]
 
 
 def _compose() -> bool:
