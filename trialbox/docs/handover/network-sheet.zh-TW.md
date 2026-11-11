@@ -2,14 +2,16 @@
 
 由下列 compose 檔以 tools/network_sheet.py 產生（D-138）。除主控台連接埠外，外部無法連到本機任何服務。本表不含任何機密的值。
 
-**compose 檔:** `deploy/docker-compose.yml`, `deploy/docker-compose.secrets.yml`, `deploy/docker-compose.rtx5090.yml`, `deploy/docker-compose.gb10.yml`, `deploy/docker-compose.rtxpro6000.yml`
+**compose 檔:** `deploy/docker-compose.yml`, `deploy/docker-compose.secrets.yml`, `deploy/docker-compose.identity.yml`, `deploy/docker-compose.rtx5090.yml`, `deploy/docker-compose.gb10.yml`, `deploy/docker-compose.rtxpro6000.yml`
 
 ## 監聽連接埠
 
 | 服務 | 連接埠 | 主機端 | 網路 | 可連線者 | 啟動條件 |
 | --- | --- | --- | --- | --- | --- |
 | adapter | 8016 | 未對外 | trialbox-net | 僅限持有自身權杖者: console, orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
-| console | 8090 | 127.0.0.1:8090:8090 | console-net, trialbox-net | 院內人員瀏覽器: 預設僅 127.0.0.1；院內網路僅經由院方 TLS 代理 | 常駐 |
+| authelia | 9091 | 未對外 | egress-net, trialbox-net | 僅主控台與 Caddy（以醫院帳號登入） | oidc (identity) |
+| caddy | 443 | 0.0.0.0:443:443 | edge-net, trialbox-net | 院內網路的診間電腦，僅 443（https://TB_TLS_HOSTNAME） | 常駐 |
+| console | 8090 | 未對外 | console-net, trialbox-net | 院內人員瀏覽器: 預設僅 127.0.0.1；院內網路僅經由院方 TLS 代理 | 常駐 |
 | criteria-compiler | 8012 | 未對外 | egress-net, trialbox-net | 僅限持有自身權杖者: orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
 | db | 5432 | 未對外 | trialbox-net | TrialBox 各服務與 fhir-store（需密碼） | 常駐 |
 | doc-parser | 8011 | 未對外 | trialbox-net | 僅限持有自身權杖者: orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
@@ -32,6 +34,7 @@
 | 網路 |  |
 | --- | --- |
 | trialbox-console | 僅供主控台的公開埠: 不做對外 NAT、不解析外部名稱，其餘由 nftables 阻擋（deploy/network.sh） |
+| trialbox-edge | 對外僅限下表目的地（nftables，deploy/network.sh） |
 | trialbox-egress | 對外僅限下表目的地（nftables，deploy/network.sh） |
 | trialbox-model-backend | 內部專用: 無對外路由 |
 | trialbox-model-net | 內部專用: 無對外路由 |
@@ -51,10 +54,20 @@
 | orchestrator | NHI_TWPAS_BASE_URL | NHI TWPAS (SUBMIT only) | NHI_TWPAS_BASE_URL |
 | any | EGRESS_EXTRA | site additions | EGRESS_EXTRA |
 
+## 主機（容器之外）
+
+| 來源 -> 目的地 | 用途 | 開放條件 |
+| --- | --- | --- |
+| clinic PCs -> TB_TLS_HOSTNAME:443 (caddy) | the console over https; nothing else is published | docker-compose.identity.yml, TB_TLS_HOSTNAME |
+| authelia -> domain controller:636 (LDAPS) | sign-in with the hospital account (optional) | EGRESS_EXTRA authelia=<dc>:636, profile oidc |
+| host -> hospital NTP server, UDP 123 | the clock of every audit row (check_host: clock in sync) | the host's time service (systemd-timesyncd or chrony) |
+| host -> backup share (TB_BACKUP_TARGETS), NFS 2049 or SMB 445 | the off-box backup copy (RUNBOOK §5) | TB_BACKUP_TARGETS, a share mounted on the host |
+
 ## 機密資訊（僅名稱與位置）
 
 | 機密 | 存放位置 | 提供給 |
 | --- | --- | --- |
+| oidc_client_secret | deploy/secrets/authelia/oidc_client_secret.txt (0600, root) | console only, at /run/secrets/oidc_client_secret (OIDC on) |
 | service token: adapter | deploy/secrets/services/adapter.token (0600) | adapter only, at /run/secrets/tb_service_token |
 | service token: console | deploy/secrets/services/console.token (0600) | console only, at /run/secrets/tb_service_token |
 | service token: criteria-compiler | deploy/secrets/services/criteria-compiler.token (0600) | criteria-compiler only, at /run/secrets/tb_service_token |
@@ -71,6 +84,8 @@
 | IMAP_PASS, SMTP_PASS | deploy/.env (0600, root) | mail-gateway |
 | CLOUD_LLM_API_KEY (empty by default) | deploy/.env (0600, root) | gateway |
 | site_hmac.key, pid_map.key, REDCap API tokens | volume tb-secrets (/run/secrets/trialbox) | adapter, orchestrator |
+| Caddy's internal CA keys (TB_TLS_MODE=internal) | volume caddy-data | caddy only; never copied out |
+| Authelia secrets and the LDAP bind password | deploy/secrets/authelia/ (0600, root) | authelia only |
 | backup public key | deploy/secrets/backup.pub | the backup (encrypts only) |
 | backup private key | USB stick | 醫院資訊室密封保管；不放在本機 |
 | vendor update key (public) | deploy/keys/vendor_ed25519.pub | tools/apply_update.sh |

@@ -1,5 +1,6 @@
 # Site mapping template — source type `cgrd_sql` (one table or view per logical table; DSN from settings.data_source.dsn_env).
-# 1. Copy to services/adapter/mapping/tw_core/<site>.yaml (keep `extends`: the TW Core resources are shared).
+# 1. Copy to deploy/site/mapping/tw_core/<site>.yaml, never into the image (keep `extends`: the shared TW Core
+#    mapping comes from the image; the adapter looks in deploy/site/mapping first, T-632).
 # 2. For every table: set `source` (table or view name), `rename` local -> canonical columns (CANONICAL.md),
 #    `values` local -> canonical codes. `source` may name a view the DBA creates for TrialBox (read-only account).
 # 3. Copy lab_local_to_loinc.csv next to it and replace the local lab codes (local_code -> LOINC).
