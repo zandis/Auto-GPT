@@ -67,7 +67,7 @@ The pair (judge Gemma 4 26B-A4B NVFP4, verifier Qwen3.5-9B AWQ) excludes on a no
 | Measure | Gate | Deployed files on the card | Where |
 | --- | --- | --- | --- |
 | N-11: eligible SIGIR pairs lost, of 79 (EN / JA / zh-TW) | ≤ 5 / ≤ 4 / ≤ 2 | 4 / 3 / **not recorded** | `eval/parity/replay.json` |
-| N-12: TREC CT eligible pairs wrongly dropped, audit-adjusted | ≤ 5 % | **3.1 %** (95 % 1.8–5.0), pass | `eval/trec_ct/results/n12_deployed_2026-11-08.md` |
+| N-12: TREC CT eligible pairs wrongly dropped, unadjusted | ≤ 5 % | **9.4 %** (95 % 7.9–11.2), **fail** | `eval/trec_ct/results/n12_deployed_2026-11-08.md` |
 | pair canary (54 cases, en/ja/zh-TW) on the PRO 6000 | 0 wrong exclusions | judge 54/54, verifier 49/54, 0 wrong exclusions | `eval/parity/gpu-run-2026-11-08-pro6000/` |
 | `public_e2e --lang en` with the pair, PRO 6000 | all checks | 98/98 in 1,303 s; 7 disagreements and 1 failure went to review | same folder |
 
@@ -76,8 +76,17 @@ and names any recording a GPU run must still add. N-11 zh-TW on the deployed fil
 `eval/trialgpt_compare/results/raw/trialbox__local__gemma-4-26b-a4b-nvfp4__zh-TW.jsonl.gz` and the verifier's file:
 `python -m tools.trialgpt_compare run --pipelines trialbox --langs zh-TW --base-url http://<vm>/judge/v1`, then the same
 for the verifier (2,030 checks, about 10 minutes on the PRO 6000).
-The N-12 audit adjustment rests on a sampled check of NIST labels by Claude, not a clinician
-(`eval/trec_ct/AUDIT.md`).
+N-12 is the unadjusted figure (D-343, REG-030). The audit-adjusted figure, 3.1 % (95 % 1.8–5.0), is a note and not
+the gate result: the adjustment rests on a sampled check of NIST labels by Claude, not a clinician
+(`eval/trec_ct/AUDIT.md`). It stays a note until a clinician repeats the sample.
+
+**Model changes** follow the model change protocol (`docs/validation/model-change-protocol.md`): each foreseen change
+(prompt version, weights or quantisation, chat template, judge or verifier replaced, serving engine, hardware
+profile, routing) with its automated test and threshold, the impact check, rollback and who is told. The evidence is
+the record of `trialbox eval qualify` (`tools/qualify.py`, D-313). Every record cites the protocol by path, sha256 and
+change id, and its `n12` step takes only evidence marked `"basis": "unadjusted"`. How the system maps to GMLP, the
+Taiwan AI Basic Act and Japan's AI Guidelines for Business is in the AI governance note
+(`docs/validation/ai-governance.md`).
 
 **The serving record** (`tools/serving_config.py`, schema `tb-serving-config/1`): card name, memory, driver, CUDA and
 `capped_to`; per vLLM server the image, version, model, served name, quantisation, context, sequences, eager flag,

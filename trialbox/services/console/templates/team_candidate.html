@@ -11,6 +11,7 @@
   {% if mrn is not none %}<span class="pill ok" data-testid="mrn">{{ t('patient.mrn') }} <span class="mono">{{ mrn or t('patient.mrn.none') }}</span></span>{% endif %}
 </div>
 {% include "_team_nav.html" %}
+{% include "_asof.html" %}
 <p class="hint" data-testid="purpose-shown">{{ t('team.purpose.logged', purpose=t('team.purpose.' + purpose)) }}</p>
 <dl class="facts">
   <dt>{{ t('team.id') }}</dt><dd><span class="mono" data-testid="pid">{{ pid }}</span>{% if screening_no %} · {{ t('log.no') }} <span class="mono" data-testid="screening-no">{{ screening_no }}</span>{% endif %}</dd>

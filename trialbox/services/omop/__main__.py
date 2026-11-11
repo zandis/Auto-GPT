@@ -6,6 +6,7 @@ python -m omop dqd [--json out.json] [--tz Asia/Tokyo]                          
 python -m omop vocab terminology [--rulesets DIR]        # the compiler's Parquet into the vocabulary (D-301)
 python -m omop vocab code-list --system URI --version FY2027 --file F [--rulesets DIR]   # e.g. ICD-10-CM FY2027
 python -m omop vocab licensed | refdata | local --ws main                     # JP masters, refdata terms, local maps
+python -m omop vocab athena --file DIR                    # an Athena bundle (allow-listed vocabularies only)
 python -m omop vocab status                                                   # releases, release id, recompile list
 """
 
@@ -52,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     # the site's zone for "today" in the plausibility checks (D-270); without it, the container's own date
     dq.add_argument("--tz", default=os.environ.get("TB_TZ") or "")
     vo = sub.add_parser("vocab")
-    vo.add_argument("what", choices=["terminology", "code-list", "licensed", "refdata", "local", "status"])
+    vo.add_argument("what", choices=["terminology", "code-list", "licensed", "refdata", "local", "athena", "status"])
     vo.add_argument("--rulesets", type=Path)
     vo.add_argument("--system")
     vo.add_argument("--version")
@@ -117,6 +118,10 @@ def _vocab(db: Any, a: argparse.Namespace) -> Any:
     if a.what == "refdata":
         return [vl.load_refdata_terms(db, sid, rows, version=sid, by=a.by).as_dict()
                 for sid, rows in vl.refdata_terms().items()]  # fmt: skip
+    if a.what == "athena":
+        if not a.file:
+            raise SystemExit("athena needs --file (the unpacked bundle's directory)")
+        return vl.load_athena(db, a.file, by=a.by).as_dict()
     if a.what == "local":
         return {"mapped": vl.load_local_codes(db, vl.local_code_rows(None, a.ws), by=a.by)}
     return {"terminology_release": vl.terminology_release(db), "releases": vl.releases(db),
