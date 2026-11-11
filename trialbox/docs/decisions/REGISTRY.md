@@ -154,6 +154,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-320 | merged | T-505a | the API sign-in asks for the second factor; one channel per session (file) |
 | D-321 | merged | T-504 | scenario rulesets: SQL checked on planted gold, CQL recorded by a local engine (file) |
 | D-322 | merged | T-613a | the shipped rulesets recompiled offline from their cassettes, and the CI drift check (file) |
+| D-323 | merged | T-515 | recorded first and second checks on the demo from a fixture (DEV and TEST only), each opinion marked synthetic, recorded run or test model; the G1 short-run file drops in later (file) |
 | D-328 | merged | T-502 | PoC demonstration mode behind the audited flag `demo.mode`: uploads and chart paste refused, banner, `demo.ack`, the scan of stored input (file) |
 | D-329 | merged | T-513 | one demo clock: the demo day is the real day in the site's time zone; dates moved, one clock (file) |
 | D-330 | merged | T-509 | the PoC host: one VM, the image by digest, Cloudflare Access through a tunnel, kept data on its own disk, daily snapshot, purge (file) |
