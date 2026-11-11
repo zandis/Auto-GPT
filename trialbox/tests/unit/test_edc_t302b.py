@@ -7,6 +7,7 @@ instrument that repeats on week 4, a calculated BMI and branching logic that hid
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -467,3 +468,196 @@ def test_a_classic_project_without_repeats_answers_no_repeating_forms() -> None:
     token = k.sim_project(sim, [{"record_id": "1", "tb_screening_no": k.RECORD}])
     assert _api(sim, token, content="repeatingFormsEvents").status_code == 400
     assert "redcap_repeat_instance" not in k.client_for(sim, token).records()[0]
+
+
+# ------------------------------------------------------------------ more of the evaluator's edges
+@pytest.mark.parametrize(
+    ("text", "row", "want"),
+    [
+        ("median([a],[b],[c])", {"a": "3", "b": "1", "c": "2"}, "2"),
+        ("median([a],[b])", {"a": "3", "b": "1"}, "2"),
+        ("min([a],[b]) * max([a],[b])", {"a": "3", "b": "4"}, "12"),
+        ("sum([a])", {"a": ""}, ""),
+        ("abs(-2.5) + +1", {}, "3.5"),
+        ("exponential(0) + log(100, 10) + round(log(1))", {}, "3"),
+        ("log(-1)", {}, ""),
+        ("round([a], 2)", {"a": "1.005"}, "1.01"),
+        ("round([a], 'x')", {"a": "1.5"}, ""),
+        ("[a] * 2", {"a": "abc"}, ""),
+        ("-[a]", {"a": ""}, ""),
+        ("10 ^ 2000", {}, ""),
+        ("exponential(1000)", {}, ""),
+        ("if(starts_with([t], 'go') and ends_with([t], 'ut'), 'yes', 'no')", {"t": "gout"}, ""),
+        ("if([t] = 'gout', 1 = 1, 0)", {"t": "gout"}, "1"),
+        ("datediff([d1],[d2],'h','ymd')", {"d1": "2026-01-01 08:00", "d2": "2026-01-01 20:00"}, "12"),
+        ("datediff([d1],[d2],'m','ymd',false)", {"d1": "2026-01-02", "d2": "2026-01-01"}, "1440"),
+        ("datediff([d1],[d2],'d')", {"d1": "", "d2": "2026-01-01"}, ""),
+        (".5 + 1", {}, "1.5"),
+    ],
+)
+def test_more_calculations(text: str, row: dict[str, str], want: str) -> None:
+    assert logic.calculate(text, _look(row), TODAY) == want
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[a][b][c][d]",
+        "[f][0]",
+        "if([a], 1)",
+        "datediff([a])",
+        "datediff([a],[a],'d',[a])",
+        "datediff([b],'31/01/2026','d')",
+        "sum(",
+        "(1",
+        "1 2",
+        ",",
+        "round()",
+    ],
+)
+def test_more_refusals(text: str) -> None:
+    with pytest.raises(logic.LogicError):
+        logic.calculate(text, _look({"a": "x", "b": "2026-01-01", "f": "1"}), TODAY)
+
+
+def test_evaluator_helpers() -> None:
+    assert logic.truthy(True) and not logic.truthy("0") and logic.truthy("x") and not logic.truthy(0.0)
+    assert logic.fields_of("[a] + [ev][b] + [c(1)]") == {"a", "b", "c"} and logic.fields_of("[x") == set()
+    assert logic.refs("[ev][b] = 1") == {("ev", "b")}
+    assert logic.same_number("23.70", "23.7") and not logic.same_number("x", "1") and logic.same_number(" 1", "1 ")
+    assert logic.number_text(float("inf")) == "" and logic.number_text(1e20) == "1e+20"
+    assert logic.calculate("[a] = 1", _look({"a": "1"}), TODAY) == "1"
+    assert logic.calculate("'abc'", _look({}), TODAY) == "" and logic.calculate("'2'", _look({}), TODAY) == "2"
+    assert logic.shown("", _look({}), TODAY) and logic.shown("[a] = true", _look({"a": "1"}), TODAY)
+    assert logic.calculate("isnumber([a]) + isinteger([b])", _look({"a": "x", "b": "2"}), TODAY) == "1"
+
+
+# ------------------------------------------------------------------ rows: references the send cannot resolve
+REP_EVENT = [{"unique_event_name": "base_arm_1", "arm_num": 1}, {"unique_event_name": "fu_arm_1", "arm_num": 1}]
+
+
+def _rows_of(rows: list[dict[str, str]]) -> Any:
+    from edc.rows import Rows
+
+    meta = {"record_id": {"form_name": "f0"}, "x": {"form_name": "f0"}, "y": {"form_name": "fu"},
+            "z": {"form_name": "ae", "branching_logic": "[x] = '1'"},
+            "c": {"form_name": "ae", "field_type": "calc", "select_choices_or_calculations": "[z] + [event-name]"},
+            "w": {"form_name": "fu", "branching_logic": "[y][1] = '2'"}}  # fmt: skip
+    lay = Layout.read({"is_longitudinal": 1}, REP_EVENT, [],
+                      [{"event_name": "fu_arm_1", "form_name": ""}, {"event_name": "base_arm_1", "form_name": "ae"}])  # fmt: skip
+    return Rows(lay, meta, "record_id", rows, TODAY)
+
+
+def test_rows_resolve_repeats_and_refuse_ambiguous_references() -> None:
+    rows = _rows_of([
+        {"record_id": "1", "redcap_event_name": "base_arm_1", "redcap_repeat_instrument": "",
+         "redcap_repeat_instance": "", "x": "1"},
+        {"record_id": "1", "redcap_event_name": "fu_arm_1", "redcap_repeat_instrument": "",
+         "redcap_repeat_instance": "1", "y": "2", "w": "kept"},
+        {"record_id": "1", "redcap_event_name": "base_arm_1", "redcap_repeat_instrument": "ae",
+         "redcap_repeat_instance": "1", "z": "5", "c": "9"},
+    ])  # fmt: skip
+    fu1, ae1, base = Slot("fu_arm_1", "", 1), Slot("base_arm_1", "ae", 1), Slot("base_arm_1")
+    assert (
+        fu1.visit == "fu_arm_1__1" and rows.layout.slot("fu_arm_1__1") == fu1 and rows.layout.slot("fu_arm_1") is None
+    )
+    assert rows.shown("1", ae1, "z") and rows.shown("1", fu1, "w")
+    assert rows.calcs("1", ae1) == [{"item": "c", "expected": "", "redcap": "9", "equal": None}]
+    assert rows.hidden_values("1", fu1) == []
+    import edc.logic as L
+
+    look = rows._lookup("1", base)
+    for ev, field in ((None, "nope"), ("other_arm_1", "x"), (None, "z"), ("fu_arm_1", "y")):
+        with pytest.raises(L.LogicError):
+            look(ev, field, None, None)
+    assert look("fu_arm_1", "y", None, 1) == "2" and look(None, "x", "1", None) == "1"
+    assert rows.layout.misplaced(ae1, "f0", set()) == "not_repeating_form"
+    from edc.layout import visit_of
+
+    assert visit_of("", "ae", 2) == "event_1_arm_1__ae__2" and visit_of("fu_arm_1", "", 3) == "fu_arm_1__3"
+
+
+# ------------------------------------------------------------------ service refusals
+def test_preview_and_erase_refuse_without_a_target_or_a_switch(tmp_path: Path) -> None:
+    svc, *_ = _service(tmp_path)
+    svc.set_switch(k.STUDY, False, by="pi", role="investigator")
+    calls: list[Callable[[], Any]] = [lambda: svc.preview(k.STUDY, "S-001", SCREEN1, "crc"),
+                                      lambda: svc.erase_hidden(k.STUDY, "S-001", SCREEN1, "crc")]  # fmt: skip
+    for call in calls:
+        with pytest.raises(EdcError) as e:
+            call()
+        assert e.value.code == "edc.off"
+    svc.set_switch(k.STUDY, True, by="pi", role="investigator", **k.ACK)
+    more: list[Callable[[], Any]] = [lambda: svc.preview(k.STUDY, "S-009", SCREEN1, "crc"),
+                                     lambda: svc.erase_hidden(k.STUDY, "S-009", SCREEN1, "crc")]  # fmt: skip
+    for call in more:
+        with pytest.raises(EdcError) as e:
+            call()
+        assert e.value.code == "edc.no_record"
+    with pytest.raises(EdcError) as e:
+        svc.erase_hidden(k.STUDY, "S-001", "week9_arm_1", "crc")
+    assert e.value.code == "edc.no_slot"
+
+
+def test_preview_and_erase_say_when_redcap_does_not_answer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from rc_bridge.client import RcError
+
+    svc, *_ = _service(tmp_path)
+
+    def down(self: RedcapClient) -> dict[str, Any]:
+        raise RcError("RC-UPSTREAM", "REDCap did not answer")
+
+    monkeypatch.setattr(RedcapClient, "project", down)
+    calls: list[Callable[[], Any]] = [lambda: svc.preview(k.STUDY, "S-001", SCREEN1, "crc"),
+                                      lambda: svc.erase_hidden(k.STUDY, "S-001", SCREEN1, "crc")]  # fmt: skip
+    for call in calls:
+        with pytest.raises(EdcError) as e:
+            call()
+        assert (e.value.code, e.value.status) == ("RC-UPSTREAM", 502)
+
+
+def test_preview_lists_logic_it_cannot_read(tmp_path: Path) -> None:
+    crf = [dict(r, branching_logic="[event-name] = 'x'") if r["field_name"] == "tophus_site" else r for r in CRF]
+    svc, *_ = _service(tmp_path, crf)
+    svc.build(k.STUDY, "S-001", k.PID, SCREEN1, k.VISIT_DATE, "crc")
+    d = _drafts(svc, "S-001", SCREEN1)
+    svc.decide(k.STUDY, d["tophus_site"]["id"], "edit", value="ear", reason="from the source", citation=SHEET,
+               by="crc")  # fmt: skip
+    assert svc.preview(k.STUDY, "S-001", SCREEN1, "crc")["hidden"] == [{"item": "tophus_site", "why": "logic"}]
+
+
+# ------------------------------------------------------------------ the simulator: repeating events and odd imports
+def test_the_simulator_takes_a_repeating_event_through_odm_and_refuses_bad_rows() -> None:
+    sim = create_app()
+    meta = [{"field_name": "record_id", "form_name": "f0", "field_type": "text"},
+            {"field_name": "v", "form_name": "fu", "field_type": "text"},
+            {"field_name": "base_v", "form_name": "f0", "field_type": "text"},
+            {"field_name": "d", "form_name": "fu", "field_type": "calc",
+             "select_choices_or_calculations": "[v] * 2 + [base_arm_1][base_v]"}]  # fmt: skip
+    c = TestClient(sim)
+    r = c.post("/sim/projects", json={"title": "rep events", "metadata": meta,
+                                      "events": ["base_arm_1", {"unique_event_name": "fu_arm_1", "arm_num": 1}],
+                                      "repeating": [{"event_name": "fu_arm_1", "form_name": ""}]}).json()  # fmt: skip
+    token = r["token"]
+    assert _api(sim, token, content="arm").json() == [{"arm_num": 1, "name": "Arm 1"}]
+    rc = k.client_for(sim, token)
+    rc.import_records([{"record_id": "S-1", "redcap_event_name": "base_arm_1", "base_v": "1"}])
+    odm = """<ODM xmlns="http://www.cdisc.org/ns/odm/v1.3"><ClinicalData><SubjectData SubjectKey="S-1">
+      <StudyEventData StudyEventOID="Event.fu_arm_1" StudyEventRepeatKey="2"><FormData FormOID="Form.fu">
+      <ItemGroupData><ItemData ItemOID="v" Value="3"/></ItemGroupData></FormData></StudyEventData>
+      </SubjectData></ClinicalData></ODM>"""
+    assert _api(sim, token, content="record", format="odm", type="flat", data=odm).status_code == 200
+    row = next(x for x in rc.records() if x["redcap_repeat_instance"] == "2")
+    assert (row["redcap_event_name"], row["v"], row["d"]) == ("fu_arm_1", "3", "7")
+    bad = [
+        {"record_id": "S-1", "redcap_event_name": "fu_arm_1", "v": "1"},  # the event repeats: no base row
+        {"record_id": "S-1", "redcap_event_name": "base_arm_1", "redcap_repeat_instrument": "f0",
+         "redcap_repeat_instance": "1", "base_v": "1"},  # f0 does not repeat
+    ]  # fmt: skip
+    for b in bad:
+        assert _api(sim, token, content="record", type="flat", data=json.dumps([b])).status_code == 400
+    assert _api(sim, token, content="record", format="odm", type="flat", data="<ODM><x").status_code == 400
+    classic = k.sim_project(sim, [{"record_id": "1", "tb_screening_no": "S-1"}])
+    r2 = _api(sim, classic, content="record", type="flat",
+              data=json.dumps([{"record_id": "1", "redcap_repeat_instrument": "x", "redcap_repeat_instance": "1"}]))  # fmt: skip
+    assert "no repeating" in r2.json()["error"]
