@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "be80e5a12dae221208e82de578d818e6dac47612",
+  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-616 (D-400): patient.deceased column, lake schema 4, base cohort leaves out a deceased patient with no date",
+  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
   "ref_date": "2026-11-01",
   "ruleset": "EMPULSE",
   "ruleset_version": "1.0.0",
@@ -243,7 +243,7 @@
   "synthetic-jp-a-deletes": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "bca53344841a3ecdcc730ef09f47da929eee501e9f28bf1c5bd49257239a0ad3",
+   "outcomes_sha": "9cbec135b7135bdef37bf232dcdce1ec796d265645650a83e0e07ec89e95d78a",
    "patients": 2500,
    "structured_criteria": [
     "EMPULSE-INC-01",
@@ -295,9 +295,9 @@
      "unknown": 0
     },
     "EMPULSE-INC-01": {
-     "met": 2417,
+     "met": 2413,
      "not_met": 79,
-     "unknown": 4
+     "unknown": 8
     },
     "EMPULSE-INC-02": {
      "met": 0,

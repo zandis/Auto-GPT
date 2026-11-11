@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "d1dbafeea2982506239910d8f329eea31813b530",
+  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-619a: the TW mapping writes TW Core codings and boundsPeriod, so the mapping version (its file hash) moves; no count or verdict moves",
+  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
   "ref_date": "2026-11-01",
   "seed": 42,
   "written_with_source": "legacy+omop"
@@ -753,7 +753,7 @@
     "Encounter": 20,
     "MedicationRequest": 20,
     "Observation": 40,
-    "Patient": 20
+    "Patient": 40
    },
    "snapshot": "2026-11-01",
    "tables": {
@@ -914,7 +914,7 @@
     },
     "patient": {
      "columns": {
-      "birth_date": "b3b3a9a86c6e25dfd2016594c26395c72dcf06dfd0f1ed1fa62d15d81447099f",
+      "birth_date": "288b114ce03457b2da4a359e209481055ec7c548c8155412a03c2587a4b85d5b",
       "deceased": "49d14b74a76b0970065f51a8aed3fe352fdbbe578c64566ce5634d220ae4facf",
       "deceased_date": "49d14b74a76b0970065f51a8aed3fe352fdbbe578c64566ce5634d220ae4facf",
       "ingested_at": "e8b0c05c2bafc9893a6e971f3206f28254c04b65e8070be703d99c17ed77f49a",
@@ -925,7 +925,7 @@
       "src_table": "2edf9e88c940871b48aa56d171a6f98492d333f13d71d1d544bcea44be068fda"
      },
      "rows": 2500,
-     "sha": "b850e85de0f8ecfeaf3d756e3e193e9206d7f7998e518a3178b9fe88536c3e49"
+     "sha": "f0ab06e577eeb20ca7fa344ec1254d112af76a9df503cabd287d29bf7677ceaf"
     },
     "practitioner": {
      "columns": {
