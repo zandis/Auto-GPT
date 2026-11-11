@@ -383,6 +383,8 @@ ADDED: dict[str, tuple[str, ...]] = {
     "datacore": (
         "8250b52d4e13e66e149ffa956f83b3a8027f95d4094f1a32b999771e459f7aa5",
         "d9f888838f2280f9e49a6d3f9a9bf210ace25104632200683567a4389fa03884",
+        # D-387 (T-623): datacore version 6 (the criterion not met and its version on a screen-failure step)
+        "668c23320ea6fe609efb7a779800ad02501c28559dc45abac20610e63f6f7a5a",
     ),
     # D-386 (T-622): site version 5 (the study's state log and identifiers)
     # D-395 (T-310b): site version 6 (the IRB-text record of the cross-department candidate view)
