@@ -121,7 +121,8 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-274 | merged | fix group D-274 with card T-117b | backups and restore: one point in time, a content hash of any size, a copy and an audit row on restore, the cron at install; `docs/decisions/D-274-backup-restore-wiring.md` |
 | D-275 | merged | fix group FG-F (PR #115) | structured criteria: unusable data is unknown, never an exclusion; `docs/decisions/D-275-criteria-unusable-data-unknown.md` |
 | D-276 | merged | fix group FG-G (PR #101) | the two-model check needs two different models; `docs/decisions/D-276-two-model-check.md` |
-| D-277..D-278 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
+| D-277 | merged | fix group D-277 (FG-H) with card T-602 | the SAE clock: the 24-hour report in hours, named rule sets per study, no quiet fallback, the register on the write path; `docs/decisions/D-277-sae-clock-and-register.md` |
+| D-278 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
 | D-279 | merged | fix group D-279 | identity follow-ups: forced first password change, sign-in lock per account and address, OIDC session lifetime, second factor at signing; `docs/decisions/D-279-identity-follow-ups.md` (file) |
 | D-280 | merged | fix group D-280 (FG-K) | the administrator sees no patient data; break-glass for one patient or one job, 60 minutes, reviewed by the steward; a steward role; `docs/decisions/D-280-steward-and-break-glass.md` (file) |
 | D-281 | merged | fix group FG D-281 (built as a card, branch `agent/FG-D281-signing`) | EDC signature controls: record lock, keyed signature over the whole act checked before send and export, append-only trail tables, audit inside the transaction, audited refusals, plain ODM legal reason, REDCap version as text; `docs/decisions/D-281-edc-signature-controls.md` (file) |
