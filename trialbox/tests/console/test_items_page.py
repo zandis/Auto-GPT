@@ -1,6 +1,7 @@
 # ruff: noqa: F811 - the box fixture is imported from test_console_app and taken by name
-"""``/data/items`` (T-107, D-353): the catalogue by specialty in three languages for the steward (administrator),
-403 for a coordinator (CRC) and the other roles, 503 when the catalogue cannot be read."""
+"""``/data/items`` (T-107, D-353): the catalogue by specialty in three languages for the steward (D-380: the
+matrix's ``items.view``; T-102a found it the administrator's), 403 for the administrator, a coordinator (CRC) and the
+other roles, 503 when the catalogue cannot be read."""
 
 from __future__ import annotations
 
@@ -17,7 +18,7 @@ from tests.console.test_console_app import (  # noqa: F401 - the fixture is used
     box,
     login,
 )
-from tests.console.test_role_pages import _user
+from tests.console.test_role_pages import PW, _user
 
 
 def _denied(b: dict[str, Any]) -> list[dict[str, Any]]:
@@ -35,7 +36,8 @@ def _denied(b: dict[str, Any]) -> list[dict[str, Any]]:
 def test_the_steward_sees_items_by_specialty_in_three_languages(
     box: dict[str, Any], lang: str, title: str, name: str
 ) -> None:
-    c, csrf = login(box["app"])
+    _user(box, "stw", "steward")
+    c, csrf = login(box["app"], "stw", PW)
     c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/"})
     r = c.get("/data/items")
     assert r.status_code == 200
@@ -49,7 +51,7 @@ def test_the_steward_sees_items_by_specialty_in_three_languages(
 
 
 def test_one_specialty_and_an_unknown_one(box: dict[str, Any]) -> None:
-    c, _ = login(box["app"])
+    c = _user(box, "stw", "steward")
     r = c.get("/data/items?specialty=rheu")
     assert r.status_code == 200
     assert r.text.count('data-testid="items-specialty"') == 1 and 'data-specialty="RHEU"' in r.text
@@ -57,7 +59,7 @@ def test_one_specialty_and_an_unknown_one(box: dict[str, Any]) -> None:
     assert c.get("/data/items?specialty=NOPE").status_code == 404
 
 
-@pytest.mark.parametrize("role", ["coordinator", "investigator", "viewer", "cro"])
+@pytest.mark.parametrize("role", ["admin", "coordinator", "investigator", "viewer", "cro", "privacy"])
 def test_a_crc_and_every_other_role_gets_403(box: dict[str, Any], role: str) -> None:
     c = _user(box, f"u_{role}", role)
     r = c.get("/data/items")
@@ -68,7 +70,7 @@ def test_a_crc_and_every_other_role_gets_403(box: dict[str, Any], role: str) -> 
 
 def test_an_unreadable_catalogue_is_503(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("TB_CATALOGUE_DIR", str(tmp_path / "missing"))
-    c, _ = login(box["app"])
+    c = _user(box, "stw", "steward")
     r = c.get("/data/items")
     assert r.status_code == 503 and "cannot be read" in r.text
 

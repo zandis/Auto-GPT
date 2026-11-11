@@ -25,7 +25,7 @@ from datacore.lifecycle import Lifecycle
 from datacore.store import DataCore
 from tb_contracts import RegistryUpdate
 
-from tests.console.test_console_app import _done_screen, _ulid, box, login  # noqa: F401 - the fixture is used by name
+from tests.console.test_console_app import _done_screen, _ulid, box, login, name_pi  # noqa: F401 - the fixture is used by name
 from tests.console.test_lifecycle_pages import NOW, _save, lb  # noqa: F401 - the fixture is used by name
 from tests.console.test_lifecycle_pages import PW as LPW
 from tests.console.test_role_pages import _csrf, _user
@@ -145,6 +145,7 @@ def test_the_participant_page_raises_consent_record_missing(lb: dict[str, Any]) 
 def test_a_referral_after_approach_pauses_the_approach(box: dict[str, Any]) -> None:  # noqa: F811
     _done_screen(box["backend"], _ulid(981))
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     crc = _user(box, "crc1", "coordinator")
     page = pi.get(f"/studies/GZQO/patients/{A}").text
     r = pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": _csrf(page), "mark": "approach"},
@@ -191,6 +192,7 @@ def test_a_referral_after_approach_pauses_the_approach(box: dict[str, Any]) -> N
 def test_a_referral_first_still_refuses_approach(box: dict[str, Any]) -> None:  # noqa: F811
     _done_screen(box["backend"], _ulid(982))
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     cand = pi.get(f"/studies/GZQO/candidates/{B}?purpose=referral").text
     assert 'data-testid="referral-pauses"' not in cand  # nothing to pause: no confirm sheet
     r = pi.post(f"/studies/GZQO/candidates/{B}/referral", data={"csrf": _csrf(cand), "route": "outside"},
@@ -205,6 +207,7 @@ def test_a_referral_first_still_refuses_approach(box: dict[str, Any]) -> None:  
 def test_paused_approach_in_three_languages(box: dict[str, Any]) -> None:  # noqa: F811
     _done_screen(box["backend"], _ulid(983))
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     crc = _user(box, "crc1", "coordinator")
     page = pi.get(f"/studies/GZQO/patients/{A}").text
     pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": _csrf(page), "mark": "approach"})

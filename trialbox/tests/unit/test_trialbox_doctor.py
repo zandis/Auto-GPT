@@ -312,3 +312,46 @@ def test_backup_check_fails_in_production_on_a_missing_off_box_target_route_cron
     assert doctor.inputs_from(env_file=deploy / ".env", settings=None, routing=None, lake=None).deploy == deploy
     nodeploy = status(doctor.run(inputs(env=good), (doctor.check_backup,)), "backup")
     assert nodeploy.status == "FAIL" and "--env-file" in nodeploy.detail
+
+
+def test_missing_settings_file_is_a_fail_line_not_a_traceback(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """OPS-016: ``doctor --settings <missing>`` prints a FAIL line and exits 1; the other checks still run."""
+    missing = tmp_path / "settings.yaml"
+    assert cli(["doctor", "--settings", str(missing)]) == 1
+    out = capsys.readouterr().out
+    assert "FAIL  inputs" in out and f"settings file {missing} not found" in out
+    assert "registry_pins" in out and "Traceback" not in out
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("site: [unclosed\n", encoding="utf-8")
+    inp = doctor.inputs_from(env_file=None, settings=bad, routing=None, lake=None)
+    c = status(doctor.run(inp, (doctor.check_channel_engine,)), "inputs")
+    assert c.status == "FAIL" and "cannot be read" in c.detail
+    listed = tmp_path / "list.yaml"
+    listed.write_text("- a\n", encoding="utf-8")
+    inp = doctor.inputs_from(env_file=None, settings=listed, routing=None, lake=None)
+    assert "is not a mapping" in status(doctor.run(inp, ()), "inputs").detail
+
+
+def test_registry_pins_and_models_come_from_the_env_file_deploy_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """OPS-016: the site override and the models folder are read beside ``--env-file``, not from the repository."""
+    monkeypatch.delenv("TB_REGISTRY_OVERRIDE", raising=False)
+    monkeypatch.delenv("TB_MODELS_DIR", raising=False)
+    deploy = tmp_path / "box" / "deploy"
+    deploy.mkdir(parents=True)
+    (deploy / ".env").write_text("TB_ENV=DEV\nTB_TOPOLOGY=A\n", encoding="utf-8")
+    inp = doctor.inputs_from(env_file=deploy / ".env", settings=None, routing=None, lake=None)
+    assert doctor._override(inp) == deploy / "site" / "registry.site.yaml"
+    assert doctor._models_root(inp) == deploy / "models"
+    c = status(doctor.run(inp, (doctor.check_registry_pins,)), "registry_pins")
+    assert c.status == "WARN" and f"no override at {deploy / 'site' / 'registry.site.yaml'}" in c.detail
+    (deploy / "site").mkdir()
+    (deploy / "site" / "registry.site.yaml").write_text("builds: [unclosed\n", encoding="utf-8")
+    c = status(doctor.run(inp, (doctor.check_registry_pins,)), "registry_pins")
+    assert c.status == "FAIL" and str(deploy / "site" / "registry.site.yaml") in c.detail
+    # without --env-file: the repository's deploy folder, as before
+    bare = doctor.inputs_from(env_file=None, settings=None, routing=None, lake=None)
+    assert doctor._override(bare) == ROOT / "deploy" / "site" / "registry.site.yaml"

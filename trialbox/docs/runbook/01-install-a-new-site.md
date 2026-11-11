@@ -33,8 +33,9 @@ checks from the box with the certificate the clinic PCs will see. It exits 1 whe
 `deploy/site/mapping/`, which every update keeps; the wizard and the adapter look there before the image, so the
 mapping is never part of the image. The answers name the feed folder on the host (`data_source_host_dir`, for example
 `/srv/his-export`; written as `TB_SOURCE_DIR`) and the folder the adapter sees it at (`data_source_path`; compose
-mounts the one at the other, read-only), and the console's DNS name (`tls_hostname`) with `tls_mode` `internal` or
-`hospital` (then `tls_cert_file` and `tls_key_file`). A PRODUCTION install stops without a feed folder or a TLS host
+mounts the one at the other, read-only), and the console's DNS name (`tls_hostname`) with `tls_mode` `hospital` (the
+default and first choice; then `tls_cert_file` and `tls_key_file`) or `internal` (Caddy's own CA: its root must be on
+every clinic PC by group policy, and personal devices cannot use it; the wizard warns). A PRODUCTION install stops without a feed folder or a TLS host
 name. The vendor builds the bundle with
 `tools/make_bundle.sh` (`make release-bundle`: `--gates` is required, so only images that passed the release gates;
 the bundle carries `release.json`, the SBOMs, `NOTICE` and `CHANGELOG.md`, T-110b). The image vulnerability gate blocks

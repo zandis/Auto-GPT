@@ -29,7 +29,7 @@ from orchestrator.scenarios.screen import deceased_now
 from tb_common import chartno
 from tb_contracts import RegistryEntry
 
-from tests.console.test_console_app import _done_screen, _ulid, box, login  # noqa: F401 - box is a fixture
+from tests.console.test_console_app import _done_screen, _ulid, box, login, name_pi  # noqa: F401 - box is a fixture
 from tests.console.test_lifecycle_pages import PW as LB_PW
 from tests.console.test_lifecycle_pages import lb  # noqa: F401 - the fixture is used by name
 from tests.console.test_role_pages import _csrf, _user
@@ -74,6 +74,7 @@ def test_u04_a_death_record_removes_the_patient_from_approach_lists(box: dict[st
     bk = box["backend"]
     _done_screen(bk, _ulid(961))
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     page = pi.get("/studies/GZQO/week?list=all").text
     assert 'data-testid="row-aaaaaaaa"' in page
     r = pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": _csrf(page), "mark": "approach"})
@@ -127,6 +128,7 @@ def test_u03_the_same_patient_in_another_study(box: dict[str, Any], monkeypatch:
                                                                   "updated_at": T0, "updated_by": "console:crc",
                                                                   "source": "manual"})  # fmt: skip
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     page = pi.get("/studies/GZQO/week?list=all").text
     assert "Consented or enrolled in STB" in page and "Also a candidate in STB" in page
     # enrolled in the other study: "needs information" until a person checks this protocol's rule, never "ready"
@@ -136,6 +138,7 @@ def test_u03_the_same_patient_in_another_study(box: dict[str, Any], monkeypatch:
     # an account that may not see the other study is told "another study", never its name
     box["users"].create("drsuzuki", "investigator", "role-pages-password-01", "drsuzuki@hospa.test")
     box["users"].set_scope("drsuzuki", studies="GZQO")
+    name_pi(box, "drsuzuki")  # D-380
     other, _ = login(box["app"], "drsuzuki", "role-pages-password-01")
     page = other.get("/studies/GZQO/week?list=all").text
     assert "Consented or enrolled in another study" in page and "STB" not in page

@@ -19,6 +19,7 @@ from tests.console.test_console_app import (  # noqa: F401 - the fixture is used
     _done_screen,
     _ulid,
     box,
+    name_pi,
 )
 from tests.console.test_role_pages import _csrf, _user
 from tests.console.test_team_pages import A, _log_pi_and_sub
@@ -67,6 +68,7 @@ def test_the_orchestrator_lets_the_investigator_run_and_the_daily_limit_holds(ma
 def test_pi_starts_feas_and_screen_on_own_study_and_is_refused_elsewhere(box: dict[str, Any]) -> None:  # noqa: F811
     _done_screen(box["backend"], _ulid(961))
     pi = _user(box, "drsato", "investigator", studies="GZQO")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     page = pi.get("/pilot/request").text
     r = pi.post("/pilot/request", data={"csrf": _csrf(page), "kind": "FEAS", "ruleset": "GZQO"}, follow_redirects=False)
     assert r.status_code == 303, r.text[-400:]
@@ -112,6 +114,7 @@ def test_sub_investigator_needs_the_run_tick(box: dict[str, Any]) -> None:  # no
 def test_pi_refreshes_feasibility_and_a_viewer_does_not(box: dict[str, Any]) -> None:  # noqa: F811
     _done_feas(box["backend"])
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     page = pi.get("/studies/GZQO/feasibility").text
     assert 'data-testid="refresh"' in page
     r = pi.post("/studies/GZQO/feasibility/refresh", data={"csrf": _csrf(page)}, follow_redirects=False)
@@ -134,6 +137,7 @@ def test_data_as_of_turns_amber_after_two_days() -> None:
 def test_four_patient_pages_show_data_as_of(box: dict[str, Any]) -> None:  # noqa: F811
     _done_screen(box["backend"], _ulid(961))
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     pages = {
         "week": pi.get("/studies/GZQO/week?list=all").text,
         "candidates": pi.get("/studies/GZQO/candidates").text,

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{# D-380 (FIT-002 grant half): one enrolled subject, read-only, for a CRO account under a monitor grant. The grant
+   names the monitoring visit; every view is audited with it. No pseudonym, no candidate, no other study. #}
+{% block title %}{{ t('roles.monitor.title') }} · {{ rs }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('roles.monitor.title') }} · <span class="mono">{{ record }}</span></h1></div>
+<p class="hint" data-testid="monitor-grant">{{ t('roles.monitor.help', visit=(grant.training_ref if grant else ''), end=(grant.end if grant else '')) }}</p>
+<section class="card">
+<dl class="facts" data-testid="monitor-subject">
+{% for k, v in one.items() %}{% if v is string or v is number %}<dt class="mono">{{ k }}</dt><dd>{{ v }}</dd>{% endif %}{% endfor %}
+</dl>
+</section>
+{% endblock %}
