@@ -15,12 +15,16 @@ site's local concepts (D-151).
   Athena LOINC loaded), else the one its OHDSI source concept ``Maps to`` (an ATC class its RxNorm ingredient,
   :func:`maps_to`, STD-030), else 0. Conditions stay 0: ICD-10-CM maps to SNOMED, which the box does not hold
   (no licence, Q-22; design §2.2 question 2).
+* **The code-map registry** (T-316b, D-419): the consortium's shared maps, released by ``tools/codemap_release.py``
+  as a refdata pack part. Its own concepts sit in the registry band (:data:`CODEMAP_MIN` to :data:`CODEMAP_MAX`,
+  inside TB-SHARED): fixed ids, the same on every box (:func:`seed_registry_concepts`). A loaded release is the
+  active ``tb_vocab_release`` row :data:`CODEMAP`, and :func:`release` names it beside the terminology release.
 """
 
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -112,6 +116,14 @@ SHARED: tuple[tuple[int, str, str, str, str, str], ...] = (
     ),
 )
 TB_SHARED_VOCAB_CONCEPT = 2_000_000_000
+
+# The code-map registry (T-316b, D-419): its concepts take ids in this band of TB-SHARED, the same on every box. The
+# registry divides the band into ranges, one per owner (the consortium, each member hospital); an id is never
+# renumbered nor reused. Below the reference concepts (``omop.schema.REF_MIN``), far above the catalogue's ids.
+CODEMAP_MIN, CODEMAP_MAX = 2_005_000_000, 2_009_999_999
+CODEMAP = "CODEMAP"  # the tb_vocab_release row of the loaded registry release (one active at a time)
+CODEMAP_CLASS = "TB Registry Code"
+CODEMAP_MAP_PREFIX = "codemap-"  # each map of a release loads as the map release ``map:codemap-<map id>``
 
 # FHIR code system URI -> TrialBox source vocabulary (the OMOP vocabulary of the same code system, for standards)
 KNOWN_SYSTEMS: dict[str, tuple[str, str | None]] = {
@@ -373,3 +385,124 @@ class Concepts:
         if not code or not sv:
             return 0
         return self.standard.get((sv, code), 0)
+
+
+# ------------------------------------------------------------------------------------------------ code-map registry
+def seed_registry_concepts(
+    tx: Any, rows: Iterable[tuple[int, str, str, str, str]], systems: Mapping[str, str], version: str
+) -> int:
+    """The registry's concepts ``(concept_id, vocabulary_id, code, name, domain)`` at their fixed ids (T-316b, D-419),
+    with their vocabularies (``systems``: vocabulary id -> code system URI, at ``version``). Idempotent; a name
+    change is applied. Refused, before anything is written, when an id is outside the registry
+    band, when an id holds another code, or when a code already sits at another id (ids are never renumbered).
+    Returns the rows written or renamed."""
+    want = list(rows)
+    problems: list[str] = []
+    for cid, vid, code, _, _ in want:
+        if not CODEMAP_MIN <= cid <= CODEMAP_MAX:
+            problems.append(f"{vid} {code}: id {cid} is outside the registry band {CODEMAP_MIN:,}-{CODEMAP_MAX:,}")
+    if want:
+        held = {
+            int(c): (str(v), str(k), str(n))
+            for c, v, k, n in tx.fetchall(
+                "SELECT concept_id, vocabulary_id, concept_code, concept_name FROM concept WHERE concept_id = ANY(?)",
+                ([r[0] for r in want],),
+            )
+        }
+        at = {
+            (str(v), str(k)): int(c)
+            for v, k, c in tx.fetchall(
+                "SELECT vocabulary_id, concept_code, concept_id FROM concept WHERE vocabulary_id = ANY(?) "
+                "AND concept_code = ANY(?)",
+                (sorted({r[1] for r in want}), sorted({r[2] for r in want})),
+            )
+        }
+    else:
+        held, at = {}, {}
+    for cid, vid, code, _, _ in want:
+        if cid in held and held[cid][:2] != (vid, code):
+            problems.append(f"id {cid} holds {held[cid][0]} {held[cid][1]}, not {vid} {code}")
+        if (vid, code) in at and at[(vid, code)] != cid:
+            problems.append(f"{vid} {code} is concept {at[(vid, code)]}, not {cid} (an id is never renumbered)")
+    if problems:
+        raise OmopError("; ".join(problems[:5]) + (f" (+{len(problems) - 5} more)" if len(problems) > 5 else ""))
+    tx.execute(
+        "INSERT INTO concept_class (concept_class_id, concept_class_name, concept_class_concept_id) "
+        "SELECT ?, ?, 0 WHERE NOT EXISTS (SELECT 1 FROM concept_class WHERE concept_class_id = ?)",
+        (CODEMAP_CLASS, CODEMAP_CLASS, CODEMAP_CLASS),
+    )
+    for vid in sorted({r[1] for r in want}):
+        tx.execute(
+            "INSERT INTO vocabulary (vocabulary_id, vocabulary_name, vocabulary_reference, vocabulary_version, "
+            "vocabulary_concept_id) SELECT ?, ?, ?, ?, 0 WHERE NOT EXISTS "
+            "(SELECT 1 FROM vocabulary WHERE vocabulary_id = ?)",
+            (vid, f"{vid} (code-map registry concepts)", (systems.get(vid) or "")[:255] or None, version[:255], vid),
+        )
+    n = 0
+    for cid, vid, code, name, dom in want:
+        tx.execute(
+            "INSERT INTO domain (domain_id, domain_name, domain_concept_id) SELECT ?, ?, 0 WHERE NOT EXISTS "
+            "(SELECT 1 FROM domain WHERE domain_id = ?)",
+            (dom, dom, dom),
+        )
+        if cid in held:
+            if held[cid][2] != name[:255]:
+                tx.execute("UPDATE concept SET concept_name = ? WHERE concept_id = ?", (name[:255], cid))
+                n += 1
+            continue
+        _insert_concept(tx, cid, name, dom, vid, CODEMAP_CLASS, code, None)
+        n += 1
+    return n
+
+
+def record_codemap(tx: Any, *, version: str, sha256: str, registry: str, rows: int, by: str) -> bool:
+    """Make the release ``version`` (content ``sha256``) of ``registry`` the box's active code-map release; False when
+    it already is. A release is never a compile release: a map changes the data, never a compiled ruleset."""
+    have = tx.fetchone("SELECT active FROM tb_vocab_release WHERE release_name = ? AND sha256 = ?", (CODEMAP, sha256))
+    if have is not None and have[0]:
+        return False
+    tx.execute("UPDATE tb_vocab_release SET active = false WHERE release_name = ?", (CODEMAP,))
+    if have is not None:
+        tx.execute("UPDATE tb_vocab_release SET active = true WHERE release_name = ? AND sha256 = ?", (CODEMAP, sha256))
+        return True
+    tx.execute(
+        "INSERT INTO tb_vocab_release (release_name, sha256, vocabulary_id, version, source, rows, compile, "
+        "loaded_by) VALUES (?, ?, 'TB-SHARED', ?, ?, ?, false, ?)",
+        (CODEMAP, sha256, version, registry, rows, by),
+    )
+    return True
+
+
+def release(db: Any) -> dict[str, Any]:
+    """What the box's vocabulary is, by name: the terminology release the compiler pins (``TR-...``, '' when none
+    is loaded) and the active code-map registry release (None when none is loaded): its registry, version, sha256,
+    who loaded it and when, and its maps with their versions (T-316b, D-419)."""
+    from omop import vocab_load  # vocab_load imports this module
+
+    row = db.fetchone(
+        "SELECT version, sha256, source, rows, loaded_by, loaded_at FROM tb_vocab_release "
+        "WHERE release_name = ? AND active ORDER BY loaded_at DESC LIMIT 1",
+        (CODEMAP,),
+    )
+    codemap: dict[str, Any] | None = None
+    if row is not None:
+        version, sha, registry, rows, by, at = row
+        maps = db.fetchall(
+            "SELECT release_name, version, rows FROM tb_vocab_release WHERE active AND release_name LIKE ? "
+            "ORDER BY release_name",
+            (f"map:{CODEMAP_MAP_PREFIX}%",),
+        )
+        codemap = {
+            "name": f"{registry} {version}",
+            "registry": str(registry),
+            "version": str(version),
+            "sha256": str(sha),
+            "rows": int(rows),
+            "loaded_by": str(by),
+            "loaded_at": at,
+            "maps": {
+                str(n).removeprefix(f"map:{CODEMAP_MAP_PREFIX}"): {"version": str(v), "rows": int(r)}
+                for n, v, r in maps
+            },
+        }
+    return {"terminology": vocab_load.terminology_release(db), "codemap": codemap}

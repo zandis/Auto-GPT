@@ -18,6 +18,7 @@ adds ``console.*`` events to the shared audit chain before it acts.
 from __future__ import annotations
 
 import base64
+import dataclasses
 import hashlib
 import io
 import ipaddress
@@ -42,7 +43,7 @@ from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
 from tb_common.audit_writer import open_audit
-from tb_common.authz import admin_allowed
+from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_rights
 from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
@@ -52,7 +53,7 @@ from tb_common.service_auth import bind_session, scope_of
 from tb_common.ulid import new_ulid
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
-from console import demo_guard, feedback
+from console import demo_guard, feedback, i18n_roles
 from console.admin_accounts import end_date
 from console.auth import (
     AFFILIATIONS,
@@ -65,7 +66,7 @@ from console.auth import (
     random_password,
     scope_values,
 )
-from console.backend import Backend, MailItem, Refused, RulesetInfo, Unavailable
+from console.backend import AuditRecord, Backend, MailItem, Refused, RulesetInfo, Unavailable
 from console.cascade import CascadeRuns
 from console.i18n import CATALOGUES, LANGS, pick_language, translate
 from console.identity import (
@@ -257,8 +258,43 @@ def cell(value: object, k: int) -> str:
 # job pages are decided by the job's type (see create_app._aggregate_denied)
 _AGGREGATE_DENY = re.compile(
     r"^/(?:jobs|audit|admin/redcap|pilot/registry|pilot/mailbox|pilot/cascade|site|api/v1/site)(?:/|$)"
-    r"|^/(?:api/v1/)?studies/[^/]+/(?!feasibility$)"
+    r"|^/(?:api/v1/)?studies/[^/]+/(?!feasibility$|monitor/)"
 )
+# D-380 (FIT-002 grant half): the one patient-level route a CRO account may reach, under a monitor grant (team.py)
+_MONITOR_ROUTE = re.compile(r"/(?:api/v1/)?studies/[A-Za-z0-9_-]+/monitor/[A-Za-z0-9_-]+")
+for _lang, _cat in (("en", i18n_roles.EN), ("ja", i18n_roles.JA), ("zh-TW", i18n_roles.ZH)):
+    CATALOGUES[_lang].update(_cat)
+
+
+def role_description(role: str, lang: str) -> str:
+    """ROLE-018 (D-380): what a role may do, generated from the matrix (``tb_common.authz.role_rights``): one label
+    per row or group of rows, marked where it holds only as the study's delegation log allows."""
+    seen: dict[str, bool] = {}
+    for action, _what, conditional in role_rights(role):
+        key = i18n_roles.right_key(action)
+        seen[key] = seen.get(key, True) and conditional
+    if not seen:
+        return translate(lang, "roles.none")
+    parts = [translate(lang, k) for k in seen]
+    return "; ".join(translate(lang, "roles.cond", what=p) if seen[k] else p for k, p in zip(seen, parts, strict=True))
+
+
+_PSEUDONYM = re.compile(r"\b[0-9a-f]{32}\b")
+_PID_KEYS = frozenset({"pid", "pids"})
+
+
+def hide_pids(records: list[AuditRecord]) -> list[AuditRecord]:
+    """D-380 (CR-023): the audit trail for a reader without ``audit.ids`` (the administrator): every pseudonym in an
+    event's detail is hidden, the event itself stays."""
+
+    def one(k: str, v: Any) -> Any:
+        if k in _PID_KEYS:
+            return "•••"
+        return _PSEUDONYM.sub("•••", v) if isinstance(v, str) else v
+
+    return [dataclasses.replace(r, detail={k: one(k, v) for k, v in dict(r.detail or {}).items()}) for r in records]
+
+
 # D-272 (CR-016): one rule for the job line, the pages and the audit's stored form (``tb_common.audit``): ``mask_ids``
 # turns ``CASE GZQO mrn=70000054`` into ``CASE GZQO mrn=•••`` and masks the same keys in a printed mapping
 _HIDDEN_OPTIONS = ID_KEYS
@@ -436,6 +472,9 @@ def create_app(
     templates.env.filters["who"] = lambda v: str(v or "").removeprefix("console:") or "–"
     templates.env.globals["reason_label"] = reason_label  # a candidate row's reason code in the page language (D-118)
     templates.env.globals["feas_notes"] = feas_notes  # a feasibility result's notes in the page language (D-119)
+    # D-380 (ROLE-018): the menu asks the matrix, as the routes do (``permit(user.role, action, BEST)``)
+    templates.env.globals["permit"] = permit
+    templates.env.globals["BEST"] = BEST_STANDING
     bk: Backend = backend
     au: AuditLog = audit
     us: UserStore = users
@@ -568,6 +607,7 @@ def create_app(
             path
             in ("/", "/home", "/reports", "/lang", "/logout", "/cmd", "/account", "/account/password", "/help", "/ask")
             or re.fullmatch(r"/studies/[A-Za-z0-9_-]+/feasibility", path)
+            or _MONITOR_ROUTE.fullmatch(path)  # D-380: refused there unless a monitor grant holds
             or re.fullmatch(r"/pilot/jobs/[0-9A-HJKMNP-TV-Z]{26}/sponsor-pack\.zip", path)
             or path == "/api/v1/studies"
         ):
@@ -941,6 +981,8 @@ def create_app(
         recs = bk.audit(None, AUDIT_PAGE * page_no + 1)
         more = len(recs) > AUDIT_PAGE * page_no
         rows = recs[AUDIT_PAGE * (page_no - 1) : AUDIT_PAGE * page_no]
+        if not permit(sess.user.role, "audit.ids"):  # D-380 (CR-023): the administrator sees no pseudonym here
+            rows = hide_pids(list(rows))
         return page(request, "audit.html", sess, records=rows, page_no=page_no, more=more and page_no < AUDIT_PAGES)
 
     # D-133 (review F-02): a new or reset one-time password never travels in a URL (history, proxy and access logs,
@@ -971,6 +1013,7 @@ def create_app(
             undo=undo if undo in {u.username for u in off} else "",  # D-178: the toast's Undo after Disable
             done=done if done in ("enabled",) else "",
             roles=ROLES,
+            role_desc={r: role_description(r, lang_of(request, sess)) for r in ROLES},  # ROLE-018: from the matrix
             affiliations=AFFILIATIONS,
             made=made,
             pw=pw,
@@ -1003,7 +1046,9 @@ def create_app(
             if action == "add":
                 if role not in ROLES:
                     raise AuthError("unknown role")
-                scope_values(affiliation, studies, expires or None)  # refuse a bad scope before the account exists
+                scope_values(
+                    affiliation, studies, expires or None, role
+                )  # refuse a bad scope before the account exists
                 expires = end_date(role, expires or None, us.today()) or ""  # D-406 (OPS-059): at most 12 months
                 password = random_password()
                 us.create(name, role, password, mailbox.strip() or None, must_change=True)  # D-279: the owner's first

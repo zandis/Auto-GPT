@@ -22,7 +22,7 @@ from console.i18n import CATALOGUES, translate
 from console.i18n_help import EN, JA, ZH
 
 from tests import edc_kit as k
-from tests.console.test_console_app import _done_screen, _ulid, box, login  # noqa: F401 - the fixture is used by name
+from tests.console.test_console_app import _done_screen, _ulid, box, login, name_pi  # noqa: F401 - the fixture is used by name
 from tests.console.test_edc_pages import NO, PW, _ready, eb  # noqa: F401 - the fixture is used by name
 from tests.console.test_role_pages import _csrf, _user
 from tests.console.test_team_pages import A
@@ -86,6 +86,7 @@ def test_help_this_page_on_the_poc_pages(box: dict[str, Any], lang: str) -> None
 def test_the_referral_form_selects_say_what_to_choose(box: dict[str, Any], lang: str) -> None:  # noqa: F811
     _done_screen(box["backend"], _ulid(991))
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     _lang(pi, lang)
     page = pi.get(f"/studies/GZQO/candidates/{A}?purpose=referral").text
     assert 'data-testid="referral-form"' in page

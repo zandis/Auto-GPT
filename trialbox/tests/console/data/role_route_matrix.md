@@ -3,265 +3,267 @@
 The design table: the test walks every console route as every role and compares the answers with this file.
 Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_ROLE_MATRIX=1`.
 
-| Method | Route | admin | crc | pi | smo | cra | viewer | steward |
-|---|---|---|---|---|---|---|---|---|
-| GET | `/` | Y | Y | Y | Y | Y | Y | Y |
-| GET | `/about` | Y | Y | Y | Y | Y | Y | Y |
-| GET | `/about/NOTICE.txt` | Y | Y | Y | Y | Y | Y | Y |
-| GET | `/account` | Y | Y | Y | Y | Y | Y | Y |
-| GET | `/admin` | Y | - | - | - | - | - | - |
-| GET | `/admin/accounts` | Y | - | - | - | - | - | - |
-| GET | `/admin/notice` | Y | - | - | - | - | - | - |
-| GET | `/admin/ops` | Y | - | - | - | - | - | - |
-| GET | `/admin/ops/network/{name}` | n | - | - | - | - | - | - |
-| GET | `/admin/redcap` | Y | - | - | - | - | - | - |
-| GET | `/api/v1/admin/ops` | Y | - | - | - | - | - | - |
-| GET | `/api/v1/ask` | Y | Y | Y | Y | - | Y | Y |
-| GET | `/api/v1/site/checks` | U | U | U | n | - | - | - |
-| GET | `/api/v1/site/codes` | U | U | U | n | - | - | - |
-| GET | `/api/v1/site/facts` | - | U | U | n | - | - | - |
-| GET | `/api/v1/site/opt-outs` | - | Y | - | Y | - | - | Y |
-| GET | `/api/v1/site/readiness` | Y | Y | Y | U | - | - | - |
-| GET | `/api/v1/studies` | Y | Y | Y | Y | Y | Y | Y |
-| GET | `/api/v1/studies/{rs}/candidates` | - | Y | Y | Y | - | - | - |
-| GET | `/api/v1/studies/{rs}/candidates/{pid}` | - | Y | Y | Y | - | - | - |
-| GET | `/api/v1/studies/{rs}/conflicts` | - | U | U | U | - | - | - |
-| GET | `/api/v1/studies/{rs}/delegation` | Y | Y | Y | Y | - | - | Y |
-| GET | `/api/v1/studies/{rs}/edc` | - | U | U | U | - | - | - |
-| GET | `/api/v1/studies/{rs}/edc/drafts` | - | Y | - | Y | - | - | - |
-| GET | `/api/v1/studies/{rs}/edc/export/odm` | - | U | - | U | - | - | - |
-| GET | `/api/v1/studies/{rs}/edc/map` | - | U | - | U | - | - | - |
-| GET | `/api/v1/studies/{rs}/edc/trail/{record}` | - | n | n | n | - | - | - |
-| GET | `/api/v1/studies/{rs}/enrolment` | - | U | U | U | - | - | - |
-| GET | `/api/v1/studies/{rs}/enrolment/{fmt}` | - | U | U | U | - | - | - |
-| GET | `/api/v1/studies/{rs}/export/{fmt}` | - | U | U | U | - | - | - |
-| GET | `/api/v1/studies/{rs}/forms` | U | U | U | U | - | - | U |
-| GET | `/api/v1/studies/{rs}/icf` | Y | Y | Y | Y | - | - | Y |
-| GET | `/api/v1/studies/{rs}/irb` | Y | Y | Y | Y | - | - | Y |
-| GET | `/api/v1/studies/{rs}/patients` | - | Y | Y | Y | - | - | - |
-| GET | `/api/v1/studies/{rs}/reconsent` | - | U | U | U | - | - | - |
-| GET | `/api/v1/studies/{rs}/records` | - | U | U | U | - | - | - |
-| GET | `/api/v1/studies/{rs}/records/{record}` | - | U | U | U | - | - | - |
-| GET | `/api/v1/studies/{rs}/referrals` | - | Y | Y | Y | - | - | - |
-| GET | `/api/v1/studies/{rs}/schedule` | - | U | U | U | - | - | - |
-| GET | `/api/v1/studies/{rs}/screening-log` | - | Y | Y | Y | - | - | - |
-| GET | `/api/v1/studies/{rs}/sources` | U | U | U | U | - | - | U |
-| GET | `/api/v1/studies/{rs}/subjects` | - | U | U | U | - | - | - |
-| GET | `/api/v1/studies/{rs}/subjects/{record}` | - | U | U | U | - | - | - |
-| GET | `/api/v1/studies/{rs}/visits` | - | U | U | U | - | - | - |
-| GET | `/ask` | Y | Y | Y | Y | Y | Y | Y |
-| GET | `/audit` | Y | Y | Y | - | - | - | Y |
-| GET | `/auth/oidc/callback` | n | n | n | n | n | n | n |
-| GET | `/auth/oidc/start` | n | n | n | n | n | n | n |
-| GET | `/breakglass` | Y | - | - | - | - | - | Y |
-| GET | `/cmd` | Y | Y | Y | Y | Y | Y | Y |
-| GET | `/data/instruments` | Y | - | - | - | - | - | - |
-| GET | `/data/items` | Y | - | - | - | - | - | - |
-| GET | `/demo/ack` | n | n | n | n | n | n | n |
-| GET | `/feedback/export.csv` | Y | - | - | - | - | - | - |
-| GET | `/help` | Y | Y | Y | Y | Y | Y | Y |
-| GET | `/home` | Y | Y | Y | Y | Y | Y | Y |
-| GET | `/jobs` | Y | Y | Y | - | - | - | Y |
-| GET | `/metrics` | Y | - | - | - | - | - | - |
-| GET | `/notices/received` | Y | Y | Y | Y | - | Y | Y |
-| GET | `/ops/flags` | Y | - | - | - | - | - | - |
-| GET | `/ops/identity` | Y | - | - | - | - | - | - |
-| GET | `/ops/users` | Y | - | - | - | - | - | - |
-| GET | `/pilot/cascade` | Y | Y | Y | - | - | - | Y |
-| GET | `/pilot/cascade/{run_id}` | n | n | n | - | - | - | n |
-| GET | `/pilot/cascade/{run_id}/files/{name}` | n | n | n | - | - | - | n |
-| GET | `/pilot/case` | Y | Y | Y | Y | - | Y | Y |
-| GET | `/pilot/consent` | Y | Y | Y | Y | - | Y | Y |
-| GET | `/pilot/jobs/{job_id}` | Y | Y | Y | Y | - | - | Y |
-| GET | `/pilot/jobs/{job_id}/approval` | Y | Y | Y | Y | - | - | Y |
-| GET | `/pilot/jobs/{job_id}/files/{filename}` | n | n | n | n | - | - | n |
-| GET | `/pilot/jobs/{job_id}/sponsor-pack.zip` | n | n | - | n | - | - | - |
-| GET | `/pilot/jobs/{job_id}/view/{filename}` | n | n | n | n | - | - | n |
-| GET | `/pilot/mailbox` | Y | Y | Y | - | - | - | Y |
-| GET | `/pilot/protocol` | Y | Y | Y | Y | - | Y | Y |
-| GET | `/pilot/registry` | Y | Y | Y | Y | - | - | Y |
-| GET | `/pilot/registry/{ruleset}` | - | Y | Y | Y | - | - | Y |
-| GET | `/pilot/registry/{ruleset}/export.xlsx` | - | Y | Y | Y | - | - | - |
-| GET | `/pilot/request` | Y | Y | Y | Y | - | Y | Y |
-| GET | `/reports` | Y | Y | Y | Y | Y | Y | Y |
-| GET | `/reports/research-office` | Y | Y | - | Y | - | Y | - |
-| GET | `/reports/research-office.xlsx` | Y | Y | - | Y | - | Y | - |
-| GET | `/sae` | - | Y | Y | Y | - | - | - |
-| GET | `/settings/notices` | Y | Y | Y | Y | - | Y | Y |
-| GET | `/site` | Y | Y | Y | Y | - | - | - |
-| GET | `/site/charts` | - | Y | Y | n | - | - | - |
-| GET | `/site/checks` | Y | Y | Y | n | - | - | - |
-| GET | `/site/codes` | Y | Y | Y | n | - | - | - |
-| GET | `/site/facts` | - | Y | Y | n | - | - | - |
-| GET | `/site/help` | Y | Y | Y | Y | - | - | - |
-| GET | `/site/opt-outs` | - | Y | - | Y | - | - | Y |
-| GET | `/site/patients` | - | Y | Y | n | - | - | - |
-| GET | `/site/people` | - | Y | Y | n | - | - | - |
-| GET | `/site/sheets` | Y | Y | Y | n | - | - | - |
-| GET | `/site/staff` | Y | Y | Y | Y | - | - | Y |
-| GET | `/site/start` | Y | Y | Y | n | - | - | - |
-| GET | `/site/templates/{name}.xlsx` | n | n | n | n | - | - | - |
-| GET | `/studies/{rs}/candidates` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/candidates/{pid}` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/cohort` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/conflicts` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/deviations` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/edc` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/edc/export.odm.xml` | - | U | - | U | - | - | - |
-| GET | `/studies/{rs}/edc/map` | - | U | - | U | - | - | - |
-| GET | `/studies/{rs}/edc/review/{record}` | - | n | - | n | - | - | - |
-| GET | `/studies/{rs}/edc/sign/oidc/{ticket}` | - | Y | - | Y | - | - | - |
-| GET | `/studies/{rs}/edc/trail/{record}` | - | n | n | n | - | - | - |
-| GET | `/studies/{rs}/enrolment` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/enrolment.{fmt}` | - | U | U | U | - | - | - |
-| GET | `/studies/{rs}/entry` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/entry/{form}.css` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/excluded` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/export.{fmt}` | - | U | U | U | - | - | - |
-| GET | `/studies/{rs}/feasibility` | Y | Y | Y | Y | Y | Y | Y |
-| GET | `/studies/{rs}/forms` | Y | Y | Y | Y | - | - | Y |
-| GET | `/studies/{rs}/history` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/irb` | Y | Y | Y | Y | - | - | Y |
-| GET | `/studies/{rs}/not-matched` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/patients/{pid}` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/reconsent` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/referrals` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/referrals/{ref_id}/print` | - | n | n | n | - | - | - |
-| GET | `/studies/{rs}/rescreen` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/sae/{record}/{event}` | - | n | n | n | - | - | - |
-| GET | `/studies/{rs}/schedule` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/screening-log` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/screening-log.xlsx` | Y | Y | - | Y | - | - | - |
-| GET | `/studies/{rs}/setup` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/sources` | Y | Y | Y | Y | - | - | Y |
-| GET | `/studies/{rs}/state` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/subjects` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/subjects/{record}` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/team` | Y | Y | Y | Y | - | - | Y |
-| GET | `/studies/{rs}/visits` | - | Y | Y | Y | - | - | - |
-| GET | `/studies/{rs}/week` | - | Y | Y | Y | - | - | - |
-| GET | `/week` | Y | Y | Y | Y | - | - | Y |
-| DELETE | `/api/v1/studies/{rs}/sources/redcap` | - | U | - | U | - | - | - |
-| POST | `/account/password` | Y | Y | Y | Y | Y | Y | Y |
-| POST | `/admin/jobs/{job_id}/cancel` | Y | - | - | - | - | - | - |
-| POST | `/admin/jobs/{job_id}/retry` | Y | - | - | - | - | - | - |
-| POST | `/admin/models/canary` | Y | - | - | - | - | - | - |
-| POST | `/admin/ops/{action}` | n | n | n | n | n | n | n |
-| POST | `/admin/redcap` | Y | - | - | - | - | - | - |
-| POST | `/admin/redcap/{ref}/test` | Y | - | - | - | - | - | - |
-| POST | `/api/v1/site/charts` | Y | Y | Y | Y | Y | Y | Y |
-| POST | `/api/v1/site/checks/{cid}` | Y | Y | Y | Y | Y | Y | Y |
-| POST | `/api/v1/site/codes` | Y | Y | Y | Y | Y | Y | Y |
-| POST | `/api/v1/site/facts/{fid}` | Y | Y | Y | Y | Y | Y | Y |
-| POST | `/api/v1/site/opt-outs` | - | Y | - | Y | - | - | Y |
-| POST | `/api/v1/studies/{rs}/aes/{record}/{event}/ack` | - | - | n | - | - | - | - |
-| POST | `/api/v1/studies/{rs}/candidates/{pid}/referral` | - | - | Y | - | - | - | - |
-| POST | `/api/v1/studies/{rs}/conflicts/{cid}` | Y | Y | Y | Y | Y | Y | Y |
-| POST | `/api/v1/studies/{rs}/edc/dictionary` | Y | Y | Y | Y | Y | Y | Y |
-| POST | `/api/v1/studies/{rs}/edc/drafts` | Y | Y | Y | Y | Y | Y | Y |
-| POST | `/api/v1/studies/{rs}/edc/drafts/{draft_id}/decide` | Y | Y | Y | Y | Y | Y | Y |
-| POST | `/api/v1/studies/{rs}/edc/send` | - | U | - | U | - | - | - |
-| POST | `/api/v1/studies/{rs}/edc/sign` | Y | Y | Y | Y | Y | Y | Y |
-| POST | `/api/v1/studies/{rs}/edc/switch` | Y | Y | Y | Y | Y | Y | Y |
-| POST | `/api/v1/studies/{rs}/forms/builtin` | - | U | - | U | - | - | - |
-| POST | `/api/v1/studies/{rs}/forms/dictionary` | Y | Y | Y | Y | Y | Y | Y |
-| POST | `/api/v1/studies/{rs}/icf` | Y | Y | Y | Y | - | - | - |
-| POST | `/api/v1/studies/{rs}/irb` | Y | Y | Y | Y | - | - | - |
-| POST | `/api/v1/studies/{rs}/patients/{pid}/mark` | Y | Y | Y | Y | Y | Y | Y |
-| POST | `/api/v1/studies/{rs}/patients/{pid}/outcome` | Y | Y | Y | Y | Y | Y | Y |
-| POST | `/api/v1/studies/{rs}/patients/{pid}/reveal` | - | Y | Y | Y | - | - | - |
-| POST | `/api/v1/studies/{rs}/referrals/{ref_id}/answer` | Y | Y | Y | Y | Y | Y | Y |
-| POST | `/api/v1/studies/{rs}/sources/{name}/sync` | - | n | - | n | - | - | - |
-| POST | `/api/v1/studies/{rs}/subjects/{record}/step` | Y | Y | Y | Y | Y | Y | Y |
-| POST | `/breakglass` | Y | - | - | - | - | - | - |
-| POST | `/breakglass/{gid}/end` | Y | - | - | - | - | - | - |
-| POST | `/breakglass/{gid}/review` | - | - | - | - | - | - | Y |
-| POST | `/data/instruments/{iid}` | Y | - | - | - | - | - | - |
-| POST | `/demo/ack` | n | n | n | n | n | n | n |
-| POST | `/feedback` | Y | Y | Y | Y | Y | Y | Y |
-| POST | `/ops/flags` | Y | - | - | - | - | - | - |
-| POST | `/ops/identity` | Y | - | - | - | - | - | - |
-| POST | `/ops/ingest` | Y | - | - | - | - | - | - |
-| POST | `/ops/notices` | Y | - | - | - | - | - | - |
-| POST | `/ops/users` | Y | - | - | - | - | - | - |
-| POST | `/pilot/cascade` | Y | Y | - | - | - | - | - |
-| POST | `/pilot/case` | Y | Y | - | Y | - | - | - |
-| POST | `/pilot/consent` | Y | Y | - | Y | - | - | - |
-| POST | `/pilot/jobs/{job_id}/approval/label` | Y | Y | Y | Y | - | - | - |
-| POST | `/pilot/jobs/{job_id}/approval/tick` | - | - | Y | - | - | - | - |
-| POST | `/pilot/jobs/{job_id}/approve` | - | - | Y | - | - | - | - |
-| POST | `/pilot/jobs/{job_id}/release` | Y | Y | - | Y | - | - | - |
-| POST | `/pilot/jobs/{job_id}/reveal` | Y | Y | Y | Y | - | - | - |
-| POST | `/pilot/mailbox` | Y | Y | - | - | - | - | - |
-| POST | `/pilot/propose` | Y | Y | - | Y | - | - | - |
-| POST | `/pilot/propose/{pid}/confirm` | Y | Y | - | Y | - | - | - |
-| POST | `/pilot/protocol` | Y | Y | - | Y | - | - | - |
-| POST | `/pilot/registry/{ruleset}` | Y | Y | - | Y | - | - | - |
-| POST | `/pilot/registry/{ruleset}/promote` | Y | Y | - | Y | - | - | - |
-| POST | `/pilot/request` | Y | Y | - | Y | - | - | - |
-| POST | `/settings/notices` | Y | Y | Y | Y | - | Y | Y |
-| POST | `/site/charts` | - | Y | - | n | - | - | - |
-| POST | `/site/checks/{cid}` | U | U | - | n | - | - | - |
-| POST | `/site/codes` | U | U | - | n | - | - | - |
-| POST | `/site/facts/{fid}` | - | U | - | n | - | - | - |
-| POST | `/site/opt-outs` | - | Y | - | Y | - | - | Y |
-| POST | `/site/people/resolve` | - | U | - | n | - | - | - |
-| POST | `/site/practice` | Y | Y | - | n | - | - | - |
-| POST | `/site/remote` | U | - | - | - | - | - | - |
-| POST | `/site/sheets` | Y | Y | - | n | - | - | - |
-| POST | `/site/staff` | Y | Y | - | Y | - | - | Y |
-| POST | `/studies/{rs}/candidates/{pid}/referral` | - | - | Y | - | - | - | - |
-| POST | `/studies/{rs}/candidates/{pid}/reveal` | Y | Y | Y | Y | - | - | Y |
-| POST | `/studies/{rs}/conflicts/{cid}` | - | Y | - | Y | - | - | - |
-| POST | `/studies/{rs}/deviations` | - | n | - | n | - | - | - |
-| POST | `/studies/{rs}/edc/decide/{draft_id}` | - | n | - | n | - | - | - |
-| POST | `/studies/{rs}/edc/dictionary` | - | U | - | U | - | - | - |
-| POST | `/studies/{rs}/edc/drafts` | - | Y | - | Y | - | - | - |
-| POST | `/studies/{rs}/edc/map` | - | U | - | U | - | - | - |
-| POST | `/studies/{rs}/edc/send` | - | U | - | U | - | - | - |
-| POST | `/studies/{rs}/edc/sign` | - | Y | - | Y | - | - | - |
-| POST | `/studies/{rs}/edc/switch` | U | - | U | - | - | - | - |
-| POST | `/studies/{rs}/entry` | - | Y | - | Y | - | - | - |
-| POST | `/studies/{rs}/excluded/{pid}/review` | - | n | n | n | - | - | - |
-| POST | `/studies/{rs}/feasibility/refresh` | Y | Y | Y | Y | - | - | - |
-| POST | `/studies/{rs}/forms/builtin` | - | Y | - | Y | - | - | - |
-| POST | `/studies/{rs}/forms/dictionary` | - | Y | - | Y | - | - | - |
-| POST | `/studies/{rs}/identity` | - | Y | Y | Y | - | - | - |
-| POST | `/studies/{rs}/irb` | Y | Y | Y | Y | - | - | - |
-| POST | `/studies/{rs}/irb-text` | - | - | Y | - | - | - | - |
-| POST | `/studies/{rs}/irb/icf` | Y | Y | Y | Y | - | - | - |
-| POST | `/studies/{rs}/not-matched/{pid}/review` | - | n | n | n | - | - | - |
-| POST | `/studies/{rs}/patients/{pid}/mark` | - | - | Y | - | - | - | - |
-| POST | `/studies/{rs}/patients/{pid}/outcome` | Y | Y | - | Y | - | - | - |
-| POST | `/studies/{rs}/patients/{pid}/reveal` | - | Y | Y | Y | - | - | - |
-| POST | `/studies/{rs}/profile` | Y | Y | - | Y | - | - | - |
-| POST | `/studies/{rs}/redcap-read` | - | Y | - | Y | - | - | - |
-| POST | `/studies/{rs}/referrals/{ref_id}/answer` | - | Y | Y | Y | - | - | - |
-| POST | `/studies/{rs}/referrals/{ref_id}/print` | - | n | Y | Y | - | - | - |
-| POST | `/studies/{rs}/sae/sync` | - | U | - | U | - | - | - |
-| POST | `/studies/{rs}/sae/{record}/{event}/ack` | - | n | n | n | - | - | - |
-| POST | `/studies/{rs}/sae/{record}/{event}/{what}` | n | n | n | n | - | - | n |
-| POST | `/studies/{rs}/schedule` | - | Y | - | Y | - | - | - |
-| POST | `/studies/{rs}/setup` | - | Y | - | Y | - | - | - |
-| POST | `/studies/{rs}/setup/contact` | - | Y | - | Y | - | - | - |
-| POST | `/studies/{rs}/setup/log` | - | Y | - | Y | - | - | - |
-| POST | `/studies/{rs}/setup/redcap` | - | Y | - | Y | - | - | - |
-| POST | `/studies/{rs}/setup/redcap/test` | - | Y | - | Y | - | - | - |
-| POST | `/studies/{rs}/setup/sae` | - | Y | - | Y | - | - | - |
-| POST | `/studies/{rs}/setup/scope` | - | Y | - | Y | - | - | - |
-| POST | `/studies/{rs}/setup/study` | - | Y | - | Y | - | - | - |
-| POST | `/studies/{rs}/sources/redcap` | - | Y | - | Y | - | - | - |
-| POST | `/studies/{rs}/sources/redcap/detach` | - | Y | - | Y | - | - | - |
-| POST | `/studies/{rs}/sources/redcap/undo` | - | Y | - | Y | - | - | - |
-| POST | `/studies/{rs}/sources/{name}/sync` | - | n | - | n | - | - | - |
-| POST | `/studies/{rs}/state` | - | Y | Y | Y | - | - | - |
-| POST | `/studies/{rs}/subjects/{record}/aes/{event}/ack` | - | - | n | - | - | - | - |
-| POST | `/studies/{rs}/subjects/{record}/step` | - | U | - | U | - | - | - |
-| POST | `/studies/{rs}/subjects/{record}/undo` | - | U | - | U | - | - | - |
-| POST | `/studies/{rs}/team` | - | - | Y | - | - | - | - |
-| POST | `/studies/{rs}/team/check` | - | Y | Y | Y | - | - | - |
-| POST | `/studies/{rs}/team/{eid}` | - | - | Y | - | - | - | - |
-| PUT | `/api/v1/studies/{rs}/edc/map` | Y | Y | Y | Y | Y | Y | Y |
-| PUT | `/api/v1/studies/{rs}/records/{record}/forms/{form}` | Y | Y | Y | Y | Y | Y | Y |
-| PUT | `/api/v1/studies/{rs}/schedule` | Y | Y | Y | Y | Y | Y | Y |
-| PUT | `/api/v1/studies/{rs}/sources/redcap` | Y | Y | Y | Y | Y | Y | Y |
+| Method | Route | admin | crc | pi | lpi | smo | cra | viewer | steward | privacy |
+|---|---|---|---|---|---|---|---|---|---|---|
+| GET | `/` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| GET | `/about` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| GET | `/about/NOTICE.txt` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| GET | `/account` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| GET | `/admin` | Y | - | - | - | - | - | - | - | - |
+| GET | `/admin/accounts` | Y | - | - | - | - | - | - | - | - |
+| GET | `/admin/notice` | Y | - | - | - | - | - | - | - | - |
+| GET | `/admin/ops` | Y | - | - | - | - | - | - | - | - |
+| GET | `/admin/ops/network/{name}` | n | - | - | - | - | - | - | - | - |
+| GET | `/admin/redcap` | Y | - | - | - | - | - | - | - | - |
+| GET | `/api/v1/admin/ops` | Y | - | - | - | - | - | - | - | - |
+| GET | `/api/v1/ask` | Y | Y | Y | Y | Y | - | Y | Y | Y |
+| GET | `/api/v1/site/checks` | U | U | U | U | n | - | - | - | - |
+| GET | `/api/v1/site/codes` | U | U | U | U | n | - | - | - | - |
+| GET | `/api/v1/site/facts` | - | U | U | U | n | - | - | - | - |
+| GET | `/api/v1/site/opt-outs` | - | - | - | - | - | - | - | Y | Y |
+| GET | `/api/v1/site/readiness` | Y | Y | Y | Y | U | - | - | - | - |
+| GET | `/api/v1/studies` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| GET | `/api/v1/studies/{rs}/candidates` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/candidates/{pid}` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/conflicts` | - | U | - | U | U | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/delegation` | Y | Y | Y | Y | Y | - | - | Y | Y |
+| GET | `/api/v1/studies/{rs}/edc` | - | U | - | U | U | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/edc/drafts` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/edc/export/odm` | - | U | - | U | U | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/edc/map` | - | U | - | U | U | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/edc/trail/{record}` | - | n | - | n | n | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/enrolment` | - | U | - | U | U | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/enrolment/{fmt}` | - | U | - | U | U | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/export/{fmt}` | - | U | - | U | U | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/forms` | U | U | U | U | U | - | - | U | U |
+| GET | `/api/v1/studies/{rs}/icf` | Y | Y | Y | Y | Y | - | - | Y | Y |
+| GET | `/api/v1/studies/{rs}/irb` | Y | Y | Y | Y | Y | - | - | Y | Y |
+| GET | `/api/v1/studies/{rs}/monitor/{record}` | - | - | - | - | - | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/patients` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/reconsent` | - | U | - | U | U | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/records` | - | U | - | U | U | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/records/{record}` | - | U | - | U | U | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/referrals` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/schedule` | - | U | - | U | U | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/screening-log` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/sources` | U | U | U | U | U | - | - | U | U |
+| GET | `/api/v1/studies/{rs}/subjects` | - | U | - | U | U | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/subjects/{record}` | - | U | - | U | U | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/visits` | - | U | - | U | U | - | - | - | - |
+| GET | `/ask` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| GET | `/audit` | Y | Y | Y | Y | - | - | - | Y | Y |
+| GET | `/auth/oidc/callback` | n | n | n | n | n | n | n | n | n |
+| GET | `/auth/oidc/start` | n | n | n | n | n | n | n | n | n |
+| GET | `/breakglass` | Y | - | - | Y | - | - | - | Y | - |
+| GET | `/cmd` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| GET | `/data/instruments` | Y | - | - | - | - | - | - | - | - |
+| GET | `/data/items` | - | - | - | - | - | - | - | Y | - |
+| GET | `/demo/ack` | n | n | n | n | n | n | n | n | n |
+| GET | `/feedback/export.csv` | Y | - | - | - | - | - | - | - | - |
+| GET | `/help` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| GET | `/home` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| GET | `/jobs` | Y | Y | Y | Y | - | - | - | Y | Y |
+| GET | `/metrics` | Y | - | - | - | - | - | - | - | - |
+| GET | `/notices/received` | Y | Y | Y | Y | Y | - | Y | Y | Y |
+| GET | `/ops/flags` | Y | - | - | - | - | - | - | - | - |
+| GET | `/ops/identity` | Y | - | - | - | - | - | - | - | - |
+| GET | `/ops/users` | Y | - | - | - | - | - | - | - | - |
+| GET | `/pilot/cascade` | Y | Y | Y | Y | - | - | - | Y | Y |
+| GET | `/pilot/cascade/{run_id}` | n | n | n | n | - | - | - | n | n |
+| GET | `/pilot/cascade/{run_id}/files/{name}` | n | n | n | n | - | - | - | n | n |
+| GET | `/pilot/case` | Y | Y | Y | Y | Y | - | Y | Y | Y |
+| GET | `/pilot/consent` | Y | Y | Y | Y | Y | - | Y | Y | Y |
+| GET | `/pilot/jobs/{job_id}` | Y | Y | Y | Y | Y | - | - | Y | Y |
+| GET | `/pilot/jobs/{job_id}/approval` | Y | Y | Y | Y | Y | - | - | Y | Y |
+| GET | `/pilot/jobs/{job_id}/files/{filename}` | n | n | n | n | n | - | - | n | n |
+| GET | `/pilot/jobs/{job_id}/sponsor-pack.zip` | n | n | - | - | n | - | - | - | - |
+| GET | `/pilot/jobs/{job_id}/view/{filename}` | n | n | n | n | n | - | - | n | n |
+| GET | `/pilot/mailbox` | Y | Y | Y | Y | - | - | - | Y | Y |
+| GET | `/pilot/protocol` | Y | Y | Y | Y | Y | - | Y | Y | Y |
+| GET | `/pilot/registry` | Y | Y | Y | Y | Y | - | - | Y | Y |
+| GET | `/pilot/registry/{ruleset}` | - | Y | - | Y | Y | - | - | Y | Y |
+| GET | `/pilot/registry/{ruleset}/export.xlsx` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/pilot/request` | Y | Y | Y | Y | Y | - | Y | Y | Y |
+| GET | `/reports` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| GET | `/reports/research-office` | Y | Y | - | - | Y | - | Y | - | - |
+| GET | `/reports/research-office.xlsx` | Y | Y | - | - | Y | - | Y | - | - |
+| GET | `/sae` | - | Y | Y | Y | Y | - | - | - | - |
+| GET | `/settings/notices` | Y | Y | Y | Y | Y | - | Y | Y | Y |
+| GET | `/site` | Y | Y | Y | Y | Y | - | - | - | - |
+| GET | `/site/charts` | - | Y | Y | Y | n | - | - | - | - |
+| GET | `/site/checks` | Y | Y | Y | Y | n | - | - | - | - |
+| GET | `/site/codes` | Y | Y | Y | Y | n | - | - | - | - |
+| GET | `/site/facts` | - | Y | Y | Y | n | - | - | - | - |
+| GET | `/site/help` | Y | Y | Y | Y | Y | - | - | - | - |
+| GET | `/site/opt-outs` | - | - | - | - | - | - | - | Y | Y |
+| GET | `/site/patients` | - | Y | - | Y | n | - | - | - | - |
+| GET | `/site/people` | - | Y | Y | Y | n | - | - | - | - |
+| GET | `/site/sheets` | Y | Y | Y | Y | n | - | - | - | - |
+| GET | `/site/staff` | - | Y | Y | Y | Y | - | - | Y | Y |
+| GET | `/site/start` | Y | Y | Y | Y | n | - | - | - | - |
+| GET | `/site/templates/{name}.xlsx` | n | n | n | n | n | - | - | - | - |
+| GET | `/studies/{rs}/candidates` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/candidates/{pid}` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/cohort` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/conflicts` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/deviations` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/edc` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/edc/export.odm.xml` | - | U | - | U | U | - | - | - | - |
+| GET | `/studies/{rs}/edc/map` | - | U | - | U | U | - | - | - | - |
+| GET | `/studies/{rs}/edc/review/{record}` | - | n | - | n | n | - | - | - | - |
+| GET | `/studies/{rs}/edc/sign/oidc/{ticket}` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/edc/trail/{record}` | - | n | - | n | n | - | - | - | - |
+| GET | `/studies/{rs}/enrolment` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/enrolment.{fmt}` | - | U | - | U | U | - | - | - | - |
+| GET | `/studies/{rs}/entry` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/entry/{form}.css` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/excluded` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/export.{fmt}` | - | U | - | U | U | - | - | - | - |
+| GET | `/studies/{rs}/feasibility` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| GET | `/studies/{rs}/forms` | Y | Y | Y | Y | Y | - | - | Y | Y |
+| GET | `/studies/{rs}/history` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/irb` | Y | Y | Y | Y | Y | - | - | Y | Y |
+| GET | `/studies/{rs}/monitor/{record}` | - | - | - | - | - | - | - | - | - |
+| GET | `/studies/{rs}/not-matched` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/patients/{pid}` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/reconsent` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/referrals` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/referrals/{ref_id}/print` | - | n | - | n | n | - | - | - | - |
+| GET | `/studies/{rs}/rescreen` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/sae/{record}/{event}` | - | n | - | n | n | - | - | - | - |
+| GET | `/studies/{rs}/schedule` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/screening-log` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/screening-log.xlsx` | Y | Y | - | - | Y | - | - | - | - |
+| GET | `/studies/{rs}/setup` | - | Y | Y | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/sources` | Y | Y | Y | Y | Y | - | - | Y | Y |
+| GET | `/studies/{rs}/state` | - | Y | Y | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/subjects` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/subjects/{record}` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/team` | Y | Y | Y | Y | Y | - | - | Y | Y |
+| GET | `/studies/{rs}/visits` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/week` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/week` | Y | Y | Y | Y | Y | - | - | Y | Y |
+| DELETE | `/api/v1/studies/{rs}/sources/redcap` | - | U | - | - | U | - | - | - | - |
+| POST | `/account/password` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| POST | `/admin/jobs/{job_id}/cancel` | Y | - | - | - | - | - | - | - | - |
+| POST | `/admin/jobs/{job_id}/retry` | Y | - | - | - | - | - | - | - | - |
+| POST | `/admin/models/canary` | Y | - | - | - | - | - | - | - | - |
+| POST | `/admin/ops/{action}` | n | n | n | n | n | n | n | n | n |
+| POST | `/admin/redcap` | Y | - | - | - | - | - | - | - | - |
+| POST | `/admin/redcap/{ref}/test` | Y | - | - | - | - | - | - | - | - |
+| POST | `/api/v1/site/charts` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| POST | `/api/v1/site/checks/{cid}` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| POST | `/api/v1/site/codes` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| POST | `/api/v1/site/facts/{fid}` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| POST | `/api/v1/site/opt-outs` | - | - | - | - | - | - | - | Y | Y |
+| POST | `/api/v1/studies/{rs}/aes/{record}/{event}/ack` | - | - | - | n | - | - | - | - | - |
+| POST | `/api/v1/studies/{rs}/candidates/{pid}/referral` | - | - | - | Y | - | - | - | - | - |
+| POST | `/api/v1/studies/{rs}/conflicts/{cid}` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| POST | `/api/v1/studies/{rs}/edc/dictionary` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| POST | `/api/v1/studies/{rs}/edc/drafts` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| POST | `/api/v1/studies/{rs}/edc/drafts/{draft_id}/decide` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| POST | `/api/v1/studies/{rs}/edc/send` | - | U | - | U | U | - | - | - | - |
+| POST | `/api/v1/studies/{rs}/edc/sign` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| POST | `/api/v1/studies/{rs}/edc/switch` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| POST | `/api/v1/studies/{rs}/forms/builtin` | - | U | - | - | U | - | - | - | - |
+| POST | `/api/v1/studies/{rs}/forms/dictionary` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| POST | `/api/v1/studies/{rs}/icf` | - | Y | - | Y | - | - | - | - | - |
+| POST | `/api/v1/studies/{rs}/irb` | - | Y | - | Y | - | - | - | - | - |
+| POST | `/api/v1/studies/{rs}/patients/{pid}/mark` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| POST | `/api/v1/studies/{rs}/patients/{pid}/outcome` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| POST | `/api/v1/studies/{rs}/patients/{pid}/reveal` | - | Y | - | Y | Y | - | - | - | - |
+| POST | `/api/v1/studies/{rs}/referrals/{ref_id}/answer` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| POST | `/api/v1/studies/{rs}/sources/{name}/sync` | - | n | - | - | n | - | - | - | - |
+| POST | `/api/v1/studies/{rs}/subjects/{record}/step` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| POST | `/breakglass` | Y | - | - | - | - | - | - | - | - |
+| POST | `/breakglass/{gid}/end` | Y | - | - | - | - | - | - | - | - |
+| POST | `/breakglass/{gid}/review` | - | - | - | - | - | - | - | Y | - |
+| POST | `/data/instruments/{iid}` | Y | - | - | - | - | - | - | - | - |
+| POST | `/demo/ack` | n | n | n | n | n | n | n | n | n |
+| POST | `/feedback` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| POST | `/ops/flags` | Y | - | - | - | - | - | - | - | - |
+| POST | `/ops/identity` | Y | - | - | - | - | - | - | - | - |
+| POST | `/ops/ingest` | Y | - | - | - | - | - | - | - | - |
+| POST | `/ops/notices` | Y | - | - | - | - | - | - | - | - |
+| POST | `/ops/users` | Y | - | - | - | - | - | - | - | - |
+| POST | `/pilot/cascade` | Y | Y | - | - | - | - | - | - | - |
+| POST | `/pilot/case` | Y | Y | - | - | Y | - | - | - | - |
+| POST | `/pilot/consent` | Y | Y | - | - | Y | - | - | - | - |
+| POST | `/pilot/jobs/{job_id}/approval/label` | Y | Y | Y | Y | Y | - | - | - | - |
+| POST | `/pilot/jobs/{job_id}/approval/tick` | - | - | Y | Y | - | - | - | - | - |
+| POST | `/pilot/jobs/{job_id}/approve` | - | - | Y | Y | - | - | - | - | - |
+| POST | `/pilot/jobs/{job_id}/release` | Y | Y | - | - | Y | - | - | - | - |
+| POST | `/pilot/jobs/{job_id}/reveal` | Y | Y | Y | Y | Y | - | - | - | - |
+| POST | `/pilot/mailbox` | Y | Y | - | - | - | - | - | - | - |
+| POST | `/pilot/propose` | Y | Y | - | - | Y | - | - | - | - |
+| POST | `/pilot/propose/{pid}/confirm` | Y | Y | - | - | Y | - | - | - | - |
+| POST | `/pilot/protocol` | Y | Y | - | - | Y | - | - | - | - |
+| POST | `/pilot/registry/{ruleset}` | Y | Y | - | - | Y | - | - | - | - |
+| POST | `/pilot/registry/{ruleset}/promote` | Y | Y | - | - | Y | - | - | - | - |
+| POST | `/pilot/request` | Y | Y | - | - | Y | - | - | - | - |
+| POST | `/settings/notices` | Y | Y | Y | Y | Y | - | Y | Y | Y |
+| POST | `/site/charts` | - | Y | - | - | n | - | - | - | - |
+| POST | `/site/checks/{cid}` | U | U | - | - | n | - | - | - | - |
+| POST | `/site/codes` | U | U | - | - | n | - | - | - | - |
+| POST | `/site/facts/{fid}` | - | U | - | - | n | - | - | - | - |
+| POST | `/site/opt-outs` | - | - | - | - | - | - | - | Y | Y |
+| POST | `/site/people/resolve` | - | U | - | - | n | - | - | - | - |
+| POST | `/site/practice` | Y | Y | - | - | n | - | - | - | - |
+| POST | `/site/remote` | U | - | - | - | - | - | - | - | - |
+| POST | `/site/sheets` | Y | Y | - | - | n | - | - | - | - |
+| POST | `/site/staff` | - | - | - | - | - | - | - | Y | Y |
+| POST | `/studies/{rs}/candidates/{pid}/referral` | - | - | - | Y | - | - | - | - | - |
+| POST | `/studies/{rs}/candidates/{pid}/reveal` | Y | Y | Y | Y | Y | - | - | Y | Y |
+| POST | `/studies/{rs}/conflicts/{cid}` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/studies/{rs}/deviations` | - | n | - | - | n | - | - | - | - |
+| POST | `/studies/{rs}/edc/decide/{draft_id}` | - | n | - | n | n | - | - | - | - |
+| POST | `/studies/{rs}/edc/dictionary` | - | U | - | U | U | - | - | - | - |
+| POST | `/studies/{rs}/edc/drafts` | - | Y | - | Y | Y | - | - | - | - |
+| POST | `/studies/{rs}/edc/map` | - | U | - | U | U | - | - | - | - |
+| POST | `/studies/{rs}/edc/send` | - | U | - | U | U | - | - | - | - |
+| POST | `/studies/{rs}/edc/sign` | - | Y | - | Y | Y | - | - | - | - |
+| POST | `/studies/{rs}/edc/switch` | U | - | - | U | - | - | - | - | - |
+| POST | `/studies/{rs}/entry` | - | Y | - | Y | Y | - | - | - | - |
+| POST | `/studies/{rs}/excluded/{pid}/review` | - | n | - | n | n | - | - | - | - |
+| POST | `/studies/{rs}/feasibility/refresh` | Y | Y | - | Y | Y | - | - | - | - |
+| POST | `/studies/{rs}/forms/builtin` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/studies/{rs}/forms/dictionary` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/studies/{rs}/identity` | - | Y | - | Y | Y | - | - | - | - |
+| POST | `/studies/{rs}/irb` | - | Y | - | Y | - | - | - | - | - |
+| POST | `/studies/{rs}/irb-text` | - | - | - | Y | - | - | - | - | - |
+| POST | `/studies/{rs}/irb/icf` | - | Y | - | Y | - | - | - | - | - |
+| POST | `/studies/{rs}/not-matched/{pid}/review` | - | n | - | n | n | - | - | - | - |
+| POST | `/studies/{rs}/patients/{pid}/mark` | - | - | - | Y | - | - | - | - | - |
+| POST | `/studies/{rs}/patients/{pid}/outcome` | Y | Y | - | - | Y | - | - | - | - |
+| POST | `/studies/{rs}/patients/{pid}/reveal` | - | Y | - | Y | Y | - | - | - | - |
+| POST | `/studies/{rs}/profile` | Y | Y | - | - | Y | - | - | - | - |
+| POST | `/studies/{rs}/redcap-read` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/studies/{rs}/referrals/{ref_id}/answer` | - | Y | - | Y | Y | - | - | - | - |
+| POST | `/studies/{rs}/referrals/{ref_id}/print` | - | n | - | Y | Y | - | - | - | - |
+| POST | `/studies/{rs}/sae/sync` | - | U | - | - | U | - | - | - | - |
+| POST | `/studies/{rs}/sae/{record}/{event}/ack` | - | n | - | n | n | - | - | - | - |
+| POST | `/studies/{rs}/sae/{record}/{event}/{what}` | n | n | n | n | n | - | - | n | n |
+| POST | `/studies/{rs}/schedule` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/studies/{rs}/setup` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/studies/{rs}/setup/contact` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/studies/{rs}/setup/log` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/studies/{rs}/setup/redcap` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/studies/{rs}/setup/redcap/test` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/studies/{rs}/setup/sae` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/studies/{rs}/setup/scope` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/studies/{rs}/setup/study` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/studies/{rs}/sources/redcap` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/studies/{rs}/sources/redcap/detach` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/studies/{rs}/sources/redcap/undo` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/studies/{rs}/sources/{name}/sync` | - | n | - | - | n | - | - | - | - |
+| POST | `/studies/{rs}/state` | - | Y | - | Y | Y | - | - | - | - |
+| POST | `/studies/{rs}/subjects/{record}/aes/{event}/ack` | - | - | - | n | - | - | - | - | - |
+| POST | `/studies/{rs}/subjects/{record}/step` | - | U | - | - | U | - | - | - | - |
+| POST | `/studies/{rs}/subjects/{record}/undo` | - | U | - | - | U | - | - | - | - |
+| POST | `/studies/{rs}/team` | - | - | - | Y | - | - | - | Y | - |
+| POST | `/studies/{rs}/team/check` | - | Y | - | Y | Y | - | - | - | - |
+| POST | `/studies/{rs}/team/{eid}` | - | - | - | Y | - | - | - | - | - |
+| PUT | `/api/v1/studies/{rs}/edc/map` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| PUT | `/api/v1/studies/{rs}/records/{record}/forms/{form}` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| PUT | `/api/v1/studies/{rs}/schedule` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| PUT | `/api/v1/studies/{rs}/sources/redcap` | Y | Y | Y | Y | Y | Y | Y | Y | Y |

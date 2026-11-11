@@ -303,8 +303,9 @@ def walk_registry(s: dict[str, Any], lang: str, password: str) -> dict[str, Any]
         ),
         "S36 save",
     )
-    # the delegation log: the investigator names themselves (only the log's PI switches prefill on) and the CRC
-    for who, role, extra in (("pi", "pi", {}), ("crc", "crc", {"training_day": visit.isoformat()})):
+    # the delegation log: the steward wrote the investigator's PI entry (the demo seed, D-380); only the log's PI
+    # switches prefill on, and the PI adds the CRC
+    for who, role, extra in (("crc", "crc", {"training_day": visit.isoformat()}),):
         lg = pi.post(
             f"/studies/{REGISTRY}/team",
             data={"csrf": fd._csrf(pi.get("/home").text), "username": who, "role": role, "start": visit.isoformat(),

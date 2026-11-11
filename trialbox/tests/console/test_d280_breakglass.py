@@ -73,7 +73,8 @@ def test_the_administrators_pages_show_no_patient_row(box: dict[str, Any]) -> No
     r = admin.post(f"/studies/GZQO/patients/{A}/reveal", data={"csrf": csrf, "reason": "contact"})
     assert r.status_code == 403 and box["backend"].revealed == []
     # the set-up pages without a patient row stay the administrator's (D-131, D-179)
-    assert admin.get("/site/help").status_code == 200 and admin.get("/site/staff").status_code == 200
+    assert admin.get("/site/help").status_code == 200
+    assert admin.get("/site/staff").status_code == 403  # D-380: the directory is the steward's and privacy office's
     home = admin.get("/home?view=studies").text
     assert A[:8] not in home
 
@@ -170,10 +171,10 @@ def test_the_steward_reviews_each_grant_and_the_pi_sees_their_studys(box: dict[s
     _done_screen(box["backend"], _ulid(995))
     stw = _user(box, "stw1", "steward")
     pi = _user(box, "drsato", "investigator")
-    page = pi.get("/studies/GZQO/team").text
-    r = pi.post("/studies/GZQO/team", data={"csrf": _csrf(page), "username": "drsato", "role": "pi",
-                                            "start": "2026-01-01", "training_day": "2025-06-01"},
-                follow_redirects=False)  # fmt: skip
+    page = stw.get("/studies/GZQO/team").text  # D-380 (ROLE-008): the steward writes the PI entry
+    r = stw.post("/studies/GZQO/team", data={"csrf": _csrf(page), "username": "drsato", "role": "pi",
+                                             "start": "2026-01-01", "training_day": "2025-06-01"},
+                 follow_redirects=False)  # fmt: skip
     assert r.status_code == 303
     admin, _ = login(box["app"])
     _open(admin, kind="patient", ruleset="GZQO", pid=A)
