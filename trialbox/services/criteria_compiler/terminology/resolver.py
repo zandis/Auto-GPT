@@ -123,9 +123,30 @@ def tables_dir(tables: dict[str, list[dict[str, Any]]], release: str) -> Path:
     return out
 
 
+def jp_ingredients(term: Terminology) -> Terminology:
+    """At a Japanese site (time zone or locale) the drug ValueSets the live compiler builds carry YJ ingredient stems
+    (T-610): the shipped
+    ingredient-to-ATC table and the site's own (``TB_JP_INGREDIENT_ATC``, a file in the same columns)."""
+    try:
+        from tb_common.config import get_config
+        from tb_common.derived import country_of
+
+        cfg = get_config()
+        country = country_of(cfg.env.tz, cfg.settings.site.locale)
+    except Exception:  # no settings (a tool, a test): no stems
+        return term
+    if country == "JP":
+        from tb_common import refdata_jp
+
+        site = os.environ.get("TB_JP_INGREDIENT_ATC", "")
+        term.ingredients = refdata_jp.ingredient_atc(*([Path(site)] if site else []))
+    return term
+
+
 def terminology(name_synonyms: Any = None) -> Terminology:
     """The compiler's :class:`Terminology` from the configured source, with its ``release`` (``name_synonyms``: the
-    loaded zh-TW synonym dictionary, D-172)."""
+    loaded zh-TW synonym dictionary, D-172). The live compiler adds a Japanese site's stems (:func:`jp_ingredients`);
+    the shipped-ruleset check (``tools/build_rulesets.py``) does not."""
     if source() != "vocab":
         return Terminology(name_synonyms=name_synonyms)
     from omop import vocab_load

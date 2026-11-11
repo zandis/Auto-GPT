@@ -140,6 +140,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             sf_map=show_map(lk.get("screenfail_choice_map") or {}),
             tokens=[c["token_ref"] for c in conns.get("connections") or []],
             screen_scope=get_or_none(f"/studies/{rid}/screen-scope") if s28.has_api(bk) else None,
+            sae_rule=get_or_none(f"/studies/{rid}/sae-rule") if s28.has_api(bk) else None,
             last=reads[0] if reads else None,
             all_reasons=ALL_REASONS,
             study_types=STUDY_TYPES,
@@ -191,6 +192,21 @@ def register(app: FastAPI, h: Helpers) -> None:
         scope = consent_scope if consent_scope in CONSENT_SCOPES else None
         return save_settings(request, sess, rid, s, {"consent_scope": scope,
                              "introduce_rule": row.get("introduce_rule")}, "study")  # fmt: skip
+
+    @app.post("/studies/{rs}/setup/sae")
+    def save_sae_rule(request: Request, rs: str, csrf: str = Form(""), rule_set: str = Form("")) -> Response:
+        """D-277 (LIFE-023): the study's SAE rule set, one of the named sets; the coordinator who saves it confirms
+        it, and the SAE pages name the set and who confirmed it."""
+        sess = h.need(request)
+        rid = study_or_404(sess, rs)
+        need_edit(request, sess, csrf)
+        try:
+            s28.call(bk, "PUT", f"/studies/{rid}/sae-rule", {"rule_set": rule_set.strip()[:40], "by": h.actor(sess)})
+        except (Problem, Unavailable) as exc:
+            return setup_page(request, sess, rid, err=err_of(exc))
+        detail = {"section": "sae", "rule_set": rule_set[:40]}
+        au.append("console.study_setup", ruleset=rid, actor=h.actor(sess), detail=detail)
+        return RedirectResponse(f"/studies/{rid}/setup?saved=sae#sae", status_code=303)
 
     @app.post("/studies/{rs}/setup/log")
     async def save_log(request: Request, rs: str) -> Response:
