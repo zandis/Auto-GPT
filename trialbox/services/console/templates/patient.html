@@ -9,6 +9,7 @@
   {% if mrn is not none %}<span class="pill ok" data-testid="mrn">{{ t('patient.mrn') }} <span class="mono">{{ mrn or t('patient.mrn.none') }}</span></span>{% endif %}
 </div>
 {% if mrn is not none %}<p class="hint">{{ t('patient.mrn.help') }}</p>{% endif %}
+{% include "_asof.html" %}
 <dl class="facts">
   <dt>{{ t('patient.visit') }}</dt><dd><span class="nowrap">{{ (row.next_appointment or '')[:16].replace('T', ' ') or t('week.no_visit') }}</span> · {{ given(practitioner) }}{% if row.department %} · {{ given(row.department) }}{% endif %}</dd>
   <dt>{{ t('patient.tier') }}</dt><dd><span class="pill tier-{{ row.tier }}">{{ t('tier.' + row.tier) }}</span>{% if listed %} <span class="pill stt-{{ listed.status }}">{{ t('wstatus.' + listed.status) }}</span>{% endif %}{% if registry %} · {{ t('patient.registry') }} {{ t('registry.status.' + registry) }}{% endif %}</dd>
