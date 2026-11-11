@@ -16,7 +16,9 @@ Value expressions (one key per element)::
     builder: <name> [args]                          typed helper, merged at the element path
 
 ``type`` is one of ``str|int|decimal|date|datetime|instant|bool``. Datetimes are interpreted in the mapping's
-``tz`` and emitted with offset. ``when`` (element) / ``where`` (resource) filter on columns or lookups.
+``tz`` and emitted with offset. ``when`` (element) / ``where`` (resource) filter on columns or lookups
+(``equals``, ``in``, ``not_in``, ``not_empty``, ``numeric``, and the ISO date bounds ``date_before`` / ``date_from``);
+``{fhir_profiles: tw-core}`` holds only when the mapping's profile set is that one (T-619a: TW Core slices).
 
 Site mappings (onboarding kit, D-84) usually ``extends`` a shared profile mapping (e.g. ``tw_core/demo_his.yaml``)
 and only declare their ``tables``: each table's ``rename`` (local column → canonical column) and ``values``
@@ -121,7 +123,7 @@ class Mapping:
     static: list[Resource]
     path: Path
     profiles: dict[str, str] = field(default_factory=dict)
-    fhir_profiles: str = ""  # "jp-core": the ingest checks a sample against JP Core (D-137)
+    fhir_profiles: str = ""  # "jp-core": the ingest checks a sample against JP Core (D-137); "tw-core" (T-619a)
     # D-149: the site's declared unit per analyte (LOINC code -> UCUM) for a feed result that arrives without one
     unit_defaults: dict[str, str] = field(default_factory=dict)
     # T-106b: ``<name>@<12 hex>``, the hash of the mapping file and the base it extends (a changed file, a new version)
@@ -392,6 +394,11 @@ class Mapper:
 
     def cond(self, conds: Any, row: Row) -> bool:
         for c in conds if isinstance(conds, list) else [conds]:
+            if "fhir_profiles" in c:  # T-619a: the profile set of the mapping (tw-core, jp-core), not a column
+                if self.m.fhir_profiles != str(c["fhir_profiles"]):
+                    return False
+                if "column" not in c and "lookup" not in c:
+                    continue
             if "lookup" in c:
                 v: Any = self.lookup(c["lookup"], row)
             else:
@@ -405,6 +412,15 @@ class Mapper:
                 return False
             if "not_in" in c and sv in [str(x) for x in c["not_in"]]:
                 return False
+            if "date_before" in c or "date_from" in c:  # T-619a: an ISO date bound (a code edition by date)
+                try:
+                    day = self._parse_date(sv).isoformat() if sv.strip() else ""
+                except MappingError:
+                    day = ""
+                if not day or ("date_before" in c and day >= str(c["date_before"])):
+                    return False
+                if "date_from" in c and day < str(c["date_from"]):
+                    return False
             if "numeric" in c:
                 try:
                     float(sv)

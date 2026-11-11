@@ -1,0 +1,20 @@
+#!/bin/bash
+# Rehearsal shim for gcloud on the "VM" (T-119): what the VM's own service account does with it.
+#   gcloud secrets versions access VERSION --secret=NAME   the door the driver put in "Secret Manager", from
+#                                                           /rehearsal/s/secrets/NAME/VERSION (driver-shims/gcloud)
+#   gcloud storage cp SRC DST                               gs://<bucket>/<path> is /rehearsal/s/bucket/<bucket>/<path>
+# Anything else fails, so a new cloud call on the VM is noticed here first.
+S=/rehearsal/s
+echo "$(date -u +%T) vm-gcloud $1 $2 $3" >> $S/vm-gcloud.log   # never the arguments' values
+gs() { case "$1" in gs://*) echo "$S/bucket/${1#gs://}" ;; *) echo "$1" ;; esac; }
+case "$1 $2 $3" in
+  "secrets versions access")
+    name=""; for a in "$@"; do case "$a" in --secret=*) name=${a#--secret=} ;; esac; done
+    [ -f "$S/secrets/$name/$4" ] || { echo "ERROR: NOT_FOUND: $name version $4" >&2; exit 1; }
+    cat "$S/secrets/$name/$4" ;;
+  "storage cp "*)
+    src=$(gs "$3"); dst=$(gs "${!#}")
+    [ -f "$src" ] || { echo "ERROR: $3 not found" >&2; exit 1; }
+    mkdir -p "$(dirname "$dst")"; cp "$src" "$dst" ;;
+  *) echo "rehearsal vm gcloud: not rehearsed: $1 $2 $3" >&2; exit 1 ;;
+esac
