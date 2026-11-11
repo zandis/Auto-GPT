@@ -217,8 +217,25 @@ def test_a_weight_folder_without_a_licence_file_fails(tmp_path: Path, monkeypatc
     assert r.detail["verifier"]["file"] == "LICENSE" and r.detail["judge"]["file"] is None
 
 
-def test_the_longest_prompt_must_fit_the_profiles_context(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("context", [8192, 16384, 32768])
+def test_the_longest_prompt_is_sized_to_the_profiles_context(monkeypatch: pytest.MonkeyPatch, context: int) -> None:
+    """T-603: the judge's full record and the chart are sized from the context, so the longest prompt fits each
+    profile (8k: the RTX 5090; 16k: the Spark; 32k: the RTX PRO 6000)."""
     real = q.profile_builds
+
+    def sized(profile: str, doc: Any = None) -> dict[str, q.Build]:
+        out = real(profile, doc)
+        out["judge"].context_length = context
+        return out
+
+    monkeypatch.setattr(q, "profile_builds", sized)
+    s = q.qualify(_opts(), steps=("longest_prompt",))["steps"]["longest_prompt"]
+    assert s["status"] == "passed", s
+    assert all(r["tokens_needed"] <= context for r in s["detail"]["roles"].values()), s["detail"]
+
+
+def test_the_longest_prompt_must_fit_the_profiles_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    real, longest = q.profile_builds, q.longest_prompts
 
     def small(profile: str, doc: Any = None) -> dict[str, q.Build]:
         out = real(profile, doc)
@@ -226,6 +243,7 @@ def test_the_longest_prompt_must_fit_the_profiles_context(monkeypatch: pytest.Mo
         return out
 
     monkeypatch.setattr(q, "profile_builds", small)
+    monkeypatch.setattr(q, "longest_prompts", lambda context=None: longest(None))  # sizing removed: 28,000 tokens
     s = q.qualify(_opts(), steps=("longest_prompt",))["steps"]["longest_prompt"]
     assert s["status"] == "failed" and "judge: the longest prompt needs about" in s["reason"]
     assert s["detail"]["roles"]["judge"]["result"] == "too_long"

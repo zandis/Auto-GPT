@@ -33,6 +33,11 @@ closed). Checks:
   FAIL when none is set, one is not a zone, or two differ; the host is not compared when it cannot be read;
 * ``flags``: a seed variable such as ``TB_LAKE_SOURCE`` that disagrees with its feature flag is ignored since the
   box's first start (T-008, D-207): WARN, naming the flag's value and where to change it;
+* ``backup`` (D-274; CR-058, OPS-028, OPS-048): read from the deploy folder of ``--env-file``. FAIL in PRODUCTION
+  (WARN elsewhere) when there is no target, no off-box target, no alert route (``TB_BACKUP_ALERT_CMD`` or
+  ``TB_BACKUP_MAILTO``), no ``/etc/cron.d/trialbox-backup`` on a host with ``/etc/cron.d``, no good backup or one
+  older than ``TB_BACKUP_MAX_AGE_HOURS`` (``backup-status``'s rules); WARN in PRODUCTION when WAL archiving is off;
+  on a platform it passes and points to ``backup_target``;
 * ``site_key`` (T-612, DATA-004): ``site_hmac.key`` is in the secrets folder (``TB_SECRETS_DIR``) and its fingerprint
   is the one recorded in the lake (``site_key.json``) and in the pid map. FAIL when it is missing or another key (the
   ingest then refuses every night); WARN when the folder is not on this host. Prints the fingerprint, never the key;
@@ -40,6 +45,10 @@ closed). Checks:
   is both plain and wrapped, a wrapped key has no ``kek.json`` or names another KEK, the KEK file is in the secrets
   folder or is not this box's KEK, or (in VALIDATION and PRODUCTION) a site key is a plain file; WARN for a plain key
   in DEV/TEST and when the keys are wrapped but the KEK is not unsealed where doctor runs. Opens no key.
+* ``clock`` (T-211a, OPS-055, REG-026): the audit chain's times need a true clock. FAIL when the clock is more than
+  ``TB_CLOCK_MAX_SKEW_S`` (default 60) seconds from the site's time server (``TB_NTP_SERVER``, one SNTP exchange); in
+  VALIDATION and PRODUCTION also FAIL when the kernel clock is not NTP-synchronised, when the time server does not
+  answer, or when neither can be read. WARN for those in DEV and TEST.
 
 ``--live`` adds one check that talks to the model servers, so it runs where the gateway's network is (install.sh
 runs it in a one-off container on ``trialbox-model-net``; ``--serving`` runs it alone):
@@ -89,6 +98,8 @@ class DoctorInputs:
     dataplat_workdir: Path | None = None
     host_tz: str | None = None  # the host's zone; None: TB_HOST_TZ, else read from /etc (check site_tz)
     platform: bool = False  # doctor --platform: pods on a cluster, no host cron, so no host zone to compare
+    deploy: Path | None = None  # the deploy folder (from --env-file): the backup record and the cron file (D-274)
+    cron_dir: Path = Path("/etc/cron.d")
 
 
 def _egress() -> ModuleType:
@@ -681,6 +692,36 @@ def check_site_key(inp: DoctorInputs) -> Check:
     return Check("site_key", "PASS", f"key {fp}{where}")
 
 
+def check_backup(inp: DoctorInputs) -> Check:
+    """D-274 (CR-058, OPS-028, OPS-048): targets, an off-box one, an alert route, the cron file, the newest good
+    backup's age, WAL archiving. In PRODUCTION every problem is a FAIL except archiving off (WARN)."""
+    if inp.platform:
+        return Check("backup", "PASS", "not a host check on a platform: see backup_target (no host cron)")
+    from tools.trialbox import backup_schedule as bs
+
+    prod = (inp.env.get("TB_ENV") or "PRODUCTION").upper() == "PRODUCTION"
+    if inp.deploy is None:
+        why = "the deploy folder is not known: run with --env-file deploy/.env"
+        return Check("backup", "FAIL" if prod else "WARN", why)
+    cfg = bs.config(inp.deploy, dict(inp.env), process_env=False)
+    st = bs.status(cfg)
+    fails = list(st["problems"])
+    if inp.cron_dir.is_dir() and not (inp.cron_dir / bs.CRON_NAME).is_file():
+        fails.append(f"no {inp.cron_dir / bs.CRON_NAME}: python3 -m tools.trialbox backup-install (RUNBOOK §5)")
+    warns = []
+    if not cfg.archive_on:
+        warns.append("WAL archiving is off: a crash loses up to a day (TB_PG_ARCHIVE_MODE, RUNBOOK §5)")
+    off = sum(t["offbox"] for t in st["targets"])
+    good = st["newest_good"]
+    facts = f"{len(cfg.targets)} target(s), {off} off-box; newest good " + (
+        f"{Path(good['path']).name} ({st['age_hours']} h old)" if good else "none")  # fmt: skip
+    if fails:
+        return Check("backup", "FAIL" if prod else "WARN", "; ".join(fails) + f" ({facts})")
+    if warns and prod:
+        return Check("backup", "WARN", "; ".join(warns) + f" ({facts})")
+    return Check("backup", "PASS", facts)
+
+
 def check_key_custody(inp: DoctorInputs) -> Check:
     """T-210b (CR-041, D-347): the site keys are kept under a KEK held outside the secrets folder."""
     from tb_common import kek
@@ -704,6 +745,31 @@ def check_key_custody(inp: DoctorInputs) -> Check:
     return Check("key_custody", "PASS", f"{', '.join(c.wrapped)} wrapped under {where}, unsealed")
 
 
+def check_clock(inp: DoctorInputs) -> Check:
+    """T-211a (OPS-055): NTP out of sync is a FAIL, and so is a clock more than the allowed skew from the site's
+    time server. ``tb_common.audit.clock_state`` reads both."""
+    from tb_common import audit
+
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    soft: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
+    st = audit.clock_state(inp.env)
+    limit = audit.max_skew(inp.env)
+    if st.offset is not None and abs(st.offset) > limit:
+        return Check("clock", "FAIL", f"the clock is {st.offset:+.1f} s from {st.server} (more than {limit:g} s): "
+                     "audit times are wrong and sign-in codes fail; fix the host's time sync")  # fmt: skip
+    problems: list[str] = []
+    if st.synced is False:
+        problems.append("the kernel clock is not NTP-synchronised (timedatectl; on WSL2 the host's time sync task)")
+    if st.server and st.offset is None:
+        problems.append(f"the time server {st.server} did not answer ({st.error})")
+    if st.synced is None and st.offset is None:
+        problems.append(f"the clock's sync state cannot be read here and no {audit.NTP_SERVER_ENV} is set")
+    if problems:
+        return Check("clock", soft, "; ".join(problems))
+    where = f"; {st.offset:+.2f} s from {st.server}" if st.offset is not None else ""
+    return Check("clock", "PASS", f"NTP-synchronised{where}" if st.synced else f"clock checked{where}")
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -718,7 +784,9 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_site_tz,
     check_flags,
     check_site_key,
+    check_backup,
     check_key_custody,
+    check_clock,
 )
 
 
@@ -760,8 +828,13 @@ def inputs_from(
     if settings is not None:
         doc = yaml.safe_load(settings.read_text(encoding="utf-8")) or {}
     wd = dataplat or (Path(env["TB_DATAPLAT_DIR"]) if env.get("TB_DATAPLAT_DIR") else None)
+    deploy = env_file.resolve().parent if env_file is not None and env_file.exists() else None
     return DoctorInputs(
-        env=env, settings=doc, routing_path=routing or ROOT / "models" / "routing.yaml", dataplat_workdir=wd
+        env=env,
+        settings=doc,
+        routing_path=routing or ROOT / "models" / "routing.yaml",
+        dataplat_workdir=wd,
+        deploy=deploy,
     )
 
 

@@ -57,10 +57,10 @@ class DataCore:
     def __init__(self, url: str | None = None) -> None:
         """``url``: the trial database (``TB_DB_URL`` when ``None``)."""
         self._db = Database.connect(url or os.environ.get(ENV), "datacore")
-        from datacore.lifecycle import SAE_SCHEMA
+        from datacore.lifecycle import SAE_MIGRATIONS
         from datacore.lifecycle import SCHEMA as LIFECYCLE
 
-        self._db.migrate([SCHEMA, LIFECYCLE, SAE_SCHEMA])
+        self._db.migrate([SCHEMA, LIFECYCLE, *SAE_MIGRATIONS])
 
     @property
     def db(self) -> Database:

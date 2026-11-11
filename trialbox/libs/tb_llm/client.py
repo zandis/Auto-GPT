@@ -8,16 +8,23 @@ An answer from an alias the call did not expect raises :class:`GatewayUnexpected
 an alias other than the one the call named, an answer that another alias gave after the expected one failed
 (``tb.fallbacks``, ``X-TB-Fallbacks``) unless the client was made with ``allow_fallback=True``, or an answer that does
 not say which alias gave it. So one role is never answered by another role's model without the caller knowing.
+
+:meth:`GatewayClient.context` gives an alias's context in tokens from the gateway's ``GET /v1/models`` (T-603), so a
+caller sizes its prompt and its answer budget from the model it will get (:mod:`tb_llm.budget`). The one retry of an
+answer cut off for length asks for at most what fits beside the prompt in the answering alias's context (LLM-018).
 """
 
 from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+
+from tb_llm.budget import estimate_messages, retry_max_tokens
 
 FREE_FORM_ROLES = frozenset({"frontdesk_converse"})
 
@@ -129,6 +136,40 @@ class GatewayClient:
         self.http = http or httpx.Client(timeout=timeout)
         self.model = model or None
         self.allow_fallback = allow_fallback
+        self._contexts: dict[str, int | None] = {}
+        self._contexts_at = 0.0
+
+    CONTEXT_TTL_S = 300.0  # the gateway's contexts change only with a new pin (a restart): asked again after this
+
+    def contexts(self) -> dict[str, int | None]:
+        """Alias -> context in tokens, from ``GET /v1/models`` (T-603); None for an alias with none recorded. An
+        unreachable gateway gives an empty map (the caller keeps its own default; the gateway still checks)."""
+        now = time.monotonic()
+        if self._contexts and now - self._contexts_at < self.CONTEXT_TTL_S:
+            return dict(self._contexts)
+        try:
+            resp = self.http.get(f"{self.base_url}/models")
+            data = resp.json().get("data", []) if resp.status_code == 200 else []
+        except (httpx.HTTPError, ValueError, AttributeError):
+            return {}
+        out: dict[str, int | None] = {}
+        for m in data if isinstance(data, list) else []:
+            if not isinstance(m, dict) or not m.get("id"):
+                continue
+            raw = m.get("context_length") or m.get("max_model_len")
+            out[str(m["id"])] = int(raw) if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0 else None
+        self._contexts, self._contexts_at = out, now
+        return dict(out)
+
+    def context(self, alias: str | None = None) -> int | None:
+        """The context of ``alias`` (default: this client's ``model``); with no alias named, the smallest context any
+        alias records (the gateway then picks the route's build, which on one box shares the profile's context)."""
+        ctx = self.contexts()
+        name = alias or self.model
+        if name:
+            return ctx.get(name)
+        known = [v for v in ctx.values() if v]
+        return min(known) if known else None
 
     @classmethod
     def from_env(cls, caller: str | None = None) -> GatewayClient:
@@ -218,10 +259,15 @@ class GatewayClient:
         if model:
             body["model"] = model
         payload = self.complete(body, labels)
+        retry = None
         if response_format is not None and payload["choices"][0].get("finish_reason") == "length":
             # reasoning models (gpt-oss, nemotron) spend the budget on reasoning and the JSON is cut off: ask the same
-            # question once more with room to finish (stress test 2026-10-25)
-            body["max_tokens"] = min(4 * int(max_tokens or 1024), 16384)
+            # question once more with room to finish (stress test 2026-10-25), but never more than the answering
+            # alias's context leaves beside the prompt (T-603, review LLM-018: 16,384 on an 8k model was an HTTP 400)
+            alias = str((payload.get("tb") or {}).get("alias") or "")
+            retry = retry_max_tokens(self.context(alias or None), estimate_messages(messages), int(max_tokens or 1024))
+        if retry is not None:
+            body["max_tokens"] = retry
             first = payload.get("usage") or {}
             payload = self.complete(body, labels)
             again = payload.get("usage") or {}

@@ -5,6 +5,9 @@
   is refused.
 * Note criteria: RAG over ``/chunks/search`` (k=5, window ``[index-365d, index]`` unless the IR window is narrower,
   ≤2,500 tokens, newest first) and the ``judge`` prompt (local only); full-record fallback for small candidate sets.
+  Both budgets are cut to what the judge's and the verifier's context leave beside the prompt and the answer (T-603,
+  review LLM-015; :meth:`NoteJudge.budget`). A note that does not fit is not dropped in silence: the answer carries
+  the reason ``notes_over_budget`` and the patient goes to review (T-603, review LLM-016 / CR-004 flag half).
   The quote must be a substring of one excerpt, else the verdict becomes ``unknown`` (``quote_not_found``).
 * Verdicts are reported from the eligibility perspective (D-25): inclusion pass = predicate true, exclusion pass =
   predicate false.
@@ -27,19 +30,20 @@ from matching.coverage import Coverage
 from matching.proposed import Proposed
 from tb_common.fhir import FhirEvaluator
 from tb_common.labunit import reason_of as derived_reason
-from tb_common.llm import LlmClient, LlmError
+from tb_common.llm import LlmClient, LlmError, LlmPromptTooLong
 from tb_common.pair import DECIDED, Vote, combine, needs_verifier, same_model, served_keys
 from tb_common.quotes import quote_in
 from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
 from tb_contracts import CandidateRow, CriterionIR, CriterionVerdict, Evidence, Opinion, PatientEvaluation
+from tb_llm.budget import excerpt_tokens
 
 from orchestrator.scenarios.terms import keywords
 from orchestrator.twophase import two_phase
 
 Verdict = Literal["pass", "fail", "unknown", "pending_human"]
-CHUNK_TOKENS = 2500
-FULL_RECORD_TOKENS = 28000
+CHUNK_TOKENS = 2500  # the retrieval budget (k=5 chunks); cut further to the models' context (T-603)
+FULL_RECORD_TOKENS = 28000  # used only when neither model's context is known; else the context decides (T-603)
 FULL_RECORD_MAX_CANDIDATES = 100
 
 
@@ -139,9 +143,9 @@ def engine_from_env(name: str, fhir: FhirEvaluator | None, lake: LakeAPI, snapsh
 
 # --------------------------------------------------------------------------------------------- note criteria
 def _tokens(text: str) -> int:
-    """Conservative token estimate: CJK characters ~1 token each, Latin ~4 characters per token."""
-    cjk = sum(1 for ch in text if "　" <= ch <= "鿿" or "豈" <= ch <= "﫿")
-    return cjk + (len(text) - cjk) // 4 + 1
+    """What a note of ``text`` adds to the judge prompt (:func:`tb_llm.budget.excerpt_tokens`, T-603): CJK characters
+    ~1 token each, Latin ~4 characters per token, plus its JSON keys and escaping."""
+    return excerpt_tokens({"date": "0000-00-00", "note_type": "progress", "text": text})
 
 
 def note_window(c: CriterionIR, index_date: date) -> tuple[date, date]:
@@ -161,6 +165,7 @@ class NoteResult:
     reason: str | None = None  # a tb_common.reasons code, never free text (D-118)
     source: str = "chunks"  # chunks | full_record
     dids: list[str] = field(default_factory=list)
+    left_out: int = 0  # notes of the window the token budget did not show (T-603: flagged, never silent)
     model_reason: str = ""  # the judge model's own sentence: audit and debugging only, never shown on a page
     call_id: str = ""  # the judge call behind the answer (the cascade's evidence meta)
     model: str = ""
@@ -230,6 +235,24 @@ class NoteJudge:
     def excerpts(self, pid: str, c: CriterionIR, index_date: date) -> list[dict[str, Any]]:
         return self._chunks(pid, c, index_date)[0]
 
+    def budget(self, c: CriterionIR, index_date: date, default: int) -> int:
+        """Tokens of notes one judge prompt may hold (T-603, review LLM-015): what the judge's and the verifier's
+        context leave beside the rest of the prompt and the answer (the smaller of the two: both read the same
+        excerpts), at most ``default``. A client that cannot tell its context leaves ``default``."""
+        fixed = {
+            "criterion_text": c.text,
+            "note_question": c.note_question or c.text,
+            "index_date": index_date.isoformat(),
+            "excerpts": [],
+        }
+        out = default
+        for client in (self.llm, self.verifier):
+            fn = getattr(client, "text_budget", None) if client is not None else None
+            room = fn(self.prompt, fixed) if callable(fn) else None
+            if isinstance(room, int):
+                out = min(out, room)
+        return out
+
     def _chunks(self, pid: str, c: CriterionIR, index_date: date) -> tuple[list[dict[str, Any]], int]:
         """The excerpts and how many retrieved chunks the token budget left out (D-276)."""
         lo, hi = note_window(c, index_date)
@@ -238,11 +261,11 @@ class NoteJudge:
         hits = [h for h in hits if h.get("date") and lo.isoformat() <= str(h["date"])[:10] <= hi.isoformat()]
         hits.sort(key=lambda h: (str(h["date"]), str(h.get("did", ""))), reverse=True)
         out: list[dict[str, Any]] = []
-        budget = CHUNK_TOKENS
+        budget = self.budget(c, index_date, CHUNK_TOKENS)
         for h in hits:
             n = _tokens(str(h["text"]))
             if n > budget:
-                break
+                continue  # T-603: an older, shorter chunk may still fit; this one is counted as left out
             budget -= n
             out.append(
                 {
@@ -258,7 +281,8 @@ class NoteJudge:
         return self._record(pid, c, index_date)[0]
 
     def _record(self, pid: str, c: CriterionIR, index_date: date) -> tuple[list[dict[str, Any]], int]:
-        """The window's notes, newest first, and how many the token budget left out (D-276)."""
+        """The window's notes, newest first, and how many the token budget left out (D-276). The budget is the
+        models' context (T-603): 28,000 tokens did not fit on a 16k or 8k model, and the server refused the call."""
         lo, hi = note_window(c, index_date)
         rows = (
             self._lake()
@@ -270,11 +294,11 @@ class NoteJudge:
             .to_pylist()
         )
         out: list[dict[str, Any]] = []
-        budget = FULL_RECORD_TOKENS
+        budget = self.budget(c, index_date, FULL_RECORD_TOKENS)
         for r in rows:
             n = _tokens(str(r["text"]))
             if n > budget:
-                break
+                continue  # T-603: counted as left out (the answer is flagged), the older notes still read
             budget -= n
             out.append(
                 {"date": r["d"].isoformat(), "note_type": r["type"] or "note", "text": r["text"], "did": r["did"]}
@@ -287,20 +311,31 @@ class NoteJudge:
         if not excerpts:
             return NoteResult("unknown", 0.0, reason=Reason.NO_NOTES.value, source=source)
         r = self.judge_excerpts(c.text, c.note_question or c.text, index_date, excerpts, source)
+        if not left_out:
+            return r
         # D-276 (review S-10): both models read the same excerpts, so their agreement says nothing about a note the
         # budget left out. An answer that would exclude is then not final: unknown, a person (or the full read) looks
-        if left_out and r.predicate in DECIDED and eligibility(c.kind, r.predicate == "pass") == "fail":
+        if r.predicate in DECIDED and eligibility(c.kind, r.predicate == "pass") == "fail":
             return replace(
                 r, predicate="unknown", confidence=0.0, quote=None, quote_date=None, dids=[],
-                reason=Reason.NOT_EVALUATED.value,
+                reason=Reason.NOTES_OVER_BUDGET.value, left_out=left_out,
             )  # fmt: skip
-        return r
+        # T-603 (review LLM-016, CR-004 flag half): an answer that keeps the patient stands, flagged: the candidate
+        # goes to review with the reason, so nobody reads "met" as "every note was read"
+        if r.predicate in DECIDED:
+            return replace(r, reason=Reason.NOTES_OVER_BUDGET.value, left_out=left_out)
+        return replace(r, left_out=left_out)
 
     def _ask(
         self, client: LlmClient, variables: dict[str, Any], excerpts: list[dict[str, Any]], source: str
     ) -> NoteResult:
         try:
             res = client.chat_json(self.prompt, variables, job_id=self.job_id)
+        except LlmPromptTooLong:
+            # T-603: the excerpts did not fit this model (the budget is an estimate, the server counted more): the
+            # reason says so, and it counts as a failure, so a box whose sizing is wrong stops the run (check_judge)
+            self._count(failures=1)
+            return NoteResult("unknown", 0.0, reason=Reason.NOTES_OVER_BUDGET.value, source=source)
         except LlmError:  # also an answer from an alias the call did not expect (tb_llm, T-601)
             self._count(failures=1)
             return NoteResult("unknown", 0.0, reason=Reason.MODEL_DOWN.value, source=source)
@@ -560,6 +595,10 @@ def effective_note_block(judge: NoteJudge | None) -> tuple[bool, str, str]:
     return True, "both_agree", "judge and verifier must both say fail"
 
 
+def _flagged(v: CriterionVerdict) -> bool:
+    return v.evidence is not None and v.evidence.reason == Reason.NOTES_OVER_BUDGET.value
+
+
 def tier(
     rs: Ruleset, verdicts: list[CriterionVerdict], threshold: float, *, note_block: bool
 ) -> tuple[str, list[str], int]:
@@ -590,8 +629,8 @@ def tier(
         elif v.verdict == "pending_human":
             if c.action:
                 actions.append(c.action)
-        elif v.verdict == "pass" and is_note_answer(c, v) and conf < threshold:
-            weak = True
+        elif v.verdict == "pass" and is_note_answer(c, v) and (conf < threshold or _flagged(v)):
+            weak = True  # T-603: a note answer with notes left out by the budget is flagged: review
             if c.action:
                 actions.append(c.action)
     if failed:

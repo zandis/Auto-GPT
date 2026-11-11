@@ -148,7 +148,7 @@ def make_box(
     if upd:
         settings = c.Settings.model_validate({**settings.model_dump(mode="json", exclude_none=True), **upd})
     cfg = Config(env=env, settings=settings)
-    store = FsStore(tmp_path / "obj")
+    store = FsStore(tmp_path / "obj", secrets_dir)  # sealed when the test sealed it (T-210c)
     audit_dir = tmp_path / "audit"
     audit = AuditLog(audit_dir)
     seed = tmp_path / "seed"
