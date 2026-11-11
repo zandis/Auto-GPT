@@ -260,7 +260,7 @@ def model_problems(rows: list[Row], builds: list[dict[str, Any]]) -> list[str]:
 
 def athena_problems(rows: list[Row]) -> list[str]:
     try:
-        from omop.vocab_load import ATHENA_ALLOW  # type: ignore[attr-defined]
+        from omop.vocab_load import ATHENA_ALLOW
     except (ImportError, AttributeError):  # the Athena loader (PR #145) is not on this tree
         return []
     covered = {v for r in rows for v in r.athena}
