@@ -29,7 +29,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-KINDS = ("model", "ruleset", "image", "refdata", "other")
+KINDS = ("model", "ruleset", "image", "refdata", "other", "host")
 
 
 def keygen(out: Path) -> tuple[Path, Path]:

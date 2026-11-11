@@ -18,6 +18,10 @@
 # docker-compose.test.yml (OPS-017). --no-third-party keeps ours only, for a site that mirrors the others itself.
 # --refdata adds a reference data pack (tools/refdata_fetch.py build; payload kind refdata, D-140), which install.sh
 # loads once the box runs.
+# The host tree rides in every bundle (T-631, D-367; OPS-010): the compose files, the host tools (tools/, libs/,
+# schemas/) and the release's configuration as one payload of kind host (trialbox-host.tar with its HOST-SHA256SUMS,
+# tools/host_tree.py pack: what git holds, never the site's own files). install.sh and the update path unpack it to
+# /opt/trialbox/releases/<id> and switch /opt/trialbox/current to it; a rollback switches back.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 KEY=""; ID=""; OUT=""; MODELS=""; RULESETS=""; THIRD=1; GATES=""; SEQ=""; SBOM_DIR=""
@@ -35,7 +39,7 @@ while [ $# -gt 0 ]; do
     --gates) GATES="$2"; shift ;;
     --sbom-dir) SBOM_DIR="$2"; shift ;;
     --release-seq) SEQ="$2"; shift ;;
-    -h|--help) sed -n 2,22p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,26p "$0"; exit 0 ;;
     *) echo "make_bundle: unknown option $1" >&2; exit 2 ;;
   esac
   shift
@@ -130,6 +134,11 @@ for f in ${REFDATA[@]+"${REFDATA[@]}"}; do
   [ -f "$f" ] || { echo "make_bundle: no such reference data pack $f" >&2; exit 2; }
   echo "==> reference data $(basename "$f")"; ITEMS+=("refdata:$f=$(basename "$f")")
 done
+echo "==> host tree (compose files, host tools, configuration; tools/host_tree.py, D-367)"
+(cd "$ROOT" && PYTHONPATH="$ROOT" "$PY" -m tools.host_tree pack --root "$ROOT" --out "$STAGE/trialbox-host.tar") \
+  | sed 's/^/    /' || { echo "make_bundle: the host tree could not be packed" >&2; exit 1; }
+[ -f "$STAGE/trialbox-host.tar" ] || { echo "make_bundle: no host tree" >&2; exit 1; }
+ITEMS+=("host:$STAGE/trialbox-host.tar=trialbox-host.tar")
 echo "==> installer, runbook, settings example, notices, changelog"
 for f in deploy/install.sh deploy/check_host.sh deploy/settings.example.yaml .env.example NOTICE CHANGELOG.md; do
   ITEMS+=("other:$ROOT/$f=$(basename "$f")")
