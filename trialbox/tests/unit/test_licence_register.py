@@ -88,7 +88,10 @@ def test_an_athena_vocabulary_with_no_row_fails(monkeypatch: pytest.MonkeyPatch)
 
 
 # ------------------------------------------------------------------------------------------------ the build check
-def test_a_shipped_data_file_with_no_row_fails_the_build(tmp_path: Path) -> None:
+def test_a_shipped_data_file_with_no_row_fails_the_build(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = types.ModuleType("omop.vocab_load")
+    fake.ATHENA_ALLOW = frozenset()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "omop.vocab_load", fake)  # the fake tree has no Athena rows
     root = _tree(tmp_path, _row("loinc", "vocab/lab_to_loinc.csv"))
     assert lr.shipped_data_files(root) == ["vocab/lab_to_loinc.csv", "vocab/notes.csv"]
     assert lr.check(root) == ["vocab/notes.csv: shipped data file with no row in docs/licences/register.csv"]
