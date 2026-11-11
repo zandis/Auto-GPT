@@ -4,7 +4,8 @@
 * **Sources** (``/studies/{rs}/sources``): each source with its direction (REDCap and a spreadsheet two-way, a FHIR
   bundle or any hospital system one-way in), last sync and last result; attach or detach REDCap; Sync now; and which
   side owns each field.
-* **Conflicts** (``/studies/{rs}/conflicts``): the open conflicts, one row each (record = screening number or
+* **Trial-record differences** (``/studies/{rs}/conflicts``; titled "Conflicts" before T-201, FIT-018: the clinical
+  conflicts are ``console.conflicts_page``): the open conflicts, one row each (record = screening number or
   pseudonym, field, TrialBox's value, the source's value, the source, when) with two buttons: keep TrialBox's value
   or take the source's. A conflict is never forced and never resolved by the box; ``?all=1`` shows the trail.
 * **Forms** (``/studies/{rs}/forms``): the study's FHIR Questionnaires with each field's type, label, choices and

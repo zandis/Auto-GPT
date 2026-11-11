@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "be80e5a12dae221208e82de578d818e6dac47612",
+  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-616 (D-400): patient.deceased column, lake schema 4, base cohort leaves out a deceased patient with no date",
+  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
   "ref_date": "2026-11-01",
   "ruleset": "AD-MAB",
   "ruleset_version": "1.0.0",
@@ -89,7 +89,7 @@
     "AD-MAB-EXC-01": 0,
     "AD-MAB-EXC-03": 0,
     "AD-MAB-EXC-04": 0,
-    "AD-MAB-INC-01": 1374,
+    "AD-MAB-INC-01": 1371,
     "AD-MAB-INC-02": 0
    },
    "start": 2493,
@@ -97,7 +97,7 @@
     "AD-MAB-EXC-01": 0,
     "AD-MAB-EXC-03": 0,
     "AD-MAB-EXC-04": 0,
-    "AD-MAB-INC-01": 4,
+    "AD-MAB-INC-01": 8,
     "AD-MAB-INC-02": 0
    },
    "variants": {
