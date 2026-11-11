@@ -584,7 +584,7 @@ class Lifecycle:
         vers = self.schedule_versions(study) if versions is None else versions
         if not vers:
             return self.schedule(study)
-        return in_force_on(vers, day)["visits"]
+        return list(in_force_on(vers, day)["visits"])
 
     # ------------------------------------------------------------------ visits, AEs, deviations
     def anchors(self, study: str, record: str) -> dict[str, date | None]:
