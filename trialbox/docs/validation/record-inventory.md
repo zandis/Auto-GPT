@@ -47,7 +47,7 @@ bundle of card T-304 builds from this table.
 | R-09 | Data core: study forms, entered values and their history, conflicts, field owners | source | per field (`owner`): the box for a field TrialBox owns; REDCap or another source for a field it owns | PI | kept | `/studies/{rs}/export.{fmt}` (CSV, XLSX, ODM) | `data.entry`, `data.sync`, `data.import`, `data.resolve`, `data.export`, `data.forms`, `data.source` |
 | R-10 | Subject lifecycle: the subject's state and every step (a "not eligible" screen failure with the criterion not met and its version, D-387), the schedule of events and its versions with their effective dates (D-364); the study's contact-attempt rule and the coordinator's answer to each possible deviation (D-407) | copy | R-09 and the screening log; a step a person enters is written here first | PI | kept | page only | `life.step`, `life.schedule`, `console.life_step`, `console.life_schedule`, `life.contact_rule`, `life.deviation_call`, `console.deviation_call` |
 | R-11 | Referrals to treating physicians and their answers | aid | the box | CRC | kept | page only | `console.referral` |
-| R-12 | Candidate views, chart-number reveals and the administrator's break-glass grants | control | the box | data steward | kept | page only | `console.candidate_view`, `console.view_id`, `screen.reveal_refused`, `console.breakglass_open`, `console.breakglass_use`, `console.breakglass_end`, `console.breakglass_review` |
+| R-12 | Candidate views, chart-number reveals and the administrator's break-glass grants | control | the box | data steward | kept | page only | `console.candidate_view`, `console.view_id`, `console.reveal_patient`, `console.reveal_refused`, `screen.reveal`, `screen.reveal_refused`, `console.breakglass_open`, `console.breakglass_use`, `console.breakglass_end`, `console.breakglass_review` |
 | R-13 | User accounts and roles | control | the box (or the hospital's sign-in service, where one is set) | site administrator | kept; a retired account stays | page only | `console.user`, `console.login`, `console.totp_enrolled`, `console.totp_reset` |
 | R-14 | Feature flags and every change | control | the box | site administrator | kept | page only | `flag.seed`, `flag.set` |
 | R-15 | Study settings, REDCap links and the screening scope | control | the box | trial office | kept | page only | `study.settings`, `study.screen_scope`, `redcap.connection`, `redcap.link` |
@@ -111,6 +111,7 @@ are marked "files".
 | `services/console/teamstore.py` | `candidate_views` | R-12 |
 | `services/console/breakglass.py` | `grants` | R-12 |
 | `services/console/breakglass.py` | `uses` | R-12 |
+| `services/orchestrator/db.py` | `id_limits` | R-12 |
 | `services/console/auth.py` | `users` | R-13 |
 | `libs/tb_common/flags.py` | `flag`, `flag_event` | R-14 |
 | `services/orchestrator/studystore.py` | `study_settings`, `rc_connection`, `rc_project_link`, `screen_scope` | R-15 |

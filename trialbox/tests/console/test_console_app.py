@@ -191,7 +191,8 @@ class FakeBackend:
             "criteria": 7,
         }
 
-    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "") -> str | None:
+    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "", purpose: str = "",
+               reason: str = "") -> str | None:  # fmt: skip
         self.revealed.append((job_id, pid, by))
         self.signed.append(("reveal", role, scope))
         return {"a" * 32: "MRN-000123"}.get(pid)

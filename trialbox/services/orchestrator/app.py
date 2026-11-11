@@ -20,7 +20,7 @@ from lake.client import LakeHttp
 from pydantic import BaseModel, Field
 from tb_common.audit import AuditLog
 from tb_common.audit_writer import open_audit
-from tb_common.authz import BREAK_GLASS_ROLE
+from tb_common.authz import BREAK_GLASS_ROLE, permit
 from tb_common.config import get_config, tb_env
 from tb_common.crypto import load_key
 from tb_common.fhir import FhirEvaluator
@@ -176,10 +176,12 @@ def _limit_key(request: Request, who: Actor) -> str:
     return f"{getattr(request.state, 'tb_caller', None) or '-'}|{who.name}"
 
 
-# D-273 (PV-5, PV-15): the console roles with identifier authority (``User.can_reveal``). D-280 (owner decision OD-5):
-# the administrator is out of this set; an administrator's reveal under a break-glass grant is signed with
-# ``BREAK_GLASS_ROLE`` by the console, which holds the grant, its reason and its 60-minute end.
-ID_ROLES = frozenset({"coordinator", "investigator", BREAK_GLASS_ROLE})
+def id_authority(role: str) -> bool:
+    """T-103 (D-438): may a signed role receive identifiers? The ``id.reveal`` row of the permission matrix (the same
+    row as ``console.auth.User.can_reveal``, D-143, D-280: never the administrator), or the break-glass rule: the
+    console signs a reveal under an open grant with ``BREAK_GLASS_ROLE`` and holds the grant, its reason and its
+    60-minute end (D-280, D-430). No role list of its own."""
+    return role == BREAK_GLASS_ROLE or permit(role, "id.reveal").allowed
 
 
 def _id_authority(o: Any, claim: Actor, rid: str | None, event: str, job_id: str | None = None,
@@ -188,7 +190,7 @@ def _id_authority(o: Any, claim: Actor, rid: str | None, event: str, job_id: str
     whose signed study scope covers the study. A verified assertion must carry both; on a DEV/TEST box without a
     token, a role or scope that is sent is checked all the same. A refusal is one audit event."""
     why = ""
-    if (claim.verified or claim.role) and claim.role not in ID_ROLES:
+    if (claim.verified or claim.role) and not id_authority(claim.role):
         why = "role"
     elif (claim.verified or claim.scope) and not in_scope(claim.scope, rid):
         why = "study scope"
@@ -316,28 +318,24 @@ def list_jobs(
 
 class RevealRequest(BaseModel):
     pid: str = Field(min_length=8, max_length=64)
+    # T-103 (D-438): what the console's one reveal path was asked for, kept in this side's audit record
+    purpose: str = Field(default="", max_length=32, pattern=r"^([a-z][a-z0-9_]{1,31})?$")
+    reason: str = Field(default="", max_length=20, pattern=r"^[a-z ]*$")
     by: str | None = Field(default=None, max_length=200)  # DEV/TEST without a token only; else X-TB-Actor
 
 
 class RevealLimit:
-    """At most ``TB_REVEAL_MAX_PER_HOUR`` (default 60) chart numbers per person per rolling hour, per process; the
-    same with another variable and default for exports (S-09)."""
+    """At most ``TB_REVEAL_MAX_PER_HOUR`` (default 60) chart numbers per person per rolling hour; the same with another
+    variable and default for exports (S-09). T-103 (D-438): counted in the store (``orch.id_limits``), not in process
+    memory, so a restart or a second worker does not reset it."""
 
     def __init__(self, env: str = "TB_REVEAL_MAX_PER_HOUR", default: int = 60) -> None:
-        self._seen: dict[str, list[float]] = {}
         self.env, self.default = env, default
+        self.kind = env.removeprefix("TB_").removesuffix("_MAX_PER_HOUR").lower()  # ``reveal``, ``export``
 
-    def allow(self, who: str) -> bool:
-        import time
-
+    def allow(self, who: str, db: Any, at: datetime) -> bool:
         cap = int(os.environ.get(self.env, str(self.default)))
-        t = time.monotonic()
-        recent = [x for x in self._seen.get(who, []) if t - x < 3600]
-        if len(recent) >= cap:
-            self._seen[who] = recent
-            return False
-        self._seen[who] = [*recent, t]
-        return True
+        return bool(db.take_limit(self.kind, who, int(at.timestamp() * 1000), 3_600_000, cap))
 
 
 REVEALS = RevealLimit()
@@ -393,7 +391,7 @@ def reveal(job_id: str, req: RevealRequest, request: Request) -> dict[str, Any]:
         o.audit.append("screen.reveal_refused", job_id=job_id, ruleset=job.ruleset, actor=who,
                        detail={"pid": req.pid, "reason": "opted out"})  # fmt: skip
         raise HTTPException(status_code=403, detail="this patient opted out")
-    if not REVEALS.allow(_limit_key(request, claim)):
+    if not REVEALS.allow(_limit_key(request, claim), o.db, o._now()):
         o.audit.append("screen.reveal_refused", job_id=job_id, ruleset=job.ruleset, actor=who,
                        detail={"pid": req.pid, "reason": "rate limit"})  # fmt: skip
         raise HTTPException(status_code=429, detail="too many chart numbers revealed in the last hour")
@@ -403,7 +401,15 @@ def reveal(job_id: str, req: RevealRequest, request: Request) -> dict[str, Any]:
         job_id=job_id,
         ruleset=job.ruleset,
         actor=who,
-        detail={"pid": req.pid, "found": req.pid in found, "session": claim.session, "verified": claim.verified},
+        detail={
+            "pid": req.pid,
+            "found": req.pid in found,
+            "session": claim.session,
+            "verified": claim.verified,
+            "role": claim.role,
+            **({"purpose": req.purpose} if req.purpose else {}),
+            **({"reason": req.reason} if req.reason else {}),
+        },
     )
     if req.pid not in found:
         raise HTTPException(status_code=404, detail="this pseudonym is not in the box's pid map")
@@ -687,7 +693,7 @@ def registry_export(ruleset: str, request: Request, by: str | None = None) -> Re
     claim = _claim(request, by)  # ``by`` counts only on a DEV/TEST box without a token
     rid = ruleset.strip().upper()
     _id_authority(o, claim, rid, "registry.export_refused")  # D-273 (PV-5): the role and the study, not only a name
-    if not EXPORTS.allow(_limit_key(request, claim)):
+    if not EXPORTS.allow(_limit_key(request, claim), o.db, o._now()):
         o.audit.append("registry.export_refused", ruleset=rid, actor=claim.name,
                        detail={"reason": "rate limit"})  # fmt: skip
         raise HTTPException(status_code=429, detail="too many exports with chart numbers in the last hour")

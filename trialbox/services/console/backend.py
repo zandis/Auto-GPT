@@ -132,7 +132,8 @@ class Backend(Protocol):
     def registry_update(self, ruleset: str, upd: RegistryUpdate) -> RegistryEntry: ...
     def registry_promote(self, ruleset: str, req: RegistryPromote) -> int: ...
     def registry_export(self, ruleset: str, by: str, role: str = "", scope: str = "") -> bytes: ...
-    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "") -> str | None: ...
+    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "", purpose: str = "",
+               reason: str = "") -> str | None: ...  # fmt: skip
     def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str: ...
 
 
@@ -443,18 +444,19 @@ class HttpBackend:
     def registry_promote(self, ruleset: str, req: RegistryPromote) -> int:
         return int(self._registry_call("POST", f"/registry/{ruleset}/promote", req)["added"])
 
-    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "") -> str | None:
+    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "", purpose: str = "",
+               reason: str = "") -> str | None:  # fmt: skip
         """The chart number of one listed pseudonym (D-99): the orchestrator resolves and audits it; None when the
         box has no pid map for it. D-273: the person's role and studies travel signed, and the orchestrator checks
-        them; its refusal (403: role, study, opted out, not listed) is a refusal here."""
+        them; its refusal (403: role, study, opted out, not listed; 429: its cap) is a refusal here. T-103 (D-438):
+        the purpose and reason go with the request into the orchestrator's audit record."""
+        body = {"pid": pid, **({"purpose": purpose} if purpose else {}), **({"reason": reason} if reason else {})}
         try:
-            data = self.orch.post_raw(
-                f"/jobs/{job_id}/reveal", {"pid": pid}, actor_header(by, role=role, scope=scope)
-            ).json()
+            data = self.orch.post_raw(f"/jobs/{job_id}/reveal", body, actor_header(by, role=role, scope=scope)).json()
         except ServiceError as exc:
             if exc.status == 404:
                 return None
-            if exc.status in (400, 403, 409, 422):
+            if exc.status in (400, 403, 409, 422, 429):
                 raise Refused(exc.detail) from exc
             raise Unavailable(str(exc)) from exc
         mrn = data.get("mrn") if isinstance(data, dict) else None

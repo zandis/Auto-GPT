@@ -252,7 +252,7 @@ def test_candidate_views_are_rate_limited_and_reveals_meet_the_d143_cap(box: dic
     assert "MRN-000123" in pi.post(f"/studies/GZQO/candidates/{A}/reveal", data=form).text
     real = box["backend"].reveal
 
-    def capped(job_id: str, pid: str, by: str, role: str = "", scope: str = "") -> str | None:  # D-143 cap
+    def capped(job_id: str, pid: str, by: str, role: str = "", scope: str = "", **_: str) -> str | None:  # D-143 cap
         raise Refused("too many chart numbers revealed in the last hour")
 
     box["backend"].reveal = capped

@@ -27,16 +27,17 @@ from datacore.lifecycle import CONTACT_ATTEMPTS, CONTACT_DEFAULT, contact_check
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
-from tb_common.authz import BREAK_GLASS_ROLE, NO_STANDING, Decision, conditional, study_bound
+from tb_common.authz import NO_STANDING, Decision, conditional, study_bound
 from tb_common.authz import permit as permit_row
-from tb_common.service_auth import bind_session, scope_of
+from tb_common.service_auth import bind_session
 from tb_contracts import Job
 
 from console import coded_view, s28
 from console import studies as st
-from console.auth import REVEAL_REASONS, Session, reveal_reason, source_of
+from console.auth import Session, source_of
 from console.backend import Problem, Refused, Unavailable
 from console.i18n import translate
+from console.reveal import Reveal
 from console.sitestore import (
     CAP_VALUES,
     CAPABILITIES_AD,
@@ -66,7 +67,6 @@ HOME_STARTS: tuple[tuple[str, str], ...] = (
     ("breakglass.review", "/breakglass"),
     ("optout.keep", "/site/opt-outs"),
 )
-REVEAL_NOTE_MIN = 10  # D-273 (ROLE-016): the written "why" a reveal for "other" needs, in characters
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 SCREEN_TYPES = ("MICROBATCH", "SCREEN")
 
@@ -121,7 +121,7 @@ class Helpers:
     may_approve: Callable[..., bool] | None = None
     stand: Callable[..., Any] | None = None  # console.team.standing for one account and study (T-512)
     team_due: Callable[[str], bool] | None = None
-    apply_reveal: Callable[..., tuple[dict[str, Any], str]] | None = None  # set by register(): D-143's reveal
+    reveal: Any = None  # set by register(): console.reveal.Reveal, the one reveal path (T-103, D-438)
     chart_lookup: Callable[[Session, str], None] | None = None  # set by console.team: the lookup cap (D-273)
     irb_gate: bool = False  # set by console.team (D-395): the candidate view waits for the study's IRB-text record
     ops_summary: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages (D-178): the health tile
@@ -969,71 +969,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                 raise h.problem(403, "forbidden")
         return h.page(request, "patient.html", sess, **patient_ctx(sess, rid, pid), breakglass=grant)
 
-    def apply_reveal(
-        sess: Session,
-        path: str,
-        rs: str,
-        pid: str,
-        reason: str,
-        via: str = "patient",
-        purpose: str = "",
-        note: str = "",
-        job_id: str = "",
-    ) -> tuple[dict[str, Any], str]:
-        """One chart number for the page and ``/api/v1`` alike (D-99): identifier authority for the study
-        (administrator, coordinator, and the study's investigator since the owner's decision of 2026-11-09, D-143),
-        a reason, one audit record on each side and the orchestrator's per-person rate limit. Viewer and CRO
-        accounts get 403. D-147: once the study's delegation log names a PI, an investigator reveals only as that PI
-        or as a sub-investigator ticked "screen"; the candidate page (``via="candidates"``, with the view's purpose)
-        uses this same path, reason and cap. D-273: the job page (``via="job"``) too, so this is the console's one
-        reveal path (PV-2); the reason "other" needs a written note of 10 characters or more, kept in the audit
-        record (ROLE-016). D-280 (OD-5): the administrator reveals only under an open break-glass grant for this
-        patient, or for the job (``job_id``) that is the study's latest list; the reveal is then signed with
-        ``BREAK_GLASS_ROLE`` and its audit record names the grant."""
-        rid = study_or_404(sess, rs)
-        delegated = h.delegated_ok(sess.user, rid)
-        grant = None  # T-309 (D-430): the one rule, for the administrator and an undelegated investigator alike
-        if not (sess.user.sees_ids(rid) and delegated) and h.breakglass is not None and _PID.match(pid or ""):
-            grant = h.breakglass(sess, ruleset=rid, pid=pid, what="reveal") or (
-                h.breakglass(sess, job_id=job_id, what="reveal") if job_id else None
-            )
-        if grant is None and (not sess.user.sees_ids(rid) or not delegated):
-            au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
-            raise h.problem(403, "forbidden")
-        if reason not in REVEAL_REASONS:
-            raise h.problem(400, "request.refused", reason="choose why you need the chart number")
-        note = " ".join((note or "").split())[:200]
-        if reason == "other" and len(note) < REVEAL_NOTE_MIN:
-            raise h.problem(400, "reveal.note_needed", n=REVEAL_NOTE_MIN)
-        ctx = patient_ctx(sess, rid, pid)
-        job = ctx["job"]
-        if grant is not None and grant.kind == "job" and job.job_id != grant.job_id:
-            au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80], "breakglass": grant.id})
-            raise h.problem(403, "forbidden")  # a job grant covers that job's list only, not a newer one
-        au.append(
-            "console.reveal_patient",
-            job_id=job.job_id,
-            ruleset=rid,
-            actor=h.actor(sess),
-            detail={
-                "pid": pid,
-                "role": sess.user.role,
-                "affiliation": sess.user.affiliation,
-                "reason": reveal_reason(reason),
-                "via": via,
-                **({"purpose": purpose} if purpose else {}),
-                **({"note": note} if note else {}),
-                **({"breakglass": grant.id} if grant is not None else {}),
-            },
-        )
-        role = BREAK_GLASS_ROLE if grant is not None else sess.user.role
-        try:  # D-273 (PV-15): the role and the studies travel signed; the orchestrator checks them and the opt-out
-            mrn = bk.reveal(job.job_id, pid, h.actor(sess), role=role, scope=scope_of(sess.user.studies))
-        except Refused as exc:
-            raise h.problem(409, "request.refused", reason=str(exc)) from exc
-        return ctx, mrn or ""
-
-    h.apply_reveal = apply_reveal  # console.team's candidate page reveals through it (D-147)
+    # T-103 (D-438): the one reveal path; every surface below and in console.team / console.app calls it
+    h.reveal = Reveal(h, study_or_404)
 
     @app.post("/studies/{rs}/patients/{pid}/reveal")
     def patient_reveal(request: Request, rs: str, pid: str, csrf: str = Form(""), reason: str = Form(""),
@@ -1043,9 +980,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         study_or_404(sess, rs)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
-        ctx, mrn = apply_reveal(sess, request.url.path, rs, pid, reason, note=note)
-        ctx["mrn"] = mrn
-        return h.page(request, "patient.html", sess, **ctx)
+        got = h.reveal.identifier(sess, rs, pid, "patient", reason, note=note, path=request.url.path)
+        return h.page(request, "patient.html", sess, **{**got.ctx, "mrn": got.mrn})
 
     def back_to(rid: str, pid: str, back: str, done: str) -> str:
         if back == "patient":
@@ -1470,8 +1406,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         """The chart number of one listed patient for an account with identifier authority (D-143), audited and
         rate-limited exactly as on the patient page."""
         sess = api_session(request)
-        _ctx, mrn = apply_reveal(sess, request.url.path, rs, pid, body.reason, note=body.note)
-        return {"study": rs.strip().upper(), "pid": pid, "mrn": mrn or None}
+        got = h.reveal.identifier(sess, rs, pid, "patient", body.reason, note=body.note, via="api",
+                                  path=request.url.path)  # fmt: skip
+        return {"study": rs.strip().upper(), "pid": pid, "mrn": got.mrn or None}
 
     @app.get("/api/v1/studies/{rs}/screening-log")
     def api_screening_log(request: Request, rs: str) -> list[dict[str, Any]]:

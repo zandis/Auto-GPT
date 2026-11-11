@@ -421,6 +421,8 @@ ADDED: dict[str, tuple[str, ...]] = {
     ),
     # T-112a (D-427): the data-operations batches, new after the baseline
     "dataops": ("01925afb0e82837617a880fa2d2b32f7efaa6d5e98945e7144f57510d76efbcf",),
+    # T-103 (D-438): orch version 2, the orchestrator's identifier caps as use rows (``id_limits``)
+    "orch": ("444cff97a092dda26501bfa81db70438eae3dda40e545bb86721748c241eba11",),
 }
 #: stores of the baseline whose code is gone (T-659b: ``mpi``, the retired data platform's patient index)
 RETIRED = {"mpi"}

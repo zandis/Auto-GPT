@@ -312,27 +312,6 @@ def unmask_ids(text: str, options: Mapping[str, Any] | None) -> str:
     return ID_IN_TEXT.sub(back, text or "")
 
 
-class IdViews:
-    """At most ``TB_REVEAL_MAX_PER_HOUR`` (default 60, the orchestrator's reveal cap) identifiers shown per person per
-    rolling hour by the console itself (a request line with ``mrn=``), per process (D-143). A view over the cap is
-    masked and recorded as refused."""
-
-    def __init__(self) -> None:
-        self._seen: dict[str, list[float]] = {}
-
-    def allow(self, who: str) -> bool:
-        import time
-
-        cap = int(os.environ.get("TB_REVEAL_MAX_PER_HOUR", "60"))
-        t = time.monotonic()
-        recent = [x for x in self._seen.get(who, []) if t - x < 3600]
-        if len(recent) >= cap:
-            self._seen[who] = recent
-            return False
-        self._seen[who] = [*recent, t]
-        return True
-
-
 def job_line(job: Job) -> str:
     opts = dict(job.options or {})
     target = job.ruleset or opts.pop("target", "")
@@ -479,7 +458,6 @@ def create_app(
     au: AuditLog = audit
     us: UserStore = users
     us.zone = site_tz  # an account's end date is a site day (D-270)
-    id_views = IdViews()
 
     boot: list[Callable[[], Any]] = []  # started with the app (the box's own timers, D-121)
 
@@ -1416,19 +1394,20 @@ def create_app(
 
     def shown_ids(sess: Session, job: Job, text: str, where: str, opted_out: bool = False, bg: bool = False) -> str:
         """A request line or subject as this reader may see it (P-01, D-143): the chart number in clear for an
-        account with identifier authority for the job's study (administrator, coordinator, the study's
-        investigator), as one audited view under the reveal cap; masked for everyone else (viewer, CRO)."""
+        account with identifier authority for the job's study (coordinator, the study's delegated investigator) or
+        under the page's break-glass grant, as one audited view under the one reveal cap (T-103, D-438); masked for
+        everyone else (viewer, CRO)."""
         masked = mask_ids(text)
-        if masked == text or opted_out or not (sess.user.sees_ids(job.ruleset) or bg):
+        # T-103 (D-438): the reveal rule (``id.reveal`` and the delegation log), else the page's break-glass grant
+        own = sess.user.sees_ids(job.ruleset) and helpers.delegated_ok(sess.user, job.ruleset)
+        if masked == text or opted_out or not (own or bg):
             return masked
-        if not helpers.delegated_ok(sess.user, job.ruleset):
-            return masked
-        if not id_views.allow(actor(sess)):
-            au.append("console.view_id_refused", job_id=job.job_id, ruleset=job.ruleset, actor=actor(sess),
-                      detail={"where": where, "reason": "rate limit"})  # fmt: skip
+        state = helpers.reveal.shown_in_line(sess, job.ruleset or "", job.job_id, where)  # T-103: the one cap
+        if state is None:
             return masked
         au.append("console.view_id", job_id=job.job_id, ruleset=job.ruleset, actor=actor(sess),
-                  detail={"where": where, "role": sess.user.role, **({"breakglass": True} if bg else {})})  # fmt: skip
+                  detail={"where": where, "role": sess.user.role, "cap": state,
+                          **({"breakglass": True} if bg else {})})  # fmt: skip
         return text
 
     def _screen_card(job: Job, sess: Session, revealed: dict[str, str] | None = None,
@@ -1513,24 +1492,22 @@ def create_app(
         reason: str = Form(""),
         note: str = Form(""),
     ) -> Response:
-        """One chart number for one listed pseudonym, shown once on the page (D-99). D-273 (PV-2): through the
-        console's one reveal path, ``home.apply_reveal``: identifier authority for the study, the delegation log for
-        an investigator, a reason (with a written note for "other"), never a patient who is not on the study's latest
-        list (so never an opted-out patient), audited before the orchestrator is asked, and the orchestrator's cap."""
+        """One chart number for one listed pseudonym, shown once on the page (D-99): a thin handler over the one reveal
+        path (T-103, D-438), with the job so that a break-glass grant for this job counts."""
         sess = need(request)
         job = _job_or_404(job_id)
-        # D-280: the administrator gets through only under a break-glass grant; ``apply_reveal`` checks it
-        _need_role(request, csrf, sess.user.sees_ids(job.ruleset) or sess.user.is_admin, sess)
+        _need_role(request, csrf, True, sess)
+        helpers.reveal.guard(sess, job.ruleset, request.url.path, "screening_list", reason, "job", job.job_id)
         if job.type not in ("SCREEN", "MICROBATCH") or job.state != "done":
             raise _Problem(409, "request.refused", reason="chart numbers are revealed for finished screening jobs only")
         pid = pid.strip()
         if not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", pid):
             raise _Problem(400, "request.refused", reason="bad pseudonym")
-        if helpers.apply_reveal is None or not job.ruleset:
+        if not job.ruleset:
             raise _Problem(403, "forbidden")
-        _ctx, mrn = helpers.apply_reveal(sess, request.url.path, job.ruleset, pid, reason, via="job", note=note,
-                                         job_id=job.job_id)  # fmt: skip
-        return _job_page(request, sess, job, revealed={pid: mrn})
+        got = helpers.reveal.identifier(sess, job.ruleset, pid, "screening_list", reason, note=note, via="job",
+                                        path=request.url.path, job_id=job.job_id)  # fmt: skip
+        return _job_page(request, sess, job, revealed={pid: got.mrn})
 
     def _case_card(job: Job) -> dict[str, Any] | None:
         if job.type != "CASE" or job.state != "done":

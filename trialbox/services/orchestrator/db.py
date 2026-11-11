@@ -131,7 +131,18 @@ CREATE TABLE IF NOT EXISTS trial_cache (
 """
 #: ``migrate`` versions of schema ``orch`` (append-only; version 1 is the schema as it was on SQLite, with an identity
 #: ``seq`` on ``jobs``, ``submissions`` and ``cohort_tables`` for the insertion order SQLite's rowid gave to ties)
-MIGRATIONS = (SCHEMA,)
+# T-103 (D-438): the orchestrator's per-person caps on identifiers (chart numbers revealed, exports with chart
+# numbers) as use rows in the store, so a restart or a second process does not reset them. ``at`` is epoch ms.
+SCHEMA_V2 = """
+CREATE TABLE IF NOT EXISTS id_limits (
+  seq BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  kind TEXT NOT NULL,
+  who TEXT NOT NULL,
+  at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS id_limits_who ON id_limits (kind, who, at);
+"""
+MIGRATIONS = (SCHEMA, SCHEMA_V2)
 SCHEMA_NAME = "orch"
 
 TERMINAL = ("done", "failed")
@@ -150,6 +161,19 @@ class JobDB:
     def tx(self) -> Iterator[Tx]:
         with self._db.transaction() as tx:
             yield tx
+
+    # ------------------------------------------------------------------ identifier caps (T-103, D-438)
+    def take_limit(self, kind: str, who: str, at_ms: int, window_ms: int, limit: int) -> bool:
+        """One capped use of ``kind`` by ``who``: in one transaction, serialised per kind and person, count the uses
+        in the window before ``at_ms`` and record this one only when it is within ``limit``; False at the cap."""
+        with self.tx() as tx:
+            tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"id_limits:{kind}:{who}",))
+            n = tx.fetchval("SELECT count(*) FROM id_limits WHERE kind = ? AND who = ? AND at > ?",
+                            (kind, who, at_ms - window_ms))  # fmt: skip
+            if int(n or 0) >= limit:
+                return False
+            tx.execute("INSERT INTO id_limits (kind, who, at) VALUES (?,?,?)", (kind, who, at_ms))
+        return True
 
     # ------------------------------------------------------------------ jobs
     def put(self, job: Job, queued: bool | None = None) -> None:

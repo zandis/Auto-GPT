@@ -33,10 +33,17 @@
   over a local account. The role table (`console.auth.User`, `tb_common/authz.py`) and the signed actor assertion are
   unchanged. Not done: WebAuthn in the console itself (Authelia offers it), step-up before a reveal, the
   breached-password list and password history (master plan WS-13.1), and removing the trusted-header SSO.
-- **Chart numbers.** The coordinator, the administrator and the study's investigator (owner's decision of
-  2026-11-09, D-143, reversing D-133) may reveal one, for a listed patient, with a reason, under a rate limit
-  (`TB_REVEAL_MAX_PER_HOUR`, 60); viewer and CRO accounts never see one. Each reveal or view is in the audit. The
-  screening-log export with chart numbers is audited at the orchestrator too and capped (`TB_EXPORT_MAX_PER_HOUR`,
-  10). Mail never carries a chart number, also not the investigator's N1.
+- **Chart numbers.** The coordinator and the study's investigator (owner's decision of 2026-11-09, D-143, reversing
+  D-133; the delegation log for an investigator, D-147; the administrator only under a break-glass grant, D-280,
+  D-430) may reveal one, for a listed patient, with a purpose and a reason ("other" needs a written reason of 10
+  characters or more); viewer and CRO accounts never see one. One reveal path (T-103, D-438): every surface (the
+  patient page, `/api/v1`, the job page, the candidate page, the referral print, next the EMR link) calls
+  `console.reveal.Reveal.identifier`, which asks the `id.reveal` row and the break-glass rule, takes one use of a
+  per-person cap shared by every surface (`TB_REVEAL_MAX_PER_HOUR`, 60 an hour, kept in the study-team store, so a
+  restart or a second console process does not reset it; a chart number in a request line counts too), and writes
+  one audit shape: `console.reveal_patient` (pid, role, study, purpose, reason, basis, cap, via) or
+  `console.reveal_refused` (the same and why). The orchestrator gives identifiers to a signed role the `id.reveal`
+  row allows or to `breakglass`, and keeps its own cap and the export cap (`TB_EXPORT_MAX_PER_HOUR`, 10) in its
+  store (`orch.id_limits`). Mail never carries a chart number, also not the investigator's N1.
 - **Mail commands** need an allowed sender, a passing `Authentication-Results` (DMARC, or SPF/DKIM for the From:
   domain), the command's permission group and the daily rate limit.

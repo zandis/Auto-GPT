@@ -186,7 +186,8 @@ class InprocBackend:
             raise Refused(r.text[:200])
         return bytes(r.content)
 
-    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "") -> str | None:
+    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "", purpose: str = "",
+               reason: str = "") -> str | None:  # fmt: skip
         from console.backend import Refused
 
         r = self.c.post(f"/jobs/{job_id}/reveal", json={"pid": pid}, headers=actor_header(by, role=role, scope=scope))
