@@ -282,31 +282,83 @@ def test_the_stub_chart_reader_reads_a_capitalised_negation() -> None:
     assert facts["facts"] == []
 
 
-def test_the_client_follows_a_production_gateway_to_the_qualified_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
-    """D-359: a DEV-configured caller in front of a PRODUCTION gateway sends judge@5 once; on ``prompt_unqualified``
-    it sends the served (qualified) judge@4 and keeps to it."""
+class _ProdGateway:
+    """A PRODUCTION gateway as the client sees it: anything but judge@4 is refused as unqualified."""
+
+    def __init__(self, qualified: str = "judge@4") -> None:
+        self.qualified = qualified
+        self.sent: list[str] = []
+
+    def context(self) -> None:
+        return None
+
+    def complete(self, body: dict[str, Any], labels: Any) -> dict[str, Any]:
+        import json as _json
+
+        from tb_llm import GatewayRefused
+
+        ref = labels.headers("orchestrator")["X-TB-Prompt"]
+        self.sent.append(ref)
+        if ref != self.qualified:
+            raise GatewayRefused("prompt_unqualified", 403, f"{ref} has no qualification record")
+        ans = {"verdict": "unknown", "confidence": 0.5}
+        return {"model": "m", "choices": [{"message": {"content": _json.dumps(ans)}, "finish_reason": "stop"}]}
+
+
+def _audit_rows(d: Path) -> list[dict[str, Any]]:
     import json as _json
 
+    return [_json.loads(x) for f in sorted(d.glob("*.jsonl")) for x in f.read_text().splitlines() if x.strip()]
+
+
+_JUDGE_VARS = {"criterion_text": "x", "note_question": "q", "index_date": "2026-01-01", "excerpts": []}
+
+
+def test_the_client_follows_a_production_gateway_to_the_qualified_prompt_and_audits_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-359: a DEV-configured caller in front of a PRODUCTION gateway sends judge@5 once; on ``prompt_unqualified``
+    it sends the served (qualified) judge@4, keeps to it, and writes one audit line naming both versions."""
+    from tb_common.audit import AuditLog
     from tb_common.llm import LlmClient
-    from tb_llm import GatewayRefused
 
     monkeypatch.setenv("TB_ENV", "DEV")
-    sent: list[str] = []
-
-    class Gw:
-        def context(self) -> None:
-            return None
-
-        def complete(self, body: dict[str, Any], labels: Any) -> dict[str, Any]:
-            ref = labels.headers("orchestrator")["X-TB-Prompt"]
-            sent.append(ref)
-            if ref != "judge@4":
-                raise GatewayRefused("prompt_unqualified", 403, f"{ref} has no qualification record")
-            ans = {"verdict": "unknown", "confidence": 0.5}
-            return {"model": "m", "choices": [{"message": {"content": _json.dumps(ans)}, "finish_reason": "stop"}]}
-
-    c = LlmClient("", "", gateway=Gw())
-    v = {"criterion_text": "x", "note_question": "q", "index_date": "2026-01-01", "excerpts": []}
+    gw = _ProdGateway()
+    audit = AuditLog(tmp_path / "audit")
+    c = LlmClient("", "", gateway=gw, audit=audit)
     for _ in range(2):
-        c.chat_json("judge", v)
-    assert sent == ["judge@5", "judge@4", "judge@4"]
+        c.chat_json("judge", _JUDGE_VARS, job_id="J-1")
+    assert gw.sent == ["judge@5", "judge@4", "judge@4"]
+    rows = [r for r in _audit_rows(tmp_path / "audit") if r["event"] == "llm.prompt_fallback"]
+    assert len(rows) == 1
+    d = rows[0]["detail"]
+    assert (d["refused"], d["used"], d["reason"]) == ("judge@5", "judge@4", "prompt_unqualified")
+    assert rows[0]["job_id"] == "J-1" and d["refused_sha"] != d["used_sha"]
+
+
+def test_the_client_never_falls_back_to_an_unqualified_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """No qualified version (or no audit log to record the fallback): the refusal is raised, nothing else is sent."""
+    import tb_common.llm as llm
+    from tb_common.audit import AuditLog
+    from tb_common.llm import LlmClient, LlmError
+
+    monkeypatch.setenv("TB_ENV", "DEV")
+    real = llm.load_prompt
+
+    def no_qualified(prompt_id: str, environment: str | None = None) -> Any:
+        if (environment or "").upper() == "PRODUCTION":
+            raise LlmError(f"prompt {prompt_id!r} refused (prompt_unqualified): no qualified version")
+        return real(prompt_id, environment)
+
+    monkeypatch.setattr(llm, "load_prompt", no_qualified)
+    gw = _ProdGateway(qualified="none@0")
+    audit = AuditLog(tmp_path / "audit")
+    with pytest.raises(LlmError, match="prompt_unqualified"):
+        LlmClient("", "", gateway=gw, audit=audit).chat_json("judge", _JUDGE_VARS)
+    assert gw.sent == ["judge@5"]
+    assert not [r for r in _audit_rows(tmp_path / "audit") if r["event"] == "llm.prompt_fallback"]
+    monkeypatch.setattr(llm, "load_prompt", real)
+    gw = _ProdGateway()
+    with pytest.raises(llm.LlmPromptUnqualified):  # no audit log: no fallback
+        LlmClient("", "", gateway=gw).chat_json("judge", _JUDGE_VARS)
+    assert gw.sent == ["judge@5"]

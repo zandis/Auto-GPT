@@ -32,8 +32,10 @@ refused a whole criteria-locator call when a protocol's front page held a doctor
    version. The pin-drift check (D-318) compares against the newest qualified version, so a version waiting for its
    record does not send every approved study back to the investigator (an id with no qualified version compares
    against its newest). A caller whose own environment serves a newer version, in front of a PRODUCTION gateway that
-   refuses it (`prompt_unqualified`), sends the qualified version once and keeps to it (`tb_common.llm`); the
-   gateway still checks that text. Without this, registering any new version stopped every PRODUCTION gateway until
+   refuses it (`prompt_unqualified`), sends the newest qualified version once and keeps to it (`tb_common.llm`); the
+   gateway still checks that text. Each fallback writes an `llm.prompt_fallback` audit line naming the refused and
+   the used version. It never falls back to an unqualified version: with none qualified, or with no audit log, the
+   refusal is raised. Without this, registering any new version stopped every PRODUCTION gateway until
    a record existed.
 3. **The planted-instruction screen** (`guard.injection.screen`, `Guard.screen`, `POST /v1/screen`): deterministic
    patterns in en, ja and zh-TW. Each needs a cue that the reader addressed is a model (instructions, prompt, a

@@ -261,15 +261,33 @@ class LlmClient:
         }
         # a gateway client may name the environment of the box it stands for (tools.scenarios): its served prompt
         env = self._prompt_env or getattr(self.gateway, "prompt_environment", None)
+        prompt = load_prompt(prompt_id, env)
         try:
-            return self._chat_json(load_prompt(prompt_id, env), variables, schema, **kw)
+            return self._chat_json(prompt, variables, schema, **kw)
         except LlmPromptUnqualified:
             # D-359: the gateway is a PRODUCTION box and this version waits for its qualification record. Its served
-            # version is the newest qualified one; the gateway still checks that text and its record.
-            if env == "PRODUCTION":
+            # version is the newest qualified one; the gateway still checks that text and its record. Never an
+            # unqualified one: none qualified raises (load_prompt in PRODUCTION), and so does a client with no audit
+            # log, because every fallback is audited.
+            if env == "PRODUCTION" or self.audit is None:
                 raise
+            used = load_prompt(prompt_id, "PRODUCTION")
+            if (used.meta.id, used.meta.version) == (prompt.meta.id, prompt.meta.version):
+                raise
+            self.audit.append(
+                "llm.prompt_fallback",
+                job_id=job_id,
+                prompt_version=f"{used.meta.id}_v{used.meta.version}",
+                detail={
+                    "refused": f"{prompt.meta.id}@{prompt.meta.version}",
+                    "refused_sha": prompt.sha256,
+                    "used": f"{used.meta.id}@{used.meta.version}",
+                    "used_sha": used.sha256,
+                    "reason": "prompt_unqualified",
+                },
+            )
             self._prompt_env = "PRODUCTION"
-            return self._chat_json(load_prompt(prompt_id, "PRODUCTION"), variables, schema, **kw)
+            return self._chat_json(used, variables, schema, **kw)
 
     def _chat_json(
         self,
