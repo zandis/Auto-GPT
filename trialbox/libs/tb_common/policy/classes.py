@@ -180,6 +180,7 @@ _D1 = {
     "QualificationBuilds",
     "QualifiedBuild",
     "QualificationStep",
+    "QualificationChangeProtocol",
     "UpdateFile",
     "UpdateManifest",
     "KeyRotation",

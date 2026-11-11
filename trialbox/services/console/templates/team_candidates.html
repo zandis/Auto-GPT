@@ -13,6 +13,7 @@
 {% if removed %}<p class="hint" data-testid="optout-count">{{ t('team.optout.removed', n=removed) }}</p>{% endif %}
 {% if not standing.pi and standing.logged and user.role == 'investigator' %}<p class="hint" data-testid="your-tasks">{{ t('team.you.tasks') }} {% for k in standing.tasks|sort %}<span class="pill">{{ t('team.task.' + k) }}</span> {% endfor %}</p>{% endif %}
 {% if not wk %}<section class="card"><p class="empty">{{ t('week.none') }}</p></section>{% else %}
+{% include "_asof.html" %}
 <p class="hint"><a href="?show=" {% if not show %}aria-current="page"{% endif %}>{{ t('team.cand.show.all') }}</a> · <a href="?show=unknown" data-testid="show-unknown"{% if show == 'unknown' %} aria-current="page"{% endif %}>{{ t('team.cand.show.unknown') }}</a> · <a href="?show=open"{% if show == 'open' %} aria-current="page"{% endif %}>{{ t('team.cand.show.open') }}</a></p>
 <section class="card">
 {% if not rows %}<p class="empty">{{ t('wb.empty') }}</p>{% else %}

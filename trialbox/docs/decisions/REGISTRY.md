@@ -77,7 +77,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-229 | reserved | T-205 | Second factor at signing and the record lock |
 | D-230 | reserved | T-206 | Opt-out worker v1 |
 | D-231 | reserved | T-207 | The derived-data framework: stored rows and definitions as data |
-| D-232 | reserved | T-208 | Prompt-injection and false-positive suite |
+| D-232 | unused | T-208 | was reserved for T-208, which took D-346 |
 | D-233 | reserved | T-209 | Monitoring, admin screens and the support bundle |
 | D-234 | reserved | T-210 | Windows/WSL2 hardening, keys under a KEK, the unseal path |
 | D-235 | reserved | T-211 | Audit integrity: signed heads, one writer, NTP as a FAIL, the audit … |
@@ -154,10 +154,16 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-320 | merged | T-505a | the API sign-in asks for the second factor; one channel per session (file) |
 | D-321 | merged | T-504 | scenario rulesets: SQL checked on planted gold, CQL recorded by a local engine (file) |
 | D-322 | merged | T-613a | the shipped rulesets recompiled offline from their cassettes, and the CI drift check (file) |
+| D-323 | merged | T-515 | recorded first and second checks on the demo from a fixture (DEV and TEST only), each opinion marked synthetic, recorded run or test model; the G1 short-run file drops in later (file) |
 | D-328 | merged | T-502 | PoC demonstration mode behind the audited flag `demo.mode`: uploads and chart paste refused, banner, `demo.ack`, the scan of stored input (file) |
 | D-329 | merged | T-513 | one demo clock: the demo day is the real day in the site's time zone; dates moved, one clock (file) |
 | D-330 | merged | T-509 | the PoC host: one VM, the image by digest, Cloudflare Access through a tunnel, kept data on its own disk, daily snapshot, purge (file) |
 | D-331 | merged | T-510 | in-product feedback: a flag, a rating and a comment on every page, stored with path, language, role and time; CSV export to issues; the comment in the demo scan (file) |
 | D-332 | merged | T-508 | the clinician PoC is product evaluation, not research: no protocol, subject consent or committee step; the acknowledgement only (file) |
 | D-334 | merged | T-613b | lab units read per row: one conversion table in labvalue (engines' factors reused), mapping_check unit pairs and raw values, one presence reader in ja, zh-TW, en (file) |
+| D-343 | merged | T-649b | N-12 gates on the unadjusted figure; every model change follows the model change protocol, and every qualification record cites it (file) |
+| D-344 | merged | T-215 | QMS-lite records in `docs/validation/`, VMP v1.1 without signatures, change classes CC1 to CC6, staged roll-out, standards position (file) |
+| D-346 | merged | T-208 | the prompt-injection and false-positive suite: facts not words, a stub that obeys as the negative control, the fence escaped, hidden text flagged, traces 7 days in PRODUCTION (file) |
+| D-347 | merged | T-210b | the site keys under a KEK: wrapped files, three back ends, the unseal, the key inventory (file) |
+| D-349 | merged | T-512 | the PI starts FEAS, SCREEN and CASE on own study; a sub-investigator with the `run` tick; one table `authz.INVESTIGATOR_RUNS`; "data as of" on the patient lists (file) |
 | D-339 | merged | T-106 | OMOP second slice: schema name stays `omop`; the adapter's dual write behind the flag `omop.dual_write` (a failure never holds the night); the large CDM tables partitioned by year; the Relational checks after every load in the ingest report; parity timings (file) |

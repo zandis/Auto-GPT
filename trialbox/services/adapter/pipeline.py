@@ -400,11 +400,24 @@ def _run_ingest(
                         (pid, {k: str(r.get(col) or "") for k, col in ident.items()})
                         for (pid, _), r in zip(patient_pairs, rows, strict=True)
                     ]
-            try:
-                for res in mapper.map_table(table, iter(rows)):
+            # STD-025 (T-615a): a row the mapping cannot read is rejected and counted by reason (its values left out);
+            # the table goes on, and the night is held only when rejects pass REJECT_MAX_PCT % of the table's rows
+            rejected: Counter[str] = Counter()
+            for row in rows:
+                try:
+                    mapped = list(mapper.map_table(table, iter([row])))
+                except ValueError as exc:
+                    rejected[re.sub(r"'[^']*'|\"[^\"]*\"", "<value>", str(exc))] += 1
+                    continue
+                for res in mapped:
                     by_type.setdefault(res["resourceType"], []).append(res)
-            except ValueError as exc:
-                errors.append(f"{table}: {exc}")
+            if rejected:
+                n_bad = sum(rejected.values())
+                tables[table]["rejected"] = dict(sorted(rejected.items()))
+                why = "; ".join(f"{k} ({v})" for k, v in sorted(rejected.items()))
+                log.warning("%s: %d of %d rows rejected: %s", table, n_bad, len(rows), why)
+                if n_bad * 100 > REJECT_MAX_PCT * len(rows):
+                    errors.append(f"{table}: {n_bad} of {len(rows)} rows rejected (over {REJECT_MAX_PCT:g} %): {why}")
     at.update(step="snapshot", table=None)
     unit_defaults = mapping.unit_defaults if source_kind != "fhir_bulk" else _bulk_unit_defaults(cfg.mapping_path)
     defaulted = apply_unit_defaults(by_type.get("Observation", []), unit_defaults)
@@ -646,6 +659,7 @@ def jp_core_check(cfg: AdapterConfig, by_type: dict[str, list[Resource]], out_di
 
 PASSED = "passed.json"  # written in a snapshot's NDJSON folder when its night passed (D-271)
 HELD = "held.json"  # written in a snapshot's NDJSON folder when its night was held, with why (T-611)
+REJECT_MAX_PCT = 1.0  # STD-025: a table whose rejected rows pass this share of its rows holds the night (T-615a)
 COMPLETENESS = "completeness.json"  # per source table: present, rows, duplicate keys; the gate's findings (T-611)
 _PATIENT_REF = re.compile(rb'"Patient/([^"]+)"')
 

@@ -50,6 +50,7 @@
         <a href="/pilot/protocol">{{ t('nav.protocol') }}</a>
         <a href="/pilot/consent">{{ t('nav.consent') }}</a>
         <a href="/pilot/cascade">{{ t('nav.cascade') }}</a>
+        {% elif r == 'investigator' %}<a href="/pilot/request" data-testid="nav-request">{{ t('nav.request') }}</a>{# T-512 #}
         {% endif %}
         {% if not user.aggregate_only %}
         <a href="/pilot/case">{{ t('nav.case') }}</a>
