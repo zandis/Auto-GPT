@@ -19,6 +19,7 @@ from tb_common.derived import (
     DOMAIN,
     EGFR,
     EGFR_JSN,
+    EGFR_MIN_AGE,
     LOINC,
     RANGE,
     SAME_VISIT,
@@ -85,7 +86,7 @@ def render_common() -> str:
         if comp not in UNITS
     ]
     return _env.get_template("TB_Common.cql.j2").render(
-        egfr=EGFR, jsn=EGFR_JSN, das=DAS28, asdas=ASDAS, units=units, unitless=unitless
+        egfr=EGFR, jsn=EGFR_JSN, das=DAS28, asdas=ASDAS, units=units, unitless=unitless, min_age=EGFR_MIN_AGE
     )
 
 

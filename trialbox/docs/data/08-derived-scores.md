@@ -2,7 +2,8 @@
 
 A derived score is computed from other rows: eGFR (CKD-EPI 2021 or JSN 2009), BMI, DAS28, BASDAI, ASDAS, CDAI and
 SDAI. Code: `libs/tb_common/derived.py` (formulas, units, same visit), `libs/tb_common/scores.py` (definitions),
-`libs/tb_common/derived_store.py` (stored rows) (D-149, D-189, D-190).
+`libs/tb_common/derived_store.py` (stored rows), `services/matching/stored_scores.py` (the screening read) (D-149,
+D-189, D-190, D-442).
 
 **Definitions come from the catalogue.** Each score is a YAML file in `catalogue/scores/`: inputs, units, windows,
 coefficients, edge cases and published worked examples. `python tools/gen_score_defs.py` writes them to
@@ -20,6 +21,10 @@ CRP in mg/dL.
 fact (read from a chart, not yet confirmed) never counts as an input; nor does a rejected or preliminary row. An
 impossible value gives no value and `derived_unit:<input>` too: a negative CRP or ESR, a joint count outside 0-28, a
 creatinine of 0 or less. An age of 0 or less gives `derived_missing_input:age`.
+
+**No eGFR under 18** (D-442). Both eGFR equations are for adults (the catalogue's edge case "age < 18: do not
+compute"). A patient under 18 gets no eGFR and the reason `derived_adult_only:age`, in the Python reference, the SQL
+and the CQL. Screening uses the age at the index date; a stored row uses the age at its anchor (the creatinine's date).
 
 **Status in the lake.** The status rule needs the row's status. The lake's `observation` table has no status column
 yet, so the `derive` batch records each lake row's status as `not_recorded`, and such a row counts. Proposed facts
@@ -58,8 +63,32 @@ against the stored documented value, even if the batch was not given the documen
 differs stays open. A person's decision stays, unless the new value differs from the value they decided on by more
 than the tolerance; then the conflict opens again.
 
-Not yet: screening still computes scores in its own SQL and CQL rather than reading the stored rows; an approved
-ruleset does not pin definition versions; nothing schedules the `derive` batch and the console has no page for
-derived conflicts; DAS28, BASDAI, ASDAS and MELD 3.0 still need clinician worked examples before approval; the SQL
-and CQL engines do not yet carry the joint-count, CRP and ESR ranges. For the lake owner: the lake's `observation`
-table should carry `Observation.status` so that the batch can leave out entered-in-error and preliminary rows.
+**The batch after every ingest** (D-442). When an ingest passes, the job runner runs the `derive` batch over the new
+snapshot, every patient, before the follow-up micro-batch screens (`orchestrator.derive.after_ingest`). Each batch
+over a named snapshot is recorded in `batch_run` (snapshot, mapping version, the definitions it ran under, counts and
+the patients that failed) and audited (`derive.batch`; a failed batch `derive.failed`, which never fails the ingest).
+
+**Screening reads the stored rows** (D-442). The SQL still computes a score from the same rows (the engines agree),
+and the stored row of record must stand behind every decided answer on CDAI, SDAI, DAS28 and eGFR. When it does not,
+the answer is "needs information", never a new decided answer:
+
+| What is found | Reason |
+| --- | --- |
+| no finished batch of the snapshot being screened, a batch under other definitions, or a batch that failed for the patient | `derived_not_stored` |
+| no current row in the window, a row of another definition than the ruleset pinned, a row of another visit than the engine's | `derived_not_stored` |
+| a row with no value | its own reason (`derived_unit`, `derived_adult_only`, ...) |
+| an open derived-vs-documented conflict | `derived_vs_documented` |
+| the comparison gives another answer on the stored value (the documented value a person kept, else the computed one) | `derived_vs_documented` or `derived_not_stored` |
+
+BMI, BASDAI and ASDAS have no stored rows; the SQL alone decides them, as before. Without a trial database (a bare
+DEV stack) screening reads the SQL alone; the goldens are the SQL alone.
+
+**Rulesets pin the definitions** (D-442). An approval writes `derived_pins` in the manifest: for every score the
+criteria use, the definition version and sha256 (`egfr` pins CKD-EPI 2021; `das28` pins both variants). A definition
+of another version or text on the box puts the study in "approval needed" (`tb_common.ruleset.approval_state`, the
+approval page names the score), and until the investigator approves again its criteria read "needs information".
+
+Not yet: the console has no page for derived conflicts; the stored rows are not written to the OMOP `measurement`
+table with `FACT_RELATIONSHIP`; FEAS counts still read the SQL alone; DAS28, BASDAI, ASDAS and MELD 3.0 still need
+clinician worked examples before approval. For the lake owner: the lake's `observation` table should carry
+`Observation.status` so that the batch can leave out entered-in-error and preliminary rows.

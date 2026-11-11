@@ -72,7 +72,16 @@ CREATE TABLE IF NOT EXISTS conflict (id BIGINT GENERATED ALWAYS AS IDENTITY PRIM
   documented_date DATE NOT NULL, derived_value DOUBLE PRECISION NOT NULL, tolerance DOUBLE PRECISION NOT NULL,
   opened_at TEXT NOT NULL, resolution TEXT, resolved_by TEXT, resolved_at TEXT, resolved_value DOUBLE PRECISION,
   carried_from BIGINT REFERENCES conflict (id), UNIQUE (row_id, documented_id))
-"""
+""",
+    # D-442: one row per derive batch over a lake snapshot. Screening reads a stored row only when the batch of the
+    # snapshot it screens finished under the definitions the box computes now; a patient whose recompute failed in
+    # that batch reads as unknown
+    """
+CREATE TABLE IF NOT EXISTS batch_run (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, snapshot TEXT NOT NULL,
+  mapping_version TEXT NOT NULL, defs TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT, patients BIGINT,
+  inserted BIGINT, failed BIGINT, failed_pids TEXT);
+CREATE INDEX IF NOT EXISTS batch_run_snapshot ON batch_run (snapshot, id)
+""",
 ]
 
 
@@ -125,6 +134,31 @@ class Latest:
     def_version: str | None = None
     source: str = "derived"  # or "documented" after a person kept the documented value
     inputs: list[dict[str, Any]] = field(default_factory=list)
+    anchor_oid: str | None = None  # D-442: the anchor row, matched against the visit the screening engine used
+    def_sha: str | None = None
+
+
+@dataclass(frozen=True)
+class Batch:
+    """D-442: the newest finished derive batch of a snapshot: its definitions and the patients it failed."""
+
+    run_id: int
+    snapshot: str
+    defs: dict[str, str]
+    failed_pids: frozenset[str]
+
+    def current(self) -> bool:
+        """Whether the batch ran under the definitions this box computes now (:func:`current_defs`)."""
+        return self.defs == current_defs()
+
+
+def current_defs() -> dict[str, str]:
+    """``{def_version: sha256}`` of every stored score's definition on this box."""
+    out = {}
+    for s in STORED:
+        d = scores.definition(s)
+        out[str(d["def_version"])] = str(d["sha256"])
+    return out
 
 
 def _now() -> str:
@@ -463,28 +497,72 @@ class DerivedStore:
         """The score a reader takes at ``on``: the newest current row anchored on or before it (within
         ``window_days`` when given). No row, a row with no value, or an open conflict is no value with a reason."""
         lo = on - timedelta(days=window_days if window_days is not None else derived.DEFAULT_WINDOW_DAYS[score])
+        return self.latest_many([pid], score, lo, on)[pid]
+
+    def latest_many(self, pids: Sequence[str], score: str, lo: date | None, hi: date) -> dict[str, Latest]:
+        """:meth:`latest` for many patients at once (D-442, the screening read): per patient the newest current row
+        anchored between ``lo`` (None: no lower bound) and ``hi``, newest anchor date first, then the larger anchor
+        row id. Every patient asked for is in the answer."""
+        out = {p: Latest(None, f"{derived.MISSING}:{derived.COMPONENTS[score][0]}") for p in pids}
+        if not pids:
+            return out
+        rows = self._db.fetchall(
+            "SELECT DISTINCT ON (pid) pid, id, value, reason, anchor_date, def_version, inputs, anchor_oid, def_sha "
+            "FROM score_row WHERE pid = ANY(?) AND score = ? AND superseded_at IS NULL AND anchor_date <= ? "
+            "AND (CAST(? AS DATE) IS NULL OR anchor_date >= ?) "
+            "ORDER BY pid, anchor_date DESC, anchor_oid DESC, id DESC",
+            (list(pids), score, hi, lo, lo),
+        )
+        held: dict[int, list[tuple[Any, Any]]] = {}
+        with_value = [int(r[1]) for r in rows if r[2] is not None]
+        if with_value:
+            for row_id, resolution, documented in self._db.fetchall(
+                "SELECT row_id, resolution, documented_value FROM conflict WHERE row_id = ANY(?) AND (resolution IS "
+                "NULL OR resolution = 'keep_documented') ORDER BY id DESC",
+                (with_value,),
+            ):
+                held.setdefault(int(row_id), []).append((resolution, documented))
+        for pid, row_id, value, reason, anchor_date, def_version, inputs, anchor_oid, def_sha in rows:
+            base = {"row_id": int(row_id), "anchor_date": anchor_date, "def_version": def_version,
+                    "inputs": json.loads(inputs), "anchor_oid": anchor_oid, "def_sha": def_sha}  # fmt: skip
+            cs = held.get(int(row_id), [])
+            if value is None:
+                out[pid] = Latest(None, reason, **base)
+            elif any(c[0] is None for c in cs):
+                out[pid] = Latest(None, CONFLICT_KIND, **base)
+            elif cs:  # a person kept the documented value
+                out[pid] = Latest(float(cs[0][1]), None, source="documented", **base)
+            else:
+                out[pid] = Latest(float(value), None, **base)
+        return out
+
+    # ------------------------------------------------------------------------------------------ batches (D-442)
+    def begin_batch(self, snapshot: str, mapping_version: str) -> int:
+        return int(
+            self._db.fetchval(
+                "INSERT INTO batch_run (snapshot, mapping_version, defs, started_at) VALUES (?, ?, ?, ?) RETURNING id",
+                (snapshot, mapping_version, json.dumps(current_defs(), sort_keys=True), _now()),
+            )
+        )
+
+    def finish_batch(self, run_id: int, rep: Report, patients: int) -> None:
+        self._db.execute(
+            "UPDATE batch_run SET finished_at = ?, patients = ?, inserted = ?, failed = ?, failed_pids = ? "
+            "WHERE id = ?",
+            (_now(), patients, rep.inserted, rep.failed, json.dumps(sorted(rep.failed_pids)), run_id),
+        )
+
+    def batch(self, snapshot: str) -> Batch | None:
+        """The newest finished derive batch of ``snapshot``, or None when none finished (the rows are not this
+        snapshot's: screening reads every stored score as unknown)."""
         r = self._db.fetchone(
-            "SELECT id, value, reason, anchor_date, def_version, inputs FROM score_row WHERE pid = ? AND score = ? "
-            "AND superseded_at IS NULL AND anchor_date BETWEEN ? AND ? ORDER BY anchor_date DESC, id DESC LIMIT 1",
-            (pid, score, lo, on),
+            "SELECT id, defs, failed_pids FROM batch_run WHERE snapshot = ? AND finished_at IS NOT NULL "
+            "ORDER BY id DESC LIMIT 1",
+            (snapshot,),
         )
         if r is None:
-            return Latest(None, f"{derived.MISSING}:{derived.COMPONENTS[score][0]}")
-        row_id, value, reason, anchor_date, def_version, inputs = r
-        base = {"row_id": int(row_id), "anchor_date": anchor_date, "def_version": def_version,
-                "inputs": json.loads(inputs)}  # fmt: skip
-        if value is None:
-            return Latest(None, reason, **base)
-        cs = self._db.fetchall(
-            "SELECT resolution, documented_value FROM conflict WHERE row_id = ? AND (resolution IS NULL OR "
-            "resolution = 'keep_documented') ORDER BY id DESC",
-            (row_id,),
-        )
-        if any(c[0] is None for c in cs):
-            return Latest(None, CONFLICT_KIND, **base)
-        if cs:  # a person kept the documented value
-            return Latest(float(cs[0][1]), None, source="documented", **base)
-        return Latest(float(value), None, **base)
+            return None
+        return Batch(int(r[0]), snapshot, dict(json.loads(r[1])), frozenset(json.loads(r[2] or "[]")))
 
 
 # ---------------------------------------------------------------------------------------------- the nightly batch
@@ -543,7 +621,10 @@ def run_batch(
     for x in documented:
         docs.setdefault(x.pid, []).append(x)
     total = Report()
-    for pid, (rows, birth, female) in sorted(rows_from_lake(lake, pids, snapshot).items()):
+    # D-442: a batch over a named snapshot of every patient is recorded; screening of that snapshot reads its rows
+    run_id = store.begin_batch(snapshot, mapping_version) if snapshot is not None and pids is None else None
+    patients = rows_from_lake(lake, pids, snapshot)
+    for pid, (rows, birth, female) in sorted(patients.items()):
         try:
             rep = store.recompute(
                 pid, rows, mapping_version=mapping_version, birth=birth, female=female, documented=docs.get(pid, [])
@@ -554,4 +635,17 @@ def run_batch(
             total.failed_pids.append(pid)
             continue
         total.add(rep)
+    if run_id is not None:
+        store.finish_batch(run_id, total, len(patients))
     return total
+
+
+def mapping_version_of(lake: Any, snapshot: str | None = None) -> str:
+    """The mapping version(s) the snapshot's observation rows were mapped under (``lake.flatten`` provenance), as
+    one sorted, comma-joined text; ``unrecorded`` when the rows name none (a lake built before T-106b)."""
+    got = lake.query(
+        "SELECT DISTINCT mapping_version AS v FROM observation WHERE mapping_version IS NOT NULL ORDER BY v",
+        [],
+        snapshot,
+    ).to_pylist()
+    return ",".join(str(r["v"]) for r in got) or "unrecorded"

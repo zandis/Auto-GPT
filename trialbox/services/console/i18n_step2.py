@@ -24,6 +24,12 @@ EN: dict[str, str] = {
     "approve again.",
     "s20.pins.terminology.newer": "The code lists changed: the approved version was built on {pinned}, the box now "
     "has {active}. Screening stops until the criteria are rebuilt and approved again.",
+    "s20.pins.derived.newer": "A score's definition changed: the approved version follows {pinned}, the box now computes "
+    '{active}. Until you approve again, criteria on this score read "needs information".',
+    "s20.pins.derived.changed": "The score definition {pinned} is no longer on the box as approved. Until you approve "
+    'again, criteria on this score read "needs information".',
+    "s20.pins.derived.unknown": "The score definition {pinned} is not on this box. Until you approve again, criteria on "
+    'this score read "needs information".',
     "s20.pins.help": "Until you approve this version, screening keeps the instructions you approved before. Approving "
     "this version moves it to the box's current instructions and code lists.",
     "s20.chg.added": "new criterion",
@@ -200,6 +206,10 @@ JA: dict[str, str] = {
     "s20.pins.prompt.unknown": "承認済みの指示 {pinned} がこのボックスにありません。再承認までスクリーニングは止まります。",
     "s20.pins.terminology.newer": "コード表が変わりました。承認済みの版は {pinned} で作られ、現在のボックスには {active} があります。"
     "基準を作り直して再承認するまでスクリーニングは止まります。",
+    "s20.pins.derived.newer": "スコアの定義が変わりました。承認済みの版は {pinned} に従い、現在のボックスは {active} で計算します。"
+    "再承認するまで、このスコアを使う基準は「情報が必要」になります。",
+    "s20.pins.derived.changed": "承認済みのスコア定義 {pinned} が承認時のままボックスにありません。再承認するまで、このスコアを使う基準は「情報が必要」になります。",
+    "s20.pins.derived.unknown": "承認済みのスコア定義 {pinned} がこのボックスにありません。再承認するまで、このスコアを使う基準は「情報が必要」になります。",
     "s20.pins.help": "この版を承認するまで、スクリーニングは以前に承認した指示を使い続けます。承認すると現在の指示とコード表に移ります。",
     "s20.chg.added": "新しい基準",
     "s20.chg.text": "文言の変更",
@@ -367,6 +377,9 @@ ZH: dict[str, str] = {
     "s20.pins.prompt.changed": "已核准的指示 {pinned} 已不是核准時的內容。重新核准前篩選暫停。",
     "s20.pins.prompt.unknown": "本機沒有已核准的指示 {pinned}。重新核准前篩選暫停。",
     "s20.pins.terminology.newer": "代碼表已變更：已核准版本依據 {pinned} 建立，本機現有 {active}。條件重建並重新核准前篩選暫停。",
+    "s20.pins.derived.newer": "分數定義已變更：已核准版本依據 {pinned}，本機現以 {active} 計算。重新核准前，使用此分數的條件列入「需要更多資訊」。",
+    "s20.pins.derived.changed": "已核准的分數定義 {pinned} 已不是核准時的內容。重新核准前，使用此分數的條件列入「需要更多資訊」。",
+    "s20.pins.derived.unknown": "本機沒有已核准的分數定義 {pinned}。重新核准前，使用此分數的條件列入「需要更多資訊」。",
     "s20.pins.help": "核准此版本之前，篩選繼續使用先前核准的指示。核准後改用本機目前的指示與代碼表。",
     "s20.chg.added": "新條件",
     "s20.chg.text": "文字變更",

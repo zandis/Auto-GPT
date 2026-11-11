@@ -145,9 +145,9 @@ define function "SameVisit"(X FHIR.Observation, A FHIR.Observation, maxDays Syst
   if A is null then false
   else Abs((difference in days between "ObsDate"(A) and "ObsDate"(X))) <= maxDays
 
-/* CKD-EPI 2021, race-free */
+/* CKD-EPI 2021, race-free; adults only: no value under 18 (D-442) */
 define function "EGFR2021"(scr System.Decimal, age System.Integer, female System.Boolean):
-  if scr is null or age is null or female is null then null
+  if scr is null or age is null or age < 18 or female is null then null
   else 142.0 * Power(Min({ scr / (if female then 0.7 else 0.9), 1.0 }),
                          if female then -0.241 else -0.302)
        * Power(Max({ scr / (if female then 0.7 else 0.9), 1.0 }), -1.2)
@@ -156,7 +156,7 @@ define function "EGFR2021"(scr System.Decimal, age System.Integer, female System
 
 /* JSN 2009 (Japanese Society of Nephrology; D-149) */
 define function "EGFRJSN"(scr System.Decimal, age System.Integer, female System.Boolean):
-  if scr is null or scr <= 0 or age is null or age <= 0 or female is null then null
+  if scr is null or scr <= 0 or age is null or age < 18 or female is null then null
   else 194.0 * Power(scr, -1.094) * Power(age, -0.287) * (if female then 0.739 else 1.0)
 
 /* DAS28-ESR if the visit has an ESR row (its value in mm/h, null when its unit does not fit or it is 0), else

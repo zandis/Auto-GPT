@@ -220,7 +220,12 @@ def pinned_judge(rs: Ruleset) -> str:
 
 
 def structured_engine(ctx: Ctx, snapshot: str) -> StructuredEngine:
-    return engine_from_env(os.environ.get("TB_SCREEN_ENGINE", "sql"), ctx.services.fhir, ctx.services.lake, snapshot)
+    """The SQL engine on ``snapshot``; with a trial database it reads the stored derived rows too (D-442)."""
+    from orchestrator import derive
+
+    return engine_from_env(
+        os.environ.get("TB_SCREEN_ENGINE", "sql"), ctx.services.fhir, ctx.services.lake, snapshot, derive.store()
+    )
 
 
 def threshold(ctx: Ctx, rs: Ruleset) -> float:

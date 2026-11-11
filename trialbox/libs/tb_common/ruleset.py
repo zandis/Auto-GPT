@@ -198,6 +198,7 @@ def approval_state(
     *,
     terminology_release: str | None = None,
     prompt_drift: list[dict[str, Any]] | None = None,
+    derived_drift: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Whether an approved ruleset still stands as the investigator approved it (D-318, URS-PI-06).
 
@@ -205,14 +206,21 @@ def approval_state(
     (``tb_llm.prompt_registry.pin_drift``), or when the box's terminology release (``terminology_release``, None when
     it cannot be read) is not the one it was compiled against (D-301). A prompt change leaves SCREEN on the pinned
     prompt until the re-approval; a terminology change refuses the run until it is recompiled and re-approved, because
-    the box holds only its current release. ``reasons`` lists each cause for the page."""
+    the box holds only its current release. D-442: ``approval_needed`` too when a score definition it pins
+    (``derived_pins``) is computed on this box under another version or text (:func:`tb_common.scores.pin_drift`);
+    until the re-approval screening reads those scores as unknown. ``reasons`` lists each cause for the page."""
     if manifest.status != "approved":
         return {"state": "draft", "reasons": []}
     if prompt_drift is None:
         from tb_llm.prompt_registry import pin_drift
 
         prompt_drift = pin_drift(manifest)
+    if derived_drift is None:
+        from tb_common.scores import pin_drift as derived_pin_drift
+
+        derived_drift = derived_pin_drift(getattr(manifest, "derived_pins", None))
     reasons: list[dict[str, Any]] = [{"kind": "prompt", **d} for d in prompt_drift]
+    reasons += [{"kind": "derived", **d} for d in derived_drift]
     pinned = manifest.terminology_release
     if pinned and terminology_release and pinned != terminology_release:
         reasons.append({"kind": "terminology", "pinned": pinned, "active": terminology_release, "state": "newer"})

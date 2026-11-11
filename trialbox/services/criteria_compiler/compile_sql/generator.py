@@ -11,6 +11,7 @@ from collections.abc import Callable
 from typing import ClassVar
 
 from tb_common.derived import (
+    ADULT_ONLY,
     ASDAS,
     CODES,
     COMPONENTS,
@@ -18,6 +19,7 @@ from tb_common.derived import (
     DOMAIN,
     EGFR,
     EGFR_JSN,
+    EGFR_MIN_AGE,
     MISSING,
     SAME_VISIT,
     UNIT,
@@ -358,6 +360,13 @@ class SqlGenerator:
         female = "(CASE WHEN b.sex IN ('male', 'female') THEN b.sex = 'female' ELSE NULL END)"
         age = "date_sub('year', b.birth_date, b.index_date)"
         need = checks(list(comps))
+        # the person's inputs of an eGFR, in the Python reference's order: no usable age, an age under 18 (D-442: the
+        # equations are for adults), no usable sex
+        egfr_person = [
+            (f"{age} IS NULL OR {age} <= 0", f"{MISSING}:age"),
+            (f"{age} < {EGFR_MIN_AGE}", f"{ADULT_ONLY}:age"),
+            (f"{female} IS NULL", f"{MISSING}:sex"),
+        ]
         match score:
             case "bmi":
                 value = f"{v['weight']} / pow({v['height']} / 100.0, 2)"
@@ -366,22 +375,23 @@ class SqlGenerator:
                 alpha = f"(CASE WHEN {female} THEN {EGFR['alpha_f']} ELSE {EGFR['alpha_m']} END)"
                 # least()/greatest() ignore NULLs in DuckDB: guard every input explicitly (CQL does the same)
                 value = (
-                    f"(CASE WHEN {v['creatinine']} IS NULL OR {age} IS NULL OR {female} IS NULL THEN NULL "
+                    f"(CASE WHEN {v['creatinine']} IS NULL OR {age} IS NULL OR {age} < {EGFR_MIN_AGE} "
+                    f"OR {female} IS NULL THEN NULL "
                     f"ELSE {EGFR['k']} * pow(least({v['creatinine']} / {kappa}, 1.0), {alpha}) * "
                     f"pow(greatest({v['creatinine']} / {kappa}, 1.0), {EGFR['exp_hi']}) * "
                     f"pow({EGFR['age_base']}, {age}) * (CASE WHEN {female} THEN {EGFR['female']} ELSE 1.0 END) "
                     f"END)"
                 )
-                need += [(f"{age} IS NULL", f"{MISSING}:age"), (f"{female} IS NULL", f"{MISSING}:sex")]
+                need += egfr_person
             case "egfr_jsn":
                 value = (
-                    f"(CASE WHEN {v['creatinine']} IS NULL OR {v['creatinine']} <= 0 OR {age} IS NULL OR {age} <= 0 "
-                    f"OR {female} IS NULL THEN NULL "
+                    f"(CASE WHEN {v['creatinine']} IS NULL OR {v['creatinine']} <= 0 OR {age} IS NULL "
+                    f"OR {age} < {EGFR_MIN_AGE} OR {female} IS NULL THEN NULL "
                     f"ELSE {EGFR_JSN['k']} * pow({v['creatinine']}, {EGFR_JSN['scr_exp']}) * "
                     f"pow({age}, {EGFR_JSN['age_exp']}) * (CASE WHEN {female} THEN {EGFR_JSN['female']} ELSE 1.0 END) "
                     f"END)"
                 )
-                need += [(f"{age} IS NULL", f"{MISSING}:age"), (f"{female} IS NULL", f"{MISSING}:sex")]
+                need += egfr_person
             case "das28":
                 base = (
                     f"{DAS28['tjc']} * sqrt({v['tjc28']}) + {DAS28['sjc']} * sqrt({v['sjc28']}) + "
