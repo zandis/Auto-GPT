@@ -36,7 +36,7 @@ bundle of card T-304 builds from this table.
 
 | Id | Record | Class | System of record | Keeper | Retention | ISF export | Audit events |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| R-01 | Audit chain: every action, hash-chained, with the head anchor | control | the box; the nightly archive on the hospital share | site administrator | 10 years on the box (`audit_years`); the archive is never deleted | the archive's day files and its head anchor; `tools/audit_verify.py` | all |
+| R-01 | Audit chain: every action, hash-chained, with the head anchor; one writer copies the services' events from the append-only journal (D-394) | control | the box; the nightly archive on the hospital share | site administrator | 10 years on the box (`audit_years`); the archive is never deleted | the archive's day files and its head anchor; `tools/audit_verify.py` | all |
 | R-02 | Export ledger: every file or record set that left the box, to whom, under which approval | control | the audit chain (`flow.export` events) | data steward | as R-01 | `libs/tb_common/flowledger.py` `exports` | `flow.export` |
 | R-03 | Screening log: screening numbers, the PI's mark, contact outcomes, registry status | essential | the box, pseudonymous; the site's registry resolves the chart number | PI, through the trial office | kept | `/studies/{rs}/screening-log.xlsx`; `/registry/{ruleset}/export.xlsx` | `console.pi_mark`, `console.contact_outcome`, `console.registry`, `registry.export` |
 | R-04 | Delegation log copy and its monthly check | copy | the trial office's signed delegation log | trial office | kept | page only | `console.delegation` |
@@ -91,6 +91,7 @@ are marked "files".
 | Module | Tables | Id |
 | --- | --- | --- |
 | `libs/tb_common/audit.py` | files: the day files, the head anchor, the archive | R-01 |
+| `libs/tb_common/audit_writer.py` | `journal` | R-01 |
 | `libs/tb_common/flowledger.py` | files: `flow.export` events in the audit chain | R-02 |
 | `services/console/sitestore.py` | `screening_no`, `contact_outcomes`, `pi_marks` | R-03 |
 | `services/orchestrator/db.py` | `candidates`, `candidate_events` | R-03 |

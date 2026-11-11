@@ -1,6 +1,6 @@
 """Feature flags (MR-090, T-008, D-207): one audited table, read by every service without a restart.
 
-    flags = Flags(Database.connect(os.environ["TB_DB_URL"], SCHEMA), audit=AuditLog(audit_dir))
+    flags = Flags(Database.connect(os.environ["TB_DB_URL"], SCHEMA), audit=open_audit(audit_dir))
     flags.seed()                                         # at a service's start: the first start pins each flag
     flags.get("lake.source", "legacy")                   # never raises for a declared name; a 5-second cache
     flags.set("lake.source", "omop", actor="console:admin", reason="WS-03.5 flip after the goldens held")

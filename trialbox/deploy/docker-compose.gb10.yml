@@ -131,6 +131,7 @@ services:
       TB_PROFILE: P-GB10
   llm-stub: {<<: *arm, mem_limit: 1g}
   console: {<<: *arm, mem_limit: 2g}
+  audit-writer: {<<: *arm, mem_limit: 256m}   # D-394; deploy/gb10-profile.yaml
   model-guard: {<<: *arm, mem_limit: 1g}
   # Third-party services: multi-arch digests from docker-compose.yml resolve to their arm64 manifests here.
   db: {<<: *arm, mem_limit: 8g}

@@ -200,3 +200,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-373 | merged | T-214 | the GB10 profile as data (unmeasured), memory limits on the Spark, the dated driver hold, the two-device link (mutual TLS relay, the gateway no listener) (file) |
 | D-376 | merged | T-676b | the TWPAS route is SNOMED CT `26643006` (oral), the code the IG's required value set lists, with no SNOMED CT description; amends D-342 item 4 (file) |
 | D-377 | merged | T-108b | systemd units: the egress table saved by `apply` and restored closed before Docker at boot, the stack unit after it, the egress refresh and watchdog timers (file) |
+| D-394 | merged | T-211b | one audit writer: the services call `audit.append` (SECURITY DEFINER, owned by `audit_writer`) into the append-only `audit.journal`, no direct INSERT, UPDATE or DELETE; the `audit-writer` service alone writes the hash chain; the six service mounts read-only (file) |

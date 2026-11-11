@@ -744,8 +744,8 @@ class ComposeOps:
         """Append ``event`` to the box's audit log through the orchestrator. Events kept while it was down
         (``deploy/site/backup-audit-pending.jsonl``) go first, in order (D-274, DI-10); what cannot be sent stays."""
         code = (
-            "import json, sys\nfrom tb_common.audit import AuditLog\ns = json.load(sys.stdin)\n"
-            "AuditLog('/data/audit').append(s['event'], actor='backup', input_sha=s['sha'], detail=s['detail'])\n"
+            "import json, sys\nfrom tb_common.audit_writer import open_audit\ns = json.load(sys.stdin)\n"
+            "open_audit().append(s['event'], actor='backup', input_sha=s['sha'], detail=s['detail'])\n"
         )
         state = self.deploy / "site"
         state.mkdir(parents=True, exist_ok=True)

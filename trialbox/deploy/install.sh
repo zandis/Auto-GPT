@@ -216,9 +216,10 @@ fi
 echo "    ClinicalTrials.gov: $CTGOV"
 sed -i "/^TB_CTGOV_MODE=/d" deploy/.env && echo "TB_CTGOV_MODE=$CTGOV" >> deploy/.env
 # random service passwords where the example ones are still in place
-# D-378: and one per service role of the trial database (deploy/docker/db-init/30-service-roles.sh)
+# D-378: and one per service role of the trial database (deploy/docker/db-init/30-service-roles.sh); D-394: the
+# audit writer's role too
 for k in POSTGRES_PASSWORD POSTGRES_WF_PASSWORD TB_DB_PW_LAKE TB_DB_PW_CRITERIA_COMPILER TB_DB_PW_ADAPTER \
-         TB_DB_PW_ORCHESTRATOR TB_DB_PW_MAIL_GATEWAY TB_DB_PW_GATEWAY TB_DB_PW_CONSOLE; do
+         TB_DB_PW_ORCHESTRATOR TB_DB_PW_MAIL_GATEWAY TB_DB_PW_GATEWAY TB_DB_PW_CONSOLE TB_DB_PW_AUDIT_WRITER; do
   if grep -q "^$k=change-me" deploy/.env || ! grep -q "^$k=" deploy/.env; then
     sed -i.bak "/^$k=/d" deploy/.env && printf '%s=%s\n' "$k" "$(rand 32)" >> deploy/.env
   fi
@@ -461,9 +462,9 @@ for f in deploy/updates/pending_audit/*.json; do  # the bundle's update.applied 
   "${COMPOSE[@]}" exec -T orchestrator python -c '
 import json, sys
 from pathlib import Path
-from tb_common.audit import AuditLog
+from tb_common.audit_writer import open_audit
 s = json.load(sys.stdin)
-AuditLog(Path("/data/audit")).append("update.applied", actor="deploy/install.sh", input_sha=s["manifest_sha256"],
+open_audit(Path("/data/audit")).append("update.applied", actor="deploy/install.sh", input_sha=s["manifest_sha256"],
     detail={"bundle_id": s["bundle_id"], "signer": s["signer"], "files": s["files"]})
 ' < "$f" && rm -f "$f" && echo "    audited bundle $(basename "$f" .json)"
 done

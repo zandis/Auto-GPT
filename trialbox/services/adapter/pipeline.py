@@ -16,7 +16,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from tb_common import feedguard
-from tb_common.audit import AuditLog
+from tb_common.audit_writer import open_audit
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
 from tb_contracts import IngestReport, RebuildResult, ValidationSummary, dump
@@ -279,7 +279,7 @@ def run_ingest(
     except Exception as exc:
         if cfg.audit_dir:
             try:
-                AuditLog(cfg.audit_dir, cfg.tz).append(
+                open_audit(cfg.audit_dir, cfg.tz).append(
                     "ingest.failed",
                     snapshot=snapshot or datetime.now(ZoneInfo(cfg.tz)).date().isoformat(),
                     actor="adapter",
@@ -319,7 +319,7 @@ def _run_ingest(
     except SiteKeyError as exc:
         log.error("night refused: %s", exc)
         if cfg.audit_dir:
-            AuditLog(cfg.audit_dir, cfg.tz).append(
+            open_audit(cfg.audit_dir, cfg.tz).append(
                 "ingest.failed",
                 snapshot=snap,
                 actor="adapter",
@@ -599,7 +599,7 @@ def _run_ingest(
         (out_dir / HELD).unlink(missing_ok=True)
     pruned = prune_snapshots(cfg, date.fromisoformat(snap)) if passed and rebuild_lake else []
     if cfg.audit_dir:
-        AuditLog(cfg.audit_dir, cfg.tz).append(
+        open_audit(cfg.audit_dir, cfg.tz).append(
             "ingest.done" if passed else "ingest.held" if held else "ingest.failed",
             snapshot=snap,
             output_sha=sha256_bytes(body),
