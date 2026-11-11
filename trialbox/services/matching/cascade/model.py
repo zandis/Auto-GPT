@@ -59,6 +59,8 @@ class PatientTrace:
     exit_stage: Stage | None = None  # stage at which the patient left the cascade (excluded)
     exit_criterion: str | None = None
     unprocessed: bool = False  # budget ran out before S3 finished (CAS-4, SAFE-13: never an exclusion)
+    # criteria whose judged excerpts left an evidence note out (T-603, CR-004 flag half): never "strong", a person looks
+    notes_over_budget: list[str] = field(default_factory=list)
     sampled: bool = True  # CAS-8: in a feasibility run S3/S4 see only a stratified sample
     sample_stratum: str = ""  # CAS-8 stratum: S2/S2b outcome signature × department
     tier: Tier = "out_of_scope"
@@ -123,6 +125,7 @@ class CascadeMetrics:
     s2b_embed_batches: int = 0
     sampled_patients: int = 0
     gateway_refusals: int = 0
+    notes_over_budget: int = 0  # patients flagged because an evidence note did not fit the excerpts (T-603)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

@@ -160,6 +160,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                             {"form": form, "event": ev, "values": values, "by": h.actor(sess)}))  # fmt: skip
         au.append("console.data_entry", ruleset=rid, actor=h.actor(sess),
                   detail={"form": form, "event": ev, "changed": out.get("changed", 0)})  # fmt: skip
+        if form == "tb_adverse_event" and h.sae_sync is not None:
+            h.sae_sync(rid)  # D-277 (CR-012): the SAE register is written on the write path, never on a page view
         return out
 
     def read_export(sess: Session, rs: str, fmt: str) -> tuple[str, str, bytes]:

@@ -191,8 +191,8 @@ def register(app: FastAPI, h: Helpers) -> None:
     def aes(rid: str) -> dict[str, Any]:
         try:
             return dict(get(f"/studies/{rid}/aes?today={today().isoformat()}"))
-        except (Problem, Unavailable):
-            return {"unacked": [], "overdue": []}
+        except (Problem, Unavailable):  # CR-010: never "no SAE" when the answer is unknown; the pages say so
+            return {"unacked": [], "overdue": [], "failed": True}
 
     def serious(rid: str) -> list[dict[str, Any]]:
         """Serious AEs the investigator has not acknowledged, whatever their outcome (review 2026-11-09 P-02: a fatal
@@ -209,20 +209,25 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not sess.user.can_view_phi or h.trials is None:
             return {"studies": [], "sae": [], "reports": []}
         day = today()
-        studies, sae, reports = [], [], []
+        studies, sae, reports, failed = [], [], [], []
         for r in h.trials(sess):  # read only: the lifecycle pages and the mail bring the participants up to date
             v = visits_of(r.id, day)
             if v is not None and v["rows"]:
                 lst = v["list"]
                 studies.append({"rs": r.id, "today": lst["today"], "week": lst["week"], "overdue": lst["overdue"]})
-            sae += [{**a, "rs": r.id} for a in serious(r.id)]
-            reports += [{**a, "rs": r.id} for a in reports_due(r.id)]
-        return {"studies": studies, "sae": sae, "reports": reports, "today": day.isoformat()}
+            got = aes(r.id)
+            sae += [{**a, "rs": r.id} for a in got.get("unacked") or []]
+            reports += [{**a, "rs": r.id} for a in (h.life_reports or reports_due)(r.id)]
+            if got.get("failed"):
+                failed.append(r.id)
+        return {"studies": studies, "sae": sae, "reports": reports, "today": day.isoformat(), "sae_failed": failed}
 
     def life_mail(rid: str, day: date) -> dict[str, Any]:
         """N1/N2 (D-134): the study's visits on ``day`` and its serious AEs, by pseudonym (the mail adds the screening
         number beside it, D-136; never a chart number in mail)."""
         refresh(rid, "console:notify")
+        if h.sae_sync is not None:
+            h.sae_sync(rid)  # D-277: the daily job writes what reached the data core another way (REDCap, the API)
         v = visits_of(rid, day)
         nos = store.screening_nos(rid)
 
@@ -230,7 +235,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             return f"{pid[:8]} ({nos[pid]})" if pid in nos else pid[:8] or "–"
 
         reports = [{"short": short(str(a.get("pid") or "")), "party": a["party"], "due": a["due"]}
-                   for a in reports_due(rid)]  # fmt: skip
+                   for a in (h.life_reports or reports_due)(rid)]  # fmt: skip
         if v is None:
             return {"today": [], "week": [], "overdue": [], "sae": len(serious(rid)), "reports": reports}
         lst = v["list"]
@@ -259,6 +264,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         out = dict(s28.call(bk, "POST", f"/studies/{rid}/aes/{quote(rec)}/{ev}/ack", {"by": h.actor(sess)}))
         au.append("console.sae_ack", ruleset=rid, actor=h.actor(sess),
                   detail={"record": rec, "event": ev, "at": out.get("ack_at")})  # fmt: skip
+        if h.sae_sync is not None:
+            h.sae_sync(rid)  # D-277: the register's trail takes the acknowledgement on the write path
         return out
 
     # ------------------------------------------------------------------ pages

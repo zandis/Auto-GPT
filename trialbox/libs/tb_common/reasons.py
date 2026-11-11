@@ -32,6 +32,8 @@ class Reason(StrEnum):
     REFUSED = "refused"  # the gateway refused the call (policy)
     HUMAN = "human"  # a person decides this criterion
     NOT_EVALUATED = "not_evaluated"  # not judged on this run (budget, not sampled, no judge)
+    # notes of the window did not fit what the models can read at once: the answer is flagged, a person looks (T-603)
+    NOTES_OVER_BUDGET = "notes_over_budget"
     NOT_IN_SNAPSHOT = "not_in_snapshot"  # the patient is not in this snapshot of the records
     CHECK_DATES = "check_dates"  # deceased or not yet born at the screening date by the records (D-142)
     DERIVED_MISSING_INPUT = "derived_missing_input"  # a score lacks an input at the visit (D-149)
@@ -60,6 +62,7 @@ _RULES: tuple[tuple[tuple[str, ...], Reason], ...] = (
     (("abstain", "s2b below", "not coded and not found"), Reason.ABSTAINED),
     (("low_confidence", "low confidence"), Reason.LOW_CONFIDENCE),
     (("human", "s5 reviewer"), Reason.HUMAN),
+    (("notes_over_budget", "did not fit"), Reason.NOTES_OVER_BUDGET),
     (("no note", "no notes"), Reason.NO_NOTES),
     (("not evaluated", "not sampled", "unprocessed", "not judged", "no judge"), Reason.NOT_EVALUATED),
     (("unknown_kept", "unknown kept"), Reason.UNKNOWN_KEPT),
@@ -137,6 +140,11 @@ LABELS: dict[str, dict[str, str]] = {
     },
     "human": {"en": "a person decides", "ja": "担当者が判断", "zh-TW": "由人員判斷"},
     "not_evaluated": {"en": "not checked on this run", "ja": "今回は未確認", "zh-TW": "本次未確認"},
+    "notes_over_budget": {
+        "en": "some notes were too long to read in one check: please look",
+        "ja": "一度に読める量を超えた記録の文章あり：確認してください",
+        "zh-TW": "部分病歷文字超過單次可讀取的長度：請查看",
+    },
     "not_in_snapshot": {
         "en": "not in this copy of the records",
         "ja": "今回の記録の写しに含まれない",
