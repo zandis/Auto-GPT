@@ -1,0 +1,118 @@
+# Mutation testing and coverage ratchet of the safety core (T-651, ENG-029; TB-DR-04 §3.2, §3.3).
+# Read by tools/mutation.py (the nightly job of .github/workflows/trialbox-nightly-quality.yml) and by
+# tools/coverage_ratchet.py (the unit job of trialbox-ci.yml and the nightly branch run).
+
+# The mutation score is killed / (all - accepted - not run), in per cent. `threshold` is the target of TB-PLAN-06
+# (T-651); the nightly job fails under `floor`, a little under the first nightly scores (66.6 % without the engine
+# shard, 2026-11-11). Raise the floor as tests kill the survivors the job lists, until it reaches the threshold.
+threshold = 90.0
+floor = 60.0
+
+# The safety core: the files that hold the two invariants (unknown never excludes; a proposed fact never counts) and
+# their neighbours, as listed in TB-DR-04 §3.2. Each must reach 95 % line and 90 % branch coverage; one that is not
+# there yet may not fall under its own baseline (tools/coverage_baseline.json).
+[safety_core]
+files = [
+  "services/matching/cascade/engine.py",
+  "services/matching/proposed.py",
+  "services/matching/coverage.py",
+  "services/matching/cascade/judge.py",
+  "libs/tb_common/pair.py",
+  "libs/tb_common/quotes.py",
+  "services/orchestrator/scenarios/evaluate.py",
+  "services/criteria_compiler/compile_sql/generator.py",
+  "services/criteria_compiler/compile_cql/generator.py",
+  "services/criteria_compiler/compile_cql/translator.py",
+  "services/criteria_compiler/semantics.py",
+  "services/criteria_compiler/equivalence/gate.py",
+  "libs/tb_common/derived.py",
+  "services/guard/guard.py",
+  "services/guard/recognisers.py",
+  "libs/tb_common/phi_guard.py",
+  "services/gateway/core.py",
+  "services/gateway/policy.py",
+]
+
+# Mutation targets: the files of the two invariants (the 28 hand-made mutants of TB-DR-04 §3.3 lived here). Tests
+# are listed fastest first: each mutant runs them with -x, so the first failure ends the run.
+[[target]]
+file = "libs/tb_common/pair.py"
+tests = [
+  "tests/unit/test_one_engine.py",
+  "tests/unit/test_two_model_identity.py",
+  "tests/unit/test_screen_exclusion_pair.py",
+  "tests/unit/test_canary_gate.py",
+  "tests/unit/test_safety_properties.py",
+]
+
+[[target]]
+file = "libs/tb_common/quotes.py"
+tests = ["tests/unit/test_quotes.py"]
+
+[[target]]
+file = "services/matching/coverage.py"
+tests = [
+  "tests/unit/test_code_coverage.py",
+  "tests/unit/test_japan_icd10.py",
+  "tests/unit/test_valueset_family.py",
+  "tests/unit/test_safety_properties.py",
+]
+
+[[target]]
+file = "services/matching/proposed.py"
+tests = [
+  "tests/unit/test_one_rule.py",
+  "tests/unit/test_suspected_diagnosis.py",
+  "tests/unit/test_safety_properties.py",
+]
+
+[[target]]
+file = "services/matching/cascade/judge.py"
+tests = [
+  "tests/unit/test_agreement_judge.py",
+  "tests/unit/test_cascade_units.py",
+  "tests/unit/test_cascade_exclusion_rules.py",
+  "tests/unit/test_cascade_excerpt_budget.py",
+  "tests/unit/test_cascade_pipeline.py",
+  "tests/unit/test_safety_properties.py",
+]
+
+[[target]]
+file = "services/matching/cascade/engine.py"
+tests = [
+  "tests/unit/test_cascade_units.py",
+  "tests/unit/test_cascade_exclusion_rules.py",
+  "tests/unit/test_cascade_lake_errors.py",
+  "tests/unit/test_cascade_excerpt_budget.py",
+  "tests/unit/test_screen_not_at_index.py",
+  "tests/unit/test_screen_exclusion_pair.py",
+  "tests/unit/test_lab_value_unknown.py",
+  "tests/unit/test_suspected_diagnosis.py",
+  "tests/unit/test_one_rule.py",
+  "tests/unit/test_code_coverage.py",
+  "tests/unit/test_derived_scores.py",
+  "tests/unit/test_cascade_pipeline.py",
+  "tests/unit/test_safety_properties.py",
+]
+
+[[target]]
+file = "services/orchestrator/scenarios/evaluate.py"
+tests = [
+  "tests/unit/test_judge_tier.py",
+  "tests/unit/test_one_engine.py",
+  "tests/unit/test_mixed_and_polarity.py",
+  "tests/unit/test_one_rule.py",
+  "tests/unit/test_code_coverage.py",
+  "tests/unit/test_lab_value_unknown.py",
+  "tests/unit/test_suspected_diagnosis.py",
+  "tests/unit/test_microbatch_note_block.py",
+  "tests/unit/test_note_pair_disagreement.py",
+  "tests/unit/test_derived_scores.py",
+  "tests/unit/test_criteria_safety.py",
+  "tests/unit/test_scenario_findings.py",
+  "tests/unit/test_safety_properties.py",
+]
+
+# Equivalent mutants: a change no test can see because the behaviour is the same. One line each, with the reason;
+# ids are "<file>:<line>:<col>:<operator>" as `python -m tools.mutation --list` prints them.
+[accepted]
