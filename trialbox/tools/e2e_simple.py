@@ -1235,6 +1235,12 @@ def _stage16(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, b
     return s
 
 
+def _recorded_source(lake_dir: Path, snapshot: str) -> str | None:
+    from tools.omop_parity import recorded_source
+
+    return recorded_source(lake_dir, snapshot)
+
+
 def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     """Run the whole path once in ``work`` (must be empty or absent); return the stages and the timings."""
     from console.i18n import CATALOGUES
@@ -1298,6 +1304,11 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     s.check("no chart number, ID or phone column in the lake", not bad and "name" not in cols["patient"], bad)
     pids = {r["pid"] for r in q("SELECT pid FROM patient")}
     s.check("lake keys are pseudonyms, never chart numbers", not pids & mrns, len(pids & mrns))
+    # T-202 (D-384): CI runs this gate on both lake sources; the lake must really come from the one asked for
+    want_src = (os.environ.get("TB_LAKE_SOURCE") or "legacy").strip().lower()
+    lake_dir = getattr(getattr(lake, "lake", None), "dir", None)
+    said = _recorded_source(Path(lake_dir), str(lake.snapshot())) if lake_dir else None
+    s.check(f"the lake was built from the source asked for ({want_src})", said == want_src, f"recorded {said}")
     s.seconds = time.perf_counter() - t
     stages.append(s)
 
