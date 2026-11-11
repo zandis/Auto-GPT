@@ -113,6 +113,8 @@ class Helpers:
     chart_lookup: Callable[[Session, str], None] | None = None  # set by console.team: the lookup cap (D-273)
     irb_gate: bool = False  # set by console.team (D-395): the candidate view waits for the study's IRB-text record
     ops_summary: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages (D-178): the health tile
+    ops_status: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages: the host runner's status
+    health: Callable[[], Any] | None = None  # set by console.metrics_page (T-209a): tb_common.metrics.Health now
     identity: Any = None  # console.identity.Identity (D-279): the second factor at signing; None in bare test apps
     recorded: Any = None  # console.recorded_opinions.Recorded (T-515): demo opinions laid over the candidate list
     # set by console.breakglass (D-280): the administrator's open grant covering one patient or one job, else None;
