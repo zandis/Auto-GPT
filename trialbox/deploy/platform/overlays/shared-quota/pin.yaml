@@ -1,0 +1,35 @@
+# The pin job of the shared-quota profile (D-142, D-409; LLM-011): what install.sh does on a box, as a job in the
+# namespace. It pins the profile's pair (tools/pin_model.py PROFILE_PAIRS["shared-quota"]: the judge and the verifier
+# builds of models/registry.yaml) from the weights in the models-data claim, as `candidate`, into the model-pins
+# claim the gateway reads (TB_REGISTRY_OVERRIDE). A folder whose files are not the release's expected manifest is
+# refused and nothing is pinned for it (T-012b); champion comes only from `trialbox eval qualify` and --promote. The
+# gateway reads its pins when it starts: after the job completes, `kubectl -n <ns> rollout restart deployment/gateway`
+# (RUNBOOK §17). Re-run after the weights change: delete the job and apply again.
+apiVersion: batch/v1
+kind: Job
+metadata: {name: trialbox-pin, labels: {app.kubernetes.io/component: pin, trialbox.io/tier: ops}}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {app.kubernetes.io/component: pin, trialbox.io/tier: ops}}
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: pin
+          image: trialbox-py
+          command: ["python", "-m", "tools.pin_model", "--install", "shared-quota", "--models-root", "/models",
+                    "--out", "/data/pins/registry.site.yaml"]
+          envFrom: [{configMapRef: {name: trialbox-serving}}]  # JUDGE_MODEL_DIR, VERIFIER_MODEL_DIR, the served names
+          resources: {requests: {cpu: 500m, memory: 512Mi}, limits: {memory: 2Gi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: models, mountPath: /models, readOnly: true}
+            - {name: pins, mountPath: /data/pins}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: models, persistentVolumeClaim: {claimName: models-data, readOnly: true}}
+        - {name: pins, persistentVolumeClaim: {claimName: model-pins}}
+        - {name: tmp, emptyDir: {}}

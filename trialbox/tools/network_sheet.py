@@ -207,6 +207,11 @@ T["authelia"] = {
     "ja": "コンソールと Caddy のみ（病院アカウントでのサインイン）",
     "zh-TW": "僅主控台與 Caddy（以醫院帳號登入）",
 }
+T["prometheus"] = {
+    "en": "no published port; only the box's own operator reads it (optional monitoring overlay, D-379)",
+    "ja": "外部からは不可（公開ポートなし）。本機の運用担当者のみ参照（任意の監視オーバーレイ、D-379）",
+    "zh-TW": "外部不可連線（無對外連接埠）；僅本機維運人員查看（選用監控疊加，D-379）",
+}
 T["test_only"] = {
     "en": "test and demo boxes only; never in a hospital bundle",
     "ja": "試験・デモ機のみ（病院向けバンドルには含めない）",
@@ -367,6 +372,8 @@ def who(s: Service, lang: str) -> str:
         return T["caddy"][lang]
     if s.name == "authelia":
         return T["authelia"][lang]
+    if s.name == "prometheus":
+        return T["prometheus"][lang]
     if s.name in TEST_ONLY:
         return T["test_only"][lang]
     if s.name in CALLERS:

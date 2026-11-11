@@ -6,9 +6,13 @@
 # store run inside the gateway process (services/gateway/app.py).
 name: trialbox
 
-x-logging: &logging   # no PHI in logs (pids only); size-based rotation keeps well under the 180-day retention
+# No PHI in logs (pids only). Each container keeps TB_LOG_MAX_SIZE x TB_LOG_MAX_FILE of JSON log; `trialbox logs daily`
+# copies the site's day to TB_LOG_DIR at 00:20, kept retention.logs_days (365). D-389 (OPS-034): 100m x 10 is a
+# provisional cap, about three times the estimated busiest night, NOT measured (G1 parked); COVERAGE.json of each collected
+# day measures it and `logs daily` exits 1 on a log gap.
+x-logging: &logging
   driver: json-file
-  options: {max-size: "50m", max-file: "5"}
+  options: {max-size: "${TB_LOG_MAX_SIZE:-100m}", max-file: "${TB_LOG_MAX_FILE:-10}"}
 
 # T-108a (D-360): every service has a memory cap (mem_limit, a TB_MEM_<NAME> setting in deploy/.env moves it) and a
 # pids cap, so one runaway process cannot take the box's memory or process table from the others (CR-082). No CPU

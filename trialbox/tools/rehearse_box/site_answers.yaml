@@ -24,7 +24,8 @@ practitioners:
   P10001: {name: Dr. A1 (synthetic), department: RHEU, email: pi@hospa.test, capacity_per_month: 3}
 llm_mode: gpu
 cloud_enabled: no
-attachment_encryption: zip
+attachment_encryption: link
+console_url: https://trialbox.hospa.test
 twpas_enabled: no
 alliance_root: no
 alliance_root_address: ""

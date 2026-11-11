@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "e31dd293513c382adf5101f332ef0c55439ab2a2",
-  "lake_schema_version": 3,
+  "head": "be80e5a12dae221208e82de578d818e6dac47612",
+  "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-106b lake schema 3",
+  "reason": "T-616 (D-400): patient.deceased column, lake schema 4, base cohort leaves out a deceased patient with no date",
   "ref_date": "2026-11-01",
   "ruleset": "GOUT-COH",
   "ruleset_version": "1.0.0",

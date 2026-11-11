@@ -400,6 +400,14 @@ PROFILE_PAIRS: dict[str, list[tuple[str, str, str, str, str, str]]] = {
          JUDGE_SERVED),
         ("qwen3.5-9b-rtx5090", "verifier", "VERIFIER_MODEL_DIR", "qwen3.5-9b-4bit", "VERIFIER_MODEL", VERIFIER_SERVED),
     ],
+    # D-409: the B200 on two MIG instances (deploy/platform overlays/shared-quota, docker-compose.shared-quota.yml);
+    # the platform's pin job (overlays/shared-quota/pin.yaml) runs --install shared-quota against the models claim
+    "shared-quota": [
+        ("gemma-4-26b-a4b-it-sharedquota", "serving", "JUDGE_MODEL_DIR", "gemma-4-26b-a4b-it-4bit", "JUDGE_MODEL",
+         JUDGE_SERVED),
+        ("qwen3.5-9b-sharedquota", "verifier", "VERIFIER_MODEL_DIR", "qwen3.5-9b-4bit", "VERIFIER_MODEL",
+         VERIFIER_SERVED),
+    ],
     "rtx4090": [  # judge alone (the verifier is scaled to 0; TB_NOTE_BLOCK=never)
         ("gemma-4-26b-a4b-it-rtx5090", "serving", "JUDGE_MODEL_DIR", "gemma-4-26b-a4b-it-4bit", "JUDGE_MODEL",
          JUDGE_SERVED),

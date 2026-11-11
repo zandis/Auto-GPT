@@ -392,10 +392,13 @@ spec:
             - {name: TB_SERVICE_NAME, value: gateway}
             - {name: TB_AUDIT_DIR, value: "/data/audit"}
             - {name: TB_TRACESTORE, value: "on"}
-            - {name: TB_REGISTRY_OVERRIDE, value: "/etc/trialbox/site/registry.site.yaml"}
+            # the site's pins: written by the pin job (overlays/shared-quota/pin.yaml, tools/pin_model.py --install)
+            - {name: TB_REGISTRY_OVERRIDE, value: "/data/pins/registry.site.yaml"}
             - {name: TB_GATEWAY_INTERACTIVE_TIMEOUT_S, value: "30"}
             - {name: TB_DB_URL, valueFrom: {secretKeyRef: {name: trialbox-db, key: TB_DB_URL}}}
             - {name: CLOUD_LLM_API_KEY, valueFrom: {secretKeyRef: {name: trialbox-cloud, key: CLOUD_LLM_API_KEY, optional: true}}}
+            # D-177, D-409: the model servers' key (model-guard wants it on every call); only the gateway holds it
+            - {name: TB_LLM_API_KEY, valueFrom: {secretKeyRef: {name: trialbox-model-key, key: TB_LLM_API_KEY}}}
           ports: [{containerPort: 8020}]
           readinessProbe: {httpGet: {path: /healthz, port: 8020}, periodSeconds: 15, timeoutSeconds: 5, failureThreshold: 10}
           resources: {requests: {cpu: 100m, memory: 512Mi}, limits: {memory: 2Gi}}
@@ -407,7 +410,7 @@ spec:
             - {name: tmp, mountPath: /tmp}
             - {name: audit-data, mountPath: /data/audit}
             - {name: traces-data, mountPath: /data/traces}
-            - {name: site, mountPath: /etc/trialbox/site, readOnly: true}
+            - {name: pins, mountPath: /data/pins, readOnly: true}
       volumes:
         - {name: settings, configMap: {name: trialbox-settings}}
         - {name: token, secret: {secretName: trialbox-token-gateway, defaultMode: 0440}}
@@ -415,7 +418,7 @@ spec:
         - {name: tmp, emptyDir: {}}
         - {name: audit-data, persistentVolumeClaim: {claimName: audit-data}}
         - {name: traces-data, persistentVolumeClaim: {claimName: traces-data}}
-        - {name: site, configMap: {name: trialbox-site, optional: true}}
+        - {name: pins, persistentVolumeClaim: {claimName: model-pins, readOnly: true}}
 ---
 apiVersion: v1
 kind: Service

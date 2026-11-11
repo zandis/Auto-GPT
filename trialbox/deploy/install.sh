@@ -152,6 +152,10 @@ esac
 if [ "$MODE" = gpu ] && [ "$GPU" = auto ]; then
   GPU="$(sh "$ROOT/deploy/gpu_profile.sh")"
 fi
+case "$GPU" in  # a B200 is never an appliance (D-211, D-409): two MIG instances on a platform, RUNBOOK §17
+  shared-quota) die "this card has MIG on (shared-quota): install.sh does not serve it; use deploy/platform (RUNBOOK §17)" ;;
+  b200-no-mig) die "a B200 serves TrialBox only as two MIG instances: enable MIG, make the two instances, use deploy/platform (RUNBOOK §17)" ;;
+esac
 case "$GPU" in auto|default|rtxpro6000|gb10|rtx5090|rtx4090) ;; *) die "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default" ;; esac
 # D-348: the vLLM image of deploy/images.lock must run here (its architecture, the driver its CUDA needs, the GPU's
 # compute capability), before anything is loaded: a CUDA 13 image on an older driver would only fail at start
@@ -477,10 +481,12 @@ if [ "${TB_SYSTEMD:-1}" != 0 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system
       chmod 644 "$SYSTEMD_DIR/$(basename "$unit")"
     done
     systemctl daemon-reload
+    # trialbox-weights.timer (T-677, D-393): the weights against their pins before the night's runs
     systemctl enable trialbox-egress.service trialbox.service trialbox-egress-refresh.timer trialbox-watchdog.timer \
-      >/dev/null 2>&1 || die "the systemd units could not be enabled (systemctl status trialbox-egress trialbox)"
-    systemctl start trialbox-egress.service trialbox-egress-refresh.timer trialbox-watchdog.timer >/dev/null 2>&1 || true
-    echo "    enabled: trialbox-egress, trialbox, trialbox-egress-refresh.timer, trialbox-watchdog.timer"
+      trialbox-weights.timer >/dev/null 2>&1 || die "the systemd units could not be enabled (systemctl status trialbox-egress trialbox)"
+    systemctl start trialbox-egress.service trialbox-egress-refresh.timer trialbox-watchdog.timer trialbox-weights.timer \
+      >/dev/null 2>&1 || true
+    echo "    enabled: trialbox-egress, trialbox, trialbox-egress-refresh.timer, trialbox-watchdog.timer, trialbox-weights.timer"
     echo "    (trialbox-ops.timer is installed, not enabled: RUNBOOK §15)"
   else
     echo "install: warning: systemd units not enabled: the egress rules were not applied (no state file for a boot)" >&2
@@ -495,6 +501,10 @@ if [ "$CAN_CRON" = 1 ]; then
   echo "    log retention: $CRON_DIR/trialbox-retention (00:20 daily)"
 elif [ "$TB_ENV_SITE" = PRODUCTION ]; then
   die "the cron files cannot be installed (needs root, /etc/cron.d and python3): run the installer as root"
+fi
+if [ "$(id -u)" = 0 ] && [ -d /etc/logrotate.d ]; then
+  # D-389 (OPS-037): /var/log/trialbox-*.log (the retention and backup cron logs) rotate weekly, 53 kept
+  install -m 644 deploy/logrotate/trialbox /etc/logrotate.d/trialbox && echo "    host logs: /etc/logrotate.d/trialbox"
 fi
 # D-138: the site's one-page network, port and secret sheet, from the compose files this box runs
 SHEET_MOUNT=(); SHEET_FILES="$(echo "$FILES" | sed "s#$ROOT/deploy/#deploy/#g")"
