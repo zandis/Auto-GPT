@@ -153,6 +153,6 @@ budgets:
     review_by: 2027-02-01
   - image: axllent/mailpit
     ecosystem: "*"
-    max: 120
+    max: 52
     reason: Mailpit test mail catcher image unmodified (MIT project, replaced MailHog in D-348); test profile only; Go modules of its binary carry no licence data for Syft
     review_by: 2027-02-01

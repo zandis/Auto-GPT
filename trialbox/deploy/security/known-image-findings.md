@@ -18,6 +18,7 @@ Owner of every row: security owner (to assign). Target date of every row: 2026-1
 | vllm/vllm-openai | amd64, arm64 | 29 each | pyasn1, openssl/libssl3t64, certifi, msgpack, urllib3, setuptools, gnupg, apt, brotli, uv | move to a patched vLLM release tag (digest-pinned), or a dated exception |
 | postgres | amd64, arm64 | 30 each | Go stdlib 1.24.6 (gosu), musl, zlib, golang.org/x/sys | move to the patched postgres:16-alpine digest |
 | hapiproject/hapi | amd64, arm64 | 24 each | libexpat1, zlib1g, jackson-core, jackson-databind, guava, spring-webmvc, ca-certificates | move to a patched HAPI FHIR tag (digest-pinned), or a dated exception |
+| axllent/mailpit | amd64, arm64 | 1 | golang.org/x/crypto v0.58.0 (GO-2026-5932), in the Mailpit binary; seen by the image gates of PR #150 on 2026-11-11 | move to the next Mailpit release built with the fixed x/crypto (digest-pinned in `deploy/images.lock`) |
 | greenmail/standalone | amd64, arm64 | 16 each | jackson-databind, jackson-core, openssl/libssl3, apt, gpgv | move to a patched GreenMail tag (digest-pinned), or a dated exception |
 
 When a row is fixed, remove the image from `VULN_REPORT_ONLY` and from this table in the same pull request. When the
@@ -29,4 +30,4 @@ table is empty, report mode ends and the CI step drops `--vuln-mode report`.
 | --- | --- | --- | --- |
 | trialbox-jvm | T-672 (PR #78) | CQL translator jars (`services/criteria_compiler/compile_cql/translator/pom.xml`): HL7 FHIR core 6.9.12, jackson 2.21.8, guava 33.7.2, commons-beanutils 1.11.0, httpcore5 5.4.4, ucum 1.0.10, opentelemetry 1.68.0, commons-compress 1.28.0, junit excluded; JRE `eclipse-temurin:21.0.13_9-jre` by digest | OSV on the resolved classpath (102 jars): 0 findings on 2026-11-10; the Trivy gate blocks for this image |
 | trialbox-demo | T-672 (PR #78) | the same translator jars | the Trivy gate blocks for this image |
-| mailhog/mailhog | T-673 (D-348) | MailHog (amd64 only, abandoned since 2020) replaced in the test profile by `axllent/mailpit:v1.33.1` by digest (amd64 and arm64), pinned in `deploy/images.lock` | the Trivy gate blocks for Mailpit (not in `VULN_REPORT_ONLY`) |
+| mailhog/mailhog | T-673 (D-348) | MailHog (amd64 only, abandoned since 2020) replaced in the test profile by `axllent/mailpit:v1.33.1` by digest (amd64 and arm64), pinned in `deploy/images.lock` | MailHog's 1,590 findings are gone; Mailpit has one (row above, report mode) |

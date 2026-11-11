@@ -45,8 +45,8 @@ driver can run a CUDA 13 image outside the GB10 profile (DEP-005); MailHog, aban
 7. **Mailpit replaces MailHog** in the test profile: `axllent/mailpit:v1.33.1` by digest, amd64 and arm64. Same
    ports (SMTP 1025, web 8025). The service keeps the network alias `mailhog` and the port variable
    `TB_HOST_MAILHOG_PORT`, so an older `deploy/.env` still works. The e2e tests read Mailpit's API
-   (`tests/stack.py outbound_mail`). Mailpit is not in report mode: its vulnerability gate blocks. `SC_AMD64_ONLY`
-   is empty.
+   (`tests/stack.py outbound_mail`). Mailpit v1.33.1 carries one finding (GO-2026-5932, golang.org/x/crypto), so it
+   joins the report-mode images with a row in `deploy/security/known-image-findings.md`. `SC_AMD64_ONLY` is empty.
 8. **GreenMail** moves from 2.1.3 to 2.1.15, by digest.
 
 ## Consequences
