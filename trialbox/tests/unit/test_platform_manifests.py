@@ -34,10 +34,10 @@ OVERLAYS = ("shared-quota", "interim-cloud")
 DIGEST = "sha256:" + "cd" * 32
 # what the platform team creates before the first apply (RUNBOOK §17), never committed
 PROVIDED = {
-    "Secret": {"trialbox-db", "trialbox-mail", "trialbox-cloud", "trialbox-actor"}
+    "Secret": {"trialbox-db", "trialbox-mail", "trialbox-cloud", "trialbox-actor", "trialbox-model-key"}
     | {f"trialbox-token-{s}" for s in ("lake", "embed-service", "doc-parser", "criteria-compiler", "adapter")}
     | {f"trialbox-token-{s}" for s in ("orchestrator", "mail-gateway", "gateway", "console")},
-    "ConfigMap": {"trialbox-service-tokens", "trialbox-site", "trialbox-serving-record"},
+    "ConfigMap": {"trialbox-service-tokens", "trialbox-serving-record"},
 }
 
 
@@ -385,7 +385,8 @@ def test_compose_refuses_the_shared_quota_profile_unmeasured(tmp_path: Path) -> 
     ("mig", "card", "profile"),
     [
         ("Enabled", "NVIDIA B200", "shared-quota"),
-        ("Disabled", "NVIDIA B200", "default"),
+        ("Disabled", "NVIDIA B200", "b200-no-mig"),  # D-409: a B200 serves only as two MIG instances
+        ("[N/A]", "NVIDIA GB200", "b200-no-mig"),  # not the GB10 (both arm64)
         ("[N/A]", "NVIDIA RTX PRO 6000 Blackwell Server Edition", "rtxpro6000"),
     ],
 )
@@ -634,7 +635,7 @@ def test_no_gpu_skips_the_gpu_checks_and_serving_record_is_honest(tmp_path: Path
     assert on["serving_record"].status == "FAIL" and "never assumed" in on["serving_record"].detail
     assert on["canary"].status == "FAIL"
     off = {c.name: c for c in pf.run(_inputs(st, no_gpu=True))}
-    for name in ("serving_record", "gpu_serving", "canary"):
+    for name in ("serving_record", "gpu_serving", "mig_instances", "canary"):
         assert (off[name].status, off[name].detail) == ("SKIP", pf.NO_DEVICE)
     assert set(on) == set(off) == {f.__name__.removeprefix("check_") for f in pf.PLATFORM_CHECKS}
     # a record for another MIG profile is not this partition's
@@ -716,8 +717,9 @@ def test_doctor_platform_cli_writes_evidence_and_exits(
     assert rc == 0 and doc["passed"] is True, by_status(doc, "FAIL")  # TEST: what is not declared is a WARN
     assert doc["schema"] == pf.EVIDENCE_SCHEMA and doc["no_gpu"] is True and doc["gpu_profile"] == "shared-quota"
     by = {c["name"]: c for c in doc["checks"]}
-    assert {n for n, c in by.items() if c["status"] == "SKIP"} == {"serving_record", "gpu_serving", "canary"}
-    assert all(by[n]["detail"] == "skipped: no device" for n in ("serving_record", "gpu_serving", "canary"))
+    gpu_checks = {"serving_record", "gpu_serving", "mig_instances", "canary"}
+    assert {n for n, c in by.items() if c["status"] == "SKIP"} == gpu_checks
+    assert all(by[n]["detail"] == "skipped: no device" for n in gpu_checks)
     assert {"topology", "routing_perimeter", "image_digests", "quota", "network_policy", "kek_custody", "ntp"} <= set(
         by
     )
@@ -917,7 +919,15 @@ def test_doctor_egress_is_rendered_from_the_site_and_fails_closed(
         for p in base
         if (p["spec"]["podSelector"].get("matchLabels") or {}).get("app.kubernetes.io/component") == "doctor"
     ]
-    assert selects_doctor == [] and pf.open_rules(base) == []
+    # the base gives the doctor one in-namespace destination only: model-guard, to see a call without the key refused
+    assert [p["metadata"]["name"] for p in selects_doctor] == ["trialbox-doctor-to-model-guard"]
+    assert selects_doctor[0]["spec"]["egress"] == [
+        {
+            "to": [{"podSelector": {"matchLabels": {"app.kubernetes.io/component": "model-guard"}}}],
+            "ports": [{"protocol": "TCP", "port": 8000}],
+        }
+    ]
+    assert pf.open_rules(base) == []
     env = {
         "TB_PLATFORM_API_SERVER": "10.96.0.1:6443",
         "TB_NTP_SERVER": "ntp.hospa.test",
@@ -977,7 +987,7 @@ def test_no_gpu_is_refused_in_validation_and_production(tmp_path: Path, monkeypa
     st = _cluster(quota=ENOUGH)
     for env in ("VALIDATION", "PRODUCTION"):
         by = {c.name: c for c in pf.run(_inputs(st, no_gpu=True, TB_ENV=env))}
-        for name in ("serving_record", "gpu_serving", "canary"):
+        for name in ("serving_record", "gpu_serving", "mig_instances", "canary"):
             assert by[name].status == "FAIL" and "refused" in by[name].detail, (env, name)
         q = pf.check_quota(_inputs(_cluster(quota={**ENOUGH, "requests.nvidia.com/gpu": "0"}), no_gpu=True, TB_ENV=env))
         assert q.status == "FAIL" and "gpu" in q.detail  # the GPU quota still counts

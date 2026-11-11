@@ -626,7 +626,11 @@ def _mapping_zone(settings: Mapping[str, Any]) -> tuple[str | None, str]:
     if not raw:
         return None, ""
     path = Path(str(raw))
-    path = path if path.is_absolute() else MAPPING_ROOT / path
+    if not path.is_absolute():
+        # T-632: the site's mapping folder first, then the image's, as the adapter looks it up (adapter.mapping.site;
+        # not imported: the host tree has no services/)
+        site = ROOT / "deploy" / "site" / "mapping" / Path(*path.parts[(1 if path.parts[:1] == ("mapping",) else 0) :])
+        path = site if site.is_file() else MAPPING_ROOT / path
     doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return (str(doc["tz"]) if doc.get("tz") else None), path.name
 

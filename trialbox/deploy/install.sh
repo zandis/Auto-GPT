@@ -29,8 +29,13 @@
 #                 digest pins kept on either Docker image store: tools/image_pins.py); egress rules (deploy/network.sh);
 #                 the systemd units of deploy/systemd (egress closed at boot before Docker, the stack after a restart,
 #                 the egress refresh and watchdog timers; D-377)
-#   5. accounts:  first console administrator (password printed once); users page for the rest
-#   6. check:     deploy/check_host.sh; the console URL and the intake address
+#   5. accounts:  first console administrator (password and enrolment code printed once); users page for the rest
+#   6. check:     deploy/check_host.sh; the https:// console URL must answer; the intake address
+# Site inputs and a finished install (T-632, D-382): the site's mapping lives in deploy/site/mapping (the adapter and
+# the wizard look there before the image) and the feed folder is TB_SOURCE_DIR (required in PRODUCTION). TLS is on:
+# the wizard's TB_TLS_HOSTNAME (asked here when missing) adds deploy/docker-compose.identity.yml after `console.cli
+# check-tls` passed. Both cron files (log retention, backups) are installed. The judge is named from the
+# configuration (tools/pin_model.py --name-judge). The install ends with exit 1 when a FAIL line remains.
 # In GPU mode step 3 also makes the key of the on-box model servers (TB_LLM_API_KEY, D-177) and step 4 checks that
 # they serve the pinned names and require that key (trialbox doctor --serving): a mismatch stops the install.
 # TB_COMPOSE_OVERRIDE=<file> adds one compose file after the others (the box rehearsal's model stand-ins, D-176); it is
@@ -143,6 +148,10 @@ esac
 if [ "$MODE" = gpu ] && [ "$GPU" = auto ]; then
   GPU="$(sh "$ROOT/deploy/gpu_profile.sh")"
 fi
+case "$GPU" in  # a B200 is never an appliance (D-211, D-409): two MIG instances on a platform, RUNBOOK §17
+  shared-quota) die "this card has MIG on (shared-quota): install.sh does not serve it; use deploy/platform (RUNBOOK §17)" ;;
+  b200-no-mig) die "a B200 serves TrialBox only as two MIG instances: enable MIG, make the two instances, use deploy/platform (RUNBOOK §17)" ;;
+esac
 case "$GPU" in auto|default|rtxpro6000|gb10|rtx5090|rtx4090) ;; *) die "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default" ;; esac
 # D-348: the vLLM image of deploy/images.lock must run here (its architecture, the driver its CUDA needs, the GPU's
 # compute capability), before anything is loaded: a CUDA 13 image on an older driver would only fail at start
@@ -183,15 +192,22 @@ fi
 # ------------------------------------------------------------------------------------------------ 3. settings
 say "settings"
 FRESH=0; [ -f deploy/.env ] || FRESH=1   # a box installed before step 8 keeps its shared token until rotation
-mkdir -p deploy/keys deploy/secrets
+mkdir -p deploy/keys deploy/secrets deploy/site/mapping
+# T-632 (OPS-011): the site's own mapping is in deploy/site/mapping, never in the image; the wizard and the adapter see
+# it at /etc/trialbox/mapping and look there first (adapter.mapping.site). A mapping folder beside the answers file
+# is copied in once (the site's kit: answers.yaml + mapping/), never over a file the site already has
+MAPPING_MOUNT=(-v "$ROOT/deploy/site/mapping:/etc/trialbox/mapping:ro")
+if [ -n "$ANSWERS" ] && [ -d "$(dirname "$ANSWERS")/mapping" ] && [ "$(cd "$(dirname "$ANSWERS")/mapping" && pwd)" != "$ROOT/deploy/site/mapping" ]; then
+  cp -rn "$(dirname "$ANSWERS")/mapping/." deploy/site/mapping/ && echo "    site mapping folder: deploy/site/mapping (from $(dirname "$ANSWERS")/mapping)"
+fi
 if [ ! -f deploy/settings.yaml ]; then
   if [ -n "$ANSWERS" ]; then
     [ -f "$ANSWERS" ] || die "no such answers file: $ANSWERS"
-    docker run --rm -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" -v "$(cd "$(dirname "$ANSWERS")" && pwd)/$(basename "$ANSWERS"):/in/answers.yaml:ro" \
+    docker run --rm -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" "${MAPPING_MOUNT[@]}" -v "$(cd "$(dirname "$ANSWERS")" && pwd)/$(basename "$ANSWERS"):/in/answers.yaml:ro" \
       --user "$(id -u):$(id -g)" "$IMAGE_PY" python -m tools.settings_wizard --answers /in/answers.yaml --out /out/settings.yaml --env-out /out/.env
   else
     [ -t 0 ] || die "no deploy/settings.yaml and no terminal for the questions: pass --answers site.yaml (RUNBOOK §1 step 3)"
-    docker run --rm -it -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" --user "$(id -u):$(id -g)" "$IMAGE_PY" \
+    docker run --rm -it -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" "${MAPPING_MOUNT[@]}" --user "$(id -u):$(id -g)" "$IMAGE_PY" \
       python -m tools.settings_wizard --out /out/settings.yaml --env-out /out/.env
   fi
 else
@@ -237,6 +253,33 @@ WF_PW="$(sed -n 's/^POSTGRES_WF_PASSWORD=//p' deploy/.env | tail -1)"
 sed -i "/^TB_DB_URL=/d" deploy/.env && echo "TB_DB_URL=postgresql://trialbox:${WF_PW}@db:5432/trialbox_wf" >> deploy/.env
 # D-127 (review F-06): a box is PRODUCTION unless the operator set TB_ENV on purpose (timers, mail, REDCap, gates)
 grep -q '^TB_ENV=' deploy/.env || echo "TB_ENV=PRODUCTION" >> deploy/.env
+TB_ENV_SITE="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1)"
+envget() { sed -n "s/^$1=//p" deploy/.env | tail -1; }
+envset() { sed -i "/^$1=/d" deploy/.env && printf '%s=%s\n' "$1" "$2" >> deploy/.env; }
+# T-632 (OPS-011): the feed folder. The wizard wrote TB_SOURCE_DIR (the host folder) and TB_SOURCE_MOUNT (the
+# settings' data_source.path); compose mounts the one at the other. PRODUCTION never falls back to the test fixture
+SRC_DIR="$(envget TB_SOURCE_DIR)"
+if [ -z "$SRC_DIR" ]; then
+  [ "$TB_ENV_SITE" != PRODUCTION ] || die "no feed folder: set TB_SOURCE_DIR in deploy/.env (the host folder the HIS export lands in; the settings wizard asks for it, RUNBOOK §1 step 3)"
+  echo "    feed folder: none set ($TB_ENV_SITE): the synthetic fixture is mounted"
+else
+  case "$SRC_DIR" in /*) SRC_ABS="$SRC_DIR" ;; *) SRC_ABS="$ROOT/deploy/${SRC_DIR#./}" ;; esac
+  case "$SRC_ABS" in "$ROOT"/deploy/site/*) mkdir -p "$SRC_ABS" ;; esac   # the default ./site/feed is made here
+  [ -d "$SRC_ABS" ] || die "the feed folder $SRC_DIR (TB_SOURCE_DIR) is not a folder on this host: mount the HIS export there first"
+  echo "    feed folder: $SRC_ABS -> $(envget TB_SOURCE_MOUNT) in the adapter"
+fi
+# T-632 (OPS-013): TLS on. The console is reached only at https://TB_TLS_HOSTNAME through Caddy (RUNBOOK §12)
+TLS_HOST="$(envget TB_TLS_HOSTNAME)"
+if [ -z "$TLS_HOST" ] && [ "$YES" != 1 ] && [ -t 0 ]; then
+  printf '  The console'"'"'s DNS name for https (from hospital IT, e.g. trialbox.hospital.tw): '; read -r TLS_HOST
+  [ -z "$TLS_HOST" ] || envset TB_TLS_HOSTNAME "$TLS_HOST"
+fi
+if [ -z "$TLS_HOST" ]; then
+  [ "$TB_ENV_SITE" != PRODUCTION ] || die "no TLS host name: a PRODUCTION box runs only behind https. Put TB_TLS_HOSTNAME (and TB_TLS_MODE) in deploy/.env or the answers file (tls_hostname), then re-run (RUNBOOK §12)"
+  echo "    TLS: off ($TB_ENV_SITE, no TB_TLS_HOSTNAME): the console stays on 127.0.0.1"
+else
+  grep -q '^TB_TLS_MODE=.' deploy/.env || envset TB_TLS_MODE internal
+fi
 # TB_LLM_MODE is the services' word (tb_common.config: vllm | stub ...), not the compose profile's (gpu | stub), D-142
 LLM_MODE=stub; [ "$MODE" = gpu ] && LLM_MODE=vllm
 grep -q '^TB_LLM_MODE=' deploy/.env && sed -i "s/^TB_LLM_MODE=.*/TB_LLM_MODE=$LLM_MODE/" deploy/.env || echo "TB_LLM_MODE=$LLM_MODE" >> deploy/.env
@@ -314,6 +357,18 @@ case "$MODE:$GPU" in
   gpu:gb10) COMPOSE+=(-f deploy/docker-compose.gb10.yml); FILES="$FILES:$ROOT/deploy/docker-compose.gb10.yml" ;;
   gpu:rtx5090|gpu:rtx4090) COMPOSE+=(-f deploy/docker-compose.rtx5090.yml); FILES="$FILES:$ROOT/deploy/docker-compose.rtx5090.yml" ;;
 esac
+if [ -n "$TLS_HOST" ]; then
+  # the certificate, its key and the host name are checked before Caddy uses them (console.cli check-tls); the
+  # hospital's files are mounted where deploy/.env names them
+  say "TLS: https://$TLS_HOST ($(envget TB_TLS_MODE))"
+  TLS_MOUNT=()
+  for v in TB_TLS_CERT_FILE TB_TLS_KEY_FILE; do f="$(envget "$v")"; [ -z "$f" ] || TLS_MOUNT+=(-v "$f:$f:ro"); done
+  docker run --rm -e TB_ENV="$TB_ENV_SITE" -e TB_TLS_MODE="$(envget TB_TLS_MODE)" -e TB_TLS_HOSTNAME="$TLS_HOST" \
+    -e TB_TLS_CERT_FILE="$(envget TB_TLS_CERT_FILE)" -e TB_TLS_KEY_FILE="$(envget TB_TLS_KEY_FILE)" \
+    ${TLS_MOUNT[@]+"${TLS_MOUNT[@]}"} --user 0 "$IMAGE_PY" python -m console.cli check-tls 2>&1 | sed 's/^/    /'
+  [ "${PIPESTATUS[0]}" = 0 ] || die "the TLS settings do not pass (FAIL above): fix TB_TLS_* in deploy/.env (RUNBOOK §12), then re-run"
+  COMPOSE+=(-f deploy/docker-compose.identity.yml); FILES="$FILES:$ROOT/deploy/docker-compose.identity.yml"
+fi
 LOCK_FILES="$FILES"
 if [ -n "${TB_COMPOSE_OVERRIDE:-}" ]; then  # D-176: the rehearsal's model stand-ins (or a site's own override)
   [ -f "$TB_COMPOSE_OVERRIDE" ] || die "TB_COMPOSE_OVERRIDE: no such file $TB_COMPOSE_OVERRIDE"
@@ -415,11 +470,15 @@ if [ "${TB_SYSTEMD:-1}" != 0 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system
     echo "install: warning: systemd units not enabled: the egress rules were not applied (no state file for a boot)" >&2
   fi
 fi
-if [ "$(id -u)" = 0 ] && [ -d /etc/cron.d ] && command -v python3 >/dev/null; then
+CRON_DIR="${TB_CRON_DIR:-/etc/cron.d}"   # T-632: both cron files, or no finished install in PRODUCTION
+CAN_CRON=0; { [ "$(id -u)" = 0 ] || [ -n "${TB_CRON_DIR:-}" ]; } && [ -d "$CRON_DIR" ] && command -v python3 >/dev/null && CAN_CRON=1
+if [ "$CAN_CRON" = 1 ]; then
   # D-138: every night collect yesterday's service logs, prune by settings.retention, copy the audit to its archive
   printf '%s\n' "SHELL=/bin/sh" "20 0 * * * root cd $ROOT && python3 -m tools.trialbox logs daily >> /var/log/trialbox-retention.log 2>&1" \
-    > /etc/cron.d/trialbox-retention && chmod 644 /etc/cron.d/trialbox-retention
-  echo "    log retention: /etc/cron.d/trialbox-retention (00:20 daily)"
+    > "$CRON_DIR/trialbox-retention" && chmod 644 "$CRON_DIR/trialbox-retention"
+  echo "    log retention: $CRON_DIR/trialbox-retention (00:20 daily)"
+elif [ "$TB_ENV_SITE" = PRODUCTION ]; then
+  die "the cron files cannot be installed (needs root, /etc/cron.d and python3): run the installer as root"
 fi
 if [ "$(id -u)" = 0 ] && [ -d /etc/logrotate.d ]; then
   # D-389 (OPS-037): /var/log/trialbox-*.log (the retention and backup cron logs) rotate weekly, 53 kept
@@ -430,18 +489,23 @@ SHEET_MOUNT=(); SHEET_FILES="$(echo "$FILES" | sed "s#$ROOT/deploy/#deploy/#g")"
 if [ -n "${OVR:-}" ]; then  # the override is outside deploy/: mount it where the sheet tool looks
   SHEET_MOUNT=(-v "$OVR:/app/deploy/compose-override.yml:ro"); SHEET_FILES="${SHEET_FILES//$OVR/deploy/compose-override.yml}"
 fi
-docker run --rm -v "$ROOT/deploy:/app/deploy" ${SHEET_MOUNT[@]+"${SHEET_MOUNT[@]}"} --user "$(id -u):$(id -g)" "$IMAGE_PY" \
-  python -m tools.network_sheet --files "$SHEET_FILES" --env deploy/.env --out deploy/site/network-sheet \
-  >/dev/null 2>&1 && echo "    network sheet: deploy/site/network-sheet.{en,ja,zh-TW}.{md,html}" \
-  || echo "install: note: network sheet not written (python -m tools.network_sheet)" >&2
+FAILS=()   # T-632: a FAIL here does not stop the install half-way; the install ends with exit 1 and the list
+# T-632 (OPS-014): every overlay renders; an error is shown, never hidden
+if SHEET_OUT="$(docker run --rm -v "$ROOT/deploy:/app/deploy" ${SHEET_MOUNT[@]+"${SHEET_MOUNT[@]}"} --user "$(id -u):$(id -g)" "$IMAGE_PY" \
+     python -m tools.network_sheet --files "$SHEET_FILES" --env deploy/.env --out deploy/site/network-sheet 2>&1)"; then
+  echo "    network sheet: deploy/site/network-sheet.{en,ja,zh-TW}.{md,html}"
+else
+  echo "$SHEET_OUT" | tail -5 | sed 's/^/    /' >&2
+  FAILS+=("network sheet not written (python -m tools.network_sheet, error above)")
+fi
 [ -f deploy/secrets/backup.pub ] || echo "install: note: no backup key yet. With hospital IT: python3 -m tools.trialbox backup-keygen --private /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub (RUNBOOK §5); updates refuse to run without a backup" >&2
 # T-117b (D-274): the backup cron (/etc/cron.d/trialbox-backup), WAL archiving when the db image carries pgBackRest
 # and a target is off the box, and the first backup. PRODUCTION needs an alert route (TB_BACKUP_ALERT_CMD, or
 # TB_BACKUP_MAILTO with a mail relay); `trialbox doctor` then checks the backup's age and its off-box target
-if [ "$(id -u)" = 0 ] && [ -d /etc/cron.d ] && command -v python3 >/dev/null; then
+if [ "$CAN_CRON" = 1 ]; then
   say "backups: cron, WAL archiving, first backup"
   set +e
-  python3 -m tools.trialbox backup-install --deploy deploy 2>&1 | sed 's/^/    /'
+  python3 -m tools.trialbox backup-install --deploy deploy ${TB_CRON_DIR:+--cron-dir "$TB_CRON_DIR"} 2>&1 | sed 's/^/    /'
   rc="${PIPESTATUS[0]}"
   set -e
   [ "$rc" = 0 ] || die "the backup schedule is not installed (above): set TB_BACKUP_ALERT_CMD or TB_BACKUP_MAILTO in deploy/.env (RUNBOOK §5), then re-run"
@@ -484,18 +548,64 @@ if [ -n "$ADMIN_MAIL" ]; then
 else
   "${COMPOSE[@]}" exec -T console python -m console.cli bootstrap-admin --username admin
 fi
+# T-632 (OPS-013, D-192): the first administrator's enrolment code, printed once; without it the account cannot set
+# up its authenticator. An administrator who already has one gets none (exit 2: nothing to print)
+set +e
+ENROL="$("${COMPOSE[@]}" exec -T console python -m console.cli enrol-code admin 2>&1)"; rc=$?
+set -e
+case "$rc" in
+  0) echo "$ENROL" | sed 's/^/    /'; echo "    hand the enrolment code to the administrator in person; it works once, for 24 hours" ;;
+  2) echo "    admin has an authenticator already: no enrolment code (console.cli reset-totp admin for a new one)" ;;
+  *) echo "$ENROL" | sed 's/^/    /' >&2; FAILS+=("no enrolment code for admin (python -m console.cli enrol-code admin)") ;;
+esac
 echo "    add coordinators and viewers on the console's Users page, or: docker compose exec console python -m console.cli add-user"
 
 # ------------------------------------------------------------------------------------------------ 6. check
 say "host check"
 HOST_ARGS=(); [ "$MODE" = gpu ] && HOST_ARGS=(--gpu "$GPU")
-sh "$ROOT/deploy/check_host.sh" ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} || echo "install: host check reported FAIL lines above: fix them before go-live (docs/SECURITY.md)" >&2
-PORT="$(sed -n 's/^TB_HOST_CONSOLE_PORT=//p' deploy/.env | head -1)"
+sh "$ROOT/deploy/check_host.sh" ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} || FAILS+=("the host check reported FAIL lines (above; docs/SECURITY.md)")
+# T-632 (D-382): the judge, named from the configuration: its role, the registry's label for the build this profile
+# serves, and the site's pin (tools/pin_model.py --name-judge); a stub box has none
+if [ "$MODE" = gpu ]; then
+  JUDGE="$(docker run --rm -v "$ROOT/deploy:/d:ro" "$IMAGE_PY" python -m tools.pin_model --name-judge "$GPU" --out /d/site/registry.site.yaml 2>&1)" \
+    || FAILS+=("the judge could not be named: $JUDGE")
+else
+  JUDGE="judge: none (stub mode: structured criteria only; note criteria wait for a GPU)"
+fi
+echo "    $JUDGE"
+# T-632 (OPS-013): the https:// URL must answer from this host, with the certificate the clinic PCs will see
+URL="http://127.0.0.1:$(envget TB_HOST_CONSOLE_PORT | grep . || echo 8090)"
+if [ -n "$TLS_HOST" ]; then
+  URL="https://$TLS_HOST"
+  CA=()
+  if [ "$(envget TB_TLS_MODE)" = internal ]; then  # Caddy's root: hospital IT installs it on the staff PCs (RUNBOOK §12)
+    mkdir -p deploy/secrets/tls
+    for _ in $(seq 1 12); do
+      "${COMPOSE[@]}" cp caddy:/data/caddy/pki/authorities/local/root.crt deploy/secrets/tls/caddy-root.crt >/dev/null 2>&1 && break
+      sleep 5
+    done
+    [ -s deploy/secrets/tls/caddy-root.crt ] && CA=(--cacert deploy/secrets/tls/caddy-root.crt) && echo "    Caddy root certificate: deploy/secrets/tls/caddy-root.crt (for the staff PCs)"
+  elif [ -n "$(envget TB_OIDC_CA)" ]; then
+    CA=(--cacert "$(envget TB_OIDC_CA)")
+  fi
+  ANSWERED=0
+  for _ in $(seq 1 "${TB_INSTALL_URL_TRIES:-24}"); do
+    if curl -fsS -o /dev/null -m 10 ${CA[@]+"${CA[@]}"} --resolve "$TLS_HOST:443:${TB_TLS_CHECK_ADDR:-127.0.0.1}" "$URL/login"; then ANSWERED=1; break; fi
+    sleep 5
+  done
+  [ "$ANSWERED" = 1 ] && echo "    $URL/login answers (certificate checked)" || FAILS+=("$URL/login does not answer from this host (curl above; RUNBOOK §12)")
+fi
 cat <<EOT
 
   TrialBox is running.
-  Console:            http://127.0.0.1:${PORT:-8090}   (sign in as admin with the password printed above)
+  Console:            $URL   (sign in as admin with the password and the enrolment code printed above)
   Intake mailbox:     $(sed -n 's/^MAIL_INTAKE_ADDR=//p' deploy/.env | head -1)
+  Feed folder:        $(envget TB_SOURCE_DIR | grep . || echo "-")   mapping: deploy/site/mapping, then the image
+  $JUDGE
   First ingest:       docker compose --project-directory deploy exec adapter python -m adapter.cli run   (or 02:00 nightly)
   Acceptance:         docs/RUNBOOK.md §6 before go-live;  updates: tools/apply_update.sh <bundle>
 EOT
+if [ "${#FAILS[@]}" -gt 0 ]; then
+  printf 'install: FAIL: %s\n' "${FAILS[@]}" >&2
+  exit 1
+fi

@@ -12,6 +12,11 @@ recovery actions and the TLS settings check.
   else: the sign-in lands on ``/account`` and every other page and API call is refused (D-279, SEC-1).
 * **Step-up at signing** (D-279, SEC-1 P-2): with TOTP on, an electronic signature needs the password *and* a fresh
   code (:meth:`Identity.step_up`); a wrong code counts as a failed sign-in.
+* **Re-authentication at the directory for a signature** (T-205, D-391, REG-025): an OIDC account has no console
+  password, so its signature sends the person back to the provider with ``prompt=login`` and ``max_age=0``
+  (:meth:`Identity.start_reauth`). The callback accepts the answer only for the same account and subject, with an
+  ``auth_time`` after the round trip began and a second factor in ``amr``; it never opens a session. The page that
+  asked gets a single-use proof (:meth:`Identity.take_reauth`, two minutes) bound to the person.
 * **Recovery**: an administrator resets another account's authenticator (lost phone) or lifts a lock on
   ``/ops/identity`` or with ``console.cli reset-totp|unlock``; both are audited and sign the account out.
 * **OIDC** through the hospital's Authelia (``console.oidc``), off by default (``TB_OIDC_ENABLED``). Roles come only
@@ -25,6 +30,7 @@ recovery actions and the TLS settings check.
 
 from __future__ import annotations
 
+import hashlib
 import secrets
 import time
 from collections.abc import Callable, Mapping
@@ -42,10 +48,13 @@ from tb_common.audit import AuditLog
 from console import totp
 from console.auth import MAX_FAILURES, AuthError, Session, User, UserStore, source_of
 from console.i18n import EN, JA, ZH
+from console.oidc import Identity as Found
 from console.oidc import OidcClient, OidcConfigError, OidcError, OidcSettings
 
 MFA_COOKIE = "tb_console_mfa"
 OIDC_COOKIE = "tb_console_oidc"
+REAUTH_TTL = 600.0  # seconds a re-authentication at the provider may take (as the OIDC state, ten minutes)
+PROOF_TTL = 120.0  # seconds the page that asked has to use the proof (as an actor assertion)
 MFA_MODES = ("totp", "off")
 TLS_MODES = ("internal", "hospital")
 
@@ -200,6 +209,22 @@ def check_tls(env: Mapping[str, str], now: datetime | None = None) -> TlsReport:
     return TlsReport(mode, host, tuple(problems), tuple(notes))
 
 
+@dataclass
+class Reauth:
+    """A re-authentication at the provider (T-205): whose, since when, where the browser goes back to, and once the
+    provider has answered, what it said."""
+
+    username: str
+    started: float
+    target: str
+    found: Found | None = None
+    proved: float = 0.0
+
+
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 # ---------------------------------------------------------------------------------------------- routes
 @dataclass
 class Hooks:
@@ -227,6 +252,8 @@ class Identity:
     oidc_client: OidcClient | None = None
     now: Callable[[], float] = time.time
     _announced: dict[str, datetime] = field(default_factory=dict)  # the lock already audited, per account
+    _reauth: dict[str, Reauth] = field(default_factory=dict)  # by the state's hash, while at the provider (T-205)
+    _proofs: dict[str, Reauth] = field(default_factory=dict)  # by the proof's hash, until the page uses it
 
     def __post_init__(self) -> None:
         self.box = totp.SecretBox(self.settings.totp_key_file)
@@ -294,6 +321,58 @@ class Identity:
             self.users.record_failure(username, source)
             self.after_failure(username, source)
         return reason
+
+    # ------------------------------------------------------------------ re-authentication at the provider (T-205)
+    def _prune(self) -> None:
+        t = self.now()
+        for k in [k for k, r in self._reauth.items() if t - r.started > REAUTH_TTL]:
+            del self._reauth[k]
+        for k in [k for k, r in self._proofs.items() if t - r.proved > PROOF_TTL]:
+            del self._proofs[k]
+        if len(self._reauth) > 1000:  # bounded: a page cannot grow it without end
+            self._reauth.clear()
+
+    def start_reauth(self, username: str, target: str) -> Response:
+        """Send an OIDC account back to the provider to type its credentials and second factor again; the browser
+        then returns to ``target`` (a path on this console) with ``reauth=<proof>``. OidcError and the network's
+        errors reach the caller, which refuses the signature."""
+        if not self.oidc_enabled or self.oidc_client is None or not self.users.is_oidc(username):
+            raise OidcError("not an account of the identity provider")
+        if not target.startswith("/") or target.startswith("//"):
+            raise OidcError("the page to return to is not on this console")
+        start = self.oidc_client.start(fresh=True)
+        self.users.put_oidc_state(start.state, start.nonce, start.verifier)
+        self._prune()
+        self._reauth[_sha(start.state)] = Reauth(username, self.now(), target)
+        resp = RedirectResponse(start.url, status_code=303)
+        resp.set_cookie(
+            OIDC_COOKIE, start.state, httponly=True, samesite="lax", secure=self.secure, max_age=600, path="/auth/oidc"
+        )
+        return resp
+
+    def reauth_pending(self, state: str) -> Reauth | None:
+        """The re-authentication a returning ``state`` belongs to, once (the callback's first question)."""
+        return self._reauth.pop(_sha(state), None) if state else None
+
+    def finish_reauth(self, r: Reauth, code: str, flow: tuple[str, str]) -> str:
+        """Check the provider's answer for ``r``; ``""`` and a proof kept for the page, or the reason it failed."""
+        assert self.oidc_client is not None
+        found = self.oidc_client.finish(code, flow[0], flow[1], fresh_since=r.started)
+        if found.username != r.username or found.subject != self.users.idp_subject(r.username):
+            raise OidcError("another person signed in at the identity provider")
+        r.found, r.proved = found, self.now()
+        proof = secrets.token_urlsafe(32)
+        self._prune()
+        self._proofs[_sha(proof)] = r
+        return proof
+
+    def take_reauth(self, proof: str, username: str) -> Found | None:
+        """The provider's answer behind ``proof`` for ``username``, once and within two minutes; else None."""
+        self._prune()
+        r = self._proofs.pop(_sha(proof), None) if proof and len(proof) <= 256 else None
+        if r is None or r.found is None or r.username != username:
+            return None
+        return r.found
 
     def logout_target(self, username: str) -> str:
         if self.oidc_enabled and self.settings.oidc.logout_url and self.users.is_oidc(username):
@@ -459,12 +538,16 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
         cookie = request.cookies.get(OIDC_COOKIE, "")
         reason = ""
         flow = None
+        same_browser = bool(cookie and state and secrets.compare_digest(cookie.encode(), state.encode()))
         if error:
             code_word = "".join(ch for ch in error.lower() if ch in "abcdefghijklmnopqrstuvwxyz_")[:40]
             reason = f"provider: {code_word or 'error'}"  # an RFC 6749 error code, never the provider's free text
-        elif not cookie or not state or not secrets.compare_digest(cookie.encode(), state.encode()):
+        elif not same_browser:
             reason = "state does not match this browser"  # checked first: another browser cannot burn the state
-        else:
+        pending = ident.reauth_pending(state) if same_browser else None
+        if pending is not None:  # T-205: a signer re-authenticated at the provider; this opens no session
+            return _reauth_back(request, pending, code, state, reason)
+        if not reason:
             flow = us.take_oidc_state(state)
             if flow is None:
                 reason = "unknown or expired state"
@@ -489,6 +572,29 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
         # to the home page; a page on our own origin that moves on by itself makes the next request same-site.
         resp = h.page(request, "oidc_done.html", None, 200, target=h.home)
         resp.set_cookie(h.session_cookie, session_token, httponly=True, samesite="strict", secure=h.secure)
+        resp.delete_cookie(OIDC_COOKIE, path="/auth/oidc")
+        return resp
+
+    def _reauth_back(request: Request, r: Reauth, code: str, state: str, reason: str) -> Response:
+        """Back from the provider for a signature (T-205): check the answer, then a page on this origin moves on to
+        the page that asked (as after a sign-in, the Strict session cookie is sent only on the next request)."""
+        proof = ""
+        flow = us.take_oidc_state(state)  # used up whatever the provider said
+        if not reason and flow is None:
+            reason = "unknown or expired state"
+        if not reason and flow is not None:
+            try:
+                proof = ident.finish_reauth(r, code, flow)
+            except OidcError as exc:
+                reason = str(exc)[:80]
+            except (OSError, ValueError, httpx.HTTPError) as exc:
+                reason = f"provider unreachable or malformed ({type(exc).__name__})"
+        if reason:
+            au.append("console.reauth_failed", actor=f"console:{r.username[:32]}",
+                      detail={"via": "oidc", "reason": reason})  # fmt: skip
+        sep = "&" if "?" in r.target else "?"
+        target = f"{r.target}{sep}reauth={proof}" if proof else f"{r.target}{sep}reauth_failed=1"
+        resp = h.page(request, "oidc_done.html", None, 200, target=target)
         resp.delete_cookie(OIDC_COOKIE, path="/auth/oidc")
         return resp
 

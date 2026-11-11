@@ -2236,7 +2236,7 @@ class FeasibilityResult(BaseModel):
 
 class IngestReport(BaseModel):
     """
-    adapter ingest_report.json (SPEC 4.6). Schema version 1.4.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held; 1.4.0: omop).
+    adapter ingest_report.json (SPEC 4.6). Schema version 1.5.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held; 1.4.0: omop; 1.5.0: fhir_unread).
     """
 
     model_config = ConfigDict(
@@ -2270,6 +2270,10 @@ class IngestReport(BaseModel):
     held: bool = False
     """
     the night failed before loading: fhir-store and the lake were not loaded and CURRENT still names the previous snapshot (dataflow review P0-2)
+    """
+    fhir_unread: dict[str, dict[str, int]] | None = None
+    """
+    per resource type, how many resources carry each top-level element the box does not read (the inbound FHIR contract, docs/data/01, T-616); '*' counts a resource type not read at all. Element names only, never values
     """
     omop: OmopLoadSummary | None = None
     """

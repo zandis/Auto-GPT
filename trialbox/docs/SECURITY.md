@@ -48,4 +48,8 @@ File: [security/07-laws-a-site-must-check.md](security/07-laws-a-site-must-check
 
 File: [security/08-supply-chain.md](security/08-supply-chain.md).
 
+## 9. Privacy documents and the incident plan
+
+File: [security/09-privacy-documents-and-the-incident-plan.md](security/09-privacy-documents-and-the-incident-plan.md).
+
 <!-- end of the generated index -->

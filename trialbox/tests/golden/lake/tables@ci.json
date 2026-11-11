@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "751746a63d490a33fe8e0ff7c5eb2a56ec6732de",
-  "lake_schema_version": 3,
+  "head": "be80e5a12dae221208e82de578d818e6dac47612",
+  "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-106b lake schema 3 (after the SS-MIX2 mapping change on master)",
+  "reason": "T-616 (D-400): patient.deceased column, lake schema 4, base cohort leaves out a deceased patient with no date",
   "ref_date": "2026-11-01",
   "seed": 42,
   "written_with_source": "legacy+omop"
@@ -174,6 +174,7 @@
     "patient": {
      "columns": {
       "birth_date": "4498dbe4a2ce6d0492decc72680b8aa6c622189899a0f25450a61d25ed9f0651",
+      "deceased": "c8e79ab1981ffd64484247ab521bbc60a15220ffbf5a132decc11badbb090cd1",
       "deceased_date": "c8e79ab1981ffd64484247ab521bbc60a15220ffbf5a132decc11badbb090cd1",
       "ingested_at": "12784dceae2bf64db113c5767160edea6fdb41927cc6c69c39384fa84df7a74c",
       "mapping_version": "49d251a009db19e012e8ab05645bf301aa8f8b76db6d1a8c95c4190d041201ed",
@@ -183,7 +184,7 @@
       "src_table": "2edb2a67f6469cf0e593fc250e5ad239a188d274d6bcdbe537ef6b3229a75fab"
      },
      "rows": 53,
-     "sha": "4b5c03fcd2dc556cf4ae3d4ee6aea5c40df2f977f5ddb8511df76a7abbc13d7a"
+     "sha": "a991c265fd2141be5eff87a88f7f5d013fff98af9d29caf83c7755a9bdf7e7c6"
     },
     "practitioner": {
      "columns": {
@@ -416,6 +417,7 @@
     "patient": {
      "columns": {
       "birth_date": "a20467f2d56e853c825ee2884f59e2397d10c601cb4043fa864500d967be17a2",
+      "deceased": "aae4d49ead321b189cad4542c419de1d62f3d16f6b07a92a76181a1c979217ae",
       "deceased_date": "aae4d49ead321b189cad4542c419de1d62f3d16f6b07a92a76181a1c979217ae",
       "ingested_at": "7d86e74af1215c3954823cc69b7014261a738d55fffbb3d22e982a053b0f7c8d",
       "mapping_version": "20767db3d21789f5dc59cb556ff8a08554a93f61485990ee540d01584c54a05c",
@@ -425,7 +427,7 @@
       "src_table": "e03ceef4a52d37ed7ebdad4ad61eb5d38e07774bbc4971fdfc285021bce53ae4"
      },
      "rows": 400,
-     "sha": "7343bdd4aaa0fc9cc25a23433267b0835c582e2ddab8c81e59411055399481d4"
+     "sha": "1a8454587b4eb0529d05535b8e6ff873ff18fdad3bad39540e98825ec67f9db6"
     },
     "practitioner": {
      "columns": {
@@ -664,6 +666,7 @@
     "patient": {
      "columns": {
       "birth_date": "288b114ce03457b2da4a359e209481055ec7c548c8155412a03c2587a4b85d5b",
+      "deceased": "49d14b74a76b0970065f51a8aed3fe352fdbbe578c64566ce5634d220ae4facf",
       "deceased_date": "49d14b74a76b0970065f51a8aed3fe352fdbbe578c64566ce5634d220ae4facf",
       "ingested_at": "e8b0c05c2bafc9893a6e971f3206f28254c04b65e8070be703d99c17ed77f49a",
       "mapping_version": "2b465e659ad5fa9992e3de690e7a5e37e892076b8fba14aca598558d4d00f17a",
@@ -673,7 +676,7 @@
       "src_table": "2edf9e88c940871b48aa56d171a6f98492d333f13d71d1d544bcea44be068fda"
      },
      "rows": 2500,
-     "sha": "546329ee21618fa20f8bbe46e2a338a11c32c6ebb462c93e22af61b786e1edc4"
+     "sha": "7352d4a1bd02083495c9603b0321e01c81cb9994008b419ffed33e8549a7b0c5"
     },
     "practitioner": {
      "columns": {
@@ -912,6 +915,7 @@
     "patient": {
      "columns": {
       "birth_date": "b3b3a9a86c6e25dfd2016594c26395c72dcf06dfd0f1ed1fa62d15d81447099f",
+      "deceased": "49d14b74a76b0970065f51a8aed3fe352fdbbe578c64566ce5634d220ae4facf",
       "deceased_date": "49d14b74a76b0970065f51a8aed3fe352fdbbe578c64566ce5634d220ae4facf",
       "ingested_at": "e8b0c05c2bafc9893a6e971f3206f28254c04b65e8070be703d99c17ed77f49a",
       "mapping_version": "2b465e659ad5fa9992e3de690e7a5e37e892076b8fba14aca598558d4d00f17a",
@@ -921,7 +925,7 @@
       "src_table": "2edf9e88c940871b48aa56d171a6f98492d333f13d71d1d544bcea44be068fda"
      },
      "rows": 2500,
-     "sha": "324787a775582d6dbb9d0dc6cb0aba7066a534640f2fb4e09c5ef99155e91d3a"
+     "sha": "1fdfbab0ef08e94f5316d5b09563e3b6037bffa8ec71e0c76e2cb94c5493d0cb"
     },
     "practitioner": {
      "columns": {
@@ -1160,6 +1164,7 @@
     "patient": {
      "columns": {
       "birth_date": "288b114ce03457b2da4a359e209481055ec7c548c8155412a03c2587a4b85d5b",
+      "deceased": "49d14b74a76b0970065f51a8aed3fe352fdbbe578c64566ce5634d220ae4facf",
       "deceased_date": "49d14b74a76b0970065f51a8aed3fe352fdbbe578c64566ce5634d220ae4facf",
       "ingested_at": "e8b0c05c2bafc9893a6e971f3206f28254c04b65e8070be703d99c17ed77f49a",
       "mapping_version": "2b465e659ad5fa9992e3de690e7a5e37e892076b8fba14aca598558d4d00f17a",
@@ -1169,7 +1174,7 @@
       "src_table": "2edf9e88c940871b48aa56d171a6f98492d333f13d71d1d544bcea44be068fda"
      },
      "rows": 2500,
-     "sha": "546329ee21618fa20f8bbe46e2a338a11c32c6ebb462c93e22af61b786e1edc4"
+     "sha": "7352d4a1bd02083495c9603b0321e01c81cb9994008b419ffed33e8549a7b0c5"
     },
     "practitioner": {
      "columns": {
@@ -1408,6 +1413,7 @@
     "patient": {
      "columns": {
       "birth_date": "5863335f58f5627d6a442e9cbe9c3ae312e592b29188db30e23206d7e628d32e",
+      "deceased": "49d14b74a76b0970065f51a8aed3fe352fdbbe578c64566ce5634d220ae4facf",
       "deceased_date": "49d14b74a76b0970065f51a8aed3fe352fdbbe578c64566ce5634d220ae4facf",
       "ingested_at": "cbc5590984c3a5f2672787994a4aaaf3d3660e5d47f40e40697695d9b0b2fd37",
       "mapping_version": "2b465e659ad5fa9992e3de690e7a5e37e892076b8fba14aca598558d4d00f17a",
@@ -1417,7 +1423,7 @@
       "src_table": "2edf9e88c940871b48aa56d171a6f98492d333f13d71d1d544bcea44be068fda"
      },
      "rows": 2500,
-     "sha": "68627d28e644633677ade466083ca52eb13d79b38ad81a788e6991a10052ebde"
+     "sha": "786410859ac9da0343e501ee86595a55edf90d69eaa9d68a3a2d6955bc2e8f3e"
     },
     "practitioner": {
      "columns": {
