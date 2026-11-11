@@ -94,7 +94,8 @@ def test_a_sub_investigator_ticked_for_data_entry_reads_the_participants(box: di
 def test_an_opted_out_patient_leaves_the_job_page_registry_and_excluded_list(box: dict[str, Any]) -> None:  # noqa: F811
     jid = _with_excluded(box)
     crc = _user(box, "crc1", "coordinator")
-    admin, csrf = login(box["app"])
+    admin = _user(box, "crc2", "coordinator")  # D-280 (OD-5): a patient-level reader is no longer the administrator
+    csrf = _csrf(admin.get("/home").text)
     box["backend"].registry_update("GZQO", RegistryUpdate(pid=B, status="candidate", by="crc1"))
     assert "bbbbbbbb" in admin.get("/pilot/registry/GZQO").text
     assert admin.get(f"/pilot/jobs/{jid}").text.count("<tr data-pid=") == 2
@@ -289,7 +290,7 @@ def test_an_opted_out_patients_chart_number_stays_masked_in_the_job_thread(box: 
     job = _done_case(box["backend"], {"mrn": "70000054", "lang": "en"})
     box["audit"].append("console.request", job_id=job.job_id, ruleset="GZQO", actor="console:admin",
                         detail={"line": "CASE GZQO mrn=••• lang=en", "channel": "web"})  # fmt: skip
-    admin, _ = login(box["app"])
+    admin = _user(box, "crc2", "coordinator")  # D-280 (OD-5): the reader is a coordinator, not the administrator
     assert "mrn=70000054" in admin.get(f"/pilot/jobs/{job.job_id}").text
     _opt_out(box, _user(box, "crc1", "coordinator"), "ab" * 16)  # the CASE subject's pseudonym
     page = admin.get(f"/pilot/jobs/{job.job_id}").text
@@ -309,8 +310,9 @@ def test_the_lookup_cap_records_before_it_counts(box: dict[str, Any]) -> None:  
 
 def test_the_job_reveal_has_no_preselected_reason(box: dict[str, Any]) -> None:  # noqa: F811
     jid = _with_excluded(box)
-    admin, csrf = login(box["app"])
+    admin = _user(box, "crc2", "coordinator")  # D-280 (OD-5): the reveal form is a coordinator's, not the admin's
     page = admin.get(f"/pilot/jobs/{jid}").text
+    csrf = _csrf(page)
     assert '<select name="reason" required data-testid="reveal-reason"><option value="">' in page
     r = admin.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": A, "reason": ""})
     assert r.status_code == 400 and box["backend"].revealed == []
@@ -401,7 +403,7 @@ def test_a_running_case_job_masks_an_opted_out_subjects_chart_number(
                                      outputs=[]))  # fmt: skip
     box["audit"].append("console.request", job_id=job.job_id, ruleset="GZQO", actor="console:admin",
                         detail={"line": "CASE GZQO mrn=••• lang=en", "channel": "web"})  # fmt: skip
-    admin, _ = login(box["app"])
+    admin = _user(box, "crc2", "coordinator")  # D-280 (OD-5): the reader is a coordinator, not the administrator
     assert "mrn=70000054" in admin.get(f"/pilot/jobs/{job.job_id}").text
     assert asked == []  # nobody on the register: no lookup at all
     _opt_out(box, _user(box, "crc1", "coordinator"), "cd" * 16)  # someone else
