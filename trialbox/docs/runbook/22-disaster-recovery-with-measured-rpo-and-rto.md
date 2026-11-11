@@ -53,7 +53,7 @@ Start the clock when the site decides to restore. Write the time at each step on
 4. `trialbox restore <file> --key <private key> --yes --refdata <folder>` (§5). Add `--dir host=<folder>` to get the
    host part back (`deploy/.env`, settings, the site folder, the Caddy and Authelia volumes).
 5. With WAL archiving: restore to the last second the archive holds (§5, step 5 of point-in-time restore).
-6. `trialbox doctor --env-file deploy/.env`: no FAIL. Run the pair canary (`make selftest` in the box).
+6. `trialbox doctor --env-file deploy/.env`: no FAIL. Run the pair canary (`trialbox selftest` on the box).
 7. Open the console from a clinic PC; sign in; the Operations page shows the restored backup.
 8. Stop the clock. Tell the users what to redo: the audit lists the marks and EDC entries made after the backup.
 9. Run `backup-nightly` by hand, so a new chain starts.

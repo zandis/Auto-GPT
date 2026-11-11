@@ -32,6 +32,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sitesetup import help as site_help
 from sitesetup import publish, readiness
+from sitesetup.intake import IntakeError
 from sitesetup.service import SiteSetup, ws_ok
 from sitesetup.store import SetupError
 
@@ -117,6 +118,11 @@ class AssistBody(BaseModel):
 
 def _fail(exc: SetupError) -> HTTPException:
     return HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message})
+
+
+def _intake_fail(exc: IntakeError) -> HTTPException:
+    """A sheet refused at import; ``column`` names the column it is about (T-629, FIT-U09), as the header writes it."""
+    return HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message, "column": exc.column})
 
 
 def router(
@@ -238,18 +244,19 @@ def router(
             data = base64.b64decode(body.b64, validate=True)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail={"code": "SETUP-FILE", "message": "not base64"}) from exc
-        from sitesetup.intake import IntakeError
-
         try:
             return dict(call(lambda: svc.add_sheet(w, body.kind, body.name, data, body.roles, body.by)))
         except IntakeError as exc:
-            raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message}) from exc
+            raise _intake_fail(exc) from exc
 
     @r.post("/setup/{ws}/sheets/{iid}/roles")
     def post_roles(ws: str, iid: int, body: RolesBody) -> dict[str, Any]:
         svc = get()
         ws_of(ws)
-        return dict(call(lambda: svc.reread(iid, body.by, body.roles)))
+        try:
+            return dict(call(lambda: svc.reread(iid, body.by, body.roles)))
+        except IntakeError as exc:  # T-629 (FIT-U09): a chart-number column Excel turned into numbers
+            raise _intake_fail(exc) from exc
 
     @r.post("/setup/{ws}/charts")
     def post_chart(ws: str, body: ChartBody) -> dict[str, Any]:

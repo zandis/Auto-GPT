@@ -23,7 +23,7 @@ from tb_common.crypto import sha256_bytes
 from tb_common.ruleset import Ruleset
 from tb_contracts import Job, JobOutput
 
-from tests.console.test_console_app import _ulid, box, login, review_book  # noqa: F401 - box is a fixture
+from tests.console.test_console_app import _ulid, box, login, name_pi, review_book  # noqa: F401 - box is a fixture
 from tests.console.test_excluded_page import _with_excluded
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -188,6 +188,8 @@ def test_no_english_word_outside_the_allow_list_on_the_clinical_pages(
     _gzqo(box)
     _with_excluded(box)
     box["users"].create("walker", role, PW, "walker@hospa.test")
+    if role == "investigator":
+        name_pi(box, "walker")  # D-380 (ROLE-008): the steward names the PI
     assert _walk(box, "walker", lang) == {}
     # the translated words are on the page, with the protocol's own beside them
     c, csrf = login(box["app"], "walker", PW)
@@ -212,6 +214,7 @@ def test_the_walk_finds_an_untranslated_label(
     )
     _with_excluded(box)
     box["users"].create("walker", "investigator", PW, "walker@hospa.test")
+    name_pi(box, "walker")  # D-380 (ROLE-008): the steward names the PI
     bad = _walk(box, "walker", "ja")
     assert "flares" in bad["/studies/GZQO/week"] and "confirm" in bad["/studies/GZQO/patients/" + "b" * 32]
     assert english_words("<p>痛風 <q>two flares</q> <span data-original>(Age)</span> eGFR GZQO-INC-01</p>") == []
@@ -224,6 +227,7 @@ def test_approve_all_waits_for_a_label_in_the_page_language(box: dict[str, Any])
     new = ("GZQO-INC-10", "inclusion", "structured", "Example criterion added by the amendment.", "VS_X: 1", 100, None)
     job = _approval_job(box, [*_gzqo_rows("GZQO-INC-01", "GZQO-EXC-01"), new])
     box["users"].create("pi", "investigator", PW, "pi@hospa.test")
+    name_pi(box, "pi")  # D-380 (ROLE-008): the steward names the PI
     p, csrf = login(box["app"], "pi", PW)
     p.post("/lang", data={"csrf": csrf, "lang": "ja", "back": "/"})
     s20 = p.get(f"/pilot/jobs/{job.job_id}/approval").text
@@ -246,6 +250,7 @@ def test_approve_all_waits_for_a_label_in_the_page_language(box: dict[str, Any])
 def test_the_approval_page_has_no_english_label_on_a_japanese_page(box: dict[str, Any]) -> None:  # noqa: F811
     job = _approval_job(box, _gzqo_rows("GZQO-INC-01", "GZQO-INC-05", "GZQO-EXC-11"))
     box["users"].create("pi", "investigator", PW, "pi@hospa.test")
+    name_pi(box, "pi")  # D-380 (ROLE-008): the steward names the PI
     p, csrf = login(box["app"], "pi", PW)
     for lang, label in (("ja", "現在の痛風発作"), ("zh-TW", "目前痛風發作")):
         p.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/"})
@@ -270,6 +275,7 @@ def test_dev_pages_label_answers_from_the_test_model(
     _gzqo(box)
     _with_excluded(box)
     box["users"].create("walker", "investigator", PW, "walker@hospa.test")
+    name_pi(box, "walker")  # D-380 (ROLE-008): the steward names the PI
     c, csrf = login(box["app"], "walker", PW)
     c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/"})
     monkeypatch.delenv("TB_LLM_MODE", raising=False)

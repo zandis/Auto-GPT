@@ -52,5 +52,11 @@ input firewall, SSH, offline OS patches, and `deploy/check_host.sh` that checks 
   Docker's data root (WARN below 20%, FAIL below 10%), both cron files of the install, the host time zone and the TPM.
   Run it after install, after every update and after every OS patch.
 - **GB10:** driver 580.142 exactly, held; the vLLM image pinned by digest.
-- **Windows:** the box runs in WSL2 only on a hospital's written demand. BitLocker, WSL swap and key custody
-  (DPAPI/TPM) are T-210a's checks (`check_host --wsl2`).
+- **Windows (T-210a, D-421):** the box runs in WSL2 only on a hospital's written demand. BitLocker takes the place
+  of LUKS: on the system drive, the drive of the distribution's `ext4.vhdx` and every page-file drive, with a TPM and
+  PIN (a TPM-only protector FAILs, as for LUKS) and a recovery password kept by hospital IT. Hibernation and Fast
+  Startup off, `.wslconfig` with `swap=0` and `sparseVhd=true` (`deploy/windows/wslconfig.example`), Remote Desktop
+  off, Windows Update installs and restarts only when hospital IT starts them, and a start-at-boot task that keeps
+  WSL2 running whether or not anyone is signed in (`deploy/windows/register_keepalive.ps1`). `preflight.ps1` checks
+  all of it before the install and `check_host --wsl2` (on by itself on a WSL2 kernel) after it, with one judge,
+  `deploy/windows/wsl2_policy.py`. Key custody on Windows (DPAPI or the Windows TPM) is T-210b.
