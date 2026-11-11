@@ -22,7 +22,7 @@ from vec import store as vs
 from vec.index import Note, index_notes
 from vec.store import VecError, VecStore
 
-from tests.unit.test_vec import IDENTIFIERS, NOTES, SITE_MRN
+from tests.unit.test_phi_note_mask import IDENTIFIERS, NOTES, SITE_MRN
 
 pytestmark = pytest.mark.integration
 
