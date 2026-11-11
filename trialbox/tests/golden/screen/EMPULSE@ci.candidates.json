@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
+  "head": "e3ac1779aac2e0f5e13be8d94578e15142dc6697",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
+  "reason": "D-442 (T-207): no eGFR under 18 (catalogue egfr_ckd_epi_2021 and egfr_jsn_2009: age < 18, do not compute); an eGFR criterion of a patient under 18 at the index date is unknown with derived_adult_only instead of met or not met",
   "ref_date": "2026-11-01",
   "ruleset": "EMPULSE",
   "ruleset_version": "1.0.0",
@@ -167,7 +167,7 @@
   "synthetic-jp-a": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "2d1eb0ef9c3f5c009f026e3f9c3a61356d6225a0f12e185d1bfd86fd82f9f98f",
+   "outcomes_sha": "60e7b69c4a6476f3a1a7c08434bc00538d624f69996bc60a60b67756f344bdfd",
    "patients": 2500,
    "structured_criteria": [
     "EMPULSE-INC-01",
@@ -204,9 +204,9 @@
      "unknown": 0
     },
     "EMPULSE-EXC-08": {
-     "met": 12,
-     "not_met": 78,
-     "unknown": 2410
+     "met": 11,
+     "not_met": 73,
+     "unknown": 2416
     },
     "EMPULSE-EXC-09": {
      "met": 52,
@@ -243,7 +243,7 @@
   "synthetic-jp-a-deletes": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "9cbec135b7135bdef37bf232dcdce1ec796d265645650a83e0e07ec89e95d78a",
+   "outcomes_sha": "21da2c1885c8a780fa14e606358a437e28098723b89b82abb9157e7f78eb0731",
    "patients": 2500,
    "structured_criteria": [
     "EMPULSE-INC-01",
@@ -280,9 +280,9 @@
      "unknown": 0
     },
     "EMPULSE-EXC-08": {
-     "met": 11,
-     "not_met": 70,
-     "unknown": 2419
+     "met": 10,
+     "not_met": 65,
+     "unknown": 2425
     },
     "EMPULSE-EXC-09": {
      "met": 45,
@@ -319,7 +319,7 @@
   "synthetic-tw-a": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "23c64a8af5b22a063f23ae91570ac8e1c79378cede47c5399ac56a2ddf813215",
+   "outcomes_sha": "44944991f79cea8ec7477672f01a8655ef08937e4dcfca3a5a78604ae281f70c",
    "patients": 2500,
    "structured_criteria": [
     "EMPULSE-INC-01",
@@ -356,9 +356,9 @@
      "unknown": 0
     },
     "EMPULSE-EXC-08": {
-     "met": 13,
-     "not_met": 83,
-     "unknown": 2404
+     "met": 12,
+     "not_met": 81,
+     "unknown": 2407
     },
     "EMPULSE-EXC-09": {
      "met": 53,
