@@ -33,6 +33,11 @@ def vec_server(request: pytest.FixtureRequest) -> Iterator[str]:
     given = os.environ.get("TB_TEST_DB_URL")
     if given:
         with Database.connect(given, "probe") as db:
+            offered = db.fetchval("SELECT count(*) FROM pg_available_extensions WHERE name = 'vector'")
+            if offered and not extensions(db, ("vector",))["vector"]:
+                # installed on the server but not created in this database: create it (a nightly run must not skip
+                # by accident); a role without the right fails here, with the reason, instead of skipping
+                db.execute("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public")
             if extensions(db, ("vector",))["vector"]:
                 yield given
                 return

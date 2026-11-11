@@ -427,7 +427,8 @@ ADDED: dict[str, tuple[str, ...]] = {
     "vec": ("cd645d93e9d8d0a809c92eeaf6ff8997c201fb0e32b07a2d112288447f86b429",),
 }
 #: stores whose DDL needs an extension of the box's db image (D-204); a cluster without it cannot migrate them, so
-#: :func:`test_every_store_migrates_twice_and_checks_its_record` leaves them to ``tests/integration/test_vec_store.py``
+#: :func:`test_every_store_migrates_twice_and_checks_its_record` creates the extension where the server offers it and
+#: leaves the store to ``tests/integration/test_vec_store.py`` only where it does not
 NEEDS_EXTENSION = {"vec": "vector"}
 #: stores of the baseline whose code is gone (T-659b: ``mpi``, the retired data platform's patient index)
 RETIRED = {"mpi"}
@@ -486,10 +487,19 @@ def test_no_applied_ddl_string_changed(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_every_store_migrates_twice_and_checks_its_record(db_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TB_OMOP_CONCEPT_BLOCK", raising=False)
+    migrated: list[str] = []
     for store, scripts in store_migrations().items():
         with Database.connect(db_url, f"pin_{store}") as db:
-            if store in NEEDS_EXTENSION and not extensions(db, (NEEDS_EXTENSION[store],))[NEEDS_EXTENSION[store]]:
-                continue  # the local cluster has no pgvector: the integration test migrates it on the db image
+            ext = NEEDS_EXTENSION.get(store)
+            if ext and not extensions(db, (ext,))[ext]:
+                if not db.fetchval("SELECT count(*) FROM pg_available_extensions WHERE name = ?", (ext,)):
+                    continue  # the server has no pgvector: tests/integration/test_vec_store.py migrates it on the image
+                db.execute(f"CREATE EXTENSION IF NOT EXISTS {ext} WITH SCHEMA public")  # offered: never skip then
             db.migrate(scripts)
             db.migrate(scripts)
             assert [r.sha256 for r in db.applied()] == [script_sha256(s) for s in scripts], store
+            migrated.append(store)
+    with Database.connect(db_url, "pin_probe") as db:
+        offered = {str(r[0]) for r in db.fetchall("SELECT name FROM pg_available_extensions")}
+    # a store is left out only where its extension is not on the server at all
+    assert set(store_migrations()) - set(migrated) == {s for s, e in NEEDS_EXTENSION.items() if e not in offered}

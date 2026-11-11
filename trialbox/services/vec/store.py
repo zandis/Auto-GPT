@@ -106,7 +106,8 @@ def search_sql(model: str, dim: int, k: int, by_patient: bool) -> str:
     check_model(model)
     check_dim(dim)
     k = int(k)
-    dist = f"(e.emb::public.halfvec({dim})) OPERATOR(public.<=>) ?::public.halfvec({dim})"
+    # parenthesised: OPERATOR(...) binds looser than "-", so "1 - a OPERATOR(public.<=>) b" would be "(1 - a) <=> b"
+    dist = f"((e.emb::public.halfvec({dim})) OPERATOR(public.<=>) ?::public.halfvec({dim}))"
     cols = (
         "c.pid, c.did, c.chunk_no, c.note_date::text AS date, c.note_type AS type, c.start_char, c.end_char, "
         "c.text, c.sha"

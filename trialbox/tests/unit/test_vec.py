@@ -253,7 +253,8 @@ def test_the_http_client_takes_the_services_dimension() -> None:
 
 def test_the_search_queries() -> None:
     near = store.search_sql("e-embed-1", 1024, 5, by_patient=False)
-    assert "WHERE e.model = 'e-embed-1' ORDER BY (e.emb::public.halfvec(1024)) OPERATOR(public.<=>)" in near
+    assert "WHERE e.model = 'e-embed-1' ORDER BY ((e.emb::public.halfvec(1024)) OPERATOR(public.<=>)" in near
+    assert "1 - ((e.emb::public.halfvec(1024)) OPERATOR(public.<=>)" in store.search_sql("m", 1024, 5, True)
     assert near.count("?") == 2 and "LIMIT 5" in near
     exact = store.search_sql("e-embed-1", 1024, 5, by_patient=True)
     assert "WHERE c.pid = ANY(?)" in exact and exact.count("?") == 3 and "AND e.dim = 1024" in exact

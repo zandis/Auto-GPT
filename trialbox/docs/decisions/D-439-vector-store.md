@@ -59,8 +59,11 @@ so the schema cannot fix `halfvec(1024)`.
   `trialbox-e2e.yml`, `make test-compose`, which allows no skip; it does not run on a pull request) or any server in `TB_TEST_DB_URL` that has the extension. Locally those tests skip with the
   reason. The chunker, the PHI pass, "embed once per sha" and the dimension rule are unit tests that need no
   database.
-- `tests/unit/test_migrations.py` migrates every store on the local cluster; it now skips the stores that need an
-  extension the cluster lacks (only `vec`), and the integration test migrates `vec` twice instead.
+- `tests/unit/test_migrations.py` migrates every store on the local cluster. `tools/pglocal.py` creates `vector` (as
+  the superuser, like the image's db-init) where the server has pgvector installed, and the test then migrates
+  `vec` too; it leaves `vec` out only where the server has no pgvector at all (the stock CI server), and asserts so.
+- The integration fixture creates `vector` in a `TB_TEST_DB_URL` database that offers it, so a run with pgvector
+  installed cannot skip by accident.
 - Erasure (T-206b) has one call to make, and it leaves no orphan vector.
 
 ## Open
