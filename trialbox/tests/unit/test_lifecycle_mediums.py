@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import json
 import xml.etree.ElementTree as ET
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from datacore import lifecycle as lc
@@ -186,10 +187,7 @@ class _Host:
     def __init__(self, dc: DataCore, audit: AuditLog) -> None:
         self.dc, self.audit, self.registry = dc, audit, None
 
-    def now(self) -> Any:
-        from datetime import datetime
-        from zoneinfo import ZoneInfo
-
+    def now(self) -> datetime:
         return datetime(2026, 11, 10, 9, 0, tzinfo=ZoneInfo("Asia/Taipei"))
 
     def stamp(self) -> str:
@@ -204,7 +202,7 @@ def test_the_api_for_the_contact_rule_and_possible_deviations(life: Lifecycle, t
     audit = AuditLog(tmp_path / "audit")
     host = _Host(life.dc, audit)
     api = FastAPI()
-    api.include_router(life_router(lambda: host))  # type: ignore[arg-type,return-value]
+    api.include_router(life_router(lambda: host))
     c = TestClient(api)
     assert c.get(f"/studies/{RS}/contact-rule").json()["max_attempts"] == 3
     r = c.put(f"/studies/{RS}/contact-rule", json={"max_attempts": 4, "min_days": 2, "by": "console:crc"})
