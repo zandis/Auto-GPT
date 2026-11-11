@@ -4,6 +4,7 @@
                 [--no-fhir] [--no-lake] [--no-validate]
     adapter validate [--snapshot DATE] [--per-type 50] [--file RESOURCES.json|.ndjson] [--lake DIR]   # JP Core (D-137)
     adapter keys-init [--secrets DIR]          # the install ceremony's key step (T-612)
+    adapter pid-merge --from CHART --into CHART --reason TEXT --ticket ID   # a chart-number merge (T-659b)
 
 Configuration comes from the environment/settings (``TB_LAKE_DIR``, ``TB_SECRETS_DIR``, ``FHIR_BASE_URL``, mapping
 from ``settings.data_source.mapping``). Exit status 0 = report passed, 1 = failed, 2 = refused before the night
@@ -12,6 +13,9 @@ started (configuration, or the site key missing or changed: T-612).
 ``keys-init`` makes ``site_hmac.key`` and ``pid_map.key`` in the secrets folder (``TB_SECRETS_DIR``) when absent and
 never replaces one; it prints each key's fingerprint, never a key. It is the only place a site key is made: the
 ingest refuses a night without one (T-612, DATA-004).
+
+``TB_DATA_CONTRACTS`` turns on the data contracts (T-659b, D-370): a built-in set's name (``demo_his``) or a folder of
+contract files. ``pid-merge`` records a chart-number merge in the append-only ``pid_alias`` table; no pid is re-keyed.
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ from tb_common.config import ConfigError, load
 from tb_common.logging import setup_logging
 from tb_contracts import RebuildResult, dump
 
+from adapter.governance import contracts_dir
 from adapter.pipeline import AdapterConfig, SiteKeyError, run_ingest
 
 MAPPING_ROOT = Path(__file__).resolve().parent
@@ -106,6 +111,7 @@ def build_config() -> tuple[AdapterConfig, str, str]:
         required_tables=tuple(fc.required_tables) if fc else (),
         optional_tables=tuple(fc.optional_tables) if fc else (),
         source_encoding=ds.encoding,  # T-615b
+        contracts_dir=contracts_dir(os.environ.get("TB_DATA_CONTRACTS")),  # T-659b
     )
     default_path = ds.path or (os.environ.get(ds.dsn_env, "") if ds.dsn_env else "")
     return ac, ds.type, default_path
@@ -132,6 +138,11 @@ def main(argv: list[str] | None = None) -> int:
     val.add_argument("--lake", type=Path, help="the lake folder (default: TB_LAKE_DIR or the settings)")
     keys = sub.add_parser("keys-init", help="make the site keys when absent (the install ceremony, T-612)")
     keys.add_argument("--secrets", type=Path, help="the secrets folder (default: TB_SECRETS_DIR or the settings)")
+    merge = sub.add_parser("pid-merge", help="record a chart-number merge in the alias table (T-659b)")
+    merge.add_argument("--from", dest="old", required=True, help="the chart number merged away")
+    merge.add_argument("--into", dest="new", required=True, help="the surviving chart number")
+    merge.add_argument("--reason", required=True)
+    merge.add_argument("--ticket", required=True)
     args = ap.parse_args(argv)
     setup_logging("adapter")
     if args.cmd == "validate":
@@ -143,6 +154,8 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigError as exc:
         print(f"configuration error: {exc}", file=sys.stderr)
         return 2
+    if args.cmd == "pid-merge":
+        return pid_merge(ac, args.old, args.new, args.reason, args.ticket)
     kind = args.source or default_kind
     path = args.dsn or args.path or default_path
     try:
@@ -161,6 +174,22 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     print(json.dumps(dump(report), ensure_ascii=False, indent=1))
     return 0 if report.passed else 1
+
+
+def pid_merge(ac: AdapterConfig, old: str, new: str, reason: str, ticket: str) -> int:
+    """T-659b (D-370): chart number ``old`` was merged into ``new``; prints the two pids, never a chart number."""
+    from adapter.pidmap import AliasError
+
+    pm = ac.pidmap()
+    try:
+        a, b = pm.merge(ac.site_key(), old, new, reason, ticket)
+    except AliasError as exc:
+        print(f"merge refused: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        pm.close()
+    print(json.dumps({"old_pid": a, "pid": b}))
+    return 0
 
 
 def keys_init(secrets: Path | None = None) -> int:
