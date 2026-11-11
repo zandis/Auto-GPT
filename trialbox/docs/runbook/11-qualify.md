@@ -6,7 +6,9 @@ that card's profile. G1b runs through this command. It costs nothing by itself: 
 ## Before the run
 
 1. The pair is serving behind the box's gateway (in TEST: the pins are candidates until promoted), and the weights
-   are the release `models/registry.yaml` expects (`expected`: manifest sha256 and revision of each build).
+   are the release `models/registry.yaml` expects (`expected`: manifest sha256 and revision of each build). The judge
+   runs with `--chat-template` on the pinned template (`weights.chat_template` in the site pin, D-392); the serving
+   record taken on the box names its sha256 (`chat_template_sha256`).
 2. The working tree is clean at the commit you want to qualify.
 3. Have these at hand:
    - the two weight folders (for the licence file check);
