@@ -56,7 +56,7 @@ def test_the_administrator_holds_no_patient_level_right() -> None:
     stw = User("stw1", "steward", None)
     assert not stw.can_view_phi and not stw.can_reveal  # the steward's own patient pages are T-102b's
     for role in ("coordinator", "investigator"):
-        assert User("x", role, None).can_view_phi and User("x", role, None).can_reveal  # type: ignore[arg-type]
+        assert User("x", role, None).can_view_phi and User("x", role, None).can_reveal
 
 
 def test_the_administrators_pages_show_no_patient_row(box: dict[str, Any]) -> None:  # noqa: F811
