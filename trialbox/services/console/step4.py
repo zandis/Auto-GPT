@@ -357,6 +357,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                 model_builds=_model_builds(),  # T-012b: each pinned build and its qualification record
                 refdata=status_or_none(),
                 ops=h.ops_summary() if h.ops_summary is not None else None,
+                **(h.admin_extra(sess) if h.admin_extra is not None else {}),  # T-209c: backup, update, accounts
             )  # D-178: the Operations tile
         elif tab == "jobs":
             jobs = bk.list_jobs(limit=300)
