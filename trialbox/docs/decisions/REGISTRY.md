@@ -179,6 +179,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-355 | merged | T-211a | signed audit heads with the KEK-wrapped Ed25519 key, write-once off-box anchor folders, key rotation, the clock a doctor FAIL (file) |
 | D-352 | merged | T-669 | hot documents as section files with a generated index; RUNBOOK section numbers in one table (file) |
 | D-357 | merged | T-603 | prompt budgets from the model's context: the gateway gives each alias's context and refuses `prompt_too_long` before dispatch; callers size excerpts, full record, chart and the retry from it; the cache keeps complete answers only and keys on `max_tokens`; a note over the budget is flagged (`notes_over_budget`) (file) |
+| D-371 | merged | T-104b | one PostgreSQL major (16) for the db image, the demo and CI: `postgres_major` in `deploy/images.lock`, Debian 13 base, pgBackRest pinned from PGDG in the db image, `tools/ci_postgres.sh` checks `pg_config --version` (file) |
 | D-351 | merged | T-116 | one forbidden-word list checked on every page, role, catalogue and template; a record field takes a neutral word; the intended-use statement on every PDF, XLSX, sheet and mail (file) |
 | D-353 | merged | T-107 | the clinical item catalogue loaded as data: one concept per item at stable ids, LOINC unmapped never invented, the storable gate in chart extraction, the steward items page (file) |
 | D-361 | merged | T-684 | clinical layout in ja and zh-TW: a font stack per language, CJK labels kept whole, the full page's sticky mark bar, the week page's first screen, registry words (file) |
