@@ -17,13 +17,21 @@ end and the back end's public parameters. Back ends:
   ``tools/keys.py unseal`` takes ``k`` shares, checks them against ``kek.json`` and writes the KEK to a runtime file;
 * ``file``: a random KEK written once to a place outside the data volume that the host protects: a TPM-sealed
   systemd credential (``systemd-creds encrypt --with-key=tpm2``; the service then reads
-  ``$CREDENTIALS_DIRECTORY/trialbox-kek``), Windows DPAPI on the WSL2 host, or removable media.
+  ``$CREDENTIALS_DIRECTORY/trialbox-kek``), Windows DPAPI on the WSL2 host, or removable media;
+* ``kms``: the platform variant (T-319, D-432; IT pack §A.6 "KEK in KMS"). A random KEK sealed by the hospital's key
+  management service, which keeps the key that seals it; ``kek.json`` holds the KMS address, the key's name and the
+  KMS ciphertext (useless without the KMS). The client speaks the transit protocol of Vault and OpenBao
+  (``POST <url>/encrypt/<key>`` and ``<url>/decrypt/<key>``, the token in ``X-Vault-Token``). The token comes from
+  ``TB_KMS_TOKEN`` (an environment variable; on a platform the Secret ``trialbox-kms``, which holds a revocable
+  credential for the KMS, never the KEK); ``TB_KMS_URL`` replaces the recorded address when it moves. Only https, or
+  plain http to the loopback for a test KMS. No proxy is used: the KMS is inside the hospital.
 
 Where a running service finds the KEK (:func:`load_kek`), in order: ``TB_KEK_FILE`` (default ``/run/trialbox/kek``,
 a tmpfs the unseal writes), ``$CREDENTIALS_DIRECTORY/trialbox-kek``, then ``TB_KEK_PASSPHRASE`` for the passphrase
-back end. A KEK file inside the secrets folder is refused: a KEK beside the keys it wraps protects nothing. A KEK
-whose id is not ``kek.json``'s is refused. With none of them the key load fails closed (:class:`KekLockedError`); the
-night, the pid map and the console say why and no key is made in its place.
+back end, or the KMS for the ``kms`` back end when ``TB_KMS_TOKEN`` is set. A KEK file inside the secrets folder
+is refused: a KEK beside the keys it wraps protects nothing. A KEK whose id is not ``kek.json``'s is refused.
+With none of them the key load fails closed (:class:`KekLockedError`); the night, the pid map and the console say
+why and no key is made in its place.
 
 A plain key file still loads (boxes from before T-210b); ``doctor`` (check ``key_custody``) FAILs it in VALIDATION
 and PRODUCTION and ``tools/keys.py wrap`` wraps it. A plain copy beside a wrapped one is refused: it is a left-over
@@ -41,7 +49,11 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
+import urllib.error
+import urllib.parse
+import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -58,7 +70,9 @@ PROTECTED = ("site_hmac.key", "pid_map.key", "objects.key", "audit_sign.key", "e
 #: protected keys a box may not have yet (a store never sealed, no audit key made, no EDC signature yet): not listed
 #: by :func:`custody` while absent
 OPTIONAL = ("objects.key", "audit_sign.key", "edc_sign.key")
-BACKENDS = ("passphrase", "shamir", "file")
+BACKENDS = ("passphrase", "shamir", "file", "kms")
+KMS_TIMEOUT = 10.0
+KMS_KEY_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 DEFAULT_KEK_FILE = "/run/trialbox/kek"
 CREDENTIAL = "trialbox-kek"  # systemd LoadCredentialEncrypted= name
 #: scrypt cost of the passphrase back end (stored in kek.json, so a later box can raise it)
@@ -140,6 +154,67 @@ def new_meta(backend: str, kek: bytes, **params: Any) -> dict[str, Any]:
     if backend not in BACKENDS:
         raise KekError(f"unknown KEK back end {backend!r} (one of {', '.join(BACKENDS)})")
     return {"format": META_FORMAT, "backend": backend, "kek_id": kek_id(kek), **params}
+
+
+# ------------------------------------------------------------------------------------------------ kms (platform)
+
+
+def _kms_endpoint(base: str, op: str, key: str) -> str:
+    u = urllib.parse.urlsplit(base)
+    loopback = u.hostname in ("127.0.0.1", "::1", "localhost")
+    if u.scheme != "https" and not (u.scheme == "http" and loopback):
+        raise KekError(f"the KMS address {base} is not https (only a loopback test KMS may be plain http)")
+    if not KMS_KEY_NAME.match(key):
+        raise KekError(f"{key!r} is not a KMS key name")
+    return f"{base.rstrip('/')}/{op}/{key}"
+
+
+def _kms_call(base: str, op: str, key: str, token: str, body: Mapping[str, str]) -> dict[str, Any]:
+    """One transit call. The token never appears in an error; the KMS's own answer is not echoed either."""
+    req = urllib.request.Request(  # noqa: S310 - https or loopback http only (_kms_endpoint)
+        _kms_endpoint(base, op, key),
+        data=json.dumps(body).encode(),
+        method="POST",
+        headers={"X-Vault-Token": token, "Content-Type": "application/json"},
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(req, timeout=KMS_TIMEOUT) as r:  # nosec B310: https or loopback only, checked above
+            doc = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        raise KekError(f"the KMS refused {op} with key {key}: HTTP {e.code}") from None
+    except (OSError, ValueError) as e:
+        raise KekError(f"the KMS at {base} did not answer {op}: {type(e).__name__}") from None
+    data = doc.get("data") if isinstance(doc, dict) else None
+    if not isinstance(data, dict):
+        raise KekError(f"the KMS at {base} gave no data for {op}")
+    return data
+
+
+def kms_seal(kek: bytes, url: str, key: str, token: str) -> dict[str, Any]:
+    """The ``kms`` back end's public parameters for ``kek`` (sealed by the KMS now)."""
+    if not token:
+        raise KekError("TB_KMS_TOKEN is not set: the KMS needs a token")
+    ct = _kms_call(url, "encrypt", key, token, {"plaintext": base64.b64encode(kek).decode()}).get("ciphertext")
+    if not isinstance(ct, str) or not ct:
+        raise KekError(f"the KMS at {url} returned no ciphertext")
+    return {"kms_url": url, "kms_key": key, "kms_ciphertext": ct}
+
+
+def kms_open(meta: Mapping[str, Any], env: Mapping[str, str]) -> bytes:
+    """The KEK from the KMS, checked against ``kek.json``'s id."""
+    token = env.get("TB_KMS_TOKEN") or ""
+    if not token:
+        raise KekLockedError("TB_KMS_TOKEN is not set: the KEK stays sealed in the KMS")
+    url = env.get("TB_KMS_URL") or str(meta.get("kms_url") or "")
+    data = _kms_call(url, "decrypt", str(meta.get("kms_key") or ""), token, {"ciphertext": str(meta["kms_ciphertext"])})
+    try:
+        kek = base64.b64decode(str(data.get("plaintext") or ""), validate=True)
+    except ValueError:
+        raise KekError(f"the KMS at {url} returned no key") from None
+    if len(kek) != KEK_LEN or not hmac.compare_digest(kek_id(kek), str(meta["kek_id"])):
+        raise KekError(f"the KMS at {url} returned a key that is not this box's KEK (kek.json names {meta['kek_id']})")
+    return kek
 
 
 # ------------------------------------------------------------------------------------------------ passphrase
@@ -342,6 +417,8 @@ def load_kek(secrets_dir: Path, env: Mapping[str, str] | None = None) -> bytes:
         if not hmac.compare_digest(kek_id(kek), str(meta["kek_id"])):
             raise KekError("TB_KEK_PASSPHRASE is not this box's passphrase")
         return kek
+    if meta["backend"] == "kms" and env.get("TB_KMS_TOKEN"):
+        return kms_open(meta, env)
     raise KekLockedError(
         f"the site keys in {secrets_dir} are wrapped and the KEK is not unsealed here (back end {meta['backend']}): "
         f"run `python -m tools.keys unseal` on the host (it writes {DEFAULT_KEK_FILE}); no key is made in their place"
