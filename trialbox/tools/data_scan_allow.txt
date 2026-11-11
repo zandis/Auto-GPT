@@ -16,6 +16,7 @@ path | * | tests/fixtures/encodings/* | the encoding detector's sample sheets (T
 path | * | tests/unit/test_encoding.py | the same placeholder sample rows, inline, from which the encoding fixtures are written
 path | * | tests/fixtures/protocol_contacts/* | the invented protocol front pages of T-606 (D-359): fictional doctors, 555 telephone numbers and example.org mail, no real person or site
 path | jp_phone | tests/unit/test_injection_hardening.py | the T-606 tests' invented contact line (a 555 number), the same as the protocol fixtures
+path | * | tests/unit/test_phi_note_mask.py | the note masker's planted identifiers (T-600, D-337): fictional names, phones and chart numbers written inline to be masked
 
 # --- textbook placeholders used in tests and documents
 value | tw_id | A123456789 | the textbook example of a valid Taiwan ID format, used by every PHI test and design text
