@@ -7,6 +7,9 @@ services:
   greenmail:
     image: ${GREENMAIL_IMAGE:-greenmail/standalone:2.1.15@sha256:309ba544ea482e5d4265d09921cdab07c8dad2cc4481d715c9b8ff5d3f0a149f}
     profiles: [test]
+    mem_limit: 1g   # T-108a (D-360): test servers have caps too
+    pids_limit: 512
+    logging: {driver: json-file, options: {max-size: "20m", max-file: "3"}}
     environment:
       GREENMAIL_OPTS: >-
         -Dgreenmail.setup.test.smtp -Dgreenmail.setup.test.imap -Dgreenmail.hostname=0.0.0.0
@@ -18,6 +21,9 @@ services:
   mailpit:
     image: ${MAILPIT_IMAGE:-axllent/mailpit:v1.33.1@sha256:aef2aacc11f075ec0fb6874275ee4a421e688e11a96ebb296134d1735c7761ce}
     profiles: [test]
+    mem_limit: 256m
+    pids_limit: 256
+    logging: {driver: json-file, options: {max-size: "20m", max-file: "3"}}
     environment:
       MP_SMTP_AUTH_ACCEPT_ANY: "1"       # like MailHog: any SMTP login is accepted, none is required
       MP_SMTP_AUTH_ALLOW_INSECURE: "1"   # a login without TLS on the test network

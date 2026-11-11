@@ -19,6 +19,9 @@ TWCS = "https://twcore.mohw.gov.tw/ig/twcore/CodeSystem"
 V2_0203 = "http://terminology.hl7.org/CodeSystem/v2-0203"
 UCUM = "http://unitsofmeasure.org"
 LOINC = "http://loinc.org"
+#: The oral route of the TWPAS route value set ``medication-path-sct-tw`` (required binding, one coding). The IG lists
+#: no oral code outside SNOMED CT, so the box writes this one code, with no SNOMED CT description (D-376, amends D-342)
+ROUTE_ORAL = {"system": "http://snomed.info/sct", "code": "26643006"}
 # department code (site) -> NHI consultation department code (TW Core medical-consultation-department-nhi-tw)
 NHI_DEPARTMENT = {
     "ONC": "AF",
@@ -236,8 +239,8 @@ def build(inp: TwpasInput, base: str = f"{PAS}") -> dict[str, Any]:
                         "coding": [{"system": "http://terminology.hl7.org/CodeSystem/v3-GTSAbbreviation", "code": "QD"}]
                     },
                 },
-                # TW Core's route code system (CC0), not SNOMED CT: the box ships no SNOMED CT (T-617b)
-                "route": {"coding": [{"system": f"{TWCS}/medication-path-tw", "code": "PO", "display": "口服"}]},
+                # route.coding is 1..1 and bound to the IG's value set: TW Core #PO is not in it (D-376)
+                "route": {"coding": [dict(ROUTE_ORAL)], "text": "口服"},
                 "doseAndRate": [{"doseQuantity": {"value": inp.daily_dose_mg, "system": UCUM, "code": "mg"}}],
             }
         ],

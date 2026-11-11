@@ -218,6 +218,9 @@ def test_release_json_in_the_bundle_names_every_component(kit: dict[str, Any]) -
     assert rel["images"]["hapi"]["image"] == "hapiproject/hapi:v8.12.0-2" and rel["images"]["hapi"]["source"] == HAPI
     assert {"sbom/requirements.lock.cdx.json", "sbom/licences.md", "sbom/index.json", "sbom/gates.json"} <= set(files)
     assert {"NOTICE", "CHANGELOG.md", "install.sh", "RUNBOOK.md"} <= set(files)
+    # T-631 (D-367): the host tree rides in every bundle, as one payload of kind host
+    assert files["trialbox-host.tar"]["kind"] == "host"
+    assert [c["kind"] for c in rel["components"] if c["path"] == "trialbox-host.tar"] == ["host"]
     # the whole runbook: docs/RUNBOOK.md while doclint has no --whole (T-669 adds it and joins the sections)
     if "--whole" not in (ROOT / "tools" / "doclint.py").read_text(encoding="utf-8"):
         want = hashlib.sha256((ROOT / "docs" / "RUNBOOK.md").read_bytes()).hexdigest()

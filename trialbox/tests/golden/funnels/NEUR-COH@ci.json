@@ -1,15 +1,15 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "5b31ff48d3df539a42b2d482bc405f74e0d2a3d4",
-  "lake_schema_version": 2,
+  "head": "e31dd293513c382adf5101f332ef0c55439ab2a2",
+  "lake_schema_version": 3,
   "profile": "ci",
-  "reason": "D-205: adds the goldens of the new AD-MAB and NEUR-COH rulesets (T-503); no existing value moves",
+  "reason": "T-106b lake schema 3",
   "ref_date": "2026-11-01",
   "ruleset": "NEUR-COH",
   "ruleset_version": "1.0.0",
   "seed": 42,
-  "written_with_source": "legacy"
+  "written_with_source": "legacy+omop"
  },
  "sets": {
   "public-en": {

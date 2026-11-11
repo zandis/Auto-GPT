@@ -1,7 +1,12 @@
-"""Command authorisation (SPEC §10.1 "Users: none"): sender address + ``settings.permissions``."""
+"""Authorisation. Mailed commands (SPEC §10.1 "Users: none"): sender address + ``settings.permissions``. Console
+accounts: one permission function, :func:`permit`, over the matrix ``authz_matrix.yaml`` (T-102a, D-366)."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
+
+import yaml
 from tb_contracts import Settings
 
 
@@ -46,94 +51,188 @@ def allowed(settings: Settings, command: str, sender: str) -> bool:
     return any(who in group_members(settings, g) for g in groups)
 
 
+# ---------------------------------------------------------------------------------------------- the permission matrix
+# T-102a (D-366): one permission function. ``authz_matrix.yaml`` (next to this file) holds every console role x every
+# action as data; :func:`permit` is the only function that reads it. The helpers below it (``can_request``,
+# ``role_allowed``, ``study_tasks``, ``edc_allowed``, ``edc_role_may``, ``sae_allowed``, ``admin_allowed``) and the role
+# properties of ``console.auth.User`` are thin wrappers over ``permit``; their tables (``ROLE_COMMANDS``,
+# ``INVESTIGATOR_RUNS``, ``ROLE_STUDY_TASKS``, ``ROLE_SAE_ACTIONS``, ``ROLE_ADMIN_ACTIONS``) are read from the matrix at
+# import, for the callers that list them. ``study_tasks``, ``edc_allowed`` and ``edc_role_may`` are deprecated: a test
+# fails when a new module calls them (``tests/unit/test_authz_matrix.py``); new code calls ``permit``.
+MATRIX_PATH = Path(__file__).with_name("authz_matrix.yaml")
+CONDITIONS: tuple[str, ...] = ("pi", "logged_pi", "logged_tick", "unlogged")  # plus "task:<t>"
+# D-147: the study tasks of the delegation log (ICH E6): see candidates, mark Approach, ask a treating doctor, enter
+# data; T-512 (D-349): ``run`` lets a sub-investigator start the runs that say ``task:run`` ("screen" only shows them).
+STUDY_TASKS: tuple[str, ...] = ("screen", "approach", "refer", "enter_data", "run")
+
+
+class MatrixError(ValueError):
+    """``authz_matrix.yaml`` breaks a rule of its header: the service does not start with a broken matrix."""
+
+
+@dataclass(frozen=True)
+class Standing:
+    """An account's standing in one study, from the study's delegation log (the console reads it; ``permit`` only
+    looks). ``is_pi``: the study's PI (the logged PI, or before the log names one, an investigator of the study);
+    ``tasks``: the study tasks (for a ``task.*`` row, the ticks the PI gave); ``log_names_pi``: the log names a PI."""
+
+    is_pi: bool = False
+    tasks: frozenset[str] = frozenset()
+    log_names_pi: bool = True
+
+
+NO_STANDING = Standing()
+BEST_STANDING = Standing(is_pi=True, tasks=frozenset(STUDY_TASKS), log_names_pi=True)  # the most a role could have
+
+
+@dataclass(frozen=True)
+class Decision:
+    """The answer of :func:`permit`: ``allowed`` and the ``basis`` it rests on (``role``, a condition such as ``pi``
+    or ``task:run``, or why it was refused). Truthy when allowed. The caller writes it into its audit event."""
+
+    allowed: bool
+    role: str
+    action: str
+    basis: str
+
+    def __bool__(self) -> bool:
+        return self.allowed
+
+
+Cell = bool | tuple[str, ...]
+
+
+def load_matrix(path: Path = MATRIX_PATH) -> tuple[tuple[str, ...], dict[str, dict[str, Cell]]]:
+    """Read and check the matrix: the role list, and per action one cell per role (total, known conditions only)."""
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    roles = tuple(raw.get("roles") or ())
+    if not roles or len(set(roles)) != len(roles):
+        raise MatrixError("roles: a non-empty list without repeats")
+    out: dict[str, dict[str, Cell]] = {}
+    for action, row in (raw.get("actions") or {}).items():
+        if not isinstance(row, dict) or not str(row.get("what") or "").strip():
+            raise MatrixError(f"{action}: every action says what it is")
+        cells = {k: v for k, v in row.items() if k != "what"}
+        if set(cells) != set(roles):
+            raise MatrixError(f"{action}: names {sorted(cells)}, the roles are {sorted(roles)} (the matrix is total)")
+        out[action] = {}
+        for role, v in cells.items():
+            if isinstance(v, bool):
+                out[action][role] = v
+                continue
+            if not isinstance(v, list) or not v:
+                raise MatrixError(f"{action}.{role}: true, false or a list of conditions")
+            for c in v:
+                ok = c in CONDITIONS or (str(c).startswith("task:") and c[5:] in STUDY_TASKS)
+                if not ok or (c == "logged_tick" and not action.startswith("task.")):
+                    raise MatrixError(f"{action}.{role}: unknown condition {c!r}")
+            out[action][role] = tuple(v)
+    return roles, out
+
+
+MATRIX_ROLES, MATRIX = load_matrix()
+
+
+def _holds(cond: str, action: str, s: Standing) -> bool:
+    if cond == "pi":
+        return s.is_pi
+    if cond == "logged_pi":
+        return s.log_names_pi and s.is_pi
+    if cond == "logged_tick":
+        return s.log_names_pi and action.removeprefix("task.") in s.tasks
+    if cond == "unlogged":
+        return not s.log_names_pi
+    return cond.removeprefix("task:") in s.tasks
+
+
+def permit(role: str, action: str, standing: Standing = NO_STANDING) -> Decision:
+    """May a console account with ``role`` and this ``standing`` in the study take ``action``? Pure: reads the
+    matrix only, logs nothing. A role or an action not in the matrix is refused."""
+    if role not in MATRIX_ROLES:
+        return Decision(False, role, action, "unknown role")
+    row = MATRIX.get(action)
+    if row is None:
+        return Decision(False, role, action, "unknown action")
+    cell = row.get(role, False)
+    if cell is True:
+        return Decision(True, role, action, "role")
+    if cell is False:
+        return Decision(False, role, action, "role")
+    for cond in cell:
+        if _holds(cond, action, standing):
+            return Decision(True, role, action, cond)
+    return Decision(False, role, action, "standing")
+
+
+def _granted(cond: str) -> frozenset[str]:
+    """The commands whose investigator cell names ``cond`` (T-512's two rows)."""
+    return frozenset(a.removeprefix("command.") for a, row in MATRIX.items()
+                     if a.startswith("command.") and isinstance(row["investigator"], tuple)
+                     and cond in row["investigator"])  # fmt: skip
+
+
 # D-146 (review J-01): a request made on the console is authorised by the signed-in person's role (the console's
 # signed actor assertion carries it), not by a sender mailbox in settings.yaml. A mailed request keeps the mailbox rule
-# above. The console checks the same roles before it asks (console.auth.User.can_request / can_approve).
-_PREPARE = frozenset(
-    {"FEAS", "SCREEN", "COHORT", "NAV", "MICROBATCH", "STATUS", "CANCEL", "CONSENT", "RELEASE", "CASE", "FEEDBACK"}
-)
-# T-512 (D-349, owner answer Q-04, finding FIT-003): the runs an investigator may start in one study. THE ONE PLACE
-# THIS RULE LIVES: a different answer is a change to this table. "pi" is the study's logged PI (or, before the study's
-# delegation log names one, any investigator of the study); "run" is a sub-investigator the PI ticked for the ``run``
-# task. The daily limits of ``daily_limit`` hold for them as for every requester. Two empty sets give D-146's old
-# rule back (the investigator approves; never a run).
-INVESTIGATOR_RUNS: dict[str, frozenset[str]] = {
-    "pi": frozenset({"FEAS", "SCREEN", "CASE"}),
-    "run": frozenset({"FEAS", "SCREEN", "CASE"}),
-}
-_INVESTIGATOR = frozenset({"APPROVE", "STATUS"})  # the investigator approves the criteria (D-108)
-ROLE_COMMANDS: dict[str, frozenset[str]] = {
-    "admin": _PREPARE,
-    "coordinator": _PREPARE,
-    # the orchestrator's job authorisation table: the most the role may start in any study; the console adds the
-    # study's delegation log on top (``can_request``)
-    "investigator": _INVESTIGATOR | INVESTIGATOR_RUNS["pi"] | INVESTIGATOR_RUNS["run"],
-}
+# above. The console checks the same rows before it asks (console.auth.User.can_request / can_approve).
+COMMANDS: tuple[str, ...] = tuple(a.removeprefix("command.") for a in MATRIX if a.startswith("command."))
+# T-512 (D-349, owner answer Q-04, finding FIT-003): the runs an investigator may start in one study, read from the
+# matrix's ``command.*`` rows: "pi" is the study's PI, "run" (``task:run``) a sub-investigator the PI ticked for the
+# ``run`` task. The daily limits of ``daily_limit`` hold for them as for every requester. Read-only: a different
+# answer is a change to the matrix.
+INVESTIGATOR_RUNS: dict[str, frozenset[str]] = {"pi": _granted("pi"), "run": _granted("task:run")}
 
 
 def role_allowed(role: str, command: str) -> bool:
-    """True when a console account with ``role`` may start ``command`` (viewer and CRO accounts start nothing)."""
-    return command.upper() in ROLE_COMMANDS.get(role, frozenset())
+    """True when a console account with ``role`` may start ``command`` in some study (the orchestrator's job table:
+    the best case, as the study's PI with every task; viewer and CRO accounts start nothing)."""
+    return permit(role, f"command.{command.upper()}", BEST_STANDING).allowed
+
+
+# the orchestrator's job authorisation table: the most the role may start in any study
+ROLE_COMMANDS: dict[str, frozenset[str]] = {
+    r: frozenset(c for c in COMMANDS if role_allowed(r, c))
+    for r in MATRIX_ROLES
+    if any(role_allowed(r, c) for c in COMMANDS)
+}
 
 
 def can_request(role: str, command: str, *, is_pi: bool = False, tasks: frozenset[str] = frozenset()) -> bool:
     """May a console account with ``role`` start ``command`` in one study (T-512, D-349)? ``is_pi`` and ``tasks``
-    are the account's standing in that study (the delegation log, ``study_tasks``). Administrators and coordinators
-    by the role table; an investigator by :data:`INVESTIGATOR_RUNS`: the PI by "pi", a sub-investigator only with
-    the ``run`` tick."""
-    cmd = command.upper()
-    if role != "investigator":
-        return role_allowed(role, cmd)
-    if cmd in _INVESTIGATOR:
-        return True
-    if is_pi:
-        return cmd in INVESTIGATOR_RUNS["pi"]
-    return "run" in tasks and cmd in INVESTIGATOR_RUNS["run"]
-
-
-# D-147: the study tasks of the delegation log (ICH E6): see candidates, mark Approach, ask a treating doctor, enter
-# data. The role table gives each role its tasks in a study; for an investigator the study's delegation log decides:
-# the logged PI has every task, a sub-investigator the ones the PI ticked, an investigator not on a log that names a PI
-# none. Before a study's log names a PI, every investigator of the study acts as its PI with ``investigator``'s row.
-# T-512 (D-349): ``run`` lets a sub-investigator start the runs of INVESTIGATOR_RUNS["run"] ("screen" only shows them).
-STUDY_TASKS: tuple[str, ...] = ("screen", "approach", "refer", "enter_data", "run")
-# D-280 (OD-5, CR-023): the administrator has no study task; one patient or one job only through break-glass.
-ROLE_STUDY_TASKS: dict[str, frozenset[str]] = {
-    "coordinator": frozenset({"screen", "enter_data"}),
-    "investigator": frozenset({"screen", "approach", "refer"}),  # until the study's log names its PI
-}
+    are the account's standing in that study (the delegation log, ``study_tasks``)."""
+    return permit(role, f"command.{command.upper()}", Standing(is_pi=is_pi, tasks=frozenset(tasks))).allowed
 
 
 def study_tasks(role: str, *, log_names_pi: bool, is_pi: bool, ticked: frozenset[str]) -> frozenset[str]:
-    """The tasks a console account with ``role`` has in one study, given the study's delegation log."""
-    if role != "investigator" or not log_names_pi:
-        return ROLE_STUDY_TASKS.get(role, frozenset())
-    return frozenset(STUDY_TASKS) if is_pi else frozenset(ticked) & frozenset(STUDY_TASKS)
+    """Deprecated wrapper over ``permit`` (the ``task.*`` rows): the tasks a console account with ``role`` has in one
+    study, given the study's delegation log. D-280 (OD-5, CR-023): the administrator has none."""
+    s = Standing(is_pi=is_pi, tasks=frozenset(ticked), log_names_pi=log_names_pi)
+    return frozenset(t for t in STUDY_TASKS if permit(role, f"task.{t}", s))
 
 
-# D-160: EDC prefill. Who may do what, on top of the study tasks above. The prefill path is data entry (the
-# ``enter_data`` task: a coordinator, the PI, a sub-investigator the PI ticked for it); turning prefill on is the
-# study PI's alone (they hold the sponsor's acknowledgement); turning it off is the PI's or an admin's (stop at once).
-# A viewer, a CRO account and anyone without the task do nothing here.
+# the role rows before a study's log names a PI (an investigator acts as PI with this row)
+ROLE_STUDY_TASKS: dict[str, frozenset[str]] = {
+    r: t for r in MATRIX_ROLES if (t := study_tasks(r, log_names_pi=False, is_pi=False, ticked=frozenset()))
+}
+
+
+# D-160: EDC prefill. Who may do what, on top of the study tasks above: the ``edc.*`` rows. The prefill path is data
+# entry (the ``enter_data`` task: a coordinator, the PI, a sub-investigator the PI ticked for it); turning prefill on
+# is the study PI's alone (they hold the sponsor's acknowledgement); turning it off is the PI's or an admin's (stop at
+# once). A viewer, a CRO account and anyone without the task do nothing here.
 EDC_ACTIONS: tuple[str, ...] = ("view", "map", "draft", "review", "sign", "send", "export", "switch_on", "switch_off")
 
 
 def edc_allowed(role: str, action: str, *, tasks: frozenset[str], is_pi: bool) -> bool:
-    """May an account with ``role`` (and these study tasks) take this EDC prefill ``action`` in one study?"""
-    if action not in EDC_ACTIONS or role in ("viewer", "cro"):
-        return False
-    if action == "switch_on":
-        return role == "investigator" and is_pi
-    if action == "switch_off":
-        return (role == "investigator" and is_pi) or role == "admin"
-    if action == "view":
-        return "enter_data" in tasks or (role == "investigator" and is_pi)
-    return "enter_data" in tasks
+    """Deprecated wrapper over ``permit`` (the ``edc.*`` rows): may an account with ``role`` (and these study tasks)
+    take this EDC prefill ``action`` in one study?"""
+    return (
+        action in EDC_ACTIONS and permit(role, f"edc.{action}", Standing(is_pi=is_pi, tasks=frozenset(tasks))).allowed
+    )
 
 
 def edc_role_may(role: str, action: str) -> bool:
-    """The orchestrator's own check of an EDC action (D-162, review E-01): the most this console role could ever do
-    in a study. The console adds the delegation log on top (``edc_allowed`` with the person's study tasks)."""
+    """Deprecated wrapper: the orchestrator's own check of an EDC action (D-162, review E-01): the most this console
+    role could ever do in a study. The console adds the delegation log on top (``edc_allowed``)."""
     inv = role == "investigator"
     tasks = study_tasks(role, log_names_pi=False, is_pi=inv, ticked=frozenset())
     return edc_allowed(role, action, tasks=tasks, is_pi=inv)
@@ -173,12 +272,16 @@ ADMIN_ACTIONS: tuple[str, ...] = (
     "account.disable",  # disable an account
     "account.enable",  # enable a disabled account again (the undo of disable)
 )
-ROLE_ADMIN_ACTIONS: dict[str, frozenset[str]] = {"admin": frozenset(ADMIN_ACTIONS)}
 
 
 def admin_allowed(role: str, action: str) -> bool:
-    """True when a console account with ``role`` may take the operations or account ``action``."""
-    return action in ROLE_ADMIN_ACTIONS.get(role, frozenset())
+    """True when a console account with ``role`` may take the operations or account ``action`` (``permit``)."""
+    return action in ADMIN_ACTIONS and permit(role, action).allowed
+
+
+ROLE_ADMIN_ACTIONS: dict[str, frozenset[str]] = {
+    r: a for r in MATRIX_ROLES if (a := frozenset(x for x in ADMIN_ACTIONS if admin_allowed(r, x)))
+}
 
 
 # D-191 (independent plan review PR-17): the SAE register. Deny by default: a role or an action not listed here may do
@@ -188,15 +291,16 @@ def admin_allowed(role: str, action: str) -> bool:
 # participant page (D-143). Viewer and CRO (sponsor, monitor) accounts see nothing.
 SAE_ACTIONS: tuple[str, ...] = ("view", "record")
 # D-280 (OD-5, CR-023): the administrator reads no SAE row (patient-level); break-glass covers one patient or job.
-ROLE_SAE_ACTIONS: dict[str, frozenset[str]] = {
-    "coordinator": frozenset({"view", "record"}),
-    "investigator": frozenset({"view"}),
-}
 
 
 def sae_allowed(role: str, action: str) -> bool:
-    """True only when the role table above grants ``action`` on the SAE register to ``role``."""
-    return action in SAE_ACTIONS and action in ROLE_SAE_ACTIONS.get(role, frozenset())
+    """True only when the matrix's ``sae.*`` rows grant ``action`` on the SAE register to ``role`` (``permit``)."""
+    return action in SAE_ACTIONS and permit(role, f"sae.{action}").allowed
+
+
+ROLE_SAE_ACTIONS: dict[str, frozenset[str]] = {
+    r: a for r in MATRIX_ROLES if (a := frozenset(x for x in SAE_ACTIONS if sae_allowed(r, x)))
+}
 
 
 # D-280 (owner decision OD-5, CR-029): break-glass. The administrator sees patient data only through a grant: a reason
