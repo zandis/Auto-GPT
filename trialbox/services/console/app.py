@@ -1121,6 +1121,9 @@ def create_app(
     edc_pages.register(app, helpers)  # EDC prefill: switch, map, review, e-signature, send, ODM (D-160)
     demo_guard.register(app, helpers)  # T-502 (D-328): demo mode's refusals, banner and acknowledgement
     feedback.register(app, helpers)  # T-510 (D-331): the feedback control of every page and its CSV export
+    from console import items_page
+
+    items_page.register(app, helpers)  # T-107 (D-353): /data/items, the clinical item catalogue for the steward
 
     from console import ops_pages
 

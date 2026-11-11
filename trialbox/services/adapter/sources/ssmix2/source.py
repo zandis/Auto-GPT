@@ -47,8 +47,14 @@ WHO ICD-10 (2013), not ICD-10-CM (D-314): ``icd10`` is the WHO code as the site 
 case, the dot after the category, a dagger or asterisk mark dropped), kept even when ICD-10-CM has no such code
 (``E14``, ``I64``, ``F00``); ``icd10cm`` is the same code only when it is also an ICD-10-CM code (D-137's rule), so the
 JP mapping carries the WHO coding always and the ICD-10-CM one only where they are the same code. ATC works the same
-way from ``yj_to_atc.csv`` (``yj_code,atc``) and a licensed YJ release that carries ATC. Codes that resolve nowhere
-are counted in :attr:`Ssmix2Source.missed` and reach the mapping without a standard code (D-130 keeps them unknown).
+way from ``yj_to_atc.csv`` (``yj_code,atc``) and a licensed YJ release that carries ATC, and then (T-610, STD-042)
+from the line's ingredient: a YJ code's 7-character stem, or the stem of the YJ code the site's drug master
+(``drug_master.csv`` beside the mapping, ``refdata_jp.parse_drug_master``) gives a HOT or local code, looked up in
+the ingredient-to-ATC table (TrialBox's stems, then the site's ``ingredient_atc.csv``). The row keeps the stem
+(``yj_stem``), so a drug ValueSet that lists stems reads the line even without ATC. A lab code with no row in the
+lab look-up or the licensed JLAC10 release is counted too (STD-043). Codes that resolve nowhere are counted in
+:attr:`Ssmix2Source.missed`, listed by volume in the ingest report (``reader.json``: ``unmapped`` and
+``drug_resolution``), and reach the mapping without a standard code (D-130 keeps them unknown).
 
 Extended storage (拡張ストレージ, D-137): documents (reports, discharge summaries, PDFs, text) under
 ``<root>/extended_storage/`` (or ``extended_storage=``), in the same patient folders:
@@ -65,6 +71,7 @@ from __future__ import annotations
 import contextlib
 import csv
 import io
+import json
 import logging
 import re
 from collections import Counter
@@ -73,7 +80,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from tb_common import encoding
+from tb_common import encoding, refdata_jp
 
 from adapter.sources.base import Row, after
 from adapter.sources.csv.source import CsvSource
@@ -117,8 +124,11 @@ _HOT_SYS = ("HOT", "HOT9", "99HOT", "HOT13", "99HOT9", "99HOT13")
 _ATC_SYS = ("WHOATC", "ATC")
 _JLAC_SYS = ("JC10", "JLAC10", "JC11")
 _JLAC_SHAPE = re.compile(r"^[0-9A-Z]{15}([0-9A-Z]{2})?$")
-# JLAC10 material code (characters 10-12) -> specimen name (the JP Core lab profile needs a specimen)
-_MATERIAL = {"001": "尿", "019": "全血", "022": "血漿", "023": "血清", "040": "便", "071": "髄液"}
+# JLAC10 material code (characters 10-12) -> specimen name (the JP Core lab profile needs a specimen). Only codes read
+# in JSLM's published JLAC10 pages (jslm.org/committees/code/jlac3.pdf: 001, 004, 018, 019, 022, 023; jlac.pdf's
+# example: 041 髄液); STD-024 dropped 040 便 and 071 髄液, which no published page confirms. SPM-4 comes first and the
+# site's licensed JLAC10 release (its 材料名) second; this table is the last resort.
+_MATERIAL = {"001": "尿", "004": "蓄尿", "018": "全血", "019": "全血", "022": "血漿", "023": "血清", "041": "髄液"}
 # extended-storage folder kinds -> canonical note types (prefix match, upper case; anything else: "document")
 _DOC_KINDS = (("DSC", "discharge"), ("SUM", "discharge"), ("RPT", "report"), ("REP", "report"),
               ("PRG", "progress"), ("NOTE", "progress"), ("ADM", "admission"), ("CON", "consult"),
@@ -263,6 +273,9 @@ class Ssmix2Source:
         extended_storage: Path | None = None,
         byomei_to_icd10: Path | None = None,
         yj_to_atc: Path | None = None,
+        drug_master: Path | None = None,
+        ingredient_atc: Path | None = None,
+        lab_lookup: Path | None = None,
         licensed: dict[str, dict[str, dict[str, str]]] | None = None,
         quarantine_max_pct: float = QUARANTINE_MAX_PCT,
     ) -> None:
@@ -279,6 +292,19 @@ class Ssmix2Source:
 
             licensed = lic.tables()
         self.licensed = licensed
+        # T-610 (STD-042): order line -> ingredient (YJ stem) -> ATC, through the site's drug master and the
+        # ingredient-to-ATC table (shipped stems, then the site's own); both site files are optional
+        master = drug_master or JP_CORE / "drug_master.csv"
+        self.drugs = refdata_jp.DrugResolver(
+            refdata_jp.ingredient_atc(ingredient_atc or JP_CORE / "ingredient_atc.csv"),
+            refdata_jp.parse_drug_master(master) if master.is_file() else (),
+            licensed.get("yj") or {},
+        )
+        self.drug_lines: Counter[str] = Counter()  # every order line's drug code, for the resolution report
+        # STD-043: a lab code with no LOINC row in the site's lookup or its licensed JLAC10 release is listed by volume
+        self.lab_known = set(_lookup(lab_lookup or JP_CORE / "jlac10_to_loinc.csv", "local_code", "code"))
+        self.lab_known |= {c for c, r in (licensed.get("jlac10") or {}).items() if r.get("target_code")}
+        self.materials = _licensed_materials(licensed.get("jlac10") or {})
         self._cm: set[str] | None = None
         self.missed: Counter[str] = Counter()  # "diagnosis:<標準病名 code>", "medication:<YJ code>"
         self.stats: Counter[str] = Counter()  # messages and documents read, by type and outcome
@@ -527,14 +553,38 @@ class Ssmix2Source:
                 "suspected": "Y" if _suspected(prb) else "",
             }
 
+    def _resolve_drug(self, codes: dict[str, str]) -> dict[str, str]:
+        """The line's ingredient (STD-042): the YJ (or local) code first, then the HOT code."""
+        first: dict[str, str] | None = None
+        for code in (codes["yj"], codes["hot"]):
+            if not code:
+                continue
+            res = self.drugs.resolve(code)
+            if res["stem"]:
+                return res
+            first = first or res
+        return first or {"code": "", "stem": "", "yj": "", "atc": "", "via": ""}
+
     def _drug_row(self, sf: StoredFile, orc: hl7.Segment, codes: dict[str, str]) -> Row:
-        atc = codes["atc"] or self._atc(codes["yj"])
+        res = self._resolve_drug(codes)
+        yj = codes["yj"]
+        if res["via"] == "master" and res["yj"]:  # a HOT or local code the site's master turns into its YJ code
+            yj = res["yj"]
+            self.stats["medication:YJ from the drug master"] += 1
+        self.drug_lines[codes["yj"] or codes["hot"]] += 1
+        atc = codes["atc"] or self._atc(yj) or res["atc"]
+        if res["stem"]:
+            self.stats["medication:ingredient"] += 1
+        if res["atc"] and not (codes["atc"] or self._atc(yj)):
+            self.stats["medication:ATC from the ingredient table"] += 1
         if not atc:
             self.missed[f"medication:{codes['yj'] or codes['hot']}"] += 1
         return {
             "rx_no": orc.comp(2, 1),
             "mrn": sf.patient,
-            "nhi_drug_code": codes["yj"],
+            "nhi_drug_code": yj,
+            "source_drug_code": codes["yj"] or codes["hot"],
+            "yj_stem": res["stem"],
             "hot_code": codes["hot"],
             "atc": atc,
             "drug_name": codes["name"],
@@ -628,15 +678,28 @@ class Ssmix2Source:
                 "sample_datetime": when,
                 "sample_time_from": src,
                 "result_status": status,
-                "specimen": _MATERIAL.get(jlac[9:12], "") if len(jlac) >= 12 else "",
+                "specimen": self._specimen(spm, jlac),
                 "_same": (sf.patient, order or sf.order, code, obx.field(4).strip()),
             }
+            if code and code.upper() not in self.lab_known:
+                self.missed[f"lab:{code}"] += 1
             if obx.field(11).strip().upper() == "D":  # deleted: a tombstone, never a record
                 self.stats["OML-11:deleted result"] += 1
                 row.pop("_same")
                 self._lab_dead.append(row)
                 continue
             yield row
+
+    def _specimen(self, spm: hl7.Segment | None, jlac: str) -> str:
+        """STD-024: SPM-4 (the specimen the lab sent: its text, else its code), else the JLAC10 material code read
+        through the site's licensed release, else :data:`_MATERIAL`."""
+        if spm is not None:
+            said = spm.comp(4, 2).strip() or spm.comp(4, 1).strip()
+            if said:
+                self.stats["OML-11:specimen from SPM-4"] += 1
+                return said
+        mat = jlac[9:12] if len(jlac) >= 12 else ""
+        return self.materials.get(mat) or _MATERIAL.get(mat, "")
 
     def _lab_corrections(self, rows: list[Row]) -> list[Row]:
         """A ``C`` (corrected) result replaces the other results of the same order, test and sub-id; a replaced
@@ -710,9 +773,41 @@ def obx_value(obx: hl7.Segment) -> str:
     return hl7.unescape(raw)
 
 
+def _licensed_materials(jlac10: dict[str, dict[str, Any]]) -> dict[str, str]:
+    """JLAC10 material code -> its name, from the 材料名 of the site's licensed release (STD-024)."""
+    out: dict[str, str] = {}
+    for code, r in jlac10.items():
+        extra = r.get("extra") or {}
+        if isinstance(extra, str):
+            extra = json.loads(extra or "{}")
+        name = str(extra.get("material") or "").strip()
+        if len(code) >= 12 and name:
+            out.setdefault(code[9:12], name)
+    return out
+
+
+UNMAPPED_TOP = 50  # codes per table listed in the ingest report
+
+
 def reader_summary(src: Any) -> dict[str, Any]:
-    """What a reader saw, for the ingest record: messages and documents by type, codes that resolved nowhere."""
+    """What a reader saw, for the ingest record: messages and documents by type, codes that resolved nowhere (by
+    table, and the codes themselves by volume: the steward's work list, STD-042 and STD-043), and how many order
+    lines reached an ingredient and an ATC code."""
     missed: Counter[str] = Counter()
+    unmapped: dict[str, Counter[str]] = {}
     for k, n in dict(getattr(src, "missed", {}) or {}).items():
-        missed[k.split(":", 1)[0]] += int(n)
-    return {"read": dict(sorted(dict(getattr(src, "stats", {}) or {}).items())), "missed": dict(missed)}
+        table, _, code = k.partition(":")
+        missed[table] += int(n)
+        unmapped.setdefault(table, Counter())[code] += int(n)
+    out: dict[str, Any] = {
+        "read": dict(sorted(dict(getattr(src, "stats", {}) or {}).items())),
+        "missed": dict(missed),
+        "unmapped": {
+            t: [{"code": c, "count": n} for c, n in sorted(cs.items(), key=lambda kv: (-kv[1], kv[0]))[:UNMAPPED_TOP]]
+            for t, cs in sorted(unmapped.items())
+        },
+    }
+    drugs, lines = getattr(src, "drugs", None), getattr(src, "drug_lines", None)
+    if drugs is not None and lines:
+        out["drug_resolution"] = drugs.report(sorted(lines.items()), UNMAPPED_TOP)
+    return out
