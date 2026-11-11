@@ -40,7 +40,7 @@ HOST_OBJECTS = "/var/lib/docker/volumes/trialbox_objects-data/_data"
 INVENTORY: tuple[dict[str, Any], ...] = (
     {"key": "KEK (key-encryption key)", "where": "not on the box's disks: steward shares, a passphrase, or a "
      "TPM-sealed credential; unsealed into /run/trialbox/kek (tmpfs)",
-     "protects": "site_hmac.key, pid_map.key, objects.key",
+     "protects": "site_hmac.key, pid_map.key, objects.key, audit_sign.key, edc_sign.key",
      "holder": "the site's key stewards (shares) or hospital IT (TPM, passphrase)",
      "rotation": "yearly, and when a steward leaves", "code": "python -m tools.keys rotate-kek",
      "breaks": "nothing, when done with the old KEK unsealed; old shares stop working",
@@ -60,6 +60,17 @@ INVENTORY: tuple[dict[str, Any], ...] = (
      "rotation": "on compromise (no command yet: a new key means re-sealing every object)", "code": None,
      "breaks": "every upload and output until re-sealed", "compromise": "rotate-kek; re-seal the store "
      "under a new key (a later card); the objects volume may have been copied with it"},
+    {"key": "audit_sign.key", "where": "secrets volume, wrapped (audit_sign.key.wrapped); public key "
+     "audit_sign.pub beside it and in every anchor folder", "protects": "the signed audit heads (T-211a, D-355)",
+     "holder": "the box", "rotation": "yearly, and on compromise (the old key endorses the new one in the chain)",
+     "code": "python tools/audit_verify.py <audit_dir> --rotate-key \"why\" --actor NAME",
+     "breaks": "nothing: heads signed before stay valid under the old public key",
+     "compromise": "rotate the audit key; rotate-kek; check the chain against the off-box heads (--heads)"},
+    {"key": "edc_sign.key", "where": "secrets volume, wrapped (edc_sign.key.wrapped), or TB_EDC_SIGN_KEY_FILE; "
+     "made on first use", "protects": "the binding of every EDC signature to its values (D-281)",
+     "holder": "the orchestrator", "rotation": "on compromise (no command yet)", "code": None,
+     "breaks": "every signature made under it stops verifying: its values are not sent until signed again",
+     "compromise": "rotate-kek; a new key means the open signatures are signed again (a later card)"},
     {"key": "totp.key", "where": "console data volume (/data/console/totp.key)", "protects": "the second-factor "
      "secrets of the accounts", "holder": "the box", "rotation": "on compromise: every account enrols its second "
      "factor again", "code": None, "breaks": "every second factor until re-enrolled",
@@ -292,6 +303,10 @@ def cmd_rotate_kek(a: argparse.Namespace, env: Mapping[str, str]) -> int:
     """A new KEK: every wrapped key is opened with the old one and re-wrapped. The new files are written beside the
     old (``.next``) and then renamed, key files first and ``kek.json`` last."""
     sec = secrets_dir(a.secrets, env)
+    pending = sorted(f.name for f in sec.glob("*.next.key" + K.WRAPPED_SUFFIX))
+    if pending:  # a key rotation cut short (audit_sign.next.key): its staged key would stay under the old KEK
+        raise K.KekError(f"{', '.join(pending)} is a key rotation not finished: finish it (run it again), then "
+                         f"rotate-kek")  # fmt: skip
     old = K.load_kek(sec, env)
     keys = {n: K.unwrap(old, K.read_wrapped(sec / n), n) for n in K.PROTECTED if K.wrapped_path(sec / n).exists()}
     new, meta = new_kek(a, sec, env, "TB_KEK_NEW_PASSPHRASE")

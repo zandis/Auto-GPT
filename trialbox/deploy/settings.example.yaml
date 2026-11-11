@@ -26,7 +26,7 @@ rate_limit_per_sender_per_day: 20   # per heavy job type (FEAS, SCREEN, COHORT, 
 # rate_limits_per_day: {SCREEN: 40, FEAS: 10}   # per type override; 0 = no limit. CASE, CONSENT, STATUS: never counted
 data_source: {type: csv, path: /data/source/site-a, mapping: mapping/tw_core/demo_his.yaml, nightly_at: "02:00"}
 mrn_regex: "^\\d{8}$"
-profiles: {tw_core: "1.0.0", twpas_version: "1.2.5"}
+profiles: {tw_core: "1.0.0", twpas_version: "1.2.5"}  # TWPAS IG version; the cache holds this one (D-372)
 models: {judge: qwen3.5-35b-a3b-q4, extract_local: gpt-oss-120b-mxfp4, embed: bge-m3, cloud_enabled: false}
 thresholds: {tier_high_confidence: 0.75, small_cell: 5, equivalence_min_pct: 98, validation_error_max_pct: 0.5}
 schedule: {ingest: "02:00", microbatch: "MON 03:00", nav: "MON 03:30", cohort: "1st 04:00", retention: "05:00", calibration: "1st 05:30"}
