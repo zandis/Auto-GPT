@@ -6,7 +6,7 @@
 #
 # Steps: host check -> images -> pin the models (site override) -> compose up (gpu|stub + test profiles; GB10 override
 # in gpu mode) -> wait healthy -> gateway probe -> trialbox doctor -> ingest synthetic site A -> FEAS email through
-# GreenMail, reply in MailHog -> cascade e2e through the gateway -> public eval suites through the gateway -> workflow
+# GreenMail, reply in Mailpit -> cascade e2e through the gateway -> public eval suites through the gateway -> workflow
 # store (outbox, recall ledger) on the compose Postgres -> one PASS/FAIL report with paths. Exit 0 only on PASS.
 #
 # The default is the measured pair (D-124): judge Gemma 4 26B-A4B-it NVFP4 (j-workhorse, llm-service, endpoint `serving`)
@@ -102,9 +102,7 @@ host_check() {
     for want in "aarch64 host" "NVIDIA driver 580.142" "nvidia container runtime"; do
       echo "$out" | grep -q "^PASS  $want" || { echo "required for the e2e: $want"; return 1; }
     done
-    # MailHog (test profile) is published for amd64 only: the Spark runs it under binfmt emulation
-    [ -e /proc/sys/fs/binfmt_misc/qemu-x86_64 ] \
-      || { echo "required: amd64 emulation for MailHog (docker run --privileged --rm tonistiigi/binfmt --install amd64)"; return 1; }
+    # D-348: Mailpit (test profile) has an arm64 image: no amd64 emulation is needed any more
   fi
   echo "informational (TB_SPARK_STRICT_HOST=1 makes them fatal): $(echo "$out" | grep -c '^FAIL') appliance check(s) failed"
   return 0

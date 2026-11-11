@@ -38,10 +38,10 @@ def _box(tmp_path: Path, env: str = "", pins: dict[str, str] | None = None) -> t
 
 def test_the_shipped_compose_files_pin_the_third_party_images_by_digest() -> None:
     # since D-204 the database is a TrialBox image built from deploy/docker/db.Dockerfile and shipped like trialbox-py
-    # (pinned in deploy/images.lock), so only HAPI is a third-party pull pinned by digest here
+    # (pinned in deploy/images.lock), so HAPI and, since D-348, vLLM are the third-party pulls pinned by digest here
     compose = ROOT / "deploy" / "docker-compose.yml"
     pins = ip.compose_pins([compose])
-    assert set(pins) == {"HAPI_IMAGE"}
+    assert set(pins) == {"HAPI_IMAGE", "VLLM_IMAGE"}
     assert all("@sha256:" in r for r in pins.values())
     assert "${POSTGRES_IMAGE:-trialbox-postgres:16-1}" in compose.read_text(encoding="utf-8")
 

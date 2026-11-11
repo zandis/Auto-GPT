@@ -1,6 +1,6 @@
 # TrialBox single-host deployment (SPEC §2). x86_64 default; GB10 overrides in docker-compose.gb10.yml.
 #   cd deploy && cp ../.env.example .env && docker compose up -d
-# Profiles: "stub" (CPU / macOS: deterministic LLM stub), "gpu" (vLLM), "test" (GreenMail + MailHog).
+# Profiles: "stub" (CPU / macOS: deterministic LLM stub), "gpu" (vLLM), "test" (GreenMail + Mailpit).
 # Models are reached only through tb-gateway (spec v4 LLM-1, NFR-B9): llm-service / llm-stub sit on model-net, which
 # only the gateway joins; the services that call a model get TB_GATEWAY_URL. The model registry, PHI guard and trace
 # store run inside the gateway process (services/gateway/app.py).
@@ -163,6 +163,7 @@ services:
       - lake-data:/data/lake
       - audit-data:/data/audit
       - tb-secrets:/run/secrets/trialbox
+      - ${TB_KEK_HOST_DIR:-/run/trialbox}:/run/trialbox:ro   # the KEK the unseal writes (tb_common.kek, D-347): read-only
 
   orchestrator:
     <<: *py
@@ -183,6 +184,7 @@ services:
       - objects-data:/data/objects
       - tb-secrets:/run/secrets/trialbox
       - ${TB_EXTRA_CA:-/dev/null}:/run/tb-extra-ca.pem:ro   # hospital TLS-inspection CA (tb_common.extra_ca)
+      - ${TB_KEK_HOST_DIR:-/run/trialbox}:/run/trialbox:ro   # the KEK the unseal writes (tb_common.kek, D-347): read-only
 
   mail-gateway:
     <<: *py
@@ -265,10 +267,11 @@ services:
   llm-service:
     logging: *logging
     profiles: [gpu]
-    # the vLLM release the 2026-11-06 GPU run measured (deploy/gcp/gpu-sim-startup.sh); a new release is a model
-    # change: re-run `make selftest` and the TrialGPT check before moving the tag. Structured output uses vLLM's
-    # default backend (--guided-decoding-backend no longer exists in this release).
-    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0}
+    # the vLLM release the 2026-11-06 GPU run measured (deploy/gcp/gpu-sim-startup.sh), by the digest of
+    # deploy/images.lock (D-348); a new release is a model change: re-run `make selftest` and the TrialGPT check
+    # before moving the lock entry. Structured output uses vLLM's default backend, `auto` (no flag; the lock and the
+    # serving record name it; --guided-decoding-backend no longer exists in this release).
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}
     command:
       - --model=/models/${LLM_MODEL_DIR:-qwen3.5-35b-a3b-q4}
       - --served-model-name=${LLM_MODEL:-qwen3.5-35b-a3b-q4}

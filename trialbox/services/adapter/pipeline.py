@@ -540,6 +540,12 @@ def _run_ingest(
         out_dir.rename(final_dir)
         shutil.rmtree(old, ignore_errors=True)
         out_dir = final_dir
+    omop_load = None
+    if not held:  # T-106 (D-339): the dual write into OMOP; its refusal or failure never holds the night
+        at["step"] = "omop"
+        from adapter.dual_write import load_night
+
+        omop_load = load_night(cfg, snap, out_dir)
     at["step"] = "load"
     fhir_loaded = fhir_deleted = 0
     if not held and load_fhir and cfg.fhir_base_url:
@@ -582,6 +588,7 @@ def _run_ingest(
         errors=errors,
         tombstoned=tombstoned,
         held=held,
+        omop=omop_load,
     )
     body = json.dumps(dump(report), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
     (out_dir / "ingest_report.json").write_bytes(body)
@@ -612,6 +619,16 @@ def _run_ingest(
                 "orphans": completeness["orphans"] or None,
                 # T-615b: the tables whose file was set aside (character set or CSV form; no cell text)
                 "quarantined": quarantined or None,
+                # T-106: the dual write into OMOP and the foreign-key checks after it (None: the flag is off)
+                "omop": (
+                    {
+                        k: v
+                        for k, v in dump(omop_load).items()
+                        if k in ("state", "seconds", "counts", "relational_failed")
+                    }
+                    if omop_load is not None
+                    else None
+                ),
             },
         )
     log.info("ingest finished", extra={"snapshot": snap, "passed": passed, "resources": sum(counts.values())})
