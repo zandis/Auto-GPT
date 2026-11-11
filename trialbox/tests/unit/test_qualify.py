@@ -152,10 +152,15 @@ def test_stub_mode_is_for_profile_ci_only() -> None:
 
 
 def test_a_real_profile_needs_pinned_weights_and_a_verified_licence(tmp_path: Path) -> None:
-    """The registry's real builds have no weight hash and an unverified licence today (LLM-007, LLM-012)."""
+    """The registry's real builds have an unverified licence today (LLM-012). Their weight hash is the release the
+    registry expects (T-012b, LLM-007), and the stub's answers do not carry it, so the pin step fails."""
     doc = q.qualify(_opts(profile="rtxpro6000", stub=False), q.stub_target(tmp_path), steps=("pin", "licence"))
     pin, lic = doc["steps"]["pin"], doc["steps"]["licence"]
-    assert pin["status"] == "failed" and "no pinned weight hash" in pin["reason"]
+    reg = {b["build_id"]: b for b in q.registry_doc()["builds"]}
+    for b in doc["builds"].values():
+        assert b["weights_sha256"] == reg[b["build_id"]]["expected"]["manifest_sha256"]
+        assert b["revision"] == reg[b["build_id"]]["expected"]["revision"]
+    assert pin["status"] == "failed" and "no pinned weight hash" not in pin["reason"]
     assert lic["status"] == "failed" and "licence not verified" in lic["reason"] and "--model-dir" in lic["reason"]
 
 

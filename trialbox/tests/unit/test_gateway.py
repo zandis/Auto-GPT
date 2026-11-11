@@ -32,6 +32,8 @@ from tb_contracts import inline_schema
 from tb_llm import CallLabels, GatewayClient, GatewayRefused, json_schema_format, prompt_registry
 from tracestore.store import TraceStore
 
+from tests.model_pins import qualified
+
 ROOT = Path(__file__).resolve().parents[2]
 PIN = "ab" * 32  # synthetic test pin; the shipped registry has no hashes yet
 JUDGE_VARS: dict[str, Any] = {
@@ -96,6 +98,7 @@ def _pinned_registry(*, served: str = "j-test", sha: str | None = PIN, status: s
                 "sha256": sha,
                 "licence": {"name": "test"},
                 "origin": {"developer": "test"},
+                **({"qualification": qualified(sha)} if sha else {}),  # T-012b: champion through qualify
             },
             {
                 "build_id": "v-test-1",
@@ -106,6 +109,7 @@ def _pinned_registry(*, served: str = "j-test", sha: str | None = PIN, status: s
                 "sha256": "cd" * 32,
                 "licence": {"name": "test"},
                 "origin": {"developer": "test"},
+                "qualification": qualified("cd" * 32),
             },
         ],
     }

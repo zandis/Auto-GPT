@@ -162,3 +162,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-333 | merged | T-601 | the gateway never answers one role with another role's model: `fallback: none` unless a route says `any`, one retry on the same build, no fallback on 400/404, build and fallbacks in the response, `tb_llm` raises on an unexpected alias, doctor `judge_route` (file) |
 | D-334 | merged | T-613b | lab units read per row: one conversion table in labvalue (engines' factors reused), mapping_check unit pairs and raw values, one presence reader in ja, zh-TW, en (file) |
 | D-347 | merged | T-210b | the site keys under a KEK: wrapped files, three back ends, the unseal, the key inventory (file) |
+| D-358 | merged | T-012b | `champion` only through `qualify`: expected weights per build, no trust on first use, install pins candidate, `--promote` from a record, PRODUCTION refuses an unqualified champion (file) |

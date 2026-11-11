@@ -303,8 +303,11 @@ def profile_builds(profile: str, doc: dict[str, Any] | None = None) -> dict[str,
             str(b["build_id"]),
             str(b["alias"]),
             str(served),
-            str(b.get("sha256") or SYNTHETIC) if b.get("serving") == "stub" else str(b.get("sha256") or ""),
-            b.get("revision"),
+            # T-012b: a local build's weights are the release the registry expects (the site pin must equal it)
+            str(b.get("sha256") or SYNTHETIC)
+            if b.get("serving") == "stub"
+            else str(b.get("sha256") or (b.get("expected") or {}).get("manifest_sha256") or ""),
+            b.get("revision") or (b.get("expected") or {}).get("revision"),
             b.get("context_length"),
             dict(b.get("licence") or {}),
             str(b.get("status") or ""),

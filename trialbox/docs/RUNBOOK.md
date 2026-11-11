@@ -379,8 +379,10 @@ python -m tools.pin_model --build qwen3.5-9b-spark --model-dir deploy/models/qwe
 ```
 
 `deploy/install.sh` does this for the GPU profile's pair (`python -m tools.pin_model --install <gpu>`, D-142): the
-sha256 of the weights under deploy/models, the served names compose gives vLLM, and status `champion`, the only status
-a PRODUCTION route accepts (a pin by hand without `--status champion` routes in DEV and TEST only). A build already
+sha256 of the weights under deploy/models, which must be the release `models/registry.yaml` expects (a folder of other
+files is refused), the served names compose gives vLLM, and status `candidate` (D-358). A candidate routes in DEV and
+TEST only. PRODUCTION routes a `champion`, and only `python -m tools.pin_model --promote <build> --record <record>`
+makes one, from a passing qualification record (§11 section file `docs/runbook/11-qualify.md`). A build already
 pinned is kept; missing weights are reported and that model routes nothing until install runs again.
 
 `--verify` re-checks the weights. Restart the gateway after a new pin. `make verify-models` checks every pin at
