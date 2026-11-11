@@ -247,7 +247,9 @@ def test_write_path_office_copy_ack_and_named_rule(lb: dict[str, Any], monkeypat
     assert 'data-testid="sae-acked"' in r.text and 'data-testid="sae-case-ack"' not in r.text
     assert any(t["action"] == "ack" for t in SaeStore().trail("GZQO", no, "ae1"))
     # a page view by the investigator wrote nothing as the investigator
-    assert not [x for x in _audit(lb["backend"].audit_dir) if x["event"] == "console.sae" and x["actor"] == "console:pi"]
+    assert not [
+        x for x in _audit(lb["backend"].audit_dir) if x["event"] == "console.sae" and x["actor"] == "console:pi"
+    ]
 
 
 def test_home_page_never_reads_no_sae_when_unknown(lb: dict[str, Any]) -> None:  # noqa: F811
