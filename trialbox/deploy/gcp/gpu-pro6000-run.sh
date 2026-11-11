@@ -67,7 +67,7 @@ docker logs judge 2>&1 | grep -aE 'Error|KV cache|Started' | tail -6 | sed 's/^/
 echo JUDGE-UP
 start verifier $V local/qwen3.5-9b-awq 0.20 --limit-mm-per-prompt '{"image":0,"video":0}' \
   --default-chat-template-kwargs '{"enable_thinking": false}'
-for i in $(seq 1 240); do healthy verifier && break; sleep 5; done
+for _ in $(seq 1 240); do healthy verifier && break; sleep 5; done
 docker logs verifier 2>&1 | grep -aE 'Error|KV cache|Started' | tail -6 | sed 's/^/TBV /'
 echo VERIFIER-UP
 nvidia-smi --query-gpu=memory.used,memory.total --format=csv

@@ -165,7 +165,7 @@ ci: venv-check
 	$(MAKE) goldens-check
 	$(MAKE) data-scan
 	$(MAKE) security-scan
-	git ls-files -z '*.sh' | xargs -0 shellcheck --severity=error
+	git ls-files -z '*.sh' | xargs -0 shellcheck --severity=warning  # OPS-076: warnings gate, as in CI
 	@if command -v hadolint >/dev/null; then hadolint --failure-threshold warning deploy/docker/python.Dockerfile deploy/docker/jvm.Dockerfile demo/Dockerfile || true; else echo "ci: images: hadolint not installed, skipped"; fi
 	$(MAKE) lock-check allowlist-check
 

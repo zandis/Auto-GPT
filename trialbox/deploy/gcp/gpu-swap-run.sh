@@ -81,7 +81,7 @@ for i in $(seq 1 2160); do sleeping judge && break; sleep 5; done   # up to 3 h 
 echo JUDGE-ASLEEP
 start verifier $V local/qwen3.5-9b-awq --limit-mm-per-prompt '{"image":0,"video":0}' \
   --default-chat-template-kwargs '{"enable_thinking": false}'
-for i in $(seq 1 240); do healthy verifier && break; sleep 5; done
+for _ in $(seq 1 240); do healthy verifier && break; sleep 5; done
 echo VERIFIER-UP
 
 # FR-MOD-10 (D-111): the serving record (sha256 of every model file, flags, card), as gpu-sim-startup.sh does
