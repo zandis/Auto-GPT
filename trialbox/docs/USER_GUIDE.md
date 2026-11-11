@@ -65,7 +65,8 @@ the patient sheet has Back, Next and a mark bar that stays in view.
 show a chart number, for a listed patient, with a reason; each is recorded with the name, under an hourly limit.
 Viewer and CRO accounts never see one (D-143).
 
-**Excluded patients (PI, CRC).** "Excluded patients and why" lists every patient the latest screening run left out,
+**Criteria not matched (PI, CRC).** "Criteria not matched" (ja 基準に合致しない患者, zh-TW 未符合條件之病人) lists every
+patient whose records did not match a criterion in the latest screening run,
 with the criterion, where the answer came from (coded records, a confirmed fact, or the notes with both models
 agreeing) and the evidence. Look at a few each week; "This is wrong, send to review" is recorded with your name.
 
