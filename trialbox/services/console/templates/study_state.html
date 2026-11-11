@@ -8,7 +8,37 @@
 <input id="id-{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ value }}"{% if cls %} class="{{ cls }}"{% endif %}{{ dis }} autocapitalize="none" spellcheck="false"{% if hint %} aria-describedby="id-{{ name }}-hint"{% endif %}{% if name in bad_names %} aria-invalid="true"{% endif %} data-testid="id-{{ name }}">
 {% if hint %}<p class="hint" id="id-{{ name }}-hint">{{ hint }}</p>{% endif %}</div>
 {% endmacro %}
-{% block title %}{{ t('sstate.title') }} · {{ rs }}{% endblock %}
+{% block title %}{{ t('sstate.title') }} · {{ rs }}
+{# D-395 (T-310b, RSK-42): the IRB text's coverage of the cross-department identified view; the PI records it #}
+{% set idis = '' if irbt_edit else ' disabled' %}
+<section class="card" id="irb-text" data-testid="irb-text" data-enables="{{ 'yes' if irbt.enables else 'no' }}">
+<h2>{{ t('irbt.legend') }}</h2>
+<p>{{ t('irbt.help') }}</p>
+<blockquote data-testid="irbt-sentence"><p><b>{{ t('irbt.sentence') }}</b></p>{% if lang != 'en' %}<p class="hint" lang="en">{{ sentence_en }}</p>{% endif %}</blockquote>
+{% if irbt.enables %}<p class="ok" data-testid="irbt-on">{{ t('irbt.on', ref=irbt.approval_ref, by=irbt.by|replace('console:', ''), at=irbt.at|local) }}</p>
+{% elif irbt.by %}<p class="warn" data-testid="irbt-withdrawn">{{ t('irbt.withdrawn', by=irbt.by|replace('console:', ''), at=irbt.at|local) }}{% if irbt.note %} · {{ irbt.note }}{% endif %}</p>
+{% else %}<p class="warn" data-testid="irbt-none">{{ t('irbt.none') }}</p>{% endif %}
+{% if not irb_gate %}<p class="hint" data-testid="irbt-gate-off">{{ t('irbt.gate_off') }}</p>{% endif %}
+{% if irbt_err %}<p class="error" role="alert" data-testid="irbt-error">{% set labels = [] %}{% for b in irbt_bad %}{% set _ = labels.append(t('irbt.f.' + b)) %}{% endfor %}{{ t(irbt_err, fields=labels|join(', ')) }}</p>{% endif %}
+{% if saved == 'irb_text' %}<p class="ok" role="status" data-testid="irbt-saved">{{ t('irbt.saved') }}</p>{% endif %}
+{% if not irbt_edit %}<p class="hint" data-testid="irbt-readonly">{{ t('irbt.readonly') }}</p>{% endif %}
+<form method="post" action="/studies/{{ rs }}/irb-text" data-testid="irbt-form">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<div><label><input type="checkbox" name="covers" value="1" data-testid="irbt-covers"{% if irbt.covers %} checked{% endif %}{{ idis }}> {{ t('irbt.covers') }}</label></div>
+{% for name, typ in (('approval_ref', 'text'), ('text_version', 'text'), ('approved_on', 'date'), ('note', 'text')) %}
+<div><label for="irbt-{{ name }}">{{ t('irbt.f.' + name) }}</label>
+<input id="irbt-{{ name }}" name="{{ name }}" type="{{ typ }}" value="{{ irbt[name] }}"{{ idis }}{% if name != 'approved_on' %} class="mono"{% endif %} aria-describedby="irbt-{{ name }}-hint"{% if name in irbt_bad %} aria-invalid="true"{% endif %} data-testid="irbt-{{ name }}">
+<p class="hint" id="irbt-{{ name }}-hint">{{ t('irbt.hint.' + name) }}</p></div>
+{% endfor %}
+{% if irbt_edit %}<button type="submit">{{ t('irbt.save') }}</button>{% endif %}
+</form>
+{% if irbt_history %}<h3>{{ t('irbt.history') }}</h3>
+<div class="scroll" tabindex="0"><table data-testid="irbt-history">
+<thead><tr><th scope="col">{{ t('sstate.col.when') }}</th><th scope="col">{{ t('irbt.col.covers') }}</th><th scope="col">{{ t('irbt.f.approval_ref') }}</th><th scope="col">{{ t('irbt.f.text_version') }}</th><th scope="col">{{ t('irbt.f.approved_on') }}</th><th scope="col">{{ t('irbt.f.note') }}</th><th scope="col">{{ t('sstate.col.by') }}</th></tr></thead>
+<tbody>{% for e in irbt_history %}<tr><td class="nowrap">{{ e.at|local }}</td><td>{{ t('irbt.yes') if e.covers else t('irbt.no') }}</td><td class="mono">{{ e.approval_ref }}</td><td class="mono">{{ e.text_version }}</td><td class="nowrap">{{ e.approved_on }}</td><td>{{ e.note }}</td><td>{{ e.by|replace('console:', '') }}</td></tr>{% endfor %}</tbody>
+</table></div>{% endif %}
+</section>
+{% endblock %}
 {% block content %}
 <div class="headrow"><h1>{{ rs }} · {{ t('sstate.title') }}</h1><a href="/studies/{{ rs }}/setup">{{ t('setup.title') }}</a></div>
 <p>{{ t('sstate.help') }}</p>
@@ -56,5 +86,35 @@
 {% for r in registries %}{{ field('registry_' + r, t('sid.registry.' + r), ident.registry_ids.get(r, ''), t('sid.hint.' + r), cls='mono') }}{% endfor %}
 {% if editable %}<button type="submit">{{ t('sid.save') }}</button>{% endif %}
 </form>
+</section>
+
+{# D-395 (T-310b, RSK-42): the IRB text's coverage of the cross-department identified view; the PI records it #}
+{% set idis = '' if irbt_edit else ' disabled' %}
+<section class="card" id="irb-text" data-testid="irb-text" data-enables="{{ 'yes' if irbt.enables else 'no' }}">
+<h2>{{ t('irbt.legend') }}</h2>
+<p>{{ t('irbt.help') }}</p>
+<blockquote data-testid="irbt-sentence"><p><b>{{ t('irbt.sentence') }}</b></p>{% if lang != 'en' %}<p class="hint" lang="en">{{ sentence_en }}</p>{% endif %}</blockquote>
+{% if irbt.enables %}<p class="ok" data-testid="irbt-on">{{ t('irbt.on', ref=irbt.approval_ref, by=irbt.by|replace('console:', ''), at=irbt.at|local) }}</p>
+{% elif irbt.by %}<p class="warn" data-testid="irbt-withdrawn">{{ t('irbt.withdrawn', by=irbt.by|replace('console:', ''), at=irbt.at|local) }}{% if irbt.note %} · {{ irbt.note }}{% endif %}</p>
+{% else %}<p class="warn" data-testid="irbt-none">{{ t('irbt.none') }}</p>{% endif %}
+{% if not irb_gate %}<p class="hint" data-testid="irbt-gate-off">{{ t('irbt.gate_off') }}</p>{% endif %}
+{% if irbt_err %}<p class="error" role="alert" data-testid="irbt-error">{% set labels = [] %}{% for b in irbt_bad %}{% set _ = labels.append(t('irbt.f.' + b)) %}{% endfor %}{{ t(irbt_err, fields=labels|join(', ')) }}</p>{% endif %}
+{% if saved == 'irb_text' %}<p class="ok" role="status" data-testid="irbt-saved">{{ t('irbt.saved') }}</p>{% endif %}
+{% if not irbt_edit %}<p class="hint" data-testid="irbt-readonly">{{ t('irbt.readonly') }}</p>{% endif %}
+<form method="post" action="/studies/{{ rs }}/irb-text" data-testid="irbt-form">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<div><label><input type="checkbox" name="covers" value="1" data-testid="irbt-covers"{% if irbt.covers %} checked{% endif %}{{ idis }}> {{ t('irbt.covers') }}</label></div>
+{% for name, typ in (('approval_ref', 'text'), ('text_version', 'text'), ('approved_on', 'date'), ('note', 'text')) %}
+<div><label for="irbt-{{ name }}">{{ t('irbt.f.' + name) }}</label>
+<input id="irbt-{{ name }}" name="{{ name }}" type="{{ typ }}" value="{{ irbt[name] }}"{{ idis }}{% if name != 'approved_on' %} class="mono"{% endif %} aria-describedby="irbt-{{ name }}-hint"{% if name in irbt_bad %} aria-invalid="true"{% endif %} data-testid="irbt-{{ name }}">
+<p class="hint" id="irbt-{{ name }}-hint">{{ t('irbt.hint.' + name) }}</p></div>
+{% endfor %}
+{% if irbt_edit %}<button type="submit">{{ t('irbt.save') }}</button>{% endif %}
+</form>
+{% if irbt_history %}<h3>{{ t('irbt.history') }}</h3>
+<div class="scroll" tabindex="0"><table data-testid="irbt-history">
+<thead><tr><th scope="col">{{ t('sstate.col.when') }}</th><th scope="col">{{ t('irbt.col.covers') }}</th><th scope="col">{{ t('irbt.f.approval_ref') }}</th><th scope="col">{{ t('irbt.f.text_version') }}</th><th scope="col">{{ t('irbt.f.approved_on') }}</th><th scope="col">{{ t('irbt.f.note') }}</th><th scope="col">{{ t('sstate.col.by') }}</th></tr></thead>
+<tbody>{% for e in irbt_history %}<tr><td class="nowrap">{{ e.at|local }}</td><td>{{ t('irbt.yes') if e.covers else t('irbt.no') }}</td><td class="mono">{{ e.approval_ref }}</td><td class="mono">{{ e.text_version }}</td><td class="nowrap">{{ e.approved_on }}</td><td>{{ e.note }}</td><td>{{ e.by|replace('console:', '') }}</td></tr>{% endfor %}</tbody>
+</table></div>{% endif %}
 </section>
 {% endblock %}

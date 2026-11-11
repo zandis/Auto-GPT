@@ -5,6 +5,7 @@ lake flattened from the NDJSON.
     python -m tools.omop_parity --dir /tmp/tb-omop-parity --sets synthetic    # one data set
     python -m tools.omop_parity ... --json eval/omop_parity/report.json        # the committed evidence
     python -m tools.omop_parity --sets synthetic --profile 50k --json eval/omop_parity/report-50k.json
+    python -m tools.omop_parity flip eval/omop_parity/report.json --actor ops:<name>   # the flip (T-202, D-384)
 
 For each data set the same NDJSON snapshot (and the same site inputs) is rebuilt twice through ``Lake.rebuild``:
 ``TB_LAKE_SOURCE=legacy`` and ``TB_LAKE_SOURCE=omop`` (loaded into its own ``omop`` schema, then exported). Then:
@@ -36,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -695,9 +697,42 @@ def table(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def flip(report: Path, actor: str, audit_dir: Path) -> dict[str, Any]:
+    """The WS-03.5 flip (T-202, D-384): ``lake.source`` to ``omop``, only on an IDENTICAL report that compared
+    something, as an audited flag change whose reason names the report's sha256. The next rebuild reads the flag;
+    a rebuild or job already running keeps the source it started with (D-207). Refused, with nothing changed, on a
+    DIFFERENT, empty or unreadable report, or when the flag is already ``omop``."""
+    from tb_common.audit import AuditLog
+    from tb_common.flags import Flags
+
+    data = report.read_bytes()
+    rep = json.loads(data)
+    compared = sorted(k for k, v in (rep.get("sets") or {}).items() if "skipped" not in v)
+    if rep.get("identical") is not True or not compared:
+        raise ValueError(f"{report}: the parity report is not IDENTICAL (or compared nothing); the flag stays")
+    sha = hashlib.sha256(data).hexdigest()
+    why = f"WS-03.5 flip (T-202, D-384): omop_parity IDENTICAL on {', '.join(compared)}; report sha256 {sha}"
+    return Flags(audit=AuditLog(audit_dir)).set("lake.source", "omop", actor, why)
+
+
 def main(argv: list[str] | None = None) -> int:
     from tools.pglocal import scratch_root  # D-201: never a fixed /tmp path
 
+    if argv is None:
+        argv = sys.argv[1:]
+    if argv and argv[0] == "flip":  # python -m tools.omop_parity flip REPORT --actor ops:<name>
+        fp = argparse.ArgumentParser(prog="omop_parity flip", description=flip.__doc__)
+        fp.add_argument("report", type=Path)
+        fp.add_argument("--actor", required=True)
+        fp.add_argument("--audit-dir", type=Path, default=Path(os.environ.get("TB_AUDIT_DIR") or "/data/audit"))
+        f = fp.parse_args(argv[1:])
+        try:
+            done = flip(f.report, f.actor, f.audit_dir)
+        except (ValueError, OSError) as e:
+            print(f"refused: {e}")
+            return 1
+        print(f"lake.source is now omop ({done})")
+        return 0
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--dir", type=Path, default=scratch_root() / "tb-omop-parity")
     ap.add_argument("--sets", default=",".join(SETS))

@@ -9,7 +9,9 @@
   unknown code system). Confirmed facts carry the ``confirmed`` tag (counted, and listed in ``site_fact``).
 * ``proposed`` facts carry the ``proposed`` tag: the flattener lists them in ``site_fact`` and never in a coded table.
 * ``rejected`` facts are left out. A chart's text (identifiers redacted) is a ``DocumentReference``: note text stays
-  notes, read by the two models at screening.
+  notes, read by the two models at screening. A fact read from a chart names that chart (the extension
+  :data:`NOTE_SOURCE`, with the fact's term): the OMOP store writes it to NOTE_NLP (T-202, D-384). The flattener
+  ignores the extension, so the lake does not move.
 """
 
 from __future__ import annotations
@@ -26,6 +28,8 @@ from sitesetup import mapping
 from sitesetup.store import COUNTED
 
 Resources = dict[str, list[dict[str, Any]]]
+#: the same text as ``omop.load.NOTE_SOURCE`` (site setup does not import the OMOP loader; a test pins the two)
+NOTE_SOURCE = "urn:trialbox:note-source"
 
 
 def _tag(r: dict[str, Any], status: str) -> dict[str, Any]:
@@ -73,6 +77,8 @@ def resources(
     out: Resources = defaultdict(list)
     pids: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     days: dict[str, set[str]] = defaultdict(set)
+    charts = list(charts)
+    chart_ids = {str(ch["id"]) for ch in charts}
     for f in facts:
         if f["status"] == "rejected":
             continue
@@ -139,6 +145,9 @@ def resources(
                 r["authoredOn"] = f["day"]
         else:
             continue
+        if str(f.get("input_id")) in chart_ids:  # read from a chart: NOTE_NLP in the OMOP store (T-202)
+            ref = {"reference": f"DocumentReference/tbch-{f['input_id']}", "display": str(f["term"])}
+            r["extension"] = [{"url": NOTE_SOURCE, "valueReference": ref}]
         out[r["resourceType"]].append(_tag(r, str(f["status"])))
     for ch in charts:
         pid = str(ch["pid"])
