@@ -217,6 +217,7 @@ _D1 = {
     "Precheck",
     "ValidationSummary",
     "IngestReport",
+    "OmopLoadSummary",  # T-106: counts and check names of a dual-write load, no patient data
     "JobCreate",
     "Job",
     # aggregates released after small-cell suppression
