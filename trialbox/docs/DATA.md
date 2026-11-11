@@ -48,4 +48,8 @@ File: [data/08-derived-scores.md](data/08-derived-scores.md).
 
 File: [data/09-all-history-back-fill-and-held-snapshots.md](data/09-all-history-back-fill-and-held-snapshots.md).
 
+## 10. Data operations: the nights of every source
+
+File: [data/10-data-operations.md](data/10-data-operations.md).
+
 <!-- end of the generated index -->

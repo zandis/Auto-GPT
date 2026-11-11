@@ -17,6 +17,9 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/admin/redcap` | Y | - | - | - | - | - | - | - | - |
 | GET | `/api/v1/admin/ops` | Y | - | - | - | - | - | - | - | - |
 | GET | `/api/v1/ask` | Y | Y | Y | Y | Y | - | Y | Y | Y |
+| GET | `/api/v1/data/batches` | Y | - | - | - | - | - | - | Y | - |
+| GET | `/api/v1/data/batches/{bid}` | n | - | - | - | - | - | - | n | - |
+| GET | `/api/v1/data/sources` | Y | - | - | - | - | - | - | Y | - |
 | GET | `/api/v1/site/checks` | U | U | U | U | n | - | - | - | - |
 | GET | `/api/v1/site/codes` | U | U | U | U | n | - | - | - | - |
 | GET | `/api/v1/site/facts` | - | U | U | U | n | - | - | - | - |
@@ -56,6 +59,8 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/auth/oidc/start` | n | n | n | n | n | n | n | n | n |
 | GET | `/breakglass` | Y | - | Y | Y | - | - | - | Y | - |
 | GET | `/cmd` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| GET | `/data-ops` | Y | - | - | - | - | - | - | Y | - |
+| GET | `/data-ops/batches/{bid}` | n | - | - | - | - | - | - | n | - |
 | GET | `/data/conflicts` | - | - | - | - | - | - | - | Y | - |
 | GET | `/data/instruments` | Y | - | - | - | - | - | - | - | - |
 | GET | `/data/items` | - | - | - | - | - | - | - | Y | - |
@@ -152,6 +157,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/admin/ops/{action}` | n | n | n | n | n | n | n | n | n |
 | POST | `/admin/redcap` | Y | - | - | - | - | - | - | - | - |
 | POST | `/admin/redcap/{ref}/test` | Y | - | - | - | - | - | - | - | - |
+| POST | `/api/v1/data/batches/{bid}/decide` | - | - | - | - | - | - | - | Y | - |
 | POST | `/api/v1/site/charts` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | POST | `/api/v1/site/checks/{cid}` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | POST | `/api/v1/site/codes` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
@@ -179,6 +185,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/breakglass` | Y | - | Y | Y | - | - | - | - | - |
 | POST | `/breakglass/{gid}/end` | Y | - | Y | Y | - | - | - | - | - |
 | POST | `/breakglass/{gid}/review` | - | - | - | - | - | - | - | Y | - |
+| POST | `/data-ops/batches/{bid}/decide` | - | - | - | - | - | - | - | Y | - |
 | POST | `/data/conflicts/{cid}/resolve` | - | - | - | - | - | - | - | Y | - |
 | POST | `/data/instruments/{iid}` | Y | - | - | - | - | - | - | - | - |
 | POST | `/demo/ack` | n | n | n | n | n | n | n | n | n |
