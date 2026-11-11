@@ -41,6 +41,7 @@ from tb_contracts import PromptMeta, inline_schema, load_schema, null_absent, sc
 from tb_llm.budget import MIN_ANSWER_TOKENS, answer_room, estimate_messages, retry_max_tokens, text_budget
 
 from tb_common.audit import AuditLog
+from tb_common.audit_writer import open_audit
 from tb_common.crypto import sha256_text
 from tb_common.phi_guard import PhiClearance, variables_text
 
@@ -227,7 +228,7 @@ class LlmClient:
             cloud_model=(models.cloud_model if models else "") or "",
             cloud_enabled=bool(models and models.cloud_enabled),
             service_name=cfg.env.service_name,
-            audit=audit or AuditLog(cfg.env.audit_path, cfg.env.tz),
+            audit=audit or open_audit(cfg.env.audit_path, cfg.env.tz),
             gateway=gateway,
         )
 

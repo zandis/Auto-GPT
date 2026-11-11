@@ -6,6 +6,15 @@
 #   tools/apply_update.sh status              # the update in progress (or not), the installed release, the keys
 #   tools/apply_update.sh rollback BUNDLE_ID  # roll back an update that was interrupted (power cut, kill -9)
 #   tools/apply_update.sh clean               # remove left-over rollback points of finished updates
+#   tools/apply_update.sh ospatch BUNDLE.tar [--dry-run] [--conf FILE]   # an offline OS patch bundle (T-634, D-408)
+#   tools/apply_update.sh ospatch-check       # after the OS patch's reboot: doctor and the canary
+#
+# ospatch (OPS-024): the same signed bundle format, its payloads all `other` under ospatch/ (a dated apt snapshot,
+# deploy/hardening/ospatch.py). Steps 0, 0b and 1 below run as for any bundle, except that release_seq is not compared
+# with installed.json (an OS snapshot does not change the TrialBox release; ospatch.py refuses a snapshot that is not
+# newer than the last one applied). Then deploy/hardening/ospatch.py apply: the snapshot must match this host's system
+# and architecture, held packages stay, apt reads the staged repository only, the reboot plan, the canary. An OS
+# patch bundle given without `ospatch`, or a TrialBox bundle given with it, is refused.
 #
 # 0. refused while deploy/updates/IN_PROGRESS.json exists (an unfinished update: `status`, then `rollback`);
 # 0b. the site keys (T-210b, D-347; python3 -m tools.keys check --for-update): refused when a key is both plain and
@@ -36,18 +45,22 @@
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 UPDATES="$ROOT/deploy/updates"
-USAGE="usage: tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup] [--allow-downgrade REASON] | status | rollback BUNDLE_ID | clean"
+USAGE="usage: tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup] [--allow-downgrade REASON] | status | rollback BUNDLE_ID | clean | ospatch BUNDLE.tar [--dry-run] [--conf FILE] | ospatch-check [--conf FILE]"
 case "${1:-}" in
   status|clean) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$ROOT/deploy" "$1" ;;
   rollback) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$ROOT/deploy" rollback "${2:?$USAGE}" ;;
+  ospatch-check) cd "$ROOT"; shift; exec python3 "$ROOT/deploy/hardening/ospatch.py" check --deploy "$ROOT/deploy" "$@" ;;
   ""|-h|--help) echo "$USAGE" >&2; exit 2 ;;
 esac
+OSPATCH=""; OSCONF=""
+if [ "$1" = ospatch ]; then OSPATCH=1; shift; [ $# -gt 0 ] || { echo "$USAGE" >&2; exit 2; }; fi
 BUNDLE=$1
 shift
 DRY=""; TARGET=${TB_UPDATE_TARGET:-compose}; NOBACKUP=""; DOWNGRADE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=--dry-run ;;
+    --conf) [ -n "$OSPATCH" ] || { echo "apply_update: --conf is for ospatch" >&2; exit 2; }; OSCONF=$2; shift ;;
     --target) TARGET=$2; shift ;;
     --no-backup) NOBACKUP=--no-backup ;;
     --allow-downgrade) DOWNGRADE=${2:?--allow-downgrade needs a reason}; shift ;;
@@ -78,7 +91,8 @@ BUNDLE_ABS=$(cd "$(dirname "$BUNDLE")" && pwd)/$(basename "$BUNDLE")
 # the verifier's arguments: the trust and the installed record are read only, and only when they exist
 set -- "$BUNDLE_ABS" --stage "$STAGE"
 [ -f "$UPDATES/trust.json" ] && set -- "$@" --trust "$UPDATES/trust.json"
-[ -f "$UPDATES/installed.json" ] && set -- "$@" --installed "$UPDATES/installed.json"
+# an OS patch does not move the TrialBox release: its order is the snapshot date's (ospatch.py)
+[ -z "$OSPATCH" ] && [ -f "$UPDATES/installed.json" ] && set -- "$@" --installed "$UPDATES/installed.json"
 [ -f "$ROOT/deploy/images.lock" ] && set -- "$@" --images-lock "$ROOT/deploy/images.lock"
 if [ ! -f "$UPDATES/trust.json" ]; then
   PUBKEY=$(cd "$(dirname "$PUBKEY")" && pwd)/$(basename "$PUBKEY")
@@ -107,6 +121,18 @@ else
     || { echo "update REJECTED: $BUNDLE" >&2; exit 1; }
 fi
 echo "verified: $SUMMARY"
+
+# T-634 (D-408): an OS patch bundle goes to the host's packages, never to the TrialBox update path, and back
+if [ -n "$OSPATCH" ]; then
+  # shellcheck disable=SC2086
+  python3 "$ROOT/deploy/hardening/ospatch.py" apply --stage "$STAGE" --deploy "$ROOT/deploy" \
+    ${OSCONF:+--conf "$OSCONF"} $DRY
+  exit $?
+fi
+if [ -d "$STAGE/other/ospatch" ]; then
+  echo "update REFUSED: $BUNDLE is an OS patch bundle: tools/apply_update.sh ospatch $BUNDLE (nothing was changed)" >&2
+  exit 1
+fi
 
 if [ "$DRY" = "--dry-run" ]; then
   echo "dry run: staged in $STAGE (removed on exit); nothing applied"

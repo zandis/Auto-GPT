@@ -25,8 +25,8 @@ EN: dict[str, str] = {
     "login.failed": "Sign-in failed. Check the user name and password (accounts lock after 5 failures for 15 minutes).",
     "login.uninitialised": "No administrator exists yet. Run: docker compose exec console python -m console.cli "
     "bootstrap-admin",
-    "pilot.banner": "Pilot workspace · TB_ENV={env} · synthetic data only (D0) · every action is audited",
-    "pilot.banner.public": "Pilot workspace · TB_ENV={env} · public data only, no real patients (D0) · every action is audited",
+    "pilot.banner": "Test site · synthetic data only, no real patients · every action is recorded",
+    "pilot.banner.public": "Test site · public data only, no real patients · every action is recorded",
     "prod.banner": "Admin control plane · metadata only (no study content)",
     "role.admin": "administrator",
     "role.viewer": "viewer (read only)",
@@ -408,8 +408,8 @@ JA: dict[str, str] = {
     "login.submit": "ログイン",
     "login.failed": "ログインに失敗しました。ユーザー名とパスワードを確認してください（5 回失敗すると 15 分ロックされます）。",
     "login.uninitialised": "管理者がまだいません。実行: docker compose exec console python -m console.cli bootstrap-admin",
-    "pilot.banner": "パイロット環境 · TB_ENV={env} · 合成データのみ (D0) · すべての操作は監査されます",
-    "pilot.banner.public": "パイロット環境 · TB_ENV={env} · 公開データのみ・実在の患者なし (D0) · すべての操作は監査されます",
+    "pilot.banner": "テスト環境・合成データのみ、実在の患者なし · すべての操作は記録されます",
+    "pilot.banner.public": "テスト環境・公開データのみ、実在の患者なし · すべての操作は記録されます",
     "prod.banner": "管理コントロールプレーン · メタデータのみ（試験内容なし）",
     "role.admin": "管理者",
     "role.viewer": "閲覧者（読み取り専用）",
@@ -773,8 +773,8 @@ ZH: dict[str, str] = {
     "login.submit": "登入",
     "login.failed": "登入失敗。請確認使用者名稱與密碼（連續失敗 5 次將鎖定 15 分鐘）。",
     "login.uninitialised": "尚無管理者。請執行：docker compose exec console python -m console.cli bootstrap-admin",
-    "pilot.banner": "試行作業區 · TB_ENV={env} · 僅限合成資料 (D0) · 所有操作皆留稽核",
-    "pilot.banner.public": "試行作業區 · TB_ENV={env} · 僅限公開資料，無真實病人 (D0) · 所有操作皆留稽核",
+    "pilot.banner": "測試環境・僅限合成資料，無真實病人 · 所有操作皆留紀錄",
+    "pilot.banner.public": "測試環境・僅限公開資料，無真實病人 · 所有操作皆留紀錄",
     "prod.banner": "管理控制平面 · 僅中繼資料（不含研究內容）",
     "role.admin": "管理者",
     "role.viewer": "檢視者（唯讀）",
@@ -1159,6 +1159,15 @@ from console.i18n_state import ZH as _SS_ZH  # noqa: E402
 EN.update(_SS_EN)
 JA.update(_SS_JA)
 ZH.update(_SS_ZH)
+
+# D-387 (T-623): the pre-screen log and the criterion not met on a screen failure
+from console.i18n_prescreen import EN as _PRE_EN  # noqa: E402
+from console.i18n_prescreen import JA as _PRE_JA  # noqa: E402
+from console.i18n_prescreen import ZH as _PRE_ZH  # noqa: E402
+
+EN.update(_PRE_EN)
+JA.update(_PRE_JA)
+ZH.update(_PRE_ZH)
 
 # T-506 (TB-IU-01 §1, REG-020): the intended-use statement in the footer comes from its one source in tb_common
 from tb_common.wording import STATEMENT as _STATEMENT  # noqa: E402

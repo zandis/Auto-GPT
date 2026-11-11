@@ -361,7 +361,11 @@ ADDED: dict[str, tuple[str, ...]] = {
     # D-317: refdata version 3, the record of withdrawn sources
     "refdata": ("9e976b5878b8d5a8d1a89e417b61450471874a0e1122e43764d755d11662af83",),
     # D-279: users.must_change, login_failures.source, sessions.via
-    "auth": ("44f1f94e5797899b13e8b807b4b20ace62bd584cf226dd4e207cf500b466deb6",),
+    # T-209c (D-406): users.last_login, for the unused-account report
+    "auth": (
+        "44f1f94e5797899b13e8b807b4b20ace62bd584cf226dd4e207cf500b466deb6",
+        "d08533082518372c9c3972573a7370f745b1a7bb754798cb3c60408ecd9744a8",
+    ),
     # D-301: migration 3, the one-million block and the vocabulary tables
     # T-106 (D-339): migration 4, the large clinical tables partitioned by year
     # T-106b (STD-032): migration 5, the other fifteen CDM v5.4 tables
@@ -383,6 +387,8 @@ ADDED: dict[str, tuple[str, ...]] = {
     "datacore": (
         "8250b52d4e13e66e149ffa956f83b3a8027f95d4094f1a32b999771e459f7aa5",
         "d9f888838f2280f9e49a6d3f9a9bf210ace25104632200683567a4389fa03884",
+        # D-387 (T-623): datacore version 6 (the criterion not met and its version on a screen-failure step)
+        "668c23320ea6fe609efb7a779800ad02501c28559dc45abac20610e63f6f7a5a",
     ),
     # D-386 (T-622): site version 5 (the study's state log and identifiers)
     # D-395 (T-310b): site version 6 (the IRB-text record of the cross-department candidate view)

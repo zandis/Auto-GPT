@@ -66,6 +66,7 @@ PY_SERVICES = (
     "mail-gateway",
     "gateway",
     "console",
+    "audit-writer",  # D-394: the one writer of the audit chain
 )
 
 
@@ -1275,8 +1276,8 @@ class ComposeBox(_DockerImages):
 
     def audit(self, event: str, plan: Plan, detail: dict[str, Any]) -> None:
         code = (
-            "import json, sys\nfrom tb_common.audit import AuditLog\ns = json.load(sys.stdin)\n"
-            "AuditLog('/data/audit').append(s['event'], actor='apply_update.sh', input_sha=s['sha'],\n"
+            "import json, sys\nfrom tb_common.audit_writer import open_audit\ns = json.load(sys.stdin)\n"
+            "open_audit().append(s['event'], actor='apply_update.sh', input_sha=s['sha'],\n"
             "    detail=s['detail'])\n"
         )
         f = self.deploy / "updates" / plan.bundle_id / f"{event}.json"
