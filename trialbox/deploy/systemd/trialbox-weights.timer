@@ -1,0 +1,13 @@
+# Daily at 01:30 site time, before the night's scheduled runs (settings.schedule: ingest at 02:00 in the example;
+# a site that moves its schedule earlier moves this too), and once after boot (T-677, D-393). Installed and enabled
+# by deploy/install.sh.
+[Unit]
+Description=TrialBox model weights check before the night's runs
+
+[Timer]
+OnCalendar=*-*-* 01:30:00
+OnBootSec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
