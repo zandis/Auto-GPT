@@ -13,8 +13,9 @@ Each result has the DQD fields (``checkName``, ``category``, ``subcategory``, ``
   never standard (D-144), every OMOP row has one live provenance record.
 * **Completeness**: ``measurePersonCompleteness`` (persons without an observation period),
   ``sourceConceptRecordCompleteness`` (a coded row whose source concept is 0) and
-  ``standardConceptRecordCompleteness`` (a row whose standard concept is 0: **known** until the Athena bundle is
-  loaded, WS-04.2: no standard condition concept exists without SNOMED, design §2.2 question 2).
+  ``standardConceptRecordCompleteness`` (a row whose standard concept is 0: **known**, with the reason for its
+  table, :func:`vocab_gap`: conditions stay 0 for good without SNOMED, drugs and measurements fill in once an
+  Athena bundle with RxNorm, ATC and LOINC is loaded, STD-030).
 * **Plausibility**: ``plausibleValueLow`` / ``plausibleValueHigh`` (year of birth), ``plausibleAfterBirth``,
   ``plausibleBeforeDeath`` (60 days' grace), ``plausibleStartBeforeEnd``, and TrialBox's count of required dates
   the source did not give (``tbImputedDate``, imputed with the date the record reached TrialBox).
@@ -32,6 +33,7 @@ from typing import Any
 from tb_common.db import Database
 
 from omop.schema import DDL_DIR, LOCAL_MIN, foreign_keys
+from omop.vocab_load import athena_loaded
 
 CLINICAL = {
     "visit_occurrence": ("visit_occurrence_id", "visit_concept_id", None, "visit_start_date", "visit_end_date"),
@@ -80,7 +82,30 @@ PRIMARY = {
     "observation_period": "observation_period_id",
     **{t: v[0] for t, v in CLINICAL.items()},
 }
-VOCAB_GAP = "no standard concepts until the Athena vocabulary bundle is loaded (WS-04.2; no SNOMED, design Q2)"
+# why a row's standard concept is 0, per table (STD-030): said as it is, not "until the Athena load"
+NO_SNOMED = ("no SNOMED CT on the box (no licence, Q-22): ICD-10-CM and ICD-10 are source vocabularies in OMOP and "
+             "map only to SNOMED, so condition standard concepts stay 0 with or without Athena")  # fmt: skip
+
+
+def vocab_gap(table: str, athena: dict[str, str]) -> str:
+    """The reason given for ``standardConceptRecordCompleteness`` on ``table``; ``athena`` is
+    ``omop.vocab_load.athena_loaded`` (the loaded bundle's vocabularies)."""
+    if table == "visit_occurrence":
+        return ""
+    if table == "condition_occurrence":
+        return NO_SNOMED
+    if table == "drug_exposure":
+        if "RxNorm" in athena and "ATC" in athena:
+            return (
+                "an NHI or YJ drug code has no OHDSI vocabulary, and an ATC code with no single RxNorm "
+                f"ingredient (a combination, or not in the bundle) stays 0 (Athena {athena.get('None', '')})"
+            )
+        return "no RxNorm on the box: load an Athena bundle with ATC and RxNorm (python -m omop vocab athena)"
+    if table == "procedure_occurrence":
+        return "procedures are NHI order codes: no OHDSI standard for them (CPT4 and SNOMED are not on the box)"
+    if "LOINC" in athena:
+        return "a local or site code with no LOINC map stays 0"
+    return "no LOINC on the box: load an Athena bundle with LOINC and UCUM (python -m omop vocab athena)"
 
 
 def required_columns() -> dict[str, list[str]]:
@@ -132,6 +157,7 @@ def run(db: Database, today: date | None = None) -> list[dict[str, Any]]:
         def n(sql: str, params: tuple[Any, ...] = ()) -> int:
             return int(tx.fetchval(sql, params) or 0)
 
+        athena = athena_loaded(tx)
         rows = {
             t: n(f"SELECT count(*) FROM {t}")
             for t in (
@@ -264,7 +290,7 @@ def run(db: Database, today: date | None = None) -> list[dict[str, Any]]:
                 )
             if concept:
                 bad = n(f"SELECT count(*) FROM {table} WHERE {concept} = 0")
-                gap = VOCAB_GAP if table not in ("visit_occurrence",) else ""
+                gap = vocab_gap(table, athena)
                 out.append(
                     _result(
                         "standardConceptRecordCompleteness",
