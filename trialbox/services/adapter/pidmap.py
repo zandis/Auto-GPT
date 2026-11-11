@@ -19,6 +19,12 @@ The map's key under the KEK (T-210b, D-347). :func:`load_map_key` opens ``pid_ma
 (``tb_common.kek``) or plain. A box whose ``TB_ENV`` says VALIDATION or PRODUCTION (``install.sh`` writes it) never
 makes it on first use: only the install ceremony does, so a lost or locked key is refused instead of replaced by an
 empty map. :meth:`PidMap.rekey` re-encrypts every row under a new key (``python -m tools.keys rotate pid_map``).
+
+The patient index as an alias table (D-370 §3, T-659b, DATA-002). When the hospital merges two chart numbers (A into
+B), :meth:`PidMap.merge` adds one row to ``pid_alias``: the pid of A, the surviving pid of B, the reason, the ticket
+and the time. The table is append-only: a row is never changed or removed, and no pid is re-keyed. Both chart numbers
+then resolve to one pid (:meth:`PidMap.surviving`); the ingest writes the night's records under the surviving pid
+(:func:`adapter.pipeline.apply_aliases`).
 """
 
 from __future__ import annotations
@@ -62,13 +68,37 @@ CREATE TABLE IF NOT EXISTS site_key (
   recorded_at TEXT NOT NULL
 )
 """,
+    # T-659b (D-370): the patient index as an append-only alias table; old pid -> surviving pid
+    """
+CREATE TABLE IF NOT EXISTS pid_alias (
+  old_pid TEXT PRIMARY KEY,
+  pid TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  ticket TEXT NOT NULL,
+  merged_at TEXT NOT NULL
 )
+""",
+)
+
+
+class AliasError(ValueError):
+    """A merge the alias table refuses: a pid merged into itself, a pid already merged elsewhere, or a cycle."""
 
 
 def pseudonym(site_key: bytes, chart_no: str) -> tuple[str, str]:
     """``(pid, chart number written the site's way)``: the pair the map stores."""
     norm = chartno.normalise(None, chart_no)
     return pid_for_mrn(site_key, norm), norm
+
+
+def _follow(raw: Mapping[str, str], pid: str) -> str:
+    seen = {pid}
+    while pid in raw:
+        pid = raw[pid]
+        if pid in seen:
+            raise AliasError(f"the alias table has a cycle at {pid}")
+        seen.add(pid)
+    return pid
 
 
 def key_id(key: bytes) -> str:
@@ -195,6 +225,39 @@ class PidMap:
             if mrn is not None:
                 out[pid] = mrn
         return out
+
+    def merge(self, site_key: bytes, old_chart: str, new_chart: str, reason: str, ticket: str) -> tuple[str, str]:
+        """Chart number ``old_chart`` was merged into ``new_chart`` at the hospital: add the alias row
+        ``pid(old) -> surviving pid(new)`` (append-only). Returns ``(old pid, surviving pid)``. Recording the same
+        merge again does nothing; a merge that would move an already merged pid elsewhere, or close a cycle, is
+        refused (:class:`AliasError`)."""
+        if not reason.strip() or not ticket.strip():
+            raise AliasError("a merge needs a reason and a ticket")
+        old, _ = pseudonym(site_key, old_chart)
+        new = self.surviving(pseudonym(site_key, new_chart)[0])
+        if old == new:
+            raise AliasError("the two chart numbers are already one patient")
+        now = datetime.now(UTC).isoformat(timespec="seconds")
+        with self._db.transaction() as tx:
+            row = tx.fetchone("SELECT pid FROM pid_alias WHERE old_pid = ?", (old,))
+            if row is not None:
+                if str(row[0]) == new:
+                    return old, new
+                raise AliasError("the old chart number was already merged into another patient")
+            tx.execute(
+                "INSERT INTO pid_alias (old_pid, pid, reason, ticket, merged_at) VALUES (?,?,?,?,?)",
+                (old, new, reason.strip(), ticket.strip(), now),
+            )
+        return old, new
+
+    def aliases(self) -> dict[str, str]:
+        """Every old pid with its surviving pid (chains followed to the end)."""
+        raw = {str(a): str(b) for a, b in self._db.fetchall("SELECT old_pid, pid FROM pid_alias")}
+        return {a: _follow(raw, a) for a in raw}
+
+    def surviving(self, pid: str) -> str:
+        """The pid a reader uses for ``pid``: itself, or the surviving pid of its merge."""
+        return self.aliases().get(pid, pid)
 
     def rekey(self, new_key: bytes) -> int:
         """T-210b (OPS-058): re-encrypt every row of this map (``pid_map`` and ``identity``) under ``new_key`` in one
