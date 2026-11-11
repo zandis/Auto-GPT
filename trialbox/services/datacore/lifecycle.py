@@ -63,6 +63,10 @@ VISIT_STATES = ("due", "open", "overdue", "done", "missed", "stopped")
 AE_EVENT = re.compile(r"^ae(\d{1,3})$")
 DV_EVENT = re.compile(r"^dv(\d{1,3})$")
 _VISIT = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
+# D-387 (LIFE-016): the criterion a screen failure ("not_eligible") did not meet, and the criteria version it was judged
+# under, as the approved ruleset names them (``GZQO-EXC-06``, ``3.0.0``)
+CRITERION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,47}$")
+CRITERIA_VERSION = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._+-]{0,23}$")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS subject (study TEXT NOT NULL, record TEXT NOT NULL, pid TEXT NOT NULL DEFAULT '',
@@ -94,8 +98,14 @@ CREATE TABLE IF NOT EXISTS schedule_version (study TEXT NOT NULL, version INTEGE
   effective_from TEXT NOT NULL DEFAULT '', visits TEXT NOT NULL, origin TEXT NOT NULL, at TEXT NOT NULL,
   PRIMARY KEY (study, version))
 """
+# D-387 (T-623, LIFE-016): a screen failure for "not eligible" keeps the criterion not met and its criteria version
+# (version 6, additive: steps made before have none)
+SCREEN_FAIL_DETAIL = """
+ALTER TABLE subject_step ADD COLUMN IF NOT EXISTS criterion TEXT NOT NULL DEFAULT '';
+ALTER TABLE subject_step ADD COLUMN IF NOT EXISTS criteria_version TEXT NOT NULL DEFAULT ''
+"""
 # the lifecycle's migrations after its base schema, in order (the name is from the first two; never edit an applied one)
-SAE_MIGRATIONS = (SAE_SCHEMA, SAE_SCHEMA_V2, SCHEDULE_VERSIONS)
+SAE_MIGRATIONS = (SAE_SCHEMA, SAE_SCHEMA_V2, SCHEDULE_VERSIONS, SCREEN_FAIL_DETAIL)
 
 # The SAE reporting clock (P-03, D-143, D-277): from the moment the site learned of a serious AE (``ae_aware`` and
 # ``ae_aware_time``, else the onset) to each report, as (fatal or life-threatening, other serious); 0 = no report to
@@ -377,8 +387,10 @@ class Lifecycle:
         return out, True
 
     def step(self, study: str, record: str, to: str, *, by: str, at: str, on_day: str = "", reason: str = "",
-             note: str = "", source: str = "manual", today: date | None = None) -> dict[str, Any]:  # fmt: skip
-        """One legal step, or ``LifeError`` with the plain reason. ``on_day``: the day it happened (default: today)."""
+             note: str = "", source: str = "manual", today: date | None = None, criterion: str = "",
+             criteria_version: str = "") -> dict[str, Any]:  # fmt: skip
+        """One legal step, or ``LifeError`` with the plain reason. ``on_day``: the day it happened (default: today).
+        A screen failure for ``not_eligible`` may name the criterion not met and its criteria version (D-387)."""
         cur = self.subject(study, record)
         if cur is None:
             raise LifeError("none", "no subject with that screening number or patient code in this study")
@@ -390,18 +402,21 @@ class Lifecycle:
             raise LifeError("reason", f"a screen failure needs a reason: {', '.join(SCREEN_FAIL_REASONS)}", to=to)
         if to == "withdrawn" and reason not in WITHDRAW_REASONS:
             raise LifeError("reason", "a withdrawal needs a reason (1 to 6, as on the withdrawal form)", to=to)
+        criterion, criteria_version = criterion.strip(), criteria_version.strip()
+        check_criterion(to, reason, criterion, criteria_version)
         day = _day(on_day or at)
         if day is None:
             raise LifeError("day", "the day is YYYY-MM-DD", to=to)
         if today is not None and day > today:
             raise LifeError("future", "the day of a step cannot be in the future", to=to)
-        self._move(study, record, str(cur["state"]), to, day.isoformat(), reason, note[:300], by, at, source)
+        self._move(study, record, str(cur["state"]), to, day.isoformat(), reason, note[:300], by, at, source,
+                   criterion, criteria_version)  # fmt: skip
         out = self.subject(study, record)
         assert out is not None
         return out
 
     def _move(self, study: str, record: str, old: str, new: str, day: str, reason: str, note: str, by: str, at: str,
-              source: str) -> None:  # fmt: skip
+              source: str, criterion: str = "", criteria_version: str = "") -> None:  # fmt: skip
         with self.db.transaction() as tx:
             n = tx.execute("UPDATE subject SET state = ?, since = ?, reason = ?, changed_by = ?, changed_at = ? "
                            "WHERE study = ? AND record = ? AND state = ?",
@@ -409,9 +424,9 @@ class Lifecycle:
             if n != 1:
                 raise LifeError("changed", "the subject changed meanwhile; open it again")
             tx.execute(
-                "INSERT INTO subject_step (study, record, old, new, on_day, reason, note, who, at, source) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (study, record, old, new, day, reason, note, by, at, source),
+                "INSERT INTO subject_step (study, record, old, new, on_day, reason, note, who, at, source, criterion, "
+                "criteria_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (study, record, old, new, day, reason, note, by, at, source, criterion, criteria_version),
             )
 
     def undo(self, study: str, record: str, *, by: str, at: str, note: str = "") -> dict[str, Any]:
@@ -439,13 +454,18 @@ class Lifecycle:
         once = vals.get("", {})
         out: dict[str, dict[str, str]] = {}
 
-        def put(state: str, day: str, source: str, reason: str = "", note: str = "") -> None:
+        def put(state: str, day: str, source: str, reason: str = "", note: str = "", criterion: str = "",
+                version: str = "") -> None:  # fmt: skip
             if state not in out and _day(day) is not None:
                 out[state] = {"day": day[:10], "source": source, "reason": reason, "note": note[:300]}
+                if criterion and CRITERION.match(criterion):  # D-387: the form's criterion not met, when given
+                    out[state]["criterion"] = criterion
+                    out[state]["criteria_version"] = version if CRITERIA_VERSION.match(version) else ""
 
         if once.get("sl_eligible") == "0":
             put("screen_fail", once.get("sl_date", ""), "form:tb_screening_log", "not_eligible",
-                once.get("sl_reason", ""))  # fmt: skip
+                once.get("sl_reason", ""), once.get("sl_criterion", "").strip(),
+                once.get("sl_crit_version", "").strip())  # fmt: skip
         if once.get("sl_approached") == "1":
             put("approached", once.get("sl_date", ""), "form:tb_screening_log")
         if once.get("ic_date"):
@@ -523,11 +543,38 @@ class Lifecycle:
                 held.append({"state": end, "why": why, "current": state})
                 continue
             d = day_for(end, e["day"] or today)
-            self._move(study, record, state, end, d, e["reason"], e["note"], by, at, e["source"])
+            self._move(study, record, state, end, d, e["reason"], e["note"], by, at, e["source"],
+                       e.get("criterion", ""), e.get("criteria_version", ""))  # fmt: skip
             made.append({"from": state, "to": end, "day": d, "source": e["source"]})
             state = end
             break
         return {"steps": made, "held": held}
+
+    def screen_detail(self, study: str) -> dict[str, dict[str, str]]:
+        """Per record, what the screening log adds to each row (D-387, LIFE-015, LIFE-016): the day of consent and
+        the consent form version, the day of enrolment (the steps that stand), and for a screen failure the
+        criterion not met with its criteria version."""
+        by_rec: dict[str, list[dict[str, Any]]] = {}
+        for st in self.steps(study):
+            by_rec.setdefault(str(st["record"]), []).append(st)
+        icf: dict[str, str] = {}
+        for r in self.dc.values(study):
+            if str(r["event"]) == "" and str(r["field"]) == "ic_version":
+                icf[str(r["record"])] = str(r["value"])
+        out: dict[str, dict[str, str]] = {}
+        for rec, steps in by_rec.items():
+            live = live_steps(steps)
+            day = {str(s["new"]): str(s["on_day"]) for s in live}
+            last = live[-1] if live else {}
+            failed = last.get("new") == "screen_fail"
+            out[rec] = {
+                "consented": day.get("consented", ""),
+                "icf_version": icf.get(rec, ""),
+                "enrolled": day.get("enrolled", ""),
+                "criterion": str(last.get("criterion") or "") if failed else "",
+                "criteria_version": str(last.get("criteria_version") or "") if failed else "",
+            }
+        return out
 
     # ------------------------------------------------------------------ schedule of events
     def schedule(self, study: str) -> list[Visit]:
@@ -675,6 +722,26 @@ def in_force_on(versions: list[dict[str, Any]], day: date) -> dict[str, Any]:
         if eff is None or eff <= day:
             best = v
     return best
+
+
+def check_criterion(to: str, reason: str, criterion: str, criteria_version: str) -> None:
+    """D-387 (LIFE-016): only a screen failure for ``not_eligible`` names a criterion; a version needs a criterion."""
+    if not criterion and not criteria_version:
+        return
+    if to != "screen_fail" or reason != "not_eligible":
+        raise LifeError("criterion_only", "only a screen failure for not_eligible names a criterion", to=to)
+    if not CRITERION.match(criterion):
+        raise LifeError("criterion", "the criterion is the id the approved criteria give it (for example EXC-06)",
+                        to=to)  # fmt: skip
+    if criteria_version and not CRITERIA_VERSION.match(criteria_version):
+        raise LifeError("criterion", "the criteria version is short: letters, digits, '.', '-', '+' and '_'", to=to)
+
+
+def failed_label(criterion: str, version: str) -> str:
+    """How a log row names the criterion not met: ``EXC-06 (v3.0)`` (D-387)."""
+    if not criterion:
+        return ""
+    return f"{criterion} (v{version})" if version else criterion
 
 
 def live_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:

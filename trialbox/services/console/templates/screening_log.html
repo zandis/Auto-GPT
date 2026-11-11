@@ -11,14 +11,33 @@
 <section class="card">
 {% if not rows %}<p class="empty">{{ t('log.empty') }}</p>{% else %}
 <div class="scroll" tabindex="0"><table class="candidates" data-testid="screening-log">
-<thead><tr><th>{{ t('log.no') }}</th><th>{{ t('wb.c.patient') }}</th><th>{{ t('log.listed') }}</th><th>{{ t('log.mark') }}</th><th>{{ t('log.outcome') }}</th><th>{{ t('team.log.referral') }}</th><th>{{ t('wb.c.status') }}</th>{% if link %}<th>{{ t('log.record') }}</th><th>{{ t('log.subject') }}</th>{% endif %}</tr></thead>
+<thead><tr><th>{{ t('log.no') }}</th><th>{{ t('wb.c.patient') }}</th><th>{{ t('log.listed') }}</th><th>{{ t('log.mark') }}</th><th>{{ t('log.outcome') }}</th><th>{{ t('team.log.referral') }}</th><th>{{ t('wb.c.status') }}</th><th>{{ t('pre.col.consent') }}</th><th>{{ t('pre.col.enrolled') }}</th>{% if link %}<th>{{ t('log.record') }}</th><th>{{ t('log.subject') }}</th>{% endif %}</tr></thead>
 <tbody>{% for r in rows %}<tr data-testid="log-{{ r.no }}">
 <td class="mono">{{ r.no }}</td><td><a href="/studies/{{ rs }}/patients/{{ r.pid }}">{{ t('week.patient', p=r.short) }}</a></td><td class="num">{{ r.listed or '–' }}</td>
-<td>{% if r.mark %}{{ t('mark.' + r.mark.mark) }} · {{ r.mark.at|local(10) }}{% else %}–{% endif %}</td>
+<td>{% if r.mark %}{{ t('mark.' + r.mark.mark) }} · {{ r.mark.at|local(10) }}{% if r.version %} <span class="hint" data-testid="version-{{ r.no }}">{{ t('pre.under', version=r.version) }}</span>{% endif %}{% else %}–{% endif %}</td>
 <td>{% if r.outcome %}{{ t('outcome.' + r.outcome.outcome) }} · {{ r.outcome.at|local(10) }}{% if r.attempts > 1 %} ({{ t('log.attempts', n=r.attempts) }}){% endif %}{% else %}–{% endif %}</td>
 <td data-testid="referral-{{ r.no }}">{% if r.referral %}{{ t('team.route.' + r.referral.route) }} · {{ t('team.state.' + r.referral.state) }}{% if r.referral.reason %} ({{ t('team.decline.' + r.referral.reason) }}){% endif %}{% else %}–{% endif %}{% if r.override %}<br><span class="pill warn" data-testid="override-{{ r.no }}">{{ t('team.irb.overridden') }}</span>{% endif %}</td>
-<td data-testid="status-{{ r.no }}">{{ t('registry.status.' + r.status) }}{% if r.updated %} · {{ r.updated }}{% endif %}{% if r.reason_rc %} · <span class="hint">{{ t('log.from_redcap', r=r.reason_rc[0]) }}{% if r.reason_rc[1] %} ({{ r.reason_rc[1] }}){% endif %}</span>{% elif r.reason %} · <span class="hint">{{ r.reason }}</span>{% endif %}</td>
+<td data-testid="status-{{ r.no }}">{{ t('registry.status.' + r.status) }}{% if r.updated %} · {{ r.updated }}{% endif %}{% if r.reason_rc %} · <span class="hint">{{ t('log.from_redcap', r=r.reason_rc[0]) }}{% if r.reason_rc[1] %} ({{ r.reason_rc[1] }}){% endif %}</span>{% elif r.reason %} · <span class="hint">{{ r.reason }}</span>{% endif %}{% if r.failed %}<br><span data-testid="failed-{{ r.no }}">{{ t('pre.failed', c=r.failed) }}</span>{% endif %}</td>
+<td class="nowrap" data-testid="consent-{{ r.no }}">{{ r.consented or '–' }}{% if r.icf_version %} <span class="hint">{{ t('pre.icf', v=r.icf_version) }}</span>{% endif %}</td>
+<td class="nowrap">{{ r.enrolled or '–' }}</td>
 {% if link %}<td class="mono">{{ r.record_id or '–' }}</td><td class="mono">{{ r.subject_no or '–' }}</td>{% endif %}
+</tr>{% endfor %}</tbody></table></div>{% endif %}
+</section>
+<section class="card" id="prescreen">
+<h2>{{ t('pre.title') }}</h2>
+<p class="hint">{{ t('pre.help') }}</p>
+{% if not pre %}<p class="empty">{{ t('pre.empty') }}</p>{% else %}
+<div class="scroll" tabindex="0"><table class="candidates" data-testid="prescreen-log">
+<thead><tr><th>{{ t('wb.c.patient') }}</th><th>{{ t('log.listed') }}</th><th>{{ t('pre.col.version') }}</th><th>{{ t('log.mark') }}</th><th>{{ t('pre.col.later') }}</th><th>{{ t('log.no') }}</th><th>{{ t('team.log.referral') }}</th><th>{{ t('wb.c.status') }}</th></tr></thead>
+<tbody>{% for p in pre %}<tr data-testid="pre-{{ loop.index }}" data-pid="{{ p.short }}">
+<td><a href="/studies/{{ rs }}/patients/{{ p.pid }}">{{ t('week.patient', p=p.short) }}</a></td>
+<td class="num">{{ p.listed|local(10) if p.listed else '–' }}</td>
+<td class="mono">{{ p.version or '–' }}</td>
+<td>{{ t('mark.' + p.mark.mark) }} · {{ p.mark.at|local(10) }}{% if p.mark.reason %} <span class="hint">({{ t_or('reason.' + p.mark.reason, p.mark.reason) }})</span>{% endif %}</td>
+<td>{% if p.later %}{{ t('pre.later.' + p.later) }}{% else %}–{% endif %}</td>
+<td class="mono">{{ p.no or '–' }}</td>
+<td>{% if p.referral %}{{ t('team.route.' + p.referral.route) }} · {{ t('team.state.' + p.referral.state) }}{% if p.referral.reason %} ({{ t('team.decline.' + p.referral.reason) }}){% endif %}{% else %}–{% endif %}</td>
+<td>{% if p.status %}{{ t('registry.status.' + p.status) }}{% if p.reason %} · <span class="hint">{{ p.reason }}</span>{% endif %}{% else %}–{% endif %}</td>
 </tr>{% endfor %}</tbody></table></div>{% endif %}
 </section>
 {% endblock %}

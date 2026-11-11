@@ -1148,6 +1148,15 @@ EN.update(_AM_EN)
 JA.update(_AM_JA)
 ZH.update(_AM_ZH)
 
+# D-387 (T-623): the pre-screen log and the criterion not met on a screen failure
+from console.i18n_prescreen import EN as _PRE_EN  # noqa: E402
+from console.i18n_prescreen import JA as _PRE_JA  # noqa: E402
+from console.i18n_prescreen import ZH as _PRE_ZH  # noqa: E402
+
+EN.update(_PRE_EN)
+JA.update(_PRE_JA)
+ZH.update(_PRE_ZH)
+
 # T-506 (TB-IU-01 §1, REG-020): the intended-use statement in the footer comes from its one source in tb_common
 from tb_common.wording import STATEMENT as _STATEMENT  # noqa: E402
 

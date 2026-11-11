@@ -379,6 +379,8 @@ ADDED: dict[str, tuple[str, ...]] = {
     "datacore": (
         "8250b52d4e13e66e149ffa956f83b3a8027f95d4094f1a32b999771e459f7aa5",
         "d9f888838f2280f9e49a6d3f9a9bf210ace25104632200683567a4389fa03884",
+        # D-387 (T-623): datacore version 6 (the criterion not met and its version on a screen-failure step)
+        "668c23320ea6fe609efb7a779800ad02501c28559dc45abac20610e63f6f7a5a",
     ),
     "site": ("7f7cf970ce4268ca7fdc4fd725535442b586b8ea1e2b23fa631dddf9d3a7575d",),
     "sae": ("78527251f39fb58cd728b207c0fc332740a2d06444492dbd617b4d1b0cb7b6d3",),

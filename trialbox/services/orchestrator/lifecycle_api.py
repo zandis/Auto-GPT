@@ -94,6 +94,8 @@ class StepBody(BaseModel):
     note: str = Field(default="", max_length=300)
     by: str
     today: str = ""
+    criterion: str = Field(default="", max_length=48)  # D-387: the criterion not met, on a "not_eligible" failure
+    criteria_version: str = Field(default="", max_length=24)
 
 
 class UndoBody(BaseModel):
@@ -395,7 +397,9 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         svc, rid = get(), _rs(rs)
         life, day = Lifecycle(svc.dc), _today(svc, today)
         sched = life.schedule_on(rid, day)
-        subs = [subject_view(life, rid, s, day, sched) for s in life.subjects(rid)]
+        detail = life.screen_detail(rid)  # D-387: consent, enrolment and the criterion not met, for the screening log
+        subs = [{**subject_view(life, rid, s, day, sched), **detail.get(str(s["record"]), {})}
+                for s in life.subjects(rid)]  # fmt: skip
         return {"study": rid, "today": day.isoformat(), "subjects": subs,
                 "counts": {s: sum(1 for x in subs if x["state"] == s) for s in lc.STATES}}  # fmt: skip
 
@@ -426,15 +430,18 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         before = life.subject(rid, rec)
         try:
             sub = life.step(rid, rec, body.to, by=body.by, at=svc.stamp(), on_day=body.on_day, reason=body.reason,
-                            note=body.note, today=_today(svc, body.today))  # fmt: skip
+                            note=body.note, today=_today(svc, body.today), criterion=body.criterion,
+                            criteria_version=body.criteria_version)  # fmt: skip
         except LifeError as exc:
             svc.audit.append("life.refused", ruleset=rid, actor=body.by,
                              detail={"record": rec, "to": body.to, "why": exc.why})  # fmt: skip
             raise _refused(exc) from exc
         why = mirror(svc.registry, rid, str(sub["pid"]), str(sub["state"]), body.by, svc.now())
+        crit = {"criterion": body.criterion.strip(), "criteria_version": body.criteria_version.strip()}
         svc.audit.append("life.step", ruleset=rid, actor=body.by,
                          detail={"record": rec, "steps": [[before["state"] if before else None, sub["state"]]],
-                                 "reason": body.reason, "source": "manual"})  # fmt: skip
+                                 "reason": body.reason, "source": "manual",
+                                 **(crit if crit["criterion"] else {})})  # fmt: skip
         return {"subject": sub, "screening_log": why or "ok"}
 
     @r.post("/studies/{rs}/subjects/{record}/undo")
