@@ -18,13 +18,18 @@ A record is one JSON object, schema version 1::
          "gpu_memory_utilization": 0.22, "kv_cache_dtype": "auto",
          "extra_args": ["--limit-mm-per-prompt", "..."],
          "model_files": [{"path": "config.json", "bytes": 1234, "sha256": "..."}, ...],
-         "model_files_sha256": "..."}                      # sha256 over the sorted "path sha256" lines
+         "model_files_sha256": "...",                      # sha256 over the sorted "path sha256" lines
+         "chat_template": "/models/chat-templates/.../chat_template.jinja" | null,   # vLLM --chat-template
+         "chat_template_sha256": "..." | null}             # sha256 of that file (T-674, DEP-007)
       ],
       "notes": "free text"
     }
 
 Required (FR-MOD-10 and the step-5 brief): card, vLLM version, ``max-model-len``, ``max-num-seqs``, the eager flag,
-the memory fractions and the model-file sha256 of every server. :func:`validate` lists what is missing.
+the memory fractions and the model-file sha256 of every server. :func:`validate` lists what is missing. A server
+started with ``--chat-template`` must name the template's sha256 (T-674, DEP-007: the judge's template comes from
+the developer at a pinned revision, not from the quantised folder); :func:`chat_template_of` returns it, and
+:func:`template_problems` says when a record's judge was not started with the template the registry names.
 
 ``capture`` runs on the GPU box itself (stdlib only, Python 3.8+): it reads ``docker inspect`` of each vLLM container,
 ``nvidia-smi``, ``vllm --version`` inside the container and hashes every file of each model's snapshot under the
@@ -67,6 +72,7 @@ FLAGS = {
     "--max-num-seqs": ("max_num_seqs", int),
     "--gpu-memory-utilization": ("gpu_memory_utilization", float),
     "--kv-cache-dtype": ("kv_cache_dtype", str),
+    "--chat-template": ("chat_template", str),
 }
 SECRET_FLAGS = {"--api-key"}  # never recorded
 # the structured-output backend (D-348): this flag, its JSON form, or vLLM's default "auto" when neither is given
@@ -75,7 +81,13 @@ BACKEND_FLAG = "--structured-outputs-config.backend"
 
 def parse_args(args: list[str]) -> dict[str, Any]:
     """vLLM command-line arguments -> the record's server fields (``--flag value`` and ``--flag=value``)."""
-    out: dict[str, Any] = {"enforce_eager": False, "kv_cache_dtype": "auto", "quantization": None, "extra_args": []}
+    out: dict[str, Any] = {
+        "enforce_eager": False,
+        "kv_cache_dtype": "auto",
+        "quantization": None,
+        "chat_template": None,
+        "extra_args": [],
+    }
     out["structured_outputs_backend"] = "auto"
     i = 0
     while i < len(args):
@@ -161,10 +173,49 @@ def validate(rec: dict[str, Any]) -> list[str]:
                 bad.append(f"{who}.{k}")
         if not (s.get("model_files") or []):
             bad.append(f"{who}.model_files")
+        if s.get("chat_template") and not s.get("chat_template_sha256"):
+            bad.append(f"{who}.chat_template_sha256")
         frac = s.get("gpu_memory_utilization")
         if isinstance(frac, (int, float)) and not 0 < frac <= 1:
             bad.append(f"{who}.gpu_memory_utilization out of (0, 1]")
     return bad
+
+
+def chat_template_of(rec: dict[str, Any], role: str = "judge") -> tuple[str | None, str | None]:
+    """(template path, sha256) the ``role`` server was started with; (None, None) when it used the model folder's."""
+    for s in rec.get("servers") or []:
+        if s.get("role") == role:
+            return s.get("chat_template") or None, s.get("chat_template_sha256") or None
+    return None, None
+
+
+def template_problems(rec: dict[str, Any], want_sha256: str | None, role: str = "judge") -> list[str]:
+    """Why the record's ``role`` server did not serve with the pinned chat template (T-674); empty when it did.
+    ``want_sha256`` is the pin's ``weights.chat_template.sha256`` (or the registry's, once fetched)."""
+    path, sha = chat_template_of(rec, role)
+    if not path:
+        return [f"{role} ran without --chat-template (the template inside the model folder was used)"]
+    if not sha:
+        return [f"{role} names no chat_template_sha256"]
+    if want_sha256 and sha != want_sha256:
+        return [f"{role} chat template {sha[:12]} is not the pinned {want_sha256[:12]}"]
+    return []
+
+
+def _host_path(models_dir: Path, path: str) -> Path:
+    """The host file behind a container path under ``/models`` (the compose mount of the models root)."""
+    if path.startswith("/models/"):
+        return models_dir / path[len("/models/") :]
+    return Path(path)
+
+
+def template_sha256(models_dir: Path, path: str | None) -> str | None:
+    if not path:
+        return None
+    host = _host_path(models_dir, path)
+    if not host.is_file():
+        return None
+    return hashlib.sha256(host.read_bytes()).hexdigest()
 
 
 # What a record must show to count as a measurement of a GPU profile on its own card (install.sh, D-112, D-124):
@@ -254,6 +305,7 @@ def server_info(role: str, container: str, models_dir: Path) -> dict[str, Any]:
     rec["model_files"] = hash_tree(snap) if snap else []
     rec["model_files_sha256"] = files_digest(rec["model_files"]) if rec["model_files"] else None
     rec["model_dir"] = str(snap) if snap else None
+    rec["chat_template_sha256"] = template_sha256(models_dir, rec.get("chat_template"))
     return rec
 
 

@@ -21,6 +21,14 @@ and what is filed: `docs/validation/change-control.md` §4 (D-344).
    data puts images, models, databases and rulesets back, restarts, checks and writes `update.rolled_back`; exit 1. If
    the backup or the rollback point fails, the stopped services are started again and nothing else changed.
 
+**Model weights against their pins** (T-677, D-393). On a GPU box the update's check step runs
+`trialbox doctor --weights` first: every pinned build's weights in the models folder must still hash to their pin.
+A difference writes `deploy/site/weights_changed.json`, the gateway refuses every model call (`weights_changed`) and
+reports itself unhealthy, and the update rolls back. The same check runs every night at 01:30 before the scheduled
+runs (`trialbox-weights.timer`, `deploy/check_weights.sh`), and by hand with `trialbox doctor --verify-all`. A pass
+removes the flag. The gateway also compares each model server's `GET /v1/models` (the folder it serves and its
+`max_model_len`) with the pin at start and every hour, and refuses `model_mismatch` until they agree.
+
 **After the update that brings D-275, run one ingest** (the nightly one is enough). Until then the lake still holds records the new rule leaves out (a result entered in error, a cancelled order, a sex of `other` / `unknown` as text), and orders with no date that the old ingest dropped are only read again when the source sends them. Approved rulesets need no new approval: their SQL runs guarded by the current rules (`criteria_compiler/compile_sql/overlay.py`) until they are next compiled.
 
 **While an update runs** `deploy/updates/IN_PROGRESS.json` names the bundle and the step. It is removed only when the

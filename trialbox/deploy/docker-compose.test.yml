@@ -33,8 +33,9 @@ services:
       host-net: {}
     ports: ["127.0.0.1:${TB_HOST_MAILHOG_PORT:-8025}:8025"]
   mail-gateway:
+    # TB_ENV TEST: a synthetic stack, so patient files may still go as a password zip that the tests open (D-369)
     environment: {PORT: "8015", TB_SERVICE_NAME: mail-gateway, TB_AUDIT_DIR: /data/audit, TB_MAIL_DIR: /data/mail,
-                  TB_MAIL_POLL_SECONDS: "5"}
+                  TB_MAIL_POLL_SECONDS: "5", TB_ENV: "${TB_ENV:-TEST}"}
     networks: [trialbox-net, egress-net, host-net]
     ports: ["127.0.0.1:${TB_HOST_MAIL_GATEWAY_PORT:-8015}:8015"]
   orchestrator:

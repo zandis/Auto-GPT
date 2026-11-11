@@ -127,7 +127,7 @@
 <thead><tr><th scope="col">{{ t('col.file') }}</th><th scope="col">{{ t('col.class') }}</th><th scope="col">{{ t('col.size') }}</th></tr></thead>
 <tbody>
 {% for o in aggregate %}<tr><td class="wrap"><a href="/pilot/jobs/{{ job.job_id }}/files/{{ o.filename }}" data-file="{{ o.filename }}">{{ o.filename }}</a></td><td>{{ t('class.aggregate') }}</td><td class="mono">{{ o.sha256[:16] }}</td></tr>{% endfor %}
-{% for o in phi %}<tr class="muted"><td class="wrap" data-file="{{ o.filename }}">{{ o.filename }}</td><td>{{ t('class.phi') }}</td><td>{% if o.recipients %}{{ t('job.phi', n=o.recipients|length) }}{% else %}{{ t('job.phi_kept') }}{% endif %}</td></tr>{% endfor %}
+{% for o in phi %}{% if phi_dl and o.filename in phi_dl %}<tr><td class="wrap"><a href="/pilot/jobs/{{ job.job_id }}/files/{{ o.filename }}" data-file="{{ o.filename }}" data-testid="phi-download">{{ o.filename }}</a></td><td>{{ t('class.phi') }}</td><td>{{ t('job.phi_link') }}</td></tr>{% else %}<tr class="muted"><td class="wrap" data-file="{{ o.filename }}">{{ o.filename }}</td><td>{{ t('class.phi') }}</td><td>{% if o.recipients %}{{ t('job.phi', n=o.recipients|length) }}{% else %}{{ t('job.phi_kept') }}{% endif %}</td></tr>{% endif %}{% endfor %}
 </tbody></table></div>
 {% else %}<p>–</p>{% endif %}
 </section>

@@ -462,6 +462,37 @@ def provider_routing(pin: Mapping[str, Any]) -> dict[str, Any]:
     return out
 
 
+LICENCE_FILE_NOTES = {"none-in-source": "none in the source repository (the licence register row holds the text)"}
+
+
+def _provenance_rows(b: Build) -> list[str]:
+    """Card rows for T-674 (D-392): where the weights come from, the licence file, the chat template, the bake-off."""
+    rows: list[str] = []
+    prov = b.extra.get("provenance") or {}
+    if prov:
+        how = str(prov.get("copy") or "not recorded")
+        if prov.get("default"):
+            how += ", the default until the owner answers"
+        rows.append(f"| Source | `{prov.get('source')}` at {prov.get('revision') or 'revision not yet read'} ({how}) |")
+        base = prov.get("base") or {}
+        if base:
+            rows.append(f"| Base model | `{base.get('repository')}` at {base.get('revision') or 'not recorded'} |")
+        lic = prov.get("licence_file")
+        if isinstance(lic, dict):
+            rows.append(f"| Licence file | `{lic.get('path')}` sha256 {lic.get('sha256')} |")
+        else:
+            rows.append(f"| Licence file | {LICENCE_FILE_NOTES.get(str(lic), 'to record at download')} |")
+    tpl = b.extra.get("chat_template") or {}
+    if tpl:
+        sha = tpl.get("sha256") or "recorded in the site pin"
+        rows.append(f"| Chat template | `{tpl.get('source')}` at {tpl.get('revision')}, `{tpl.get('file')}` ({sha}) |")
+    bake = b.extra.get("bakeoff") or {}
+    if bake:
+        where = f"GPU ledger row {bake['ledger']}" if bake.get("ledger") else "not in the GPU ledger"
+        rows.append(f"| Bake-off | {bake.get('role')}: {bake.get('state')} ({where}) |")
+    return rows
+
+
 def card_markdown(b: Build) -> str:
     """Model card v0 generated from the build record (§8.4; CHAI-style sections filled at qualification)."""
     lic = b.licence
@@ -486,6 +517,7 @@ def card_markdown(b: Build) -> str:
         f"| Context length | {b.context_length or 'to record at qualification'} |",
         f"| Licence | {lic.get('name')} (SPDX: {lic.get('spdx') or 'n/a'}; verified: {verified}) |",
         f"| Origin | {org.get('developer')} ({org.get('country')}); non-PRC: {non_prc} |",
+        *_provenance_rows(b),
         "",
         "## Contexts of use",
         "",
