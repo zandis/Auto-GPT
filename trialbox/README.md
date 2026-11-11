@@ -15,18 +15,19 @@ site run the trial after that. Nothing leaves the box unless the site says so.
 
 All patient data in this repository is synthetic or public. No real patient record is here.
 
-## The eight documents
+## The documents
 
 | Document | For | What |
 | --- | --- | --- |
 | [README](README.md) | everyone | this page: what TrialBox is, how to try it, the map |
 | [Architecture](docs/ARCHITECTURE.md) | builders, hospital IT | services, stores, data and rule paths, models |
-| [Runbook](docs/RUNBOOK.md) | the site's IT | install, update, back up, operate, fix, GPU runs |
+| [Runbook](docs/RUNBOOK.md) | the site's IT | install, update, back up, operate, fix, support, recovery |
 | [Security and compliance](docs/SECURITY.md) | security officers | hardening, secrets, network, audit, laws |
 | [Data and integration](docs/DATA.md) | hospital IT, data owners | sources, mapping, REDCap, open data and licences |
 | [Validation and evidence](docs/VALIDATION.md) | owner, reviewers | the gates, the tests, the measured numbers |
 | [User guide](docs/USER_GUIDE.md) | PIs, CRCs, admins | roles, daily tasks, help in ja, zh-TW and en |
 | [Decisions](docs/DECISIONS.md) | everyone | every choice (D-nnn), append-only |
+| [Developing](docs/DEVELOPING.md) | the team | checks before a push, the team's procedures, documents and drills (D-390) |
 
 Records that are not maintained: `docs/reviews/` (reviews), `docs/plan/` (plans and the design set),
 `docs/research/` (research), `spec/v4/` (the v4 specification) and `spec/archive/` (older specifications).
