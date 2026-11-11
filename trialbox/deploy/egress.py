@@ -15,7 +15,8 @@ Allowed (only when the variable is set):
                        an entry that would give any service other than the gateway a model host is refused
 
 Container addresses come from ``docker inspect`` of the compose project; host names are resolved when the rules are
-applied (re-run after an address change or a container restart: ``deploy/network.sh apply``). Traffic between the
+applied (re-run after an address change or a container restart: ``deploy/network.sh apply``; the unit
+``trialbox-egress-refresh.timer`` does it every two minutes when the table would change). Traffic between the
 box's own containers, replies to inbound connections (published ports) and the Docker embedded DNS are unaffected.
 Inbound, only a published port opens a connection into a box network; a direct route to a container address is dropped.
 A box container opens no connection to the host itself (the input hook), except to an allowed destination there.
@@ -24,6 +25,16 @@ A box container opens no connection to the host itself (the input hook), except 
     deploy/network.sh apply   # nft -f (root)
     deploy/network.sh flush   # remove the table
     deploy/network.sh status  # show the live table with counters
+    deploy/network.sh save    # write the state file only (apply writes it too)
+    deploy/network.sh restore # load the closed table from the state file (root; at boot, before Docker)
+
+Kept across a reboot (T-108b, D-377; CR-043): ``apply`` writes the box's subnets and the applied script to the state
+file (``--state``, default ``TB_EGRESS_STATE`` or ``/var/lib/trialbox/egress-state.json``). At boot the unit
+``trialbox-egress.service`` runs ``restore`` before ``docker.service``: it loads the closed table for the saved
+subnets (intra-box traffic, published ports, the default deny; no allow rule, since container addresses may change),
+so no container that Docker restarts by itself has a way out. ``trialbox.service`` then starts the stack and runs
+``apply``, which opens the allowed pairs for the new addresses. Docker keeps a named network's subnet across a
+restart; a subnet that changed is closed again at the next ``apply``.
 
 Standard library only, except that reading ``models/routing.yaml`` needs PyYAML (``python3-yaml``); without it the
 model-endpoint rules are skipped with a warning (fail closed: nothing is opened).
@@ -43,6 +54,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 TABLE = "trialbox_egress"
+STATE = Path(os.environ.get("TB_EGRESS_STATE") or "/var/lib/trialbox/egress-state.json")
 HERE = Path(__file__).resolve().parent
 ROUTING = HERE.parent / "models" / "routing.yaml"
 CTGOV = ("clinicaltrials.gov", 443)
@@ -319,9 +331,43 @@ def render_networkpolicy(
     return out, warnings
 
 
+def save_state(path: Path, box: Box, script: str) -> None:
+    """Write what ``restore`` needs (the subnets) and, for a person, the script that was applied. Atomic."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc = {"table": TABLE, "version": 1, "subnets": sorted(box.subnets), "script": script}
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(doc, indent=1) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def load_state(path: Path) -> dict[str, object]:
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(doc, dict) or doc.get("table") != TABLE or not isinstance(doc.get("subnets"), list):
+        raise ValueError(f"{path}: not a {TABLE} state file")
+    for s in doc["subnets"]:
+        ipaddress.ip_network(str(s), strict=False)  # a bad subnet is refused, never passed to nft
+    return doc
+
+
+def restore_script(state: dict[str, object]) -> str:
+    """The closed table for the saved subnets: intra-box, published ports and the default deny, no allow rule (the
+    saved container addresses may belong to another container after a reboot)."""
+    subnets = [str(s) for s in state["subnets"]] if isinstance(state["subnets"], list) else []
+    script, _ = render(Box(subnets=subnets), [])
+    return script
+
+
+def _table_live() -> bool:
+    return subprocess.run(["nft", "list", "table", "inet", TABLE], capture_output=True, check=False).returncode == 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["print", "apply", "flush", "status"])
+    ap.add_argument("action", choices=["print", "apply", "flush", "status", "save", "restore"])
+    ap.add_argument("--state", type=Path, default=STATE, help="the state file kept across a reboot")
+    ap.add_argument("--no-save", action="store_true", help="apply: do not write the state file")
+    ap.add_argument("--if-changed", action="store_true", help="apply: skip when the live table is the saved one")
+    ap.add_argument("--dry-run", action="store_true", help="restore: print the script, load nothing")
     ap.add_argument("--env", type=Path, default=HERE / ".env")
     ap.add_argument("--project", default=os.environ.get("COMPOSE_PROJECT_NAME", "trialbox"))
     args = ap.parse_args(argv)
@@ -331,14 +377,54 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.action == "status":
         return subprocess.run(["nft", "list", "table", "inet", TABLE], check=False).returncode
-    script, warnings = render(docker_box(args.project), allowlist(read_env(args.env)))
+    if args.action == "restore":
+        try:
+            state = load_state(args.state)
+        except (OSError, ValueError) as exc:
+            print(f"restore: no usable state file ({exc}); run deploy/network.sh apply once", file=sys.stderr)
+            return 1
+        script = restore_script(state)
+        if args.dry_run:
+            sys.stdout.write(script)
+            return 0
+        subprocess.run(["nft", "-f", "-"], input=script, text=True, check=True)
+        n = script.count("intra-box")
+        print(f"restored table inet {TABLE}, closed ({n} address families; no allow rule until apply)")
+        return 0
+    box = docker_box(args.project)
+    script, warnings = render(box, allowlist(read_env(args.env)))
     for w in warnings:
         print(f"warning: {w}", file=sys.stderr)
     if args.action == "print":
         sys.stdout.write(script)
         return 0
+    if args.action == "save":
+        if not box.subnets:
+            print("save: no TrialBox networks found; nothing saved (is the stack up?)", file=sys.stderr)
+            return 1
+        save_state(args.state, box, script)
+        print(f"saved {args.state}")
+        return 0
+    if not box.subnets and args.action == "apply":
+        # the stack is down (a refresh between stop and start, say): never replace a closed table with an empty one
+        try:
+            script = restore_script(load_state(args.state))
+            print("warning: no TrialBox networks found; the closed table of the state file is loaded", file=sys.stderr)
+        except (OSError, ValueError):
+            pass
+    if args.if_changed and _table_live():
+        try:
+            if load_state(args.state).get("script") == script:
+                return 0
+        except (OSError, ValueError):
+            pass
     subprocess.run(["nft", "-f", "-"], input=script, text=True, check=True)
     print(f"applied table inet {TABLE}: {script.count(' accept comment') - 1} allow rules, default deny")
+    if not args.no_save:
+        if box.subnets:
+            save_state(args.state, box, script)
+        else:
+            print("warning: no TrialBox networks found; the state file is kept as it was", file=sys.stderr)
     return 0
 
 
