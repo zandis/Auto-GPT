@@ -1165,3 +1165,12 @@ from tb_common.wording import STATEMENT as _STATEMENT  # noqa: E402
 
 for _lang, _cat in CATALOGUES.items():
     _cat["footer.statement"] = _STATEMENT[_lang]
+
+# D-399 (T-302a): the approved consent-form versions, the consent version check, the re-consent list, the consent record
+from console.i18n_consent import EN as _IC_EN  # noqa: E402
+from console.i18n_consent import JA as _IC_JA  # noqa: E402
+from console.i18n_consent import ZH as _IC_ZH  # noqa: E402
+
+EN.update(_IC_EN)
+JA.update(_IC_JA)
+ZH.update(_IC_ZH)
