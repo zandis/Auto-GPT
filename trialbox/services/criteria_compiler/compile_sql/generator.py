@@ -587,6 +587,7 @@ class SqlGenerator:
                 "base AS (\n  SELECT p.pid, p.birth_date, p.sex, i.index_date FROM patient p CROSS JOIN idx i\n"
                 "  WHERE ((SELECT pids FROM params) IS NULL OR list_contains((SELECT pids FROM params), p.pid))\n"
                 "    AND (p.deceased_date IS NULL OR p.deceased_date > i.index_date)\n"
+                "    AND (p.deceased_date IS NOT NULL OR p.deceased IS NOT TRUE)\n"
                 "    AND (p.birth_date IS NULL OR p.birth_date <= i.index_date))"
             ),
             "vs(vs_id, system, code) AS (VALUES\n  " + ",\n  ".join(vs_rows) + ")",

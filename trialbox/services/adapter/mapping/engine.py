@@ -62,6 +62,8 @@ Resource = dict[str, Any]
 DATA_ABSENT = "http://terminology.hl7.org/CodeSystem/data-absent-reason"
 _PATH_RE = re.compile(r"([A-Za-z_$][A-Za-z0-9_$]*)(?:\[(\d+)\])?")
 _TOKEN_RE = re.compile(r"\{([^{}]+)\}")
+# T-616 (STD-015): a source date-time that states its own offset (``+09:00``, ``+0900``, ``Z``) after a time of day
+_OFFSET_RE = re.compile(r"\d[T ]\d{2}:?\d{2}(?::?\d{2}(?:\.\d+)?)?\s*(?:Z|[+-]\d{2}:?\d{2})$", re.IGNORECASE)
 MAPPING_VERSION = "urn:trialbox:mapping-version"  # the meta.tag system of the mapping version (lake.flatten)
 
 
@@ -233,6 +235,15 @@ class Mapper:
 
     # ------------------------------------------------------------------ scalar conversion
     def _parse_dt(self, raw: str) -> datetime:
+        """A source date-time. One that states its offset keeps it (the same instant, the same offset: T-616,
+        STD-015); a naive one is in the mapping's ``tz``; a date alone is its midnight in ``tz``."""
+        if _OFFSET_RE.search(raw.strip()):
+            text = raw.strip()
+            text = text[:-1] + "+00:00" if text[-1] in "zZ" else text
+            try:
+                return datetime.fromisoformat(text.replace(" ", "T", 1))
+            except ValueError as exc:
+                raise MappingError(f"unparseable datetime {raw!r}") from exc
         raw = raw.strip().replace("T", " ")
         for fmt in (
             "%Y-%m-%d %H:%M:%S",
@@ -358,7 +369,7 @@ class Mapper:
             if "add_minutes" in expr and raw not in (None, ""):
                 minutes = row.get(expr["add_minutes"]) if isinstance(expr["add_minutes"], str) else expr["add_minutes"]
                 dt = self._parse_dt(str(raw)) + timedelta(minutes=int(minutes or 0))
-                raw = dt.strftime("%Y-%m-%d %H:%M:%S")
+                raw = dt.isoformat(sep=" ", timespec="seconds")  # an offset the source stated stays (STD-015)
             val = self.convert(raw, expr.get("type"))
             if val is not None and "factor" in expr:
                 val = float(Decimal(str(val)) * Decimal(str(expr["factor"])))
