@@ -83,9 +83,22 @@ CREATE TABLE IF NOT EXISTS signature_void (id BIGINT GENERATED ALWAYS AS IDENTIT
   draft_id BIGINT NOT NULL, item TEXT NOT NULL, action TEXT NOT NULL, reason TEXT NOT NULL, by_user TEXT NOT NULL,
   at TEXT NOT NULL)
 """
-MIGRATIONS = (SCHEMA, SCHEMA_V2)
+# T-115 (D-368): what each draft was built under (the item's map row, its dictionary entry, the REDCap target), all
+# three in what a signature covers (E-15, E-16); the stored blind re-entry result the switch reads (E-14)
+SCHEMA_V3 = """
+ALTER TABLE draft ADD COLUMN IF NOT EXISTS map_sha TEXT NOT NULL DEFAULT '';
+ALTER TABLE draft ADD COLUMN IF NOT EXISTS dict_sha TEXT NOT NULL DEFAULT '';
+ALTER TABLE draft ADD COLUMN IF NOT EXISTS target TEXT NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS reentry_record (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, study TEXT NOT NULL,
+  pages INTEGER NOT NULL, accuracy DOUBLE PRECISION NOT NULL, document TEXT NOT NULL, source TEXT NOT NULL,
+  by_user TEXT NOT NULL, at TEXT NOT NULL);
+ALTER TABLE switch ADD COLUMN IF NOT EXISTS reentry_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE switch_event ADD COLUMN IF NOT EXISTS reentry_id BIGINT NOT NULL DEFAULT 0
+"""
+MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3)
 #: tables that only ever grow (D-281): a trigger refuses UPDATE, DELETE and TRUNCATE on each
-APPEND_ONLY = ("decision", "signature", "signature_void", "sent", "switch_event", "map_event")
+APPEND_ONLY = ("decision", "signature", "signature_void", "sent", "switch_event", "map_event", "reentry_record")
+REENTRY_SOURCES = ("admin", "pq")  # who wrote the record: an administrator with the filed report, or the PQ tooling
 SIG_VERSION = 2
 METHODS = ("password", "password+totp")  # how the signer re-authenticated (D-279: the code when TOTP is on)
 KEY_ENV = "TB_EDC_SIGN_KEY_FILE"
@@ -119,6 +132,7 @@ class Switch:
     reentry_accuracy: float = 0.0
     by: str = ""
     at: str = ""
+    reentry_id: int = 0  # the stored re-entry record the switch went on with (E-14); 0: typed (DEV or TEST only)
 
     @property
     def on(self) -> bool:
@@ -127,14 +141,22 @@ class Switch:
     def as_dict(self) -> dict[str, Any]:
         return {"study": self.study, "state": self.state, "kind": self.kind, "reference": self.reference,
                 "ack_date": self.ack_date, "reentry_pages": self.reentry_pages,
-                "reentry_accuracy": self.reentry_accuracy, "by": self.by, "at": self.at}  # fmt: skip
+                "reentry_accuracy": self.reentry_accuracy, "by": self.by, "at": self.at,
+                "reentry_id": self.reentry_id}  # fmt: skip
+
+
+#: what a draft was built under (T-115, E-15, E-16): in the value's hash when set, so a draft from before keeps its
+#: hash and its signature
+BUILT_UNDER = ("map_sha", "dict_sha", "target")
 
 
 def draft_sha(d: dict[str, Any]) -> str:
     """What a signature covers for one value: the draft, the subject (record and pseudonym), the item, the decided
-    value and its citation."""
+    value and its citation; and the item's map row, its dictionary entry and the REDCap target it was built for
+    (E-15, E-16)."""
     body = {"id": int(d["id"]), "study": d["study"], "record": d["record"], "pid": d["pid"], "visit": d["visit"],
             "item": d["item"], "final": d["final"], "citation": d["final_citation"]}  # fmt: skip
+    body.update({k: str(d[k]) for k in BUILT_UNDER if d.get(k)})
     return hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
@@ -262,12 +284,51 @@ class EdcStore:
             return Switch(study)
         r = rows[0]
         return Switch(study, r["state"], r["kind"], r["reference"], r["ack_date"], int(r["reentry_pages"]),
-                      float(r["reentry_accuracy"]), r["by_user"], r["at"])  # fmt: skip
+                      float(r["reentry_accuracy"]), r["by_user"], r["at"], int(r.get("reentry_id") or 0))  # fmt: skip
+
+    # ------------------------------------------------------------------ the blind re-entry result (E-14)
+    def add_reentry(self, study: str, *, pages: int, accuracy: float, document: str, source: str, by: str,
+                    at: str) -> dict[str, Any]:  # fmt: skip
+        """Keep a blind re-entry result (TB-PLAN-05 WS-16.4) with the id of the filed report it comes from. The
+        switch reads the newest one; it is never typed at switch-on (review E-14)."""
+        if source not in REENTRY_SOURCES:
+            raise EdcError("edc.reentry_source", "an administrator or the PQ tooling records the re-entry result", 400)
+        if not document.strip():
+            raise EdcError("edc.reentry_document", "the id of the filed re-entry report is needed", 400)
+        if pages < 0 or not 0.0 <= accuracy <= 1.0:
+            raise EdcError("edc.reentry", "pages are a count and the accuracy is between 0 and 1", 400)
+        rid = int(self._db.fetchval(
+            "INSERT INTO reentry_record (study, pages, accuracy, document, source, by_user, at) VALUES "
+            "(?,?,?,?,?,?,?) RETURNING id", (study, int(pages), float(accuracy), document.strip()[:120], source, by,
+                                             at)))  # fmt: skip
+        rec = self.reentry(study)
+        assert rec is not None and int(rec["id"]) == rid
+        return rec
+
+    def reentry(self, study: str) -> dict[str, Any] | None:
+        """The newest stored re-entry result of the study, or None."""
+        rows = self._all("SELECT * FROM reentry_record WHERE study = ? ORDER BY id DESC LIMIT 1", (study,))
+        return rows[0] if rows else None
 
     def set_switch(self, study: str, on: bool, *, kind: str = "", reference: str = "", ack_date: str = "",
                    reentry_pages: int = 0, reentry_accuracy: float = 0.0, reason: str = "", by: str, role: str,
-                   at: str, today: date) -> Switch:  # fmt: skip
-        """Turn prefill on (every condition checked here) or off (always allowed). Kept in ``switch_event``."""
+                   at: str, today: date, typed_reentry: bool = False) -> Switch:  # fmt: skip
+        """Turn prefill on (every condition checked here) or off (always allowed). Kept in ``switch_event``.
+
+        The re-entry result is the newest stored record (E-14), never the numbers typed with the switch, and the
+        person who recorded it is not the one who turns the switch on. ``typed_reentry`` (the caller's DEV or TEST
+        box with no record yet) lets the typed numbers stand, as before T-115; the switch then says reentry_id 0."""
+        reentry_id = 0
+        if on:
+            rec = self.reentry(study)
+            if rec is not None:
+                if str(rec["by_user"]) == by:
+                    raise EdcError("edc.reentry_same_person", "the re-entry result was recorded by the person who "
+                                   "turns prefill on; a second person records it")  # fmt: skip
+                reentry_id = int(rec["id"])
+                reentry_pages, reentry_accuracy = int(rec["pages"]), float(rec["accuracy"])
+            elif not typed_reentry:
+                raise EdcError("edc.reentry_record", "no blind re-entry result is on record for this study")
         if on:
             if kind not in ACK_KINDS:
                 raise EdcError("edc.ack_kind", "say how the sponsor acknowledged (letter, or the PI is the sponsor)")
@@ -286,20 +347,20 @@ class EdcStore:
         cur = self.switch(study)
         if not on:  # off keeps the acknowledgement on record; only the state changes
             kind, reference, ack_date = cur.kind, cur.reference, cur.ack_date
-            reentry_pages, reentry_accuracy = cur.reentry_pages, cur.reentry_accuracy
+            reentry_pages, reentry_accuracy, reentry_id = cur.reentry_pages, cur.reentry_accuracy, cur.reentry_id
         with self._db.transaction() as tx:
             tx.execute("INSERT INTO switch (study, state, kind, reference, ack_date, reentry_pages, reentry_accuracy, "
-                       "by_user, at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(study) DO UPDATE SET "
+                       "by_user, at, reentry_id) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(study) DO UPDATE SET "
                        "state = excluded.state, "
                        "kind = excluded.kind, reference = excluded.reference, ack_date = excluded.ack_date, "
                        "reentry_pages = excluded.reentry_pages, reentry_accuracy = excluded.reentry_accuracy, "
-                       "by_user = excluded.by_user, at = excluded.at",
+                       "by_user = excluded.by_user, at = excluded.at, reentry_id = excluded.reentry_id",
                        (study, state, kind, reference.strip()[:120], ack_date, int(reentry_pages),
-                        float(reentry_accuracy), by, at))  # fmt: skip
+                        float(reentry_accuracy), by, at, reentry_id))  # fmt: skip
             tx.execute("INSERT INTO switch_event (study, state, kind, reference, ack_date, reentry_pages, "
-                       "reentry_accuracy, reason, by_user, role, at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                       "reentry_accuracy, reason, by_user, role, at, reentry_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                        (study, state, kind, reference.strip()[:120], ack_date, int(reentry_pages),
-                        float(reentry_accuracy), reason[:300], by, role, at))  # fmt: skip
+                        float(reentry_accuracy), reason[:300], by, role, at, reentry_id))  # fmt: skip
         return self.switch(study)
 
     def switch_events(self, study: str) -> list[dict[str, Any]]:
@@ -310,7 +371,15 @@ class EdcStore:
             raise EdcError("edc.off", "prefill is off for this study (no sponsor acknowledgement on file)")
 
     # ------------------------------------------------------------------ the map and the target
-    def put_map(self, study: str, items: list[dict[str, Any]], by: str, at: str) -> None:
+    def put_map(self, study: str, items: list[dict[str, Any]], by: str, at: str) -> list[int]:
+        """Save the map. A draft built under another row of its item (or for an item that left the map) and not yet
+        signed is superseded: it is drafted again under the new row (E-15, T-115). A decided one keeps a
+        ``superseded`` decision row. A signed one stays as signed, and the send lists it as ``stale_map``. Answers
+        the ids superseded."""
+        from edc.mapping import item_sha
+
+        shas = {str(it["item"]): item_sha(it) for it in items}
+        gone: list[int] = []
         with self._db.transaction() as tx:
             tx.execute("DELETE FROM item_map WHERE study = ?", (study,))
             for i, it in enumerate(items):
@@ -318,6 +387,25 @@ class EdcStore:
                            (study, it["item"], i, json.dumps(it, ensure_ascii=False, sort_keys=True)))  # fmt: skip
             tx.execute("INSERT INTO map_event (study, body, by_user, at) VALUES (?,?,?,?)",
                        (study, json.dumps(items, ensure_ascii=False, sort_keys=True), by, at))  # fmt: skip
+            for d in tx.fetchdicts("SELECT id, record, visit, item, fate, final, map_sha FROM draft WHERE study = ? "
+                                   "AND fate IN ('open', 'confirmed', 'edited') AND signature_id IS NULL AND "
+                                   "map_sha <> '' ORDER BY id FOR UPDATE", (study,)):  # fmt: skip
+                if shas.get(str(d["item"])) == d["map_sha"]:
+                    continue
+                tx.execute("UPDATE draft SET fate = 'superseded' WHERE id = ?", (int(d["id"]),))
+                if d["fate"] in DECIDED:
+                    tx.execute("INSERT INTO decision (draft_id, study, record, visit, item, action, old, new, reason, "
+                               "citation, by_user, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                               (int(d["id"]), study, d["record"], d["visit"], d["item"], "superseded", d["final"],
+                                None, "the item map changed; draft the item again", None, by, at))  # fmt: skip
+                gone.append(int(d["id"]))
+        return gone
+
+    def token_owner(self, token_ref: str, study: str) -> str | None:
+        """The other study whose REDCap target is this token, if any: a token belongs to one study (E-15)."""
+        v = self._db.fetchval("SELECT study FROM target WHERE token_ref = ? AND study <> ? ORDER BY study LIMIT 1",
+                              (token_ref, study))  # fmt: skip
+        return None if v is None else str(v)
 
     def map(self, study: str) -> list[dict[str, Any]]:
         return [json.loads(r["body"]) for r in self._all("SELECT body FROM item_map WHERE study = ? ORDER BY seq",
@@ -327,6 +415,8 @@ class EdcStore:
         return self._all("SELECT id, by_user, at FROM map_event WHERE study = ? ORDER BY id", (study,))
 
     def put_target(self, study: str, token_ref: str, key_field: str, id_field: str, by: str, at: str) -> None:
+        if self.token_owner(token_ref, study) is not None:
+            raise EdcError("edc.token_bound", "this REDCap connection is another study's target")
         self._db.execute("INSERT INTO target (study, token_ref, key_field, id_field, by_user, at) VALUES "
                          "(?,?,?,?,?,?) ON CONFLICT(study) DO UPDATE SET token_ref = excluded.token_ref, "
                          "key_field = excluded.key_field, id_field = excluded.id_field, by_user = excluded.by_user, "
@@ -359,11 +449,12 @@ class EdcStore:
                     continue
                 ids.append(int(tx.fetchval(
                     "INSERT INTO draft (study, record, pid, visit, visit_date, item, form, cdash, test, value, state, "
-                    "why, citation, version, run_id, built_by, built_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
-                    "RETURNING id",
+                    "why, citation, version, run_id, built_by, built_at, map_sha, dict_sha, target) VALUES "
+                    "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
                     (study, record, pid, visit, visit_date, d["item"], d["form"], d["cdash"], d["test"], d["value"],
                      d["state"], d["why"], json.dumps(d["citation"], ensure_ascii=False) if d["citation"] else None,
-                     d["version"], run_id, by, at))))  # fmt: skip
+                     d["version"], run_id, by, at, str(d.get("map_sha") or ""), str(d.get("dict_sha") or ""),
+                     str(d.get("target") or "")))))  # fmt: skip
         return ids
 
     def _row(self, r: dict[str, Any]) -> dict[str, Any]:
@@ -406,13 +497,16 @@ class EdcStore:
 
     def decide(self, study: str, draft_id: int, action: str, *, value: str = "", reason: str = "",
                citation: dict[str, Any] | None = None, by: str, at: str, unlock: bool = False,
-               before_commit: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:  # fmt: skip
+               before_commit: Callable[[dict[str, Any]], None] | None = None,
+               built: Mapping[str, str] | None = None) -> dict[str, Any]:  # fmt: skip
         """Confirm, edit (with a reason) or reject one draft. The value's check against the field is the caller's
         (it knows the dictionary); the rules on citations, reasons and order are here.
 
         A signed value is locked (D-281, CR-035): it changes only with ``unlock`` (the caller re-authenticated the
         person just before) and a reason; the change is kept in ``signature_void``. ``before_commit`` runs inside
-        the transaction with the new row: when it raises (the audit line could not be written), nothing changes."""
+        the transaction with the new row: when it raises (the audit line could not be written), nothing changes.
+        ``built``: on an edit, the item's map row, dictionary entry and target of now (T-115): the person decided the
+        value under them."""
         if action not in ACTIONS:
             raise EdcError("edc.action", "confirm, edit or reject", 400)
         with self._db.transaction() as tx:
@@ -451,7 +545,10 @@ class EdcStore:
                                    400)  # fmt: skip
                 if not final_cite:
                     raise EdcError("edc.no_citation", "a value without a citation cannot be confirmed: name the source")
-                if d["fate"] in DECIDED and final_cite == d["final_citation"] and value.strip() == d["final"]:
+                rebuilt = bool(built) and any(str((built or {}).get(k) or "") != str(d.get(k) or "")
+                                              for k in BUILT_UNDER)  # fmt: skip
+                if (d["fate"] in DECIDED and final_cite == d["final_citation"] and value.strip() == d["final"]
+                        and not rebuilt):  # fmt: skip
                     raise EdcError("edc.same", "the value and its source are unchanged")  # compared by value (E-28)
                 fate, final = "edited", value.strip()
             else:  # reject
@@ -473,6 +570,9 @@ class EdcStore:
                        "decided_at = ?, signature_id = NULL, signed_sha = NULL WHERE id = ?",
                        (fate, final, json.dumps(final_cite, ensure_ascii=False) if final_cite else None,
                         reason.strip()[:300], by, at, draft_id))  # fmt: skip
+            if action == "edit" and built:
+                tx.execute("UPDATE draft SET map_sha = ?, dict_sha = ?, target = ? WHERE id = ?",
+                           (*(str(built.get(k) or "") for k in BUILT_UNDER), draft_id))  # fmt: skip
             tx.execute("INSERT INTO decision (draft_id, study, record, visit, item, action, old, new, reason, "
                        "citation, "
                        "by_user, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -612,12 +712,23 @@ class EdcStore:
 
     # ------------------------------------------------------------------ the per-record trail
     def trail(self, study: str, record: str) -> dict[str, Any]:
+        """Every draft, decision, signature (with the items it covers, E-12), withdrawn signature and send of one
+        subject."""
+        items = {int(r["id"]): str(r["item"]) for r in self._all("SELECT id, item FROM draft WHERE study = ? AND "
+                                                                  "record = ?", (study, record))}  # fmt: skip
+
+        def covers(s: Mapping[str, Any]) -> list[str]:
+            try:
+                return [items.get(int(k), "?") for k in sorted(json.loads(s["drafts"]), key=int)]
+            except (TypeError, ValueError, AttributeError):
+                return []
+
         return {
             "drafts": self._all("SELECT id, visit, item, value, state, why, fate, final, built_by, built_at, version, "
                                 "run_id FROM draft WHERE study = ? AND record = ? ORDER BY id", (study, record)),
             "decisions": self._all("SELECT * FROM decision WHERE study = ? AND record = ? ORDER BY id",
                                    (study, record)),
-            "signatures": [{**s, "intact": self.intact(s)} for s in self.signatures(study, record)],
+            "signatures": [{**s, "intact": self.intact(s), "items": covers(s)} for s in self.signatures(study, record)],
             "voids": self._all("SELECT * FROM signature_void WHERE study = ? AND record = ? ORDER BY id",
                                (study, record)),
             "sent": self.sent_rows(study, record),

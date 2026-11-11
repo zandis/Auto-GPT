@@ -26,7 +26,9 @@
 #                 service passwords; .env 0600, settings.yaml 0640 for group tb; an existing settings.yaml is kept
 #                 and re-validated
 #   4. start:     docker compose up --wait --pull never with the chosen model profile (every image from the bundle,
-#                 digest pins kept on either Docker image store: tools/image_pins.py); egress rules (deploy/network.sh)
+#                 digest pins kept on either Docker image store: tools/image_pins.py); egress rules (deploy/network.sh);
+#                 the systemd units of deploy/systemd (egress closed at boot before Docker, the stack after a restart,
+#                 the egress refresh and watchdog timers; D-377)
 #   5. accounts:  first console administrator (password printed once); users page for the rest
 #   6. check:     deploy/check_host.sh; the console URL and the intake address
 # In GPU mode step 3 also makes the key of the on-box model servers (TB_LLM_API_KEY, D-177) and step 4 checks that
@@ -53,7 +55,7 @@ while [ $# -gt 0 ]; do
     --ctgov) CTGOV="$2"; shift ;;
     --ctgov-check) CTGOV_CHECK=1 ;;
     --check) CHECK=1 ;;
-    -h|--help) sed -n 2,38p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,40p "$0"; exit 0 ;;
     -*) echo "install: unknown option $1" >&2; exit 2 ;;
     *) BUNDLE="$1" ;;
   esac
@@ -377,8 +379,33 @@ if [ "$MODE" = gpu ]; then
   set -e
   [ "$rc" = 0 ] || die "the model servers do not match the pins or the key (FAIL above): the stack is up but every model call would be refused; fix deploy/.env (JUDGE_MODEL, VERIFIER_MODEL, TB_LLM_API_KEY) or re-pin (RUNBOOK §8), then re-run"
 fi
+EGRESS_OK=0
 if [ "$(id -u)" = 0 ] && [ -x deploy/network.sh ]; then
-  say "egress rules"; deploy/network.sh apply || echo "install: warning: egress rules not applied (deploy/network.sh apply)" >&2
+  say "egress rules"
+  if deploy/network.sh apply; then EGRESS_OK=1
+  else echo "install: warning: egress rules not applied (deploy/network.sh apply)" >&2; fi
+fi
+# T-108b (D-377; CR-043, OPS-049, OPS-064): the systemd units. trialbox-egress loads the closed egress table from the
+# state file `apply` just wrote, before Docker starts; trialbox starts the stack after it and re-applies the rules;
+# two timers refresh the rules and run the watchdog. Only once the state file exists: a boot without it would stop
+# Docker. TB_SYSTEMD_DIR moves the target folder (tests); TB_SYSTEMD=0 skips the step.
+SYSTEMD_DIR="${TB_SYSTEMD_DIR:-/etc/systemd/system}"
+if [ "${TB_SYSTEMD:-1}" != 0 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system ] && command -v systemctl >/dev/null; then
+  if [ "$EGRESS_OK" = 1 ]; then
+    say "systemd units (egress at boot, the stack after a restart, watchdog)"
+    for unit in deploy/systemd/*.service deploy/systemd/*.timer; do
+      sed "s#@TB_ROOT@#$ROOT#g" "$unit" > "$SYSTEMD_DIR/$(basename "$unit")"
+      chmod 644 "$SYSTEMD_DIR/$(basename "$unit")"
+    done
+    systemctl daemon-reload
+    systemctl enable trialbox-egress.service trialbox.service trialbox-egress-refresh.timer trialbox-watchdog.timer \
+      >/dev/null 2>&1 || die "the systemd units could not be enabled (systemctl status trialbox-egress trialbox)"
+    systemctl start trialbox-egress.service trialbox-egress-refresh.timer trialbox-watchdog.timer >/dev/null 2>&1 || true
+    echo "    enabled: trialbox-egress, trialbox, trialbox-egress-refresh.timer, trialbox-watchdog.timer"
+    echo "    (trialbox-ops.timer is installed, not enabled: RUNBOOK §15)"
+  else
+    echo "install: warning: systemd units not enabled: the egress rules were not applied (no state file for a boot)" >&2
+  fi
 fi
 if [ "$(id -u)" = 0 ] && [ -d /etc/cron.d ] && command -v python3 >/dev/null; then
   # D-138: every night collect yesterday's service logs, prune by settings.retention, copy the audit to its archive

@@ -14,7 +14,8 @@ store tests. PASS means every step passed and every answer came from the pinned 
 **Prerequisites.** Driver 580.142 held (`apt-mark hold`; later 580.x builds break vLLM on GB10, D-79);
 `nvidia-container-toolkit`; amd64 emulation for MailHog (test profile only); weights (safetensors or GGUF, never
 pickle or Python files) in `deploy/models/gemma-4-26b-a4b-it-4bit` and `deploy/models/qwen3.5-9b-4bit`; about 55 GB of
-disk. Spark memory as set, not yet measured on a Spark: `JUDGE_GPU_MEM_UTIL` 0.30, `VERIFIER_GPU_MEM_UTIL` 0.15.
+disk. Spark memory as set, not yet measured on a Spark: `JUDGE_GPU_MEM_UTIL` 0.30, `VERIFIER_GPU_MEM_UTIL` 0.15, and a
+memory limit per service (`deploy/gb10-profile.yaml`, D-373). The driver hold is re-tested every 28 days (D-373).
 
 **Pinning by hand.**
 
@@ -46,3 +47,6 @@ install.
 | mailhog `exec format error` | install amd64 emulation (`tonistiigi/binfmt --install amd64`) |
 
 A `public_agency: true` site needs non-PRC builds for every role; the default pair qualifies.
+
+The Spark beside a CPU workstation, two devices with one encrypted link: [the two-device section](08-two-device.md)
+(D-373).

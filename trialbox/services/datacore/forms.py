@@ -38,7 +38,17 @@ _COLS = {
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,99}$")
 URL = "urn:trialbox:questionnaire:{study}:{form}"
 FHIR_TYPES = {"date_ymd": "date", "date_dmy": "date", "date_mdy": "date", "integer": "integer", "number": "decimal",
-              "datetime_ymd": "dateTime", "datetime_seconds_ymd": "dateTime"}  # fmt: skip
+              "datetime_ymd": "dateTime", "datetime_seconds_ymd": "dateTime", "datetime_dmy": "dateTime",
+              "datetime_mdy": "dateTime", "datetime_seconds_dmy": "dateTime", "datetime_seconds_mdy": "dateTime",
+              "number_comma_decimal": "decimal",
+              **{f"number_{n}dp{c}": "decimal" for n in range(1, 5) for c in ("", "_comma_decimal")}}  # fmt: skip
+#: REDCap validation types read as written and checked here beyond the FHIR type (STD-061, T-115): decimal places,
+#: decimal comma, time, e-mail, phone. Any other type is free text, as before.
+VALIDATION = "urn:trialbox:fhir:redcap-validation"
+#: the types read before STD-061: their meaning is the FHIR type alone (the API sends dates as YYYY-MM-DD whatever
+#: the display order), so they are not kept as a validation of their own
+_PLAIN = frozenset({"date_ymd", "date_dmy", "date_mdy", "integer", "number", "datetime_ymd", "datetime_seconds_ymd"})
+_DP = re.compile(r"^number_(\d)dp(_comma_decimal)?$")
 LANGS = ("ja", "zh-TW")  # the translated languages; the plain label is the default (English for the built-in forms)
 TRANSLATION = "http://hl7.org/fhir/StructureDefinition/translation"
 MIN_VALUE = "http://hl7.org/fhir/StructureDefinition/minValue"
@@ -68,6 +78,7 @@ class Field:
     vmin: str = ""  # REDCap's text_validation_min / max (numbers or YYYY-MM-DD)
     vmax: str = ""
     branching: str = ""  # REDCap's branching logic, as written
+    validation: str = ""  # REDCap's text validation type as written (``number_1dp``, ``time``...; STD-061)
 
     def label_in(self, lang: str) -> str:
         return self.labels.get(lang) or self.label or self.name
@@ -101,8 +112,12 @@ def field_of(row: dict[str, Any]) -> Field:
         k, opts = "choice", {"1": "True", "0": "False"}
     elif kind == "descriptive":
         k = "display"
-    elif kind == "calc":
+    elif kind in ("calc", "sql"):  # computed or looked up by REDCap: never entered (STD-061)
         k = "calc"
+    elif kind == "file":  # an upload or a signature drawing: never entered by TrialBox (STD-061)
+        k = "file"
+    elif kind == "slider":  # REDCap stores a slider as a whole number, 0 to 100 unless set otherwise
+        k = "integer"
     elif kind == "notes":
         k = "notes"
     else:
@@ -114,7 +129,8 @@ def field_of(row: dict[str, Any]) -> Field:
                  str(row.get("identifier") or "").strip().lower() == "y",
                  {g: v for g, v in labels.items() if v}, {g: v for g, v in olabels.items() if v},
                  str(row.get("text_validation_min") or "").strip(), str(row.get("text_validation_max") or "").strip(),
-                 str(row.get("branching_logic") or "").strip())  # fmt: skip
+                 str(row.get("branching_logic") or "").strip(),
+                 valid if kind in ("text", "") and valid not in _PLAIN else "")  # fmt: skip
 
 
 def read_dictionary(text: str) -> list[Field]:
@@ -193,11 +209,13 @@ def _enable_when(rule: str, fields: dict[str, Field]) -> dict[str, Any]:
 
 def _item(f: Field, fields: dict[str, Field] | None = None) -> dict[str, Any]:
     kind = {"choice": "choice", "multi": "choice", "display": "display", "notes": "text", "calc": "string",
-            "text": "string"}.get(f.kind, f.kind)  # fmt: skip
+            "text": "string", "file": "attachment"}.get(f.kind, f.kind)  # fmt: skip
     item: dict[str, Any] = {"linkId": f.name, "text": f.label or f.name, "type": kind}
     if f.labels:
         item["_text"] = _translations(f.labels)
     ext = [_bound(f, u, v) for u, v in ((MIN_VALUE, f.vmin), (MAX_VALUE, f.vmax)) if v]
+    if f.validation:
+        ext.append({"url": VALIDATION, "valueString": f.validation})
     if f.branching:
         ext.append({"url": BRANCHING, "valueString": f.branching})
         item.update(_enable_when(f.branching, fields or {}))
@@ -264,8 +282,8 @@ def fields_of(questionnaire: dict[str, Any]) -> list[Field]:
         opts = {str(o["valueCoding"]["code"]): str(o["valueCoding"].get("display", ""))
                 for o in it.get("answerOption", []) if "valueCoding" in o}  # fmt: skip
         t = it.get("type")
-        kind = "multi" if t == "choice" and it.get("repeats") else {"string": "calc" if it.get("readOnly") else "text",
-                                                                   "text": "notes"}.get(t, t)  # fmt: skip
+        back = {"string": "calc" if it.get("readOnly") else "text", "text": "notes", "attachment": "file"}
+        kind = "multi" if t == "choice" and it.get("repeats") else back.get(t, t)
         ext = {e.get("url"): e for e in it.get("extension", [])}
 
         def bound(url: str, ext: dict[str, Any] = ext) -> str:
@@ -279,7 +297,8 @@ def fields_of(questionnaire: dict[str, Any]) -> list[Field]:
                 olabels.setdefault(g, {})[str(o["valueCoding"]["code"])] = v
         out.append(Field(it["linkId"], form, kind, str(it.get("text") or ""), opts, bool(it.get("required")),
                          labels=_read_translations(it.get("_text")), option_labels=olabels,
-                         vmin=bound(MIN_VALUE), vmax=bound(MAX_VALUE), branching=bound(BRANCHING)))  # fmt: skip
+                         vmin=bound(MIN_VALUE), vmax=bound(MAX_VALUE), branching=bound(BRANCHING),
+                         validation=bound(VALIDATION)))  # fmt: skip
     return out
 
 
@@ -312,8 +331,19 @@ def problem(f: Field, value: str) -> dict[str, str] | None:
     if value == "":
         return None
     p = {"field": f.name}
-    if f.kind in ("display", "calc"):
+    if f.kind in ("display", "calc", "file"):
         return {**p, "code": "not_entered"}
+    v = f.validation
+    if f.kind == "text" and v in ("time", "time_hh_mm") and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", value):
+        return {**p, "code": "time"}
+    if f.kind == "text" and v == "time_mm_ss" and not re.fullmatch(r"[0-5]\d:[0-5]\d", value):
+        return {**p, "code": "time"}
+    if f.kind == "text" and v == "email" and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value):
+        return {**p, "code": "email"}
+    if f.kind == "text" and v.startswith("phone") and not re.fullmatch(r"\+?[0-9 ()\-]{6,20}", value):
+        return {**p, "code": "phone"}
+    if f.kind == "decimal" and "comma_decimal" in v:  # TrialBox keeps a point; REDCap's import gets the comma
+        value = value.replace(",", ".", 1)
     if f.kind == "choice" and value not in f.options:
         return {**p, "code": "choice"}
     if f.kind == "multi" and any(v not in f.options for v in value.split(",")):
@@ -326,8 +356,11 @@ def problem(f: Field, value: str) -> dict[str, str] | None:
         return {**p, "code": "integer"}
     if f.kind == "decimal" and not re.match(r"^-?\d+(\.\d+)?$", value):
         return {**p, "code": "decimal"}
+    dp = _DP.match(v)
+    if f.kind == "decimal" and dp and len(value.partition(".")[2]) > int(dp.group(1)):
+        return {**p, "code": "decimals", "places": dp.group(1)}  # never rounded here: a person decides the value
     if f.kind in ("integer", "decimal"):
-        x, lo, hi = _num(value), _num(f.vmin), _num(f.vmax)
+        x, lo, hi = _num(value), _num(f.vmin.replace(",", ".")), _num(f.vmax.replace(",", "."))
         if x is not None and lo is not None and x < lo:
             return {**p, "code": "min", "min": f.vmin}
         if x is not None and hi is not None and x > hi:
@@ -344,14 +377,42 @@ _WHY = {"choice": "{v!r} is not a choice of {f}", "date": "{f} is a date (YYYY-M
         "datetime": "{f} is a date and time (YYYY-MM-DD HH:MM)", "integer": "{f} is a whole number",
         "decimal": "{f} is a number", "not_entered": "{f} is not entered", "min": "{f} is below {min}",
         "max": "{f} is above {max}", "required": "{f} is required", "owned": "{f}: owned by {owner}",
-        "unknown": "{f}: not a field of this form"}  # fmt: skip
+        "unknown": "{f}: not a field of this form", "decimals": "{f} has at most {places} decimal places",
+        "time": "{f} is a time (HH:MM)", "email": "{f} is an e-mail address",
+        "phone": "{f} is a phone number"}  # fmt: skip
 
 
 def reason(p: dict[str, str], value: str = "") -> str:
     """A problem in plain English (the API's message; the console shows it in the reader's language)."""
     return _WHY.get(p["code"], "{f}: {code}").format(v=value, f=p["field"], min=p.get("min", ""),
                                                       max=p.get("max", ""), owner=p.get("owner", ""),
-                                                      code=p["code"])  # fmt: skip
+                                                      places=p.get("places", ""), code=p["code"])  # fmt: skip
+
+
+def redcap_value(f: Field, value: str) -> str:
+    """A value that passes :func:`problem`, written the way REDCap's import takes it for the field's validation
+    (STD-061): ``number_1dp`` gets exactly one decimal place (``72`` -> ``72.0``, never rounded), a decimal-comma type
+    gets the comma. REDCap refuses a whole import batch on one value in another format."""
+    v = f.validation
+    if f.kind != "decimal" or not value:
+        return value
+    out = value.replace(",", ".", 1)
+    dp = _DP.match(v)
+    if dp:
+        whole, _, frac = out.partition(".")
+        out = f"{whole}.{frac.ljust(int(dp.group(1)), '0')}"
+    return out.replace(".", ",", 1) if "comma_decimal" in v else out
+
+
+def field_sha(f: Field) -> str:
+    """What a value's meaning rests on in the dictionary (E-16, T-115): name, form, type, validation, choices and
+    their labels, range. Labels of the question and translations are left out; a changed choice label is not."""
+    import hashlib
+    import json
+
+    body = {"name": f.name, "form": f.form, "kind": f.kind, "validation": f.validation, "options": f.options,
+            "vmin": f.vmin, "vmax": f.vmax}  # fmt: skip
+    return hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
 
 
 def check_value(f: Field, value: str) -> str | None:
@@ -360,7 +421,8 @@ def check_value(f: Field, value: str) -> str | None:
     return None if p is None else reason(p, value)
 
 
-_BACK = {"choice": "radio", "multi": "checkbox", "display": "descriptive", "calc": "calc", "notes": "notes"}
+_BACK = {"choice": "radio", "multi": "checkbox", "display": "descriptive", "calc": "calc", "notes": "notes",
+         "file": "file"}  # fmt: skip
 _VALID = {"date": "date_ymd", "integer": "integer", "decimal": "number", "dateTime": "datetime_ymd"}
 
 
@@ -375,7 +437,7 @@ def metadata(fields: list[Field], translations: bool = False) -> list[dict[str, 
             "field_type": _BACK.get(f.kind, "text"),
             "field_label": f.label,
             "select_choices_or_calculations": " | ".join(f"{c}, {d}" for c, d in f.options.items()),
-            "text_validation_type_or_show_slider_number": _VALID.get(f.kind, ""),
+            "text_validation_type_or_show_slider_number": f.validation or _VALID.get(f.kind, ""),
             "text_validation_min": f.vmin,
             "text_validation_max": f.vmax,
             "identifier": "",
