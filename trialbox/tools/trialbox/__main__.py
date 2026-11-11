@@ -5,9 +5,10 @@
 path behind ``tools/apply_update.sh``, ``update.py``); ``doctor --platform``, ``platform-images`` and
 ``platform-egress`` for a hospital platform (D-211, ``platform.py``); ``exports`` lists the export ledger (D-149,
 ``tb_common.flowledger``); ``ops`` runs the console's operations requests and writes their status (D-178, ``ops.py``);
+``watchdog`` restarts an unhealthy service and audits it (T-108a, D-360, ``watchdog.py``);
 ``eval qualify`` qualifies a model pair for a hardware profile and writes the record (D-313, ``tools/qualify.py``).
-``secrets``, ``logs``, ``update`` and ``ops`` need only the standard library, so they run with the host's ``python3``
-from the install folder: ``sudo python3 -m tools.trialbox secrets rotate``."""
+``secrets``, ``logs``, ``update``, ``ops`` and ``watchdog`` need only the standard library, so they run with the
+host's ``python3`` from the install folder: ``sudo python3 -m tools.trialbox secrets rotate``."""
 
 from __future__ import annotations
 
@@ -104,6 +105,14 @@ def main(argv: list[str] | None = None) -> int:
     op.add_argument("--ops-dir", type=Path, default=None, help="default: TB_OPS_DIR or deploy/ops")
     op.add_argument("--local", action="store_true", help="a box in this process (no docker compose)")
     op.add_argument("--watch", type=int, default=0, help="run again every N seconds (0: once)")
+    wd = sub.add_parser("watchdog", help="restart an unhealthy service and audit it (T-108a, D-360)")
+    wd.add_argument("--deploy", type=Path, default=deploy)
+    wd.add_argument("--interval", type=int, default=0, help="run again every N seconds (0: one pass, for a timer)")
+    wd.add_argument("--after-minutes", type=float, default=2.0, help="unhealthy this long before a restart")
+    wd.add_argument("--max-restarts", type=int, default=3, help="restarts per service in the window, then a person")
+    wd.add_argument("--window-hours", type=float, default=6.0)
+    wd.add_argument("--dry-run", action="store_true", help="say what would be done; change nothing")
+    wd.add_argument("--json", action="store_true")
     fl = sub.add_parser("exports", help="the export ledger: every file that left the box (D-149)")
     fl.add_argument("--audit", type=Path, default=Path(os.environ.get("TB_AUDIT_DIR", "/data/audit")))
     fl.add_argument("--days", type=int, default=30)
@@ -117,6 +126,12 @@ def main(argv: list[str] | None = None) -> int:
         from tools.trialbox import ops as tb_ops
 
         return tb_ops.main(a.action, a.deploy, a.ops_dir, a.local, a.watch)
+    if a.cmd == "watchdog":
+        from tools.trialbox import watchdog as tb_watchdog
+
+        return tb_watchdog.main(a.deploy, interval=a.interval, after_minutes=a.after_minutes,
+                                max_restarts=a.max_restarts, window_hours=a.window_hours, dry_run=a.dry_run,
+                                as_json=a.json)  # fmt: skip
     if a.cmd == "logs":
         from tools.trialbox import logs as tb_logs
 

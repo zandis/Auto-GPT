@@ -162,3 +162,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-334 | merged | T-613b | lab units read per row: one conversion table in labvalue (engines' factors reused), mapping_check unit pairs and raw values, one presence reader in ja, zh-TW, en (file) |
 | D-347 | merged | T-210b | the site keys under a KEK: wrapped files, three back ends, the unseal, the key inventory (file) |
 | D-348 | merged | T-673 | third-party images in `deploy/images.lock` by digest, no image by tag, the GPU host checked against the vLLM image (arch, driver, compute capability), Mailpit for MailHog (file) |
+| D-360 | merged | T-108a | compose limits: a memory and a pids cap on every service, health checks, capped logs, the lake sized from its cap, the host watchdog that restarts an unhealthy service and audits it (file) |

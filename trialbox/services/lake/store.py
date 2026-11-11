@@ -194,13 +194,29 @@ class RebuildStats:
     seconds: float
 
 
+CGROUP_MEMORY_MAX = Path("/sys/fs/cgroup/memory.max")  # cgroup v2: the container's cap (compose mem_limit)
+
+
+def _cgroup_memory_max() -> int | None:
+    """The container's memory cap in bytes, or None when there is none (``max``) or no cgroup v2 file."""
+    try:
+        raw = CGROUP_MEMORY_MAX.read_text(encoding="ascii").strip()
+    except OSError:
+        return None
+    return int(raw) if raw.isdigit() else None
+
+
 def memory_limit() -> str:
-    """``TB_LAKE_MEMORY_LIMIT`` (e.g. ``8GB``) or 40 % of physical memory — the lake shares the host with HAPI,
-    MinIO and (on GB10) the model in unified memory."""
+    """``TB_LAKE_MEMORY_LIMIT`` (e.g. ``8GB``) or 40 % of the memory this process may use: the smaller of physical
+    memory and the container's cap (T-108a, D-360: with ``mem_limit`` set, 40 % of the host would get the lake
+    killed). The lake shares the host with HAPI and (on GB10) the model in unified memory."""
     env = os.environ.get("TB_LAKE_MEMORY_LIMIT")
     if env:
         return env
     total = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+    cap = _cgroup_memory_max()
+    if cap is not None:
+        total = min(total, cap)
     return f"{max(1, int(total * 0.4 / 2**30))}GB"
 
 
