@@ -17,6 +17,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
 import secrets
 import threading
 import time
@@ -165,8 +166,22 @@ def odm_rows(proj: dict[str, Any], text: str) -> list[dict[str, str]] | None:
     return rows
 
 
+def _fits(meta: dict[str, Any], value: str) -> bool:
+    """REDCap's check of a value against the field's decimal validation (STD-061, T-115): ``number_1dp`` takes
+    exactly one decimal place, a ``_comma_decimal`` type takes the comma. The other types are not checked here."""
+    vt = str(meta.get("text_validation_type_or_show_slider_number") or "")
+    m = re.fullmatch(r"number_(\d)dp(_comma_decimal)?", vt)
+    if m:
+        sep = "," if m.group(2) else r"\."
+        return re.fullmatch(rf"-?\d+{sep}\d{{{m.group(1)}}}", value) is not None
+    if vt == "number_comma_decimal":
+        return re.fullmatch(r"-?\d+(,\d+)?", value) is not None
+    return True
+
+
 def _import_records(proj: dict[str, Any], form: Any) -> Any:
-    """REDCap's record import: unknown fields and (longitudinal) missing or unknown events are refused whole."""
+    """REDCap's record import: unknown fields, (longitudinal) missing or unknown events and a value that fails its
+    field's decimal validation are refused whole."""
     rows: Any
     if str(form.get("format") or "json") == "odm":
         rows = odm_rows(proj, str(form.get("data")))
@@ -200,6 +215,9 @@ def _import_records(proj: dict[str, Any], form: Any) -> Any:
             off = [f for f in r if f in meta and f != rid and forms and meta[f]["form_name"] not in forms]
             if off:
                 return _err(400, f"Fields not designated for event {ev}: {', '.join(off)}")
+        off_format = sorted(f for f, v in r.items() if f in meta and str(v) != "" and not _fits(meta[f], str(v)))
+        if off_format:
+            return _err(400, f"The value of {', '.join(off_format)} does not fit the field's validation")
         dag = str(r.get("redcap_data_access_group") or "")
         if dag and dag not in dags:
             return _err(400, f"The data access group '{dag}' is not valid")

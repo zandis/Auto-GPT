@@ -3,10 +3,13 @@
 here (``edc.service``).
 
 * ``GET  /studies/{rs}/edc``: the switch, its last changes, the map, the REDCap target, per subject and visit counts.
-* ``POST /studies/{rs}/edc/switch``: on (the acknowledgement and the re-entry result) or off.
+* ``POST /studies/{rs}/edc/switch``: on (the acknowledgement; the stored re-entry result) or off.
+* ``POST /studies/{rs}/edc/reentry``: an administrator records the blind re-entry result with the id of its filed
+  report (T-115, E-14); the switch goes on with the newest one, by another person.
 * ``POST /studies/{rs}/edc/dictionary``: read the REDCap project's data dictionary into the study's forms.
 * ``GET  /studies/{rs}/edc/map/suggest``; ``PUT /studies/{rs}/edc/map`` (the items and the REDCap target).
-* ``POST /studies/{rs}/edc/drafts`` (one subject and visit); ``GET /studies/{rs}/edc/drafts?record=&visit=``.
+* ``POST /studies/{rs}/edc/drafts`` (one subject and visit); ``GET /studies/{rs}/edc/drafts?record=&visit=`` (with
+  a record, each signed value carries its signature: printed name, role, time and meaning; E-12).
 * ``POST /studies/{rs}/edc/drafts/{id}/decide``: confirm, edit (reason) or reject.
 * ``POST /studies/{rs}/edc/sign``: the signature of one subject and visit (the console re-authenticated the signer).
 * ``POST /studies/{rs}/edc/send/redcap``; ``GET /studies/{rs}/edc/export/odm``;
@@ -50,6 +53,13 @@ class SwitchBody(BaseModel):
     reentry_pages: int = Field(default=0, ge=0, le=100000)
     reentry_accuracy: float = Field(default=0.0, ge=0.0, le=1.0)
     reason: str = Field(default="", max_length=300)
+    by: str | None = Field(default=None, pattern=_USER)
+
+
+class ReentryBody(BaseModel):
+    pages: int = Field(ge=0, le=100000)
+    accuracy: float = Field(ge=0.0, le=1.0)
+    document: str = Field(min_length=1, max_length=120)  # the id of the filed re-entry report
     by: str | None = Field(default=None, pattern=_USER)
 
 
@@ -169,6 +179,15 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
                                             reentry_pages=body.reentry_pages,
                                             reentry_accuracy=body.reentry_accuracy, reason=body.reason))  # fmt: skip
 
+    @r.post("/studies/{rs}/edc/reentry")
+    def reentry(rs: str, body: ReentryBody, request: Request) -> dict[str, Any]:
+        a = claim(request, body.by)
+        if a.role != "admin":  # an administrator files it; the PI who turns the switch on cannot (E-14)
+            refused(rs, a, "reentry", "edc.role")
+            raise HTTPException(status_code=403, detail={"code": "edc.role", "message": "an administrator records it"})
+        return run(lambda: get().record_reentry(_rs(rs), pages=body.pages, accuracy=body.accuracy,
+                                                document=body.document, by=a.name))  # fmt: skip
+
     @r.post("/studies/{rs}/edc/dictionary")
     def dictionary(rs: str, body: DictionaryBody, request: Request) -> dict[str, Any]:
         a = who(request, "map", body.by, rs)
@@ -192,7 +211,16 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
     def list_drafts(rs: str, record: str | None = None, visit: str | None = None) -> list[dict[str, Any]]:
         if visit is not None and not _VISIT.match(visit):
             raise HTTPException(status_code=400, detail={"code": "edc.visit", "message": "not a visit name"})
-        return get().store.drafts(_rs(rs), _rec(record) if record else None, visit or None)
+        rid = _rs(rs)
+        rows = get().store.drafts(rid, _rec(record) if record else None, visit or None)
+        if record:  # the signature beside each signed value: who, as what, when, and its meaning (E-12)
+            sigs = {int(s["id"]): s for s in get().store.signatures(rid, _rec(record))}
+            for d in rows:
+                s = sigs.get(int(d["signature_id"])) if d.get("signature_id") is not None else None
+                if s is not None:
+                    d["signature"] = {k: s[k] for k in ("printed_name", "role", "at", "meaning", "meaning_text",
+                                                        "lang", "method")}  # fmt: skip
+        return rows
 
     @r.post("/studies/{rs}/edc/drafts/{draft_id}/decide")
     def decide(rs: str, draft_id: int, body: DecideBody, request: Request) -> dict[str, Any]:
