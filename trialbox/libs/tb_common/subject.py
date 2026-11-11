@@ -6,7 +6,7 @@
     ruleset = 1*16(ALPHA / DIGIT / "-" / "_")        ; STATUS / CANCEL / RELEASE take a job id (ULID) instead
     option  = key "=" value
     key     = "window" / "pract" / "dept" / "lookback" / "version" / "variant" / "since" / "pid" / "bundle" / "site"
-            / "lang" / "drop" / "keep" / "mrn"
+            / "lang" / "drop" / "keep" / "mrn" / "effective" / "irb" / "irbdate"
     value   = 1*32(ALPHA / DIGIT / "-" / "," / "." / ":")   ; ":" allowed for variant=bmi:24,25,27 (spec example)
 
 Leading reply/forward prefixes (``Re:``, ``RE:``, ``Fwd:``, ``回覆:``, ``轉寄:``) are ignored.
@@ -46,6 +46,9 @@ KEYS = (
     "drop",
     "keep",
     "mrn",
+    "effective",  # APPROVE: the first day the version screens (D-364)
+    "irb",  # APPROVE: the IRB approval number of the protocol version, a record (D-364)
+    "irbdate",  # APPROVE: the day the IRB approved it (D-364)
 )
 _RULESET = re.compile(r"^[A-Za-z0-9_-]{1,16}$")
 _ULID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")

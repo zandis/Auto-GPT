@@ -341,6 +341,22 @@ class Opinion(BaseModel):
     quote_date: str | None = None
 
 
+class CodedValue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    record: str
+    domain: str
+    code: str | None = None
+    system: str | None = None
+    date: str | None = None
+    value: float | None = None
+    unit: str | None = None
+    value_code: str | None = None
+    comparator: str | None = None
+
+
 class Evidence(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -354,6 +370,10 @@ class Evidence(BaseModel):
     opinions: list[Opinion] | None = None
     """
     When the two checks disagree (D-120): each model's answer and its quote, so a person sees both.
+    """
+    coded: list[CodedValue] | None = None
+    """
+    T-514 (D-362, review UX-008): the coded records behind the answer as a person checks them, latest first (at most three): the record's own value and unit, its date and its code. Shown beside the answer; never read by matching.
     """
 
 
@@ -2609,6 +2629,22 @@ class RulesetManifest(BaseModel):
     status: Literal["draft", "approved"] = "draft"
     source_documents: list[str] | None = None
     protocol_version: str | None = None
+    protocol_date: date_aliased | None = None
+    """
+    the date of the protocol version these criteria come from (D-364)
+    """
+    effective_from: date_aliased | None = None
+    """
+    the first site day this criteria version screens (D-364, LIFE-009): until then the box keeps screening on the version before it
+    """
+    irb_reference: str | None = Field(None, max_length=64)
+    """
+    the IRB approval number of this protocol version as the approver typed it (D-364): a record printed with the approval, not a gate (D-311)
+    """
+    irb_approved_on: date_aliased | None = None
+    """
+    the day the IRB approved this protocol version (D-364), a record
+    """
     language: str | None = None
     index_date_rule: Literal["run_date", "month_end"]
     library: str | None = None
@@ -2650,7 +2686,7 @@ class RulesetManifest(BaseModel):
 
 class CandidateList(BaseModel):
     """
-    SPEC 3.6 candidate_list (tag phi). Schema version 1.1.0 (1.1.0: optional evidence.opinions, D-120).
+    SPEC 3.6 candidate_list (tag phi). Schema version 1.2.0 (1.1.0: optional evidence.opinions, D-120; 1.2.0: optional evidence.coded, D-362).
     """
 
     model_config = ConfigDict(
@@ -2720,6 +2756,18 @@ class ApproveRequest(BaseModel):
     via: str | None = None
     """
     how the approval reached the box: 'web console' or 'e-mail' (D-101)
+    """
+    effective_from: date_aliased | None = None
+    """
+    the first site day the approved version screens (D-364); empty = the day of approval
+    """
+    irb_reference: str | None = Field(None, max_length=64)
+    """
+    the IRB approval number of the protocol version, a record (D-364, D-311)
+    """
+    irb_approved_on: date_aliased | None = None
+    """
+    the day the IRB approved the protocol version, a record (D-364)
     """
     decisions: list[ReviewDecision]
 

@@ -161,7 +161,10 @@ def gateway_client(env: dict[str, str], upstream: Any = None) -> Any:
         guard=Guard.from_settings(),
         env=env,
     )
-    return GatewayClient("http://tb-gateway/v1", "orchestrator", http=TestClient(create_app(gw)))
+    client = GatewayClient("http://tb-gateway/v1", "orchestrator", http=TestClient(create_app(gw)))
+    # the box's callers load the prompt version that box's TB_ENV serves (D-359), not this harness's environment
+    client.prompt_environment = env.get("TB_ENV")  # type: ignore[attr-defined]
+    return client
 
 
 def weight_pins() -> str:
