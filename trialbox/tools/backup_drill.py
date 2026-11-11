@@ -106,7 +106,7 @@ def run(base: Path, require_extensions: bool = False) -> dict[str, Any]:
     nas.mkdir(parents=True, exist_ok=True)
     (nas / bs.OFFBOX_MARKER).write_text("drill: stands for the hospital share\n")  # same disk here, so marked
     cfg = bs.Config(deploy=base / "deploy", targets=[nas, usb], public_key=pub, production=True,
-                    declared_offbox=[str(nas)], site="DRILL")  # fmt: skip
+                    declared_offbox=[str(nas)], site="DRILL", mailto="it@hospital.example")  # fmt: skip
     events: list[tuple[str, dict[str, Any]]] = []
     when = datetime.now(UTC)
     night = bs.nightly(cfg, lambda ts: bk.backup(ts, pub, env=env, dirs=dirs, now=when),
@@ -148,12 +148,30 @@ def run(base: Path, require_extensions: bool = False) -> dict[str, Any]:
     checks.append(("box wiped", not any(p.exists() for p in dirs.values()), ""))
 
     # 4. restore
-    out = bk.restore(files[1], priv, env=env, dirs=dirs, refdata_dir=work / "refdata")  # the kept pack (install.sh)
+    out = bk.restore(
+        files[1],
+        priv,
+        env={**env, "TB_AUDIT_DIR": str(work / "box" / "audit")},
+        dirs=dirs,
+        refdata_dir=work / "refdata",
+    )  # the kept pack (install.sh)
     checks.append(("restore: every table equal to the backup (rows and content hash)", bool(out["ok"]),
                    json.dumps(out["rows"])))  # fmt: skip
     after_files = {n: bk.tree_hashes(p) for n, p in dirs.items()}
-    checks.append(("restore: every file the layout takes equal", after_files == before_files,
-                   f"{sum(len(v) for v in after_files.values())} files"))  # fmt: skip
+    # D-274 (DI-10): the restore appends one backup.restored event to the restored audit log; every other file equal
+    grown = {n: sorted(k for k in after_files[n] if before_files.get(n, {}).get(k) != after_files[n][k])
+             for n in after_files}  # fmt: skip
+    audit_grown = [k for n, ks in grown.items() for k in ks if "audit" in n or "audit" in k]
+    checks.append(("restore: every file the layout takes equal, but the audit log the restore appended to",
+                   all(not ks or all(("audit" in n or "audit" in k) for k in ks) for n, ks in grown.items())
+                   and set().union(*[set(v) for v in before_files.values()]) <= set().union(
+                       *[set(v) for v in after_files.values()]),
+                   f"{sum(len(v) for v in after_files.values())} files; audit grew in {audit_grown}"))  # fmt: skip
+    audit_at = Path(out["audit"]) if Path(out["audit"]).is_dir() else None
+    restored_events = sum(f.read_text(errors="replace").count('"backup.restored"')
+                          for f in (audit_at.rglob("*") if audit_at else []) if f.is_file())  # fmt: skip
+    checks.append(("restore: audited (one backup.restored event in the restored audit log)", restored_events == 1,
+                   out["audit"]))  # fmt: skip
     audit_dirs = [p for p in (work / "box" / "audit", work / "lake" / "audit") if p.exists()]
     ok_chain = all(verify(p).ok for p in audit_dirs) if audit_dirs else False
     checks.append(
@@ -196,10 +214,14 @@ def run(base: Path, require_extensions: bool = False) -> dict[str, Any]:
     # 5. a backup in the previous format restores
     rows_now = bk.row_counts(bk.db_sources(env)[0])
     legacy = write_legacy(base / "legacy", pub, env, dirs, "gzip", datetime.now(UTC))
-    old_out = bk.restore(legacy, priv, env=env, dirs=dirs)
+    # D-274 (CR-056): this restore goes over a box that holds data, so the box is kept first as an encrypted copy
+    old_out = bk.restore(legacy, priv, env=env, dirs=dirs, public_key=pub, keep_to=base / "kept")
     checks.append(("restore: a backup in the previous format (layout 1, gzip) restores the same rows",
                    old_out["ok"] and old_out["layout"] == 1 and bk.row_counts(bk.db_sources(env)[0]) == rows_now,
                    legacy.name))  # fmt: skip
+    kept = Path(old_out["kept_copy"]) if old_out.get("kept_copy") else None
+    checks.append(("restore over a box with data: the box is kept first as an encrypted backup that verifies",
+                   kept is not None and bk.verify(kept, priv)["ok"], str(kept)))  # fmt: skip
 
     # 6. Postgres settings and PITR
     pg = compose_pg_settings()
@@ -339,7 +361,7 @@ def write_legacy(target: Path, public_key: Path, env: dict[str, str], dirs: dict
 
             with (work / f"{src.name}.dump").open("wb") as fh:
                 subprocess.run(cmd, stdout=fh, check=True)
-            manifest["databases"][src.name] = {"schemas": list(src.schemas), "rows": bk.row_counts(src)}
+            manifest["databases"][src.name] = {"schemas": list(src.schemas), "rows": bk.row_counts(src, scheme="md5")}
         with (target / name).open("wb") as raw:
             enc = bk._Encryptor(raw, bk.load_public(public_key), meta)
             with bk._tar_writer(enc, compression) as tar:

@@ -12,6 +12,8 @@ Run on the host as root (the secrets volume), from the install folder with ``PYT
     python -m tools.keys inventory [--json]                 # every key of the box: holder, rotation, compromise
     python -m tools.keys rotate-kek --backend ...           # a new KEK; every wrapped key re-wrapped
     python -m tools.keys rotate pid_map                     # a new pid_map.key; every pid map row re-encrypted
+    python -m tools.keys seal-objects [--store DIR]         # T-210c: uploads and outputs sealed under objects.key
+    python -m tools.keys seal-objects --check               # exit 1 when the store is not sealed or a file is plain
 
 The secrets folder is ``--secrets``, else ``TB_SECRETS_DIR``, else the compose volume on the host. Nothing here prints
 a key, a share or a passphrase: shares go to files (0600) for the stewards to take away, one each. ``init`` refuses a
@@ -32,11 +34,13 @@ from typing import Any
 from tb_common import kek as K
 
 HOST_SECRETS = "/var/lib/docker/volumes/trialbox_tb-secrets/_data"
+HOST_OBJECTS = "/var/lib/docker/volumes/trialbox_objects-data/_data"
 
 #: OPS-058: every key of a box. "code" is the command that rotates it, or None where the rule is a procedure.
 INVENTORY: tuple[dict[str, Any], ...] = (
     {"key": "KEK (key-encryption key)", "where": "not on the box's disks: steward shares, a passphrase, or a "
-     "TPM-sealed credential; unsealed into /run/trialbox/kek (tmpfs)", "protects": "site_hmac.key, pid_map.key",
+     "TPM-sealed credential; unsealed into /run/trialbox/kek (tmpfs)",
+     "protects": "site_hmac.key, pid_map.key, objects.key",
      "holder": "the site's key stewards (shares) or hospital IT (TPM, passphrase)",
      "rotation": "yearly, and when a steward leaves", "code": "python -m tools.keys rotate-kek",
      "breaks": "nothing, when done with the old KEK unsealed; old shares stop working",
@@ -51,10 +55,15 @@ INVENTORY: tuple[dict[str, Any], ...] = (
      "and identities in schema pidmap", "holder": "the box", "rotation": "yearly, and on compromise",
      "code": "python -m tools.keys rotate pid_map", "breaks": "nothing: the rows are re-encrypted in one transaction",
      "compromise": "rotate pid_map; rotate-kek"},
+    {"key": "objects.key", "where": "secrets volume, wrapped (objects.key.wrapped); made by seal-objects",
+     "protects": "uploads, chart uploads and every job output on the objects volume (T-210c)", "holder": "the box",
+     "rotation": "on compromise (no command yet: a new key means re-sealing every object)", "code": None,
+     "breaks": "every upload and output until re-sealed", "compromise": "rotate-kek; re-seal the store "
+     "under a new key (a later card); the objects volume may have been copied with it"},
     {"key": "totp.key", "where": "console data volume (/data/console/totp.key)", "protects": "the second-factor "
      "secrets of the accounts", "holder": "the box", "rotation": "on compromise: every account enrols its second "
      "factor again", "code": None, "breaks": "every second factor until re-enrolled",
-     "compromise": "new key, re-enrol every account; not yet under the KEK (T-210c)"},
+     "compromise": "new key, re-enrol every account; not yet under the KEK (a later card)"},
     {"key": "backup key pair", "where": "public: deploy/secrets/backup.pub; private: hospital IT, offline",
      "protects": "every backup", "holder": "hospital IT", "rotation": "every two years, or when a holder leaves",
      "code": "python -m tools.trialbox backup-keygen (a new pair; keep the old private key for old backups)",
@@ -336,6 +345,43 @@ def cmd_rotate(a: argparse.Namespace, env: Mapping[str, str]) -> int:
     return 0
 
 
+def objects_dir(arg: str | None, env: Mapping[str, str]) -> Path:
+    """``--store``, else the path of ``TB_OBJECT_STORE`` (``fs:<path>``), else the compose volume on the host."""
+    if arg:
+        return Path(arg)
+    spec = env.get("TB_OBJECT_STORE") or ""
+    if spec.startswith("fs:") and spec[3:]:
+        return Path(spec[3:])
+    return Path(HOST_OBJECTS)
+
+
+def cmd_seal_objects(a: argparse.Namespace, env: Mapping[str, str]) -> int:
+    """T-210c: seal the object store (attachments, outputs, TWPAS bundles) under ``objects.key`` (wrapped under the
+    KEK); ``--check`` only reports, and exits 1 when the store is not sealed or a file is still plain."""
+    from tb_common import objstore as O
+
+    root = objects_dir(a.store, env)
+    if not root.is_dir():
+        raise K.KekError(f"the object store {root} is not here (--store, TB_OBJECT_STORE)")
+    if a.check:
+        seal = O.read_seal(root)
+        plain = O.plain_objects(root)
+        if seal is None:
+            _err(f"REFUSED: the object store {root} is not sealed ({len(plain)} plain object(s)): seal-objects")
+            return 1
+        if plain:
+            _err(f"REFUSED: {len(plain)} plain object(s) in the sealed store {root}, e.g. "
+                 f"{plain[0].relative_to(root).as_posix()}: run seal-objects again")  # fmt: skip
+            return 1
+        _say(f"objects: sealed under objects.key {seal['fingerprint']}; no plain object")
+        return 0
+    rep = O.seal_store(root, secrets_dir(a.secrets, env), env)
+    made = "made (wrapped under the KEK)" if rep.key_made else "already there"
+    _say(f"objects.key {made}, fingerprint {rep.fingerprint}; {rep.converted} object(s) sealed now, "
+         f"{rep.already} already sealed; new uploads and outputs are written sealed")  # fmt: skip
+    return 0
+
+
 def parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="python -m tools.keys", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -370,11 +416,15 @@ def parser() -> argparse.ArgumentParser:
     k = with_secrets(sub.add_parser("rotate", help="rotate one key"))
     k.add_argument("key", choices=("pid_map", "site_hmac", "totp", "backup"))
     k.add_argument("--db-url", help="the trial database (TB_DB_URL)")
+    o = with_secrets(sub.add_parser("seal-objects", help="seal uploads and outputs under objects.key (T-210c)"))
+    o.add_argument("--store", help=f"the object store folder (TB_OBJECT_STORE; default {HOST_OBJECTS})")
+    o.add_argument("--check", action="store_true", help="only report; exit 1 when not sealed or a file is plain")
     return ap
 
 
 COMMANDS = {"init": cmd_init, "wrap": cmd_wrap, "unseal": cmd_unseal, "status": cmd_status, "check": cmd_check,
-            "inventory": cmd_inventory, "rotate-kek": cmd_rotate_kek, "rotate": cmd_rotate}  # fmt: skip
+            "inventory": cmd_inventory, "rotate-kek": cmd_rotate_kek, "rotate": cmd_rotate,
+            "seal-objects": cmd_seal_objects}  # fmt: skip
 
 
 def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) -> int:

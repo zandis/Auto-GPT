@@ -45,6 +45,12 @@ SYSTEMS = {
     "department": "https://trialbox.local/fhir/CodeSystem/department",
     "loinc": "http://loinc.org",
 }
+# T-610 (STD-042): a drug ValueSet may carry YJ ingredient stems beside its ATC codes, as concepts of this system
+# (the first 7 characters of a YJ / 薬価基準 code: 薬効分類, ingredient, route). They are concepts, not an extension,
+# so the ValueSet's content hash covers them. The engines match a medication whose YJ code starts with a listed stem
+# exactly as one with a listed ATC code. A stem is added only for an ATC code (or an ATC family of a grouper) that
+# the ingredient-to-ATC table gives it.
+YJ_STEM = "urn:trialbox:jp:yj-stem7"  # as tb_common.refdata_jp.YJ_STEM
 # which table answers which IR domain (exact-name step)
 DOMAIN_TABLES = {
     "condition": ["icd10cm"],
@@ -143,6 +149,9 @@ class Terminology:
     def __init__(self, directory: Path = TERM_DIR, name_synonyms: NameSynonyms | None = None) -> None:
         self.dir = directory
         self.name_synonyms = name_synonyms
+        # T-610: a Japanese site's ingredient-to-ATC table (stem -> {atc, ingredient}); drug ValueSets then carry
+        # the YJ stems of their ATC codes. None (every other site, and the shipped rulesets): no stems
+        self.ingredients: dict[str, dict[str, str]] | None = None
         self.rows: dict[str, list[dict[str, Any]]] = {}
         for key, fname in TABLE_FILES.items():
             path = directory / f"{fname}.parquet"
@@ -343,8 +352,14 @@ def valueset(
     needs_review: bool = False,
     status: str = "draft",
     families: list[tuple[str, str]] | None = None,
+    ingredients: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
+    """A FHIR ValueSet of the concepts. ``ingredients`` (``stem -> {atc, ingredient}``, a Japanese site's
+    ingredient-to-ATC table, :func:`tb_common.refdata_jp.ingredient_atc`) adds the YJ stems of its ATC codes and
+    families (:func:`yj_ingredients`)."""
     by_system: dict[str, list[Concept]] = {}
+    if ingredients:
+        concepts = [*concepts, *yj_ingredients(concepts, families or [], ingredients)]
     for c in concepts:
         by_system.setdefault(c.system, []).append(c)
     rid = vs_resource_id(ruleset, vs_name)
@@ -376,6 +391,22 @@ def valueset(
     return vs
 
 
+def yj_ingredients(
+    concepts: list[Concept], families: list[tuple[str, str]], ingredients: dict[str, dict[str, str]]
+) -> list[Concept]:
+    """The YJ stems (``YJ_STEM`` concepts) whose ATC code is one of the listed ATC concepts or lies in one of the
+    grouper's ATC families; none for a list without ATC codes (a diagnosis or lab list)."""
+    atc = SYSTEMS["atc"]
+    listed = {c.code for c in concepts if c.system == atc}
+    prefixes = [pre for sy, pre in families if sy == atc and pre]
+    out = [
+        Concept(YJ_STEM, stem, row.get("ingredient") or "")
+        for stem, row in sorted(ingredients.items())
+        if row.get("atc") and (row["atc"] in listed or any(row["atc"].startswith(p) for p in prefixes))
+    ]
+    return out
+
+
 @dataclass
 class ValueSets:
     """Lookup over a ruleset's ValueSet resources (by IR valueset id)."""
@@ -395,6 +426,13 @@ class ValueSets:
         if vs is None:
             raise KeyError(f"ValueSet {name} not defined for ruleset {self.ruleset}")
         return [(inc["system"], c["code"]) for inc in vs["compose"]["include"] for c in inc.get("concept", [])]
+
+    def yj_stems(self, name: str) -> list[str]:
+        """The YJ ingredient stems a drug ValueSet carries (T-610); empty for every other list. Only 7-digit codes
+        are stems (the generators inline them in SQL and CQL)."""
+        if name not in self.by_name:
+            return []
+        return sorted(c for s, c in self.codes(name) if s == YJ_STEM and re.fullmatch(r"[0-9]{7}", c))
 
     def families(self, name: str) -> list[tuple[str, str]]:
         """(system, prefix) of the code families a grouper ValueSet stands for (D-113); empty for plain lists."""

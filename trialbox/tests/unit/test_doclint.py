@@ -86,7 +86,8 @@ def test_the_four_hubs_have_section_folders_and_a_current_index() -> None:
         secs, errs = doclint.sections(hub)
         assert errs == [], errs
         assert any(s.file for s in secs.values())
-        assert doclint.check_sections(hub) == [], hub
+        problems = [e for e in doclint.check_sections(hub) if not any(k in e for k in doclint.WARN_KINDS)]
+        assert problems == [], hub  # link and path problems only warn (D-311)
 
 
 def test_old_links_and_section_numbers_still_resolve() -> None:
