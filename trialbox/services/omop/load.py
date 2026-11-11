@@ -1091,12 +1091,7 @@ def _write(
         ):
             rec_before[int(k)] = js
     # before-images of every OMOP row that is replaced or deleted
-    before: dict[tuple[str, int], str] = {}
-    for table, ids in deletes.items():
-        col = ID_COL[table]
-        for rid, js in tx.fetchall(f"SELECT {col}, row_to_json(t)::text FROM {table} t WHERE {col} = ANY(?)", (ids,)):
-            before[(table, int(rid))] = js
-        tx.execute(f"DELETE FROM {table} WHERE {col} = ANY(?)", (ids,))
+    before = _drop_rows(tx, deletes)
     for table, rows in inserts.items():
         if table in PARTITIONED:  # T-106: each year's partition exists before its rows are written
             ensure_years(tx, table, years_of(rows, PARTITIONED[table][1]))
@@ -1177,6 +1172,17 @@ def _write(
             ev_rows,
         )
     return persons, providers
+
+
+def _drop_rows(tx: Any, deletes: Mapping[str, list[int]]) -> dict[tuple[str, int], str]:
+    """Delete OMOP rows by id (table -> ids, tables of :data:`ID_COL` only) and return their before-images."""
+    before: dict[tuple[str, int], str] = {}
+    for table, ids in deletes.items():
+        col = ID_COL[table]
+        for rid, js in tx.fetchall(f"SELECT {col}, row_to_json(t)::text FROM {table} t WHERE {col} = ANY(?)", (ids,)):
+            before[(table, int(rid))] = js
+        tx.execute(f"DELETE FROM {table} WHERE {col} = ANY(?)", (ids,))
+    return before
 
 
 def _batch_day(batch: str) -> date:
@@ -1499,20 +1505,15 @@ def withhold(db: Database, pids: Iterable[str], actor: str = "optout-worker") ->
         for _, table, rid, _, _ in live:
             if table in ID_COL and rid is not None:
                 by_table[str(table)].append(int(rid))
-        before: dict[tuple[str, int], str] = {}
-        for table, ids in by_table.items():
-            col = ID_COL[table]
-            for rid, js in tx.fetchall(
-                f"SELECT {col}, row_to_json(t)::text FROM {table} t WHERE {col} = ANY(?)", (ids,)
-            ):
-                before[(table, int(rid))] = js
-            if table == "note":
-                tx.execute("DELETE FROM note_nlp WHERE note_id = ANY(?)", (ids,))
-            if table == "measurement":
-                tx.execute("DELETE FROM fact_relationship WHERE fact_id_1 = ANY(?) OR fact_id_2 = ANY(?)", (ids, ids))
-            tx.execute(f"DELETE FROM {table} WHERE {col} = ANY(?)", (ids,))
-        for table in ("observation_period", "death", "person"):
-            tx.execute(f"DELETE FROM {table} WHERE person_id = ANY(?)", (persons,))
+        if by_table.get("note"):
+            tx.execute("DELETE FROM note_nlp WHERE note_id = ANY(?)", (by_table["note"],))
+        if by_table.get("measurement"):
+            m = by_table["measurement"]
+            tx.execute("DELETE FROM fact_relationship WHERE fact_id_1 = ANY(?) OR fact_id_2 = ANY(?)", (m, m))
+        before = _drop_rows(tx, by_table)
+        tx.execute("DELETE FROM observation_period WHERE person_id = ANY(?)", (persons,))
+        tx.execute("DELETE FROM death WHERE person_id = ANY(?)", (persons,))
+        tx.execute("DELETE FROM person WHERE person_id = ANY(?)", (persons,))
         tx.execute(
             "UPDATE tb_record SET status = 'tombstoned', tombstoned_at = now(), changed_at = now() "
             "WHERE record_key = ANY(?)",

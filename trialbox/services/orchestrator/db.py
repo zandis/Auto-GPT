@@ -325,10 +325,9 @@ class JobDB:
         pool; SCREEN drops a patient on the register before the pool is written). Returns the rows removed."""
         if not pids:
             return 0
-        marks = ",".join("?" for _ in pids)
         with self.tx() as con:
-            n = con.fetchval(f"SELECT count(*) FROM pool WHERE pid IN ({marks})", tuple(pids))
-            con.execute(f"DELETE FROM pool WHERE pid IN ({marks})", tuple(pids))
+            n = con.fetchval("SELECT count(*) FROM pool WHERE pid = ANY(?)", (list(pids),))
+            con.execute("DELETE FROM pool WHERE pid = ANY(?)", (list(pids),))
         return int(n or 0)
 
     def pool_rulesets(self) -> list[str]:
