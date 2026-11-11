@@ -167,6 +167,14 @@ class RedcapClient:
         out = self._post("formEventMapping")
         return [dict(m) for m in out] if isinstance(out, list) else []
 
+    def repeating_forms_events(self) -> list[dict[str, Any]]:
+        """The project's repeating instruments and events (``event_name`` blank in a classic project, ``form_name``
+        blank for a whole repeating event); T-302b."""
+        out = self._post("repeatingFormsEvents")
+        if not isinstance(out, list):
+            raise RcError("RC-UPSTREAM", "the repeating instruments and events are not a list")
+        return [dict(r) for r in out]
+
     def records(
         self,
         fields: list[str] | None = None,
@@ -189,16 +197,18 @@ class RedcapClient:
         return [dict(r) for r in out]
 
     # ------------------------------------------------------------------ import (write-back, D-123)
-    def import_records(self, rows: list[dict[str, str]], auto_number: bool = False) -> list[str]:
+    def import_records(self, rows: list[dict[str, str]], auto_number: bool = False, erase: bool = False) -> list[str]:
         """Import flat rows with ``overwriteBehavior=normal`` (a blank never erases a value). Returns the record ids
-        written; with ``auto_number`` REDCap names new records itself and the ids are the names it gave, in order."""
+        written; with ``auto_number`` REDCap names new records itself and the ids are the names it gave, in order.
+        ``erase`` (T-302b, the EDC's erase of a hidden value it wrote): ``overwriteBehavior=overwrite``, so a blank
+        erases; the caller sends only the fields it erases."""
         if not rows:
             return []
         import json
 
         extra = {
             "type": "flat",
-            "overwriteBehavior": "normal",
+            "overwriteBehavior": "overwrite" if erase else "normal",
             "forceAutoNumber": "true" if auto_number else "false",
             "returnContent": "auto_ids" if auto_number else "ids",
             "data": json.dumps(rows, ensure_ascii=False),
