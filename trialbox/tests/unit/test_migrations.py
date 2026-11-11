@@ -345,7 +345,7 @@ def store_migrations() -> dict[str, list[str]]:
         "pidmap": list(pidmap.MIGRATIONS),
         "omop": omop.migrations(),
         "trace": [trace.SCHEMA_V1],
-        "datacore": [datacore.SCHEMA, lifecycle.SCHEMA, lifecycle.SAE_SCHEMA],
+        "datacore": [datacore.SCHEMA, lifecycle.SCHEMA, *lifecycle.SAE_MIGRATIONS],
         "auth": list(auth.MIGRATIONS),
         "site": list(sitestore.MIGRATIONS),
         "team": list(teamstore.MIGRATIONS),
@@ -367,6 +367,9 @@ ADDED: dict[str, tuple[str, ...]] = {
     "omop": ("0eec88a07c4476ca00fdfb2e8fc414fb2257a293e381d8115a668fa7df0dc6f9",),
     # T-612: pidmap version 2, the site key's fingerprint
     "pidmap": ("b7cf6c229898b30f609be2151ff4422b2a0bc0cd068b0b5150e1d58c07c98ae3",),
+    # D-277: datacore version 4 (the study's SAE rule set); sae version 3 (one initial report per party, CR-011)
+    "datacore": ("8250b52d4e13e66e149ffa956f83b3a8027f95d4094f1a32b999771e459f7aa5",),
+    "sae": ("78527251f39fb58cd728b207c0fc332740a2d06444492dbd617b4d1b0cb7b6d3",),
     # T-510 (D-331): the feedback store, new after the baseline
     "feedback": ("3981b6201cd514508bed945433f3415993494cb24e52809cca7f37fe3801e368",),
 }

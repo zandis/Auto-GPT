@@ -29,7 +29,7 @@ FU = sr.followup_rules()
 
 def _ae(**kw: str) -> dict[str, Any]:
     e = {"record": "S-001", "event": "ae1", "ae_serious": "1", "ae_outcome": "2", "ae_serious_why": "3",
-         "ae_onset": "", "ae_aware": ""}  # fmt: skip
+         "ae_onset": "", "ae_aware": "", "ae_aware_time": "00:00"}  # fmt: skip
     e.update(kw)
     return e
 
@@ -251,15 +251,16 @@ def test_register_worklist_and_trail_on_the_console(taipei: None, lb: dict[str, 
     c, csrf = login(lb["app"], "crc", PW)
     c.post("/studies/GZQO/forms/builtin", data={"csrf": csrf})
     c.get("/studies/GZQO/subjects")
-    lb["clock"]["now"] = datetime(2026, 11, 10, 15, 30, tzinfo=UTC)  # 23:30 on 11-10 in Taipei
+    lb["clock"]["now"] = datetime(2026, 11, 10, 0, 30, tzinfo=UTC)  # 08:30 on 11-10 in Taipei
     fatal = {"ae_term": "Myocardial infarction", "ae_onset": "2026-11-08", "ae_aware": "2026-11-09",
-             "ae_serious": "1", "ae_serious_why": "1", "ae_severity": "3", "ae_outcome": "5", "ae_related": "9"}  # fmt: skip
+             "ae_aware_time": "09:00", "ae_serious": "1", "ae_serious_why": "1", "ae_severity": "3", "ae_outcome": "5",
+             "ae_related": "9"}  # fmt: skip
     _save(c, csrf, no, "tb_adverse_event", fatal, "ae1", "subject")
     assert 'href="/sae" data-testid="more-sae"' in c.get("/home").text  # the header's "more" menu
     page = c.get("/sae").text
     row = f'data-testid="sae-row-GZQO-{no}-ae1"'
     assert row in page and "Myocardial" not in page  # never the AE term on the worklist
-    assert 'data-testid="sae-alert"' not in page  # sponsor due 11-10: due today on the site's date, not overdue
+    assert 'data-testid="sae-alert"' not in page  # sponsor due 11-10 09:00 (24 h from the time learned): not overdue
     assert 'data-testid="sae-unconfirmed"' in page and f'data-testid="sae-noack-{no}-ae1"' in page
     lb["clock"]["now"] = datetime(2026, 11, 10, 16, 30, tzinfo=UTC)  # 00:30 on 11-11 in Taipei; still 11-10 in UTC
     page = c.get("/sae").text
@@ -333,7 +334,8 @@ def test_register_worklist_and_trail_on_the_console(taipei: None, lb: dict[str, 
     case = c.get(f"/studies/GZQO/sae/{no}/ae1").text
     actions = re.findall(r'data-action="(\w+)"', case)
     assert actions[0] == "create" and {"report", "receipt", "followup_add", "followup_sent", "change"} <= set(actions)
-    assert "aware=2026-11-09→2026-11-08" in case and "Myocardial" not in case
+    assert "Day learned 2026-11-09→2026-11-08" in case and "AE form changed by crc" in case  # UX-028: in words
+    assert 'data-testid="sae-term"' in case and "Myocardial" in case  # the case page reads the term from the form
     # the trail and the audit: every create and change, dates and parties only, never the AE term
     au = [x for x in _audit_lines(lb["backend"].audit_dir) if x["event"] == "console.sae"]
     assert {x["detail"]["action"] for x in au} >= {"create", "change", "report", "receipt", "followup_add",
@@ -365,7 +367,7 @@ def test_register_worklist_and_trail_on_the_console(taipei: None, lb: dict[str, 
     assert f'data-testid="sae-row-GZQO-{no}-ae2"' in page and f'data-testid="sae-downgraded-{no}-ae2"' in page
     assert 'data-testid="sae-alert-downgraded"' in page and "No longer serious, with open reports: 1" in page
     case = c.get(f"/studies/GZQO/sae/{no}/ae2").text
-    assert 'data-testid="sae-not-serious"' in case and "serious=1→0" in case
+    assert 'data-testid="sae-not-serious"' in case and "Serious 1→0" in case
     assert 'data-testid="sae-rep-initial-sponsor" data-state="overdue"' in case
     # each open report is sent (kept in the register: the form hides the field now) or closed
     r = c.post(f"/studies/GZQO/sae/{no}/ae2/sent", data={"csrf": csrf, "party": "sponsor", "on": "2026-11-02"},
