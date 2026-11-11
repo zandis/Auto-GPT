@@ -211,6 +211,12 @@ def installed_registry(work: Path) -> Path:
         for b in doc["builds"]:
             if b["build_id"] in want:
                 b["expected"] = {"manifest_sha256": want[b["build_id"]], "revision": None, "source": "synthetic"}
+                tpl = pin_model.template_of(b)
+                if tpl:  # T-674: the judge starts with --chat-template; a synthetic one beside the weights
+                    f = root / str(tpl["file"])
+                    f.parent.mkdir(parents=True, exist_ok=True)
+                    f.write_text("{% for m in messages %}{{ m.content }}\n{% endfor %}", encoding="utf-8")
+                    b["chat_template"]["sha256"] = pin_model.file_sha256(f)
         reg_path.parent.mkdir(parents=True, exist_ok=True)
         reg_path.write_text(yaml.safe_dump(doc, sort_keys=False, allow_unicode=True), encoding="utf-8")
     ok, lines = pin_model.install_pins("rtxpro6000", root, out, {}, registry_path=reg_path)
