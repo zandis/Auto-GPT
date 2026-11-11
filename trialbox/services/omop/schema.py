@@ -24,6 +24,9 @@ plain CDM tables:
 * ``tb_appointment``, ``tb_claim``, ``tb_consent``: the three lake tables OMOP v5.4 has no table for (booked visits,
   pre-authorisation claims, research-contact consent), kept local as the design proposed (design §A).
 * ``tb_load``: one row per load (batch, counts, seconds).
+* ``tb_withheld`` (migration 7, D-441): the pseudonyms the opt-out worker keeps out of the store. Their records are
+  tombstoned with the reason ``opted out`` and a later load does not bring them back; a lift deletes the row and
+  the next load restores them (nothing is restored by the lift itself).
 
 Local concepts are minted from ``tb_local_concept_seq`` in the site's block (``TB_OMOP_CONCEPT_BLOCK``, default
 2,100,000,000; never below 2,000,000,000, which is TrialBox's shared range, D-144). A site block is one million ids
@@ -385,12 +388,20 @@ CREATE TABLE tb_ruleset_release (
 #: NULL on an insert, and on every event written before this migration (an export as of a time before such an event
 #: is refused, never guessed)
 HISTORY_DDL = "ALTER TABLE tb_record_event ADD COLUMN record_before JSONB"
+# D-441 (T-206a): the persons the opt-out worker withholds (pseudonym, since when, why); written by the worker only
+WITHHELD_DDL = """
+CREATE TABLE tb_withheld (
+    pid TEXT PRIMARY KEY,
+    since TIMESTAMPTZ NOT NULL DEFAULT now(),
+    reason TEXT NOT NULL
+)
+"""
 
 
 def migrations() -> list[str]:
     from omop.partitions import migration as partitions_ddl
 
-    return [cdm_ddl(), tb_ddl(), vocab_ddl(), partitions_ddl(), cdm_ddl(CDM_TABLES_ADDED), HISTORY_DDL]
+    return [cdm_ddl(), tb_ddl(), vocab_ddl(), partitions_ddl(), cdm_ddl(CDM_TABLES_ADDED), HISTORY_DDL, WITHHELD_DDL]
 
 
 def db_url() -> str | None:

@@ -129,13 +129,15 @@ class ServiceClient:
         self.log = logging.getLogger(f"client.{service}")
 
     def _request(self, method: str, path: str, **kw: Any) -> httpx.Response:
-        from tb_common.service_auth import auth_headers
+        from tb_common.service_auth import auth_headers, resign
 
         # D-114, D-127 (F-11): the box's service token goes to every TrialBox service
         token = auth_headers()
         headers = {**token, **(kw.pop("headers", None) or {})}
         last: Exception | None = None
         for attempt in range(self.retries + 1):
+            if attempt:  # D-447 (SEC-17): an actor assertion is accepted once, so a retry carries a new one
+                headers = resign(headers)
             try:
                 resp = self.client.request(method, f"{self.base_url}{path}", headers=headers, **kw)
             except httpx.TransportError as exc:
