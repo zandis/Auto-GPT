@@ -5,7 +5,7 @@ gateway routes a ``champion`` only with a qualification record for its pinned we
 routable pair on a few synthetic bytes use these helpers:
 
 * :func:`release_registry` writes a copy of the committed registry whose ``expected`` weights are the synthetic
-  folders' manifests and points ``registry.registry.DEFAULT_PATH`` and ``TB_REGISTRY_PATH`` at it (so
+  folders' manifests (and whose judge chat template is a synthetic file beside them, T-674) and points ``registry.registry.DEFAULT_PATH`` and ``TB_REGISTRY_PATH`` at it (so
   ``tools/pin_model.py`` and the gateway check the synthetic release, not the real one);
 * :func:`qualified` is the qualification reference ``pin_model --promote`` writes, for exactly the given weights;
 * :func:`promote_pins` marks pinned builds of a site override champion with such a reference, as a promotion from
@@ -37,6 +37,20 @@ def qualified(weights_sha256: str, record_id: str = "test-qualification-record")
     }
 
 
+TEMPLATE_TEXT = "{% for m in messages %}<turn>{{ m.role }}\n{{ m.content }}</turn>\n{% endfor %}<turn>model\n"
+
+
+def synthetic_template(models_root: Path, row: dict[str, Any]) -> str:
+    """Write a synthetic chat template where the build's ``chat_template.file`` puts it under ``models_root``
+    (T-674); returns its sha256, the value a release registry then expects."""
+    import hashlib
+
+    path = models_root / str(row["file"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(TEMPLATE_TEXT, encoding="utf-8")
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def release_registry(tmp_path: Path, folders: dict[str, Path], monkeypatch: pytest.MonkeyPatch | None = None) -> Path:
     """A registry copy whose builds in ``folders`` expect those folders' manifests; patched in when ``monkeypatch``
     is given. Returns the copy's path."""
@@ -48,6 +62,8 @@ def release_registry(tmp_path: Path, folders: dict[str, Path], monkeypatch: pyte
     for b in doc["builds"]:
         if b["build_id"] in folders:
             b["expected"] = {"manifest_sha256": weight_manifest(folders[b["build_id"]]).sha256, "revision": None}
+            if (b.get("chat_template") or {}).get("file"):  # T-674: the judge's template, beside the weights
+                b["chat_template"]["sha256"] = synthetic_template(folders[b["build_id"]].parent, b["chat_template"])
     path = tmp_path / "registry.release.yaml"
     path.write_text(yaml.safe_dump(doc, sort_keys=False, allow_unicode=True), encoding="utf-8")
     if monkeypatch is not None:

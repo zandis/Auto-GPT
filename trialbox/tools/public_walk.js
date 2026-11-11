@@ -13,8 +13,8 @@
 // coordinator on a 390 px phone in Japanese saves a consent and a visit on the Entry page, edits the consent, and the
 // History page shows the edit (old and new).
 //
-// TB-PLAN-04 step 4b (D-133): every page also runs axe-core (fails on a serious or critical issue; axe comes from
-// node_modules when installed, else the vendored copy in tools/vendor, injected with addScriptTag because the
+// TB-PLAN-04 step 4b (D-133): every page also runs axe-core (fails on a serious or critical issue; axe is the
+// vendored copy in tools/vendor, recorded in tools/package.json, injected with addScriptTag because the
 // console's security policy allows no other script), checks that every interactive target is at least 44 px (a link
 // inside a sentence is WCAG 2.5.5's exception), and the six core tasks of the novice review are walked with their taps
 // counted; the counts go into walk.json ("taps") and must be at or below the review's "could" column. Prints one JSON
@@ -40,14 +40,9 @@ const fs = require("fs");
 const path = require("path");
 
 const args = JSON.parse(process.argv[2] || "{}");
-function axeSource() {
-  try {
-    return fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
-  } catch (e) {
-    return fs.readFileSync(path.join(__dirname, "vendor", "axe.min.js"), "utf8");
-  }
-}
-const AXE = axeSource();
+// always the vendored axe-core, whose release and sha256 tools/package.json records (DEP-025, D-393): a copy in
+// node_modules may be another version, and the walk's findings must not depend on what the runner installed
+const AXE = fs.readFileSync(path.join(__dirname, "vendor", "axe.min.js"), "utf8");
 // the novice review's task table (docs/reviews/2026-11-08-ux-review-novice.md §2), "taps it could take"
 const TAPS_MAX = { T1: 2, T2: 2, T3: 2, T4: 10, T5: 5, T6: 3, T7: 3, T8: 2, T9: 3 };
 const W = JSON.parse(fs.readFileSync(args.walk, "utf8"));
