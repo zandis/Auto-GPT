@@ -11,6 +11,7 @@ A record is one JSON object, schema version 1::
       "memory_used_mib": 35840,                             # nvidia-smi at capture time (both servers loaded)
       "servers": [                                          # one per vLLM container (judge, verifier)
         {"role": "judge", "container": "judge", "image": "vllm/vllm-openai:v0.32.0",
+         "image_digests": ["vllm/vllm-openai@sha256:..."], "structured_outputs_backend": "auto",
          "vllm_version": "0.32.0", "model": "nvidia/Gemma-4-26B-A4B-NVFP4",
          "served_model_name": "local/gemma-4-26b-a4b-nvfp4", "quantization": "nvfp4" | null,
          "max_model_len": 8192, "max_num_seqs": 4, "enforce_eager": true,
@@ -37,6 +38,7 @@ mounted Hugging Face cache. It is wrapped by ``deploy/gcp/capture-serving-config
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import socket
@@ -67,11 +69,14 @@ FLAGS = {
     "--kv-cache-dtype": ("kv_cache_dtype", str),
 }
 SECRET_FLAGS = {"--api-key"}  # never recorded
+# the structured-output backend (D-348): this flag, its JSON form, or vLLM's default "auto" when neither is given
+BACKEND_FLAG = "--structured-outputs-config.backend"
 
 
 def parse_args(args: list[str]) -> dict[str, Any]:
     """vLLM command-line arguments -> the record's server fields (``--flag value`` and ``--flag=value``)."""
     out: dict[str, Any] = {"enforce_eager": False, "kv_cache_dtype": "auto", "quantization": None, "extra_args": []}
+    out["structured_outputs_backend"] = "auto"
     i = 0
     while i < len(args):
         a = args[i]
@@ -80,6 +85,16 @@ def parse_args(args: list[str]) -> dict[str, Any]:
             flag, val = a.split("=", 1)
         if flag == "--enforce-eager":
             out["enforce_eager"] = True
+        elif flag in (BACKEND_FLAG, "--structured-outputs-config"):
+            if val is None and i + 1 < len(args):
+                i += 1
+                val = args[i]
+            out["extra_args"] += [flag, str(val)]
+            if flag == BACKEND_FLAG:
+                out["structured_outputs_backend"] = val
+            else:
+                with contextlib.suppress(ValueError, AttributeError):
+                    out["structured_outputs_backend"] = json.loads(str(val)).get("backend") or "auto"
         elif flag in FLAGS or flag in SECRET_FLAGS:
             if val is None and i + 1 < len(args):
                 i += 1
@@ -223,6 +238,12 @@ def server_info(role: str, container: str, models_dir: Path) -> dict[str, Any]:
     args = list(ins.get("Args") or [])
     rec: dict[str, Any] = {"role": role, "container": container, "image": ins["Config"]["Image"]}
     rec.update(parse_args(args))
+    try:  # the registry digests of the image that ran (D-348: the lock's vLLM entry names the same)
+        rec["image_digests"] = json.loads(
+            _run(["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", ins["Image"]])
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, ValueError):
+        rec["image_digests"] = []
     try:
         rec["vllm_version"] = _run(
             ["docker", "exec", container, "python3", "-c", "import vllm;print(vllm.__version__)"]

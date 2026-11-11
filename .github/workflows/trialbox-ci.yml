@@ -104,6 +104,8 @@ jobs:
         run: .venv/bin/python tools/doclint.py
       - name: decision numbers (one number, one text; registry rows are notes only; D-306, D-311)
         run: .venv/bin/python -m tools.decisions_index --check
+      - name: licence register (every shipped data file has a row; no SNOMED CT; model licence rows; T-617b, D-342)
+        run: PYTHONPATH=libs:services:. .venv/bin/python -m tools.licence_register --check
 
   contracts:
     runs-on: ubuntu-latest
