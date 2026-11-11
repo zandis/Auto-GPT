@@ -477,6 +477,9 @@ DECLARED: dict[str, Declared] = {
     "TB_IMAGE": Declared("str", "trialbox-py:1.0.0", "the Python services' image"),
     "TB_INSTALL_PULL": Declared("str", "never", "install: image pull policy"),
     "TB_INSTALL_UP_TIMEOUT": Declared("int", "900", "install: seconds to wait for health"),
+    "TB_IRB_TEXT_GATE": Declared(
+        "str", "auto", "console: candidate view held until the IRB text is recorded (auto, on, off; D-395)"
+    ),
     "TB_JAVA": Declared("str", "java", "java command"),
     "TB_JP_INGREDIENT_ATC": Declared("str", "", "compiler: Japanese ingredient to ATC map"),
     "TB_JVM_IMAGE": Declared("str", "", "platform: JVM image"),
