@@ -35,7 +35,11 @@ closed). Checks:
   box's first start (T-008, D-207): WARN, naming the flag's value and where to change it;
 * ``site_key`` (T-612, DATA-004): ``site_hmac.key`` is in the secrets folder (``TB_SECRETS_DIR``) and its fingerprint
   is the one recorded in the lake (``site_key.json``) and in the pid map. FAIL when it is missing or another key (the
-  ingest then refuses every night); WARN when the folder is not on this host. Prints the fingerprint, never the key.
+  ingest then refuses every night); WARN when the folder is not on this host. Prints the fingerprint, never the key;
+* ``key_custody`` (T-210b, CR-041, D-347): the site keys are wrapped under the KEK (``tb_common.kek``). FAIL when a key
+  is both plain and wrapped, a wrapped key has no ``kek.json`` or names another KEK, the KEK file is in the secrets
+  folder or is not this box's KEK, or (in VALIDATION and PRODUCTION) a site key is a plain file; WARN for a plain key
+  in DEV/TEST and when the keys are wrapped but the KEK is not unsealed where doctor runs. Opens no key.
 
 ``--live`` adds one check that talks to the model servers, so it runs where the gateway's network is (install.sh
 runs it in a one-off container on ``trialbox-model-net``; ``--serving`` runs it alone):
@@ -676,6 +680,29 @@ def check_site_key(inp: DoctorInputs) -> Check:
     return Check("site_key", "PASS", f"key {fp}{where}")
 
 
+def check_key_custody(inp: DoctorInputs) -> Check:
+    """T-210b (CR-041, D-347): the site keys are kept under a KEK held outside the secrets folder."""
+    from tb_common import kek
+
+    sec = Path(inp.env.get("TB_SECRETS_DIR") or "/run/secrets/trialbox")
+    if not sec.is_dir():
+        return Check("key_custody", "WARN", f"the secrets folder {sec} is not here (TB_SECRETS_DIR): not checked")
+    c = kek.custody(sec, {**os.environ, **inp.env})
+    if c.problems:
+        return Check("key_custody", "FAIL", "; ".join(c.problems))
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    if c.plain:
+        how = "python -m tools.keys init (the KEK ceremony), then the keys stay wrapped"
+        status: Status = "FAIL" if env in kek.STRICT_ENVS else "WARN"
+        return Check("key_custody", status, f"{', '.join(c.plain)} plain on disk in {env}: {how}")
+    if not c.wrapped:
+        return Check("key_custody", "PASS", "no site key in the secrets folder yet (made by the install ceremony)")
+    where = f"KEK {c.kek_id} ({c.backend})"
+    if c.kek == "locked":
+        return Check("key_custody", "WARN", f"{', '.join(c.wrapped)} wrapped under {where}; not unsealed here")
+    return Check("key_custody", "PASS", f"{', '.join(c.wrapped)} wrapped under {where}, unsealed")
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -690,6 +717,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_site_tz,
     check_flags,
     check_site_key,
+    check_key_custody,
 )
 
 
