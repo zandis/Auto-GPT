@@ -63,7 +63,7 @@ ULT = crit("T-INC-05", {"domain": "medication", "quantifier": "any", "valueset":
 CREA = crit("T-EXC-02", {"domain": "observation", "quantifier": "latest", "valueset": "VS_CREA",
                          "value": {"op": ">", "num": 2, "unit": "mg/dL"}}, kind="exclusion")  # fmt: skip
 
-LAKE = {
+LAKE: dict[str, list[dict[str, Any]]] = {
     "patient": [{"pid": "P1", "birth_date": date(1961, 11, 20), "sex": "female"}],
     "observation": [
         {"oid": "o-bmi-1", "pid": "P1", "code": "39156-5", "system": "http://loinc.org",

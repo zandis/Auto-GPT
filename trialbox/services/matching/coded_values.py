@@ -148,7 +148,7 @@ def attach(
     for pid, vs in verdicts.items():
         for i, v in enumerate(vs):
             c = by_id.get(v.id)
-            doms = {a.domain for a in atoms(c.logic if c is not None else None)} or set(DOMAINS)
+            doms: set[str] = {a.domain for a in atoms(c.logic if c is not None else None)} or set(DOMAINS)
             shown: list[CodedValue] = []
             for rid in reversed(_wanted(v)):  # latest first
                 hits = found.get(rid) or []
