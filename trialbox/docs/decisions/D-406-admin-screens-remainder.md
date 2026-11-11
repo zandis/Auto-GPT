@@ -38,6 +38,8 @@ them 365 days (OPS-035). Nothing listed accounts that were no longer used, and a
    them D3: never forwarded, never in a support bundle, kept `retention.third_party_logs_days` (default 30) days.
    PostgreSQL runs with `log_min_error_statement=panic` and `log_parameter_max_length_on_error=0`, so a failed
    statement's text and values are not logged.
+   The third-party tree has its own `COVERAGE.json` (D-389), and `gaps` reads both trees. `trialbox support-bundle`
+   (D-405) refuses an `--add` path under `logs/third-party/`.
 
 ## Consequences
 

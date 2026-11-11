@@ -5,6 +5,7 @@ days."""
 from __future__ import annotations
 
 import gzip
+import json
 import stat
 from datetime import date
 from pathlib import Path
@@ -26,8 +27,14 @@ def test_third_party_logs_go_apart_marked_d3_and_owner_only(tmp_path: Path) -> N
     files = tl.collect(tmp_path / "deploy", date(2026, 11, 8), tmp_path / "logs", run, tz="UTC")
     ours = tmp_path / "logs" / "services" / "2026-11-08"
     apart = tmp_path / "logs" / "third-party" / "2026-11-08"
-    assert sorted(p.name for p in ours.iterdir()) == ["console.log.gz", "orchestrator.log.gz"]
-    assert sorted(p.name for p in apart.iterdir()) == ["CLASS", "db.log.gz", "fhir-store.log.gz", "llm-service.log.gz"]
+    assert sorted(p.name for p in ours.iterdir()) == ["COVERAGE.json", "console.log.gz", "orchestrator.log.gz"]
+    assert sorted(p.name for p in apart.iterdir()) == [
+        "CLASS",
+        "COVERAGE.json",
+        "db.log.gz",
+        "fhir-store.log.gz",
+        "llm-service.log.gz",
+    ]
     assert len(files) == 5 and gzip.decompress((apart / "db.log.gz").read_bytes()) == b"log of db\n"
     assert (apart / "CLASS").read_text().startswith("D3:") and "support bundle" in (apart / "CLASS").read_text()
     assert stat.S_IMODE(apart.stat().st_mode) == 0o700 and stat.S_IMODE((apart / "db.log.gz").stat().st_mode) == 0o600
@@ -66,3 +73,33 @@ def test_postgres_logs_no_failed_statement() -> None:
     docs = list(yaml.safe_load_all((ROOT / "deploy/platform/base/db.yaml").read_text(encoding="utf-8")))
     text = repr(docs)
     assert "log_min_error_statement=panic" in text and "log_parameter_max_length_on_error=0" in text
+
+
+def test_each_tree_has_its_own_coverage_and_gaps_reads_both(tmp_path: Path) -> None:
+    def run(argv: Any) -> bytes:
+        if "--services" in argv:
+            return b"orchestrator\ndb\n"
+        if "-q" in argv:
+            return b""  # no containers to inspect: no gap
+        return b"2026-11-08T00:00:01Z line\n"
+
+    tl.collect(tmp_path / "deploy", date(2026, 11, 8), tmp_path / "logs", run, tz="UTC", cap=1000)
+    ours = json.loads((tmp_path / "logs/services/2026-11-08/COVERAGE.json").read_text())
+    apart = tmp_path / "logs/third-party/2026-11-08/COVERAGE.json"
+    assert set(ours["services"]) == {"orchestrator"} and set(json.loads(apart.read_text())["services"]) == {"db"}
+    assert stat.S_IMODE(apart.stat().st_mode) == 0o600
+    data = json.loads(apart.read_text())
+    data["services"]["db"]["gap"] = True
+    apart.write_text(json.dumps(data))
+    assert tl.gaps(tmp_path / "logs", date(2026, 11, 8))[0] == ["db"]
+
+
+def test_the_support_bundle_refuses_the_third_party_folder(tmp_path: Path) -> None:
+    from tools import support_bundle as sb
+
+    deploy = tmp_path / "deploy"
+    f = deploy / "logs" / "third-party" / "2026-11-08" / "db.log.gz"
+    f.parent.mkdir(parents=True)
+    f.write_bytes(b"x")
+    assert sb.refusal(f, deploy, {})
+    assert sb.refusal(f, deploy, {"TB_LOG_DIR": str(deploy / "logs")})

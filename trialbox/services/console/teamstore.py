@@ -9,6 +9,8 @@
   directory, typed, arranged outside TrialBox, or the department contact), the answer the CRC records (agree to
   introduce, decline with a reason, discuss) and the events behind it.
 * **IRB approval and the current consent-form version** per study, and every Approach marked despite a warning.
+* **Approved consent-form (ICF) versions** per study as history rows (D-399): version, its date, the IRB's approval,
+  the first day it is used, and whether subjects on study consent again on it.
 * **Candidate views and chart-number reveals** (study, patient, purpose, who, when), which also carry the rate limit.
 
 Stored in the trial database (PostgreSQL ``trialbox_wf``, schema ``team``; D-126). Pseudonyms only: no chart number
@@ -18,6 +20,7 @@ or patient name is kept here. Staff names are staff names.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
@@ -155,7 +158,28 @@ CREATE TABLE candidate_views (
 );
 CREATE INDEX candidate_views_by ON candidate_views (by, kind, at)
 """
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1,)
+# D-399 (T-302a, FIT-009, LIFE-018): the study's approved consent-form (ICF) versions as history rows. Every add, change
+# and withdrawal is a new row; the list is the newest row of each version that is not withdrawn. ``irb.icf_version``
+# stays as it was saved and is read from this list once the list has a row.
+SCHEMA_V2 = """
+CREATE TABLE icf_versions (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  ruleset TEXT NOT NULL,
+  version TEXT NOT NULL,
+  version_date TEXT,
+  irb_approved_on TEXT,
+  effective_from TEXT NOT NULL DEFAULT '',
+  reconsent INTEGER NOT NULL DEFAULT 1,
+  action TEXT NOT NULL,
+  note TEXT,
+  by TEXT NOT NULL,
+  at TEXT COLLATE "C" NOT NULL
+);
+CREATE INDEX icf_versions_rs ON icf_versions (ruleset, at)
+"""
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2)
+ICF_ACTIONS = ("add", "withdraw")
+_ICF_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._/()-]{0,39}$")
 
 
 class TeamError(ValueError):
@@ -264,6 +288,29 @@ class Irb:
         if not self.icf_version:  # an expired approval also expires the consent form approved under it
             out.append("icf_missing")
         return out
+
+
+@dataclass(frozen=True)
+class IcfVersion:
+    """One approved consent-form version of a study (D-399): its version, the date printed on it, the IRB's approval
+    of it, the first day it is used ('' = from the start), and whether subjects on study consent again on it."""
+
+    version: str
+    version_date: str = ""
+    irb_approved_on: str = ""
+    effective_from: str = ""
+    reconsent: bool = True
+    note: str = ""
+    action: str = "add"
+    by: str = ""
+    at: str = ""
+    seq: int = 0
+
+    def as_row(self) -> dict[str, Any]:
+        """The plain row ``datacore.lifecycle``'s ICF checks read."""
+        return {"version": self.version, "version_date": self.version_date, "irb_approved_on": self.irb_approved_on,
+                "effective_from": self.effective_from, "reconsent": self.reconsent, "note": self.note,
+                "by": self.by, "at": self.at, "seq": self.seq}  # fmt: skip
 
 
 @dataclass(frozen=True)
@@ -558,11 +605,17 @@ class TeamStore:
 
     # ------------------------------------------------------------------ IRB approval and consent-form version
     def irb(self, ruleset: str) -> Irb:
+        """The study's IRB record; its consent-form version is the newest on the ICF list once the list has one."""
         row = self.db.fetchone(
             "SELECT approval_no, approved_on, expires_on, icf_version, icf_date, by, at FROM irb WHERE ruleset = ?",
             (ruleset,),
         )
-        return Irb(*(str(x or "") for x in row)) if row else Irb()
+        rec = Irb(*(str(x or "") for x in row)) if row else Irb()
+        icf = self.icf_list(ruleset)
+        if icf:
+            newest = max(icf, key=lambda v: (v.effective_from, v.seq))
+            rec.icf_version, rec.icf_date = newest.version, newest.version_date or newest.effective_from
+        return rec
 
     def save_irb(self, ruleset: str, rec: Irb, by: str, at: str) -> Irb:
         approved = _day(rec.approved_on, "the approval date") or ""
@@ -578,7 +631,66 @@ class TeamStore:
             "icf_date = excluded.icf_date, by = excluded.by, at = excluded.at",
             (ruleset, *(v or None for v in vals), by, at),
         )
+        listed = {v.version.casefold() for v in self.icf_list(ruleset)}
+        if vals[3] and _ICF_VERSION.match(vals[3]) and vals[3].casefold() not in listed:
+            # D-399: a version typed on the IRB record joins the ICF list, approved with the IRB record's date
+            self.add_icf(ruleset, IcfVersion(vals[3], icf_date, approved, ""), by, at)
         return self.irb(ruleset)
+
+    # ------------------------------------------------------------------ approved consent-form versions (D-399)
+    _ICF = "id, version, version_date, irb_approved_on, effective_from, reconsent, action, note, by, at"
+
+    @staticmethod
+    def _icf(r: tuple[Any, ...]) -> IcfVersion:
+        return IcfVersion(str(r[1]), str(r[2] or ""), str(r[3] or ""), str(r[4] or ""), bool(r[5]), str(r[7] or ""),
+                          str(r[6]), str(r[8]), str(r[9]), int(r[0]))  # fmt: skip
+
+    def icf_history(self, ruleset: str) -> list[IcfVersion]:
+        """Every row of the study's ICF list, oldest first (adds, changes and withdrawals)."""
+        rows = self.db.fetchall(f"SELECT {self._ICF} FROM icf_versions WHERE ruleset = ? ORDER BY at, id", (ruleset,))
+        return [self._icf(r) for r in rows]
+
+    def icf_list(self, ruleset: str) -> list[IcfVersion]:
+        """The approved versions now: the newest row of each version, without the withdrawn ones, in the order they
+        come into force."""
+        last: dict[str, IcfVersion] = {}
+        for v in self.icf_history(ruleset):
+            last[v.version.casefold()] = v
+        live = [v for v in last.values() if v.action != "withdraw"]
+        return sorted(live, key=lambda v: (v.effective_from, v.seq))
+
+    def add_icf(self, ruleset: str, rec: IcfVersion, by: str, at: str) -> IcfVersion:
+        """Add a version, or change one (the same version again: a new row). The effective date is the IRB approval
+        date when left empty, and never before it."""
+        version = rec.version.strip()
+        if not _ICF_VERSION.match(version):
+            raise TeamError("the version is letters, digits, spaces and . _ / ( ) -, at most 40")
+        printed = _day(rec.version_date, "the form's date") or ""
+        approved = _day(rec.irb_approved_on, "the IRB approval date") or ""
+        effective = _day(rec.effective_from, "the first day it is used") or approved
+        if approved and effective < approved:
+            raise TeamError("a version is used only from its IRB approval date")
+        self.db.execute(
+            "INSERT INTO icf_versions (ruleset, version, version_date, irb_approved_on, effective_from, reconsent, "
+            "action, note, by, at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (ruleset, version, printed or None, approved or None, effective, 1 if rec.reconsent else 0, "add",
+             rec.note.strip()[:200] or None, by, at),
+        )  # fmt: skip
+        return next(v for v in self.icf_list(ruleset) if v.version.casefold() == version.casefold())
+
+    def withdraw_icf(self, ruleset: str, version: str, note: str, by: str, at: str) -> None:
+        """Take a version off the list (entered by mistake); the history keeps it. A note says why."""
+        cur = next((v for v in self.icf_list(ruleset) if v.version.casefold() == version.strip().casefold()), None)
+        if cur is None:
+            raise TeamError("that version is not on the list")
+        if not note.strip():
+            raise TeamError("say why the version is taken off the list")
+        self.db.execute(
+            "INSERT INTO icf_versions (ruleset, version, version_date, irb_approved_on, effective_from, reconsent, "
+            "action, note, by, at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (ruleset, cur.version, cur.version_date or None, cur.irb_approved_on or None, cur.effective_from,
+             1 if cur.reconsent else 0, "withdraw", note.strip()[:200], by, at),
+        )  # fmt: skip
 
     def add_override(self, ruleset: str, pid: str, warnings: list[str], by: str, at: str) -> None:
         self.db.execute(

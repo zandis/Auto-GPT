@@ -34,6 +34,9 @@ HELP_PAGES: tuple[tuple[str, str], ...] = (
     (r"^/studies/[^/]+/cohort", "cohort"),
     (r"^/studies/[^/]+/setup", "setup"),
     (r"^/studies/[^/]+/approv", "approval"),
+    (r"^/studies/[^/]+/candidates", "candidates"),  # D-398 (UX-029): the PoC pages get their own text
+    (r"^/studies/[^/]+/referrals", "referrals"),
+    (r"^/studies/[^/]+/edc", "edc"),
     (r"^/reports", "reports"),
     (r"^/admin(/redcap)?$", "admin"),
     (r"^/(pilot/)?jobs", "jobs"),
@@ -55,6 +58,21 @@ def help_slug(path: str) -> str:
         if re.search(pat, path):
             return slug
     return "other"
+
+
+_STUDY_IN_PATH = re.compile(r"^/studies/([^/?#]+)")
+
+
+def own_study(back: str, studies: list[str], logged: list[str]) -> str:
+    """D-398 (UX-029): the study the help examples name. The study of the page the help was opened from, else the
+    first study whose delegation log lists this account, else the first study in scope ("" when there is none)."""
+    m = _STUDY_IN_PATH.match(back)
+    if m and m.group(1).upper() in studies:
+        return m.group(1).upper()
+    for rs in studies:
+        if rs in logged:
+            return rs
+    return studies[0] if studies else ""
 
 
 def _safe_back(path: str) -> str:
@@ -206,8 +224,19 @@ def register(app: FastAPI, h: Helpers) -> None:
     def help_panel(request: Request, back: str = "/home") -> Response:
         sess = h.need(request)
         target = _safe_back(back)
+        studies = studies_of(sess)
+        team = h.team
+        logged = [
+            r for r in studies if team is not None and any(e.username == sess.user.username for e in team.entries(r))
+        ]
         return h.page(
-            request, "help.html", sess, slug=help_slug(target.split("?")[0]), back=target, studies=studies_of(sess)
+            request,
+            "help.html",
+            sess,
+            slug=help_slug(target.split("?")[0]),
+            back=target,
+            studies=studies,
+            mine=own_study(target, studies, logged),
         )
 
     about.register(app, h)  # T-617a: /about, the third-party notices (NOTICE), beside the help panel

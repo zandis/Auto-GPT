@@ -404,6 +404,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         "660d794773184321ebd80015911a26e65973b24d93fa2415c39b6114a22f561b",
         "7307dbdcdff73f68593da4a33739e1803bcc90079eff738c175f3ad13bd26003",
     ),
+    # D-399 (T-302a): team version 2, the approved consent-form versions as history rows
+    "team": ("ad5cea87a2f6b2b0210c392f8c698a0c72253a93cbbb6ec74915bf0cefbd076f",),
     # D-280: the break-glass grants, new after the baseline
     "breakglass": ("0347aae3f58f7558d041191f25bd2fc5bc654e6f5139c9ee28b1588e91544b83",),
 }

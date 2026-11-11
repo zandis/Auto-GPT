@@ -19,12 +19,15 @@ Who acts (D-162, review E-01): every route that changes something, and the expor
 verified ``X-TB-Actor`` assertion the console signs (``tb_common.service_auth``), and their role from the signed
 ``X-TB-Actor-Role``; never from the body. The role must allow the action (``authz.edc_role_may``). The signature
 needs an assertion the console made right after it re-authenticated the signer (session ``reauth-...``); so does a
-change to a signed value (the record lock, D-281). A ``by`` in a body counts only on a DEV or TEST box without a
-token, as for the other routes. A refused role or a missing re-authentication is audited as ``edc.refused`` (SEC-7).
+change to a signed value (the record lock, D-281). Such a session counts only when assertions are checked with the
+console's own key, never on a box that still shares one service token (SEC-16, T-205; :func:`reauthenticated`).
+A ``by`` in a body counts only on a DEV or TEST box without a token, as for the other routes. A refused role or a
+missing re-authentication is audited as ``edc.refused`` (SEC-7).
 """
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Callable
 from typing import Any, TypeVar
@@ -34,7 +37,16 @@ from edc.store import EdcError
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from tb_common.authz import edc_role_may
-from tb_common.service_auth import ACTOR_HEADER, ASSERTION_HEADER, ROLE_HEADER, Actor, ActorError, verify_actor
+from tb_common.service_auth import (
+    ACTOR_HEADER,
+    ACTOR_KEYS_ENV,
+    ASSERTION_HEADER,
+    OPEN_ENVS,
+    ROLE_HEADER,
+    Actor,
+    ActorError,
+    verify_actor,
+)
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
@@ -105,7 +117,8 @@ class SignBody(BaseModel):
     printed_name: str = Field(min_length=1, max_length=120)
     meaning: str = "transcribed"
     meaning_text: str = Field(min_length=1, max_length=600)
-    method: str = Field(default="password", pattern=r"^(password|password\+totp)$")  # how the console re-authenticated
+    # how the console re-authenticated: the password (and code) again, or a fresh sign-in at the directory (T-205)
+    method: str = Field(default="password", pattern=r"^(password|password\+totp|oidc\+mfa)$")
     lang: str = Field(default="en", pattern=r"^(en|ja|zh-TW)$")
     seen: dict[int, str] = Field(max_length=2000)  # draft id -> content hash, as the review page showed them
 
@@ -133,6 +146,20 @@ def _fail(exc: EdcError) -> HTTPException:
     if getattr(exc, "problems", None):
         detail["problems"] = exc.problems  # type: ignore[attr-defined]
     return HTTPException(status_code=exc.status, detail=detail)
+
+
+def reauthenticated(a: Actor) -> bool:
+    """Did the console sign this assertion right after re-authenticating the person (session ``reauth-...``)?
+
+    SEC-16 (T-205, D-391): with one shared service token every container derives the same assertion key, so any of
+    them could write a ``reauth-`` session. It counts only when the orchestrator verifies assertions with the
+    console's own key (``TB_ACTOR_KEYS_FILE``, per-service tokens, D-138), or on a DEV or TEST box. A box that
+    still runs on the shared token signs nothing and unlocks nothing until ``trialbox secrets init`` has run."""
+    if not a.verified or not a.session.startswith(REAUTH):
+        return False
+    if (os.environ.get(ACTOR_KEYS_ENV) or "").strip():
+        return True
+    return (os.environ.get("TB_ENV") or "").strip().upper() in OPEN_ENVS
 
 
 def claim_of(request: Request, fallback: str | None = None) -> Actor:
@@ -227,19 +254,20 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
         a = who(request, "review", body.by, rs)
         # the record lock (D-281): a signed value changes only under an assertion made right after a password check
         # (with a token); on a DEV or TEST box without one, the console says so in the body, as it names the person
-        unlock = a.session.startswith(REAUTH) if a.verified else body.unlock
+        unlock = reauthenticated(a) if a.verified else body.unlock
         return run(lambda: get().decide(_rs(rs), draft_id, body.action, value=body.value, reason=body.reason,
                                         citation=body.citation, by=a.name, unlock=unlock))  # fmt: skip
 
     @r.post("/studies/{rs}/edc/sign")
     def sign(rs: str, body: SignBody, request: Request) -> dict[str, Any]:
         a = who(request, "sign", body.signer, rs)
-        if a.verified and not a.session.startswith(REAUTH):
-            refused(rs, a, "sign", "edc.reauth_needed")
-            raise HTTPException(
-                status_code=403,
-                detail={"code": "edc.reauth_needed", "message": "sign right after typing the password again"},
-            )
+        if a.verified and not reauthenticated(a):
+            if a.session.startswith(REAUTH):  # SEC-16: a shared token cannot vouch for a re-authentication
+                code, msg = "edc.reauth_shared_token", "one shared service token: run trialbox secrets init first"
+            else:
+                code, msg = "edc.reauth_needed", "sign right after typing the password again"
+            refused(rs, a, "sign", code)
+            raise HTTPException(status_code=403, detail={"code": code, "message": msg})
         return run(lambda: get().sign(_rs(rs), body.record.upper(), body.visit, signer=a.name,
                                       printed_name=body.printed_name, role=a.role, meaning=body.meaning,
                                       meaning_text=body.meaning_text, lang=body.lang, seen=body.seen,
