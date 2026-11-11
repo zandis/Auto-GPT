@@ -1,0 +1,6 @@
+{# D-399 (T-302a, FIT-009, URS-CRC-07): on the consent form, the study's approved consent-form versions, and after a
+   save the reason a version needs a second look. A warning, never a refusal: the form is saved as entered and the
+   save is logged as console.consent_version_override. A re-consent is this form again on its own event (rc1, rc2). #}
+{% if icf_warn %}<p class="warn" role="alert" data-testid="icf-warning">{{ t('icf.entry.saved_warn') }} {% for w in icf_warn %}<span class="pill warn" data-testid="icf-w-{{ w }}">{{ t('icf.w.' + w) }}</span> {% endfor %}<a href="/studies/{{ rs }}/irb#icf">{{ t('icf.entry.to_list') }}</a></p>{% endif %}
+<p class="hint" data-testid="icf-approved">{% if icf_list %}{{ t('icf.entry.approved') }} {% for v in icf_list %}<span class="pill mono">{{ v.version }}</span>{% if v.effective_from %} <span class="hint">{{ t('icf.entry.from', day=v.effective_from) }}</span>{% endif %} {% endfor %}{% else %}{{ t('icf.entry.none') }}{% endif %}</p>
+{% if event and event.startswith('rc') %}<p class="hint" data-testid="rc-event">{{ t('reconsent.entry.help', n=event[2:]) }}</p>{% endif %}

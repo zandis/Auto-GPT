@@ -19,6 +19,7 @@
 <p class="big">{{ state_pill(sub.state) }} <span class="hint">{{ t('life.subject.now', state=t('life.state.' + sub.state), day=sub.since) }}</span></p>
 {# T-516 (LIFE-019): consent is never implied by a later form; the participant waits here until the consent form is saved #}
 {% if sub.consent_missing %}<p class="warn" role="alert" data-testid="consent-missing">{{ t('life.alert.consent_missing', form=src(sub.consent_missing)) }}{% if editable %} <a href="/studies/{{ rs }}/entry?record={{ record|urlencode }}&amp;form=tb_consent&amp;back=subject" data-testid="consent-missing-do">{{ t('life.alert.consent_missing.do') }}</a>{% endif %}</p>{% endif %}
+{% include "_consent_record.html" %}
 {% if sub.next %}
   {% if editable %}
   <h2>{{ t('life.subject.next') }}</h2>
@@ -39,7 +40,7 @@
     <p class="hint">{{ t('life.step.criterion.help', version=sf_version) }}</p>{% endif %}{% endif %}
     <label for="note">{{ t('life.step.note') }}</label>
     <input id="note" name="note" maxlength="300">
-    <div class="markbar" data-testid="step-bar">{% for s in sub.next %}<button type="submit" name="to" value="{{ s }}"{% if s in ('withdrawn', 'screen_fail') %} class="secondary danger"{% endif %} data-testid="go-{{ s }}">{{ t('life.go.' + s) }}</button>{% endfor %}</div>
+    <div class="markbar" data-testid="step-bar">{% for s in sub.next %}{% if s == 'consented' and sub.consent and sub.consent.here %}<a class="button" href="/studies/{{ rs }}/entry?record={{ record|urlencode }}&amp;form=tb_consent&amp;back=subject" data-testid="go-consented">{{ t('consent.record.do') }}</a>{% else %}<button type="submit" name="to" value="{{ s }}"{% if s in ('withdrawn', 'screen_fail') %} class="secondary danger"{% endif %} data-testid="go-{{ s }}">{{ t('life.go.' + s) }}</button>{% endif %}{% endfor %}</div>
   </form>
   {% else %}<p class="hint" data-testid="life-readonly">{{ t('life.subject.readonly') }}</p>{% endif %}
 {% else %}<p class="hint" data-testid="life-final">{{ t('life.subject.final', state=t('life.state.' + sub.state)) }}</p>{% endif %}

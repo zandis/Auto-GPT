@@ -11,7 +11,7 @@
     --warn: #f3cf7a; --warn-bg: #3a2e12; --banner: #2c3f63; }
 }
 * { box-sizing: border-box; }
-body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", "Noto Sans TC", "Noto Sans JP", sans-serif;
+body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
   background: var(--bg); color: var(--ink); }
 a { color: var(--accent); }
 .skip { position: absolute; left: -999px; }
@@ -325,7 +325,8 @@ form.filters label { margin: 0; }
   .who { order: 5; width: 100%; justify-content: space-between; }
   nav.tabs { overflow-x: auto; }
   nav.tabs a { white-space: nowrap; padding: 8px 10px; }
-  html, body { overflow-x: hidden; }
+  /* T-684: clip, not hidden: hidden made body a scroll box and every sticky bar of a phone page stopped sticking */
+  html, body { overflow-x: hidden; overflow-x: clip; }
   table { font-size: 15px; }
   .headrow { flex-wrap: wrap; gap: 8px; }
 }
@@ -491,6 +492,58 @@ ul.clist li.crow p { margin: 2px 0; }
   .formstack button, ul.miss li .button { width: 100%; }
 }
 
+/* ---------------------------------------------------------------- T-684 (D-361): clinical layout, CJK
+   One font stack per language (UX-024): Japanese never takes Chinese glyph forms where a TC font is installed, nor
+   the reverse. System fonts only: the console ships no font file (CSP default-src 'self'). The Latin faces come
+   first because they have no CJK glyphs, so CJK text falls through to the language's own face. */
+body:lang(ja), body [lang|="ja"] { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans",
+  "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", YuGothic, Meiryo, "Noto Sans JP", "Noto Sans CJK JP",
+  "Source Han Sans JP", IPAexGothic, IPAGothic, sans-serif; }
+body:lang(zh-TW), body [lang="zh-TW"] { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC",
+  "Heiti TC", "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans TC", "Noto Sans CJK TC", "Source Han Sans TC",
+  sans-serif; }
+body [lang="en"] { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif; }
+/* CJK line breaking (UX-023): no small kana or closing bracket starts a line; a pill, badge or button breaks only
+   between words: keep-all keeps a CJK label whole (確認待ち, 退回), so a narrow cell can no longer squeeze it into one
+   character per line, while an English label may still wrap at a space. break-word is the last resort and, unlike
+   anywhere, does not lower the minimum width. */
+body:lang(ja), body:lang(zh-TW) { line-break: strict; }
+.pill, .state, button, .button { word-break: keep-all; overflow-wrap: break-word; }
+nav a, .rail a > span:first-child, details.more > summary, .steps b, .wizard-steps li, th { word-break: keep-all; }
+/* the worklist's visit column wraps between date and time (each one a no-wrap span), never inside a CJK phrase, so
+   the status column keeps its pills whole without the table scrolling sideways on a desktop */
+table.worklist td.visit { white-space: normal; word-break: keep-all; }
+table.worklist th { white-space: normal; word-break: keep-all; }
+table.worklist th, table.worklist td { padding-left: 8px; padding-right: 8px; }
+table.worklist .meter { width: 40px; }
+/* the patient panel: the "ask the treating doctor" line had no side padding and sat on the panel's edge (UX-025) */
+.chartp > p.hint { margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+/* the full patient page: the same sticky mark bar as the week page's sheet (UX-025) */
+.markdock { position: sticky; bottom: 0; z-index: 3; margin: 16px 0 0; background: var(--card); border: 1px solid var(--line);
+  border-radius: 10px 10px 0 0; box-shadow: 0 -4px 12px rgba(0,0,0,.08); }
+.markdock > p.warn { margin: 0; border-radius: 10px 10px 0 0; }
+.markdock > .markbar { border-top: 0; border-radius: 10px 10px 0 0; }
+/* the week page's first screen (UX-037): the procedure folded to one line once set up, one-line SAE banners, all
+   in one row of one-line items; an opened item takes the whole row */
+.firstrow { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.firstrow:empty { display: none; }
+.firstrow > * { flex: 1 1 260px; min-width: 0; margin: 0; }
+.firstrow > details[open], .firstrow > section:has(details[open]) { flex-basis: 100%; }
+.firstrow > p.warn { display: flex; align-items: center; padding: 0 12px; }
+details.stepsfold > summary { margin: 0; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--card);
+  color: var(--ink); font-weight: 600; }
+details.stepsfold > summary::after { content: " ▾"; color: var(--accent); }
+details.stepsfold[open] > summary { margin-bottom: 8px; }
+section.card.compact { padding: 0 12px; }
+section.card.compact > details > summary { margin: 0; gap: 8px; flex-wrap: wrap; }
+section.card.compact > details > summary h2 { margin: 0; }
+section.card.compact > details[open] > summary { margin-bottom: 8px; }
+section.card.compact > details[open] > summary .hint { display: none; }
+/* keyboard (UX-026): the menu checkbox is a stop only on a phone, where its Menu button shows; the worklist takes
+   focus from the second skip link */
+.menu-toggle { display: none; }
+#worklist:focus { outline: 3px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 760px) { .menu-toggle { display: block; } }
 /* D-407 (UX-034): the request for the treating doctor: copy text and the one-page print */
 .refdoc-text { width: 100%; font: inherit; }
 .refletter p.refcrit { margin: 2px 0 2px 16px; }

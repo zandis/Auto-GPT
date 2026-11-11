@@ -14,6 +14,16 @@ ic_by,tb_consent,text,Consent taken by (initials),同意取得者(イニシャ�
 ic_copy,tb_consent,radio,Copy given to the participant,写しを参加者に渡した,已交付副本給受試者,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,y
 ic_reconsent,tb_consent,radio,Consent again on a new version,新しい版で再同意,依新版本重新同意,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,
 ic_reconsent_date,tb_consent,text,Date of the new consent,再同意日,重新同意日期,,,,date_ymd,2000-01-01,,[ic_reconsent] = '1',y
+ic_reconsent_version,tb_consent,text,Version of the new consent form,再同意の同意説明文書の版,重新同意的同意書版本,,,,,,,[ic_reconsent] = '1',
+ic_lang,tb_consent,radio,Language of the consent form,同意説明文書の言語,同意書的語言,"1, Japanese | 2, Chinese (Traditional) | 3, English | 4, Other","1, 日本語 | 2, 中国語（繁体字） | 3, 英語 | 4, その他","1, 日文 | 2, 繁體中文 | 3, 英文 | 4, 其他",,,,,
+ic_think_date,tb_consent,text,Date the form was given to think it over,検討のため説明文書を渡した日,交付同意書供考慮的日期,,,,date_ymd,2000-01-01,,,
+ic_explained_by,tb_consent,text,Explained by (initials),説明者(イニシャル),說明者(姓名縮寫),,,,,,,,
+ic_assisted_by,tb_consent,text,Explanation assisted by (initials),補助説明者(イニシャル),協助說明者(姓名縮寫),,,,,,,,
+ic_lar,tb_consent,radio,Consent given by a legal representative,代諾者による同意,由法定代理人同意,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,
+ic_lar_relation,tb_consent,text,The representative's relation to the participant,代諾者と参加者の続柄,法定代理人與受試者的關係,,,,,,,[ic_lar] = '1',y
+ic_witness,tb_consent,radio,An impartial witness was present,立会人が同席した,有公正見證人在場,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,
+ic_witness_by,tb_consent,text,Witness (initials),立会人(イニシャル),見證人(姓名縮寫),,,,,,,[ic_witness] = '1',
+ic_order,tb_consent,radio,The participant signed and dated on or before the day the person taking consent did,参加者は同意取得者と同日またはそれ以前に署名・日付を記入した,受試者簽名及日期與取得同意者同日或更早,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,
 en_date,tb_enrolment,text,Date of enrolment,登録日,收案日期,,,,date_ymd,2000-01-01,,,y
 en_subject_no,tb_enrolment,text,Study subject number,被験者番号,受試者編號,,,,,,,,
 en_eligible,tb_enrolment,radio,Eligibility confirmed by the investigator,研究責任者が適格性を確認した,主持人已確認符合資格,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,y

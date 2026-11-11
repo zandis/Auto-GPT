@@ -16,6 +16,11 @@ the subject before ``consented`` (``held`` with ``consent_missing``) until the c
 person's step on the subject page or through ``/api/v1``. Derivation never moves a subject backwards and never past
 an end state: what does not fit is reported (``held``), not forced.
 
+**Consent** (D-399, T-302a): every consent a subject gave is read from the forms (the consent form, its old
+re-consent slot and each re-consent on an ``rcN`` event); an enrolment or a visit dated before the first consent is
+flagged, never moved; a consent's version is checked against the study's approved ICF versions (``icf_check``), and a
+new version that asks for re-consent lists the subjects on study still on an older one (``reconsent_due``).
+
 **Every change** is a row in ``subject_step`` (old, new, the day it happened, reason, note, who, when, source); the
 callers add the audit record.
 
@@ -337,13 +342,24 @@ class Visit:
 
 
 def check_visit(v: Visit) -> None:
-    if not _VISIT.match(v.name) or AE_EVENT.match(v.name) or DV_EVENT.match(v.name):
-        raise LifeError("visit", f"a visit name is lower-case letters, digits and _ (not ae1, dv1): {v.name!r}",
+    if not _VISIT.match(v.name) or AE_EVENT.match(v.name) or DV_EVENT.match(v.name) or RC_EVENT.match(v.name):
+        raise LifeError("visit", f"a visit name is lower-case letters, digits and _ (not ae1, dv1, rc1): {v.name!r}",
                         visit=v.name[:40])  # fmt: skip
     if v.anchor not in ANCHORS:
         raise LifeError("anchor", f"a visit counts from {' or '.join(ANCHORS)}", visit=v.name)
     if not (-3650 <= v.day <= 3650 and 0 <= v.before <= 365 and 0 <= v.after <= 365):
         raise LifeError("window", "the day is -3650 to 3650; the window 0 to 365 days each side", visit=v.name)
+
+
+# ---------------------------------------------------------------------------------------------- consent (D-399)
+# T-302a (FIT-009, LIFE-018, LIFE-019): a re-consent is the consent form again on its own numbered event (rc1, rc2
+# ...), so a subject can consent again as often as the IRB approves a new version. The study's approved ICF versions
+# are a list with history (the console's team store); these functions read it as plain rows:
+# {version, effective_from ('' = from the start), irb_approved_on, reconsent (a new version asks for re-consent)}.
+RC_EVENT = re.compile(r"^rc(\d{1,3})$")
+ICF_WARNINGS = ("icf_none", "icf_not_listed", "icf_unapproved", "icf_not_yet", "icf_superseded")
+CONSENT_FLAGS = ("enrolment_before_consent", "visit_before_consent", "no_consent_form")
+ON_STUDY = ("consented", "enrolled", "on_study")  # who is asked to consent again on a new version
 
 
 def can_step(cur: str, to: str) -> str | None:
@@ -537,6 +553,27 @@ class Lifecycle:
             return ""
         later = [ev[s] for s in LINE[LINE.index("consented") + 1 :] if s in ev]
         return next((str(e["source"]) for e in later if str(e["source"]).startswith("form:")), "")
+
+    def records_consent(self, study: str) -> bool:
+        """The study records consent in TrialBox (it has the built-in consent form); else the sponsor's CRF does."""
+        return "ic_date" in self.dc.fields(study)
+
+    def consent_record(self, study: str, record: str, state: str = "", here: bool | None = None) -> dict[str, Any]:
+        """D-399 (FIT-009, LIFE-018, LIFE-019): every consent the forms record (the first, the old re-consent slot and
+        each ``rcN`` event), oldest first; the last one; what is out of order (an enrolment or a visit dated before
+        the first consent, a subject past consent with no consent form in a study that records consent here); and
+        the event of the next re-consent. Flags are shown, never forced: the forms stay as entered."""
+        vals: dict[str, dict[str, str]] = {}
+        for r in self.dc.values(study, record):
+            vals.setdefault(str(r["event"]), {})[str(r["field"])] = str(r["value"])
+        cs = consents_of(vals)
+        flags = consent_order(vals, cs)
+        here = self.records_consent(study) if here is None else here
+        if here and not cs and state in (*ON_STUDY, "completed", "withdrawn"):
+            flags.append({"flag": "no_consent_form", "day": "", "event": "", "consent_day": ""})
+        have = [int(m.group(1)) for ev in vals if (m := RC_EVENT.match(ev))]
+        return {"consents": cs, "last": cs[-1] if cs else None, "flags": flags, "here": here,
+                "next_rc": f"rc{max(have, default=0) + 1}"}  # fmt: skip
 
     def derive(self, study: str, record: str, *, by: str, at: str, registry: str | None = None,
                schedule: list[Visit] | None = None) -> dict[str, Any]:  # fmt: skip
@@ -1028,3 +1065,109 @@ def report(subjects: list[dict[str, Any]], steps: list[dict[str, Any]]) -> dict[
         "withdrawals": withdrawals,
         "registry": dict(Counter(REGISTRY_OF[str(s["state"])] for s in subjects)),
     }
+
+
+# ---------------------------------------------------------------------------------------------- consent (D-399)
+def _ver(text: str) -> str:
+    """A version as compared: no spaces, any case (``V2.1`` is ``v 2.1``)."""
+    return re.sub(r"\s+", "", str(text or "")).casefold()
+
+
+def consents_of(vals: dict[str, dict[str, str]]) -> list[dict[str, str]]:
+    """Every consent the forms record, oldest first: {day, version, event, kind} (kind ``first`` or ``reconsent``)."""
+    out: list[dict[str, str]] = []
+    once = vals.get("", {})
+    if _day(once.get("ic_date", "")) is not None:
+        out.append({"day": once["ic_date"][:10], "version": once.get("ic_version", "").strip(), "event": "",
+                    "kind": "first"})  # fmt: skip
+    if once.get("ic_reconsent") == "1" and _day(once.get("ic_reconsent_date", "")) is not None:
+        out.append({"day": once["ic_reconsent_date"][:10], "version": once.get("ic_reconsent_version", "").strip(),
+                    "event": "", "kind": "reconsent"})  # fmt: skip
+    for ev, v in vals.items():
+        if RC_EVENT.match(ev) and _day(v.get("ic_date", "")) is not None:
+            out.append({"day": v["ic_date"][:10], "version": v.get("ic_version", "").strip(), "event": ev,
+                        "kind": "reconsent"})  # fmt: skip
+    out.sort(key=lambda c: (c["day"], c["kind"] != "first", len(c["event"]), c["event"]))
+    return out
+
+
+def consent_order(vals: dict[str, dict[str, str]], consents: list[dict[str, str]]) -> list[dict[str, str]]:
+    """LIFE-019: an enrolment or a visit done dated before the first consent. Each is flagged (the subject page
+    offers a deviation entry); the dates are never changed."""
+    if not consents:
+        return []
+    first = consents[0]["day"]
+    out: list[dict[str, str]] = []
+    en = vals.get("", {}).get("en_date", "")
+    if _day(en) is not None and en[:10] < first:
+        out.append({"flag": "enrolment_before_consent", "day": en[:10], "event": "", "consent_day": first})
+    for ev, v in sorted(vals.items()):
+        day = v.get("vs_date", "")
+        if ev and v.get("vs_status") == "1" and _day(day) is not None and day[:10] < first:
+            out.append({"flag": "visit_before_consent", "day": day[:10], "event": ev, "consent_day": first})
+    return out
+
+
+def icf_ordered(versions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The approved versions in the order they came into force (an empty effective date is from the start)."""
+    return sorted(versions, key=lambda v: (str(v.get("effective_from") or ""), int(v.get("seq") or 0)))
+
+
+def icf_in_force(versions: list[dict[str, Any]], day: date) -> dict[str, Any] | None:
+    """The ICF version in force on ``day``: the newest whose effective date has come; None before every one."""
+    best = None
+    for v in icf_ordered(versions):
+        eff = _day(str(v.get("effective_from") or ""))
+        if eff is None or eff <= day:
+            best = v
+    return best
+
+
+def icf_check(versions: list[dict[str, Any]], version: str, day: str) -> list[str]:
+    """URS-CRC-07 (FIT-009): why a consent on ``version`` on ``day`` needs a second look; [] when it is fine. A
+    warning, never a refusal: the consent happened and the form records it as it was (:data:`ICF_WARNINGS`)."""
+    if not versions:
+        return ["icf_none"]
+    listed = next((v for v in versions if _ver(v.get("version", "")) == _ver(version)), None)
+    if listed is None:
+        return ["icf_not_listed"]
+    approved = _day(str(listed.get("irb_approved_on") or ""))
+    if approved is None:
+        return ["icf_unapproved"]
+    d = _day(day)
+    if d is None:
+        return []
+    eff = _day(str(listed.get("effective_from") or "")) or approved
+    if d < approved or d < eff:
+        return ["icf_not_yet"]
+    now = icf_in_force(versions, d)
+    if now is not None and _ver(now.get("version", "")) != _ver(listed.get("version", "")):
+        return ["icf_superseded"]
+    return []
+
+
+def reconsent_due(subjects: list[dict[str, Any]], versions: list[dict[str, Any]], today: date) -> dict[str, Any]:
+    """LIFE-018: the re-consent worklist. The newest version in force on ``today`` that asks for re-consent is the
+    target; every subject on study (consented, enrolled, on study) whose last recorded consent is on an older version,
+    or on one not on the list, is listed. Each subject carries ``consent`` (:meth:`Lifecycle.consent_record`); a
+    subject with no consent form is not listed here (the subject page raises that)."""
+    ordered = icf_ordered(versions)
+    asks = [v for v in ordered if v.get("reconsent", True) and icf_in_force([v], today) is not None]
+    if not asks:
+        return {"target": None, "rows": []}
+    target = asks[-1]
+    rank = {_ver(v.get("version", "")): i for i, v in enumerate(ordered)}
+    goal = rank[_ver(target.get("version", ""))]
+    rows = []
+    for s in subjects:
+        last = (s.get("consent") or {}).get("last")
+        if str(s.get("state")) not in ON_STUDY or not last:
+            continue
+        if rank.get(_ver(last.get("version", "")), -1) >= goal:
+            continue
+        rows.append({"record": s.get("record"), "pid": s.get("pid") or "", "state": s.get("state"),
+                     "version": last.get("version", ""), "day": last.get("day", ""),
+                     "listed": _ver(last.get("version", "")) in rank,
+                     "next_rc": (s.get("consent") or {}).get("next_rc", "rc1")})  # fmt: skip
+    rows.sort(key=lambda r: (str(r["day"]), str(r["record"])))
+    return {"target": target, "rows": rows}

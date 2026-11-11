@@ -300,7 +300,10 @@ def subject_view(life: Lifecycle, rs: str, sub: dict[str, Any], today: date,
     n = {k: sum(1 for v in visits if v["status"] == k) for k in lc.VISIT_STATES}
     # T-516 (LIFE-019): an enrolment or a visit recorded without a consent form; the subject is held before consent
     missing = life.consent_missing(rs, str(sub["record"]), str(sub["state"]))
-    return {**sub, "visits": n, "next": list(lc.NEXT.get(str(sub["state"]), ())), "consent_missing": missing}
+    # D-399 (T-302a): every consent recorded, the last one, and what is out of order (LIFE-018, LIFE-019)
+    consent = life.consent_record(rs, str(sub["record"]), str(sub["state"]))
+    return {**sub, "visits": n, "next": list(lc.NEXT.get(str(sub["state"]), ())), "consent_missing": missing,
+            "consent": consent}  # fmt: skip
 
 
 def visit_rows(life: Lifecycle, rs: str, today: date) -> list[dict[str, Any]]:
