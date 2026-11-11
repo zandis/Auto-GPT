@@ -12,6 +12,11 @@ and its identifiers (sponsor, protocol number, SIV date, registry ids). Everyone
 coordinator and the study's PI change it (``tb_common.authz.permit``, action ``study.state``). Each change is
 audited (``console.study_state``, ``console.study_identity``).
 
+D-395 (T-310b, RSK-42): the same page holds the IRB-text record: the study's PI records whether the approved IRB text
+covers "identified pre-screening across departments by the investigator before referral", with the approval number,
+the text's version and its date (``permit``, action ``study.irb_text``; audited ``console.irb_text`` in the store's
+transaction). The whole-hospital candidate view (``console.team``) opens only while the record says it does.
+
 The nightly read-back is ``python -m console.rc_read`` (cron on the box), the same call as Run now.
 """
 
@@ -34,10 +39,12 @@ from console.home import Helpers
 from console.sitestore import (
     ALL_REASONS,
     COHORT_KINDS,
+    IRB_SENTENCE_EN,
     REGISTRIES,
     STATE_MOVES,
     STUDY_STATES,
     STUDY_TYPES,
+    IrbText,
     StudyIdentity,
     StudySettings,
     StudyState,
@@ -87,14 +94,24 @@ def can_change_setup(user: User) -> bool:
 REASON_STATES = ("paused", "closed")  # D-386: a move to these takes a reason
 
 
-def may_change_state(h: Helpers, user: User, rid: str) -> bool:
-    """D-386: may this account change the study's state and identifiers? ``permit`` over ``study.state`` with the
-    account's standing in the study (the delegation log, for the investigator's ``pi`` condition)."""
+def _permit(h: Helpers, user: User, rid: str, action: str) -> bool:
+    """``permit`` over ``action`` with the account's standing in the study (the delegation log, for the
+    investigator's ``pi`` condition)."""
     standing = NO_STANDING
     if user.role == "investigator" and h.stand is not None and user.sees_study(rid):
         s = h.stand(user, rid)
         standing = AuthzStanding(is_pi=bool(s.pi), tasks=frozenset(s.tasks), log_names_pi=bool(s.logged))
-    return permit(user.role, "study.state", standing).allowed
+    return permit(user.role, action, standing).allowed
+
+
+def may_change_state(h: Helpers, user: User, rid: str) -> bool:
+    """D-386: may this account change the study's state and identifiers?"""
+    return _permit(h, user, rid, "study.state")
+
+
+def may_record_irb_text(h: Helpers, user: User, rid: str) -> bool:
+    """D-395: may this account record the IRB text's coverage? The study's PI only."""
+    return _permit(h, user, rid, "study.irb_text")
 
 
 def screening_map(store: Any, rs: str) -> dict[str, str]:
@@ -411,7 +428,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     # ------------------------------------------------------------------ D-386: study state and identifiers
     def state_page(request: Request, sess: Session, rid: str, status: int = 200, ident: StudyIdentity | None = None,
-                   **extra: Any) -> Response:  # fmt: skip
+                   irbt: IrbText | None = None, **extra: Any) -> Response:  # fmt: skip
         cur = store.study_state(rid)
         return h.page(
             request,
@@ -426,7 +443,19 @@ def register(app: FastAPI, h: Helpers) -> None:
             ident=ident or store.study_identity(rid),
             registries=REGISTRIES,
             editable=may_change_state(h, sess.user, rid),
-            **{"saved": request.query_params.get("saved", ""), "err": None, "bad": [], **extra},
+            irbt=irbt or store.irb_text(rid),
+            irbt_history=list(reversed(store.irb_text_history(rid))),
+            irbt_edit=may_record_irb_text(h, sess.user, rid),
+            irb_gate=h.irb_gate,
+            sentence_en=IRB_SENTENCE_EN,
+            **{
+                "saved": request.query_params.get("saved", ""),
+                "err": None,
+                "bad": [],
+                "irbt_err": None,
+                "irbt_bad": [],
+                **extra,
+            },
         )
 
     def need_state_edit(request: Request, sess: Session, rid: str, csrf: str) -> None:
@@ -492,6 +521,39 @@ def register(app: FastAPI, h: Helpers) -> None:
         au.append("console.study_identity", ruleset=rid, actor=h.actor(sess),
                   detail={"fields": [k for k, _v in saved.lines()], **saved.registry_ids})  # fmt: skip
         return RedirectResponse(f"/studies/{rid}/state?saved=identity", status_code=303)
+
+    @app.post("/studies/{rs}/irb-text")
+    async def record_irb_text(request: Request, rs: str) -> Response:
+        """D-395 (RSK-42): the PI records whether the study's approved IRB text covers the cross-department identified
+        view, with the approval number of that text (required to cover), its version and date. Taking it back needs a
+        note. The audit event is written in the store's transaction. A wrong field is shown again; nothing is kept."""
+        sess = h.need(request)
+        rid = study_or_404(sess, rs)
+        form = await request.form()
+        if not h.csrf_ok(sess, str(form.get("csrf") or "")):
+            raise h.problem(400, "csrf")
+        if not may_record_irb_text(h, sess.user, rid):
+            au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            raise h.problem(403, "forbidden")
+
+        def text(name: str, n: int) -> str:
+            return " ".join(str(form.get(name) or "").split())[:n]
+
+        rec = IrbText(covers=str(form.get("covers") or "") == "1", approval_ref=text("approval_ref", 80),
+                      text_version=text("text_version", 60), approved_on=text("approved_on", 20),
+                      note=text("note", 260))  # fmt: skip
+        bad = rec.problems(h.today())
+        if bad:
+            return state_page(request, sess, rid, status=400, irbt=rec, irbt_bad=bad, irbt_err="irbt.bad")
+
+        def audit(new: IrbText) -> None:
+            au.append("console.irb_text", ruleset=rid, actor=h.actor(sess),
+                      detail={"covers": new.covers, "sentence": new.sentence, "approval_ref": new.approval_ref,
+                              "text_version": new.text_version, "approved_on": new.approved_on or None,
+                              "note": new.note})  # fmt: skip
+
+        store.record_irb_text(rid, rec, h.actor(sess), h.clock().isoformat(), h.today(), before_commit=audit)
+        return RedirectResponse(f"/studies/{rid}/state?saved=irb_text#irb-text", status_code=303)
 
     # ------------------------------------------------------------------ S36
     def need_admin_view(sess: Session) -> None:
