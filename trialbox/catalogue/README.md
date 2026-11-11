@@ -1,7 +1,8 @@
 # Clinical item catalogue
 
 The items a patient database, the patient profile and trial screening need, each mapped to an existing standard
-where one exists. Data only; no runtime code reads it yet. Design and findings:
+where one exists. Data, read at run time by `tb_common.catalogue` (`items.csv`, T-107), `tb_common.instruments`, `tb_common.phenotypes`
+and, through `score_defs.json`, `tb_common.scores`. Design and findings:
 `docs/reviews/2026-11-09-clinical-item-catalogue.md`.
 
 | File | What it holds |
