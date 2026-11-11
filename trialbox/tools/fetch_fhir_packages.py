@@ -10,11 +10,16 @@ Usage::
 
     python tools/fetch_fhir_packages.py --cache /opt/fhir-cache/.fhir/packages \
         hl7.fhir.r4.core#4.0.1 hl7.terminology.r4#7.0.1 tw.gov.mohw.twcore#1.0.0
+
+Every tarball is pinned (ENG-013, T-110b): its sha256 must be the one ``tools/fhir-packages.sha256`` lists for that
+``name#version``, or the fetch stops before the cache is touched. A package already in the cache is not fetched again
+(its files are edited on install, so there is no tarball left to check): delete the cache to check it afresh.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import os
@@ -25,6 +30,7 @@ import urllib.request
 from pathlib import Path
 
 DEFAULT_REGISTRY = "https://registry.npmjs.org"
+PINS = Path(__file__).resolve().parent / "fhir-packages.sha256"
 # FHIR package id -> npm package name, where they differ
 NPM_ALIASES = {"hl7.fhir.r4.core": "@hl7/hl7.fhir.r4.core"}
 # Dependencies removed after install to break the terminology <-> extensions cycle that the validator's loader
@@ -63,13 +69,35 @@ def _get(url: str) -> bytes:
         return data
 
 
+def pins(path: Path = PINS) -> dict[str, str]:
+    """``name#version`` -> pinned sha256 of its tarball."""
+    out: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip() and not line.startswith("#"):
+            digest, spec = line.split()
+            out[spec] = digest
+    return out
+
+
+def check_tarball(name: str, version: str, blob: bytes, pinned: dict[str, str] | None = None) -> bytes:
+    """``blob`` when its sha256 is the pinned one for ``name#version``; else the fetch stops (SystemExit)."""
+    want = (pins() if pinned is None else pinned).get(f"{name}#{version}")
+    got = hashlib.sha256(blob).hexdigest()
+    if want != got:
+        raise SystemExit(
+            f"{name}#{version}: tarball sha256 {got} is not the pinned {want or '(none: not in fhir-packages.sha256)'}"
+            "; refusing it"
+        )
+    return blob
+
+
 def npm_tarball(registry: str, name: str, version: str) -> bytes:
     npm_name = NPM_ALIASES.get(name, name)
     meta = json.loads(_get(f"{registry}/{npm_name.replace('/', '%2F')}"))
     versions = meta.get("versions", {})
     if version not in versions:
         raise SystemExit(f"{name}#{version} not in registry (have: {', '.join(sorted(versions)[-8:])})")
-    return _get(versions[version]["dist"]["tarball"])
+    return check_tarball(name, version, _get(versions[version]["dist"]["tarball"]))
 
 
 def _alias_tree(src: Path, dst: Path) -> None:
