@@ -89,7 +89,15 @@ SAE_SCHEMA_V2 = """
 CREATE TABLE IF NOT EXISTS sae_rule (study TEXT NOT NULL PRIMARY KEY, rule_set TEXT NOT NULL,
   confirmed_by TEXT NOT NULL, confirmed_at TEXT NOT NULL)
 """
-SAE_MIGRATIONS = (SAE_SCHEMA, SAE_SCHEMA_V2)
+# D-364 (LIFE-012): every saved schedule is kept as a numbered version with the day it takes effect (version 5); the
+# ``schedule`` table stays the newest one saved. A visit done is judged by the version in force on the visit day.
+SCHEDULE_VERSIONS = """
+CREATE TABLE IF NOT EXISTS schedule_version (study TEXT NOT NULL, version INTEGER NOT NULL,
+  effective_from TEXT NOT NULL DEFAULT '', visits TEXT NOT NULL, origin TEXT NOT NULL, at TEXT NOT NULL,
+  PRIMARY KEY (study, version))
+"""
+# the lifecycle's migrations after its base schema, in order (the name is from the first two; never edit an applied one)
+SAE_MIGRATIONS = (SAE_SCHEMA, SAE_SCHEMA_V2, SCHEDULE_VERSIONS)
 
 # The SAE reporting clock (P-03, D-143, D-277): from the moment the site learned of a serious AE (``ae_aware`` and
 # ``ae_aware_time``, else the onset) to each report, as (fatal or life-threatening, other serious); 0 = no report to
@@ -545,20 +553,56 @@ class Lifecycle:
         return [Visit(str(r["visit"]), int(r["day"]), int(r["win_before"]), int(r["win_after"]), str(r["anchor"]),
                       dict(json.loads(r["labels"] or "{}"))) for r in rows]  # fmt: skip
 
-    def set_schedule(self, study: str, visits: list[Visit], origin: str, at: str) -> None:
+    def set_schedule(self, study: str, visits: list[Visit], origin: str, at: str, effective_from: str = "") -> int:
+        """Save a schedule as a new version (D-364, LIFE-012); the versions before it stay. ``effective_from`` is the
+        first visit day it applies to: an amendment that moves a window from that day leaves the visits done before
+        it judged by the schedule they were done under. Empty: from the start (a correction of the schedule, which
+        then judges every visit, as before versions). Returns the version number."""
         seen: set[str] = set()
         for v in visits:
             check_visit(v)
             if v.name in seen:
                 raise LifeError("visit", f"the visit {v.name} is listed twice", visit=v.name)
             seen.add(v.name)
+        if effective_from and _day(effective_from) is None:
+            raise LifeError("effective", "the effective date is YYYY-MM-DD")
+        body = json.dumps([v.as_dict() for v in visits], ensure_ascii=False)
+        old = self.schedule(study)  # a schedule saved before versions existed becomes version 1, from the start
         with self.db.transaction() as tx:
+            rows = tx.fetchall("SELECT max(version) FROM schedule_version WHERE study = ?", (study,))
+            last = int(rows[0][0]) if rows and rows[0][0] is not None else 0
+            if last == 0 and old:
+                first = json.dumps([v.as_dict() for v in old], ensure_ascii=False)
+                tx.execute("INSERT INTO schedule_version (study, version, effective_from, visits, origin, at) "
+                           "VALUES (?,?,?,?,?,?)", (study, 1, "", first, "before", at))  # fmt: skip
+                last = 1
+            start = effective_from[:10]
+            tx.execute("INSERT INTO schedule_version (study, version, effective_from, visits, origin, at) "
+                       "VALUES (?,?,?,?,?,?)", (study, last + 1, start, body, origin, at))  # fmt: skip
             tx.execute("DELETE FROM schedule WHERE study = ?", (study,))
             for i, v in enumerate(visits):
                 tx.execute("INSERT INTO schedule (study, visit, seq, labels, anchor, day, win_before, win_after, "
                            "origin, at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                            (study, v.name, i, json.dumps(v.labels, ensure_ascii=False), v.anchor, v.day, v.before,
                             v.after, origin, at))  # fmt: skip
+        return last + 1
+
+    def schedule_versions(self, study: str) -> list[dict[str, Any]]:
+        """Every saved schedule of the study, oldest first: version, effective_from ('' = from the start), visits."""
+        rows = self.db.fetchdicts("SELECT * FROM schedule_version WHERE study = ? ORDER BY version", (study,))
+        return [{"version": int(r["version"]), "effective_from": str(r["effective_from"] or ""),
+                 "origin": str(r["origin"]), "at": str(r["at"]),
+                 "visits": [Visit(str(v["visit"]), int(v["day"]), int(v["before"]), int(v["after"]), str(v["anchor"]),
+                                  dict(v.get("labels") or {})) for v in json.loads(r["visits"] or "[]")]}
+                for r in rows]  # fmt: skip
+
+    def schedule_on(self, study: str, day: date, versions: list[dict[str, Any]] | None = None) -> list[Visit]:
+        """The schedule in force on ``day``: the newest version whose effective date has come (D-364). A study whose
+        schedule was never versioned has the one ``schedule`` table."""
+        vers = self.schedule_versions(study) if versions is None else versions
+        if not vers:
+            return self.schedule(study)
+        return list(in_force_on(vers, day)["visits"])
 
     # ------------------------------------------------------------------ visits, AEs, deviations
     def anchors(self, study: str, record: str) -> dict[str, date | None]:
@@ -571,13 +615,28 @@ class Lifecycle:
 
     def visits(self, study: str, record: str, today: date, schedule: list[Visit] | None = None,
                subject: dict[str, Any] | None = None) -> list[dict[str, Any]]:  # fmt: skip
-        sched = self.schedule(study) if schedule is None else schedule
+        vers = self.schedule_versions(study)
+        if schedule is not None:
+            sched = schedule
+        else:
+            sched = self.schedule_on(study, today, vers) if vers else self.schedule(study)
         sub = subject or self.subject(study, record) or {"state": "candidate"}
         anchors = self.anchors(study, record)
         vals: dict[str, dict[str, str]] = {}
         for r in self.dc.values(study, record):
             vals.setdefault(str(r["event"]), {})[str(r["field"])] = str(r["value"])
-        return [visit_status(v, anchors.get(v.anchor), vals.get(v.name, {}), str(sub["state"]), today) for v in sched]
+        out = []
+        for v in sched:
+            row = visit_status(v, anchors.get(v.anchor), vals.get(v.name, {}), str(sub["state"]), today)
+            if vers:  # D-364 (LIFE-012): a visit done is judged by the schedule in force on the visit day
+                on = _day(row["done_on"]) if row["status"] == "done" else None
+                then = in_force_on(vers, on or today)
+                was = next((w for w in then["visits"] if w.name == v.name), None)
+                if on is not None and was is not None and was != v:
+                    row = visit_status(was, anchors.get(was.anchor), vals.get(v.name, {}), str(sub["state"]), today)
+                row["schedule_version"] = then["version"] if was is not None else in_force_on(vers, today)["version"]
+            out.append(row)
+        return out
 
     def entries(self, study: str, record: str | None, pattern: re.Pattern[str]) -> list[dict[str, Any]]:
         """Repeating entries on numbered events (``ae1``, ``ae2`` ...): one dict per record and event."""
@@ -623,6 +682,17 @@ class Lifecycle:
         pat = AE_EVENT if prefix == "ae" else DV_EVENT
         have = [e["n"] for e in self.entries(study, record, pat)]
         return f"{prefix}{max(have, default=0) + 1}"
+
+
+def in_force_on(versions: list[dict[str, Any]], day: date) -> dict[str, Any]:
+    """The schedule version in force on ``day`` (D-364): the newest whose effective date ('' = from the start) has
+    come; before every effective date, the first version."""
+    best = versions[0]
+    for v in versions:
+        eff = _day(v["effective_from"]) if v["effective_from"] else None
+        if eff is None or eff <= day:
+            best = v
+    return best
 
 
 def live_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:

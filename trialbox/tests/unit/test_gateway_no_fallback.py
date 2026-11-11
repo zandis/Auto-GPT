@@ -123,7 +123,7 @@ def _consent_body(prompt_id: str) -> dict[str, Any]:
     from tb_contracts import inline_schema
     from tb_llm import json_schema_format
 
-    p = load_prompt(prompt_id)
+    p = load_prompt(f"{prompt_id}_v1")  # the baseline: the version this PRODUCTION gateway serves (D-359)
     v = {"study": "S", "language": "en", "language_name": "English", "paragraphs": [{"id": "p1", "text": "x"}]}
     return {
         "messages": render(p, v),

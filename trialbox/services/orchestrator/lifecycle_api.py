@@ -113,6 +113,7 @@ class VisitBody(BaseModel):
 class ScheduleBody(BaseModel):
     visits: list[VisitBody]
     by: str
+    effective_from: str = ""  # D-364: the first visit day this version applies to; empty = from the start
 
 
 class AckBody(BaseModel):
@@ -282,7 +283,7 @@ def subject_view(life: Lifecycle, rs: str, sub: dict[str, Any], today: date,
 
 
 def visit_rows(life: Lifecycle, rs: str, today: date) -> list[dict[str, Any]]:
-    sched = life.schedule(rs)
+    sched = life.schedule_on(rs, today)
     rows = []
     for sub in life.subjects(rs):
         for v in life.visits(rs, str(sub["record"]), today, sched, sub):
@@ -414,7 +415,7 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
     def get_subjects(rs: str, today: str = "") -> dict[str, Any]:
         svc, rid = get(), _rs(rs)
         life, day = Lifecycle(svc.dc), _today(svc, today)
-        sched = life.schedule(rid)
+        sched = life.schedule_on(rid, day)
         subs = [subject_view(life, rid, s, day, sched) for s in life.subjects(rid)]
         return {"study": rid, "today": day.isoformat(), "subjects": subs,
                 "counts": {s: sum(1 for x in subs if x["state"] == s) for s in lc.STATES}}  # fmt: skip
@@ -426,7 +427,7 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         sub = life.subject(rid, rec)
         if sub is None:
             raise HTTPException(status_code=404, detail={"code": "LIFE-NONE", "message": "no such subject"})
-        sched = life.schedule(rid)
+        sched = life.schedule_on(rid, day)
         return {
             "study": rid,
             "today": day.isoformat(),
@@ -475,23 +476,28 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
     @r.get("/studies/{rs}/schedule")
     def get_schedule(rs: str) -> dict[str, Any]:
         rid = _rs(rs)
-        return {"study": rid, "visits": [v.as_dict() for v in Lifecycle(get().dc).schedule(rid)]}
+        life = Lifecycle(get().dc)
+        vers = [{"version": v["version"], "effective_from": v["effective_from"], "origin": v["origin"], "at": v["at"]}
+                for v in life.schedule_versions(rid)]  # fmt: skip
+        return {"study": rid, "visits": [v.as_dict() for v in life.schedule(rid)], "versions": vers}
 
-    def put(rid: str, visits: list[Visit], origin: str, by: str) -> dict[str, Any]:
+    def put(rid: str, visits: list[Visit], origin: str, by: str, effective_from: str = "") -> dict[str, Any]:
         svc = get()
         try:
-            Lifecycle(svc.dc).set_schedule(rid, visits, origin, svc.stamp())
+            version = Lifecycle(svc.dc).set_schedule(rid, visits, origin, svc.stamp(), effective_from.strip())
         except LifeError as exc:
             raise _refused(exc) from exc
         svc.audit.append("life.schedule", ruleset=rid, actor=by,
-                         detail={"visits": [v.name for v in visits], "origin": origin})  # fmt: skip
-        return {"study": rid, "visits": [v.as_dict() for v in visits], "origin": origin}
+                         detail={"visits": [v.name for v in visits], "origin": origin, "version": version,
+                                 "effective_from": effective_from.strip()})  # fmt: skip
+        return {"study": rid, "visits": [v.as_dict() for v in visits], "origin": origin, "version": version,
+                "effective_from": effective_from.strip()}  # fmt: skip
 
     @r.put("/studies/{rs}/schedule")
     def put_schedule(rs: str, body: ScheduleBody) -> dict[str, Any]:
         visits = [Visit(v.visit.strip().lower(), v.day, v.before, v.after, v.anchor, dict(v.labels))
                   for v in body.visits]  # fmt: skip
-        return put(_rs(rs), visits, "trialbox", body.by)
+        return put(_rs(rs), visits, "trialbox", body.by, body.effective_from)
 
     @r.post("/studies/{rs}/schedule/redcap")
     def schedule_from_redcap(rs: str, body: ScheduleRedcapBody) -> dict[str, Any]:

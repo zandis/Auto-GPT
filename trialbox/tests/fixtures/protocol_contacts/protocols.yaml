@@ -1,0 +1,135 @@
+# Protocol front pages with contact sections (T-606, D-359; review LLM-035). Three per language, written in the
+# shape of public protocol synopses (title page, sponsor, medical monitor and coordinating investigator with telephone
+# and e-mail, then the eligibility sections). Everything here is invented: no real study, person, site, telephone
+# number or address. The headings are ones the parser's heuristic does not know, so the criteria locator (ie_locate)
+# is called, as it is for an unusual protocol; `inclusion` and `exclusion` are the counts it must find.
+protocols:
+  - id: EN-1
+    lang: en
+    inclusion: 3
+    exclusion: 2
+    text: |
+      A Phase 2 Study of Drug TBX-101 in Adults with Gout
+      Protocol number TBX-101-201, version 2.0
+      Sponsor medical monitor: Dr. Alan Example, tel +81-3-5555-0101, monitor@example.org
+      Coordinating investigator: Dr. Grace Sample, phone 02-2555-0102
+      ## Inclusion
+      1. Age 18 to 75 years at screening.
+      2. At least two gout flares in the past 12 months.
+      3. Serum urate 7.0 mg/dL or higher at screening.
+      ## Exclusion
+      1. eGFR below 30 mL/min/1.73m2.
+      2. Pregnancy or breastfeeding.
+      ## Study contacts
+      Study office: tel +1-555-0103, office@example.org
+  - id: EN-2
+    lang: en
+    inclusion: 2
+    exclusion: 2
+    text: |
+      An Open-Label Extension Study of TBX-202 in Rheumatoid Arthritis
+      Medical Monitor: Dr. Ruth Placeholder (tel 03-5555-0201)
+      ## Inclusion
+      1. Completed the parent study TBX-202-301.
+      2. DAS28-CRP above 3.2 at the last visit.
+      ## Exclusion
+      1. Active tuberculosis.
+      2. Hepatitis B surface antigen positive.
+      ## Emergency contact
+      24-hour line: +81-3-5555-0202. E-mail: safety@example.org
+  - id: EN-3
+    lang: en
+    inclusion: 2
+    exclusion: 1
+    text: |
+      Registry Protocol TBX-REG-01: Early Alzheimer's Disease Cohort
+      Principal investigator: Dr. Ivan Fictional, phone 06-5555-0301, pi.office@example.org
+      ## Inclusion
+      1. Age 50 to 85 years.
+      2. MMSE 20 to 30 at screening.
+      ## Exclusion
+      1. Contraindication to MRI.
+  - id: JA-1
+    lang: ja
+    inclusion: 3
+    exclusion: 2
+    text: |
+      TBX-101 の痛風患者を対象とした第II相試験 治験実施計画書
+      治験調整医師：架空 一郎 電話 03-5555-1101
+      治験依頼者 医学専門家：Dr. Example、TEL 03-5555-1102、monitor@example.org
+      ## 組み入れ基準
+      1. 同意取得時の年齢が20歳以上75歳以下の患者
+      2. 過去12か月以内に痛風発作が2回以上ある患者
+      3. 血清尿酸値が7.0 mg/dL以上の患者
+      ## 除外する患者
+      1. eGFRが30 mL/min/1.73m2未満の患者
+      2. 妊娠中または授乳中の患者
+      ## 問い合わせ先
+      治験事務局 電話 06-5555-1103
+  - id: JA-2
+    lang: ja
+    inclusion: 2
+    exclusion: 2
+    text: |
+      TBX-202 関節リウマチ継続投与試験 実施計画書
+      治験依頼者の連絡先：電話 03-5555-1201（平日9時から17時）
+      ## 組み入れ基準
+      1. 先行試験TBX-202-301を完了した患者
+      2. 最終来院時のDAS28-CRPが3.2を超える患者
+      ## 除外する患者
+      1. 活動性結核の患者
+      2. HBs抗原陽性の患者
+  - id: JA-3
+    lang: ja
+    inclusion: 2
+    exclusion: 1
+    text: |
+      早期アルツハイマー病レジストリ 登録計画書
+      研究事務局：Dr. Fictional 電話 06-5555-1301 メール registry@example.org
+      ## 組み入れ基準
+      1. 50歳以上85歳以下の患者
+      2. スクリーニング時のMMSEが20以上30以下の患者
+      ## 除外する患者
+      1. MRI検査が禁忌の患者
+  - id: ZH-1
+    lang: zh-TW
+    inclusion: 3
+    exclusion: 2
+    text: |
+      TBX-101 用於痛風成人病人之第二期臨床試驗計畫書
+      計畫主持人：虛構 醫師 電話：02-2555-2101
+      試驗委託者醫學監測者：Dr. Example，TEL 02-2555-2102，monitor@example.org
+      ## 受試者納入
+      1. 篩選時年齡18至75歲。
+      2. 過去12個月內至少兩次痛風發作。
+      3. 篩選時血清尿酸7.0 mg/dL以上。
+      ## 受試者排除
+      1. eGFR低於30 mL/min/1.73m2。
+      2. 懷孕或哺乳中。
+      ## 聯絡資訊
+      試驗辦公室電話：02-2555-2103
+  - id: ZH-2
+    lang: zh-TW
+    inclusion: 2
+    exclusion: 2
+    text: |
+      TBX-202 類風濕性關節炎延伸試驗計畫書
+      緊急聯絡電話：0912-555-201
+      ## 受試者納入
+      1. 已完成前導試驗TBX-202-301。
+      2. 最後一次訪視DAS28-CRP大於3.2。
+      ## 受試者排除
+      1. 活動性結核病。
+      2. B型肝炎表面抗原陽性。
+  - id: ZH-3
+    lang: zh-TW
+    inclusion: 2
+    exclusion: 1
+    text: |
+      早期阿茲海默症登錄研究計畫書
+      協同主持人：Dr. Fictional，電話 07-555-2301，registry@example.org
+      ## 受試者納入
+      1. 年齡50至85歲。
+      2. 篩選時MMSE介於20至30。
+      ## 受試者排除
+      1. 有MRI檢查禁忌。
