@@ -276,7 +276,7 @@ TB_LINK_PEER ?= 192.0.2.11
 TWO_DEVICE_ENV := TB_LINK_ADDR=$(TB_LINK_ADDR) TB_LINK_PEER=$(TB_LINK_PEER)
 SPARK_SERVICES := gateway model-guard llm-service llm-verifier link
 WORKSTATION_SERVICES := db fhir-store lake embed-service doc-parser criteria-compiler adapter orchestrator mail-gateway \
-	console link
+	console audit-writer link
 two-device-check: deploy/.env
 	mkdir -p $(TWO_DEVICE_DIR)
 	$(TWO_DEVICE_ENV) $(COMPOSE) -f deploy/docker-compose.secrets.yml -f deploy/docker-compose.gb10.yml \

@@ -34,7 +34,7 @@ cd deploy && docker compose -f docker-compose.yml -f docker-compose.secrets.yml 
 # workstation
 cd deploy && docker compose -f docker-compose.yml -f docker-compose.secrets.yml \
     -f two-device/docker-compose.workstation.yml up -d --wait db fhir-store lake embed-service doc-parser \
-    criteria-compiler adapter orchestrator mail-gateway console link
+    criteria-compiler adapter orchestrator mail-gateway console audit-writer link
 # each device: put the same -f list in COMPOSE_FILE (deploy/.env, separated by ':'), then
 python -m tools.trialbox doctor --env-file deploy/.env --two-device
 ```

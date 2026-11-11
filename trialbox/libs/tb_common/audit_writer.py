@@ -39,6 +39,7 @@ import json
 import logging
 import os
 import sys
+import tempfile
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -56,7 +57,7 @@ log = logging.getLogger("tb.audit_writer")
 #: ``TB_AUDIT_WRITER``: ``db`` sends events to the journal; empty or ``file`` writes the chain in-process.
 MODE_ENV = "TB_AUDIT_WRITER"
 #: The drain's heartbeat (the compose health check reads its age).
-ALIVE = Path(os.environ.get("TB_AUDIT_WRITER_ALIVE", "/tmp/tb-audit-writer.alive"))  # noqa: S108 (a heartbeat, no data)
+ALIVE = Path(os.environ.get("TB_AUDIT_WRITER_ALIVE") or Path(tempfile.gettempdir()) / "tb-audit-writer.alive")
 NOTIFY = "tb_audit"
 
 # BEGIN JOURNAL SQL (D-394)
