@@ -1076,6 +1076,7 @@ def create_app(
         entry_pages,
         lifecycle_pages,
         notify,
+        recorded_opinions,
         screening_log,
         site_pages,
         step4,
@@ -1101,6 +1102,7 @@ def create_app(
         clock=us.clock,
         submit=submit,
         identity=ident,  # D-279: the second factor at signing (console.edc_pages)
+        recorded=recorded_opinions.from_env(_env_map(env)),  # T-515: DEV demo opinions (TB_DEMO_OPINIONS)
     )
     app.state.helpers = helpers  # console.notify (CLI) reads the same helpers
     register_home(app, helpers)

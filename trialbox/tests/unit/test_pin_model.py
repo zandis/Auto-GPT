@@ -237,8 +237,10 @@ def test_client_default_model_is_sent_unless_the_call_names_one() -> None:
     seen: list[Any] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
-        seen.append(json.loads(req.content).get("model"))
-        return httpx.Response(200, json={"model": "m", "choices": [{"message": {"content": "{}"}}]})
+        named = json.loads(req.content).get("model")
+        seen.append(named)
+        tb = {"alias": named or "trialbox-stub", "expected_alias": named or "trialbox-stub", "fallbacks": 0}  # T-601
+        return httpx.Response(200, json={"model": "m", "choices": [{"message": {"content": "{}"}}], "tb": tb})
 
     _, body = _judge(None)
     labels = CallLabels("D0", "feasibility", "GZQO", "s3_note_judgement", "judge", "judge@3")

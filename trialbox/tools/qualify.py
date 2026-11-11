@@ -15,8 +15,9 @@ build). The steps, in order (:data:`STEPS`); each one ends ``passed`` or ``faile
   different builds for judge and verifier (the stub pair is one build: allowed on ``ci`` only);
 * ``serving_record``: git HEAD and whether the tree is clean, driver and CUDA versions (``nvidia-smi``), the routing,
   registry and prompt-registry versions, and the active prompt set with each text and schema sha;
-* ``licence``: each build's licence row is verified in the registry and, for real weights, the weight folder
-  (``--model-dir``) holds a licence file;
+* ``licence``: each build's licence row is verified in the registry and backed by its row of
+  ``docs/licences/register.csv`` (same repository and SPDX id, cleared; T-617b); for real weights the weight folder
+  (``--model-dir``) holds a licence file, and when the register row has the text's sha256 the file is that text;
 * ``schema``: every prompt of the active set is sent once with an adversarial line in its data
   (``eval/qualification/schema_probes.yaml``); 100 % must be valid on the first attempt and not cut off (LLM-020);
 * ``longest_prompt``: the longest prompt the product sends per role (the judge's full-record fallback, the uploaded
@@ -39,6 +40,10 @@ build). The steps, in order (:data:`STEPS`); each one ends ``passed`` or ``faile
   command answers ``--help``, and the record says so;
 * ``planted_defect``: the same pair with a planted defect (every decided verdict flipped) must fail both the canary
   and the pair gate; a qualification that cannot see a broken model proves nothing.
+
+The ``n12`` evidence must say ``"basis": "unadjusted"``: the gate figure is the raw one (D-343, REG-030). Every
+record cites the model change protocol (``docs/validation/model-change-protocol.md``): its path, the sha256 of its
+text and the change id qualified (``--change``, default ``MC-0``, a first qualification).
 
 The record (``schemas/qualification_record.schema.json``) is ``failed`` unless every step of :data:`STEPS` is in it
 and ``passed``; :func:`check_record` recomputes that, the body sha256 and the profile, and refuses synthetic weights
@@ -78,11 +83,16 @@ for _p in ("libs", "services"):
 import yaml  # noqa: E402
 from tb_common.llm import LlmClient, LlmError, LlmResult  # noqa: E402
 
+from tools import licence_register  # noqa: E402
+
 RECORD_SCHEMA = ROOT / "schemas" / "qualification_record.schema.json"
 RECORD_FORMAT = "qualification-record/1"
 OUT_DIR = ROOT / "eval" / "qualification"
 STUB_OUT_DIR = ROOT / ".cache" / "qualification"
 PROBES = ROOT / "eval" / "qualification" / "schema_probes.yaml"
+# the model change protocol every record cites (T-649b, D-343): the change ids of its table "Foreseen changes"
+CHANGE_PROTOCOL = ROOT / "docs" / "validation" / "model-change-protocol.md"
+CHANGE_TYPES = ("MC-0", "MC-1", "MC-2", "MC-3", "MC-4", "MC-5", "MC-6", "MC-7", "MC-8")
 STEPS = (
     "pin",
     "serving_record",
@@ -250,6 +260,7 @@ class Build:
     context_length: int | None
     licence: dict[str, Any]
     status: str
+    repository: str | None = None
 
 
 @dataclass
@@ -264,6 +275,7 @@ class Options:
     model_dirs: dict[str, Path] = field(default_factory=dict)
     server_logs: list[Path] = field(default_factory=list)
     evidence: dict[str, Path] = field(default_factory=dict)
+    change: str = "MC-0"  # the protocol's change id this run qualifies (MC-0: a first qualification)
 
 
 @dataclass
@@ -313,6 +325,7 @@ def profile_builds(profile: str, doc: dict[str, Any] | None = None) -> dict[str,
             b.get("context_length"),
             dict(b.get("licence") or {}),
             str(b.get("status") or ""),
+            b.get("repository"),
         )
     if profile == "ci":
         out["judge"].weights_sha256 = out["verifier"].weights_sha256 = SYNTHETIC
@@ -440,10 +453,16 @@ def step_serving_record(ctx: Ctx) -> StepResult:
 def step_licence(ctx: Ctx) -> StepResult:
     problems: list[str] = []
     detail: dict[str, Any] = {}
+    registers = licence_register.load()
     for role, b in ctx.builds.items():
         row = {"name": b.licence.get("name"), "verified": bool(b.licence.get("verified"))}
         if not row["name"] or not row["verified"]:
             problems.append(f"{b.build_id}: licence not verified in models/registry.yaml")
+        else:  # the register row behind it (T-617b): same repository, same SPDX id, cleared
+            build = {"build_id": b.build_id, "licence": b.licence, "status": b.status, "repository": b.repository}
+            problems += licence_register.model_problems(registers, [build])
+        reg = next((r for r in registers if r.id == b.licence.get("register")), None)
+        row["register"] = reg.id if reg else None
         if b.weights_sha256 == SYNTHETIC:
             row["file"] = "in repository (synthetic weights)"
         else:
@@ -454,6 +473,11 @@ def step_licence(ctx: Ctx) -> StepResult:
                 problems.append(f"{b.build_id}: no --model-dir {role}=<folder> to check the licence file")
             elif not found:
                 problems.append(f"{b.build_id}: no licence file in the weight folder")
+            elif d is not None and reg is not None and reg.raw["text_sha256"]:
+                sha = hashlib.sha256((d / found[0]).read_bytes()).hexdigest()
+                row["file_sha256"] = sha
+                if sha != reg.raw["text_sha256"]:
+                    problems.append(f"{b.build_id}: the licence file is not the text checked in register row {reg.id}")
         detail[role] = row
     return bad("; ".join(problems), detail) if problems else ok(detail)
 
@@ -878,6 +902,10 @@ def step_evidence(name: str) -> Callable[[Ctx], StepResult]:
         detail["head"] = ev_head or None
         if not passed:
             return bad(f"evidence {path.name} does not say passed", detail)
+        if name == "n12":  # the gate figure is the unadjusted one (D-343, REG-030)
+            detail["basis"] = doc.get("basis")
+            if doc.get("basis") != "unadjusted":
+                return bad(f"evidence {path.name} does not say basis unadjusted: N-12 gates on the raw figure", detail)
         if ev_head and ev_head != head:
             return bad(f"evidence {path.name} is from {ev_head[:12]}, not this HEAD", detail)
         if not ev_head and not ctx.opts.stub:
@@ -1067,8 +1095,20 @@ def qualify(opts: Options, target: Target | None = None, *, steps: tuple[str, ..
         "started": started.isoformat(timespec="seconds"),
         "finished": datetime.now(UTC).isoformat(timespec="seconds"),
         "steps": results,
+        "change_protocol": change_protocol(opts.change),
     }
     return finalize(doc)
+
+
+def change_protocol(change: str) -> dict[str, str]:
+    """The citation of the model change protocol: its path, the sha256 of its text and the change id qualified."""
+    if change not in CHANGE_TYPES:
+        raise QualifyError(f"unknown change {change}: one of {', '.join(CHANGE_TYPES)}")
+    try:
+        sha = hashlib.sha256(CHANGE_PROTOCOL.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise QualifyError(f"the model change protocol {CHANGE_PROTOCOL.name} is missing") from exc
+    return {"document": CHANGE_PROTOCOL.relative_to(ROOT).as_posix(), "sha256": sha, "change": change}
 
 
 def write_record(doc: dict[str, Any], out_dir: Path) -> Path:
@@ -1102,6 +1142,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--items", type=int, default=0, help="cap the pair-gate items (0: all)")
     ap.add_argument("--repeat-items", type=int, default=200)
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--change", default="MC-0", choices=CHANGE_TYPES, help="the protocol change id")
     ap.add_argument("--operator", default=os.environ.get("USER", "unknown"))
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--check", type=Path, default=None, help="check a record instead of running one")
@@ -1135,6 +1176,7 @@ def main(argv: list[str] | None = None) -> int:
             _pairs(a.model_dir, "--model-dir"),
             a.server_log,
             evidence,
+            a.change,
         )
         target = None if a.stub else live_target(a.gateway_url, a.audit_dir)
         doc = qualify(opts, target)

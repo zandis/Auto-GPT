@@ -12,7 +12,7 @@ Generated from `models/registry.yaml` by `python -m registry.cards --write`. Do 
 | Revision | not yet pinned |
 | Quantisation | NVFP4 (NVIDIA release; measured 2026-11-08) |
 | Context length | 16384 |
-| Licence | Gemma 4 licence (terms to confirm) (SPDX: n/a; verified: no) |
+| Licence | Apache-2.0 (Gemma 4) (SPDX: Apache-2.0; verified: yes) |
 | Origin | Google (US); non-PRC: yes |
 
 ## Contexts of use

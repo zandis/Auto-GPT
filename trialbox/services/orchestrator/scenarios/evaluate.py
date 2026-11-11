@@ -300,7 +300,12 @@ class NoteJudge:
     ) -> NoteResult:
         try:
             res = client.chat_json(self.prompt, variables, job_id=self.job_id)
-        except LlmError:
+        except LlmError:  # also an answer from an alias the call did not expect (tb_llm, T-601)
+            self._count(failures=1)
+            return NoteResult("unknown", 0.0, reason=Reason.MODEL_DOWN.value, source=source)
+        if getattr(client, "gateway", None) is not None and not getattr(res, "build_sha", ""):
+            # T-601: through the gateway every answer names its build; one that does not cannot be told apart from
+            # the other model's answer in the pair's build comparison, so it is no answer (fail closed)
             self._count(failures=1)
             return NoteResult("unknown", 0.0, reason=Reason.MODEL_DOWN.value, source=source)
         self._count(calls=1, tokens_in=res.tokens_in, tokens_out=res.tokens_out)

@@ -19,7 +19,6 @@ TWCS = "https://twcore.mohw.gov.tw/ig/twcore/CodeSystem"
 V2_0203 = "http://terminology.hl7.org/CodeSystem/v2-0203"
 UCUM = "http://unitsofmeasure.org"
 LOINC = "http://loinc.org"
-SCT = "http://snomed.info/sct"
 # department code (site) -> NHI consultation department code (TW Core medical-consultation-department-nhi-tw)
 NHI_DEPARTMENT = {
     "ONC": "AF",
@@ -237,7 +236,8 @@ def build(inp: TwpasInput, base: str = f"{PAS}") -> dict[str, Any]:
                         "coding": [{"system": "http://terminology.hl7.org/CodeSystem/v3-GTSAbbreviation", "code": "QD"}]
                     },
                 },
-                "route": {"coding": [{"system": SCT, "code": "26643006"}]},
+                # TW Core's route code system (CC0), not SNOMED CT: the box ships no SNOMED CT (T-617b)
+                "route": {"coding": [{"system": f"{TWCS}/medication-path-tw", "code": "PO", "display": "口服"}]},
                 "doseAndRate": [{"doseQuantity": {"value": inp.daily_dose_mg, "system": UCUM, "code": "mg"}}],
             }
         ],
