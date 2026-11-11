@@ -13,7 +13,7 @@
 <p class="hint">{{ t('registry.add.help') }}</p>
 <form method="post" action="/pilot/registry/{{ ruleset }}">
   <input type="hidden" name="csrf" value="{{ csrf }}">
-  <label for="mrn">{{ t('case.mrn') }}</label>
+  <label for="mrn">{{ t('registry.mrn') }}</label>
   <input id="mrn" name="mrn" required maxlength="32" pattern="[A-Za-z0-9\-]+" autocomplete="off">
   <label for="status">{{ t('registry.status') }}</label>
   <select id="status" name="status">{% for s in statuses %}<option value="{{ s }}">{{ t('registry.status.' + s) }}</option>{% endfor %}</select>
