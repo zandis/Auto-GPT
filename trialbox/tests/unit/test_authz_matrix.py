@@ -233,8 +233,8 @@ def test_the_console_role_properties_are_unchanged_wrappers() -> None:
 # T-102a: ``study_tasks``, ``edc_allowed`` and ``edc_role_may`` stay as thin wrappers for their present callers only
 # (T-102c moves those to ``permit``). A new caller fails here; call ``permit`` instead.
 WRAPPER_CALLERS = {
-    "study_tasks": {"services/console/team.py"},
-    "edc_allowed": {"services/console/edc_pages.py"},
+    "study_tasks": set(),
+    "edc_allowed": set(),
     "edc_role_may": {"services/orchestrator/edc_api.py"},
 }
 

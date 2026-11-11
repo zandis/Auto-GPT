@@ -44,6 +44,6 @@ incident plan's (T-318). Change each secret at its source, not on the lost box.
 may have been read, it is a breach under the incident plan, not a rotation.
 
 **What makes a lost box less bad.** The site keys are wrapped under the KEK (D-347), and the KEK is not on the disk:
-a stolen disk without the shares, the passphrase or the TPM does not open the pid map. Disk encryption that only
-unlocks inside the hospital is T-408. Until it is on the box, assume a stolen box exposes `deploy/.env` and every
-password in it: every row above applies.
+a stolen disk without the shares, the passphrase or the TPM does not open the pid map. The disk opens only with the TPM and a hospital Tang server (D-408), so a box carried out of the hospital stops at
+the passphrase prompt. `deploy/.env` is still readable by anyone who gets into the running system: assume a stolen
+box that was running exposes every password in it, and every row above applies.

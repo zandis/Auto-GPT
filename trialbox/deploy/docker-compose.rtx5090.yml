@@ -39,7 +39,7 @@
 # the scheduler runs the canary (orchestrator/selftest.py) before each night's LLM jobs.
 #
 # vLLM v0.32.0 is the release the 2026-11-06 run used (deploy/gcp/gpu-sim-startup.sh), with the same flags, by the
-# digest of deploy/images.lock (D-348); moving the lock entry is a model change (re-run `make selftest` and the TrialGPT check).
+# digest of deploy/images.lock (D-348); moving the lock entry is a model change (re-run `python3 -m tools.trialbox selftest` and the TrialGPT check).
 
 x-vllm-5090: &vllm5090
   logging:

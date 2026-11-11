@@ -8,7 +8,8 @@ first screening the CRC chooses **Who to screen** on the study's set-up page: th
 patients (a request that names doctors with `pract=` uses those for that run).
 
 A request started on the console is allowed by your role (a coordinator or an administrator starts runs; the
-investigator approves), not by your mailbox. Each person may start at most 20 runs of each kind (feasibility,
+study's PI, or a sub-investigator the PI ticked for "run", starts feasibility, screening and case runs; the investigator
+approves), not by your mailbox. Each person may start at most 20 runs of each kind (feasibility,
 screening, ...) a day; case questions, consent drafts and approvals are not counted. When a limit is reached the page
 says so in your language; the administrator can change the limits (`rate_limits_per_day`, RUNBOOK).
 
@@ -29,8 +30,9 @@ agreeing) and the evidence. Look at a few each week; "This is wrong, send to rev
 
 **The study team and the whole hospital (D-147).** The PI keeps the study's *Delegation log* (a copy of the trial
 office's signed log, compared with it every month): sub-investigators, with the tasks the PI ticks (see candidates,
-mark Approach, ask a treating doctor, enter data) and their GCP training dates. Only the PI approves criteria. Until
-the log names a PI, every investigator of the study acts as its PI. *Candidates* lists every patient the study's run
+mark Approach, ask a treating doctor, enter data) and their GCP training dates. Only the PI approves criteria. While
+the log names no PI, nobody acts as PI: no investigator has a right in the study until the data steward writes the PI's
+entry from the signed log (D-380). *Candidates* lists every patient the study's run
 found anywhere in the hospital; a candidate opens with a purpose (recorded, and limited per hour), shows why the
 patient fits or not with the quotes, and lets the PI or a sub-investigator ticked "see candidates" show the chart
 number (D-143's reveal: a reason, the record, the hourly limit). On a site's box a candidate's page opens only after
@@ -41,7 +43,7 @@ until then the page says so and refuses. **Ask treating doctor**: TrialBox only 
 required. The CRC asks the doctor and records the answer (agrees to introduce, declines with a reason, wants to
 discuss) on *Referrals*; Approach waits until the doctor agrees. A missing or expired IRB approval or consent-form
 version (*IRB and consent form*) is a warning before Approach, not a block: marking Approach then is recorded as an
-override. The research office keeps the *Opt-out register*: an opted-out patient leaves screening, every list and
+override. The data steward and the privacy office keep the *Opt-out register*: an opted-out patient leaves screening, every list and
 later exports.
 
 **Morning mail.** At 07:00 the CRC and at 07:30 the PI get a short mail: who is new, who is due, by pseudonym and
@@ -76,15 +78,17 @@ learned late, an onset or day learned after today, and a day sent that is after 
 does not count as sent until the AE form is corrected); a report sent after its due day shows as sent late. A fatal or
 life-threatening SAE gets a follow-up to the regulator due on day 15 from the day learned (7 + 8 days, ICH E2A;
 `TB_SAE_FOLLOWUP_DAYS`), whenever the first report went; add any follow-up a receiver asks for with its due day. An
-SAE the AE form no longer calls serious keeps its open reports on the worklist until each is sent or closed. The CRC records; the PI and the
-administrator read; viewer and CRO accounts see nothing. No AE term, chart number or name is shown, stored in the
-register or written to the audit log; references are letters and digits only. The page names who confirmed the site
-rule (`TB_SAE_RULES_CONFIRMED`) or says that nobody has. The trial office's SAE log and SOP still govern: compare the
+SAE the AE form no longer calls serious keeps its open reports on the worklist until each is sent or closed. The CRC records; the PI reads and
+acknowledges; the administrator, viewer and CRO accounts see nothing. No AE term, chart number or name is shown, stored in the
+register or written to the audit log; references are letters and digits only. The page names the rule set of the study and who confirmed it on the study's set-up
+page ("Save and confirm"), or says that nobody has. The trial office's SAE log and SOP still govern: compare the
 register with it each month, and use the office log when the box is down.
 
 **REDCap or a spreadsheet.** Attach the study's REDCap project on the study's set-up page (guided). Sync runs at night
-and on a button. When TrialBox and REDCap disagree on a field, the Conflicts page lists it; you choose which value
-stays. A spreadsheet with a name column imports with that column dropped.
+and on a button. When TrialBox and REDCap disagree on a field, the study's *Trial-record differences* page lists it (one
+row per field, TrialBox's value against the source's); you choose which value stays. The data steward has a separate page,
+`/data/conflicts`, for the clinical conflicts of the whole database (two sources giving different values for one patient
+item; the item stays unknown until the steward keeps one value or keeps it unknown, with a reason). A spreadsheet with a name column imports with that column dropped.
 
 **EDC prefill (CRC, PI; D-160).** TrialBox can draft a subject's eCRF values from the hospital record, so the CRC
 does not type them twice. It is **off** for every study until the PI turns it on, on the study's *EDC prefill* page,

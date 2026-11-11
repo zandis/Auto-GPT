@@ -285,6 +285,11 @@ class _Note:
     type: str
     text: str
     sents: list[str]
+    # the sentences as the lexicon matches them (NFKC, folded): once per note, not once per criterion and patient
+    low: list[str] = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self.low = [norm(s).lower() for s in self.sents]
 
 
 @dataclass
@@ -611,6 +616,13 @@ class _Run:
         alive = self.alive()
         rescue = [t for t in alive if any(o.reason == "index_absent" for o in t.outcomes.values())]
         notes = self.notes([t.pid for t in alive])
+        terms_of: dict[str, list[str]] = {}
+
+        def terms(c: CriterionIR) -> list[str]:  # the lexicon keys of a criterion, worked out once per run
+            if c.id not in terms_of:
+                terms_of[c.id] = [norm(x).lower() for x in lexicon_terms(c, self.cfg.lexicon)]
+            return terms_of[c.id]
+
         routes: list[_Route] = []
         zero: list[tuple[str, str, list[_Note]]] = []
         excluded_here = 0
@@ -627,8 +639,10 @@ class _Run:
                         c.id, "unknown", "S2", unknown_kind="data_gap", reason="no note in window"
                     )
                     continue
-                terms = [norm(x).lower() for x in lexicon_terms(c, self.cfg.lexicon)]
-                hits = [(n, s) for n in win for s in n.sents if terms and any(k in norm(s).lower() for k in terms)]
+                keys = terms(c)
+                hits = [
+                    (n, s) for n in win for s, low in zip(n.sents, n.low, strict=True) if any(k in low for k in keys)
+                ]
                 if hits:
                     self.metrics.pairs_s2_hit += 1
                     sset = sorted({sentence_hash(s) for _, s in hits})
@@ -653,10 +667,11 @@ class _Run:
         # CAS-11 exception: absence of the index condition → lexicon sweep over the lookback, then S2b
         for t in rescue:
             cid = next(o.criterion_id for o in t.outcomes.values() if o.reason == "index_absent")
-            c = self.crit[cid]
-            terms = [norm(x).lower() for x in lexicon_terms(c, self.cfg.lexicon)]
+            keys = terms(self.crit[cid])
             pnotes = notes.get(t.pid, [])
-            hit = next((s for n in pnotes for s in n.sents if terms and any(k in norm(s).lower() for k in terms)), None)
+            hit = next(
+                (s for n in pnotes for s, low in zip(n.sents, n.low, strict=True) if any(k in low for k in keys)), None
+            )
             if hit is not None:
                 self._rescue(t, cid, "S2", hit)
             else:

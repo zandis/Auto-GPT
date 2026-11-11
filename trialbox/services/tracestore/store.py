@@ -145,7 +145,8 @@ class TraceStore:
         if str(attrs.get("tb.study_id") or "") in self.settings.no_text_studies:  # T-208: no text at all
             safe = {k: v for k, v in attrs.items() if k in self.settings.safe_attributes}
             return {k: trace[k] for k in ("call_id", "span", "sc") if k in trace} | {"attributes": safe}
-        if str(attrs.get("tb.data_class") or "").upper() in self.settings.no_text_classes:  # T-605: no D3/D4 text
+        # T-605: no D3/D4 text; the gateway's tag of a special-category call is ``D3+sc``, still D3
+        if str(attrs.get("tb.data_class") or "").strip().upper().removesuffix("+SC") in self.settings.no_text_classes:
             safe = {k: v for k, v in attrs.items() if k in self.settings.safe_attributes}
             kept = {k: trace[k] for k in ("call_id", "span", "sc") if k in trace} | {"attributes": safe}
             return kept | {f"{k}_digest": _digest(trace.get(k)) for k in ("prompt", "output") if k in trace}

@@ -142,7 +142,7 @@ The SCREEN job runs the cascade (`services/matching/cascade/`):
 | S5 | the people: the PI and CRC lists |
 
 A note answer excludes a patient only when both models say "fail" on a verified quote; any disagreement becomes
-"unknown", never an exclusion (D-115). Reasons are 16 codes with words in three languages (D-118). The pair canary
+"unknown", never an exclusion (D-115). Reasons are 29 codes (`tb_common/reasons.py`) with words in three languages (D-118). The pair canary
 (54 questions in en, ja, zh-TW) runs before the night's model jobs and gates note exclusions: if it fails, notes never
 exclude (D-117). The structured part runs without a model; FEAS never calls one (D-101). Held by
 `tests/unit/test_agreement_judge.py`, `tests/unit/test_canary_gate.py` and `e2e_simple` stages 1 and 3.
@@ -180,8 +180,8 @@ A job that recorded `judge@4` resolves `judge@4` after `judge@5` is registered. 
 
 ## 8. The console and the work
 
-Five roles: administrator, coordinator (CRC), investigator (PI), CRO monitor and viewer (D-110). Each lands on its
-own home. The header command field opens pages only; it never runs a job (D-110). Lists: ready and
+Seven roles: administrator, coordinator (CRC), investigator (PI), viewer, CRO, data steward and privacy office (D-110,
+D-380; one permission matrix, D-366). Each lands on its own home. The header command field opens pages only; it never runs a job (D-110). Lists: ready and
 needs-information, worked through with marks and a two-tap outcome (D-120). Forms: seven built-in forms in three
 languages, with checks, branching and history, exported as ODM 1.3 and REDCap CSV (D-129). Lifecycle: candidate to
 completed or withdrawn, visit windows, AEs and deviations (D-134). Site set-up: readiness page, chart upload with

@@ -9,7 +9,7 @@
   token); the orchestrator verifies it with the key in `deploy/secrets/services/actor/keys`, which only the
   orchestrator mounts, before a reveal, a screening-log export, a notice or a cancel. An unsigned name is refused
   and audited (`actor.refused`); the reveal and export caps count per calling service and verified person.
-- **People** (`services/console/auth.py`). Five roles; study scope, affiliation and expiry per account; scrypt
+- **People** (`services/console/auth.py`). Seven roles (administrator, coordinator, investigator, viewer, CRO, data steward, privacy office; one permission matrix, `tb_common/authz_matrix.yaml`, D-366, D-380); study scope, affiliation and expiry per account; scrypt
   hashes; lockout after 5 failures for 15 minutes with a countdown; CSRF token on every form; a
   Content-Security-Policy that allows no outside script. Hospital SSO through a trusted header from listed proxies
   ([Runbook §1](../RUNBOOK.md#1-install-a-new-site-about-one-day)).
@@ -36,7 +36,7 @@
 - **Chart numbers.** The coordinator and the study's investigator (owner's decision of 2026-11-09, D-143, reversing
   D-133; the delegation log for an investigator, D-147; the administrator only under a break-glass grant, D-280,
   D-430) may reveal one, for a listed patient, with a purpose and a reason ("other" needs a written reason of 10
-  characters or more); viewer and CRO accounts never see one. One reveal path (T-103, D-438): every surface (the
+  characters or more); viewer, CRO, steward and privacy accounts never see one. One reveal path (T-103, D-438): every surface (the
   patient page, `/api/v1`, the job page, the candidate page, the referral print, next the EMR link) calls
   `console.reveal.Reveal.identifier`, which asks the `id.reveal` row and the break-glass rule, takes one use of a
   per-person cap shared by every surface (`TB_REVEAL_MAX_PER_HOUR`, 60 an hour, kept in the study-team store, so a

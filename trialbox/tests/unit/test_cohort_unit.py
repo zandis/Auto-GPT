@@ -167,3 +167,57 @@ def test_cohort_schedule_rulesets(tmp_path: Path) -> None:
     assert cohort_rulesets(orch) == ["GOUT-COH", "RA-COH"]  # type: ignore[arg-type]
     orch.cfg.settings = settings.model_copy(update={"cohort": None})
     assert cohort_rulesets(orch) == ["GOUT-COH", "RA-COH"]  # type: ignore[arg-type]
+
+
+class _ConsentLake:
+    """The lake's ``consent`` table in DuckDB; records the snapshot each query asked for."""
+
+    def __init__(self, rows: list[tuple[str, str, bool, str | None]] | None) -> None:
+        import duckdb
+
+        self.con = duckdb.connect()
+        self.snapshots: list[str | None] = []
+        if rows is not None:
+            self.con.execute("CREATE TABLE consent (pid VARCHAR, status VARCHAR, contact_ok BOOLEAN, date DATE)")
+            self.con.executemany("INSERT INTO consent VALUES (?, ?, ?, ?)", rows)
+
+    def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> Any:
+        self.snapshots.append(snapshot)
+        return self.con.execute(sql, params or []).to_arrow_table()
+
+
+def _ctx(lake: _ConsentLake) -> Any:
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        cfg=SimpleNamespace(settings=SimpleNamespace(registry_source=SimpleNamespace(type="csv"))),
+        services=SimpleNamespace(lake=lake),
+    )
+
+
+def test_a_later_withdrawal_ends_the_consent_and_the_count_reads_the_reports_snapshot() -> None:
+    lake = _ConsentLake(
+        [
+            ("P1", "active", True, "2026-01-10"),
+            ("P1", "inactive", False, "2026-05-01"),  # withdrew before the quarter end
+            ("P2", "active", True, "2026-02-01"),
+            ("P2", "entered-in-error", False, "2026-03-01"),  # not a statement
+            ("P3", "active", True, "2026-01-01"),
+            ("P3", "rejected", False, "2026-08-01"),  # after the quarter end: still contactable then
+            ("P4", "active", True, None),
+            ("P4", "active", False, "2026-04-01"),  # the dated record is the later one
+        ]
+    )
+    assert cohort.contactable_pids(_ctx(lake), date(2026, 6, 30), "2026-10-04") == {"P2", "P3"}
+    assert lake.snapshots == ["2026-10-04"]
+
+
+def test_no_consent_table_is_not_available_and_any_other_failure_stops() -> None:
+    assert cohort.contactable_pids(_ctx(_ConsentLake(None)), date(2026, 6, 30)) is None
+
+    class Down(_ConsentLake):
+        def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> Any:
+            raise RuntimeError("lake query failed (503): unavailable")
+
+    with pytest.raises(RuntimeError, match="503"):
+        cohort.contactable_pids(_ctx(Down(None)), date(2026, 6, 30))
