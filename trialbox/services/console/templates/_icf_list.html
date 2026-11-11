@@ -1,0 +1,32 @@
+{# D-399 (T-302a, FIT-009, LIFE-018): the study's approved consent-form versions, each with the IRB's approval and the
+   first day it is used, as history rows (a change or a withdrawal is a new row). The consent form's version is checked
+   against this list on save; a new version that asks for re-consent fills the re-consent list. Needs rs, icf,
+   icf_history, can_edit, reads_subjects. #}
+<section class="card" id="icf" data-testid="icf-list">
+<h2>{{ t('icf.title') }}</h2>
+<p class="hint">{{ t('icf.help') }}</p>
+{% if request.query_params.get('icf') %}<p class="ok" role="status" data-testid="icf-saved">{{ t('icf.saved') }}</p>{% endif %}
+{% if not icf %}<p class="empty" data-testid="icf-empty">{{ t('icf.empty') }}</p>{% else %}
+<div class="scroll" tabindex="0"><table>
+<thead><tr><th>{{ t('icf.col.version') }}</th><th>{{ t('icf.col.date') }}</th><th>{{ t('icf.col.approved') }}</th><th>{{ t('icf.col.from') }}</th><th>{{ t('icf.col.reconsent') }}</th></tr></thead>
+<tbody>{% for v in icf %}<tr data-testid="icf-{{ v.version }}">
+<td class="mono">{{ v.version }}</td><td class="nowrap">{{ v.version_date or '–' }}</td>
+<td class="nowrap">{% if v.irb_approved_on %}{{ v.irb_approved_on }}{% else %}<span class="pill warn">{{ t('icf.unapproved') }}</span>{% endif %}</td>
+<td class="nowrap">{{ v.effective_from or t('icf.from_start') }}</td><td>{{ t('icf.yes') if v.reconsent else t('icf.no') }}</td>
+</tr>{% endfor %}</tbody></table></div>{% endif %}
+{% if reads_subjects %}<p><a href="/studies/{{ rs }}/reconsent" data-testid="to-reconsent">{{ t('reconsent.title') }}</a></p>{% endif %}
+{% if can_edit %}<form method="post" action="/studies/{{ rs }}/irb/icf" class="markform" data-testid="icf-form">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="icf-v">{{ t('icf.col.version') }}</label><input id="icf-v" name="version" maxlength="40" required data-testid="icf-version">
+<label for="icf-d">{{ t('icf.col.date') }}</label><input id="icf-d" name="version_date" type="date" lang="{{ lang }}">
+<label for="icf-a">{{ t('icf.col.approved') }}</label><input id="icf-a" name="irb_approved_on" type="date" lang="{{ lang }}" data-testid="icf-approved-on">
+<label for="icf-f">{{ t('icf.col.from') }}</label><input id="icf-f" name="effective_from" type="date" lang="{{ lang }}" data-testid="icf-from">
+<p class="hint">{{ t('icf.from.help') }}</p>
+<label class="check"><input type="checkbox" name="reconsent" value="1" checked data-testid="icf-reconsent"> {{ t('icf.reconsent.ask') }}</label>
+<label for="icf-n">{{ t('icf.note') }}</label><input id="icf-n" name="note" maxlength="200">
+<label class="check"><input type="checkbox" name="withdraw" value="1" data-testid="icf-withdraw"> {{ t('icf.withdraw') }}</label>
+<button type="submit" data-testid="icf-save">{{ t('icf.save') }}</button>
+</form>{% endif %}
+{% if icf_history %}<details><summary>{{ t('icf.history', n=icf_history|length) }}</summary>
+<ul class="plain hint" data-testid="icf-history">{% for v in icf_history|reverse %}<li>{{ v.at|local }} · {{ v.by }} · {{ t('icf.act.' + v.action) }} <span class="mono">{{ v.version }}</span>{% if v.irb_approved_on %} · {{ t('icf.col.approved') }} {{ v.irb_approved_on }}{% endif %}{% if v.effective_from %} · {{ t('icf.col.from') }} {{ v.effective_from }}{% endif %}{% if v.note %} · <span data-authored>{{ v.note }}</span>{% endif %}</li>{% endfor %}</ul></details>{% endif %}
+</section>

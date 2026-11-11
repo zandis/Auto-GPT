@@ -59,8 +59,12 @@ def model_failure(exc: LlmError) -> str:
     return type(cause or exc).__name__
 
 
-ODM_MEANING = ("By my electronic signature I confirm that I checked each value against the cited hospital record "
-               "and that the values are correct for this subject and visit.")  # fmt: skip
+# The words of a CRC's signature (T-205, D-391; REG-021, REG-024): what the signer really did (compared each value with
+# the source the page cites) and no more. No claim that the values are correct, no regulation named, and a quote is
+# said to be a copy. Equal to ``edc.sign.meaning`` in English (the console's three languages are pinned by a test).
+ODM_MEANING = ("With this electronic signature I confirm that I compared each value with the source cited beside it "
+               "on this page, and that these are the values I confirmed for this subject and visit. A passage quoted "
+               "by TrialBox is a copy of the hospital record, not the record itself.")  # fmt: skip
 
 
 @dataclass
