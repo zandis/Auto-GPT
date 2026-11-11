@@ -29,6 +29,11 @@
 </section>
 {% endfor %}
 </div>
+{% if rd.feed %}<section class="card" data-testid="site-feed" data-tier="{{ rd.feed.tier }}">{# T-112b (D-443): the feed tier the box serves #}
+<h2>{{ t('dataops.feed.title') }}</h2>
+<p>{{ t('dataops.feed.' + rd.feed.tier, snapshot=rd.feed.snapshot) }}</p>
+{% if rd.feed.night %}<p class="hint" data-testid="site-feed-night" data-state="{{ rd.feed.night.state }}">{{ t('dataops.feed.night', snapshot=rd.feed.night.snapshot, state=t('dataops.state.' + rd.feed.night.state)) }}{% if permit(user.role, 'dataops.view') %} <a href="/data-ops">{{ t('dataops.title') }}</a>{% endif %}</p>{% endif %}
+</section>{% endif %}
 {% endif %}
 {% if rs %}<section class="card" data-testid="site-feas">
 <h2>{{ t('site.feas.title') }}</h2>

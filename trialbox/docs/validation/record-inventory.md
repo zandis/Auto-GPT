@@ -57,13 +57,14 @@ bundle of card T-304 builds from this table.
 | R-19 | Recall ledger: audit draws and the confidence sequences of the excluded lists | control | the box | data steward | kept | page only | (in the job's events) |
 | R-20 | Site set-up: inputs, facts read or confirmed, local codes, checks, published settings | aid | the box; the site's sheets and charts in the protected data folder | data steward | kept | page only | `setup.fact`, `setup.resolve`, `setup.publish`, `console.site_fact`, `console.site_map` |
 | R-21 | Feasibility answers the site types (site profile) | aid | the box | PI | kept | on the feasibility report | `console.site_profile` |
-| R-22 | Screening review traces: criterion labels, code pre-ticks, amber rows opened, the review of the excluded list | aid | the box | PI | kept | page only | `console.excluded_review`, `console.view` |
+| R-22 | Screening review traces: criterion labels, code pre-ticks, amber rows opened, the review of the excluded list; the weekly PI sample of ten "criteria not matched" patients with the run and snapshot each was drawn from and the PI's answer, and the site's check that opens the list (D-446) | aid | the box | PI | kept | page only | `console.excluded_review`, `console.view`, `notmatched.sample`, `notmatched.held`, `console.notmatched_answer`, `console.notmatched_check` |
 | R-23 | Derived scores with their inputs and definition versions | copy | the hospital data they are computed from (R-25) | data steward | kept | page only | (in the job's events) |
 | R-24 | Pseudonym map and master patient index: the only link from a pseudonym back to a chart number | control | the box (encrypted; the key under the KEK) | site administrator | kept while any record keyed by the pseudonym is kept | never exported | `console.view_id`, `console.chart_lookup` |
 | R-25 | The hospital data copy: OMOP rows and TrialBox's extension rows, the lake snapshots | copy | the hospital EMR and its export | data steward | snapshots: `nightly_snapshots` and `month_end_snapshots_months`; OMOP rows replaced by each load | never exported as such | `console.site_patients` |
 | R-26 | Mail and notice logs | aid | the mail server; the box keeps the index | site administrator | `mail_log_days` (five years Japan, seven years Taiwan) | page only | `mail.received`, `mail.duplicate_suppressed`, `mail.deferred`, `mail.failed`, `mail.uncertain`, `mail.resolved`, `retention.mail`, `console.notice` |
 | R-27 | Study state and identifiers: the state (start-up, open, paused, closed) with every change, who, when and why; sponsor, protocol number, SIV date, registry ids (D-386) | control | the box; the sponsor's and the registries' own records for the identifiers | trial office | kept (the state is an event log) | the screening log's "about" sheet (`/studies/{rs}/screening-log.xlsx`) | `console.study_state`, `console.study_identity`, `scheduler.held` |
 | R-28 | Ingest batch register: one row per ingest run (source, snapshot, attempt) with its state (landed, validated, mapped, pseudonymised, published, held, failed, rejected), every step with who, when and the audit event that recorded it, and the steward's accept or reject of a held night with its reason (D-427) | control | the box | data steward | kept (the steps are append-only) | page only | `ingest.done`, `ingest.held`, `ingest.failed`, `dataops.decide`, `dataops.step` |
+| R-29 | Patient twin (`tb_patient_profile` v1): one pseudonymous document per study patient and version, built with no model from a named lake snapshot (R-25) and the derived rows (R-23); every item names its source table, row hash and date (D-440) | copy | the hospital data copy (R-25) it is built from | data steward | kept: every version (a new one only when the content changes); erased with every version when the patient opts out (R-06; the opt-out worker, T-206a) | never exported as such | `console.twin_view` |
 
 R-01 and R-02 also hold the training evidence of `qms-lite.md` §3 (first sign-in and the acknowledgement event).
 
@@ -83,6 +84,7 @@ R-01 and R-02 also hold the training evidence of `qms-lite.md` §3 (first sign-i
 | O-10 | Aggregate cohort tables and the public trial cache | aggregate counts and a public registry cache | `outputs_days` |
 | O-11 | Embedding cache of the lake | vectors keyed by a text hash; rebuilt from R-25 | kept |
 | O-12 | Schema versions | how a database is migrated | kept |
+| O-13 | Vector store of note chunks (schema `vec`, D-439): each masked chunk of a note with its offsets, and one vector per chunk text and embedding model | derived from the notes of R-25 after the PHI pass, rebuilt from them; never exported | kept while the note is in R-25; a patient's erasure (T-206b) calls `VecStore.delete_patient`, which removes their chunks and every vector no other chunk uses |
 
 ## 4. Store map
 
@@ -123,6 +125,7 @@ are marked "files".
 | `services/sitesetup/store.py` | `input`, `fact`, `local_code`, `check_item`, `fix`, `setting`, `published` | R-20 |
 | `services/console/sitestore.py` | `site_profile` | R-21 |
 | `services/console/sitestore.py` | `criterion_labels`, `code_ticks`, `approval_opened`, `excluded_review` | R-22 |
+| `libs/tb_common/notmatched.py` | `tuned_patients`, `not_matched_check` | R-22 |
 | `libs/tb_common/derived_store.py` | `definition`, `score_row`, `input_link`, `conflict` | R-23 |
 | `services/adapter/pidmap.py` | `pid_map`, `identity`, `site_key`, `pid_alias` | R-24 |
 | `services/omop/schema.py` | `tb_record`, `tb_record_event`, `tb_conflict`, `tb_id_map`, `tb_appointment`, `tb_claim`, `tb_consent`, `tb_load` | R-25 |
@@ -132,6 +135,8 @@ are marked "files".
 | `services/console/sitestore.py` | `notify_log` | R-26 |
 | `services/console/sitestore.py` | `study_state`, `study_identity` | R-27 |
 | `services/datacore/dataops.py` | `batch`, `batch_step` | R-28 |
+| `services/datacore/sponsor.py` | `sponsor_layout` | R-10 |
+| `services/patient_profile/twin.py` | `tb_patient_profile` | R-29 |
 | `services/console/auth.py` | `sessions`, `pending_logins`, `oidc_pending`, `login_failures` | O-01 |
 | `services/console/feedback.py` | `entry` | O-02 |
 | `services/tracestore/store.py` | `traces`, `access_log` | O-03 |
@@ -146,6 +151,7 @@ are marked "files".
 | `services/orchestrator/db.py` | `cohort_tables`, `trial_cache` | O-10 |
 | `services/lake/store.py` | `cache` | O-11 |
 | `libs/tb_common/db.py` | `_schema_version` | O-12 |
+| `services/vec/store.py` | `embedding`, `note_chunk` | O-13 |
 
 The standard OMOP CDM tables (`services/omop/ddl/OMOPCDM_postgresql_5.4_ddl.sql`) are R-25 as a whole. The trace
 store's `access_log` is an access record of O-03's own data, kept with it.

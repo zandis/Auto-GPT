@@ -454,6 +454,10 @@ def secrets_rows(svcs: list[Service], lang: str) -> list[tuple[str, str, str]]:
             by_secret.setdefault(sec, []).append(s.name)
     rows = []
     for sec, names in sorted(by_secret.items()):
+        if sec == "model_key":  # the on-box model servers' key (D-177), a file since T-212b (D-437)
+            rows.append(("model key", "deploy/secrets/model/llm.key (0600)",
+                         f"{', '.join(names)} only, at /run/secrets/tb_llm_key"))  # fmt: skip
+            continue
         if not sec.startswith("token_"):  # the identity overlay's OIDC client secret (RUNBOOK §12)
             rows.append((sec, f"deploy/secrets/authelia/{sec}.txt (0600, root)",
                          f"{', '.join(names)} only, at /run/secrets/{sec} (OIDC on)"))  # fmt: skip
@@ -463,7 +467,7 @@ def secrets_rows(svcs: list[Service], lang: str) -> list[tuple[str, str, str]]:
                      f"{', '.join(names)} only, at /run/secrets/tb_service_token"))  # fmt: skip
     keys = ("IMAP_PASS", "SMTP_PASS", "CLOUD_LLM_API_KEY", "TB_DB_URL", "POSTGRES_WF_PASSWORD")
     cleared = {k: [s.name for s in svcs if k in s.cleared] for k in keys}
-    py = sorted({s.name for s in svcs if s.secrets})
+    py = sorted({s.name for s in svcs if any(x.startswith("token_") for x in s.secrets)})  # the TrialBox services
 
     def keep(key: str) -> str:
         return ", ".join(n for n in py if n not in cleared[key]) or "-"

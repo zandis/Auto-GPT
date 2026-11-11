@@ -12,6 +12,10 @@ not say which alias gave it. So one role is never answered by another role's mod
 :meth:`GatewayClient.context` gives an alias's context in tokens from the gateway's ``GET /v1/models`` (T-603), so a
 caller sizes its prompt and its answer budget from the model it will get (:mod:`tb_llm.budget`). The one retry of an
 answer cut off for length asks for at most what fits beside the prompt in the answering alias's context (LLM-018).
+
+The client waits :data:`tb_llm.timeouts.CALLER_TIMEOUT_S` (240 s; ``TB_LLM_TIMEOUT_S``), longer than the gateway's
+budget for one call, and sends a request once more only when the connection failed or dropped, never after a read
+timeout (T-608, D-445; review LLM-023): the same body, so the same role and build.
 """
 
 from __future__ import annotations
@@ -20,11 +24,13 @@ import json
 import os
 import time
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any
 
 import httpx
 
 from tb_llm.budget import estimate_messages, retry_max_tokens
+from tb_llm.timeouts import caller_timeout, once_more
 
 FREE_FORM_ROLES = frozenset({"frontdesk_converse"})
 
@@ -125,7 +131,7 @@ class GatewayClient:
         caller: str,
         *,
         http: httpx.Client | None = None,
-        timeout: float = 600.0,
+        timeout: float | httpx.Timeout | None = None,
         model: str | None = None,
         allow_fallback: bool = False,
     ) -> None:
@@ -133,7 +139,7 @@ class GatewayClient:
             raise ValueError("tb_llm: gateway URL required")
         self.base_url = base_url.rstrip("/")
         self.caller = caller
-        self.http = http or httpx.Client(timeout=timeout)
+        self.http = http or httpx.Client(timeout=caller_timeout() if timeout is None else timeout)
         self.model = model or None
         self.allow_fallback = allow_fallback
         self._contexts: dict[str, int | None] = {}
@@ -192,8 +198,10 @@ class GatewayClient:
         headers = {**auth_headers(), **labels.headers(self.caller)}  # D-127 (F-11): the gateway checks the token
         if self.model and not body.get("model"):
             body = {**body, "model": self.model}
+        url = f"{self.base_url}/chat/completions"
         try:
-            resp = self.http.post(f"{self.base_url}/chat/completions", json=body, headers=headers)
+            # T-608 (D-445): a dropped connection is sent once more (same body: same role, same build), a timeout not
+            resp = once_more(lambda: self.http.post(url, json=body, headers=headers))
         except httpx.HTTPError as e:
             raise GatewayError(f"gateway unreachable: {e}") from e
         if resp.status_code >= 400:
@@ -310,6 +318,16 @@ class GatewayClient:
 _V1_ROLES_PATH = os.path.join(os.path.dirname(__file__), "v1_roles.yaml")
 
 
+@lru_cache(maxsize=1)
+def _v1_roles() -> dict[str, dict[str, str]]:
+    """``v1_roles.yaml``, read once per process (it ships with the code; T-608)."""
+    import yaml
+
+    with open(_V1_ROLES_PATH, encoding="utf-8") as fh:
+        table: dict[str, dict[str, str]] = yaml.safe_load(fh) or {}
+    return table
+
+
 def v1_labels(
     prompt_id: str,
     version: int,
@@ -320,11 +338,7 @@ def v1_labels(
     prompt_sha: str = "",
 ) -> CallLabels:
     """Labels for a v1 ``chat_json`` call routed through the gateway (``tb_common.llm`` shim, one milestone)."""
-    import yaml
-
-    with open(_V1_ROLES_PATH, encoding="utf-8") as fh:
-        table: dict[str, dict[str, str]] = yaml.safe_load(fh) or {}
-    row = table.get(prompt_id)
+    row = _v1_roles().get(prompt_id)
     if row is None:
         raise ValueError(f"tb_llm: prompt {prompt_id!r} has no role in v1_roles.yaml")
     dc = data_class or os.environ.get("TB_DATA_CLASS") or ("D3" if phi else "D1")

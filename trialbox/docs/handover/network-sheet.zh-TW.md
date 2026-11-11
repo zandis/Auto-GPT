@@ -67,6 +67,7 @@
 
 | 機密 | 存放位置 | 提供給 |
 | --- | --- | --- |
+| model key | deploy/secrets/model/llm.key (0600) | gateway, model-guard only, at /run/secrets/tb_llm_key |
 | oidc_client_secret | deploy/secrets/authelia/oidc_client_secret.txt (0600, root) | console only, at /run/secrets/oidc_client_secret (OIDC on) |
 | service token: adapter | deploy/secrets/services/adapter.token (0600) | adapter only, at /run/secrets/tb_service_token |
 | service token: console | deploy/secrets/services/console.token (0600) | console only, at /run/secrets/tb_service_token |

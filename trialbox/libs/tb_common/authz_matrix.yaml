@@ -19,7 +19,7 @@
 # * ``permit`` is pure: no audit, no I/O. The caller audits.
 #
 # Sources: D-93, D-101, D-104, D-108, D-143, D-146, D-147, D-160, D-162, D-178, D-191, D-280 (OD-5), D-349 (T-512),
-# D-380 (T-102b), D-386 (T-622), D-395 (T-310b), D-425 (T-102c).
+# D-380 (T-102b), D-386 (T-622), D-395 (T-310b), D-425 (T-102c), D-440 (T-204), D-443 (T-112b).
 # D-280: the administrator (the IT operator) has no patient-level row; one patient or one job only through
 # break-glass (``console.breakglass``, the ``breakglass.*`` rows). D-380: the data steward and the privacy office
 # keep the opt-out register and the staff directory, and nobody else; the steward writes a study's first PI entry;
@@ -554,6 +554,28 @@ actions:
     privacy: false
 
 
+  # ---------------------------------------------------------------- the patient twin (T-204, D-440; console.twin_api)
+  # The route asks ``profile.read`` and ``Helpers.reads`` (``phi.view``, the delegation log); outside one's own rights
+  # only an open break-glass grant for the patient opens it (D-430), as on the patient page: the administrator (no
+  # patient-level row, D-280) reads a twin only under a grant.
+  profile.read:
+    what: read one study patient's twin through /api/v1 (pseudonymous, every read audited; T-204, D-440)
+    admin: false
+    coordinator: true
+    investigator: true
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
+  profile.research_layers:
+    what: see the twin's setpoint and gap layers (research use; empty until T-313)
+    admin: false
+    coordinator: false
+    investigator: [pi]
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
   # ---------------------------------------------------------------- registers and study set-up (D-380, T-102b)
   optout.keep:
     what: keep the research-use opt-out register (pseudonyms, a chart-number lookup; a lift needs a written reason)
@@ -656,6 +678,57 @@ actions:
     privacy: false
   conflicts.resolve:
     what: read and resolve the clinical conflicts of the whole database (/data/conflicts; T-201, D-426)
+    admin: false
+    coordinator: false
+    investigator: false
+    viewer: false
+    cro: false
+    steward: true
+    privacy: false
+  dataops.view:
+    what: read the nights of every data source, their states and trail (/data-ops, /api/v1/data/*; T-112b, D-443)
+    admin: true
+    coordinator: false
+    investigator: false
+    viewer: false
+    cro: false
+    steward: true
+    privacy: false
+  dataops.decide:
+    what: accept or reject a held night of a data source, with a reason (/data-ops; T-112b, D-443)
+    admin: false
+    coordinator: false
+    investigator: false
+    viewer: false
+    cro: false
+    steward: true
+    privacy: false
+
+  # ---------------------------------------------------------------- "criteria not matched" (D-446, T-310a)
+  # URS-PI-05: ten of the not-matched patients a week for the study's PI; a patient sent back is on the PI's weekly
+  # list again; where the list waits for the site's check, the steward records it. A sub-investigator samples and
+  # sends back only with the "screen" tick; a coordinator may send a patient back from the list (D-143), not answer the
+  # PI's sample.
+  notmatched.sample:
+    what: see and answer the study's weekly sample of ten criteria-not-matched patients (D-446, T-310a)
+    admin: false
+    coordinator: false
+    investigator: [pi, task:screen]
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
+  notmatched.send_back:
+    what: send a criteria-not-matched patient back to the PI's weekly list, from the list or the sample (D-143, D-446)
+    admin: false
+    coordinator: true
+    investigator: [pi, task:screen]
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
+  notmatched.check:
+    what: record whether the site's check (the dry run) of a study's criteria-not-matched list passed (D-446, FIT-007)
     admin: false
     coordinator: false
     investigator: false
