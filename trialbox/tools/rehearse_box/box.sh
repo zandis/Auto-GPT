@@ -147,10 +147,17 @@ install)
   (cd "$MEDIA" && sha256sum -c SHA256SUMS >/dev/null) || fail "the media's SHA256SUMS do not match"
   ok "media checksums match ($(wc -l < "$MEDIA/SHA256SUMS") files)"
   cd "$BOX" || exit 1
-  TB_COMPOSE_OVERRIDE="$BOX/tools/rehearse_box/standins.yml" TB_INSTALL_UP_TIMEOUT=900 \
+  # T-632: the site's feed folder on the host (a copy of the synthetic export), never the fixture in the release
+  install -d deploy/site && rm -rf deploy/site/feed-a && cp -r tests/fixtures/synthetic_patients/site-a deploy/site/feed-a \
+    || fail "cannot stage the feed folder"
+  TB_TLS_CHECK_ADDR="${TB_RH_TLS_ADDR:-127.0.0.1}" TB_COMPOSE_OVERRIDE="$BOX/tools/rehearse_box/standins.yml" TB_INSTALL_UP_TIMEOUT=900 \
     deploy/install.sh "$BUNDLE" --tier large --answers "$BOX/tools/rehearse_box/site_answers.yaml" --ctgov offline --yes \
     || fail "deploy/install.sh failed"
   grep -q '^TB_LLM_API_KEY=.\{32,\}' deploy/.env || fail "install.sh made no model-server key"
+  [ -f deploy/site/mapping/tw_core/rehearsal_a.yaml ] || fail "the site mapping is not in deploy/site/mapping"
+  grep -q '^TB_SOURCE_DIR=./site/feed-a' deploy/.env || fail "the wizard wrote no feed folder"
+  grep -q '^TB_TLS_HOSTNAME=trialbox.hospa.test' deploy/.env || fail "TLS is not on"
+  ok "site inputs: mapping in deploy/site/mapping (not the image), feed folder mounted, TLS on"
   wait_healthy 300
   ;;
 
@@ -287,13 +294,15 @@ EOF
 
 # ------------------------------------------------------------------------------------------------ console
 console)
-  port="$(envget TB_HOST_CONSOLE_PORT)"; port="${port:-8090}"
-  for _ in $(seq 1 24); do curl -fsS -m 10 "http://127.0.0.1:$port/healthz" && break; sleep 5; done
-  curl -fsS -m 10 "http://127.0.0.1:$port/healthz" || fail "console /healthz on 127.0.0.1:$port"
+  # T-632: the console is reached only at https://TB_TLS_HOSTNAME through Caddy, with Caddy's root certificate
+  host="$(envget TB_TLS_HOSTNAME)"; base="https://$host"
+  get=(curl -fsS -m 10 --cacert "$BOX/deploy/secrets/tls/caddy-root.crt" --resolve "$host:443:${TB_RH_TLS_ADDR:-127.0.0.1}")
+  for _ in $(seq 1 24); do "${get[@]}" "$base/healthz" && break; sleep 5; done
+  "${get[@]}" "$base/healthz" || fail "console /healthz at $base"
   echo
-  code="$(curl -s -o "$W/login.html" -w '%{http_code}' -m 10 "http://127.0.0.1:$port/login")"
+  code="$("${get[@]/-fsS/-s}" -o "$W/login.html" -w '%{http_code}' "$base/login")"
   [ "$code" = 200 ] && grep -qi "password" "$W/login.html" || fail "console sign-in page: HTTP $code"
-  ok "console up on 127.0.0.1:$port: /healthz and the sign-in page"
+  ok "console up at $base: /healthz and the sign-in page (certificate checked)"
   # console-net (D-176) carries the published port only: no outside name resolves, nothing outside answers, the box's
   # own names still do. The rehearsal host has no NET_ADMIN, so deploy/network.sh is not applied: the compose file
   # alone must hold.

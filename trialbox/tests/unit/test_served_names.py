@@ -31,6 +31,7 @@ from tools import complete_run, pin_model, scenarios
 ROOT = Path(__file__).resolve().parents[2]
 COMPOSE = {g: ROOT / "deploy" / f"docker-compose.{g}.yml" for g in ("rtxpro6000", "gb10", "rtx5090")}
 COMPOSE["rtx4090"] = COMPOSE["rtx5090"]  # the 24 GB card runs the 5090 file with the verifier scaled to 0
+COMPOSE["shared-quota"] = ROOT / "deploy" / "docker-compose.shared-quota.yml"  # D-409: the Docker form of the B200
 JUDGE_URL, VERIFIER_URL = "http://127.0.0.1:8080/judge/v1", "http://127.0.0.1:8080/verifier/v1"
 JUDGE_VARS: dict[str, Any] = {
     "criterion_text": "Gout flare now",

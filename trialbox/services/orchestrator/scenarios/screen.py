@@ -63,6 +63,7 @@ SELECT p.pid, CAST(a.next_appt AS VARCHAR) AS next_appt, coalesce(a.pr, e.pr) AS
 FROM patient p LEFT JOIN a ON a.pid = p.pid LEFT JOIN e ON e.pid = p.pid
 WHERE (a.pid IS NOT NULL OR e.pid IS NOT NULL)
   AND (p.deceased_date IS NULL OR p.deceased_date > CAST($2 AS DATE))
+  AND (p.deceased_date IS NOT NULL OR p.deceased IS NOT TRUE)
 ORDER BY p.pid
 """
 
