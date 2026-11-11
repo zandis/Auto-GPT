@@ -205,7 +205,8 @@ class LlmClient:
         phi_guard_hit: bool | None = None,
         data_class: str | None = None,
     ) -> LlmResult:
-        prompt = load_prompt(prompt_id)
+        # a gateway client may name the environment of the box it stands for (tools.scenarios): its served prompt
+        prompt = load_prompt(prompt_id, getattr(self.gateway, "prompt_environment", None))
         schema_name = schema or prompt.meta.output_schema
         json_schema = inline_schema(schema_name)
         messages = render(prompt, variables)

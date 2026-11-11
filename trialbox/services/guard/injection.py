@@ -146,8 +146,8 @@ def sentence_spans(text: str, s: Screen) -> list[tuple[int, int]]:
         start = 0
         for m in _SENTENCE_END.finditer(text, 0, f.start):
             start = m.end()
-        m = _SENTENCE_END.search(text, f.end)
-        end = m.end() if m else len(text)
+        stop = _SENTENCE_END.search(text, f.end)
+        end = stop.end() if stop else len(text)
         if out and start <= out[-1][1]:
             out[-1] = (out[-1][0], max(out[-1][1], end))
         else:

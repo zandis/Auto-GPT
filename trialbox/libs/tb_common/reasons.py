@@ -179,6 +179,11 @@ LABELS: dict[str, dict[str, str]] = {
         "ja": "承認済みの判定と現在の安全ルールの結果が異なる：確認してください",
         "zh-TW": "已核准的判定與目前的安全規則結果不同：請確認",
     },
+    "planted_instruction": {
+        "en": "the model quoted a sentence written as an instruction to it, not a finding: please check the note",
+        "ja": "モデルへの指示のような文を根拠として引用：所見ではないため、記録を確認してください",
+        "zh-TW": "模型引用了像是給它的指令的句子，而非臨床發現：請確認病歷",
+    },
 }
 
 
