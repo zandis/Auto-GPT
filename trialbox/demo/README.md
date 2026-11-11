@@ -109,6 +109,10 @@ order).
 * **Kept data.** Each site keeps its folder (`TB_DEMO_KEEP=1`) on a separate persistent disk, so a restart, a stop
   or a rebuild of the VM keeps accounts, marks and feedback. A snapshot schedule copies the disk daily at 01:00
   Taipei and keeps 70 days.
+* **No second factor on the PoC (D-424).** The owner chose sign-in by password alone for the PoC: the boot script sets
+  `TB_DEMO_HOSTED=1` and `TB_CONSOLE_MFA=off`. The console writes `console.mfa_off` to the audit at each start and the
+  sign-in page says "Second factor is off on this demo box" (en, ja, zh-TW). The same setting is refused in
+  VALIDATION and PRODUCTION. To turn TOTP back on, see the table below; each tester then enrols at the next sign-in.
 
 The owner's steps, once:
 
@@ -130,6 +134,7 @@ hand them out, then delete the file. Later:
 | Destroy and rebuild the VM from the tag (the data disk stays; a snapshot first) | `poc-host.sh rebuild --yes` |
 | Reset one site (it seeds afresh) | `poc-host.sh reset jp --yes` |
 | What runs, the disk, the snapshots | `poc-host.sh status` |
+| Turn the second factor back on (D-424) | `gcloud compute instances add-metadata tb-poc --zone asia-east1-b --metadata tb-console-mfa=totp`, then `gcloud compute instances reset tb-poc --zone asia-east1-b` (the boot script runs again; data is kept) |
 | Pause the cost (disks and snapshots stay, about US$5 a month) | `gcloud compute instances stop tb-poc --zone asia-east1-b` |
 | End of life: delete the VM, the disk, every snapshot, the image, the secrets and the Cloudflare entries, check nothing is left, write a record | `poc-host.sh purge --yes` |
 

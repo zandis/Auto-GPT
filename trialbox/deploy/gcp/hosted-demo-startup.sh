@@ -15,6 +15,9 @@
 #               /login without a front-door session.
 #   TLS         the browser gets the public certificate of the real host name at the Cloudflare edge; the tunnel
 #               reaches Caddy over TLS (Caddy's own CA, `tls internal`, checked by cloudflared). Secure cookies on.
+#   2nd factor  off by default on this demo (D-424, the owner's PoC choice): TB_DEMO_HOSTED=1 and TB_CONSOLE_MFA=off;
+#               the console writes console.mfa_off at start-up and the sign-in page says so. To turn it back on, set
+#               metadata tb-console-mfa=totp and run this script again (or reboot); each tester then enrols at sign-in.
 #   secrets     from Secret Manager with the VM's own service account, into root-only files: <prefix>-tunnel-token,
 #               <prefix>-accounts-<site> (the T-505b accounts file), <prefix>-owner-password (optional). Never put
 #               in metadata, never on a command line, never printed.
@@ -28,7 +31,7 @@
 # moving tag; OPS-008). The public-data site (tools.public_e2e) is not on the PoC host (D-330).
 set -euo pipefail
 
-usage() { sed -n 2,26p "$0"; }
+usage() { sed -n 2,29p "$0"; }
 DRY=0; PRINT_CADDY=0; RESET_SITE=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -81,6 +84,7 @@ PREFIX=$(md tb-secret-prefix tb-poc)
 DISK=$(md tb-data-disk tb-poc-data)
 CADDY_IMAGE=$(md tb-caddy-image "$CADDY_IMAGE_PIN")
 CLOUDFLARED_IMAGE=$(md tb-cloudflared-image "$CLOUDFLARED_IMAGE_PIN")
+CONSOLE_MFA=$(md tb-console-mfa off)  # D-424: off for the PoC; totp turns the second factor back on
 if [ "$DRY" = 1 ]; then PROJECT=${TB_MD_PROJECT_ID:-"<project>"}; else
   PROJECT=$(curl -sf -H Metadata-Flavor:Google "$MD/project/project-id")
 fi
@@ -88,6 +92,7 @@ fi
 [ -n "$DOMAIN" ] || die "metadata tb-domain is empty (the host names are SITE.<tb-domain>)"
 [[ "$DOMAIN" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]] || die "metadata tb-domain is not a host name: $DOMAIN"
 [[ "$PREFIX" =~ ^[a-z][a-z0-9-]*$ ]] || die "metadata tb-secret-prefix is not a plain name: $PREFIX"
+case "$CONSOLE_MFA" in totp | off) ;; *) die "metadata tb-console-mfa must be totp or off, not '$CONSOLE_MFA'" ;; esac
 
 # the sites, in order: name, language, zone, local port
 SITE_NAMES=(); SITE_LANGS=(); SITE_ZONES=(); SITE_PORTS=()
@@ -192,6 +197,8 @@ TB_DEMO_LANG=${SITE_LANGS[$i]}
 TB_TZ=${SITE_ZONES[$i]}
 TB_CONSOLE_SECURE_COOKIE=1
 TB_CONSOLE_PUBLIC_URL=https://$s.$DOMAIN
+TB_DEMO_HOSTED=1
+TB_CONSOLE_MFA=$CONSOLE_MFA
 $extra
 ENV
   if secret_exists "$PREFIX-owner-password"; then

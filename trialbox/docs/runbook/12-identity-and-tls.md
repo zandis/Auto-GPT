@@ -26,7 +26,7 @@ bind account, the AD groups to map (below) and LDAPS (636) from the box to a dom
 4. Open `https://<TB_TLS_HOSTNAME>/login` from a clinic PC: no certificate warning.
 
 **Local accounts (TOTP, the default).** `TB_CONSOLE_MFA=totp` is the default and can be turned off only in DEV and
-TEST. An account sets up its authenticator only with a one-time **enrolment code** from an administrator (valid 24
+TEST, and on the hosted PoC demo (`TB_DEMO_HOSTED=1`, D-424; never in VALIDATION or PRODUCTION). An account sets up its authenticator only with a one-time **enrolment code** from an administrator (valid 24
 hours, works once): after the password the console shows a key, the person adds it to an authenticator app (or a
 hospital device) and types the enrolment code and the app's code. Without a valid enrolment code an account with no
 authenticator cannot sign in at all, so knowing a password is never enough to register a device. Every later sign-in
