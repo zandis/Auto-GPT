@@ -1,0 +1,14 @@
+# TrialBox host logs (D-389, OPS-037). Installed by deploy/install.sh as /etc/logrotate.d/trialbox.
+# The cron jobs append to these files (`>> file 2>&1`) and reopen them each run, so a plain rotation is safe.
+# Weekly, 53 kept: a little more than the 365 days of retention.logs_days. The container logs are rotated by docker
+# (TB_LOG_MAX_SIZE x TB_LOG_MAX_FILE) and copied each day by `trialbox logs daily`, not here.
+/var/log/trialbox-*.log {
+    weekly
+    rotate 53
+    maxsize 50M
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 root root
+}

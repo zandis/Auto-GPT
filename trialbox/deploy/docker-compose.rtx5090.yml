@@ -44,7 +44,7 @@
 x-vllm-5090: &vllm5090
   logging:
     driver: json-file
-    options: {max-size: "50m", max-file: "5"}
+    options: {max-size: "${TB_LOG_MAX_SIZE:-100m}", max-file: "${TB_LOG_MAX_FILE:-10}"}  # D-389
   profiles: [gpu]
   image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}
   environment:
