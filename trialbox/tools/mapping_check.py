@@ -6,10 +6,17 @@ reports
 * **missing columns** — canonical columns the resource definitions read that the source does not provide;
 * **unmapped codes** — lab codes missing from the lab lookup, values outside an element's ``map`` (they fall back to
   the element default), values outside the table's ``values`` maps;
-* **structural errors** — produced resources that fail the FHIR R4B models or miss SPEC §3.1 required elements.
+* **structural errors** — produced resources that fail the FHIR R4B models or miss SPEC §3.1 required elements;
+* **unit pairs** (D-334, STD-001) — every (lab code, row unit) pair of a quantity result and how it is read: the
+  lookup's unit, no unit (read in the lookup's unit), or a mismatch that leaves the row without a value; for a
+  mismatch, the tested factor from ``tb_common.labvalue.conversion`` the lookup's ``source_unit`` / ``factor`` could
+  declare, or "no tested factor";
+* **qualitative values** (D-334, STD-022) — every distinct raw text of a coded result and what it reads as: the
+  site's own answer, the shared ja / zh-TW / en table, unsettled, or not recognised (stays text, unknown);
+* **unit defaults** — a ``unit_defaults`` line that is not the lab lookup's unit for the same LOINC code.
 
-Exit status 1 when a column is missing or a resource is structurally invalid; unmapped codes are warnings for the
-lab / HIS team.
+Exit status 1 when a column is missing, a resource is structurally invalid or a unit default contradicts the lookup;
+unmapped codes, unit mismatches and unread qualitative values are warnings for the lab / HIS team.
 
     python tools/mapping_check.py --mapping services/adapter/mapping/tw_core/<site>.yaml --source csv --path <dir>
     python tools/mapping_check.py --mapping ... --source cgrd_sql --dsn "$HIS_DSN"
@@ -65,6 +72,111 @@ def _patient_columns(elements: dict[str, Any]) -> set[str]:
     return out
 
 
+def lab_value_args(m: Any, table: str) -> dict[str, Any] | None:
+    """The ``lab_value`` builder's arguments on a resource of ``table`` (lookup, key, column, unit_column), or None."""
+    for spec in m.resources:
+        if spec.table != table:
+            continue
+        for expr in spec.elements.values():
+            if isinstance(expr, dict) and expr.get("builder") == "lab_value":
+                return dict(expr)
+    return None
+
+
+def _loinc(lk_row: dict[str, Any]) -> str | None:
+    return str(lk_row.get("code") or "") or None if lk_row.get("system") == "loinc" else None
+
+
+def unit_pairs(m: Any, args: dict[str, Any], got: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every (lab code, row unit) pair of a quantity result, how the adapter reads it, and for a mismatch the tested
+    factor that would turn the row's unit into the unit the lookup expects (D-334)."""
+    from decimal import Decimal
+
+    from tb_common import labvalue
+
+    lk = m.lookups[args["lookup"]]
+    col = args.get("unit_column")
+    seen: Counter[tuple[str, str]] = Counter()
+    for row in got:
+        code = str(row.get(args["key"]) or "")
+        hit = lk.rows.get(code)
+        if hit is None or hit.get("value_type") == "coded" or str(row.get(args["column"]) or "").strip() == "":
+            continue
+        seen[(code, str(row.get(col) or "").strip() if col else "")] += 1
+    out: list[dict[str, Any]] = []
+    for (code, unit), n in sorted(seen.items()):
+        hit = lk.rows[code]
+        factor = Decimal(hit.get("factor") or "1")
+        expected = hit.get("source_unit") or (hit.get("ucum") if factor == 1 else None)
+        item: dict[str, Any] = {
+            "code": code,
+            "loinc": _loinc(hit),
+            "row_unit": unit,
+            "lookup_unit": expected,
+            "rows": n,
+        }
+        agree = labvalue.units_agree(unit, expected) if col else None
+        if agree is None:
+            item["read"] = "no unit: read in the lookup's unit" if col else "not checked: no unit_column"
+        elif agree:
+            item["read"] = "same unit"
+        else:
+            item["read"] = "unit_mismatch: no value"
+            to = hit.get("ucum") or expected  # the unit the lookup writes
+            k = labvalue.conversion(unit, to, _loinc(hit)) if to else None
+            item["factor"] = k
+            item["proposal"] = (
+                f"if {code} is reported in {unit}: source_unit {unit}, factor {k} (then ucum {to})"
+                if k is not None
+                else "no tested factor: the lab team fixes the export or the lookup"
+            )
+        out.append(item)
+    return out
+
+
+def qualitative_values(m: Any, args: dict[str, Any], got: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every distinct raw text of a coded result and what it reads as (D-334, STD-022)."""
+    from tb_common import labvalue
+
+    lk = m.lookups[args["lookup"]]
+    seen: Counter[tuple[str, str]] = Counter()
+    for row in got:
+        code = str(row.get(args["key"]) or "")
+        hit = lk.rows.get(code)
+        raw = str(row.get(args["column"]) or "").strip()
+        if hit is not None and hit.get("value_type") == "coded" and raw:
+            seen[(code, raw)] += 1
+    out: list[dict[str, Any]] = []
+    for (code, raw), n in sorted(seen.items()):
+        answers = dict(a.split(":", 1) for a in (lk.rows[code].get("answers") or "").split(";") if ":" in a)
+        key = labvalue.answer_key(raw, answers)
+        if key is not None:
+            how = "site answer" if raw.upper() in answers else "shared table"
+            read = f"{key} ({how})"
+        elif labvalue.presence(raw) == labvalue.UNSETTLED:
+            read = "unknown (unsettled on purpose)"
+        else:
+            read = "unknown (not recognised: stays text)"
+        out.append({"code": code, "loinc": _loinc(lk.rows[code]), "raw": raw, "rows": n, "read": read})
+    return out
+
+
+def unit_default_conflicts(m: Any) -> list[str]:
+    """``unit_defaults`` lines that are not the lab lookup's ``ucum`` for the same LOINC code (D-149, D-334)."""
+    from tb_common import labvalue
+
+    out: list[str] = []
+    lk = m.lookups.get("lab")
+    if lk is None:
+        return out
+    for row in lk.rows.values():
+        loinc, unit = _loinc(row), row.get("ucum") or ""
+        default = m.unit_defaults.get(loinc or "")
+        if default is not None and unit and labvalue.ucum(default) != labvalue.ucum(unit):
+            out.append(f"unit_defaults {loinc}: {default} but the lab lookup writes {unit} ({row.get('local_code')})")
+    return sorted(set(out))
+
+
 def check(mapping_path: Path, source_kind: str, where: str, rows: int = 500) -> dict[str, Any]:
     from adapter.mapping.engine import Mapper, Mapping
     from adapter.pipeline import make_source
@@ -74,6 +186,7 @@ def check(mapping_path: Path, source_kind: str, where: str, rows: int = 500) -> 
     src = make_source(source_kind, where)
     mapper = Mapper(m, b"mapping-check-key-0123456789abcdef", "CHECK")
     report: dict[str, Any] = {"mapping": str(mapping_path), "tables": {}, "missing_columns": 0, "invalid": 0}
+    report["unit_default_conflicts"] = unit_default_conflicts(m)
     validator = StructuralValidator()
     for table, tspec in m.tables.items():
         specs = [r for r in m.resources if r.table == table]
@@ -121,6 +234,10 @@ def check(mapping_path: Path, source_kind: str, where: str, rows: int = 500) -> 
                 if code not in (None, "") and str(code) not in lk.rows:
                     unmapped[f"lab {lk.key}={code} (not in lookup)"] += 1
         t["unmapped_codes"] = dict(unmapped.most_common(20))
+        args = lab_value_args(m, table)
+        if args is not None and args.get("lookup") in m.lookups:
+            t["unit_pairs"] = unit_pairs(m, args, got)
+            t["qualitative_values"] = qualitative_values(m, args, got)
         # D-130 (review F-10): diagnoses without an ICD-10 code and medicines without ATC reach the lake in a code
         # system no ValueSet reads; screening keeps those patients unknown, so the site should know the share now
         col = UNREADABLE.get(table)
@@ -136,7 +253,9 @@ def check(mapping_path: Path, source_kind: str, where: str, rows: int = 500) -> 
         t["structural_errors"] = res.messages[:10]
         report["invalid"] += res.errors
         report["tables"][table] = t
-    report["passed"] = report["missing_columns"] == 0 and report["invalid"] == 0
+    report["passed"] = (
+        report["missing_columns"] == 0 and report["invalid"] == 0 and not report["unit_default_conflicts"]
+    )
     return report
 
 
@@ -169,6 +288,15 @@ def main(argv: list[str] | None = None) -> int:
             if t.get("note"):
                 line += f"  ({t['note']})"
             print(line)
+            for p in t.get("unit_pairs") or []:
+                if p["read"] != "same unit":
+                    extra = f"  {p['proposal']}" if p.get("proposal") else ""
+                    pair = f"{p['code']} [{p['row_unit'] or '-'}] vs {p['lookup_unit']}"
+                    print(f"    unit  {pair}: {p['read']} ×{p['rows']}{extra}")
+            for q in t.get("qualitative_values") or []:
+                print(f"    value {q['code']} {q['raw']!r}: {q['read']} ×{q['rows']}")
+        for c in rep["unit_default_conflicts"]:
+            print(f"UNIT DEFAULT {c}")
         print(
             f"{'PASSED' if rep['passed'] else 'FAILED'}: {rep['missing_columns']} missing columns, "
             f"{rep['invalid']} invalid resources"
