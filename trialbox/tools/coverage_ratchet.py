@@ -123,7 +123,7 @@ def _fmt(value: float | None) -> str:
 
 
 def _delta(now: float | None, base: float | None) -> str:
-    return "-" if now is None or base is None else f"{now - base:+.1f}"
+    return "-" if now is None or base is None else f"{round(now - base, 1) + 0.0:+.1f}"  # no "-0.0"
 
 
 def check(

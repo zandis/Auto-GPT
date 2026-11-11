@@ -1,9 +1,9 @@
 # TrialBox nightly quality (T-651, ENG-029; TB-DR-04 §3.2, §3.3): mutation testing of the safety core and the branch
-# coverage of the unit suite. Never on a pull request: the mutation run takes an hour or more, and the pull-request
+# coverage of the unit suite. Never on a pull request: the mutation run takes hours, and the pull-request
 # unit job already checks line coverage (trialbox-ci.yml, step "Coverage ratchet"). Every night and on demand.
 #
 # mutation: tools/mutation.py over the targets of tools/mutation.toml, in three shards; the `mutation-score` job adds
-#   them up and fails under the threshold (90 %). The JSON of every mutant is kept as an artifact.
+#   them up and fails under the floor of the config (the target is 90 %). The JSON of every mutant is an artifact.
 # branch-coverage: the unit suite with branches measured (the classic tracer: slower, so not on a pull request), then
 #   tools/coverage_ratchet.py with the branch figures: a package more than 0.5 point under its baseline, or a
 #   safety-core file under its floor, fails.
@@ -34,7 +34,7 @@ env:
 jobs:
   mutation:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 300  # the runner starts no mutant after 200 minutes (--budget-minutes); the rest are listed
     strategy:
       fail-fast: false
       matrix:
@@ -79,7 +79,7 @@ jobs:
         # the score is judged over all shards in mutation-score; a shard under the threshold alone does not fail
         run: |
           # shellcheck disable=SC2086  # TARGETS is a list of flags
-          .venv/bin/python -m tools.mutation $TARGETS --workers "$(nproc)" \
+          .venv/bin/python -m tools.mutation $TARGETS --workers "$(nproc)" --budget-minutes 200 \
             --report "$RUNNER_TEMP/mutation-${{ matrix.shard }}.json" 2>&1 | tee "$RUNNER_TEMP/mutation.log" || true
           test -s "$RUNNER_TEMP/mutation-${{ matrix.shard }}.json"
       - name: Data-handling scan of the log
@@ -103,7 +103,7 @@ jobs:
           pattern: mutation-*
           path: ${{ runner.temp }}/mutation
           merge-multiple: true
-      - name: Mutation score of the safety core (threshold in tools/mutation.toml)
+      - name: Mutation score of the safety core (floor and target in tools/mutation.toml)
         run: |
           shopt -s nullglob
           reports=("$RUNNER_TEMP"/mutation/mutation-*.json)

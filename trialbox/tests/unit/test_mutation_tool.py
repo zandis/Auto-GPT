@@ -63,11 +63,13 @@ def test_the_score_counts_timeouts_as_killed_and_leaves_accepted_out() -> None:
         mt.Result("c", "survived"),
         mt.Result("d", "accepted"),
         mt.Result("e", "no-coverage"),
+        mt.Result("g", "not-run"),  # out of time: listed, not scored
     ]
     score, counts = mt.score(results)
     assert score == pytest.approx(50.0) and counts["accepted"] == 1
-    text = mt.table([mt.Result("f.py:1:0:x", "survived"), mt.Result("f.py:2:0:y", "killed")], 90.0)
-    assert "NOT met" in text and "`f.py:1:0:x` (survived)" in text
+    text = mt.table([mt.Result("f.py:1:0:x", "survived"), mt.Result("f.py:2:0:y", "killed")], 90.0, 40.0)
+    assert "not met yet" in text and "Floor 40.0 %" in text and "held" in text
+    assert "`f.py:1:0:x` (survived)" in text
 
 
 def test_the_runner_kills_what_the_tests_see_and_reports_what_they_do_not(
@@ -88,6 +90,7 @@ def test_the_runner_kills_what_the_tests_see_and_reports_what_they_do_not(
     )
     config = mt.Config(
         threshold=90.0,
+        floor=50.0,
         targets=[mt.Target("mod.py", ["test_mod.py"])],
         accepted={"mod.py:8:11:cmp:Eq->NotEq": "an example", "mod.py:99:0:gone": "stale"},
     )
@@ -103,25 +106,26 @@ def test_the_runner_kills_what_the_tests_see_and_reports_what_they_do_not(
     assert not list((tmp_path / "scratch").glob("tb-mutation-*"))  # the worker trees are gone
 
 
-def test_shard_reports_merge_into_one_score(tmp_path: Path) -> None:
+def test_shard_reports_merge_into_one_score_and_the_floor_decides(tmp_path: Path) -> None:
     for i, status in enumerate(("killed", "survived")):
-        (tmp_path / f"m{i}.json").write_text(
-            json.dumps(
-                {
-                    "results": [{"mutant": f"f{i}.py:1:0:x", "status": status, "seconds": 1.0}],
-                    "meta": {"targets": {f"f{i}.py": {}}, "stale_accepted": []},
-                }
-            ),
-            encoding="utf-8",
-        )
+        data = {
+            "results": [{"mutant": f"f{i}.py:1:0:x", "status": status, "seconds": 1.0}],
+            "meta": {"targets": {f"f{i}.py": {}}, "stale_accepted": []},
+        }
+        (tmp_path / f"m{i}.json").write_text(json.dumps(data), encoding="utf-8")
+    shards = [str(tmp_path / "m0.json"), str(tmp_path / "m1.json")]
     out = tmp_path / "all.json"
-    rc = mt.main(["--merge", str(tmp_path / "m0.json"), str(tmp_path / "m1.json"), "--report", str(out)])
-    assert rc == 1 and json.loads(out.read_text(encoding="utf-8"))["score"] == 50.0
+    for floor, rc in ((60.0, 1), (50.0, 0)):
+        cfg = tmp_path / "mutation.toml"
+        cfg.write_text(f"threshold = 90.0\nfloor = {floor}\n", encoding="utf-8")
+        assert mt.main(["--config", str(cfg), "--merge", *shards, "--report", str(out)]) == rc
+    report = json.loads(out.read_text(encoding="utf-8"))
+    assert report["score"] == 50.0 and report["floor"] == 50.0 and report["threshold"] == 90.0
 
 
 def test_the_config_names_the_safety_core_and_every_target_exists() -> None:
     config = mt.load_config()
-    assert config.threshold >= 90.0
+    assert config.threshold >= 90.0 and config.floor <= config.threshold
     assert "services/matching/proposed.py" in config.safety_core and len(config.safety_core) == 18
     for f in config.safety_core:
         assert (ROOT / f).is_file(), f

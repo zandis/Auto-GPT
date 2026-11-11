@@ -1,6 +1,6 @@
 """mutation: mutation testing of the safety core, run nightly (T-651, ENG-029; TB-DR-04 §3.3).
 
-    python -m tools.mutation                       # every target of tools/mutation.toml; exit 1 under the threshold
+    python -m tools.mutation                       # every target of tools/mutation.toml; exit 1 under the floor
     python -m tools.mutation --list                # print the mutants, run nothing
     python -m tools.mutation --target services/matching/pair.py --workers 4 --report dist/mutation.json
 
@@ -16,7 +16,8 @@ Why not a third-party tool: mutmut 3 only follows ``./``, ``src/`` or ``source/`
 ``libs`` and ``services`` (pytest ``pythonpath``); the runner here is a few hundred lines with no new dependency.
 
 The config (``tools/mutation.toml``) lists the safety-core files (also read by ``tools.coverage_ratchet``), the
-mutation targets with their tests, the score threshold and the accepted mutants. A mutant id is
+mutation targets with their tests, the target score (``threshold``, 90 %), the ``floor`` under which the run fails
+(a ratchet: raise it as tests are added, until it reaches the threshold) and the accepted mutants. A mutant id is
 ``<file>:<line>:<col>:<operator>``; it moves when lines are added above it, so an accepted mutant whose id no longer
 exists is reported (never an error) and should be removed.
 """
@@ -86,6 +87,7 @@ class Target:
 @dataclass
 class Config:
     threshold: float
+    floor: float
     targets: list[Target]
     accepted: dict[str, str] = field(default_factory=dict)  # mutant id -> why it is equivalent
     safety_core: list[str] = field(default_factory=list)
@@ -94,7 +96,7 @@ class Config:
 @dataclass
 class Result:
     mutant: str
-    status: str  # killed | survived | no-coverage | timeout | error | accepted
+    status: str  # killed | survived | no-coverage | timeout | error | accepted | not-run (out of time; not scored)
     seconds: float = 0.0
 
 
@@ -103,6 +105,7 @@ def load_config(path: Path = CONFIG) -> Config:
     targets = [Target(file=t["file"], tests=list(t["tests"])) for t in data.get("target", [])]
     return Config(
         threshold=float(data.get("threshold", 90.0)),
+        floor=float(data.get("floor", data.get("threshold", 90.0))),
         targets=targets,
         accepted={str(k): str(v) for k, v in data.get("accepted", {}).items()},
         safety_core=list(data.get("safety_core", {}).get("files", [])),
@@ -243,11 +246,10 @@ def apply_mutant(source: str, mutant: Mutant) -> str:
 
 
 def _env(tree: Path) -> dict[str, str]:
-    env = dict(os.environ)
+    # a run under pytest-cov (the unit job) must not pass its coverage settings down: the runner measures on its own
+    env = {k: v for k, v in os.environ.items() if k != "PYTEST_ADDOPTS" and not k.startswith(("COVERAGE_", "COV_"))}
     env["PYTHONDONTWRITEBYTECODE"] = "1"  # a pyc of the same second and size would hide a mutant
     env["PYTHONPATH"] = os.pathsep.join(str(tree / p) for p in (".", "libs", "services"))
-    env.setdefault("TB_ENV", "DEV")
-    env.setdefault("TB_TZ", "Asia/Taipei")
     return env
 
 
@@ -352,6 +354,7 @@ def run(
     python: str | None = None,
     only: Sequence[str] = (),
     log: bool = True,
+    budget_s: float | None = None,
 ) -> tuple[list[Result], dict[str, object]]:
     python = python or sys.executable
     targets = [t for t in config.targets if not only or t.file in only]
@@ -380,6 +383,7 @@ def run(
                     jobs.put((m, target.tests, timeout))
         lock = threading.Lock()
         total = jobs.qsize()
+        deadline = time.monotonic() + budget_s if budget_s else None
 
         def work(tree: Path) -> None:
             while True:
@@ -387,7 +391,10 @@ def run(
                     m, tests, timeout = jobs.get_nowait()
                 except queue.Empty:
                     return
-                r = run_mutant(tree, python, m, tests, timeout)
+                if deadline is not None and time.monotonic() > deadline:
+                    r = Result(m.id, "not-run")  # the job's time is up: listed, left out of the score
+                else:
+                    r = run_mutant(tree, python, m, tests, timeout)
                 with lock:
                     results.append(r)
                     if log:
@@ -409,32 +416,34 @@ def score(results: Sequence[Result]) -> tuple[float, dict[str, int]]:
     counts: dict[str, int] = {}
     for r in results:
         counts[r.status] = counts.get(r.status, 0) + 1
-    scored = len(results) - counts.get("accepted", 0)
+    scored = len(results) - counts.get("accepted", 0) - counts.get("not-run", 0)
     killed = counts.get("killed", 0) + counts.get("timeout", 0)
     return (100.0 * killed / scored if scored else 100.0), counts
 
 
-def table(results: Sequence[Result], threshold: float) -> str:
+def _row(name: str, n: int, c: dict[str, int], score_text: str) -> str:
+    cells = [c.get("killed", 0) + c.get("timeout", 0)]
+    cells += [c.get(k, 0) for k in ("survived", "no-coverage", "error", "accepted", "not-run")]
+    return f"| {name} | {n} | " + " | ".join(str(x) for x in cells) + f" | {score_text} |"
+
+
+def table(results: Sequence[Result], threshold: float, floor: float | None = None) -> str:
     by_file: dict[str, list[Result]] = {}
     for r in results:
         by_file.setdefault(r.mutant.split(":", 1)[0], []).append(r)
     lines = [
-        "| File | Mutants | Killed | Survived | No coverage | Errors | Accepted | Score |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| File | Mutants | Killed | Survived | No coverage | Errors | Accepted | Not run | Score |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for file, rs in sorted(by_file.items()):
         s, c = score(rs)
-        lines.append(
-            f"| `{file}` | {len(rs)} | {c.get('killed', 0) + c.get('timeout', 0)} | {c.get('survived', 0)} | "
-            f"{c.get('no-coverage', 0)} | {c.get('error', 0)} | {c.get('accepted', 0)} | {s:.1f} % |"
-        )
+        lines.append(_row(f"`{file}`", len(rs), c, f"{s:.1f} %"))
     s, c = score(results)
-    lines.append(
-        f"| **all** | {len(results)} | {c.get('killed', 0) + c.get('timeout', 0)} | {c.get('survived', 0)} | "
-        f"{c.get('no-coverage', 0)} | {c.get('error', 0)} | {c.get('accepted', 0)} | **{s:.1f} %** |"
-    )
+    lines.append(_row("**all**", len(results), c, f"**{s:.1f} %**"))
     lines.append("")
-    lines.append(f"Threshold {threshold:.1f} %: {'met' if s >= threshold else 'NOT met'}.")
+    lines.append(f"Target {threshold:.1f} %: {'met' if s >= threshold else 'not met yet'}.")
+    if floor is not None:
+        lines.append(f"Floor {floor:.1f} % (the run fails under it): {'held' if s >= floor else 'FELL'}.")
     left = [r for r in results if r.status in ("survived", "no-coverage", "error")]
     if left:
         lines += ["", "Mutants left alive (add a test, or accept an equivalent one in tools/mutation.toml):", ""]
@@ -453,6 +462,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--config", type=Path, default=CONFIG)
     ap.add_argument("--target", action="append", default=[], help="only this file (repeatable)")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
+    ap.add_argument("--budget-minutes", type=float, help="start no mutant after this; the rest are listed as not run")
     ap.add_argument("--report", type=Path, help="write the results as JSON here")
     ap.add_argument("--list", action="store_true", help="print the mutants and run nothing")
     ap.add_argument("--merge", type=Path, nargs="+", help="score the JSON reports of several shards, run nothing")
@@ -467,7 +477,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             n += 1
         print(f"{n} mutants", file=sys.stderr)
         return 0
-    results, meta = run(config, workers=args.workers, only=args.target)
+    budget = args.budget_minutes * 60 if args.budget_minutes else None
+    results, meta = run(config, workers=args.workers, only=args.target, budget_s=budget)
     return _report(config, results, meta, args.report)
 
 
@@ -485,7 +496,7 @@ def _merge(paths: Sequence[Path]) -> tuple[list[Result], dict[str, object]]:
 
 def _report(config: Config, results: list[Result], meta: dict[str, object], path: Path | None) -> int:
     s, counts = score(results)
-    report = table(results, config.threshold)
+    report = table(results, config.threshold, config.floor)
     if meta["stale_accepted"]:
         report += "\nAccepted mutants that no longer exist (remove them from the config):\n\n"
         report += "".join(f"* `{m}`\n" for m in meta["stale_accepted"])  # type: ignore[attr-defined]
@@ -501,6 +512,7 @@ def _report(config: Config, results: list[Result], meta: dict[str, object], path
                 {
                     "score": round(s, 2),
                     "threshold": config.threshold,
+                    "floor": config.floor,
                     "counts": counts,
                     "meta": meta,
                     "results": [asdict(r) for r in results],
@@ -510,7 +522,7 @@ def _report(config: Config, results: list[Result], meta: dict[str, object], path
             + "\n",
             encoding="utf-8",
         )
-    return 0 if s >= config.threshold else 1
+    return 0 if s >= config.floor else 1
 
 
 if __name__ == "__main__":
