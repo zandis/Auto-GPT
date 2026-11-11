@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from doc_parser.hidden_text import hidden_text
-from tb_common import encoding
+from tb_common import catalogue, encoding
 from tb_common.quotes import quote_in
 
 from sitesetup import messy
@@ -211,6 +211,9 @@ def extract(llm: _Llm, text: str, lang: str, job_id: str | None = None) -> tuple
     for raw in data.get("facts") or []:
         if not quote_in(str(raw.get("quote") or ""), text):
             dropped += 1
+            continue
+        if catalogue.refused_fact(str(raw.get("term") or ""), str(raw.get("code") or "").strip()):
+            dropped += 1  # T-107 (D-353): an item answer of a score-only instrument is never kept
             continue
         f = normalise(raw)
         if f is None:

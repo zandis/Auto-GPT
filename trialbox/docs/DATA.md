@@ -36,8 +36,11 @@ Japanese lists (MEDIS 標準病名, JLAC10, YJ) are loaded by the site from its 
 (`python -m adapter.licensed load --kind medis|jlac10|yj --file … --version …`, D-137); each release is kept with its
 version, sha256 and who loaded it, and every load is audited. The demo rows are synthetic and marked `verify`.
 The clinical item catalogue (scores, labs, findings and phenotypes mapped to LOINC, OMOP, OHDSI phenotypes and
-CDISC QRS) is in `catalogue/`; code reads only its score definitions, through a generated file (§8); its design is
-`docs/reviews/2026-11-09-clinical-item-catalogue.md`.
+CDISC QRS) is in `catalogue/`; its design is `docs/reviews/2026-11-09-clinical-item-catalogue.md`. Code reads its
+score definitions through a generated file (§8) and its items through `tb_common.catalogue` (D-353):
+`python -m omop.catalogue_load` gives each item one concept (LOINC from the vocabulary, a local item at its
+TB-SHARED id; a LOINC code the vocabulary lacks is listed as unmapped), chart extraction drops item answers of an
+instrument whose `storable` is `score`, and `/data/items` shows the items by specialty to the administrator.
 
 ## 2. Mapping a site
 

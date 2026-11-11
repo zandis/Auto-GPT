@@ -31,9 +31,14 @@ taken; every other target gets a copy, hashed as it is written and then read bac
 backup as good only with it. The newest ``--keep`` are kept. The nightly schedule, the off-box rule and the age alert
 are in ``tools/trialbox/backup_schedule.py``.
 
-**Restore** checks every hash before touching anything, moves each directory aside (``<dir>.pre-restore-<time>``)
-before writing it, and restores the databases with ``pg_restore --clean --if-exists``. Every older format restores:
-layout 1 with gzip (before D-149) and layout 1 with zstd (D-149).
+**Restore** checks every hash before touching anything, refuses a backup of another site or older than 14 days
+unless told, keeps the box as it is as one more encrypted backup (``--keep-to``) when it holds data, empties each
+database, restores it with ``pg_restore`` and checks its rows before it moves each directory aside
+(``<dir>.pre-restore-<time>``) and writes it, and audits the result (``backup.restored``; D-274). The nightly
+run's ``host`` part (``deploy/.env``, settings, ``deploy/site``, the pgBackRest cipher, the identity and proxy
+volumes) is written only to a folder named with ``--dir host=<folder>``. Every older format restores: layout 1
+with gzip (before D-149) and layout 1 with zstd (D-149); a table's content hash is ``rs1`` since D-274, ``md5``
+before.
 
 The database tools are ``pg_dump`` / ``pg_restore`` on the path, or the command in ``TB_PG_DUMP_CMD`` /
 ``TB_PG_RESTORE_CMD`` (on a box: ``docker compose --project-directory deploy exec -T db pg_dump``). Nothing here logs
@@ -351,7 +356,7 @@ def take_snapshot(src: DbSource, work: Path, env: Mapping[str, str]) -> dict[str
         if not (d / f"{src.name}.rows").is_file():
             shutil.copyfile(d / f"{src.name}.dump", work / f"{src.name}.dump")
             return {"rows_from": "live", "rows": row_counts(src), "excluded_tables": [], "refdata_schema": None,
-                    "site_rows": {}, "packs": [], "site_files": {}}  # fmt: skip
+                    "site_rows": {}, "packs": [], "site_files": {}, "row_hash": _sched.ROW_HASH}  # fmt: skip
         for f in d.glob(f"{src.name}.*"):
             if f.is_file():
                 shutil.copyfile(f, work / f.name)
@@ -380,8 +385,9 @@ def restore_db(src: DbSource, dump_file: Path, env: Mapping[str, str]) -> None:
     args, extra = _libpq(src.dsn)
     cmd = [*_cmd(env, "TB_PG_RESTORE_CMD", "pg_restore"), "--clean", "--if-exists", "--no-owner",
            "--no-privileges", "--single-transaction", "--exit-on-error", *args]  # fmt: skip
-    if src.schemas:
-        _drop_schemas(src)  # a tb_prefix run: drop its schemas first so the restore leaves nothing extra behind
+    # D-274 (CR-056): the database is emptied first, so a box that holds tables the backup does not (a later
+    # migration, a newer schema) is not left with them, and the row check after the restore compares like with like
+    _drop_schemas(src)
     with dump_file.open("rb") as fh:
         r = subprocess.run(cmd, stdin=fh, stderr=subprocess.PIPE, env={**os.environ, **extra}, check=False)
     if r.returncode != 0:
@@ -389,21 +395,31 @@ def restore_db(src: DbSource, dump_file: Path, env: Mapping[str, str]) -> None:
 
 
 def _drop_schemas(src: DbSource) -> None:
+    """Drop the source's schemas in one transaction: those of its ``tb_prefix``, or, for a whole database, every
+    schema but the system ones (``public`` is made again, empty, for the dump's objects)."""
     import psycopg
 
-    with psycopg.connect(src.dsn, autocommit=True) as con:
-        for pat in src.schemas:
+    with psycopg.connect(src.dsn) as con:
+        names: list[str] = []
+        for pat in src.schemas or ("*",):
             like = pat.replace("*", "%")
-            for (n,) in con.execute("SELECT nspname FROM pg_namespace WHERE nspname LIKE %s", (like,)).fetchall():
-                con.execute(f'DROP SCHEMA "{n}" CASCADE')
+            names += [n for (n,) in con.execute(
+                "SELECT nspname FROM pg_namespace WHERE nspname LIKE %s AND nspname NOT LIKE 'pg\\_%%' "
+                "AND nspname <> 'information_schema'", (like,)).fetchall()]  # fmt: skip
+        for n in sorted(set(names)):
+            con.execute(f'DROP SCHEMA "{n}" CASCADE')
+        if not src.schemas:
+            con.execute("CREATE SCHEMA IF NOT EXISTS public")
+        con.commit()
 
 
-def row_counts(src: DbSource, skip: Sequence[str] = ()) -> dict[str, list[Any]]:
-    """``schema.table -> [rows, md5 of the sorted rows as text]`` for every table of the source, except the tables
-    (``schema.table``) or whole schemas named in ``skip`` (whose rows the dump left out).
+def row_counts(src: DbSource, skip: Sequence[str] = (), scheme: str = _sched.ROW_HASH) -> dict[str, list[Any]]:
+    """``schema.table -> [rows, content hash]`` for every table of the source, except the tables (``schema.table``)
+    or whole schemas named in ``skip`` (whose rows the dump left out).
 
     The manifest keeps it; a restore must give the same pair for every table (content, not only counts). The same
-    expression runs in the backup's snapshot (``backup_schedule.snapshot_script``).
+    expression runs in the backup's snapshot (``backup_schedule.snapshot_script``). ``scheme`` is the hash the backup
+    used (``backup_schedule.row_agg``: ``rs1`` since D-274, ``md5`` before).
     """
     import psycopg
 
@@ -420,8 +436,7 @@ def row_counts(src: DbSource, skip: Sequence[str] = ()) -> dict[str, list[Any]]:
         for schema, table in rows:
             if schema in skipped or f"{schema}.{table}" in skipped:
                 continue
-            agg = "md5(COALESCE(string_agg(t::text, chr(10) ORDER BY t::text), ''))"
-            q = f'SELECT count(*), {agg} FROM "{schema}"."{table}" t'
+            q = f'SELECT count(*), {_sched.row_agg(scheme)} FROM "{schema}"."{table}" t'
             n = con.execute(q).fetchone()
             out[f"{schema}.{table}"] = [int(n[0]), str(n[1])] if n else [0, ""]
     return out
@@ -430,7 +445,7 @@ def row_counts(src: DbSource, skip: Sequence[str] = ()) -> dict[str, list[Any]]:
 _SITE_ROWS = "WHERE source_id IN (SELECT source_id FROM \"{s}\".source WHERE distribution = 'site-fetch')"
 
 
-def site_row_counts(src: DbSource, refdata: str) -> dict[str, list[Any]]:
+def site_row_counts(src: DbSource, refdata: str, scheme: str = _sched.ROW_HASH) -> dict[str, list[Any]]:
     """Rows and content hash of the hospital's own (``site-fetch``) rows in each vendor-pack table of ``refdata``."""
     import psycopg
 
@@ -441,7 +456,7 @@ def site_row_counts(src: DbSource, refdata: str) -> dict[str, list[Any]]:
         for t in _sched.BULK_REFDATA:
             if con.execute("SELECT to_regclass(%s)", (f'"{refdata}"."{t}"',)).fetchone() in (None, (None,)):
                 continue
-            agg = "md5(COALESCE(string_agg(t::text, chr(10) ORDER BY t::text), ''))"
+            agg = _sched.row_agg(scheme)
             n = con.execute(f'SELECT count(*), {agg} FROM "{refdata}"."{t}" t ' + _SITE_ROWS.format(s=refdata))
             row = n.fetchone()
             out[f"{refdata}.{t}"] = [int(row[0]), str(row[1])] if row else [0, ""]
@@ -653,6 +668,9 @@ def backup(
     if compression not in ("zstd", "gzip"):
         raise BackupError(f"unknown compression {compression!r}")
     dirs = dict(dirs if dirs is not None else layout(env))
+    host = Path(env["TB_PG_DUMP_DIR"]) / HOST if env.get("TB_PG_DUMP_DIR") else None
+    if host is not None and host.is_dir() and HOST not in dirs:  # D-274 (DI-12): the nightly run's host files
+        dirs[HOST] = host
     when = now or datetime.now(UTC)
     stamp = when.strftime("%Y%m%dT%H%M%SZ")
     site = site or env.get("TB_SITE_ID") or socket.gethostname()
@@ -674,7 +692,7 @@ def backup(
             manifest["databases"][src.name] = {
                 "schemas": list(src.schemas), "rows_from": snap["rows_from"], "rows": snap["rows"],
                 "excluded_tables": snap["excluded_tables"], "refdata_schema": snap["refdata_schema"],
-                "site_rows": snap["site_rows"],
+                "site_rows": snap["site_rows"], "row_hash": snap.get("row_hash", _sched.ROW_HASH),
             }  # fmt: skip
             if snap["refdata_schema"]:
                 manifest["refdata_packs"] = snap["packs"]
@@ -806,6 +824,57 @@ def check(file: Path) -> dict[str, Any]:
             "chunks": n, "bytes": file.stat().st_size, "sha256": _sha_file(file)}  # fmt: skip
 
 
+RESTORE_MAX_AGE_DAYS = 14.0  # D-274: an older backup restores only with --older-ok (the default keep is 14 nights)
+HOST = "host"  # D-274 (DI-12): deploy/.env, settings, deploy/site and the pgBackRest cipher; restored only on request
+
+
+def _box_holds_data(srcs: Sequence[DbSource], targets: Mapping[str, Path]) -> bool:
+    """True when any database has a table or any data directory has a file: a restore would replace something."""
+    if any(_walk(p) for n, p in targets.items() if n != HOST):
+        return True
+    import psycopg
+
+    for src in srcs:
+        likes = [p.replace("*", "%") for p in src.schemas] or ["%"]
+        with psycopg.connect(src.dsn, autocommit=True) as con:
+            row = con.execute(
+                "SELECT count(*) FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog', "
+                "'information_schema') AND table_schema LIKE ANY(%s)",
+                (likes,),
+            ).fetchone()
+            if row and row[0]:
+                return True
+    return False
+
+
+def keep_copy(env: Mapping[str, str], dirs: Mapping[str, Path], public_key: Path, keep_to: Path, now: datetime) -> Path:
+    """An encrypted backup of the box as it is now, before a restore replaces it (D-274, CR-056): every database dumped
+    whole (``pg_dump``, or ``TB_PG_DUMP_CMD``) with its rows counted, and every data directory. It is written to
+    ``keep_to`` and never pruned; ``trialbox restore <it>`` puts the box back."""
+    srcs = db_sources(env)
+    with tempfile.TemporaryDirectory(prefix="tb-keep-") as tmp:
+        work = Path(tmp)
+        os.chmod(work, 0o700)
+        for src in srcs:
+            dump(src, work / f"{src.name}.dump", env)
+        out = backup([keep_to], public_key, env={**env, "TB_PG_DUMP_DIR": str(work)},
+                     dirs={k: v for k, v in dirs.items() if k != HOST}, keep=0, now=now)  # fmt: skip
+    return out[0]
+
+
+def _audit(dirs: Mapping[str, Path], env: Mapping[str, str], event: str, sha: str, detail: dict[str, Any]) -> str:
+    """Append ``event`` to the box's audit log (the ``audit`` directory, else ``TB_AUDIT_DIR``); returns where, or
+    why not."""
+    where = dirs.get("audit") or (Path(env["TB_AUDIT_DIR"]) if env.get("TB_AUDIT_DIR") else None)
+    if where is None:
+        return "not written: no audit directory in the layout (or TB_AUDIT_DIR)"
+    from tb_common.audit import AuditLog
+
+    log = AuditLog(Path(where), tz=env["TB_TZ"]) if env.get("TB_TZ") else AuditLog(Path(where))
+    log.append(event, actor=env.get("TB_RESTORE_ACTOR") or "trialbox restore", input_sha=sha, detail=detail)
+    return str(where)
+
+
 def restore(
     file: Path,
     key: Path,
@@ -813,35 +882,101 @@ def restore(
     dirs: Mapping[str, Path] | None = None,
     now: datetime | None = None,
     refdata_dir: Path | None = None,
+    *,
+    public_key: Path | None = None,
+    keep_to: Path | None = None,
+    no_copy: bool = False,
+    other_site: bool = False,
+    max_age_days: float | None = RESTORE_MAX_AGE_DAYS,
 ) -> dict[str, Any]:
     """Restore the databases and directories of ``file``, the hospital's own reference rows and, from the pack files
     in ``refdata_dir``, the vendor packs a layout-2 backup leaves out; return what was restored, with rows checked.
+
+    D-274 (CR-056, DI-10): before anything changes, the backup must be of this site (``TB_SITE_ID``; else
+    ``other_site``) and at most ``max_age_days`` old (None: any age), and a box that holds data is first kept as an
+    encrypted copy to ``keep_to`` with ``public_key`` (refused without them, unless ``no_copy``). Each database is
+    emptied of what the backup does not hold, restored and its rows checked before any directory is touched; a
+    failure names the kept copy. The restore is audited (``backup.restored``, or ``backup.restore_failed``) in the
+    restored audit log. The ``host`` part (deploy/.env, settings) is written only where ``dirs`` names it.
 
     ``ok`` is False (and ``refdata.missing`` names them) while a pack could not be loaded again. Rows that differ from
     the manifest fail the restore when the backup counted them in its own snapshot; a backup that counted them on a
     live box (layout 1, or the update path's dumps) gives a warning instead."""
     env = dict(os.environ if env is None else env)
-    stamp = (now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%SZ")
+    when = now or datetime.now(UTC)
+    stamp = when.strftime("%Y%m%dT%H%M%SZ")
     warnings: list[str] = []
     refdata: dict[str, list[str]] = {"reloaded": [], "missing": []}
     with tempfile.TemporaryDirectory(prefix="tb-restore-") as tmp:
         work = Path(tmp)
         manifest = unpack(file, key, work)
+        sha = manifest["_sha256"]
         targets = dict(dirs if dirs is not None else layout(env))
-        missing = set(manifest["dirs"]) - set(targets)
+        missing = set(manifest["dirs"]) - set(targets) - {HOST}
         if missing:
             raise BackupError(f"no place to restore directories {sorted(missing)}: pass --dir name=path")
         srcs = {s.name: s for s in db_sources(env)}
         for name in manifest["databases"]:
             if name not in srcs:
                 raise BackupError(f"the backup holds database {name} but its URL is not set")
-        for name, want in manifest["databases"].items():
-            restore_db(srcs[name], work / "db" / f"{name}.dump", env)
-            for t in _sched.BULK_REFDATA:
-                f = work / "db" / f"{name}.site.{t}.copy"
-                if f.is_file() and want.get("refdata_schema") and f.stat().st_size:
-                    _copy_in(srcs[name], f"{want['refdata_schema']}.{t}", f)
+        here = env.get("TB_SITE_ID") or ""
+        if here and manifest["site"] != here and not other_site:
+            raise BackupError(f"this backup is of site {manifest['site']!r}, this box is {here!r}: add --other-site "
+                              "only to move a site to new hardware")  # fmt: skip
+        made = datetime.fromisoformat(manifest["created_at"])
+        made = made if made.tzinfo else made.replace(tzinfo=UTC)
+        age_d = (when - made).total_seconds() / 86400
+        if age_d < -1 / 24:
+            raise BackupError(f"this backup is dated {manifest['created_at']}, in the future: check the box's clock")
+        if max_age_days is not None and age_d > max_age_days:
+            raise BackupError(f"this backup is {age_d:.0f} days old (limit {max_age_days:.0f}): add --older-ok to "
+                              "restore it anyway; every change since then is lost")  # fmt: skip
+        copy: Path | None = None
+        copy_note = "the box held no data"
+        if _box_holds_data([srcs[n] for n in manifest["databases"]], targets):
+            if no_copy:
+                copy_note = "the box held data and no copy was kept (--no-copy)"
+            elif public_key is None or keep_to is None or not Path(public_key).is_file():
+                raise BackupError("the box holds data: a copy is kept before a restore, and that needs the box's "
+                                  "public key (--public) and a folder (--keep-to); --no-copy skips it")  # fmt: skip
+            else:
+                copy = keep_copy(env, targets, Path(public_key), Path(keep_to), when)
+                copy_note = f"kept in {copy}"
+        base = {"file": file.name, "site": manifest["site"], "created_at": manifest["created_at"],
+                "kept_copy": str(copy) if copy else None, "copy": copy_note}  # fmt: skip
+        checked = {}
+        try:
+            for name, want in manifest["databases"].items():
+                restore_db(srcs[name], work / "db" / f"{name}.dump", env)
+                for t in _sched.BULK_REFDATA:
+                    f = work / "db" / f"{name}.site.{t}.copy"
+                    if f.is_file() and want.get("refdata_schema") and f.stat().st_size:
+                        _copy_in(srcs[name], f"{want['refdata_schema']}.{t}", f)
+            for name, want in manifest["databases"].items():  # rows checked before any directory is touched
+                scheme = want.get("row_hash", "md5")
+                skip = [*want.get("excluded_tables", []), *want.get("excluded_data_schemas", [])]
+                got = row_counts(srcs[name], skip, scheme)
+                diff = sorted(k for k in set(got) | set(want["rows"]) if got.get(k) != want["rows"].get(k))
+                if want.get("refdata_schema"):
+                    site = site_row_counts(srcs[name], want["refdata_schema"], scheme)
+                    wsite = want.get("site_rows", {})
+                    empty = [0, _sched.EMPTY_HASH[scheme]]
+                    diff += sorted(f"site:{k}" for k in set(site) | set(wsite)
+                                   if site.get(k, empty) != wsite.get(k, empty))  # fmt: skip
+                if diff:
+                    msg = f"restored {name} differs from the backup in {len(diff)} tables: {diff[:5]}"
+                    if want.get("rows_from") == "snapshot":
+                        raise BackupError(msg)
+                    warnings.append(msg + " (this backup counted its rows on a running box: check those tables)")
+                checked[name] = sum(r[0] for r in got.values())
+        except BackupError as e:
+            with contextlib.suppress(Exception):
+                _audit(targets, env, "backup.restore_failed", sha, {**base, "error": str(e)[-300:]})
+            back = f"; the box before it is kept in {copy}: trialbox restore {copy} puts it back" if copy else ""
+            raise BackupError(f"{e}{back}") from e
         for dname in manifest["dirs"]:
+            if dname == HOST and HOST not in targets:
+                continue
             dest = targets[dname]
             if dest.exists() and any(dest.iterdir()):
                 aside, n = dest.with_name(f"{dest.name}.pre-restore-{stamp}"), 1
@@ -852,30 +987,23 @@ def restore(
             src = work / "dirs" / dname
             if src.exists():
                 shutil.copytree(src, dest, dirs_exist_ok=True)
-        checked = {}
-        for name, want in manifest["databases"].items():
-            skip = [*want.get("excluded_tables", []), *want.get("excluded_data_schemas", [])]
-            got = row_counts(srcs[name], skip)
-            diff = sorted(k for k in set(got) | set(want["rows"]) if got.get(k) != want["rows"].get(k))
-            if want.get("refdata_schema"):
-                site = site_row_counts(srcs[name], want["refdata_schema"])
-                wsite = want.get("site_rows", {})
-                diff += sorted(f"site:{k}" for k in set(site) | set(wsite)
-                               if site.get(k, [0, _EMPTY_MD5]) != wsite.get(k, [0, _EMPTY_MD5]))  # fmt: skip
-            if diff:
-                msg = f"restored {name} differs from the backup in {len(diff)} tables: {diff[:5]}"
-                if want.get("rows_from") == "snapshot":
-                    raise BackupError(msg)
-                warnings.append(msg + " (this backup counted its rows on a running box: check those tables)")
-            checked[name] = sum(r[0] for r in got.values())
         packs = manifest.get("refdata_packs", [])
         twf = manifest["databases"].get("trialbox_wf", {})
         if twf.get("refdata_schema") and packs:
             refdata = reload_refdata(srcs["trialbox_wf"], packs, refdata_dir)
+        host = (
+            ("restored to " + str(targets[HOST]))
+            if HOST in targets and HOST in manifest["dirs"]
+            else ("in the backup; not restored (--dir host=<folder> writes it)" if HOST in manifest["dirs"] else "none")
+        )
+        audited = _audit(targets, env, "backup.restored", sha, {
+            **base, "rows": checked, "dirs": sorted(manifest["dirs"]), "refdata_missing": refdata["missing"],
+            "warnings": len(warnings)})  # fmt: skip
     return {"ok": not refdata["missing"], "site": manifest["site"], "created_at": manifest["created_at"],
             "layout": manifest.get("layout", 1), "rows": checked, "dirs": sorted(manifest["dirs"]),
-            "refdata": refdata, "warnings": warnings}  # fmt: skip
+            "refdata": refdata, "warnings": warnings, "kept_copy": str(copy) if copy else None, "copy": copy_note,
+            "host": host,
+            "audit": audited}  # fmt: skip
 
 
-_EMPTY_MD5 = hashlib.md5(b"").hexdigest()  # the content hash of no rows, as the database computes it
 _safe = _sched.safe

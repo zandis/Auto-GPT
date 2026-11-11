@@ -395,6 +395,19 @@ docker run --rm -v "$ROOT/deploy:/app/deploy" ${SHEET_MOUNT[@]+"${SHEET_MOUNT[@]
   >/dev/null 2>&1 && echo "    network sheet: deploy/site/network-sheet.{en,ja,zh-TW}.{md,html}" \
   || echo "install: note: network sheet not written (python -m tools.network_sheet)" >&2
 [ -f deploy/secrets/backup.pub ] || echo "install: note: no backup key yet. With hospital IT: python3 -m tools.trialbox backup-keygen --private /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub (RUNBOOK §5); updates refuse to run without a backup" >&2
+# T-117b (D-274): the backup cron (/etc/cron.d/trialbox-backup), WAL archiving when the db image carries pgBackRest
+# and a target is off the box, and the first backup. PRODUCTION needs an alert route (TB_BACKUP_ALERT_CMD, or
+# TB_BACKUP_MAILTO with a mail relay); `trialbox doctor` then checks the backup's age and its off-box target
+if [ "$(id -u)" = 0 ] && [ -d /etc/cron.d ] && command -v python3 >/dev/null; then
+  say "backups: cron, WAL archiving, first backup"
+  set +e
+  python3 -m tools.trialbox backup-install --deploy deploy 2>&1 | sed 's/^/    /'
+  rc="${PIPESTATUS[0]}"
+  set -e
+  [ "$rc" = 0 ] || die "the backup schedule is not installed (above): set TB_BACKUP_ALERT_CMD or TB_BACKUP_MAILTO in deploy/.env (RUNBOOK §5), then re-run"
+else
+  echo "install: warning: the backup cron is not installed (needs root, /etc/cron.d and python3): python3 -m tools.trialbox backup-install --deploy deploy (RUNBOOK §5)" >&2
+fi
 
 for f in deploy/refdata/pending/*.tar; do  # D-140: the reference data pack of the install bundle, now the db runs
   [ -f "$f" ] || continue
