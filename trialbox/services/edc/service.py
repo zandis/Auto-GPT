@@ -7,19 +7,21 @@ the signer. The rules are enforced here even when a page already checked them (d
   send or export; it is off by default;
 * the map must pass :func:`edc.mapping.check` before it is saved;
 * a value without a citation cannot be confirmed; an edit needs a reason and passes the field's own checks;
-* only confirmed, signed values whose content still matches the signature are sent or exported;
+* only confirmed, signed values whose content still matches the signature, under a signature row that still verifies
+  with the key (D-281), are sent or exported; a signed value is locked: it changes only right after the person typed
+  their password again, with a reason (D-281);
 * the REDCap send never overwrites a value someone else wrote in REDCap: it is listed as a conflict and skipped;
   every value sent is read back and compared. A screening number on two REDCap records, a visit that is not an
   event of the project, and a project with repeating instruments are refused (D-162);
 * a patient on the opt-out register is never drafted, decided, signed, sent or exported (D-162).
 
-Every step writes one audit event (``edc.*``) with who, the study and what changed (never a clinical value).
+Every step writes one audit event (``edc.*``) with who, the study and what changed (never a clinical value); a refusal
+writes one too, with its code. The decision and the signature write theirs inside their transaction (D-281).
 """
 
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -199,51 +201,71 @@ class EdcService:
         return self.store.drafts(rs, record, visit or BASE_EVENT)
 
     def decide(self, rs: str, draft_id: int, action: str, *, value: str = "", reason: str = "",
-               citation: dict[str, Any] | None = None, by: str) -> dict[str, Any]:  # fmt: skip
-        self.store.require_on(rs)
-        d = self.store.draft(rs, draft_id)
-        if d is None:
-            raise EdcError("edc.no_draft", "no such draft", 404)
-        self._not_opted_out(rs, by, "edc.decide", {str(d["pid"])}, {"draft": draft_id})
-        if action == "edit":
-            f = self.dc.fields(rs).get(str(d["item"]))
-            if f is None:
-                raise EdcError("edc.not_in_dictionary", "the item is no longer in the data dictionary")
-            p = forms.problem(f, value.strip())
-            if p is not None:
-                err = EdcError("edc.invalid", forms.reason(p, value), 400)
-                err.problems = [{"field": f.name, **p}]  # type: ignore[attr-defined]
-                raise err
+               citation: dict[str, Any] | None = None, by: str, unlock: bool = False) -> dict[str, Any]:  # fmt: skip
+        """Confirm, edit or reject one draft. ``unlock``: the person re-authenticated just before, so a signed value
+        may change (with a reason; D-281, CR-035). Every refusal is audited (SEC-7); the decision's audit line is
+        written inside its transaction (SEC-6)."""
         try:
-            out = self.store.decide(rs, draft_id, action, value=value, reason=reason, citation=citation, by=by,
-                                    at=self.stamp())  # fmt: skip
+            self.store.require_on(rs)
+            d = self.store.draft(rs, draft_id)
+            if d is None:
+                raise EdcError("edc.no_draft", "no such draft", 404)
         except EdcError as exc:
             self._audit("edc.decide", rs, by, {"draft": draft_id, "action": action, "refused": exc.code})
             raise
-        self._audit("edc.decide", rs, by, {"draft": draft_id, "record": out["record"], "visit": out["visit"],
-                                           "item": out["item"], "action": action, "fate": out["fate"],
-                                           "reason": bool(reason.strip()),
-                                           "citation": (out["final_citation"] or {}).get("kind", "")})  # fmt: skip
-        return out
+        self._not_opted_out(rs, by, "edc.decide", {str(d["pid"])}, {"draft": draft_id})
+
+        def audited(out: dict[str, Any]) -> None:
+            self._audit("edc.decide", rs, by, {"draft": draft_id, "record": out["record"], "visit": out["visit"],
+                                               "item": out["item"], "action": action, "fate": out["fate"],
+                                               "reason": bool(reason.strip()),
+                                               "citation": (out["final_citation"] or {}).get("kind", ""),
+                                               **({"signature_void": out["voided"], "unlocked": True}
+                                                  if out.get("voided") is not None else {})})  # fmt: skip
+
+        try:
+            if action == "edit":
+                f = self.dc.fields(rs).get(str(d["item"]))
+                if f is None:
+                    raise EdcError("edc.not_in_dictionary", "the item is no longer in the data dictionary")
+                p = forms.problem(f, value.strip())
+                if p is not None:
+                    err = EdcError("edc.invalid", forms.reason(p, value), 400)
+                    err.problems = [{"field": f.name, **p}]  # type: ignore[attr-defined]
+                    raise err
+            return self.store.decide(rs, draft_id, action, value=value, reason=reason, citation=citation, by=by,
+                                     at=self.stamp(), unlock=unlock, before_commit=audited)  # fmt: skip
+        except EdcError as exc:
+            self._audit("edc.decide", rs, by, {"draft": draft_id, "action": action, "refused": exc.code})
+            raise
 
     def sign(self, rs: str, record: str, visit: str, *, signer: str, printed_name: str, role: str, meaning: str,
-             meaning_text: str, lang: str, seen: dict[int, str]) -> dict[str, Any]:  # fmt: skip
-        """The console re-authenticated ``signer`` just before this call; ``seen`` is what their screen showed."""
-        self.store.require_on(rs)
-        pids = {str(d["pid"]) for d in self.store.drafts(rs, record, visit or BASE_EVENT)}
-        self._not_opted_out(rs, signer, "edc.sign", pids, {"record": record})
+             meaning_text: str, lang: str, seen: dict[int, str],
+             method: str = "password") -> dict[str, Any]:  # fmt: skip
+        """The console re-authenticated ``signer`` just before this call (``method``: how); ``seen`` is what their
+        screen showed. The audit line is written inside the signature's transaction (D-281, SEC-6): if it cannot be
+        written, nothing is signed. Every refusal is audited (SEC-7)."""
         try:
-            sig = self.store.sign(rs, record, visit or BASE_EVENT, signer=signer, printed_name=printed_name,
-                                  role=role, meaning=meaning, meaning_text=meaning_text, lang=lang,
-                                  at=self.stamp(), seen=seen)  # fmt: skip
+            self.store.require_on(rs)
         except EdcError as exc:
             self._audit("edc.sign", rs, signer, {"record": record, "visit": visit, "refused": exc.code})
             raise
-        self._audit("edc.sign", rs, signer, {"record": record, "visit": sig["visit"], "signature": sig["id"],
-                                             "meaning": meaning, "printed_name": printed_name, "role": role,
-                                             "values": len(json.loads(sig["drafts"])),
-                                             "content_sha": sig["content_sha"]})  # fmt: skip
-        return sig
+        pids = {str(d["pid"]) for d in self.store.drafts(rs, record, visit or BASE_EVENT)}
+        self._not_opted_out(rs, signer, "edc.sign", pids, {"record": record})
+
+        def audited(s: dict[str, Any]) -> None:
+            self._audit("edc.sign", rs, signer, {"record": record, "visit": s["visit"], "signature": s["id"],
+                                                 "meaning": meaning, "printed_name": printed_name, "role": role,
+                                                 "method": s["method"], "values": s["values"],
+                                                 "content_sha": s["content_sha"]})  # fmt: skip
+
+        try:
+            return self.store.sign(rs, record, visit or BASE_EVENT, signer=signer, printed_name=printed_name,
+                                   role=role, meaning=meaning, meaning_text=meaning_text, lang=lang,
+                                   at=self.stamp(), seen=seen, method=method, before_commit=audited)  # fmt: skip
+        except EdcError as exc:
+            self._audit("edc.sign", rs, signer, {"record": record, "visit": visit, "refused": exc.code})
+            raise
 
     # ------------------------------------------------------------------ send to REDCap, export ODM
     def send_redcap(self, rs: str, by: str, record: str | None = None) -> dict[str, Any]:

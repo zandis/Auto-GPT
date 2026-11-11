@@ -11,7 +11,7 @@
 <tbody>{% for x in trail.decisions %}<tr><td class="nowrap">{{ x.at|local }}</td><td>{{ x.by_user }}</td><td class="mono">{{ x.visit }}</td><td class="mono">{{ x.item }}</td><td>{{ t('edc.action.' + x.action) }}</td><td>{{ x.old if x.old is not none else '–' }}</td><td>{{ x.new if x.new is not none else '–' }}</td><td>{{ x.reason or '' }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
 </section>
 <section class="card"><h2>{{ t('edc.trail.signatures') }}</h2>
-{% if not trail.signatures %}<p class="empty">–</p>{% else %}<ul class="plain" data-testid="trail-signatures">{% for s in trail.signatures %}<li>{{ s.at|local }} · <strong>{{ s.printed_name }}</strong> ({{ s.signer }}, {{ t('role.' + s.role) }}) · <span class="mono">{{ s.visit }}</span> · {{ s.meaning_text }} <span class="hint mono">{{ s.content_sha[:12] }}</span></li>{% endfor %}</ul>{% endif %}
+{% if not trail.signatures %}<p class="empty">–</p>{% else %}<ul class="plain" data-testid="trail-signatures">{% for s in trail.signatures %}<li>{{ s.at|local }} · <strong>{{ s.printed_name }}</strong> ({{ s.signer }}, {{ t('role.' + s.role) }}) · <span class="mono">{{ s.visit }}</span> · {{ s.meaning_text }} · {{ t('edc.trail.method.' + (s.method or 'password')) }} <span class="hint mono">{{ s.content_sha[:12] }}</span>{% if s.intact is defined and not s.intact %} <span class="pill warn" data-testid="trail-sig-broken">{{ t('edc.trail.sig_broken') }}</span>{% endif %}</li>{% endfor %}</ul>{% endif %}
 </section>
 <section class="card"><h2>{{ t('edc.trail.sent') }}</h2>
 {% if not trail.sent %}<p class="empty">–</p>{% else %}<div class="scroll" tabindex="0"><table class="candidates" data-testid="trail-sent">

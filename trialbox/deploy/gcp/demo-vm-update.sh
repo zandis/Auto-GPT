@@ -23,11 +23,16 @@ case "$CMD" in
     (cd "$ROOT" && make demo-bundle)                                        # A: dist/trialbox-demo.tar.gz
     "${PY:-$ROOT/.venv/bin/python}" "$ROOT/tools/sign_bundle.py" keygen "$DIST/keys"
     docker build -f "$ROOT/demo/Dockerfile" --label trialbox.release=step8-b -t trialbox-demo:step5 "$ROOT"
-    "$ROOT/tools/make_bundle.sh" --key "$DIST/keys/vendor_ed25519.key" --id 2026.11-step8-demo-b \
+    # no bundle without its checks (T-110b, D-340): each image goes through the release gates before its bundle
+    (cd "$ROOT" && make release-gates SC_LOCAL_IMAGES=1 SC_DIR="$DIST/gates-b" SC_IMAGES=trialbox-demo:step5)
+    "$ROOT/tools/make_bundle.sh" --key "$DIST/keys/vendor_ed25519.key" --id 2026.11-step8-demo-b --release-seq 1 \
+      --gates "$DIST/gates-b/gates.json" --sbom-dir "$ROOT/dist/sbom" \
       --image trialbox-demo:step5 --no-third-party --out "$DIST/trialbox-step8-b.tar"
     printf 'FROM trialbox-demo:step5\nCMD ["false"]\n' | docker build -t trialbox-demo:step5-broken -
     docker tag trialbox-demo:step5-broken trialbox-demo:step5
-    "$ROOT/tools/make_bundle.sh" --key "$DIST/keys/vendor_ed25519.key" --id 2026.11-step8-demo-c \
+    (cd "$ROOT" && make release-gates SC_LOCAL_IMAGES=1 SC_DIR="$DIST/gates-c" SC_IMAGES=trialbox-demo:step5)
+    "$ROOT/tools/make_bundle.sh" --key "$DIST/keys/vendor_ed25519.key" --id 2026.11-step8-demo-c --release-seq 2 \
+      --gates "$DIST/gates-c/gates.json" --sbom-dir "$ROOT/dist/sbom" \
       --image trialbox-demo:step5 --no-third-party --out "$DIST/trialbox-step8-c.tar"
     tar -C "$ROOT" -czf "$DIST/trialbox-tree.tar.gz" tools libs deploy/gcp deploy/keys 2>/dev/null \
       || tar -C "$ROOT" -czf "$DIST/trialbox-tree.tar.gz" tools libs deploy/gcp
