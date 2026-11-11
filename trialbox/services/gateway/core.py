@@ -24,10 +24,19 @@ Processing order for ``POST /v1/chat/completions`` (each step passes or refuses;
    outside the perimeter (``external``, ``dev_public``) also needs a provider pin for that endpoint (S1-14), because a
    weight hash cannot vouch for what a third party serves (``provider_unpinned``);
 6. response cache keyed by (prompt sha, model sha) for cacheable D0/D1 roles (§8.12);
-7. dispatch with forced sampling (MOD-4) and structured-output pass-through; fallback only down the route list;
+7. dispatch with forced sampling (MOD-4) and structured-output pass-through. A transport error or an HTTP 5xx is
+   retried once on the same build. Another alias answers only where the route says ``fallback: any`` and the role
+   is not a patient role (T-601, D-276; deep review LLM-002, LLM-003): a patient role gets the build it named, or
+   the route's first build, or an error. An upstream HTTP 400 or 404 (and any 4xx but 408 and 429) is a
+   configuration fault: it ends the call (``prompt_too_long`` when the server says the prompt is over its context,
+   else ``upstream_failed``), with no retry and no other build. A timeout is not retried (the request may still be
+   running on the server);
 8. served-model echo check (the upstream must report the build's served name and, for a provider-pinned build, the
    pinned provider; the request asked for that provider only, with no fallback);
-9. audit record appended before the response is returned (LLM-5), then the redacted trace (§8.14).
+9. audit record appended before the response is returned (LLM-5), then the redacted trace (§8.14). The response
+   names the build that answered (``tb.build_id``, ``tb.build_sha``, headers ``X-TB-Build-Id`` and
+   ``X-TB-Build-Sha``), the alias the call was meant to get (``tb.expected_alias``) and how many other candidates
+   failed first (``tb.fallbacks``, header ``X-TB-Fallbacks``; ``tb_llm`` raises on an answer from another alias).
 
 The call record holds hashes, labels, tokens, latency and cost — never prompt or response text, and never request
 headers (the endpoint API key is added to the upstream request only). Cost is the upstream's reported ``usage.cost``
@@ -72,6 +81,12 @@ StepConfirm = Callable[[str, str, str], bool]  # (caller, study, step) -> live a
 # ``model_busy``: a person is waiting, while batch roles keep the long limit of the HTTP client
 INTERACTIVE_TIMEOUT_S = 30.0
 BUSY_MESSAGE = "the model is busy (a screening run is using the GPU); try again in a few minutes"
+# T-601: a transport error or HTTP 5xx is tried once more on the same build after this pause
+RETRY_DELAY_S = 0.5
+# an upstream 4xx is the call's own fault or a configuration fault, so no other build is tried; except these two
+_TRANSIENT_4XX = (408, 429)
+# what vLLM (and OpenAI-compatible servers) say when the prompt plus max_tokens is over the model's context
+_TOO_LONG = ("maximum context length", "context length", "context_length", "too many tokens", "prompt is too long")
 REQUIRED = ("x-tb-caller", "x-tb-data-class", "x-tb-purpose", "x-tb-role", "x-tb-study", "x-tb-context-of-use")
 
 
@@ -128,7 +143,9 @@ class _Call:
     output_sha: str = ""
     schema_valid: bool | None = None
     guard: str = "not_run"
-    fallbacks: int = 0
+    fallbacks: int = 0  # candidates that failed before the one that answered
+    retries: int = 0  # second tries on the same build (T-601)
+    expected_alias: str = ""  # the alias this call was meant to get: the one it named, else the route's first
     step_basis: str = ""  # D3/D4: "step" (confirmed), "intake" (FR-CONV-8) or "box_policy" (D-142)
 
 
@@ -186,6 +203,7 @@ class Gateway:
         self.env: Mapping[str, str] = os.environ if env is None else env
         self.swap = swap  # TB_MODEL_SWAP=sleep: judge and verifier time-share one GPU (gateway.swap)
         self.interactive_timeout_s = float(self.env.get("TB_GATEWAY_INTERACTIVE_TIMEOUT_S") or INTERACTIVE_TIMEOUT_S)
+        self.retry_delay_s = float(self.env.get("TB_GATEWAY_RETRY_DELAY_S") or RETRY_DELAY_S)
         self.cache: OrderedDict[tuple[str, str, str], dict[str, Any]] = OrderedDict()
         self.cache_size = cache_size
         self._cache_lock = threading.Lock()  # the HTTP app runs calls in a thread pool
@@ -243,7 +261,12 @@ class Gateway:
             return GatewayResponse(
                 r.status,
                 {"error": {"type": "tb_refusal", "code": r.reason, "message": str(r), "call_id": call.call_id}},
-                {"X-TB-Call-Id": call.call_id, "X-TB-Refusal": r.reason},
+                {
+                    "X-TB-Call-Id": call.call_id,
+                    "X-TB-Refusal": r.reason,
+                    "X-TB-Fallbacks": str(call.fallbacks),
+                    "X-TB-Retries": str(call.retries),
+                },
             )
 
     # ------------------------------------------------------------------------------------------------ pipeline
@@ -319,8 +342,20 @@ class Gateway:
                 raise Refusal("class_route_mismatch", f"model {wanted!r} is not on route {route.id} for {label.tag}")
         if self.policy.no_fallback(route, call.role, call.context_of_use):
             # D-276 (review LLM-002): a judge whose server failed was answered by the next build of the route, the
-            # verifier, which then confirmed its own answer. For these roles a failed build is the call's error
-            candidates = [c for c in candidates if c.alias == candidates[0].alias]
+            # verifier, which then confirmed its own answer. For these roles a failed build is the call's error.
+            # T-601: the build is the one named, else the route's *declared* first build, never the first one left
+            # after the filters above (a perimeter or environment filter that drops the judge build must not make
+            # the verifier build the judge)
+            call.expected_alias = str(wanted) if wanted else route.builds[0][0]
+            candidates = [c for c in candidates if c.alias == call.expected_alias]
+            if not candidates:
+                raise Refusal(
+                    "no_eligible_build",
+                    f"{call.expected_alias} may not take this {label.tag} call on route {route.id}, and role "
+                    f"{call.role} never falls back to another build",
+                )
+        else:
+            call.expected_alias = candidates[0].alias
 
         # 4 tripwire
         if label.data_class.rank <= 2:
@@ -459,28 +494,59 @@ class Gateway:
                 )
             elif not interactive:
                 self.swap.touch()
-        t0 = time.perf_counter()
-        try:
-            if interactive:
-                resp = self.http.post(
-                    f"{url.rstrip('/')}/chat/completions",
-                    json=upstream,
-                    headers=headers,
-                    timeout=self.interactive_timeout_s,
-                )
-            else:
-                resp = self.http.post(f"{url.rstrip('/')}/chat/completions", json=upstream, headers=headers)
-        except httpx.TimeoutException as e:
-            errors.append(f"{ep.name}: busy" if interactive else f"{ep.name}: {type(e).__name__}")
+        resp: httpx.Response | None = None
+        for attempt in (1, 2):
+            if attempt == 2:
+                call.retries += 1
+                if self.retry_delay_s > 0:
+                    time.sleep(self.retry_delay_s)
+            t0 = time.perf_counter()
+            try:
+                if interactive:
+                    resp = self.http.post(
+                        f"{url.rstrip('/')}/chat/completions",
+                        json=upstream,
+                        headers=headers,
+                        timeout=self.interactive_timeout_s,
+                    )
+                else:
+                    resp = self.http.post(f"{url.rstrip('/')}/chat/completions", json=upstream, headers=headers)
+            except httpx.TimeoutException as e:
+                # not tried again: the server may still be working on it, and a person may be waiting
+                errors.append(f"{ep.name}: busy" if interactive else f"{ep.name}: {type(e).__name__}")
+                return None
+            except httpx.HTTPError as e:
+                if attempt == 1:
+                    continue  # T-601: a transport error is tried once more on the same build
+                errors.append(f"{ep.name}: {type(e).__name__} (tried twice)")
+                return None
+            call.latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+            if resp.status_code >= 500 and attempt == 1:
+                continue  # T-601: a server error is tried once more on the same build
+            break
+        if resp is None:  # not reached: each path above answers or returns
             return None
-        except httpx.HTTPError as e:
-            errors.append(f"{ep.name}: {type(e).__name__}")
-            return None
-        call.latency_ms = round((time.perf_counter() - t0) * 1000, 2)
         if resp.status_code >= 400:
             # vLLM answers 404 to a model name it does not serve: name the one sent (the pin's served name)
             hint = f" (model {res.served_name!r} not served there?)" if resp.status_code == 404 else ""
-            errors.append(f"{ep.name}: HTTP {resp.status_code}{hint}")
+            if resp.status_code < 500 and resp.status_code not in _TRANSIENT_4XX:
+                # T-601 (review LLM-003): a 400 (prompt over the context, a bad request) or a 404 (a name the server
+                # does not serve) is a fault of this call or of the box's set-up; another build answering would hide
+                # it and, on a patient route, answer one role with another role's model. The call ends here
+                text = resp.text[:2000].casefold()
+                if resp.status_code in (400, 413) and any(k in text for k in _TOO_LONG):
+                    raise Refusal(
+                        "prompt_too_long",
+                        f"{ep.name}: HTTP {resp.status_code}: the prompt is longer than {call.alias}'s context",
+                        status=413,
+                    )
+                raise Refusal(
+                    "upstream_failed",
+                    f"{ep.name}: HTTP {resp.status_code}{hint}; a configuration fault, no other build is tried",
+                    status=502,
+                )
+            tried = " (tried twice)" if resp.status_code >= 500 else ""
+            errors.append(f"{ep.name}: HTTP {resp.status_code}{hint}{tried}")
             return None
         try:
             payload = resp.json()
@@ -533,6 +599,9 @@ class Gateway:
             "policy_version": self.policy.version,
             "registry_version": self.registry.version,
             "cache": call.cache,
+            "expected_alias": call.expected_alias,
+            "fallbacks": call.fallbacks,
+            "retries": call.retries,
         }
         if self.traces is not None:
             self.traces.write(
@@ -564,7 +633,14 @@ class Gateway:
         return GatewayResponse(
             200,
             payload,
-            {"X-TB-Call-Id": call.call_id, "X-TB-Model-Alias": call.alias, "X-TB-Build-Sha": call.build_sha},
+            {
+                "X-TB-Call-Id": call.call_id,
+                "X-TB-Model-Alias": call.alias,
+                "X-TB-Build-Id": call.build_id,
+                "X-TB-Build-Sha": call.build_sha,
+                "X-TB-Fallbacks": str(call.fallbacks),
+                "X-TB-Retries": str(call.retries),
+            },
         )
 
     def _record(self, event: str, call: _Call, **extra: Any) -> None:
@@ -596,6 +672,8 @@ class Gateway:
             "guard": call.guard,
             "schema_valid": call.schema_valid,
             "fallbacks": call.fallbacks,
+            "retries": call.retries,
+            "expected_alias": call.expected_alias,
             "topology": self.config.topology.value,
             "environment": self.config.environment.value,
             **extra,

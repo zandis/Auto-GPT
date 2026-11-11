@@ -38,6 +38,8 @@ docs/plan/25-traceability.csv -tb-data
 docs/plan/sites/archive/commitments.csv -tb-data
 # the lifecycle records (T-654): the problem log and the SOUP list, about the software, never a patient
 docs/validation/*.csv -tb-data
+# the licence register (T-617b, D-342): one row per third-party source, about the software, never a patient
+docs/licences/register.csv -tb-data
 # each ruleset's synthetic FHIR test patients
 rulesets/*/tests/patients.ndjson -tb-data
 # code maps and terminology tables (public code systems, no patient)
