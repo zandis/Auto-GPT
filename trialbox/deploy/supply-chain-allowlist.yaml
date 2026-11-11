@@ -151,8 +151,8 @@ budgets:
     max: 4
     reason: Official postgres image unmodified; gosu and the server binary carry no licence data for Syft
     review_by: 2027-02-01
-  - image: mailhog/mailhog
+  - image: axllent/mailpit
     ecosystem: "*"
-    max: 1
-    reason: MailHog test mail catcher image unmodified (MIT project); test profile only; the Go toolchain binary
+    max: 52
+    reason: Mailpit test mail catcher image unmodified (MIT project, replaced MailHog in D-348); test profile only; Go modules of its binary carry no licence data for Syft
     review_by: 2027-02-01

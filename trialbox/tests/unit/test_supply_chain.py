@@ -1034,10 +1034,12 @@ def test_summary_lists_every_finding_and_bundle_refuses_report_mode_images() -> 
 
 
 def test_arm64_gates_name_the_amd64_only_images() -> None:
+    # none since D-348: MailHog (amd64 only) gave way to Mailpit, and every locked third-party image has an arm64 build
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-    assert "SC_AMD64_ONLY ?= mailhog/mailhog" in makefile
-    text = (ROOT / "deploy" / "security" / "known-image-findings.md").read_text(encoding="utf-8")
-    assert "no arm64 image" in text
+    assert "SC_AMD64_ONLY ?=\n" in makefile
+    lock = json.loads((ROOT / "deploy" / "images.lock").read_text(encoding="utf-8"))
+    assert all("linux/arm64" in e["platforms"] for e in lock["third_party"].values())
+    assert "mailhog" not in str(release.VULN_REPORT_ONLY)
 
 
 def test_make_bundle_checks_the_gate_record() -> None:
