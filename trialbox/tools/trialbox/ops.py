@@ -348,7 +348,7 @@ class OpsRunner:
             work.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory(prefix="ops-backup-", dir=work) as tmp:
                 os.chmod(tmp, 0o700)
-                cb = ComposeBox(self.box.deploy, run=self.box.run)
+                cb = ComposeBox(self.box.deploy)
                 where = cb.backup(cast(Any, None), Path(tmp))
                 # ``backup`` leaves the services stopped on success (the update path starts them in its restart
                 # step, and starts them itself when it fails); here nothing follows, so they start now

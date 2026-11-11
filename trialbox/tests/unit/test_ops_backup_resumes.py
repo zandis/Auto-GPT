@@ -8,16 +8,18 @@ dump alone takes tens of minutes, at 500,000 hours. Docker is a recording fake; 
 
 from __future__ import annotations
 
+import functools
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from tools.trialbox import ops as tb_ops
+from tools.trialbox import update as up
 from tools.trialbox.update import PY_SERVICES, UpdateFailed
 
 
-def _box(tmp_path: Path, fail_on: str = "") -> tuple[tb_ops.Box, list[list[str]]]:
+def _box(mp: pytest.MonkeyPatch, tmp_path: Path, fail_on: str = "") -> tuple[tb_ops.Box, list[list[str]]]:
     deploy, target = tmp_path / "deploy", tmp_path / "nas"
     (deploy / "secrets").mkdir(parents=True)
     target.mkdir()
@@ -33,24 +35,25 @@ def _box(tmp_path: Path, fail_on: str = "") -> tuple[tb_ops.Box, list[list[str]]
             Path(stdout_file).write_bytes(b"dump")
         return ""
 
-    env = {"TB_BACKUP_TARGETS": str(target)}
-    return tb_ops.Box("compose", deploy, env, run), calls
+    # the runner makes its ComposeBox itself (the update path's command runner, not the operations runner's)
+    mp.setattr(up, "ComposeBox", functools.partial(up.ComposeBox, run=run))
+    return tb_ops.Box("compose", deploy, {"TB_BACKUP_TARGETS": str(target)}), calls
 
 
 def _compose_verbs(calls: list[list[str]]) -> list[str]:
     return [next(a for a in c if a in ("stop", "start")) for c in calls if "stop" in c or "start" in c]
 
 
-def test_a_console_backup_starts_the_services_it_stopped(tmp_path: Path) -> None:
-    box, calls = _box(tmp_path)
+def test_a_console_backup_starts_the_services_it_stopped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    box, calls = _box(monkeypatch, tmp_path)
     tb_ops.OpsRunner(box, tb_ops.OpsDir(tmp_path / "ops")).do_backup({})
     assert _compose_verbs(calls) == ["stop", "start"]
     start = next(c for c in calls if "start" in c)
     assert set(PY_SERVICES) <= set(start)
 
 
-def test_a_failed_console_backup_starts_them_once(tmp_path: Path) -> None:
-    box, calls = _box(tmp_path, fail_on="pg_dump")
+def test_a_failed_console_backup_starts_them_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    box, calls = _box(monkeypatch, tmp_path, fail_on="pg_dump")
     with pytest.raises(UpdateFailed):
         tb_ops.OpsRunner(box, tb_ops.OpsDir(tmp_path / "ops")).do_backup({})
     assert _compose_verbs(calls) == ["stop", "start"]
