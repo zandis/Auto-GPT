@@ -5,6 +5,8 @@
 * derived atoms reference ``VS_<DERIVED>_COMPONENTS`` built from the shared constants; demographic atoms ``NONE``;
 * classification sanity: a ``structured`` (or ``mixed``) criterion whose logic cannot be compiled, or whose concepts
   did not map, is flagged ``needs_review`` (never silently dropped);
+* units (D-418): a numeric lab atom with no unit, or with a unit its analyte's usual unit cannot convert to, is
+  flagged ``value_unit_missing`` / ``value_unit_unconvertible`` (``criteria_compiler.unit_check``);
 * polarity (D-98): an exclusion ``note_question`` in the negative is rewritten to its positive form when a safe
   English rewrite exists (``negated_question_rewritten``, original kept in ``note_question_source``), else flagged
   ``negated_question`` for the reviewer. Either way the criterion needs review.
@@ -18,6 +20,7 @@ from typing import Any
 from tb_common.derived import CODES, COMPONENTS
 from tb_contracts import CriterionIR, LlmExtractOutput, dump
 
+from criteria_compiler import unit_check
 from criteria_compiler.ir_extract.polarity import is_negated, positive
 from criteria_compiler.semantics import FILTERED, JUDGED, CompileError, atoms, check_bool, kind
 from criteria_compiler.terminology.mapper import (
@@ -140,6 +143,10 @@ def postprocess(
                     m = mappings.get(a.valueset)
                     if m is not None and (m.needs_review or not m.concepts):
                         flags.append("concept_unmapped" if not m.concepts else "concept_needs_review")
+                    unit = unit_check.check(a, valuesets.get(a.valueset))
+                    if unit is not None:  # D-418: a lab number that would read every result as unknown
+                        flags.append(unit[0])
+                        warnings.append(f"{cid}: {unit[1]}")
             except CompileError as exc:
                 warnings.append(f"{cid}: {exc}")
                 flags.append("logic_invalid")
