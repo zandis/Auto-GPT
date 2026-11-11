@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "09b3ba39dacdff846001ad35148e7e4667f28353",
+  "head": "ab022f8bb39443ae7b1b4bd56b647728fe9e03b2",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-275 on master after T-614, AD recompile and D-276: unusable structured data is unknown, never an exclusion",
+  "reason": "D-337: note text is masked before chunks, the full-text index and embeddings (T-600); chunk text, tokens and sha move, nothing else",
   "ref_date": "2026-11-01",
   "seed": 42,
   "written_with_source": "legacy+omop"
@@ -272,13 +272,13 @@
       "date": "5698d83279b4f2a9401ed4b5e81dc415c072e1ca8d6d92c146e7b8c57cd86194",
       "did": "59250cf903074173d50fb9ad6fab614ad5d09d0be08499f22f82d4f454dfbb2a",
       "pid": "9b44290bf29745348e18f3aa09148165d4da122eddd012734e57ec63bd3caa64",
-      "sha": "43f1d4b3cb52f6df481b0f3171c029c4fd40603d18fd60254952c853fb898d00",
-      "text": "3ae90afd17dd21a58a3a03d5088c18f731f675d6e0c467e9f7bd4840b4a40778",
-      "tok": "3ab6f6137c3ae8c3399d9ea149706d6f9766b07028e3a8852f8022151a73bf5d",
+      "sha": "d1d98d82007fb94bd6b7a7003e9ec25d463a362c53cb660d45cb7c61d88eae5b",
+      "text": "8da3a16f5cd2d1699119974ae6adaa4538fb4c224bc1bed22a56ac890673b027",
+      "tok": "65eb3e68a8e6f155a5a613fd064860f1528c15821983e41b75f812be6a2bd75e",
       "type": "59fbac7ac4d91ea58d0a0eddeaa4f366cca2cd40a301e7828cd32d2c54208730"
      },
      "rows": 900,
-     "sha": "046408f7680a80f2fab7a739c12b830af52c1a81827f5696529145ebe528d217"
+     "sha": "f83bd0d3ec7631cc6f02b634ea32939b49d117b89e6f78ee8308732b2b7fc087"
     },
     "encounter": {
      "columns": {
@@ -466,13 +466,13 @@
       "date": "8757c404f0db4bc54b566b58105b90cde1278fc2a210282ede3dd539e884dcfa",
       "did": "d7ff0518fdd246385c8e5cc65aa190038401bb69187ffd940f9f4f7d99ecc69a",
       "pid": "094e98efb0e7d5670673106980147de1796b18cebf3333b50938356ccbb8779e",
-      "sha": "0a398bd97afc102d1cfcfbf860497465b7e26bf72392939635f47f19f3f983a0",
-      "text": "1320d672ba7bd7faadf5a86129010a8841b7e1453401cec47c56c4a1be33d2ce",
-      "tok": "e25d60c20813bef1ab6081075f4668a51ce3b0dcabb83564619604540f7249b3",
+      "sha": "f1a90266d524f3c4d00ad0e4811dbbc0df291ae77af8e41f594abca538d44817",
+      "text": "b823988e4cc970bd6696193dd8246f66fed0b691e1e54107a341dbfce3826d5c",
+      "tok": "72c0a10abda4067bde909abb434c7c88fd9b3a6c86f7f92f86713e1d32788a41",
       "type": "c1ad61fd196ea5522a68db0a01ca3a66932f8fd958327c5e9942e68f3c61adf5"
      },
      "rows": 5740,
-     "sha": "af8113dd7c09b46246806b1ed59688d91f48c343f56c49ecee93083e1aebb4ef"
+     "sha": "20621ab9ac33c42b9a379aa9dfff68c7a1a0e00e2a765580da67e53882b707a2"
     },
     "encounter": {
      "columns": {
@@ -660,13 +660,13 @@
       "date": "dd32264393cffc321f827bb3b64e7c83ecb3fce93a8657683c5b0a265e2fc1bb",
       "did": "955c66ba240069809adc89650d63e4007a1e5a479551646406ce6f6dda97ff0c",
       "pid": "c5ec18b46e8de1f39c061bbb85ab846ac2801374f98e4cddb889303a34b5d39c",
-      "sha": "18ec87ff920a7017dbb61e88bbbc5163eecf3f9ebc5530d2485b8d1a10144e10",
-      "text": "445ccca0b13e959943d6323dad9156cbeed3bfbe5bfac98dc3078fefeb4e93a3",
-      "tok": "62dd3cddd45c37c860b4b16c25b2d5f4b84fe5fa3388d80d91928a63bb47a804",
+      "sha": "bc8887e6201ff7bc1b4d7e2bc733bcd6f48d2f7f0fafe3606e3688db58823109",
+      "text": "2d1220b920f2e411abef302cbd0e847c7671e42c8ba83a0414d363c153a49ad9",
+      "tok": "d25c5d7befa0e9404cab6f80613b2b31eef1913eed48fa88a7ddfa3d2efb8cf8",
       "type": "da5143cef663fa8b301177a352638959156e0319eaf7baa00c2ce2e6a2ec7f2b"
      },
      "rows": 5171,
-     "sha": "b8f9ba848b94f74026df97385092e1a29f7b2a03e67c0bb1d29a74f8479aac56"
+     "sha": "6c485975ffca7e467edcaeb5794fa9b0854a37f2e6c50d82fbaf41c0ba61efeb"
     },
     "encounter": {
      "columns": {
@@ -854,13 +854,13 @@
       "date": "8757c404f0db4bc54b566b58105b90cde1278fc2a210282ede3dd539e884dcfa",
       "did": "d7ff0518fdd246385c8e5cc65aa190038401bb69187ffd940f9f4f7d99ecc69a",
       "pid": "094e98efb0e7d5670673106980147de1796b18cebf3333b50938356ccbb8779e",
-      "sha": "0a398bd97afc102d1cfcfbf860497465b7e26bf72392939635f47f19f3f983a0",
-      "text": "1320d672ba7bd7faadf5a86129010a8841b7e1453401cec47c56c4a1be33d2ce",
-      "tok": "e25d60c20813bef1ab6081075f4668a51ce3b0dcabb83564619604540f7249b3",
+      "sha": "f1a90266d524f3c4d00ad0e4811dbbc0df291ae77af8e41f594abca538d44817",
+      "text": "b823988e4cc970bd6696193dd8246f66fed0b691e1e54107a341dbfce3826d5c",
+      "tok": "72c0a10abda4067bde909abb434c7c88fd9b3a6c86f7f92f86713e1d32788a41",
       "type": "c1ad61fd196ea5522a68db0a01ca3a66932f8fd958327c5e9942e68f3c61adf5"
      },
      "rows": 5740,
-     "sha": "af8113dd7c09b46246806b1ed59688d91f48c343f56c49ecee93083e1aebb4ef"
+     "sha": "20621ab9ac33c42b9a379aa9dfff68c7a1a0e00e2a765580da67e53882b707a2"
     },
     "encounter": {
      "columns": {
@@ -1048,13 +1048,13 @@
       "date": "86e936f7065b3f169c6bca0efdabde0612dc8248366a9b8804b83e1d5eacc685",
       "did": "c2eda04f2c7bf389ca4456f135a8e68dd15b954cd419d7434ff14369d80b09c7",
       "pid": "2527f8ee47e3e5560ad82df133013165b16250cf2db7ff8a384e55d5e8dedd4b",
-      "sha": "2fc0f1be813a8bcc1f04c9e4238ffced563e86858e6c78dab9351f063996659c",
-      "text": "4796b45e66507ee3cfd8552ddc28245fbb62e79d12bd59e7a777214cf811480a",
-      "tok": "59d68b8471160730579ceac16052144afdd2734bd208c27ad05c0872c0d223b1",
+      "sha": "eec3889faefb74f3a7cb4712b447dcc26333c148a1dddf933acaa993188cf5f8",
+      "text": "2c1d038431366c133463684dfc6d3f0b1cf9087a66566b6a78dbed5b9997061a",
+      "tok": "eec0b86ca2dda4a8f08e46fa25b40352ac8baf65442daae0ccb59e0bdf8c96fb",
       "type": "895fcc4085d756436043cece0f7cf8564bb4accedbd5ea5d4dd173f2b85db8d0"
      },
      "rows": 5874,
-     "sha": "b29d3d0fa45b5063e77731f6d8540247298930392dae63a65807fc8406733963"
+     "sha": "5e918fdfd97058f7bc2393973e955822a11481d28678b75d61daa739ecd9139f"
     },
     "encounter": {
      "columns": {

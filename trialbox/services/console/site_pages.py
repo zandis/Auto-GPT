@@ -68,6 +68,11 @@ _NEXT = re.compile(r"(?i)next|what (do|should) i do|次|何を|どうすれば|�
 # that see every study. A study-scoped account (an SMO or CRO coordinator, D-104) opens only what is per study: its own
 # studies' readiness and the help. Every other site page and API answers 404, as another study's pages do.
 PER_STUDY = frozenset({"/site", "/site/help", "/api/v1/site/readiness"})
+# D-280 (OD-5, CR-023): the set-up pages the administrator still opens. They carry no patient row (no pseudonym, no
+# chart number). Charts, facts, people and patients do, so the administrator opens them only as a coordinator would.
+ADMIN_SETUP = frozenset({"/site", "/site/start", "/site/codes", "/site/checks", "/site/sheets", "/site/help",
+                         "/site/practice", "/api/v1/site/readiness", "/api/v1/site/codes",
+                         "/api/v1/site/checks"})  # fmt: skip
 ASK_PER_HOUR = 60  # D-273 (PV-7): one patient's "why" answers per person and hour (the candidate pages' default)
 
 
@@ -118,7 +123,8 @@ def register(app: FastAPI, h: Helpers) -> None:
     def need_view(sess: Session, path: str) -> None:
         if sess.user.role == "cro":
             raise h.problem(404, "notfound")
-        if not sess.user.can_view_phi:
+        admin_ok = sess.user.is_admin and (path in ADMIN_SETUP or path.startswith("/site/templates/"))
+        if not (sess.user.can_view_phi or admin_ok):
             au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
             raise h.problem(403, "forbidden")
         if not site_wide(sess.user) and path not in PER_STUDY:  # D-179: site-wide data, not a study's
