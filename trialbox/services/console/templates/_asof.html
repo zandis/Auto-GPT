@@ -1,0 +1,3 @@
+{# FIT-U01 (T-512): the day of the data this list was made from; amber when it is more than two days old #}
+{% set a = asof if asof is defined and asof else ((wk or {}).get('asof') if wk is defined else none) %}
+{% if a %}<p class="{{ 'warn' if a.stale else 'hint' }}" data-testid="data-asof" data-stale="{{ 'yes' if a.stale else 'no' }}">{{ t('asof.stale' if a.stale else 'asof.line', day=a.day) }}</p>{% endif %}

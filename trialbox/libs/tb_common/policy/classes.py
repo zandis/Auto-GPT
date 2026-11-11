@@ -180,6 +180,7 @@ _D1 = {
     "QualificationBuilds",
     "QualifiedBuild",
     "QualificationStep",
+    "QualificationChangeProtocol",
     "UpdateFile",
     "UpdateManifest",
     # release.json (T-110b, D-340): versions, digests and sums of the vendor's own build, no site or patient data

@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 from matching.coverage import unknown_system_counts
 from tb_common.authz import norm
+from tb_common.kek import key_present
 from tb_common.ruleset import Ruleset
 from tb_common.subject import job_subject
 from tb_common.timeutil import add_months
@@ -336,7 +337,7 @@ def resolve_mrns(sec: Path, pids: list[str], url: str | None = None) -> dict[str
     """pid -> chart number from the pid map of the key under ``sec``; empty when the box has no map (no key: stub
     installs, no ingest yet). ``url``: the trial database (the orchestrator's; ``TB_DB_URL`` when None)."""
     key = sec / "pid_map.key"
-    if not key.exists():
+    if not key_present(key):  # plain or wrapped under the KEK (T-210b)
         return {}
     from adapter.pidmap import PidMap
 
