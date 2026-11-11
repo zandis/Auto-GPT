@@ -77,7 +77,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-229 | reserved | T-205 | Second factor at signing and the record lock |
 | D-230 | reserved | T-206 | Opt-out worker v1 |
 | D-231 | reserved | T-207 | The derived-data framework: stored rows and definitions as data |
-| D-232 | reserved | T-208 | Prompt-injection and false-positive suite |
+| D-232 | unused | T-208 | was reserved for T-208, which took D-346 |
 | D-233 | reserved | T-209 | Monitoring, admin screens and the support bundle |
 | D-234 | reserved | T-210 | Windows/WSL2 hardening, keys under a KEK, the unseal path |
 | D-235 | reserved | T-211 | Audit integrity: signed heads, one writer, NTP as a FAIL, the audit … |
@@ -161,5 +161,6 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-332 | merged | T-508 | the clinician PoC is product evaluation, not research: no protocol, subject consent or committee step; the acknowledgement only (file) |
 | D-334 | merged | T-613b | lab units read per row: one conversion table in labvalue (engines' factors reused), mapping_check unit pairs and raw values, one presence reader in ja, zh-TW, en (file) |
 | D-344 | merged | T-215 | QMS-lite records in `docs/validation/`, VMP v1.1 without signatures, change classes CC1 to CC6, staged roll-out, standards position (file) |
+| D-346 | merged | T-208 | the prompt-injection and false-positive suite: facts not words, a stub that obeys as the negative control, the fence escaped, hidden text flagged, traces 7 days in PRODUCTION (file) |
 | D-347 | merged | T-210b | the site keys under a KEK: wrapped files, three back ends, the unseal, the key inventory (file) |
 | D-349 | merged | T-512 | the PI starts FEAS, SCREEN and CASE on own study; a sub-investigator with the `run` tick; one table `authz.INVESTIGATOR_RUNS`; "data as of" on the patient lists (file) |
