@@ -317,7 +317,7 @@ def store_migrations() -> dict[str, list[str]]:
     from adapter import licensed, pidmap
     from console import auth, breakglass, feedback, saerecord, sitestore, teamstore
     from criteria_compiler.library import ddl as library
-    from datacore import lifecycle
+    from datacore import dataops, lifecycle
     from datacore import store as datacore
     from edc import store as edc
     from mail_gateway import store as mail
@@ -353,6 +353,7 @@ def store_migrations() -> dict[str, list[str]]:
         "sae": list(saerecord.MIGRATIONS),
         "app": list(flags.MIGRATIONS),
         "derived": list(derived_store.MIGRATIONS),
+        "dataops": [dataops.SCHEMA],
     }
 
 
@@ -414,6 +415,8 @@ ADDED: dict[str, tuple[str, ...]] = {
     "team": ("ad5cea87a2f6b2b0210c392f8c698a0c72253a93cbbb6ec74915bf0cefbd076f",),
     # D-280: the break-glass grants, new after the baseline
     "breakglass": ("0347aae3f58f7558d041191f25bd2fc5bc654e6f5139c9ee28b1588e91544b83",),
+    # T-112a (D-427): the data-operations batches, new after the baseline
+    "dataops": ("01925afb0e82837617a880fa2d2b32f7efaa6d5e98945e7144f57510d76efbcf",),
 }
 #: stores of the baseline whose code is gone (T-659b: ``mpi``, the retired data platform's patient index)
 RETIRED = {"mpi"}
@@ -426,7 +429,7 @@ STORE_FILES = {
     "libs/tb_common/derived_store.py", "libs/tb_common/flags.py", "libs/tb_common/optout.py", "libs/tb_common/refdata.py", "services/adapter/licensed.py",
     "services/adapter/pidmap.py", "services/console/auth.py", "services/console/breakglass.py", "services/console/feedback.py", "services/console/saerecord.py",
     "services/console/sitestore.py", "services/console/teamstore.py", "services/criteria_compiler/library/repository.py",
-    "services/datacore/store.py", "services/edc/store.py",
+    "services/datacore/dataops.py", "services/datacore/store.py", "services/edc/store.py",
     "services/mail_gateway/store.py", "services/omop/schema.py", "services/orchestrator/db.py",
     "services/orchestrator/db_pg.py", "services/orchestrator/outbox.py", "services/orchestrator/recall/ledger.py",
     "services/orchestrator/studystore.py", "services/sitesetup/store.py", "services/tracestore/store.py",
