@@ -41,6 +41,9 @@ ALLOWED: dict[str, str] = {
     "tools/phi_synth_gen.py": "writes the fictional D0 notes for phi_synth_eval (Z-DEV); not shipped",
     "tools/bench_profile.py": "D-148 cost bench on fictional patients (Z-DEV); calls the judge directly only when the "
     "gateway refuses, and records that it did; not shipped",
+    "tools/trialbox/noisy_neighbour.py": "D-432: times a fixed short prompt on the model server under a neighbour's "
+    "load (the serving measurement itself); no patient text; the operator's URL",
+    "tests/platform/test_isolation_drill.py": "D-432: drives noisy_neighbour against an in-process fake on the loopback",
     "tests/unit/test_gpu_prep.py": "drives bench_profile against an in-process stub (no network)",
     "tests/unit/test_served_names.py": "a fake vLLM behind an httpx.MockTransport, strict about the served name "
     "(no network)",
