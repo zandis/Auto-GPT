@@ -341,6 +341,22 @@ class Opinion(BaseModel):
     quote_date: str | None = None
 
 
+class CodedValue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    record: str
+    domain: str
+    code: str | None = None
+    system: str | None = None
+    date: str | None = None
+    value: float | None = None
+    unit: str | None = None
+    value_code: str | None = None
+    comparator: str | None = None
+
+
 class Evidence(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -354,6 +370,10 @@ class Evidence(BaseModel):
     opinions: list[Opinion] | None = None
     """
     When the two checks disagree (D-120): each model's answer and its quote, so a person sees both.
+    """
+    coded: list[CodedValue] | None = None
+    """
+    T-514 (D-362, review UX-008): the coded records behind the answer as a person checks them, latest first (at most three): the record's own value and unit, its date and its code. Shown beside the answer; never read by matching.
     """
 
 
@@ -1100,7 +1120,7 @@ class ReleaseComponent(BaseModel):
         populate_by_name=True,
     )
     path: str
-    kind: Literal["model", "ruleset", "image", "refdata", "other"]
+    kind: Literal["model", "ruleset", "image", "refdata", "other", "host"]
     sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
     size: int = Field(..., ge=0)
 
@@ -1166,7 +1186,7 @@ class ReleaseGates(BaseModel):
 
 class ReleaseRecord(BaseModel):
     """
-    release.json, the release record inside a signed offline bundle (T-110b, D-340). Schema version 1.0.0. Written by tools/release.py from the bundle's own files: the version (pyproject.toml, the one place), the source commit and tag, the passing release-gate record, every image by its config digest with its SBOM, and every payload file with its sha256. images is the map verify_update.py checks against the bundle's images.lock (D-210).
+    release.json, the release record inside a signed offline bundle (T-110b, D-340). Schema version 1.1.0 (1.1.0, D-367: component kind host, the host tree). Written by tools/release.py from the bundle's own files: the version (pyproject.toml, the one place), the source commit and tag, the passing release-gate record, every image by its config digest with its SBOM, and every payload file with its sha256. images is the map verify_update.py checks against the bundle's images.lock (D-210).
     """
 
     model_config = ConfigDict(
@@ -1961,13 +1981,13 @@ class UpdateFile(BaseModel):
     )
     path: str = Field(..., max_length=400, min_length=1)
     sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
-    kind: Literal["model", "ruleset", "image", "refdata", "other"]
+    kind: Literal["model", "ruleset", "image", "refdata", "other", "host"]
     size: int = Field(..., ge=0)
 
 
 class UpdateManifest(BaseModel):
     """
-    Offline update bundle manifest (SPEC 10.1), signed with a trusted vendor Ed25519 key. Schema version 1.2.0 (1.1.0: payload kind refdata, the reference data pack of D-140; 1.2.0, D-210: release_seq, min_installed_version, key_id, not_after, the compatibility table compat.json and the optional release.json / images.lock members bound by their sha256, a key rotation, size required).
+    Offline update bundle manifest (SPEC 10.1), signed with a trusted vendor Ed25519 key. Schema version 1.3.0 (1.1.0: payload kind refdata, the reference data pack of D-140; 1.2.0, D-210: release_seq, min_installed_version, key_id, not_after, the compatibility table compat.json and the optional release.json / images.lock members bound by their sha256, a key rotation, size required; 1.3.0, D-367: payload kind host, the host tree of compose files, host tools and configuration, at most one per bundle).
     """
 
     model_config = ConfigDict(
@@ -2666,7 +2686,7 @@ class RulesetManifest(BaseModel):
 
 class CandidateList(BaseModel):
     """
-    SPEC 3.6 candidate_list (tag phi). Schema version 1.1.0 (1.1.0: optional evidence.opinions, D-120).
+    SPEC 3.6 candidate_list (tag phi). Schema version 1.2.0 (1.1.0: optional evidence.opinions, D-120; 1.2.0: optional evidence.coded, D-362).
     """
 
     model_config = ConfigDict(

@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 from datetime import date
 from pathlib import Path
 
@@ -19,6 +18,7 @@ import pytest
 from lake.flatten import SCHEMAS
 from tb_common.ruleset import Ruleset
 
+from tests.rulesets_guard import copy_rulesets
 from tools import build_rulesets
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -74,7 +74,7 @@ def test_a_patient_coded_m06_09_is_included_by_ra_bio() -> None:
 
 
 def test_a_drifted_valueset_fails_the_check(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    shutil.copytree(RULESETS / "RA-COH", tmp_path / "RA-COH")
+    copy_rulesets(tmp_path / "RA-COH", src=RULESETS / "RA-COH")
     p = tmp_path / "RA-COH" / "valuesets" / "VS_RHEUMATOID_ARTHRITIS.json"
     vs = json.loads(p.read_text(encoding="utf-8"))
     vs["compose"]["include"][0]["concept"] = vs["compose"]["include"][0]["concept"][:5]

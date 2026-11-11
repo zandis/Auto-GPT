@@ -366,9 +366,11 @@ ADDED: dict[str, tuple[str, ...]] = {
     "auth": ("44f1f94e5797899b13e8b807b4b20ace62bd584cf226dd4e207cf500b466deb6",),
     # D-301: migration 3, the one-million block and the vocabulary tables
     # T-106 (D-339): migration 4, the large clinical tables partitioned by year
+    # T-106b (STD-032): migration 5, the other fifteen CDM v5.4 tables
     "omop": (
         "0eec88a07c4476ca00fdfb2e8fc414fb2257a293e381d8115a668fa7df0dc6f9",
         "36aaec4b30675bd3f2fa9006cbb7e9869f5df899613d179dde3068d19156094c",
+        "5e12313c13360ff7f760649cce2f8bd954e6cfbace79c3dc399b47ae842055c6",
     ),
     # T-612: pidmap version 2, the site key's fingerprint
     "pidmap": ("b7cf6c229898b30f609be2151ff4422b2a0bc0cd068b0b5150e1d58c07c98ae3",),
