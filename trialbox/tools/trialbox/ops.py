@@ -348,7 +348,11 @@ class OpsRunner:
             work.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory(prefix="ops-backup-", dir=work) as tmp:
                 os.chmod(tmp, 0o700)
-                where = ComposeBox(self.box.deploy).backup(cast(Any, None), Path(tmp))
+                cb = ComposeBox(self.box.deploy, run=self.box.run)
+                where = cb.backup(cast(Any, None), Path(tmp))
+                # ``backup`` leaves the services stopped on success (the update path starts them in its restart
+                # step, and starts them itself when it fails); here nothing follows, so they start now
+                cb.resume(cast(Any, None))
             files = [newest.name for t in targets if (newest := _newest_backup(t)) is not None]
             return f"backup written to {where}", files
         from tools.trialbox import backup as bkp
