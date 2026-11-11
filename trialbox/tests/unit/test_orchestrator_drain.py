@@ -1,4 +1,4 @@
-"""``Orchestrator.drain``: a stall window that restarts on progress, and an optional cap on the whole drain."""
+"""``Orchestrator.drain``: a finished job is progress however long it took; only ``total`` caps the drain."""
 
 from __future__ import annotations
 
@@ -38,17 +38,18 @@ def _orch(jobs: int, seconds_per_job: float, clock: _Clock) -> Any:
 def test_a_long_queue_that_keeps_moving_drains(monkeypatch: pytest.MonkeyPatch) -> None:
     clock = _Clock()
     monkeypatch.setattr("orchestrator.core.time.monotonic", clock)
-    o = _orch(jobs=5000, seconds_per_job=0.2, clock=clock)  # 1,000 s in all, far past one 600 s window
-    o.drain(timeout=600)
+    o = _orch(jobs=5000, seconds_per_job=0.2, clock=clock)
+    o.drain()
     assert clock.t == pytest.approx(1000)
 
 
-def test_a_stalled_queue_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_one_job_that_runs_for_hours_and_finishes_drains(monkeypatch: pytest.MonkeyPatch) -> None:
+    """G1 of 2026-11-11: one screening job over 50,000 patients took 2.6 h and was failed as a stall."""
     clock = _Clock()
     monkeypatch.setattr("orchestrator.core.time.monotonic", clock)
-    o = _orch(jobs=3, seconds_per_job=700, clock=clock)  # the first job alone outlasts the window
-    with pytest.raises(TimeoutError, match="queue not drained"):
-        o.drain(timeout=600)
+    o = _orch(jobs=2, seconds_per_job=9500, clock=clock)
+    o.drain()
+    assert clock.t == pytest.approx(19000)
 
 
 def test_the_total_cap_still_stops_a_moving_queue(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -56,4 +57,4 @@ def test_the_total_cap_still_stops_a_moving_queue(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr("orchestrator.core.time.monotonic", clock)
     o = _orch(jobs=5000, seconds_per_job=1.0, clock=clock)
     with pytest.raises(TimeoutError, match="queue not drained"):
-        o.drain(timeout=600, total=100)
+        o.drain(total=100)
