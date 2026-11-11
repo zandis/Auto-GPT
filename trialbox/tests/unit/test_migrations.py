@@ -368,7 +368,12 @@ ADDED: dict[str, tuple[str, ...]] = {
     # T-612: pidmap version 2, the site key's fingerprint
     "pidmap": ("b7cf6c229898b30f609be2151ff4422b2a0bc0cd068b0b5150e1d58c07c98ae3",),
     # D-277: datacore version 4 (the study's SAE rule set); sae version 3 (one initial report per party, CR-011)
-    "datacore": ("8250b52d4e13e66e149ffa956f83b3a8027f95d4094f1a32b999771e459f7aa5",),
+    # D-364 (T-621): datacore version 5 (schedule versions); site version 4 (the criteria version on each mark)
+    "datacore": (
+        "8250b52d4e13e66e149ffa956f83b3a8027f95d4094f1a32b999771e459f7aa5",
+        "d9f888838f2280f9e49a6d3f9a9bf210ace25104632200683567a4389fa03884",
+    ),
+    "site": ("7f7cf970ce4268ca7fdc4fd725535442b586b8ea1e2b23fa631dddf9d3a7575d",),
     "sae": ("78527251f39fb58cd728b207c0fc332740a2d06444492dbd617b4d1b0cb7b6d3",),
     # T-510 (D-331): the feedback store, new after the baseline
     "feedback": ("3981b6201cd514508bed945433f3415993494cb24e52809cca7f37fe3801e368",),

@@ -161,3 +161,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-331 | merged | T-510 | in-product feedback: a flag, a rating and a comment on every page, stored with path, language, role and time; CSV export to issues; the comment in the demo scan (file) |
 | D-332 | merged | T-508 | the clinician PoC is product evaluation, not research: no protocol, subject consent or committee step; the acknowledgement only (file) |
 | D-334 | merged | T-613b | lab units read per row: one conversion table in labvalue (engines' factors reused), mapping_check unit pairs and raw values, one presence reader in ja, zh-TW, en (file) |
+| D-364 | merged | T-621 | amendment handling: effective date and IRB record per criteria version (a record, not a gate), screening on the version in force, the version on every mark, the re-screen list, schedule versions judged by visit date (file) |
