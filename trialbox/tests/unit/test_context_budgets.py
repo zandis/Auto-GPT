@@ -40,6 +40,7 @@ from tb_llm import CallLabels, GatewayClient, json_schema_format
 from tb_llm.budget import SAFETY, estimate_messages, retry_max_tokens
 
 from tests.judge_kit import note_criterion, ruleset
+from tests.model_pins import promote_pins, release_registry
 from tests.unit.test_gateway import _ir_body, _judge_body
 from tests.unit.test_gateway_box_phi import _weights
 from tests.unit.test_gateway_one_role_one_model import IR, JUDGE_HOST, VERIFIER_HOST, _gw
@@ -74,14 +75,19 @@ def _box(tmp_path: Path, gpu: str, monkeypatch: pytest.MonkeyPatch) -> tuple[Gat
     profile's context (``TB_STUB_CONTEXT``)."""
     _weights(tmp_path / "models")
     override = tmp_path / "site" / "registry.site.yaml"
+    # T-012b (D-358): the synthetic folders are the expected release of a registry copy; install pins candidates,
+    # promoted as a passing qualification record would
+    folders = {build: tmp_path / "models" / d for build, _ep, _dv, d, *_ in pin_model.PROFILE_PAIRS[gpu]}
+    release = release_registry(tmp_path, folders, monkeypatch)
     ok, lines = pin_model.install_pins(gpu, tmp_path / "models", override, {})
     assert ok, lines
+    promote_pins(override)
     monkeypatch.setenv("TB_STUB_CONTEXT", str(PROFILES[gpu]))
     monkeypatch.setenv("TB_STEP_ID", "step-1")
     rec = Recorder()
     gw = Gateway(
         RoutingPolicy.load(),
-        Registry.from_env({"TB_REGISTRY_OVERRIDE": str(override)}),
+        Registry.from_env({"TB_REGISTRY_OVERRIDE": str(override), "TB_REGISTRY_PATH": str(release)}),
         AuditLog(tmp_path / "audit"),
         GatewayConfig(environment=Environment.PRODUCTION),
         http=rec.client(),

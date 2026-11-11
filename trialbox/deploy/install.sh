@@ -228,7 +228,9 @@ fi
 echo "    ClinicalTrials.gov: $CTGOV"
 sed -i "/^TB_CTGOV_MODE=/d" deploy/.env && echo "TB_CTGOV_MODE=$CTGOV" >> deploy/.env
 # random service passwords where the example ones are still in place
-for k in POSTGRES_PASSWORD POSTGRES_WF_PASSWORD; do
+# D-378: and one per service role of the trial database (deploy/docker/db-init/30-service-roles.sh)
+for k in POSTGRES_PASSWORD POSTGRES_WF_PASSWORD TB_DB_PW_LAKE TB_DB_PW_CRITERIA_COMPILER TB_DB_PW_ADAPTER \
+         TB_DB_PW_ORCHESTRATOR TB_DB_PW_MAIL_GATEWAY TB_DB_PW_GATEWAY TB_DB_PW_CONSOLE; do
   if grep -q "^$k=change-me" deploy/.env || ! grep -q "^$k=" deploy/.env; then
     sed -i.bak "/^$k=/d" deploy/.env && printf '%s=%s\n' "$k" "$(rand 32)" >> deploy/.env
   fi
@@ -242,7 +244,7 @@ if command -v python3 >/dev/null; then
 else
   docker run --rm --user 0 -v "$ROOT/deploy:/d" "$IMAGE_PY" python -m tools.trialbox secrets init --deploy /d | sed 's/^/    /'
 fi
-# D-126: every service reaches the one trial database with the workflow role's password
+# D-126: the host tools reach the one trial database as `trialbox`; each service has its own role (D-378)
 WF_PW="$(sed -n 's/^POSTGRES_WF_PASSWORD=//p' deploy/.env | tail -1)"
 sed -i "/^TB_DB_URL=/d" deploy/.env && echo "TB_DB_URL=postgresql://trialbox:${WF_PW}@db:5432/trialbox_wf" >> deploy/.env
 # D-127 (review F-06): a box is PRODUCTION unless the operator set TB_ENV on purpose (timers, mail, REDCap, gates)
@@ -296,8 +298,9 @@ chmod 600 deploy/.env
 chown "$(id -u):10001" deploy/settings.yaml && chmod 640 deploy/settings.yaml
 export TB_SETTINGS_FILE="./settings.yaml"
 if [ "$MODE" = gpu ]; then
-  # D-142 (review R-01): pin the profile's deployed pair from the site's own weights (champion: the status PRODUCTION
-  # routes); without it every PRODUCTION model call is refused (build_unpinned). Builds already pinned are kept.
+  # D-142 (review R-01): pin the profile's deployed pair from the site's own weights, which must be the release
+  # models/registry.yaml expects (D-358), as candidate; PRODUCTION routes it once `trialbox eval qualify` passes and
+  # `pin_model --promote` makes it champion (until then: champion_unqualified / no_eligible_build). Pins are kept.
   mkdir -p deploy/site
   for v in JUDGE_MODEL_DIR JUDGE_MODEL VERIFIER_MODEL_DIR VERIFIER_MODEL; do  # as compose reads them from deploy/.env
     val="$(sed -n "s/^$v=//p" deploy/.env | tail -1)"; [ -z "$val" ] || export "$v=$val"
@@ -416,6 +419,9 @@ fi
 say "site keys (made once, never replaced)"
 "${COMPOSE[@]}" run --rm --no-deps -T adapter python -m adapter.cli keys-init | sed 's/^/    /' \
   || die "the site keys could not be made or read (above): put the site's keys back from the backup (RUNBOOK §5)"
+# D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
+"${COMPOSE[@]}" up -d --pull "$PULL" --wait db && "${COMPOSE[@]}" exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh \
+  || die "the database roles could not be set (docker compose logs db)"
 "${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-900}" \
   || { "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }
 if [ "$MODE" = gpu ]; then
