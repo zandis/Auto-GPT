@@ -413,7 +413,11 @@ ADDED: dict[str, tuple[str, ...]] = {
     # D-399 (T-302a): team version 2, the approved consent-form versions as history rows
     "team": ("ad5cea87a2f6b2b0210c392f8c698a0c72253a93cbbb6ec74915bf0cefbd076f",),
     # D-280: the break-glass grants, new after the baseline
-    "breakglass": ("0347aae3f58f7558d041191f25bd2fc5bc654e6f5139c9ee28b1588e91544b83",),
+    # T-309 (D-430): version 2, each use of a grant (the steward's review list)
+    "breakglass": (
+        "0347aae3f58f7558d041191f25bd2fc5bc654e6f5139c9ee28b1588e91544b83",
+        "a109d4561de2163aa76c7efdb78674bc128bd1d8ce65f968aaabd6e63b9bdb99",
+    ),
 }
 #: stores of the baseline whose code is gone (T-659b: ``mpi``, the retired data platform's patient index)
 RETIRED = {"mpi"}

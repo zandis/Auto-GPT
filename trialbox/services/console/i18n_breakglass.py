@@ -57,6 +57,13 @@ EN: dict[str, str] = {
     "bg.err.self": "You cannot review your own grant.",
     "bg.err.open": "The grant is still open; review it after it ends.",
     "bg.err.reviewed": "This grant is already reviewed.",
+    "bg.help.reader": "Your pages show only the patients of the studies the delegation log gives you. When you must look at one patient or one job outside them, open a grant: choose a reason and write why. The grant lasts {minutes} minutes and then ends by itself. Every use is in the audit trail, the steward and the study's PI are told at once, and the steward reviews it.",
+    "bg.err.needless": "You can already open this patient or job with your own rights; no grant is needed.",
+    "bg.uses": "Each use",
+    "bg.what.patient_page": "patient page",
+    "bg.what.reveal": "chart number",
+    "bg.what.job_page": "job page",
+    "bg.what.case_sheet": "CASE sheet",
 }
 
 JA: dict[str, str] = {
@@ -112,6 +119,13 @@ JA: dict[str, str] = {
     "bg.err.self": "自分の許可はレビューできません。",
     "bg.err.open": "許可はまだ開いています。終了後にレビューしてください。",
     "bg.err.reviewed": "この許可はレビュー済みです。",
+    "bg.help.reader": "通常の画面には、治験分担医師・治験協力者リストであなたに割り当てられた試験の患者だけが表示されます。それ以外の患者1人または処理1件を見る必要があるときは、理由を選び、目的を書いて許可を開きます。許可は{minutes}分で自動的に終わります。利用はすべて監査証跡に残り、スチュワードと試験の責任医師にすぐ通知され、スチュワードがレビューします。",
+    "bg.err.needless": "この患者または処理は、あなたの通常の権限で開けます。許可は不要です。",
+    "bg.uses": "利用の記録",
+    "bg.what.patient_page": "患者画面",
+    "bg.what.reveal": "カルテ番号",
+    "bg.what.job_page": "処理画面",
+    "bg.what.case_sheet": "CASEシート",
 }
 
 ZH: dict[str, str] = {
@@ -167,4 +181,11 @@ ZH: dict[str, str] = {
     "bg.err.self": "不能審查自己的授權。",
     "bg.err.open": "授權仍在開啟中，請在結束後審查。",
     "bg.err.reviewed": "此授權已審查。",
+    "bg.help.reader": "您的頁面只顯示授權紀錄表指派給您的試驗病人。需要查看其外的一位病人或一個作業時，請開啟授權：選擇理由並寫明原因。授權 {minutes} 分鐘後自動結束。每次使用都記入稽核軌跡，資料管理員與試驗主持人會立即收到通知，並由資料管理員審查。",
+    "bg.err.needless": "您以自己的權限即可開啟此病人或作業，不需要授權。",
+    "bg.uses": "每次使用",
+    "bg.what.patient_page": "病人頁面",
+    "bg.what.reveal": "病歷號",
+    "bg.what.job_page": "作業頁面",
+    "bg.what.case_sheet": "CASE 表",
 }

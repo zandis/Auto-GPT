@@ -517,10 +517,10 @@ actions:
   # ---------------------------------------------------------------- break-glass (D-280, OD-5; page: console.breakglass)
   # ``console.breakglass`` asks these rows (T-102c, D-425).
   breakglass.open:
-    what: open or end one 60-minute grant for one patient or one job
+    what: open or end one 60-minute grant for one patient or one job outside one's own rights (T-309, D-430, one rule)
     admin: true
     coordinator: false
-    investigator: false
+    investigator: true
     viewer: false
     cro: false
     steward: false
@@ -535,13 +535,22 @@ actions:
     steward: true
     privacy: false
   breakglass.read:
-    what: read the grant list (admin its own, steward all, a study's PI that study's)
+    what: read the grant page (one's own grants, the steward every grant; T-309)
     admin: true
+    coordinator: false
+    investigator: true
+    viewer: false
+    cro: false
+    steward: true
+    privacy: false
+  breakglass.study:
+    what: read the grants that touched a study one is PI of (T-309)
+    admin: false
     coordinator: false
     investigator: [pi]
     viewer: false
     cro: false
-    steward: true
+    steward: false
     privacy: false
 
 

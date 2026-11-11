@@ -1291,12 +1291,12 @@ def create_app(
             raise _Problem(404, "notfound")
         # D-91/D-101: the CASE eligibility sheet carries chart text (phi); in the pilot workspace a requester or an
         # investigator may read it in the browser, exactly as the study team receives it by mail. Viewers may not.
-        # D-280 (OD-5): the administrator reads it only under a break-glass grant for this job
-        if out.tag != "aggregate" and not (
-            job.type == "CASE" and (sess.user.can_view_phi or _bg(sess, job, "case sheet") is not None)
-        ):
+        # D-280 (OD-5): the administrator reads it only under a break-glass grant for this job; T-309 (D-430): so does
+        # an investigator the delegation log does not reach (one rule)
+        grant = _bg(sess, job, "case sheet") if out.tag != "aggregate" and job.type == "CASE" else None
+        if out.tag != "aggregate" and not (job.type == "CASE" and (sess.user.can_view_phi or grant is not None)):
             raise _Problem(404, "notfound")
-        if out.tag != "aggregate":  # D-273 (PV-3): an investigator reads a study's patient sheet only as delegated
+        if out.tag != "aggregate" and grant is None:  # D-273 (PV-3): an investigator reads it only as delegated
             helpers.delegated(sess, job.ruleset or "", request.url.path)
         data = bk.get_object(out.minio_key)
         au.append(
@@ -1339,8 +1339,9 @@ def create_app(
         return _job_page(request, sess, job)
 
     def _bg(sess: Session, job: Job, what: str) -> Any:
-        """D-280 (OD-5): the administrator's open break-glass grant for this job (one audited use), else None."""
-        if helpers.breakglass is None:
+        """D-280 (OD-5): the open break-glass grant for this job (one audited use), else None. T-309 (D-430): asked
+        only when the account does not read the job's study by its own rights (``Helpers.reads``)."""
+        if helpers.breakglass is None or helpers.reads(sess.user, job.ruleset):
             return None
         return helpers.breakglass(sess, job_id=job.job_id, what=what)
 
@@ -1453,7 +1454,7 @@ def create_app(
         # D-273 (PV-3, PV-4): the rows are patient level; an investigator sees them only as delegated ("screen"),
         # and a patient on the opt-out register now is not shown, however old the job (only the count is)
         # D-280 (OD-5): the administrator only under a break-glass grant for this job (``bg``)
-        if list_out is not None and (sess.user.can_view_phi or bg) and helpers.delegated_ok(sess.user, job.ruleset):
+        if list_out is not None and (helpers.reads(sess.user, job.ruleset) or bg):
             try:
                 cl = json.loads(bk.get_object(list_out.minio_key))
             except (KeyError, ValueError, OSError):

@@ -54,7 +54,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/audit` | Y | Y | Y | Y | - | - | - | Y | Y |
 | GET | `/auth/oidc/callback` | n | n | n | n | n | n | n | n | n |
 | GET | `/auth/oidc/start` | n | n | n | n | n | n | n | n | n |
-| GET | `/breakglass` | Y | - | - | Y | - | - | - | Y | - |
+| GET | `/breakglass` | Y | - | Y | Y | - | - | - | Y | - |
 | GET | `/cmd` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/data/instruments` | Y | - | - | - | - | - | - | - | - |
 | GET | `/data/items` | - | - | - | - | - | - | - | Y | - |
@@ -175,8 +175,8 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/api/v1/studies/{rs}/referrals/{ref_id}/answer` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | POST | `/api/v1/studies/{rs}/sources/{name}/sync` | - | n | - | - | n | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/subjects/{record}/step` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
-| POST | `/breakglass` | Y | - | - | - | - | - | - | - | - |
-| POST | `/breakglass/{gid}/end` | Y | - | - | - | - | - | - | - | - |
+| POST | `/breakglass` | Y | - | Y | Y | - | - | - | - | - |
+| POST | `/breakglass/{gid}/end` | Y | - | Y | Y | - | - | - | - | - |
 | POST | `/breakglass/{gid}/review` | - | - | - | - | - | - | - | Y | - |
 | POST | `/data/instruments/{iid}` | Y | - | - | - | - | - | - | - | - |
 | POST | `/demo/ack` | n | n | n | n | n | n | n | n | n |
