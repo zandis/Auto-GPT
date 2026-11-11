@@ -19,6 +19,7 @@ from lake.client import LakeHttp
 from pydantic import BaseModel, Field
 from tb_common.audit import AuditLog
 from tb_common.config import get_config, tb_env
+from tb_common.crypto import load_key
 from tb_common.fhir import FhirEvaluator
 from tb_common.http import make_app
 from tb_common.llm import LlmClient
@@ -485,7 +486,7 @@ def data_service_of(o: Orchestrator) -> Any:
     studies = study_service_of(o)
 
     def site_key() -> bytes:
-        return (Path(o.cfg.env.secrets_dir) / "site_hmac.key").read_bytes()
+        return load_key(Path(o.cfg.env.secrets_dir) / "site_hmac.key")  # plain or under the KEK (T-210b)
 
     return DataService(core, o.audit, lambda: _now(o), studies.client, site_key, registry_of(o))
 
@@ -507,7 +508,7 @@ def setup_of(o: Orchestrator) -> Any:
     if key not in _setups:
 
         def site_key() -> bytes:
-            return (Path(o.cfg.env.secrets_dir) / "site_hmac.key").read_bytes()
+            return load_key(Path(o.cfg.env.secrets_dir) / "site_hmac.key")  # plain or under the KEK (T-210b)
 
         _setups[key] = SiteSetup(SetupStore(o.db.url), Path(o.data_dir) / "sitesetup", o.services.lake,
                                  o.services.llm, o.audit, lambda: _now(o), o.today, site_key,
