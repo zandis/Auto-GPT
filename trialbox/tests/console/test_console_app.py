@@ -362,6 +362,17 @@ def login(app: Any, user: str = "admin", pw: str = ADMIN_PW) -> tuple[TestClient
     return c, csrf.group(1)
 
 
+CRC_PW = "coordinator-password-01"
+
+
+def login_crc(b: dict[str, Any]) -> tuple[TestClient, str]:
+    """A study coordinator: since D-280 (OD-5) the administrator reads no patient data, so the tests of the
+    patient-level pages sign in as the coordinator."""
+    if b["users"].get("crc") is None:
+        b["users"].create("crc", "coordinator", CRC_PW, "crc@hospa.test")
+    return login(b["app"], "crc", CRC_PW)
+
+
 def login_totp(app: Any, user: str = "admin", pw: str = ADMIN_PW) -> tuple[TestClient, str]:
     """Sign in where TOTP is on (PRODUCTION, D-192) over https (Secure cookies): the password, then the enrolment page
     whose key gives the first code."""
@@ -987,7 +998,13 @@ def _done_screen(backend: FakeBackend, jid: str) -> Job:
 def test_screen_job_page_shows_candidates_and_reveals_a_chart_number_once(box: dict[str, Any]) -> None:
     jid = _ulid(970)
     _done_screen(box["backend"], jid)
-    c, csrf = login(box["app"])
+    # D-280 (OD-5): the administrator sees the summary, not the rows, and reveals nothing without break-glass
+    a, acsrf = login(box["app"])
+    apage = a.get(f"/pilot/jobs/{jid}").text
+    assert 'data-testid="screen-rows"' not in apage and "read by j-workhorse alone" in apage  # judging: admin only
+    r = a.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": acsrf, "pid": "a" * 32, "reason": "contact"})
+    assert r.status_code == 403 and box["backend"].revealed == []
+    c, csrf = login_crc(box)
     page = c.get(f"/pilot/jobs/{jid}").text
     assert (
         'data-testid="screen"' in page
@@ -997,7 +1014,7 @@ def test_screen_job_page_shows_candidates_and_reveals_a_chart_number_once(box: d
     assert page.index("a" * 12) < page.index("b" * 12)  # "may meet the criteria" first
     assert "two flares this spring" in page and "Dr Lin" in page and "confirm flare dates" in page
     assert "90 %" not in page  # FR-UI-17 (D-108): no model confidence on a clinical page
-    assert "read by j-workhorse alone" in page and f'href="/pilot/registry/GZQO#p-{"a" * 32}"' in page
+    assert f'href="/pilot/registry/GZQO#p-{"a" * 32}"' in page
     assert page.count('data-testid="reveal"') == 2 and "MRN-000123" not in page
     # D-273 (PV-2): the job page reveals through the one guarded path: a reason is required
     assert c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "a" * 32}).status_code == 400
@@ -1008,8 +1025,8 @@ def test_screen_job_page_shows_candidates_and_reveals_a_chart_number_once(box: d
                                                   "note": "sponsor query on visit dates"})  # fmt: skip
     assert r.status_code == 200 and 'data-testid="mrn"' in r.text and "MRN-000123" in r.text
     assert r.text.count('data-testid="reveal"') == 1  # the other row still has its button
-    assert box["backend"].revealed == [(jid, "a" * 32, "console:admin")]
-    assert box["backend"].signed == [("reveal", "admin", "*")]  # the role and studies travel signed (PV-15)
+    assert box["backend"].revealed == [(jid, "a" * 32, "console:crc")]
+    assert box["backend"].signed == [("reveal", "coordinator", "*")]  # the role and studies travel signed (PV-15)
     assert any(rec.event == "console.reveal_patient" for rec in box["backend"].audit(jid))
     raw = b"".join(p.read_bytes() for p in (box["dir"] / "audit").rglob("*") if p.is_file())
     assert b'"via":"job"' in raw and b"sponsor query on visit dates" in raw  # the written reason is kept
@@ -1199,7 +1216,9 @@ def test_case_form_becomes_the_case_mail_line(box: dict[str, Any]) -> None:
 
 def test_case_sheet_card_and_phi_view_rules(box: dict[str, Any]) -> None:
     job = _done_case(box["backend"])
-    c, _ = login(box["app"])
+    a, _ = login(box["app"])  # D-280 (OD-5): the administrator opens no CASE sheet without break-glass
+    assert a.get(f"/pilot/jobs/{job.job_id}/view/case_GZQO_{job.job_id}.html").status_code == 404
+    c, _ = login_crc(box)
     page = c.get(f"/pilot/jobs/{job.job_id}").text
     assert 'data-testid="case"' in page and "12 criteria" in page and "met 7" in page and "snapshot 2026-10-04" in page
     sheet = re.search(
@@ -1214,14 +1233,17 @@ def test_case_sheet_card_and_phi_view_rules(box: dict[str, Any]) -> None:
     v, _ = login(box["app"], "viewer", VIEWER_PW)
     assert v.get(f"/pilot/jobs/{job.job_id}").status_code == 403
     assert v.get(f"/pilot/jobs/{job.job_id}/view/case_GZQO_{job.job_id}.html").status_code == 403
-    # a phi output of any other job type is never viewable, even for an administrator
+    # a phi output of any other job type is never viewable, even for a coordinator
     feas = _done_feas(box["backend"])
     assert c.get(f"/pilot/jobs/{feas.job_id}/view/feasibility_GZQO_v1.0.0_2026-10-04.raw.json").status_code == 404
 
 
 # ---------------------------------------------------------------------------------------------- D-92 registry
 def test_registry_pages_add_promote_export(box: dict[str, Any]) -> None:
-    c, csrf = login(box["app"])
+    a, _ = login(box["app"])  # D-280 (OD-5, CR-023): the administrator reads no registry row and exports nothing
+    assert a.get("/pilot/registry/GZQO").status_code == 403
+    assert a.get("/pilot/registry/GZQO/export.xlsx").status_code == 403
+    c, csrf = login_crc(box)
     page = c.get("/pilot/registry").text
     assert 'data-testid="registry-summary"' in page and "GZQO" in page
     page = c.get("/pilot/registry/GZQO").text
@@ -1298,12 +1320,12 @@ def test_the_export_names_the_signed_in_user_signed_with_the_session(
         return bytes(real(rs, by))
 
     monkeypatch.setattr(box["backend"], "registry_export", spy)
-    c, _ = login(box["app"])
+    c, _ = login_crc(box)
     assert c.get("/pilot/registry/GZQO/export.xlsx").status_code == 200
     h = seen[0]
     who = sa.verify_actor(h[sa.ACTOR_HEADER], h[sa.ASSERTION_HEADER], role=h[sa.ROLE_HEADER], scope=h[sa.SCOPE_HEADER])
-    assert who.name == "console:admin" and who.verified and len(who.session) == 16
-    assert who.role == "admin" and who.scope == "*"  # D-273 (PV-5): the role and studies are signed too
+    assert who.name == "console:crc" and who.verified and len(who.session) == 16
+    assert who.role == "coordinator" and who.scope == "*"  # D-273 (PV-5): the role and studies are signed too
 
 
 # ---------------------------------------------------------------------------------------------- D-93 roles and SSO
@@ -1545,8 +1567,11 @@ def test_investigator_sees_candidate_rows_and_case_sheet_and_reveals(box: dict[s
     case = _done_case(box["backend"])
     sheet = next(o for o in case.outputs or [] if o.filename.endswith(".html"))
     assert c.get(f"/pilot/jobs/{case.job_id}/view/{sheet.filename}").status_code == 200
-    r = c.post("/pilot/request", data={"kind": "FEAS", "ruleset": "GZQO", "csrf": csrf})
-    assert r.status_code == 403 and box["backend"].created == []
+    # T-512 (D-349, Q-04): the PI starts a run on the PI's own study; an investigator of another study does not
+    r = c2.post("/pilot/request", data={"kind": "FEAS", "ruleset": "GZQO", "csrf": csrf2})
+    assert r.status_code in (403, 404) and box["backend"].created == []
+    r = c.post("/pilot/request", data={"kind": "FEAS", "ruleset": "GZQO", "csrf": csrf}, follow_redirects=False)
+    assert r.status_code == 303 and [q.type for q in box["backend"].created] == ["FEAS"]
     viewer, _ = login(box["app"], "viewer", VIEWER_PW)
     assert viewer.get(f"/pilot/jobs/{case.job_id}/view/{sheet.filename}").status_code == 403
     admin, _ = login(box["app"])
@@ -1629,7 +1654,9 @@ def test_identifier_views_are_rate_limited(box: dict[str, Any], monkeypatch: pyt
     job = _done_case(box["backend"], {"mrn": "70000054", "lang": "en"})
     box["audit"].append("console.request", job_id=job.job_id, ruleset="GZQO", actor="console:admin",
                         detail={"line": "CASE GZQO mrn=70000054 lang=en"})  # fmt: skip
-    c, _ = login(box["app"])
+    a, _ = login(box["app"])  # D-280 (OD-5): the administrator sees the line masked, and it costs no view
+    assert "mrn=70000054" not in a.get(f"/pilot/jobs/{job.job_id}").text
+    c, _ = login_crc(box)
     assert "mrn=70000054" in c.get(f"/pilot/jobs/{job.job_id}").text
     assert "mrn=70000054" not in c.get(f"/pilot/jobs/{job.job_id}").text
     assert any(r.event == "console.view_id_refused" for r in box["backend"].audit(job.job_id))

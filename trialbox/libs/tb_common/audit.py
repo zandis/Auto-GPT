@@ -774,7 +774,7 @@ def kernel_clock_synced() -> bool | None:
         return None
     try:
         buf = ctypes.create_string_buffer(512)  # struct timex, zeroed: modes 0 is a read, never a change
-        rc = ctypes.CDLL(None, use_errno=True).adjtimex(buf)
+        rc: int = ctypes.CDLL(None, use_errno=True).adjtimex(buf)
     except (OSError, AttributeError):
         return None
     if rc < 0:
@@ -800,7 +800,7 @@ def sntp_offset(server: str, timeout: float = 3.0) -> float:
         raise OSError(f"{server} is not synchronised itself (kiss-o'-death or no time)")
     t2 = rx_s - _NTP_EPOCH + rx_f / 2**32
     t3 = tx_s - _NTP_EPOCH + tx_f / 2**32
-    return ((t1 - t2) + (t4 - t3)) / 2
+    return float(((t1 - t2) + (t4 - t3)) / 2)
 
 
 def max_skew(env: Mapping[str, str] | None = None) -> float:

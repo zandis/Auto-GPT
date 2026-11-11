@@ -44,7 +44,7 @@ from criteria_compiler.compile_cql.generator import CqlGenerator, render_common
 from criteria_compiler.compile_cql.translator import TranslationError, Translator, fhirhelpers_source
 from criteria_compiler.compile_sql.generator import SqlGenerator
 from criteria_compiler.ctgov import CtGov, CtgovError
-from criteria_compiler.equivalence.gate import run_gate
+from criteria_compiler.equivalence.gate import run_gate, unproven
 from criteria_compiler.ir_extract.postprocess import KIND_CODE, postprocess
 from criteria_compiler.repo import RulesetRepo
 from criteria_compiler.review import draft_zip, json_bytes, review_html, review_xlsx
@@ -289,7 +289,7 @@ class Compiler:
         if not compiled(active):
             return EquivalenceReport(overall_pct=100.0, per_criterion={}, failing=[], sample_size=0, engine="none")
         if self.d.equivalence is not None:
-            return self.d.equivalence(active, art.sql, art.library, index_date, seed)
+            return self.enforce(self.d.equivalence(active, art.sql, art.library, index_date, seed), active)
         if self.d.fhir is None or self.d.lake is None or not art.elm:
             ids = [c.id for c in compiled(active)]
             return EquivalenceReport(
@@ -301,7 +301,22 @@ class Compiler:
             library_resource(art.library, art.library_version, art.cql[art.library], art.elm.get(art.library)),
         ]
         self.d.fhir.load(libs, valuesets.values())
-        return run_gate(active, art.sql, art.library, self.d.lake, self.d.fhir, index_date, seed, threshold)
+        return self.enforce(
+            run_gate(active, art.sql, art.library, self.d.lake, self.d.fhir, index_date, seed, threshold), active
+        )
+
+    @staticmethod
+    def enforce(tests: EquivalenceReport, criteria: list[CriterionIR]) -> EquivalenceReport:
+        """T-652 (ENG-016): a report that compared no patient, or has no figure for a compiled criterion, never passes
+        it, whoever produced the report (the gate, an injected one, or one stored by an earlier version)."""
+        active = [c for c in criteria if not (c.review and c.review.status == "rejected")]
+        missing = unproven(tests, active)
+        if not missing or set(missing) <= set(tests.failing):
+            return tests
+        per = {**tests.per_criterion, **{cid: tests.per_criterion.get(cid, 0.0) for cid in missing}}
+        if tests.sample_size <= 0:
+            per.update(dict.fromkeys(missing, 0.0))
+        return tests.model_copy(update={"failing": sorted(set(tests.failing) | set(missing)), "per_criterion": per})
 
     @staticmethod
     def _flag(criteria: list[CriterionIR], tests: EquivalenceReport) -> list[CriterionIR]:
@@ -719,7 +734,7 @@ class Compiler:
         if edits or prev is None or any(d.status == "reject" for d in req.decisions):
             tests = self._equivalence(updated, art, valuesets, index_date, f"{req.ruleset}|{req.version}")
         else:
-            tests = EquivalenceReport.model_validate_json(prev)
+            tests = self.enforce(EquivalenceReport.model_validate_json(prev), updated)
         updated = self._flag(updated, tests)
         active = [c for c in updated if not (c.review and c.review.status == "rejected")]
         blocking = sorted(

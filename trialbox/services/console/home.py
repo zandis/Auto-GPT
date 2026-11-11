@@ -25,6 +25,7 @@ from typing import Any, cast
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
+from tb_common.authz import BREAK_GLASS_ROLE, can_request
 from tb_common.service_auth import bind_session, scope_of
 from tb_contracts import Job
 
@@ -56,6 +57,16 @@ _PID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 REVEAL_NOTE_MIN = 10  # D-273 (ROLE-016): the written "why" a reveal for "other" needs, in characters
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 SCREEN_TYPES = ("MICROBATCH", "SCREEN")
+
+
+STALE_DAYS = 2  # FIT-U01: a list whose data is older than this many days is shown amber
+
+
+def data_as_of(job: Job, today: date) -> dict[str, Any]:
+    """FIT-U01 (T-512): the day of the data a list was made from (the run's snapshot, else the run's own day), and
+    whether it is more than :data:`STALE_DAYS` old. Every patient list shows it, so nobody acts on old data unawares."""
+    day = job.snapshot_date or job.run_date or (job.updated_at or job.received_at).date()
+    return {"day": day.isoformat(), "stale": (today - day).days > STALE_DAYS}
 
 
 @dataclass
@@ -94,11 +105,16 @@ class Helpers:
     optout: Any = None
     may: Callable[..., bool] | None = None
     may_approve: Callable[..., bool] | None = None
+    stand: Callable[..., Any] | None = None  # console.team.standing for one account and study (T-512)
     team_due: Callable[[str], bool] | None = None
     apply_reveal: Callable[..., tuple[dict[str, Any], str]] | None = None  # set by register(): D-143's reveal
     chart_lookup: Callable[[Session, str], None] | None = None  # set by console.team: the lookup cap (D-273)
     ops_summary: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages (D-178): the health tile
     identity: Any = None  # console.identity.Identity (D-279): the second factor at signing; None in bare test apps
+    recorded: Any = None  # console.recorded_opinions.Recorded (T-515): demo opinions laid over the candidate list
+    # set by console.breakglass (D-280): the administrator's open grant covering one patient or one job, else None;
+    # each call that finds one is one audited use. None in bare test apps (no grant, so no access)
+    breakglass: Callable[..., Any] | None = None
 
     def gone(self) -> set[str]:
         """D-273 (PV-4): the pseudonyms on the opt-out register now. Every patient-level reader (lists, the excluded
@@ -118,6 +134,16 @@ class Helpers:
         if user.role != "investigator" or self.may is None:
             return True
         return bool(rid) and any(self.may(user, rid, t) for t in tasks)
+
+    def may_run(self, user: Any, rid: str | None, command: str) -> bool:
+        """T-512 (D-349, Q-04): may this account start ``command`` on study ``rid``? ``tb_common.authz.can_request``
+        decides, with the account's standing in the study (the delegation log) for an investigator."""
+        if user.role != "investigator":
+            return can_request(user.role, command)
+        if not rid or not user.sees_study(rid) or self.stand is None:
+            return False
+        s = self.stand(user, rid)
+        return can_request(user.role, command, is_pi=s.pi, tasks=s.tasks)
 
     def today(self) -> date:
         """The site's calendar date now (site.tz), the one "today" of every console rule (D-270).
@@ -241,6 +267,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         if job is None:
             return None
         cl = load(job, "candidate_list_", ".json")
+        if h.recorded:  # T-515 (D-323): recorded first and second checks on a DEV demo, each with its source
+            cl = h.recorded.apply(cl, rs)
         removed: list[str] = []
         if cl is not None and h.optout is not None:  # D-147: an opted-out patient is on no list, page or mail
             out = h.optout.active()
@@ -262,7 +290,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             today=h.today(),
         )
         return {"job": job, "rows": rows, "counts": st.week_counts(rows), "summary": summary or {}, "cl": cl,
-                "removed": removed}  # fmt: skip
+                "removed": removed, "asof": data_as_of(job, h.today())}  # fmt: skip
 
     def study_card(sess: Session, r: Any, jobs: list[Job]) -> dict[str, Any]:
         rs = r.id
@@ -366,6 +394,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             return RedirectResponse("/week", status_code=303)
         if role in ("cro", "viewer"):
             return RedirectResponse("/reports", status_code=303)
+        if role == "steward":  # D-280: the steward starts on the break-glass review list
+            return RedirectResponse("/breakglass", status_code=303)
         if role == "admin" and view != "studies":
             admin_page = getattr(h, "admin_page", None)  # step 4: S13 with its tabs (console.step4)
             return admin_page(request, sess, "health") if admin_page else admin_home(request, sess)
@@ -373,9 +403,10 @@ def register(app: FastAPI, h: Helpers) -> None:
         cards = [study_card(sess, r, jobs) for r in trials(sess)]
         tasks = sorted((tk for c in cards for tk in c["tasks"]), key=lambda tk: (tk["due"], tk["rs"]))
         clinic = sorted((v for c in cards for v in c["clinic"]), key=lambda v: v["visit_text"])
+        phi = sess.user.can_view_phi  # D-280 (CR-023): the administrator's study view carries no patient row
         return h.page(
-            request, "home_crc.html", sess, cards=cards, tasks=tasks, clinic=clinic, steps=st.STEPS,
-            pipeline_keys=st.PIPELINE, models=bk.models(), life=h.life_home(sess) if h.life_home else None,
+            request, "home_crc.html", sess, cards=cards, tasks=tasks, clinic=clinic if phi else [], steps=st.STEPS,
+            pipeline_keys=st.PIPELINE, models=bk.models(), life=h.life_home(sess) if h.life_home and phi else None,
         )  # fmt: skip
 
     def admin_home(request: Request, sess: Session) -> Response:
@@ -476,6 +507,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             cap_keys=keys,
             cap_values=CAP_VALUES,
             can_edit=sess.user.can_request,
+            can_refresh=h.may_run(sess.user, rid, "FEAS"),  # T-512 (D-349): the PI refreshes feasibility too
             saved=saved == "1",
             refreshed=refreshed == "1",
             registry=next((r.kind for r in bk.rulesets() if r.id == rid), "") in st.REGISTRY_KINDS,
@@ -488,7 +520,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
-        if not sess.user.can_request or h.submit is None:
+        if not h.may_run(sess.user, rid, "FEAS") or h.submit is None:  # T-512 (D-349): the PI may refresh
             au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
         if not any(r.id == rid and r.status == "approved" for r in bk.rulesets()):
@@ -649,6 +681,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             "rs": rid,
             "pid": pid,
             "job": wk["job"],
+            "asof": wk["asof"],
             "row": row,
             "listed": listed,
             "fit": st.fit_facts(row.get("criteria") or [], crit),
@@ -765,10 +798,14 @@ def register(app: FastAPI, h: Helpers) -> None:
     def patient(request: Request, rs: str, pid: str) -> Response:
         sess = h.need(request)
         rid = study_or_404(sess, rs)
+        # D-280 (OD-5): the administrator opens one patient only under a break-glass grant for that patient
+        grant = None
         if not sess.user.can_view_phi:
-            raise h.problem(403, "forbidden")
+            grant = h.breakglass(sess, ruleset=rid, pid=pid, what="patient page") if h.breakglass else None
+            if grant is None:
+                raise h.problem(403, "forbidden")
         screen_or_403(sess, rid, request.url.path)
-        return h.page(request, "patient.html", sess, **patient_ctx(sess, rid, pid))
+        return h.page(request, "patient.html", sess, **patient_ctx(sess, rid, pid), breakglass=grant)
 
     def apply_reveal(
         sess: Session,
@@ -779,6 +816,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         via: str = "patient",
         purpose: str = "",
         note: str = "",
+        job_id: str = "",
     ) -> tuple[dict[str, Any], str]:
         """One chart number for the page and ``/api/v1`` alike (D-99): identifier authority for the study
         (administrator, coordinator, and the study's investigator since the owner's decision of 2026-11-09, D-143),
@@ -787,10 +825,17 @@ def register(app: FastAPI, h: Helpers) -> None:
         or as a sub-investigator ticked "screen"; the candidate page (``via="candidates"``, with the view's purpose)
         uses this same path, reason and cap. D-273: the job page (``via="job"``) too, so this is the console's one
         reveal path (PV-2); the reason "other" needs a written note of 10 characters or more, kept in the audit
-        record (ROLE-016)."""
+        record (ROLE-016). D-280 (OD-5): the administrator reveals only under an open break-glass grant for this
+        patient, or for the job (``job_id``) that is the study's latest list; the reveal is then signed with
+        ``BREAK_GLASS_ROLE`` and its audit record names the grant."""
         rid = study_or_404(sess, rs)
         delegated = sess.user.role != "investigator" or h.may is None or h.may(sess.user, rid, "screen")
-        if not sess.user.sees_ids(rid) or not delegated:
+        grant = None
+        if not sess.user.sees_ids(rid) and sess.user.is_admin and h.breakglass is not None and _PID.match(pid or ""):
+            grant = h.breakglass(sess, ruleset=rid, pid=pid, what="reveal") or (
+                h.breakglass(sess, job_id=job_id, what="reveal") if job_id else None
+            )
+        if (not sess.user.sees_ids(rid) and grant is None) or not delegated:
             au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
             raise h.problem(403, "forbidden")
         if reason not in REVEAL_REASONS:
@@ -800,6 +845,9 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(400, "reveal.note_needed", n=REVEAL_NOTE_MIN)
         ctx = patient_ctx(sess, rid, pid)
         job = ctx["job"]
+        if grant is not None and grant.kind == "job" and job.job_id != grant.job_id:
+            au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80], "breakglass": grant.id})
+            raise h.problem(403, "forbidden")  # a job grant covers that job's list only, not a newer one
         au.append(
             "console.reveal_patient",
             job_id=job.job_id,
@@ -813,10 +861,12 @@ def register(app: FastAPI, h: Helpers) -> None:
                 "via": via,
                 **({"purpose": purpose} if purpose else {}),
                 **({"note": note} if note else {}),
+                **({"breakglass": grant.id} if grant is not None else {}),
             },
         )
+        role = BREAK_GLASS_ROLE if grant is not None else sess.user.role
         try:  # D-273 (PV-15): the role and the studies travel signed; the orchestrator checks them and the opt-out
-            mrn = bk.reveal(job.job_id, pid, h.actor(sess), role=sess.user.role, scope=scope_of(sess.user.studies))
+            mrn = bk.reveal(job.job_id, pid, h.actor(sess), role=role, scope=scope_of(sess.user.studies))
         except Refused as exc:
             raise h.problem(409, "request.refused", reason=str(exc)) from exc
         return ctx, mrn or ""

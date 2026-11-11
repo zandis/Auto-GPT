@@ -160,7 +160,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         s = stand(user, rid)
         return user.can_approve and (s.pi or not s.logged)
 
-    h.may, h.may_approve = may, may_approve
+    h.may, h.may_approve, h.stand = may, may_approve, stand  # T-512: h.may_run reads the standing too
     h.team_due = lambda rid: check_due(team, rid, today(), site_zone(bk))
 
     def deny(sess: Session, path: str) -> Exception:
@@ -568,14 +568,19 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
 
     # ------------------------------------------------------------------ staff directory (kept by the steward)
     def can_keep(user: User) -> bool:
-        """The steward's lists (staff directory, department contacts, opt-outs): the research office's coordinator
-        or the administrator, as the site set-up (``site_pages.can_setup``)."""
-        return user.role in ("coordinator", "admin")
+        """The staff directory and department contacts: the research office's coordinator, the steward (D-280) or
+        the administrator, as the site set-up (``site_pages.can_setup``). No patient data on these lists."""
+        return user.role in ("coordinator", "admin", "steward")
+
+    def can_keep_optouts(user: User) -> bool:
+        """The opt-out register (patient level: pseudonyms, a chart-number lookup): the coordinator and the steward.
+        D-280 (OD-5, CR-023): never the administrator, now that a steward role keeps the list."""
+        return user.role in ("coordinator", "steward")
 
     @app.get("/site/staff")
     def staff_page(request: Request) -> Response:
         sess = h.need(request)
-        if not sess.user.can_view_phi:
+        if not (sess.user.can_view_phi or can_keep(sess.user)):
             raise deny(sess, request.url.path)
         return h.page(request, "site_staff.html", sess, staff=team.staff(active_only=False), contacts=team.contacts(),
                       can_edit=can_keep(sess.user))  # fmt: skip
@@ -635,7 +640,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         pseudonym, so it is capped per person and hour and audited as its own event, changed or not, and neither
         the page nor ``/api/v1`` gives the pseudonym back. D-273 (CR-055): the change's audit event is written inside
         the register's transaction, so a failed append keeps no opt-out without its event."""
-        if not can_keep(sess.user):
+        if not can_keep_optouts(sess.user):
             raise deny(sess, path)
         by_chart = bool(body.chart_no.strip()) and not body.pid.strip()
         if by_chart:
@@ -666,7 +671,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     @app.get("/site/opt-outs")
     def optout_page(request: Request) -> Response:
         sess = h.need(request)
-        if not can_keep(sess.user):
+        if not can_keep_optouts(sess.user):
             raise deny(sess, request.url.path)
         return h.page(request, "site_optouts.html", sess, rows=optout.current(), events=optout.events()[-30:][::-1],
                       sources=SOURCES)  # fmt: skip
@@ -795,7 +800,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     @app.get("/api/v1/site/opt-outs")
     def api_optouts(request: Request) -> dict[str, Any]:
         sess = api(request)
-        if not can_keep(sess.user):
+        if not can_keep_optouts(sess.user):
             raise deny(sess, request.url.path)
         rows = optout.current()
         return {"count": len(rows), "opted_out": [{"pid": e.pid, "since": e.at, "source": e.source, "by": e.by}

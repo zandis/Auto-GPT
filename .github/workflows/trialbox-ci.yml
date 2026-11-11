@@ -69,7 +69,7 @@ jobs:
       - name: actionlint (the workflows themselves)
         working-directory: .
         run: |
-          docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color .github/workflows/trialbox-*.yml
+          docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9 -color .github/workflows/trialbox-*.yml
 
   types:
     runs-on: ubuntu-latest
@@ -104,6 +104,8 @@ jobs:
         run: .venv/bin/python tools/doclint.py
       - name: decision numbers (one number, one text; registry rows are notes only; D-306, D-311)
         run: .venv/bin/python -m tools.decisions_index --check
+      - name: licence register (every shipped data file has a row; no SNOMED CT; model licence rows; T-617b, D-342)
+        run: PYTHONPATH=libs:services:. .venv/bin/python -m tools.licence_register --check
 
   contracts:
     runs-on: ubuntu-latest
@@ -157,7 +159,7 @@ jobs:
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78  # v6.2.0
         with:
           distribution: temurin
-          java-version: "21"
+          java-version-file: trialbox/.java-version
           cache: maven
           cache-dependency-path: trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
       - run: make venv
@@ -166,7 +168,7 @@ jobs:
           path: |
             trialbox/.cache/jvm
             trialbox/.cache/fonts
-          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
+          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/tools/jvm-deps.sha256', 'trialbox/tools/fhir-packages.sha256', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
       - name: JVM dependencies and fonts
         run: make jvm-deps fonts
       - name: PostgreSQL server binaries
@@ -194,7 +196,7 @@ jobs:
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78  # v6.2.0
         with:
           distribution: temurin
-          java-version: "21"
+          java-version-file: trialbox/.java-version
           cache: maven
           cache-dependency-path: trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
       - run: make venv
@@ -203,7 +205,7 @@ jobs:
           path: |
             trialbox/.cache/jvm
             trialbox/.cache/fonts
-          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
+          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/tools/jvm-deps.sha256', 'trialbox/tools/fhir-packages.sha256', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
       - name: JVM dependencies and fonts
         run: make jvm-deps fonts
       - name: PostgreSQL server binaries
@@ -313,7 +315,7 @@ jobs:
           rc=0
           for f in deploy/docker/python.Dockerfile deploy/docker/jvm.Dockerfile demo/Dockerfile; do
             echo "== $f"
-            docker run --rm -i hadolint/hadolint:v2.12.0 hadolint --failure-threshold warning - < "$f" || rc=1
+            docker run --rm -i hadolint/hadolint:v2.12.0@sha256:30a8fd2e785ab6176eed53f74769e04f125afb2f74a6c52aef7d463583b6d45e hadolint --failure-threshold warning - < "$f" || rc=1
           done
           exit "$rc"
 

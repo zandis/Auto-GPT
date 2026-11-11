@@ -346,7 +346,7 @@ def test_sntp_offset_against_a_local_time_server(monkeypatch: pytest.MonkeyPatch
 
     th = threading.Thread(target=serve, daemon=True)
     th.start()
-    monkeypatch.setattr(audit.time, "time", lambda: now)
+    monkeypatch.setattr("tb_common.audit.time.time", lambda: now)
     try:
         assert audit.sntp_offset(f"127.0.0.1:{port}", timeout=5) == pytest.approx(90.0)
     finally:
