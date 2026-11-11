@@ -27,10 +27,10 @@ studies; the lake; the mail gateway's threads; the trace store) turns on ``prote
 
 **The actor is signed** (review 2026-11-09 S-09, D-143). ``X-TB-Actor`` alone was whatever a token holder wrote: the
 mail gateway's token could reveal chart numbers as "dr_tanaka" and step round the per-person reveal cap by changing
-names. The console now sends ``X-TB-Actor-Assertion`` beside it: ``v1.<expiry>.<session>.<hmac>``, an HMAC-SHA256
-over the actor, the console session (the first 16 characters of the session token's hash) and an expiry two minutes
-ahead, keyed with ``HMAC(console token, "tb-actor-assertion/1")``. The orchestrator verifies it before it takes the
-actor for a reveal, an export, a notice or a cancel:
+names. The console now sends ``X-TB-Actor-Assertion`` beside it: ``v2.<expiry>.<session>.<nonce>.<hmac>``, an
+HMAC-SHA256 over the actor, the console session (the first 16 characters of the session token's hash), an expiry two
+minutes ahead and a random nonce, keyed with ``HMAC(console token, "tb-actor-assertion/1")``. The orchestrator verifies
+it before it takes the actor for a reveal, an export, a notice or a cancel:
 
 * with one shared token (tests, ``make demo``, a box before step 8) both sides derive the key from that token;
 * with per-service tokens the orchestrator cannot know the console's token, so ``trialbox secrets init`` writes the
@@ -38,6 +38,13 @@ actor for a reveal, an export, a notice or a cancel:
   overlay mounts it into the orchestrator only (``TB_ACTOR_KEYS_FILE``). No other service holds it, so the mail
   gateway, which parses hostile mail, cannot name a user;
 * with no token at all (DEV/TEST) nothing is verified, as before.
+
+**An assertion is used once** (D-447, SEC-17). Each assertion carries its own nonce under the MAC and the verifier
+remembers every assertion it accepted until it expires (:class:`ReplayGuard`, at most ``ACTOR_TTL`` + 5 seconds), so a
+copied assertion sent again within its two minutes is refused ("already used"). The guard is in the memory of the
+verifying process: the orchestrator runs one uvicorn process, and a restart forgets it, which reopens the window for
+assertions issued in the two minutes before the restart only. The two-minute life itself stays (it covers a slow
+call); the old ``v1`` form, which had no nonce, is refused.
 """
 
 from __future__ import annotations
@@ -49,6 +56,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import threading
 import time
 from dataclasses import dataclass, field
@@ -65,6 +73,7 @@ SCOPE_HEADER = "X-TB-Actor-Scope"
 ACTOR_KEYS_ENV = "TB_ACTOR_KEYS_FILE"
 ACTOR_LABEL = b"tb-actor-assertion/1"
 ACTOR_TTL = 120  # seconds an assertion is valid
+ACTOR_VERSION = "v2"  # D-447 (SEC-17): v2 carries a nonce and is accepted once; v1 (no nonce) is refused
 OPEN_ENVS = ("DEV", "TEST")
 SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 REGISTRY_ENV = "TB_SERVICE_TOKENS"
@@ -219,6 +228,7 @@ def actor_key(token: str) -> bytes:
 
 
 _ROLE = re.compile(r"^[a-z]{1,20}$")
+_NONCE = re.compile(r"^[A-Za-z0-9_-]{16,32}$")
 _SCOPE = re.compile(r"^(\*|[A-Z0-9][A-Z0-9_-]{0,31}(,[A-Z0-9][A-Z0-9_-]{0,31}){0,63})$")
 
 
@@ -234,22 +244,54 @@ def in_scope(scope: str, study: str | None) -> bool:
     return bool(study) and str(study).strip().upper() in scope.split(",")
 
 
-def _actor_mac(key: bytes, actor: str, session: str, exp: int, role: str = "", scope: str = "") -> str:
-    msg = f"v1\n{actor}\n{session}\n{exp}" + (f"\nrole={role}" if role else "") + (f"\nscope={scope}" if scope else "")
+def _actor_mac(key: bytes, actor: str, session: str, exp: int, nonce: str, role: str = "", scope: str = "") -> str:
+    msg = f"{ACTOR_VERSION}\n{actor}\n{session}\n{exp}\n{nonce}"
+    msg += (f"\nrole={role}" if role else "") + (f"\nscope={scope}" if scope else "")
     return hmac.new(key, msg.encode(), hashlib.sha256).hexdigest()
+
+
+class ReplayGuard:
+    """The assertions a verifier has accepted, kept until they expire (D-447, SEC-17): a second use is refused.
+
+    Thread-safe; entries older than their expiry are dropped as new ones arrive, so it holds at most the assertions
+    of the last ``ACTOR_TTL`` + 5 seconds."""
+
+    def __init__(self) -> None:
+        self._seen: dict[str, int] = {}
+        self._lock = threading.Lock()
+
+    def use(self, mac: str, exp: int, now: int) -> bool:
+        """Record ``mac`` (valid until ``exp``); False when it was already used."""
+        with self._lock:
+            if len(self._seen) > 256:
+                for k in [k for k, e in self._seen.items() if e < now]:
+                    del self._seen[k]
+            if mac in self._seen:
+                return False
+            self._seen[mac] = exp
+            return True
+
+    def __len__(self) -> int:
+        return len(self._seen)
+
+
+#: the guard of this process (the orchestrator's); a test may pass its own to :func:`verify_actor`
+REPLAY = ReplayGuard()
 
 
 def sign_actor(
     actor: str, session: str | None = None, now: float | None = None, role: str = "", scope: str = ""
 ) -> str | None:
-    """``v1.<expiry>.<session>.<hmac>`` for ``actor`` (and its ``role`` and study ``scope`` when given: the MAC
-    covers them), or None when this service holds no token (DEV/TEST)."""
+    """``v2.<expiry>.<session>.<nonce>.<hmac>`` for ``actor`` (and its ``role`` and study ``scope`` when given: the
+    MAC covers them), or None when this service holds no token (DEV/TEST). A new nonce each time: two calls in the
+    same second carry two assertions, each accepted once (D-447)."""
     tok = service_token()
     if not tok:
         return None
     sid = _SID.sub("", _SESSION.get() if session is None else session)[:32]
     exp = int(time.time() if now is None else now) + ACTOR_TTL
-    return f"v1.{exp}.{sid}.{_actor_mac(actor_key(tok), actor, sid, exp, role, scope)}"
+    nonce = secrets.token_urlsafe(16)[:22]
+    return f"{ACTOR_VERSION}.{exp}.{sid}.{nonce}.{_actor_mac(actor_key(tok), actor, sid, exp, nonce, role, scope)}"
 
 
 def actor_header(actor: str, session: str | None = None, role: str = "", scope: str = "") -> dict[str, str]:
@@ -267,6 +309,20 @@ def actor_header(actor: str, session: str | None = None, role: str = "", scope: 
     if signed:
         h[ASSERTION_HEADER] = signed
     return h
+
+
+def resign(headers: dict[str, str]) -> dict[str, str]:
+    """``headers`` with a fresh actor assertion for the same actor, session, role and scope (D-447): a client that
+    sends a call again (a retry after a 5xx or a dropped connection) needs a new one, as the first may have been
+    used. Headers without an assertion, or on a service without a token, come back unchanged."""
+    old = headers.get(ASSERTION_HEADER)
+    if not old or ACTOR_HEADER not in headers:
+        return headers
+    parts = old.split(".")
+    sid = parts[2] if len(parts) == 5 else ""
+    signed = sign_actor(unquote(headers[ACTOR_HEADER]), sid, role=headers.get(ROLE_HEADER, ""),
+                        scope=headers.get(SCOPE_HEADER, ""))  # fmt: skip
+    return {**headers, ASSERTION_HEADER: signed} if signed else headers
 
 
 def actor_keys() -> list[bytes] | None:
@@ -308,10 +364,13 @@ class Actor:
 
 
 def verify_actor(header: str | None, assertion: str | None, fallback: str | None = None,
-                 now: float | None = None, role: str | None = None, scope: str | None = None) -> Actor:  # fmt: skip
+                 now: float | None = None, role: str | None = None, scope: str | None = None,
+                 replay: ReplayGuard | None = None) -> Actor:  # fmt: skip
     """The audit actor of a call. With keys (any box with a token), ``X-TB-Actor`` counts only with a valid,
     unexpired assertion over it (and over ``role`` and ``scope``, the ``X-TB-Actor-Role`` and ``X-TB-Actor-Scope``
-    headers, when sent); without (DEV/TEST, no token) the old rule of :func:`actor_of` applies."""
+    headers, when sent) that this process has not accepted before (``replay``, default :data:`REPLAY`; D-447,
+    SEC-17); without (DEV/TEST, no token) the old rule of :func:`actor_of` applies. A refused assertion is not
+    recorded, so only a verified one is used up."""
     rl = (role or "").strip()
     if rl and not _ROLE.match(rl):
         raise ActorError("the signed-in user's role is not a role")
@@ -328,14 +387,16 @@ def verify_actor(header: str | None, assertion: str | None, fallback: str | None
         raise ActorError("no signed-in user (X-TB-Actor) on this call")
     name = unquote(header.strip())[:200]
     parts = (assertion or "").strip().split(".")
-    if len(parts) != 4 or parts[0] != "v1" or not parts[1].isdigit():
+    if len(parts) != 5 or parts[0] != ACTOR_VERSION or not parts[1].isdigit() or not _NONCE.match(parts[3]):
         raise ActorError("the signed-in user is not signed (X-TB-Actor-Assertion)")
-    exp, sid, mac = int(parts[1]), parts[2], parts[3]
+    exp, sid, nonce, mac = int(parts[1]), parts[2], parts[3], parts[4]
     t = int(time.time() if now is None else now)
     if exp < t or exp > t + ACTOR_TTL + 5:
         raise ActorError("the signed-in user's assertion has expired")
-    if not any(hmac.compare_digest(_actor_mac(k, name, sid, exp, rl, sc), mac) for k in keys):
+    if not any(hmac.compare_digest(_actor_mac(k, name, sid, exp, nonce, rl, sc), mac) for k in keys):
         raise ActorError("the signed-in user's assertion does not verify")
+    if not (REPLAY if replay is None else replay).use(mac, exp, t):
+        raise ActorError("the signed-in user's assertion was already used")
     return Actor(name, sid, True, rl, sc)
 
 
