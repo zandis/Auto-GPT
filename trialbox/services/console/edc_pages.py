@@ -8,7 +8,8 @@
 * ``/studies/{rs}/edc/review/{record}``: the coordinator's review. Per value: the value and its citation; confirm,
   change with a reason, or reject. A value without a citation has no confirm button and is refused anyway. Then the
   electronic signature: the person types their password again, sees the meaning of the signature and their printed
-  name, and signs every confirmed value of that subject and visit. Then send.
+  name, and signs every confirmed value of that subject and visit. Then send. A signed value is locked (D-281): to
+  change or withdraw it the person gives a reason and types their password (and code) again.
 * ``/studies/{rs}/edc/trail/{record}``: every draft, decision, signature and send of one subject.
 
 Who may do what is ``tb_common.authz.edc_allowed`` (``enter_data`` for the work, the PI alone to switch on, the PI or
@@ -89,6 +90,8 @@ class ApiDecide(BaseModel):
     reason: str = Field(default="", max_length=300)
     source: str = Field(default="", max_length=300)  # where a typed value comes from (a manual citation)
     source_day: str = Field(default="", max_length=10)
+    password: str = Field(default="", max_length=200)  # D-281: to change a signed value, the password again
+    otp: str = Field(default="", max_length=12)  # and, with TOTP on, a fresh code
 
 
 class ApiSign(BaseModel):
@@ -239,49 +242,71 @@ def register(app: FastAPI, h: Helpers) -> None:
                                                                      "pid": pid, "visit": body.visit,
                                                                      "visit_date": body.visit_date}))  # fmt: skip
 
-    def do_decide(sess: Session, path: str, rs: str, draft_id: int, body: ApiDecide) -> dict[str, Any]:
+    def refuse(sess: Session, rid: str, status: int, key: str, record: str = "") -> Exception:
+        """A refusal of the signing or unlocking step, audited before it is raised (D-281, SEC-7)."""
+        au.append("console.edc_refused", ruleset=rid, actor=h.actor(sess),
+                  detail={"record": record.upper()[:64], "code": key.removeprefix("edc.err.")})  # fmt: skip
+        return h.problem(status, key)
+
+    def reauth(sess: Session, rid: str, password: str, otp: str, source: str, record: str) -> str:
+        """The person types their password again and, with TOTP on, a fresh code (two components, 21 CFR 11.200(a);
+        D-279), each failure counting toward the lockout of that address. Answers how (``password`` or
+        ``password+totp``); refuses with an audited problem otherwise."""
+        if h.users.is_sso(sess.user.username):
+            raise refuse(sess, rid, 409, "edc.err.edc.sign_sso", record)
+        if h.users.must_change(sess.user.username):  # D-279 (P-1): never sign with a password someone else set
+            raise refuse(sess, rid, 409, "edc.err.edc.must_change", record)
+        if h.users.authenticate(sess.user.username, password, source=source) is None:
+            au.append("console.edc_reauth_failed", ruleset=rid, actor=h.actor(sess),
+                      detail={"record": record.upper()[:64]})  # fmt: skip
+            raise h.problem(401, "edc.err.edc.reauth")
+        why = h.identity.step_up(sess.user.username, otp, source) if h.identity is not None else ""
+        if why:  # D-279 (P-2): the second component; a wrong or replayed code signs nothing
+            au.append("console.edc_reauth_failed", ruleset=rid, actor=h.actor(sess),
+                      detail={"record": record.upper()[:64], "factor": "totp", "reason": why})  # fmt: skip
+            raise h.problem(401, "edc.err.edc.otp")
+        totp_on = h.identity is not None and h.identity.settings.totp_required
+        return "password+totp" if totp_on else "password"
+
+    def do_decide(
+        sess: Session, path: str, rs: str, draft_id: int, body: ApiDecide, source: str = ""
+    ) -> dict[str, Any]:
+        """Confirm, change or reject a value. With ``password`` the person re-authenticates first, which unlocks a
+        signed value (the record lock, D-281, CR-035); without it a signed value is refused by the orchestrator."""
         rid = study_or_404(sess, rs, "review", path)
         cit = {"text": body.source, "day": body.source_day} if body.source.strip() else None
-        return dict(
-            act(
-                sess,
-                "POST",
-                f"/studies/{rid}/edc/drafts/{draft_id}/decide",
-                {"action": body.action, "value": body.value, "reason": body.reason, "citation": cit},
-            )
-        )
+        payload: dict[str, Any] = {"action": body.action, "value": body.value, "reason": body.reason, "citation": cit}
+        session = None
+        if body.password:
+            reauth(sess, rid, body.password, body.otp, source, f"draft-{draft_id}")
+            payload["unlock"] = True
+            session = "reauth-" + secrets.token_hex(8)
+        return dict(act(sess, "POST", f"/studies/{rid}/edc/drafts/{draft_id}/decide", payload, session=session))
 
     def do_sign(sess: Session, path: str, rs: str, body: ApiSign, source: str = "") -> dict[str, Any]:
         """The electronic signature: the signer types their password again and, with TOTP on, a fresh code from
         their authenticator (two components, 21 CFR 11.200(a); D-279), each failure counting toward the lockout of
-        that address, and acknowledges the meaning; the printed name is the one on the delegation log."""
+        that address, and acknowledges the meaning; the printed name is the one on the delegation log. Every
+        refusal is audited (D-281, SEC-7); the signature records how the signer re-authenticated."""
         rid = study_or_404(sess, rs, "sign", path)
+        rec = body.record
         if not _VISIT.match(body.visit):
-            raise h.problem(400, "edc.err.edc.visit")
+            raise refuse(sess, rid, 400, "edc.err.edc.visit", rec)
         if h.users.is_sso(sess.user.username):
-            raise h.problem(409, "edc.err.edc.sign_sso")
+            raise refuse(sess, rid, 409, "edc.err.edc.sign_sso", rec)
         if not body.meaning_ack:
-            raise h.problem(400, "edc.err.edc.meaning_ack")
-        if h.users.must_change(sess.user.username):  # D-279 (P-1): never sign with a password someone else set
-            raise h.problem(409, "edc.err.edc.must_change")
-        if h.users.authenticate(sess.user.username, body.password, source=source) is None:
-            au.append("console.edc_reauth_failed", ruleset=rid, actor=h.actor(sess),
-                      detail={"record": body.record.upper()[:64]})  # fmt: skip
-            raise h.problem(401, "edc.err.edc.reauth")
-        why = h.identity.step_up(sess.user.username, body.otp, source) if h.identity is not None else ""
-        if why:  # D-279 (P-2): the second component; a wrong or replayed code signs nothing
-            au.append("console.edc_reauth_failed", ruleset=rid, actor=h.actor(sess),
-                      detail={"record": body.record.upper()[:64], "factor": "totp", "reason": why})  # fmt: skip
-            raise h.problem(401, "edc.err.edc.otp")
+            raise refuse(sess, rid, 400, "edc.err.edc.meaning_ack", rec)
+        method = reauth(sess, rid, body.password, body.otp, source, rec)
         _, _, entry = stand(sess, rid)
         if entry is None or not entry.name:  # the printed name is the delegation log's, never a login name (E-10)
-            raise h.problem(409, "edc.err.edc.no_log_entry")
+            raise refuse(sess, rid, 409, "edc.err.edc.no_log_entry", rec)
         if not body.seen:
-            raise h.problem(400, "edc.err.edc.sign_changed")
+            raise refuse(sess, rid, 400, "edc.err.edc.sign_changed", rec)
         out = act(sess, "POST", f"/studies/{rid}/edc/sign", {
             "record": body.record.strip().upper(), "visit": body.visit, "printed_name": entry.name,
             "meaning": "transcribed", "lang": sess.lang, "meaning_text": translate(sess.lang, "edc.sign.meaning"),
-            "seen": {str(k): v for k, v in body.seen.items()}}, session="reauth-" + secrets.token_hex(8))  # fmt: skip
+            "method": method, "seen": {str(k): v for k, v in body.seen.items()}},
+            session="reauth-" + secrets.token_hex(8))  # fmt: skip
         return dict(out)
 
     def do_send(sess: Session, path: str, rs: str, record: str | None) -> dict[str, Any]:
@@ -493,9 +518,12 @@ def register(app: FastAPI, h: Helpers) -> None:
         rec, visit = str(form.get("record") or ""), str(form.get("visit") or "")
         body = ApiDecide(action=str(form.get("action") or ""), value=str(form.get("value") or "")[:2000],
                          reason=str(form.get("reason") or "")[:300], source=str(form.get("source") or "")[:300],
-                         source_day=str(form.get("source_day") or "")[:10])  # fmt: skip
+                         source_day=str(form.get("source_day") or "")[:10],
+                         password=str(form.get("password") or "")[:200],
+                         otp=str(form.get("otp") or "")[:12])  # fmt: skip
         try:
-            do_decide(sess, request.url.path, rid, draft_id, body)
+            do_decide(sess, request.url.path, rid, draft_id, body,
+                      source_of(request.client.host if request.client else None))  # fmt: skip
         except (Problem, Unavailable) as exc:
             return review_page(request, sess, rid, rec, visit, {**err_of(exc), "draft": draft_id}, 409)
         return RedirectResponse(f"/studies/{rid}/edc/review/{rec.upper()}?visit={visit}#d{draft_id}", status_code=303)
@@ -598,7 +626,18 @@ def register(app: FastAPI, h: Helpers) -> None:
     @app.post("/api/v1/studies/{rs}/edc/drafts/{draft_id}/decide")
     def api_decide(request: Request, rs: str, draft_id: int, body: ApiDecide) -> dict[str, Any]:
         sess = api(request)
-        return {"study": rs.upper(), "draft": api_call(do_decide, sess, request.url.path, rs, draft_id, body)}
+        return {
+            "study": rs.upper(),
+            "draft": api_call(
+                do_decide,
+                sess,
+                request.url.path,
+                rs,
+                draft_id,
+                body,
+                source_of(request.client.host if request.client else None),
+            ),
+        }
 
     @app.post("/api/v1/studies/{rs}/edc/sign")
     def api_sign(request: Request, rs: str, body: ApiSign) -> dict[str, Any]:
