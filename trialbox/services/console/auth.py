@@ -456,6 +456,12 @@ class UserStore:
     def is_oidc(self, username: str) -> bool:
         return bool(self.db.fetchval("SELECT pw_hash FROM users WHERE username = ?", (username,)) == OIDC_MARK)
 
+    def idp_subject(self, username: str) -> str | None:
+        """The identity provider's subject an OIDC account is bound to (T-205: a signature's re-authentication at
+        the provider must come back for the same subject)."""
+        got = self.db.fetchval("SELECT idp_sub FROM users WHERE username = ?", (username,))
+        return str(got) if got else None
+
     def upsert_oidc(self, username: str, subject: str, role: Role, mailbox: str | None) -> User:
         """The account behind a verified OIDC sign-in (D-192). Created on first sight, bound to the provider's
         subject; the role (from the configured group map) and mailbox are refreshed on every sign-in. Refused for a

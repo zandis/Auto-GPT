@@ -121,8 +121,9 @@ EN: dict[str, str] = {
     "job.funnel": "Attrition (eligibility funnel)",
     "job.simulation": "Enrolment projection",
     "job.outputs": "Output files",
-    "job.phi": "Patient-level file: delivered only by e-mail, encrypted, to {n} internal recipient(s). Not viewable here.",
+    "job.phi": "Patient-level file: only for its {n} named internal recipient(s), by a sign-in link or encrypted e-mail. Not viewable here.",
     "job.phi_kept": "Patient-level file kept inside the box (hashed and audited, never mailed). Not viewable here.",
+    "job.phi_link": "Patient-level file for its named recipients: you are one, so you may download it (audited).",
     "job.screen": "Screening result",
     "job.screen.headline": "{high} patients may meet the criteria, {review} to review, criteria not matched for {excluded}, of {scoped} in scope.",
     "job.screen.scope": "Patients with an appointment in the next {window} days or a visit in the last 12 months; data snapshot {snapshot}, run {run}.",
@@ -342,8 +343,8 @@ EN: dict[str, str] = {
     "registry.status": "Status",
     "registry.reason": "Note (why)",
     "registry.promote": "Take over SCREEN candidates",
-    "registry.promote.help": "Adds every patient in the latest SCREEN run of this study with tier high or review who "
-    "is not in the registry yet, as 'candidate'.",
+    "registry.promote.help": "Adds every patient of the latest SCREEN run of this study marked 'may meet the criteria' or "
+    "'to review' who is not in the registry yet, as 'candidate'.",
     "registry.promote.submit": "Take over candidates",
     "registry.promoted": "{n} candidates added.",
     "registry.export": "Export the screening log (XLSX)",
@@ -497,8 +498,9 @@ JA: dict[str, str] = {
     "job.funnel": "適格性の絞り込み（ファネル）",
     "job.simulation": "登録見込み",
     "job.outputs": "出力ファイル",
-    "job.phi": "患者レベルのファイル：暗号化してメールでのみ院内の {n} 名に送付。ここでは表示できません。",
+    "job.phi": "患者レベルのファイル：指定された院内の {n} 名だけに、ログイン用のリンクまたは暗号化メールで届けます。ここでは表示できません。",
     "job.phi_kept": "患者レベルのファイルは TrialBox 内に保管（ハッシュ化・監査済み、送信されません）。ここでは表示できません。",
+    "job.phi_link": "患者レベルのファイル：あなたは指定された受信者のため、ダウンロードできます（監査されます）。",
     "job.screen": "スクリーニング結果",
     "job.screen.headline": "対象 {scoped} 名のうち、条件に合う可能性 {high} 名、確認待ち {review} 名、基準に合致しない {excluded} 名。",
     "job.screen.scope": "今後 {window} 日以内に予約がある、または過去 12 か月に受診のある患者。データのスナップショット {snapshot}、実行日 {run}。",
@@ -707,7 +709,7 @@ JA: dict[str, str] = {
     "registry.status": "状況",
     "registry.reason": "メモ（理由）",
     "registry.promote": "SCREEN の候補者を引き継ぐ",
-    "registry.promote.help": "この治験の最新 SCREEN 実行で tier が high または review の患者さんのうち、未登録の方を「候補」として追加します。",
+    "registry.promote.help": "この治験の最新 SCREEN 実行で「条件に合う可能性」または「確認待ち」の患者さんのうち、未登録の方を「候補」として追加します。",
     "registry.promote.submit": "候補者を引き継ぐ",
     "registry.promoted": "{n} 名を追加しました。",
     "registry.export": "スクリーニングログを出力（XLSX）",
@@ -861,8 +863,9 @@ ZH: dict[str, str] = {
     "job.funnel": "資格篩選漏斗（逐步篩除）",
     "job.simulation": "收案預估",
     "job.outputs": "輸出檔案",
-    "job.phi": "病人層級檔案：僅以加密郵件寄給 {n} 位院內收件者，此處無法檢視。",
+    "job.phi": "病人層級檔案：僅提供給指定的 {n} 位院內收件者，以登入連結或加密郵件送達，此處無法檢視。",
     "job.phi_kept": "病人層級檔案保留在 TrialBox 內（已雜湊並稽核，從不寄出），此處無法檢視。",
+    "job.phi_link": "病人層級檔案：您是指定的收件者，可以下載（會留下稽核紀錄）。",
     "job.screen": "篩選結果",
     "job.screen.headline": "範圍內 {scoped} 位病人中，{high} 位可能符合條件、{review} 位待確認、{excluded} 位未符合條件。",
     "job.screen.scope": "未來 {window} 天內有預約，或過去 12 個月內有就診的病人；資料快照 {snapshot}，執行日 {run}。",
@@ -1053,7 +1056,7 @@ ZH: dict[str, str] = {
     "job.case.open": "開啟適格性檢核表",
     "job.case.viewer": "檢核表含病歷文字，已寄給研究團隊；檢視者無法在此開啟。",
     "registry.title": "候選者登錄",
-    "registry.help": "依研究記錄每位候選者的進度，即研究中心的篩選紀錄（screening log）。可用病歷號逐一加入、接手 SCREEN 執行的候選者、"
+    "registry.help": "依研究記錄每位候選者的進度，即研究中心的篩選紀錄。可用病歷號逐一加入、接手 SCREEN 執行的候選者、"
     "隨時記錄聯絡、同意與納入，並匯出給監測員。",
     "registry.notice": "TrialBox 內僅存假名；病歷號只在匯出時出現。此處的同意狀態是研究護理師的註記，不是同意紀錄。",
     "registry.updated": "最後變更",
@@ -1063,7 +1066,7 @@ ZH: dict[str, str] = {
     "registry.status": "狀態",
     "registry.reason": "註記（原因）",
     "registry.promote": "接手 SCREEN 候選者",
-    "registry.promote.help": "將此研究最新 SCREEN 執行中 tier 為 high 或 review、且尚未登錄的病人，以「候選」加入。",
+    "registry.promote.help": "將此研究最新 SCREEN 執行中標為「可能符合條件」或「待確認」、且尚未登錄的病人，以「候選」加入。",
     "registry.promote.submit": "接手候選者",
     "registry.promoted": "已加入 {n} 位候選者。",
     "registry.export": "匯出篩選紀錄（XLSX）",
@@ -1162,3 +1165,12 @@ from tb_common.wording import STATEMENT as _STATEMENT  # noqa: E402
 
 for _lang, _cat in CATALOGUES.items():
     _cat["footer.statement"] = _STATEMENT[_lang]
+
+# D-399 (T-302a): the approved consent-form versions, the consent version check, the re-consent list, the consent record
+from console.i18n_consent import EN as _IC_EN  # noqa: E402
+from console.i18n_consent import JA as _IC_JA  # noqa: E402
+from console.i18n_consent import ZH as _IC_ZH  # noqa: E402
+
+EN.update(_IC_EN)
+JA.update(_IC_JA)
+ZH.update(_IC_ZH)

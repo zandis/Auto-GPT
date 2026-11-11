@@ -168,6 +168,24 @@ REFUSALS: dict[str, tuple[str, str]] = {
         "這筆請求已有回覆；請重新提出請求",
     ),
     "the approval expires before it was given": ("承認の有効期限が承認日より前です", "核准有效期限早於核准日期"),
+    # D-399 (T-302a): the approved consent-form versions and the one way to record consent
+    "the version is letters, digits, spaces and . _ / ( ) -, at most 40": (
+        "版は英数字・空白・. _ / ( ) - で40文字までです",
+        "版本為英數字、空白及 . _ / ( ) -，最多 40 字",
+    ),
+    "a version is used only from its IRB approval date": (
+        "版はIRB承認日から使用できます",
+        "版本須自 IRB 核准日起才能使用",
+    ),
+    "that version is not on the list": ("その版は一覧にありません", "清單中沒有此版本"),
+    "say why the version is taken off the list": (
+        "版を一覧から外す理由を書いてください",
+        "請說明將此版本移出清單的原因",
+    ),
+    "record consent on the participant page: it opens the consent form": (
+        "同意は参加者のページで記録してください（同意書フォームが開きます）",
+        "請在受試者頁面記錄同意（會開啟同意書表單）",
+    ),
     "no such account for this study": ("この試験にそのアカウントはありません", "本試驗沒有此帳號"),
     "a sub-investigator signs in with an investigator account": (
         "分担医師は医師アカウントでログインします",

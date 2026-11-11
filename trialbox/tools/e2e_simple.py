@@ -13,6 +13,8 @@ network, no secrets, run in process:
        licensed-list loader, and the GOUT-COH funnel unchanged (13)
     -> ClinicalTrials.gov offline: the sample reference data pack loaded, a trial found by NCT id, condition and a
        Japan or Taiwan site, and its criteria drafted, with every outbound connection refused (14, D-140)
+    -> a patient who first appears in Tuesday's data with a Friday visit: the ingest is followed by a micro-batch,
+       and the patient is on the PI's clinic list on Wednesday, inside the night budget (17, D-397)
 
 and each stage is checked against something it did not compute itself: the generator's own counts, a recount from
 the hospital CSVs, the sent mail, the hash-chained audit log and a byte-identical re-run of the FEAS and SCREEN jobs.
@@ -1235,6 +1237,123 @@ def _stage16(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, b
     return s
 
 
+def _clone_patient(src: Path, dst: Path, mrn: str, new_mrn: str, visit: str) -> None:
+    """``dst``: the hospital folder ``src`` plus one new patient, a copy of ``mrn``'s record under ``new_mrn`` (new row
+    keys, the copy's own encounters) whose only appointment is ``visit`` with the doctor of ``mrn``'s next one."""
+    shutil.copytree(src, dst)
+    appts = [r for r in csv.DictReader((src / "appointment.csv").open(encoding="utf-8")) if r["mrn"] == mrn]
+    upcoming = sorted((r for r in appts if r["status"] == "B"), key=lambda r: r["appt_datetime"]) or appts
+    for path in sorted(dst.glob("*.csv")):
+        if path.name == "practitioner.csv":
+            continue
+        with path.open(encoding="utf-8", newline="") as fh:
+            reader = csv.DictReader(fh)
+            cols = list(reader.fieldnames or [])
+            mine = [r for r in reader if r.get("mrn") == mrn]
+        if "mrn" not in cols:
+            continue
+        add: list[dict[str, str]] = []
+        if path.name == "appointment.csv":
+            first = upcoming[0] if upcoming else {"staff_id": "", "dept_code": "", "duration_min": "15"}
+            add = [{**first, "appt_no": "T624A0001", "mrn": new_mrn, "appt_datetime": visit, "status": "B"}]
+        else:
+            for r in mine:
+                c = {**r, "mrn": new_mrn}
+                if cols[0] != "mrn":
+                    c[cols[0]] = f"T624{r[cols[0]]}"
+                if c.get("enc_no"):
+                    c["enc_no"] = f"T624{c['enc_no']}"
+                if path.name == "patient.csv":
+                    c["id_no"] = "99990624"
+                add.append(c)
+        with path.open("a", encoding="utf-8", newline="") as fh:
+            csv.DictWriter(fh, fieldnames=cols).writerows(add)
+
+
+def _stage17(work: Path, res: dict[str, Any], pi: Any, box: Any) -> Stage:
+    """T-624 (D-397, review LIFE-014): the screening cadence. A patient who first appears in Tuesday's data with a
+    Friday appointment: the nightly ingest (early Wednesday) is followed by a MICROBATCH for the new booked patients,
+    and the patient is on the PI's clinic list on Wednesday morning, before the visit and before the next weekly
+    run. The run stays inside the night budget. The box's day moves to that Wednesday for this stage only."""
+    from dataclasses import replace
+    from datetime import timedelta
+
+    from tb_common.crypto import pid_for_mrn
+    from tb_contracts import JobCreate
+
+    from tests.inproc_box import ingest_site
+
+    s = Stage("17 screening cadence: in Tuesday's data, booked Friday, listed Wednesday")
+    t = time.perf_counter()
+    orch = box.orch
+    key = (Path(orch.cfg.env.secrets_dir) / "site_hmac.key").read_bytes()
+    hosp = work / "hospital"
+    mrns = [p["mrn"] for p in csv.DictReader((hosp / "patient.csv").open(encoding="utf-8"))]
+    by_pid = {pid_for_mrn(key, m): m for m in mrns}
+    screen = _json_output(box, _done(box, "SCREEN", TRIAL)[0], "candidate_list_")
+    source = next((r for r in screen["rows"] if r["tier"] == "high" and r["pid"] in by_pid), None)
+    s.check("a high-tier GZQO patient to copy as the new one", source is not None)
+    if source is None:
+        s.seconds = time.perf_counter() - t
+        return s
+    new_mrn = next(f"{n:08d}" for n in range(39990624, 39999999) if f"{n:08d}" not in set(mrns))
+    new_pid = pid_for_mrn(key, new_mrn)
+    day = orch.today()
+    wed = day + timedelta(days=(2 - day.weekday()) % 7 or 7)
+    tue, fri = wed - timedelta(days=1), wed + timedelta(days=2)
+    s.check("the new patient is not in the lake before Tuesday's ingest",
+            not orch.services.lake.query("SELECT pid FROM patient WHERE pid = $1", [new_pid]).to_pylist())  # fmt: skip
+    tuesday = work / "hospital-tuesday"
+    _clone_patient(hosp, tuesday, by_pid[source["pid"]], new_mrn, f"{fri.isoformat()} 10:00:00")
+    site_id = orch.cfg.settings.site.id if orch.cfg.settings.site else "DEMO-A"
+
+    class _Adapter:  # the nightly adapter run, in process: Tuesday's hospital into the lake as Tuesday's snapshot
+        def run(self, req: Any) -> Any:
+            return ingest_site(tuesday, work / "lake", work / "sec", tue.isoformat(), site_id=site_id)
+
+    services, today = orch.services, orch._today
+    orch.services = replace(services, adapter=_Adapter())
+    orch._today = lambda: wed  # 02:00 on Wednesday: the nightly ingest
+    try:
+        before = {j.job_id for j in orch.db.find(type_="MICROBATCH", limit=500)}
+        ing = orch.create(JobCreate(type="INGEST", requested_by="scheduler"))
+        orch.drain()
+        ing = orch.db.get(ing.job_id)
+        s.check("Tuesday's data ingested", ing is not None and ing.state == "done", ing and ing.error)
+        runs = [j for j in orch.db.find(type_="MICROBATCH", ruleset=TRIAL, limit=500) if j.job_id not in before]
+        mb = runs[0] if runs else None
+        followed = mb is not None and (mb.options or {}).get("trigger") == "ingest"
+        s.check("the ingest was followed by a MICROBATCH for the new booked patients", followed, len(runs))
+        if mb is None:
+            return s
+        s.check("it ran on Wednesday, on Tuesday's snapshot, before the Friday visit",
+                mb.state == "done" and mb.run_date == wed and mb.snapshot_date == tue and wed < fri,
+                (mb.state, mb.error, mb.run_date, mb.snapshot_date))  # fmt: skip
+        cl = _json_output(box, mb, "candidate_list_")
+        mine = next((r for r in cl["rows"] if r["pid"] == new_pid), None)
+        s.check("the new patient is screened and listed (high or review) with the Friday visit",
+                mine is not None and mine["tier"] in ("high", "review")
+                and str(mine.get("next_appointment") or "")[:10] == fri.isoformat(), mine and mine["tier"])  # fmt: skip
+        s.check("the rest of the study's list is kept", len(cl["rows"]) >= len(screen["rows"]),
+                (len(cl["rows"]), len(screen["rows"])))  # fmt: skip
+        mail = [m for m in box.sent if "MICROBATCH" in m.subject and mb.job_id in m.subject]
+        s.check("the list mail went out", bool(mail), [m.subject for m in box.sent[-3:]])
+        page = pi.get(f"/studies/{TRIAL}/week?list=clinic&pid={new_pid}")
+        listed = page.status_code == 200 and f'data-testid="row-{new_pid[:8]}"' in page.text
+        s.check("on the PI's clinic list on Wednesday morning", listed, page.status_code)
+        budget = int(orch.cfg.env.microbatch_night_budget)
+        used = mb.metrics.patients_scoped if mb.metrics else 0
+        ev = next((e for e in _audit(box) if e["event"] == "microbatch.budget" and e.get("job_id") == mb.job_id), None)
+        s.check("inside the night budget, and the run says how much it used",
+                ev is not None and (budget == 0 or used <= budget) and ev["detail"]["new_screened"] >= 1,
+                (used, budget, ev and ev["detail"]))  # fmt: skip
+    finally:
+        orch.services, orch._today = services, today
+        shutil.rmtree(tuesday, ignore_errors=True)
+        s.seconds = time.perf_counter() - t
+    return s
+
+
 def _recorded_source(lake_dir: Path, snapshot: str) -> str | None:
     from tools.omop_parity import recorded_source
 
@@ -1746,6 +1865,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     # after the re-run: the opt-out it registers must not touch the jobs the re-run reproduces (D-82)
     stages.append(_stage15(res, pi, crc, password, lang, mrns, box))
     stages.append(_stage16(res, pi, crc, password, lang, box))
+    stages.append(_stage17(work, res, pi, box))
 
     total = time.perf_counter() - t0
     budget = Stage("runtime")

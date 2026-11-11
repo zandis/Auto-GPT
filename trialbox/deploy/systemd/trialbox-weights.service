@@ -1,0 +1,12 @@
+# The model weights against their pins (T-677, D-393; LLM-008): `trialbox doctor --weights` in the box's Python
+# image (deploy/check_weights.sh). A difference sets the weights flag in deploy/site and the gateway refuses every
+# model call, so the night's runs do not screen on other weights. Run by trialbox-weights.timer.
+[Unit]
+Description=TrialBox model weights against their pins
+After=trialbox.service docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=@TB_ROOT@
+ExecStart=@TB_ROOT@/deploy/check_weights.sh @TB_ROOT@
+TimeoutStartSec=3600

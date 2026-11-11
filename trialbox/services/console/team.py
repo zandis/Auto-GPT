@@ -28,6 +28,10 @@
   has recorded, on the study set-up page (``/studies/{rs}/state``), that the approved IRB text covers "identified
   pre-screening across departments by the investigator before referral". Without it: 403 with the reason, audited.
   ``TB_IRB_TEXT_GATE``: ``auto`` (default: on in VALIDATION and PRODUCTION), ``on`` or ``off`` (refused there).
+* **Approved consent-form versions** (D-399, FIT-009, LIFE-018) on the same page: a list with history (version, its
+  date, the IRB's approval, the first day it is used, re-consent asked or not). The consent form's version is checked
+  against it on save (``entry_pages``); ``/studies/{rs}/reconsent`` lists the subjects on study still on an older
+  version than the newest in force that asks for re-consent.
 * **Opt-out register** (``/site/opt-outs``, kept by the steward or the privacy office only, D-380, ROLE-005): an
   opted-out patient leaves screening, every candidate list and later exports (``tb_common.optout``); each
   registration is audited; a lift needs a written reason.
@@ -45,6 +49,7 @@ from typing import Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
+from datacore.lifecycle import reconsent_due
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
@@ -57,6 +62,7 @@ from console import s28
 from console import studies as st
 from console.auth import REVEAL_REASONS, Session, User
 from console.backend import Problem, Unavailable
+from console.data_pages import err_of
 from console.home import Helpers
 from console.i18n import translate
 from console.studies import known_study
@@ -70,6 +76,7 @@ from console.teamstore import (
     TASKS,
     VIEW_PURPOSES,
     Entry,
+    IcfVersion,
     Irb,
     TeamError,
     TeamStore,
@@ -170,6 +177,18 @@ class ApiIrb(BaseModel):
     icf_version: str = Field(default="", max_length=40)
     icf_date: str = ""
     reason: str = Field(default="", max_length=300)  # D-380 (ROLE-015): why a saved record changes
+
+
+class ApiIcf(BaseModel):
+    """D-399: one approved consent-form version (``withdraw`` with a ``note`` takes it off the list)."""
+
+    version: str = Field(default="", max_length=40)
+    version_date: str = ""
+    irb_approved_on: str = ""
+    effective_from: str = ""
+    reconsent: bool = True
+    note: str = Field(default="", max_length=200)
+    withdraw: bool = False
 
 
 class ApiOptOut(BaseModel):
@@ -670,7 +689,9 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         # D-380: the overrides name patients (pseudonyms): only a patient-level reader sees them, never the admin
         overrides = [o for o in team.overrides(rid) if o[0] not in on][-50:] if sess.user.can_view_phi else []
         return h.page(request, "team_irb.html", sess, rs=rid, irb=rec, warnings=rec.warnings(today()),
-                      can_edit=may_edit_irb(sess, rid), overrides=overrides)  # fmt: skip
+                      can_edit=may_edit_irb(sess, rid), icf=team.icf_list(rid), icf_history=team.icf_history(rid),
+                      reads_subjects=sess.user.can_view_phi and sess.user.role != "cro",
+                      overrides=overrides)  # fmt: skip
 
     @app.post("/studies/{rs}/irb")
     async def irb_save(request: Request, rs: str) -> Response:
@@ -727,6 +748,108 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         sess = api(request)
         rid, s, one = monitor_subject(sess, request.url.path, rs, record)
         return {"study": rid, "visit": s.monitor.training_ref if s.monitor else None, "subject": one}
+
+    # ------------------------------------------------------------------ approved ICF versions, re-consent (D-399)
+    def icf_json(v: IcfVersion) -> dict[str, Any]:
+        return {"version": v.version, "version_date": v.version_date or None,
+                "irb_approved_on": v.irb_approved_on or None, "effective_from": v.effective_from or None,
+                "reconsent": v.reconsent, "action": v.action, "note": v.note or None, "by": v.by,
+                "at": v.at}  # fmt: skip
+
+    def save_icf(sess: Session, path: str, rs: str, body: ApiIcf) -> tuple[str, list[IcfVersion]]:
+        """Add or change a version of the study's ICF list, or take one off it; who may edit the IRB record may."""
+        rid = study_or_404(sess, rs)
+        if not may_edit_irb(sess, rid):
+            raise deny(sess, path)
+        try:
+            if body.withdraw:
+                team.withdraw_icf(rid, body.version, body.note, sess.user.username, now())
+            else:
+                team.add_icf(rid, IcfVersion(body.version, body.version_date, body.irb_approved_on,
+                                             body.effective_from, body.reconsent, body.note), sess.user.username,
+                             now())  # fmt: skip
+        except TeamError as exc:
+            raise refused(exc) from exc
+        au.append("console.icf", ruleset=rid, actor=h.actor(sess),
+                  detail={"action": "withdraw" if body.withdraw else "add", "version": body.version.strip()[:40],
+                          "irb_approved_on": body.irb_approved_on[:10], "effective_from": body.effective_from[:10],
+                          "reconsent": body.reconsent})  # fmt: skip
+        return rid, team.icf_list(rid)
+
+    def reconsent_access(sess: Session, path: str, rs: str) -> str:
+        """Record level: who reads the participants (``lifecycle_pages``) reads the re-consent list."""
+        rid = study_or_404(sess, rs)
+        if not sess.user.can_view_phi or sess.user.role == "cro":
+            raise deny(sess, path)
+        h.delegated(sess, rid, f"participants {rid}", ("screen", "enter_data"))
+        return rid
+
+    def reconsent_list(rid: str) -> dict[str, Any]:
+        """LIFE-018: the subjects on study still on an older consent-form version than the newest in force that asks
+        for re-consent, with their screening numbers; opted-out patients are left out."""
+        day = today()
+        out = s28.call(bk, "GET", f"/studies/{rid}/subjects?today={day.isoformat()}")
+        on = optout.active()
+        subs = [x for x in out.get("subjects") or [] if str(x.get("pid") or "") not in on]
+        due = reconsent_due(subs, [v.as_row() for v in team.icf_list(rid)], day)
+        nos = store.screening_nos(rid)
+        for r in due["rows"]:
+            r["screening_no"] = nos.get(str(r["pid"])) or ""
+        return due
+
+    @app.post("/studies/{rs}/irb/icf")
+    async def icf_save(request: Request, rs: str) -> Response:
+        sess = h.need(request)
+        form = await request.form()
+        need_csrf(sess, form)
+        body = ApiIcf(version=str(form.get("version") or "")[:40],
+                      version_date=str(form.get("version_date") or "")[:10],
+                      irb_approved_on=str(form.get("irb_approved_on") or "")[:10],
+                      effective_from=str(form.get("effective_from") or "")[:10],
+                      reconsent=str(form.get("reconsent") or "") == "1", note=str(form.get("note") or "")[:200],
+                      withdraw=str(form.get("withdraw") or "") == "1")  # fmt: skip
+        rid, _ = save_icf(sess, request.url.path, rs, body)
+        return RedirectResponse(f"/studies/{rid}/irb?icf=1#icf", status_code=303)
+
+    @app.get("/studies/{rs}/reconsent")
+    def reconsent_page(request: Request, rs: str) -> Response:
+        sess = h.need(request)
+        rid = reconsent_access(sess, request.url.path, rs)
+        err = None
+        due: dict[str, Any] = {"target": None, "rows": []}
+        try:
+            due = reconsent_list(rid)
+        except (Problem, Unavailable) as exc:
+            err = err_of(exc)
+        enters = sess.user.role == "coordinator" or (h.may is not None and h.may(sess.user, rid, "enter_data"))
+        return h.page(request, "team_reconsent.html", sess, rs=rid, due=due, err=err, editable=enters)
+
+    @app.get("/api/v1/studies/{rs}/icf")
+    def api_icf(request: Request, rs: str) -> dict[str, Any]:
+        sess = api(request)
+        rid = study_or_404(sess, rs)
+        if sess.user.aggregate_only:
+            raise deny(sess, request.url.path)
+        return {"study": rid, "versions": [icf_json(v) for v in team.icf_list(rid)],
+                "history": [icf_json(v) for v in team.icf_history(rid)]}  # fmt: skip
+
+    @app.post("/api/v1/studies/{rs}/icf")
+    def api_icf_save(request: Request, rs: str, body: ApiIcf) -> dict[str, Any]:
+        sess = api(request)
+        rid, rows = save_icf(sess, request.url.path, rs, body)
+        return {"study": rid, "versions": [icf_json(v) for v in rows]}
+
+    @app.get("/api/v1/studies/{rs}/reconsent")
+    def api_reconsent(request: Request, rs: str) -> dict[str, Any]:
+        sess = api(request)
+        rid = reconsent_access(sess, request.url.path, rs)
+        due = reconsent_list(rid)  # a data core that does not answer is the console's 503 (Unavailable)
+        target = due["target"]
+        return {"study": rid, "version": target["version"] if target else None,
+                "since": (target["effective_from"] or None) if target else None,
+                "subjects": [{"record": r["record"], "pid": r["pid"], "screening_no": r["screening_no"] or None,
+                              "state": r["state"], "version": r["version"] or None, "consented_on": r["day"],
+                              "listed": r["listed"], "next_event": r["next_rc"]} for r in due["rows"]]}  # fmt: skip
 
     # ------------------------------------------------------------------ staff directory (kept by the steward)
     def can_keep(user: User) -> bool:

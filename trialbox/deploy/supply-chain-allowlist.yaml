@@ -582,6 +582,13 @@ licences:
     licence: BSD-3-Clause (dist-info/licenses/LICENSE); bundled DarkGarden font under GPL-2.0 (font data, unmodified)
     reason: BSD code verified in the wheel; the GPL font file ships unmodified as data and is listed in the notices
     review_by: 2027-05-01
+  # TrialBox's own npm manifest (T-677, D-393): tools/package.json records the browser test tools (axe-core, Playwright)
+  # and rides in the images with tools/. Syft reads it as a package; nothing is installed from it in an image.
+  - package: trialbox-browser-tests
+    class: unknown
+    licence: UNLICENSED (TrialBox's own manifest, proprietary like the project; not a third-party package)
+    reason: Our own lock of the test tools, read by Syft as an npm package; it ships no third-party code
+    review_by: 2027-05-01
   # From the trialbox-jvm image (CI release gates, 2026-11-10, amd64 and arm64).
   - package: hl7-fhir-us-davinci-pas
     class: unknown

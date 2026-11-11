@@ -64,6 +64,12 @@ def test_builtin_forms_entry_history_and_refusals(dcb: dict[str, Any]) -> None:
     css = c.get("/studies/GZQO/entry/tb_consent.css")
     assert css.headers["content-type"].startswith("text/css")
     assert css.text == ('#entry:not(:has(input[name="f_ic_reconsent"][value="1"]:checked)) .q-ic_reconsent_date '
+                        "{ display: none; }\n"
+                        '#entry:not(:has(input[name="f_ic_reconsent"][value="1"]:checked)) .q-ic_reconsent_version '
+                        "{ display: none; }\n"  # D-399: the consent record's added fields (FIT-009)
+                        '#entry:not(:has(input[name="f_ic_lar"][value="1"]:checked)) .q-ic_lar_relation '
+                        "{ display: none; }\n"
+                        '#entry:not(:has(input[name="f_ic_witness"][value="1"]:checked)) .q-ic_witness_by '
                         "{ display: none; }\n")  # fmt: skip
     # a required field missing and a bad date: refused whole, per field, nothing written
     dcb["calls"].clear()

@@ -70,7 +70,9 @@ def _weekly_tier(monkeypatch: pytest.MonkeyPatch, llm: Any, verifier: Any) -> st
         state=lambda s: None,
         metrics=lambda **kw: None,
         today=lambda: RUN,
-        orch=SimpleNamespace(db=SimpleNamespace(pool=lambda rid: [{"pid": "P1", "verdicts": _pool_verdicts()}])),
+        orch=SimpleNamespace(
+            db=SimpleNamespace(pool=lambda rid: [{"pid": "P1", "verdicts": _pool_verdicts()}], find=lambda **kw: [])
+        ),
         services=SimpleNamespace(
             lake=SimpleNamespace(
                 snapshot=lambda: "2026-10-05", query=lambda *a, **kw: SimpleNamespace(to_pylist=lambda: [appt])
