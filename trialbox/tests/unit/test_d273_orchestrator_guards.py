@@ -61,12 +61,13 @@ def test_reveal_checks_the_signed_role_and_study(box: Any) -> None:
         ("", "*", "role"),  # a verified assertion must name the role
         ("coordinator", "OTHER", "study scope"),
         ("investigator", "", "study scope"),  # and the studies
+        ("admin", "*", "role"),  # D-280 (OD-5): the administrator only under break-glass, signed as such
     ):
         r = client.post("/jobs/J1/reveal", json=body, headers=_h(role, scope))
         assert r.status_code == 403, (role, scope)
         assert events[-1]["kind"] == "screen.reveal_refused" and events[-1]["detail"]["reason"] == why
     assert not any(e["kind"] == "screen.reveal" for e in events)
-    for role, scope in (("coordinator", "*"), ("investigator", "OTHER,RS"), ("admin", "*")):
+    for role, scope in (("coordinator", "*"), ("investigator", "OTHER,RS"), ("breakglass", "*")):
         r = client.post("/jobs/J1/reveal", json=body, headers=_h(role, scope))
         assert r.status_code == 200 and r.json()["mrn"] == "MRN-1", (role, scope)
 
