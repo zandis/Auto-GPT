@@ -1169,6 +1169,15 @@ EN.update(_PRE_EN)
 JA.update(_PRE_JA)
 ZH.update(_PRE_ZH)
 
+# D-396 (T-619b): CTCAE grading of an oncology study and the CDISC export with CDASH IE and DS
+from console.i18n_cdash import EN as _CD_EN  # noqa: E402
+from console.i18n_cdash import JA as _CD_JA  # noqa: E402
+from console.i18n_cdash import ZH as _CD_ZH  # noqa: E402
+
+EN.update(_CD_EN)
+JA.update(_CD_JA)
+ZH.update(_CD_ZH)
+
 # D-407 (T-620): contact-attempt limit, randomisation on the log, possible deviations, the request for the doctor
 from console.i18n_lifecycle_mediums import EN as _LM_EN  # noqa: E402
 from console.i18n_lifecycle_mediums import JA as _LM_JA  # noqa: E402
