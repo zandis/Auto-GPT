@@ -17,7 +17,7 @@ import json
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -99,7 +99,7 @@ class _Lake:
     """Forty long synthetic notes in the window: more than any profile's budget holds."""
 
     def __init__(self, n: int = 40, lines: int = 60) -> None:
-        self.rows = [
+        self.rows: list[dict[str, Any]] = [
             {
                 "did": f"D{i:02d}",
                 "d": date(2026, 9, 1 + i % 28),
@@ -172,10 +172,10 @@ def test_the_longest_prompt_of_each_role_is_accepted_on_each_profile(
 
     # an uploaded chart of 60,000 characters of Japanese: read in parts sized from the context
     chart = (LINE * (charts.MAX_CHART_CHARS // len(LINE) + 1))[: charts.MAX_CHART_CHARS]
-    parts = charts.chart_parts(chart, charts.part_budget(judge, "ja"))
+    parts = charts.chart_parts(chart, charts.part_budget(cast(Any, judge), "ja"))
     assert "".join(parts) == chart and len(parts) > 1
     before = len(rec.log)
-    charts.extract(judge, chart, "ja")
+    charts.extract(cast(Any, judge), chart, "ja")
     assert len(rec.log) - before == len(parts)  # one call per part, each accepted (below)
 
     # protocol extraction: its 8,192-token answer budget is cut to what fits beside the prompt
@@ -277,7 +277,8 @@ def test_the_truncation_retry_fits_the_answering_alias_context(tmp_path: Path, m
 
     def gateway(req: httpx.Request) -> httpx.Response:
         if req.method == "GET":
-            return app.get("/v1/models")  # type: ignore[return-value]
+            got = app.get("/v1/models")
+            return httpx.Response(got.status_code, content=got.content)
         body = json.loads(req.content)
         sent.append(body)
         calls["n"] += 1
