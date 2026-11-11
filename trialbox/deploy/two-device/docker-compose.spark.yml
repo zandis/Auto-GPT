@@ -1,0 +1,53 @@
+# The two-device form, Spark side (plan TB-PLAN-05 §1.5 form A; T-214, D-373). The Spark runs the gateway and the two
+# vLLM servers behind model-guard, nothing else: no database, no lake, no patient file (it has no ECC and no RAID).
+#
+#   cd deploy && docker compose -f docker-compose.yml -f docker-compose.secrets.yml -f docker-compose.gb10.yml \
+#       -f two-device/docker-compose.spark.yml --profile gpu up -d --wait gateway model-guard llm-service llm-verifier link
+#   python -m tools.trialbox doctor --env-file deploy/.env --two-device      # TB_LINK_ROLE=spark in deploy/.env
+#
+# The link (tools/two_device.py): mutual TLS 1.3 with the certificates of the install ceremony
+# (`python -m tools.two_device certs`; this device's pair and ca.pem in deploy/secrets/link, owned by uid 10001, 0600).
+# It is the only port the Spark publishes, on the link address only. It exports `gateway` to the workstation and
+# answers to `db` here, so the gateway's trace store (TB_DB_URL ...@db:5432) reaches the workstation's database.
+# deploy/.env on the Spark: TB_LINK_ROLE=spark, TB_LINK_ADDR=<this Spark's address>, TB_LINK_PEER=<the workstation's>.
+services:
+  gateway:
+    depends_on: !override   # the database is on the workstation: through the link
+      link: {condition: service_healthy}
+
+  link:
+    image: ${TB_IMAGE:-trialbox-py:1.0.0}
+    platform: linux/arm64
+    command: ["python", "-m", "tools.two_device", "link"]
+    user: "10001:10001"
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    mem_limit: 1g   # deploy/gb10-profile.yaml (unmeasured, D-373)
+    logging:
+      driver: json-file
+      options: {max-size: "50m", max-file: "5"}
+    environment:
+      TB_LINK_ROLE: spark
+      TB_LINK_ADDR: "${TB_LINK_ADDR:?set TB_LINK_ADDR in deploy/.env to this Spark's address on the hospital network}"
+      TB_LINK_PEER: "${TB_LINK_PEER:?set TB_LINK_PEER in deploy/.env to the workstation's address}"
+      TB_LINK_PORT: "8443"
+      TB_LINK_PEER_PORT: "${TB_LINK_PORT:-8443}"
+      TB_LINK_CERTS: /run/secrets/tb_link
+    ports: ["${TB_LINK_ADDR:?set TB_LINK_ADDR}:${TB_LINK_PORT:-8443}:8443"]
+    volumes: ["./secrets/link:/run/secrets/tb_link:ro"]
+    networks:
+      trialbox-net: {aliases: [db]}   # the workstation's database, through the link
+      link-net: {}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8443), 4).close()"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+networks:
+  link-net:
+    name: trialbox-link   # not internal: the link reaches the peer device; nothing else joins it

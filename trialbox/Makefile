@@ -18,7 +18,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked test-random test-random-locked test-pure test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
+.PHONY: security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked test-random test-random-locked test-pure test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
 	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle supply-chain release-version release-tag
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
@@ -246,11 +246,16 @@ jvm-deps:
 	tools/fetch_jvm_deps.sh
 	@touch $(JVM_DEPS)
 
+# PLATFORM=linux/arm64: one platform other than this machine's (emulated off an arm64 host), as
+# docker-compose.gb10.yml names it; unset, this machine's own
+PLATFORM ?=
+PLATFORM_ARG := $(if $(PLATFORM),--platform $(PLATFORM),)
 images: jvm-deps $(FONTS)
-	docker build $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) --build-arg TB_REVISION=$(TB_REVISION) \
+	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) --build-arg TB_REVISION=$(TB_REVISION) \
 		-f deploy/docker/python.Dockerfile -t trialbox-py:1.0.0 .
-	docker build $(OCI_LABELS) -f deploy/docker/jvm.Dockerfile -t trialbox-jvm:1.0.0 .
-	docker build $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) -f deploy/docker/db.Dockerfile -t trialbox-postgres:16-1 deploy/docker
+	docker build $(PLATFORM_ARG) $(OCI_LABELS) -f deploy/docker/jvm.Dockerfile -t trialbox-jvm:1.0.0 .
+	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) -f deploy/docker/db.Dockerfile \
+		-t trialbox-postgres:16-1 deploy/docker
 
 # both architectures (x86_64 servers, GB10 aarch64); push to the site registry or export with --output type=oci
 PLATFORMS ?= linux/amd64,linux/arm64
@@ -262,6 +267,30 @@ images-multiarch: jvm-deps $(FONTS)
 		-f deploy/docker/jvm.Dockerfile -t $(REGISTRY)/trialbox-jvm:1.0.0 --push .
 	docker buildx build --platform $(PLATFORMS) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) -f deploy/docker/db.Dockerfile \
 		-t $(REGISTRY)/trialbox-postgres:16-1 --push deploy/docker
+
+# the GB10 two-device form (T-214, D-373): each device's rendered compose against deploy/gb10-profile.yaml (what runs
+# where, the link the only listener on the Spark, the memory limits), the profile's own checks, and the link selftest
+# in the built image (mutual TLS 1.3: a round trip, then an unauthenticated peer, another CA and an unknown route
+# refused). CI and the bench: TB_LINK_ADDR and TB_LINK_PEER from the shell, else documentation addresses (RFC 5737),
+# never deploy/.env's. On a device, `python -m tools.trialbox doctor --two-device` checks its own configuration.
+TWO_DEVICE_DIR ?= build/two-device
+TB_LINK_ADDR ?= 192.0.2.10
+TB_LINK_PEER ?= 192.0.2.11
+TWO_DEVICE_ENV := TB_LINK_ADDR=$(TB_LINK_ADDR) TB_LINK_PEER=$(TB_LINK_PEER)
+SPARK_SERVICES := gateway model-guard llm-service llm-verifier link
+WORKSTATION_SERVICES := db fhir-store lake embed-service doc-parser criteria-compiler adapter orchestrator mail-gateway \
+	console link
+two-device-check: deploy/.env
+	mkdir -p $(TWO_DEVICE_DIR)
+	$(TWO_DEVICE_ENV) $(COMPOSE) -f deploy/docker-compose.secrets.yml -f deploy/docker-compose.gb10.yml \
+		-f deploy/two-device/docker-compose.spark.yml --profile gpu config --format json $(SPARK_SERVICES) \
+		> $(TWO_DEVICE_DIR)/spark.json
+	$(TWO_DEVICE_ENV) $(COMPOSE) -f deploy/docker-compose.secrets.yml -f deploy/two-device/docker-compose.workstation.yml \
+		config --format json $(WORKSTATION_SERVICES) > $(TWO_DEVICE_DIR)/workstation.json
+	$(PY) -m tools.two_device profile
+	$(PY) -m tools.two_device check --role spark --compose-config $(TWO_DEVICE_DIR)/spark.json
+	$(PY) -m tools.two_device check --role workstation --compose-config $(TWO_DEVICE_DIR)/workstation.json
+	docker run --rm --network none $(PLATFORM_ARG) trialbox-py:1.0.0 python -m tools.two_device selftest
 
 up: deploy/.env
 	$(COMPOSE) --profile stub up -d --wait
