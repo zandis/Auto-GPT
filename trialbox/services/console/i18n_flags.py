@@ -34,7 +34,7 @@ EN: dict[str, str] = {
     "flags.desc.demo.mode": "Demonstration mode for the proof of concept: on refuses uploads and pasted chart text, shows the synthetic-data banner on every page and asks each account to accept the acknowledgement once.",
     "flags.desc.lake.source": "Where the screening lake's rows come from at the next rebuild: legacy (flattened from the hospital's snapshot) or omop (exported from the OMOP store of record).",
     "flags.desc.omop.dual_write": "When on, the adapter also loads each passed night into the OMOP store of record as soon as the snapshot is written. A failed load is recorded and never holds the night.",
-    "flags.desc.notes.reading": "Note reading by the models. off holds it when a model misbehaves: no note question goes to a model, no note answer excludes a patient, and every note criterion goes to a person. Release it with trialbox model release, after the canary passes (RUNBOOK §19).",
+    "flags.desc.notes.reading": "Note reading by the models. off holds it when a model misbehaves: no note question goes to a model, a note answer never counts as a criterion not matched, and every note criterion goes to a person. Release it with trialbox model release, after the canary passes (RUNBOOK §19).",
 }
 
 JA: dict[str, str] = {
@@ -67,7 +67,7 @@ JA: dict[str, str] = {
     "flags.desc.demo.mode": "概念実証用のデモモード：on にするとアップロードとカルテ本文の貼り付けを受け付けず、すべてのページに合成データの表示を出し、各アカウントに確認事項への同意を一度求めます。",
     "flags.desc.lake.source": "次の再構築でスクリーニング用レイクの行をどこから作るか：legacy（病院のスナップショットを展開）または omop（OMOP の記録用ストアから書き出し）。",
     "flags.desc.omop.dual_write": "on のとき、アダプターは合格した夜間データを、スナップショットを書いた直後に OMOP の記録用ストアにも読み込みます。読み込みの失敗は記録され、夜間処理を止めることはありません。",
-    "flags.desc.notes.reading": "モデルによる記録（ノート）の読み取り。モデルの不具合時に off で停止します：記録に関する質問はモデルに送られず、記録の回答で患者が除外されることはなく、記録に基づく基準はすべて人が確認します。カナリアが合格した後に trialbox model release で再開します（RUNBOOK §19）。",
+    "flags.desc.notes.reading": "モデルによるカルテ記載の読み取り。モデルの不具合時に off で停止します：記載に関する質問はモデルに送られず、カルテ記載だけで基準に合致しないとはせず、記載に基づく基準はすべて人が確認します。カナリアが合格した後に trialbox model release で再開します（RUNBOOK §19）。",
 }
 
 ZH: dict[str, str] = {
@@ -100,5 +100,5 @@ ZH: dict[str, str] = {
     "flags.desc.demo.mode": "概念驗證展示模式：設為 on 時拒絕上傳與貼上病歷文字，每一頁顯示合成資料橫幅，並請每個帳號接受一次確認聲明。",
     "flags.desc.lake.source": "下一次重建時篩選用資料湖的資料來源：legacy（展開醫院的快照）或 omop（從 OMOP 記錄庫匯出）。",
     "flags.desc.omop.dual_write": "開啟時，轉接器在寫出快照後，立即把通過的夜間資料同時載入 OMOP 記錄庫。載入失敗會被記錄，但不會擋下當晚的處理。",
-    "flags.desc.notes.reading": "模型閱讀病歷記錄。模型異常時設為 off 以暫停：不再向模型提出記錄問題，記錄答案不會排除病人，所有依記錄判定的條件都交由人員判讀。金絲雀測試通過後，以 trialbox model release 恢復（RUNBOOK §19）。",
+    "flags.desc.notes.reading": "模型閱讀病歷記錄。模型異常時設為 off 以暫停：不再向模型提出記錄問題，病歷判讀不會將病人列為未符合條件，所有依記錄回答的條件都交由人員確認。金絲雀測試通過後，以 trialbox model release 恢復（RUNBOOK §19）。",
 }
