@@ -131,10 +131,18 @@ for f in ${REFDATA[@]+"${REFDATA[@]}"}; do
   echo "==> reference data $(basename "$f")"; ITEMS+=("refdata:$f=$(basename "$f")")
 done
 echo "==> installer, runbook, settings example, notices, changelog"
-for f in deploy/install.sh deploy/check_host.sh deploy/settings.example.yaml .env.example docs/RUNBOOK.md NOTICE \
-         CHANGELOG.md; do
+for f in deploy/install.sh deploy/check_host.sh deploy/settings.example.yaml .env.example NOTICE CHANGELOG.md; do
   ITEMS+=("other:$ROOT/$f=$(basename "$f")")
 done
+# the whole runbook as one RUNBOOK.md: once T-669 makes docs/RUNBOOK.md an index of section files, `doclint --whole
+# RUNBOOK` joins them (its output is used only when it is a Markdown document: an older doclint ignores --whole and
+# prints its summary); until then docs/RUNBOOK.md is itself the whole text
+if (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.doclint --whole RUNBOOK) \
+     > "$STAGE/RUNBOOK.md" 2>/dev/null && [ "$(head -c 2 "$STAGE/RUNBOOK.md")" = "# " ]; then
+  ITEMS+=("other:$STAGE/RUNBOOK.md=RUNBOOK.md")
+else
+  ITEMS+=("other:$ROOT/docs/RUNBOOK.md=RUNBOOK.md")
+fi
 echo "==> release record (tools/release.py: gates by archive digest, SBOMs, release.json, images.lock)"
 (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.release build --id "$ID" \
   --release-seq "$SEQ" --gates "$GATES" --sbom-dir "$SBOM_DIR" --out-dir "$STAGE/meta" "${SAVED[@]}" "${ITEMS[@]}") \
