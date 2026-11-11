@@ -82,8 +82,10 @@ def test_the_excluded_list_with_criterion_source_and_evidence(box: dict[str, Any
 
 def test_no_excluded_list_says_so(box: dict[str, Any]) -> None:  # noqa: F811
     _done_screen(box["backend"], _ulid(962))
-    c, _ = login(box["app"])
+    box["users"].create("crc", "coordinator", PW)  # D-280 (OD-5): the administrator reads no patient list
+    c, _ = login(box["app"], "crc", PW)
     assert 'data-testid="ex-norun"' in c.get("/studies/GZQO/excluded").text
+    assert login(box["app"])[0].get("/studies/GZQO/excluded").status_code == 403
 
 
 def test_the_screening_run_stores_the_excluded_list_with_the_source() -> None:

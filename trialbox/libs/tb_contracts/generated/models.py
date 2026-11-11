@@ -831,6 +831,40 @@ class NavScope(BaseModel):
     application_lookback_days: int = 90
 
 
+class OmopLoadSummary(BaseModel):
+    """
+    one feed batch loaded into the OMOP store by the adapter (T-106): all or nothing; a failure never holds the night
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    state: Literal["loaded", "refused", "failed"]
+    """
+    loaded: committed; refused: the store refused the batch (an older batch, a mass tombstone, a Data Quality hold), nothing written; failed: an error rolled the batch back, nothing written
+    """
+    batch: str
+    schema_name: str
+    seconds: float = Field(..., ge=0.0)
+    counts: dict[str, int] | None = None
+    """
+    the loader's counts (inserted, updated, same, tombstoned, restored, concepts minted, open conflicts)
+    """
+    relational_checks: int | None = Field(None, ge=0)
+    """
+    Data Quality Relational checks run after the load (isRequired, isPrimaryKey, isForeignKey)
+    """
+    relational_failed: dict[str, int] | None = None
+    """
+    the checks with violated rows: check name to rows
+    """
+    error: str | None = None
+    """
+    refused: the store's reason; failed: the error type only (a message can quote a cell)
+    """
+
+
 class ParseRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -943,6 +977,20 @@ class PromptPin(BaseModel):
     version: int = Field(..., ge=1)
     sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
     schema_sha256: str | None = Field(None, pattern="^[0-9a-f]{64}$")
+
+
+class QualificationChangeProtocol(BaseModel):
+    """
+    The model change protocol this record is evidence for (D-343): the document, the sha256 of its text and the change id of its table of foreseen changes.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    document: Literal["docs/validation/model-change-protocol.md"]
+    sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+    change: str = Field(..., pattern="^MC-[0-9]+$")
 
 
 class QualificationStep(BaseModel):
@@ -2068,7 +2116,7 @@ class FeasibilityResult(BaseModel):
 
 class IngestReport(BaseModel):
     """
-    adapter ingest_report.json (SPEC 4.6). Schema version 1.3.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held).
+    adapter ingest_report.json (SPEC 4.6). Schema version 1.4.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held; 1.4.0: omop).
     """
 
     model_config = ConfigDict(
@@ -2102,6 +2150,10 @@ class IngestReport(BaseModel):
     held: bool = False
     """
     the night failed before loading: fhir-store and the lake were not loaded and CURRENT still names the previous snapshot (dataflow review P0-2)
+    """
+    omop: OmopLoadSummary | None = None
+    """
+    the dual write of the night into the OMOP store of record (flag omop.dual_write, T-106, D-339); null when the flag is off or the night was held
     """
 
 
@@ -2257,6 +2309,12 @@ class QualificationRecord(BaseModel):
     status: Literal["passed", "failed"]
     failed_steps: list[str]
     qualifies_production: bool
+    change_protocol: QualificationChangeProtocol = Field(
+        ..., title="QualificationChangeProtocol"
+    )
+    """
+    The model change protocol this record is evidence for (D-343): the document, the sha256 of its text and the change id of its table of foreseen changes.
+    """
     sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
 
 

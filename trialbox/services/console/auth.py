@@ -39,8 +39,10 @@ from zoneinfo import ZoneInfo
 from console.storedb import open_db
 from console.timefmt import local_today, site_zone
 
-Role = Literal["admin", "coordinator", "investigator", "viewer", "cro"]
-ROLES: tuple[Role, ...] = ("admin", "coordinator", "investigator", "viewer", "cro")
+Role = Literal["admin", "coordinator", "investigator", "viewer", "cro", "steward"]
+# D-280 (OD-5): the data steward keeps the opt-out register and the staff directory and reviews every break-glass use;
+# the administrator (IT operator) sees no patient data except by break-glass (``console.breakglass``).
+ROLES: tuple[Role, ...] = ("admin", "coordinator", "investigator", "viewer", "cro", "steward")
 # D-104: where an account sits. An SMO coordinator is a study-scoped coordinator; a CRO account is aggregate-only.
 AFFILIATIONS: tuple[str, ...] = ("hospital", "smo", "cro")
 SSO_MARK = "sso"  # pw_hash of an account the hospital identity provider signs in (no console password)
@@ -229,16 +231,18 @@ class User:
     @property
     def can_view_phi(self) -> bool:
         """May read patient-level results in the browser: the CASE sheet and the pseudonymous candidate rows.
-        Administrators, coordinators and investigators (D-101). Chart numbers (reveal, registry export) stay with
-        the requesters, who keep the screening log."""
-        return self.role in ("admin", "coordinator", "investigator")
+        Coordinators and investigators (D-101). D-280 (OD-5, CR-023): never the administrator, who reads one
+        patient or one job only through a break-glass grant (``console.breakglass``); never the steward here (the
+        steward's own pages are T-102b's)."""
+        return self.role in ("coordinator", "investigator")
 
     @property
     def can_reveal(self) -> bool:
         """May see and reveal chart numbers and patient identifying details (audited, rate-limited): administrators,
         coordinators and, by the owner's decision of 2026-11-09 (D-143, reversing D-133's "may not"), the
-        investigator, who holds full authorisation for the study. Viewer and CRO (sponsor, monitor) accounts never."""
-        return self.role in ("admin", "coordinator", "investigator")
+        investigator, who holds full authorisation for the study. Viewer and CRO (sponsor, monitor) accounts never.
+        D-280 (OD-5, CR-023): no longer the administrator, who reveals only under a break-glass grant."""
+        return self.role in ("coordinator", "investigator")
 
     def sees_ids(self, ruleset: str | None) -> bool:
         """Identifier authority for one study: may reveal and the study is one of the account's (D-143). A job or

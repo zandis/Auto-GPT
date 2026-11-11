@@ -1,0 +1,6 @@
+itemid,icd10pcs,display,mimic_label,min_hours,max_hours
+225802,5A1D90Z,"Performance of Urinary Filtration, Continuous, Greater than 18 hours Per Day",Dialysis - CRRT,,
+225441,5A1D70Z,"Performance of Urinary Filtration, Intermittent, Less than 6 Hours Per Day",Hemodialysis,,
+225792,5A1935Z,"Respiratory Ventilation, Less than 24 Consecutive Hours",Invasive Ventilation,,24
+225792,5A1945Z,"Respiratory Ventilation, 24-96 Consecutive Hours",Invasive Ventilation,24,96
+225792,5A1955Z,"Respiratory Ventilation, Greater than 96 Consecutive Hours",Invasive Ventilation,96,
