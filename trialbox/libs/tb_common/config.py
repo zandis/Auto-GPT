@@ -120,7 +120,7 @@ class Env:
     cloud_llm_base_url: str = ""
     cloud_llm_api_key: str = ""
     embed_url: str = "http://embed-service:8014"
-    embed_mode: str = "bge-m3"
+    embed_mode: str = "model"
     object_store: str = "fs:/data/objects"
     nhi_twpas_base_url: str = ""
     attach_password_mode: str = "link"  # D-369: patient files by a sign-in link, not a password zip
@@ -450,8 +450,10 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_EMBED_DEVICE": Declared("str", "cpu", "embedder device (cpu or cuda)"),
     "TB_EMBED_IMAGE": Declared("str", "", "platform: embedder image"),
-    "TB_EMBED_MODE": Declared("str", "hash", "embedder (bge-m3 or hash)"),
-    "TB_EMBED_MODEL_PATH": Declared("path", "/models/bge-m3", "embedder weights folder"),
+    "TB_EMBED_MODE": Declared(
+        "str", "hash", "embedder: model (pinned local weights) or hash (stub; refused in PRODUCTION)"
+    ),
+    "TB_EMBED_MODEL_PATH": Declared("path", "/models/embedder", "embedder weights folder (pinned as e-embed-1)"),
     "TB_ENV": Declared("str", "PRODUCTION", "DEV, TEST or PRODUCTION (unset is PRODUCTION)"),
     "TB_EP_SERVING_URL": Declared("str", "", "scenario tool: judge endpoint"),
     "TB_EP_VERIFIER_URL": Declared("str", "", "scenario tool: verifier endpoint"),

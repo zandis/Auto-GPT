@@ -1,13 +1,39 @@
-"""Dense text embeddings (SPEC §4.7): bge-m3 (1024-d) in production, deterministic feature hashing in CPU CI (D-12)."""
+"""Dense text embeddings (SPEC §4.7): the pinned local embedder (1024-d) in production, deterministic feature hashing
+in CPU CI (D-12).
+
+**Modes** (``TB_EMBED_MODE``, T-607, D-429, review LLM-013): ``model`` is the local embedder, weights from the offline
+models volume (``TB_EMBED_MODEL_PATH``) loaded with sentence-transformers; ``hash`` the feature-hash stub; ``http``
+the client of this service. ``bge-m3``, the mode name before D-429, is read as ``model`` so an older ``.env`` still
+starts. :data:`MODES` is the list the settings wizard writes from.
+
+**The service in PRODUCTION** (:func:`service_embedder`): ``hash`` is refused, so an unset mode never embeds a
+production lake with the stub; ``model`` loads only weights that match the site's pin. The pin is the one
+``tools/pin_model.py`` writes for :data:`EMBED_BUILD` into the site override (``TB_REGISTRY_OVERRIDE``): its
+``sha256`` is the digest of the folder's weight manifest, computed here in the same format (:func:`manifest_sha256`).
+In every environment a folder with pickle weights or Python files is refused, and one without safetensors weights
+too (SEC-63, DEP-010: "safetensors from the publisher" is a criterion of D-429).
+"""
 
 from __future__ import annotations
 
 import hashlib
 import math
 import os
-from typing import Protocol
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any, Protocol
 
 DIM = 1024
+EMBED_BUILD = "e-embed-1"  # the embedder's build in models/registry.yaml (D-429)
+DEFAULT_MODEL_PATH = "/models/embedder"
+MODES = ("model", "hash", "http")
+MODE_ALIASES = {"bge-m3": "model"}  # the mode name before D-429
+REFUSED_SUFFIXES = (".bin", ".pt", ".pth", ".pkl", ".pickle", ".ckpt", ".py", ".pyc")  # as tools/pin_model.py
+_CHUNK = 8 << 20
+
+
+class EmbedderRefused(RuntimeError):
+    """The embed service will not start with this configuration."""
 
 
 class Embedder(Protocol):
@@ -38,17 +64,71 @@ class HashEmbedder:
         return out
 
 
-class BgeM3Embedder:
-    """BAAI/bge-m3 dense vectors via sentence-transformers; weights from the offline models/ volume."""
+def _visible_files(folder: Path) -> list[Path]:
+    return sorted(
+        (
+            p
+            for p in folder.rglob("*")
+            if p.is_file() and not any(s.startswith(".") for s in p.relative_to(folder).parts)
+        ),
+        key=lambda p: p.relative_to(folder).as_posix(),
+    )
 
-    model = "bge-m3"
+
+def check_folder(folder: Path) -> list[Path]:
+    """The visible files of a weight folder; :class:`EmbedderRefused` when it is missing, holds pickle weights or
+    code, or holds no safetensors weights."""
+    if not folder.is_dir():
+        raise EmbedderRefused(f"{folder}: no embedder weights (not a directory)")
+    files = _visible_files(folder)
+    refused = [p.relative_to(folder).as_posix() for p in files if p.suffix.lower() in REFUSED_SUFFIXES]
+    if refused:
+        raise EmbedderRefused(f"{folder}: refused file types (pickle or code, SEC-63): {', '.join(refused[:5])}")
+    if not any(p.suffix.lower() == ".safetensors" for p in files):
+        raise EmbedderRefused(f"{folder}: no .safetensors weights (D-429: safetensors from the publisher)")
+    return files
+
+
+def manifest_sha256(folder: Path) -> str:
+    """The digest of the folder's weight manifest, in ``tools/pin_model.py``'s format (``<sha256>  <path>`` lines,
+    sorted by path, hidden files left out)."""
+    lines = []
+    for p in check_folder(folder):
+        h = hashlib.sha256()
+        with p.open("rb") as fh:
+            while chunk := fh.read(_CHUNK):
+                h.update(chunk)
+        lines.append(f"{h.hexdigest()}  {p.relative_to(folder).as_posix()}\n")
+    return hashlib.sha256("".join(lines).encode("utf-8")).hexdigest()
+
+
+def pinned_sha256(environ: Mapping[str, str]) -> str | None:
+    """The site's pin of :data:`EMBED_BUILD` (``sha256`` in the override ``TB_REGISTRY_OVERRIDE``), or None."""
+    path = (environ.get("TB_REGISTRY_OVERRIDE") or "").strip()
+    if not path or not Path(path).is_file():
+        return None
+    import yaml
+
+    doc: dict[str, Any] = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    entry = (doc.get("builds") or {}).get(EMBED_BUILD) or {}
+    sha = entry.get("sha256") if isinstance(entry, dict) else None
+    return str(sha) if sha else None
+
+
+class LocalEmbedder:
+    """The local embedder: dense vectors via sentence-transformers from the offline models volume. Never runs code
+    from the folder (``trust_remote_code=False``) and never loads pickle weights (:func:`check_folder`)."""
+
+    model = EMBED_BUILD
     dim = DIM
 
-    def __init__(self, path: str, batch_size: int = 64) -> None:
+    def __init__(self, path: str, batch_size: int = 64, weights_sha256: str | None = None) -> None:
+        check_folder(Path(path))
         from sentence_transformers import SentenceTransformer
 
-        self._st = SentenceTransformer(path, device=os.environ.get("TB_EMBED_DEVICE", "cpu"))
+        self._st = SentenceTransformer(path, device=os.environ.get("TB_EMBED_DEVICE", "cpu"), trust_remote_code=False)
         self.batch_size = batch_size
+        self.weights_sha256 = weights_sha256
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         vecs = self._st.encode(texts, batch_size=self.batch_size, normalize_embeddings=True, show_progress_bar=False)
@@ -79,12 +159,56 @@ class HttpEmbedder:
         return out
 
 
+def normalise_mode(mode: str) -> str:
+    m = (mode or "").strip().lower()
+    m = MODE_ALIASES.get(m, m)
+    if m not in MODES:
+        raise ValueError(f"unknown TB_EMBED_MODE {mode!r}; use one of {', '.join(MODES)}")
+    return m
+
+
 def from_env(mode: str | None = None, url: str | None = None) -> Embedder:
-    mode = mode or os.environ.get("TB_EMBED_MODE", "hash")
-    if mode == "hash":
+    m = normalise_mode(mode or os.environ.get("TB_EMBED_MODE", "hash"))
+    if m == "hash":
         return HashEmbedder()
-    if mode == "http":
+    if m == "http":
         return HttpEmbedder(url or os.environ.get("EMBED_URL", "http://embed-service:8014"))
-    if mode == "bge-m3":
-        return BgeM3Embedder(os.environ.get("TB_EMBED_MODEL_PATH", "/models/bge-m3"))
-    raise ValueError(f"unknown TB_EMBED_MODE {mode!r}")
+    return LocalEmbedder(os.environ.get("TB_EMBED_MODEL_PATH", DEFAULT_MODEL_PATH))
+
+
+def service_embedder(environ: Mapping[str, str] | None = None) -> Embedder:
+    """The embedder the embed service serves (T-607, LLM-013, LLM-014). In PRODUCTION (``TB_ENV``, PRODUCTION when
+    unset) the stub is refused and the weights must match the site's pin of :data:`EMBED_BUILD`; elsewhere a pin, when
+    there is one, is still checked. :class:`EmbedderRefused` names the fix."""
+    from tb_common.config import environment_name
+
+    env = os.environ if environ is None else environ
+    production = environment_name(env) == "PRODUCTION"
+    raw = env.get("TB_EMBED_MODE") or ("model" if production else "hash")
+    try:
+        mode = normalise_mode(raw)
+    except ValueError as exc:
+        raise EmbedderRefused(str(exc)) from exc
+    if mode == "http":
+        raise EmbedderRefused("TB_EMBED_MODE http is the client of this service, not a mode it serves")
+    if mode == "hash":
+        if production:
+            raise EmbedderRefused(
+                "TB_EMBED_MODE hash is the CI stub and is refused in PRODUCTION; set TB_EMBED_MODE=model and pin the "
+                f"embedder (python -m tools.pin_model --build {EMBED_BUILD} --endpoint embed ...)"
+            )
+        return HashEmbedder()
+    path = Path(env.get("TB_EMBED_MODEL_PATH") or DEFAULT_MODEL_PATH)
+    want = pinned_sha256(env)
+    if want is None and production:
+        raise EmbedderRefused(
+            f"no pin for {EMBED_BUILD} in the site override (TB_REGISTRY_OVERRIDE): the embedder's weights cannot be "
+            f"checked; pin them with python -m tools.pin_model --build {EMBED_BUILD} --endpoint embed ..."
+        )
+    got = manifest_sha256(path)
+    if want is not None and got != want:
+        raise EmbedderRefused(
+            f"{path}: these are not the pinned weights of {EMBED_BUILD}: manifest {got[:12]} differs from the pin "
+            f"{want[:12]}; refused"
+        )
+    return LocalEmbedder(str(path), weights_sha256=got)
