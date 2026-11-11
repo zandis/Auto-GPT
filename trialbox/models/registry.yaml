@@ -4,8 +4,13 @@
 # sha256 is the digest of the build's weight manifest (per-file SHA-256 list); for a `serving: hosted` build it is the
 # digest of its provider_pin descriptor (registry.provider_pin_sha). A null sha256 means "not yet pinned": the registry
 # refuses to route to such a build, except the stub in DEV/TEST. Hashes are filled in only from a
-# verified download at qualification (MOD-2, MOD-8); none is guessed here. Licence facts marked verified: false
-# must be confirmed by legal review before the build moves past `candidate`.
+# verified download at qualification (MOD-2, MOD-8); none is guessed here.
+#
+# Licence rows (T-617b, LLM-012): `verified: true` only with `register: <id>`, a row of docs/licences/register.csv
+# (kind model) that holds the check: the source repository, its revision, the licence URL, the date read and the
+# licence text's sha256. The row's spdx and status must agree with this file. A build without a verified licence
+# never moves past `candidate`, and `qualify` refuses a weight folder with no licence file. CI holds both files
+# together: python -m tools.licence_register --check.
 #
 # Status rules for routing (MOD-7): production roles resolve to `champion`, `shadow:<role>` to `shadow`, evaluation
 # roles to `qualified` or better; in DEV/TEST any status except `retired` and `suspended` may be used.
@@ -40,7 +45,7 @@ builds:
     quantisation: none
     context_length: null
     family: trialbox-stub
-    licence: {name: Proprietary (TrialBox), spdx: null, verified: true}
+    licence: {name: Proprietary (TrialBox), spdx: null, verified: true, register: model-trialbox-stub}
     origin: {developer: TrialBox, country: TW, non_prc: true}
 
   # The same stub behind the front-desk and guard aliases, so Hermes profiles keep their committed aliases in DEV/TEST
@@ -56,7 +61,7 @@ builds:
     quantisation: none
     context_length: null
     family: trialbox-stub
-    licence: {name: Proprietary (TrialBox), spdx: null, verified: true}
+    licence: {name: Proprietary (TrialBox), spdx: null, verified: true, register: model-trialbox-stub}
     origin: {developer: TrialBox, country: TW, non_prc: true}
 
   - build_id: g-guard-stub-1
@@ -70,7 +75,7 @@ builds:
     quantisation: none
     context_length: null
     family: trialbox-stub
-    licence: {name: Proprietary (TrialBox), spdx: null, verified: true}
+    licence: {name: Proprietary (TrialBox), spdx: null, verified: true, register: model-trialbox-stub}
     origin: {developer: TrialBox, country: TW, non_prc: true}
 
   # The stub under a second served name: the verifier of a stub box (deploy/poc.sh, TB_GATEWAY_VERIFIER_MODEL). A
@@ -87,7 +92,7 @@ builds:
     quantisation: none
     context_length: null
     family: trialbox-stub
-    licence: {name: Proprietary (TrialBox), spdx: null, verified: true}
+    licence: {name: Proprietary (TrialBox), spdx: null, verified: true, register: model-trialbox-stub}
     origin: {developer: TrialBox, country: TW, non_prc: true}
 
   # ---------------------------------------------------------------- the pair on every box we sell (D-95, D-124)
@@ -115,7 +120,7 @@ builds:
     context_length: 32768
     family: gemma
     model_name: Gemma 4 26B-A4B-it (NVFP4, RTX PRO 6000 judge)
-    licence: {name: Gemma 4 licence (terms to confirm), spdx: null, verified: false}
+    licence: {name: Apache-2.0 (Gemma 4), spdx: Apache-2.0, verified: true, register: model-gemma-4-26b-a4b-nvfp4}
     origin: {developer: Google, country: US, non_prc: true}
 
   - build_id: qwen3.5-9b-rtxpro6000
@@ -134,7 +139,7 @@ builds:
     context_length: 32768
     family: qwen
     model_name: Qwen3.5-9B (AWQ 4-bit, RTX PRO 6000 verifier)
-    licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
+    licence: {name: Apache-2.0, spdx: Apache-2.0, verified: true, register: model-qwen3.5-9b-awq-4bit}
     origin: {developer: Alibaba Qwen, country: CN, non_prc: false}
 
   - build_id: gemma-4-26b-a4b-it-frontdesk-rtxpro6000
@@ -153,7 +158,7 @@ builds:
     context_length: 32768
     family: gemma
     model_name: Gemma 4 26B-A4B-it (NVFP4, front desk, 32k)
-    licence: {name: Gemma 4 licence (terms to confirm), spdx: null, verified: false}
+    licence: {name: Apache-2.0 (Gemma 4), spdx: Apache-2.0, verified: true, register: model-gemma-4-26b-a4b-nvfp4}
     origin: {developer: Google, country: US, non_prc: true}
 
   # DGX Spark (P-GB10, deploy/docker-compose.gb10.yml): the same pair resident at 16k. gpt-oss-120b is no longer the
@@ -174,7 +179,7 @@ builds:
     context_length: 16384
     family: gemma
     model_name: Gemma 4 26B-A4B-it (NVFP4, Spark judge)
-    licence: {name: Gemma 4 licence (terms to confirm), spdx: null, verified: false}
+    licence: {name: Apache-2.0 (Gemma 4), spdx: Apache-2.0, verified: true, register: model-gemma-4-26b-a4b-nvfp4}
     origin: {developer: Google, country: US, non_prc: true}
 
   - build_id: qwen3.5-9b-spark
@@ -193,7 +198,7 @@ builds:
     context_length: 16384
     family: qwen
     model_name: Qwen3.5-9B (AWQ 4-bit, Spark verifier)
-    licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
+    licence: {name: Apache-2.0, spdx: Apache-2.0, verified: true, register: model-qwen3.5-9b-awq-4bit}
     origin: {developer: Alibaba Qwen, country: CN, non_prc: false}
 
   - build_id: gemma-4-26b-a4b-it-frontdesk-spark
@@ -212,7 +217,7 @@ builds:
     context_length: 16384
     family: gemma
     model_name: Gemma 4 26B-A4B-it (NVFP4, front desk, 16k)
-    licence: {name: Gemma 4 licence (terms to confirm), spdx: null, verified: false}
+    licence: {name: Apache-2.0 (Gemma 4), spdx: Apache-2.0, verified: true, register: model-gemma-4-26b-a4b-nvfp4}
     origin: {developer: Google, country: US, non_prc: true}
 
   # One RTX 5090 (P-5090, deploy/docker-compose.rtx5090.yml): the same pair at 8k with the sleep swap, one model awake
@@ -233,7 +238,7 @@ builds:
     context_length: 8192
     family: gemma
     model_name: Gemma 4 26B-A4B-it (NVFP4, RTX 5090 judge)
-    licence: {name: Gemma 4 licence (terms to confirm), spdx: null, verified: false}
+    licence: {name: Apache-2.0 (Gemma 4), spdx: Apache-2.0, verified: true, register: model-gemma-4-26b-a4b-nvfp4}
     origin: {developer: Google, country: US, non_prc: true}
 
   - build_id: qwen3.5-9b-rtx5090
@@ -252,7 +257,7 @@ builds:
     context_length: 8192
     family: qwen
     model_name: Qwen3.5-9B (AWQ 4-bit, RTX 5090 verifier)
-    licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
+    licence: {name: Apache-2.0, spdx: Apache-2.0, verified: true, register: model-qwen3.5-9b-awq-4bit}
     origin: {developer: Alibaba Qwen, country: CN, non_prc: false}
 
   - build_id: gpt-oss-safeguard-20b-candidate
@@ -268,7 +273,7 @@ builds:
     context_length: null
     family: gpt-oss
     model_name: gpt-oss-safeguard-20b
-    licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
+    licence: {name: Apache-2.0, spdx: Apache-2.0, verified: true, register: model-gpt-oss-safeguard-20b}
     origin: {developer: OpenAI, country: US, non_prc: true}
 
   # ---------------------------------------------------------------- earlier candidates (Qwen: documented alternative)
@@ -384,7 +389,7 @@ builds:
     context_length: null
     family: gemma
     model_name: Gemma 4 26B-A4B-it (hosted)
-    licence: {name: Gemma 4 licence (terms to confirm), spdx: null, verified: false}
+    licence: {name: Apache-2.0 (Gemma 4; hosted, provider terms not checked), spdx: Apache-2.0, verified: false}
     origin: {developer: Google, country: US, non_prc: true}
 
   - build_id: or-nemotron-3-nano-30b-a3b

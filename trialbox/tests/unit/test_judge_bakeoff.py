@@ -86,7 +86,9 @@ def test_stub_run_passes_gate_and_the_key_stays_secret(
     g = res["gated"]
     assert g["n"] == g["asked"] == len(items) and g["wrong_exclusion"]["k"] == 0 and g["wrong_exclusion"]["n"] > 0
     assert g["fits_precision"]["n"] > 0 and g["citation"]["quote_found"]["rate"] == 1.0
-    assert g["latency_s"]["p95"] > 0 and g["call_latency_s"]["calls"] == len(items) and g["tokens"]["in"] > 0
+    # latency is rounded to 1 ms and the local stub can answer faster: ordered and present, not positive (ENG-027)
+    assert g["latency_s"]["p95"] >= g["latency_s"]["p50"] >= 0 and g["call_latency_s"]["calls"] == len(items)
+    assert g["tokens"]["in"] > 0
     # the CLI on a frozen set, with the stub: same gate, and the key appears nowhere
     set_path = tmp_path / "set.jsonl"
     sha = jb.write_set(items, set_path)

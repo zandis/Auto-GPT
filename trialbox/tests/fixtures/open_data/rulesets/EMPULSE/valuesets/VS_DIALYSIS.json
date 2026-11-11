@@ -17,19 +17,6 @@
    {
     "concept": [
      {
-      "code": "302497006",
-      "display": "Hemodialysis (procedure)"
-     },
-     {
-      "code": "714749008",
-      "display": "Continuous renal replacement therapy (procedure)"
-     }
-    ],
-    "system": "http://snomed.info/sct"
-   },
-   {
-    "concept": [
-     {
       "code": "5A1D00Z",
       "display": "Performance of Urinary Filtration, Single"
      },
@@ -60,5 +47,5 @@
  "status": "active",
  "title": "Renal replacement therapy",
  "url": "http://trialbox.local/fhir/ValueSet/EMPULSE-VS-DIALYSIS",
- "version": "1.0.0-v31347094"
+ "version": "1.0.0-vf0f53bab"
 }

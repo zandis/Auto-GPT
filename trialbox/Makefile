@@ -13,7 +13,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked test-random test-random-locked e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
+.PHONY: security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked test-random test-random-locked test-pure test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
 	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle supply-chain
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
@@ -73,11 +73,22 @@ $(FONTS):
 
 fonts: $(FONTS)
 
+# The CQL translator jars, the HL7 validator and the FHIR packages (tools/fetch_jvm_deps.sh; Maven, Java and the
+# network the first time) are a prerequisite of `make test` (ENG-026, T-653): a clean clone fetches them once, and
+# again when the fetch script or the translator's pom.xml changes after the last fetch (the old translator jars are
+# removed first, so a version bump takes effect). `make jvm-deps` fetches whatever is missing at any time.
+TRANSLATOR_POM := services/criteria_compiler/compile_cql/translator/pom.xml
+JVM_DEPS := .cache/jvm/.fetched
+$(JVM_DEPS): tools/fetch_jvm_deps.sh $(TRANSLATOR_POM)
+	@if [ -e $@ ]; then echo "jvm-deps: the fetch script or the translator pom changed: fetching the jars again"; \
+		rm -rf .cache/jvm/cql-translator/lib; fi
+	$(MAKE) --no-print-directory jvm-deps
+
 # TMPDIR too lives under TB_TEST_ROOT, so tempfile.mkdtemp() in a test never lands in the shared /tmp. The root is
 # checked and marked (tools/pglocal.py mark), and held with flock for the whole run: a second run on the same root
 # stops before it touches anything. Afterwards TMPDIR is emptied, the branch's shared cluster (pglocal.for_work)
 # stopped if no client uses it, and a green run's basetemp removed.
-test: venv-check $(FONTS)
+test: venv-check $(FONTS) $(JVM_DEPS)
 	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
 	@flock -n -E 75 "$(TB_TEST_ROOT)/.lock" $(MAKE) --no-print-directory test-locked; rc=$$?; \
 	if [ $$rc = 75 ]; then echo "test: $(TB_TEST_ROOT) is in use by another run: give this run its own TB_TEST_ROOT" >&2; fi; exit $$rc
@@ -85,17 +96,24 @@ test: venv-check $(FONTS)
 # the nightly random-order run (D-201, review §5.2 (3); .github/workflows/trialbox-e2e.yml): the unit suite with
 # pytest-randomly, which is not in uv.lock on purpose. `uv run --with` lays it over .venv for this run only, so the
 # venv stays the lock's. The seed is printed in the header; RANDOM_SEED=<n> repeats a failing order.
+# The same run has no network (ENG-031, T-653): pytest-socket, laid over the same way, lets a test connect to the
+# loopback and to Unix sockets only (the throwaway clusters, the in-process servers); any other connect fails the test
+# with SocketConnectBlockedError naming the host. NETWORK=1 leaves the network on.
 RANDOMLY ?= pytest-randomly==3.16.0
+SOCKET ?= pytest-socket==0.7.0
 RANDOM_SEED ?=
-test-random: venv-check $(FONTS)
+NETWORK ?=
+NO_NETWORK = $(if $(NETWORK),,--with "$(SOCKET)")
+NO_NETWORK_ARGS = $(if $(NETWORK),,--allow-hosts=127.0.0.1,::1 --allow-unix-socket)
+test-random: venv-check $(FONTS) $(JVM_DEPS)
 	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
 	@flock -n -E 75 "$(TB_TEST_ROOT)/.lock" $(MAKE) --no-print-directory test-random-locked; rc=$$?; \
 	if [ $$rc = 75 ]; then echo "test-random: $(TB_TEST_ROOT) is in use by another run: give this run its own TB_TEST_ROOT" >&2; fi; exit $$rc
 
 test-random-locked:
 	@rm -rf "$(TB_TEST_ROOT)/tmp" && mkdir -p "$(TB_TEST_ROOT)/tmp"
-	TB_TEST_RANDOM=1 TMPDIR="$(TB_TEST_ROOT)/tmp" uv run --frozen --no-sync --with "$(RANDOMLY)" \
-		python -m pytest -p randomly $(if $(RANDOM_SEED),--randomly-seed=$(RANDOM_SEED),) \
+	TB_TEST_RANDOM=1 TMPDIR="$(TB_TEST_ROOT)/tmp" uv run --frozen --no-sync --with "$(RANDOMLY)" $(NO_NETWORK) \
+		python -m pytest -p randomly $(if $(RANDOM_SEED),--randomly-seed=$(RANDOM_SEED),) $(NO_NETWORK_ARGS) \
 		-n $(PYTEST_N) --basetemp "$(TB_TEST_ROOT)/pytest" -m "not integration and not e2e and not llm and not perf"; rc=$$?; \
 	rm -rf "$(TB_TEST_ROOT)/tmp"; PYTHONPATH=libs:services:. $(PY) -m tools.pglocal stop-idle "$(TB_TEST_ROOT)/pglocal"; \
 	if [ $$rc = 0 ]; then rm -rf "$(TB_TEST_ROOT)/pytest"; fi; exit $$rc
@@ -106,6 +124,12 @@ test-locked:
 		-m "not integration and not e2e and not llm and not perf"; rc=$$?; \
 	rm -rf "$(TB_TEST_ROOT)/tmp"; PYTHONPATH=libs:services:. $(PY) -m tools.pglocal stop-idle "$(TB_TEST_ROOT)/pglocal"; \
 	if [ $$rc = 0 ]; then rm -rf "$(TB_TEST_ROOT)/pytest"; fi; exit $$rc
+
+# the pure tests alone (ENG-028, T-653): the tests marked nodb (tests/conftest.py PURE_MODULES), with no PostgreSQL
+# at all: TB_PG_BIN points nowhere and TB_TEST_DB_URL is unset, so a test that needs a database fails at once
+test-pure: venv-check
+	env -u TB_TEST_DB_URL TB_PG_BIN=/nonexistent TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q \
+		-n $(PYTEST_N) -m "nodb and not integration and not e2e and not llm and not perf"
 
 # the data-handling scan (D-203, WS-13.10, TB-SITE-03): every tracked file, or SCAN="paths", or SCAN="--log f.log";
 # exit 2 on a hit (place and pattern only, never the value). The same scan is the pre-commit hook and a CI job.
@@ -183,6 +207,26 @@ demo-bundle: jvm-deps
 test-e2e:
 	TB_INTEGRATION=1 $(PY) -m pytest -q -m e2e
 
+# the nightly compose job (ENG-017, T-653; trialbox-e2e.yml): with `make up-test` running, every test marked
+# integration or e2e (HAPI CQL and the equivalence gate against HAPI, the compose data, the database image, mail
+# through GreenMail and MailHog, the role walk) except the egress test (root and nftables: `make test-egress`) and the
+# console POC (`make poc`, `make test-console-e2e`). TB_STRICT_SKIPS=1: a skipped test fails, so a missing stack,
+# browser or jar never passes for green. COMPOSE_JUNIT names the junit file.
+COMPOSE_JUNIT ?= $(TB_TEST_ROOT)/compose-junit.xml
+test-compose:
+	$(HL7_ENV) TB_INTEGRATION=1 TB_STRICT_SKIPS=1 PYTHONPATH=libs:services:. $(PY) -m pytest -q \
+		-m "(integration or e2e) and not egress" --junitxml "$(COMPOSE_JUNIT)" \
+		--ignore tests/e2e/test_console_poc.py tests/integration tests/e2e
+
+# the browser walk of the public console (tools/public_walk.js: 5 roles x 3 languages x desktop and phone, axe-core,
+# 44 px targets, tap counts) on the stub, as the complete run's walk part; needs Node Playwright with Chromium
+# (NODE_PATH, or /opt/node-tools). WALK_DIR keeps the result and the screenshots.
+WALK_DIR ?= $(TB_TEST_ROOT)/walk
+walk:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.complete_run part walk --dir "$(WALK_DIR)" \
+		--shots "$(WALK_DIR)/shots"
+
 # root + nftables + iproute2 + the running test stack (docs/SECURITY.md §2)
 test-egress:
 	TB_EGRESS_TEST=1 $(PY) -m pytest -q -m egress tests/integration/test_egress.py
@@ -192,6 +236,7 @@ deploy/.env:
 
 jvm-deps:
 	tools/fetch_jvm_deps.sh
+	@touch $(JVM_DEPS)
 
 images: jvm-deps $(FONTS)
 	docker build $(BUILD_ARGS) $(CA_SECRET) -f deploy/docker/python.Dockerfile -t trialbox-py:1.0.0 .
@@ -242,6 +287,20 @@ audit-verify:
 bench:
 	$(PY) tools/bench.py
 
+# the performance regression gate (ENG-030, T-653; nightly): the stub at BENCH_PATIENTS against
+# tools/bench_baseline.json, exit 1 when a phase is more than 20 % slower; `make bench-baseline` rewrites the baseline
+# (in the pull request that changes the speed on purpose, with the reason in the commit)
+BENCH_PATIENTS ?= 5000
+BENCH_OUT ?= $(TB_TEST_ROOT)/bench-gate
+bench-gate:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) tools/bench.py --gate --patients $(BENCH_PATIENTS) --out "$(BENCH_OUT)"
+
+bench-baseline:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) tools/bench.py --gate --write-baseline --patients $(BENCH_PATIENTS) \
+		--out "$(BENCH_OUT)"
+
 # open data (docs/VALIDATION.md §5): fetch the PhysioNet MIMIC-IV FHIR demo (sha256-verified, not committed), then
 # adapter -> lake -> FEAS in process for the two ClinicalTrials.gov rulesets; writes .cache/open_data/report.{json,md}
 open-data-e2e:
@@ -280,7 +339,7 @@ selftest:
 canary:
 	PYTHONPATH=libs:services:. $(PY) -m tools.canary $(ARGS)
 
-# proof of concept in one command (README "Try the POC in 10 minutes", RUNBOOK §9): box + GreenMail/MailHog + admin
+# proof of concept in one command (README "Try the POC in 10 minutes", RUNBOOK §9): box + GreenMail/Mailpit + admin
 # console with the pilot workspace; TB_LLM_MODE=stub|openrouter|gpu. Windows: deploy/poc.ps1.
 poc:
 	deploy/poc.sh up
@@ -323,8 +382,9 @@ SC_THIRD_PARTY ?= $(shell docker compose --project-directory deploy -f deploy/do
 # the third-party images are scanned in their registry, by digest, for this machine's platform (or SC_PLATFORM)
 SC_PLATFORM ?= linux/$(if $(filter aarch64 arm64,$(shell uname -m)),arm64,amd64)
 # third-party images published for amd64 only (named here so nothing is skipped silently; tracked in
-# deploy/security/known-image-findings.md): left out of the arm64 gates, and a GB10 bundle cannot carry them
-SC_AMD64_ONLY ?= mailhog/mailhog
+# deploy/security/known-image-findings.md): left out of the arm64 gates, and a GB10 bundle cannot carry them. None
+# since D-348 (Mailpit replaced MailHog; every deploy/images.lock third_party entry has a linux/arm64 build)
+SC_AMD64_ONLY ?=
 SC_PLATFORM_IMAGES = $(if $(filter linux/arm64%,$(SC_PLATFORM)),$(foreach i,$(SC_THIRD_PARTY),$(if \
 	$(filter $(addsuffix :%,$(SC_AMD64_ONLY)) $(addsuffix @%,$(SC_AMD64_ONLY)),$(i)),,$(i))),$(SC_THIRD_PARTY))
 SC_IMAGES ?= $(SC_OWN_IMAGES) $(foreach i,$(SC_PLATFORM_IMAGES),registry:$(i)=$(SC_PLATFORM))

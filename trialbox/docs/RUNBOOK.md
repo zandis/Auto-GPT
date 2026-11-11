@@ -193,6 +193,9 @@ A failed job names its step (received, parsing, compiling, running, reporting) a
 
 **Updates** (D-138, D-210): `sudo tools/apply_update.sh trialbox-<version>.tar --dry-run`, then without `--dry-run`.
 
+The order of a release across the acceptance box and the sites (three working days apart), who applies it on site
+and what is filed: `docs/validation/change-control.md` §4 (D-344).
+
 1. **Checked before anything changes.** The bundle is verified with a vendor key the box trusts (the signature,
    `key_id`, every sha256 and size), `not_after` (an expired bundle is refused), `release_seq` above the installed one,
    `min_installed_version`, the compatibility table `compat.json` (schema versions, vocabulary release, model pin,

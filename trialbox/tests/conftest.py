@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from pathlib import Path
+from typing import NoReturn
 
 import pytest
 
@@ -25,7 +26,7 @@ _DB_COUNTER = iter(range(1, 10**9))
 
 
 @pytest.fixture(scope="session")
-def pg_cluster_url() -> Iterator[str]:
+def pg_cluster_url(request: pytest.FixtureRequest) -> Iterator[str]:
     given = os.environ.get("TB_TEST_DB_URL")
     if given:
         yield given
@@ -39,6 +40,10 @@ def pg_cluster_url() -> Iterator[str]:
     # start), but under this branch's TB_TEST_ROOT, one cluster per xdist worker; without a test root a fresh
     # directory under the scratch root. Never a fixed /tmp path. The .owner file lets `python -m tools.pglocal --gc`
     # reap the cluster after a kill -9; atexit stops it when the session ends without its teardown.
+    try:
+        pglocal.bindir()
+    except RuntimeError as exc:
+        _stop(request, exc)
     keep = os.environ.get("TB_TEST_PG_DIR")
     if keep:
         root = Path(keep)
@@ -58,10 +63,24 @@ def pg_cluster_url() -> Iterator[str]:
         me = os.getpid()  # a forked child that exits must not take the session's cluster with it
         atexit.register(lambda: pglocal.remove(root) if os.getpid() == me else None)
     root.chmod(0o755)
-    url = pglocal.ensure(root)
+    try:
+        url = pglocal.ensure(root)
+    except (OSError, RuntimeError) as exc:
+        _stop(request, exc)
     yield url
     if not keep:
         pglocal.remove(root)
+
+
+def _stop(request: pytest.FixtureRequest, exc: BaseException) -> NoReturn:
+    """ENG-028: when the cluster cannot start, the run stops after this test with one message (``shouldstop`` also
+    stops every xdist worker), instead of one error per test."""
+    msg = (
+        f"the test PostgreSQL cluster cannot start ({str(exc)[-300:]}). Install the PostgreSQL server binaries "
+        "(or set TB_PG_BIN), or give a server in TB_TEST_DB_URL; `make test-pure` runs the tests that need none"
+    )
+    request.session.shouldstop = msg
+    pytest.fail(msg, pytrace=False)
 
 
 @pytest.fixture
@@ -73,10 +92,121 @@ def db_url(pg_cluster_url: str, monkeypatch: pytest.MonkeyPatch) -> str:
     return url
 
 
+# ENG-028 (T-653): a pure test needs no PostgreSQL. A test marked ``nodb`` (or in a module of PURE_MODULES) gets a
+# TB_DB_URL that refuses at once (port 1 on the loopback), so a test that does touch the database fails with a refused
+# connection instead of starting a cluster; `make test-pure` runs only those tests, with no server binaries at all.
+NODB_URL = "postgresql://127.0.0.1:1/tb_nodb?connect_timeout=1"
+# T-653: every module here passed with the database refused (TB_PG_BIN pointing nowhere) on 2026-11-10.
+PURE_MODULES: tuple[str, ...] = (
+    "tests/console/test_console_timers.py",
+    "tests/console/test_local_time.py",
+    "tests/unit/test_acceptance.py",
+    "tests/unit/test_agreement_judge.py",
+    "tests/unit/test_audit_repair.py",
+    "tests/unit/test_bakeoff.py",
+    "tests/unit/test_cascade_excerpt_budget.py",
+    "tests/unit/test_cascade_exclusion_rules.py",
+    "tests/unit/test_cascade_lake_errors.py",
+    "tests/unit/test_cascade_units.py",
+    "tests/unit/test_catalogue_verify.py",
+    "tests/unit/test_code_coverage.py",
+    "tests/unit/test_cohort_unit.py",
+    "tests/unit/test_config.py",
+    "tests/unit/test_consent_unit.py",
+    "tests/unit/test_cql_eval.py",
+    "tests/unit/test_cql_sql_generators.py",
+    "tests/unit/test_dataclass.py",
+    "tests/unit/test_dataplat_landing.py",
+    "tests/unit/test_dates.py",
+    "tests/unit/test_derived_definitions.py",
+    "tests/unit/test_derived_phi.py",
+    "tests/unit/test_derived_scores.py",
+    "tests/unit/test_disclosure_linked.py",
+    "tests/unit/test_doclint.py",
+    "tests/unit/test_doctor_serving.py",
+    "tests/unit/test_egress_rules.py",
+    "tests/unit/test_encoding.py",
+    "tests/unit/test_env_settings_gate.py",
+    "tests/unit/test_eval_public_suites.py",
+    "tests/unit/test_export_ledger.py",
+    "tests/unit/test_extra_ca.py",
+    "tests/unit/test_feas_profile.py",
+    "tests/unit/test_feas_unit.py",
+    "tests/unit/test_fhir_delta_load.py",
+    "tests/unit/test_flatten_embed_generator.py",
+    "tests/unit/test_gen_calendar.py",
+    "tests/unit/test_gen_traceability.py",
+    "tests/unit/test_gpu_sizing.py",
+    "tests/unit/test_image_pins.py",
+    "tests/unit/test_japan_icd10.py",
+    "tests/unit/test_job_subject.py",
+    "tests/unit/test_judge_bakeoff.py",
+    "tests/unit/test_judge_schema_order.py",
+    "tests/unit/test_lab_value_unknown.py",
+    "tests/unit/test_labvalue.py",
+    "tests/unit/test_language_hygiene.py",
+    "tests/unit/test_log_scrubber_jp.py",
+    "tests/unit/test_mapping_engine.py",
+    "tests/unit/test_messy.py",
+    "tests/unit/test_microbatch_note_block.py",
+    "tests/unit/test_mimic_mapping.py",
+    "tests/unit/test_mixed_and_polarity.py",
+    "tests/unit/test_mlbench.py",
+    "tests/unit/test_model_guard.py",
+    "tests/unit/test_network_sheet.py",
+    "tests/unit/test_no_direct_model_calls.py",
+    "tests/unit/test_note_pair_disagreement.py",
+    "tests/unit/test_onboarding_tools.py",
+    "tests/unit/test_one_engine.py",
+    "tests/unit/test_one_rule.py",
+    "tests/unit/test_orchestrator_drain.py",
+    "tests/unit/test_orchestrator_i18n.py",
+    "tests/unit/test_parity_replay.py",
+    "tests/unit/test_parser_terminology_review.py",
+    "tests/unit/test_provider_pin.py",
+    "tests/unit/test_public_validation.py",
+    "tests/unit/test_quotes.py",
+    "tests/unit/test_recall_cert.py",
+    "tests/unit/test_registry_match_core.py",
+    "tests/unit/test_registry_match_egress.py",
+    "tests/unit/test_registry_match_harness.py",
+    "tests/unit/test_routing_policy.py",
+    "tests/unit/test_ruleset_drift.py",
+    "tests/unit/test_ruleset_pins.py",
+    "tests/unit/test_safety_properties.py",
+    "tests/unit/test_screen_cascade.py",
+    "tests/unit/test_screen_exclusion_pair.py",
+    "tests/unit/test_screen_not_at_index.py",
+    "tests/unit/test_serving_config.py",
+    "tests/unit/test_site_today_misc.py",
+    "tests/unit/test_site_tz.py",
+    "tests/unit/test_smtp_sink.py",
+    "tests/unit/test_step5_approval_roles_pack.py",
+    "tests/unit/test_subject_routing.py",
+    "tests/unit/test_suspected_diagnosis.py",
+    "tests/unit/test_synth_hospital.py",
+    "tests/unit/test_tb_llm_truncation.py",
+    "tests/unit/test_test_hygiene.py",
+    "tests/unit/test_textproc_sqlguard.py",
+    "tests/unit/test_trialbox_doctor.py",
+    "tests/unit/test_two_phase_strict.py",
+    "tests/unit/test_ulid_crypto.py",
+    "tests/unit/test_valueset_family.py",
+    "tests/unit/test_verify_update_stdlib.py",
+    "tests/unit/test_vllm_standin.py",
+    "tests/unit/test_wording.py",
+)
+
+
 @pytest.fixture(autouse=True)
-def _private_trial_db(db_url: str) -> str:
-    """Every test runs with its own TB_DB_URL, so nothing it stores leaks into another test."""
-    return db_url
+def _private_trial_db(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Every test runs with its own TB_DB_URL, so nothing it stores leaks into another test; a ``nodb`` test gets a
+    URL that refuses, and no cluster is started for it."""
+    if request.node.get_closest_marker("nodb") is not None:
+        monkeypatch.setenv("TB_DB_URL", NODB_URL)
+        return NODB_URL
+    url: str = request.getfixturevalue("db_url")
+    return url
 
 
 @pytest.fixture(autouse=True)
@@ -103,6 +233,8 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "req(*ids): spec v4 requirement ids this test verifies (§17.4)")
+    config.addinivalue_line("markers", "nodb: a pure test: no PostgreSQL is started for it (TB_DB_URL refuses); "
+                            "`make test-pure` runs these alone (T-653)")  # fmt: skip
     # D-117: on a box the pair canary gates note exclusions (on unless TB_ENV is DEV or TEST). The suite's stub and
     # fake models are not the pair and never pass a canary, so the gate is off for the suite; the gate's own tests
     # (tests/unit/test_canary_gate.py) switch it on with monkeypatch.
@@ -118,6 +250,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     bad = sorted({i for item in items for m in item.iter_markers("req") for i in unknown_ids(list(m.args))})
     if bad:
         raise pytest.UsageError(f"@pytest.mark.req names unknown spec v4 requirement ids: {', '.join(bad)}")
+    _mark_pure_modules(items)
     egress = pytest.mark.skip(reason="host egress test: run `make test-egress` as root with the stack up")
     for item in items:
         if item.get_closest_marker("egress") and os.environ.get("TB_EGRESS_TEST") != "1":
@@ -129,6 +262,32 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     for item in items:
         if item.get_closest_marker("integration") or item.get_closest_marker("e2e"):
             item.add_marker(skip)
+
+
+def _mark_pure_modules(items: list[pytest.Item]) -> None:
+    """The modules of PURE_MODULES are ``nodb`` as a whole; a listed module that no longer exists is an error, so the
+    list cannot rot silently."""
+    missing = [m for m in PURE_MODULES if not (ROOT / m).is_file()]
+    if missing:
+        raise pytest.UsageError(f"tests/conftest.py PURE_MODULES lists missing files: {', '.join(missing)}")
+    pure = {str(ROOT / m) for m in PURE_MODULES}
+    for item in items:
+        if str(item.path) in pure:
+            item.add_marker(pytest.mark.nodb)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(
+    item: pytest.Item, call: pytest.CallInfo[None]
+) -> Generator[None, pytest.TestReport, pytest.TestReport]:
+    """TB_STRICT_SKIPS=1 (the nightly compose job): a skipped test fails, with its reason. A nightly job that selects
+    the compose tests must run them; a missing stack, browser or jar must not turn the job green by skipping."""
+    rep = yield
+    if os.environ.get("TB_STRICT_SKIPS") == "1" and rep.skipped and not hasattr(rep, "wasxfail"):
+        reason = rep.longrepr[2] if isinstance(rep.longrepr, tuple) else str(rep.longrepr)
+        rep.outcome = "failed"
+        rep.longrepr = f"skipped under TB_STRICT_SKIPS=1, which allows no skip: {reason}"
+    return rep
 
 
 def _stack_up() -> bool:
