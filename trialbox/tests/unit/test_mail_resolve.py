@@ -13,7 +13,7 @@ import ssl
 from collections.abc import Callable, Iterator
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 from mail_gateway import admin, intake
@@ -112,7 +112,9 @@ def test_an_outage_queues_the_mail_and_resolve_sends_it_when_the_mta_is_back(
     first = gw.deliver(_req("k-out"))
     assert first.state == "queued" and first.result.sent_to == [] and mta.sent == []
     row = _row(gw, "k-out")
-    assert row.state == "queued" and row.attempts == 1 and row.next_at and type(cause).__name__ in (row.last_error or "")
+    assert (
+        row.state == "queued" and row.attempts == 1 and row.next_at and type(cause).__name__ in (row.last_error or "")
+    )
     assert "sending" not in _states(gw)
     deferred = _events(tmp_path, "mail.deferred")
     assert deferred and deferred[0]["detail"]["key"] == "k-out" and deferred[0]["recipients"] == ["pi@hospa.test"]
@@ -225,10 +227,10 @@ def test_resolve_on_an_empty_queue_is_a_no_op(tmp_path: Path) -> None:
 class FakeSMTP:
     """smtplib.SMTP with a script: which call fails, and how."""
 
-    fail: dict[str, BaseException] = {}
+    fail: ClassVar[dict[str, BaseException]] = {}
     rcpt_code = 250
     final = 250
-    sent: list[bytes] = []
+    sent: ClassVar[list[bytes]] = []
 
     def __init__(self, host: str, port: int, timeout: float = 0) -> None:
         if "connect" in self.fail:
