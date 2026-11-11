@@ -185,8 +185,7 @@ def test_api_v1_refusal_in_the_accounts_language_and_roles(lb: dict[str, Any]) -
     v, _csrf = login(lb["app"], "viewer", VIEWER_PW)
     assert v.get("/studies/GZQO/subjects").status_code == 403 and v.get("/studies/GZQO/visits").status_code == 403
     a, _csrf = login(lb["app"], "admin", ADMIN_PW)
-    page = a.get(f"/studies/GZQO/subjects/{no}").text
-    assert 'data-testid="life-readonly"' in page and 'data-testid="step-form"' not in page
+    assert a.get(f"/studies/GZQO/subjects/{no}").status_code == 403  # D-280 (OD-5): no patient page for the admin
     assert a.get("/studies/NOPE-01/subjects").status_code == 404
 
 
