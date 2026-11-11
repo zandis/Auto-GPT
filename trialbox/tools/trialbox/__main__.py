@@ -8,9 +8,11 @@ path behind ``tools/apply_update.sh``, ``update.py``); ``doctor --platform``, ``
 ``tb_common.flowledger``); ``ops`` runs the console's operations requests and writes their status (D-178, ``ops.py``);
 ``watchdog`` restarts an unhealthy service and audits it (T-108a, D-360, ``watchdog.py``);
 ``eval qualify`` qualifies a model pair for a hardware profile and writes the record (D-313, ``tools/qualify.py``);
-``support-bundle`` writes one PHI-free file for a support ticket (T-209b, D-405, ``tools/support_bundle.py``).
-``secrets``, ``logs``, ``update``, ``ops`` and ``watchdog`` need only the standard library, so they run with the
-host's ``python3`` from the install folder: ``sudo python3 -m tools.trialbox secrets rotate``."""
+``support-bundle`` writes one PHI-free file for a support ticket (T-209b, D-405, ``tools/support_bundle.py``);
+``decommission-plan`` prints the close-out and purge checklist of the box, a dry run (T-628, D-413,
+``decommission.py``). ``secrets``, ``logs``, ``update``, ``ops``, ``watchdog`` and ``decommission-plan`` need only the
+standard library, so they run with the host's ``python3`` from the install folder: ``sudo python3 -m tools.trialbox
+secrets rotate``."""
 
 from __future__ import annotations
 
@@ -156,7 +158,14 @@ def main(argv: list[str] | None = None) -> int:
     fl.add_argument("--audit", type=Path, default=Path(os.environ.get("TB_AUDIT_DIR", "/data/audit")))
     fl.add_argument("--days", type=int, default=30)
     fl.add_argument("--json", action="store_true")
+    dp = sub.add_parser("decommission-plan", help="close-out and purge checklist of every store; changes nothing")
+    dp.add_argument("--deploy", type=Path, default=deploy)
+    dp.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
+    if a.cmd == "decommission-plan":
+        from tools.trialbox import decommission
+
+        return decommission.main(a.deploy, a.json)
     if a.cmd == "exports":
         return _exports_cmd(a)
     if a.cmd == "secrets":

@@ -92,9 +92,9 @@ File: [runbook/18-site-mapping-without-site-data.md](runbook/18-site-mapping-wit
 
 Not written yet: the number is held in the table below.
 
-## 20. Close-out and decommissioning (reserved for T-628)
+## 20. Close-out and decommissioning
 
-Not written yet: the number is held in the table below.
+File: [runbook/20-close-out-and-decommissioning.md](runbook/20-close-out-and-decommissioning.md). In it: [The plan of this box](runbook/20-close-out-and-decommissioning.md#the-plan-of-this-box), [The steps](runbook/20-close-out-and-decommissioning.md#the-steps), [Per site](runbook/20-close-out-and-decommissioning.md#per-site).
 
 ## 21. Support model and the supervised remote session
 
@@ -152,7 +152,7 @@ TrialBox; OPS-073: [Developing](DEVELOPING.md) lists them, D-390).
 | 17 | On a hospital platform | on master | site |
 | 18 | Developing a site mapping without the site's data | on master | team |
 | 19 | Model misbehaviour: note reading off, the runs a build touched | T-609 | site |
-| 20 | Close-out and decommissioning | T-628 | site |
+| 20 | Close-out and decommissioning | on master | site |
 | 21 | Support model and the supervised remote session | on master | site |
 | 22 | Disaster recovery with measured RPO and RTO | on master | site |
 | 23 | Key inventory and the lost-box list | on master | site |
