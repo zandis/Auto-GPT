@@ -24,7 +24,7 @@ from openpyxl import load_workbook
 from tb_common.wording import check_page
 
 from tests.console.test_amendment_rescreen import _screen
-from tests.console.test_console_app import _done_screen, _ulid, box, login  # noqa: F401 - the fixture is used by name
+from tests.console.test_console_app import _done_screen, _ulid, box, login, name_pi  # noqa: F401 - the fixture is used by name
 from tests.console.test_lifecycle_pages import (
     NOW,
     lb,  # noqa: F401 - the fixture is used by name
@@ -58,6 +58,7 @@ def test_every_key_in_every_language() -> None:
 # ---------------------------------------------------------------------------------------------- LIFE-017
 def _approach(b: dict[str, Any], pids: list[str]) -> Any:
     _screen(b, 9901, "3.0.0", [_row(p) for p in pids], 0)
+    name_pi(b, "pi")  # D-380: the steward names the PI before the PI acts
     pi, _ = login(b["app"], "pi", LIFE_PW)
     week = pi.get("/studies/GZQO/week").text
     for p in pids:
@@ -157,6 +158,7 @@ def test_randomised_on_the_log_and_possible_deviations(lb: dict[str, Any]) -> No
     assert "dv1" in subject
     assert lb["dc"].record("GZQO", no, "dv1")["dv_kind"] == "2"
     # the investigator reads the list and does not answer it
+    name_pi(lb, "pi")  # D-380
     pi, pcsrf = login(lb["app"], "pi", LIFE_PW)
     assert 'data-testid="dev-list"' in pi.get("/studies/GZQO/deviations").text
     r = pi.post("/studies/GZQO/deviations", data={"csrf": pcsrf, "record": no, "key": "consent_after:enrolment",
@@ -168,6 +170,7 @@ def test_randomised_on_the_log_and_possible_deviations(lb: dict[str, Any]) -> No
 def test_the_request_for_the_doctor_copy_text_and_one_page_print(box: dict[str, Any]) -> None:  # noqa: F811
     _done_screen(box["backend"], _ulid(968))
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")
     crc = _user(box, "crc1", "coordinator")
     sp = crc.get("/site/staff").text
     crc.post("/site/staff", data={"csrf": _csrf(sp), "kind": "person", "name": "Coordinator Ito", "department": "CRC",
