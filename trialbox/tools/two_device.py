@@ -256,9 +256,9 @@ def compose_problems(role: str, config: Mapping[str, Any], profile: Mapping[str,
             ip = str(p.get("host_ip") or "")
             if name == "link":
                 if ip != addr or ip in ANY_ADDRESS:
-                    out.append(f"link: published on {ip or '0.0.0.0'}, not only on the link address {addr or '?'}")
+                    out.append(f"link: published on {ip or ANY_ADDRESS[1]}, not only on the link address {addr or '?'}")
             elif role == "spark":
-                where = "0.0.0.0" if ip in ANY_ADDRESS else ip
+                where = ANY_ADDRESS[1] if ip in ANY_ADDRESS else ip
                 out.append(f"{name}: a listener on {where}:{p.get('published')} on the Spark (only the link listens)")
             elif ip in ANY_ADDRESS and name != "console":
                 out.append(f"{name}: published on every address of the workstation")
