@@ -6,6 +6,7 @@ the stored traces, and recall per identifier type and per language is reported a
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
 from collections import Counter
@@ -16,7 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 from guard.guard import Guard
 from tracestore.app import create_app
-from tracestore.store import TraceAccessDenied, TraceStore
+from tracestore.store import TraceAccessDenied, TraceSettings, TraceStore
 
 from eval.suites.deid_synthetic.generate import generate, load_suite
 
@@ -108,7 +109,7 @@ def test_reads_need_purpose_and_role_and_are_logged(tmp_path: Path) -> None:
     with pytest.raises(TraceAccessDenied):
         store.read("c1", user="dev", purpose="curious", roles=frozenset())
     log = store.access_log()
-    assert [(r["user"], r["purpose"], r["granted"]) for r in log] == [
+    assert [(r["user"], r["purpose"], r["granted"]) for r in log if r["action"] == "read"] == [
         ("qa1", "dispute review", 1),
         ("qa1", "", 0),
         ("dev", "curious", 0),
@@ -120,7 +121,8 @@ def test_reads_need_purpose_and_role_and_are_logged(tmp_path: Path) -> None:
 @pytest.mark.req("LLM-45", "S1-08")
 def test_retention_prune_with_injected_clock(tmp_path: Path) -> None:
     clock = Clock()
-    store = TraceStore(None, GUARD, clock=clock)
+    manual = dataclasses.replace(TraceSettings.load(), prune_every_hours=0)  # the prune on write: see T-605 below
+    store = TraceStore(None, GUARD, clock=clock, settings=manual)
     store.write({"call_id": "old", "span": "chat"})
     store.write({"call_id": "sc", "span": "chat", "sc": True})
     clock.now += timedelta(days=45)
@@ -146,3 +148,52 @@ def test_tracestore_http_surface(tmp_path: Path) -> None:
     ok = http.get("/v1/traces/c9", headers={"X-TB-User": "u", "X-TB-Purpose": "p", "X-TB-Roles": "trace:read"})
     assert ok.json()["traces"][0]["prompt"] == "身分證 [TW_NATIONAL_ID]"
     assert http.post("/v1/traces", json={"prompt": "x"}).status_code == 422
+
+
+# ------------------------------------------------------------------------------------------------ T-605 (D-431)
+MARKER = "T605-PLANTED-MARKER 糖尿病 HbA1c 9.1 同居の娘"
+
+
+def _production_store(clock: Clock) -> TraceStore:
+    return TraceStore(None, GUARD, clock=clock, settings=TraceSettings.load(environment="PRODUCTION"))
+
+
+def test_planted_marker_never_stored_for_d3_in_production() -> None:
+    """LLM-040: in PRODUCTION a D3 or D4 trace keeps a sha256 and a size of the prompt and the output, no text."""
+    store = _production_store(Clock())
+    for cls in ("D3", "D4"):
+        store.write(
+            {
+                "call_id": f"call-{cls}",
+                "span": "chat",
+                "attributes": {"tb.data_class": cls, "tb.call_id": f"call-{cls}", "note": MARKER},
+                "prompt": [{"role": "user", "content": MARKER}],
+                "output": json.dumps({"quote": MARKER}, ensure_ascii=False),
+            }
+        )
+    raw = stored_text(store)
+    assert "T605-PLANTED-MARKER" not in raw and "HbA1c" not in raw and "同居" not in raw
+    (t,) = store.read("call-D3", user="qa1", purpose="dispute review", roles=frozenset({"trace:read"}))
+    assert set(t) >= {"prompt_digest", "output_digest"} and "prompt" not in t and "output" not in t
+    assert len(t["prompt_digest"]["sha256"]) == 64 and t["attributes"] == {
+        "tb.data_class": "D3",
+        "tb.call_id": "call-D3",
+    }
+    dev = TraceStore(None, GUARD, clock=Clock())  # DEV and TEST keep redacted text for debugging on synthetic data
+    dev.write({"call_id": "dev-1", "attributes": {"tb.data_class": "D3"}, "prompt": "HbA1c 9.1"})
+    assert "HbA1c" in stored_text(dev)
+
+
+def test_scheduled_prune_deletes_an_8_day_trace_and_keeps_pre_d431_rows() -> None:
+    clock = Clock()
+    store = _production_store(clock)
+    assert store.settings.retention_days == 7 and store.settings.prune_every_hours == 1
+    store.db.execute(  # a row written before D-431 (policy 0): kept until the owner rules on existing rows
+        "INSERT INTO traces (call_id, ts, sc, body) VALUES ('legacy', ?, 0, '{}')", (clock.now.isoformat(),)
+    )
+    store.write({"call_id": "old", "attributes": {"tb.data_class": "D1"}})
+    clock.now += timedelta(days=8)
+    store.write({"call_id": "new", "attributes": {"tb.data_class": "D1"}})  # the write runs the scheduled prune
+    ids = {r[0] for r in store.db.fetchall("SELECT call_id FROM traces")}
+    assert ids == {"legacy", "new"}
+    assert [r for r in store.access_log() if r["action"] == "prune"][-1]["detail"].startswith('{"deleted": 1')
