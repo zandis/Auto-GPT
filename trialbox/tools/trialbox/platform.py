@@ -72,11 +72,36 @@ RELEASE = ROOT / "deploy" / "platform" / "release.json"
 COMPONENT = ROOT / "deploy" / "platform" / "components" / "release-images" / "kustomization.yaml"
 NO_DEVICE = "skipped: no device"
 EVIDENCE_SCHEMA = "tb-iq-evidence/1"
-# a data key, name or annotation that marks a Secret as holding the KEK or a key it wraps (WS-13.11)
-KEK_KEYS = re.compile(r"(^|[^a-z])(kek|pid_?map\.key|site_hmac\.key|key[-_]?encryption[-_]?key)([^a-z]|$)", re.I)
 GPU_RESOURCE = re.compile(r"^(nvidia\.com/gpu|nvidia\.com/mig-[0-9a-z.+-]+)$")
 REQUIRED_POLICIES = ("trialbox-default-deny", "trialbox-model-isolation")
 WORKLOADS = ("Deployment", "StatefulSet", "Job", "Pod", "DaemonSet", "CronJob")
+
+
+def _protected_keys() -> tuple[str, ...]:
+    """``tb_common.kek.PROTECTED`` (T-210e): the keys the KEK wraps, from the one list that wraps them. The keys of
+    ``OPTIONAL`` are in it too: a box may not have made them yet, but where one exists it is never a plain Secret.
+    The list is read from this install's ``libs/tb_common/kek.py`` (its literal, not by import), so the host python3
+    with no ``PYTHONPATH`` and a stale ``tb_common`` installed elsewhere both get this release's list."""
+    import ast
+
+    path = ROOT / "libs" / "tb_common" / "kek.py"
+    for node in ast.parse(path.read_text(encoding="utf-8")).body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "PROTECTED" for t in node.targets):
+            return tuple(str(n) for n in ast.literal_eval(node.value))
+    raise ImportError(f"{path} has no PROTECTED list")
+
+
+def kek_keys_pattern(names: Iterable[str]) -> re.Pattern[str]:
+    """A data key, name or annotation that marks a Secret as holding the KEK or one of ``names`` (WS-13.11). An
+    underscore of a name may be a dash or left out (``pid-map.key``, ``pidmap.key``)."""
+    alts = ["kek", "key[-_]?encryption[-_]?key"]
+    alts += [re.escape(n.removesuffix(".key")).replace("_", "[-_]?") + r"\.key" for n in names]
+    return re.compile(rf"(^|[^a-z])({'|'.join(alts)})([^a-z]|$)", re.I)
+
+
+#: the keys the KEK wraps, and the pattern that finds them or the KEK in a platform Secret (built from kek.PROTECTED)
+KEK_KEY_NAMES = _protected_keys()
+KEK_KEYS = kek_keys_pattern(KEK_KEY_NAMES)
 
 
 class PlatformError(Exception):

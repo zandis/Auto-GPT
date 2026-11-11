@@ -13,6 +13,10 @@
   newer prompt or another release, the page says so and that SCREEN keeps the approved prompt until this approval.
 * **Approve all** sends ``APPROVE <study> version=<v>`` with the review workbook the compiler wrote, exactly what a
   reply to the review mail does; the orchestrator checks the approver's role (D-146).
+* **Amendment record** (D-364, LIFE-009): the investigator may give the day the version takes effect and the IRB
+  approval number and date of the protocol version. They travel on the APPROVE line (``effective=``, ``irb=``,
+  ``irbdate=``) into the approved manifest. The IRB fields are a record, not a gate (D-311); the box screens on the
+  version before until the effective day.
 """
 
 from __future__ import annotations
@@ -20,6 +24,7 @@ from __future__ import annotations
 import io
 import re
 from collections.abc import Callable
+from datetime import date
 from typing import Any
 
 from fastapi import FastAPI, Form, Request, Response
@@ -35,6 +40,32 @@ from console.i18n import translate
 _ULID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
 _CRIT = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,63}$")
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_IRB = re.compile(r"^[A-Za-z0-9,.:\-]{1,32}$")  # the APPROVE line's value grammar (tb_common.subject)
+
+
+def amendment_line(effective_from: str, irb_reference: str, irb_approved_on: str, today: date) -> str:
+    """D-364: the APPROVE options of the amendment record, checked the way the compiler will check them; a plain
+    refusal (``ValueError``) names the field. Empty fields add nothing."""
+    out: list[str] = []
+    for key, text in (("effective", effective_from), ("irbdate", irb_approved_on)):
+        text = text.strip()
+        if not text:
+            continue
+        try:
+            day = date.fromisoformat(text)
+        except ValueError as exc:
+            raise ValueError(f"amend.bad_date.{key}") from exc
+        if key == "effective" and day < today:
+            raise ValueError("amend.past_effective")
+        if key == "irbdate" and day > today:
+            raise ValueError("amend.future_irb")
+        out.append(f"{key}={day.isoformat()}")
+    irb = irb_reference.strip()
+    if irb:
+        if not _IRB.match(irb):
+            raise ValueError("amend.bad_irb")
+        out.append(f"irb={irb}")
+    return " ".join(out)
 
 
 def review_rows(data: bytes) -> list[dict[str, Any]]:
@@ -209,7 +240,15 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         return RedirectResponse(f"/pilot/jobs/{job_id}/approval?done=label#{crit}", status_code=303)
 
     @app.post("/pilot/jobs/{job_id}/approve")
-    def approve(request: Request, job_id: str, csrf: str = Form(""), confirm: str = Form("")) -> Response:
+    def approve(
+        request: Request,
+        job_id: str,
+        csrf: str = Form(""),
+        confirm: str = Form(""),
+        effective_from: str = Form(""),
+        irb_reference: str = Form(""),
+        irb_approved_on: str = Form(""),
+    ) -> Response:
         sess = h.need(request)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
@@ -232,9 +271,20 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
                 "request.refused",
                 reason="give every criterion a short label first: " + ", ".join(ctx["unlabelled"][:5]),
             )
+        try:
+            amend = amendment_line(effective_from, irb_reference, irb_approved_on, h.today())
+        except ValueError as exc:
+            raise h.problem(400, "request.refused", reason=translate(sess.lang, str(exc))) from exc
         if confirm != "yes" and h.confirm is not None:  # P-10 (D-143): the consequence first
             text = translate(sess.lang, "confirm.approve_all", n=len(ctx["rows"]))
-            return h.confirm(request, sess, text, request.url.path, {}, f"/pilot/jobs/{job.job_id}/approval")
+            if effective_from.strip():
+                text += " " + translate(sess.lang, "amend.confirm_effective", day=effective_from.strip())
+            fields = {
+                "effective_from": effective_from,
+                "irb_reference": irb_reference,
+                "irb_approved_on": irb_approved_on,
+            }
+            return h.confirm(request, sess, text, request.url.path, fields, f"/pilot/jobs/{job.job_id}/approval")
         au.append(
             "console.approve_all",
             job_id=job.job_id,
@@ -246,8 +296,10 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
                 "amber": len(ctx["ambers"]),
                 "ticked": len(ctx["ticks"]),
                 "since": ctx["prev"] or "",
+                "amendment": amend,
             },
         )
         data = bk.get_object(book.minio_key)
-        new = submit(sess, f"APPROVE {job.ruleset} version={job.ruleset_version}", [("review.xlsx", data, XLSX)])
+        line = f"APPROVE {job.ruleset} version={job.ruleset_version}" + (f" {amend}" if amend else "")
+        new = submit(sess, line, [("review.xlsx", data, XLSX)])
         return RedirectResponse(f"/pilot/jobs/{new.job_id}", status_code=303)

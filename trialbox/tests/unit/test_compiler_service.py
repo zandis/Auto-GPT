@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-import shutil
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -24,6 +23,8 @@ from openpyxl import load_workbook
 from tb_common.audit import AuditLog, verify
 from tb_common.llm import LlmClient
 from tb_common.objstore import FsStore
+
+from tests.rulesets_guard import copy_rulesets
 
 ROOT = Path(__file__).resolve().parents[2]
 PDF = ROOT / "tests/fixtures/protocols/GZQO_protocol_v3.pdf"
@@ -57,7 +58,7 @@ class FakeGate:
 @pytest.fixture
 def env(tmp_path: Path) -> dict[str, Any]:
     seed = tmp_path / "seed"
-    shutil.copytree(ROOT / "rulesets", seed, ignore=shutil.ignore_patterns("GZQO", "RA-BIO"))
+    copy_rulesets(seed, "GZQO", "RA-BIO")
     store = FsStore(tmp_path / "obj")
     audit = AuditLog(tmp_path / "audit")
     llm = LlmClient("http://stub/v1", "stub", audit=audit)

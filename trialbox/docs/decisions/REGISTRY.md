@@ -135,7 +135,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | --- | --- | --- | --- |
 | D-300 | merged | T-101 | prompt registry, renumbered from the PR's D-201 (file) |
 | D-301 | merged | T-105, PR #82 | vocabulary schema (renumbered from the PR's D-205) (file) |
-| D-302 | reserved | T-102a | permission matrix |
+| D-302 | unused | T-102a | was reserved for the permission matrix; T-102a took D-366 (the integrator gave it) |
 | D-303 | unused | T-106 | was reserved for the OMOP schema name; T-106 took D-339 (the integrator gave it) |
 | D-304 | unused | T-106 | was reserved for the dual write; T-106 took D-339 (the integrator gave it) |
 | D-305 | unused | — | was reserved for T-012a, which took D-313 |
@@ -176,14 +176,20 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-348 | merged | T-673 | third-party images in `deploy/images.lock` by digest, no image by tag, the GPU host checked against the vLLM image (arch, driver, compute capability), Mailpit for MailHog (file) |
 | D-349 | merged | T-512 | the PI starts FEAS, SCREEN and CASE on own study; a sub-investigator with the `run` tick; one table `authz.INVESTIGATOR_RUNS`; "data as of" on the patient lists (file) |
 | D-339 | merged | T-106 | OMOP second slice: schema name stays `omop`; the adapter's dual write behind the flag `omop.dual_write` (a failure never holds the night); the large CDM tables partitioned by year; the Relational checks after every load in the ingest report; parity timings (file) |
+| D-366 | merged | T-102a | one permission function `authz.permit` over `authz_matrix.yaml`; the old helpers and the console role properties are wrappers; the role x route matrix regenerated as a test (file) |
+| D-367 | merged | T-631 | the host tree in the signed release: one payload of kind `host`, `releases/<id>` and the `current` link, the install folder's release files as links through it, rollback switches back (file) |
 | D-353 | merged | T-107 | the clinical item catalogue loaded as data: one concept per item at stable ids, LOINC unmapped never invented, the storable gate in chart extraction, the steward items page (file) |
 | D-354 | merged | T-210c | uploads and outputs sealed at rest: AES-GCM per object under objects.key wrapped by the KEK, the seal file, seal-objects (file) |
 | D-370 | merged | T-659 | one ingest stack: the adapter stays, dataplat is deleted by T-659b; the pid rule stays HMAC(site key, chart number); contracts, row quarantine, the gate record, the MPI as a `pid_alias` table and lineage move into the adapter (file) |
 | D-355 | merged | T-211a | signed audit heads with the KEK-wrapped Ed25519 key, write-once off-box anchor folders, key rotation, the clock a doctor FAIL (file) |
 | D-352 | merged | T-669 | hot documents as section files with a generated index; RUNBOOK section numbers in one table (file) |
 | D-357 | merged | T-603 | prompt budgets from the model's context: the gateway gives each alias's context and refuses `prompt_too_long` before dispatch; callers size excerpts, full record, chart and the retry from it; the cache keeps complete answers only and keys on `max_tokens`; a note over the budget is flagged (`notes_over_budget`) (file) |
+| D-360 | merged | T-108a | compose limits: a memory and a pids cap on every service, health checks, capped logs, the lake sized from its cap, the host watchdog that restarts an unhealthy service and audits it (file) |
+| D-362 | merged | T-514 | a coded criterion row shows the record's own value, unit, date and code (evidence.coded, display only; latest first, at most three; an empty list says no record is behind the answer) on the patient page and the not-matched list (file) |
+| D-363 | merged | T-643 | record inventory in `docs/validation/record-inventory.md`, mapped to every table the code creates; the release record carries it (file) |
 | D-371 | merged | T-104b | one PostgreSQL major (16) for the db image, the demo and CI: `postgres_major` in `deploy/images.lock`, Debian 13 base, pgBackRest pinned from PGDG in the db image, `tools/ci_postgres.sh` checks `pg_config --version` (file) |
 | D-372 | merged | T-676 | the FHIR package set from packages.fhir.org; TWPAS by `profiles.twpas_version` (1.2.5 until CGMH answers), the cache holds that version; extensions 5.4.0 and terminology 7.5.0 for the whole cache; supersedes D-63 (file) |
 | D-360 | merged | T-108a | compose limits: a memory and a pids cap on every service, health checks, capped logs, the lake sized from its cap, the host watchdog that restarts an unhealthy service and audits it (file) |
 | D-363 | merged | T-643 | record inventory in `docs/validation/record-inventory.md`, mapped to every table the code creates; the release record carries it (file) |
+| D-364 | merged | T-621 | amendment handling: effective date and IRB record per criteria version (a record, not a gate), screening on the version in force, the version on every mark, the re-screen list, schedule versions judged by visit date (file) |
 | D-376 | merged | T-676b | the TWPAS route is SNOMED CT `26643006` (oral), the code the IG's required value set lists, with no SNOMED CT description; amends D-342 item 4 (file) |

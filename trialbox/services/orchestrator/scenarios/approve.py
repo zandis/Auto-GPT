@@ -3,6 +3,9 @@ that were waiting for this ruleset version, on edits re-send the review (max 3 r
 
 from __future__ import annotations
 
+from datetime import date
+from typing import Any
+
 from criteria_compiler.semantics import human_heavy
 from tb_common.ruleset import Ruleset, RulesetNotApproved, load_approved
 from tb_contracts import ApproveRequest, JobFile
@@ -29,6 +32,20 @@ def _target(ctx: Ctx) -> tuple[str, str]:
             raise StepFailed("approve", f"No draft of {ruleset} is waiting for approval; give version=<x.y.z>.")
         version = waiting[0].ruleset_version
     return ruleset, version
+
+
+def amendment_options(options: dict[str, str]) -> dict[str, Any]:
+    """D-364: ``effective=YYYY-MM-DD irb=<number> irbdate=YYYY-MM-DD`` on the APPROVE line, for the compiler."""
+    out: dict[str, Any] = {}
+    for key, field in (("effective", "effective_from"), ("irbdate", "irb_approved_on")):
+        if options.get(key):
+            try:
+                out[field] = date.fromisoformat(options[key])
+            except ValueError as exc:
+                raise StepFailed("approve", f"{key}= must be a date YYYY-MM-DD, not {options[key]!r}") from exc
+    if options.get("irb"):
+        out["irb_reference"] = options["irb"]
+    return out
 
 
 def _approved(ctx: Ctx, ruleset: str, version: str) -> Ruleset | None:
@@ -85,6 +102,7 @@ def run(ctx: Ctx) -> Outcome:
             job_id=ctx.job.job_id,
             via=via,
             decisions=decisions,
+            **amendment_options(ctx.job.options or {}),
         )
     )
     routing = res.manifest.routing if res.manifest else None
@@ -106,6 +124,14 @@ def run(ctx: Ctx) -> Outcome:
             f"review round {res.round}). The box now uses it for counts and candidate lists; a person still confirms "
             f"each candidate.\n\n"
         )
+        m = res.manifest
+        if m.effective_from and m.effective_from > ctx.orch.today():
+            body += (
+                f"It takes effect on {m.effective_from}: until then the box keeps screening on the version before "
+                f"it.\n\n"
+            )
+        if m.irb_reference or m.irb_approved_on:
+            body += f"IRB approval of this protocol version: {m.irb_reference or '-'} ({m.irb_approved_on or '-'}).\n\n"
         if split:
             body += (
                 f"Approval record: {split.get('structured', 0)} criteria by the filter, {split.get('mixed', 0)} by the "

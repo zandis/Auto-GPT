@@ -36,6 +36,8 @@ from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo
 
+from tb_common.authz import permit
+
 from console.storedb import open_db
 from console.timefmt import local_today, site_zone
 
@@ -212,6 +214,9 @@ def source_of(host: str | None) -> str:
 
 @dataclass(frozen=True)
 class User:
+    """A console account. Its rights are wrappers over ``tb_common.authz.permit`` (T-102a, D-366): each property reads
+    one row of ``authz_matrix.yaml``; none compares the role itself."""
+
     username: str
     role: Role
     mailbox: str | None
@@ -226,7 +231,7 @@ class User:
     @property
     def can_request(self) -> bool:
         """May start requests and edit the registry: administrators and coordinators (D-93)."""
-        return self.role in ("admin", "coordinator")
+        return permit(self.role, "request.prepare").allowed
 
     @property
     def can_view_phi(self) -> bool:
@@ -234,7 +239,7 @@ class User:
         Coordinators and investigators (D-101). D-280 (OD-5, CR-023): never the administrator, who reads one
         patient or one job only through a break-glass grant (``console.breakglass``); never the steward here (the
         steward's own pages are T-102b's)."""
-        return self.role in ("coordinator", "investigator")
+        return permit(self.role, "phi.view").allowed
 
     @property
     def can_reveal(self) -> bool:
@@ -242,7 +247,7 @@ class User:
         coordinators and, by the owner's decision of 2026-11-09 (D-143, reversing D-133's "may not"), the
         investigator, who holds full authorisation for the study. Viewer and CRO (sponsor, monitor) accounts never.
         D-280 (OD-5, CR-023): no longer the administrator, who reveals only under a break-glass grant."""
-        return self.role in ("coordinator", "investigator")
+        return permit(self.role, "id.reveal").allowed
 
     def sees_ids(self, ruleset: str | None) -> bool:
         """Identifier authority for one study: may reveal and the study is one of the account's (D-143). A job or
@@ -252,18 +257,18 @@ class User:
     @property
     def can_mark(self) -> bool:
         """May mark weekly-list patients Approach / Not suitable / Need info: investigators (D-104)."""
-        return self.role == "investigator"
+        return permit(self.role, "list.mark").allowed
 
     @property
     def can_approve(self) -> bool:
         """May approve a study's criteria (S20, FR-AUTH-13, D-108): the investigator only. Administrators and
         coordinators prepare the approval (tick codes) but never approve."""
-        return self.role == "investigator"
+        return permit(self.role, "criteria.approve").allowed
 
     @property
     def aggregate_only(self) -> bool:
         """Sees aggregate reports only, in the sponsor (suppressed) form for CRO accounts (D-104)."""
-        return self.role in ("viewer", "cro")
+        return permit(self.role, "report.aggregate_only").allowed
 
     def sees_study(self, ruleset: str) -> bool:
         return not self.studies or ruleset.upper() in self.studies

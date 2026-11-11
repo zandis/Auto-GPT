@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{# D-364 (LIFE-010): after an amendment, who the investigator looks at again: set aside or closed under an earlier
+   criteria version and better now; no longer meeting the criteria; in screening. A new mark takes a patient off. #}
+{% block title %}{{ t('rescreen.title') }} · {{ rs }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('rescreen.title') }}</h1></div>
+<p class="hint">{{ t('rescreen.help') }}</p>
+<section class="card">
+{% if not prev %}<p class="empty" data-testid="rescreen-none">{{ t('rescreen.no_amendment') }}</p>
+{% else %}
+<p data-testid="rescreen-versions">{{ t('rescreen.versions', prev=prev, version=version, n=n) }}</p>
+{% for g, rows in groups.items() %}
+<h2 id="g-{{ g }}">{{ t('rescreen.group.' + g) }} ({{ rows|length }})</h2>
+{% if not rows %}<p class="empty">{{ t('rescreen.empty') }}</p>{% else %}
+<div class="scroll" tabindex="0"><table class="candidates" data-testid="rescreen-{{ g }}">
+<thead><tr><th scope="col">{{ t('rescreen.col.patient') }}</th><th scope="col">{{ t('rescreen.col.was') }}</th><th scope="col">{{ t('rescreen.col.reason') }}</th></tr></thead>
+<tbody>{% for r in rows %}<tr data-testid="rescreen-row-{{ r.short }}">
+<td><a class="nowrap mono" href="/studies/{{ rs }}/patients/{{ r.pid }}">{{ t('week.patient', p=r.short) }}</a></td>
+<td>{{ t('rescreen.was.' + r.was) }}{% if r.was_version %} <span class="hint">{{ t('rescreen.under', version=r.was_version) }}</span>{% endif %}</td>
+<td data-testid="rescreen-reason-{{ r.short }}">{{ t('rescreen.reason.' + g, version=r.version) }}{% if r.criteria %}: {{ r.criteria|join(', ') }}{% endif %}</td>
+</tr>{% endfor %}</tbody></table></div>
+{% endif %}
+{% endfor %}
+{% endif %}
+</section>
+{% endblock %}
