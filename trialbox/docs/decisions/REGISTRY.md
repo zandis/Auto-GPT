@@ -66,7 +66,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-216 | reserved | T-119 | Cloud hygiene remainder |
 | D-217..D-219 | unused | — | no card of TB-ASSESS-01 took them |
 | D-220 | reserved | T-103 | One reveal path |
-| D-221 | reserved | T-107 | The catalogue loaded as data |
+| D-221 | unused | T-107 | The catalogue loaded as data (voided: T-107 took D-353) |
 | D-222 | reserved | T-109 | Identity v1: Caddy, Authelia, local TOTP, step-up, forced password … |
 | D-223 | reserved | T-112 | The data-operations console v1 |
 | D-224 | reserved | T-116 | "Criteria not matched", the forbidden-word check and the intended-use … |
@@ -175,5 +175,6 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-348 | merged | T-673 | third-party images in `deploy/images.lock` by digest, no image by tag, the GPU host checked against the vLLM image (arch, driver, compute capability), Mailpit for MailHog (file) |
 | D-349 | merged | T-512 | the PI starts FEAS, SCREEN and CASE on own study; a sub-investigator with the `run` tick; one table `authz.INVESTIGATOR_RUNS`; "data as of" on the patient lists (file) |
 | D-339 | merged | T-106 | OMOP second slice: schema name stays `omop`; the adapter's dual write behind the flag `omop.dual_write` (a failure never holds the night); the large CDM tables partitioned by year; the Relational checks after every load in the ingest report; parity timings (file) |
+| D-353 | merged | T-107 | the clinical item catalogue loaded as data: one concept per item at stable ids, LOINC unmapped never invented, the storable gate in chart extraction, the steward items page (file) |
 | D-354 | merged | T-210c | uploads and outputs sealed at rest: AES-GCM per object under objects.key wrapped by the KEK, the seal file, seal-objects (file) |
 | D-355 | merged | T-211a | signed audit heads with the KEK-wrapped Ed25519 key, write-once off-box anchor folders, key rotation, the clock a doctor FAIL (file) |
