@@ -125,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--password-stdin", action="store_true")
     a = sub.add_parser("add-user")
     a.add_argument("name")
-    a.add_argument("--role", choices=("admin", "coordinator", "investigator", "viewer"), required=True)
+    a.add_argument("--role", choices=("admin", "coordinator", "investigator", "viewer", "steward"), required=True)
     a.add_argument("--mailbox", default="")
     a.add_argument("--password-stdin", action="store_true")
     r = sub.add_parser("reset-password")

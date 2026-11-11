@@ -21,14 +21,15 @@
 #
 # Weights: the same 4-bit builds as the 5090 profile (one directory under deploy/models serves every profile),
 # pinned with tools/pin_model.py (builds gemma-4-26b-a4b-it-rtxpro6000 on endpoint `serving`, qwen3.5-9b-rtxpro6000
-# on `verifier`). vLLM v0.32.0 with the flags of the measured runs; moving the tag is a model change.
+# on `verifier`). vLLM v0.32.0 with the flags of the measured runs, by the digest of deploy/images.lock (D-348);
+# moving the lock entry is a model change.
 
 x-vllm-pro6000: &vllmpro
   logging:
     driver: json-file
     options: {max-size: "50m", max-file: "5"}
   profiles: [gpu]
-  image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0}
+  image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}
   environment:
     HF_HUB_OFFLINE: "1"
     VLLM_NO_USAGE_STATS: "1"

@@ -149,7 +149,9 @@ def test_roles_on_entry_and_history(dcb: dict[str, Any]) -> None:
     _builtin(c, csrf)
     _save(c, csrf, no, "tb_consent", {"ic_date": "2026-11-02", "ic_version": "v2.1", "ic_copy": "1"})
     dcb["calls"].clear()
-    for user, pw in (("pi", PW), ("admin", ADMIN_PW)):  # they read; only the coordinator enters
+    a, _ = login(dcb["app"], "admin", ADMIN_PW)  # D-280 (OD-5): the administrator reads no trial data
+    assert a.get("/studies/GZQO/entry", params={"record": no, "form": "tb_consent"}).status_code == 403
+    for user, pw in (("pi", PW),):  # the investigator reads; only the coordinator enters
         u, ucsrf = login(dcb["app"], user, pw)
         page = u.get("/studies/GZQO/entry", params={"record": no, "form": "tb_consent"}).text
         assert 'data-testid="dc-readonly"' in page and 'data-testid="entry-save"' not in page

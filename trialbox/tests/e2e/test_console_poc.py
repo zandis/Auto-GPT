@@ -20,7 +20,6 @@ import shutil
 import smtplib
 import subprocess
 import time
-from email import message_from_bytes, policy
 from email.message import EmailMessage
 from email.utils import make_msgid
 from pathlib import Path
@@ -30,7 +29,7 @@ import httpx
 import pytest
 from tb_common.subject import is_job_mail
 
-from tests.stack import host_port, url
+from tests.stack import MAILPIT_LIST, host_port, outbound_mail, url
 
 pytestmark = pytest.mark.e2e
 ROOT = Path(__file__).resolve().parents[2]
@@ -96,13 +95,7 @@ def browser(mode: str, **args: Any) -> dict[str, Any]:
 
 
 def mailhog() -> list[EmailMessage]:
-    items = httpx.get(url("MAILHOG", "/api/v2/messages"), params={"limit": 500}, timeout=30).json()["items"]
-    out = []
-    for it in items:
-        msg = message_from_bytes(it["Raw"]["Data"].encode("utf-8", "surrogateescape"), policy=policy.default)
-        assert isinstance(msg, EmailMessage)
-        out.append(msg)
-    return out
+    return outbound_mail()  # Mailpit since D-348
 
 
 def wait_mail(prefix: str, timeout: float = 900) -> EmailMessage:
@@ -142,7 +135,7 @@ def accounts() -> dict[str, str]:
         pytest.skip("Node Playwright is not available")
     try:
         assert httpx.get(f"{CONSOLE}/healthz", timeout=5).json()["pilot"] is True
-        httpx.get(url("MAILHOG", "/api/v2/messages"), timeout=5).raise_for_status()
+        httpx.get(url("MAILHOG", MAILPIT_LIST), timeout=5).raise_for_status()
     except (httpx.HTTPError, AssertionError, KeyError):
         pytest.skip("POC stack not running (make poc)")
     lake = httpx.get(url("LAKE", "/healthz"), timeout=30).json()

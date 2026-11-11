@@ -192,10 +192,9 @@ def test_worklist_order_overdue_first() -> None:
 def test_role_table_denies_by_default() -> None:
     assert sae_allowed("coordinator", "record") and sae_allowed("investigator", "view")
     assert not sae_allowed("investigator", "record") and not sae_allowed("admin", "record")
-    for role in ("viewer", "cro", "", "steward", "ADMIN"):
+    for role in ("viewer", "cro", "", "steward", "ADMIN", "admin"):  # D-280 (OD-5): the administrator reads none
         assert not sae_allowed(role, "view") and not sae_allowed(role, "record")
     assert not sae_allowed("coordinator", "delete") and set(ROLE_SAE_ACTIONS) == {
-        "admin",
         "coordinator",
         "investigator",
     }
@@ -400,9 +399,10 @@ def test_sae_register_roles_deny_by_default(lb: dict[str, Any]) -> None:  # noqa
     assert 'data-testid="sae-sent-sponsor"' not in case
     r = p.post(f"/studies/GZQO/sae/{no}/ae1/sent", data={"csrf": pcsrf, "party": "sponsor", "on": "2026-11-08"})
     assert r.status_code == 403
-    # the administrator reads; the viewer and the CRO see nothing
+    # D-280 (OD-5): the administrator reads nothing (break-glass is per patient or job); the viewer and the CRO
+    # see nothing either
     a, acsrf = login(lb["app"], "admin")
-    assert a.get("/sae").status_code == 200
+    assert a.get("/sae").status_code == 403
     assert a.post(f"/studies/GZQO/sae/{no}/ae1/followup", data={"csrf": acsrf, "party": "sponsor",
                                                                 "due": "2026-11-20"}).status_code == 403  # fmt: skip
     from tests.console.test_console_app import VIEWER_PW
