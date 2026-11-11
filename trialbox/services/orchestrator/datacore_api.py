@@ -237,6 +237,7 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         dc, rid = get().dc, _rs(rs)
         owners = dc.owners(rid)
         fields = [{"name": f.name, "form": f.form, "kind": f.kind, "label": f.label, "labels": f.labels,
+                   "options": f.options, "option_labels": f.option_labels,  # D-398: the review shows words
                    "owner": owners.get(f.name, "trialbox")} for f in dc.fields(rid).values()]  # fmt: skip
         return {"sources": dc.sources(rid), "fields": fields}
 

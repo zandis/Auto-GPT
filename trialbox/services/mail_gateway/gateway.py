@@ -74,7 +74,8 @@ class Gateway:
     transport: Transport
     jobs: JobSink
     secrets_dir: Path
-    authserv_id: str = ""
+    authserv_id: str = ""  # D-369 (SEC-11): empty means no Authentication-Results header is trusted (fails closed)
+    allow_phi_zip: bool = False  # D-369 (OD-1): a patient file as a password zip only on a synthetic box (DEV, TEST)
 
     @property
     def sender(self) -> str:
@@ -121,6 +122,7 @@ class Gateway:
             smime_dir=self.secrets_dir / "smime",
             tz=self.cfg.env.tz,
             link_base=self.cfg.env.extra.get("TB_CONSOLE_URL", ""),
+            allow_phi_zip=self.allow_phi_zip,
         )
 
     def _after_main(self, req: SendRequest, p: Any) -> SendResult:

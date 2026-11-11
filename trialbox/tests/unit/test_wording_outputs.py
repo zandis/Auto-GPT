@@ -212,7 +212,7 @@ def test_every_mail_body_carries_the_statement_in_its_language(body: str, lang: 
     assert _has_statement(html.replace("&#x27;", "'"), lang)
 
 
-def test_a_sent_mail_carries_the_statement_in_both_parts_and_the_password_mail_too(tmp_path: Path) -> None:
+def test_a_sent_mail_carries_the_statement_in_both_parts_and_no_password_zip(tmp_path: Path) -> None:
     store = FsStore(tmp_path / "obj")
     store.put("outputs/J/list.xlsx", b"PK list")
     req = SendRequest.model_validate(
@@ -226,15 +226,15 @@ def test_a_sent_mail_carries_the_statement_in_both_parts_and_the_password_mail_t
             "attachments": [{"minio_key": "outputs/J/list.xlsx", "filename": "list.xlsx", "tag": "phi"}],
         }
     )
-    p = prepare(req, store=store, sender="trialbox@hospa.test", internal_domains=["hospa.test"])
+    p = prepare(req, store=store, sender="trialbox@hospa.test", internal_domains=["hospa.test"], mode="link",
+                link_base="https://trialbox.hospa.test/")  # fmt: skip
     msg = message_from_bytes(p.data, policy=policy.default)
     assert isinstance(msg, EmailMessage)
     plain, html = msg.get_body(("plain",)), msg.get_body(("html",))
     assert plain is not None and html is not None
     assert _has_statement(plain.get_content(), "zh-TW")
     assert _has_statement(html.get_content().replace("&#x27;", "'"), "zh-TW")
-    pw = message_from_bytes(p.password_mails[0][1], policy=policy.default)
-    assert _has_statement(str(pw.get_body(("plain",)).get_content()), "en")  # type: ignore[union-attr]
+    assert not p.password_mails  # D-369: patient files go by console link, never as a password zip
 
 
 def test_a_mail_without_the_statement_fails_the_check() -> None:

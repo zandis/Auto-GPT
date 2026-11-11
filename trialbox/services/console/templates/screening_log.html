@@ -34,7 +34,7 @@
 <td><a href="/studies/{{ rs }}/patients/{{ p.pid }}">{{ t('week.patient', p=p.short) }}</a></td>
 <td class="num">{{ p.listed|local(10) if p.listed else '–' }}</td>
 <td class="mono">{{ p.version or '–' }}</td>
-<td>{{ t('mark.' + p.mark.mark) }} · {{ p.mark.at|local(10) }}{% if p.mark.reason %} <span class="hint">({{ t_or('reason.' + p.mark.reason, p.mark.reason) }})</span>{% endif %}</td>
+<td>{{ t('mark.' + p.mark.mark) }} · {{ p.mark.at|local(10) }}{% if p.mark_reason %} <span class="hint">({{ t_or('reason.' + p.mark_reason, p.mark_reason) }})</span>{% endif %}</td>
 <td>{% if p.later %}{{ t('pre.later.' + p.later) }}{% else %}–{% endif %}</td>
 <td class="mono">{{ p.no or '–' }}</td>
 <td>{% if p.referral %}{{ t('team.route.' + p.referral.route) }} · {{ t('team.state.' + p.referral.state) }}{% if p.referral.reason %} ({{ t('team.decline.' + p.referral.reason) }}){% endif %}{% else %}–{% endif %}</td>
