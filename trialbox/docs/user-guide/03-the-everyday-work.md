@@ -26,7 +26,15 @@ Viewer and CRO accounts never see one (D-143).
 **Criteria not matched (PI, CRC).** "Criteria not matched" (ja 基準に合致しない患者, zh-TW 未符合條件之病人) lists every
 patient whose records did not match a criterion in the latest screening run,
 with the criterion, where the answer came from (coded records, a confirmed fact, or the notes with both models
-agreeing) and the evidence. Look at a few each week; "This is wrong, send to review" is recorded with your name.
+agreeing) and the evidence. "This is wrong, send to review" is recorded with your name, and the patient is on the
+study's weekly list again, marked "sent back", until the PI marks them (D-446).
+
+**The weekly sample (PI).** Every week TrialBox draws ten of these patients for the study's PI (a sub-investigator
+with the "see candidates" tick may answer too): *This week's sample of ten*, linked from the list. Answer each one:
+"Records do not match, as the run said" or "Send back to my weekly list". The page counts the week's answers and the
+study's samples so far. An opted-out patient is never in the sample. At a site reading real data (VALIDATION,
+PRODUCTION) the list and its sample stay closed until the data steward records that the site's check of the study
+(the dry run) passed, on *Site check of criteria not matched* (`/studies/{rs}/not-matched/check`).
 
 **The study team and the whole hospital (D-147).** The PI keeps the study's *Delegation log* (a copy of the trial
 office's signed log, compared with it every month): sub-investigators, with the tasks the PI ticks (see candidates,
@@ -43,8 +51,12 @@ until then the page says so and refuses. **Ask treating doctor**: TrialBox only 
 required. The CRC asks the doctor and records the answer (agrees to introduce, declines with a reason, wants to
 discuss) on *Referrals*; Approach waits until the doctor agrees. A missing or expired IRB approval or consent-form
 version (*IRB and consent form*) is a warning before Approach, not a block: marking Approach then is recorded as an
-override. The data steward and the privacy office keep the *Opt-out register*: an opted-out patient leaves screening, every list and
-later exports.
+override. The data steward and the privacy office keep the *Opt-out register*: an opted-out patient leaves
+screening, every list and later exports. The hospital registry's refusals join the register by themselves. Within a
+few minutes (the opt-out worker's tick) an open candidate (candidate, contacted) becomes *withdrawn* and leaves the
+candidate pool; a patient who consented or enrolled keeps the trial's own record. NAV lists and CASE sheets leave the
+patient out too. Taking an opt-out back restores nothing at once: the patient returns with the next screening run and
+the next data load.
 
 **Morning mail.** At 07:00 the CRC and at 07:30 the PI get a short mail: who is new, who is due, by pseudonym and
 screening number, never by name or chart number.
@@ -88,7 +100,7 @@ register with it each month, and use the office log when the box is down.
 and on a button. When TrialBox and REDCap disagree on a field, the study's *Trial-record differences* page lists it (one
 row per field, TrialBox's value against the source's); you choose which value stays. The data steward has a separate page,
 `/data/conflicts`, for the clinical conflicts of the whole database (two sources giving different values for one patient
-item; the item stays unknown until the steward keeps one value or keeps it unknown, with a reason). A spreadsheet with a name column imports with that column dropped.
+item; the item stays unknown until the steward keeps one value or keeps it unknown, with a reason). The steward's `/data-ops` page lists every night of every data source; a held night (the box still shows the night before) is rejected there with a reason (DATA §10). A spreadsheet with a name column imports with that column dropped.
 
 **EDC prefill (CRC, PI; D-160).** TrialBox can draft a subject's eCRF values from the hospital record, so the CRC
 does not type them twice. It is **off** for every study until the PI turns it on, on the study's *EDC prefill* page,

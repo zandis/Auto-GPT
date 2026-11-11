@@ -15,6 +15,7 @@
       {{ item('/site/staff', 'team.staff.title', path.startswith('/site/staff')) }}
       {% if permit(r, 'items.view') %}{{ item('/data/items', 'items.title', path.startswith('/data/items')) }}{% endif %}
       {% if permit(r, 'conflicts.resolve') %}{{ item('/data/conflicts', 'conflicts.title', path.startswith('/data/conflicts')) }}{% endif %}
+      {% if permit(r, 'dataops.view') %}{{ item('/data-ops', 'dataops.title', path.startswith('/data-ops')) }}{% endif %}
     {% elif r == 'admin' %}
       {{ item('/home', 'nav.admin', path == '/home') }}
       {{ item('/home?view=studies', 'nav.studies', false) }}

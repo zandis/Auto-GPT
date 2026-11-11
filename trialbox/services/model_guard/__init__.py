@@ -13,7 +13,9 @@ So the vLLM servers sit on their own internal network (``model-backend-net``), a
 
 Everything else is 404 and is never forwarded. A call without the key, or with another, is 401. The upstream is
 chosen by the request's host name (``TB_GUARD_ROUTES="llm-service=llm-service-vllm:8000,..."``); an unknown host is
-404. The guard refuses to start without ``TB_LLM_API_KEY``. Standard library only.
+404. The guard refuses to start without a key: the file ``TB_LLM_API_KEY_FILE`` names (a compose secret,
+``deploy/secrets/model/llm.key``, D-437) or else ``TB_LLM_API_KEY``. ``trialbox secrets rotate --service model``
+writes a new key and recreates the guard, so the old key is refused from then on. Standard library only.
 """
 
 from __future__ import annotations
@@ -146,10 +148,25 @@ def make_handler(g: Guard) -> type[BaseHTTPRequestHandler]:
     return Handler
 
 
+def key_of(env: Mapping[str, str]) -> str:
+    """The model key: the file ``TB_LLM_API_KEY_FILE`` names first (D-437), else ``TB_LLM_API_KEY``. A named file
+    that cannot be read gives no key from it (the guard then needs the variable, or does not start)."""
+    path = (env.get("TB_LLM_API_KEY_FILE") or "").strip()
+    if path:
+        try:
+            with open(path, encoding="utf-8") as fh:
+                got = fh.read().strip()
+        except OSError:
+            got = ""
+        if got:
+            return got
+    return (env.get("TB_LLM_API_KEY") or "").strip()
+
+
 def build(env: Mapping[str, str] | None = None) -> Guard:
     e = os.environ if env is None else env
     return Guard(
-        e.get("TB_LLM_API_KEY", ""),
+        key_of(e),
         parse_routes(e.get("TB_GUARD_ROUTES", "")),
         admin=e.get("TB_GUARD_ADMIN", "") == "1",
         timeout=float(e.get("TB_GUARD_TIMEOUT_S") or 900),
@@ -171,4 +188,4 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-__all__ = ["ADMIN", "KEYED", "OPEN", "Guard", "build", "main", "make_handler", "parse_routes"]
+__all__ = ["ADMIN", "KEYED", "OPEN", "Guard", "build", "key_of", "main", "make_handler", "parse_routes"]

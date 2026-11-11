@@ -3,7 +3,10 @@
 * Accounts live in the trial database (PostgreSQL ``trialbox_wf``, schema ``auth``; D-126). There is no default
   password: the first administrator is created by ``python -m console.cli bootstrap-admin`` (random password printed
   once) or, at first start, from the file named by ``TB_CONSOLE_ADMIN_PASSWORD_FILE`` (a compose secret).
-* Passwords are stored as scrypt hashes (stdlib ``hashlib.scrypt``, per-user salt); at least 12 characters.
+* Passwords are stored as scrypt hashes (stdlib ``hashlib.scrypt``, per-user salt); at least 12 characters. A new
+  password is refused when it is one of the account's last five (the current one and the four before it, kept as
+  their scrypt hashes in ``users.pw_history``) or on the operator's breached-password list (``console.breached``,
+  ``TB_CONSOLE_BREACHED_PASSWORDS_FILE``; D-447, CR-033 rest).
 * Failed sign-ins are counted per account *and* per address (D-279, SEC-9, CR-116): five failures within 15 minutes
   lock the account for 15 minutes *from that address only*, so an outsider cannot lock a named account out; an address
   with many failures across names is slowed (a doubling wait, at most a minute); and 50 failures on one account from
@@ -57,6 +60,7 @@ NO_STUDY = "-"
 SSO_MARK = "sso"  # pw_hash of an account the hospital identity provider signs in (no console password)
 OIDC_MARK = "oidc"  # pw_hash of an account signed in through the OIDC provider (Authelia; D-192)
 MIN_PASSWORD = 12
+PASSWORD_HISTORY = 5  # the current password and the four before it may not be chosen again (D-447; MHLW v7.0)
 MAX_FAILURES = 5  # per account and address (D-279)
 LOCKOUT = timedelta(minutes=15)
 NAME_CEILING = 50  # per account from all addresses: the account locks everywhere (distributed guessing; D-279)
@@ -139,12 +143,24 @@ ALTER TABLE sessions ADD COLUMN via TEXT NOT NULL DEFAULT ''
 SCHEMA_V4 = """
 ALTER TABLE users ADD COLUMN last_login TEXT
 """
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4)
+# D-447 (T-109b): the scrypt hashes of the account's earlier passwords, newest first, space-separated (password history)
+SCHEMA_V5 = """
+ALTER TABLE users ADD COLUMN pw_history TEXT
+"""
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5)
 _COLS = "username, role, mailbox, affiliation, studies, expires"
 
 
 class AuthError(ValueError):
     pass
+
+
+class PasswordRejected(AuthError):
+    """A new password the rules refuse; ``code`` is the message key the account page shows (D-447)."""
+
+    def __init__(self, message: str, code: str = "account.err.policy") -> None:
+        super().__init__(message)
+        self.code = code
 
 
 def hash_password(password: str) -> str:
@@ -173,10 +189,21 @@ def verify_password(password: str, stored: str) -> bool:
 
 
 def check_password_policy(password: str) -> None:
+    """Length, no white space at either end, and not on the operator's breached-password list (D-447). A list that is
+    configured and cannot be read refuses every password (fail closed)."""
+    from console import breached
+
     if len(password) < MIN_PASSWORD:
-        raise AuthError(f"passwords must be at least {MIN_PASSWORD} characters")
+        raise PasswordRejected(f"passwords must be at least {MIN_PASSWORD} characters")
     if password.strip() != password:
-        raise AuthError("passwords must not start or end with white space")
+        raise PasswordRejected("passwords must not start or end with white space")
+    try:
+        hit = breached.check(password)
+    except breached.BreachedListError as exc:
+        msg = f"the breached-password list cannot be used: {exc}"
+        raise PasswordRejected(msg, "account.err.breached_list") from exc
+    if hit:
+        raise PasswordRejected("this password is on the list of breached passwords", "account.err.breached")
 
 
 def check_username(username: str) -> str:
@@ -516,16 +543,26 @@ class UserStore:
         """True while the account still has a password its owner did not choose (D-279, SEC-1)."""
         return bool(self.db.fetchval("SELECT must_change FROM users WHERE username = ?", (username,)))
 
-    def set_password(self, username: str, password: str, *, must_change: bool = False) -> None:
+    def set_password(self, username: str, password: str, *, must_change: bool = False, owner: bool = False) -> None:
         """A new password; the account signs out everywhere. ``must_change=True`` when someone other than the owner
         set it (an administrator's reset, the command line): the owner then replaces it at the next sign-in. The
-        owner's own change (``/account/password``, after typing the current one) passes False (D-279)."""
+        owner's own change (``/account/password``, after typing the current one) passes False (D-279) and
+        ``owner=True``: the owner's choice may not be one of the account's last five passwords (D-447). Every
+        change, the owner's or not, keeps the replaced hash in the history."""
         check_password_policy(password)
         pw_hash = hash_password(password)
         with self.db.transaction() as tx:
+            row = tx.fetchone("SELECT pw_hash, pw_history FROM users WHERE username = ?", (username,))
+            earlier = [str(row[0]), *str(row[1] or "").split()] if row is not None else []
+            local = row is not None and str(row[0]) not in (SSO_MARK, OIDC_MARK)
+            # D-447: the owner's choice is not the current password nor one of the four before it (one scrypt each)
+            if owner and local and any(verify_password(password, old) for old in earlier[:PASSWORD_HISTORY]):
+                raise PasswordRejected("this password was used recently on this account", "account.err.reused")
+            history = " ".join(earlier[: PASSWORD_HISTORY - 1])
             n = tx.execute(
-                "UPDATE users SET pw_hash = ?, must_change = ? WHERE username = ? AND pw_hash NOT IN (?, ?)",
-                (pw_hash, int(must_change), username, SSO_MARK, OIDC_MARK),
+                "UPDATE users SET pw_hash = ?, must_change = ?, pw_history = ? WHERE username = ? "
+                "AND pw_hash NOT IN (?, ?)",
+                (pw_hash, int(must_change), history or None, username, SSO_MARK, OIDC_MARK),
             )
             if n != 1:  # a directory account has no console password, so none is ever set (D-279, REG-025)
                 raise AuthError(f"no user {username} with a console password")

@@ -108,12 +108,13 @@ def test_reveal_only_for_a_patient_on_the_jobs_list_and_at_a_bounded_rate(
     events: list[dict[str, Any]] = []
     monkeypatch.setattr(oapp, "orch", lambda: _fake_box(events))
     monkeypatch.setattr(screen, "resolve_mrns", lambda _d, pids, _url=None: {p: "MRN-1" for p in pids})
+    # D-447 (SEC-17): an assertion is accepted once, so each call signs again (``resign``), as the console does
     h = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("crc1", role="coordinator", scope="*")}
-    r = client.post("/jobs/J1/reveal", json={"pid": "PID-99999999"}, headers=h)
+    r = client.post("/jobs/J1/reveal", json={"pid": "PID-99999999"}, headers=sa.resign(h))
     assert r.status_code == 403 and events[-1]["kind"] == "screen.reveal_refused"
-    assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=h).status_code == 200
-    assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000002"}, headers=h).status_code == 200
-    r = client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=h)
+    assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=sa.resign(h)).status_code == 200
+    assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000002"}, headers=sa.resign(h)).status_code == 200
+    r = client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=sa.resign(h))
     assert r.status_code == 429 and events[-1]["detail"]["reason"] == "rate limit"
     other = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("crc2", role="coordinator", scope="*")}
     assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=other).status_code == 200
@@ -177,8 +178,9 @@ def test_a_token_holder_cannot_name_a_user_or_reset_the_cap_and_exports_are_audi
     unsigned = {sa.TOKEN_HEADER: TOKEN, sa.ACTOR_HEADER: "dr_tanaka"}
     r = client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=unsigned)
     assert r.status_code == 403 and events[-1]["kind"] == "actor.refused"
+    # D-447 (SEC-17): each call carries its own assertion (``resign``); the person and session stay the same
     signed = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("dr_tanaka", "s1", role="investigator", scope="GZQO,RS")}
-    assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=signed).status_code == 200
+    assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=sa.resign(signed)).status_code == 200
     assert events[-1]["detail"]["session"] == "s1" and events[-1]["detail"]["verified"] is True
     # a new session is the same person
     again = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("dr_tanaka", "s2", role="investigator", scope="GZQO,RS")}
@@ -187,11 +189,11 @@ def test_a_token_holder_cannot_name_a_user_or_reset_the_cap_and_exports_are_audi
     fake.cfg = SimpleNamespace(settings=SimpleNamespace(site=SimpleNamespace(id="S1")), env=fake.cfg.env)
     assert client.get("/registry/GZQO/export.xlsx", headers={sa.TOKEN_HEADER: TOKEN}).status_code == 400
     assert client.get("/registry/GZQO/export.xlsx", headers=unsigned).status_code == 403
-    r = client.get("/registry/GZQO/export.xlsx", headers=signed)
+    r = client.get("/registry/GZQO/export.xlsx", headers=sa.resign(signed))
     assert r.status_code == 200 and r.content == b"PK-xlsx"
     ev, flow = events[-2], events[-1]  # D-149: the export ledger row follows the export event
     assert ev["kind"] == "registry.export" and ev["actor"] == "dr_tanaka" and ev["output_sha"]
     assert flow["kind"] == "flow.export" and flow["output_sha"] == ev["output_sha"]
     assert flow["detail"]["identifier_level"] == "identified"
-    assert client.get("/registry/GZQO/export.xlsx", headers=signed).status_code == 429
+    assert client.get("/registry/GZQO/export.xlsx", headers=sa.resign(signed)).status_code == 429
     assert events[-1]["kind"] == "registry.export_refused"

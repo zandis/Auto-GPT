@@ -135,7 +135,10 @@ def contactable_pids(ctx: Ctx, index: date, snapshot: str | None = None) -> set[
     try:
         rows = ctx.services.lake.query(
             "SELECT pid, status, contact_ok FROM consent WHERE coalesce(status, '') <> 'entered-in-error' "
-            "AND (date IS NULL OR date <= CAST($1 AS DATE)) ORDER BY pid, date NULLS FIRST",
+            "AND (date IS NULL OR date <= CAST($1 AS DATE)) "
+            # D-441 (review MED-2): dates are whole days; of two statements on one day the not-contactable one is
+            # taken (it sorts last), so a same-day withdrawal or refusal is never read as contactable
+            "ORDER BY pid, date NULLS FIRST, coalesce(status = 'active' AND contact_ok, false) DESC",
             [index.isoformat()],
             snapshot,
         ).to_pylist()

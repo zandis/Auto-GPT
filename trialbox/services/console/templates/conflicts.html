@@ -4,7 +4,8 @@
 {% macro item_name(i) %}{{ t_or('conflicts.item.' + i, i) }}{% endmacro %}
 {% block content %}
 <div class="headrow"><h1>{{ t('conflicts.title') }}</h1>
-<a href="/data/conflicts{{ '' if everything else '?all=1' }}" data-testid="conflicts-toggle">{{ t('conflicts.show_open' if everything else 'conflicts.show_all') }}</a></div>
+<a href="/data/conflicts{{ '' if everything else '?all=1' }}" data-testid="conflicts-toggle">{{ t('conflicts.show_open' if everything else 'conflicts.show_all') }}</a>
+{% if permit(user.role, 'dataops.view') %}<a href="/data-ops" data-testid="conflicts-dataops">{{ t('dataops.title') }}</a>{% endif %}</div>
 <p class="hint">{{ t('conflicts.help') }}</p>
 <p data-testid="conflicts-counts">{% for i, n in per_item.items() %}<span data-item="{{ i }}" data-n="{{ n }}">{{ item_name(i) }}: {{ t('conflicts.open_n', n=n) }}</span>{{ ' · ' if not loop.last else '' }}{% endfor %}</p>
 {% if done %}<p class="ok" role="status" data-testid="conflicts-done">{{ t('conflicts.done') }}</p>{% endif %}
