@@ -18,8 +18,9 @@ from datetime import datetime
 from pathlib import Path
 
 from tb_common.audit import AuditLog
-from tb_common.crypto import pid_for_mrn
+from tb_common.crypto import load_key, pid_for_mrn
 from tb_common.deterministic import normalize_ooxml
+from tb_common.kek import key_present
 from tb_contracts import RegistryEntry, RegistryEvent, RegistryPromote, RegistrySummary, RegistryUpdate
 
 from orchestrator.db import JobDB
@@ -63,13 +64,13 @@ class CandidateRegistry:
         if self.mrn_regex and not re.match(self.mrn_regex, upd.mrn):
             raise RegistryError("that does not look like a chart number of this site")
         key = self.secrets_dir / "site_hmac.key"
-        if not key.exists():
+        if not key_present(key):  # plain or wrapped under the KEK (T-210b)
             raise RegistryError("the box has no site key yet (no ingest has run), so chart numbers cannot be resolved")
-        return pid_for_mrn(key.read_bytes(), upd.mrn)
+        return pid_for_mrn(load_key(key), upd.mrn)
 
     def mrns(self, pids: list[str]) -> dict[str, str]:
         key = self.secrets_dir / "pid_map.key"
-        if not key.exists() or not pids:  # no map yet
+        if not key_present(key) or not pids:  # no map yet
             return {}
         from adapter.pidmap import PidMap
 

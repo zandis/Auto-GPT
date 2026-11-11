@@ -14,6 +14,11 @@ default rule a chart number already written the hospital's way is stored and has
 The site key (T-612, DATA-004). Table ``site_key`` holds the fingerprint of each site's ``site_hmac.key`` as first
 seen. :meth:`PidMap.site_key_problem` says when the key in hand is another one: its fingerprint differs from the
 stored one, or it does not give back the pseudonyms the map holds (a box from before the table).
+
+The map's key under the KEK (T-210b, D-347). :func:`load_map_key` opens ``pid_map.key`` wrapped under the box's KEK
+(``tb_common.kek``) or plain. It is made on first use only in DEV and TEST: in VALIDATION and PRODUCTION (and with
+``TB_ENV`` unset) only the install ceremony makes it, so a lost or locked key is refused instead of replaced by an
+empty map. :meth:`PidMap.rekey` re-encrypts every row under a new key (``python -m tools.keys rotate pid_map``).
 """
 
 from __future__ import annotations
@@ -21,11 +26,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
 from tb_common import chartno
-from tb_common.crypto import aes_decrypt, aes_encrypt, key_fingerprint, load_or_create_key, pid_for_mrn
+from tb_common.config import environment_name
+from tb_common.crypto import KeyMissingError, aes_decrypt, aes_encrypt, key_fingerprint, pid_for_mrn
 from tb_common.db import ENV as DB_URL_ENV
 from tb_common.db import Database
 
@@ -70,12 +77,35 @@ def key_id(key: bytes) -> str:
     return hashlib.sha256(b"trialbox pid_map key id\x00" + key).hexdigest()[:32]
 
 
+def load_map_key(key_path: Path, env: Mapping[str, str] | None = None) -> bytes:
+    """T-210b: the key of ``key_path`` (``secrets/pid_map.key``), wrapped under the KEK or plain. Made when absent in
+    DEV and TEST only (it encrypts the rows and changes no pseudonym); in VALIDATION and PRODUCTION
+    ``KeyMissingError``: the install ceremony makes it, and a lost key is put back from the backup. A locked KEK is
+    ``tb_common.kek.KekLockedError`` (nothing is made)."""
+    from tb_common.kek import create_key_file, load_key_file
+
+    env = os.environ if env is None else env
+    try:
+        key = load_key_file(key_path, env)
+    except KeyMissingError:
+        if environment_name(env) not in ("DEV", "TEST"):
+            raise KeyMissingError(
+                f"{key_path} is missing: in {environment_name(env)} it is made only by the install ceremony "
+                f"(`python -m adapter.cli keys-init`); on a box that has run before, put it back from the backup"
+            ) from None
+        create_key_file(key_path, 32, env)
+        key = load_key_file(key_path, env)
+    if len(key) != 32:
+        raise ValueError(f"{key_path}: the pid map key is 32 bytes, this one is {len(key)}")
+    return key
+
+
 class PidMap:
     def __init__(self, key_path: Path, url: str | None = None) -> None:
-        """``key_path``: ``secrets/pid_map.key`` (created on first use, as before: it encrypts the rows and changes no
-        pseudonym; the site key never is, T-612). ``url``: the trial database
+        """``key_path``: ``secrets/pid_map.key``, plain or wrapped under the KEK (:func:`load_map_key`; made on first
+        use in DEV and TEST only; the site key never is, T-612). ``url``: the trial database
         (``TB_DB_URL`` when None; :class:`tb_common.db.DatabaseError` if unset)."""
-        self.key = load_or_create_key(key_path)
+        self.key = load_map_key(key_path)
         self.key_id = key_id(self.key)
         self._db = Database.connect(url if url is not None else os.environ.get(DB_URL_ENV), SCHEMA_NAME)
         self._db.migrate(MIGRATIONS)
@@ -164,6 +194,37 @@ class PidMap:
             if mrn is not None:
                 out[pid] = mrn
         return out
+
+    def rekey(self, new_key: bytes) -> int:
+        """T-210b (OPS-058): re-encrypt every row of this map (``pid_map`` and ``identity``) under ``new_key`` in one
+        transaction; the rows under the old key are removed. Returns the rows moved. Run again after an interruption,
+        it moves what is left (none). The caller stores the new key (``tools.keys rotate pid_map``)."""
+        if len(new_key) != 32:
+            raise ValueError("the pid map key is 32 bytes")
+        new_id = key_id(new_key)
+        if new_id == self.key_id:
+            return 0
+
+        def again(pid: str, blob: bytes) -> bytes:
+            return aes_encrypt(new_key, aes_decrypt(self.key, bytes(blob), pid.encode()), pid.encode())
+
+        with self._db.transaction() as tx:
+            rows = tx.fetchall("SELECT pid, mrn, first_seen, last_seen FROM pid_map WHERE key_id = ?", (self.key_id,))
+            tx.executemany(
+                "INSERT INTO pid_map (key_id, pid, mrn, first_seen, last_seen) VALUES (?,?,?,?,?)"
+                " ON CONFLICT (key_id, pid) DO NOTHING",
+                [(new_id, pid, again(pid, blob), first, last) for pid, blob, first, last in rows],
+            )
+            ids = tx.fetchall("SELECT pid, blob FROM identity WHERE key_id = ?", (self.key_id,))
+            tx.executemany(
+                "INSERT INTO identity (key_id, pid, blob) VALUES (?,?,?) ON CONFLICT (key_id, pid) DO NOTHING",
+                [(new_id, pid, again(pid, blob)) for pid, blob in ids],
+            )
+            tx.execute("DELETE FROM pid_map WHERE key_id = ?", (self.key_id,))
+            tx.execute("DELETE FROM identity WHERE key_id = ?", (self.key_id,))
+            moved = len(rows) + len(ids)
+        self.key, self.key_id = new_key, new_id
+        return moved
 
     def close(self) -> None:
         self._db.close()
