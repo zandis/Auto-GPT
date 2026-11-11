@@ -63,6 +63,7 @@ bundle of card T-304 builds from this table.
 | R-25 | The hospital data copy: OMOP rows and TrialBox's extension rows, the lake snapshots | copy | the hospital EMR and its export | data steward | snapshots: `nightly_snapshots` and `month_end_snapshots_months`; OMOP rows replaced by each load | never exported as such | `console.site_patients` |
 | R-26 | Mail and notice logs | aid | the mail server; the box keeps the index | site administrator | `mail_log_days` (five years Japan, seven years Taiwan) | page only | `mail.received`, `mail.duplicate_suppressed`, `mail.deferred`, `mail.failed`, `mail.uncertain`, `mail.resolved`, `retention.mail`, `console.notice` |
 | R-27 | Study state and identifiers: the state (start-up, open, paused, closed) with every change, who, when and why; sponsor, protocol number, SIV date, registry ids (D-386) | control | the box; the sponsor's and the registries' own records for the identifiers | trial office | kept (the state is an event log) | the screening log's "about" sheet (`/studies/{rs}/screening-log.xlsx`) | `console.study_state`, `console.study_identity`, `scheduler.held` |
+| R-28 | Ingest batch register: one row per ingest run (source, snapshot, attempt) with its state (landed, validated, mapped, pseudonymised, published, held, failed, rejected), every step with who, when and the audit event that recorded it, and the steward's accept or reject of a held night with its reason (D-427) | control | the box | data steward | kept (the steps are append-only) | page only | `ingest.done`, `ingest.held`, `ingest.failed`, `dataops.decide`, `dataops.step` |
 
 R-01 and R-02 also hold the training evidence of `qms-lite.md` §3 (first sign-in and the acknowledgement event).
 
@@ -129,6 +130,7 @@ are marked "files".
 | `services/orchestrator/db.py` | `mails` | R-26 |
 | `services/console/sitestore.py` | `notify_log` | R-26 |
 | `services/console/sitestore.py` | `study_state`, `study_identity` | R-27 |
+| `services/datacore/dataops.py` | `batch`, `batch_step` | R-28 |
 | `services/console/auth.py` | `sessions`, `pending_logins`, `oidc_pending`, `login_failures` | O-01 |
 | `services/console/feedback.py` | `entry` | O-02 |
 | `services/tracestore/store.py` | `traces`, `access_log` | O-03 |
