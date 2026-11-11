@@ -80,6 +80,7 @@ def render(
         ws.freeze_panes = "C2"
         ws.append([])
         ws.append([meta.footer])
+        ws.append([meta.statement])  # TB-IU-01 C1 (T-116)
     buf = io.BytesIO()
     wb.save(buf)
     return normalize_ooxml(buf.getvalue())

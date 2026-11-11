@@ -43,7 +43,7 @@ bundle of card T-304 builds from this table.
 | R-05 | Consent and approval checks: IRB approval and consent-form version per study, every Approach marked despite a warning | aid | the IRB file and the signed consent forms at the site (never in the box) | trial office | kept | page only | `console.irb`, `console.approach_override` |
 | R-06 | Research-use opt-out register | copy | the patient's opt-out form at the research office | research office | kept (an event log: an opt-out and a lift) | page only | `console.opt_out` |
 | R-07 | SAE register: the case, its deadlines, receipts and follow-ups, its trail, and the study's confirmed SAE rule set | essential | the AE form of the data core (R-09) or the sponsor's CRF for the facts; the register for the clock and the receipts | PI | kept | page only | `console.sae`, `console.sae_ack`, `life.sae_ack`, `life.report`, `life.sae_rule` |
-| R-08 | EDC prefill: the switch, the item map, drafts and their fate, decisions, electronic signatures and their voids, what was sent | essential | the sponsor's EDC holds the CRF; the box holds the trail of each prefilled value | PI | kept (drafts are never deleted; decisions and sends are append-only) | `/studies/{rs}/edc/export.odm.xml` | `edc.switch`, `edc.map`, `edc.drafts`, `edc.decide`, `edc.sent`, `console.edc` |
+| R-08 | EDC prefill: the switch, the item map, drafts and their fate, decisions, electronic signatures and their voids, what was sent | essential | the sponsor's EDC holds the CRF; the box holds the trail of each prefilled value | PI | kept (drafts are never deleted; decisions and sends are append-only) | `/studies/{rs}/edc/export.odm.xml` | `edc.switch`, `edc.map`, `edc.drafts`, `edc.decide`, `edc.sent`, `edc.reentry`, `console.edc` |
 | R-09 | Data core: study forms, entered values and their history, conflicts, field owners | source | per field (`owner`): the box for a field TrialBox owns; REDCap or another source for a field it owns | PI | kept | `/studies/{rs}/export.{fmt}` (CSV, XLSX, ODM) | `data.entry`, `data.sync`, `data.import`, `data.resolve`, `data.export`, `data.forms`, `data.source` |
 | R-10 | Subject lifecycle: the subject's state and every step, the schedule of events and its versions with their effective dates (D-364) | copy | R-09 and the screening log; a step a person enters is written here first | PI | kept | page only | `life.step`, `life.schedule`, `console.life_step`, `console.life_schedule` |
 | R-11 | Referrals to treating physicians and their answers | aid | the box | CRC | kept | page only | `console.referral` |
@@ -62,6 +62,7 @@ bundle of card T-304 builds from this table.
 | R-24 | Pseudonym map and master patient index: the only link from a pseudonym back to a chart number | control | the box (encrypted; the key under the KEK) | site administrator | kept while any record keyed by the pseudonym is kept | never exported | `console.view_id`, `console.chart_lookup` |
 | R-25 | The hospital data copy: OMOP rows and TrialBox's extension rows, the lake snapshots | copy | the hospital EMR and its export | data steward | snapshots: `nightly_snapshots` and `month_end_snapshots_months`; OMOP rows replaced by each load | never exported as such | `console.site_patients` |
 | R-26 | Mail and notice logs | aid | the mail server; the box keeps the index | site administrator | `mail_log_days` (five years Japan, seven years Taiwan) | page only | `mail.received`, `mail.duplicate_suppressed`, `retention.mail`, `console.notice` |
+| R-27 | Study state and identifiers: the state (start-up, open, paused, closed) with every change, who, when and why; sponsor, protocol number, SIV date, registry ids (D-386) | control | the box; the sponsor's and the registries' own records for the identifiers | trial office | kept (the state is an event log) | the screening log's "about" sheet (`/studies/{rs}/screening-log.xlsx`) | `console.study_state`, `console.study_identity`, `scheduler.held` |
 
 R-01 and R-02 also hold the training evidence of `qms-lite.md` §3 (first sign-in and the acknowledgement event).
 
@@ -99,7 +100,7 @@ are marked "files".
 | `libs/tb_common/optout.py` | `optout_events` | R-06 |
 | `services/console/saerecord.py` | `sae_case`, `sae_report`, `sae_trail` | R-07 |
 | `services/datacore/lifecycle.py` | `ae_ack`, `sae_rule` | R-07 |
-| `services/edc/store.py` | `switch`, `switch_event`, `item_map`, `map_event`, `target`, `draft`, `decision`, `signature`, `signature_void`, `sent` | R-08 |
+| `services/edc/store.py` | `switch`, `switch_event`, `item_map`, `map_event`, `target`, `draft`, `decision`, `signature`, `signature_void`, `sent`, `reentry_record` | R-08 |
 | `services/datacore/store.py` | `form`, `value`, `history`, `conflict`, `owner`, `source_cfg`, `src_record` | R-09 |
 | `services/datacore/lifecycle.py` | `subject`, `subject_step`, `schedule`, `schedule_version` | R-10 |
 | `services/console/teamstore.py` | `referrals`, `referral_events` | R-11 |
@@ -125,6 +126,7 @@ are marked "files".
 | `services/mail_gateway/store.py` | `intake`, `sent`, `send_keys` | R-26 |
 | `services/orchestrator/db.py` | `mails` | R-26 |
 | `services/console/sitestore.py` | `notify_log` | R-26 |
+| `services/console/sitestore.py` | `study_state`, `study_identity` | R-27 |
 | `services/console/auth.py` | `sessions`, `pending_logins`, `oidc_pending`, `login_failures` | O-01 |
 | `services/console/feedback.py` | `entry` | O-02 |
 | `services/tracestore/store.py` | `traces`, `access_log` | O-03 |

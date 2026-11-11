@@ -13,7 +13,7 @@ from xml.etree import ElementTree as ET
 import httpx
 import pytest
 from edc import odm
-from edc.store import KEY_ENV, KEY_FILE, SIG_VERSION, EdcError, EdcStore, _legacy_sha, sign_key_of
+from edc.store import APPEND_ONLY, KEY_ENV, KEY_FILE, SIG_VERSION, EdcError, EdcStore, _legacy_sha, sign_key_of
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from rc_bridge.client import RedcapClient
@@ -155,7 +155,7 @@ def test_the_trail_tables_are_append_only(tmp_path: Path, table: str) -> None:
                               "pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() "
                               "AND NOT t.tgisinternal")  # fmt: skip
     again.close()
-    assert len(names) == len({n[0] for n in names}) == 12
+    assert len(names) == len({n[0] for n in names}) == 2 * len(APPEND_ONLY)  # T-115 adds reentry_record
 
 
 def test_the_signature_key(tmp_path: Path) -> None:

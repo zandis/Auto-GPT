@@ -8,6 +8,7 @@ import pytest
 from orchestrator.clients import StepFailed
 from orchestrator.reports import consent_html
 from orchestrator.scenarios import consent as c
+from tb_common.wording import STATEMENT
 
 ICF = (
     "Taking part is voluntary. You will come to the hospital for 14 visits. Most visits take about 2 hours. "
@@ -125,7 +126,9 @@ def test_pages_label_escape_and_draft_state() -> None:
     assert "<script" not in draft and "http" not in draft.replace("http-equiv", "")  # nothing to fetch or run
     rel = {"by": "pi@hospa.test", "at": "2026-10-26T10:00:00+08:00", "job_id": "01REL", "drop": [], "keep": []}
     ja = consent_html.patient(rec, "ja", c.released_view(rec, "ja", [], []), release=rel).decode()
-    assert "下書き" not in ja and "pi@hospa.test が確認し" in ja and consent_html.DISCLAIMER["ja"] in ja
+    body = ja.replace(STATEMENT["ja"], "")  # the intended-use statement (T-116) names the drafts it writes for staff
+    assert STATEMENT["ja"] in ja
+    assert "下書き" not in body and "pi@hospa.test が確認し" in ja and consent_html.DISCLAIMER["ja"] in ja
     assert '<html lang="ja">' in ja
     sheet = consent_html.review(rec).decode()
     assert "RELEASE 01JOB" in sheet and "not configured" in sheet and "Not covered" in sheet and "removed" in sheet

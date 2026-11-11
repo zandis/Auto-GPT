@@ -421,7 +421,7 @@ ZH: dict[str, str] = {
     "sae.set.jp_guideline": "日本・生命・医学系指針的研究",
     "sae.set.tw_trial": "台灣・人體試驗（藥品優良臨床試驗作業準則）",
     "sae.set.tw_research": "台灣・人體研究（人體研究法）",
-    "sae.flag.serious_mismatch": "依填答此不良事件為嚴重（死亡，或有判定嚴重的原因），但「嚴重」選了否。已當作嚴重計算：請更正不良事件表單。",
+    "sae.flag.serious_mismatch": "依填答此不良事件為嚴重（死亡，或有認定嚴重的原因），但「嚴重」選了否。已當作嚴重計算：請更正不良事件表單。",
     "sae.flag.unknown_rules": "本試驗的 SAE 規定不是 TrialBox 認得的。未計算任何期限：請在試驗設定頁選擇。",
     "sae.flag.no_country": "院方的時區對應不到 TrialBox 認得的國家，因此沒有預設規定。請在試驗設定頁選擇。",
     "sae.flag.other_country": "本試驗的 SAE 規定屬於與院方不同的國家。請在試驗設定頁核對。",

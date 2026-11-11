@@ -179,25 +179,60 @@ def weight_pins() -> str:
 
 
 def installed_registry(work: Path) -> Path:
-    """The pins ``install.sh`` makes (``tools/pin_model.py --install rtxpro6000``, D-142 review R-01): the profile's
-    pair as champion, from the site's weights in ``deploy/models`` when they are there, else from synthetic weights in
-    ``work`` (the laptop and the stub have none). Written under ``work``, never into the repository."""
+    """The pins ``install.sh`` makes (``tools/pin_model.py --install rtxpro6000``, D-142 review R-01), from the site's
+    weights in ``deploy/models`` when they are there, else from synthetic weights in ``work`` (the laptop, the stub
+    and the cloud run have none). Written under ``work``, never into the repository.
+
+    T-012b (D-358): install pins ``candidate`` and checks the weights against the release the registry expects.
+    Synthetic weights are not that release, so this harness pins them against a registry copy that expects them
+    (:func:`harness_registry_path`; ``installed_env`` passes it as ``TB_REGISTRY_PATH``). A PRODUCTION gateway routes
+    a champion only with a qualification record; this harness measures builds before any record exists, so it marks
+    the pair champion with a harness reference (``record_id`` ``harness:measurement``). The reference lives only in
+    the harness's own override under ``work``; a box's override is written by ``pin_model --promote`` alone."""
+    import yaml
+
     from tools import pin_model
 
     out = work / "site" / "registry.site.yaml"
     if out.exists():
         return out
     root = ROOT / "deploy" / "models"
-    dirs = [p[3] for p in pin_model.PROFILE_PAIRS["rtxpro6000"]]
+    pairs = pin_model.PROFILE_PAIRS["rtxpro6000"]
+    dirs = [p[3] for p in pairs]
+    reg_path = None
     if not all((root / d).is_dir() for d in dirs):
         root = work / "models"
         for d in dirs:
             (root / d).mkdir(parents=True, exist_ok=True)
             (root / d / "model.safetensors").write_bytes(f"synthetic {d}".encode())
-    ok, lines = pin_model.install_pins("rtxpro6000", root, out, {})
+        reg_path = harness_registry_path(work)
+        doc = yaml.safe_load((ROOT / "models" / "registry.yaml").read_text(encoding="utf-8"))
+        want = {p[0]: pin_model.weight_manifest(root / p[3]).sha256 for p in pairs}
+        for b in doc["builds"]:
+            if b["build_id"] in want:
+                b["expected"] = {"manifest_sha256": want[b["build_id"]], "revision": None, "source": "synthetic"}
+        reg_path.parent.mkdir(parents=True, exist_ok=True)
+        reg_path.write_text(yaml.safe_dump(doc, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    ok, lines = pin_model.install_pins("rtxpro6000", root, out, {}, registry_path=reg_path)
     if not ok:
         raise RuntimeError("; ".join(lines))
+    doc = yaml.safe_load(out.read_text(encoding="utf-8"))
+    for entry in doc["builds"].values():
+        entry["status"] = "champion"
+        entry["qualification"] = {
+            "record_id": "harness:measurement",
+            "sha256": entry["sha256"],
+            "profile": "rtxpro6000",
+            "weights_sha256": entry["sha256"],
+            "qualifies_production": True,
+        }
+    out.write_text(yaml.safe_dump(doc, sort_keys=True, allow_unicode=True), encoding="utf-8")
     return out
+
+
+def harness_registry_path(work: Path) -> Path:
+    """The registry copy :func:`installed_registry` writes when it pins synthetic weights (absent otherwise)."""
+    return work / "site" / "registry.harness.yaml"
 
 
 def installed_env(audit_dir: Path, judge_url: str = "", verifier_url: str = "") -> dict[str, str]:
@@ -211,6 +246,8 @@ def installed_env(audit_dir: Path, judge_url: str = "", verifier_url: str = "") 
         "TB_AUDIT_DIR": str(audit_dir),
         "TB_REGISTRY_OVERRIDE": str(installed_registry(audit_dir.parent)),
     }
+    if harness_registry_path(audit_dir.parent).is_file():  # synthetic weights: the registry copy that expects them
+        env["TB_REGISTRY_PATH"] = str(harness_registry_path(audit_dir.parent))
     if judge_url:
         env["TB_EP_SERVING_URL"] = judge_url
     if verifier_url:

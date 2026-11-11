@@ -23,7 +23,7 @@ from tb_common.timeutil import now
 from tb_contracts import Job, JobCreate, SendRequest, SendResult
 
 from mail_gateway import intake
-from mail_gateway.outbound import Transport, prepare
+from mail_gateway.outbound import Transport, mail_statement, prepare
 from mail_gateway.store import MailDB
 
 log = logging.getLogger("mail-gateway")
@@ -160,7 +160,7 @@ class Gateway:
         msg["Message-ID"] = make_msgid(domain=self.sender.rsplit("@", 1)[-1])
         msg["In-Reply-To"] = m.message_id
         msg["Auto-Submitted"] = "auto-replied"
-        msg.set_content(text)
+        msg.set_content(text.rstrip("\n") + "\n\n-- \n" + mail_statement(text) + "\n")  # TB-IU-01 C1 (T-116)
         try:
             self.transport(self.sender, [m.sender], bytes(msg))
         except (OSError, ValueError) as exc:

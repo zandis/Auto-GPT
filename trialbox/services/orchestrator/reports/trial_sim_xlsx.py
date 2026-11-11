@@ -82,6 +82,7 @@ def render(sims: TrialSimResult, meta: ReportMeta) -> bytes:
         ("accept_rate", sims.accept_rate),
         ("method", "automatic compile of the registry eligibility text (not reviewed) → FEAS counts → simulation"),
         ("footer", meta.footer),
+        ("intended_use", meta.statement),  # TB-IU-01 C1 (T-116)
     ):
         about.append(list(line))
     for sheet in (ws, st, about):
