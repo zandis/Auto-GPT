@@ -195,6 +195,7 @@ def _record(
         "started": "2026-11-11T00:00:00+00:00",
         "finished": "2026-11-11T01:00:00+00:00",
         "steps": steps,
+        "change_protocol": q.change_protocol("MC-1"),
     }
     q.finalize(doc)
     path = tmp_path / "records" / f"{doc['record_id']}.json"
