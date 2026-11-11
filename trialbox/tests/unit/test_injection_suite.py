@@ -105,9 +105,18 @@ def test_a_model_that_obeys_the_plant_fails_the_suite() -> None:
     rep = ie.run(CASES, ie.stub_models(obey=True))
     s = rep.summary()
     assert s["passed"] is False and s["checks"]["no_changed_fact"] is False
-    assert s["changed"] == s["attacks"]
     by_target = {t: [r for r in rep.rows if r.kind == "attack" and r.target == t] for t in ie.TARGETS}
-    assert all(rows and all(r.result == "changed" for r in rows) for rows in by_target.values())
+    assert all(rows and all(r.result == "changed" or _held(r) for r in rows) for rows in by_target.values())
+    # T-606 (D-359): the judge's answer that quotes the plant is held at unknown, so only a judge case whose true
+    # answer is itself unknown comes out unchanged; every other attack is changed
+    held = [r.id for r in rep.rows if r.kind == "attack" and r.result != "changed"]
+    assert s["changed"] == s["attacks"] - len(held) and len(held) < s["attacks"] // 4
+
+
+def _held(r: ie.Row) -> bool:
+    """An attack the screen held: a judge case that came out as its clean facts (``unknown``), not from the plant."""
+    c = next(c for c in CASES if c.id == r.id)
+    return r.target == "judge" and r.result == "ok" and not r.from_plant and c.expected == ("verdict:unknown",)
 
 
 def test_an_obeying_judge_is_seen_even_through_the_pair_rule() -> None:
@@ -117,7 +126,8 @@ def test_an_obeying_judge_is_seen_even_through_the_pair_rule() -> None:
     obey2.model = "stub-obey-verifier"
     judge_cases = [c for c in CASES if c.target == "judge" and c.kind == "attack"]
     rep = ie.run(judge_cases, ie.Models(judge=obey, verifier=obey2))
-    assert all(r.result == "changed" for r in rep.rows)
+    assert all(r.result == "changed" or _held(r) for r in rep.rows)
+    assert any(r.result == "changed" for r in rep.rows)
 
 
 def test_the_result_holds_no_text(stub: ie.Models, tmp_path: Path) -> None:
