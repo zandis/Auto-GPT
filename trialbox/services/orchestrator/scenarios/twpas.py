@@ -19,7 +19,7 @@ from orchestrator.core import Ctx
 from orchestrator.reports import twpas_bundle
 from orchestrator.scenarios.facts import Facts
 
-DEFAULT_IG = "tw.gov.mohw.nhi.pas#1.2.0"  # the only version on the npm mirror (DECISIONS D-63)
+DEFAULT_IG = "tw.gov.mohw.nhi.pas#1.2.5"  # the version tools/fetch_fhir_packages.py caches (DECISIONS D-372)
 _ECOG = re.compile(r"ECOG\s*體能狀態\s*(\d)\s*分|ECOG\s*(?:PS)?\s*[:：]?\s*(\d)", re.I)
 
 

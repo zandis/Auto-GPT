@@ -181,9 +181,13 @@ def _write_public(path: Path, public_pem: bytes) -> None:
 
 
 def _load_pair(secrets_dir: Path, name: str = audit.SIGN_KEY_FILE) -> tuple[bytes, bytes]:
-    from tb_common.crypto import load_key
+    """The signing key and its public key. The key is opened through the KEK when it is wrapped (T-210d): a KEK not
+    unsealed, another box's KEK or a damaged file is ``KekError`` and nothing is signed; a plain copy beside the
+    wrapped one is refused too. A plain key still loads (DEV, TEST; ``doctor`` FAILs it in VALIDATION and
+    PRODUCTION and ``python -m tools.keys wrap`` wraps it)."""
+    from tb_common import kek
 
-    return load_key(secrets_dir / name), (secrets_dir / (name.removesuffix(".key") + ".pub")).read_bytes()
+    return kek.load_key_file(secrets_dir / name), (secrets_dir / (name.removesuffix(".key") + ".pub")).read_bytes()
 
 
 def init_key(secrets_dir: Path) -> int:
