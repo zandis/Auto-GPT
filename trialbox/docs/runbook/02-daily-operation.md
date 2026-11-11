@@ -16,6 +16,9 @@ The console's timers run when `TB_ENV` is VALIDATION or PRODUCTION (`TB_CONSOLE_
 `TB_NOTICE_N1_AT`, `TB_NOTICE_N2_AT`, `TB_REDCAP_READ_AT` move them). Everything is a job: see it on the
 administrator's Jobs page, or `docker compose exec orchestrator` with the operator token.
 
+`TB_IRB_TEXT_GATE` (D-395): the whole-hospital candidate pages wait for the study's IRB-text record. `auto` (default)
+is on in VALIDATION and PRODUCTION; `on` forces it in DEV or TEST; `off` is refused in VALIDATION and PRODUCTION.
+
 ## Logs (D-138)
 
 | Log | Where | Kept | How |
