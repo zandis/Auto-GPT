@@ -23,6 +23,7 @@ import json
 import re
 from typing import Any
 
+from datacore import sponsor
 from datacore.lifecycle import failed_label
 from fastapi import FastAPI, Request, Response
 from tb_common.authz import permit
@@ -262,49 +263,34 @@ def register(app: FastAPI, h: Helpers) -> None:
             sident=store.study_identity(rid),
         )
 
+    def sponsor_layout(rs: str) -> dict[str, Any]:
+        """The study's sponsor layout (D-435), or 404 when none is saved."""
+        cur = None
+        if s28.has_api(bk):
+            try:
+                cur = (s28.call(bk, "GET", f"/studies/{rs}/sponsor/layout") or {}).get("current")
+            except (Problem, Unavailable):
+                cur = None
+        if not isinstance(cur, dict) or not (cur.get("layout") or {}).get("log"):
+            raise h.problem(404, "notfound")
+        return cur
+
     @app.get("/studies/{rs}/screening-log.xlsx")
-    def screening_log_xlsx(request: Request, rs: str) -> Response:
+    def screening_log_xlsx(request: Request, rs: str, layout: str = "") -> Response:
         from openpyxl import Workbook
 
         sess = h.need(request)
         rid = study_or_404(sess, rs)
         h.need_rows(sess, rid, request.url.path)  # ROLE-017: the page's question (it holds pseudonyms, D-280)
+        if layout not in ("", "sponsor"):
+            raise h.problem(404, "notfound")
         wb = Workbook()
         ws: Any = wb.active
         ws.title = "screening log"
-        ws.append(
-            [
-                "screening_no",
-                "pseudonym",
-                "first_listed",
-                "number_given",
-                "pi_mark",
-                "pi_mark_reason",
-                "pi_mark_date",
-                "last_contact_outcome",
-                "contact_attempts",
-                "status",
-                "reason",
-                "status_date",
-                "redcap_record_id",
-                "subject_no",
-                "referral_route",
-                "referral_outcome",
-                "referral_reason",
-                "referral_requested",
-                "referral_answered",
-                "approach_irb_override",
-                "criteria_version",
-                "criterion_not_met",
-                "consent_date",
-                "consent_form_version",
-                "enrolment_date",
-                "randomisation_date",
-            ]
-        )
+        table: list[list[Any]] = []
         for r in log_rows(rid):
             mk, oc, rf, ov = r["mark"], r["outcome"], r["referral"], r["override"]
-            ws.append(
+            table.append(
                 [
                     r["no"],
                     r["pid"],
@@ -334,6 +320,29 @@ def register(app: FastAPI, h: Helpers) -> None:
                     r["randomised"],
                 ]
             )
+        if layout == "sponsor":  # D-435: the same rows in the sponsor's columns, words and date format
+            cur = sponsor_layout(rid)
+            heads, body = sponsor.log_table(cur["layout"], table)
+            ws.append(heads)
+            for line in body:
+                ws.append(line)
+            about = wb.create_sheet("about")
+            about.append(["study", rid])
+            about.append(["made", h.clock().isoformat(timespec="seconds")])
+            about.append(
+                ["layout", f"{cur['layout'].get('sponsor', '')} (layout {cur.get('id', '')}, {cur.get('at', '')})"]
+            )
+            about.append(["note", "Pseudonymous ICH E6(R3) screening log. Chart numbers are not in this file."])
+            buf = io.BytesIO()
+            wb.save(buf)
+            name = f"screening_log_{rid}_sponsor.xlsx"
+            au.append("console.export", ruleset=rid, actor=h.actor(sess),
+                      detail={"filename": name, "layout": cur.get("id")})  # fmt: skip
+            return Response(buf.getvalue(), media_type=XLSX,
+                            headers={"Content-Disposition": f'attachment; filename="{name}"'})  # fmt: skip
+        ws.append(list(sponsor.LOG_COLUMNS))
+        for line in table:
+            ws.append(line)
         pre = wb.create_sheet("pre-screen log")  # D-387 (LIFE-015): one row per investigator mark
         pre.append(["pseudonym", "first_listed", "criteria_version", "pi_mark", "pi_mark_reason", "pi_mark_date",
                     "pi_mark_by", "later", "screening_no", "referral_outcome", "referral_reason", "status",

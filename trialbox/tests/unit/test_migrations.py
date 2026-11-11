@@ -317,7 +317,7 @@ def store_migrations() -> dict[str, list[str]]:
     from adapter import licensed, pidmap
     from console import auth, breakglass, feedback, saerecord, sitestore, teamstore
     from criteria_compiler.library import ddl as library
-    from datacore import dataops, lifecycle
+    from datacore import dataops, lifecycle, sponsor
     from datacore import store as datacore
     from edc import store as edc
     from mail_gateway import store as mail
@@ -343,7 +343,7 @@ def store_migrations() -> dict[str, list[str]]:
         "pidmap": list(pidmap.MIGRATIONS),
         "omop": omop.migrations(),
         "trace": [trace.SCHEMA_V1],
-        "datacore": [datacore.SCHEMA, lifecycle.SCHEMA, *lifecycle.SAE_MIGRATIONS],
+        "datacore": [datacore.SCHEMA, lifecycle.SCHEMA, *lifecycle.SAE_MIGRATIONS, sponsor.SCHEMA],
         "auth": list(auth.MIGRATIONS),
         "site": list(sitestore.MIGRATIONS),
         "team": list(teamstore.MIGRATIONS),
@@ -392,6 +392,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         "668c23320ea6fe609efb7a779800ad02501c28559dc45abac20610e63f6f7a5a",
         # D-407 (T-620): datacore version 7 (the contact-attempt rule and the answers to possible deviations)
         "4a4c7c69ae18a17beda387cb3524504041d44a99212609f07d25f897b8735e35",
+        # D-435 (T-302d): datacore version 8 (the sponsor's layout: screening-log columns, the weekly sheet)
+        "cd15f0cb005567fbcaa623030a4e5ea5dd4bc947add082f57bcbe23b1cb7547d",
     ),
     # D-386 (T-622): site version 5 (the study's state log and identifiers)
     # D-395 (T-310b): site version 6 (the IRB-text record of the cross-department candidate view)
