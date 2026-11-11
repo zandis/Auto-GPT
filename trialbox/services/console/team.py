@@ -44,6 +44,7 @@ from console import studies as st
 from console.auth import REVEAL_REASONS, Session, User
 from console.backend import Problem, Unavailable
 from console.home import Helpers
+from console.i18n import translate
 from console.studies import known_study
 from console.teamstore import (
     ANSWERS,
@@ -374,10 +375,13 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             raise refused(exc) from exc
         settings = h.settings_of(rid) if h.settings_of else None
         no = store.assign_screening_no(rid, pid, settings, now()) if settings is not None else None
+        # T-516 (UX-013): asked after Approach, the referral pauses it (no call task, no contact outcome) until the
+        # treating doctor agrees; the audit record says so
+        paused = getattr(ctx.get("mark"), "mark", "") == "approach"
         au.append("console.referral", job_id=ctx["job"].job_id, ruleset=rid, actor=h.actor(sess),
                   detail={"pid": pid, "action": "requested", "route": route, "known": bool(physician),
                           "suggested": sug["known"], "changed": route != "suggested" and sug["known"],
-                          "run": no or "", "id": ref_id})  # fmt: skip
+                          "run": no or "", "id": ref_id, **({"paused": "approach"} if paused else {})})  # fmt: skip
         return rid, ref_id, no or ""
 
     @app.post("/studies/{rs}/candidates/{pid}/referral")
@@ -389,6 +393,14 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         body = ApiReferral(route=str(form.get("route") or ""), staff_id=int(sid) if sid.isdigit() else None,
                            name=str(form.get("name") or "")[:120], department=str(form.get("department") or "")[:40],
                            note=str(form.get("note") or "")[:300])  # fmt: skip
+        rid = study_or_404(sess, rs)
+        if str(form.get("confirm") or "") != "yes" and h.confirm is not None and _PID.match(pid):
+            mk = store.latest_marks(rid).get(pid)
+            if mk is not None and mk.mark == "approach" and may(sess.user, rid, "refer"):
+                # T-516 (UX-013): the consequence first: Approach is paused until the doctor answers
+                fields = {k: str(form.get(k) or "") for k in ("route", "staff_id", "name", "department", "note")}
+                return h.confirm(request, sess, translate(sess.lang, "confirm.referral.pause"), request.url.path,
+                                 fields, f"/studies/{rid}/patients/{pid}")  # fmt: skip
         rid, ref_id, _ = request_referral(sess, request.url.path, rs, pid, body)
         return RedirectResponse(f"/studies/{rid}/referrals?done=requested#r{ref_id}", status_code=303)
 
