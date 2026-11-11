@@ -39,5 +39,9 @@ COPY --chown=tb:tb pyproject.toml /app/pyproject.toml
 # admin console state (accounts, sessions, pilot runs): a named volume takes this owner on first use
 RUN install -d -o tb -g tb -m 0750 /data/console
 WORKDIR /app
+# the commit the image was built from (make images; T-110b): the console's about page shows it with the version of
+# /app/pyproject.toml. Last, so a new commit does not rebuild the layers above.
+ARG TB_REVISION=unknown
+ENV TB_REVISION=${TB_REVISION}
 USER tb
 CMD ["python", "-c", "print('specify a service command')"]
