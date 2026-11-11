@@ -162,3 +162,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-334 | merged | T-613b | lab units read per row: one conversion table in labvalue (engines' factors reused), mapping_check unit pairs and raw values, one presence reader in ja, zh-TW, en (file) |
 | D-347 | merged | T-210b | the site keys under a KEK: wrapped files, three back ends, the unseal, the key inventory (file) |
 | D-351 | merged | T-116 | one forbidden-word list checked on every page, role, catalogue and template; a record field takes a neutral word; the intended-use statement on every PDF, XLSX, sheet and mail (file) |
+| D-361 | merged | T-684 | clinical layout in ja and zh-TW: a font stack per language, CJK labels kept whole, the full page's sticky mark bar, the week page's first screen, registry words (file) |

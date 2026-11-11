@@ -1214,3 +1214,12 @@ from console.i18n_ops import ZH as _OPS_ZH  # noqa: E402
 EN.update(_OPS_EN)
 JA.update(_OPS_JA)
 ZH.update(_OPS_ZH)
+
+# T-684 (D-361): the clinical layout fixes (second skip link, folded procedure and SAE banners, registry words)
+from console.i18n_layout import EN as _LAY_EN  # noqa: E402
+from console.i18n_layout import JA as _LAY_JA  # noqa: E402
+from console.i18n_layout import ZH as _LAY_ZH  # noqa: E402
+
+EN.update(_LAY_EN)
+JA.update(_LAY_JA)
+ZH.update(_LAY_ZH)

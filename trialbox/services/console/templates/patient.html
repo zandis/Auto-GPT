@@ -17,7 +17,7 @@
 </dl>
 {{ toast(rs, pid, 'patient', request.query_params.get('done', '')) }}
 <p class="hint"><a href="/studies/{{ rs }}/candidates/{{ pid }}?purpose=referral" data-testid="ask-doctor">{{ t('mark.ask_doctor') }}</a>{% if ref_wait %} · <span class="pill ref-{{ ref_wait.state }}">{{ t('team.state.' + ref_wait.state) }}</span>{% endif %}</p>
-<section class="card">{% if user.can_mark %}<h2>{{ t('patient.your_mark') }}</h2>{{ mark_box(rs, pid, 'patient', reasons, mark, today) }}{{ mark_bar(pid) }}{% endif %}
+<section class="card">{% if user.can_mark %}<h2>{{ t('patient.your_mark') }}</h2>{{ mark_box(rs, pid, 'patient', reasons, mark, today) }}{% endif %}
 {{ outcome_box(rs, pid, 'patient', outcome_keys, screening_no, outcomes, mark) }}</section>
 {% include "_criteria.html" %}
 {% if history %}<section class="card"><h2>{{ t('patient.history') }}</h2><ul>{% for m in history %}<li>{{ m.at|local }} · {{ m.by }} · {{ t('mark.' + m.mark) }}{% if m.mark == 'not_now' and m.reason %}: {{ t('mark.recheck_on', d=m.reason) }}{% elif m.reason %}: {{ t('reason.' + m.reason) }}{% endif %}{% if m.note %} — {{ m.note }}{% endif %}</li>{% endfor %}</ul></section>{% endif %}
@@ -26,4 +26,7 @@
 <label for="reveal-note">{{ t('reveal.note') }}</label><input id="reveal-note" name="note" maxlength="200" data-testid="reveal-note">
 <button type="submit" class="secondary" data-testid="reveal">{{ t('patient.reveal.audited') }}</button></form></section>{% endif %}
 <p class="hint">{{ t('patient.footer2', job=job.job_id[-8:]) }}</p>
+{# T-684 (UX-025): the mark bar of the full page is the last thing in main and sticks to the bottom of the window,
+   as on the week page's sheet; its buttons reach the mark forms above with the form attribute #}
+{% if user.can_mark %}<div class="markdock" data-testid="markdock">{{ mark_bar(pid) }}</div>{% endif %}
 {% endblock %}
