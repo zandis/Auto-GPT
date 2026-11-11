@@ -1,0 +1,15 @@
+{
+  "name": "trialbox-browser-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The browser test tools TrialBox's walks use (DEP-025, D-393). Not installed on the box. Playwright drives the walks (tools/public_walk.js, tests/e2e); axe-core is vendored as tools/vendor/axe.min.js, and this lock records the release it came from. tests/unit/test_browser_lock.py keeps this file, the vendored file's sha256 and the CI and complete-run Playwright versions equal.",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "axe-core": "4.14.0",
+    "playwright": "1.63.0"
+  },
+  "trialbox": {
+    "axe_min_js": "tools/vendor/axe.min.js",
+    "axe_min_js_sha256": "20c09fe157a8a34a30e241aaa1fcdade657734f08ab379ecfbeb7d45cc46e878"
+  }
+}

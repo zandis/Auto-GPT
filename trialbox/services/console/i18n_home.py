@@ -1229,3 +1229,12 @@ from console.i18n_layout import ZH as _LAY_ZH  # noqa: E402
 EN.update(_LAY_EN)
 JA.update(_LAY_JA)
 ZH.update(_LAY_ZH)
+
+# D-398 (T-511): help text for the PoC pages, the referral form's select prompts, the EDC review's words; new keys
+from console.i18n_help import EN as _HELP_EN  # noqa: E402
+from console.i18n_help import JA as _HELP_JA  # noqa: E402
+from console.i18n_help import ZH as _HELP_ZH  # noqa: E402
+
+EN.update(_HELP_EN)
+JA.update(_HELP_JA)
+ZH.update(_HELP_ZH)
