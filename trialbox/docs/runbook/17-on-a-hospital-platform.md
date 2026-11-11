@@ -71,6 +71,30 @@ on any FAIL. Re-run both jobs after every platform change (host OS, runtime, GPU
 isolation probe from a second namespace: `TB_INTEGRATION=1 TB_PLATFORM_NAMESPACE=<ns> pytest -m integration
 tests/platform` (every TrialBox port refused, no volume mountable; `TB_PROBE_IMAGE` names an image the platform holds).
 
+**The isolation drill** (T-319, D-432; IT pack §A.3, §A.6). On the acceptance cluster before G3, at CGMH at IQ, and
+after every platform patch (a driver or runtime version change): the probes of `tests/platform/test_isolation_probe.py`
+(as above, plus: a TrialBox pod reaches nothing outside its allowlist, `TB_PROBE_OUTSIDE` (default `1.1.1.1:443`) and
+the API server refused; a pod asking for one GPU device more than the quota is refused at admission; every running
+image is the digest `release.json` names), run with `--junitxml isolation-drill.xml`; then the noisy-neighbour
+measurement while the platform team's load runs on the same card: `python -m tools.trialbox.noisy_neighbour --url
+http://llm-service:8000/v1/chat/completions --model judge --neighbour "<start the load>" --neighbour-stop "<stop it>"
+--out noisy-neighbour.json` (PASS when no request fails and the loaded 95th percentile is at most 1.5 times the idle
+one), and `doctor --platform` again for the serving record. Both files go with `iq-evidence.json` into the release
+record. CI runs the offline half (`tests/platform/test_isolation_drill.py`: one extra egress host fails the doctor,
+the KMS back end against a mock, the measurement against a fake server).
+
+| Drill record | Where | Date | Probes | Noisy neighbour | After a simulated patch |
+| --- | --- | --- | --- | --- | --- |
+| acceptance cluster | not run (no shared GPU host yet) | — | not run | not run | not run |
+| CGMH at IQ | not run | — | not run | not run | not run |
+
+**The KEK on a platform** (WS-13.11 platform variant, D-432). The KEK is never a Secret (`kek_custody`). Where the
+hospital has a KMS that speaks the Vault or OpenBao transit protocol: `python -m tools.keys init --backend kms
+--kms-url https://<kms>/v1/transit --kms-key <key>` with `TB_KMS_TOKEN` set; `kek.json` keeps only the KMS
+ciphertext, and the services open the KEK from the KMS with `TB_KMS_TOKEN` from the Secret `trialbox-kms` (a
+revocable token the hospital's KMS audits; `TB_KMS_URL` when the KMS moves). Without a KMS, the steward's unseal
+(`shamir`) as on the appliance.
+
 **The compose platform form** (a Docker host the platform team runs): `python -m tools.trialbox platform-images
 --env >> deploy/.env`, then the appliance files with `deploy/docker-compose.shared-quota.yml` and
 `deploy/platform/docker-compose.platform.yml` last; `docker compose ... config --format json >
