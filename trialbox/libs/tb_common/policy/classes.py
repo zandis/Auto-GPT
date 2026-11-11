@@ -259,6 +259,7 @@ _D3 = {
     "CriterionVerdict",
     "Evidence",
     "Opinion",  # each model's answer and quote when the two checks disagree (D-120): patient level, as Evidence
+    "CodedValue",  # a coded record's value, unit, date and code behind an answer (T-514, D-362): as Evidence
     "LakeQuery",
     "LlmJudgeOutput",
     "LlmDraftDocOutput",

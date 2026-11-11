@@ -35,6 +35,7 @@ from tb_common.llm import LlmClient
 from tb_common.objstore import FsStore
 from tb_common.subject import is_job_mail
 
+from tests.rulesets_guard import copy_rulesets
 from tests.unit.test_compiler_service import FakeGate, FakeTranslator
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -153,7 +154,7 @@ def make_box(
     audit = AuditLog(audit_dir)
     seed = tmp_path / "seed"
     if not seed.exists():  # a box reopened on its own folder (the demo's --keep, T-505b) keeps its repo and seed
-        shutil.copytree(ROOT / "rulesets", seed, ignore=shutil.ignore_patterns("tests"))
+        copy_rulesets(seed, "tests")
     if extra_profiles is not None:
         for f in sorted(extra_profiles.glob("*.yaml")):
             shutil.copy2(f, seed / "profiles" / f.name)

@@ -21,6 +21,18 @@ LOINC = "http://loinc.org"
 # it is confirmed). A suspected diagnosis (D-142) is listed the same way, with basis ``suspected``.
 BASIS = "urn:trialbox:basis"
 DEMOGRAPHIC = "urn:trialbox:demographic"
+# T-106b (DATA-010): row provenance. The adapter's mapper stamps every resource it makes from a source row with
+# ``meta.source`` (``<site>/<source table>#<row hash>``, the hash keyed with the site key), ``meta.lastUpdated`` (the
+# night it was ingested) and a ``meta.tag`` of this system naming the mapping version; every lake row carries them
+# as the four :data:`PROVENANCE` columns (none for a resource no mapping made: a FHIR bulk feed, a site input).
+MAPPING_VERSION = "urn:trialbox:mapping-version"
+PROVENANCE: list[tuple[str, str]] = [
+    ("src_table", "VARCHAR"),
+    ("src_row_hash", "VARCHAR"),
+    ("ingested_at", "TIMESTAMP"),
+    ("mapping_version", "VARCHAR"),
+]
+PROVENANCE_COLS = tuple(c for c, _ in PROVENANCE)
 
 # T-600 (FR-DEID-01, D-337): the columns that hold free text as the hospital wrote it, names, phone numbers and chart
 # numbers included. They stay in the lake under the ``phi`` label only: the chunker, the full-text index and the
@@ -37,6 +49,9 @@ SCHEMAS: dict[str, list[tuple[str, str]]] = {
         ("dept", "VARCHAR"),
         ("practitioner_id", "VARCHAR"),
         ("class", "VARCHAR"),
+        # T-106b (STD-018): the visit's end (``period.end``; none while the patient is still in) and FHIR status
+        ("end", "TIMESTAMP"),
+        ("status", "VARCHAR"),
     ],
     "appointment": [
         ("aid", "VARCHAR"),
@@ -136,6 +151,8 @@ SCHEMAS: dict[str, list[tuple[str, str]]] = {
         ("date", "DATE"),
     ],
 }
+for _cols in SCHEMAS.values():  # every lake row says where it came from (DATA-010)
+    _cols.extend(PROVENANCE)
 
 
 # FHIR Condition.verificationStatus: a suspected diagnosis (SS-MIX2 PRB-13 疑い, a provisional or differential
@@ -283,13 +300,33 @@ class Flattener:
     def encounter(self, r: Resource) -> Row:
         dept, _ = self.coding(r.get("serviceType") or {})
         part = (r.get("participant") or [{}])[0]
+        period = r.get("period") or {}
         return {
             "eid": r["id"],
             "pid": _ref_id(r.get("subject")),
-            "start": self.ts((r.get("period") or {}).get("start")),
+            "start": self.ts(period.get("start")),
             "dept": dept,
             "practitioner_id": _ref_id(part.get("individual")),
             "class": (r.get("class") or {}).get("code"),
+            "end": self.ts(period.get("end")),
+            "status": r.get("status"),
+        }
+
+    def provenance(self, r: Resource) -> Row:
+        """The :data:`PROVENANCE` columns of a resource (DATA-010): its source table and row hash (``meta.source``),
+        the night it was ingested (``meta.lastUpdated``, in the hospital zone) and its mapping version."""
+        meta = r.get("meta") or {}
+        src = str(meta.get("source") or "")
+        table = row_hash = None
+        if "#" in src:
+            left, row_hash = src.rsplit("#", 1)
+            table = left.rsplit("/", 1)[-1] or None
+        version = next((t.get("code") for t in meta.get("tag") or [] if t.get("system") == MAPPING_VERSION), None)
+        return {
+            "src_table": table,
+            "src_row_hash": row_hash or None,
+            "ingested_at": self.ts(meta.get("lastUpdated")),
+            "mapping_version": version,
         }
 
     def consent(self, r: Resource) -> Row:
@@ -463,22 +500,28 @@ class Flattener:
                     if vs in SUSPECTED and b != "proposed":
                         # D-142: a suspected diagnosis (疑い) is listed, never coded: it can only send a patient to
                         # "needs information" (matching.proposed), never count as met or exclude
-                        facts.append(self.site_fact(rtype, r, "suspected"))
+                        facts.append({**self.site_fact(rtype, r, "suspected"), **self.provenance(r)})
                         continue
                 demographic = rtype == "Observation" and any(
                     c.get("system") == DEMOGRAPHIC for c in (r.get("code") or {}).get("coding") or []
                 )
                 if b is not None or demographic:
-                    facts.append(self.site_fact(rtype, r, b or "coded"))
+                    facts.append({**self.site_fact(rtype, r, b or "coded"), **self.provenance(r)})
                 if b != "proposed" and not demographic:  # a proposed fact never reaches a coded table
                     keep.append(r)
             coded[rtype] = keep
         for rtype, (table, fn) in m.items():
-            out[table] = [fn(r) for r in coded.get(rtype, by_type.get(rtype, []))]
+            out[table] = [{**fn(r), **self.provenance(r)} for r in coded.get(rtype, by_type.get(rtype, []))]
         out["patient"] = merge_patients(out["patient"])
-        out["observation"] = [row for r in coded["Observation"] for row in self.observations(r)]
+        out["observation"] = [
+            {**row, **self.provenance(r)} for r in coded["Observation"] for row in self.observations(r)
+        ]
         out["site_fact"] = facts
-        out["claim"] = self.claims(by_type.get("Claim", []), by_type.get("ClaimResponse", []))
+        claims = by_type.get("Claim", [])
+        out["claim"] = [
+            {**row, **self.provenance(c)}
+            for row, c in zip(self.claims(claims, by_type.get("ClaimResponse", [])), claims, strict=True)
+        ]
         return out
 
     def site_fact(self, rtype: str, r: Resource, basis: str) -> Row:
@@ -530,7 +573,7 @@ def merge_patients(rows: list[Row]) -> list[Row]:
     published into the same space) each give a ``Patient`` for the same pseudonym; two rows for one pid would
     multiply every row of a compiled query (each criterion joins ``base`` again: 2^criteria rows per patient, review
     XL-02). A field the rows agree on is kept; a field they give different values for is left out (unknown), as
-    ``sitesetup.publish`` does for disagreeing facts."""
+    ``sitesetup.publish`` does for disagreeing facts. The provenance columns are the first row's (the hospital's)."""
     by: dict[str, Row] = {}
     clash: dict[str, set[str]] = {}
     for r in rows:
@@ -540,7 +583,7 @@ def merge_patients(rows: list[Row]) -> list[Row]:
             continue
         have = by[pid]
         for k, v in r.items():
-            if v is None or k in clash.get(pid, set()):
+            if v is None or k in clash.get(pid, set()) or k in PROVENANCE_COLS:
                 continue
             if have.get(k) is None:
                 have[k] = v
