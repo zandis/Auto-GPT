@@ -49,8 +49,13 @@
 #      account from TB_SA_KEY_FILE and retries once; a probe before the start fails fast.
 #   5. Every part is resumable within its run: a restarted VM runs complete_run --resume, which keeps only parts of the
 #      same run id and HEAD. A preempted VM: `TB_RUN_ID=<run id> complete-run.sh --shard <i>` starts it again.
-# Optional TB_BUCKET=gs://<bucket>: code and results go through the bucket (the VM's service account needs
-# storage access); without it they go over HTTP to the VM, the key in the Authorization header.
+# The door (T-119, CR-048): HTTPS on 443 only, the VM's self-signed certificate made here per run and its public key
+# pinned (deploy/gcp/door-tls.sh); no port 80. The bearer key and the TLS key go to the VM through Secret Manager
+# (secret tb-gpu-door, one version per VM and run, destroyed once the results are here), never as metadata; a tb-key
+# an older driver left in the metadata is removed. Before the start the driver refuses a VM without a service account
+# and a firewall that opens tcp:80 to it or does not open tcp:443 (read-only, door_firewall_check).
+# Optional TB_BUCKET=gs://<bucket>: code and results go through the bucket (the VM's service account needs storage
+# access); without it they go through the door.
 set -euo pipefail
 ARGS=("$@")
 DRY=0; STOP=0; ESTIMATE=0; WAIT=1; PATIENTS=50000; HOURS=""; COLLECT=""; VMS=1; PARTS=g1; ZONES="${TB_ZONES:-}"
@@ -90,6 +95,8 @@ IMAGE="${TB_MACHINE_IMAGE:-$VM-img}"
 export GC_DRY="$DRY"
 # shellcheck source=deploy/gcp/gcloud-auth.sh
 . "$ROOT/deploy/gcp/gcloud-auth.sh"
+# shellcheck source=deploy/gcp/door-tls.sh
+. "$ROOT/deploy/gcp/door-tls.sh"
 cd "$ROOT"
 cr() { env PYTHONPATH=libs:services:. "$PY" -m tools.complete_run "$@"; }
 ONLY_ARGS=(); [ "${#ONLY_TAGS[@]}" = 0 ] || ONLY_ARGS=(--only "${ONLY_TAGS[@]}")
@@ -148,12 +155,60 @@ stop_vm() {
   local s; s="$(status)"
   echo "VM $VM status: $s"
   gc compute instances add-metadata "$VM" --zone "$ZONE" --metadata-from-file startup-script="$ROOT/deploy/gcp/gpu-sim-startup.sh" || true
+  gc compute instances remove-metadata "$VM" --zone "$ZONE" --keys tb-key,tb-door-version >/dev/null 2>&1 || true
 }
 ip() { if [ "$DRY" = 1 ]; then echo "<vm-ip>"; else gc compute instances describe "$VM" --zone "$ZONE" --format='value(networkInterfaces[0].accessConfigs[0].natIP)'; fi; }
-door() {  # METHOD PATH [curl args...]: the VM's door, the key in a header read from the key file (never argv)
+door() {  # METHOD PATH [curl args...]: the VM's door over pinned TLS, the key in a header from a file (door-tls.sh)
   local m=$1 p=$2; shift 2
-  if [ "$DRY" = 1 ]; then echo "+ curl -X $m http://<vm-ip>/tb/$p (Authorization from $KEYF)"; return 0; fi
-  curl -fsS --max-time 600 -X "$m" -H @<(printf 'Authorization: Bearer %s\n' "$(cat "$KEYF")") "http://$IP/tb/$p" "$@"
+  if [ "$DRY" = 1 ]; then
+    echo "+ curl -X $m https://$DOOR_NAME/tb/$p --resolve $DOOR_NAME:443:<vm-ip> (only $SH/door.crt trusted, its key pinned; Authorization from $KEYF)"
+    return 0
+  fi
+  door_curl "$SH" "$IP" "$m" "$p" "$@"
+}
+door_vm_ready() {  # read-only but for the scope: the VM can read its door from Secret Manager; tcp:80 closed, 443 open
+  if [ "$DRY" = 1 ]; then
+    echo "+ gcloud compute instances describe $VM --zone $ZONE --format=json   # its service account, scopes, network, tags"
+    echo "+ gcloud compute firewall-rules list --format=json   # refused: tcp:80 open to the VM, or no tcp:443 (door_firewall_check)"
+    echo "+ gcloud compute instances remove-metadata $VM --zone $ZONE --keys tb-key   # a key an older driver left there"
+    return 0
+  fi
+  local sa scopes
+  gc compute instances describe "$VM" --zone "$ZONE" --format=json > "$SH/vm.json" || return 1
+  sa="$("$PY" -c 'import json,sys; print(((json.load(open(sys.argv[1])).get("serviceAccounts") or [{}])[0]).get("email", ""))' "$SH/vm.json")"
+  scopes="$("$PY" -c 'import json,sys; print(" ".join(((json.load(open(sys.argv[1])).get("serviceAccounts") or [{}])[0]).get("scopes") or []))' "$SH/vm.json")"
+  [ -n "$sa" ] || { echo "$VM has no service account: it could not read its door from Secret Manager" >&2; return 1; }
+  case " $scopes " in
+    *"/auth/cloud-platform "*) ;;
+    *) echo "$VM: access scope cloud-platform (Secret Manager; storage for TB_BUCKET), the same service account"
+       gc compute instances set-service-account "$VM" --zone "$ZONE" --service-account "$sa" --scopes cloud-platform || return 1 ;;
+  esac
+  gc compute firewall-rules list --format=json > "$SH/firewall.json" || return 1
+  door_firewall_check "$PY" "$SH/vm.json" "$SH/firewall.json" || return 1
+  gc compute instances remove-metadata "$VM" --zone "$ZONE" --keys tb-key >/dev/null 2>&1 || true
+}
+door_secret_add() {  # this VM's door into Secret Manager: a new version of tb-gpu-door; its number goes to the VM
+  if [ "$DRY" = 1 ]; then
+    echo "+ gcloud secrets versions add $DOOR_SECRET --data-file=$SH/door-secret.json --format=value(name)   # the key and the TLS key; never metadata"
+    echo 0 > "$SH/door-version"; return 0
+  fi
+  local v
+  gc secrets describe "$DOOR_SECRET" --format='value(name)' >/dev/null \
+    || { echo "no secret $DOOR_SECRET: run deploy/gcp/setup-gcp.sh once (it makes the secret and lets the VM read it)" >&2; return 1; }
+  v="$(gc secrets versions add "$DOOR_SECRET" --data-file="$SH/door-secret.json" --format='value(name)')" || return 1
+  rm -f "$SH/door-secret.json" "$SH/door.key"   # the VM reads its copy from Secret Manager; none stays here
+  v="${v##*/}"
+  case "$v" in ''|*[!0-9]*) echo "secret $DOOR_SECRET: no version number from gcloud ('$v')" >&2; return 1 ;; esac
+  echo "$v" > "$SH/door-version"
+}
+door_retire() {  # the results are here (or there are none): destroy this VM's door version; the key file goes
+  if [ "$DRY" = 1 ]; then echo "+ gcloud secrets versions destroy <version> --secret $DOOR_SECRET --quiet   # once collected"; return 0; fi
+  local v; v="$(cat "$SH/door-version" 2>/dev/null || true)"
+  if [ -n "$v" ] && [ "$v" != 0 ]; then
+    gc secrets versions destroy "$v" --secret "$DOOR_SECRET" --quiet >/dev/null \
+      || echo "secret $DOOR_SECRET version $v: not destroyed; destroy it by hand" >&2
+  fi
+  rm -f "$KEYF" "$SH/door-version" "$SH/door.key" "$SH/door-secret.json"
 }
 fetch_results() {  # this VM's results.tgz as it is now, replacing the earlier one only when the download is whole
   if [ -n "$BUCKET" ]; then gc storage cp "$BUCKET/runs/$RUN_ID-s$i/results.tgz" "$SH/results.tgz.new" || return 1
@@ -170,8 +225,8 @@ collect_start() {  # a stopped VM whose results are on its disk: start it in the
   echo "$VM is TERMINATED and its results are on its disk: a results-only start (no models, no run, cloud cap 20 min)"
   gc compute instances set-scheduling "$VM" --zone "$ZONE" --max-run-duration=20m --instance-termination-action=STOP
   gc compute instances add-metadata "$VM" --zone "$ZONE" --metadata-from-file \
-    "startup-script=$ROOT/deploy/gcp/complete-run-vm.sh,tb-key=$KEYF" \
-    --metadata "tb-collect-only=1,tb-max-minutes=15,tb-done-grace=10"
+    "startup-script=$ROOT/deploy/gcp/complete-run-vm.sh,tb-door-cert=$SH/door.crt" \
+    --metadata "tb-door-secret=$DOOR_SECRET,tb-door-version=$(cat "$SH/door-version"),tb-collect-only=1,tb-max-minutes=15,tb-done-grace=10"
   gc compute instances start "$VM" --zone "$ZONE"
   IP="$(ip)"
   wait_door 30 || { echo "$VM: the door did not answer in 10 minutes (it powers off by itself)" >&2; return 1; }
@@ -186,21 +241,23 @@ shard_run() {  # $1 = shard number; VM, ZONE, caps and parts come from plan.json
     echo "VM $i/$VMS $VM ($ZONE): estimate ${EST_H} h (US\$${EST_USD}); hard cap ${CAP_H} h (STOP), at most US\$$("$PY" -c "print(round($CAP_H*2.74, 2))"); parts: $TAGS"
     s="$(status)"
     [ "$s" = TERMINATED ] || { echo "$VM is $s, not TERMINATED: stop it first (--stop) or collect its run" >&2; return 3; }
+    door_vm_ready || { echo "$VM: not started (see above)" >&2; return 3; }   # its door: Secret Manager, 443 only
     # ------------------------------------------------------------ 1. the cloud-side hard cap, before the start
     gc compute instances set-scheduling "$VM" --zone "$ZONE" --max-run-duration="${CAP_H}h" --instance-termination-action=STOP
     [ "$DRY" = 1 ] || gc compute instances describe "$VM" --zone "$ZONE" \
       --format='value(scheduling.maxRunDuration.seconds,scheduling.instanceTerminationAction)'
-    # ------------------------------------------------------------ the key, the metadata, the start
-    if [ "$DRY" = 1 ]; then echo "+ a random key into $KEYF (0600)"
-    else "$PY" -c 'import secrets; print(secrets.token_urlsafe(32))' > "$KEYF"; fi
+    # ------------------------------------------------------------ the door (Secret Manager, TLS), the metadata, the start
+    if [ "$DRY" = 1 ]; then echo "+ a random key into $KEYF, a TLS key and its self-signed certificate $SH/door.crt (0600; door_make)"
+    else door_make "$SH" || { echo "$VM: the door's key or certificate could not be made (openssl)" >&2; return 3; }; fi
+    door_secret_add || { echo "$VM: not started: its door is not in Secret Manager" >&2; return 3; }
     rm -f "$SH/results.tgz" "$SH/results.final" "$SH/collect-boot" "$SH/state"
     gc compute instances add-metadata "$VM" --zone "$ZONE" --metadata-from-file \
-      "startup-script=$ROOT/deploy/gcp/complete-run-vm.sh,tb-serving-config=$ROOT/tools/serving_config.py,tb-key=$KEYF" \
-      --metadata "tb-run-id=$RUN_ID-s$i,tb-patients=$PATIENTS,tb-only=$TAGS,tb-src-sha256=$SRC_SHA,tb-collect-only=0,tb-max-minutes=$((CAP_H * 60 - 5)),tb-idle-minutes=20,tb-done-grace=30${BUCKET:+,tb-bucket=$BUCKET}"
+      "startup-script=$ROOT/deploy/gcp/complete-run-vm.sh,tb-serving-config=$ROOT/tools/serving_config.py,tb-door-cert=$SH/door.crt" \
+      --metadata "tb-door-secret=$DOOR_SECRET,tb-door-version=$(cat "$SH/door-version"),tb-run-id=$RUN_ID-s$i,tb-patients=$PATIENTS,tb-only=$TAGS,tb-src-sha256=$SRC_SHA,tb-collect-only=0,tb-max-minutes=$((CAP_H * 60 - 5)),tb-idle-minutes=20,tb-done-grace=30${BUCKET:+,tb-bucket=$BUCKET}"
     gc compute instances start "$VM" --zone "$ZONE"
     echo "started $VM; it stops itself (cap ${CAP_H} h, watchdog). Collect, now and later: $0 --collect $RUN_ID"
     IP="$(ip)"
-    if [ -z "$BUCKET" ]; then  # 3. the code over HTTP once the door is up (the VM waits 30 minutes for it)
+    if [ -z "$BUCKET" ]; then  # 3. the code through the door (TLS) once it is up (the VM waits 30 minutes for it)
       wait_door 90 || { echo "$VM: the door did not answer in 30 minutes; it powers off by itself" >&2; return 4; }
       door PUT upload --data-binary @"$OUT/src.tgz" -H 'Content-Type: application/gzip'
     fi
@@ -230,7 +287,7 @@ shard_run() {  # $1 = shard number; VM, ZONE, caps and parts come from plan.json
   if [ "$DRY" = 0 ] && [ "$done_seen" = 0 ] && [ "$s" = TERMINATED ] && [ -z "$BUCKET" ] && [ ! -f "$SH/results.final" ]; then
     # once per VM and run: a results-only boot that finds nothing is not repeated at every --collect
     [ -f "$SH/collect-boot" ] && { echo "VM $i: a results-only boot found nothing earlier; its disk has no results" >&2
-                                    echo "noresults" > "$SH/state"; return 5; }
+                                    echo "noresults" > "$SH/state"; door_retire; return 5; }
     touch "$SH/collect-boot"
     collect_start || { echo stopped > "$SH/state"; return 5; }
     booted=1
@@ -238,9 +295,10 @@ shard_run() {  # $1 = shard number; VM, ZONE, caps and parts come from plan.json
   if fetch_results; then
     touch "$SH/results.final"; echo "done" > "$SH/state"
     door POST collected >/dev/null 2>&1 || true   # the VM powers off now
-    [ "$DRY" = 1 ] || rm -f "$KEYF"  # kept until the results are here (--collect)
+    door_retire  # the key and its secret version are kept until the results are here (--collect)
   elif [ "$done_seen" = 1 ] || [ "$booted" = 1 ]; then  # done, or started for this, and nothing to hand over
     door POST collected >/dev/null 2>&1 || true   # so it powers off now, not after its grace
+    door_retire
     echo "VM $i: no results.tgz on its disk (see its serial console); it powers off now" >&2; echo "noresults" > "$SH/state"
   else
     echo "results not reachable: $VM is $s; --collect $RUN_ID later" >&2; echo stopped > "$SH/state"

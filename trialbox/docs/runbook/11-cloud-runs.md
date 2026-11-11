@@ -8,12 +8,17 @@ every VM after use and check that it shows `TERMINATED`.
 **The demo VM** (`trialbox-demo`, e2-standard-4, asia-east1-b, about US$0.15 an hour). `make demo-bundle` writes
 `dist/trialbox-demo.tar.gz`; copy it to a bucket, add `deploy/gcp/demo-vm-startup.sh` and the image as metadata, start
 the VM, and the console answers on port 80 (plain http, `TB_CONSOLE_SECURE_COOKIE=0`: put https in front before
-sharing widely). A restart resets the demo. The update path on it: `deploy/gcp/demo-vm-update.sh build <bucket>`,
+sharing widely; the PoC testers use the PoC host instead, `deploy/gcp/poc-host.sh` and `demo/README.md`). Its
+password comes from Secret Manager (`tb-demo-password`, asked once by `deploy/gcp/setup-gcp.sh`; T-119): a password
+put in the metadata is refused and the VM does not start the demo. A restart resets the demo. The update path on it: `deploy/gcp/demo-vm-update.sh build <bucket>`,
 then `run <bucket>` (a good bundle applied and checked with `e2e_simple`, a broken one rolled back; about one hour,
 US$0.15).
 
 **The GPU VM** (`tb-gpu-sim`, g4-standard-48 spot, one RTX PRO 6000, asia-east1-a, about US$2.74 an hour; the disk
-with the weights is kept, so boot to serving is about 10–15 minutes).
+with the weights is kept, so boot to serving is about 10–15 minutes). No script opens port 80 on it to the internet
+(T-119): the older one-boot scripts below serve on `127.0.0.1:80` only, with a key made on the VM (`/root/tb-key`,
+never in the metadata); reach them with `gcloud compute ssh tb-gpu-sim --zone asia-east1-a -- -N -L
+8080:127.0.0.1:80` and read the key over the same ssh. `capture-serving-config.sh fetch` reads the record over ssh.
 
 | Run | Script | About |
 | --- | --- | --- |
@@ -43,9 +48,15 @@ end with `REHEARSAL PASSED`; no paid launch without it, and none from a commit i
 | `no-upload` | nobody uploads: `TB-NO-CODE`, power-off after the grace |
 | `hang` | a stuck, silent part and no driver: the idle watchdog powers off; `--collect` then gets the results from the stopped VM |
 | `busy` | a part silent for 5 minutes but working (idle limit 2): it is never powered off as idle; it finishes; `--collect` gets it |
+| `bucket` | `TB_BUCKET` set: the code and the results go through the bucket (a `gcloud storage` stand-in), not the door |
+
+In every case the door is TLS on 443 with the driver's pinned certificate, the key and the TLS key come from the
+Secret Manager stand-in (never the metadata) and their version is destroyed once collected, and `run-a`, `run-b`
+and `bucket` capture the serving record on the "VM" (`docker inspect` of the two stand-ins, the weight hashes;
+T-119). Some cases only: `make rehearse CASES=run-a,bucket`.
 
 It needs docker (it starts a private `dockerd` when none answers and stops it afterwards), about 4 GB of disk and
-the ports 80 and 8080 free; the evidence of each case stays in `$TB_REHEARSAL_DIR/evidence/<case>/`. Model quality
+the ports 443 and 8080 free; the evidence of each case stays in `$TB_REHEARSAL_DIR/evidence/<case>/`. Model quality
 is not rehearsed (the stand-ins answer with the deterministic stub, so the canary may fail there): plumbing, names,
 keys, setup, state and timing are, the layer every failure of 2026-11-09 was in.
 
@@ -57,9 +68,17 @@ keys, setup, state and timing are, the layer every failure of 2026-11-09 was in.
      and refuses unless every VM is `TERMINATED`;
    * sets the **cloud-side hard cap**: `gcloud compute instances set-scheduling tb-gpu-sim --zone asia-east1-a
      --max-run-duration=<estimate x 1.3, rounded up>h --instance-termination-action=STOP` (`--hours N` to change);
-   * puts `deploy/gcp/complete-run-vm.sh` on the VM as its startup script with a fresh key (0600 file, metadata,
-     never printed) and the sha256 of the code, starts it, and uploads the code (`git archive` of HEAD with
-     `TB_HEAD.json`: local changes are not in the run; the VM refuses an archive with another sha256).
+   * checks the VM's door (T-119): the VM has a service account (its scope is set to `cloud-platform` while it is
+     stopped), and no firewall rule opens tcp:80 to it from outside while one opens tcp:443; else it refuses, with
+     the command that fixes it; a `tb-key` an older driver left in the metadata is removed;
+   * makes a fresh door: a random key, a TLS key and its self-signed certificate (0600 files, never printed), puts
+     the key and the TLS key in Secret Manager as a new version of `tb-gpu-door`, and gives the VM only the secret's
+     name and version and the certificate (`tb-door-secret`, `tb-door-version`, `tb-door-cert`);
+   * puts `deploy/gcp/complete-run-vm.sh` on the VM as its startup script with the sha256 of the code, starts it,
+     and uploads the code through the door: HTTPS on 443, the certificate it made as the only trust root and its
+     public key pinned (`--pinnedpubkey`), no proxy; plain HTTP or any other certificate is refused (`git archive`
+     of HEAD with `TB_HEAD.json`: local changes are not in the run; the VM refuses an archive with another sha256).
+     Once the results are here the driver destroys the secret version.
 3. On the VM: a systemd hard cap and a watchdog start first; then a pre-flight (docker with the NVIDIA runtime, the
    weights in `/models`, 50 GB free: else `TB-PREFLIGHT-FAILED`); then both model servers, which must be healthy,
    list exactly their served names, answer one chat call and refuse a call without the key, else
@@ -83,7 +102,8 @@ keys, setup, state and timing are, the layer every failure of 2026-11-09 was in.
 5. Every gcloud call goes through `gc` (`deploy/gcp/gcloud-auth.sh`): an authentication error re-activates the
    service account from `TB_SA_KEY_FILE` and retries once.
 6. Afterwards: `gcloud compute instances describe tb-gpu-sim --zone asia-east1-a --format='value(status)'` must say
-   `TERMINATED`; `deploy/gcp/complete-run.sh --stop` stops it by hand and puts the usual startup script back (a VM
+   `TERMINATED`, and `--format='value(metadata.items)'` must show no `tb-key`;
+   `gcloud secrets versions list tb-gpu-door --filter=state:enabled` must list nothing once collected; `deploy/gcp/complete-run.sh --stop` stops it by hand and puts the usual startup script back (a VM
    started by hand after that runs both model servers with no watchdog: only its cloud cap stops it). Read
    `report.md`: a part that "crashed or never ran" is named in the headline, and a `profile` row whose path says
    "direct (the gateway refused...)" is a failed check, whatever else passed.
@@ -115,6 +135,14 @@ it before any start or `--provision` and makes nothing it could not run.
    started again with `TB_RUN_ID=<run id> deploy/gcp/complete-run.sh --shard <i>`; `--stop --collect <run id>` stops
    them all.
 
+**Once, before the first run with the TLS door** (T-119): `deploy/gcp/setup-gcp.sh` (Cloud Shell) makes the secrets
+`tb-gpu-door` (the deployer may add and destroy its versions only; the VMs' service account may read it) and
+`tb-demo-password`; a firewall rule opens tcp:443 to `tb-gpu-sim` (best from the driver's address only: `gcloud
+compute firewall-rules create tb-gpu-door --network <network> --allow tcp:443 --source-ranges <address>/32
+--target-tags tb-gpu-door` and `gcloud compute instances add-tags tb-gpu-sim --zone asia-east1-a --tags
+tb-gpu-door`), and any rule that opens tcp:80 to it is deleted (or its tag removed). The driver says which, before
+anything starts.
+
 Optional `TB_BUCKET=gs://<bucket>` moves code and results through a bucket (the VM's service account needs storage
-access); without it they go over plain HTTP to the VM with the key in a header. A billing budget with a kill switch
+access; the `bucket` case of the rehearsal); without it they go through the TLS door. A billing budget with a kill switch
 is the last net; it needs billing permissions this project's service account does not have: the owner sets it.

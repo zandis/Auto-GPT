@@ -72,55 +72,9 @@ def parse(text: object) -> tuple[float, str | None] | None:
 UNIT_MISMATCH = labunit.UNIT_MISMATCH  # one spelling of the reason for the adapter and the engines (D-275)
 UNKNOWN_VALUE = Reason.UNKNOWN_VALUE.value
 
-# UCUM code -> the spellings that mean exactly that unit (no factor: a spelling, or a unit equal to it by definition,
-# ug/mL = mg/L). A unit not listed here is unknown: it is never converted and never taken as equal to another.
-UCUM: dict[str, tuple[str, ...]] = {
-    "mg/dL": ("mg/dl", "mg/100mL", "mg%"),
-    "mg/L": ("mg/l", "ug/mL", "ug/ml", "µg/mL", "μg/mL"),
-    "g/dL": ("g/dl", "g/100mL"),
-    "g/L": ("g/l", "mg/mL", "mg/ml"),
-    "ug/dL": ("ug/dl", "µg/dL", "μg/dL"),
-    "ug/L": ("ug/l", "µg/L", "μg/L", "ng/mL", "ng/ml"),
-    "ng/dL": ("ng/dl",),
-    "pg/mL": ("pg/ml", "ng/L", "ng/l"),
-    "umol/L": ("µmol/L", "μmol/L", "umol/l", "µmol/l", "μmol/l"),
-    "mmol/L": ("mmol/l",),
-    "mmol/mol": (),
-    "nmol/L": ("nmol/l",),
-    "pmol/L": ("pmol/l",),
-    "meq/L": ("mEq/L", "mEq/l", "meq/l"),
-    "%": ("percent",),
-    # an enzyme unit (U) and an international unit ([IU]) are kept apart: labs often use them alike, but a person
-    # says so for the site once, the table does not
-    "U/L": (),
-    "[IU]/L": ("IU/L",),
-    "U/mL": (),
-    "[IU]/mL": ("IU/mL",),
-    "mU/mL": (),
-    "m[IU]/mL": ("mIU/mL",),
-    "m[IU]/L": ("mIU/L",),
-    "uU/mL": ("µU/mL", "μU/mL"),
-    "u[IU]/mL": ("uIU/mL", "µIU/mL", "μIU/mL"),
-    "10*3/uL": ("10^3/uL", "10^3/µL", "x10^3/uL", "x10^3/µL", "10*9/L", "10^9/L", "x10^9/L", "/nL", "K/uL"),
-    "10*6/uL": ("10^6/uL", "10^6/µL", "x10^6/uL", "10*12/L", "10^12/L", "x10^12/L", "M/uL"),
-    "10*4/uL": ("10^4/uL", "10^4/µL", "x10^4/uL", "万/uL", "万/µL"),
-    "/uL": ("/µL", "/ul", "cells/uL"),
-    "fL": ("fl",),
-    "pg": (),
-    "s": ("sec",),
-    "mm/h": ("mm/hr", "mm/(1.h)", "mm/1h"),
-    "mL/min/{1.73_m2}": ("mL/min/1.73m2", "ml/min/1.73m2", "mL/min/1.73 m2", "mL/min/1.73m^2"),
-    "mm[Hg]": ("mmHg",),
-    "kg": (),
-    "g": (),
-    "cm": (),
-    "mm": (),
-    "m": (),
-    "kg/m2": ("kg/m^2",),
-    "mg/g{creat}": ("mg/gCr", "mg/g creatinine", "mg/gCre"),
-    "{ratio}": ("ratio",),
-    "1": ("{count}", "{score}"),
-}
+# UCUM code -> the spellings that mean exactly that unit: one table in :mod:`tb_common.labunit` (D-418), which
+# the engines' scale conversions read too.
+UCUM = labunit.UCUM
 _KNOWN: dict[str, str] = {}
 for _code, _spellings in UCUM.items():
     for _u in (_code, *_spellings):
@@ -186,22 +140,7 @@ def read(text: object, row_unit: object, lookup_unit: object) -> Reading:
 #
 # Units of one kind convert by definition, whatever the analyte: each family gives how much of its first unit one
 # unit is. Units are the UCUM codes of :data:`UCUM`; the tables are keyed by :func:`tb_common.labunit.key`.
-SCALES: dict[str, dict[str, float]] = {
-    "mass concentration": {
-        "g/L": 1.0,
-        "g/dL": 10.0,
-        "mg/dL": 1e-2,
-        "mg/L": 1e-3,
-        "ug/dL": 1e-5,
-        "ug/L": 1e-6,
-        "ng/dL": 1e-8,
-        "pg/mL": 1e-9,
-    },
-    "substance concentration": {"mmol/L": 1.0, "umol/L": 1e-3, "nmol/L": 1e-6, "pmol/L": 1e-9},
-    "number concentration": {"10*3/uL": 1.0, "10*4/uL": 10.0, "10*6/uL": 1e3, "/uL": 1e-3},
-    "enzyme activity": {"U/L": 1.0, "mU/mL": 1.0, "U/mL": 1e3},
-    "international units": {"[IU]/L": 1.0, "m[IU]/mL": 1.0, "[IU]/mL": 1e3, "m[IU]/L": 1e-3, "u[IU]/mL": 1e-3},
-}
+SCALES = labunit.SCALES  # the families live with the engines' unit rule (D-418): one table, two readers
 
 # Mass to substance needs the analyte (STD-002): LOINC code -> (what is weighed, g/mol, charge for meq or 0). A
 # charge of 1 makes meq/L the same as mmol/L, 2 makes it half. HbA1c % (NGSP) and mmol/mol (IFCC) are not a factor

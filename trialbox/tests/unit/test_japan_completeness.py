@@ -535,7 +535,7 @@ def test_mapping_profiles_and_overlay() -> None:
     lab = next(r for r in m.resources if r.type == "Observation" and r.table == "lab")
     assert "specimen.display" in lab.elements and "code.text" in lab.elements
     tw = Mapping.load(TW_MAPPING)
-    assert not tw.profiles and tw.fhir_profiles == ""
+    assert not tw.profiles and tw.fhir_profiles == "tw-core"  # T-619a: the TW Core slices are written
     assert (
         "specimen.display" not in next(r for r in tw.resources if r.type == "Observation" and r.table == "lab").elements
     )

@@ -11,10 +11,20 @@ output of both pre-flight checks with the install record.
       inbound or outbound line.
 
 **On Windows**
-- [ ] BIOS: virtualisation (VT-x / AMD-V) on. BitLocker on every volume, recovery key with hospital IT.
+- [ ] BIOS: virtualisation (VT-x / AMD-V) on. BitLocker on every volume with a TPM and PIN
+      (`manage-bde -protectors -add C: -TPMAndPIN`, then delete the TPM-only protector); the recovery password with
+      hospital IT (their sealed envelope or directory), never on the workstation.
+- [ ] `powercfg /hibernate off` (also turns Fast Startup off). Remote Desktop off.
+- [ ] Windows Update by policy: "Configure Automatic Updates" = 3 (download and notify), or a set install time
+      agreed with hospital IT away from the nightly jobs. Restarts happen in the agreed window (RUNBOOK §24).
 - [ ] Install the NVIDIA Windows driver from `windows/nvidia/`.
-- [ ] Install WSL from `windows/wsl/`, import Ubuntu with `wsl --import`, copy `.wslconfig` (memory, `swap=0`).
-- [ ] `powershell -ExecutionPolicy Bypass -File windows\preflight.ps1 -DataDrive D:`: every line PASS.
+- [ ] Install WSL from `windows/wsl/`, import Ubuntu with `wsl --import`, copy `deploy\windows\wslconfig.example`
+      to `%USERPROFILE%\.wslconfig` (memory, `swap=0`, `sparseVhd=true`). Without `sparseVhd` the disk file only
+      grows: compact it monthly (`wsl --shutdown`, then `Optimize-VHD` or `diskpart compact vdisk`).
+- [ ] As administrator: `powershell -ExecutionPolicy Bypass -File windows\register_keepalive.ps1 -User <account>`
+      (WSL2 keeps running when nobody is signed in and comes back after a restart).
+- [ ] As administrator: `powershell -ExecutionPolicy Bypass -File windows\preflight.ps1 -DataDrive D:
+      -RecoveryKeyEscrow "<who keeps the recovery password>"`: no FAIL line (T-210a, D-421).
 
 **In WSL2 Ubuntu**
 - [ ] `/etc/wsl.conf`: `[boot] systemd=true`; restart WSL (`wsl --shutdown`).
@@ -28,4 +38,6 @@ output of both pre-flight checks with the install record.
 - [ ] `sudo python3 -m tools.trialbox secrets rotate` with the owner present: new tokens and database passwords that
       Aimedics has never seen (RUNBOOK §5 "Secrets").
 - [ ] Print `deploy/site/network-sheet.<lang>.html` (the site's own sheet) for hospital IT.
+- [ ] From an elevated terminal: `sudo deploy/check_host.sh --wsl2 --escrow "<who keeps the recovery password>"`:
+      no FAIL line. Again after every Windows Update.
 - [ ] Run the go-live acceptance (RUNBOOK §6) and sign the install record.

@@ -117,6 +117,7 @@ def build_config() -> tuple[AdapterConfig, str, str]:
         required_tables=tuple(fc.required_tables) if fc else (),
         optional_tables=tuple(fc.optional_tables) if fc else (),
         source_encoding=ds.encoding,  # T-615b
+        mrn_regex=cfg.settings.mrn_regex,  # T-629 (FIT-U09)
         contracts_dir=contracts_dir(os.environ.get("TB_DATA_CONTRACTS")),  # T-659b
     )
     default_path = ds.path or (os.environ.get(ds.dsn_env, "") if ds.dsn_env else "")

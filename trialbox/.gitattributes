@@ -36,6 +36,8 @@ refdata/** -tb-data
 docs/plan/25-traceability.csv -tb-data
 # the archived commitments register (T-641, removed from CI by D-311): promise sentences, no patient
 docs/plan/sites/archive/commitments.csv -tb-data
+# the deferred-items backlog (T-679): planned work with earliest dates, never a patient
+docs/plan/backlog.csv -tb-data
 # the lifecycle records (T-654): the problem log and the SOUP list, about the software, never a patient
 docs/validation/*.csv -tb-data
 # the licence register (T-617b, D-342): one row per third-party source, about the software, never a patient

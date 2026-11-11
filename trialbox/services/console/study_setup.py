@@ -26,6 +26,7 @@ import re
 from typing import Any
 from urllib.parse import quote
 
+from datacore import lifecycle as lc
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from tb_common.authz import NO_STANDING, permit
@@ -50,6 +51,7 @@ from console.sitestore import (
     StudyState,
 )
 from console.studies import known_study
+from console.timefmt import site_zone
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _REF = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
@@ -92,6 +94,24 @@ def can_change_setup(user: User) -> bool:
 
 
 REASON_STATES = ("paused", "closed")  # D-386: a move to these takes a reason
+# T-629 (FIT-U06, D-415): the study types that report serious adverse events; a study of one of them opens only once
+# its type for SAE reporting (the rule set, which selects the reporting table) is chosen and confirmed
+SAE_STUDY_TYPES = ("trial", "observational")
+
+
+def site_country(bk: object) -> str:
+    """The site's country (JP, TW) from ``site.tz``; empty when the zone names none."""
+    from tb_common.derived import country_of
+
+    try:
+        return country_of(str(site_zone(bk))) or ""
+    except Exception:
+        return ""
+
+
+def sae_sets_for(country: str) -> dict[str, lc.RuleSet]:
+    """FIT-U06: the study types of the site's country (its SAE rule sets); every set when the country is unknown."""
+    return {k: v for k, v in lc.RULE_SETS.items() if not country or v.country == country}
 
 
 def _permit(h: Helpers, user: User, rid: str, action: str) -> bool:
@@ -188,6 +208,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             tokens=[c["token_ref"] for c in conns.get("connections") or []],
             screen_scope=get_or_none(f"/studies/{rid}/screen-scope") if s28.has_api(bk) else None,
             sae_rule=get_or_none(f"/studies/{rid}/sae-rule") if s28.has_api(bk) else None,
+            sae_country=site_country(bk),  # T-629 (FIT-U06): only this country's study types are offered
+            contact_rule=get_or_none(f"/studies/{rid}/contact-rule") if s28.has_api(bk) else None,
             last=reads[0] if reads else None,
             all_reasons=ALL_REASONS,
             study_types=STUDY_TYPES,
@@ -247,6 +269,10 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess = h.need(request)
         rid = study_or_404(sess, rs)
         need_edit(request, sess, csrf)
+        country = site_country(bk)
+        if rule_set.strip() in lc.RULE_SETS and rule_set.strip() not in sae_sets_for(country):
+            # T-629 (FIT-U06): a study type of another country would select another country's reporting table
+            return setup_page(request, sess, rid, err={"code": "SAE-COUNTRY", "msg": country, "fields": ""})
         try:
             s28.call(bk, "PUT", f"/studies/{rid}/sae-rule", {"rule_set": rule_set.strip()[:40], "by": h.actor(sess)})
         except (Problem, Unavailable) as exc:
@@ -254,6 +280,30 @@ def register(app: FastAPI, h: Helpers) -> None:
         detail = {"section": "sae", "rule_set": rule_set[:40]}
         au.append("console.study_setup", ruleset=rid, actor=h.actor(sess), detail=detail)
         return RedirectResponse(f"/studies/{rid}/setup?saved=sae#sae", status_code=303)
+
+    @app.post("/studies/{rs}/setup/contact")
+    def save_contact_rule(request: Request, rs: str, csrf: str = Form(""), max_attempts: str = Form(""),
+                          min_days: str = Form("")) -> Response:  # fmt: skip
+        """D-407 (LIFE-017): the study's contact-attempt limit and the days between two attempts; after the limit
+        the coordinator's list asks the investigator."""
+        sess = h.need(request)
+        rid = study_or_404(sess, rs)
+        need_edit(request, sess, csrf)
+        try:
+            body = {"max_attempts": int(max_attempts), "min_days": int(min_days), "by": h.actor(sess)}
+        except ValueError:
+            raise h.problem(400, "request.refused", reason="attempts and days are whole numbers") from None
+        try:
+            s28.call(bk, "PUT", f"/studies/{rid}/contact-rule", body)
+        except (Problem, Unavailable) as exc:
+            return setup_page(request, sess, rid, err=err_of(exc))
+        au.append(
+            "console.study_setup",
+            ruleset=rid,
+            actor=h.actor(sess),
+            detail={"section": "contact", "max_attempts": body["max_attempts"], "min_days": body["min_days"]},
+        )
+        return RedirectResponse(f"/studies/{rid}/setup?saved=contact#contact", status_code=303)
 
     @app.post("/studies/{rs}/setup/log")
     async def save_log(request: Request, rs: str) -> Response:
@@ -465,6 +515,21 @@ def register(app: FastAPI, h: Helpers) -> None:
             au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
 
+    def sae_type_missing(rid: str) -> str:
+        """T-629 (FIT-U06, D-415): why the study may not open yet, or "". A study that reports serious adverse events
+        opens only with its type for SAE reporting chosen and confirmed on the set-up page, since the type selects
+        the reporting table (who is told, by when). Without the study store there is no SAE register to gate."""
+        if not s28.has_api(bk) or s28.load(bk, store, rid, defaults(rid)).study_type not in SAE_STUDY_TYPES:
+            return ""
+        try:
+            row = s28.call(bk, "GET", f"/studies/{rid}/sae-rule")
+        except (Problem, Unavailable):
+            return "sstate.sae_unknown"
+        problems = set((row.get("rules") or {}).get("problems") or ())
+        if not row.get("rule_set") or problems & set(lc.RULE_ALERTS):
+            return "sstate.sae_type"
+        return ""
+
     @app.get("/studies/{rs}/state")
     def study_state(request: Request, rs: str) -> Response:
         sess = h.need(request)
@@ -485,6 +550,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             return state_page(request, sess, rid, status=400, err="sstate.bad_move")
         if state in REASON_STATES and not why:
             return state_page(request, sess, rid, status=400, err="sstate.need_reason")
+        if state == "open" and (refused := sae_type_missing(rid)):
+            return state_page(request, sess, rid, status=409, err=refused)
 
         def audit(new: StudyState) -> None:
             au.append("console.study_state", ruleset=rid, actor=h.actor(sess),

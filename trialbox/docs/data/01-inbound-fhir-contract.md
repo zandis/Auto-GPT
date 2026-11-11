@@ -39,10 +39,20 @@ Every resource also gives its `id` and its `meta` (the row provenance and the ba
 - **The therapy period** of an order, in this order: `dosageInstruction[0].timing.repeat.boundsPeriod`, then
   `dispenseRequest.validityPeriod`, then `authoredOn` plus `dispenseRequest.expectedSupplyDuration` (days or weeks
   only). A statement's period is its `effectivePeriod` (STD-012).
+- **Lab units.** A `valueQuantity` is compared in the criterion's unit. The same unit is used as it is. A unit of
+  the same kind converts by definition, for any analyte: g/L and g/dL, 10*4/uL and 10*9/L, ng/mL and ug/L, U/L and
+  mU/mL, within a factor of 1,000 (D-418). Creatinine, CRP, ESR, weight and height also convert with their own
+  factors (D-275). Anything else, a result with no unit included, is unknown with the reason `unit_mismatch`. Mass
+  and substance (mg/dL and mmol/L) never convert in screening, and HbA1c % and mmol/mol never convert at all.
 - **Times.** A date-time with an offset or `Z` is the same instant in the site's zone (`site.tz`). A source column
   mapped with an offset keeps that offset in the snapshot; only a naive time takes the mapping's `tz` (STD-015).
 - **Status.** The states of D-275 apply: an entered-in-error, cancelled or not-done record is not a fact. For a
   MedicationStatement, `not-taken` and `intended` are not facts either; `unknown` keeps the record without a date.
+- **Presence words.** A LOINC-coded Observation whose `valueString` is a presence word (陽性, 陰性, 未檢出,
+  Non-reactive, 2+) is read as the LOINC answer `LA6576-8` Positive or `LA6577-6` Negative, as the mapped sources
+  read it (D-334). The text stays in `valueCodeableConcept.text`, and the result is tagged
+  `urn:trialbox:value-source|presence-word`. A held or borderline word (判定保留, ±, equivocal) stays text, and
+  screening reads it as unknown. The audit entry of the night counts them (`presence_words_read`; D-418).
 
 **Not read.** AllergyIntolerance, MedicationAdministration, MedicationDispense, Immunization, Specimen and any other
 type; and any element not in the table (for example `Condition.abatement[x]`, `Condition.onsetPeriod`,

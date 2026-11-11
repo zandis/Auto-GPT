@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from tb_common import feedguard
+from tb_common import chartno, feedguard, labvalue
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
@@ -23,11 +23,12 @@ from tb_contracts import IngestReport, RebuildResult, ValidationSummary, dump
 from tb_contracts.landing import Severity
 
 from adapter import governance
+from adapter.instants import to_site_offset
 from adapter.load_fhir import sync_snapshot
 from adapter.mapping.engine import Mapper, Mapping, resource_id
 from adapter.ndjson import is_deleted_flag, list_snapshots, snapshot_dir, tombstone_count, write_snapshot
 from adapter.pidmap import PidMap
-from adapter.sources.base import CHANGE_COLUMNS, Source, has_table, quarantine_reason
+from adapter.sources.base import CHANGE_COLUMNS, Row, Source, has_table, quarantine_reason
 from adapter.validate.validator import Hl7Validator, StructuralValidator, missing_required, sample
 
 log = logging.getLogger("adapter")
@@ -60,6 +61,9 @@ class AdapterConfig:
     source_encoding: str | None = None  # T-615b: settings.data_source.encoding, the csv reader's first candidate
     # T-659b (D-370): the folder of data contracts (adapter/governance.py); None: no contract checks
     contracts_dir: Path | None = None
+    # FIT-U09 (T-629): settings.mrn_regex, the site's chart-number pattern; a column whose all-digit values match it
+    # only with leading zeros put back is refused (``tb_common.chartno.column_refusal``)
+    mrn_regex: str | None = None
 
     def site_key(self) -> bytes:
         """The site's pseudonymisation key. Never made here (T-612): :class:`SiteKeyError` when it is missing."""
@@ -217,6 +221,39 @@ def apply_unit_defaults(observations: list[Resource], defaults: dict[str, str]) 
     return n
 
 
+VALUE_SOURCE = "urn:trialbox:value-source"
+# the LOINC answers of a presence test (answer list LL360-9), as the shipped lab lookups write them (D-334)
+PRESENCE_ANSWERS = {labvalue.POSITIVE: ("LA6576-8", "Positive"), labvalue.NEGATIVE: ("LA6577-6", "Negative")}
+
+
+def apply_presence_words(observations: list[Resource]) -> int:
+    """D-418 (T-619c, DATA-016): a ``fhir_bulk`` feed has no mapping step, so a qualitative result it sends as text
+    (``valueString`` 陰性, 陽性, 未檢出, Non-reactive, 2+) was never read: every criterion on it stayed unknown. The
+    shared presence reader of the mapped sources (``tb_common.labvalue.presence``, D-334) now reads it into the LOINC
+    answer the shipped lookups use (``LA6576-8`` Positive, ``LA6577-6`` Negative), keeps the text as written in
+    ``valueCodeableConcept.text``, and tags the result ``urn:trialbox:value-source|presence-word``. Only a result
+    coded in LOINC is read. A held or borderline word (判定保留, ±, equivocal) and any other text stay text, which the
+    engines read as unknown. Returns how many results were read."""
+    n = 0
+    for r in observations:
+        text = r.get("valueString")
+        if not isinstance(text, str) or not any(
+            c.get("system") == LOINC for c in (r.get("code") or {}).get("coding") or []
+        ):
+            continue
+        answer = PRESENCE_ANSWERS.get(labvalue.presence(text) or "")
+        if answer is None:
+            continue
+        del r["valueString"]
+        r["valueCodeableConcept"] = {
+            "coding": [{"system": LOINC, "code": answer[0], "display": answer[1]}],
+            "text": text,
+        }
+        r.setdefault("meta", {}).setdefault("tag", []).append({"system": VALUE_SOURCE, "code": "presence-word"})
+        n += 1
+    return n
+
+
 def _bulk_unit_defaults(mapping_path: Path) -> dict[str, str]:
     """A ``fhir_bulk`` feed has no mapping step; its declared units are the ``unit_defaults`` of the site mapping."""
     try:
@@ -235,6 +272,36 @@ def _undated_order(r: dict[str, Any]) -> bool:
         "boundsPeriod"
     ) or {}  # T-616 (STD-012): the therapy period, read first
     return not r.get("authoredOn") and not period.get("start") and not bounds.get("start")
+
+
+CHART_COLUMNS = ("mrn",)  # the canonical chart-number column of every table (mapping/templates/CANONICAL.md)
+
+
+def chart_column_refused(
+    mapping: Mapping, table: str, tspec: dict[str, Any], rows: list[Row], mrn_regex: str | None
+) -> str | None:
+    """FIT-U09 (T-629, D-415): why this table's chart-number column is refused, naming the column as the export
+    writes it, or None. The patient table's key and every table's ``mrn`` are checked: a column that Excel turned
+    into numbers (``tb_common.chartno.column_refusal``) would give some patients a second pseudonym, so the whole
+    table is set aside and the night is held; nothing is guessed back."""
+    if not rows:
+        return None
+    cols = list(CHART_COLUMNS)
+    if table == "patient" and tspec.get("key") and tspec["key"] not in cols:
+        cols.insert(0, str(tspec["key"]))
+    for col in cols:
+        if col not in rows[0]:
+            continue
+        why = chartno.column_refusal((str(r.get(col) or "") for r in rows), mrn_regex)
+        if why:
+            local = mapping.source_column(table, col) or col
+            what = {
+                "excel_number": "holds numbers written the way Excel writes them (123456.0, 1.2E+11)",
+                "lost_zeros": "holds chart numbers that match the site's pattern only with leading zeros put back",
+            }[why]
+            return (f"chart-number column {local!r} refused ({why}): it {what}; the leading zeros are lost. Export "
+                    "the column as text and run the night again")  # fmt: skip
+    return None
 
 
 def check_delta(mapping: Mapping, source_kind: str) -> None:
@@ -422,6 +489,11 @@ def _run_ingest(
                 if chk.validation.quarantined:
                     keep = {id(r) for r in chk.accepted}
                     rows = [n for r, n in zip(raw, rows, strict=True) if id(r) in keep]
+            refused = chart_column_refused(mapping, table, tspec, rows, cfg.mrn_regex)
+            if refused:  # FIT-U09 (T-629, D-415): the table is set aside whole and the night is held
+                quarantined[table] = refused
+                errors.append(f"{table}: {refused}")
+                rows = []
             # a row marked deleted (``deleted`` column, or the table's ``deleted:`` column) is a tombstone, never a
             # record; a source that keeps deletes apart (SS-MIX2 flag 0) gives them through ``deleted_rows``
             dcol = str(tspec.get("deleted") or "deleted")
@@ -462,6 +534,10 @@ def _run_ingest(
     at.update(step="snapshot", table=None)
     unit_defaults = mapping.unit_defaults if source_kind != "fhir_bulk" else _bulk_unit_defaults(cfg.mapping_path)
     defaulted = apply_unit_defaults(by_type.get("Observation", []), unit_defaults)
+    # D-418: the mapped sources read presence words in the mapping step; a FHIR feed has none, so here
+    presence_read = apply_presence_words(by_type.get("Observation", [])) if source_kind == "fhir_bulk" else 0
+    # T-619a (STD-070): an instant stated in another offset is written in the site's, so SQL and CQL read one date
+    shifted = to_site_offset((r for items in by_type.values() for r in items), zone)
     # D-275 (review S-9): an order with no authoredOn and no validity start is kept. It was dropped here, so a
     # patient whose only order had no date failed "on the drug" with no trace; the compiled SQL and CQL place an
     # undated order in no window and leave the criterion unknown (a person checks)
@@ -701,6 +777,8 @@ def _run_ingest(
                 "tombstoned": tombstoned,
                 "held": held,
                 "unit_defaults_applied": defaulted,
+                "presence_words_read": presence_read,
+                "instants_to_site_offset": shifted,
                 "drop_override": "; ".join(overrides) or None,
                 # T-611: what the readiness page shows for a held night (tables only, never a row)
                 "incomplete": completeness["problems"] or None,

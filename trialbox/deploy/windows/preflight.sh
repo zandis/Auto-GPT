@@ -16,7 +16,7 @@ line() { if [ "$1" = 0 ]; then echo "PASS  $2: $3"; else echo "FAIL  $2: $3"; FA
 
 # 1. WSL2, not WSL1 and not a plain Linux machine
 rel="$(cat "$PROC/sys/kernel/osrelease" 2>/dev/null || true)"
-case "$rel" in *microsoft*WSL2*|*WSL2*microsoft*|*-microsoft-standard-WSL2*) ok=0 ;; *) ok=1 ;; esac
+case "$rel" in *microsoft*WSL2*|*WSL2*microsoft*) ok=0 ;; *) ok=1 ;; esac
 line "$ok" "WSL2" "kernel ${rel:-unknown}"
 
 # 2. Windows build, from the Windows side (interop: cmd.exe /c ver)

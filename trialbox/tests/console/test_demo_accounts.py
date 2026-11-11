@@ -81,6 +81,8 @@ def _issued(b: dict[str, Any]) -> list[list[str]]:
         ({"delegation": [{"study": "GZQO", "role": "sub_pi", "tasks": ["approve"]}]}, "unknown task"),
         ({"expires": "31/01/2027"}, "expires must be"),
         ({"password_env": "lower-case"}, "environment variable name"),
+        ({"role": "cro", "delegation": []}, "names its studies"),
+        ({"affiliation": "smo", "delegation": []}, "names its studies"),
     ],
 )
 def test_the_accounts_file_is_checked(change: dict[str, Any], message: str) -> None:

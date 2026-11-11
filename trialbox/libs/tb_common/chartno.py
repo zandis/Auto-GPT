@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -115,3 +116,36 @@ def normalise(site_rule: Rule | str | None, value: str) -> str:
     if rule.width and len(core) < rule.width:
         return core.zfill(rule.width)
     return core
+
+
+# FIT-U09 (T-629, D-415): a chart-number column that Excel turned into numbers is refused at import, never read.
+# Excel stores a number, so ``00123456`` is saved as ``123456``; a long one is written ``1.23457E+11``; a CSV saved
+# from it may write ``123456.0``. Each would hash to another pseudonym and quietly split one patient in two.
+_EXCEL_NUMBER = re.compile(r"^[0-9]+\.0+$|^[0-9](\.[0-9]+)?[Ee][+]?[0-9]+$")
+REFUSALS = ("excel_number", "lost_zeros")
+
+
+def column_refusal(values: Iterable[str], pattern: str | None = None, rule: Rule | str | None = None) -> str | None:
+    """Why a chart-number column must be refused, or None when it may be read.
+
+    * ``excel_number``: a value is written the way Excel writes a number (``123456.0``, ``1.23457E+11``);
+    * ``lost_zeros``: with the site's chart-number pattern (``settings.mrn_regex``), an all-digit value that does not
+      match it, written the site's way (:func:`normalise`), but does once leading zeros are put back.
+
+    A value that fails the pattern for another reason is not this check's business (the import's own row checks).
+    Without a pattern only the first sign can be seen: a CSV keeps no cell types."""
+    pat = re.compile(pattern) if pattern else None
+    for raw in values:
+        v = str(raw).translate(_FULL).strip()
+        if not v:
+            continue
+        if _EXCEL_NUMBER.match(v):
+            return "excel_number"
+        if pat is None or not _DIGITS.match(v):
+            continue
+        norm = normalise(rule, v)
+        if pat.fullmatch(norm) or pat.fullmatch(v):
+            continue
+        if any(pat.fullmatch("0" * k + v) for k in range(1, 17)):
+            return "lost_zeros"
+    return None

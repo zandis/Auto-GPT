@@ -4,7 +4,8 @@
 step, D-187, D-274, ``backup_schedule.py``); ``secrets``
 (per-service tokens, D-128 / D-138, ``svc_secrets.py``), ``logs`` (retention, ``logs.py``) and ``update`` (the update
 path behind ``tools/apply_update.sh``, ``update.py``); ``doctor --platform``, ``platform-images`` and
-``platform-egress`` for a hospital platform (D-211, ``platform.py``); ``exports`` lists the export ledger (D-149,
+``platform-egress`` for a hospital platform (D-211, ``platform.py``) and ``platform-day2`` for its backup, restore,
+logs, audit archive and digest updates (T-633, D-416, ``platform_day2.py``); ``exports`` lists the export ledger (D-149,
 ``tb_common.flowledger``); ``ops`` runs the console's operations requests and writes their status (D-178, ``ops.py``);
 ``watchdog`` restarts an unhealthy service and audits it (T-108a, D-360, ``watchdog.py``);
 ``eval qualify`` qualifies a model pair for a hardware profile and writes the record (D-313, ``tools/qualify.py``);
@@ -13,8 +14,10 @@ path behind ``tools/apply_update.sh``, ``update.py``); ``doctor --platform``, ``
 ``services/mail_gateway/admin.py``).
 ``support-bundle`` writes one PHI-free file for a support ticket (T-209b, D-405, ``tools/support_bundle.py``).
 ``decommission-plan`` prints the close-out and purge checklist of the box (dry run; T-628, D-413, ``decommission.py``).
-``secrets``, ``logs``, ``update``, ``ops``, ``watchdog`` and ``decommission-plan`` need only the standard library, so
-they run with the host's ``python3`` from the install folder: ``sudo python3 -m tools.trialbox secrets rotate``."""
+``selftest`` runs the pair canary in the box with the compose files of ``deploy/.env`` (OPS-033, ``selftest.py``).
+``secrets``, ``logs``, ``update``, ``ops``, ``watchdog``, ``selftest`` and ``decommission-plan`` need only the standard
+library, so they run with the host's ``python3`` from the install folder:
+``sudo python3 -m tools.trialbox secrets rotate``."""
 
 from __future__ import annotations
 
@@ -28,6 +31,10 @@ from pathlib import Path
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
+    if args[:1] == ["platform-day2"]:  # its own options (platform_day2.py); `pg` passes its arguments through
+        from tools.trialbox import platform_day2
+
+        return platform_day2.main(args[1:])
     if args[:2] == ["eval", "qualify"]:  # its own options (tools/qualify.py), not a suite of eval/suites/
         from tools import qualify
 
@@ -164,6 +171,9 @@ def main(argv: list[str] | None = None) -> int:
     fl.add_argument("--audit", type=Path, default=Path(os.environ.get("TB_AUDIT_DIR", "/data/audit")))
     fl.add_argument("--days", type=int, default=30)
     fl.add_argument("--json", action="store_true")
+    st = sub.add_parser("selftest", help="the pair canary in the box, with the compose files of deploy/.env (OPS-033)")
+    st.add_argument("--deploy", type=Path, default=deploy)
+    st.add_argument("--dry-run", action="store_true", help="print the command; run nothing")
     dp = sub.add_parser("decommission-plan", help="close-out and purge checklist of every store; changes nothing")
     dp.add_argument("--deploy", type=Path, default=deploy)
     dp.add_argument("--json", action="store_true")
@@ -176,6 +186,10 @@ def main(argv: list[str] | None = None) -> int:
     ml.add_argument("--by", default=None, help="who decides (default: the user)")
     ml.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
+    if a.cmd == "selftest":
+        from tools.trialbox import selftest
+
+        return selftest.main(a.deploy, dry_run=a.dry_run)
     if a.cmd == "decommission-plan":
         from tools.trialbox import decommission
 
@@ -281,8 +295,9 @@ def _platform_cmd(a: argparse.Namespace) -> int:
         eg = _egress()
         pols, warnings = eg.render_networkpolicy(eg.allowlist(env, eg.ROUTING))
         doctor_pol, doctor_warnings = pf.render_doctor_policy(env)  # the install-check job's own egress (D-211)
-        pols = [*pols, *([doctor_pol] if doctor_pol else [])]
-        for w in [*warnings, *doctor_warnings]:
+        ops_pol, ops_warnings = pf.render_ops_policy(env)  # the log job's API server (T-633, D-416)
+        pols = [*pols, *([doctor_pol] if doctor_pol else []), *([ops_pol] if ops_pol else [])]
+        for w in [*warnings, *doctor_warnings, *ops_warnings]:
             print(f"warning: {w}", file=sys.stderr)
         print(yaml.safe_dump_all(pols, sort_keys=False, allow_unicode=True) if pols else "# no egress allowed", end="")
         return 0

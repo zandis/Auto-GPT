@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -210,6 +211,14 @@ def test_two_branches_each_adding_a_runbook_section_and_a_data_row_merge_cleanly
         shutil.copytree(REPO / doclint.HUBS[hub], root / doclint.HUBS[hub])
     monkeypatch.setattr(doclint, "ROOT", root)
     monkeypatch.setattr(doclint, "HUBS", {h: doclint.HUBS[h] for h in ("docs/RUNBOOK.md", "docs/DATA.md")})
+    # The real table may have fewer than two free numbers left; the copy adds two spare rows after its last row.
+    runbook = root / "docs/RUNBOOK.md"
+    rows = runbook.read_text(encoding="utf-8").splitlines()
+    last = max(i for i, line in enumerate(rows) if re.match(r"\| \d+ \|", line))
+    top = int(rows[last].split("|")[1])
+    rows[last + 1 : last + 1] = [f"| {top + k} | Spare {k} | T-000 | site |" for k in (1, 2)]
+    runbook.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    doclint.write_index("docs/RUNBOOK.md")
     reserved = [n for n, s in doclint.sections("docs/RUNBOOK.md")[0].items() if not s.file][:2]
     assert len(reserved) == 2
     for args in (["init", "-q", "-b", "main"], ["config", "user.email", "t@example.org"], ["config", "user.name", "t"],
