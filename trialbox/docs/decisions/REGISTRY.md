@@ -123,7 +123,9 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-276 | merged | fix group FG-G (PR #101) | the two-model check needs two different models; `docs/decisions/D-276-two-model-check.md` |
 | D-277..D-278 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
 | D-279 | merged | fix group D-279 | identity follow-ups: forced first password change, sign-in lock per account and address, OIDC session lifetime, second factor at signing; `docs/decisions/D-279-identity-follow-ups.md` (file) |
-| D-280..D-289 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
+| D-280 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
+| D-281 | merged | fix group FG D-281 (built as a card, branch `agent/FG-D281-signing`) | EDC signature controls: record lock, keyed signature over the whole act checked before send and export, append-only trail tables, audit inside the transaction, audited refusals, plain ODM legal reason, REDCap version as text; `docs/decisions/D-281-edc-signature-controls.md` (file) |
+| D-282..D-289 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
 | D-290..D-299 | unused | — | below the new block; never given |
 
 ## New numbers (from D-300)
