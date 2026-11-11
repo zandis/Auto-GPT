@@ -50,6 +50,14 @@ closed). Checks:
   VALIDATION and PRODUCTION also FAIL when the kernel clock is not NTP-synchronised, when the time server does not
   answer, or when neither can be read. WARN for those in DEV and TEST.
 
+``--two-device`` adds one check, for a device of the GB10 two-device form (T-214, D-373; ``deploy/two-device/``):
+
+* ``two_device``: ``TB_LINK_ROLE`` (spark or workstation) names this device; its rendered compose (``--compose-config``,
+  else ``docker compose config --format json`` of the device's services in the deploy folder) runs only what the GB10
+  profile (``deploy/gb10-profile.yaml``) puts on it, the link is the only port the Spark publishes and only on the
+  link address (a gateway or any listener on 0.0.0.0 there is a FAIL), the link has its certificates, its peer and
+  its route alias, and the Spark's memory limits are the profile's. WARN when the driver hold's re-test is past due.
+
 ``--live`` adds one check that talks to the model servers, so it runs where the gateway's network is (install.sh
 runs it in a one-off container on ``trialbox-model-net``; ``--serving`` runs it alone):
 
@@ -100,6 +108,7 @@ class DoctorInputs:
     platform: bool = False  # doctor --platform: pods on a cluster, no host cron, so no host zone to compare
     deploy: Path | None = None  # the deploy folder (from --env-file): the backup record and the cron file (D-274)
     cron_dir: Path = Path("/etc/cron.d")
+    compose_config: Mapping[str, Any] | None = None  # doctor --two-device: the device's rendered compose (D-373)
 
 
 def _egress() -> ModuleType:
@@ -335,6 +344,7 @@ def check_judge_route(inp: DoctorInputs) -> Check:
     from guard.guard import Guard
     from registry.registry import DEFAULT_PATH, Registry
     from tb_common.audit import AuditLog
+    from tb_common.config import environment_name
     from tb_common.llm import load_prompt, render
     from tb_contracts import inline_schema
     from tb_llm import GatewayClient, GatewayError, GatewayRefused, json_schema_format
@@ -366,7 +376,7 @@ def check_judge_route(inp: DoctorInputs) -> Check:
             return httpx.Response(res.status, json=res.body, headers=res.headers)
 
         http = httpx.Client(transport=httpx.MockTransport(gateway))
-        p = load_prompt("judge")
+        p = load_prompt("judge", environment_name(env))  # the version this box's environment serves (D-359)
         labels = v1_labels(
             p.meta.id,
             p.meta.version,
@@ -792,6 +802,30 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
 
 
 LIVE: tuple[Callable[[DoctorInputs], Check], ...] = (check_serving,)
+
+
+def check_two_device(inp: DoctorInputs) -> Check:
+    """The GB10 two-device form on this device (T-214, D-373): what runs here, what listens where, the link."""
+    from tools import two_device as td
+
+    role = inp.env.get("TB_LINK_ROLE", "").strip()
+    if role not in td.ROLES:
+        return Check("two_device", "FAIL", f"TB_LINK_ROLE must be {' or '.join(td.ROLES)} (deploy/.env), not {role!r}")
+    profile = td.load_profile()
+    bad = [f"profile: {p}" for p in td.profile_problems(profile)]
+    if inp.compose_config is None:
+        bad.append("no rendered compose (give --compose-config, or run doctor where docker compose works)")
+    else:
+        bad += td.compose_problems(role, inp.compose_config, profile)
+    if bad:
+        return Check("two_device", "FAIL", "; ".join(bad))
+    late = td.driver_hold_overdue(profile) if role == "spark" else None
+    if late:
+        return Check("two_device", "WARN", late)
+    return Check("two_device", "PASS", f"{role}: {', '.join(profile['devices'][role])}; the link only on its address")
+
+
+TWO_DEVICE: tuple[Callable[[DoctorInputs], Check], ...] = (check_two_device,)
 
 
 def run(inp: DoctorInputs, checks: tuple[Callable[[DoctorInputs], Check], ...] = CHECKS) -> list[Check]:

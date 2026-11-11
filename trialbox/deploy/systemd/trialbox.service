@@ -1,0 +1,22 @@
+# The TrialBox stack after a host restart (T-108b, D-377; OPS-064). Installed by deploy/install.sh. Starts only after
+# the egress table is loaded (trialbox-egress.service), brings the stack up with the compose files and profile kept
+# in deploy/.env (COMPOSE_FILE, COMPOSE_PROFILES), then opens the allowed egress pairs for the new addresses.
+[Unit]
+Description=TrialBox stack (docker compose)
+Documentation=file://@TB_ROOT@/docs/runbook/01-install-a-new-site.md
+Requires=docker.service trialbox-egress.service
+After=docker.service trialbox-egress.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=@TB_ROOT@
+ExecStart=/usr/bin/env docker compose --project-directory @TB_ROOT@/deploy up -d --pull never --wait --wait-timeout 900
+ExecStartPost=@TB_ROOT@/deploy/network.sh apply
+ExecStop=/usr/bin/env docker compose --project-directory @TB_ROOT@/deploy stop
+TimeoutStartSec=1200
+TimeoutStopSec=300
+
+[Install]
+WantedBy=multi-user.target

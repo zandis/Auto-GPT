@@ -98,7 +98,7 @@ def test_external_prompt_is_the_file_merged_with_pr_56() -> None:
     assert before.returncode == 0 and sha256_bytes(before.stdout) == e.sha256 == sha256_bytes(
         (TRIALBOX / e.file).read_bytes()
     )
-    assert load_prompt("crf_prefill").sha256 == e.sha256
+    assert load_prompt("crf_prefill_v1").sha256 == e.sha256  # crf_prefill@2 lives in libs/tb_llm/prompts (T-606)
 
 
 OLD_PROFILE_SYSTEM = (  # tools/bench_profile.py SYSTEM at 0cc908b, before the text became a registered prompt
@@ -134,7 +134,11 @@ def test_every_entry_resolves_and_every_prompt_file_is_registered() -> None:
     for e in ENTRIES:
         p = load_prompt(f"{e.id}_v{e.version}")
         assert (p.meta.id, p.meta.version, p.meta.output_schema, p.sha256) == (e.id, e.version, e.schema, e.sha256)
-    assert {_tuple(e) for e in ENTRIES} == set(BASELINE), "every shipped entry is a frozen baseline, and only those"
+    # every frozen baseline is shipped; a later version (T-606, D-359) claims no baseline and waits for its record
+    assert set(BASELINE) <= {_tuple(e) for e in ENTRIES}
+    for e in ENTRIES:
+        if _tuple(e) not in BASELINE:
+            assert e.qualification is None or "baseline" not in e.qualification, e.ref
 
 
 @pytest.mark.req("LLM-20", "MOD-5")
@@ -159,7 +163,7 @@ def test_active_set_is_the_newest_version_per_id() -> None:
     rows = prompt_registry.active_set()
     by = {r["id"]: r for r in rows}
     assert len(rows) == len(by) == len({e.id for e in ENTRIES})
-    assert by["judge"]["ref"] == "judge@4" and by["ir_extract"]["version"] == 2
+    assert by["judge"]["ref"] == "judge@5" and by["ir_extract"]["version"] == 3  # T-606 (D-359)
     assert by["judge"]["sha256"] == load_prompt("judge").sha256
     assert set(by["judge"]) >= {"sha256", "schema", "approved_by", "date", "qualification"}
 
@@ -255,12 +259,22 @@ def test_new_version_needs_a_qualification_record_in_production(tmp_path: Path) 
     reg = PromptRegistry.load(path, root=tmp_path)
     assert reg.get("judge", environment="DEV").ref == "judge@5"  # DEV/VALIDATION may run it, to qualify it
     assert reg.get("judge", environment="VALIDATION").ref == "judge@5"
-    with pytest.raises(PromptRegistryError) as exc:
-        reg.get("judge", environment="PRODUCTION")
+    with pytest.raises(PromptRegistryError) as exc:  # asked for by version, the new one is refused in PRODUCTION
+        reg.get("judge", 5, environment="PRODUCTION")
     assert exc.value.reason == "prompt_unqualified"
-    assert reg.get("judge", 4, environment="PRODUCTION").ref == "judge@4"  # the baseline stays usable
+    # D-359: without a version PRODUCTION serves the newest qualified one; the new version waits for its record
+    assert reg.get("judge", environment="PRODUCTION").ref == "judge@4"  # the baseline stays usable
+    assert [e.ref for e in reg.pending("PRODUCTION")] == ["judge@5"] and reg.pending("VALIDATION") == []
+    reg.check("PRODUCTION")  # the start check: judge has a qualified version
+    data = yaml.safe_load(path.read_text())  # an id with no qualified version at all fails the start check
+    data["prompts"] = [r for r in data["prompts"] if r["version"] == 5]
+    path.write_text(yaml.safe_dump(data, sort_keys=False))
+    only5 = PromptRegistry.load(path, root=tmp_path)
+    with pytest.raises(PromptRegistryError) as exc:
+        only5.get("judge", environment="PRODUCTION")
+    assert exc.value.reason == "prompt_unqualified"
     with pytest.raises(PromptRegistryError):
-        reg.check("PRODUCTION")  # the start check
+        only5.check("PRODUCTION")
 
     # a new version cannot claim the baseline
     path2 = _copy(tmp_path / "b", "judge@4")
@@ -291,15 +305,16 @@ def test_new_version_needs_a_qualification_record_in_production(tmp_path: Path) 
     assert qualify(good).get("judge", environment="PRODUCTION").ref == "judge@5"
     for bad in ({**good, "prompt": "judge@4"}, {**good, "sha256": "0" * 64}, {**good, "schema_sha256": "0" * 64}):
         with pytest.raises(PromptRegistryError) as exc:
-            qualify(bad).get("judge", environment="PRODUCTION")  # any file with its sha no longer qualifies
+            qualify(bad).get("judge", 5, environment="PRODUCTION")  # any file with its sha no longer qualifies
         assert exc.value.reason == "prompt_unqualified"
+        assert qualify(bad).get("judge", environment="PRODUCTION").ref == "judge@4"  # D-359: the qualified one serves
     with pytest.raises(PromptRegistryError) as exc:  # a good record outside the qualification folder
-        qualify(good, tmp_path / "eval" / "qualification" / "judge-5.json").get("judge", environment="PRODUCTION")
+        qualify(good, tmp_path / "eval" / "qualification" / "judge-5.json").get("judge", 5, environment="PRODUCTION")
     assert exc.value.reason == "prompt_unqualified"
     reg3 = qualify(good)
     rec.write_text(json.dumps({**good, "result": "fail"}))  # the record changed after it was registered
     with pytest.raises(PromptRegistryError) as exc:
-        reg3.get("judge", environment="PRODUCTION")
+        reg3.get("judge", 5, environment="PRODUCTION")
     assert exc.value.reason == "prompt_unqualified"
 
 
@@ -507,6 +522,11 @@ def test_gateway_start_in_production_refuses_a_changed_or_unqualified_prompt(tmp
     _gw(tmp_path, prompts=PromptRegistry.load(path), env=Environment.TEST)  # a TEST box starts (and refuses use)
     path2 = _copy(tmp_path / "q", "judge@4")
     _bump(path2, 5)
+    # D-359: a newer version waiting for its qualification record does not stop the box (judge@4 is served) ...
+    _gw(tmp_path, prompts=PromptRegistry.load(path2), env=Environment.PRODUCTION)
+    data = yaml.safe_load(path2.read_text())  # ... an id with no qualified version does
+    data["prompts"] = [r for r in data["prompts"] if r["version"] == 5]
+    path2.write_text(yaml.safe_dump(data, sort_keys=False))
     with pytest.raises(PromptRegistryError, match="prompt_unqualified"):
         _gw(tmp_path, prompts=PromptRegistry.load(path2), env=Environment.PRODUCTION)
     _gw(tmp_path, env=Environment.PRODUCTION)  # the shipped registry starts in PRODUCTION
@@ -514,7 +534,7 @@ def test_gateway_start_in_production_refuses_a_changed_or_unqualified_prompt(tmp
 
 @pytest.mark.req("LLM-20", "S1-06")
 def test_v1_shim_sends_the_registered_sha(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """``tb_common.llm`` through the gateway: the labels carry ``judge@4`` and its sha; the gateway accepts them."""
+    """``tb_common.llm`` through the gateway: the labels carry ``judge@5`` and its sha; the gateway accepts them."""
     gw = _gw(tmp_path)
     sent: list[dict[str, str]] = []
 
@@ -529,7 +549,7 @@ def test_v1_shim_sends_the_registered_sha(tmp_path: Path, monkeypatch: pytest.Mo
     c = LlmClient("http://unused", "m", gateway=Client())
     monkeypatch.setenv("TB_DATA_CLASS", "D0")
     r = c.chat_json("judge", JUDGE_VARS)
-    assert sent[0]["X-TB-Prompt"] == "judge@4" and sent[0]["X-TB-Prompt-Sha"] == load_prompt("judge").sha256
+    assert sent[0]["X-TB-Prompt"] == "judge@5" and sent[0]["X-TB-Prompt-Sha"] == load_prompt("judge").sha256
     assert r.prompt_sha == load_prompt("judge").sha256
 
 
