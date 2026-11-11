@@ -22,7 +22,10 @@ the same VM, same set, same `--workers`; every run also takes `--max-upper-ci 0.
    --expect-root nvidia/Gemma-4-26B-A4B-NVFP4 --revision <commit> --model-dir <weights folder>
    --set /tmp/jb-set.jsonl --expect-set-sha <sha> --max-upper-ci 0.05 --out /tmp/jb-current`
 2. The candidate, **official weights only**: the `google/gemma-4-31B-it` repository on Hugging Face, no community
-   quantisation or fine-tune. Download it at a fixed commit into a folder, serve that folder with
+   quantisation or fine-tune. The registry build for this run is `gemma-4-31b-it-qat-challenger` (D-392): Google's own
+   4-bit QAT checkpoint `google/gemma-4-31B-it-qat-w4a16-ct`; write its commit into the build's `provenance` when you
+   download it. The run is row S4 of `docs/plan/gpu-ledger.md`. Download it at a fixed commit into a folder, serve
+   that folder with
    `vllm serve <folder> --served-model-name gemma-4-31b-it --max-model-len 32768` (the full-record path sends up to
    28,000 tokens; bf16 weights are about 62 GB, so it fits on the 96 GB card alone), then the same command with
    `--served-name gemma-4-31b-it --expect-root <folder> --revision <commit> --model-dir <folder>
