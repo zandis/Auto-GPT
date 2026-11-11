@@ -1,0 +1,23 @@
+# The KEK of the site keys at boot (deploy/hardening/seal_keys.sh, backend tpm; T-634, D-408, D-347). systemd opens
+# the credential sealed to this host's key and its TPM and hands it to `tools.keys unseal`, which checks its id
+# against kek.json and writes /run/trialbox/kek (tmpfs) for the services. The host key is on the LUKS volume, which
+# opens only in the hospital (deploy/hardening/disk-unlock.sh): a moved box has neither.
+[Unit]
+Description=TrialBox KEK unseal (TPM-sealed credential)
+Documentation=file://@TB_ROOT@/docs/security/01-the-host.md
+Before=trialbox.service docker.service
+ConditionPathExists=/etc/credstore.encrypted/trialbox-kek
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+LoadCredentialEncrypted=trialbox-kek:/etc/credstore.encrypted/trialbox-kek
+RuntimeDirectory=trialbox
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+WorkingDirectory=@TB_ROOT@
+Environment=PYTHONPATH=@TB_ROOT@/libs:@TB_ROOT@
+ExecStart=/usr/bin/env python3 -m tools.keys unseal --secrets @TB_SECRETS@ --from ${CREDENTIALS_DIRECTORY}/trialbox-kek --out /run/trialbox/kek
+
+[Install]
+WantedBy=multi-user.target

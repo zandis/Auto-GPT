@@ -128,7 +128,11 @@ CREATE INDEX login_failures_source ON login_failures (source, at);
 CREATE INDEX login_failures_at ON login_failures (at);
 ALTER TABLE sessions ADD COLUMN via TEXT NOT NULL DEFAULT ''
 """
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3)
+# T-209c (D-406, review OPS-059): when each account last opened a session, for the unused-account report
+SCHEMA_V4 = """
+ALTER TABLE users ADD COLUMN last_login TEXT
+"""
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4)
 _COLS = "username, role, mailbox, affiliation, studies, expires"
 
 
@@ -507,6 +511,12 @@ class UserStore:
             if tx.execute("UPDATE users SET disabled = 0 WHERE username = ? AND disabled = 1", (username,)) != 1:
                 raise AuthError(f"no disabled account {username}")
 
+    def activity(self) -> dict[str, tuple[str, str | None]]:
+        """(created, last sign-in) of every active account, both UTC ISO text; the last sign-in is None when the
+        account never opened a session since T-209c (D-406, OPS-059: the unused-account report)."""
+        rows = self.db.fetchall("SELECT username, created, last_login FROM users WHERE disabled = 0")
+        return {str(u): (str(c or ""), str(last) if last else None) for u, c, last in rows}
+
     def disabled_users(self) -> list[User]:
         rows = self.db.fetchall(f"SELECT {_COLS} FROM users WHERE disabled = 1 ORDER BY username")
         return [_row_user(r) for r in rows]
@@ -617,6 +627,7 @@ class UserStore:
             "INSERT INTO sessions (token_sha, username, csrf, created, last_seen, lang, via) VALUES (?,?,?,?,?,?,?)",
             (_sha(token), user.username, csrf, now, now, lang, via[:16]),
         )
+        self.db.execute("UPDATE users SET last_login = ? WHERE username = ?", (now, user.username))  # D-406
         return token, Session(user, csrf, lang, _sha(token))
 
     def session(self, token: str | None, touch: bool = True, api: bool = False) -> Session | None:

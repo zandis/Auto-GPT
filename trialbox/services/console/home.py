@@ -115,6 +115,10 @@ class Helpers:
     ops_summary: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages (D-178): the health tile
     ops_status: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages: the host runner's status
     health: Callable[[], Any] | None = None  # set by console.metrics_page (T-209a): tb_common.metrics.Health now
+    # set by console.admin_accounts (T-209c, D-406): the /admin health tab's backup, update and account facts, and the
+    # unused-account report the Monday health mail carries
+    admin_extra: Callable[[Session], dict[str, Any]] | None = None
+    accounts_report: Callable[[], dict[str, Any]] | None = None
     identity: Any = None  # console.identity.Identity (D-279): the second factor at signing; None in bare test apps
     recorded: Any = None  # console.recorded_opinions.Recorded (T-515): demo opinions laid over the candidate list
     # set by console.breakglass (D-280): the administrator's open grant covering one patient or one job, else None;
@@ -746,8 +750,27 @@ def register(app: FastAPI, h: Helpers) -> None:
                           else "scope", "kind": "", "source": "rule", "quote": None, "date": None, "reason": None,
                           "records": 0, "coded": None, "test_model": False}
                          for a in r.get("actions") or ["scope"]]  # fmt: skip
-            out.append({"pid": str(r["pid"]), "short": str(r["pid"])[:8], "items": items})
+            out.append({"pid": str(r["pid"]), "short": str(r["pid"])[:8], "items": dedupe_items(items)})
         return out
+
+    def has_evidence(i: dict[str, Any]) -> bool:
+        return bool(i["quote"] or (i["coded"] or {}).get("lines"))
+
+    def dedupe_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """T-685 (UX-031): one line per patient, criterion and source. A run's own rule (scope, research-contact
+        consent) came once per action, so one reason stood five to seven times; a criterion listed twice from the
+        same source keeps its first line that has evidence, with the record counts added."""
+        seen: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for i in items:
+            key = (i["source"], i["id"], i["label"])
+            first = seen.get(key)
+            if first is None:
+                seen[key] = dict(i)
+            elif not has_evidence(first) and has_evidence(i):
+                seen[key] = {**i, "records": first["records"] + i["records"]}
+            else:
+                first["records"] += i["records"]
+        return list(seen.values())
 
     def need_excluded(sess: Session, rs: str, path: str) -> str:
         rid = study_or_404(sess, rs)

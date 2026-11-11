@@ -1,6 +1,6 @@
 """Feature flags (MR-090, T-008, D-207): one audited table, read by every service without a restart.
 
-    flags = Flags(Database.connect(os.environ["TB_DB_URL"], SCHEMA), audit=AuditLog(audit_dir))
+    flags = Flags(Database.connect(os.environ["TB_DB_URL"], SCHEMA), audit=open_audit(audit_dir))
     flags.seed()                                         # at a service's start: the first start pins each flag
     flags.get("lake.source", "legacy")                   # never raises for a declared name; a 5-second cache
     flags.set("lake.source", "omop", actor="console:admin", reason="WS-03.5 flip after the goldens held")
@@ -107,6 +107,15 @@ DECLARED: dict[str, Declared] = {
         seed_env="TB_LAKE_SOURCE",
         help="Where the screening lake's rows come from at the next rebuild: flattened from the FHIR snapshot "
         "(legacy) or exported from the OMOP store of record (omop). D-151, WS-03.5.",
+    ),
+    "notes.reading": Declared(
+        values=("on", "off"),
+        default="on",
+        seed_env=None,  # a hold is an operator's act with a reason, never a value left in an environment file
+        help="Note reading by the models (T-609, OPS-042): off holds it. Every note-stage call after the change asks "
+        "no model (the answer is unknown, not evaluated, and the patient goes to review), no note answer excludes, "
+        "and a run whose note stage ends under the hold drops its note answers. Hold and release with `trialbox "
+        "model hold|release` (release needs a passing pair canary run after the hold; RUNBOOK §19).",
     ),
     "omop.dual_write": Declared(
         values=("off", "on"),
