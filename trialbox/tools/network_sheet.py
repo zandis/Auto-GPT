@@ -52,8 +52,10 @@ IMAGE_PORTS = {"postgres": 5432, "hapiproject/hapi": 8080, "vllm/vllm-openai": 8
 # services that listen on nothing: the one-shot jobs of the 5090 sleep swap's start order, and the audit drain
 # (D-394), which only reads the database and writes the audit volume
 NO_LISTEN = frozenset({"judge-sleep-init", "model-swap-init", "judge-wake-init", "audit-writer"})
-# the services of the test and demo overlays (docker-compose.test.yml, docker-compose.testbench.yml)
-TEST_ONLY = frozenset({"greenmail", "mailpit", "testbench", "testbench-work"})
+# the services of the test, demo and acceptance overlays (docker-compose.test.yml, docker-compose.testbench.yml,
+# docker-compose.acceptance.yml: T-213a, D-410)
+TEST_ONLY = frozenset({"greenmail", "mailpit", "testbench", "testbench-work", "acceptance-directory",
+                       "acceptance-directory-seed", "acceptance-mail"})  # fmt: skip
 _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?-([^}]*))?\}")
 
 T: dict[str, dict[str, str]] = {
