@@ -230,3 +230,59 @@ def test_the_batch_window_is_a_declared_setting(tmp_path: Path) -> None:
         load_env(dotenv=tmp_path / "x.env", environ={"TB_SITE_PUBLISH_BATCH_SECONDS": "-5"})
     compose = (ROOT / "deploy/docker-compose.yml").read_text(encoding="utf-8")
     assert 'TB_SITE_PUBLISH_BATCH_SECONDS: "${TB_SITE_PUBLISH_BATCH_SECONDS:-300}"' in compose
+
+
+# ------------------------------------------------------------------ the lake service and its clients
+
+
+def test_holds_through_the_lake_service_and_both_clients(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi.testclient import TestClient
+    from lake import app as lake_app
+    from lake.client import LakeHttp
+
+    lake_dir = tmp_path / "lake"
+    _night(lake_dir, NIGHT, 2)
+    lake = Lake(lake_dir, TZ)
+    monkeypatch.setattr(lake_app, "lake", lambda: lake)
+    api = TestClient(lake_app.app)
+    assert api.post("/holds", json={"snapshot": NIGHT}).status_code == 400
+    assert api.post("/holds", json={"snapshot": NIGHT, "holder": "../x"}).status_code == 400
+    assert api.post("/holds", json={"snapshot": "2020-01-01", "holder": "01J"}).status_code == 404
+    http = LakeHttp("http://testserver")
+    http.client = api
+    http.hold(NIGHT, "01HTTP")
+    assert http.holds() == {"01HTTP": NIGHT}
+    r = api.post("/rebuild", json={"snapshot": NIGHT})
+    assert r.status_code == 409 and "running job" in r.text  # the service refuses a held rebuild
+    assert http.release("01HTTP") is True and http.release("01HTTP") is False
+    assert http.snapshot() == NIGHT
+    assert http.put_site({"Patient": []}) == {"Patient": 0}
+    assert http.rebuild(NIGHT)["snapshot"] == NIGHT  # released: the service rebuilds it
+    assert lake.release("../x") is False
+    local = LakeLocal(lake_dir, HashEmbedder(), TZ)
+    local.hold(NIGHT, "01LOCAL")
+    assert local.holds() == {"01LOCAL": NIGHT} and local.release("01LOCAL") and local.holds() == {}
+
+
+def test_a_rebuild_passes_the_nights_tombstones_to_the_omop_source(tmp_path: Path, monkeypatch: Any) -> None:
+    import lake.store as store
+
+    seen: dict[str, Any] = {}
+
+    def rows(*a: Any, deleted: Any = None, **k: Any) -> Any:
+        seen["deleted"] = deleted
+        raise RuntimeError("stop")
+
+    lake_dir = tmp_path / "lake"
+    nd = lake_dir / "ndjson" / NIGHT
+    nd.mkdir(parents=True)
+    (nd / "Patient.ndjson").write_text(json.dumps({"resourceType": "Patient", "id": "p"}) + "\n")
+    (nd / "tombstones.json").write_text(json.dumps({"Condition": ["c1", "c2"]}))
+    monkeypatch.setattr(store, "lake_rows", rows)
+    with pytest.raises(RuntimeError, match="stop"):
+        Lake(lake_dir, TZ).rebuild(NIGHT, HashEmbedder())
+    assert seen["deleted"] == {"Condition": ["c1", "c2"]}
+    (nd / "tombstones.json").write_text("not json")
+    assert store._tombstones(nd) == {} and store._tombstones(tmp_path / "none") == {}
+    (nd / "tombstones.json").write_text("[1]")
+    assert store._tombstones(nd) == {}
