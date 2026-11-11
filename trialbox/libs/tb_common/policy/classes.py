@@ -284,6 +284,22 @@ _D3 = {
     "RegistryEntry",  # pseudonym + status (D-92)
     "RegistryEvent",
     "RegistryPromote",
+    # T-204 (D-440): the patient twin, one patient's coded record, timeline and scores by pseudonym: patient level, as
+    # CandidateRow. Every part is D3, the basis and the source citations included (they name one patient's rows)
+    "PatientProfile",
+    "ProfileBasis",
+    "ProfileLayers",
+    "ProfileSource",
+    "ProfileRecordLayer",
+    "ProfileRecordItem",
+    "ProfileTimelineLayer",
+    "ProfileTimelineItem",
+    "ProfilePhenotypeLayer",
+    "ProfilePhenotypeItem",
+    "ProfileDerivedLayer",
+    "ProfileDerivedItem",
+    "ProfileDerivedInput",
+    "ProfileOpenLayer",
 }
 # RegistryUpdate may carry the chart number (mrn) on its way into the box: a direct identifier until resolved
 _D4 = {"SendRequest", "SendAttachment", "SendResult", "PractitionerInfo", "RegistryUpdate"}

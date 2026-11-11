@@ -151,6 +151,20 @@ callers:
     roles: ["*"]
     purposes: [development, evaluation]
 
+# The verified caller (T-212b, D-437, CR-040). X-TB-Caller is a claim; the service the request's X-TB-Service-Token
+# identifies (tb_common.service_auth, D-138) may claim only the names listed here, so the roles and purposes above are
+# bound to the verified service. A claim outside this map is refused caller_unverified (403, audited). Without a
+# service identity (no token, or the old shared token) only DEV and TEST believe the header. operator is the
+# administrator's token on the host (doctor, qualify, eval, testbench); it is never mounted into a container.
+service_callers:
+  orchestrator: [orchestrator, matching]   # matching runs inside the orchestrator
+  criteria-compiler: [criteria-compiler]
+  doc-parser: [doc-parser]   # it parses outside documents: never orchestrator, eval or testbench
+  console: [converse-native]   # the front desk (console/proposals.py)
+  operator: ["*"]
+# who may wake, sleep and hold the one-GPU swap (/v1/serving/activate, /v1/serving/release, D-116)
+serving_control: [orchestrator, operator]
+
 # PHI on the box (D-142, review A-01). On an on-prem appliance (topology A) the models answer on the box itself, so a
 # D3 call from a listed caller is allowed by this policy without a confirmed study step: the data never leaves the
 # box. The gateway then sends it to perimeter endpoints only and records step_basis "box_policy". Where a step
