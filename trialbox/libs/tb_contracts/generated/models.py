@@ -1100,7 +1100,7 @@ class ReleaseComponent(BaseModel):
         populate_by_name=True,
     )
     path: str
-    kind: Literal["model", "ruleset", "image", "refdata", "other"]
+    kind: Literal["model", "ruleset", "image", "refdata", "other", "host"]
     sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
     size: int = Field(..., ge=0)
 
@@ -1166,7 +1166,7 @@ class ReleaseGates(BaseModel):
 
 class ReleaseRecord(BaseModel):
     """
-    release.json, the release record inside a signed offline bundle (T-110b, D-340). Schema version 1.0.0. Written by tools/release.py from the bundle's own files: the version (pyproject.toml, the one place), the source commit and tag, the passing release-gate record, every image by its config digest with its SBOM, and every payload file with its sha256. images is the map verify_update.py checks against the bundle's images.lock (D-210).
+    release.json, the release record inside a signed offline bundle (T-110b, D-340). Schema version 1.1.0 (1.1.0, D-367: component kind host, the host tree). Written by tools/release.py from the bundle's own files: the version (pyproject.toml, the one place), the source commit and tag, the passing release-gate record, every image by its config digest with its SBOM, and every payload file with its sha256. images is the map verify_update.py checks against the bundle's images.lock (D-210).
     """
 
     model_config = ConfigDict(
@@ -1961,13 +1961,13 @@ class UpdateFile(BaseModel):
     )
     path: str = Field(..., max_length=400, min_length=1)
     sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
-    kind: Literal["model", "ruleset", "image", "refdata", "other"]
+    kind: Literal["model", "ruleset", "image", "refdata", "other", "host"]
     size: int = Field(..., ge=0)
 
 
 class UpdateManifest(BaseModel):
     """
-    Offline update bundle manifest (SPEC 10.1), signed with a trusted vendor Ed25519 key. Schema version 1.2.0 (1.1.0: payload kind refdata, the reference data pack of D-140; 1.2.0, D-210: release_seq, min_installed_version, key_id, not_after, the compatibility table compat.json and the optional release.json / images.lock members bound by their sha256, a key rotation, size required).
+    Offline update bundle manifest (SPEC 10.1), signed with a trusted vendor Ed25519 key. Schema version 1.3.0 (1.1.0: payload kind refdata, the reference data pack of D-140; 1.2.0, D-210: release_seq, min_installed_version, key_id, not_after, the compatibility table compat.json and the optional release.json / images.lock members bound by their sha256, a key rotation, size required; 1.3.0, D-367: payload kind host, the host tree of compose files, host tools and configuration, at most one per bundle).
     """
 
     model_config = ConfigDict(
