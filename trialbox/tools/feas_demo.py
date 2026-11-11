@@ -108,16 +108,53 @@ SITE_JP: dict[str, Any] = {
 }
 
 
+# T-513 (UX-003): a cell that is a date or a date-time, as the synthetic hospital's landing tables write them
+_DATE_CELL = re.compile(r"(\d{4}-\d{2}-\d{2})([ T]\d{2}:\d{2}(?::\d{2})?)?")
+SHIFT_FILE = ".date-shift"  # the number of days the hospital folder's dates were moved by
+
+
+def data_day() -> date:
+    """The synthetic data's own demo day: the box's day after an ingest of :data:`REF` (the PI's first clinic)."""
+    return REF + timedelta(days=1)
+
+
+def shift_dates(folder: Path, days: int) -> int:
+    """T-513 (UX-003): move every date and date-time cell of the landing tables in ``folder`` by ``days``, so the
+    synthetic hospital reads as if it had been made for another day. Intervals between dates are kept; note text is
+    not rewritten. Returns the number of cells moved."""
+    moved = 0
+    if not days:
+        return moved
+    step = timedelta(days=days)
+    for f in sorted(folder.glob("*.csv")):
+        with f.open(newline="", encoding="utf-8") as fh:
+            r = csv.DictReader(fh)
+            header = list(r.fieldnames or [])
+            rows = list(r)
+        for row in rows:
+            for k, v in row.items():
+                m = _DATE_CELL.fullmatch(v or "")
+                if m:
+                    row[k] = (date.fromisoformat(m.group(1)) + step).isoformat() + (m.group(2) or "")
+                    moved += 1
+        with f.open("w", newline="", encoding="utf-8") as fh:
+            w = csv.DictWriter(fh, fieldnames=header)
+            w.writeheader()
+            w.writerows(rows)
+    return moved
+
+
 def build(work: Path) -> tuple[Any, Any, Path, dict[str, Any]]:
     """The demo's box on the ``ci`` hospital (tools.complete_run wraps this one-argument form)."""
     return build_site(work)
 
 
 def build_site(
-    work: Path, profile: str = "ci", settings_update: dict[str, Any] | None = None
+    work: Path, profile: str = "ci", settings_update: dict[str, Any] | None = None, day: date | None = None
 ) -> tuple[Any, Any, Path, dict[str, Any]]:
     """``profile``: the ``tools.synth_hospital`` profile (``ci``: the JP + TW hospital; ``jp-ad``: the Japanese
-    memory-clinic site of scenario J1, with ``settings_update=SITE_JP``)."""
+    memory-clinic site of scenario J1, with ``settings_update=SITE_JP``). ``day`` (T-513): the box's day; the
+    hospital's dates are moved so that its data is as of the day before (None: :func:`data_day`, nothing moved)."""
     from orchestrator import app as orch_app
 
     from tests.inproc_box import ingest_site, make_box
@@ -131,16 +168,24 @@ def build_site(
             raise SystemExit("synthetic hospital checks failed:\n" + "\n".join(res.failures))
     summary = json.loads((synth / "summary.json").read_text(encoding="utf-8"))
     hospital = work / "hospital"
+    shift = (day - data_day()).days if day is not None else 0
     if not (hospital / "patient.csv").exists():
         merge_sites([synth / s["dir"] for s in summary["sites"]], hospital)
+        shift_dates(hospital, shift)
+        (hospital / SHIFT_FILE).write_text(f"{shift}\n", encoding="utf-8")
+    shift_file = hospital / SHIFT_FILE
+    had = int(shift_file.read_text(encoding="utf-8")) if shift_file.exists() else 0
+    if had != shift:
+        raise SystemExit(f"{work} holds a hospital made for another day (moved {had} days, not {shift}): use --fresh")
     sec = work / "sec"
     sec.mkdir(parents=True, exist_ok=True)
     (sec / "site_hmac.key").write_bytes(KEY)
     site_id = str((settings_update or {}).get("site", {}).get("id") or "DEMO-A")
     if not (work / "lake").exists():
-        ingest_site(hospital, work / "lake", sec, (REF - timedelta(days=1)).isoformat(), site_id=site_id)
+        snapshot = REF - timedelta(days=1) + timedelta(days=shift)
+        ingest_site(hospital, work / "lake", sec, snapshot.isoformat(), site_id=site_id)
     shutil.rmtree(work / "box", ignore_errors=True)  # the box (jobs, mail, repo) starts fresh on every run
-    box = make_box(work / "box", work / "lake", sec, REF + timedelta(days=1), settings_update=settings_update)
+    box = make_box(work / "box", work / "lake", sec, day or data_day(), settings_update=settings_update)
     orch_app._orch = box.orch
     return box, orch_client(orch_app.app), work / "box" / "repo", summary
 
