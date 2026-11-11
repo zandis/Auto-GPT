@@ -14,19 +14,36 @@ one the stub answers instantly and the report marks the LLM share as *not measur
 
     python tools/bench.py --tasks all --out bench/                    # needs `make up-test` for screen/compile
     python tools/bench.py --tasks feas,ingest --ingest-patients 20000 # CPU-only subset
+
+The regression gate (ENG-030, T-653; ``make bench-gate``, nightly in trialbox-e2e.yml) is another mode: the cascade on
+the stub at 5,000 synthetic patients (``hospital_sim scale``'s path), timed per phase (data generation, the lake build
+of the pipeline, the cascade S0 to S5, the rest), with the peak memory, each the best of two runs, against
+``tools/bench_baseline.json``. The cascade, the lake build, the whole run or the peak memory more than 20 % over the
+baseline fails, once the baseline is scaled up by a fixed CPU calibration loop measured on both hosts (a slower runner
+is not a regression); a difference under a few seconds is noise and never fails.
+
+    python tools/bench.py --gate --out build/bench-gate                   # compare; exit 1 on a regression
+    python tools/bench.py --gate --write-baseline                         # measure and rewrite the baseline file
+    python tools/bench.py --gate --adopt bench_gate.json                  # the baseline from a nightly's artifact
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import hashlib
 import json
 import math
 import os
 import platform
+import random
+import resource
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
@@ -352,6 +369,211 @@ def bench_compile(work: Path, fhir_url: str, lake_url: str) -> Result:
     )
 
 
+# ------------------------------------------------------------------------------------------------- regression gate
+BASELINE = ROOT / "tools" / "bench_baseline.json"
+GATE_PATIENTS = 5000
+GATE_TRIAL = "GZQO"
+# what the gate fails on (the review's list, ENG-030): the cascade S0 to S5, the lake build and the whole run, and the
+# peak memory. The data generation and the rest (pack, certificate, outputs) are short and noisy: reported, not gated.
+GATED = ("lake_s", "cascade_s", "total_s", "peak_rss_mb")
+GATE_RUNS = 2  # each metric is the best of this many runs: one slow moment of a shared runner is not a regression
+TOLERANCE = 0.20  # a phase more than 20 % slower (or 20 % more memory) than the scaled baseline fails
+FLOOR_S = 3.0  # ... unless it is less than this many seconds slower: noise on a short phase
+FLOOR_MB = 150.0  # ... or this many MB more memory
+# The calibration ratio scales the baseline up for a slower host, never down: on a shared or busy machine the loop
+# can catch a quiet moment and read fast while the run itself was slow (seen on the development machine: the same
+# code read 0.32 s to 0.71 s), and a gate that fails on that is a flaky gate. A faster host is held to the
+# baseline's own numbers. Above 3x the host is too far off: it needs its own baseline.
+SCALE_LIMITS = (1.0, 3.0)
+
+
+def calibrate(rounds: int = 3) -> float:
+    """Seconds for a fixed CPU workload (hashing, a sort, JSON), the best of ``rounds``: the yardstick that scales the
+    baseline to the host the gate runs on."""
+    best = math.inf
+    for _ in range(rounds):
+        t0 = time.perf_counter()
+        h = hashlib.sha256()
+        for i in range(150_000):
+            h.update(i.to_bytes(4, "little"))
+        data = list(range(300_000))
+        random.Random(7).shuffle(data)
+        data.sort()
+        json.loads(json.dumps({str(i): [i, i * 0.5, h.hexdigest()[:8]] for i in range(60_000)}))
+        best = min(best, time.perf_counter() - t0)
+    return round(best, 4)
+
+
+def host_info() -> dict[str, Any]:
+    cpu = ""
+    with contextlib.suppress(OSError):
+        cpu = next(
+            (ln.split(":", 1)[1].strip() for ln in Path("/proc/cpuinfo").read_text().splitlines()
+             if ln.startswith("model name")), "")  # fmt: skip
+    mem = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30
+    return {"machine": platform.machine(), "cpu": cpu, "cpus": os.cpu_count(), "mem_gb": round(mem),
+            "python": platform.python_version()}  # fmt: skip
+
+
+def _timed(module: Any, name: str, into: dict[str, float], key: str) -> Callable[[], None]:
+    """Wrap ``module.name`` so each call adds its wall time to ``into[key]``; returns the function that restores it."""
+    real = getattr(module, name)
+
+    def wrapper(*a: Any, **kw: Any) -> Any:
+        t0 = time.perf_counter()
+        try:
+            return real(*a, **kw)
+        finally:
+            into[key] = into.get(key, 0.0) + time.perf_counter() - t0
+
+    setattr(module, name, wrapper)
+    return lambda: setattr(module, name, real)
+
+
+def measure_stub(work: Path, patients: int = GATE_PATIENTS, trial: str = GATE_TRIAL) -> dict[str, Any]:
+    """One stub run of the cascade at ``patients`` (the ``hospital_sim scale`` path: synthetic site, the data platform
+    L0 to L5 with the lake build, the cascade S0 to S5, the pack and the certificate), timed per phase."""
+    import dataplat.pipeline
+    import matching.cascade
+
+    from tools.cascade_e2e import run_end_to_end
+    from tools.make_fixtures import write_site
+    from tools.synth.generator import generate
+
+    site = work / "site-a"
+    t0 = time.perf_counter()
+    write_site(generate(42, "DEMO-A", date(2026, 10, 5), patients, "1"), site)
+    phases: dict[str, float] = {"generate_s": time.perf_counter() - t0}
+    restore = [_timed(dataplat.pipeline, "run_pipeline", phases, "lake_s"),
+               _timed(matching.cascade, "run_cascade", phases, "cascade_s")]  # fmt: skip
+    try:
+        t1 = time.perf_counter()
+        r = run_end_to_end(site, trial, work / f"out-{trial}", repro=False)
+        run_s = time.perf_counter() - t1
+    finally:
+        for undo in restore:
+            undo()
+    phases["rest_s"] = run_s - phases.get("lake_s", 0.0) - phases.get("cascade_s", 0.0)
+    phases["total_s"] = phases["generate_s"] + run_s
+    metrics = {k: round(v, 2) for k, v in phases.items()}
+    metrics["peak_rss_mb"] = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024)
+    return {"patients": patients, "trial": trial, "passed": r.passed,
+            "failed_checks": [k for k, v in r.checks.items() if not v], "metrics": metrics}  # fmt: skip
+
+
+def compare(
+    baseline: dict[str, Any], current: dict[str, Any], tolerance: float = TOLERANCE
+) -> tuple[bool, list[dict[str, Any]]]:
+    """Each baseline metric against the current run: (passed, rows). Times are scaled by the hosts' calibration
+    ratio (clamped to SCALE_LIMITS); memory is not. A metric fails when it is over ``1 + tolerance`` times the scaled
+    baseline and also over it by more than the floor (FLOOR_S, FLOOR_MB)."""
+    if (baseline.get("patients"), baseline.get("trial")) != (current.get("patients"), current.get("trial")):
+        raise ValueError(f"baseline is {baseline.get('patients')} patients of {baseline.get('trial')}, this run "
+                         f"{current.get('patients')} of {current.get('trial')}: not comparable")  # fmt: skip
+    lo, hi = SCALE_LIMITS
+    scale = min(hi, max(lo, float(current["calibration_s"]) / float(baseline["calibration_s"])))
+    rows = []
+    for key, base in baseline["metrics"].items():
+        cur = current["metrics"].get(key)
+        is_time = key.endswith("_s")
+        ref = float(base) * (scale if is_time else 1.0)
+        floor = FLOOR_S if is_time else FLOOR_MB
+        gated = key in GATED
+        ok = not gated or (cur is not None and (cur <= ref * (1 + tolerance) or cur - ref <= floor))
+        change = round(100 * (cur - ref) / ref, 1) if cur is not None and ref else None
+        rows.append({"metric": key, "baseline": base, "scaled_baseline": round(ref, 2), "current": cur,
+                     "change_pct": change, "gated": gated, "ok": ok})  # fmt: skip
+    return all(r["ok"] for r in rows) and bool(current.get("passed")), rows
+
+
+def gate_markdown(current: dict[str, Any], baseline: dict[str, Any], rows: list[dict[str, Any]], ok: bool) -> str:
+    h = current["host"]
+    lines = [
+        f"## Performance gate: the stub at {current['patients']:,} patients ({current['trial']}): "
+        f"{'PASS' if ok else 'FAIL'}",
+        "",
+        f"Host: {h['cpu'] or h['machine']}, {h['cpus']} CPUs, {h['mem_gb']} GB. Calibration {current['calibration_s']}"
+        f" s against the baseline's {baseline['calibration_s']} s (baseline written {baseline.get('written', '?')} on "
+        f"{baseline.get('host', {}).get('cpu') or '?'}). A metric fails above +{TOLERANCE:.0%} and more than "
+        f"{FLOOR_S:g} s or {FLOOR_MB:g} MB over; times are scaled up for a slower host, never down.",
+        "",
+        "| metric | baseline | scaled baseline | this run | change | ok |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for r in rows:
+        chg = "-" if r["change_pct"] is None else f"{r['change_pct']:+.1f} %"
+        verdict = ("yes" if r["ok"] else "NO") if r["gated"] else "not gated"
+        lines.append(f"| {r['metric']} | {r['baseline']} | {r['scaled_baseline']} | {r['current']} | {chg} | "
+                     f"{verdict} |")  # fmt: skip
+    if not current["passed"]:
+        lines += ["", f"The run's own checks failed: {', '.join(current['failed_checks'])}"]
+    return "\n".join(lines) + "\n"
+
+
+def _head() -> str:
+    r = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=False)
+    return r.stdout.strip()
+
+
+def best_of(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    """One result from several runs of the same size: each metric at its best (lowest), passed only if all passed."""
+    first = runs[0]
+    keys = [k for k in first["metrics"] if all(k in r["metrics"] for r in runs)]
+    return {**first, "passed": all(r["passed"] for r in runs), "runs": len(runs),
+            "failed_checks": sorted({c for r in runs for c in r["failed_checks"]}),
+            "metrics": {k: min(r["metrics"][k] for r in runs) for k in keys}}  # fmt: skip
+
+
+NOTE = (
+    "tools/bench.py --gate --write-baseline, or --adopt <bench_gate.json> from the nightly's artifact (ENG-030, "
+    "T-653); rewrite it in the pull request that makes the stub run deliberately slower or faster, with the "
+    "reason in the commit"
+)
+
+
+def adopt(report: Path, baseline_path: Path) -> int:
+    """The baseline from a gate report (``bench_gate.json``): its measured run, on the host that ran it."""
+    current = json.loads(report.read_text(encoding="utf-8"))["current"]
+    if not current.get("passed"):
+        print(f"[bench] {report}: the run's checks failed: not adopted", flush=True)
+        return 1
+    doc = {"note": NOTE, "written": date.today().isoformat(), "adopted_from": report.name, **current}
+    baseline_path.write_text(json.dumps(doc, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(json.dumps(current["metrics"]), flush=True)
+    return 0
+
+
+def gate(out: Path, baseline_path: Path, patients: int, write_baseline: bool, runs: int = GATE_RUNS) -> int:
+    before = calibrate()
+    measured = []
+    for _ in range(runs):
+        work = Path(tempfile.mkdtemp(prefix="tb-bench-gate-"))
+        try:
+            measured.append(measure_stub(work, patients))
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+    current = best_of(measured)
+    calib = min(before, calibrate())  # the best of the readings before and after: the host's speed, not its load
+    current.update(calibration_s=calib, host=host_info(), commit=_head())
+    out.mkdir(parents=True, exist_ok=True)
+    if write_baseline:
+        if not current["passed"]:
+            print(f"[bench] the run's checks failed ({current['failed_checks']}): baseline not written", flush=True)
+            return 1
+        doc = {"note": NOTE, "written": date.today().isoformat(), **current}
+        baseline_path.write_text(json.dumps(doc, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(json.dumps(current["metrics"]), flush=True)
+        return 0
+    baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+    ok, rows = compare(baseline, current)
+    (out / "bench_gate.json").write_text(json.dumps({"passed": ok, "current": current, "rows": rows,
+                                                     "baseline": baseline}, indent=1) + "\n", "utf-8")  # fmt: skip
+    md = gate_markdown(current, baseline, rows, ok)
+    (out / "bench_gate.md").write_text(md, encoding="utf-8")
+    print(md, flush=True)
+    return 0 if ok else 1
+
+
 # ------------------------------------------------------------------------------------------------------------- main
 def markdown(results: list[Result], host: dict[str, Any]) -> str:
     lines = [
@@ -381,7 +603,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--lake", default=f"http://127.0.0.1:{os.environ.get('TB_HOST_LAKE_PORT', '8013')}")
     ap.add_argument("--llm-url", default="", help="real OpenAI-compatible endpoint (else the stub)")
     ap.add_argument("--llm-model", default="", help="served model name at --llm-url")
+    ap.add_argument("--gate", action="store_true", help="the regression gate on the stub (see above)")
+    ap.add_argument("--patients", type=int, default=GATE_PATIENTS, help="--gate: synthetic patients")
+    ap.add_argument("--baseline", type=Path, default=BASELINE, help="--gate: the baseline file")
+    ap.add_argument("--write-baseline", action="store_true", help="--gate: measure and rewrite the baseline")
+    ap.add_argument("--runs", type=int, default=GATE_RUNS, help="--gate: runs; each metric is the best of them")
+    ap.add_argument("--adopt", type=Path, help="--gate: write the baseline from a bench_gate.json (the nightly's "
+                    "artifact), so the baseline is the runner's own numbers; nothing is measured")  # fmt: skip
     args = ap.parse_args(argv)
+    if args.gate and args.adopt:
+        return adopt(args.adopt, args.baseline)
+    if args.gate:
+        return gate(args.out, args.baseline, args.patients, args.write_baseline, max(1, args.runs))
     LLM.update(url=args.llm_url, model=args.llm_model)
     tasks = list(TARGETS) if args.tasks == "all" else [t.strip() for t in args.tasks.split(",")]
     work = Path(tempfile.mkdtemp(prefix="tb-bench-"))

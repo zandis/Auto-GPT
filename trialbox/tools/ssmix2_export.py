@@ -18,7 +18,14 @@ The messages of D-137 appear too, each written so that the reader gives back exa
 * **Extended storage** (``<out>/extended_storage/``): a discharge summary (Shift_JIS text) for every 25th patient
   and an imaging report (PDF with a text layer) for every 30th, in the patient folders.
 
-    python -m tools.ssmix2_export --csv <hospital dir> --out <storage root>
+* **Hard cases** (``--hard-cases``, :func:`hard_cases`, T-615a): the bytes and fields vendor files hold that the
+  plain export never writes, on synthetic patients ``9900000x``: the five byte patterns of STD-020 (half-width
+  katakana, NEC row 13 and IBM extension characters inside ``ESC $ B``, JIS X 0212, Shift_JIS with the wrong and with
+  the right MSH-18) and a file no codec reads; OBX-2 ``CWE`` and ``SN``; OBX-11 ``C`` and ``D``; the sample-time
+  fallbacks (OBR-7, SPM-17, the folder's date); a 10-digit time; PID-30 ``Y`` without PID-29; PID-3 and PID-5
+  repetitions.
+
+    python -m tools.ssmix2_export --csv <hospital dir> --out <storage root> [--hard-cases]
 """
 
 from __future__ import annotations
@@ -262,13 +269,170 @@ def _documents(root: Path, patients: list[dict[str, str]], encounters: list[dict
     return n
 
 
+# ----------------------------------------------------------------------------------------------- hard cases (T-615a)
+HARD_STAMP = "20261102000000000"
+
+
+def cp50220(text: str) -> bytes:
+    """``text`` as Windows writes ISO-2022-JP (CP50220): every double-byte character, NEC row 13 and the NEC-selected
+    IBM extension (①, ㈱, 髙) too, inside ``ESC $ B`` as its JIS cell; half-width katakana in ``ESC ( I``."""
+    out, mode = bytearray(), "ascii"
+    for ch in text:
+        b = ch.encode("cp932")
+        if len(b) == 2:
+            s1, s2 = b
+            j1 = (s1 - (0xB0 if s1 >= 0xE0 else 0x70)) * 2 - (1 if s2 < 0x9F else 0)
+            j2 = s2 - (0x1F + (s2 > 0x7F) if s2 < 0x9F else 0x7E)
+            want, cell = "jis", bytes((j1, j2))
+        elif b[0] > 0x7F:
+            want, cell = "kana", bytes((b[0] - 0x80,))
+        else:
+            want, cell = "ascii", b
+        if want != mode:
+            out += {"jis": b"\x1b$B", "kana": b"\x1b(I", "ascii": b"\x1b(B"}[want]
+            mode = want
+        out += cell
+    if mode != "ascii":
+        out += b"\x1b(B"
+    return bytes(out)
+
+
+def _put(root: Path, patient: str, day: str, typ: str, order: str, data: bytes) -> str:
+    d = storage_dir(root, patient, day, typ)
+    d.mkdir(parents=True, exist_ok=True)
+    name = f"{patient}_{day}_{typ}_{order}_{HARD_STAMP}_-_1"
+    (d / name).write_bytes(data)
+    return name
+
+
+def _hmsh(kind: str, ctl: str, charset: str) -> str:
+    return f"MSH|^~\\&|HIS||TRIALBOX||{HARD_STAMP[:14]}||{kind}|{ctl}|P|2.5||||||{charset}"
+
+
+def _adt00(mrn: str, name: str, extra: str = "") -> list[str]:
+    return ["EVN||", f"PID|||{mrn}^^^^PI||{name}||19600101|F{extra}"]
+
+
+def hard_cases(root: Path) -> dict[str, str]:
+    """Write the hard cases into the storage at ``root``; ``{file name: what it shows}``. All synthetic."""
+    root.mkdir(parents=True, exist_ok=True)
+    made: dict[str, str] = {}
+
+    def adt(mrn: str, what: str, data: bytes) -> None:
+        made[_put(root, mrn, "-", "ADT-00", "-", data)] = what
+
+    def seg(*lines: str) -> str:
+        return "\r".join(lines) + "\r"
+
+    jis = "~ISO IR87"
+    adt(
+        "99000001",
+        "half-width katakana (ESC ( I)",
+        seg(_hmsh("ADT^A08", "H1", jis), *_adt00("99000001", "ﾔﾏﾀﾞ^ﾊﾅｺ")).encode("iso2022_jp_ext"),
+    )
+    adt(
+        "99000002",
+        "NEC row 13 and IBM extension inside ESC $ B (CP50220)",
+        cp50220(seg(_hmsh("ADT^A08", "H2", jis), *_adt00("99000002", "髙橋^①子㈱"))),
+    )
+    adt(
+        "99000003",
+        "JIS X 0212 (ESC $ ( D)",
+        seg(_hmsh("ADT^A08", "H3", jis), *_adt00("99000003", "丂田^花子")).encode("iso2022_jp_ext"),
+    )
+    adt(
+        "99000004",
+        "Shift_JIS under MSH-18 ~ISO IR87 (the wrong charset)",
+        seg(_hmsh("ADT^A08", "H4", jis), *_adt00("99000004", "佐藤^ﾊﾅｺ")).encode("cp932"),
+    )
+    adt(
+        "99000005",
+        "Shift_JIS under MSH-18 SJIS",
+        seg(_hmsh("ADT^A08", "H5", "SJIS"), *_adt00("99000005", "鈴木^①子")).encode("cp932"),
+    )
+    adt(
+        "99000006",
+        "no codec reads it: quarantined",
+        seg(_hmsh("ADT^A08", "H6", jis), *_adt00("99000006", "X")).encode("ascii") + b"\x80\xff\xfe\r",
+    )
+    # PID-30 Y without PID-29; PID-3 with a medical-record number before the PI; PID-5 kana before kanji
+    pid = "PID|||K-1^^^^MR~99000007^^^^PI||ヤマダ^ハナコ^^^^^L^P~山田^花子^^^^^L^I||19500101|F" + "|" * 21 + "|Y"
+    adt(
+        "99000007",
+        "PID-30 Y without PID-29; PID-3 and PID-5 repetitions",
+        seg(_hmsh("ADT^A08", "H7", jis), "EVN||", pid).encode("iso2022_jp"),
+    )
+
+    def obx(
+        n: int,
+        vt: str,
+        code: str,
+        name: str,
+        value: str,
+        unit: str,
+        *,
+        sub: str = "",
+        ref: str = "",
+        flag: str = "",
+        status: str = "F",
+        when: str = "",
+        lab_no: str = "",
+    ) -> str:
+        f = ["OBX", str(n), vt, f"{code}^{name}^JC10", sub, value, unit, ref, flag, "", "", status, "", "", when]
+        f += [""] * 6 + [lab_no]
+        return "|".join(f)
+
+    hbs, cre, crp, a1c = "5F016141002305911", "3C015000002327101", "5C070000002306001", "3D046000001906202"
+    lab = seg(
+        _hmsh("OUL^R22", "L1", jis),
+        "SPM|1|||" + "|" * 13 + "20261001080000",
+        "OBR|1|ORD-1|FIL-1||||202610010830",
+        obx(1, "CWE", hbs, "HBs抗原", "1^陰性^JHSD0001", "", lab_no="H-CWE"),
+        obx(2, "SN", crp, "CRP", "<^0.03", "mg/dL", when="20261001090000", lab_no="H-SN"),
+        obx(3, "NM", cre, "クレアチニン", "9.99", "mg/dL", sub="1", when="20261001090000", lab_no="H-ORIG"),
+        obx(
+            4,
+            "NM",
+            cre,
+            "クレアチニン",
+            "0.82",
+            "mg/dL",
+            sub="1",
+            ref="0.46-0.79",
+            flag="H",
+            status="C",
+            when="20261001090000",
+            lab_no="H-CORR",
+        ),
+        obx(5, "NM", a1c, "HbA1c", "11.0", "%", status="D", when="20261001090000", lab_no="H-DEL"),
+        obx(6, "NM", a1c, "HbA1c", "6.1", "%", when="2026100110", lab_no="H-10DIGIT"),
+    )
+    made[_put(root, "99000008", "20261001", "OML-11", "L1", lab.encode("iso2022_jp"))] = (
+        "OBX-2 CWE and SN; OBX-11 C replaces, D a tombstone; OBR-7 time; a 10-digit time"
+    )
+    spm_only = seg(
+        _hmsh("OUL^R22", "L2", jis),
+        "SPM|1|||" + "|" * 13 + "20261002070000",
+        "OBR|1|ORD-2",
+        obx(1, "NM", crp, "CRP", "0.10", "mg/dL", lab_no="H-SPM"),
+    )
+    made[_put(root, "99000008", "20261002", "OML-11", "L2", spm_only.encode("iso2022_jp"))] = "SPM-17 time"
+    folder = seg(_hmsh("OUL^R22", "L3", jis), "OBR|1|ORD-3", obx(1, "NM", crp, "CRP", "0.20", "mg/dL", lab_no="H-DIR"))
+    made[_put(root, "99000008", "20261003", "OML-11", "L3", folder.encode("iso2022_jp"))] = "the folder's date"
+    return made
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--csv", type=Path, required=True, help="canonical CSV hospital directory")
     ap.add_argument("--out", type=Path, required=True, help="SS-MIX2 storage root to write")
+    ap.add_argument("--hard-cases", action="store_true", help="also write the hard cases of T-615a")
     args = ap.parse_args(argv)
     for table, n in export(args.csv, args.out).items():
         print(f"{table}: {n} messages")
+    if args.hard_cases:
+        for name, what in hard_cases(args.out).items():
+            print(f"hard case {name}: {what}")
     return 0
 
 

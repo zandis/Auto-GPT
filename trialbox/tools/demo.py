@@ -74,6 +74,7 @@ SEEDED = [*(x[0] for x in fd.ACCOUNTS), "subpi"]  # e2e_simple adds the sub-inve
 STATE = "demo-state.json"  # --keep: written once the seed is done; its presence means "reopen, do not rebuild"
 ISSUED = "issued-credentials.txt"  # new passwords and enrolment codes for the owner to hand out (mode 0600)
 RC_SIM = "rc-sim.json"  # the REDCap simulator's projects, kept across a --keep restart
+OPINIONS = ROOT / "demo" / "fixtures" / "opinions"  # T-515: recorded first and second checks (the G1 slot is here)
 LANGS = ("ja", "zh-TW", "en")
 ROLES = ("admin", "coordinator", "investigator", "viewer", "cro")
 LOG_ROLES = ("pi", "sub_pi", "crc", "other")  # console.teamstore.LOG_ROLES
@@ -374,6 +375,8 @@ def console_env(work: Path, environ: Mapping[str, str], accounts: bool) -> dict[
         "TB_CONSOLE_DIR": str(work / "console"),
         "TB_CONSOLE_ADMIN_EMAIL": "admin@hospa.test",
         "TB_CONSOLE_SECURE_COOKIE": environ.get("TB_CONSOLE_SECURE_COOKIE", "0"),
+        # T-515 (D-323): first and second checks on the demo pages, each marked synthetic or recorded
+        "TB_DEMO_OPINIONS": environ.get("TB_DEMO_OPINIONS") or str(OPINIONS),
     }
     env.update({k: environ[k] for k in PASSTHROUGH if environ.get(k)})
     if accounts:
