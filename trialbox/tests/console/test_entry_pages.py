@@ -23,7 +23,7 @@ from console.i18n_entry import ZH as DE_ZH
 from fastapi.testclient import TestClient
 from markupsafe import escape
 
-from tests.console.test_console_app import ADMIN_PW, VIEWER_PW, box, login  # noqa: F401 - the fixture is used by name
+from tests.console.test_console_app import ADMIN_PW, VIEWER_PW, box, login, sub_investigator  # noqa: F401 - the fixture is used by name
 from tests.console.test_data_pages import PW, _api, _writes, dcb  # noqa: F401 - the fixture is used by name
 
 CHART_NO = "MRN-000123"
@@ -122,6 +122,7 @@ def test_builtin_forms_entry_history_and_refusals(dcb: dict[str, Any]) -> None:
 
 
 def test_exports_download_from_the_console(dcb: dict[str, Any]) -> None:
+    sub_investigator(dcb, "pi")  # D-380 (ROLE-008): the investigator's old rights, now from the log
     (no,) = _numbers(dcb, 1)
     c, csrf = login(dcb["app"], "crc", PW)
     _builtin(c, csrf)
@@ -150,6 +151,7 @@ def test_exports_download_from_the_console(dcb: dict[str, Any]) -> None:
 
 # ---------------------------------------------------------------------------------------------- roles
 def test_roles_on_entry_and_history(dcb: dict[str, Any]) -> None:
+    sub_investigator(dcb, "pi")  # D-380 (ROLE-008): the investigator's old rights, now from the log
     (no,) = _numbers(dcb, 1)
     c, csrf = login(dcb["app"], "crc", PW)
     _builtin(c, csrf)
@@ -179,6 +181,7 @@ def test_roles_on_entry_and_history(dcb: dict[str, Any]) -> None:
 
 # ---------------------------------------------------------------------------------------------- /api/v1
 def test_api_does_what_the_pages_do(dcb: dict[str, Any]) -> None:
+    sub_investigator(dcb, "pi")  # D-380 (ROLE-008): the investigator's old rights, now from the log
     no, _ = _numbers(dcb)
     anon = TestClient(dcb["app"])
     for method, path in (("POST", "/api/v1/studies/GZQO/forms/builtin"), ("GET", "/api/v1/studies/GZQO/records"),

@@ -17,7 +17,7 @@ from console.auth import ROLES
 from fastapi.routing import APIRoute
 from tb_common.wording import FORBIDDEN, STATEMENT, check_page
 
-from tests.console.test_console_app import _done_case, _done_feas, box, login  # noqa: F401 - fixture by name
+from tests.console.test_console_app import _done_case, _done_feas, box, login, name_pi  # noqa: F401 - fixture by name
 from tests.console.test_excluded_page import _with_excluded
 
 PW = "wording-walk-password-01"
@@ -75,6 +75,7 @@ MUST_REACH: dict[str, tuple[str, ...]] = {
     "viewer": ("/reports", "/help"),
     "cro": ("/reports", "/about"),
     "steward": ("/breakglass", "/about"),
+    "privacy": ("/site/opt-outs", "/about"),
 }
 
 
@@ -89,6 +90,8 @@ def test_no_forbidden_word_on_any_role_page(box: dict[str, Any], role: str, lang
     _done_feas(box["backend"])
     _done_case(box["backend"])
     box["users"].create("walker", role, PW, "walker@hospa.test")
+    if role == "investigator":
+        name_pi(box, "walker")  # D-380 (ROLE-008): the steward names the PI
     seen, bad = _walk(box, "walker", lang)
     for must in MUST_REACH[role]:
         assert must in seen, f"the walk did not reach {must}"

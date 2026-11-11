@@ -79,13 +79,13 @@ healthy() { docker exec "$1" python3 -c "import urllib.request;urllib.request.ur
 sleeping() { docker exec "$1" python3 -c "import json,urllib.request,sys;sys.exit(0 if json.load(urllib.request.urlopen('http://127.0.0.1:8000/is_sleeping',timeout=3)).get('is_sleeping') else 1)" 2>/dev/null; }
 
 start judge $J local/gemma-4-26b-a4b-nvfp4 --limit-mm-per-prompt '{"image":0,"audio":0,"video":0}'
-for i in $(seq 1 240); do healthy judge && break; sleep 5; done
+for _ in $(seq 1 240); do healthy judge && break; sleep 5; done
 echo JUDGE-UP
-for i in $(seq 1 2160); do sleeping judge && break; sleep 5; done   # up to 3 h for the caller's resident pass
+for _ in $(seq 1 2160); do sleeping judge && break; sleep 5; done   # up to 3 h for the caller's resident pass
 echo JUDGE-ASLEEP
 start verifier $V local/qwen3.5-9b-awq --limit-mm-per-prompt '{"image":0,"video":0}' \
   --default-chat-template-kwargs '{"enable_thinking": false}'
-for i in $(seq 1 240); do healthy verifier && break; sleep 5; done
+for _ in $(seq 1 240); do healthy verifier && break; sleep 5; done
 echo VERIFIER-UP
 
 # FR-MOD-10 (D-111): the serving record (sha256 of every model file, flags, card), as gpu-sim-startup.sh does

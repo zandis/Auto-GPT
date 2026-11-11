@@ -52,8 +52,8 @@ start() {  # name model served util len seqs [extra...]
     --max-model-len "$len" --max-num-seqs "$seqs" --enforce-eager --gpu-memory-utilization "$util" --api-key "$KEY" "$@"
 }
 ready() {  # name timeout_s -> prints seconds to ready or -1
-  local t0=$(date +%s)
-  for i in $(seq 1 $(( $2 / 5 ))); do
+  local t0; t0=$(date +%s)
+  for _ in $(seq 1 $(( $2 / 5 ))); do
     docker exec "$1" python3 -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3)" 2>/dev/null && { echo $(( $(date +%s) - t0 )); return; }
     docker ps -a --filter name="^$1\$" --format '{{.Status}}' | grep -q Exited && break
     sleep 5
@@ -82,7 +82,7 @@ PY
 }
 jstr() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; }  # any text as a JSON string
 post() {  # name path -> seconds the POST took
-  local t0=$(date +%s.%N)
+  local t0; t0=$(date +%s.%N)
   docker exec "$1" python3 -c "import urllib.request;urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000$2',data=b'',method='POST',headers={'Authorization':'Bearer $KEY'}),timeout=600)" 2>&1 | tail -1
   python3 -c "import time;print(round(time.time()-$t0,1))"
 }
