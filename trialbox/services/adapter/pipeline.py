@@ -20,7 +20,9 @@ from tb_common.audit_writer import open_audit
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
 from tb_contracts import IngestReport, RebuildResult, ValidationSummary, dump
+from tb_contracts.landing import Severity
 
+from adapter import governance
 from adapter.load_fhir import sync_snapshot
 from adapter.mapping.engine import Mapper, Mapping, resource_id
 from adapter.ndjson import is_deleted_flag, list_snapshots, snapshot_dir, tombstone_count, write_snapshot
@@ -56,6 +58,8 @@ class AdapterConfig:
     required_tables: tuple[str, ...] = ()
     optional_tables: tuple[str, ...] = ()
     source_encoding: str | None = None  # T-615b: settings.data_source.encoding, the csv reader's first candidate
+    # T-659b (D-370): the folder of data contracts (adapter/governance.py); None: no contract checks
+    contracts_dir: Path | None = None
 
     def site_key(self) -> bytes:
         """The site's pseudonymisation key. Never made here (T-612): :class:`SiteKeyError` when it is missing."""
@@ -335,11 +339,27 @@ def _run_ingest(
     tombstones: dict[str, set[str]] = {}  # type -> ids deleted at the source (dataflow review P0-1)
     tables: dict[str, dict[str, Any]] = {}  # T-611: per source table, present / rows / duplicate keys
     quarantined: dict[str, str] = {}  # T-615b: table -> why its file was quarantined
+    current_before = _current(cfg.lake_dir)
+    # T-659b (D-370): the controls moved from the retired data platform: contracts, row quarantine, control totals
+    contracts = (
+        governance.load_contracts(cfg.contracts_dir) if cfg.contracts_dir and source_kind != "fhir_bulk" else None
+    )
+    control_totals = (
+        governance.read_control_totals(Path(source_path))
+        if contracts is not None and source_kind == "csv" and not since
+        else None
+    )
+    checks: list[governance.TableCheck] = []
+    inputs: list[Path] = []
+    gate_facts = governance.NightFacts(night=snap, current_before=current_before)
+    completeness_msgs: list[str] = []
+    validation_msgs: list[str] = []
     at["step"] = "read"
     if source_kind == "fhir_bulk":
         from adapter.sources.fhir_bulk.source import FhirBulkSource
 
         bulk = FhirBulkSource(Path(source_path))
+        inputs += [p for p in Path(source_path).iterdir() if p.is_file()]
         for r in pseudonymise_bulk(bulk.resources(), key):
             by_type.setdefault(r["resourceType"], []).append(r)
         for rtype, rid in bulk.deleted():
@@ -370,7 +390,10 @@ def _run_ingest(
                 else:
                     src = make_source("cgrd_sql", where)
             delta = mapping.source_column(table, tspec.get("delta"))
-            rows = [mapping.normalize(table, r) for r in src.rows(table, src_name, delta, since)]
+            raw = list(src.rows(table, src_name, delta, since))
+            rows = [mapping.normalize(table, r) for r in raw]
+            if isinstance(where_dir := getattr(src, "directory", None), Path):
+                inputs.append(where_dir / f"{src_name}.csv")
             why = quarantine_reason(src, src_name)
             if why:  # T-615b: the file is set aside, the night goes on with the other tables and is held
                 quarantined[table] = why
@@ -382,6 +405,20 @@ def _run_ingest(
                 "rows": len(rows),
                 "duplicate_keys": len(keys) - len(set(keys)),
             }
+            if contracts is not None:  # T-659b: the contract's row checks; a failing row is set aside, never mapped
+                chk = governance.check_table(
+                    contracts.get(src_name) or contracts.get(table),
+                    table,
+                    raw,
+                    today=date.fromisoformat(snap[:10]),
+                    source_totals=(control_totals or {}).get(src_name),
+                    hasher=governance.key_hasher(key),
+                    present=has_table(src, src_name) is not False,
+                )
+                checks.append(chk)
+                if chk.validation.quarantined:
+                    keep = {id(r) for r in chk.accepted}
+                    rows = [n for r, n in zip(raw, rows, strict=True) if id(r) in keep]
             # a row marked deleted (``deleted`` column, or the table's ``deleted:`` column) is a tombstone, never a
             # record; a source that keeps deletes apart (SS-MIX2 flag 0) gives them through ``deleted_rows``
             dcol = str(tspec.get("deleted") or "deleted")
@@ -434,12 +471,33 @@ def _run_ingest(
         for r in items:
             for p in missing_required(r):
                 missing[f"{rtype}.{p}"] += 1
+    crep: Any = None
+    if contracts is not None:
+        crep = governance.contract_report(cfg.site_id, snap, checks, datetime.now(zone))
+        gate_facts.contracts = crep
+        bad = [
+            f"{t.table}: {f.reason.value} ({f.detail})"
+            for t in crep.tables
+            for f in t.findings
+            if f.severity == Severity.BLOCKING
+        ]
+        bad += [
+            f"{e.table}: {e.reason.value if e.reason else ''} ({e.name}: export {e.lhs}, read {e.rhs})"
+            for e in crep.reconciliation.equations
+            if e.verdict == "fail"
+        ]
+        if bad:
+            errors.append(f"data contracts: {'; '.join(bad)}")
+    aliased = 0
     if patient_pairs:
         pm = cfg.pidmap()
-        pm.upsert_many(patient_pairs)
-        if identities:
-            pm.upsert_identity(identities)
-        pm.close()
+        try:
+            pm.upsert_many(patient_pairs)
+            if identities:
+                pm.upsert_identity(identities)
+            aliased = apply_aliases(by_type, pm.aliases())  # T-659b: a merged chart number's records, one pid
+        finally:
+            pm.close()
     # NDJSON snapshot (delta runs merge over the previous snapshot and drop what the source deleted)
     final_dir = out_dir = snapshot_dir(cfg.lake_dir, snap)
     # D-271: a re-run of a promoted night is written beside it and moved in only when it passes; a held re-run never
@@ -473,6 +531,7 @@ def _run_ingest(
                 f"{what}. A missing or broken extract? To load it anyway set "
                 f"{feedguard.OVERRIDE_ENV}='{snap}: <reason>' (this night only; the reason is audited)"
             )
+            completeness_msgs.append(errors[-1])
     if last_good is not None:  # D-271: a night may not remove (nearly) all records of a kind
         try:
             pct = feedguard.max_drop_pct()
@@ -491,6 +550,7 @@ def _run_ingest(
                     f"{what}: a missing or broken extract? To load it anyway set "
                     f"{feedguard.OVERRIDE_ENV}='{snap}: <reason>' (this night only; the reason is audited)"
                 )
+                completeness_msgs.append(errors[-1])
     # dataflow review P0-2 (WS-08.1): validate first. fhir-store and the lake are loaded, and CURRENT moves, only for
     # a night that passed; a failed night is *held*: its NDJSON stays for the steward to look at, the box keeps
     # serving the previous snapshot
@@ -524,12 +584,14 @@ def _run_ingest(
         )
     if vsum.error_pct > cfg.validation_max_pct:
         errors.append(f"validation error rate {vsum.error_pct:.2f}% exceeds {cfg.validation_max_pct}%")
+        validation_msgs.append(errors[-1])
     if psum is not None and psum.error_pct > cfg.validation_max_pct:
         first = f": {psum.messages[0]}" if psum.messages else ""
         errors.append(
             f"JP Core: {psum.errors} of {psum.sampled} sampled resources fail ({psum.error_pct:.2f}%, over "
             f"{cfg.validation_max_pct}%; every failure is in jp_core_validation.json){first}"
         )
+        validation_msgs.append(errors[-1])
     held = bool(errors)
     if held:
         errors.append("night held: fhir-store and the lake were not loaded; CURRENT still names the previous snapshot")
@@ -598,6 +660,26 @@ def _run_ingest(
     else:
         (out_dir / HELD).unlink(missing_ok=True)
     pruned = prune_snapshots(cfg, date.fromisoformat(snap)) if passed and rebuild_lake else []
+    # T-659b (D-370): one gate record per night, the lineage and the contract checks beside the report
+    sorted_out = {*completeness_msgs, *validation_msgs, *(e for e in errors if e.startswith("data contracts: "))}
+    sorted_out |= {e for e in errors if e.startswith("night held: ")}
+    sorted_out |= {f"{t}: {w}" for t, w in quarantined.items()}
+    gate_facts.file_quarantine = quarantined
+    gate_facts.completeness, gate_facts.validation, gate_facts.overrides = completeness_msgs, validation_msgs, overrides
+    gate_facts.other = [e for e in errors if e not in sorted_out]
+    gate_facts.current_after = _current(cfg.lake_dir)
+    gate = governance.gate_record(gate_facts, datetime.now(zone))
+    governance.write_gate(gate, out_dir, cfg.lake_dir)
+    mapping_file = cfg.mapping_path if source_kind != "fhir_bulk" else None
+    lineage_doc = governance.lineage(snap, source_kind, inputs, mapping_file, out_dir, gate)
+    (out_dir / governance.LINEAGE).write_text(
+        json.dumps(lineage_doc, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    if crep is not None:
+        (out_dir / governance.CONTRACT_REPORT).write_text(
+            json.dumps(crep.model_dump(mode="json"), ensure_ascii=False, indent=1, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
     if cfg.audit_dir:
         open_audit(cfg.audit_dir, cfg.tz).append(
             "ingest.done" if passed else "ingest.held" if held else "ingest.failed",
@@ -620,6 +702,18 @@ def _run_ingest(
                 "orphans": completeness["orphans"] or None,
                 # T-615b: the tables whose file was set aside (character set or CSV form; no cell text)
                 "quarantined": quarantined or None,
+                # T-659b: the night's one gate record, rows set aside by the contracts, merged chart numbers
+                "gate": {
+                    "gate_id": gate.gate_id,
+                    "outcome": gate.outcome,
+                    "reasons": [r.value for r in gate.blocking_reasons],
+                },
+                "rows_quarantined": (
+                    {t.table: t.quarantine_by_reason for t in crep.tables if t.quarantined} or None
+                    if crep is not None
+                    else None
+                ),
+                "aliased": aliased or None,
                 # T-106: the dual write into OMOP and the foreign-key checks after it (None: the flag is off)
                 "omop": (
                     {
@@ -634,6 +728,56 @@ def _run_ingest(
         )
     log.info("ingest finished", extra={"snapshot": snap, "passed": passed, "resources": sum(counts.values())})
     return report
+
+
+_REFERENCE = re.compile(r"^Patient/(.+)$")
+
+
+def apply_aliases(by_type: dict[str, list[Resource]], aliases: dict[str, str]) -> int:
+    """T-659b (D-370): write a merged chart number's records under the surviving pid (``pidmap.pid_alias``). A Patient
+    whose pid was merged takes the surviving pid, or is dropped when the surviving patient is in the feed too; every
+    reference ``Patient/<old>`` becomes ``Patient/<surviving>``. Nothing stored is re-keyed. Returns the patients
+    moved."""
+    if not aliases:
+        return 0
+    moved = 0
+    patients = by_type.get("Patient", [])
+    present = {str(p.get("id")) for p in patients}
+    kept: list[Resource] = []
+    for p in patients:
+        new = aliases.get(str(p.get("id")))
+        if new is None:
+            kept.append(p)
+            continue
+        moved += 1
+        if new in present:
+            continue
+        p["id"] = new
+        for ident in p.get("identifier") or []:
+            if isinstance(ident, dict) and str(ident.get("value")) in aliases:
+                ident["value"] = new
+        present.add(new)
+        kept.append(p)
+    if "Patient" in by_type:
+        by_type["Patient"] = kept
+
+    def walk(node: Any) -> Any:
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if k == "reference" and isinstance(v, str) and (m := _REFERENCE.match(v)) and m.group(1) in aliases:
+                    node[k] = f"Patient/{aliases[m.group(1)]}"
+                else:
+                    walk(v)
+        elif isinstance(node, list):
+            for x in node:
+                walk(x)
+        return node
+
+    for rtype, items in by_type.items():
+        if rtype != "Patient":
+            for r in items:
+                walk(r)
+    return moved
 
 
 def jp_core_check(cfg: AdapterConfig, by_type: dict[str, list[Resource]], out_dir: Path) -> ValidationSummary:

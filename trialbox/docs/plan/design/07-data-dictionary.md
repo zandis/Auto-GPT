@@ -87,7 +87,7 @@ Listings that are not field tables keep their own columns: the store inventory (
 | S-01 | Orchestrator job DB | SQLite (`orch-data/orchestrator.db`) | orchestrator / `orch-data` | D1, D3 | Nightly | [built] |
 | S-02 | Mail gateway store | SQLite (`mail-data/mail.db`) | mail-gateway / `mail-data` | D1, ST | Nightly | [built] |
 | S-03 | pid map (vault) | SQLite, AES-GCM blobs (`tb-secrets/pidmap.db`) | adapter / `tb-secrets` | D4 | Nightly, encrypted, offline copy | [built] |
-| S-04 | Master patient index | SQLite (`tb-secrets/mpi.db`) | dataplat / `tb-secrets` | D4, PS | Nightly, encrypted | [built] |
+| S-04 | Patient index (alias table `pid_alias`) | PostgreSQL schema `pidmap` | adapter | D3, PS | Nightly, encrypted | [built] |
 | S-05 | Console accounts and sessions | SQLite (`console-data/console.db`) | console / `console-data` | ST | Nightly | [built] |
 | S-06 | Console site store | SQLite (`console-data/site.sqlite`) | console / `console-data` | D3, ST | Nightly | [built] (`site_profile` and the built registry views). The new study, screening-number, contact-outcome, notification and reconciliation tables are **not** here: they live in S-28 (TB-REV-006f F6-14) |
 | S-07 | FHIR snapshot | NDJSON files per resource type | adapter / `lake-data/snapshots/<id>/` | D3 | Covered by snapshot retention; month-ends to backup | [built] |
@@ -269,22 +269,17 @@ Message bodies and attachments are not stored here; outputs are in the object st
 
 File mode 0600 (built). Key: `tb-secrets/pidmap.key` (AES), site HMAC key `tb-secrets/site_hmac.key`. Retention: while the patient is in any snapshot or any registry within R-GCP; erasure through MPI status `erased` (§4.4) [H] erasure pipeline, TB-DS-03 §11.
 
-### 4.4 S-04 Master patient index (`services/dataplat/mpi/__init__.py`) [built]
+### 4.4 S-04 Patient index as an alias table (`services/adapter/pidmap.py`, schema `pidmap`) [built]
+
+D-370, D-381 (T-659b): the retired data platform's master patient index (`mpi_person`, `mpi_identifier`,
+`mpi_merge`, a random `mpi_id` under `K_pid`) is gone with `services/dataplat`. The pid stays HMAC(site key, chart
+number); a chart-number merge adds one append-only row.
 
 | Table | Field | Type | Key | Null | Class | PII | Retention | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| mpi_person | mpi_id | TEXT | PK | no | D3 | PS | as S-03 (proposed) |  |
-| mpi_person | status | TEXT | — | — | D3 | — | as S-03 (proposed) | active, merged, erased |
-| mpi_person | created_at | TEXT | — | — | D3 | — | as S-03 (proposed) |  |
-| mpi_identifier | mpi_id | TEXT | FK → mpi_person.mpi_id | — | D3 | PS | as S-03 (proposed) |  |
-| mpi_identifier | system | TEXT | — | — | D1 | — | as S-03 (proposed) | mrn, registry id, national id system |
-| mpi_identifier | value_hmac | TEXT | — | — | D3 | PS | as S-03 (proposed) | keyed hash of the identifier value |
-| mpi_identifier | value_enc | BLOB | — | — | **D4** | DI | as S-03 (proposed) | AES-GCM ciphertext |
-| mpi_identifier | valid_from, valid_to | TEXT | — | — | D3 | — | as S-03 (proposed) |  |
-| mpi_merge | from_mpi_id, to_mpi_id | TEXT | — | — | D3 | PS | as S-03 (proposed) | HL7 A40 merges |
-| mpi_merge | source_event, effective_utc, undone_utc | TEXT | — | — | D3 | — | as S-03 (proposed) |  |
-| pid_alias | old_pid, new_pid | TEXT | — | — | D3 | PS | as S-03 (proposed) | keeps pid stable when a registry ID later maps to an MRN |
-| pid_alias | reason, effective_utc | TEXT | — | — | D3 | — | as S-03 (proposed) |  |
+| pid_alias | old_pid | TEXT | PK | no | D3 | PS | as S-03 | the pid of the chart number merged away |
+| pid_alias | pid | TEXT | — | no | D3 | PS | as S-03 | the surviving pid |
+| pid_alias | reason, ticket, merged_at | TEXT | — | no | D3 | — | as S-03 | `adapter pid-merge`; never changed or removed |
 
 ### 4.5 S-05 Console accounts (`services/console/auth.py`) [built; 2FA H]
 
@@ -474,7 +469,7 @@ Retention: R-GCP for `ethics_record`, `study_settings`, `study_team`, `recon_dec
 
 ### 4.12 Keys and relationships
 
-Generated from the Key column of every field table above. The built schemas declare `REFERENCES` only in S-14 (criterion library, enforced with `PRAGMA foreign_keys = ON`) and in S-04 (`mpi_identifier.mpi_id`); every other reference below is logical, kept by the code, not by the database; references to another store or to FHIR are by identifier only and are never joined in SQL across containers. Every `pid` reference resolves through S-03 and, after merges, through `pid_alias` (S-04).
+Generated from the Key column of every field table above. The built schemas declare `REFERENCES` only in S-14 (criterion library, enforced with `PRAGMA foreign_keys = ON`) ; every other reference below is logical, kept by the code, not by the database; references to another store or to FHIR are by identifier only and are never joined in SQL across containers. Every `pid` reference resolves through S-03 and, after merges, through `pid_alias` (S-04).
 
 | Store | Table | Reference |
 | --- | --- | --- |
@@ -493,7 +488,6 @@ Generated from the Key column of every field table above. The built schemas decl
 | S-01 | submissions | FK → S-01 jobs.job_id |
 | S-02 | intake | FK → S-01 jobs.job_id |
 | S-02 | sent | FK → S-01 jobs.job_id |
-| S-04 | mpi_identifier | FK → mpi_person.mpi_id |
 | S-05 | sessions | FK → S-05 users.username |
 | S-05 | login_failures | username: FK → S-05 users.username |
 | S-06 | pi_marks | ruleset: FK → S-13 ruleset |

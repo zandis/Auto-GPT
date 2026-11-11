@@ -187,7 +187,10 @@ e2e-simple:
 # public patients, fixed site key): both lake sources side by side, about 2.5 minutes; TB_LAKE_SOURCE=omop (or legacy)
 # checks one source only.
 # A deliberate change: make goldens REASON="why the numbers move" in the same pull request (any text, D-311).
+# T-202: with one source (TB_LAKE_SOURCE set, the CI matrix) no parent process marks the root; mark it first, as
+# e2e-simple does (a TB_TEST_ROOT holding files and no marker is refused)
 goldens-check:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
 	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.goldens --check --profile ci
 
 goldens:

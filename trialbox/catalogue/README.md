@@ -12,6 +12,8 @@ where one exists. Data only; no runtime code reads it yet. Design and findings:
 | `phenotype_icd10cm.csv` | for each OHDSI-linked phenotype, the ICD-10-CM concept set that stands in for the cohort's SNOMED entry concepts, and how it was derived |
 | `codes_checked.csv` | every code the catalogue names anywhere (code columns, a phenotype's `codes`, notes, score files, `specialties.csv`): system, code, the name the public source gives, the source, the date, and `may_exclude` |
 | `verification/` | the curated inputs (`loinc_decisions.csv`, `jlac10_map.csv`, `phenotype_icd10cm_map.csv`) and `evidence.json`, what the public sources said on the date checked |
+| `instruments.csv` | the instrument copyright register (T-307, D-375): one row per licensed instrument with its holder, `licence` (`needed`, `free-with-terms`, `unclear`), what the terms say, the public source read and the date, and the catalogue items it covers (none for an instrument not in the catalogue). Curated by hand; read by `tb_common.instruments` |
+| `phenotype_status.csv` | the phenotypes whose ICD-10-CM set was run on the synthetic hospital with the expected hits (`synthetic`, T-307); every other phenotype is "not validated here". Curated by hand; read by `tb_common.phenotypes` |
 | `specialties.csv` | each specialty template: core scores, labs and findings, social items, phenotypes, finder-rule examples, patient-vector features, and what the first pass left out |
 
 Rules:
