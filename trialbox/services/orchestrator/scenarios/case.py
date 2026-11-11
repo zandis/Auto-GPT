@@ -35,7 +35,8 @@ from pathlib import Path
 from typing import Any
 
 from tb_common import dates
-from tb_common.crypto import pid_for_mrn, sha256_bytes
+from tb_common.crypto import load_key, pid_for_mrn, sha256_bytes
+from tb_common.kek import key_present
 from tb_common.quotes import quote_in
 from tb_common.reasons import Reason
 from tb_common.routing import is_internal
@@ -181,9 +182,9 @@ def resolve_subject(ctx: Ctx, mrn: str | None) -> Subject:
     if rx and not re.match(rx, mrn):
         raise StepFailed("received", f"mrn={mrn!r} does not look like a chart number of this site")
     key_file = Path(ctx.cfg.env.secrets_dir) / "site_hmac.key"
-    if not key_file.exists():
+    if not key_present(key_file):  # plain or wrapped under the KEK (T-210b)
         return Subject(note="the box has no site key yet (no ingest): structured criteria answered from the chart")
-    pid = pid_for_mrn(key_file.read_bytes(), mrn)
+    pid = pid_for_mrn(load_key(key_file), mrn)
     snapshot = ctx.services.lake.snapshot()
     if not snapshot:
         return Subject(pid=pid, note="the lake has no snapshot yet: structured criteria answered from the chart")
