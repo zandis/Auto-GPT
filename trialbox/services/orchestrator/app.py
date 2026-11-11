@@ -572,12 +572,12 @@ def edc_of(o: Orchestrator) -> Any:
     confirmed facts) and, for note items, the gateway; sends through the study store's REDCap tokens."""
     from edc.prefill import LakeFacts, gateway_drafter
     from edc.service import EdcService
-    from edc.store import EdcStore
+    from edc.store import EdcStore, sign_key_of
     from tb_common.optout import opted_out
 
     key = o.db.url or str(o.data_dir)
-    if key not in _edcs:
-        _edcs[key] = EdcStore(o.db.url)
+    if key not in _edcs:  # the signature key lives with the orchestrator alone (D-281)
+        _edcs[key] = EdcStore(o.db.url, sign_key_of(os.environ, Path(o.cfg.env.secrets_dir)))
     llm = o.services.llm
     return EdcService(_edcs[key], core_of(o), o.audit, lambda: _now(o), o.today, study_service_of(o).client,
                       lambda: LakeFacts(o.services.lake),
