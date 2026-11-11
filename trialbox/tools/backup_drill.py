@@ -179,7 +179,8 @@ def run(base: Path, require_extensions: bool = False) -> dict[str, Any]:
                    f"{len(terms_before['releases'])} releases, {len(terms_before['codes'])} codes"))  # fmt: skip
     omop_after = _omop(work, load=False)
     checks.append(("restore: the OMOP store reads back the same: rows, provenance, conflicts, the year partitions "
-                   "(T-106) and the lake it exports (D-151)", omop_before["rows"]["person"] > 0 and omop_after == omop_before,
+                   "(T-106) and the lake it exports (D-151)",
+                   omop_before["rows"]["person"] > 0 and omop_after == omop_before,
                    ", ".join(f"{v} {k}" for k, v in omop_before["rows"].items())))  # fmt: skip
     with rd.RefStore() as st:
         packs_after = st.status()
