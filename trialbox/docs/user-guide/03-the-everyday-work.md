@@ -42,7 +42,10 @@ required. The CRC asks the doctor and records the answer (agrees to introduce, d
 discuss) on *Referrals*; Approach waits until the doctor agrees. A missing or expired IRB approval or consent-form
 version (*IRB and consent form*) is a warning before Approach, not a block: marking Approach then is recorded as an
 override. The research office keeps the *Opt-out register*: an opted-out patient leaves screening, every list and
-later exports.
+later exports. The hospital registry's refusals join the register by themselves. Within a few minutes (the opt-out
+worker's tick) an open candidate (candidate, contacted) becomes *withdrawn* and leaves the candidate pool; a patient
+who consented or enrolled keeps the trial's own record. NAV lists and CASE sheets leave the patient out too. Taking
+an opt-out back restores nothing at once: the patient returns with the next screening run and the next data load.
 
 **Morning mail.** At 07:00 the CRC and at 07:30 the PI get a short mail: who is new, who is due, by pseudonym and
 screening number, never by name or chart number.

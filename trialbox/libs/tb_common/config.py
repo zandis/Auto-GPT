@@ -583,6 +583,7 @@ DECLARED: dict[str, Declared] = {
     "TB_OPS_DIR": Declared("path", "/data/ops", "ops: request and status folder"),
     "TB_OPS_RUNNER": Declared("str", "host", "ops: who runs requests (host or local)"),
     "TB_OPTOUT_LOOKUPS_PER_HOUR": Declared("int", "", "opt-out lookups per user per hour"),
+    "TB_OPTOUT_WORKER_MINUTES": Declared("int", "5", "orchestrator: minutes between opt-out worker ticks (0 off)"),
     "TB_ORCH_DIR": Declared("path", "", "orchestrator: data folder"),
     "TB_PARSER": Declared("str", "auto", "document parser (auto or a named one)"),
     "TB_PERIMETER_RECHECK_S": Declared("float", "60", "gateway: seconds between perimeter address checks (D-388)"),

@@ -371,11 +371,13 @@ ADDED: dict[str, tuple[str, ...]] = {
     # T-106 (D-339): migration 4, the large clinical tables partitioned by year
     # T-106b (STD-032): migration 5, the other fifteen CDM v5.4 tables
     # T-202 (D-384): migration 6, the record's own before-image on tb_record_event
+    # T-206a (D-441): migration 7, tb_withheld (the persons the opt-out worker keeps out)
     "omop": (
         "0eec88a07c4476ca00fdfb2e8fc414fb2257a293e381d8115a668fa7df0dc6f9",
         "36aaec4b30675bd3f2fa9006cbb7e9869f5df899613d179dde3068d19156094c",
         "5e12313c13360ff7f760649cce2f8bd954e6cfbace79c3dc399b47ae842055c6",
         "139401a1b2873fdd27e3b299507dd52005abea7bc62666af95c9af45ec85fcf8",
+        "8e3745a426403fc8446601c4221225fa3cee581f63569387c59de741041c4523",
     ),
     # T-612: pidmap version 2, the site key's fingerprint
     # T-659b (D-370): pidmap version 3, the patient index as the append-only pid_alias table

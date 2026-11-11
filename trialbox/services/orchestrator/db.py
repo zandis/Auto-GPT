@@ -320,6 +320,17 @@ class JobDB:
             out.append(d)
         return out
 
+    def pool_remove(self, pids: list[str]) -> int:
+        """D-441: the opt-out worker takes these patients out of every study's candidate pool (MICROBATCH reads the
+        pool; SCREEN drops a patient on the register before the pool is written). Returns the rows removed."""
+        if not pids:
+            return 0
+        marks = ",".join("?" for _ in pids)
+        with self.tx() as con:
+            n = con.fetchval(f"SELECT count(*) FROM pool WHERE pid IN ({marks})", tuple(pids))
+            con.execute(f"DELETE FROM pool WHERE pid IN ({marks})", tuple(pids))
+        return int(n or 0)
+
     def pool_rulesets(self) -> list[str]:
         return [str(r[0]) for r in self._db.fetchall("SELECT DISTINCT ruleset FROM pool ORDER BY 1")]
 

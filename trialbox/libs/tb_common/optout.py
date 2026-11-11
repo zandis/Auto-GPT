@@ -12,6 +12,11 @@ when the job was received and stays byte-identical.
     reg.active()                                            # {pid, ...} now
     opted_out(as_of=job.received_at.isoformat())            # read-only, for the orchestrator
 
+The hospital's own registry reaches the box as the lake's ``consent`` table (FHIR Consent, scope research). The
+opt-out worker (``services/datacore/optout_worker.py``, D-441) copies a registry refusal into this register (source
+``emr``, by :data:`REGISTRY_ACTOR`), so every path that reads the register also honours the hospital's refusal;
+:func:`registry_state` is the one reading of that table (the same rule as COHORT's ``n_contactable``).
+
 Nothing here holds a chart number or a name.
 """
 
@@ -22,6 +27,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 from tb_common.db import ENV, Database, DatabaseError
 
@@ -29,6 +35,14 @@ SCHEMA = "optout"
 ACTIONS = ("opt_out", "lift")
 SOURCES = ("paper", "office", "web", "phone", "emr", "other")
 _PID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+#: who records the opt-outs copied from the hospital's registry (D-441); only these are lifted by the registry again
+REGISTRY_ACTOR = "worker:registry"
+#: the lake's consent rows on or before a day, oldest first per patient (an undated row counts as the oldest); a row
+#: entered in error is no statement (the rule of COHORT's ``n_contactable``, PR #257)
+REGISTRY_SQL = (
+    "SELECT pid, status, contact_ok FROM consent WHERE coalesce(status, '') <> 'entered-in-error' "
+    "AND (date IS NULL OR date <= CAST($1 AS DATE)) ORDER BY pid, date NULLS FIRST"
+)
 
 SCHEMA_V1 = """
 CREATE TABLE optout_events (
@@ -139,6 +153,58 @@ class OptOutRegister:
         return sorted(last.values(), key=lambda e: e.at, reverse=True)
 
 
+@dataclass(frozen=True)
+class RegistryState:
+    """What the hospital's registry says now, per patient, by the latest statement: ``refused`` (FHIR Consent
+    ``rejected``: no research use) and ``no_contact`` (a latest statement that denies contact)."""
+
+    refused: frozenset[str]
+    no_contact: frozenset[str]
+
+
+def registry_rule(rows: list[tuple[str, str, bool | None]]) -> RegistryState:
+    """``rows``: (pid, status, contact_ok) oldest first. The patient's latest statement decides: a later withdrawal
+    ends an earlier active consent, and a later active consent ends an earlier refusal."""
+    last: dict[str, tuple[str, bool | None]] = {}
+    for pid, status, contact in rows:
+        last[pid] = (status, contact)
+    return RegistryState(
+        frozenset(p for p, (st, _) in last.items() if st == "rejected"),
+        frozenset(p for p, (_, ok) in last.items() if ok is False),
+    )
+
+
+def registry_state(lake: Any, snapshot: str | None, day: str) -> RegistryState | None:
+    """The lake's ``consent`` table read by :func:`registry_rule` as of ``day`` (ISO date). None: the lake has no
+    consent table (the site's registry was never ingested). Any other failure raises (D-127: fail closed)."""
+    try:
+        rows = lake.query(REGISTRY_SQL, [day], snapshot).to_pylist()
+    except Exception as exc:  # the cascade's own test (``matching.cascade.engine.missing_table``)
+        msg = str(exc)
+        if "consent" in msg and ("does not exist" in msg or "Catalog Error" in msg):
+            return None
+        raise
+    return registry_rule([(str(r["pid"]), str(r["status"] or ""), r["contact_ok"]) for r in rows if r["pid"]])
+
+
+def sync_registry(reg: OptOutRegister, state: RegistryState, at: str) -> tuple[int, int]:
+    """Copy the registry's refusals into the register (source ``emr``, by :data:`REGISTRY_ACTOR`) and lift the ones
+    the registry no longer refuses, but only an opt-out the registry itself put there: an opt-out the office typed
+    is never lifted by the feed. Returns (added, lifted). Nothing is written when nothing changed."""
+    on = reg.active()
+    last_by: dict[str, str] = {}
+    for e in reg.events():
+        last_by[e.pid] = e.by
+    added = lifted = 0
+    for pid in sorted(state.refused - on):
+        if _PID.match(pid):
+            added += reg.add(pid, "emr", "the hospital registry: research use refused", REGISTRY_ACTOR, at)
+    for pid in sorted(on - state.refused):
+        if last_by.get(pid) == REGISTRY_ACTOR:
+            lifted += reg.lift(pid, "the hospital registry no longer refuses", REGISTRY_ACTOR, at)
+    return added, lifted
+
+
 def opted_out(url: str | None = None, as_of: str | None = None) -> frozenset[str]:
     """Read-only: the pseudonyms opted out at ``as_of`` (now when None). No trial database configured -> empty (there
     is no register without one). A database that does not answer raises: skipping the register would list patients
@@ -161,4 +227,17 @@ def opted_out(url: str | None = None, as_of: str | None = None) -> frozenset[str
         db.close()
 
 
-__all__ = ["ACTIONS", "SOURCES", "DatabaseError", "OptOutError", "OptOutEvent", "OptOutRegister", "opted_out"]
+__all__ = [
+    "ACTIONS",
+    "REGISTRY_ACTOR",
+    "SOURCES",
+    "DatabaseError",
+    "OptOutError",
+    "OptOutEvent",
+    "OptOutRegister",
+    "RegistryState",
+    "opted_out",
+    "registry_rule",
+    "registry_state",
+    "sync_registry",
+]

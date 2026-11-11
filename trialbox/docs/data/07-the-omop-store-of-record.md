@@ -11,6 +11,10 @@ file, row), the history of every record, and open and resolved conflicts. It is 
   `TB_OMOP_CONCEPT_BLOCK`); the standard `*_concept_id` is 0 until the vocabulary bundle is loaded.
 - **Deletes are tombstones.** A record the hospital no longer sends leaves the standard table; its last content and
   the night it went are kept in `tb_record_event`, with the reason `deleted at the source` or `left the feed` (§9).
+- **Opted-out patients are withheld** (D-441). The opt-out worker keeps `tb_withheld` equal to the opt-out register
+  and tombstones a newly opted-out patient's records at once, with the reason `opted out`; every later load leaves
+  that patient's records out. A lift removes the row only: the records come back with the next load. Erasing the
+  before-images and the lake snapshots is the retention run's (T-206b).
 - **Disagreements are recorded.** Two sources that give a patient different birth dates, sexes or dates of death open
   a conflict; screening reads the item as unknown until the steward (or the PI, for their study) resolves it. A
   conflict ends only when the sources agree again or a person resolves it: a source that stops sending the item (a

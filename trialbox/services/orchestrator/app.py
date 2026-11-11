@@ -131,9 +131,16 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         sched = start(o)
     if sched is not None and o.cfg.env.site_publish_batch_seconds > 0:  # T-305b (D-403): the batch's own tick
         sched.add_job(lambda: _flush_main(setup_of(o)), "interval", seconds=60, id="site-publish-batch")
+    optout_sched: Any = None
+    if os.environ.get("TB_SCHEDULER", "1") != "0":  # D-441: the opt-out worker ticks even when nights are on demand
+        from datacore.optout_worker import start as optout_start
+
+        optout_sched = optout_start(o)
     try:
         yield
     finally:
+        if optout_sched is not None:
+            optout_sched.shutdown(wait=False)
         if sched is not None:
             sched.shutdown(wait=False)
         o.stop()
