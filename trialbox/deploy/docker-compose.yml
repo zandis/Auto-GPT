@@ -67,6 +67,11 @@ services:
       - archive_command=${TB_PG_ARCHIVE_COMMAND:-pgbackrest --stanza=trialbox archive-push %p}
       - -c
       - archive_timeout=${TB_PG_ARCHIVE_TIMEOUT:-300}
+      # T-209c (D-406, OPS-035): a failed statement is never written to the log with its text or its values
+      - -c
+      - log_min_error_statement=panic
+      - -c
+      - log_parameter_max_length_on_error=0
     environment:
       POSTGRES_DB: hapi
       POSTGRES_USER: hapi
@@ -81,6 +86,7 @@ services:
       TB_DB_PW_MAIL_GATEWAY: ${TB_DB_PW_MAIL_GATEWAY:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
       TB_DB_PW_GATEWAY: ${TB_DB_PW_GATEWAY:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
       TB_DB_PW_CONSOLE: ${TB_DB_PW_CONSOLE:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
+      TB_DB_PW_AUDIT_WRITER: ${TB_DB_PW_AUDIT_WRITER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
       POSTGRES_INITDB_ARGS: ${POSTGRES_INITDB_ARGS:---data-checksums}
     volumes:
       - db-pg:/var/lib/postgresql/data
@@ -174,7 +180,7 @@ services:
     command: ["uvicorn", "criteria_compiler.app:app", "--host", "0.0.0.0", "--port", "8012"]
     environment: {PORT: "8012", TB_SERVICE_NAME: criteria-compiler,
                   TB_DB_URL: "postgresql://tb_criteria_compiler:${TB_DB_PW_CRITERIA_COMPILER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
-                  TB_RULESETS_DIR: /data/rulesets, TB_AUDIT_DIR: /data/audit,
+                  TB_RULESETS_DIR: /data/rulesets, TB_AUDIT_DIR: /data/audit, TB_AUDIT_WRITER: db,
                   TB_CTGOV_MODE: "${TB_CTGOV_MODE:-offline}", TB_GATEWAY_URL: "http://gateway:8020/v1",
                   TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_DATA_CLASS: "${TB_DATA_CLASS:-}"}
     # only service allowed to reach clinicaltrials.gov (public registry, COHORT; network.sh); its cloud LLM calls go
@@ -183,7 +189,7 @@ services:
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - rulesets-data:/data/rulesets
-      - audit-data:/data/audit
+      - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
       - objects-data:/data/objects
       - ${TB_EXTRA_CA:-/dev/null}:/run/tb-extra-ca.pem:ro   # hospital TLS-inspection CA (tb_common.extra_ca)
 
@@ -196,7 +202,8 @@ services:
     environment: {PORT: "8016", TB_SERVICE_NAME: adapter,
                   TB_DB_URL: "postgresql://tb_adapter:${TB_DB_PW_ADAPTER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
                   TB_LAKE_DIR: /data/lake, TB_ADAPTER_LAKE: http,
-                  TB_AUDIT_DIR: /data/audit, TB_SECRETS_DIR: /run/secrets/trialbox, TB_VALIDATOR_XMX: 3g}
+                  TB_AUDIT_DIR: /data/audit, TB_AUDIT_WRITER: db, TB_SECRETS_DIR: /run/secrets/trialbox,
+                  TB_VALIDATOR_XMX: 3g}
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       # the site's feed folder (the wizard writes TB_SOURCE_DIR, the host folder, and TB_SOURCE_MOUNT, the
@@ -205,9 +212,29 @@ services:
       - ${TB_SOURCE_DIR:-../tests/fixtures/synthetic_patients/site-a}:${TB_SOURCE_MOUNT:-/data/source/site-a}:ro
       - ${TB_MAPPING_HOST_DIR:-./site/mapping}:/etc/trialbox/mapping:ro
       - lake-data:/data/lake
-      - audit-data:/data/audit
+      - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
       - tb-secrets:/run/secrets/trialbox
       - ${TB_KEK_HOST_DIR:-/run/trialbox}:/run/trialbox:ro   # the KEK the unseal writes (tb_common.kek, D-347): read-only
+
+  audit-writer:
+    # D-394 (T-211b, CR-042): the one writer of the audit chain. The services send their events to the append-only
+    # audit.journal table (tb_common.audit_writer.open_audit); this copies them, in order, into the hash chain. Its
+    # role, tb_audit_writer, may only read the journal; it is the only container that mounts audit-data read-write.
+    <<: *py
+    mem_limit: ${TB_MEM_AUDIT_WRITER:-256m}
+    pids_limit: 64
+    command: ["python", "-m", "tb_common.audit_writer", "drain"]
+    environment: {TB_SERVICE_NAME: audit-writer,
+                  TB_DB_URL: "postgresql://tb_audit_writer:${TB_DB_PW_AUDIT_WRITER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_AUDIT_DIR: /data/audit}
+    volumes:
+      - audit-data:/data/audit
+    healthcheck:   # the drain touches its heartbeat at least once a second while it runs
+      test: ["CMD", "python", "-c", "import os,sys,time; sys.exit(0 if time.time()-os.path.getmtime('/tmp/tb-audit-writer.alive')<60 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
   orchestrator:
     <<: *py
@@ -217,7 +244,7 @@ services:
     command: ["uvicorn", "orchestrator.app:app", "--host", "0.0.0.0", "--port", "8010"]
     environment: {PORT: "8010", TB_SERVICE_NAME: orchestrator,
                   TB_DB_URL: "postgresql://tb_orchestrator:${TB_DB_PW_ORCHESTRATOR:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
-                  TB_AUDIT_DIR: /data/audit, TB_RULESETS_DIR: /data/rulesets,
+                  TB_AUDIT_DIR: /data/audit, TB_AUDIT_WRITER: db, TB_RULESETS_DIR: /data/rulesets,
                   TB_ORCH_DIR: /data/orchestrator, TB_SECRETS_DIR: /run/secrets/trialbox,
                   TB_GATEWAY_URL: "http://gateway:8020/v1", TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}",
                   TB_GATEWAY_VERIFIER_MODEL: "${TB_GATEWAY_VERIFIER_MODEL:-}", TB_DATA_CLASS: "${TB_DATA_CLASS:-}",
@@ -228,7 +255,7 @@ services:
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - orch-data:/data/orchestrator
-      - audit-data:/data/audit
+      - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
       - rulesets-data:/data/rulesets:ro
       - objects-data:/data/objects
       - tb-secrets:/run/secrets/trialbox
@@ -241,11 +268,11 @@ services:
     command: ["uvicorn", "mail_gateway.app:app", "--host", "0.0.0.0", "--port", "8015"]
     environment: {PORT: "8015", TB_SERVICE_NAME: mail-gateway,
                   TB_DB_URL: "postgresql://tb_mail_gateway:${TB_DB_PW_MAIL_GATEWAY:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
-                  TB_AUDIT_DIR: /data/audit, TB_MAIL_DIR: /data/mail}
+                  TB_AUDIT_DIR: /data/audit, TB_AUDIT_WRITER: db, TB_MAIL_DIR: /data/mail}
     networks: [trialbox-net, egress-net]   # only service allowed to reach IMAP/SMTP (network.sh)
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
-      - audit-data:/data/audit
+      - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
       - mail-data:/data/mail
       - objects-data:/data/objects
       - ${TB_EXTRA_CA:-/dev/null}:/run/tb-extra-ca.pem:ro   # hospital TLS-inspection CA (tb_common.extra_ca)
@@ -261,7 +288,7 @@ services:
                   TB_DB_URL: "postgresql://tb_gateway:${TB_DB_PW_GATEWAY:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
                   TB_ENV: "${TB_ENV:-PRODUCTION}", TB_TOPOLOGY: "${TB_TOPOLOGY:-A}",
                   TB_PROFILE: "${TB_PROFILE:-P-GB10}", TB_CLOUD_OPT_IN: "${TB_CLOUD_OPT_IN:-}", TB_AUDIT_DIR: /data/audit,
-                  TB_TRACESTORE: "on",
+                  TB_AUDIT_WRITER: db, TB_TRACESTORE: "on",
                   TB_REGISTRY_OVERRIDE: /etc/trialbox/site/registry.site.yaml, TB_MODEL_SWAP: "${TB_MODEL_SWAP:-}",
                   TB_GATEWAY_INTERACTIVE_TIMEOUT_S: "${TB_GATEWAY_INTERACTIVE_TIMEOUT_S:-30}"}
     # model-net: the only network with llm-service / llm-stub; egress-net: external model endpoints, filtered per
@@ -270,7 +297,7 @@ services:
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - ${TB_SITE_DIR:-./site}:/etc/trialbox/site:ro
-      - audit-data:/data/audit
+      - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
       - traces-data:/data/traces
       - ${TB_EXTRA_CA:-/dev/null}:/run/tb-extra-ca.pem:ro   # hospital TLS-inspection CA (tb_common.extra_ca)
 
@@ -285,14 +312,14 @@ services:
               "--proxy-headers", "--forwarded-allow-ips", "${TB_CONSOLE_FORWARDED_ALLOW_IPS:-127.0.0.1}"]
     environment: {PORT: "8090", TB_SERVICE_NAME: console,
                   TB_DB_URL: "postgresql://tb_console:${TB_DB_PW_CONSOLE:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
-                  TB_CONSOLE_DIR: /data/console, TB_AUDIT_DIR: /data/audit,
+                  TB_CONSOLE_DIR: /data/console, TB_AUDIT_DIR: /data/audit, TB_AUDIT_WRITER: db,
                   TB_RULESETS_DIR: /data/rulesets, TB_GATEWAY_URL: "http://gateway:8020/v1",
                   TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_CONSOLE_SECURE_COOKIE: "${TB_CONSOLE_SECURE_COOKIE:-}",
                   TB_OPS_DIR: /data/ops}  # D-178: the mount below; the host's TB_OPS_DIR in .env is the host path
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - console-data:/data/console
-      - audit-data:/data/audit
+      - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
       - rulesets-data:/data/rulesets:ro
       - objects-data:/data/objects
       # D-178: the operations folder shared with the host's runner (python3 -m tools.trialbox ops run): requests in,

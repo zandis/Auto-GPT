@@ -457,7 +457,8 @@ def test_public_data_banner_own_studies_and_site_labels(tmp_path: Path) -> None:
     assert ConsoleSettings.from_env(base).data_source == "synthetic" and ConsoleSettings.from_env(base).studies == ()
     for lang in ("en", "ja", "zh-TW"):
         words = CATALOGUES[lang]["pilot.banner.public"]
-        assert "D0" in words and words != CATALOGUES[lang]["pilot.banner"]
+        # T-685 (UX-041): plain words, no "TB_ENV" or "D0" (the footer names both)
+        assert "TB_ENV" not in words and "D0" not in words and words != CATALOGUES[lang]["pilot.banner"]
     store = SiteStore()
     store.save_label("pub-onc", "PUB-ONC-INC-01", "ja", "18歳以上", "crc", "2026-11-08T00:00:00Z")
     assert store.labels("PUB-ONC", "ja") == {"PUB-ONC-INC-01": "18歳以上"} and store.labels("PUB-ONC", "zh-TW") == {}

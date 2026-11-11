@@ -16,6 +16,11 @@ no longer sign in, and the disable is in the audit; tabletop: a key steward leav
 4. Mails: remove the person from any study's recipients; a list sent to them before stays in the audit.
 5. Hand-over: their open review items stay in the study; the PI gives them to another person.
 
+Leavers nobody reported (T-209c, D-406): every local account other than an administrator has an end date at most 365
+days ahead (an empty one is set to that limit). **Unused accounts** (`/admin/accounts`, linked from the Accounts tile
+of `/admin`) lists accounts not used for 60 days, ending within 14 days, or with no end date; the administrators'
+health mail carries the same list every Monday. Disable each one that belongs to a leaver.
+
 ## The site administrator
 
 Everything above, and:

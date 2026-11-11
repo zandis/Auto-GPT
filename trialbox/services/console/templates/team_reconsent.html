@@ -14,7 +14,7 @@
 <p data-testid="reconsent-target">{{ t('reconsent.target', v=due.target.version, day=due.target.effective_from or t('icf.from_start')) }}</p>
 {% if not due.rows %}<p class="ok" data-testid="reconsent-empty">{{ t('reconsent.empty') }}</p>{% else %}
 <div class="scroll" tabindex="0"><table data-testid="reconsent-rows">
-<thead><tr><th>{{ t('reconsent.col.subject') }}</th><th>{{ t('reconsent.col.state') }}</th><th>{{ t('reconsent.col.version') }}</th><th>{{ t('reconsent.col.day') }}</th><th></th></tr></thead>
+<thead><tr><th>{{ t('reconsent.col.subject') }}</th><th>{{ t('reconsent.col.state') }}</th><th>{{ t('reconsent.col.version') }}</th><th>{{ t('reconsent.col.day') }}</th><th><span class="sr">{{ t('col.actions') }}</span></th></tr></thead>
 <tbody>{% for r in due.rows %}<tr data-testid="rc-{{ r.record }}">
 <td><a href="/studies/{{ rs }}/subjects/{{ r.record|urlencode }}" class="mono">{{ r.record }}</a>{% if r.pid %} <span class="hint mono">{{ r.pid[:8] }}</span>{% endif %}</td>
 <td>{{ t('life.state.' + r.state) }}</td>
