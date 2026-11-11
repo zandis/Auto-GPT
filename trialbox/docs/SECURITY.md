@@ -130,6 +130,9 @@ ever printed, logged or put in the audit; `secrets status` shows names, modes an
 - **Models.** Every call goes through the gateway, which routes by data class; local models only for patient data.
   A note excludes a patient only when two different models agree on a verified quote, and every note holding the
   evidence was shown to them (D-115, D-117, D-276).
+- **Planted instructions.** A fence in a note, chart, consent form or protocol cannot close a prompt's data block;
+  text nobody can see on the page is flagged; the injection suite (56 attacks, 14 controls, en / ja / zh-TW) gates
+  CI against the stub and `qualify` against a pair; model traces live 7 days in PRODUCTION (D-346).
 - **One-way hospital systems.** TrialBox never writes to an EMR, SS-MIX2 or CGRD (owner decision 2).
 
 ## 6. Audit, retention, updates
