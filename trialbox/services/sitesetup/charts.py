@@ -22,11 +22,12 @@ from __future__ import annotations
 import io
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from doc_parser.hidden_text import hidden_text
-from tb_common import catalogue, encoding
+from tb_common import encoding, instruments
 from tb_common.quotes import quote_in
 from tb_llm.budget import estimate_tokens
 
@@ -248,9 +249,17 @@ def part_budget(llm: _Llm, lang: str) -> int | None:
     return int(room) if isinstance(room, int) else None
 
 
-def extract(llm: _Llm, text: str, lang: str, job_id: str | None = None) -> tuple[list[dict[str, str]], int]:
+def extract(
+    llm: _Llm,
+    text: str,
+    lang: str,
+    job_id: str | None = None,
+    switches: Mapping[str, instruments.Switch] | None = None,
+) -> tuple[list[dict[str, str]], int]:
     """``(proposed facts, facts dropped)``: a fact whose quote is not in the chart is dropped, never kept. A chart
-    longer than the model's context allows is read in parts (:func:`chart_parts`), each fact kept once."""
+    longer than the model's context allows is read in parts (:func:`chart_parts`), each fact kept once. An item
+    answer of a score-only instrument is dropped unless the site switched that instrument with a licence reference
+    (``switches``, T-307)."""
     facts: list[dict[str, Any]] = []
     for part in chart_parts(text, part_budget(llm, lang)):
         res = llm.chat_json(
@@ -267,8 +276,8 @@ def extract(llm: _Llm, text: str, lang: str, job_id: str | None = None) -> tuple
         if not quote_in(str(raw.get("quote") or ""), text):
             dropped += 1
             continue
-        if catalogue.refused_fact(str(raw.get("term") or ""), str(raw.get("code") or "").strip()):
-            dropped += 1  # T-107 (D-353): an item answer of a score-only instrument is never kept
+        if instruments.refused_fact(str(raw.get("term") or ""), str(raw.get("code") or "").strip(), switches):
+            dropped += 1  # T-107 (D-353), T-307 (D-375): an item answer the site may not keep is never kept
             continue
         f = normalise(raw)
         if f is None:

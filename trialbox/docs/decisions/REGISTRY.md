@@ -93,7 +93,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-245 | reserved | T-304 | Statistics page and the export set: EXTRACT, Define-XML, audit CSV, … |
 | D-246 | reserved | T-305 | All-history back-fill, content-addressed snapshots, batched publish, … |
 | D-247 | reserved | T-306 | HAPI out of the nightly path |
-| D-248 | reserved | T-307 | Catalogue gaps and the instrument copyright register |
+| D-248 | unused | T-307 | Catalogue gaps and the instrument copyright register (voided: T-307 took D-375) |
 | D-249 | reserved | T-308 | Specialty templates |
 | D-250 | reserved | T-309 | Break-glass |
 | D-251 | reserved | T-310 | Weekly "criteria not matched" sample, the per-study IRB-text gate on … |
@@ -181,3 +181,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-355 | merged | T-211a | signed audit heads with the KEK-wrapped Ed25519 key, write-once off-box anchor folders, key rotation, the clock a doctor FAIL (file) |
 | D-352 | merged | T-669 | hot documents as section files with a generated index; RUNBOOK section numbers in one table (file) |
 | D-357 | merged | T-603 | prompt budgets from the model's context: the gateway gives each alias's context and refuses `prompt_too_long` before dispatch; callers size excerpts, full record, chart and the retry from it; the cache keeps complete answers only and keys on `max_tokens`; a note over the budget is flagged (`notes_over_budget`) (file) |
+| D-375 | merged | T-307 | catalogue gaps after PR #80 and T-107: the instrument copyright register from public sources with site switches that need a licence reference, the phenotypes with a status (seven checked on the synthetic hospital), the Athena licence acknowledgements recorded (file) |
