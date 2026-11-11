@@ -6,7 +6,10 @@
 * **Access log.** Every read, refusal and prune is logged in the store's own ``access_log`` table with user and
   purpose; a read needs a purpose and the ``trace:read`` role.
 * **Retention.** :meth:`TraceStore.prune` deletes traces older than ``retention_days`` (90) by the injected clock;
-  special-category traces use ``sc_retention_days``.
+  special-category traces use ``sc_retention_days``. In PRODUCTION neither is longer than
+  ``production_retention_days`` (7; T-208, D-346).
+* **No text for the suite.** A trace whose ``tb.study_id`` is in ``no_text_studies`` (the prompt-injection suite)
+  keeps its call id, span, special-category mark and safe attributes only (T-208).
 * **Not the audit trail.** Each trace carries ``call_id``, which resolves to the gateway's ledger record (LLM-46).
 """
 
@@ -22,6 +25,7 @@ from typing import Any
 
 import yaml
 from guard.guard import Guard
+from tb_common.config import environment_name
 from tb_common.db import ENV, Database, Tx
 
 SETTINGS_PATH = Path(__file__).resolve().parent / "tracestore.yaml"
@@ -42,15 +46,24 @@ class TraceSettings:
     sc_retention_days: int
     read_role: str
     safe_attributes: frozenset[str]
+    no_text_studies: frozenset[str] = frozenset()
 
     @classmethod
-    def load(cls, path: Path = SETTINGS_PATH) -> TraceSettings:
+    def load(cls, path: Path = SETTINGS_PATH, environment: str | None = None) -> TraceSettings:
+        """The settings file; ``environment`` (default: ``TB_ENV``, PRODUCTION when unset) caps both retentions at
+        ``production_retention_days`` in PRODUCTION."""
         doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        days, sc_days = int(doc["retention_days"]), int(doc["sc_retention_days"])
+        env = environment if environment is not None else environment_name(os.environ)
+        if env.strip().upper() == "PRODUCTION" and doc.get("production_retention_days") is not None:
+            cap = int(doc["production_retention_days"])
+            days, sc_days = min(days, cap), min(sc_days, cap)
         return cls(
-            retention_days=int(doc["retention_days"]),
-            sc_retention_days=int(doc["sc_retention_days"]),
+            retention_days=days,
+            sc_retention_days=sc_days,
             read_role=str(doc["read_role"]),
             safe_attributes=frozenset(str(x) for x in doc.get("safe_attributes") or ()),
+            no_text_studies=frozenset(str(x) for x in doc.get("no_text_studies") or ()),
         )
 
 
@@ -102,6 +115,11 @@ class TraceStore:
 
     # ------------------------------------------------------------------------------------------------ write
     def _redact_trace(self, trace: dict[str, Any]) -> dict[str, Any]:
+        raw = trace.get("attributes")
+        attrs: dict[str, Any] = raw if isinstance(raw, dict) else {}
+        if str(attrs.get("tb.study_id") or "") in self.settings.no_text_studies:  # T-208: no text at all
+            safe = {k: v for k, v in attrs.items() if k in self.settings.safe_attributes}
+            return {k: trace[k] for k in ("call_id", "span", "sc") if k in trace} | {"attributes": safe}
         out: dict[str, Any] = {}
         for key, val in trace.items():
             if key in ("call_id", "span", "sc"):

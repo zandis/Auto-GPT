@@ -77,7 +77,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-229 | reserved | T-205 | Second factor at signing and the record lock |
 | D-230 | reserved | T-206 | Opt-out worker v1 |
 | D-231 | reserved | T-207 | The derived-data framework: stored rows and definitions as data |
-| D-232 | reserved | T-208 | Prompt-injection and false-positive suite |
+| D-232 | unused | T-208 | was reserved for T-208, which took D-346 |
 | D-233 | reserved | T-209 | Monitoring, admin screens and the support bundle |
 | D-234 | reserved | T-210 | Windows/WSL2 hardening, keys under a KEK, the unseal path |
 | D-235 | reserved | T-211 | Audit integrity: signed heads, one writer, NTP as a FAIL, the audit … |
@@ -160,5 +160,12 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-330 | merged | T-509 | the PoC host: one VM, the image by digest, Cloudflare Access through a tunnel, kept data on its own disk, daily snapshot, purge (file) |
 | D-331 | merged | T-510 | in-product feedback: a flag, a rating and a comment on every page, stored with path, language, role and time; CSV export to issues; the comment in the demo scan (file) |
 | D-332 | merged | T-508 | the clinician PoC is product evaluation, not research: no protocol, subject consent or committee step; the acknowledgement only (file) |
+| D-333 | merged | T-601 | the gateway never answers one role with another role's model: `fallback: none` unless a route says `any`, one retry on the same build, no fallback on 400/404, build and fallbacks in the response, `tb_llm` raises on an unexpected alias, doctor `judge_route` (file) |
 | D-334 | merged | T-613b | lab units read per row: one conversion table in labvalue (engines' factors reused), mapping_check unit pairs and raw values, one presence reader in ja, zh-TW, en (file) |
+| D-342 | merged | T-617b | the licence register as data (`docs/licences/register.csv`) and its build check; model licence rows backed by it; no SNOMED CT ships; the ATC request written, not sent (file) |
+| D-343 | merged | T-649b | N-12 gates on the unadjusted figure; every model change follows the model change protocol, and every qualification record cites it (file) |
+| D-344 | merged | T-215 | QMS-lite records in `docs/validation/`, VMP v1.1 without signatures, change classes CC1 to CC6, staged roll-out, standards position (file) |
+| D-346 | merged | T-208 | the prompt-injection and false-positive suite: facts not words, a stub that obeys as the negative control, the fence escaped, hidden text flagged, traces 7 days in PRODUCTION (file) |
+| D-347 | merged | T-210b | the site keys under a KEK: wrapped files, three back ends, the unseal, the key inventory (file) |
+| D-349 | merged | T-512 | the PI starts FEAS, SCREEN and CASE on own study; a sub-investigator with the `run` tick; one table `authz.INVESTIGATOR_RUNS`; "data as of" on the patient lists (file) |
 | D-362 | merged | T-514 | a coded criterion row shows the record's own value, unit, date and code (evidence.coded, display only; latest first, at most three; an empty list says no record is behind the answer) on the patient page and the not-matched list (file) |

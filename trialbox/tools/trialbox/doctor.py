@@ -17,6 +17,13 @@ closed). Checks:
   or ``LLM_VERIFIER_BASE_URL``) and ``TB_SCREEN_JUDGE`` other than ``single``; otherwise the box runs single-model
   and SCREEN falls back to ``never`` (a note answer may send a patient to review, never out: D-97). WARN in
   DEV/TEST, FAIL in VALIDATION/PRODUCTION, since the site then believes two models agree when one did;
+* ``judge_route`` (T-601; D-142 "not done"): the gateway built from this box's settings (routing file, registry with
+  the site pins, ``TB_ENV``, ``TB_TOPOLOGY``, ``TB_PROFILE``, no step confirmer, as compose runs it) takes one
+  synthetic judge call as the orchestrator sends it (``TB_GATEWAY_MODEL``, ``TB_DATA_CLASS`` or D3), and one verifier
+  call when ``TB_GATEWAY_VERIFIER_MODEL`` is set, against a stand-in model server. FAIL in VALIDATION and PRODUCTION
+  (WARN in DEV and TEST) when it would refuse either (no route, an unpinned or non-champion build, a D3 call with
+  no step outside the box policy) or another alias answers: the box would screen no note. PASS when the judge does
+  not use the gateway;
 * ``registry_pins``: the committed registry with the site override (``TB_REGISTRY_OVERRIDE``, default
   ``deploy/site/registry.site.yaml``) loads; lists the site-pinned builds. WARN when no model build is pinned
   (production routes nothing) or, in VALIDATION/PRODUCTION, when no pinned build is ``champion``;
@@ -28,7 +35,11 @@ closed). Checks:
   box's first start (T-008, D-207): WARN, naming the flag's value and where to change it;
 * ``site_key`` (T-612, DATA-004): ``site_hmac.key`` is in the secrets folder (``TB_SECRETS_DIR``) and its fingerprint
   is the one recorded in the lake (``site_key.json``) and in the pid map. FAIL when it is missing or another key (the
-  ingest then refuses every night); WARN when the folder is not on this host. Prints the fingerprint, never the key.
+  ingest then refuses every night); WARN when the folder is not on this host. Prints the fingerprint, never the key;
+* ``key_custody`` (T-210b, CR-041, D-347): the site keys are wrapped under the KEK (``tb_common.kek``). FAIL when a key
+  is both plain and wrapped, a wrapped key has no ``kek.json`` or names another KEK, the KEK file is in the secrets
+  folder or is not this box's KEK, or (in VALIDATION and PRODUCTION) a site key is a plain file; WARN for a plain key
+  in DEV/TEST and when the keys are wrapped but the KEK is not unsealed where doctor runs. Opens no key.
 
 ``--live`` adds one check that talks to the model servers, so it runs where the gateway's network is (install.sh
 runs it in a one-off container on ``trialbox-model-net``; ``--serving`` runs it alone):
@@ -47,10 +58,11 @@ import importlib.util
 import json
 import os
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Literal
@@ -287,6 +299,97 @@ def verifier_is_the_judge(env: Mapping[str, str]) -> str | None:
         if v_model == key(env.get("LLM_MODEL")):
             return f"LLM_VERIFIER_MODEL={v_model} is the judge's model (LLM_MODEL)"
     return None
+
+
+def _judge_answer(served: str) -> dict[str, Any]:
+    """What a model server sends back to a judge call: the served name it was asked under and a valid judge answer."""
+    content = json.dumps({"verdict": "unknown", "confidence": 0.0, "quote": None, "quote_date": None, "reason": "-"})
+    return {
+        "model": served,
+        "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+    }
+
+
+def check_judge_route(inp: DoctorInputs) -> Check:
+    """T-601 (D-142 "not done"): put one synthetic judge call, and one verifier call when a gateway verifier is named,
+    to the gateway built from this box's settings (routing file, registry with the site pins, environment, topology,
+    profile, no step confirmer as compose runs it), with a stand-in model server that answers under the pinned served
+    name. FAIL when the gateway refuses either call or another alias answers: the box would then screen no note."""
+    import httpx
+    from gateway.core import Gateway, GatewayConfig
+    from gateway.policy import RoutingPolicy
+    from guard.guard import Guard
+    from registry.registry import DEFAULT_PATH, Registry
+    from tb_common.audit import AuditLog
+    from tb_common.llm import load_prompt, render
+    from tb_contracts import inline_schema
+    from tb_llm import GatewayClient, GatewayError, GatewayRefused, json_schema_format
+    from tb_llm.client import v1_labels
+
+    url = (inp.env.get("TB_GATEWAY_URL") or "").strip()
+    if not url:
+        return Check("judge_route", "PASS", "the judge does not go through the gateway (no TB_GATEWAY_URL)")
+    env = dict(inp.env)
+    # FAIL where the box screens real notes; WARN in DEV and TEST (synthetic data, a box being set up)
+    bad: Status = "FAIL" if env.get("TB_ENV", "DEV") in ("VALIDATION", "PRODUCTION") else "WARN"
+    with tempfile.TemporaryDirectory(prefix="tb-doctor-") as tmp:
+
+        def upstream(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=_judge_answer(str(json.loads(req.content).get("model") or "")))
+
+        gw = Gateway(
+            RoutingPolicy.load(inp.routing_path),
+            Registry.load(Path(env.get("TB_REGISTRY_PATH") or DEFAULT_PATH), _override(inp)),
+            AuditLog(Path(tmp) / "audit"),
+            GatewayConfig.from_env(env),
+            http=httpx.Client(transport=httpx.MockTransport(upstream)),
+            guard=Guard(None),
+            env=env,
+        )
+
+        def gateway(req: httpx.Request) -> httpx.Response:
+            res = gw.chat(dict(req.headers), json.loads(req.content))
+            return httpx.Response(res.status, json=res.body, headers=res.headers)
+
+        http = httpx.Client(transport=httpx.MockTransport(gateway))
+        p = load_prompt("judge")
+        labels = v1_labels(
+            p.meta.id,
+            p.meta.version,
+            phi=bool(p.meta.phi),
+            study_id="doctor",
+            data_class=env.get("TB_DATA_CLASS") or ("D3" if p.meta.phi else "D1"),
+            prompt_sha=p.sha256,
+        )
+        labels = replace(labels, step_id=env.get("TB_STEP_ID", ""))
+        variables = {"criterion_text": "x", "note_question": "x?", "index_date": "2026-01-01", "excerpts": []}
+        asks = [("judge", env.get("TB_GATEWAY_MODEL") or "")]
+        v_alias = (env.get("TB_GATEWAY_VERIFIER_MODEL") or "").strip()
+        if v_alias:
+            asks.append(("verifier", v_alias))
+        got: list[str] = []
+        for who, alias in asks:
+            client = GatewayClient("http://gateway/v1", "orchestrator", http=http)  # the judge's caller
+            try:
+                res = client.chat(
+                    render(p, variables),
+                    labels,
+                    response_format=json_schema_format(p.meta.id, inline_schema(p.meta.output_schema)),
+                    max_tokens=p.meta.max_tokens,
+                    model=alias or None,
+                )
+            except GatewayRefused as e:
+                return Check(
+                    "judge_route",
+                    bad,
+                    f"the gateway would refuse the {who} ({labels.data_class}, role {labels.role}"
+                    f"{', ' + alias if alias else ''}): {e.reason}: {str(e)[:300]}",
+                )
+            except GatewayError as e:
+                return Check("judge_route", bad, f"the {who}'s call through the gateway fails: {str(e)[:300]}")
+            got.append(f"{who} {res.alias} ({res.payload.get('tb', {}).get('build_id', '?')})")
+    return Check("judge_route", "PASS", f"the gateway takes the {labels.data_class} judge call: " + "; ".join(got))
 
 
 def check_note_block(inp: DoctorInputs) -> Check:
@@ -577,6 +680,29 @@ def check_site_key(inp: DoctorInputs) -> Check:
     return Check("site_key", "PASS", f"key {fp}{where}")
 
 
+def check_key_custody(inp: DoctorInputs) -> Check:
+    """T-210b (CR-041, D-347): the site keys are kept under a KEK held outside the secrets folder."""
+    from tb_common import kek
+
+    sec = Path(inp.env.get("TB_SECRETS_DIR") or "/run/secrets/trialbox")
+    if not sec.is_dir():
+        return Check("key_custody", "WARN", f"the secrets folder {sec} is not here (TB_SECRETS_DIR): not checked")
+    c = kek.custody(sec, {**os.environ, **inp.env})
+    if c.problems:
+        return Check("key_custody", "FAIL", "; ".join(c.problems))
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    if c.plain:
+        how = "python -m tools.keys init (the KEK ceremony), then the keys stay wrapped"
+        status: Status = "FAIL" if env in kek.STRICT_ENVS else "WARN"
+        return Check("key_custody", status, f"{', '.join(c.plain)} plain on disk in {env}: {how}")
+    if not c.wrapped:
+        return Check("key_custody", "PASS", "no site key in the secrets folder yet (made by the install ceremony)")
+    where = f"KEK {c.kek_id} ({c.backend})"
+    if c.kek == "locked":
+        return Check("key_custody", "WARN", f"{', '.join(c.wrapped)} wrapped under {where}; not unsealed here")
+    return Check("key_custody", "PASS", f"{', '.join(c.wrapped)} wrapped under {where}, unsealed")
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -586,10 +712,12 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_secure_cookie,
     check_publish_gate,
     check_note_block,
+    check_judge_route,
     check_registry_pins,
     check_site_tz,
     check_flags,
     check_site_key,
+    check_key_custody,
 )
 
 

@@ -1,0 +1,9 @@
+vocabulary_id	vocabulary_name	vocabulary_reference	vocabulary_version	vocabulary_concept_id
+None	OMOP Standardized Vocabularies	OMOP generated	v5.0 TEST-SYNTHETIC 10-NOV-26	0
+ATC	WHO Anatomic Therapeutic Chemical Classification	http://www.whocc.no/atc_ddd_index/	TEST-SYNTHETIC ATC 2026	0
+RxNorm	RxNorm (NLM)	http://www.nlm.nih.gov/research/umls/rxnorm	TEST-SYNTHETIC RxNorm 2026-11-03	0
+LOINC	Logical Observation Identifiers Names and Codes	http://loinc.org	TEST-SYNTHETIC 2.82	0
+UCUM	Unified Code for Units of Measure	http://unitsofmeasure.org	TEST-SYNTHETIC	0
+Gender	OMOP Gender	OMOP generated		0
+Visit	OMOP Visit	OMOP generated		0
+Type Concept	OMOP Type Concept	OMOP generated		0

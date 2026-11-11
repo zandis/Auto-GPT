@@ -965,6 +965,20 @@ class PromptPin(BaseModel):
     schema_sha256: str | None = Field(None, pattern="^[0-9a-f]{64}$")
 
 
+class QualificationChangeProtocol(BaseModel):
+    """
+    The model change protocol this record is evidence for (D-343): the document, the sha256 of its text and the change id of its table of foreseen changes.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    document: Literal["docs/validation/model-change-protocol.md"]
+    sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+    change: str = Field(..., pattern="^MC-[0-9]+$")
+
+
 class QualificationStep(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2277,6 +2291,12 @@ class QualificationRecord(BaseModel):
     status: Literal["passed", "failed"]
     failed_steps: list[str]
     qualifies_production: bool
+    change_protocol: QualificationChangeProtocol = Field(
+        ..., title="QualificationChangeProtocol"
+    )
+    """
+    The model change protocol this record is evidence for (D-343): the document, the sha256 of its text and the change id of its table of foreseen changes.
+    """
     sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
 
 
