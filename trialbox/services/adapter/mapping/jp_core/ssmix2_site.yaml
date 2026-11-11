@@ -101,6 +101,11 @@ overlay:
       code.coding[3]: {builder: coding, column: hosp_lab_code, system: lab_hospital, display_column: item_name}
       code.text: {column: item_name}
       specimen.display: {column: specimen, default: 検体}
+      referenceRange[0].text: {column: ref_range, when: {column: ref_range, not_empty: true}}  # OBX-7 (T-615a)
+  - type: Patient
+    table: patient
+    elements:  # PID-30 Y without a PID-29 date (STD-013, T-615a); FHIR holds one deceased[x], so a date wins
+      deceasedBoolean: {const: true, when: [{column: deceased, equals: "Y"}, {column: death_date, not_empty: false}]}
   - type: Claim
     table: claim
     elements:
