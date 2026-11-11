@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import date as date_aliased
 from typing import Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 
 class AgeRange(BaseModel):
@@ -57,7 +57,7 @@ class AuditEvent(BaseModel):
     hash: str
 
 
-class B200QualificationRecordFileRef(BaseModel):
+class B200FileRef(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         populate_by_name=True,
@@ -66,34 +66,7 @@ class B200QualificationRecordFileRef(BaseModel):
     sha256: str | None = Field(..., pattern="^[0-9a-f]{64}$")
 
 
-class MigLayoutItem(RootModel[str]):
-    root: str = Field(..., pattern="^\\d+g\\.\\d+gb$")
-
-
-class B200QualificationRecordFingerprint(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        populate_by_name=True,
-    )
-    schema_: Literal["tb-host-fingerprint/1"] = Field(..., alias="schema")
-    host_id: str
-    gpu_name: str
-    gpu_count: int = Field(..., ge=0)
-    memory_total_mib: int | None
-    driver: str
-    cuda: str
-    vbios: str
-    mig_mode: str
-    mig_layout: list[MigLayoutItem]
-    kernel: str
-    os: str
-    container_toolkit: str
-    docker: str
-    vllm_image_digests: list[str]
-    fingerprint_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
-
-
-class ServingRecord(B200QualificationRecordFileRef):
+class B200ServingRecordRef(B200FileRef):
     model_config = ConfigDict(
         extra="forbid",
         populate_by_name=True,
@@ -102,7 +75,7 @@ class ServingRecord(B200QualificationRecordFileRef):
     why: list[str]
 
 
-class Qualification(B200QualificationRecordFileRef):
+class B200QualificationRef(B200FileRef):
     model_config = ConfigDict(
         extra="forbid",
         populate_by_name=True,
@@ -110,20 +83,24 @@ class Qualification(B200QualificationRecordFileRef):
     status: str
 
 
-class B200QualificationRecordLayout(BaseModel):
+class B200Host(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         populate_by_name=True,
     )
-    name: str
-    mig_profile: str = Field(
-        ..., pattern="^judge=\\d+g\\.\\d+gb(\\+me)?,verifier=\\d+g\\.\\d+gb(\\+me)?$"
+    kind: Literal["owner-b200"]
+    site_host: Literal[False]
+    statement: str = Field(..., min_length=20)
+
+
+class B200Bundle(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
     )
-    fingerprint: B200QualificationRecordFingerprint
-    serving_record: ServingRecord
-    qualification: Qualification
-    throughput: dict[str, float | None]
-    status: Literal["passed", "failed"]
+    sha256: str | None = Field(..., pattern="^[0-9a-f]{64}$")
+    commit: str | None
+    built_at: str | None
 
 
 class ChunkHit(BaseModel):
@@ -494,45 +471,27 @@ class FunnelStep(BaseModel):
     """
 
 
-class Host(BaseModel):
+class HostFingerprint(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         populate_by_name=True,
     )
-    kind: Literal["owner-b200"]
-    site_host: Literal[False]
-    statement: str = Field(..., min_length=20)
-
-
-class Bundle(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        populate_by_name=True,
-    )
-    sha256: str | None = Field(..., pattern="^[0-9a-f]{64}$")
-    commit: str | None
-    built_at: str | None
-
-
-class G1bRecordTheModelPairQualifiedOnTheOwnerSB200T114D428(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        populate_by_name=True,
-    )
-    schema_: Literal["tb-b200-qualification/1"] = Field(..., alias="schema")
-    card: Literal["T-114"]
-    gate: Literal["G1b"]
-    captured_at: AwareDatetime
-    operator: str = Field(..., min_length=1)
-    standin: bool
-    host: Host
-    bundle: Bundle
-    fingerprint: B200QualificationRecordFingerprint
-    layouts: list[B200QualificationRecordLayout] = Field(
-        ..., max_length=2, min_length=2
-    )
-    status: Literal["passed", "failed", "standin"]
-    failed: list[str]
+    schema_: Literal["tb-host-fingerprint/1"] = Field(..., alias="schema")
+    host_id: str
+    gpu_name: str
+    gpu_count: int = Field(..., ge=0)
+    memory_total_mib: int | None
+    driver: str
+    cuda: str
+    vbios: str
+    mig_mode: str
+    mig_layout: list[str]
+    kernel: str
+    os: str
+    container_toolkit: str
+    docker: str
+    vllm_image_digests: list[str]
+    fingerprint_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
 
 
 class IEBlock(BaseModel):
@@ -2205,6 +2164,45 @@ class Atom(BaseModel):
     """
     computed observation; egfr_ckd_epi and egfr_jsn name the equation (D-149), a plain egfr is CKD-EPI 2021
     """
+
+
+class B200Layout(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    name: str
+    mig_profile: str = Field(
+        ..., pattern="^judge=\\d+g\\.\\d+gb(\\+me)?,verifier=\\d+g\\.\\d+gb(\\+me)?$"
+    )
+    fingerprint: HostFingerprint
+    serving_record: B200ServingRecordRef = Field(..., title="B200ServingRecordRef")
+    qualification: B200QualificationRef = Field(..., title="B200QualificationRef")
+    throughput: dict[str, float | None] = Field(..., title="B200Throughput")
+    status: Literal["passed", "failed"]
+
+
+class B200QualificationRecord(BaseModel):
+    """
+    The G1b record tools/b200_qualify.py writes on the owner's B200 (T-114, D-428): the host fingerprint, two MIG layouts, each with its serving record and qualification record (paths and sha256), and a statement that the host is not the site's. Hashes, versions and statuses only: no patient data. Schema version 1.0.0 (format tb-b200-qualification/1).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    schema_: Literal["tb-b200-qualification/1"] = Field(..., alias="schema")
+    card: Literal["T-114"]
+    gate: Literal["G1b"]
+    captured_at: AwareDatetime
+    operator: str = Field(..., min_length=1)
+    standin: bool
+    host: B200Host = Field(..., title="B200Host")
+    bundle: B200Bundle = Field(..., title="B200Bundle")
+    fingerprint: HostFingerprint
+    layouts: list[B200Layout] = Field(..., max_length=2, min_length=2)
+    status: Literal["passed", "failed", "standin"]
+    failed: list[str]
 
 
 class CohortRow(BaseModel):

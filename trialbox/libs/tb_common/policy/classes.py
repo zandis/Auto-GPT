@@ -181,6 +181,15 @@ _D1 = {
     "QualifiedBuild",
     "QualificationStep",
     "QualificationChangeProtocol",
+    # the G1b record on the owner's B200 (T-114, D-428): host versions, hashes and statuses, no site or patient data
+    "B200QualificationRecord",
+    "B200Host",
+    "B200Bundle",
+    "B200Layout",
+    "B200FileRef",
+    "B200ServingRecordRef",
+    "B200QualificationRef",
+    "HostFingerprint",
     "UpdateFile",
     "UpdateManifest",
     # release.json (T-110b, D-340): versions, digests and sums of the vendor's own build, no site or patient data
