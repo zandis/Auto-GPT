@@ -253,10 +253,18 @@ you may push to the hospital's git server.
    another room; on Windows/WSL2 a share mapped as a drive letter). A named path counts only on another device than
    the box's own disk, or when hospital IT puts a file `.trialbox-offbox` in it. In PRODUCTION a box whose targets
    are all on its own disks still writes the backup, but the run fails and stays red.
-2. **Schedule.** As root in the install folder: `sed "s#/opt/trialbox#$PWD#" deploy/backup/trialbox-backup.cron >
-   /etc/cron.d/trialbox-backup`. It runs `python3 -m tools.trialbox backup-nightly` at 04:45 (move it after the
-   night's jobs) and `backup-status --quiet` every hour. A run checks free space first and never runs twice at once.
-   The result is in `deploy/site/backup-last.json` and the audit (`backup.done`, `backup.failed`).
+2. **Schedule.** `deploy/install.sh` installs it (D-274): as root in the install folder it runs `python3 -m
+   tools.trialbox backup-install --deploy deploy`, which writes `/etc/cron.d/trialbox-backup`, turns WAL archiving
+   on when it can (below), and runs the first backup once the backup key is there (run the command again after
+   `backup-keygen`). In PRODUCTION it refuses without an **alert route**: `TB_BACKUP_ALERT_CMD` (a command that
+   reads the message on stdin), or `TB_BACKUP_MAILTO` on a host with a mail transfer agent. The cron runs
+   `backup-nightly` at 04:45 (move it after the night's jobs) and `backup-status --quiet` every hour. A run checks
+   free space first, never runs twice at once, and pauses every service but `db` while it reads, so the databases
+   and the files are of one point in time (`TB_BACKUP_QUIESCE=off` leaves them running). Each backup also holds a
+   `host` part: `deploy/.env`, the settings file, `deploy/site`, `deploy/secrets` (the pgBackRest cipher) and the
+   Authelia and Caddy volumes. The result is in `deploy/site/backup-last.json` and the audit (`backup.done`,
+   `backup.failed`). `trialbox doctor --env-file deploy/.env` FAILs in PRODUCTION without an off-box target, an
+   alert route or the cron file, and when the newest good backup is missing or too old.
 3. **Age alert.** `python3 -m tools.trialbox backup-status` shows the newest good off-box backup (the one
    `backup-last.json` records, with the same name, size and sha256 on the share) and its age. It turns red (exit 1)
    when that backup is older than `TB_BACKUP_MAX_AGE_HOURS` (36) or dated in the future, when the last nightly run
@@ -267,7 +275,11 @@ you may push to the hospital's git server.
 4. **Check a backup** with hospital IT: `trialbox backup-verify <file> --key <private key>` (reads it all, checks
    every hash and the sidecar). A backup made before D-187 (layout 1, gzip or zstd) still verifies and restores.
 
-**Point-in-time restore (pgBackRest, optional).** The `db` service compresses WAL with zstd and TOAST with lz4 and
+**Point-in-time restore (pgBackRest).** On by default (D-274): `backup-install` does steps 2 to 4 below by itself
+when the db image carries pgBackRest and a target is off the box (the repository goes to `TB_PGBACKREST_REPO`, else
+`pgbackrest-<site>` on the first off-box target), unless `deploy/.env` says `TB_PG_ARCHIVE_MODE=off`; when the check
+fails it turns archiving off again. The default db image has no pgBackRest yet, so step 1 is still needed; `doctor`
+warns while archiving is off. The `db` service compresses WAL with zstd and TOAST with lz4 and
 gives new databases data checksums. Three weekly full backups are kept, so the database restores to any second of at
 least the last two weeks:
 
@@ -300,8 +312,14 @@ and comes back with the database). The vendor pack is a `.tar` file (usually `<p
 old box, or from the vendor. Keep a copy of `deploy/refdata/loaded` beside the off-box backups. Then:
 
 1. Reinstall (§1) and put each `<pack_id>.tar` in `deploy/refdata/loaded` (or a folder you give as `--refdata`).
-2. `trialbox restore <file> --key <private key> --yes [--refdata <folder>]`. Every hash is checked first; replaced
-   folders are moved aside, not deleted. The restore loads the packs the backup names from that folder.
+2. `trialbox restore <file> --key <private key> --yes [--refdata <folder>]`. Every hash is checked first; a
+   backup of another site (`--other-site`) or older than 14 days (`--older-ok`) is refused before anything changes.
+   A box that holds data is first kept whole as one more encrypted backup in `--keep-to` (default
+   `deploy/pre-restore`, with the box's public key `--public`; `--no-copy` skips it): if the restore then fails,
+   the message names that file, and `trialbox restore <it>` puts the box back. Each database is emptied, restored
+   and its rows checked before any folder moves; replaced folders are moved aside, not deleted. The restore is a
+   `backup.restored` event in the restored audit log. Add `--dir host=<folder>` to get the `host` part back. The
+   restore loads the packs the backup names from that folder.
 3. If a pack is not there the restore says which (`refdata.missing`, e.g. `['trialbox-refdata-20261109']`) and exits
    3 (`ok=False`; the database rows themselves are already restored and equal): put that pack file in the folder and
    run the restore again. Rows that do not match the backup fail the restore; a backup made before

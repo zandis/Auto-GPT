@@ -84,7 +84,8 @@ def _cfg(tmp_path: Path, **kw: Any) -> bs.Config:
     if not pub.exists():
         bk.keygen(tmp_path / "keys" / "it.key", pub)
     base: dict[str, Any] = {"deploy": tmp_path / "deploy", "targets": [tmp_path / "nas", tmp_path / "local"],
-                            "public_key": pub, "production": True, "keep": 3, "site": "CGMH"}  # fmt: skip
+                            "public_key": pub, "production": True, "keep": 3, "site": "CGMH",
+                            "mailto": "it@hospital.example"}  # fmt: skip
     base.update(kw)
     return bs.Config(**base)
 
@@ -497,14 +498,23 @@ def test_compose_audit_falls_back_to_a_pending_file_when_the_orchestrator_is_dow
 
 
 def test_cli_status_exit_codes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any) -> None:
-    for k in ("TB_BACKUP_TARGETS", "TB_ENV", "TB_PG_ARCHIVE_MODE", "TB_BACKUP_OFFBOX", "TB_BACKUP_ALERT_CMD"):
+    for k in (
+        "TB_BACKUP_TARGETS",
+        "TB_ENV",
+        "TB_PG_ARCHIVE_MODE",
+        "TB_BACKUP_OFFBOX",
+        "TB_BACKUP_ALERT_CMD",
+        "TB_BACKUP_MAILTO",
+    ):
         monkeypatch.delenv(k, raising=False)
     deploy = tmp_path / "deploy"
     deploy.mkdir()
     nas = tmp_path / "nas"
     nas.mkdir()
     (nas / bs.OFFBOX_MARKER).write_text("")
-    (deploy / ".env").write_text(f"TB_BACKUP_TARGETS={nas}\nTB_BACKUP_OFFBOX={nas}\nTB_ENV=PRODUCTION\n")
+    (deploy / ".env").write_text(
+        f"TB_BACKUP_TARGETS={nas}\nTB_BACKUP_OFFBOX={nas}\nTB_ENV=PRODUCTION\nTB_BACKUP_MAILTO=it@hospital.example\n"
+    )
     monkeypatch.setenv("TB_COMPOSE", "false")  # no docker here: the audit goes to the pending file
     assert cli(["backup-status", "--deploy", str(deploy)]) == 1
     assert "no good backup" in capsys.readouterr().out
@@ -580,3 +590,219 @@ def test_the_cron_schedule_runs_the_nightly_backup_and_the_hourly_status() -> No
     lines = [ln for ln in cron.splitlines() if ln and not ln.startswith("#") and "=" not in ln.split()[0]]
     assert any("backup-nightly" in ln and ln.split()[1] != "*" for ln in lines)
     assert any("backup-status --quiet" in ln and ln.split()[1] == "*" for ln in lines)
+
+
+# ------------------------------------------------------------------------------------------------ D-274 (T-117b)
+class RunningBox(FakeBox):
+    """The FakeBox with running services, a db image with pgBackRest, and a docker volume folder."""
+
+    def __init__(self, fail: str = "", pgbackrest: bool = True) -> None:
+        super().__init__()
+        self.fail, self.has_pgbackrest = fail, pgbackrest
+
+    def __call__(self, argv: list[str], **kw: Any) -> str:  # type: ignore[override]
+        if self.fail and self.fail in " ".join(argv):
+            self.calls.append(list(argv))
+            raise RuntimeError(f"{self.fail} failed")
+        if "command -v pgbackrest" in " ".join(argv) and not self.has_pgbackrest:
+            self.calls.append(list(argv))
+            raise RuntimeError("exit 1")
+        if argv[-2:] == ["-u", "postgres"]:
+            self.calls.append(list(argv))
+            return "999\n"
+        out = super().__call__(argv, **kw)
+        if "ps" in argv and "--services" in argv:
+            return "db\norchestrator\nconsole\nadapter\n"
+        return out
+
+
+def test_compose_nightly_holds_the_writers_still_and_takes_the_host_files(tmp_path: Path) -> None:
+    """DI-11: every running service but db is paused from the first snapshot until the backup container is done,
+    and unpaused even when the run fails. DI-12 / OPS-046: deploy/.env, settings, deploy/site and the identity and
+    proxy volumes go in through the dump folder's host/ part."""
+    deploy = tmp_path / "deploy"
+    (deploy / "site").mkdir(parents=True)
+    vols = tmp_path / "volumes"
+    (vols / "trialbox_caddy-data" / "_data").mkdir(parents=True)
+    (vols / "trialbox_caddy-data" / "_data" / "root.crt").write_text("synthetic CA")
+    (deploy / ".env").write_text(f"TB_SITE_ID=CGMH\nTB_SETTINGS_FILE=./settings.yaml\nTB_DOCKER_VOLUMES={vols}\n")
+    (deploy / "settings.yaml").write_text("site: {tz: Asia/Taipei}\n")
+    (deploy / "site" / "registry.site.yaml").write_text("pins: {}\n")
+    (deploy / "site" / "backup.lock").write_text("")
+    seen: dict[str, list[str]] = {}
+    fake = RunningBox()
+    real_container = None
+
+    def spy(work: Path, *a: Any, **kw: Any) -> None:
+        seen["host"] = sorted(str(p.relative_to(work / "host")) for p in (work / "host").rglob("*") if p.is_file())
+        assert real_container is not None
+        real_container(work, *a, **kw)
+
+    ops = bs.ComposeOps(deploy, fake)
+    real_container = ops.box._backup_container
+    ops.box._backup_container = spy  # type: ignore[method-assign]
+    cfg = _cfg(tmp_path, deploy=deploy)
+    make = ops.make_backup(cfg)
+    res = bs.nightly(cfg, make, lambda e, d: None, now=T0, classify=_offbox({"nas"}))
+    assert res["ok"], res["errors"]
+    verbs = [c[c.index("pause") if "pause" in c else c.index("unpause")] for c in fake.calls
+             if "pause" in c or "unpause" in c]  # fmt: skip
+    assert verbs == ["pause", "unpause"]
+    pause = next(c for c in fake.calls if "pause" in c)
+    assert pause[-3:] == ["adapter", "console", "orchestrator"] and "db" not in pause[pause.index("pause") :]
+    i_pause, i_unpause = fake.calls.index(pause), next(i for i, c in enumerate(fake.calls) if "unpause" in c)
+    i_snap = next(i for i, c in enumerate(fake.calls) if "psql" in " ".join(c))
+    i_run = next(i for i, c in enumerate(fake.calls) if c[:2] == ["docker", "run"])
+    assert i_pause < i_snap < i_run < i_unpause
+    assert res["point_in_time"]["held"] and res["point_in_time"]["paused"] == ["adapter", "console", "orchestrator"]
+    assert json.loads(cfg.last_file.read_text())["point_in_time"]["held"]
+    assert seen["host"] == ["deploy.env", "settings.yaml", "site/registry.site.yaml", "volumes/caddy-data/root.crt"]
+    # a failing snapshot still unpauses
+    bad = RunningBox(fail="psql")
+    ops2 = bs.ComposeOps(deploy, bad)
+    res2 = bs.nightly(cfg, ops2.make_backup(cfg), lambda e, d: None, now=T0, classify=_offbox({"nas"}))
+    assert not res2["ok"] and any("unpause" in c for c in bad.calls)
+    # TB_BACKUP_QUIESCE=off: nothing paused, and the record says so
+    (deploy / ".env").write_text("TB_SITE_ID=CGMH\nTB_BACKUP_QUIESCE=off\n")
+    off = RunningBox()
+    res3 = bs.nightly(cfg, bs.ComposeOps(deploy, off).make_backup(cfg), lambda e, d: None, now=T0,
+                      classify=_offbox({"nas"}))  # fmt: skip
+    assert not any("pause" in c for c in off.calls) and res3["point_in_time"]["held"] is False
+
+
+def test_audit_events_kept_while_the_orchestrator_was_down_are_sent_first_in_order(tmp_path: Path) -> None:
+    """DI-10: a parked backup event reaches the audit log with the next one that can be sent."""
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    (deploy / ".env").write_text("")
+    up = {"ok": False}
+    sent: list[str] = []
+
+    def box(argv: list[str], stdin_file: Path | None = None, **kw: Any) -> str:
+        if not up["ok"]:
+            raise RuntimeError("orchestrator is not running")
+        assert stdin_file is not None
+        sent.append(json.loads(stdin_file.read_text())["event"])
+        return ""
+
+    ops = bs.ComposeOps(deploy, box)
+    ops.audit("backup.failed", {"errors": ["x"]})
+    ops.audit("backup.alert", {"problems": ["y"]})
+    pending = deploy / "site" / "backup-audit-pending.jsonl"
+    assert [json.loads(x)["event"] for x in pending.read_text().splitlines()] == ["backup.failed", "backup.alert"]
+    up["ok"] = True
+    ops.audit("backup.done", {"sha256": "a" * 64})
+    assert sent == ["backup.failed", "backup.alert", "backup.done"] and not pending.exists()
+    assert not list((deploy / "site").glob(".audit-*"))
+
+
+def _deploy_with_template(tmp_path: Path, env: str) -> Path:
+    deploy = tmp_path / "opt" / "tb" / "deploy"
+    (deploy / "backup").mkdir(parents=True)
+    (deploy / "backup" / "trialbox-backup.cron").write_text(
+        (DEPLOY / "backup" / "trialbox-backup.cron").read_text(encoding="utf-8")
+    )
+    (deploy / ".env").write_text(env)
+    return deploy
+
+
+def test_install_writes_the_cron_file_and_production_needs_an_alert_route(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CR-058, OPS-028: install installs the cron; in PRODUCTION without an alert route it refuses."""
+    for k in ("TB_ENV", "TB_BACKUP_ALERT_CMD", "TB_BACKUP_MAILTO", "TB_BACKUP_TARGETS"):
+        monkeypatch.delenv(k, raising=False)
+    cron = tmp_path / "cron.d"
+    deploy = _deploy_with_template(tmp_path, "TB_ENV=PRODUCTION\n")
+    cfg = bs.config(deploy, {"TB_ENV": "PRODUCTION"})
+    with pytest.raises(ValueError, match="PRODUCTION needs a backup alert route"):
+        bs.install_cron(cfg, cron, deploy.parent, has_mta=True)
+    assert not (cron / bs.CRON_NAME).exists()
+    cfg = bs.config(deploy, {"TB_ENV": "PRODUCTION", "TB_BACKUP_MAILTO": "it@hospital.example"})
+    with pytest.raises(ValueError, match="no mail transfer agent"):
+        bs.install_cron(cfg, cron, deploy.parent, has_mta=False)
+    notes = bs.install_cron(cfg, cron, deploy.parent, has_mta=True)
+    text = (cron / bs.CRON_NAME).read_text()
+    assert notes[0].startswith("cron: ") and stat.S_IMODE((cron / bs.CRON_NAME).stat().st_mode) == 0o644
+    assert 'MAILTO="it@hospital.example"' in text and "/opt/trialbox" not in text
+    assert f"cd {deploy.parent} && {{ python3 -m tools.trialbox backup-nightly" in text
+    assert not list(cron.glob(".*"))  # no temporary file left where cron reads
+    cfg = bs.config(deploy, {"TB_ENV": "PRODUCTION", "TB_BACKUP_ALERT_CMD": "/usr/local/bin/tb-mail"})
+    bs.install_cron(cfg, cron, deploy.parent, has_mta=False)
+    assert 'MAILTO=""' in (cron / bs.CRON_NAME).read_text()
+    dev = bs.config(deploy, {"TB_ENV": "DEV"})
+    assert any("no backup alert route" in n for n in bs.install_cron(dev, cron, deploy.parent, has_mta=False))
+
+
+def test_status_in_production_is_red_without_an_alert_route(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path, mailto="")
+    assert any("no alert route" in p for p in bs.status(cfg, now=T0, classify=_offbox({"nas"}))["problems"])
+    assert not any("alert route" in p for p in bs.status(_cfg(tmp_path, mailto="", production=False), now=T0,
+                                                         classify=_offbox({"nas"}))["problems"])  # fmt: skip
+
+
+def test_wal_archiving_is_on_by_default_when_the_image_and_an_off_box_share_allow_it(tmp_path: Path) -> None:
+    """DATA-024, OPS-048: stanza, then archive_mode=on, then pgbackrest check; off again when the check fails; left
+    off when the site chose off, the image has no pgBackRest or nothing is off the box."""
+    deploy = _deploy_with_template(tmp_path, "TB_SITE_ID=CGMH\n")
+    nas = tmp_path / "nas"
+    cfg = bs.config(deploy, {"TB_SITE_ID": "CGMH", "TB_BACKUP_TARGETS": str(nas)})
+    fake = RunningBox()
+    notes = bs.setup_archiving(cfg, bs.ComposeOps(deploy, fake), classify=_offbox({"nas"}))
+    assert notes[0].startswith("WAL archiving: on") and "pgbackrest-CGMH" in notes[0]
+    env = (deploy / ".env").read_text()
+    assert "TB_PG_ARCHIVE_MODE=on" in env and f"TB_PGBACKREST_REPO={nas / 'pgbackrest-CGMH'}" in env
+    cipher = deploy / "secrets" / "pgbackrest" / "cipher.conf"
+    assert stat.S_IMODE(cipher.stat().st_mode) == 0o600 and "repo1-cipher-pass=" in cipher.read_text()
+    steps = [c[c.index("pgbackrest") + 2] if "pgbackrest" in c and "--stanza=trialbox" in c else
+             ("up" if "up" in c else None) for c in fake.calls]  # fmt: skip
+    steps = [x for x in steps if x]
+    assert steps == ["up", "stanza-create", "up", "check"]
+    # the check fails: archiving goes off again, the db is recreated without it
+    deploy2 = _deploy_with_template(tmp_path / "b", "")
+    bad = RunningBox(fail="check")
+    notes = bs.setup_archiving(bs.config(deploy2, {"TB_BACKUP_TARGETS": str(nas)}), bs.ComposeOps(deploy2, bad),
+                               classify=_offbox({"nas"}))  # fmt: skip
+    assert "set-up failed" in notes[0] and "TB_PG_ARCHIVE_MODE=off" in (deploy2 / ".env").read_text()
+    assert bad.calls[-1][-3:] == ["up", "-d", "db"]
+    for env_, box, want in (({"TB_PG_ARCHIVE_MODE": "off"}, RunningBox(), "the site's choice"),
+                            ({}, RunningBox(pgbackrest=False), "no pgBackRest"),
+                            ({"TB_BACKUP_TARGETS": str(tmp_path / "local")}, RunningBox(), "no off-box target")):  # fmt: skip
+        d = _deploy_with_template(tmp_path / want.replace(" ", "-"), "")
+        assert want in bs.setup_archiving(bs.config(d, env_), bs.ComposeOps(d, box), classify=_offbox({"nas"}))[0]
+
+
+def test_backup_install_installs_the_cron_and_runs_the_first_backup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """The card's rehearsal in small: after install the cron exists and the first backup has run."""
+    for k in ("TB_ENV", "TB_BACKUP_ALERT_CMD", "TB_BACKUP_MAILTO", "TB_BACKUP_TARGETS", "TB_PG_ARCHIVE_MODE"):
+        monkeypatch.delenv(k, raising=False)
+    deploy = _deploy_with_template(tmp_path, "TB_ENV=PRODUCTION\nTB_PG_ARCHIVE_MODE=off\n")
+    cron = tmp_path / "cron.d"
+    monkeypatch.setenv("TB_COMPOSE", "false")
+    assert cli(["backup-install", "--deploy", str(deploy), "--cron-dir", str(cron)]) == 1
+    assert "alert route" in capsys.readouterr().out and not (cron / bs.CRON_NAME).exists()
+    with (deploy / ".env").open("a") as fh:
+        fh.write("TB_BACKUP_ALERT_CMD=/usr/local/bin/tb-mail\n")
+    assert cli(["backup-install", "--deploy", str(deploy), "--cron-dir", str(cron)]) == 0
+    assert "no backup key" in capsys.readouterr().out and (cron / bs.CRON_NAME).is_file()
+    (deploy / "secrets").mkdir()
+    bk.keygen(tmp_path / "it.key", deploy / "secrets" / "backup.pub")
+    ran: list[Path] = []
+    monkeypatch.setattr(bs, "main_nightly", lambda d: ran.append(d) or 0)
+    assert cli(["backup-install", "--deploy", str(deploy), "--cron-dir", str(cron)]) == 0
+    assert ran == [deploy] and "first backup: done" in capsys.readouterr().out
+
+
+def test_install_sh_runs_the_backup_step_after_the_stack_is_up() -> None:
+    sh = (DEPLOY / "install.sh").read_text(encoding="utf-8")
+    step = sh.index("python3 -m tools.trialbox backup-install --deploy deploy")
+    assert (
+        sh.index("--wait --wait-timeout")
+        < step
+        < sh.index(
+            "# ------------------------------------------------------------------------------------------------ 5. accounts"
+        )
+    )
+    assert 'die "the backup schedule is not installed' in sh[step : step + 600]
