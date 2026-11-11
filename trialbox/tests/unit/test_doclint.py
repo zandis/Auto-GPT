@@ -1,4 +1,4 @@
-"""tools/doclint.py (TB-PLAN-04 step 9, D-139): the eight documents are clean, and the checks catch what they claim."""
+"""tools/doclint.py (TB-PLAN-04 step 9, D-139): the nine documents are clean, and the checks catch what they claim."""
 
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ def test_the_repository_is_clean() -> None:
     assert doclint.main([]) == 0
 
 
-def test_the_eight_documents() -> None:
-    assert len(doclint.DOCS) == 8 and "docs/DECISIONS.md" in doclint.DOCS
+def test_the_nine_documents() -> None:
+    assert len(doclint.DOCS) == 9 and "docs/DECISIONS.md" in doclint.DOCS and "docs/DEVELOPING.md" in doclint.DOCS
     assert not doclint.check_set()
 
 
