@@ -36,6 +36,7 @@ from console.data_pages import err_of
 from console.entry_pages import can_enter, record_key
 from console.home import Helpers
 from console.i18n import translate
+from console.screening_log import criteria_choices
 from console.studies import known_study
 from console.timefmt import local_today, site_zone
 
@@ -54,6 +55,7 @@ class ApiStep(BaseModel):
     on_day: str = Field(default="", max_length=10)
     reason: str = Field(default="", max_length=40)
     note: str = Field(default="", max_length=300)
+    criterion: str = Field(default="", max_length=48)  # D-387: the criterion not met, on a "not_eligible" failure
 
 
 class ApiVisit(BaseModel):
@@ -132,7 +134,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     # ------------------------------------------------------------------ actions (one per page and /api/v1)
     def apply_step(sess: Session, path: str, rs: str, record: str, to: str, on_day: str, reason: str,
-                   note: str) -> dict[str, Any]:  # fmt: skip
+                   note: str, criterion: str = "") -> dict[str, Any]:  # fmt: skip
         rid = study_or_404(sess, rs)
         need_enter(sess, path)
         rec = record_key(record)
@@ -140,8 +142,22 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise Problem(400, "LIFE-STEP", "bad record or day", ["day"], detail={"why": "day"})
         body = {"to": to, "on_day": on_day, "reason": reason, "note": note[:300], "by": h.actor(sess),
                 "today": today().isoformat()}  # fmt: skip
+        # D-387 (LIFE-016): "not eligible" names the criterion not met, from the latest list's approved criteria;
+        # the criteria version is the list's, never typed
+        criterion = criterion.strip()
+        if criterion and (to != "screen_fail" or reason != "not_eligible"):
+            raise Problem(400, "LIFE-STEP", "only not_eligible names a criterion", ["criterion"],
+                          detail={"why": "criterion_only"})  # fmt: skip
+        if to == "screen_fail" and reason == "not_eligible":
+            version, ids = criteria_choices(bk, rid)
+            if (ids and criterion not in ids) or (criterion and not ids):
+                raise Problem(400, "LIFE-STEP", "choose the criterion not met", ["criterion"],
+                              detail={"why": "criterion"})  # fmt: skip
+            if criterion:
+                body.update({"criterion": criterion, "criteria_version": version})
         out = dict(s28.call(bk, "POST", f"/studies/{rid}/subjects/{quote(rec)}/step", body))
-        au.append("console.life_step", ruleset=rid, actor=h.actor(sess), detail={"record": rec, "to": to})
+        au.append("console.life_step", ruleset=rid, actor=h.actor(sess),
+                  detail={"record": rec, "to": to, **({"criterion": criterion} if criterion else {})})  # fmt: skip
         return out
 
     def apply_undo(sess: Session, path: str, rs: str, record: str) -> dict[str, Any]:
@@ -295,9 +311,11 @@ def register(app: FastAPI, h: Helpers) -> None:
             if isinstance(exc, Problem) and exc.status == 404:
                 raise h.problem(404, "notfound") from exc
             err = err_of(exc)
+        sf_version, sf_criteria = criteria_choices(bk, rid)  # D-387: the pick list for "not eligible"
         return h.page(request, "life_subject.html", sess, status=status, rs=rid, record=rec, one=one, err=err,
                       editable=can_enter(sess.user), refused=refused, done=done, sf_reasons=SF_REASONS,
-                      wd_reasons=WD_REASONS, today=today().isoformat())  # fmt: skip
+                      wd_reasons=WD_REASONS, today=today().isoformat(), sf_criteria=sf_criteria,
+                      sf_version=sf_version)  # fmt: skip
 
     @app.get("/studies/{rs}/subjects/{record}")
     def subject(request: Request, rs: str, record: str, done: str = "") -> Response:
@@ -318,8 +336,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         rec = record_key(record[:64])
         to, on_day, reason, note = (str(data.get(k) or "").strip()[:300] for k in ("to", "on_day", "reason", "note"))
+        criterion = str(data.get("criterion") or "").strip()[:48] if reason == "not_eligible" else ""
         try:
-            apply_step(sess, request.url.path, rid, rec, to, on_day, reason, note)
+            apply_step(sess, request.url.path, rid, rec, to, on_day, reason, note, criterion)
         except Problem as exc:
             return subject_page(request, sess, rid, rec, status=409, refused=why_text(lang_of(sess), exc))
         except Unavailable as exc:
@@ -488,7 +507,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess = api_session(request)
         try:
             return {"study": rs.upper(), **apply_step(sess, request.url.path, rs, record, body.to, body.on_day,
-                                                      body.reason, body.note)}  # fmt: skip
+                                                      body.reason, body.note, body.criterion)}  # fmt: skip
         except (Problem, Unavailable) as exc:
             return refused(sess, exc)
 
