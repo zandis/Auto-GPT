@@ -3,8 +3,8 @@
 The stock PostgreSQL of the unit job and of the local test cluster (``tools/pglocal.py``) has no pgvector. These
 tests run where the extension is: the test database itself when it has ``vector`` (``TB_TEST_DB_URL`` pointing at
 the box's db image), or the box's db image started as ``tests/integration/test_db_image.py`` starts it (marker
-``integration``, ``TB_INTEGRATION=1``, image built by ``make images``; CI job ``e2e``, ``make test-compose``, which
-allows no skip). Anywhere else they skip with that reason.
+``integration``, ``TB_INTEGRATION=1``, image built by ``make images``; the nightly workflow ``trialbox-e2e.yml``,
+``make test-compose``, which allows no skip). Anywhere else they skip with that reason.
 
 Synthetic notes only; the planted identifiers are T-600's (``tests/unit/test_phi_note_mask.py``).
 """
