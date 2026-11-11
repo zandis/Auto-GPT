@@ -1,4 +1,4 @@
-"""The filter-first cascade S0 → S1 → S2 → S2b → S3 → S4 → S5 over the dataplat L5 snapshot (spec v4 §4.5).
+"""The filter-first cascade S0 → S1 → S2 → S2b → S3 → S4 → S5 over the lake snapshot (spec v4 §4.5).
 
 :func:`run_cascade` evaluates one study's ruleset for the population of scope and returns a :class:`CascadeResult`:
 per-patient traces (D3), the CAS-1 stage log (patients and pairs entering and leaving every stage, with the class

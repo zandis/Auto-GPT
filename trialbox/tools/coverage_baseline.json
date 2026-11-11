@@ -51,11 +51,6 @@
    "line": 93.0,
    "branch": 84.57
   },
-  "services/dataplat": {
-   "statements": 1528,
-   "line": 91.75,
-   "branch": 79.5
-  },
   "services/deliverables": {
    "statements": 956,
    "line": 97.91,
