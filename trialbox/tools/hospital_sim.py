@@ -3,7 +3,7 @@
 Two parts, kept apart so nobody mistakes a projection for a measurement.
 
 ``scale`` (measured): generate synthetic hospitals of growing size (``tools.synth``, every patient fictional, planted
-truth), run the real dataplat -> cascade S0..S5 -> DL-1 pack -> recall certificate path (:mod:`tools.cascade_e2e`,
+truth), run the real adapter night -> cascade S0..S5 -> DL-1 pack -> recall certificate path (:mod:`tools.cascade_e2e`,
 deterministic stub model, no network) for one or more rulesets, and record wall time, the stage funnel, model calls
 per patient and the invariant checks. This shows where the work goes and whether it grows linearly.
 
