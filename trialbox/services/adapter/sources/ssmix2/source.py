@@ -7,7 +7,9 @@ the newest timestamp per (patient, type, order no) wins and flag ``0`` means the
 
 The message types read, and the canonical tables (``mapping/templates/CANONICAL.md``) they become:
 
-* ``ADT-00`` (ADT^A08, PID) -> patient: PID-3 id, PID-5 name, PID-7 birth, PID-8 sex, PID-13 phone, PID-29 death.
+* ``ADT-00`` (ADT^A08, PID) -> patient: PID-3 id (the repetition of identifier type ``PI``), PID-5 name (the
+  ideographic repetition, ``^^^^^^L^I``), PID-7 birth, PID-8 sex, PID-13 phone, PID-29 death, PID-30 the death flag
+  (``Y``: ``deceased``, with or without a date; STD-013, T-615a).
 * ``ADT-12`` outpatient visit / ``ADT-22`` admission (PV1) -> encounter: PV1-19 visit no, PV1-44 time, PV1-10 dept,
   PV1-7 doctor, PV1-2 class O/I/E -> OPD/IPD/ER. An admission without a discharge is ``in-progress``.
 * ``ADT-52`` (D-137) -> changes to the encounter of PV1-19, in time order (EVN-6, else EVN-2, else MSH-7), chosen by
@@ -25,9 +27,19 @@ The message types read, and the canonical tables (``mapping/templates/CANONICAL.
 * ``OMP-11`` prescription / ``OMP-12`` injection 実施 (RAS^O17, ORC/RXA) (D-137) -> medication, YJ / HOT kept coded:
   folded into the order with the same ORC-2 when the storage has it (only empty fields are filled), else a
   medication of its own: RXA-5 the drug, RXA-3/4 start/end, RXA-6/7 amount and unit, ORC-9 date, ORC-5 status.
-* ``OML-11`` lab results (OUL^R22, OBR/OBX) -> lab: OBX-21 result id, OBX-3 ``JLAC10^name^JC10``, OBX-5 value,
-  OBX-6 unit, OBX-14 sample time; ``local_code`` is the JLAC10 code (the JP mapping looks it up to LOINC); the
-  specimen comes from the JLAC10 material code.
+* ``OML-11`` lab results (OUL^R22, SPM/OBR/OBX) -> lab: OBX-21 result id, OBX-3 ``JLAC10^name^JC10``, OBX-5 value
+  read by OBX-2 (``CWE`` / ``CE``: the text, else the code; ``SN``: comparator and numbers joined, ``<^0.03`` ->
+  ``<0.03``; ``NM`` as is), OBX-6 unit, OBX-7 reference range, OBX-8 flag, OBX-11 status. The sample time is OBX-14,
+  else the OBR-7 of its OBR, else the SPM-17 of the message, else the storage folder's date, and
+  ``sample_time_from`` says which (STD-021, T-615a). A ``D`` (deleted) result is a tombstone: it is no row and
+  removes what an earlier night stored. A ``C`` (corrected) result replaces the other results of the same OBR-3 /
+  OBR-2, OBX-3 and OBX-4. ``local_code`` is the JLAC10 code (the JP mapping looks it up to LOINC); the specimen
+  comes from the JLAC10 material code.
+
+A message no codec reads (``hl7.decode_bytes``, STD-020), or one that is not HL7, is quarantined: the file is left
+where it is (the storage is the hospital's), counted by type and reason in ``stats``, listed in
+:attr:`Ssmix2Source.quarantined` for the steward, and the patient's other files still load. The table's night is held
+(``quarantine_reason``) only when more than ``quarantine_max_pct`` % of its files could not be read.
 
 ICD-10 comes from PRB-3's alternate coding; when a vendor sends only the 標準病名 code it is looked up in the site's
 licensed MEDIS release (``adapter.licensed``) and then in ``byomei_to_icd10.csv`` (``code,icd10``). Japan codes in
@@ -53,6 +65,7 @@ from __future__ import annotations
 import contextlib
 import csv
 import io
+import logging
 import re
 from collections import Counter
 from collections.abc import Callable, Iterator
@@ -65,6 +78,8 @@ from tb_common import encoding
 from adapter.sources.base import Row, after
 from adapter.sources.csv.source import CsvSource
 from adapter.sources.ssmix2 import hl7
+
+log = logging.getLogger("adapter.ssmix2")
 
 TYPES = {
     "patient": ("ADT-00",),
@@ -109,6 +124,8 @@ _DOC_KINDS = (("DSC", "discharge"), ("SUM", "discharge"), ("RPT", "report"), ("R
               ("PRG", "progress"), ("NOTE", "progress"), ("ADM", "admission"), ("CON", "consult"),
               ("NRS", "nursing"))  # fmt: skip
 _TEXT_EXT = (".txt", ".text", ".csv", ".tsv")
+_CODED = ("CWE", "CE", "CNE", "CF")
+QUARANTINE_MAX_PCT = 1.0  # a table whose unreadable files pass this share of its files holds the night
 _MARKUP_EXT = (".html", ".htm", ".xml")
 
 
@@ -247,6 +264,7 @@ class Ssmix2Source:
         byomei_to_icd10: Path | None = None,
         yj_to_atc: Path | None = None,
         licensed: dict[str, dict[str, dict[str, str]]] | None = None,
+        quarantine_max_pct: float = QUARANTINE_MAX_PCT,
     ) -> None:
         if not directory.is_dir():
             raise FileNotFoundError(f"ssmix2 storage not found: {directory}")
@@ -267,6 +285,9 @@ class Ssmix2Source:
         self._index: dict[str, list[StoredFile]] | None = None
         self._gone: dict[str, list[StoredFile]] = {}  # newest version deleted (flag 0), by message type
         self._deleted_docs: list[Row] = []  # extended-storage documents whose newest version is deleted
+        self.quarantine_max_pct = quarantine_max_pct
+        self.quarantined: list[tuple[str, str, str]] = []  # (message type, path under the root, reason), STD-020
+        self._lab_dead: list[Row] = []  # OBX-11 D results and results a C replaced: tombstones (T-615a)
 
     # ------------------------------------------------------------------ storage index
     def _files(self) -> dict[str, list[StoredFile]]:
@@ -299,6 +320,8 @@ class Ssmix2Source:
             return
         if table not in TYPES:
             return
+        if table == "lab":
+            yield from self._lab_dead
         self._files()
         build: Callable[[StoredFile, hl7.Message], Iterator[Row]] = getattr(self, f"_{table}")
         for typ in TYPES[table]:
@@ -309,12 +332,43 @@ class Ssmix2Source:
                     self.stats[f"{typ}:deleted unreadable"] += 1
                     continue
                 self.stats[f"{typ}:deleted"] += 1
-                yield from rows
+                for row in rows:
+                    row.pop("_same", None)
+                    yield row
 
     def _messages(self, typ: str) -> Iterator[tuple[StoredFile, hl7.Message]]:
+        """The current messages of one type. A file no codec reads, or that is not HL7, is quarantined (STD-020):
+        counted, listed, skipped; the other files go on."""
         for sf in self._files().get(typ, []):
+            try:
+                text, codec = hl7.decode_bytes(sf.path.read_bytes())
+                msg = hl7.parse(text)
+            except (OSError, ValueError) as exc:  # hl7.Undecodable is a ValueError, as is "no MSH segment"
+                why = "unreadable bytes" if isinstance(exc, hl7.Undecodable) else "not an HL7 message"
+                self.stats[f"{typ}:quarantined ({why})"] += 1
+                where = str(sf.path.relative_to(self.root)) if sf.path.is_relative_to(self.root) else sf.path.name
+                self.quarantined.append((typ, where, f"{why}: {exc}"))
+                log.warning("ssmix2: a %s file quarantined: %s", typ, why)  # the path names a patient: kept in memory
+                continue
             self.stats[typ] += 1
-            yield sf, hl7.parse(hl7.decode(sf.path.read_bytes()))
+            if codec not in ("iso2022_jp", "ascii", "utf-8"):
+                self.stats[f"{typ}:read as {codec}"] += 1
+            yield sf, msg
+
+    def quarantine_reason(self, source_name: str) -> str | None:
+        """Why the table ``source_name`` holds the night (T-615b's hook), or None: more than ``quarantine_max_pct`` %
+        of its files could not be read. Fewer are counted and listed only (STD-020)."""
+        types = TYPES.get(source_name, ()) + CHANGES.get(source_name, ())
+        bad = [q for q in self.quarantined if q[0] in types]
+        if not bad:
+            return None
+        total = sum(len(self._files().get(t, [])) for t in types)
+        if len(bad) * 100 <= self.quarantine_max_pct * total:
+            return None
+        return (
+            f"{len(bad)} of {total} SS-MIX2 files quarantined (more than {self.quarantine_max_pct:g} %): "
+            + "; ".join(sorted({q[2].split(":", 1)[0] for q in bad}))
+        )
 
     def rows(self, table: str, source_name: str, delta_column: str | None, since: str | None) -> Iterator[Row]:
         if table not in TYPES:
@@ -327,6 +381,8 @@ class Ssmix2Source:
                     yield row
             return
         build: Callable[[StoredFile, hl7.Message], Iterator[Row]] = getattr(self, f"_{table}")
+        if table == "lab":
+            self._lab_dead = []
         out: list[Row] = []
         for typ in TYPES[table]:
             for sf, msg in self._messages(typ):
@@ -335,6 +391,8 @@ class Ssmix2Source:
             out = self._encounter_changes(out)
         elif table == "medication":
             out = self._administrations(out)
+        elif table == "lab":
+            out = self._lab_corrections(out)
         for row in out:
             stamp = max(str(row.get(c) or "") for c in (delta_column, "class_changed_at", "end_datetime") if c)
             if delta_column and not after(stamp or None, since):
@@ -376,14 +434,18 @@ class Ssmix2Source:
         pid = msg.first("PID")
         if pid is None:
             return
-        family, given = pid.comp(5, 1), pid.comp(5, 2)
+        name = pid.pick(5, 8, ("I",))  # the ideographic (漢字) name before the phonetic (カナ) one
+        family, given = hl7.Segment.rep_comp(name, 1), hl7.Segment.rep_comp(name, 2)
+        mrn = hl7.Segment.rep_comp(pid.pick(3, 5, ("PI",)), 1)
         yield {
-            "mrn": pid.comp(3, 1) or sf.patient,
+            "mrn": mrn or sf.patient,
             "name": f"{family}　{given}" if given else family,
             "id_no": "",
             "birth_date": hl7.ts(pid.field(7)) or "",
             "sex": pid.field(8) if pid.field(8) in ("M", "F") else "",
             "death_date": hl7.ts(pid.field(29)) or "",
+            # PID-30 (HL7 table 0136): ``Y`` marks the patient deceased even without a PID-29 date (STD-013)
+            "deceased": "Y" if pid.comp(30, 1).strip().upper() == "Y" else "",
             "phone": pid.comp(13, 1),
         }
 
@@ -527,23 +589,69 @@ class Ssmix2Source:
         return rows
 
     def _lab(self, sf: StoredFile, msg: hl7.Message) -> Iterator[Row]:
-        for obx in msg.all("OBX"):
+        """OML-11 (STD-021): OBX-2 read, OBX-11 read (``D`` a tombstone), the sample time with its fallbacks."""
+        obr: hl7.Segment | None = None
+        spm = msg.first("SPM")
+        folder = hl7.ts(sf.day) or ""
+        for seg in msg.segments:
+            if seg.name == "OBR":
+                obr = seg
+                continue
+            if seg.name != "OBX":
+                continue
+            obx = seg
             code, system = obx.comp(3, 1), obx.comp(3, 3)
             is_jlac = system in _JLAC_SYS or (not system and bool(_JLAC_SHAPE.match(code)))
             jlac = code if is_jlac else ""
-            yield {
+            times = (
+                ("OBX-14", hl7.ts(obx.field(14))),
+                ("OBR-7", hl7.ts(obr.field(7)) if obr else None),
+                ("SPM-17", hl7.ts(spm.comp(17, 1)) if spm else None),
+                ("folder", folder),
+            )
+            src, when = next(((k, v) for k, v in times if v), ("", ""))
+            if src != "OBX-14":
+                self.stats[f"OML-11:sample time from {src or 'nowhere'}"] += 1
+            status = _status(_OBX_STATUS, obx.field(11))
+            order = (obr.comp(3, 1) or obr.comp(2, 1)) if obr else ""
+            row: Row = {
                 "lab_no": obx.comp(21, 1) or f"{sf.order}-{obx.field(1)}",
                 "mrn": sf.patient,
                 "local_code": code,  # the lookup key (jlac10_to_loinc.csv), JLAC10 or the hospital's own code
                 "jlac10_code": jlac,
                 "hosp_lab_code": "" if is_jlac else code,
                 "item_name": obx.comp(3, 2),
-                "result_value": hl7.unescape(obx.field(5)),
+                "result_value": obx_value(obx),
                 "unit": obx.comp(6, 1),
-                "sample_datetime": hl7.ts(obx.field(14)) or "",
-                "result_status": _status(_OBX_STATUS, obx.field(11)),
+                "ref_range": hl7.unescape(obx.field(7)).strip(),
+                "abnormal_flag": obx.comp(8, 1).strip(),
+                "sample_datetime": when,
+                "sample_time_from": src,
+                "result_status": status,
                 "specimen": _MATERIAL.get(jlac[9:12], "") if len(jlac) >= 12 else "",
+                "_same": (sf.patient, order or sf.order, code, obx.field(4).strip()),
             }
+            if obx.field(11).strip().upper() == "D":  # deleted: a tombstone, never a record
+                self.stats["OML-11:deleted result"] += 1
+                row.pop("_same")
+                self._lab_dead.append(row)
+                continue
+            yield row
+
+    def _lab_corrections(self, rows: list[Row]) -> list[Row]:
+        """A ``C`` (corrected) result replaces the other results of the same order, test and sub-id; a replaced
+        result of another id becomes a tombstone (STD-021)."""
+        corrected = {r["_same"]: r for r in rows if r["result_status"] == "corrected"}
+        out: list[Row] = []
+        for r in rows:
+            fix = corrected.get(r.pop("_same"))
+            if fix is not None and fix is not r:
+                self.stats["OML-11:replaced by a correction"] += 1
+                if r["lab_no"] != fix["lab_no"]:
+                    self._lab_dead.append(r)
+                continue
+            out.append(r)
+        return out
 
     # ------------------------------------------------------------------ extended storage
     def _documents(self) -> Iterator[Row]:
@@ -583,6 +691,23 @@ class Ssmix2Source:
                 "note_type": note_type,
                 "text": text,
             }
+
+
+def obx_value(obx: hl7.Segment) -> str:
+    """OBX-5 read by its OBX-2 value type (STD-021). ``CWE`` / ``CE`` / ``CNE``: the text (component 2), else the
+    code (``1^陰性^JHSD0001`` -> ``陰性``); ``SN``: comparator, numbers and separator joined (``<^0.03`` -> ``<0.03``,
+    ``^1^:^40`` -> ``1:40``); ``NM``: the number as written; anything else (``ST``, ``TX``, ``FT``) the text."""
+    vt = obx.field(2).strip().upper()
+    raw = obx.field(5)
+    if vt in _CODED:
+        first = raw.split("~")[0]
+        return hl7.Segment.rep_comp(first, 2).strip() or hl7.Segment.rep_comp(first, 1).strip()
+    if vt == "SN":
+        first = raw.split("~")[0]
+        return "".join(hl7.Segment.rep_comp(first, i).strip() for i in (1, 2, 3, 4))
+    if vt == "NM":
+        return hl7.unescape(raw).strip()
+    return hl7.unescape(raw)
 
 
 def reader_summary(src: Any) -> dict[str, Any]:
