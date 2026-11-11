@@ -1,0 +1,11 @@
+# TrialBox: %USERPROFILE%\.wslconfig of the Windows user who runs WSL2 (T-210a, D-421). Copy it, set memory, then
+# wsl --shutdown. preflight.ps1 and check_host.sh --wsl2 check swap and sparseVhd.
+[wsl2]
+# what WSL2 is given; preflight.sh wants 32 GB or more
+memory=64GB
+# no swap: patient data must never page to a disk file (CR-041, OPS-061)
+swap=0
+
+[experimental]
+# the disk file gives back freed space instead of only growing (OPS-061; WSL 2.0 and later)
+sparseVhd=true
