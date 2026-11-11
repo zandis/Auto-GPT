@@ -394,6 +394,7 @@ DECLARED: dict[str, Declared] = {
     "TB_CONSOLE_ADMIN_EMAIL": Declared("str", "", "console: first admin account"),
     "TB_CONSOLE_ADMIN_PASSWORD_FILE": Declared("path", "", "console: file with the first admin's password"),
     "TB_CONSOLE_BIND": Declared("str", "", "network sheet: the console's bind address"),
+    "TB_CONSOLE_BREACHED_PASSWORDS_FILE": Declared("path", "", "console: sorted SHA-1 list of breached passwords"),
     "TB_CONSOLE_CONSENT_SAMPLE": Declared("str", "", "console: show the sample consent pages"),
     "TB_CONSOLE_DATA_SOURCE": Declared("str", "", "console: label of the records' source (public or site)"),
     "TB_CONSOLE_DIR": Declared("path", "/data/console", "console: data folder"),
@@ -453,6 +454,7 @@ DECLARED: dict[str, Declared] = {
     "TB_DOTENV": Declared("str", ".env", "path of the .env file config reads"),
     "TB_DRILL_DIR": Declared("path", "", "backup drill: work folder"),
     "TB_E2E_DIR": Declared("path", "", "e2e tool: work folder"),
+    "TB_EDC_ODM_MAX_BYTES": Declared("int", "5000000", "EDC: largest ODM file an import reads (D-435)"),
     "TB_EDC_SIGN_KEY_FILE": Declared("path", "", "EDC: key that signs eCRF records"),
     "TB_EGRESS_STATE": Declared(
         "str", "/var/lib/trialbox/egress-state.json", "egress: state file of the applied table"
@@ -575,6 +577,9 @@ DECLARED: dict[str, Declared] = {
     "TB_NOTE_BLOCK": Declared("str", "both_agree", "note-block policy"),
     "TB_NOTICE_N1_AT": Declared("str", "07:00", "console: first notice time"),
     "TB_NOTICE_N2_AT": Declared("str", "07:30", "console: second notice time"),
+    "TB_NOT_MATCHED_GATE": Declared(
+        "str", "auto", "console, orchestrator: not-matched list held until the site's check (auto, on, off; D-446)"
+    ),
     "TB_NPM_REGISTRY": Declared("str", "", "FHIR package fetch: registry"),
     "TB_NTP_MAX_OFFSET_S": Declared("float", "", "platform: largest NTP offset"),
     "TB_NTP_SERVER": Declared("str", "", "NTP server checked for the audit clock"),
@@ -598,6 +603,7 @@ DECLARED: dict[str, Declared] = {
     "TB_OPS_DIR": Declared("path", "/data/ops", "ops: request and status folder"),
     "TB_OPS_RUNNER": Declared("str", "host", "ops: who runs requests (host or local)"),
     "TB_OPTOUT_LOOKUPS_PER_HOUR": Declared("int", "", "opt-out lookups per user per hour"),
+    "TB_OPTOUT_WORKER_MINUTES": Declared("int", "5", "orchestrator: minutes between opt-out worker ticks (0 off)"),
     "TB_ORCH_DIR": Declared("path", "", "orchestrator: data folder"),
     "TB_PARSER": Declared("str", "auto", "document parser (auto or a named one)"),
     "TB_PERIMETER_RECHECK_S": Declared("float", "60", "gateway: seconds between perimeter address checks (D-388)"),
@@ -700,6 +706,7 @@ DECLARED: dict[str, Declared] = {
     "TB_SOURCE_DIR": Declared("path", "./site/feed", "compose: host folder of the site feed (settings wizard, T-632)"),
     "TB_SOURCE_MOUNT": Declared("path", "/data/source/site", "compose: where the site feed is mounted (T-632)"),
     "TB_SOURCE_PATH": Declared("path", "", "adapter: source records path"),
+    "TB_SPONSOR_WEEKLY_MAX_BYTES": Declared("int", "2000000", "largest sponsor weekly sheet read (D-435)"),
     "TB_STANDIN_LOAD_DELAY": Declared("float", "0", "model stand-in: load delay"),
     "TB_STEP_ID": Declared("str", "", "step id a gateway call names"),
     "TB_STUB_CONTEXT": Declared("int", "", "model stub: context size"),

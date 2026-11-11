@@ -317,7 +317,7 @@ def store_migrations() -> dict[str, list[str]]:
     from adapter import licensed, pidmap
     from console import auth, breakglass, feedback, saerecord, sitestore, teamstore
     from criteria_compiler.library import ddl as library
-    from datacore import dataops, lifecycle
+    from datacore import dataops, lifecycle, sponsor
     from datacore import store as datacore
     from edc import store as edc
     from mail_gateway import store as mail
@@ -327,7 +327,7 @@ def store_migrations() -> dict[str, list[str]]:
     from orchestrator.recall import ledger
     from patient_profile import twin
     from sitesetup import store as sitesetup
-    from tb_common import derived_store, flags, optout, refdata
+    from tb_common import derived_store, flags, notmatched, optout, refdata
     from tracestore import store as trace
     from vec import store as vec
 
@@ -345,7 +345,7 @@ def store_migrations() -> dict[str, list[str]]:
         "pidmap": list(pidmap.MIGRATIONS),
         "omop": omop.migrations(),
         "trace": [trace.SCHEMA_V1],
-        "datacore": [datacore.SCHEMA, lifecycle.SCHEMA, *lifecycle.SAE_MIGRATIONS],
+        "datacore": [datacore.SCHEMA, lifecycle.SCHEMA, *lifecycle.SAE_MIGRATIONS, sponsor.SCHEMA],
         "auth": list(auth.MIGRATIONS),
         "site": list(sitestore.MIGRATIONS),
         "team": list(teamstore.MIGRATIONS),
@@ -356,6 +356,7 @@ def store_migrations() -> dict[str, list[str]]:
         "app": list(flags.MIGRATIONS),
         "derived": list(derived_store.MIGRATIONS),
         "dataops": [dataops.SCHEMA],
+        "tuned": list(notmatched.MIGRATIONS),
         "vec": list(vec.MIGRATIONS),
         "profile": list(twin.MIGRATIONS),
     }
@@ -367,19 +368,23 @@ ADDED: dict[str, tuple[str, ...]] = {
     "refdata": ("9e976b5878b8d5a8d1a89e417b61450471874a0e1122e43764d755d11662af83",),
     # D-279: users.must_change, login_failures.source, sessions.via
     # T-209c (D-406): users.last_login, for the unused-account report
+    # T-109b (D-447): users.pw_history, the account's earlier password hashes
     "auth": (
         "44f1f94e5797899b13e8b807b4b20ace62bd584cf226dd4e207cf500b466deb6",
         "d08533082518372c9c3972573a7370f745b1a7bb754798cb3c60408ecd9744a8",
+        "bb7564dcd900b6be7567a5d5f0db38eff6ecef1d03f9127fcf353d55332dc1ce",
     ),
     # D-301: migration 3, the one-million block and the vocabulary tables
     # T-106 (D-339): migration 4, the large clinical tables partitioned by year
     # T-106b (STD-032): migration 5, the other fifteen CDM v5.4 tables
     # T-202 (D-384): migration 6, the record's own before-image on tb_record_event
+    # T-206a (D-441): migration 7, tb_withheld (the persons the opt-out worker keeps out)
     "omop": (
         "0eec88a07c4476ca00fdfb2e8fc414fb2257a293e381d8115a668fa7df0dc6f9",
         "36aaec4b30675bd3f2fa9006cbb7e9869f5df899613d179dde3068d19156094c",
         "5e12313c13360ff7f760649cce2f8bd954e6cfbace79c3dc399b47ae842055c6",
         "139401a1b2873fdd27e3b299507dd52005abea7bc62666af95c9af45ec85fcf8",
+        "8e3745a426403fc8446601c4221225fa3cee581f63569387c59de741041c4523",
     ),
     # T-612: pidmap version 2, the site key's fingerprint
     # T-659b (D-370): pidmap version 3, the patient index as the append-only pid_alias table
@@ -396,6 +401,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         "668c23320ea6fe609efb7a779800ad02501c28559dc45abac20610e63f6f7a5a",
         # D-407 (T-620): datacore version 7 (the contact-attempt rule and the answers to possible deviations)
         "4a4c7c69ae18a17beda387cb3524504041d44a99212609f07d25f897b8735e35",
+        # D-435 (T-302d): datacore version 8 (the sponsor's layout: screening-log columns, the weekly sheet)
+        "cd15f0cb005567fbcaa623030a4e5ea5dd4bc947add082f57bcbe23b1cb7547d",
     ),
     # D-386 (T-622): site version 5 (the study's state log and identifiers)
     # D-395 (T-310b): site version 6 (the IRB-text record of the cross-department candidate view)
@@ -427,6 +434,8 @@ ADDED: dict[str, tuple[str, ...]] = {
     "dataops": ("01925afb0e82837617a880fa2d2b32f7efaa6d5e98945e7144f57510d76efbcf",),
     # T-103 (D-438): orch version 2, the orchestrator's identifier caps as use rows (``id_limits``)
     "orch": ("444cff97a092dda26501bfa81db70438eae3dda40e545bb86721748c241eba11",),
+    # T-310a (D-446): the weekly PI sample of criteria not matched and the site's check, new after the baseline
+    "tuned": ("e8565a9e2288df90d120272ab2956fafe4595465ecd7c58c2e2debb35ee934a1",),
     # T-203a (D-439): the vector store, new after the baseline (needs pgvector: the db image)
     "vec": ("cd645d93e9d8d0a809c92eeaf6ff8997c201fb0e32b07a2d112288447f86b429",),
     # T-204 (D-440): the patient twin, new after the baseline
@@ -444,7 +453,7 @@ PINNED: dict[str, tuple[str, ...]] = {
 
 #: every file that opens a store and migrates it, covered by :func:`store_migrations` (or not a store of its own)
 STORE_FILES = {
-    "libs/tb_common/derived_store.py", "libs/tb_common/flags.py", "libs/tb_common/optout.py", "libs/tb_common/refdata.py", "services/adapter/licensed.py",
+    "libs/tb_common/derived_store.py", "libs/tb_common/flags.py", "libs/tb_common/notmatched.py", "libs/tb_common/optout.py", "libs/tb_common/refdata.py", "services/adapter/licensed.py",
     "services/adapter/pidmap.py", "services/console/auth.py", "services/console/breakglass.py", "services/console/feedback.py", "services/console/saerecord.py",
     "services/console/sitestore.py", "services/console/teamstore.py", "services/criteria_compiler/library/repository.py",
     "services/datacore/dataops.py", "services/datacore/store.py", "services/edc/store.py",

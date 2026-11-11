@@ -22,6 +22,15 @@ TrialBox's own data lives in schema `datacore` of `trialbox_wf` (D-123, D-126):
   CDASH IE rows (the criterion a screen failure did not meet) and DS rows (consent, screen failure, completion,
   withdrawal) from the screening log. CDASH covers DM, VS, LB, MH, CM, SV, AE, IE and DS here; EX, SDTM datasets,
   Define-XML and CDISC Controlled Terminology files are out of scope.
+- **Imports and the sponsor's words** ([D-435](../decisions/D-435-odm-import-sponsor-readers.md)). An ODM 1.3 file
+  (`POST /studies/<study>/edc/import/odm`) becomes open EDC drafts that cite the file (sha256 and the place of each
+  value); a person confirms and signs them as any draft, and nothing is signed by the import. The file is read with
+  expat (no DTD, no entity), bounded (`TB_EDC_ODM_MAX_BYTES`), decoded by D-215, and refused whole with a named
+  `odm.*` reason (duplicate OIDs or values, repeat keys, items outside the map, a value its field refuses, an unknown
+  subject). The sponsor's layout (`/studies/<study>/sponsor/layout`, table `sponsor_layout`) names the screening
+  log's columns in the sponsor's words (`screening-log.xlsx?layout=sponsor`) and how to read the sponsor's weekly
+  CSV (`TB_SPONSOR_WEEKLY_MAX_BYTES`): `/sponsor/weekly` proposes lifecycle steps, `/sponsor/weekly/confirm` takes
+  the ones a person confirms (source `sponsor_weekly`). Nothing is written to the sponsor's EDC.
 
 **REDCap.** Attach a project on the study's set-up page (guided; variable names are read from the dictionary). The
 screening write-back fills three fields on TrialBox's own instrument (`tb_screen_date`, `tb_status`,

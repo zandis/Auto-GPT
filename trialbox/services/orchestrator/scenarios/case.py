@@ -196,6 +196,19 @@ def resolve_subject(ctx: Ctx, mrn: str | None) -> Subject:
     return Subject(pid=pid, in_lake=True, snapshot=snapshot)
 
 
+def refuse_opted_out(ctx: Ctx, pid: str | None) -> None:
+    """D-441: no eligibility sheet for a patient on the opt-out register (D-147) as it stood when the job was
+    received. The refusal is audited without the pseudonym; the requester typed the chart number and is told why."""
+    if pid is None:
+        return
+    from tb_common.optout import opted_out
+
+    if pid in opted_out(as_of=ctx.job.received_at.isoformat()):
+        ctx.orch.audit.append("case.opt_out_refused", job_id=ctx.job.job_id, ruleset=ctx.job.ruleset,
+                              detail={"register": "optout"})  # fmt: skip
+        raise StepFailed("received", "This patient opted out of research use: no eligibility sheet is made.")
+
+
 # ------------------------------------------------------------------------------------------------ judging
 @dataclass
 class ChartJudge:
@@ -332,6 +345,7 @@ def run(ctx: Ctx) -> Outcome:
     excerpts, charts = read_charts(ctx)
     lang = pick_lang(ctx, " ".join(str(e.get("text", "")) for e in excerpts[:40]))
     subj = resolve_subject(ctx, opts.get("mrn"))
+    refuse_opted_out(ctx, subj.pid)
     if subj.snapshot:
         ctx.update(snapshot_date=date.fromisoformat(subj.snapshot))
     ctx.state("running")

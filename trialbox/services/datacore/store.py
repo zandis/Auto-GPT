@@ -59,8 +59,9 @@ class DataCore:
         self._db = Database.connect(url or os.environ.get(ENV), "datacore")
         from datacore.lifecycle import SAE_MIGRATIONS
         from datacore.lifecycle import SCHEMA as LIFECYCLE
+        from datacore.sponsor import SCHEMA as SPONSOR
 
-        self._db.migrate([SCHEMA, LIFECYCLE, *SAE_MIGRATIONS])
+        self._db.migrate([SCHEMA, LIFECYCLE, *SAE_MIGRATIONS, SPONSOR])  # SPONSOR: version 8 (D-435)
 
     @property
     def db(self) -> Database:
