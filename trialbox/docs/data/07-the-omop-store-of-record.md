@@ -13,9 +13,17 @@ file, row), the history of every record, and open and resolved conflicts. It is 
   the night it went are kept in `tb_record_event`.
 - **Disagreements are recorded.** Two sources that give a patient different birth dates, sexes or dates of death open
   a conflict; screening reads the item as unknown until the steward (or the PI, for their study) resolves it.
-- **The lake.** `TB_LAKE_SOURCE=omop` builds the screening lake from OMOP with the same tables and rows; the default
-  is still `legacy` (flattened from the NDJSON) until the flag flips (WS-03.5). Commands: `python -m omop load
-  --lake <lake>`, `python -m omop status` and `python -m omop dqd` (the Data Quality Dashboard-style checks).
+- **The lake.** The flag `lake.source=omop` builds the screening lake from OMOP with the same tables and rows; the
+  default is still `legacy` (flattened from the NDJSON) until the flag flips on the box (WS-03.5, D-384: CI builds the
+  goldens and `e2e_simple` from both sources; the flip procedure is in [Go-live acceptance](../runbook/06-go-live-acceptance.md)
+  §6.1). Commands: `python -m omop load --lake <lake>`, `python -m omop status` and `python -m omop dqd` (the Data
+  Quality Dashboard-style checks).
+- **As of a time** (D-384). Every change event keeps the record as it was (`tb_record_event.record_before`), so the
+  lake can be exported as the store stood at an earlier time: `export_rows(db, as_of=...)`. The content (which
+  records, values, status, conflicts) is that of the time; an unchanged record's provenance columns and row order are
+  those of the last night that carried it.
+- **NOTE and NOTE_NLP from site setup** (D-384). A chart a site publishes is a NOTE; a fact read from that chart is a
+  NOTE_NLP row (the fact's term, its status in `term_modifiers`). The fact's quote stays in site setup.
 
 ## 7.1 Vocabulary
 

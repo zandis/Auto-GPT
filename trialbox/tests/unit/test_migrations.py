@@ -319,7 +319,6 @@ def store_migrations() -> dict[str, list[str]]:
     from criteria_compiler.library import ddl as library
     from datacore import lifecycle
     from datacore import store as datacore
-    from dataplat import mpi
     from edc import store as edc
     from mail_gateway import store as mail
     from omop import schema as omop
@@ -339,7 +338,6 @@ def store_migrations() -> dict[str, list[str]]:
         "orch": list(orch.MIGRATIONS),
         "sitesetup": [sitesetup.SCHEMA, sitesetup.SCHEMA_V2],
         "mail": [mail.SCHEMA_V1, mail.SCHEMA_V2],
-        "mpi": [mpi.SCHEMA_V1],
         "library": [library.DDL],
         "terminology": [licensed.SCHEMA],
         "pidmap": list(pidmap.MIGRATIONS),
@@ -367,13 +365,19 @@ ADDED: dict[str, tuple[str, ...]] = {
     # D-301: migration 3, the one-million block and the vocabulary tables
     # T-106 (D-339): migration 4, the large clinical tables partitioned by year
     # T-106b (STD-032): migration 5, the other fifteen CDM v5.4 tables
+    # T-202 (D-384): migration 6, the record's own before-image on tb_record_event
     "omop": (
         "0eec88a07c4476ca00fdfb2e8fc414fb2257a293e381d8115a668fa7df0dc6f9",
         "36aaec4b30675bd3f2fa9006cbb7e9869f5df899613d179dde3068d19156094c",
         "5e12313c13360ff7f760649cce2f8bd954e6cfbace79c3dc399b47ae842055c6",
+        "139401a1b2873fdd27e3b299507dd52005abea7bc62666af95c9af45ec85fcf8",
     ),
     # T-612: pidmap version 2, the site key's fingerprint
-    "pidmap": ("b7cf6c229898b30f609be2151ff4422b2a0bc0cd068b0b5150e1d58c07c98ae3",),
+    # T-659b (D-370): pidmap version 3, the patient index as the append-only pid_alias table
+    "pidmap": (
+        "b7cf6c229898b30f609be2151ff4422b2a0bc0cd068b0b5150e1d58c07c98ae3",
+        "2d6727cad7056592bdcb1c9a2c0f28f419debbc79880f81e6f4346cd59646f08",
+    ),
     # D-277: datacore version 4 (the study's SAE rule set); sae version 3 (one initial report per party, CR-011)
     # D-364 (T-621): datacore version 5 (schedule versions); site version 4 (the criteria version on each mark)
     "datacore": (
@@ -399,14 +403,18 @@ ADDED: dict[str, tuple[str, ...]] = {
     # D-280: the break-glass grants, new after the baseline
     "breakglass": ("0347aae3f58f7558d041191f25bd2fc5bc654e6f5139c9ee28b1588e91544b83",),
 }
-PINNED: dict[str, tuple[str, ...]] = {k: BASELINE.get(k, ()) + ADDED.get(k, ()) for k in BASELINE.keys() | ADDED.keys()}
+#: stores of the baseline whose code is gone (T-659b: ``mpi``, the retired data platform's patient index)
+RETIRED = {"mpi"}
+PINNED: dict[str, tuple[str, ...]] = {
+    k: BASELINE.get(k, ()) + ADDED.get(k, ()) for k in (BASELINE.keys() | ADDED.keys()) - RETIRED
+}
 
 #: every file that opens a store and migrates it, covered by :func:`store_migrations` (or not a store of its own)
 STORE_FILES = {
     "libs/tb_common/derived_store.py", "libs/tb_common/flags.py", "libs/tb_common/optout.py", "libs/tb_common/refdata.py", "services/adapter/licensed.py",
     "services/adapter/pidmap.py", "services/console/auth.py", "services/console/breakglass.py", "services/console/feedback.py", "services/console/saerecord.py",
     "services/console/sitestore.py", "services/console/teamstore.py", "services/criteria_compiler/library/repository.py",
-    "services/datacore/store.py", "services/dataplat/mpi/__init__.py", "services/edc/store.py",
+    "services/datacore/store.py", "services/edc/store.py",
     "services/mail_gateway/store.py", "services/omop/schema.py", "services/orchestrator/db.py",
     "services/orchestrator/db_pg.py", "services/orchestrator/outbox.py", "services/orchestrator/recall/ledger.py",
     "services/orchestrator/studystore.py", "services/sitesetup/store.py", "services/tracestore/store.py",

@@ -1,0 +1,81 @@
+# ruff: noqa: F811 - the box fixture is imported from test_console_app and taken by name
+"""``/data/instruments`` (T-307, D-375): the instrument copyright register for the steward in three languages; a
+site switch with an empty licence reference is refused and audited; an accepted one is stored and audited; 403 for
+the other roles."""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+import pytest
+from console import i18n_instruments
+from console.i18n import CATALOGUES
+from tb_common import instruments
+
+from tests.console.test_console_app import (  # noqa: F401 - the fixture is used by name
+    box,
+    login,
+)
+from tests.console.test_role_pages import _csrf, _user
+
+
+def _events(b: dict[str, Any], name: str) -> list[dict[str, Any]]:
+    out = []
+    for f in sorted((b["dir"] / "audit").glob("*.jsonl")):
+        out += [json.loads(x) for x in f.read_text(encoding="utf-8").splitlines() if x]
+    return [e for e in out if e["event"] == name]
+
+
+@pytest.mark.parametrize(
+    ("lang", "title"), [("en", "Instrument licences"), ("ja", "評価尺度のライセンス"), ("zh-TW", "評估量表授權")]
+)
+def test_the_steward_sees_the_register_with_each_instruments_terms(box: dict[str, Any], lang: str, title: str) -> None:
+    c, csrf = login(box["app"])
+    c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/"})
+    r = c.get("/data/instruments")
+    assert r.status_code == 200 and title in r.text
+    reg = instruments.register()
+    assert r.text.count('data-testid="instrument"') == len(reg)
+    for i in reg:
+        assert f'data-instrument="{i.id}"' in r.text
+    assert "Cardiff University" in r.text and 'data-licence="needed"' in r.text
+    assert 'data-item="neuro.mmse_total" data-storable="score"' in r.text
+    assert r.text.count('data-testid="not-in-catalogue"') == sum(1 for i in reg if not i.items)
+
+
+def test_a_switch_needs_a_licence_reference_and_both_are_audited(box: dict[str, Any]) -> None:
+    c, _ = login(box["app"])
+    csrf = _csrf(c.get("/data/instruments").text)
+    r = c.post("/data/instruments/mmse", data={"csrf": csrf, "storable": "score+items", "licence_ref": "  "},
+               follow_redirects=False)  # fmt: skip
+    assert r.status_code == 400 and "licence reference" in r.text
+    (ev,) = _events(box, "instrument.switch_refused")
+    assert ev["actor"] == "console:admin" and ev["detail"] == {"instrument": "mmse", "storable": "score+items",
+                                                              "why": "no_ref"}  # fmt: skip
+    assert 'data-item="neuro.mmse_total" data-storable="score"' in c.get("/data/instruments").text  # unchanged
+    r = c.post("/data/instruments/mmse", data={"csrf": csrf, "storable": "score+items", "licence_ref": "LIC-SYN-7"},
+               follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303
+    page = c.get("/data/instruments").text
+    assert 'data-item="neuro.mmse_total" data-storable="score+items"' in page and "LIC-SYN-7" in page
+    (ev,) = _events(box, "instrument.switch")
+    assert ev["detail"] == {"instrument": "mmse", "storable": "score+items", "licence_ref": "LIC-SYN-7"}
+    r = c.post("/data/instruments/mmse", data={"csrf": csrf, "storable": "score", "licence_ref": ""},
+               follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303  # back to the catalogue's level: no reference needed
+    assert 'data-item="neuro.mmse_total" data-storable="score"' in c.get("/data/instruments").text
+    assert c.post("/data/instruments/eq5d", data={"csrf": csrf, "storable": "score", "licence_ref": "x"},
+                  follow_redirects=False).status_code == 400  # fmt: skip
+
+
+@pytest.mark.parametrize("role", ["coordinator", "investigator", "viewer", "cro"])
+def test_other_roles_get_403_and_an_audit_event(box: dict[str, Any], role: str) -> None:
+    c = _user(box, f"u-{role}", role)
+    assert c.get("/data/instruments").status_code == 403
+    assert any(e["detail"].get("action") == "/data/instruments" for e in _events(box, "console.denied"))
+
+
+def test_the_three_catalogues_have_the_same_keys() -> None:
+    assert set(i18n_instruments.EN) == set(i18n_instruments.JA) == set(i18n_instruments.ZH)
+    assert all(k in CATALOGUES["ja"] for k in i18n_instruments.EN)

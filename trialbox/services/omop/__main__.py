@@ -125,6 +125,7 @@ def _vocab(db: Any, a: argparse.Namespace) -> Any:
     if a.what == "local":
         return {"mapped": vl.load_local_codes(db, vl.local_code_rows(None, a.ws), by=a.by)}
     return {"terminology_release": vl.terminology_release(db), "releases": vl.releases(db),
+            "licence_acknowledgements": vl.licence_acks(db),
             "recompile_needed": vl.recompile_needed(db)}  # fmt: skip
 
 
