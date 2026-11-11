@@ -43,6 +43,7 @@ from orchestrator.scenarios.evaluate import (
 )
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen_cascade import max_pairs_of, pipeline, screen_with_cascade
+from orchestrator.scheduler import require_open
 
 SCOPE_SQL = """
 WITH a AS (
@@ -680,6 +681,7 @@ def deliver_lists(
 
 def run(ctx: Ctx) -> Outcome:
     job = ctx.job
+    require_open(job.ruleset)  # D-386 (LIFE-008): no list for a study that is not open
     rs = require_approved(ctx, (job.ruleset or "").upper(), (job.options or {}).get("version"))
     ctx.update(ruleset_version=rs.version)
     ctx.state("running")
