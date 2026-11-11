@@ -329,6 +329,7 @@ def store_migrations() -> dict[str, list[str]]:
     from sitesetup import store as sitesetup
     from tb_common import derived_store, flags, optout, refdata
     from tracestore import store as trace
+    from vec import store as vec
 
     return {
         "refdata": list(refdata.MIGRATIONS),
@@ -355,6 +356,7 @@ def store_migrations() -> dict[str, list[str]]:
         "app": list(flags.MIGRATIONS),
         "derived": list(derived_store.MIGRATIONS),
         "dataops": [dataops.SCHEMA],
+        "vec": list(vec.MIGRATIONS),
         "profile": list(twin.MIGRATIONS),
     }
 
@@ -423,9 +425,15 @@ ADDED: dict[str, tuple[str, ...]] = {
     ),
     # T-112a (D-427): the data-operations batches, new after the baseline
     "dataops": ("01925afb0e82837617a880fa2d2b32f7efaa6d5e98945e7144f57510d76efbcf",),
+    # T-203a (D-439): the vector store, new after the baseline (needs pgvector: the db image)
+    "vec": ("cd645d93e9d8d0a809c92eeaf6ff8997c201fb0e32b07a2d112288447f86b429",),
     # T-204 (D-440): the patient twin, new after the baseline
     "profile": ("e1107c0c7de613b72141fb70237b6eb35c1f98f5a1549f9c60f8537512a751b6",),
 }
+#: stores whose DDL needs an extension of the box's db image (D-204); a cluster without it cannot migrate them, so
+#: :func:`test_every_store_migrates_twice_and_checks_its_record` creates the extension where the server offers it and
+#: leaves the store to ``tests/integration/test_vec_store.py`` only where it does not
+NEEDS_EXTENSION = {"vec": "vector"}
 #: stores of the baseline whose code is gone (T-659b: ``mpi``, the retired data platform's patient index)
 RETIRED = {"mpi"}
 PINNED: dict[str, tuple[str, ...]] = {
@@ -441,7 +449,7 @@ STORE_FILES = {
     "services/mail_gateway/store.py", "services/omop/schema.py", "services/orchestrator/db.py",
     "services/orchestrator/db_pg.py", "services/orchestrator/outbox.py", "services/orchestrator/recall/ledger.py",
     "services/orchestrator/studystore.py", "services/patient_profile/twin.py", "services/sitesetup/store.py",
-    "services/tracestore/store.py",
+    "services/tracestore/store.py", "services/vec/store.py",
 }  # fmt: skip
 #: files that migrate but are not a store: the machinery, the update path's bundle-driven ``release``, the drill's
 #: throwaway database
@@ -484,8 +492,19 @@ def test_no_applied_ddl_string_changed(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_every_store_migrates_twice_and_checks_its_record(db_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TB_OMOP_CONCEPT_BLOCK", raising=False)
+    migrated: list[str] = []
     for store, scripts in store_migrations().items():
         with Database.connect(db_url, f"pin_{store}") as db:
+            ext = NEEDS_EXTENSION.get(store)
+            if ext and not extensions(db, (ext,))[ext]:
+                if not db.fetchval("SELECT count(*) FROM pg_available_extensions WHERE name = ?", (ext,)):
+                    continue  # the server has no pgvector: tests/integration/test_vec_store.py migrates it on the image
+                db.execute(f"CREATE EXTENSION IF NOT EXISTS {ext} WITH SCHEMA public")  # offered: never skip then
             db.migrate(scripts)
             db.migrate(scripts)
             assert [r.sha256 for r in db.applied()] == [script_sha256(s) for s in scripts], store
+            migrated.append(store)
+    with Database.connect(db_url, "pin_probe") as db:
+        offered = {str(r[0]) for r in db.fetchall("SELECT name FROM pg_available_extensions")}
+    # a store is left out only where its extension is not on the server at all
+    assert set(store_migrations()) - set(migrated) == {s for s, e in NEEDS_EXTENSION.items() if e not in offered}
