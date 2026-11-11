@@ -14,7 +14,8 @@
 {% include "_asof.html" %}
 <p class="hint" data-testid="purpose-shown">{{ t('team.purpose.logged', purpose=t('team.purpose.' + purpose)) }}</p>
 <dl class="facts">
-  <dt>{{ t('team.id') }}</dt><dd><span class="mono" data-testid="pid">{{ pid }}</span>{% if screening_no %} · {{ t('log.no') }} <span class="mono" data-testid="screening-no">{{ screening_no }}</span>{% endif %}</dd>
+  <dt>{{ t('team.id') }}</dt><dd><span class="mono" data-testid="pid">{{ pid[:8] }}</span>{# T-685 (UX-036): the 8-character code; the full pseudonym folded, selectable to copy #}
+  <details class="idfull" data-testid="pid-full"><summary class="hint">{{ t('team.id.full') }}</summary><input class="mono" readonly value="{{ pid }}" size="34" aria-label="{{ t('team.id.full') }}" data-testid="pid-full-value"></details>{% if screening_no %} · {{ t('log.no') }} <span class="mono" data-testid="screening-no">{{ screening_no }}</span>{% endif %}</dd>
   <dt>{{ t('patient.tier') }}</dt><dd><span class="pill tier-{{ row.tier }}">{{ t('tier.' + row.tier) }}</span>{% if registry %} · {{ t('patient.registry') }} {{ t('registry.status.' + registry) }}{% endif %}{% if mark %} · {{ t('mark.' + mark.mark) }}{% endif %}</dd>
   <dt>{{ t('patient.visit') }}</dt><dd><span class="nowrap">{{ (row.next_appointment or '')[:16].replace('T', ' ') or t('week.no_visit') }}</span>{% if row.department %} · {{ given(row.department) }}{% endif %}</dd>
   <dt>{{ t('patient.why') }}</dt><dd data-testid="why">{{ fit_line(fit) }}</dd>

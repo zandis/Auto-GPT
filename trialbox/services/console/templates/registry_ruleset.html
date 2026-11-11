@@ -44,8 +44,9 @@
 <td class="mono" title="{{ r.pid }}">{{ r.pid[:12] }}…</td>
 <td><span class="pill st-{{ r.status }}">{{ t('registry.status.' + r.status) }}</span></td>
 <td>{{ r.reason or '' }}</td>
-<td class="mono">{{ r.updated_at }}</td>
-<td>{{ r.updated_by|who }}</td>
+<td class="mono">{{ r.updated_at|local }}</td>
+{# T-685 (UX-033): a system author by its name in the reader's language, not its service id ("rc-bridge") #}
+<td>{{ t_or('who.' + (r.updated_by|who), r.updated_by|who) }}</td>
 <td>{% if r.source_job %}<a href="/pilot/jobs/{{ r.source_job }}">{{ t('registry.source.' + r.source) }}</a>{% else %}{{ t('registry.source.' + r.source) }}{% endif %}{% if r.tier %} · {{ t('tier.' + r.tier) if r.tier in ('high', 'review', 'excluded') else r.tier }}{% endif %}</td>
 <td>
 <form method="post" action="/pilot/registry/{{ ruleset }}" class="inline">
