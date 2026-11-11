@@ -178,20 +178,22 @@ def test_watch_applies_at_once_and_on_every_container_start() -> None:
 
 
 # ------------------------------------------------------------------------------------------------ the client
-def test_llm_client_refuses_to_build_without_a_gateway_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_llm_client_refuses_to_build_without_a_gateway_in_production(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delenv("TB_GATEWAY_URL", raising=False)
     monkeypatch.setenv("TB_ENV", "PRODUCTION")
     get_config.cache_clear()
     try:
         with pytest.raises(LlmError, match="no TB_GATEWAY_URL in PRODUCTION"):
-            LlmClient.from_config(AuditLog(Path("/nonexistent-audit")))
+            LlmClient.from_config(AuditLog(tmp_path / "audit"))
         monkeypatch.setenv("TB_GATEWAY_URL", "http://gateway:8020/v1")
         get_config.cache_clear()
-        assert LlmClient.from_config(AuditLog(Path("/nonexistent-audit"))).gateway is not None
+        assert LlmClient.from_config(AuditLog(tmp_path / "audit")).gateway is not None
         monkeypatch.delenv("TB_GATEWAY_URL")
         monkeypatch.setenv("TB_ENV", "DEV")
         get_config.cache_clear()
-        assert LlmClient.from_config(AuditLog(Path("/nonexistent-audit"))).gateway is None  # DEV: direct is allowed
+        assert LlmClient.from_config(AuditLog(tmp_path / "audit")).gateway is None  # DEV: direct is allowed
     finally:
         get_config.cache_clear()
 
