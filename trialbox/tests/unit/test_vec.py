@@ -22,13 +22,9 @@ from vec import chunker, index, store
 from vec.index import Note, index_notes, note_chunks
 from vec.store import ChunkRow, VecError
 
+from tests.unit.test_phi_note_mask import IDENTIFIERS, NOTES  # T-600's planted identifiers, synthetic
+
 SITE_MRN = r"^\d{8}$"
-NOTES = {  # the planted identifiers of T-600's lake test (tests/unit/test_phi_note_mask.py), synthetic
-    "d1": "痛風發作，尿酸9.2。記錄者：王志明醫師。家屬林淑芬來電詢問病情。聯絡電話0912345678。病歷號30000012。",
-    "d2": "Seen by Dr James Smith. Daughter Mary Brown phoned. Contact 0987654321. Chart no. 30000099. Gout.",
-}
-IDENTIFIERS = ["王志明", "林淑芬", "0912345678", "30000012", "James", "Smith", "Mary", "Brown", "0987654321",
-               "30000099"]  # fmt: skip
 
 
 class SpyEmbedder(HashEmbedder):
