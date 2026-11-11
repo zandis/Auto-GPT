@@ -2,6 +2,7 @@
 # Appliance host checks (SPEC §10.1; docs/SECURITY.md). Prints PASS / WARN / FAIL per item; exit 1 on any FAIL.
 #
 #   deploy/check_host.sh [--gb10 | --gpu <profile>] [--gpu-only | --baseline] [--env deploy/.env] [--secrets <dir>]
+#                        [--wsl2 [--wsl2-distro <name>] [--escrow "<who keeps the BitLocker recovery password>"]]
 #
 # Read-only: changes nothing. Run as root on the appliance after installation and after every update.
 # --gpu names the GPU profile (rtxpro6000, gb10, rtx5090, rtx4090, default; --gb10 is --gpu gb10). With a profile, or
@@ -11,14 +12,22 @@
 # --baseline runs only the host baseline (T-634, D-408): the host system, the disk under Docker's data root and its
 # unlock (deploy/hardening/luks_policy.py: FAIL when the TPM alone opens it), swap, the site keys (FAIL when plain in
 # VALIDATION or PRODUCTION), the input firewall, SSH, free space, the cron files, the time zone and OS patches.
-# TB_HOST_ROOT moves every host file it reads (/etc, /run, /dev, /var) under a folder: the tests only.
+# --wsl2 (T-210a, D-421): the host is Windows with WSL2; on by itself on a WSL2 kernel. BitLocker takes the place of
+# LUKS and the TPM: deploy/windows/host_facts.ps1 reads Windows through interop (run WSL from an elevated terminal)
+# and deploy/windows/wsl2_policy.py judges BitLocker, the page file, hibernation, WSL swap, Remote Desktop, Windows
+# Update restarts, the start-at-boot task, the clocks and the disk file, as preflight.ps1 does before the install.
+# TB_HOST_ROOT moves every host file it reads (/etc, /run, /dev, /var, /proc) under a folder: the tests only.
 set -u
 GB10=0; GPU_PROFILE=""; GPU_ONLY=0; BASELINE=0; ENV_FILE="$(dirname "$0")/.env"
+WSL2=0; WSL2_DISTRO="${WSL_DISTRO_NAME:-}"; ESCROW=""
 SECRETS="${TB_SECRETS_HOST_DIR:-/var/lib/docker/volumes/trialbox_tb-secrets/_data}"
 HR="${TB_HOST_ROOT:-}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --baseline) BASELINE=1 ;;
+    --wsl2) WSL2=1 ;;
+    --wsl2-distro) WSL2_DISTRO="$2"; shift ;;
+    --escrow) ESCROW="$2"; shift ;;
     --gb10) GB10=1; GPU_PROFILE=gb10 ;;
     --gpu) GPU_PROFILE="$2"; [ "$2" = gb10 ] && GB10=1; shift ;;
     --gpu-only) GPU_ONLY=1 ;;
@@ -66,19 +75,47 @@ fi
 TBENV="$(envget TB_ENV | tr '[:lower:]' '[:upper:]')"; TBENV="${TBENV:-PRODUCTION}"
 STRICT=0; case "$TBENV" in VALIDATION|PRODUCTION) STRICT=1 ;; esac
 strict() { if [ "$STRICT" = 1 ]; then fail "$1"; else warn "$1 (FAIL in VALIDATION and PRODUCTION)"; fi; }
+KREL="$(cat "$HR/proc/sys/kernel/osrelease" 2>/dev/null || true)"
+case "$KREL" in *[Mm]icrosoft*WSL2*) WSL2=1 ;; esac  # a WSL2 kernel: the Windows checks are on by themselves
 
 # the host system (D-408: Ubuntu 24.04 LTS, or the DGX Spark's own Ubuntu-based system, until the owner answers)
 OS_ID="$(sed -n 's/^ID=//p' "$HR/etc/os-release" 2>/dev/null | tr -d '"')"
 OS_VER="$(sed -n 's/^VERSION_ID=//p' "$HR/etc/os-release" 2>/dev/null | tr -d '"')"
-if [ "$OS_ID" = ubuntu ] && [ "$OS_VER" = 24.04 ]; then
+if [ "$OS_ID" = ubuntu ] && [ "$OS_VER" = 24.04 ] && [ "$WSL2" = 1 ]; then
+  pass "host system Ubuntu $OS_VER in WSL2 on Windows (D-408, D-421)"
+elif [ "$OS_ID" = ubuntu ] && [ "$OS_VER" = 24.04 ]; then
   pass "host system Ubuntu $OS_VER (D-408)"
 else
   warn "host system '${OS_ID:-?} ${OS_VER:-?}': D-408 names Ubuntu 24.04 LTS (Windows with WSL2: check_host --wsl2, T-210a)"
 fi
 
-# disk encryption where the data is: Docker's data root and the backup staging folder (OPS-015), not any crypt device
+# Windows with WSL2 (T-210a, D-421; CR-041, OPS-061): the facts from Windows, judged by deploy/windows/wsl2_policy.py
+wsl2_checks() {
+  case "$KREL" in
+    *[Mm]icrosoft*WSL2*) pass "WSL2 kernel $KREL" ;;
+    *) fail "--wsl2 on a kernel that is not WSL2 ('${KREL:-unknown}')"; return ;;
+  esac
+  ps="$(command -v powershell.exe || echo /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe)"
+  facts_ps="$(wslpath -w "$ROOT_DIR/deploy/windows/host_facts.ps1" 2>/dev/null || true)"
+  if [ ! -x "$ps" ] || [ -z "$facts_ps" ]; then
+    fail "Windows interop off: no powershell.exe or wslpath ([interop] enabled=true in /etc/wsl.conf)"; return
+  fi
+  lo="$(date +%s)"
+  facts="$("$ps" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$facts_ps" -Distro "$WSL2_DISTRO" \
+    -RecoveryKeyEscrow "$ESCROW" 2>/dev/null | tr -d '\r')"
+  hi="$(date +%s)"
+  sflag=""; [ "$STRICT" = 1 ] && sflag=--strict
+  out="$(printf '%s\nclock_linux_lo=%s\nclock_linux_hi=%s\n' "$facts" "$lo" "$hi" \
+    | python3 "$ROOT_DIR/deploy/windows/wsl2_policy.py" --facts - $sflag 2>&1)"
+  printf '%s\n' "$out" | grep -E '^(PASS|WARN|FAIL) ' || fail "Windows host not judged: $out"
+  FAILS=$((FAILS + $(printf '%s\n' "$out" | grep -c '^FAIL ')))
+}
 DOCKER_ROOT="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
 DOCKER_ROOT="${DOCKER_ROOT:-/var/lib/docker}"
+if [ "$WSL2" = 1 ]; then
+  wsl2_checks
+else
+# disk encryption where the data is: Docker's data root and the backup staging folder (OPS-015), not any crypt device
 crypt_under() {  # the LUKS devices under the file system that holds $1 ("" when it is not on dm-crypt)
   src="$(df --output=source "$HR$1" 2>/dev/null | tail -1)"
   [ -n "$src" ] || return 0
@@ -102,8 +139,10 @@ for dev in $LUKS_DEVS; do
   echo "$out" | grep -E '^(PASS|WARN|FAIL) ' || fail "LUKS unlock of $dev not judged: $out"
   FAILS=$((FAILS + $(echo "$out" | grep -c '^FAIL ')))
 done
+fi  # the LUKS lines; on WSL2 BitLocker's lines above
 if [ -z "$(swapon --noheadings 2>/dev/null)" ]; then pass "swap disabled"; else fail "swap is enabled (swapoff -a; remove from /etc/fstab)"; fi
-if [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; then pass "TPM 2.0 device present"; else strict "no TPM device: the disk unlock and the KEK cannot be bound to this board"; fi
+if [ "$WSL2" = 1 ]; then :  # WSL2 sees no TPM; Windows' TPM is judged with BitLocker's protectors above
+elif [ -e "$HR/dev/tpmrm0" ] || [ -e "$HR/dev/tpm0" ]; then pass "TPM 2.0 device present"; else strict "no TPM device: the disk unlock and the KEK cannot be bound to this board"; fi
 
 # the site keys: wrapped under the KEK (D-347), never plain in VALIDATION or PRODUCTION (T-634)
 if [ -f "$ENV_FILE" ]; then

@@ -16,7 +16,7 @@ import pytest
 from console import recorded_opinions as ro
 from console import studies
 
-from tests.console.test_console_app import box, login  # noqa: F401 - box is a fixture
+from tests.console.test_console_app import box, login, name_pi  # noqa: F401 - box is a fixture
 from tests.console.test_criterion_labels import PW, _gzqo, english_words
 from tests.console.test_excluded_page import _with_excluded
 
@@ -138,6 +138,7 @@ def test_the_demo_pages_show_an_agreement_and_a_disagreement_with_their_source(
     monkeypatch.delenv("TB_LLM_MODE", raising=False)
     monkeypatch.setenv("TB_ENV", "DEV")
     box["users"].create("walker", "investigator", PW, "walker@hospa.test")
+    name_pi(box, "walker")  # D-380 (ROLE-008): the steward names the PI
     c, csrf = login(box["app"], "walker", PW)
     c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/"})
     synthetic, disagree, first, test_model = WORDS[lang]

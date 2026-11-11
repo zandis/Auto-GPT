@@ -15,7 +15,7 @@
 <section class="card" data-testid="dc-conflicts">
 {% if not open_rows %}<p class="empty" data-testid="dc-no-conflict">{{ t('dc.conflicts.none') }}</p>{% else %}
 <div class="scroll" tabindex="0"><table class="candidates">
-<thead><tr><th>{{ t('dc.col.record') }}</th><th>{{ t('dc.col.field') }}</th><th>{{ t('dc.col.trialbox') }}</th><th>{{ t('dc.col.theirs') }}</th><th>{{ t('dc.col.source') }}</th><th>{{ t('dc.col.when') }}</th>{% if editable %}<th></th>{% endif %}</tr></thead>
+<thead><tr><th>{{ t('dc.col.record') }}</th><th>{{ t('dc.col.field') }}</th><th>{{ t('dc.col.trialbox') }}</th><th>{{ t('dc.col.theirs') }}</th><th>{{ t('dc.col.source') }}</th><th>{{ t('dc.col.when') }}</th>{% if editable %}<th><span class="sr">{{ t('col.actions') }}</span></th>{% endif %}</tr></thead>
 <tbody>{% for c in open_rows %}<tr data-testid="conflict-{{ c.id }}">
 <td class="mono">{{ c.record }}{% if c.event %} · {{ c.event }}{% endif %}</td>
 <td><span class="mono">{{ c.field }}</span>{% if labels.get(c.field) %}<br><span class="hint">{{ labels[c.field] }}</span>{% endif %}<br><span class="hint">{{ t('dc.owned_by', o=src(c.owner)) }}</span></td>

@@ -299,9 +299,9 @@ class TermStore:
         _CACHE.clear()
         adir = audit_dir or (Path(os.environ["TB_AUDIT_DIR"]) if os.environ.get("TB_AUDIT_DIR") else None)
         if adir is not None:
-            from tb_common.audit import AuditLog
+            from tb_common.audit_writer import open_audit
 
-            AuditLog(adir, site_tz()).append(
+            open_audit(adir, site_tz()).append(
                 "terminology.load",
                 actor=by,
                 output_sha=sha,

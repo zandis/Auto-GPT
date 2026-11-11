@@ -11,7 +11,7 @@ from typing import Any
 from console import notify
 from datacore import lifecycle as lc
 
-from tests.console.test_console_app import box, login  # noqa: F401 - the fixture is used by name
+from tests.console.test_console_app import box, login, name_pi  # noqa: F401 - the fixture is used by name
 from tests.console.test_lifecycle_pages import PW, _save, lb  # noqa: F401 - the fixture is used by name
 
 
@@ -33,6 +33,7 @@ def test_report_rules_jp_tw_and_the_site_override() -> None:
 
 
 def test_a_fatal_sae_stays_until_the_pi_acknowledges_and_reports_have_a_clock(lb: dict[str, Any]) -> None:  # noqa: F811
+    name_pi(lb, "pi")  # D-380 (ROLE-008): the steward names the study's PI
     no, _other = lb["nos"]
     c, csrf = login(lb["app"], "crc", PW)
     c.post("/studies/GZQO/forms/builtin", data={"csrf": csrf})

@@ -52,13 +52,14 @@ memory:
   criteria-compiler: {limit_gib: 1, measured_peak_gib: null, basis: "one Python service"}
   console:           {limit_gib: 2, measured_peak_gib: null, basis: "one Python service"}
   mail-gateway:      {limit_gib: 1, measured_peak_gib: null, basis: "one Python service"}
+  audit-writer:      {limit_gib: 0.25, measured_peak_gib: null, basis: "the audit journal's drain (D-394), one small loop"}
   llm-stub:          {limit_gib: 1, measured_peak_gib: null, basis: "stub profile only, never beside vLLM"}
 
 # The two-device form (plan TB-PLAN-05 §1.5 form A): the Spark holds the gateway and the models, never the repository;
 # the workstation holds the rest. tools/two_device.py ROUTES names what the link carries (gateway one way, db the other).
 devices:
   spark: [gateway, model-guard, llm-service, llm-verifier, link]
-  workstation: [db, fhir-store, lake, embed-service, doc-parser, criteria-compiler, adapter, orchestrator, mail-gateway, console, link]
+  workstation: [db, fhir-store, lake, embed-service, doc-parser, criteria-compiler, adapter, orchestrator, mail-gateway, console, audit-writer, link]
 
 # The owner's decision gate (TB-PLAN-05 §1.6): Form A only if every row passes on a real Spark. result stays null
 # until the benchmark record answers the row with a number or a yes/no.

@@ -18,6 +18,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from lake.client import LakeHttp
 from pydantic import BaseModel, Field
 from tb_common.audit import AuditLog
+from tb_common.audit_writer import open_audit
 from tb_common.authz import BREAK_GLASS_ROLE
 from tb_common.config import get_config, tb_env
 from tb_common.crypto import load_key
@@ -89,7 +90,7 @@ def orch() -> Orchestrator:
     if _orch is None:
         cfg = get_config()
         data = Path(os.environ.get("TB_ORCH_DIR", str(Path(cfg.env.data_dir) / "orchestrator")))
-        audit = AuditLog(cfg.env.audit_path, cfg.env.tz)
+        audit = open_audit(cfg.env.audit_path, cfg.env.tz)
         services = Services(
             lake=LakeHttp(cfg.env.lake_url),
             parser=ParserHttp(cfg.env.doc_parser_url),
@@ -602,6 +603,23 @@ def edc_of(o: Orchestrator) -> Any:
 
 
 app.include_router(edc_router(lambda: edc_of(orch()), _claim))  # the person from the signed assertion (D-162)
+
+
+class DeceasedRequest(BaseModel):
+    pids: list[str] = Field(default_factory=list, max_length=20000)
+
+
+@app.post("/patients/deceased")
+def patients_deceased(body: DeceasedRequest) -> dict[str, Any]:
+    """FIT-U04 (T-629, D-415): which of the console's listed pseudonyms the lake's current snapshot records as dead.
+    Pseudonyms in, pseudonyms out; no other patient data. A lake that does not answer is a 503, never an empty list."""
+    from orchestrator.scenarios.screen import deceased_now
+
+    pids = [p for p in body.pids if re.fullmatch(r"[A-Za-z0-9_-]{8,64}", p)]
+    try:
+        return {"deceased": deceased_now(orch().services.lake, pids)}
+    except Exception as exc:  # the lake's own error stays in the log; the console stops contacts on a 503
+        raise HTTPException(status_code=503, detail="the lake could not be read") from exc
 
 
 @app.get("/registry")

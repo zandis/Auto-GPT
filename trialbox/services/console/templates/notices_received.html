@@ -5,7 +5,7 @@
 <p class="hint">{{ t('received.help') }}</p>
 {% if rows %}
 <div class="scroll" tabindex="0"><table data-testid="received">
-<thead><tr><th scope="col">{{ t('received.when') }}</th><th scope="col">{{ t('received.kind') }}</th><th scope="col">{{ t('received.subject') }}</th><th scope="col"></th></tr></thead>
+<thead><tr><th scope="col">{{ t('received.when') }}</th><th scope="col">{{ t('received.kind') }}</th><th scope="col">{{ t('received.subject') }}</th><th scope="col"><span class="sr">{{ t('col.actions') }}</span></th></tr></thead>
 <tbody>{% for r in rows %}<tr><td class="nowrap" data-testid="received-at">{{ r.at|local }}</td><td>{{ t('received.kind.' + r.kind) }}</td><td data-src="mail">{{ r.subject }}</td><td><a href="{{ r.href }}">{{ t('received.open') }}</a></td></tr>{% endfor %}</tbody>
 </table></div>
 {% else %}<p data-testid="received-empty">{{ t('received.empty') }}</p>{% endif %}

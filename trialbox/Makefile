@@ -165,7 +165,7 @@ ci: venv-check
 	$(MAKE) goldens-check
 	$(MAKE) data-scan
 	$(MAKE) security-scan
-	git ls-files -z '*.sh' | xargs -0 shellcheck --severity=error
+	git ls-files -z '*.sh' | xargs -0 shellcheck --severity=warning  # OPS-076: warnings gate, as in CI
 	@if command -v hadolint >/dev/null; then hadolint --failure-threshold warning deploy/docker/python.Dockerfile deploy/docker/jvm.Dockerfile demo/Dockerfile || true; else echo "ci: images: hadolint not installed, skipped"; fi
 	$(MAKE) lock-check allowlist-check
 
@@ -279,7 +279,7 @@ TB_LINK_PEER ?= 192.0.2.11
 TWO_DEVICE_ENV := TB_LINK_ADDR=$(TB_LINK_ADDR) TB_LINK_PEER=$(TB_LINK_PEER)
 SPARK_SERVICES := gateway model-guard llm-service llm-verifier link
 WORKSTATION_SERVICES := db fhir-store lake embed-service doc-parser criteria-compiler adapter orchestrator mail-gateway \
-	console link
+	console audit-writer link
 two-device-check: deploy/.env
 	mkdir -p $(TWO_DEVICE_DIR)
 	$(TWO_DEVICE_ENV) $(COMPOSE) -f deploy/docker-compose.secrets.yml -f deploy/docker-compose.gb10.yml \
@@ -367,8 +367,10 @@ spark-e2e:
 verify-models:
 	PYTHONPATH=libs:services:. $(PY) -m tools.pin_model --verify-all deploy/models
 
+# the pair canary in the box with the box's own compose files (COMPOSE_FILE in deploy/.env; OPS-033). On a box
+# without make: `sudo python3 -m tools.trialbox selftest`
 selftest:
-	docker compose --project-directory deploy -f deploy/docker-compose.yml exec orchestrator python -m orchestrator.selftest
+	python3 -m tools.trialbox selftest --deploy deploy
 
 # the same 54-case canary from this checkout against the models in the environment (TB_GATEWAY_URL ...): each model,
 # then the pair as the box decides (both must give the same decided answer); exit 1 when it fails (D-115). The box
