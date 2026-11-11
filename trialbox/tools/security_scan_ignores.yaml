@@ -40,6 +40,7 @@ sast:
     count: 7
     reason: "snapshot table names from the lake's own list, DIM and int() constants, WHERE text made of bound `?` terms"
   - {path: services/omop/load.py, rule: B608, count: 5, reason: "OMOP table and column names from module constants"}
+  - {path: services/omop/vocab_load.py, rule: B608, count: 1, reason: "column list from the module constant _CONCEPT_COLS; no outside input"}
   - path: services/orchestrator/db.py
     rule: B608
     count: 4
