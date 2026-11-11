@@ -552,7 +552,8 @@ def render_certificate(
     per_1000 = 1000 * missed_upper / excluded_total if excluded_total else 0.0
     statement = (
         f"Recall is at least {quoted.recall_lower:.3f} ({quoted.label}; population: {quoted.population})."
-        f" At most {per_1000:.1f} per 1,000 excluded patients may have been eligible (anytime-valid, alpha {alpha})."
+        f" At most {per_1000:.1f} per 1,000 patients with criteria not matched may have met them"
+        f" (anytime-valid, alpha {alpha})."
     )
     if quoted is line_h:
         statement += f" Blinded chart review has r = {line_b.r} so far (quoted from r = {LINE_B_MIN_R})."

@@ -51,7 +51,7 @@ EN: dict[str, str] = {
     "overview.models.fallback": 'The box is set to "both models must agree" but has only one model, so no note answer counts as a criterion not matched on this box. Every patient with a failing note answer is listed for review. Add a second model, or set the policy to "never" on purpose.',
     "overview.models.never.help": "Set on purpose for this box: a failing note answer keeps its quote and the patient "
     "goes to review.",
-    "overview.models.engine": "Structured criteria (age, sex, diagnoses, labs, medicines) are decided by the {engine} "
+    "overview.models.engine": "Structured criteria (age, sex, conditions, labs, medicines) are decided by the {engine} "
     "filters, never by a model.",
     "overview.models.pipeline.cascade": "Screening runs the v4 cascade: filters first (S1), lexicon and ranking on the "
     "notes (S2), the model reads only what is left (S3), a second opinion on strong candidates (S4), a person confirms "
@@ -99,7 +99,7 @@ EN: dict[str, str] = {
     "col.stage": "Stage",
     "col.patients": "Patients after stage",
     "stage.S0": "S0 · In scope (seen recently or booked soon)",
-    "stage.S1": "S1 · Coded filters (age, sex, diagnoses, labs, drugs)",
+    "stage.S1": "S1 · Coded filters (age, sex, conditions, labs, drugs)",
     "stage.S2": "S2 · Codes confirm, notes decide the rest",
     "stage.S2b": "S2b · Second model agrees",
     "stage.S3": "S3 · Model reads the notes",
@@ -308,7 +308,7 @@ EN: dict[str, str] = {
     "case.title": "Check one patient (CASE)",
     "case.help": "Upload the patient's chart (discharge summary, progress notes, lab report). TrialBox checks every "
     "criterion of the chosen study against it and sends the eligibility sheet to the study team's mailbox. With "
-    "the chart number, the structured criteria (age, sex, diagnoses, labs) come from the hospital data already on "
+    "the chart number, the structured criteria (age, sex, conditions, labs) come from the hospital data already on "
     "the box; without it, everything is read from the chart. Same as mailing CASE GZQO mrn=… with the chart attached.",
     "case.notice": "The sheet is a reading aid for the study team. Every criterion keeps the quote it rests on; "
     "'unknown' means the chart did not say, not that the patient is ineligible. The study team decides.",
@@ -422,7 +422,7 @@ JA: dict[str, str] = {
     "overview.mail.help": "リクエストは {intake} へ。返信はあなたのメールボックス（{mailbox}）に届きます。",
     "overview.webmail": "Web メールを開く（TrialBox からの送信メール）",
     "overview.models": "モデルと方針",
-    "overview.models.judge": "記録判定モデル",
+    "overview.models.judge": "記録読み取りモデル",
     "overview.models.verifier": "第二モデル（検証）",
     "overview.models.policy": "カルテ記載だけで患者を「基準に合致しない」にできるか",
     "overview.models.none": "なし",
@@ -431,9 +431,9 @@ JA: dict[str, str] = {
     "overview.models.never": "しない：モデルは確認待ちに回すだけ",
     "overview.models.fallback": "設定は「二つのモデルの一致」ですが、TrialBox にはモデルが一つしかありません。そのためカルテ記載だけで患者を基準に合致しないとすることはなく、記録基準に該当しない患者はすべて確認待ちに載ります。第二モデルを追加するか、方針を「しない」に明示的に設定してください。",
     "overview.models.never.help": "TrialBox では意図して「しない」に設定されています。記録基準に該当しない場合も引用を残し、患者は確認待ちに回ります。",
-    "overview.models.engine": "構造化基準（年齢・性別・診断・検査・薬剤）は {engine} フィルタで決まり、モデルは関与しません。",
+    "overview.models.engine": "構造化基準（年齢・性別・病名・検査・薬剤）は {engine} フィルタで決まり、モデルは関与しません。",
     "overview.models.pipeline.cascade": "スクリーニングは v4 カスケードで実行します：まずフィルタ（S1）、ノートの語彙照合とランキング（S2）、残った分だけモデルが読む（S3）、有力候補には第 2 の意見（S4）、最後に人が確認（S5）。",
-    "overview.models.pipeline.v1": "スクリーニングは v1 評価器で実行します（患者ごとのフィルタの後、候補全員のノートを判定）。",
+    "overview.models.pipeline.v1": "スクリーニングは v1 評価器で実行します（患者ごとのフィルタの後、候補全員のノートをモデルが読み取り）。",
     "overview.models.unavailable": "モデル設定を取得できません：処理エンジンが応答しません。",
     "overview.models.canary": "モデルの自己テスト",
     "overview.models.canary.ok": "{at} に合格、二つのモデルで {cases} 問中 {correct} 問正解",
@@ -475,7 +475,7 @@ JA: dict[str, str] = {
     "col.stage": "段階",
     "col.patients": "段階後の患者数",
     "stage.S0": "S0 · 対象（最近受診または近日予約）",
-    "stage.S1": "S1 · コード化フィルタ（年齢・性別・診断・検査・薬剤）",
+    "stage.S1": "S1 · コード化フィルタ（年齢・性別・病名・検査・薬剤）",
     "stage.S2": "S2 · コードで確定、残りはノートで判断",
     "stage.S2b": "S2b · 第 2 モデルが一致",
     "stage.S3": "S3 · モデルがノートを読む",
@@ -581,7 +581,7 @@ JA: dict[str, str] = {
     "この ID の承認済み選択・除外基準と一致する基準はすぐに実行し、新しい基準は先に読み込んでレビューに回します。",
     "protocol.no_criteria": "貼り付けたテキストに基準が見つかりません。1 行に 1 基準を貼り付けてください。",
     "cascade.title": "v4 カスケード、DL-1 実施可能性パック、リコール証明書",
-    "cascade.help": "合成サイトで v4 MS1 スライスを実行します：データ基盤、カスケード S0–S5（tb-gateway 経由のノート判定）、"
+    "cascade.help": "合成サイトで v4 MS1 スライスを実行します：データ基盤、カスケード S0–S5（tb-gateway 経由のノート読み取り）、"
     "DL-1 パック（スポンサー向け）とリコール証明書。公開可能な (D1) 数値のみ表示します。",
     "cascade.trial": "試験",
     "cascade.start": "カスケードを実行",
@@ -630,7 +630,7 @@ JA: dict[str, str] = {
     "job.approve.edited": "編集内容で承認",
     "job.review.open": "ブラウザでレビューを開く",
     "job.result.line": "{population} · スナップショット {snapshot} · 遡及期間 {months} か月 · 開始時 {start} 名",
-    "job.not_applied": "集計対象外：スクリーニング時に担当者が確認",
+    "job.not_applied": "集計に含めない：スクリーニング時に担当者が確認",
     "job.simulation.line": "{months} か月：{low}–{high} 名（最も可能性が高いのは {mid} 名）",
     "job.answer": "回答：{months} か月で約 {low}–{high} 名（最も可能性が高いのは {mid} 名）。",
     "job.answer.barriers": "最大の障壁：{items}。",
@@ -677,7 +677,7 @@ JA: dict[str, str] = {
     "下のローカルアカウントでログインしてください。",
     "case.title": "1 人の患者さんを確認（CASE）",
     "case.help": "患者さんのカルテ（退院サマリー、経過記録、検査報告）をアップロードしてください。TrialBox が選んだ治験のすべての"
-    "基準を照合し、適格性シートを治験チームのメールボックスへ送ります。患者 ID があれば構造化基準（年齢・性別・診断・検査値）"
+    "基準を照合し、適格性シートを治験チームのメールボックスへ送ります。患者 ID があれば構造化基準（年齢・性別・病名・検査値）"
     "は TrialBox 内の病院データから、なければすべてカルテから読みます。CASE GZQO mrn=… にカルテを添付してメールするのと同じです。",
     "case.notice": "シートは治験チームの読解補助です。各基準は根拠となる引用を伴い、「不明」はカルテに記載がないことを意味し、"
     "不適格ではありません。判断は治験チームが行います。",
@@ -795,7 +795,7 @@ ZH: dict[str, str] = {
     "overview.models.never": "永不：模型只能把病人送交人工確認",
     "overview.models.fallback": "TrialBox 設定為「兩個模型須一致」，但只有一個模型，因此病歷判讀不會將任何人列為未符合條件；病歷條件不符的病人一律列入人工確認。請加入第二模型，或明確把原則設為「永不」。",
     "overview.models.never.help": "TrialBox 刻意設為「永不」：病歷條件不符時保留引文，病人送交人工確認。",
-    "overview.models.engine": "結構化條件（年齡、性別、診斷、檢驗、用藥）由 {engine} 篩選器決定，模型不參與。",
+    "overview.models.engine": "結構化條件（年齡、性別、疾病、檢驗、用藥）由 {engine} 篩選器決定，模型不參與。",
     "overview.models.pipeline.cascade": "篩選以 v4 串級執行：先篩選器（S1）、病歷詞彙比對與排序（S2）、模型只讀剩下的部分（S3）、有力候選由第二模型複核（S4）、最後由人確認（S5）。",
     "overview.models.pipeline.v1": "篩選以 v1 評估器執行（逐病人篩選後，模型判讀每位候選的病歷）。",
     "overview.models.unavailable": "無法取得模型設定：協調服務沒有回應。",
@@ -839,7 +839,7 @@ ZH: dict[str, str] = {
     "col.stage": "階段",
     "col.patients": "階段後病人數",
     "stage.S0": "S0 · 範圍內（近期就診或即將回診）",
-    "stage.S1": "S1 · 編碼篩選（年齡、性別、診斷、檢驗、用藥）",
+    "stage.S1": "S1 · 編碼篩選（年齡、性別、疾病、檢驗、用藥）",
     "stage.S2": "S2 · 編碼可確認者先定，其餘交病歷判讀",
     "stage.S2b": "S2b · 第二個模型同意",
     "stage.S3": "S3 · 模型判讀病歷",
@@ -872,7 +872,7 @@ ZH: dict[str, str] = {
     "job.screen.judging.single": "病歷僅由 {judge} 閱讀：本次執行中病歷判讀未將任何人列為未符合條件，相關病人列入待確認。",
     "job.screen.unknowns": "各條件的待確認事項",
     "job.screen.none": "本次執行沒有病人進入名單。",
-    "job.screen.rows.help": "可能符合條件者在前，再依下次就診日排序。待確認事項是 TrialBox 無法判定的條件，引文是模型讀到的句子。同一份名單已以加密郵件寄出。",
+    "job.screen.rows.help": "可能符合條件者在前，再依下次就診日排序。待確認事項是 TrialBox 無法確認的條件，引文是模型讀到的句子。同一份名單已以加密郵件寄出。",
     "job.screen.changed": "有變動",
     "job.screen.failing": "病歷判為不符",
     "job.screen.reveal": "顯示病歷號",
@@ -1002,7 +1002,7 @@ ZH: dict[str, str] = {
     "class.phi": "病人層級",
     "request.lookback.range": "回溯期間請輸入 1 到 120 的整數（月）。",
     "protocol.empty": "計畫書檔案是空的，請重新選擇檔案。",
-    "job.review.split": "{n} 項條件的檢查方式：{s} 項以結構化資料（年齡、性別、代碼、檢驗、藥物）固定篩選 · {m} 項由模型閱讀報告與病歷 · {x} 項先篩選，代碼無法判定時再由模型閱讀病歷 · {h} 項於篩選時由人員確認。",
+    "job.review.split": "{n} 項條件的檢查方式：{s} 項以結構化資料（年齡、性別、代碼、檢驗、藥物）固定篩選 · {m} 項由模型閱讀報告與病歷 · {x} 項先篩選，代碼無法確認時再由模型閱讀病歷 · {h} 項於篩選時由人員確認。",
     "job.review.split.warn": "請注意：{n} 項條件中有 {h} 項交由人員判斷，TrialBox 對此試驗的篩選幫助有限。核准前請先閱讀「類別」欄。",
     "job.review.routing": "此分流由模型提出；在公開試驗資料上，它與專家標註約每 10 次有 6 次一致，因此您的核准即是對每項類別（篩選／模型／人員）的確認。",
     "nav.consent": "同意說明輔助",
@@ -1034,7 +1034,7 @@ ZH: dict[str, str] = {
     "login.sso": "本主控台以醫院帳號登入。若您看到此頁，請從醫院入口網址開啟，或以下方的 TrialBox 帳號登入。",
     "case.title": "檢核一位病人（CASE）",
     "case.help": "上傳病人的病歷（出院病摘、病程紀錄、檢驗報告）。TrialBox 會逐條檢核所選研究的每一項條件，並將適格性檢核表寄到"
-    "研究團隊信箱。有病歷號時，結構化條件（年齡、性別、診斷、檢驗值）取自 TrialBox 內的醫院資料；沒有時全部從病歷讀取。"
+    "研究團隊信箱。有病歷號時，結構化條件（年齡、性別、疾病、檢驗值）取自 TrialBox 內的醫院資料；沒有時全部從病歷讀取。"
     "等同於寄出 CASE GZQO mrn=… 並附上病歷。",
     "case.notice": "檢核表是研究團隊的閱讀輔助。每一條件都附上依據的引句；「不明」代表病歷未提及，不代表不符合條件。由研究團隊判斷。",
     "case.ruleset": "研究",
@@ -1147,6 +1147,15 @@ from console.i18n_amend import ZH as _AM_ZH  # noqa: E402
 EN.update(_AM_EN)
 JA.update(_AM_JA)
 ZH.update(_AM_ZH)
+
+# D-386 (T-622): the study's state and its identifiers
+from console.i18n_state import EN as _SS_EN  # noqa: E402
+from console.i18n_state import JA as _SS_JA  # noqa: E402
+from console.i18n_state import ZH as _SS_ZH  # noqa: E402
+
+EN.update(_SS_EN)
+JA.update(_SS_JA)
+ZH.update(_SS_ZH)
 
 # T-506 (TB-IU-01 §1, REG-020): the intended-use statement in the footer comes from its one source in tb_common
 from tb_common.wording import STATEMENT as _STATEMENT  # noqa: E402
