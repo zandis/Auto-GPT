@@ -1,0 +1,13 @@
+{# D-399 (T-302a, FIT-009, LIFE-018, LIFE-019, UX-012): on the participant page, the consent record. What is out of
+   order is an alert with a deviation entry: an enrolment or a visit dated before the first consent, or a participant
+   past consent with no consent form. Every consent so far (the first and each re-consent), and the one action that
+   records consent: it opens the consent form (a re-consent opens it on the next rcN event). Needs sub, one, record,
+   rs, editable. #}
+{% set cr = sub.consent if sub and sub.consent else none %}
+{% if cr %}
+{% for f in cr.flags %}<p class="warn" role="alert" data-testid="consent-flag-{{ f.flag }}">{{ t('consent.flag.' + f.flag, day=f.day, consent=f.consent_day, event=f.event) }}{% if editable and one.next_dv %} <a href="/studies/{{ rs }}/entry?record={{ record|urlencode }}&amp;form=tb_deviation&amp;event={{ one.next_dv }}&amp;back=subject" data-testid="consent-flag-dv">{{ t('consent.flag.deviation') }}</a>{% endif %}</p>{% endfor %}
+<div data-testid="consent-record">
+{% if cr.consents %}<p class="hint">{{ t('consent.record.title') }}: {% for c in cr.consents %}<span class="nowrap" data-testid="consent-{{ c.event or c.kind }}">{{ t('consent.record.' + c.kind, day=c.day, v=c.version or '–') }}</span>{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+{% if editable and cr.here %}{% if cr.consents %}<p><a href="/studies/{{ rs }}/entry?record={{ record|urlencode }}&amp;form=tb_consent&amp;event={{ cr.next_rc }}&amp;back=subject" data-testid="consent-reconsent-do">{{ t('consent.reconsent.do') }}</a></p>{% elif not sub.consent_missing and 'consented' not in sub.next %}<p><a href="/studies/{{ rs }}/entry?record={{ record|urlencode }}&amp;form=tb_consent&amp;back=subject" data-testid="consent-record-do">{{ t('consent.record.do') }}</a></p>{% endif %}{% endif %}
+</div>
+{% endif %}

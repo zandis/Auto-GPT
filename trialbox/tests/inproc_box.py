@@ -143,6 +143,7 @@ def make_box(
             "MAIL_FROM_ADDR": f"trialbox@{domain}",
             "MAIL_INTAKE_ADDR": f"trialbox@{domain}",
             "TB_SECRETS_DIR": str(secrets_dir),
+            "TB_CONSOLE_URL": f"https://trialbox.{domain}",  # link mode (D-369) points here
         },
     )
     settings = load_settings(ROOT / "deploy/settings.example.yaml")
@@ -191,6 +192,8 @@ def make_box(
         transport,
         jobs=lambda req: holder["o"].create(req),  # noqa: PLW0108 - orchestrator is created below
         secrets_dir=tmp_path,
+        authserv_id=f"mx.{domain}",  # the hospital MTA of the test mails (AUTH); D-369: no authserv-id trusts nothing
+        allow_phi_zip=True,  # a synthetic box: the tests open the zip (unzip_phi); a real box refuses it (D-369)
     )
     services = Services(
         lake=LakeLocal(lake_dir, HashEmbedder()), parser=InprocParser(store), compiler=comp, mail=gw, llm=llm

@@ -55,6 +55,20 @@ when, the job id if there is one, and the output of `python3 -m tools.trialbox o
 (both hold no patient data). **Never** a patient list, a chart number, a screenshot of a patient page, the pid map or
 a key. Before a file is attached, the administrator may run `python -m tools.data_scan <file>` on it (§3).
 
+**The support bundle (T-209b, D-405).** When support asks for more than that, the administrator runs, on the box:
+
+    sudo python3 -m tools.trialbox support-bundle --out /media/usb
+
+and attaches the one file it writes (`trialbox-support-<time>.tar.gz`). It holds the operations snapshot, the
+box's health, the release and update history, `deploy/.env` with secret values redacted, the audit chain's check
+(not the chain), `doctor`, `check_host.sh`, `docker compose config` (redacted), restart counts, `df` and
+`nvidia-smi`, and the last three collected log days of TrialBox's own services (`--days N` for more). It never holds
+`/data`, a volume, a secret, a key, a backup, the audit chain, `settings.yaml` or the PostgreSQL, HAPI and vLLM
+logs. The logs are scrubbed, every line the data-handling scan flags is removed, and the run prints what it removed;
+the finished file is scanned again, and if anything is still flagged no file is written. `MANIFEST.json` inside
+lists every file and what was left out. A file support asks for by name goes in with `--add <file>` (text only; a
+path under `/data`, the secrets folder or a backup target is refused).
+
 ## The supervised remote session
 
 *Default until the owner answers (TB-DR-09 Q2).* Aimedics has **no standing remote access**: no account, no VPN, no

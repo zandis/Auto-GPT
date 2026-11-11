@@ -681,7 +681,7 @@ def _tw_edc(s: Site) -> None:
     rev = s.get(user, f"/studies/{rs}/edc/review/{no}")
     t = text(rev.text)
     assert "Check each value against its source" in t and "hospital record" in t
-    assert "comments Comments unknown · not drafted" in t  # no source, no draft: entered by hand
+    assert "Comments comments unknown · not drafted" in t  # no source, no draft: entered by hand (D-398: label first)
     for k in drafted:
         s.post(user, f"/studies/{rs}/edc/decide/{d[k]['id']}", {"action": "confirm", "record": no}, rev.text)
     shown = s.get(user, f"/studies/{rs}/edc/review/{no}").text

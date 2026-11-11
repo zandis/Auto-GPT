@@ -403,10 +403,12 @@ if [ "${TB_SYSTEMD:-1}" != 0 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system
       chmod 644 "$SYSTEMD_DIR/$(basename "$unit")"
     done
     systemctl daemon-reload
+    # trialbox-weights.timer (T-677, D-393): the weights against their pins before the night's runs
     systemctl enable trialbox-egress.service trialbox.service trialbox-egress-refresh.timer trialbox-watchdog.timer \
-      >/dev/null 2>&1 || die "the systemd units could not be enabled (systemctl status trialbox-egress trialbox)"
-    systemctl start trialbox-egress.service trialbox-egress-refresh.timer trialbox-watchdog.timer >/dev/null 2>&1 || true
-    echo "    enabled: trialbox-egress, trialbox, trialbox-egress-refresh.timer, trialbox-watchdog.timer"
+      trialbox-weights.timer >/dev/null 2>&1 || die "the systemd units could not be enabled (systemctl status trialbox-egress trialbox)"
+    systemctl start trialbox-egress.service trialbox-egress-refresh.timer trialbox-watchdog.timer trialbox-weights.timer \
+      >/dev/null 2>&1 || true
+    echo "    enabled: trialbox-egress, trialbox, trialbox-egress-refresh.timer, trialbox-watchdog.timer, trialbox-weights.timer"
     echo "    (trialbox-ops.timer is installed, not enabled: RUNBOOK §15)"
   else
     echo "install: warning: systemd units not enabled: the egress rules were not applied (no state file for a boot)" >&2
@@ -417,6 +419,10 @@ if [ "$(id -u)" = 0 ] && [ -d /etc/cron.d ] && command -v python3 >/dev/null; th
   printf '%s\n' "SHELL=/bin/sh" "20 0 * * * root cd $ROOT && python3 -m tools.trialbox logs daily >> /var/log/trialbox-retention.log 2>&1" \
     > /etc/cron.d/trialbox-retention && chmod 644 /etc/cron.d/trialbox-retention
   echo "    log retention: /etc/cron.d/trialbox-retention (00:20 daily)"
+fi
+if [ "$(id -u)" = 0 ] && [ -d /etc/logrotate.d ]; then
+  # D-389 (OPS-037): /var/log/trialbox-*.log (the retention and backup cron logs) rotate weekly, 53 kept
+  install -m 644 deploy/logrotate/trialbox /etc/logrotate.d/trialbox && echo "    host logs: /etc/logrotate.d/trialbox"
 fi
 # D-138: the site's one-page network, port and secret sheet, from the compose files this box runs
 SHEET_MOUNT=(); SHEET_FILES="$(echo "$FILES" | sed "s#$ROOT/deploy/#deploy/#g")"
