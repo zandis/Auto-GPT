@@ -1238,3 +1238,12 @@ from console.i18n_help import ZH as _HELP_ZH  # noqa: E402
 EN.update(_HELP_EN)
 JA.update(_HELP_JA)
 ZH.update(_HELP_ZH)
+
+# T-685 (D-402): the clinical UX polish (coordinator help, access keys, hidden headers, date format, short pseudonym)
+from console.i18n_polish import EN as _POL_EN  # noqa: E402
+from console.i18n_polish import JA as _POL_JA  # noqa: E402
+from console.i18n_polish import ZH as _POL_ZH  # noqa: E402
+
+EN.update(_POL_EN)
+JA.update(_POL_JA)
+ZH.update(_POL_ZH)

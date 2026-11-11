@@ -750,8 +750,27 @@ def register(app: FastAPI, h: Helpers) -> None:
                           else "scope", "kind": "", "source": "rule", "quote": None, "date": None, "reason": None,
                           "records": 0, "coded": None, "test_model": False}
                          for a in r.get("actions") or ["scope"]]  # fmt: skip
-            out.append({"pid": str(r["pid"]), "short": str(r["pid"])[:8], "items": items})
+            out.append({"pid": str(r["pid"]), "short": str(r["pid"])[:8], "items": dedupe_items(items)})
         return out
+
+    def has_evidence(i: dict[str, Any]) -> bool:
+        return bool(i["quote"] or (i["coded"] or {}).get("lines"))
+
+    def dedupe_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """T-685 (UX-031): one line per patient, criterion and source. A run's own rule (scope, research-contact
+        consent) came once per action, so one reason stood five to seven times; a criterion listed twice from the
+        same source keeps its first line that has evidence, with the record counts added."""
+        seen: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for i in items:
+            key = (i["source"], i["id"], i["label"])
+            first = seen.get(key)
+            if first is None:
+                seen[key] = dict(i)
+            elif not has_evidence(first) and has_evidence(i):
+                seen[key] = {**i, "records": first["records"] + i["records"]}
+            else:
+                first["records"] += i["records"]
+        return list(seen.values())
 
     def need_excluded(sess: Session, rs: str, path: str) -> str:
         rid = study_or_404(sess, rs)
