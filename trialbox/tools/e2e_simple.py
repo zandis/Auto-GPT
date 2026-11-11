@@ -1465,7 +1465,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     run_days = {
         k: re.findall(r"\d{4}-\d{2}-\d{2}", m.group(1))[:1]
         for k, path, tid in (("week", f"/studies/{TRIAL}/week?list=all", "week-run"),
-                             ("not matched", f"/studies/{TRIAL}/excluded", "ex-run"))
+                             ("not matched", f"/studies/{TRIAL}/not-matched", "ex-run"))
         if (m := re.search(rf'data-testid="{tid}">(.*?)</p>', pi.get(path).text, re.S))
     }  # fmt: skip
     s.check("the week page and the not-matched page show the same run date, not after today",

@@ -82,6 +82,31 @@ def test_the_excluded_list_with_criterion_source_and_evidence(box: dict[str, Any
     assert cra.get("/studies/GZQO/excluded").status_code in (403, 404)
 
 
+def test_the_old_path_answers_301_to_criteria_not_matched(box: dict[str, Any]) -> None:  # noqa: F811
+    """T-116 (D-351): the page lives at /not-matched; /excluded answers 301 with the query kept, for one release, and
+    a review form posted to the old path still lands; the page's own links and form use the new path."""
+    _with_excluded(box)
+    for name, role in (("pi", "investigator"), ("crc", "coordinator")):
+        box["users"].create(name, role, PW, f"{name}@hospa.test")
+    name_pi(box, "pi")  # D-380 (ROLE-008): the steward names the PI
+    pi, _ = login(box["app"], "pi", PW)
+    r = pi.get("/studies/GZQO/excluded?src=fact&page=1", follow_redirects=False)
+    assert r.status_code == 301 and r.headers["location"] == "/studies/GZQO/not-matched?src=fact&page=1"
+    assert pi.get("/studies/GZQO/excluded", follow_redirects=False).headers["location"] == "/studies/GZQO/not-matched"
+    crc, ccsrf = login(box["app"], "crc", PW)
+    page = crc.get("/studies/GZQO/not-matched")
+    assert page.status_code == 200 and 'data-testid="excluded"' in page.text
+    assert "/studies/GZQO/excluded" not in page.text  # filters and the review form point at the new path
+    assert f'action="/studies/GZQO/not-matched/{"d" * 32}/review"' in page.text
+    for pid, old in (("d" * 32, True), ("c" * 32, False)):
+        path = f"/studies/GZQO/{'excluded' if old else 'not-matched'}/{pid}/review"
+        r = crc.post(path, data={"csrf": ccsrf, "crit": "GZQO-EXC-01", "note": "x"}, follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"].startswith("/studies/GZQO/not-matched?done=sent")
+    # the redirect gives nothing away: a viewer who follows it still gets 403
+    viewer, _ = login(box["app"], "viewer", VIEWER_PW)
+    assert viewer.get("/studies/GZQO/excluded").status_code == 403
+
+
 def test_no_excluded_list_says_so(box: dict[str, Any]) -> None:  # noqa: F811
     _done_screen(box["backend"], _ulid(962))
     box["users"].create("crc", "coordinator", PW)  # D-280 (OD-5): the administrator reads no patient list

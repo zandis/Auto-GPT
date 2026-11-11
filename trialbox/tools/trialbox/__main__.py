@@ -33,7 +33,7 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--env-file", type=Path, default=None)
     d.add_argument("--settings", type=Path, default=None)
     d.add_argument("--routing", type=Path, default=None)
-    d.add_argument("--dataplat-workdir", type=Path, default=None)
+    d.add_argument("--lake-dir", type=Path, default=None, help="the adapter's lake (default TB_LAKE_DIR)")
     d.add_argument("--json", action="store_true")
     d.add_argument("--live", action="store_true", help="also ask the model servers (served names, key; D-177)")
     d.add_argument("--serving", action="store_true", help="only the live model-server check (install.sh)")
@@ -43,7 +43,13 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--release", type=Path, default=None, help="--platform: release.json (default: the provisional one)")
     d.add_argument("--manifests", type=Path, default=None, help="--platform: rendered manifests instead of the cluster")
     d.add_argument(
-        "--compose-config", type=Path, default=None, help="--platform: `docker compose config --format json`"
+        "--compose-config",
+        type=Path,
+        default=None,
+        help="--platform, --two-device: `docker compose config --format json` (--two-device: its services)",
+    )
+    d.add_argument(
+        "--two-device", action="store_true", help="also check this device of the GB10 two-device form (T-214, D-373)"
     )
     pi = sub.add_parser("platform-images", help="the release-images component from release.json (D-211)")
     pi.add_argument("--release", type=Path, default=None)
@@ -176,9 +182,14 @@ def main(argv: list[str] | None = None) -> int:
         from tools.trialbox import doctor
 
         which = doctor.LIVE if a.serving else (doctor.CHECKS + doctor.LIVE if a.live else doctor.CHECKS)
-        inp = doctor.inputs_from(
-            env_file=a.env_file, settings=a.settings, routing=a.routing, dataplat=a.dataplat_workdir
-        )
+        inp = doctor.inputs_from(env_file=a.env_file, settings=a.settings, routing=a.routing, lake=a.lake_dir)
+        if a.two_device:
+            from tools import two_device as td
+
+            which = which + doctor.TWO_DEVICE
+            inp.compose_config = td.compose_config_for(
+                inp.env.get("TB_LINK_ROLE", ""), a.compose_config, inp.deploy or td.ROOT / "deploy"
+            )
         if not a.platform:
             checks = doctor.run(inp, which)
         else:
@@ -222,7 +233,7 @@ def _platform_cmd(a: argparse.Namespace) -> int:
 
         from tools.trialbox.doctor import _egress, inputs_from
 
-        env = pf.platform_env(inputs_from(env_file=a.env_file, settings=None, routing=None, dataplat=None).env)
+        env = pf.platform_env(inputs_from(env_file=a.env_file, settings=None, routing=None, lake=None).env)
         eg = _egress()
         pols, warnings = eg.render_networkpolicy(eg.allowlist(env, eg.ROUTING))
         doctor_pol, doctor_warnings = pf.render_doctor_policy(env)  # the install-check job's own egress (D-211)

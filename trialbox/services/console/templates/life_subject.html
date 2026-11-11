@@ -17,6 +17,8 @@
 {% if sub %}
 <section class="card" data-testid="life-now">
 <p class="big">{{ state_pill(sub.state) }} <span class="hint">{{ t('life.subject.now', state=t('life.state.' + sub.state), day=sub.since) }}</span></p>
+{# T-516 (LIFE-019): consent is never implied by a later form; the participant waits here until the consent form is saved #}
+{% if sub.consent_missing %}<p class="warn" role="alert" data-testid="consent-missing">{{ t('life.alert.consent_missing', form=src(sub.consent_missing)) }}{% if editable %} <a href="/studies/{{ rs }}/entry?record={{ record|urlencode }}&amp;form=tb_consent&amp;back=subject" data-testid="consent-missing-do">{{ t('life.alert.consent_missing.do') }}</a>{% endif %}</p>{% endif %}
 {% if sub.next %}
   {% if editable %}
   <h2>{{ t('life.subject.next') }}</h2>

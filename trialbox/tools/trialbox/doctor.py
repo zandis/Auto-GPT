@@ -50,6 +50,14 @@ closed). Checks:
   VALIDATION and PRODUCTION also FAIL when the kernel clock is not NTP-synchronised, when the time server does not
   answer, or when neither can be read. WARN for those in DEV and TEST.
 
+``--two-device`` adds one check, for a device of the GB10 two-device form (T-214, D-373; ``deploy/two-device/``):
+
+* ``two_device``: ``TB_LINK_ROLE`` (spark or workstation) names this device; its rendered compose (``--compose-config``,
+  else ``docker compose config --format json`` of the device's services in the deploy folder) runs only what the GB10
+  profile (``deploy/gb10-profile.yaml``) puts on it, the link is the only port the Spark publishes and only on the
+  link address (a gateway or any listener on 0.0.0.0 there is a FAIL), the link has its certificates, its peer and
+  its route alias, and the Spark's memory limits are the profile's. WARN when the driver hold's re-test is past due.
+
 ``--live`` adds one check that talks to the model servers, so it runs where the gateway's network is (install.sh
 runs it in a one-off container on ``trialbox-model-net``; ``--serving`` runs it alone):
 
@@ -95,11 +103,12 @@ class DoctorInputs:
     settings: Mapping[str, Any] = field(default_factory=dict)
     routing_path: Path = ROOT / "models" / "routing.yaml"
     datasets_path: Path = ROOT / "eval" / "DATASETS.yaml"
-    dataplat_workdir: Path | None = None
+    ingest_lake: Path | None = None  # T-659b: the adapter's lake folder (its CURRENT and gates/), when given
     host_tz: str | None = None  # the host's zone; None: TB_HOST_TZ, else read from /etc (check site_tz)
     platform: bool = False  # doctor --platform: pods on a cluster, no host cron, so no host zone to compare
     deploy: Path | None = None  # the deploy folder (from --env-file): the backup record and the cron file (D-274)
     cron_dir: Path = Path("/etc/cron.d")
+    compose_config: Mapping[str, Any] | None = None  # doctor --two-device: the device's rendered compose (D-373)
 
 
 def _egress() -> ModuleType:
@@ -230,22 +239,24 @@ def check_secure_cookie(inp: DoctorInputs) -> Check:
 
 
 def check_publish_gate(inp: DoctorInputs) -> Check:
-    wd = inp.dataplat_workdir
-    if wd is None:
-        return Check("publish_gate", "WARN", "no data-platform workdir configured (TB_DATAPLAT_DIR)")
-    pointer = wd / "l5" / "CURRENT.json"
-    gates = sorted((wd / "gates").glob("*.json")) if (wd / "gates").is_dir() else []
+    """T-659b (D-370): the adapter's lake: its ``CURRENT`` and the newest of its one-per-night gate records
+    (``gates/<night>.json``)."""
+    lake = inp.ingest_lake
+    if lake is None:
+        return Check("publish_gate", "WARN", "no ingest lake given (--lake-dir or TB_LAKE_DIR)")
+    pointer = lake / "CURRENT"
+    gates = sorted((lake / "gates").glob("*.json")) if (lake / "gates").is_dir() else []
     last = json.loads(gates[-1].read_text(encoding="utf-8")) if gates else None
-    if not pointer.exists():
+    cur = pointer.read_text(encoding="utf-8").strip() if pointer.exists() else ""
+    if not cur:
         outcome = last.get("outcome") if last else "none"
-        return Check("publish_gate", "FAIL", f"no current snapshot pinned (last gate outcome: {outcome})")
-    cur = json.loads(pointer.read_text(encoding="utf-8"))
+        return Check("publish_gate", "FAIL", f"no current snapshot (last gate outcome: {outcome})")
     if last is None:
-        return Check("publish_gate", "WARN", f"snapshot {cur.get('snapshot_id')} pinned but no gate record found")
+        return Check("publish_gate", "WARN", f"snapshot {cur} current but no gate record found")
     if last.get("outcome") == "HOLD":
         reasons = ", ".join(last.get("blocking_reasons") or [])
-        return Check("publish_gate", "WARN", f"last cycle held ({reasons}); serving stays on {cur.get('snapshot_id')}")
-    return Check("publish_gate", "PASS", f"snapshot {cur.get('snapshot_id')} current; last gate {last.get('outcome')}")
+        return Check("publish_gate", "WARN", f"last night held ({reasons}); the box stays on {cur}")
+    return Check("publish_gate", "PASS", f"snapshot {cur} current; last gate {last.get('outcome')}")
 
 
 def _override(inp: DoctorInputs) -> Path:
@@ -793,6 +804,30 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
 LIVE: tuple[Callable[[DoctorInputs], Check], ...] = (check_serving,)
 
 
+def check_two_device(inp: DoctorInputs) -> Check:
+    """The GB10 two-device form on this device (T-214, D-373): what runs here, what listens where, the link."""
+    from tools import two_device as td
+
+    role = inp.env.get("TB_LINK_ROLE", "").strip()
+    if role not in td.ROLES:
+        return Check("two_device", "FAIL", f"TB_LINK_ROLE must be {' or '.join(td.ROLES)} (deploy/.env), not {role!r}")
+    profile = td.load_profile()
+    bad = [f"profile: {p}" for p in td.profile_problems(profile)]
+    if inp.compose_config is None:
+        bad.append("no rendered compose (give --compose-config, or run doctor where docker compose works)")
+    else:
+        bad += td.compose_problems(role, inp.compose_config, profile)
+    if bad:
+        return Check("two_device", "FAIL", "; ".join(bad))
+    late = td.driver_hold_overdue(profile) if role == "spark" else None
+    if late:
+        return Check("two_device", "WARN", late)
+    return Check("two_device", "PASS", f"{role}: {', '.join(profile['devices'][role])}; the link only on its address")
+
+
+TWO_DEVICE: tuple[Callable[[DoctorInputs], Check], ...] = (check_two_device,)
+
+
 def run(inp: DoctorInputs, checks: tuple[Callable[[DoctorInputs], Check], ...] = CHECKS) -> list[Check]:
     out: list[Check] = []
     for fn in checks:
@@ -809,7 +844,7 @@ def ok(checks: list[Check]) -> bool:
 
 
 def inputs_from(
-    *, env_file: Path | None, settings: Path | None, routing: Path | None, dataplat: Path | None
+    *, env_file: Path | None, settings: Path | None, routing: Path | None, lake: Path | None
 ) -> DoctorInputs:
     env: dict[str, str] = {}
     if env_file is not None and env_file.exists():
@@ -827,13 +862,13 @@ def inputs_from(
     doc: dict[str, Any] = {}
     if settings is not None:
         doc = yaml.safe_load(settings.read_text(encoding="utf-8")) or {}
-    wd = dataplat or (Path(env["TB_DATAPLAT_DIR"]) if env.get("TB_DATAPLAT_DIR") else None)
+    wd = lake or (Path(env["TB_LAKE_DIR"]) if env.get("TB_LAKE_DIR") else None)
     deploy = env_file.resolve().parent if env_file is not None and env_file.exists() else None
     return DoctorInputs(
         env=env,
         settings=doc,
         routing_path=routing or ROOT / "models" / "routing.yaml",
-        dataplat_workdir=wd,
+        ingest_lake=wd,
         deploy=deploy,
     )
 

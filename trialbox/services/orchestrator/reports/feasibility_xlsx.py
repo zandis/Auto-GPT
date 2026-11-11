@@ -39,6 +39,7 @@ def render(result: FeasibilityResult, rs: Ruleset, meta: ReportMeta) -> bytes:
         ws.freeze_panes = "A2"
         ws.append([])
         ws.append([meta.footer])
+        ws.append([meta.statement])  # TB-IU-01 C1 (T-116)
 
     funnel_rows: list[list[object]] = [["START", result.population, result.start_n, None, 100.0, None, True]]
     for f in result.funnel:

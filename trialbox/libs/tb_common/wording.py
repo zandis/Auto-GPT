@@ -12,8 +12,15 @@ One place for three things:
   negations) and the protocol's name for a kind of criterion (除外基準, 排除條件), the heading a site's protocol
   uses (field research, ``docs/reviews/2026-11-08-field-research-tw-jp-sites.md``). They are masked before the check.
 
-``LATER`` holds the rest of the TB-IU-01 §2 list (診断, 判定, "diagnosis" and others). Card T-116 makes the walk
-check them on every page in every role; until then :func:`check` takes them only when asked.
+Card T-116 (the rest after T-506) makes the whole TB-IU-01 §2 list one list: the walk checks every page in every role
+and language against it, a catalogue test checks every console and orchestrator string, and the report writers and the
+mail gateway print :func:`statement` on every PDF, XLSX, HTML sheet and mail (decision D-351). A record's own field is
+not a verdict, so the product names it with a word that is not on the list ("condition", 病名, 疾病) rather than
+widening ``ALLOWED``. Protocol and chart text that the product quotes (a criterion's own words, a note passage) is the
+source's wording, not the product's; it is shown as written.
+
+``EXEMPT_PATHS`` names the files that may name the hazard plainly (TB-IU-01 §2: "only the risk file names the hazard
+plainly"); :func:`check_file` skips them by design.
 """
 
 from __future__ import annotations
@@ -66,19 +73,31 @@ FORBIDDEN: tuple[str, ...] = (
     "likely eligible",
     "eligible patient",
     "適格の可能性が高い",
-)
-
-# The rest of TB-IU-01 §2, for card T-116 (every page, every role, reports and mail).
-LATER: tuple[str, ...] = (
+    # the rest of TB-IU-01 §2 (T-116): every page, every role, every catalogue, reports and mail
     "診断",
     "判定",
     "対象外",
     "見逃し",
     "診斷",
     "diagnosis",
+    "diagnoses",
     "abnormal",
     "risk score",
     "AI decides",
+    "AIが判定",
+    "建議治療",
+)
+# Not on the list: 不符合 (zh-TW "not met") names a criterion's answer against a record, the counterpart of "not met"
+# and 非該当; the patient-level name is 未符合條件 ("criteria not matched"). D-351 records why.
+
+# Kept for callers written before T-116: the words that were checked only on request are now in FORBIDDEN.
+LATER: tuple[str, ...] = ()
+
+# Files that may name the hazard plainly (TB-IU-01 §2). Paths relative to the trialbox folder; a folder ends in "/".
+EXEMPT_PATHS: tuple[str, ...] = (
+    "docs/plan/",  # the risk file and the plans name the hazard ("wrong exclusion") and quote the old words
+    "docs/reviews/",  # reviews quote the words they found
+    "docs/decisions/",  # decisions quote the words they changed
 )
 
 # Exact phrases that contain a forbidden word and give no verdict. Longest first, so a longer phrase is masked whole.
@@ -133,3 +152,44 @@ def check(text: str, words: Iterable[str] = FORBIDDEN, allowed: Iterable[str] = 
 def check_page(page: str, words: Iterable[str] = FORBIDDEN) -> list[Hit]:
     """:func:`check` on what a reader sees of an HTML page."""
     return check(visible_text(page), words)
+
+
+def lang_of(raw: str | None) -> str:
+    """``ja``, ``ja-JP``, ``zh``, ``zh-Hant-TW`` ... -> one of :data:`LANGS`; anything else is ``en``."""
+    low = (raw or "").strip().lower()
+    if low.startswith("ja"):
+        return "ja"
+    if low.startswith("zh"):
+        return "zh-TW"
+    return "en"
+
+
+def statement(lang: str | None) -> str:
+    """The intended-use statement in ``lang`` (TB-IU-01 §1), for the footer of a report, a sheet or a mail."""
+    return STATEMENT[lang_of(lang)]
+
+
+_KANA = re.compile(r"[぀-ヿ]")
+_HAN = re.compile(r"[一-鿿]")
+
+
+def text_lang(text: str) -> str:
+    """The language a message is written in, from its script: kana -> ja, five or more Han characters without kana ->
+    zh-TW, else en. The mail gateway uses it to pick the statement's language, since a send request carries none."""
+    sample = text[:4000]
+    if _KANA.search(sample):
+        return "ja"
+    if len(_HAN.findall(sample)) >= 5:
+        return "zh-TW"
+    return "en"
+
+
+def exempt(path: str) -> bool:
+    """True for a file that may name the hazard plainly (:data:`EXEMPT_PATHS`); ``path`` is relative to trialbox/."""
+    p = path.replace("\\", "/").removeprefix("./")
+    return any(p == e or (e.endswith("/") and p.startswith(e)) for e in EXEMPT_PATHS)
+
+
+def check_file(path: str, text: str, words: Iterable[str] = FORBIDDEN) -> list[Hit]:
+    """:func:`check` on a file's text, or nothing for an exempt path (by design: the risk file names the hazard)."""
+    return [] if exempt(path) else check(text, words)

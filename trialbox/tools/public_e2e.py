@@ -441,7 +441,7 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     )
 
     # P-04 (D-143): every patient the run excluded is on "Excluded patients and why", with criterion and source
-    ex = pi.get(f"/studies/{TRIAL}/excluded").text
+    ex = pi.get(f"/studies/{TRIAL}/not-matched").text
     m = re.search(r'data-testid="ex-run">([^<]*)<', ex)
     s.check("the excluded patients and why: every excluded patient, with criterion and source",
             m is not None and str(scr["tiers"]["excluded"]) in m.group(1) and 'data-testid="ex-source-' in ex,
@@ -922,7 +922,7 @@ def walk_pages(w: dict[str, Any]) -> list[str]:
              f"/studies/{t}/week?list=all", f"/studies/{t}/patients/{w['pid_marked']}", f"/studies/{c}/cohort",
              f"/studies/{t}/feasibility", f"/studies/{t}/screening-log", f"/studies/{t}/setup",
              f"/studies/{t}/sources", f"/studies/{t}/conflicts?all=1", f"/studies/{t}/forms",
-             f"/studies/{t}/excluded", f"/studies/{t}/entry?record={w['record']}&form=tb_consent",
+             f"/studies/{t}/not-matched", f"/studies/{t}/entry?record={w['record']}&form=tb_consent",
              f"/studies/{t}/history?record={w['record']}", *life, *site, "/pilot/protocol", "/pilot/request",
              "/pilot/case", "/pilot/consent", f"/pilot/registry/{c}", "/reports", "/reports/research-office",
              "/jobs", "/audit", "/admin?tab=health", "/admin?tab=jobs", "/ops/users"]  # fmt: skip

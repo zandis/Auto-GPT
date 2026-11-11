@@ -18,6 +18,7 @@ record never becomes "No" (unknown never excludes).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import asdict, dataclass, field
@@ -87,6 +88,13 @@ class ItemMap:
 
 def dumps(items: list[ItemMap]) -> str:
     return json.dumps([i.as_dict() for i in items], ensure_ascii=False, sort_keys=True)
+
+
+def item_sha(item: ItemMap | dict[str, Any]) -> str:
+    """The hash of one item's map row (E-15, T-115): stored on each draft and in what a signature covers. A draft
+    whose item's row changed since is superseded (open or decided, not signed) or not sent (signed)."""
+    m = item if isinstance(item, ItemMap) else ItemMap.from_dict(item)
+    return hashlib.sha256(json.dumps(m.as_dict(), ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:16]
 
 
 def suggest(fields: list[Field], protected: set[str]) -> list[ItemMap]:

@@ -319,7 +319,6 @@ def store_migrations() -> dict[str, list[str]]:
     from criteria_compiler.library import ddl as library
     from datacore import lifecycle
     from datacore import store as datacore
-    from dataplat import mpi
     from edc import store as edc
     from mail_gateway import store as mail
     from omop import schema as omop
@@ -339,7 +338,6 @@ def store_migrations() -> dict[str, list[str]]:
         "orch": list(orch.MIGRATIONS),
         "sitesetup": [sitesetup.SCHEMA, sitesetup.SCHEMA_V2],
         "mail": [mail.SCHEMA_V1, mail.SCHEMA_V2],
-        "mpi": [mpi.SCHEMA_V1],
         "library": [library.DDL],
         "terminology": [licensed.SCHEMA],
         "pidmap": list(pidmap.MIGRATIONS),
@@ -373,30 +371,46 @@ ADDED: dict[str, tuple[str, ...]] = {
         "5e12313c13360ff7f760649cce2f8bd954e6cfbace79c3dc399b47ae842055c6",
     ),
     # T-612: pidmap version 2, the site key's fingerprint
-    "pidmap": ("b7cf6c229898b30f609be2151ff4422b2a0bc0cd068b0b5150e1d58c07c98ae3",),
+    # T-659b (D-370): pidmap version 3, the patient index as the append-only pid_alias table
+    "pidmap": (
+        "b7cf6c229898b30f609be2151ff4422b2a0bc0cd068b0b5150e1d58c07c98ae3",
+        "2d6727cad7056592bdcb1c9a2c0f28f419debbc79880f81e6f4346cd59646f08",
+    ),
     # D-277: datacore version 4 (the study's SAE rule set); sae version 3 (one initial report per party, CR-011)
     # D-364 (T-621): datacore version 5 (schedule versions); site version 4 (the criteria version on each mark)
     "datacore": (
         "8250b52d4e13e66e149ffa956f83b3a8027f95d4094f1a32b999771e459f7aa5",
         "d9f888838f2280f9e49a6d3f9a9bf210ace25104632200683567a4389fa03884",
     ),
-    "site": ("7f7cf970ce4268ca7fdc4fd725535442b586b8ea1e2b23fa631dddf9d3a7575d",),
+    # D-386 (T-622): site version 5 (the study's state log and identifiers)
+    "site": (
+        "7f7cf970ce4268ca7fdc4fd725535442b586b8ea1e2b23fa631dddf9d3a7575d",
+        "2ab6655ef5282d733ea7c4b2804d496be62b238fee5fbee5d7d4d9ccd78540ff",
+    ),
     "sae": ("78527251f39fb58cd728b207c0fc332740a2d06444492dbd617b4d1b0cb7b6d3",),
     # T-510 (D-331): the feedback store, new after the baseline
     "feedback": ("3981b6201cd514508bed945433f3415993494cb24e52809cca7f37fe3801e368",),
     # D-281: edc version 2, the signature's version and key id, and signature_void
-    "edc": ("660d794773184321ebd80015911a26e65973b24d93fa2415c39b6114a22f561b",),
+    # T-115 (D-368): edc version 3, what each draft was built under and the stored re-entry result
+    "edc": (
+        "660d794773184321ebd80015911a26e65973b24d93fa2415c39b6114a22f561b",
+        "7307dbdcdff73f68593da4a33739e1803bcc90079eff738c175f3ad13bd26003",
+    ),
     # D-280: the break-glass grants, new after the baseline
     "breakglass": ("0347aae3f58f7558d041191f25bd2fc5bc654e6f5139c9ee28b1588e91544b83",),
 }
-PINNED: dict[str, tuple[str, ...]] = {k: BASELINE.get(k, ()) + ADDED.get(k, ()) for k in BASELINE.keys() | ADDED.keys()}
+#: stores of the baseline whose code is gone (T-659b: ``mpi``, the retired data platform's patient index)
+RETIRED = {"mpi"}
+PINNED: dict[str, tuple[str, ...]] = {
+    k: BASELINE.get(k, ()) + ADDED.get(k, ()) for k in (BASELINE.keys() | ADDED.keys()) - RETIRED
+}
 
 #: every file that opens a store and migrates it, covered by :func:`store_migrations` (or not a store of its own)
 STORE_FILES = {
     "libs/tb_common/derived_store.py", "libs/tb_common/flags.py", "libs/tb_common/optout.py", "libs/tb_common/refdata.py", "services/adapter/licensed.py",
     "services/adapter/pidmap.py", "services/console/auth.py", "services/console/breakglass.py", "services/console/feedback.py", "services/console/saerecord.py",
     "services/console/sitestore.py", "services/console/teamstore.py", "services/criteria_compiler/library/repository.py",
-    "services/datacore/store.py", "services/dataplat/mpi/__init__.py", "services/edc/store.py",
+    "services/datacore/store.py", "services/edc/store.py",
     "services/mail_gateway/store.py", "services/omop/schema.py", "services/orchestrator/db.py",
     "services/orchestrator/db_pg.py", "services/orchestrator/outbox.py", "services/orchestrator/recall/ledger.py",
     "services/orchestrator/studystore.py", "services/sitesetup/store.py", "services/tracestore/store.py",
