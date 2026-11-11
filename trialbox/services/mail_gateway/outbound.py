@@ -48,6 +48,15 @@ class EncryptionError(RuntimeError):
     pass
 
 
+class NotSent(RuntimeError):
+    """The transport failed before the server could have accepted the message (T-108c, D-401): DNS, connect, TLS,
+    the greeting, sign-in, MAIL, RCPT, or a DATA that the server answered with an error. Safe to send again."""
+
+    def __init__(self, cause: BaseException) -> None:
+        super().__init__(f"{type(cause).__name__}: {cause}")
+        self.cause = cause
+
+
 @dataclass
 class Prepared:
     message_id: str
@@ -58,14 +67,45 @@ class Prepared:
 
 
 def smtp_transport(host: str, port: int, user: str = "", password: str = "", starttls: bool = True) -> Transport:
+    """SMTP that says which phase failed (T-108c, CR-085). Everything up to the end of the message body is
+    :class:`NotSent` (nothing can have been accepted); a failure while the body and its final dot are on the wire or
+    the answer is awaited propagates as it is: the message may have arrived."""
+
     def send(sender: str, to: list[str], data: bytes) -> None:
         cls = smtplib.SMTP_SSL if port == 465 else smtplib.SMTP
-        with cls(host, port, timeout=60) as s:
-            if starttls and cls is smtplib.SMTP:
-                s.starttls()
-            if user:
-                s.login(user, password)
-            s.sendmail(sender, to, data)
+        try:
+            s = cls(host, port, timeout=60)  # DNS, connect, the TLS handshake on 465, the greeting
+        except (OSError, smtplib.SMTPException) as exc:
+            raise NotSent(exc) from exc
+        with s:
+            try:
+                if starttls and cls is smtplib.SMTP:
+                    s.starttls()
+                if user:
+                    s.login(user, password)
+                s.ehlo_or_helo_if_needed()
+                code, resp = s.mail(sender)
+                if code != 250:
+                    raise smtplib.SMTPSenderRefused(code, resp, sender)
+                refused = {}
+                for r in to:
+                    code, resp = s.rcpt(r)
+                    if code not in (250, 251):
+                        refused[r] = (code, resp)
+                if len(refused) == len(to):
+                    raise smtplib.SMTPRecipientsRefused(refused)
+                code, resp = s.docmd("data")
+                if code != 354:
+                    raise smtplib.SMTPDataError(code, resp)
+            except (OSError, smtplib.SMTPException) as exc:
+                raise NotSent(exc) from exc
+            body = re.sub(rb"(?m)^\.", b"..", data)
+            if not body.endswith(b"\r\n"):
+                body += b"\r\n"
+            s.send(body + b".\r\n")  # from here an error means the message may have arrived
+            code, resp = s.getreply()
+            if code != 250:  # the server answered: it did not take the message
+                raise NotSent(smtplib.SMTPDataError(code, resp))
 
     return send
 
@@ -173,10 +213,12 @@ def prepare(
     tz: str | None = None,
     link_base: str = "",
     allow_phi_zip: bool = False,
+    message_id: str | None = None,
 ) -> Prepared:
-    """``allow_phi_zip``: D-369 (OD-1, CR-025) mails no patient file as a password zip, because the password goes to
-    the same person on the same channel. Only a synthetic box (TB_ENV DEV or TEST) may still do so; elsewhere a ``phi``
-    attachment in ``zip`` mode is refused before anything is built or sent."""
+    """``message_id``: the Message-ID of a send that waited in the outbox (T-108c), so the mail that finally leaves
+    has the id its caller recorded. ``allow_phi_zip``: D-369 (OD-1, CR-025) mails no patient file as a password zip,
+    because the password goes to the same person on the same channel. Only a synthetic box (TB_ENV DEV or TEST) may
+    still do so; elsewhere a ``phi`` attachment in ``zip`` mode is refused before anything is built or sent."""
     to = sorted({norm(r) for r in req.to if r})
     if not to:
         raise RoutingRefused("no recipients")
@@ -194,7 +236,7 @@ def prepare(
             "TB_CONSOLE_URL) or smime"
         )
     domain = sender.rsplit("@", 1)[-1] or "trialbox.local"
-    mid = make_msgid(idstring=(req.job_id or "trialbox")[:26], domain=domain)
+    mid = message_id or make_msgid(idstring=(req.job_id or "trialbox")[:26], domain=domain)
     text, html = render_body(req.body_md)
     if encrypt and mode == "link":
         # D-127: the site chose no patient files by mail; the mail says where to sign in and download them

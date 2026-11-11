@@ -15,7 +15,7 @@ kind: Role
 metadata: {name: trialbox-doctor, labels: {app.kubernetes.io/component: doctor}}
 rules:
   - apiGroups: [""]
-    resources: [pods, configmaps, resourcequotas, persistentvolumeclaims]
+    resources: [pods, configmaps, resourcequotas, persistentvolumeclaims, services]
     verbs: [get, list]
   # list only, never get or watch: kek_custody must see every Secret of the namespace (a KEK under any name is the
   # finding, so named Secrets would not do); the job keeps names, labels, annotations and data keys and drops each

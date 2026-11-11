@@ -337,7 +337,7 @@ def store_migrations() -> dict[str, list[str]]:
         "study": list(studystore.MIGRATIONS),
         "orch": list(orch.MIGRATIONS),
         "sitesetup": [sitesetup.SCHEMA, sitesetup.SCHEMA_V2],
-        "mail": [mail.SCHEMA_V1, mail.SCHEMA_V2],
+        "mail": list(mail.MIGRATIONS),
         "library": [library.DDL],
         "terminology": [licensed.SCHEMA],
         "pidmap": list(pidmap.MIGRATIONS),
@@ -387,6 +387,8 @@ ADDED: dict[str, tuple[str, ...]] = {
     "datacore": (
         "8250b52d4e13e66e149ffa956f83b3a8027f95d4094f1a32b999771e459f7aa5",
         "d9f888838f2280f9e49a6d3f9a9bf210ace25104632200683567a4389fa03884",
+        # D-387 (T-623): datacore version 6 (the criterion not met and its version on a screen-failure step)
+        "668c23320ea6fe609efb7a779800ad02501c28559dc45abac20610e63f6f7a5a",
     ),
     # D-386 (T-622): site version 5 (the study's state log and identifiers)
     # D-395 (T-310b): site version 6 (the IRB-text record of the cross-department candidate view)
@@ -404,6 +406,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         "660d794773184321ebd80015911a26e65973b24d93fa2415c39b6114a22f561b",
         "7307dbdcdff73f68593da4a33739e1803bcc90079eff738c175f3ad13bd26003",
     ),
+    # T-108c (D-401): mail version 3, the send keys as the outbox and the job type on each intake row
+    "mail": ("dc540a482b5619e6226318becb615e79a639ab2be3c2d47154b43029886f8579",),
     # D-399 (T-302a): team version 2, the approved consent-form versions as history rows
     "team": ("ad5cea87a2f6b2b0210c392f8c698a0c72253a93cbbb6ec74915bf0cefbd076f",),
     # D-280: the break-glass grants, new after the baseline
