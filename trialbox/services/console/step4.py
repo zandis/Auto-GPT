@@ -18,6 +18,7 @@ from console import about, command
 from console.auth import AuthError, Session, source_of
 from console.backend import Refused, Unavailable
 from console.home import Helpers
+from console.models_view import build_rows
 
 _ULID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
 TERMINAL = ("done", "failed")
@@ -310,6 +311,10 @@ def register(app: FastAPI, h: Helpers) -> None:
             row["last_ok_text"] = row["last_ok"][:16].replace("T", " ")
         return sorted(rows.values(), key=lambda r: r["source"])
 
+    def _model_builds() -> list[dict[str, Any]] | None:
+        read = getattr(bk, "model_builds", None)
+        return build_rows(read()) if callable(read) else None
+
     def admin_page(request: Request, sess: Session, tab: str, notice: str = "", **flt: str) -> Response:
         tab = tab if tab in TABS else "health"
         ctx: dict[str, Any] = {"tab": tab, "tabs": TABS, "notice": notice}
@@ -320,6 +325,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                 admin_ctx(sess),
                 health=bk.health(),
                 models=bk.models(),
+                model_builds=_model_builds(),  # T-012b: each pinned build and its qualification record
                 refdata=status_or_none(),
                 ops=h.ops_summary() if h.ops_summary is not None else None,
             )  # D-178: the Operations tile

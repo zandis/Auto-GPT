@@ -10,6 +10,8 @@ from __future__ import annotations
 from html import escape
 from typing import Any
 
+from tb_common.wording import statement
+
 DISCLAIMER = {
     "en": "This guide is a reading aid. It is not the consent form, it is not a signature, and it does not replace "
     "talking with the study team. Only the official consent form counts: if anything here differs from it, the "
@@ -131,7 +133,8 @@ def patient(rec: dict[str, Any], lang: str, view: dict[str, Any], release: dict[
     out.append(
         f"<footer>{escape(stamp)}<br>TrialBox {escape(rec['site'])} · {study} · "
         f"{escape(rec['icf']['filename'])} sha256 {escape(rec['icf']['sha256'][:12])} · "
-        f"job {escape(release['job_id'] if release else rec['job_id'])}</footer></body></html>"
+        f"job {escape(release['job_id'] if release else rec['job_id'])}"
+        f'<br><span data-testid="intended-use">{escape(statement(lang))}</span></footer></body></html>'  # TB-IU-01 C1
     )
     return "\n".join(out).encode("utf-8")
 
@@ -230,6 +233,7 @@ def review(rec: dict[str, Any]) -> bytes:
     out.append("</tbody></table>")
     out.append(
         f"<footer>TrialBox {escape(rec['site'])} · {study} · requested by {escape(rec['requested_by'])} · "
-        f"{escape(rec['created'])} · job {escape(rec['job_id'])}</footer></body></html>"
+        f"{escape(rec['created'])} · job {escape(rec['job_id'])}"
+        f'<br><span data-testid="intended-use">{escape(statement("en"))}</span></footer></body></html>'  # TB-IU-01 C1
     )
     return "\n".join(out).encode("utf-8")
