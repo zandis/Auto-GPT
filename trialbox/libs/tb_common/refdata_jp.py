@@ -342,13 +342,12 @@ class DrugResolver:
 
     def __init__(self, ingredients: dict[str, dict[str, str]] | None = None,
                  master: Iterable[dict[str, str]] = (),
-                 licensed_yj: dict[str, dict[str, str]] | None = None) -> None:  # fmt: skip
+                 licensed_yj: dict[str, dict[str, Any]] | None = None) -> None:  # fmt: skip
         self.ingredients = ingredient_atc() if ingredients is None else ingredients
         self.by_code: dict[str, dict[str, str]] = {}
         for yj, lic in (licensed_yj or {}).items():
-            extra = lic.get("extra") or {}
-            if isinstance(extra, str):
-                extra = json.loads(extra or "{}")
+            raw = lic.get("extra") or {}
+            extra: dict[str, Any] = json.loads(raw) if isinstance(raw, str) else dict(raw)
             row = {"yj": norm_drug_code(yj), "hot": norm_drug_code(str(extra.get("hot13") or "")),
                    "atc": norm_drug_code(lic.get("target_code") or ""), "name": lic.get("display") or ""}  # fmt: skip
             self._index(row)

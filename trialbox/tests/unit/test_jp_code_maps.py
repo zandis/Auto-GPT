@@ -276,7 +276,7 @@ def _run(sql: str, meds: dict[str, list[tuple[str | None, str | None]]]) -> dict
                         "'active', 'x', NULL)", [f"m{i}{j}", pid, nhi, atc])  # fmt: skip
     rows = con.execute(sql, [[date(2026, 1, 1).isoformat()], list(meds)]).fetchall()
     cols = [d[0] for d in con.description]
-    return {r[0]: dict(zip(cols, r, strict=True))["C_JPV-INC-01"] for r in rows}
+    return {str(r[0]): dict(zip(cols, r, strict=True))["C_JPV-INC-01"] for r in rows}
 
 
 def test_sql_matches_an_order_by_its_ingredient_without_atc() -> None:
