@@ -1,11 +1,12 @@
 """The site keys under a key-encryption key (KEK), and the unseal (T-210b; CR-041 second third, OPS-058; D-347).
 
-The keys of the secrets folder (``site_hmac.key``, ``pid_map.key``, and ``objects.key`` once the object store is
-sealed, T-210c) are kept wrapped: ``<name>.wrapped`` is a
-small JSON document (format ``tb-wrapped-key/1``) with the key sealed by AES-256-GCM under the KEK. The associated
-data binds the format, the key's file name and the KEK's id, so a wrapped file renamed to another key, or opened with
-another KEK, is refused. The document also carries the key's fingerprint (``tb_common.crypto.key_fingerprint``), so
-``tools/keys.py status`` and ``doctor`` can name the key without opening it.
+The keys of the secrets folder (``site_hmac.key``, ``pid_map.key``, ``objects.key`` once the object store is
+sealed, T-210c, and the two signing keys, ``audit_sign.key`` of the signed audit heads and ``edc_sign.key`` of the EDC
+signature binding, T-210d) are kept wrapped: ``<name>.wrapped`` is a small JSON document (format
+``tb-wrapped-key/1``) with the key sealed by AES-256-GCM under the KEK. The associated data binds the format, the
+key's file name and the KEK's id, so a wrapped file renamed to another key, or opened with another KEK, is refused.
+The document also carries the key's fingerprint (``tb_common.crypto.key_fingerprint``), so ``tools/keys.py status``
+and ``doctor`` can name the key without opening it.
 
 ``kek.json`` in the same folder describes the KEK without holding it: its id (a domain-separated SHA-256), its back
 end and the back end's public parameters. Back ends:
@@ -51,10 +52,12 @@ META_FORMAT = "tb-kek/1"
 WRAP_FORMAT = "tb-wrapped-key/1"
 WRAPPED_SUFFIX = ".wrapped"
 KEK_LEN = 32
-#: the keys of the secrets folder that are kept under the KEK; ``objects.key`` seals the object store (T-210c)
-PROTECTED = ("site_hmac.key", "pid_map.key", "objects.key")
-#: protected keys a box may not have (a store never sealed): not listed by :func:`custody` while absent
-OPTIONAL = ("objects.key",)
+#: the keys of the secrets folder that are kept under the KEK; ``objects.key`` seals the object store (T-210c);
+#: ``audit_sign.key`` signs the audit heads (T-211a) and ``edc_sign.key`` binds the EDC signatures (D-281; T-210d)
+PROTECTED = ("site_hmac.key", "pid_map.key", "objects.key", "audit_sign.key", "edc_sign.key")
+#: protected keys a box may not have yet (a store never sealed, no audit key made, no EDC signature yet): not listed
+#: by :func:`custody` while absent
+OPTIONAL = ("objects.key", "audit_sign.key", "edc_sign.key")
 BACKENDS = ("passphrase", "shamir", "file")
 DEFAULT_KEK_FILE = "/run/trialbox/kek"
 CREDENTIAL = "trialbox-kek"  # systemd LoadCredentialEncrypted= name

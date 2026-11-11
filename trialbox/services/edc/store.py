@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from tb_common.config import environment_name
-from tb_common.crypto import key_fingerprint, load_or_create_key
+from tb_common.crypto import key_fingerprint
 from tb_common.db import ENV, Database
 
 SCHEMA = """
@@ -138,15 +138,41 @@ def draft_sha(d: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
+def _open_sign_key(path: Path, env: Mapping[str, str]) -> bytes:
+    """T-210d: the key of ``path``, opened under the KEK when ``<path>.wrapped`` is there (``tb_common.kek``), else
+    read plain. Made when absent in either form (32 random bytes): wrapped when the folder has a KEK; plain only
+    outside VALIDATION and PRODUCTION. A wrapped key that cannot be opened (the KEK not unsealed, another box's KEK,
+    a damaged file, a plain copy beside it) is refused in every environment: no key is made in its place."""
+    from tb_common import kek as K
+    from tb_common.crypto import KeyMissingError
+
+    def refuse(why: str) -> EdcError:
+        return EdcError("edc.sign_key", f"the signature key {path}: {why}", 500)
+
+    try:
+        try:
+            return K.load_key_file(path, env)
+        except KeyMissingError:
+            if K.key_present(path):
+                raise refuse("the file is empty; put the key back from the backup") from None
+        if K.read_meta(path.parent) is None and environment_name(env) in K.STRICT_ENVS:
+            raise refuse(f"{path.parent} has no KEK: in {environment_name(env)} this key is made only wrapped under "
+                         "it (`python -m tools.keys init`)")  # fmt: skip
+        K.create_key_file(path, 32, env)
+        return K.load_key_file(path, env)
+    except K.KekError as exc:
+        raise refuse(f"cannot be opened ({exc})") from None
+
+
 def sign_key_of(env: Mapping[str, str], secrets_dir: Path | None = None) -> bytes:
     """The key of the signature binding (D-281): the file ``TB_EDC_SIGN_KEY_FILE``, else ``edc_sign.key`` in the
-    secrets folder, made (mode 0600, 32 random bytes) when absent. Without either, a fixed key on a DEV or TEST box
-    only; anywhere else this refuses. A lost key is not silent: the old signatures stop verifying and their values
-    are not sent until signed again."""
+    secrets folder, wrapped under the KEK of its folder (T-210d) or plain, and made when absent
+    (:func:`_open_sign_key`). Without either, a fixed key on a DEV or TEST box only; anywhere else this refuses. A
+    lost key is not silent: the old signatures stop verifying and their values are not sent until signed again."""
     named = (env.get(KEY_ENV) or "").strip()
     path = Path(named) if named else (secrets_dir / KEY_FILE if secrets_dir is not None else None)
     if path is not None:
-        key = load_or_create_key(path)
+        key = _open_sign_key(path, env)
         if len(key) < 16:
             raise EdcError("edc.sign_key", f"the signature key file {path} is shorter than 16 bytes", 500)
         return key
