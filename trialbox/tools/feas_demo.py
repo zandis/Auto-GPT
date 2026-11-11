@@ -219,16 +219,17 @@ def fresh_console_db(work: Path) -> str:
     return url
 
 
-def seed_pi(url: str | None = None, pi: str = "pi") -> None:
+def seed_pi(url: str | None = None, pi: str = "pi", studies: tuple[str, ...] = ()) -> None:
     """D-380 (ROLE-008): only the PI a study's delegation log names acts as PI, so the demo writes the signed log's
-    PI entry for the demo investigator on every demo study that has none (as the steward would)."""
+    PI entry for the demo investigator on every demo study (or on ``studies``) that has none (as the steward
+    would)."""
     from console.teamstore import TeamStore
 
     team = TeamStore(url)
     try:
-        for d in sorted(p for p in (ROOT / "rulesets").iterdir() if (p / "ir").is_dir()):
-            if team.pi_of(d.name, date.today()) is None:
-                team.add_entry(d.name, username=pi, name="PI (demo)", role="pi", tasks=(), start="2026-01-01",
+        for rs in studies or tuple(sorted(p.name for p in (ROOT / "rulesets").iterdir() if (p / "ir").is_dir())):
+            if team.pi_of(rs, date.today()) is None:
+                team.add_entry(rs, username=pi, name="PI (demo)", role="pi", tasks=(), start="2026-01-01",
                                end=None, training_day="2025-06-01", training_ref="demo seed (synthetic)",
                                by="demo-seed", at="2026-01-01T00:00:00+00:00")  # fmt: skip
     finally:

@@ -7,7 +7,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import shutil
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -19,6 +18,8 @@ from criteria_compiler.terminology.mapper import TERM_DIR, Terminology, ValueSet
 from tb_common import chartno
 from tb_common.crypto import pid_for_mrn
 from tb_common.ruleset import RecompileNeeded, Ruleset, list_rulesets, load_approved
+
+from tests.rulesets_guard import copy_rulesets
 
 ROOT = Path(__file__).resolve().parents[2]
 RULESETS = ROOT / "rulesets"
@@ -169,7 +170,7 @@ def _counts(db: Any) -> dict[str, Any]:
 def _rulesets(tmp_path: Path, pin: str | None = None) -> Path:
     out = tmp_path / "rulesets"
     for rid in list_rulesets(RULESETS):
-        shutil.copytree(RULESETS / rid, out / rid)
+        copy_rulesets(out / rid, src=RULESETS / rid)
         if pin:
             _pin(out / rid, pin)
     return out

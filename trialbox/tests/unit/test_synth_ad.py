@@ -12,13 +12,13 @@ from __future__ import annotations
 import csv
 import json
 import re
-import shutil
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from tests.rulesets_guard import copy_rulesets
 from tools.synth import ad
 from tools.synth import notes as zh
 from tools.synth.generator import RATES, Generator, generate
@@ -149,7 +149,7 @@ def test_committed_ruleset_is_the_current_compilers_output(tmp_path: Path, rid: 
     from tests.unit.test_compiler_service import FakeGate
 
     seed = tmp_path / "seed"
-    shutil.copytree(ROOT / "rulesets", seed, ignore=shutil.ignore_patterns(rid))
+    copy_rulesets(seed, rid)
     store = FsStore(tmp_path / "obj")
     audit = AuditLog(tmp_path / "audit")
     llm = LlmClient("http://stub/v1", "stub", audit=audit)

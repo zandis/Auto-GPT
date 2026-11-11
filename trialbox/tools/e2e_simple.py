@@ -430,6 +430,8 @@ def _stage12(res: dict[str, Any], crc: Any, pi: Any, lang: str, box: Any) -> Sta
     waiting = box.orch.db.find(ruleset=SITE_RS, state="awaiting_approval", limit=5)
     s.check("the protocol's criteria are drafted and wait for the investigator", bool(waiting) and
             state("trial") == "amber", [j.state for j in box.orch.db.find(ruleset=SITE_RS, limit=5)])  # fmt: skip
+    # D-380 (ROLE-008): the new study's PI entry, written from the signed log as the steward would
+    fd.seed_pi(studies=(SITE_RS,))
     if waiting:
         page = pi.get(f"/pilot/jobs/{waiting[0].job_id}/approval")
         # D-309: a pasted protocol ships no labels in the page language; the investigator gives each one first
@@ -883,12 +885,12 @@ def _stage15(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, m
         return [r for r in _audit(box) if r.get("event") == name]
 
     h.users.create("subpi", "investigator", password, "subpi@hospa.test")
-    sub = ld.sign_in(app, "subpi", password, lang)
     today = h.today().isoformat()
     # D-380 (ROLE-008): the steward wrote the PI entry from the signed log (the demo seed); the PI adds the rest
     r2 = pi.post(f"/studies/{TRIAL}/team", data={"csrf": csrf(pi), "username": "subpi", "role": "sub_pi",
                                                  "tasks": ["screen", "refer"], "start": today,
                                                  "training_day": today}, follow_redirects=False)  # fmt: skip
+    sub = ld.sign_in(app, "subpi", password, lang)  # an investigator on no study's log lands on no study page
     log = pi.get(f"/studies/{TRIAL}/team").text
     ids = re.findall(r'data-testid="entry-(\d+)"', log)
     s.check(

@@ -24,6 +24,7 @@ from datetime import date, timedelta
 from typing import Any, Literal, Protocol, cast
 
 from criteria_compiler.compile_sql.overlay import safe_sql
+from guard.injection import planted_in
 from lake.client import LakeAPI
 from matching.coverage import Coverage
 from matching.proposed import Proposed
@@ -421,7 +422,8 @@ def check_judge(judge: NoteJudge | None) -> None:
 
 
 def postprocess(d: dict[str, Any], excerpts: list[dict[str, Any]], source: str = "chunks") -> NoteResult:
-    """SPEC §7.3: the quote must be a substring of one excerpt (whitespace-normalised), else ``unknown``."""
+    """SPEC §7.3: the quote must be a substring of one excerpt (whitespace-normalised), else ``unknown``. A quote from
+    a sentence the guard's planted-instruction screen flags is ``unknown`` too (T-606, D-359)."""
     verdict = str(d.get("verdict", "unknown"))
     quote = d.get("quote")
     conf = float(d.get("confidence", 0.0))
@@ -431,6 +433,8 @@ def postprocess(d: dict[str, Any], excerpts: list[dict[str, Any]], source: str =
         match = next((e for e in excerpts if quote_in(q, str(e["text"]))), None)
         if match is None:
             return NoteResult("unknown", 0.0, reason=Reason.QUOTE_NOT_FOUND.value, source=source)
+        if planted_in(str(match["text"]), q):  # T-606 (D-359): an instruction found in a note is never evidence
+            return NoteResult("unknown", 0.0, reason=Reason.PLANTED_INSTRUCTION.value, source=source)
         did = match.get("did")
     why = Reason.NOTE.value if verdict in ("pass", "fail") else Reason.ABSTAINED.value
     model_reason = str(d.get("reason") or "")

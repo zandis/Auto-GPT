@@ -230,6 +230,7 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     ops_env = {"TB_OPS_DIR": str(work / "ops"), "TB_OPS_RUNNER": "inline", "TB_OPS_DEPLOY": str(work / "ops-deploy")}
     shutil.rmtree(work / "ops", ignore_errors=True)
     app = ld.console(work, box, client, repo, password, clock, extra_env={**SITE_ENV, **ops_env})
+    fd.seed_pi(studies=(COHORT, TRIAL))  # D-380 (ROLE-008): the public studies' PI entries, as the steward writes
     h = app.state.helpers
     cat = CATALOGUES[lang]
     hosp = work / "hospital"
