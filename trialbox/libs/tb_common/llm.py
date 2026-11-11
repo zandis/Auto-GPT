@@ -40,7 +40,16 @@ from tb_common.phi_guard import PhiClearance, variables_text
 _FM = re.compile(r"^---\n(.*?)\n---\n(.*)$", re.S)
 _SECTION = re.compile(r"^##\s+(system|user)\s*$", re.M)
 _env = Environment(undefined=StrictUndefined, autoescape=False, keep_trailing_newline=False)  # noqa: S701
-_env.filters["tojson_pretty"] = lambda v: json.dumps(v, ensure_ascii=False, indent=1, sort_keys=True)
+
+
+def tojson_block(value: Any) -> str:
+    """The data of a prompt's fenced JSON block (filter ``tojson_pretty``). Every backtick is written as the JSON
+    escape ``\\u0060``: the same JSON value, but a note or protocol that holds a fence (three backticks) cannot close
+    the block and put its own text outside it, where it would read as part of the prompt (T-208, D-346; LLM-034)."""
+    return json.dumps(value, ensure_ascii=False, indent=1, sort_keys=True).replace("`", "\\u0060")
+
+
+_env.filters["tojson_pretty"] = tojson_block
 CLOUD_SERVICE = "criteria-compiler"
 
 
