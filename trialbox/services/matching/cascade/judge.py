@@ -8,6 +8,9 @@ the in-process gateway in front of ``llm_stub``).
 :func:`verify_span` is the CAS-16 check: the quote must sit, character for character, inside one excerpt that is
 dated inside the criterion window. A judgement whose span does not verify is ``insufficient`` and counts as
 ``unknown:uncertain``.
+
+The answer is validated against the prompt's output schema here too, as ``tb_common.llm`` does on the SCREEN path
+(T-608, D-445; review LLM-022): an answer outside it is ``unknown`` (``refused: schema_invalid``), its verdict unread.
 """
 
 from __future__ import annotations
@@ -80,7 +83,7 @@ class GatewayJudge:
         purpose: str,
     ) -> JudgeReply:
         from tb_common.llm import load_prompt, render
-        from tb_contracts import inline_schema
+        from tb_contracts import inline_schema, load_schema, null_absent, schema_errors
         from tb_llm import CallLabels, GatewayRefused, json_schema_format
 
         p = load_prompt(self.prompt_id)
@@ -115,7 +118,25 @@ class GatewayJudge:
             return JudgeReply(
                 "unknown", 0.0, None, None, reason, prompt=prompt, prompt_sha=p.sha256, refused=exc.reason
             )
-        data = res.data if isinstance(res.data, dict) else {}
+        schema = p.meta.output_schema
+        data = null_absent(load_schema(schema), res.data) if isinstance(res.data, dict) else None
+        if not isinstance(data, dict) or schema_errors(schema, data):
+            # LLM-022: a reply outside the judge schema is no answer; it never reaches the verdict (fails safe)
+            self.refusals.append("schema_invalid")
+            return JudgeReply(
+                "unknown",
+                0.0,
+                None,
+                None,
+                "the answer is outside the judge schema",
+                call_id=res.call_id,
+                build_sha=res.build_sha,
+                prompt=prompt,
+                prompt_sha=p.sha256,
+                tokens_in=res.tokens_in,
+                tokens_out=res.tokens_out,
+                refused="schema_invalid",
+            )
         return JudgeReply(
             verdict=str(data.get("verdict", "unknown")),
             confidence=float(data.get("confidence") or 0.0),

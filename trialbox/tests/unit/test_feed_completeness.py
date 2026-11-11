@@ -22,7 +22,7 @@ from adapter.ndjson import snapshot_dir
 from adapter.pipeline import COMPLETENESS, HELD, PASSED, AdapterConfig, prune_snapshots, run_ingest
 from embed_service.embedder import HashEmbedder
 from lake.store import Lake
-from sitesetup.readiness import feed_held, last_feed_night
+from sitesetup.readiness import feed_held, last_feed_night, newest_batch
 from tb_common.retention import snapshots_to_keep
 from tb_contracts import RebuildResult
 
@@ -299,6 +299,12 @@ def test_the_readiness_page_names_the_held_tables(good_lake: Path, tmp_path: Pat
     assert rec is not None and rec["event"] == "ingest.held"
     item = feed_held(_Svc())  # type: ignore[arg-type]
     assert item is not None and item["key"] == "patients.feed_held" and "lab" in item["tables"]
-    assert item["snapshot"] == BAD and item["link"] == "/admin?tab=sources"
+    assert item["snapshot"] == BAD and item["link"] == "/data-ops"  # T-112b (D-443): the steward's console
+    # T-112b (D-443, TB-ASSESS-01 T-112 acceptance 5): the light read from dataops says the same as the audit chain
+    night = newest_batch()
+    assert night is not None and night.state == "HELD" and night.snapshot == BAD
+    assert feed_held(_Svc(), night) == item  # type: ignore[arg-type]
     assert _night(cfg, _feed(tmp_path, "next"), "2026-11-03").passed
     assert feed_held(_Svc()) is None  # type: ignore[arg-type]
+    night = newest_batch()
+    assert night is not None and night.state == "PUBLISHED" and feed_held(_Svc(), night) is None  # type: ignore[arg-type]

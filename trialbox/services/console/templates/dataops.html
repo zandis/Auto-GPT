@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{# T-112b (D-443): the data-operations console. Sources (the newest night of each, as a light), the held nights with
+   the steward's accept and reject, and the ingest history cut by the store. #}
+{% block title %}{{ t('dataops.title') }}{% endblock %}
+{% macro pill(light) %}<span class="pill rd-{{ {'green': 'go', 'amber': 'conditional', 'red': 'nogo'}[light] }}" data-light="{{ light }}">{{ t('dataops.light.' + light) }}</span>{% endmacro %}
+{% macro tables(b) %}{% set inc = b.detail.get('incomplete') or [] %}{% if inc %}{{ t('dataops.tables', tables=(inc[:5]|join('; '))[:300]) }}{% elif b.detail.get('gate') %}{{ (b.detail.gate.get('reasons') or [b.detail.gate.get('outcome', '')])|join(', ') }}{% else %}–{% endif %}{% endmacro %}
+{% block content %}
+<div class="headrow"><h1>{{ t('dataops.title') }}</h1>
+{% if permit(user.role, 'conflicts.resolve') %}<a href="/data/conflicts" data-testid="dataops-conflicts">{{ t('dataops.conflicts') }}</a>{% endif %}</div>
+<p class="hint">{{ t('dataops.help') }}</p>
+{% if done %}<p class="ok" role="status" data-testid="dataops-done">{{ t('dataops.done.' + done) }}</p>{% endif %}
+{% if err %}<p class="warn" role="alert" data-testid="dataops-err">{{ t('dataops.err.' + err) }}</p>{% endif %}
+
+<section class="card" data-testid="dataops-sources">
+<h2>{{ t('dataops.sources.title') }}</h2>
+{% if not sources %}<p class="empty">{{ t('dataops.sources.none') }}</p>{% else %}
+<ul class="plain">{% for s in sources %}<li data-testid="source" data-source="{{ s.source }}" data-light="{{ s.light }}">{{ pill(s.light) }} <span class="mono">{{ s.source }}</span> · {{ s.snapshot }} · {{ t('dataops.state.' + s.state) }}</li>{% endfor %}</ul>
+<p class="hint" data-testid="dataops-counts">{% for st, n in counts|dictsort %}{{ t('dataops.state.' + st) }}: {{ n }}{{ ' · ' if not loop.last else '' }}{% endfor %}</p>
+{% endif %}
+</section>
+
+<section class="card attention" data-testid="dataops-held">
+<h2>{{ t('dataops.held.title') }}</h2>
+{% if not waiting %}<p class="empty" data-testid="dataops-held-none">{{ t('dataops.held.none') }}</p>{% else %}
+{% if not may_decide %}<p class="hint">{{ t('dataops.view_only') }}</p>{% elif not can_accept %}<p class="hint" data-testid="dataops-accept-off">{{ t('dataops.accept_off') }}</p>{% endif %}
+<div class="scroll" tabindex="0"><table>
+<thead><tr><th scope="col">{{ t('dataops.col.source') }}</th><th scope="col">{{ t('dataops.col.snapshot') }}</th><th scope="col">{{ t('dataops.col.attempt') }}</th><th scope="col">{{ t('dataops.col.gate') }}</th>{% if may_decide %}<th scope="col">{{ t('dataops.col.decide') }}</th>{% endif %}</tr></thead>
+<tbody>{% for b in waiting %}<tr data-testid="held" data-batch="{{ b.id }}">
+<td class="mono">{{ b.source }}</td><td><a href="/data-ops/batches/{{ b.id }}">{{ b.snapshot }}</a></td><td class="num">{{ b.attempt }}</td><td>{{ tables(b) }}</td>
+{% if may_decide %}<td>{% include "_dataops_decide.html" %}</td>{% endif %}
+</tr>{% endfor %}</tbody></table></div>{% endif %}
+</section>
+
+<section class="card" data-testid="dataops-history">
+<h2>{{ t('dataops.history.title') }}</h2>
+<form method="get" action="/data-ops" class="inline">
+<label for="f-state">{{ t('dataops.filter.state') }}</label> <select id="f-state" name="state"><option value="">{{ t('dataops.filter.all') }}</option>{% for st in ('LANDED', 'VALIDATED', 'MAPPED', 'PSEUDONYMISED', 'PUBLISHED', 'HELD', 'FAILED', 'REJECTED') %}<option value="{{ st }}"{% if st == state %} selected{% endif %}>{{ t('dataops.state.' + st) }}</option>{% endfor %}</select>
+<label for="f-source">{{ t('dataops.filter.source') }}</label> <input id="f-source" name="source" value="{{ source }}" maxlength="80">
+<button type="submit">{{ t('dataops.filter.go') }}</button></form>
+{% if not rows %}<p class="empty" data-testid="dataops-history-none">{{ t('dataops.history.none') }}</p>{% else %}
+<div class="scroll" tabindex="0"><table>
+<thead><tr><th scope="col">{{ t('dataops.col.source') }}</th><th scope="col">{{ t('dataops.col.snapshot') }}</th><th scope="col">{{ t('dataops.col.attempt') }}</th><th scope="col">{{ t('dataops.col.state') }}</th><th scope="col">{{ t('dataops.col.changed') }}</th><th scope="col">{{ t('dataops.col.gate') }}</th></tr></thead>
+<tbody>{% for b in rows %}<tr data-testid="batch" data-batch="{{ b.id }}" data-state="{{ b.state }}">
+<td class="mono">{{ b.source }}</td><td><a href="/data-ops/batches/{{ b.id }}">{{ b.snapshot }}</a></td><td class="num">{{ b.attempt }}</td><td>{{ t('dataops.state.' + b.state) }}</td><td>{{ b.changed_at|local }} · {{ b.changed_by|who }}</td><td>{{ tables(b) }}</td>
+</tr>{% endfor %}</tbody></table></div>
+{% if next_before %}<p><a href="/data-ops?state={{ state|urlencode }}&amp;source={{ source|urlencode }}&amp;before={{ next_before }}" data-testid="dataops-more">{{ t('dataops.more') }}</a></p>{% endif %}
+{% endif %}
+</section>
+<p class="hint" data-testid="dataops-later">{{ t('dataops.later') }}</p>
+{% endblock %}

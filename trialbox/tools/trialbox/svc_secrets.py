@@ -126,12 +126,24 @@ def _model_key_write(deploy: Path, env_file: Path, key: str, uid: int | None) ->
 
 def ensure_model_key(deploy: Path, env_file: Path | None = None, uid: int | None = SERVICE_UID) -> bool:
     """Make ``deploy/secrets/model/llm.key`` when it is missing: the key ``deploy/.env`` holds, else a new one (so
-    the compose secret always has its file); keep ``deploy/.env``'s copy equal to the file. True when made now."""
+    the compose secret always has its file). An empty copy in ``deploy/.env`` is filled from the file. True when made
+    now.
+
+    A copy in ``deploy/.env`` that is set and differs from the file is refused (:class:`SecretsError`), never
+    overwritten (T-608, D-445): someone changed one of them by hand, and silently undoing that would leave the vLLM
+    servers (which read ``.env``) and the gateway (which reads the file) on different keys without a word."""
     env_file = env_file or deploy / ".env"
     p = model_key_path(deploy)
     cur = p.read_text(encoding="utf-8").strip() if p.is_file() else ""
     if cur:
-        if _read_env(env_file).get(MODEL_KEY_ENV) != cur:
+        copy = (_read_env(env_file).get(MODEL_KEY_ENV) or "").strip()
+        if copy and copy != cur:
+            raise SecretsError(
+                f"{MODEL_KEY_ENV} in {env_file} differs from {p}: one of them was changed by hand. Keep the key you "
+                f"want in both (or run `trialbox secrets rotate --service model` to make a new one in both); "
+                "nothing was changed"
+            )
+        if not copy:
             _set_env(env_file, {MODEL_KEY_ENV: cur})
         return False
     _model_key_write(deploy, env_file, _read_env(env_file).get(MODEL_KEY_ENV) or _new_token(), uid)
