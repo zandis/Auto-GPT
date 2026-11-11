@@ -29,16 +29,15 @@ def e2e(synth_dir: Path, tmp_path_factory: pytest.TempPathFactory, pg_cluster_ur
 
 @pytest.fixture(scope="module")
 def env(e2e: Any) -> dict[str, Any]:
-    from dataplat.serving import Serving
     from embed_service.embedder import HashEmbedder
     from lake.client import LakeLocal
     from matching.cascade import CascadeConfig
 
     from tools.cascade_e2e import load_trial
 
-    wd = Path(e2e.out_dir) / "dataplat"
-    manifest = Serving(wd / "l5", wd / "l4", wd / "l4" / "lake", tz="Asia/Taipei").manifest()
-    lake = LakeLocal(wd / "l4" / "lake", HashEmbedder(), "Asia/Taipei")
+    lake_dir = Path(e2e.out_dir) / "ingest" / "lake"  # the adapter's night (T-659b)
+    snapshot = (lake_dir / "CURRENT").read_text(encoding="utf-8").strip()
+    lake = LakeLocal(lake_dir, HashEmbedder(), "Asia/Taipei")
     rs = load_trial(TRIAL)
     cfg = CascadeConfig(
         study_id=TRIAL,
@@ -48,7 +47,7 @@ def env(e2e: Any) -> dict[str, Any]:
         purpose="feasibility",
         step_id="test",
         sample_per_stratum=200,
-        snapshot=manifest.snapshot,
+        snapshot=snapshot,
     )
     return {"lake": lake, "rs": rs, "cfg": cfg}
 

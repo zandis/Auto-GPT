@@ -6,7 +6,7 @@
 against <code>eval/DATASETS.yaml</code> with the environment ceiling (<code>check_env</code>): DEV and TEST hold D0 only.</p>
 <div class="cards">
   <a class="card" href="/run"><h3>Run</h3><p>Run end to end per dataset, invariants as pass or fail; run the unit tests.</p></a>
-  <a class="card" href="/dataplat"><h3>Data platform</h3><p>L0–L5 publish cycle, DQ, reconciliation, lineage, planted defects.</p></a>
+  <a class="card" href="/ingest"><h3>Ingest gate</h3><p>The adapter's night: data contracts, row quarantine, control totals, the gate record, lineage, planted defects.</p></a>
   <a class="card" href="/llm"><h3>LLM lab</h3><p>Gateway route table (role × class × topology), test prompt with audit, registry and model cards.</p></a>
   <a class="card" href="/guard"><h3>PHI guard</h3><p>Paste D0 text and see detection and redaction.</p></a>
   <a class="card" href="/recall"><h3>Recall</h3><p>Recall-ledger simulation: confidence sequence against repeated Clopper–Pearson.</p></a>
@@ -23,6 +23,6 @@ against <code>eval/DATASETS.yaml</code> with the environment ceiling (<code>chec
 </tbody>
 </table>
 <h2>End-to-end engine</h2>
-<p>{% if e2e_entry %}v4 <code>run_end_to_end</code> found at <code>{{ e2e_entry }}</code>.{% else %}v4 <code>run_end_to_end</code> not found yet: "Run end to end" falls back to the v1 paths (synthetic: dataplat + FEAS + reports; MIMIC: <code>tools/open_data_e2e.py</code>).{% endif %}</p>
+<p>{% if e2e_entry %}v4 <code>run_end_to_end</code> found at <code>{{ e2e_entry }}</code>.{% else %}v4 <code>run_end_to_end</code> not found yet: "Run end to end" falls back to the v1 paths (synthetic: adapter + FEAS + reports; MIMIC: <code>tools/open_data_e2e.py</code>).{% endif %}</p>
 <p class="small">htmx {{ htmx_version }} sha256 <code>{{ htmx_sha256 }}</code></p>
 {% endblock %}

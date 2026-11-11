@@ -93,7 +93,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-245 | reserved | T-304 | Statistics page and the export set: EXTRACT, Define-XML, audit CSV, … |
 | D-246 | reserved | T-305 | All-history back-fill, content-addressed snapshots, batched publish, … |
 | D-247 | reserved | T-306 | HAPI out of the nightly path |
-| D-248 | reserved | T-307 | Catalogue gaps and the instrument copyright register |
+| D-248 | unused | T-307 | Catalogue gaps and the instrument copyright register (voided: T-307 took D-375) |
 | D-249 | reserved | T-308 | Specialty templates |
 | D-250 | reserved | T-309 | Break-glass |
 | D-251 | reserved | T-310 | Weekly "criteria not matched" sample, the per-study IRB-text gate on … |
@@ -201,7 +201,11 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-373 | merged | T-214 | the GB10 profile as data (unmeasured), memory limits on the Spark, the dated driver hold, the two-device link (mutual TLS relay, the gateway no listener) (file) |
 | D-376 | merged | T-676b | the TWPAS route is SNOMED CT `26643006` (oral), the code the IG's required value set lists, with no SNOMED CT description; amends D-342 item 4 (file) |
 | D-377 | merged | T-108b | systemd units: the egress table saved by `apply` and restored closed before Docker at boot, the stack unit after it, the egress refresh and watchdog timers (file) |
+| D-381 | merged | T-659b | one ingest stack, the removal: `services/dataplat` deleted from the tree; contracts, row quarantine, one gate record per night, `pidmap.pid_alias` and `lineage.json` in the adapter (`adapter/governance.py`); the e2e tools run the adapter (`tools/ingest_local.py`) (file) |
 | D-383 | merged | T-305a | snapshot pinning: every job reads the lake snapshot it pinned at its first lake call (`Job.snapshot_date`); a snapshot older than `TB_LAKE_MAX_SNAPSHOT_AGE_DAYS` (3 in production compose, 0 = off) is refused with `LAKE-STALE` (file) |
 | D-385 | merged | T-516 | PoC workflow fixes: the screening log follows the participant's consent state; a referral asked after Approach pauses it (no call task, no contact outcome) until the doctor agrees; the reason where Approach is absent; the demo seeds the IRB approval date and consent-form version; no consent implied by a TrialBox form (file) |
 | D-386 | merged | T-622 | study state (start-up, open, paused, closed) as an event log; lists (SCREEN, MICROBATCH, COHORT) and N1/N2 mails only for an open study, a paused study still mails its participants' visits and SAEs; sponsor, protocol number, SIV date and registry ids (NCT, jRCT, UMIN-CTR, Taiwan) validated and printed on the screening log (file) |
+| D-375 | merged | T-307 | catalogue gaps after PR #80 and T-107: the instrument copyright register from public sources with site switches that need a licence reference, the phenotypes with a status (seven checked on the synthetic hospital), the Athena licence acknowledgements recorded (file) |
 | D-382 | merged | T-632 | site inputs and a finished install: the site's mapping folder `deploy/site/mapping` looked up before the image, the feed folder `TB_SOURCE_DIR` mounted at `TB_SOURCE_MOUNT`, TLS on with the identity overlay, both cron files, the enrolment code printed, the judge named from the registry, an `https://` URL checked, exit 1 on a FAIL; the network sheet renders every overlay (file) |
+| D-384 | merged | T-202 | the lake from OMOP: CI runs goldens and e2e-simple on both lake sources; the flip on the box is `tools.omop_parity flip` on an IDENTICAL report (its sha256 in the flag reason); export as of a time from record before-images (migration 6); site chart facts to NOTE_NLP (file) |
+| D-390 | merged | T-635 | operations documents: RUNBOOK §21 to §25 (support model and the supervised remote session, DR targets until T-213b measures them, the lost-box list, patch policy, leavers), the missing pages as parts of §4, §12 and §22, each naming its T-213b drill; `docs/DEVELOPING.md` as the ninth document; the support sheet and a tabletop record per site; defaults until the owner answers TB-DR-09 Q1, Q2, Q5, Q6 (file) |

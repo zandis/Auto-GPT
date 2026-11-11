@@ -1,7 +1,7 @@
 """``trialbox eval``: public evaluation suites (spec v4 §16, §17.7; S1-13, ENG-16).
 
     python -m tools.trialbox eval judge_public            # recorded GPT-4 outputs through tb-gateway; exact reference
-    python -m tools.trialbox eval ingest_fhir_demo        # MIMIC-IV FHIR demo through dataplat (skips if absent)
+    python -m tools.trialbox eval ingest_fhir_demo        # MIMIC-IV FHIR demo through the adapter (skips if absent)
     python -m tools.trialbox eval criteria_extract_public # Chia loader: blocked until the licence is confirmed
 
 With ``TB_GATEWAY_URL`` set, ``judge_public`` sends its calls to that running gateway (live mode) instead of the
@@ -243,33 +243,22 @@ def run_ingest_fhir_demo(workdir: Path, suite: dict[str, Any], source_dir: Path 
         if got != want:
             return {"status": "failed", "passed": False, "reason": f"{rel}: sha256 differs from FETCHED.json"}
         hashes[rel] = got
-    from dataplat.common import fixed_clock
-    from dataplat.pipeline import run_pipeline
-    from tb_common.crypto import ed25519_generate
+    from tools.ingest_local import run_local
 
-    from tools import pglocal
-
-    pglocal.for_work(workdir)  # D-126: the MPI lives in the trial database (TB_DB_URL, or a local throwaway one)
-    res = run_pipeline(
+    # T-659b: the one ingest path, the adapter (D-370); its night's gate record and lineage
+    night = run_local(
         src,
-        workdir / "dataplat",
+        workdir / "ingest",
         kind="mimic_fhir",
         site_key=b"trialbox-open-data-demo-key-0123456789abcdef",
-        clock=fixed_clock(datetime(2026, 9, 30, 12, 0, tzinfo=UTC)),
         snapshot="2026-09-30",
-        signing_key=ed25519_generate(),
     )
     exp = suite["expect"]
-    blocking = len(res.validation.blocking_reasons) if res.validation is not None else -1
-    patients = (
-        res.manifest.tables["Patient"].rows if res.manifest is not None and "Patient" in res.manifest.tables else 0
-    )
-    lineage = bool(res.lineage is not None and res.lineage.complete)
     observed = {
-        "outcome": res.outcome,
-        "blocking_dq_errors": blocking,
-        "lineage_complete": lineage,
-        "patients": patients,
+        "outcome": night.outcome,
+        "blocking_dq_errors": len(night.blocking_reasons),
+        "lineage_complete": night.lineage_complete,
+        "patients": int(night.report.counts.get("Patient", 0)),
     }
     return {
         "status": "ran",
