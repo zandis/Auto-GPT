@@ -274,5 +274,11 @@ def start(orch: Orchestrator) -> Any:
             sched.add_job(_submit, "cron", id="ingest", args=[orch, "INGEST", None, {"timer": "1"}], **kw)
         else:
             sched.add_job(_submit, "cron", id=jtype.lower(), args=[orch, jtype], **kw)
+    # T-310a (D-446): the weekly PI sample of "criteria not matched", drawn from each study's latest SCREEN
+    from orchestrator import notmatched_sample
+
+    sch = orch.cfg.settings.schedule
+    at = str(getattr(sch, "not_matched_sample", None) or notmatched_sample.DEFAULT_AT)
+    sched.add_job(notmatched_sample.weekly, "cron", id="not_matched_sample", args=[orch], **cron_kwargs(at))
     sched.start()
     return sched
