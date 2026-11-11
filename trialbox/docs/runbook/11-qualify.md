@@ -5,8 +5,8 @@ that card's profile. G1b runs through this command. It costs nothing by itself: 
 
 ## Before the run
 
-1. The pair is serving behind the box's gateway, and the weights are pinned in `models/registry.yaml` (weight hash
-   and revision of each build).
+1. The pair is serving behind the box's gateway (in TEST: the pins are candidates until promoted), and the weights
+   are the release `models/registry.yaml` expects (`expected`: manifest sha256 and revision of each build).
 2. The working tree is clean at the commit you want to qualify.
 3. Have these at hand:
    - the two weight folders (for the licence file check);
@@ -29,6 +29,10 @@ Exit 1 means `failed`; the record's `failed_steps` and each step's `reason` say 
 ## After the run
 
 - Check the record: `python -m tools.qualify --check <record> --profile <profile> --environment PRODUCTION`.
+- Promote each build of the pair (D-358): `python -m tools.pin_model --promote <build> --record <record>`. It refuses
+  a record that does not qualify PRODUCTION or that qualified other weights than the pinned ones. Then restart the
+  gateway in PRODUCTION. Before the promotion a PRODUCTION gateway refuses the pair with `champion_unqualified` (or
+  `no_eligible_build` for a candidate); run the qualification with the box's gateway in TEST (its calls are D0).
 - Commit the record with the pull request that pins the pair.
 - A failed record is evidence too: keep it, fix the cause, run again.
 

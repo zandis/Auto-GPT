@@ -13,6 +13,12 @@ the signer. The rules are enforced here even when a page already checked them (d
 * the REDCap send never overwrites a value someone else wrote in REDCap: it is listed as a conflict and skipped;
   every value sent is read back and compared. A screening number on two REDCap records, a visit that is not an
   event of the project, and a project with repeating instruments are refused (D-162);
+* each draft carries the hash of its item's map row, of its dictionary entry and the REDCap target it was built
+  for, all three inside what a signature covers. A map change supersedes the drafts not yet signed; the send
+  re-reads the project's dictionary and holds back a value whose map row, dictionary entry or target changed since,
+  and one REDCap's import would refuse, each listed with its reason; values go in the format of the field's
+  validation (``number_1dp``, decimal comma). A REDCap connection is one study's target (T-115, D-368);
+* the switch goes on with the stored blind re-entry result, recorded by another person (T-115, E-14);
 * a patient on the opt-out register is never drafted, decided, signed, sent or exported (D-162).
 
 Every step writes one audit event (``edc.*``) with who, the study and what changed (never a clinical value); a refusal
@@ -23,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -33,6 +40,7 @@ from datacore.export import BASE_EVENT
 from datacore.store import DataCore
 from rc_bridge.client import RcError, RedcapClient
 from tb_common.audit import AuditLog
+from tb_common.config import environment_name
 from tb_common.llm import LlmError
 
 from edc import mapping, odm, prefill
@@ -66,6 +74,8 @@ class EdcService:
     facts: Callable[[], prefill.Facts]  # the box's record (the lake), read at the snapshot of the moment
     drafter: Callable[[str], prefill.NoteDrafter | None] = lambda _job: None  # the note drafter, or none
     optouts: Callable[[], frozenset[str]] = frozenset  # the opt-out register's pseudonyms (fails closed)
+    #: a DEV or TEST box with no stored re-entry result may switch on with the typed numbers (demos; E-14)
+    typed_reentry: Callable[[], bool] = lambda: environment_name(os.environ) in ("DEV", "TEST")
 
     def stamp(self) -> str:
         return self.now().isoformat(timespec="seconds")
@@ -88,18 +98,41 @@ class EdcService:
 
     def set_switch(self, rs: str, on: bool, *, by: str, role: str, **ack: Any) -> dict[str, Any]:
         try:
-            sw = self.store.set_switch(rs, on, by=by, role=role, at=self.stamp(), today=self.today(), **ack)
+            sw = self.store.set_switch(rs, on, by=by, role=role, at=self.stamp(), today=self.today(),
+                                       typed_reentry=self.typed_reentry(), **ack)  # fmt: skip
         except EdcError as exc:
             self._audit("edc.switch", rs, by, {"on": on, "refused": exc.code})
             raise
         self._audit("edc.switch", rs, by, {"on": sw.on, "kind": sw.kind, "reference": sw.reference,
                                            "ack_date": sw.ack_date, "reentry_pages": sw.reentry_pages,
-                                           "reentry_accuracy": sw.reentry_accuracy, "role": role})  # fmt: skip
+                                           "reentry_accuracy": sw.reentry_accuracy, "reentry_id": sw.reentry_id,
+                                           "role": role})  # fmt: skip
         return sw.as_dict()
+
+    def record_reentry(self, rs: str, *, pages: int, accuracy: float, document: str, by: str,
+                       source: str = "admin") -> dict[str, Any]:  # fmt: skip
+        """Keep the blind re-entry result with the id of its filed report (E-14); audited, refusals too."""
+        try:
+            rec = self.store.add_reentry(rs, pages=pages, accuracy=accuracy, document=document, source=source, by=by,
+                                         at=self.stamp())  # fmt: skip
+        except EdcError as exc:
+            self._audit("edc.reentry", rs, by, {"refused": exc.code})
+            raise
+        self._audit("edc.reentry", rs, by, {"id": rec["id"], "pages": rec["pages"], "accuracy": rec["accuracy"],
+                                            "document": rec["document"], "source": source})  # fmt: skip
+        return rec
+
+    def _bound(self, rs: str, token_ref: str, by: str, event: str) -> None:
+        """A REDCap connection is one study's target (E-15): refused, and audited, for any other study."""
+        other = self.store.token_owner(token_ref, rs)
+        if other is not None:
+            self._audit(event, rs, by, {"token_ref": token_ref, "refused": "edc.token_bound"})
+            raise EdcError("edc.token_bound", "this REDCap connection is another study's target")
 
     # ------------------------------------------------------------------ dictionary and map
     def import_dictionary(self, rs: str, token_ref: str, by: str, record_field: str = "") -> dict[str, Any]:
         """Read the REDCap project's data dictionary through the API into the study's forms (identifiers dropped)."""
+        self._bound(rs, token_ref, by, "edc.dictionary")
         try:
             with self.client(token_ref) as c:
                 rows = c.metadata()
@@ -129,6 +162,7 @@ class EdcService:
         for k in ("token_ref", "key_field", "id_field"):
             if not str(target.get(k) or "").strip():
                 raise EdcError("edc.target", f"the REDCap target needs {k}", 400)
+        self._bound(rs, str(target["token_ref"]), by, "edc.map")
         maps = [mapping.ItemMap.from_dict(i) for i in items]
         fields = self.dc.fields(rs)
         bad = mapping.check(maps, fields, self._protected(rs, target))
@@ -138,8 +172,8 @@ class EdcService:
             raise err
         body = [m.as_dict() for m in maps]
         at = self.stamp()
-        self.store.put_map(rs, body, by, at)
         self.store.put_target(rs, target["token_ref"], target["key_field"], target["id_field"], by, at)
+        gone = self.store.put_map(rs, body, by, at)
         self._audit(
             "edc.map",
             rs,
@@ -149,9 +183,20 @@ class EdcService:
                 "drafted": sum(1 for m in maps if m.drafted),
                 "target": target["token_ref"],
                 "sha": hashlib.sha256(mapping.dumps(maps).encode()).hexdigest()[:16],
+                "superseded": len(gone),
             },
         )
-        return {"items": len(body), "drafted": sum(1 for m in maps if m.drafted)}
+        return {"items": len(body), "drafted": sum(1 for m in maps if m.drafted), "superseded": len(gone)}
+
+    def _built(self, rs: str, item: str) -> dict[str, str]:
+        """What a value of ``item`` is decided under now (E-15, E-16): its map row, its dictionary entry, the
+        target."""
+        row = next((m for m in self.store.map(rs) if str(m["item"]) == item), None)
+        f = self.dc.fields(rs).get(item)
+        target = self.store.target(rs)
+        return {"map_sha": mapping.item_sha(row) if row is not None else "",
+                "dict_sha": forms.field_sha(f) if f is not None else "",
+                "target": str(target["token_ref"]) if target else ""}  # fmt: skip
 
     # ------------------------------------------------------------------ drafts
     def build(self, rs: str, record: str, pid: str, visit: str, visit_date: str, by: str) -> list[dict[str, Any]]:
@@ -181,7 +226,11 @@ class EdcService:
             self._audit("edc.drafts", rs, by, {"record": record, "visit": visit or BASE_EVENT, "run": run_id,
                                                "refused": "edc.model", "error": why})  # fmt: skip
             raise EdcError("edc.model", f"the box's model did not answer ({why})", 502) from exc
-        rows = [d.as_dict() for d in drafts]
+        target = self.store.target(rs)
+        built = {"target": str(target["token_ref"]) if target else ""}
+        shas = {m.item: mapping.item_sha(m) for m in items}
+        rows = [{**d.as_dict(), **built, "map_sha": shas.get(d.item, ""),
+                 "dict_sha": forms.field_sha(fields[d.item]) if d.item in fields else ""} for d in drafts]  # fmt: skip
         ids = self.store.add_drafts(rs, record, pid, visit or BASE_EVENT, vd.isoformat(), rows, run_id, by,
                                     self.stamp())  # fmt: skip
         self._audit(
@@ -223,7 +272,22 @@ class EdcService:
                                                **({"signature_void": out["voided"], "unlocked": True}
                                                   if out.get("voided") is not None else {})})  # fmt: skip
 
+        now: dict[str, str] | None = None
         try:
+            if action in ("confirm", "edit"):
+                now = self._built(rs, str(d["item"]))
+            if action == "confirm":  # a draft is confirmed only under the map row and dictionary entry of now (E-16)
+                if d.get("map_sha") and d["map_sha"] != now["map_sha"]:  # type: ignore[index]
+                    raise EdcError("edc.stale_map", "the item map changed since this draft; draft the item again")
+                f0 = self.dc.fields(rs).get(str(d["item"]))
+                if f0 is None or (d.get("dict_sha") and d["dict_sha"] != forms.field_sha(f0)):
+                    raise EdcError("edc.stale_dictionary", "the data dictionary changed since this draft; draft the "
+                                   "item again")  # fmt: skip
+                p0 = forms.problem(f0, str(d.get("value") or ""))
+                if p0 is not None:
+                    err = EdcError("edc.invalid", forms.reason(p0, str(d.get("value") or "")), 400)
+                    err.problems = [{"field": f0.name, **p0}]  # type: ignore[attr-defined]
+                    raise err
             if action == "edit":
                 f = self.dc.fields(rs).get(str(d["item"]))
                 if f is None:
@@ -234,7 +298,8 @@ class EdcService:
                     err.problems = [{"field": f.name, **p}]  # type: ignore[attr-defined]
                     raise err
             return self.store.decide(rs, draft_id, action, value=value, reason=reason, citation=citation, by=by,
-                                     at=self.stamp(), unlock=unlock, before_commit=audited)  # fmt: skip
+                                     at=self.stamp(), unlock=unlock, before_commit=audited,
+                                     built=now if action == "edit" else None)  # fmt: skip
         except EdcError as exc:
             self._audit("edc.decide", rs, by, {"draft": draft_id, "action": action, "refused": exc.code})
             raise
@@ -273,9 +338,7 @@ class EdcService:
         target = self.store.target(rs)
         if target is None:
             raise EdcError("edc.target", "no REDCap target is set for this study")
-        out: dict[str, list[dict[str, Any]]] = {"sent": [], "already_there": [], "conflict": [], "no_record": [],
-                                                "readback": [], "opted_out": [], "duplicate": [],
-                                                "no_event": []}  # fmt: skip
+        out: dict[str, list[dict[str, Any]]] = {k: [] for k in SEND_RESULTS}
         at = self.stamp()
         gone = set(self.optouts())
         todo = []
@@ -308,6 +371,31 @@ class EdcService:
                                    "prefill does not send to it")  # fmt: skip
                 longitudinal = bool(int(proj.get("is_longitudinal") or 0))
                 events = {str(e.get("unique_event_name")) for e in c.events()} if longitudinal else {BASE_EVENT}
+                # T-115 (E-15, E-16, STD-061): the project's dictionary of now, the map of now, and the target
+                live = {f.name: f for f in (forms.field_of(m) for m in c.metadata())}
+                local = self.dc.fields(rs)
+                rows_now = {str(m["item"]): mapping.item_sha(m) for m in self.store.map(rs)}
+                held = []
+                for d in todo:
+                    item = str(d["item"])
+                    lf = live.get(item)
+                    want = str(d.get("dict_sha") or "") or (forms.field_sha(local[item]) if item in local else "")
+                    why = ""
+                    if d.get("target") and d["target"] != str(target["token_ref"]):
+                        why, text = "target_changed", "built for another REDCap target; not sent"
+                    elif d.get("map_sha") and rows_now.get(item) != d["map_sha"]:
+                        why, text = "stale_map", "the item's map row changed since it was signed; not sent"
+                    elif lf is None or forms.field_sha(lf) != want:
+                        why, text = "dictionary_changed", "the REDCap dictionary entry changed since; not sent"
+                    elif forms.problem(lf, str(d["final"])) is not None:
+                        p = forms.problem(lf, str(d["final"])) or {}
+                        why, text = "format", "REDCap would refuse it: " + forms.reason(p, str(d["final"]))
+                    if why:
+                        out[why].append(_brief(d))
+                        self.store.record_sent(rs, d, "redcap", "", why, text, by, at)
+                        held.append(d)
+                todo = [d for d in todo if d not in held]
+                fmt = {int(d["id"]): forms.redcap_value(live[str(d["item"])], str(d["final"])) for d in todo}
                 items = sorted({str(d["item"]) for d in todo})
                 rows = c.records(fields=[rid, key, *items])
                 found: dict[str, set[str]] = {}
@@ -338,17 +426,20 @@ class EdcService:
                         continue
                     ev = str(d["visit"]) if longitudinal else ""
                     there = str((cur.get((rec, ev)) or {}).get(d["item"]) or "")
-                    if there == d["final"]:
+                    value = fmt[int(d["id"])]
+                    if there == value:
                         out["already_there"].append(_brief(d))
                         self.store.record_sent(rs, d, "redcap", rec, "already_there", "", by, at)
                         continue
-                    if there and there != (self.store.last_sent(rs, d["record"], d["visit"], d["item"]) or ""):
+                    last = self.store.last_sent(rs, d["record"], d["visit"], d["item"])
+                    lf = live[str(d["item"])]
+                    if there and there != (forms.redcap_value(lf, last) if last else ""):
                         out["conflict"].append({**_brief(d), "redcap": there})
                         self.store.record_sent(rs, d, "redcap", rec, "conflict", "REDCap holds another value that "
                                                "TrialBox did not write; not overwritten", by, at)  # fmt: skip
                         continue
                     row = imports.setdefault((rec, ev), {rid: rec, **({"redcap_event_name": ev} if ev else {})})
-                    row[str(d["item"])] = str(d["final"])
+                    row[str(d["item"])] = value
                     planned.append((d, rec, ev))
                 if imports:
                     # re-read each value just before the import: one edited or withdrawn since is not sent (E-17)
@@ -368,7 +459,7 @@ class EdcService:
                     }
                     for d, rec, ev in planned:
                         got = str((back.get((rec, ev)) or {}).get(d["item"]) or "")
-                        if got == d["final"]:
+                        if got == fmt[int(d["id"])]:
                             out["sent"].append(_brief(d))
                             self.store.record_sent(rs, d, "redcap", rec, "sent", "read back equal", by, at)
                         else:
@@ -400,6 +491,11 @@ class EdcService:
 
     def trail(self, rs: str, record: str) -> dict[str, Any]:
         return self.store.trail(rs, record)
+
+
+#: what the send answers per value: written, or held back with the reason (the last four: T-115, D-368)
+SEND_RESULTS = ("sent", "already_there", "conflict", "no_record", "readback", "opted_out", "duplicate", "no_event",
+                "target_changed", "stale_map", "dictionary_changed", "format")  # fmt: skip
 
 
 def _brief(d: dict[str, Any]) -> dict[str, Any]:

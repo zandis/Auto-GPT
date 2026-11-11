@@ -116,6 +116,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/studies/{rs}/forms` | Y | Y | Y | Y | - | - | Y |
 | GET | `/studies/{rs}/history` | - | Y | Y | Y | - | - | - |
 | GET | `/studies/{rs}/irb` | Y | Y | Y | Y | - | - | Y |
+| GET | `/studies/{rs}/not-matched` | - | Y | Y | Y | - | - | - |
 | GET | `/studies/{rs}/patients/{pid}` | - | Y | Y | Y | - | - | - |
 | GET | `/studies/{rs}/referrals` | - | Y | Y | Y | - | - | - |
 | GET | `/studies/{rs}/rescreen` | - | Y | Y | Y | - | - | - |
@@ -215,6 +216,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/studies/{rs}/forms/builtin` | - | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/forms/dictionary` | - | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/irb` | Y | Y | Y | Y | - | - | - |
+| POST | `/studies/{rs}/not-matched/{pid}/review` | - | n | n | n | - | - | - |
 | POST | `/studies/{rs}/patients/{pid}/mark` | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/patients/{pid}/outcome` | Y | Y | - | Y | - | - | - |
 | POST | `/studies/{rs}/patients/{pid}/reveal` | - | Y | Y | Y | - | - | - |

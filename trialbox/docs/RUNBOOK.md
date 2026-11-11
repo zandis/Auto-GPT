@@ -44,7 +44,7 @@ File: [runbook/07-contacts-and-escalation.md](runbook/07-contacts-and-escalation
 
 ## 8. DGX Spark end to end
 
-File: [runbook/08-dgx-spark-end-to-end.md](runbook/08-dgx-spark-end-to-end.md).
+File: [runbook/08-dgx-spark-end-to-end.md](runbook/08-dgx-spark-end-to-end.md). Parts: [RUNBOOK §8 section: the Spark and a workstation, two devices (D-373)](runbook/08-two-device.md).
 
 ## 9. Proof of concept with Docker
 

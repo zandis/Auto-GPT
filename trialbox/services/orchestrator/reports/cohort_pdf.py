@@ -121,6 +121,7 @@ def render(rs: Ruleset, table: CohortTable, sims: TrialSimResult | None, meta: R
             "'contactable' = patients with an active research-contact consent in the site registry.",
             small,
         ),
+        Paragraph(escape(meta.statement), small),  # TB-IU-01 C1 (T-116)
     ]
 
     def on_page(canvas: Any, doc: Any) -> None:

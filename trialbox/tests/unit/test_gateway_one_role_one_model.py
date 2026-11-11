@@ -418,7 +418,8 @@ def test_each_layer_alone_keeps_a_judge_outage_from_being_an_agreement(
 def _doctor_env(tmp_path: Path, **over: str) -> dict[str, str]:
     from tests.unit.test_gateway_box_phi import _dotenv, _pin
 
-    env = {**_dotenv(), "TB_GATEWAY_URL": "http://gateway:8020/v1", "TB_REGISTRY_OVERRIDE": str(_pin(tmp_path))}
+    env = {**_dotenv(), "TB_GATEWAY_URL": "http://gateway:8020/v1", "TB_REGISTRY_OVERRIDE": str(_pin(tmp_path)),
+           "TB_REGISTRY_PATH": str(tmp_path / "registry.release.yaml")}  # fmt: skip
     env.update(over)
     return {k: v for k, v in env.items() if v != ""}
 

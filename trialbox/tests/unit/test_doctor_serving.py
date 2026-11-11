@@ -16,6 +16,7 @@ from typing import Any
 import model_guard
 import pytest
 
+from tests.model_pins import promote_pins, release_registry
 from tools import pin_model
 from tools import vllm_standin as vs
 from tools.trialbox import doctor
@@ -75,13 +76,18 @@ def test_a_server_without_the_guard_is_reachable_without_the_key(tmp_path: Path,
 
 def _pins(tmp_path: Path, served: dict[str, str] | None = None) -> Path:
     out = tmp_path / "site" / "registry.site.yaml"
-    for build, endpoint, name in (JUDGE, VERIFIER):
-        d = tmp_path / "models" / build
+    folders: dict[str, Path] = {}
+    for build, _endpoint, _name in (JUDGE, VERIFIER):
+        d = folders[build] = tmp_path / "models" / build
         d.mkdir(parents=True)
         (d / "config.json").write_text('{"architectures": ["Placeholder"]}\n', encoding="utf-8")
         (d / "model.safetensors").write_bytes(b"synthetic placeholder, not a model\n")
-        pin_model.pin(build, d, served_name=(served or {}).get(endpoint, name), endpoint=endpoint, out=out,
-                      status="champion")  # fmt: skip
+    with pytest.MonkeyPatch.context() as mp:  # the synthetic folders are the release (T-012b)
+        release_registry(tmp_path, folders, mp)
+        for build, endpoint, name in (JUDGE, VERIFIER):
+            pin_model.pin(build, folders[build], served_name=(served or {}).get(endpoint, name), endpoint=endpoint,
+                          out=out)  # fmt: skip
+    promote_pins(out)
     return out
 
 
