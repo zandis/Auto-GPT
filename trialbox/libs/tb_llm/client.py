@@ -3,6 +3,11 @@
 Every call carries its labels as ``X-TB-*`` headers — data class, study, purpose, context of use, role, prompt, and
 the caller's service id — and, for every role except free-form ones, a ``json_schema`` response format. Labels are
 set by the calling step from the data it read (§7.1); this library never infers them.
+
+An answer from an alias the call did not expect raises :class:`GatewayUnexpectedAlias` (T-601, deep review LLM-003):
+an alias other than the one the call named, an answer that another alias gave after the expected one failed
+(``tb.fallbacks``, ``X-TB-Fallbacks``) unless the client was made with ``allow_fallback=True``, or an answer that does
+not say which alias gave it. So one role is never answered by another role's model without the caller knowing.
 """
 
 from __future__ import annotations
@@ -19,6 +24,16 @@ FREE_FORM_ROLES = frozenset({"frontdesk_converse"})
 
 class GatewayError(RuntimeError):
     """The gateway could not be reached or answered with an unexpected error."""
+
+
+class GatewayUnexpectedAlias(GatewayError):
+    """The gateway answered, but not from the alias this call expected (T-601): the answer is not used."""
+
+    def __init__(self, message: str, *, expected: str = "", alias: str = "", call_id: str = "") -> None:
+        super().__init__(message)
+        self.expected = expected
+        self.alias = alias
+        self.call_id = call_id
 
 
 class GatewayRefused(GatewayError):
@@ -92,7 +107,10 @@ def json_schema_format(name: str, schema: dict[str, Any], *, strict: bool = True
 
 class GatewayClient:
     """``model`` (or ``TB_GATEWAY_MODEL`` via :meth:`from_env`) is a default alias the client asks for when a call
-    names none; the gateway still decides whether that alias is on the route and pinned (it never widens a route)."""
+    names none; the gateway still decides whether that alias is on the route and pinned (it never widens a route).
+
+    ``allow_fallback``: accept an answer from the next build of a route that allows it (``fallback: any``) when the
+    expected one failed. Off by default; an alias the call named must answer in every case (T-601)."""
 
     def __init__(
         self,
@@ -102,6 +120,7 @@ class GatewayClient:
         http: httpx.Client | None = None,
         timeout: float = 600.0,
         model: str | None = None,
+        allow_fallback: bool = False,
     ) -> None:
         if not base_url:
             raise ValueError("tb_llm: gateway URL required")
@@ -109,6 +128,7 @@ class GatewayClient:
         self.caller = caller
         self.http = http or httpx.Client(timeout=timeout)
         self.model = model or None
+        self.allow_fallback = allow_fallback
 
     @classmethod
     def from_env(cls, caller: str | None = None) -> GatewayClient:
@@ -144,7 +164,42 @@ class GatewayClient:
                 )
             raise GatewayError(f"gateway error {resp.status_code}: {resp.text[:500]}")
         payload: dict[str, Any] = resp.json()
+        self._check_alias(payload, str(body.get("model") or ""), resp.headers.get("x-tb-fallbacks", ""))
         return payload
+
+    def _check_alias(self, payload: dict[str, Any], named: str, header_fallbacks: str) -> None:
+        """Raise :class:`GatewayUnexpectedAlias` unless the answer came from the alias this call expected (T-601)."""
+        tb = payload.get("tb") if isinstance(payload, dict) else None
+        tb = tb if isinstance(tb, dict) else {}
+        alias = str(tb.get("alias") or "")
+        call_id = str(tb.get("call_id") or "")
+        expected = named or str(tb.get("expected_alias") or "")
+        if not alias:
+            raise GatewayUnexpectedAlias(
+                "tb_llm: the answer does not say which build gave it (no tb.alias): not used", expected=expected
+            )
+        if named and alias != named:
+            raise GatewayUnexpectedAlias(
+                f"tb_llm: asked for {named!r}, answered by {alias!r}: not used",
+                expected=named,
+                alias=alias,
+                call_id=call_id,
+            )
+        try:
+            fallbacks = max(int(tb.get("fallbacks") or 0), int(header_fallbacks or 0))
+        except (TypeError, ValueError):
+            fallbacks = 1  # cannot tell: as if another build answered
+        if self.allow_fallback:
+            return
+        if fallbacks > 0 or (expected and alias != expected):
+            raise GatewayUnexpectedAlias(
+                f"tb_llm: {alias!r} answered after {fallbacks} other build(s) failed"
+                + (f" (expected {expected!r})" if expected else "")
+                + "; pass allow_fallback=True to accept another build's answer",
+                expected=expected,
+                alias=alias,
+                call_id=call_id,
+            )
 
     def chat(
         self,

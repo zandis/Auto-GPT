@@ -66,6 +66,11 @@ datasets:
     data_class: D0
     kind: synthetic
     licence: written for TrialBox (synthetic probes, no patient data)
+  injection:
+    path: eval/injection (the prompt-injection and false-positive suite, T-208, D-346; synthetic notes, charts, consent forms and protocols with planted instructions in en / ja / zh-TW)
+    data_class: D0
+    kind: synthetic
+    licence: written for TrialBox (fictional text, no patient data)
   canary_local:
     path: eval/canary_local (answers of 4-bit GGUF builds on CPU to the orchestrator canary, services/orchestrator/canary; 2026-11-08)
     data_class: D0

@@ -31,6 +31,7 @@ from omop.schema import LOCAL_MIN, OmopError
 
 VALID_FROM, VALID_TO = date(1970, 1, 1), date(2099, 12, 31)
 
+OPERATOR_VOCAB = "None"  # OHDSI's own placeholder vocabulary (concept 0's); TB-* is for ids >= 2e9 only
 # OHDSI standard concepts written by the loader (id, name, domain, vocabulary, class, code)
 STANDARD: tuple[tuple[int, str, str, str, str, str], ...] = (
     (0, "No matching concept", "Metadata", "None", "Undefined", "No matching concept"),
@@ -40,11 +41,13 @@ STANDARD: tuple[tuple[int, str, str, str, str, str], ...] = (
     (9202, "Outpatient Visit", "Visit", "Visit", "Visit", "OP"),
     (9203, "Emergency Room Visit", "Visit", "Visit", "Visit", "ER"),
     (32817, "EHR", "Type Concept", "Type Concept", "Type Concept", "OMOP4976890"),
-    (4171756, "<", "Meas Value Operator", "SNOMED", "Qualifier Value", "276139006"),
-    (4171754, "<=", "Meas Value Operator", "SNOMED", "Qualifier Value", "276140008"),
-    (4172703, "=", "Meas Value Operator", "SNOMED", "Qualifier Value", "276136004"),
-    (4172704, ">", "Meas Value Operator", "SNOMED", "Qualifier Value", "276138003"),
-    (4171755, ">=", "Meas Value Operator", "SNOMED", "Qualifier Value", "276137008"),
+    # the measurement value operators keep OHDSI's concept ids (what operator_concept_id means to OHDSI tools), but
+    # not the SNOMED CT vocabulary and codes they carry in Athena: the box ships no SNOMED CT (T-617b, STD-044)
+    (4171756, "<", "Meas Value Operator", OPERATOR_VOCAB, "Qualifier Value", "<"),
+    (4171754, "<=", "Meas Value Operator", OPERATOR_VOCAB, "Qualifier Value", "<="),
+    (4172703, "=", "Meas Value Operator", OPERATOR_VOCAB, "Qualifier Value", "="),
+    (4172704, ">", "Meas Value Operator", OPERATOR_VOCAB, "Qualifier Value", ">"),
+    (4171755, ">=", "Meas Value Operator", OPERATOR_VOCAB, "Qualifier Value", ">="),
     (32678, "UTF-8", "Metadata", "Note Encoding", "Undefined", "UTF-8"),
     (21, "Measurement", "Metadata", "Domain", "Domain", "OMOP generated"),
 )

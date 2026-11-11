@@ -66,7 +66,7 @@ def test_team_store_log_referral_irb_and_views() -> None:
     eid = t.add_entry("GZQO", username="drsato", name="Dr Sato", role="pi", tasks=(), start="2026-01-01", end=None,
                       training_day="2025-06-01", training_ref="GCP-1", by="drsato", at="2026-10-01T00:00:00+00:00")  # fmt: skip
     pi = t.pi_of("GZQO", date(2026, 10, 1))
-    assert pi is not None and pi.id == eid and set(pi.tasks) == {"screen", "approach", "refer", "enter_data"}
+    assert pi is not None and pi.id == eid and set(pi.tasks) == {"screen", "approach", "refer", "enter_data", "run"}
     sub = t.add_entry("GZQO", username="drkato", name="Dr Kato", role="sub_pi", tasks=["screen", "bogus"],
                       start="2026-01-01", end=None, training_day=None, training_ref=None, by="drsato",
                       at="2026-10-01T00:01:00+00:00")  # fmt: skip

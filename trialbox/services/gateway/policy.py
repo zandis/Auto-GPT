@@ -107,9 +107,10 @@ class Route:
     profiles: tuple[str, ...]
     builds: tuple[tuple[str, str], ...]  # (alias, endpoint name)
     external_requires: tuple[str, ...] = ()
-    # D-276 (review LLM-002): "none" = a failed build is an error, never another alias's answer. The default for a
-    # route that serves the ``patient`` group, and always so for those roles (:meth:`RoutingPolicy.no_fallback`)
-    fallback: str = "any"
+    # D-276 (review LLM-002): "none" = a failed build is an error, never another alias's answer; always so for the
+    # ``patient`` roles (:meth:`RoutingPolicy.no_fallback`). T-601 (review LLM-003): "none" is also the default for
+    # a route that does not say ``fallback: any``
+    fallback: str = "none"
 
 
 @dataclass(frozen=True)
@@ -212,11 +213,11 @@ class RoutingPolicy:
                 builds.append((alias, ep))
             roles = tuple(self._expand(raw.get("roles") or ()))
             patient = set(self.groups.get("patient", []))
-            fallback = str(raw.get("fallback") or ("none" if roles and set(roles) <= patient else "any"))
+            fallback = str(raw.get("fallback") or "none")  # T-601: another alias answers only where a route says so
             if fallback not in ("none", "any"):
                 raise ValueError(f"routing: route {raw.get('id')} fallback must be none or any, not {fallback!r}")
             # review R2-03: a route that serves any patient role may not say "any" (its patient roles never fall back
-            # whatever it says: :meth:`no_fallback`); a mixed route left unset keeps "any" for its other roles only
+            # whatever it says: :meth:`no_fallback`)
             if raw.get("fallback") == "any" and set(roles) & patient:
                 raise ValueError(f"routing: route {raw.get('id')} serves the patient group: fallback must be none")
             self.routes.append(
