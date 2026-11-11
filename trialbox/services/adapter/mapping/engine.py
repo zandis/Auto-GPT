@@ -416,7 +416,9 @@ class Mapper:
                 }
         if lk.get("value_type") == "coded":
             answers = dict(a.split(":", 1) for a in (lk.get("answers") or "").split(";") if ":" in a)
-            code = answers.get(str(raw).strip().upper())
+            # the site's own word first, then the shared ja / zh-TW / en table (陰性, 未檢出, Non-reactive; D-334)
+            word = labvalue.answer_key(raw, answers)
+            code = answers.get(word) if word else None
             if code is None:
                 return {"valueString": str(raw)}
             loinc_answer, _, display = code.partition("|")
