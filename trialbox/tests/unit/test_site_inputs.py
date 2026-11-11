@@ -48,7 +48,8 @@ def site(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, db_url: str) -> dict[s
     # in the container the feed is mounted at data_source_path; here the folder itself stands in for the mount
     answers.update({"data_source_path": str(feed), "data_source_host_dir": str(feed), "llm_mode": "stub"})
     settings, env, warnings = settings_wizard.build(answers, [mapping])
-    assert not [w for w in warnings if "tls" in w]
+    # the rehearsal uses Caddy's internal CA on purpose (OPS-060 warns about it); no other TLS warning
+    assert not [w for w in warnings if "tls" in w and not w.startswith("tls_mode internal")]
     settings_wizard.write(settings, env, tmp_path / "deploy/settings.yaml", tmp_path / "deploy/.env")
     for k in ("TB_SETTINGS", "TB_SETTINGS_FILE"):
         monkeypatch.setenv(k, str(tmp_path / "deploy/settings.yaml"))
@@ -146,6 +147,25 @@ def test_the_wizard_checks_tls_answers() -> None:
         {**a, "tls_mode": "hospital", "tls_cert_file": "/etc/tb/site.crt", "tls_key_file": "/etc/tb/site.key"}, dirs
     )
     assert env["TB_TLS_CERT_FILE"] == "/etc/tb/site.crt" and env["TB_TLS_MODE"] == "hospital"
+
+
+def test_the_wizard_makes_the_hospital_certificate_the_first_choice() -> None:
+    """OPS-060: the hospital's certificate is the default; Caddy's internal CA is allowed with a warning."""
+    assert settings_wizard.TLS_MODES[0] == "hospital"
+    (q,) = [q for q in settings_wizard.QUESTIONS if q[0] == "tls_mode"]
+    assert q[2] == "hospital" and "first choice" in q[1]
+    a = yaml.safe_load(ANSWERS_C.read_text(encoding="utf-8"))
+    a.pop("tls_mode")
+    dirs = [ANSWERS_C.parent / "mapping"]
+    with pytest.raises(settings_wizard.WizardError, match=r"hospital \(the default\) needs tls_cert_file"):
+        settings_wizard.build(a, dirs)
+    _, env, warnings = settings_wizard.build(
+        {**a, "tls_cert_file": "/etc/tb/site.crt", "tls_key_file": "/etc/tb/site.key"}, dirs
+    )
+    assert env["TB_TLS_MODE"] == "hospital" and not any("tls_mode internal" in w for w in warnings)
+    _, env, warnings = settings_wizard.build({**a, "tls_mode": "internal"}, dirs)
+    assert env["TB_TLS_MODE"] == "internal"
+    assert any("every clinic PC" in w and "personal devices" in w for w in warnings)
 
 
 def test_the_wizard_refuses_a_mapping_in_neither_place() -> None:
