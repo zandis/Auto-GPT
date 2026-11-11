@@ -48,6 +48,7 @@ from orchestrator.edc_api import router as edc_router
 from orchestrator.lifecycle_api import router as lifecycle_router
 from orchestrator.scenarios import registry
 from orchestrator.setup_api import router as setup_router
+from orchestrator.sponsor_api import router as sponsor_router
 from orchestrator.study_api import StudyService
 from orchestrator.study_api import router as study_router
 from orchestrator.studystore import StudyStore
@@ -515,6 +516,7 @@ def data_service_of(o: Orchestrator) -> Any:
 
 app.include_router(datacore_router(lambda: data_service_of(orch())))
 app.include_router(lifecycle_router(lambda: data_service_of(orch())))  # TB-PLAN-04 step 5 (D-134)
+app.include_router(sponsor_router(lambda: data_service_of(orch())))  # the sponsor layout and weekly sheet (D-435)
 
 # ---------------------------------------------------------------------------- site set-up (step 5b, D-131/132/135)
 _setups: dict[str, Any] = {}

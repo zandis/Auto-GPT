@@ -59,7 +59,7 @@ NO_TWIN_YET: tuple[str, ...] = (
     "/studies/{rs}/redcap-read", "/studies/{rs}/state", "/studies/{rs}/feasibility/refresh", "/studies/{rs}/team",
     "/studies/{rs}/team/check", "/studies/{rs}/team/{eid}",
     # a study's work (FIT-019: the not-matched review, the SAE register, schedule undo)
-    "/studies/{rs}/deviations", "/studies/{rs}/excluded/{pid}/review", "/studies/{rs}/not-matched/{pid}/review",
+    "/studies/{rs}/deviations",
     "/studies/{rs}/sae/sync", "/studies/{rs}/sae/{record}/{event}/ack", "/studies/{rs}/sae/{record}/{event}/{what}",
     "/studies/{rs}/sources/redcap/undo", "/studies/{rs}/subjects/{record}/undo",
 )  # fmt: skip
@@ -68,7 +68,7 @@ NO_TWIN_YET: tuple[str, ...] = (
 PAGE_BODY_FIRST: dict[str, str] = {
     "/studies/{rs}/candidates/{pid}/reveal": "an empty reveal form is refused 400 before the one reveal path's check",
 }
-NO_TWIN_CEILING = 62  # lower it with every twin added; never raise it
+NO_TWIN_CEILING = 60  # lower it with every twin added; never raise it
 
 
 def _api_routes(app: Any) -> list[APIRoute]:

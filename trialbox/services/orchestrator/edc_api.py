@@ -12,6 +12,8 @@ here (``edc.service``).
   a record, each signed value carries its signature: printed name, role, time and meaning; E-12).
 * ``POST /studies/{rs}/edc/drafts/{id}/decide``: confirm, edit (reason) or reject.
 * ``POST /studies/{rs}/edc/sign``: the signature of one subject and visit (the console re-authenticated the signer).
+* ``POST /studies/{rs}/edc/import/odm``: a CDISC ODM file (base64) read into open drafts that cite it, proposals a
+  person confirms and signs (D-435); refused whole with a named ``odm.*`` reason.
 * ``POST /studies/{rs}/edc/send/redcap``; ``GET /studies/{rs}/edc/export/odm``;
   ``GET /studies/{rs}/edc/trail/{record}``.
 
@@ -27,6 +29,7 @@ missing re-authentication is audited as ``edc.refused`` (SEC-7).
 
 from __future__ import annotations
 
+import base64
 import os
 import re
 from collections.abc import Callable
@@ -121,6 +124,12 @@ class SignBody(BaseModel):
     method: str = Field(default="password", pattern=r"^(password|password\+totp|oidc\+mfa)$")
     lang: str = Field(default="en", pattern=r"^(en|ja|zh-TW)$")
     seen: dict[int, str] = Field(max_length=2000)  # draft id -> content hash, as the review page showed them
+
+
+class ImportBody(BaseModel):
+    name: str = Field(default="", max_length=120)
+    data: str = Field(min_length=1, max_length=8_000_000)  # the file, base64 (TB_EDC_ODM_MAX_BYTES bounds the bytes)
+    by: str | None = Field(default=None, pattern=_USER)
 
 
 class SendBody(BaseModel):
@@ -272,6 +281,16 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
                                       printed_name=body.printed_name, role=a.role, meaning=body.meaning,
                                       meaning_text=body.meaning_text, lang=body.lang, seen=body.seen,
                                       method=body.method))  # fmt: skip
+
+    @r.post("/studies/{rs}/edc/import/odm")
+    def import_odm(rs: str, body: ImportBody, request: Request) -> dict[str, Any]:
+        a = who(request, "draft", body.by, rs)  # an import drafts: the same question as a draft run
+        try:
+            data = base64.b64decode(body.data, validate=True)
+        except ValueError as exc:
+            msg = {"code": "odm.base64", "message": "the file is base64"}
+            raise HTTPException(status_code=400, detail=msg) from exc
+        return run(lambda: get().import_odm(_rs(rs), data, a.name, body.name))
 
     @r.post("/studies/{rs}/edc/send/redcap")
     def send(rs: str, body: SendBody, request: Request) -> dict[str, Any]:
