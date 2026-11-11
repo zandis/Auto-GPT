@@ -19,7 +19,7 @@
   <nav class="rail" aria-label="{{ t('wb.lists') }}">
     <h3>{{ t('wb.lists') }}</h3>
     {% for k in lists %}<a href="?list={{ k }}" class="{{ 'active' if k == lst else '' }}" data-testid="list-{{ k }}"{% if k == lst %} aria-current="page"{% endif %}><span>{{ t('wb.list.' + k) }}</span><span class="n{{ ' hot' if k == 'review' and counts[k] else '' }}">{{ counts[k] }}</span></a>{% endfor %}
-    <p class="hint">{{ t('week.meta', job=wk.job.type, date=wk.job.updated_at.date().isoformat(), snapshot=(wk.job.snapshot_date.isoformat() if wk.job.snapshot_date else '–')) }}</p>
+    <p class="hint" data-testid="week-run">{{ t('week.meta', job=wk.job.type, date=(wk.job.run_date.isoformat() if wk.job.run_date else wk.job.updated_at|local(10)), snapshot=(wk.job.snapshot_date.isoformat() if wk.job.snapshot_date else '–')) }}</p>
   </nav>
   <section class="wlist">
     <div class="headrow"><h2>{{ t('wb.list.' + lst) }}</h2><span class="hint">{{ t('wb.list.' + lst + '.help') }}</span></div>
