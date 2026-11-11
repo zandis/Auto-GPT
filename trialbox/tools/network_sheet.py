@@ -51,8 +51,10 @@ LANGS = ("en", "ja", "zh-TW")
 IMAGE_PORTS = {"postgres": 5432, "hapiproject/hapi": 8080, "vllm/vllm-openai": 8000, "authelia/authelia": 9091}
 # one-shot jobs that listen on nothing (the 5090 sleep swap's start order)
 NO_LISTEN = frozenset({"judge-sleep-init", "model-swap-init", "judge-wake-init"})
-# the services of the test and demo overlays (docker-compose.test.yml, docker-compose.testbench.yml)
-TEST_ONLY = frozenset({"greenmail", "mailpit", "testbench", "testbench-work"})
+# the services of the test, demo and acceptance overlays (docker-compose.test.yml, docker-compose.testbench.yml,
+# docker-compose.acceptance.yml: T-213a, D-410)
+TEST_ONLY = frozenset({"greenmail", "mailpit", "testbench", "testbench-work", "acceptance-directory",
+                       "acceptance-directory-seed", "acceptance-mail"})  # fmt: skip
 _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?-([^}]*))?\}")
 
 T: dict[str, dict[str, str]] = {
