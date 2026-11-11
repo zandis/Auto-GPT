@@ -5,6 +5,7 @@ Run on the host as root (the secrets volume), from the install folder with ``PYT
     python -m tools.keys init --backend shamir --threshold 2 --shares 3 --shares-out /media/stewards
     python -m tools.keys init --backend passphrase          # the passphrase: TB_KEK_PASSPHRASE, else typed twice
     python -m tools.keys init --backend file --kek-out /media/usb/trialbox.kek   # then seal it to the TPM
+    python -m tools.keys init --backend kms --kms-url https://kms.hosp/v1/transit --kms-key trialbox  # a platform
     python -m tools.keys wrap                               # wrap any key still plain (after keys-init)
     python -m tools.keys unseal [--share FILE ...]          # writes the KEK to /run/trialbox/kek (TB_KEK_FILE)
     python -m tools.keys status [--json]                    # wrapped or plain, fingerprints, the KEK: never a key
@@ -161,6 +162,13 @@ def new_kek(a: argparse.Namespace, sec: Path, env: Mapping[str, str], pass_var: 
             K._write_private(path, (s.text() + "\n").encode())
             _say(f"share {s.index} of {s.count} written to {path} (one steward each; then remove it from here)")
         return kek, K.new_meta("shamir", kek, threshold=a.threshold, count=a.shares, set_id=set_id)
+    if a.backend == "kms":
+        url = a.kms_url or env.get("TB_KMS_URL") or ""
+        if not url or not a.kms_key:
+            raise K.KekError("--kms-url (or TB_KMS_URL) and --kms-key are needed for the kms back end")
+        params = K.kms_seal(kek, url, a.kms_key, env.get("TB_KMS_TOKEN") or "")
+        _say(f"KEK sealed by the KMS key {a.kms_key} at {url}; kek.json holds only the KMS ciphertext")
+        return kek, K.new_meta("kms", kek, **params)
     if not a.kek_out:
         raise K.KekError("--kek-out PATH is needed for the file back end (outside the secrets folder)")
     out = Path(a.kek_out)
@@ -234,6 +242,8 @@ def cmd_unseal(a: argparse.Namespace, env: Mapping[str, str]) -> int:
         kek = K.derive_from_passphrase(_passphrase(env, "TB_KEK_PASSPHRASE", "KEK passphrase", twice=False), meta)
         if kek_id_mismatch(kek, meta):
             raise K.KekError("that is not this box's passphrase")
+    elif meta["backend"] == "kms":
+        kek = K.kms_open(meta, env)
     else:
         if not a.kek_in:
             raise K.KekError("--from PATH is needed for the file back end (the opened TPM credential or the media)")
@@ -411,6 +421,8 @@ def parser() -> argparse.ArgumentParser:
         p.add_argument("--shares", type=int, default=3, help="shamir: shares made (default 3)")
         p.add_argument("--shares-out", help="shamir: folder for the share files (outside the secrets folder)")
         p.add_argument("--kek-out", help="file: where the new KEK is written (outside the secrets folder)")
+        p.add_argument("--kms-url", help="kms: the transit address, e.g. https://kms.hosp/v1/transit (TB_KMS_URL)")
+        p.add_argument("--kms-key", help="kms: the name of the KMS key that seals the KEK (token: TB_KMS_TOKEN)")
         p.add_argument("--scrypt-n", type=int, help=argparse.SUPPRESS)  # tests: a cheaper scrypt
 
     with_backend(with_secrets(sub.add_parser("init", help="make the KEK and wrap the site keys")))
