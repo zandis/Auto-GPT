@@ -141,6 +141,85 @@ jobs:
       - name: the traceability CSV (warnings only, never blocks a merge; D-311)
         run: .venv/bin/python tools/gen_traceability.py --check
 
+  # T-619a (D-417; STD-011, STD-017, STD-070): standards conformance. TW Core 1.0.0 through the HL7 validator on 200
+  # mapped synthetic resources (0 errors, each fillable slice matched); the TW Core and JP Core rule files rebuilt from
+  # their pinned packages; JP Core 1.2.0 against the pinned 1.1.0 (printed for the Japan site); the five rulesets with
+  # a test set translated with the pinned jars and run by the local CQL engine, with the UTC-edge and censored cases.
+  # GitHub-hosted runner, no paid service. Jars and FHIR packages come from the caches; a miss downloads them, and
+  # every download is retried (a runner once lost the DNS answer for packages.fhir.org).
+  standards:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 45
+    env:
+      TB_ENV: DEV
+      TB_TZ: Asia/Taipei
+      PYTHONPATH: libs:services:.
+      TB_CQL_LOCAL_LIB: ${{ github.workspace }}/trialbox/.cache/cql-local/lib
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78  # v6.2.0
+        with:
+          distribution: temurin
+          java-version-file: trialbox/.java-version
+          cache: maven
+          cache-dependency-path: |
+            trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
+            trialbox/tools/cql_local/pom.xml
+      - run: make venv
+      # the same cache as the unit job (same paths, same key), so one of the two fills it for both
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            trialbox/.cache/jvm
+            trialbox/.cache/fonts
+          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/tools/jvm-deps.sha256', 'trialbox/tools/fhir-packages.sha256', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
+      # the local CQL engine's jars and the IG packages the rule files are built from
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            trialbox/.cache/cql-local
+            trialbox/.cache/fhir
+          key: tb-standards-${{ hashFiles('trialbox/tools/cql_local/pom.xml', 'trialbox/tools/jpcore_rules.py') }}
+      - name: JVM dependencies and fonts (validator, translator jars, FHIR package cache)
+        run: make jvm-deps fonts
+      - name: Local CQL engine (Maven, three tries)
+        run: |
+          if ls "$TB_CQL_LOCAL_LIB"/cqf-fhir-cql-*.jar >/dev/null 2>&1; then echo "cached"; exit 0; fi
+          for i in 1 2 3; do .venv/bin/python -m tools.cql_eval --fetch && exit 0; sleep $((i * 10)); done
+          exit 1
+      - name: TW Core and JP Core rule files are what their pinned packages give
+        run: |
+          .venv/bin/python -m tools.jpcore_rules --fetch --check
+          .venv/bin/python -m tools.jpcore_rules --ig tw --fetch --check
+      # STD-017: printed for the Japan site to choose a version; never blocks (the package is on jpfhir.jp, not on the
+      # FHIR registries, 2026-11-11)
+      - name: JP Core 1.2.0 against the pinned 1.1.0 (information)
+        continue-on-error: true
+        run: .venv/bin/python -m tools.jpcore_rules --fetch --version 1.2.0 --diff
+      - name: TW Core 1.0.0, HL7 validator on 200 mapped synthetic resources
+        env:
+          TB_HL7_VALIDATOR_JAR: ${{ github.workspace }}/trialbox/.cache/jvm/validator_cli.jar
+          TB_FHIR_PACKAGE_HOME: ${{ github.workspace }}/trialbox/.cache/jvm/fhir-home
+        run: .venv/bin/python -m tools.twcore_check --json "$RUNNER_TEMP/twcore.json"
+      - name: Five rulesets through the pinned jars and the CQL engine; the UTC-edge and censored cases
+        run: .venv/bin/python -m tools.cql_path_check --json "$RUNNER_TEMP/cql-path.json"
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: standards
+          path: |
+            ${{ runner.temp }}/twcore.json
+            ${{ runner.temp }}/cql-path.json
+          if-no-files-found: ignore
+
   unit:
     runs-on: ubuntu-latest
     needs: changes
