@@ -1,0 +1,36 @@
+# The health thresholds of tb_common.metrics as alert rules (T-209a, D-379). The console already applies them
+# (tb_health_check_level: 0 ok, 1 warn, 2 red); these rules make the same red visible in Prometheus.
+groups:
+  - name: trialbox-health
+    rules:
+      - alert: TrialBoxHealthRed
+        expr: max(tb_health_check_level) >= 2
+        for: 5m
+        annotations:
+          summary: "A TrialBox health check is red: see the daily health mail or /admin/ops"
+      - alert: TrialBoxCanaryFailed
+        expr: tb_health_check_level{check="canary"} >= 2
+        annotations:
+          summary: "The model self-test failed: note reading is off"
+      - alert: TrialBoxDiskOver85
+        expr: tb_disk_used_percent > 85
+        for: 15m
+        annotations:
+          summary: "A disk of the box is over 85 % full"
+      - alert: TrialBoxCertificateEnding
+        expr: tb_certificate_days_left <= 30
+        annotations:
+          summary: "The hospital certificate ends within 30 days"
+      - alert: TrialBoxBackupOld
+        expr: tb_health_check_level{check="backup"} >= 2
+        annotations:
+          summary: "The newest good backup is too old, or the last one failed"
+      - alert: TrialBoxBackupNotVerified
+        expr: tb_backup_verified_age_days > 100
+        annotations:
+          summary: "No backup has been verified with the private key for 100 days"
+      - alert: TrialBoxNotScraped
+        expr: up{job="trialbox-console"} == 0
+        for: 10m
+        annotations:
+          summary: "Prometheus cannot read the console's /metrics"

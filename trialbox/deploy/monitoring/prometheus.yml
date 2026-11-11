@@ -1,0 +1,15 @@
+# Prometheus for the monitoring overlay (deploy/docker-compose.monitoring.yml; T-209a, D-379).
+global:
+  scrape_interval: 60s
+  evaluation_interval: 60s
+
+rule_files: [/etc/prometheus/rules.yml]
+
+scrape_configs:
+  - job_name: trialbox-console
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/metrics.token
+    static_configs:
+      - targets: ["console:8090"]
