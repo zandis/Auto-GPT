@@ -62,6 +62,7 @@ These are the thresholds of the full qualify. Each one is in code, and the test 
 | `pair_gate` | per gated source, wrong exclusions at most 2 % of exclusions, at least 20 exclusions, at least 50 answered and at most 10 % with no answer | `tools.judge_bakeoff.GateConfig` |
 | `determinism` | 0 changed exclusions over two runs at concurrency 16; 0 cache hits | `step_determinism` |
 | `throughput` | reported only; no threshold (LLM-025) | `step_throughput` |
+| `injection` | the prompt-injection suite (`eval/injection/cases.yaml`): 0 changed facts over the attacks, and at most 2 % false positives over the controls (`MAX_FALSE_POSITIVE_SHARE`) | `step_injection`, `tools/injection_eval.py` |
 | `n12` | TREC CT eligible pairs wrongly dropped, **unadjusted**, at most 5 %; the evidence must say `"basis": "unadjusted"` | `step_evidence` |
 | `public_e2e` | every check of `tools.public_e2e` passes at this git HEAD | `step_evidence` |
 | `goldens` | `make goldens-check` is identical at this git HEAD | `step_evidence` |
