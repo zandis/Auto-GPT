@@ -20,10 +20,10 @@ EN: dict[str, str] = {
     "models.weights.unexpected": "these weights are not the expected release: refused",
 }
 JA: dict[str, str] = {
-    "models.builds": "この装置のモデルビルド",
-    "models.builds.none": "この装置に固定されたモデルビルドはありません。",
+    "models.builds": "TrialBox のモデルビルド",
+    "models.builds.none": "TrialBox に固定されたモデルビルドはありません。",
     "models.record": "適格性確認済み: 記録 {record}、昇格 {at}",
-    "models.record.none": "適格性確認の記録がありません: 確認と昇格が済むまで、PRODUCTION の装置はこのモデルを拒否します",
+    "models.record.none": "適格性確認の記録がありません: 確認と昇格が済むまで、PRODUCTION の TrialBox はこのモデルを拒否します",
     "models.weights.unexpected": "この重みは想定されたリリースではありません: 拒否",
 }
 ZH: dict[str, str] = {
