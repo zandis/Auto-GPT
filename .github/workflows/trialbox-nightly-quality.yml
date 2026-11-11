@@ -65,7 +65,7 @@ jobs:
           path: |
             trialbox/.cache/jvm
             trialbox/.cache/fonts
-          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
+          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/tools/jvm-deps.sha256', 'trialbox/tools/fhir-packages.sha256', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
       - name: JVM dependencies and fonts
         run: make jvm-deps fonts
       - name: PostgreSQL server binaries
@@ -136,7 +136,7 @@ jobs:
           path: |
             trialbox/.cache/jvm
             trialbox/.cache/fonts
-          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
+          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/tools/jvm-deps.sha256', 'trialbox/tools/fhir-packages.sha256', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
       - name: JVM dependencies and fonts
         run: make jvm-deps fonts
       - name: PostgreSQL server binaries

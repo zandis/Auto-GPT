@@ -67,7 +67,7 @@ jobs:
         with:
           version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
           enable-cache: true
-          cache-dependency-glob: trialbox/pyproject.toml
+          cache-dependency-glob: trialbox/uv.lock
 
       - name: PostgreSQL server binaries
         run: tools/ci_postgres.sh  # the one major of deploy/images.lock, pg_config --version checked (D-371)
