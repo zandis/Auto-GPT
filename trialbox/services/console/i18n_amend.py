@@ -39,7 +39,7 @@ EN: dict[str, str] = {
     "rescreen.was.contacted": "Contacted",
     "rescreen.was.consented": "Consented",
     "rescreen.reason.returns": "criteria changed in v{version}",
-    "rescreen.reason.no_longer": "excluded by v{version}",
+    "rescreen.reason.no_longer": "does not meet the criteria of v{version}",
     "rescreen.reason.in_screening": "consented before v{version}",
 }
 
@@ -77,7 +77,7 @@ JA: dict[str, str] = {
     "rescreen.was.contacted": "連絡済み",
     "rescreen.was.consented": "同意取得済み",
     "rescreen.reason.returns": "v{version} で基準が変更",
-    "rescreen.reason.no_longer": "v{version} で除外",
+    "rescreen.reason.no_longer": "v{version} の基準に合わない",
     "rescreen.reason.in_screening": "v{version} の前に同意",
 }
 
@@ -115,6 +115,6 @@ ZH: dict[str, str] = {
     "rescreen.was.contacted": "已聯絡",
     "rescreen.was.consented": "已同意",
     "rescreen.reason.returns": "v{version} 條件已變更",
-    "rescreen.reason.no_longer": "v{version} 排除",
+    "rescreen.reason.no_longer": "不符合 v{version} 的條件",
     "rescreen.reason.in_screening": "v{version} 之前已同意",
 }

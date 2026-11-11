@@ -88,7 +88,7 @@ def test_the_planted_set_aside_patient_returns_after_the_amendment(box: dict[str
     assert 'data-testid="rescreen-row-bbbbbbbb"' in returns and "Not suitable now" in returns
     assert "criteria changed in v4.0.0" in returns and "(v3.0.0)" in returns
     gone = page.split('data-testid="rescreen-no_longer"')[1].split("</table>")[0]
-    assert 'data-testid="rescreen-row-aaaaaaaa"' in gone and "excluded by v4.0.0" in gone
+    assert 'data-testid="rescreen-row-aaaaaaaa"' in gone and "does not meet the criteria of v4.0.0" in gone
     # a new mark on the v4 list takes B off; the history keeps both marks with their versions
     week = pi.get("/studies/GZQO/week").text
     pi.post(f"/studies/GZQO/patients/{B}/mark", data={"csrf": _csrf(week), "mark": "approach"})
