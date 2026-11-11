@@ -36,7 +36,7 @@ EN: dict[str, str] = {
 
 JA: dict[str, str] = {
     "items.title": "臨床項目",
-    "items.help": "このボックスに同梱のカタログにある {n} 項目です。各項目にはコードがあります。LOINC コード、または合う標準コードがない場合は TrialBox のローカルコードです。患者を除外できるのは、確認済みで項目に完全に合うコードだけです。それ以外は候補を挙げるか根拠を示すだけです。",
+    "items.help": "このボックスに同梱のカタログにある {n} 項目です。各項目にはコードがあります。LOINC コード、または合う標準コードがない場合は TrialBox のローカルコードです。患者を候補から外す根拠にできるのは、確認済みで項目に完全に合うコードだけです。それ以外は候補を挙げるか根拠を示すだけです。",
     "items.filter": "診療科",
     "items.filter.all": "すべての診療科",
     "items.show": "表示",
@@ -49,7 +49,7 @@ JA: dict[str, str] = {
     "items.col.code": "コード",
     "items.col.storable": "保存できるもの",
     "items.col.checked": "コード確認",
-    "items.col.exclude": "除外に使える",
+    "items.col.exclude": "候補から外す根拠",
     "items.col.phrasing": "典型的な基準",
     "items.local": "ローカル {id}",
     "items.storable.score": "スコアのみ",
@@ -66,7 +66,7 @@ JA: dict[str, str] = {
 
 ZH: dict[str, str] = {
     "items.title": "臨床項目",
-    "items.help": "本機隨附目錄中的 {n} 個項目。每個項目都有代碼：LOINC 代碼，或在沒有合適標準代碼時使用 TrialBox 本地代碼。只有經過核對且與項目完全相符的代碼才能排除病人；其他代碼只能提出候選或顯示證據。",
+    "items.help": "本機隨附目錄中的 {n} 個項目。每個項目都有代碼：LOINC 代碼，或在沒有合適標準代碼時使用 TrialBox 本地代碼。只有經過核對且與項目完全相符的代碼才能作為不列入候選病人的依據；其他代碼只能提出候選或顯示證據。",
     "items.filter": "專科",
     "items.filter.all": "所有專科",
     "items.show": "顯示",
@@ -79,7 +79,7 @@ ZH: dict[str, str] = {
     "items.col.code": "代碼",
     "items.col.storable": "可儲存",
     "items.col.checked": "代碼核對",
-    "items.col.exclude": "可用於排除",
+    "items.col.exclude": "可作不列入候選的依據",
     "items.col.phrasing": "典型條件",
     "items.local": "本地 {id}",
     "items.storable.score": "僅總分",
