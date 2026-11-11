@@ -31,7 +31,7 @@ import re
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Any, Protocol
 
 from datacore import lifecycle as lc
@@ -116,6 +116,11 @@ class ScheduleBody(BaseModel):
 
 
 class AckBody(BaseModel):
+    by: str
+
+
+class SaeRuleBody(BaseModel):
+    rule_set: str
     by: str
 
 
@@ -266,36 +271,68 @@ def visit_rows(life: Lifecycle, rs: str, today: date) -> list[dict[str, Any]]:
     return rows
 
 
-def sae_rules(svc: Host) -> dict[str, tuple[int, int]]:
-    """The reporting clock in force on this box (``TB_SAE_RULES``, ``TB_SAE_REPORT_DAYS``; the site's zone)."""
-    tz = str(getattr(svc.now().tzinfo, "key", "") or "")
-    return lc.report_rules(tz, os.environ.get("TB_SAE_REPORT_DAYS", ""), os.environ.get("TB_SAE_RULES", ""))
+def sae_rules(svc: Host, rid: str = "", life: Lifecycle | None = None) -> dict[str, Any]:
+    """The reporting clock in force for one study (D-277): the study's named set from its set-up page, else
+    ``TB_SAE_RULES``, else the default of the site's country; then ``TB_SAE_REPORT_DAYS``. With who confirmed the
+    study's set and when, and the problems the pages show as an alert (CR-009)."""
+    tz = str(getattr(svc.now().tzinfo, "key", "") or os.environ.get("TB_TZ", ""))
+    row = (life or Lifecycle(svc.dc)).sae_rule(rid) if rid else None
+    out = lc.clock_rules(str((row or {}).get("rule_set") or ""), tz, os.environ.get("TB_SAE_REPORT_DAYS", ""),
+                         os.environ.get("TB_SAE_RULES", ""))  # fmt: skip
+    out["confirmed_by"] = str((row or {}).get("confirmed_by") or "")
+    out["confirmed_at"] = str((row or {}).get("confirmed_at") or "")
+    return out
+
+
+AE_KEEP = ("record", "event", "n", "ae_term", "ae_onset", "ae_aware", "ae_aware_time", "ae_serious", "ae_serious_why",
+           "ae_severity", "ae_outcome", "ae_death_date", "ae_end", "ae_related", "ae_sponsor_related", "ae_expected",
+           "ae_unblinded", "ae_unblind_date", "ae_unblind_reason", *lc.REPORT_FIELDS.values())  # fmt: skip
 
 
 def ae_view(e: dict[str, Any], today: date | None = None, rules: dict[str, tuple[int, int]] | None = None,
-            ack: dict[str, Any] | None = None) -> dict[str, Any]:  # fmt: skip
+            ack: dict[str, Any] | None = None, now: datetime | None = None) -> dict[str, Any]:  # fmt: skip
     """One AE as the pages show it. A serious AE needs the investigator's acknowledgement whatever its outcome
     (review 2026-11-09 P-02: a fatal SAE used to count as "not ongoing" and left the banner and N1 at once), and
-    carries its reporting clock (P-03)."""
-    keep = ("record", "event", "n", "ae_term", "ae_onset", "ae_aware", "ae_serious", "ae_serious_why", "ae_severity",
-            "ae_outcome", "ae_end", "ae_related", *lc.REPORT_FIELDS.values())  # fmt: skip
-    out = {k: e.get(k, "") for k in keep}
-    out["serious"] = e.get("ae_serious") == "1"
+    carries its reporting clock (P-03). Serious means the form's answer or a fatal outcome or a "why serious"
+    reason (CR-008); ``serious_mismatch`` says the Serious radio disagrees, so the pages ask to correct it."""
+    out = {k: e.get(k, "") for k in AE_KEEP}
+    out["serious"] = lc.is_serious(e)
+    out["serious_mismatch"] = out["serious"] and e.get("ae_serious") != "1"
     out["fatal"] = e.get("ae_outcome") == "5"
     out["ongoing"] = e.get("ae_outcome", "") in ("", "2", "3", "6")
     out["ack_by"] = str((ack or {}).get("who") or "")
     out["ack_at"] = str((ack or {}).get("at") or "")
     out["needs_ack"] = out["serious"] and not out["ack_by"]
-    out["clock"] = lc.report_clock(e, today, rules) if today is not None and rules is not None else []
+    out["clock"] = lc.report_clock(e, today, rules, now) if today is not None and rules is not None else []
     out["overdue"] = [c["party"] for c in out["clock"] if c["overdue"]]
+    out["noclock"] = bool(out["serious"] and rules is not None and not out["clock"])  # S-16: never a quiet SAE
     return out
 
 
-def aes_of(svc: Host, rid: str, record: str | None, today: date) -> list[dict[str, Any]]:
+def aes_of(svc: Host, rid: str, record: str | None, today: date, now: datetime | None = None,
+           rules: dict[str, Any] | None = None) -> list[dict[str, Any]]:  # fmt: skip
     life = Lifecycle(svc.dc)
-    acks, rules = life.acks(rid), sae_rules(svc)
-    return [ae_view(e, today, rules, acks.get((str(e["record"]), str(e["event"]))))
+    acks = life.acks(rid)
+    parties = (rules or sae_rules(svc, rid, life))["parties"]
+    return [ae_view(e, today, parties, acks.get((str(e["record"]), str(e["event"]))), now or _now(svc, today))
             for e in life.entries(rid, record, AE_EVENT)]  # fmt: skip
+
+
+def _now(svc: Host, day: date, given: str = "") -> datetime:
+    """The moment the 24-hour report is judged at (LIFE-022): ``given`` (ISO with its offset), else the service's
+    clock when ``day`` is its date, else the start of ``day`` in the site's zone (a test stepping through days)."""
+    if given:
+        try:
+            out = datetime.fromisoformat(given.replace(" ", "+").replace("Z", "+00:00"))
+        except ValueError:
+            out = None
+        if out is None or out.tzinfo is None:
+            raise HTTPException(
+                status_code=400, detail={"code": "BAD-DAY", "message": "now is an ISO time with offset"}
+            )
+        return out
+    n = svc.now()
+    return n if n.date() == day else datetime.combine(day, time(0, 0), tzinfo=n.tzinfo)
 
 
 def report_files(rep: dict[str, Any], rs: str, at: str) -> dict[str, Any]:
@@ -472,15 +509,43 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         return {"study": rid, "today": day.isoformat(), "rows": rows, "list": lc.worklist(rows, day)}
 
     @r.get("/studies/{rs}/aes")
-    def get_aes(rs: str, today: str = "") -> dict[str, Any]:
+    def get_aes(rs: str, today: str = "", now: str = "") -> dict[str, Any]:
         svc, rid = get(), _rs(rs)
         day = _today(svc, today)
-        aes = aes_of(svc, rid, None, day)
+        rules = sae_rules(svc, rid)
+        aes = aes_of(svc, rid, None, day, _now(svc, day, now), rules)
         pids = {str(s["record"]): str(s["pid"]) for s in Lifecycle(svc.dc).subjects(rid)}
         for a in aes:
             a["pid"] = pids.get(str(a["record"]), "")
+        alert = bool(set(rules["problems"]) & set(lc.RULE_ALERTS))
         return {"study": rid, "today": day.isoformat(), "aes": aes, "serious": [a for a in aes if a["serious"]],
-                "unacked": [a for a in aes if a["needs_ack"]], "overdue": [a for a in aes if a["overdue"]]}  # fmt: skip
+                "unacked": [a for a in aes if a["needs_ack"]],
+                "overdue": [a for a in aes if a["overdue"]],
+                "alerts": [a for a in aes if a["serious"] and (a["noclock"] or alert)], "rules": rules}  # fmt: skip
+
+    @r.get("/studies/{rs}/sae-rule")
+    def get_sae_rule(rs: str) -> dict[str, Any]:
+        svc, rid = get(), _rs(rs)
+        sets = {
+            k: {"country": v.country, "regulator": v.regulator, "parties": v.parties} for k, v in lc.RULE_SETS.items()
+        }
+        row = Lifecycle(svc.dc).sae_rule(rid) or {}
+        return {"study": rid, "rule_set": str(row.get("rule_set") or ""), "rules": sae_rules(svc, rid), "sets": sets}
+
+    @r.put("/studies/{rs}/sae-rule")
+    def put_sae_rule(rs: str, body: SaeRuleBody) -> dict[str, Any]:
+        """The study's SAE rule set (D-277); the person who saves it confirms it. Audited ``life.sae_rule``."""
+        svc, rid = get(), _rs(rs)
+        life = Lifecycle(svc.dc)
+        old = str((life.sae_rule(rid) or {}).get("rule_set") or "")
+        try:
+            row = life.set_sae_rule(rid, body.rule_set, body.by, svc.stamp())
+        except LifeError as exc:
+            raise HTTPException(status_code=409, detail={"code": exc.code, "why": exc.why,
+                                                         "message": exc.message}) from exc  # fmt: skip
+        svc.audit.append("life.sae_rule", ruleset=rid, actor=body.by,
+                         detail={"old": old, "new": body.rule_set, "at": row["confirmed_at"]})  # fmt: skip
+        return {"study": rid, "rule_set": row["rule_set"], "rules": sae_rules(svc, rid, life)}
 
     @r.post("/studies/{rs}/aes/{record}/{event}/ack")
     def post_ack(rs: str, record: str, event: str, body: AckBody) -> dict[str, Any]:
@@ -488,7 +553,7 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         svc, rid, rec = get(), _rs(rs), _rec(record)
         life = Lifecycle(svc.dc)
         one = next((e for e in life.entries(rid, rec, AE_EVENT) if e["event"] == event), None)
-        if one is None or one.get("ae_serious") != "1":
+        if one is None or not lc.is_serious(one):
             raise HTTPException(status_code=404, detail={"code": "LIFE-SAE", "message": "no such serious AE"})
         ack = life.ack(rid, rec, event, body.by, svc.stamp())
         svc.audit.append("life.sae_ack", ruleset=rid, actor=body.by,
