@@ -30,6 +30,21 @@ systems:
   byomei: urn:oid:1.2.392.200119.4.101.6     # MEDIS 病名交換用コード (verify)
   rp_no: urn:oid:1.2.392.100495.20.3.81      # JP_MedicationRequest identifier:rpNumber
   rp_order: urn:oid:1.2.392.100495.20.3.82   # JP_MedicationRequest identifier:orderInRp
+# The row-unit check (R-31, D-215) comes with `extends`: the lab Observation reads the reader's `unit` column, which
+# is OBX-6, against the lookup's unit (`source_unit`, else `ucum`); a result in another unit has no value and the
+# reason `unit_mismatch`. A JLAC10 row whose site reports another unit says so in `source_unit` and `factor`.
+# D-149, D-334: the unit a feed result with a number and no unit is read in, per analyte (LOINC -> UCUM). It is the
+# unit the lab lookup writes (its `ucum` column), so a lab row without a unit and a FHIR result without one land in
+# the same unit; `tools/mapping_check.py` fails when the two disagree. Change both together.
+unit_defaults:
+  "3084-1": mg/dL     # urate
+  "2160-0": mg/dL     # creatinine
+  "4548-4": "%"       # HbA1c (NGSP)
+  "1742-6": U/L       # ALT
+  "4537-7": mm/h      # ESR
+  "1988-5": mg/L      # CRP
+  "8302-2": cm        # body height
+  "29463-7": kg       # body weight
 tables:
   patient: {source: patient, key: mrn, identity: {name: name}}
   practitioner: {source: practitioner, key: staff_id}

@@ -31,6 +31,7 @@ import re
 import unicodedata
 from typing import NamedTuple
 
+from tb_common import labunit
 from tb_common.reasons import Reason
 
 # abnormal flags written after (or, less often, before) the number: HL7 table 0078 and the usual JP / TW marks
@@ -68,7 +69,7 @@ def parse(text: object) -> tuple[float, str | None] | None:
 
 
 # ------------------------------------------------------------------------------------------------ units (R-31)
-UNIT_MISMATCH = Reason.UNIT_MISMATCH.value
+UNIT_MISMATCH = labunit.UNIT_MISMATCH  # one spelling of the reason for the adapter and the engines (D-275)
 UNKNOWN_VALUE = Reason.UNKNOWN_VALUE.value
 
 # UCUM code -> the spellings that mean exactly that unit (no factor: a spelling, or a unit equal to it by definition,
@@ -97,6 +98,7 @@ UCUM: dict[str, tuple[str, ...]] = {
     "[IU]/mL": ("IU/mL",),
     "mU/mL": (),
     "m[IU]/mL": ("mIU/mL",),
+    "m[IU]/L": ("mIU/L",),
     "uU/mL": ("µU/mL", "μU/mL"),
     "u[IU]/mL": ("uIU/mL", "µIU/mL", "μIU/mL"),
     "10*3/uL": ("10^3/uL", "10^3/µL", "x10^3/uL", "x10^3/µL", "10*9/L", "10^9/L", "x10^9/L", "/nL", "K/uL"),
@@ -175,3 +177,240 @@ def read(text: object, row_unit: object, lookup_unit: object) -> Reading:
     if got is None:
         return Reading(None, None, UNKNOWN_VALUE)
     return Reading(got[0], got[1], None)
+
+
+# ------------------------------------------------------------------------------------- conversions (D-334)
+# The adapter never converts a row's unit on its own (D-215 above): a row in another unit has no value until the
+# site's lab team declares the unit the source reports (the lookup's ``source_unit`` and ``factor``). This table is
+# what they check that declaration against, and what ``tools/mapping_check.py`` proposes for a unit pair it finds.
+#
+# Units of one kind convert by definition, whatever the analyte: each family gives how much of its first unit one
+# unit is. Units are the UCUM codes of :data:`UCUM`; the tables are keyed by :func:`tb_common.labunit.key`.
+SCALES: dict[str, dict[str, float]] = {
+    "mass concentration": {
+        "g/L": 1.0,
+        "g/dL": 10.0,
+        "mg/dL": 1e-2,
+        "mg/L": 1e-3,
+        "ug/dL": 1e-5,
+        "ug/L": 1e-6,
+        "ng/dL": 1e-8,
+        "pg/mL": 1e-9,
+    },
+    "substance concentration": {"mmol/L": 1.0, "umol/L": 1e-3, "nmol/L": 1e-6, "pmol/L": 1e-9},
+    "number concentration": {"10*3/uL": 1.0, "10*4/uL": 10.0, "10*6/uL": 1e3, "/uL": 1e-3},
+    "enzyme activity": {"U/L": 1.0, "mU/mL": 1.0, "U/mL": 1e3},
+    "international units": {"[IU]/L": 1.0, "m[IU]/mL": 1.0, "[IU]/mL": 1e3, "m[IU]/L": 1e-3, "u[IU]/mL": 1e-3},
+}
+
+# Mass to substance needs the analyte (STD-002): LOINC code -> (what is weighed, g/mol, charge for meq or 0). A
+# charge of 1 makes meq/L the same as mmol/L, 2 makes it half. HbA1c % (NGSP) and mmol/mol (IFCC) are not a factor
+# apart (the master equation has an offset): there is no row for them, so they never convert.
+MOLAR: dict[str, tuple[str, float, int]] = {
+    "3084-1": ("urate", 168.11, 0),
+    "2345-7": ("glucose", 180.16, 0),
+    "1558-6": ("glucose", 180.16, 0),
+    "1518-0": ("glucose", 180.16, 0),
+    "1975-2": ("bilirubin", 584.66, 0),
+    "1968-7": ("bilirubin", 584.66, 0),
+    "2093-3": ("cholesterol", 386.65, 0),
+    "2089-1": ("cholesterol", 386.65, 0),
+    "13457-7": ("cholesterol", 386.65, 0),
+    "2085-9": ("cholesterol", 386.65, 0),
+    "2571-8": ("triglyceride (as triolein)", 885.7, 0),
+    "3094-0": ("urea nitrogen (2 N per urea)", 28.014, 0),
+    "17861-6": ("calcium", 40.078, 2),
+    "2777-1": ("phosphate (as P)", 30.974, 0),
+    "2601-3": ("magnesium", 24.305, 2),
+    "718-7": ("hemoglobin (Fe monomer)", 16114.5, 0),
+    "16362-6": ("ammonia", 17.031, 0),
+    "2498-4": ("iron", 55.845, 0),
+    "3024-7": ("free thyroxine", 776.87, 0),
+    "2143-6": ("cortisol", 362.46, 0),
+    "2986-8": ("testosterone", 288.42, 0),
+    "2132-9": ("cobalamin", 1355.37, 0),
+    "1989-3": ("25-hydroxyvitamin D3", 400.64, 0),
+    "2951-2": ("sodium", 22.99, 1),
+    "2823-3": ("potassium", 39.098, 1),
+    "2075-0": ("chloride", 35.45, 1),
+    "1963-8": ("bicarbonate", 61.017, 1),
+}
+
+
+def _close(table: dict[str, float]) -> dict[str, float]:
+    """``table`` (unit key -> factor to one reference unit) with every unit of each scale family it touches."""
+    out = dict(table)
+    for family in SCALES.values():
+        keys = {labunit.key(u): f for u, f in family.items()}
+        anchor = next((k for k in keys if k in out), None)
+        if anchor is not None:
+            for k, f in keys.items():
+                out.setdefault(k, out[anchor] * f / keys[anchor])
+    return out
+
+
+def _analytes() -> dict[str, dict[str, float]]:
+    """LOINC code -> {unit key: factor to the analyte's reference unit}. The analytes the engines already convert
+    (``tb_common.labunit.ANALYTES``: creatinine, CRP, ESR, weight, height) keep their factors, so the adapter's check
+    and the engines' comparison never disagree; the others come from :data:`MOLAR`."""
+    out: dict[str, dict[str, float]] = {}
+    for code, (_what, grams, charge) in MOLAR.items():
+        table = {labunit.key("mmol/L"): 1.0, labunit.key("g/L"): 1000.0 / grams}
+        if charge:
+            table[labunit.key("meq/L")] = 1.0 / charge
+        out[code] = _close(table)
+    for (system, code), factors in labunit.ANALYTES.items():
+        if system == "http://loinc.org":
+            out[code] = _close(dict(factors))
+    return out
+
+
+ANALYTES: dict[str, dict[str, float]] = _analytes()
+
+
+def conversion(have: object, need: object, loinc: str | None = None) -> float | None:
+    """The factor ``k`` that turns a value in unit ``have`` into one in ``need`` (``value * k``) for the analyte
+    ``loinc``, or None when there is no tested one. Both units are read by :func:`ucum` first (a spelling it does not
+    know never converts). The same unit is 1. Without an analyte only a scale family converts (g/dL to g/L); mass to
+    substance needs the analyte's row."""
+    h, n = ucum(have), ucum(need)
+    if h is None or n is None:
+        return None
+    if h == n:
+        return 1.0
+    kh, kn = labunit.key(h), labunit.key(n)
+    table = ANALYTES.get(loinc or "")
+    if table and kh in table and kn in table:
+        return float(f"{table[kh] / table[kn]:.10g}")
+    for family in SCALES.values():
+        keys = {labunit.key(u): f for u, f in family.items()}
+        if kh in keys and kn in keys:
+            return float(f"{keys[kh] / keys[kn]:.10g}")
+    return None
+
+
+# --------------------------------------------------------------------------- presence results (D-334, STD-022)
+POSITIVE, NEGATIVE, UNSETTLED = "POS", "NEG", "UNK"
+
+# One table for every site: the text as :func:`presence` folds it (NFKC, lower case, no spaces) -> the answer. A
+# site's own words go in its lookup's ``answers`` column, which is read first. ``UNSETTLED`` words are read on
+# purpose as unknown (a borderline or held result is for a person to read): they never settle a criterion.
+PRESENCE: dict[str, str] = {
+    **dict.fromkeys(
+        (
+            "陰性",
+            "阴性",
+            "(-)",
+            "-",
+            "−",
+            "(−)",
+            "neg",
+            "negative",
+            "non-reactive",
+            "nonreactive",
+            "notdetected",
+            "undetected",
+            "未檢出",
+            "未检出",
+            "未検出",
+            "検出せず",
+            "検出されず",
+            "無反應",
+            "无反应",
+        ),
+        NEGATIVE,
+    ),
+    **dict.fromkeys(
+        (
+            "陽性",
+            "阳性",
+            "(+)",
+            "+",
+            "++",
+            "+++",
+            "++++",
+            "(++)",
+            "(+++)",
+            "(++++)",
+            "1+",
+            "2+",
+            "3+",
+            "4+",
+            "(1+)",
+            "(2+)",
+            "(3+)",
+            "(4+)",
+            "pos",
+            "positive",
+            "reactive",
+            "detected",
+            "検出",
+            "檢出",
+            "检出",
+            "有反應",
+            "有反应",
+        ),
+        POSITIVE,
+    ),
+    **dict.fromkeys(
+        (
+            "±",
+            "(±)",
+            "+-",
+            "+/-",
+            "判定保留",
+            "判定不能",
+            "保留",
+            "弱陽性",
+            "弱阳性",
+            "灰區",
+            "灰区",
+            "不確定",
+            "不确定",
+            "equivocal",
+            "indeterminate",
+            "borderline",
+            "inconclusive",
+            "weaklypositive",
+            "weakpositive",
+        ),
+        UNSETTLED,
+    ),
+}
+_PAREN = re.compile(r"^(?P<a>[^()]*)\((?P<b>[^()]+)\)(?P<c>[^()]*)$")
+
+
+def _fold(text: object) -> str:
+    return re.sub(r"\s+", "", unicodedata.normalize("NFKC", str(text)).casefold())
+
+
+def presence(text: object) -> str | None:
+    """A qualitative result as :data:`POSITIVE`, :data:`NEGATIVE` or :data:`UNSETTLED`, in Japanese, Chinese or
+    English (``陰性``, ``(-)``, ``未檢出``, ``Non-reactive``, ``陽性(+)``, ``2+``, ``判定保留``); None when the
+    table does not know the text. A word with its sign in brackets (``陰性(-)``, ``(+)陽性``) reads as the two
+    agree; when they disagree (``陰性(+)``) the result is unsettled."""
+    if text is None or isinstance(text, bool):
+        return None
+    s = _fold(text)
+    if not s:
+        return None
+    if s in PRESENCE:
+        return PRESENCE[s]
+    m = _PAREN.match(s)
+    if m is None or (m.group("a") and m.group("c")):
+        return None
+    word = PRESENCE.get(m.group("a") or m.group("c"))
+    sign = PRESENCE.get(f"({m.group('b')})") or PRESENCE.get(m.group("b"))
+    if word is None or sign is None:
+        return None
+    return word if word == sign else UNSETTLED
+
+
+def answer_key(text: object, answers: dict[str, str]) -> str | None:
+    """The key of the lookup's ``answers`` a coded result reads as: the site's own word first (upper case, as the
+    lookup is written), then :func:`presence`. None when neither reads it, or when it is unsettled."""
+    s = str(text).strip().upper()
+    if s in answers:
+        return s
+    word = presence(text)
+    return word if word in (POSITIVE, NEGATIVE) and word in answers else None
