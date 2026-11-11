@@ -80,9 +80,9 @@ def require_open(ruleset: str | None) -> None:
     """A list scenario's first check (D-386): refuse to make a list for a study that is not open. The job fails
     with the reason; nothing is listed or mailed. An unreachable trial database is logged and left to the run's own
     steps, which need the same database (the timer, :func:`_held`, holds the job instead)."""
-    from orchestrator.clients import StepFailed
-
     from tb_common.db import DatabaseError
+
+    from orchestrator.clients import StepFailed
 
     if not ruleset:
         return

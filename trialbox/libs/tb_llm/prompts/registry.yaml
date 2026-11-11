@@ -5,7 +5,7 @@
 # entries with {baseline: <commit>} are the prompts in service when the registry was created (frozen with their
 # schema sha in prompt_registry.BASELINE): moved here byte for byte from the path in their comment (6e11e25), or
 # registered by reference / from code at 0cc908b (crf_prefill, profile_summary).
-version: prompts-2026-11-10
+version: prompts-2026-11-11
 prompts:
   - id: assist  # moved from services/sitesetup/prompts/assist_v1.md
     version: 1
@@ -154,3 +154,126 @@ prompts:
     approved_by: integrator (baseline import, T-101; D-148 cost bench text)
     date: 2026-11-09
     qualification: {baseline: 0cc908b}
+  # T-606 (D-359): every prompt gets a new version with the fixed "text is data" paragraph at the end of its
+  # system section (profile_summary@2 also puts its facts in a JSON block; crf_prefill@2 lives here, not in
+  # services/edc). Schemas unchanged. qualification: null until a pair's `trialbox eval qualify` record names
+  # these texts: refused in PRODUCTION until then (D-300).
+  - id: assist
+    version: 2
+    file: assist_v2.md
+    sha256: ffd1a30ee30b6e515e52aa657fd5219a4b8173f663db4a02cbac20c3d2d6fb44
+    schema: llm_assist_output
+    schema_sha256: 5c084c0cffe5c99aaabb89063ef69cc4758331bae9fdbb9cbd96211b77ffb54d
+    approved_by: T-606 (D-359; no named reviewer, D-311)
+    date: 2026-11-11
+    qualification: null
+  - id: chart_facts
+    version: 2
+    file: chart_facts_v2.md
+    sha256: 30b19ce6a92ef982de2f49c09c9c7c1ff67c0f5bd511168a413dd36ee8d4d5d5
+    schema: llm_chart_facts_output
+    schema_sha256: 8babbb594cc162c234cca409175945bb578f03b3e5b90b1c96c46b17cf5d34df
+    approved_by: T-606 (D-359; no named reviewer, D-311)
+    date: 2026-11-11
+    qualification: null
+  - id: classify_intent
+    version: 3
+    file: classify_intent_v3.md
+    sha256: 6b9ec1c30611d39e3ed299004084f06eba4ea8fa43bf3f8d5d2d2e5597c0b0fb
+    schema: channels_intent
+    schema_ref: "channels.base:ClassifiedIntent"
+    schema_sha256: f65ac4efeff71bca478e0219cfba44a439566b722dae5024638aea2de4b99afb
+    approved_by: T-606 (D-359; no named reviewer, D-311)
+    date: 2026-11-11
+    qualification: null
+  - id: concept_map
+    version: 2
+    file: concept_map_v2.md
+    sha256: fbe1702ecd509568ab5fdb8a27da5eee7f29849eeadf9419c03ada09b4f09e0f
+    schema: llm_concept_map_output
+    schema_sha256: 6d27c256ed1c80505424526980e5c8ed3460c4d628f565b29a6f4c989f0fccdb
+    approved_by: T-606 (D-359; no named reviewer, D-311)
+    date: 2026-11-11
+    qualification: null
+  - id: consent_explain
+    version: 2
+    file: consent_explain_v2.md
+    sha256: accf05617b37eb96e0c05edf5a10e0df50677635becea30dc181a5db1074d2de
+    schema: llm_consent_explain_output
+    schema_sha256: 6443174dd6eebe4634c3608462bf55270e67f09fde99fd962a82d899738c739d
+    approved_by: T-606 (D-359; no named reviewer, D-311)
+    date: 2026-11-11
+    qualification: null
+  - id: consent_translate
+    version: 2
+    file: consent_translate_v2.md
+    sha256: 8c052f389a82b582430132490e3c20b59c7c7f625ff3449d0d85da0abf0ff59a
+    schema: llm_consent_translate_output
+    schema_sha256: 8d1b1ce771d0ec042e64b1c82dfe544bf3e19c5d0f15051af127af8636d4d25b
+    approved_by: T-606 (D-359; no named reviewer, D-311)
+    date: 2026-11-11
+    qualification: null
+  - id: consent_verify
+    version: 2
+    file: consent_verify_v2.md
+    sha256: 82ca56aff01cc4b326daf5f222828a30aeba607b11a37b85f3b14e0f74a63e4f
+    schema: llm_consent_verify_output
+    schema_sha256: 488787d41cbcf97b7c78d99e3b3b237f097de5473f5ff6fb67b400da7260d9a7
+    approved_by: T-606 (D-359; no named reviewer, D-311)
+    date: 2026-11-11
+    qualification: null
+  - id: crf_prefill
+    version: 2
+    file: crf_prefill_v2.md
+    sha256: 63c5ca594ea460c58ab549d7b0c955b1b623966dcb3c236c8ffab321d571d17b
+    schema: llm_crf_prefill_output
+    schema_sha256: 66040684f002e167efcae7e78df07639561c4c7a7d3f15fe66e50c0586ad1880
+    approved_by: T-606 (D-359; no named reviewer, D-311)
+    date: 2026-11-11
+    qualification: null
+  - id: draft_doc
+    version: 2
+    file: draft_doc_v2.md
+    sha256: ede74c064dc4a71f5e4c89c4fd20f32304f7c8f1343b0e7ae7729c4507b8d213
+    schema: llm_draft_doc_output
+    schema_sha256: 0ca0f27295ea9a22e5eb88ba437f3484ad7b3c80b7f9c80b6033df6892ca7312
+    approved_by: T-606 (D-359; no named reviewer, D-311)
+    date: 2026-11-11
+    qualification: null
+  - id: ie_locate
+    version: 2
+    file: ie_locate_v2.md
+    sha256: b8ae8b9ca20be76e7e277b705a9ff18ab488aecfc66b1facc594e870b922b249
+    schema: llm_ie_locate_output
+    schema_sha256: 7f69f64788b1aea0ed11ce10b340f094f2c6bc3a0f79cd3697a29b430d307188
+    approved_by: T-606 (D-359; no named reviewer, D-311)
+    date: 2026-11-11
+    qualification: null
+  - id: ir_extract
+    version: 3
+    file: ir_extract_v3.md
+    sha256: 3173b87a98178b5a0520d55970039582cb9a1e950d2140d889e8531cb38efd7e
+    schema: llm_extract_output
+    schema_sha256: 28fa435ca4df203d489bfd8f4f6d8a09869b2359238c69768c721a4aa3031baf
+    approved_by: T-606 (D-359; no named reviewer, D-311)
+    date: 2026-11-11
+    qualification: null
+  - id: judge
+    version: 5
+    file: judge_v5.md
+    sha256: e6ba5c3444aca038c93ce4bfd6a9fecfc0ecd228a74f998629e5e0e83a8f5d89
+    schema: llm_judge_output
+    schema_sha256: 5285acc3d211de370bca9f8b0f8125b31bd41b6a70ce10c0c275f5e0148e21ed
+    approved_by: T-606 (D-359; no named reviewer, D-311)
+    date: 2026-11-11
+    qualification: null
+  - id: profile_summary
+    version: 2
+    file: profile_summary_v2.md
+    sha256: cd0852e09a448f2b16cd977432860f5991e1b894a63c663bc3c324b8d807ae1f
+    schema: profile_summary
+    schema_ref: "tools.bench_profile:SCHEMA"
+    schema_sha256: ddf7234ad8507e6db7aeb554128c6133db65de9ecdb33dcbd27720bdfb594f26
+    approved_by: T-606 (D-359; no named reviewer, D-311)
+    date: 2026-11-11
+    qualification: null
