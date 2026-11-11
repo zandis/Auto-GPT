@@ -36,7 +36,7 @@ for _p in ("libs", "services"):
 EXAMPLE = ROOT / "deploy" / "settings.example.yaml"
 MAPPING_ROOT = ROOT / "services" / "adapter"
 SITE_MAPPING = ROOT / "deploy" / "site" / "mapping"  # the site's own mappings (kept by every update, D-367)
-TLS_MODES = ("internal", "hospital")
+TLS_MODES = ("hospital", "internal")  # OPS-060: the hospital certificate is the first choice
 
 # key, question, default (None = from the example settings), kind
 QUESTIONS: list[tuple[str, str, Any, str]] = [
@@ -80,7 +80,14 @@ QUESTIONS: list[tuple[str, str, Any, str]] = [
     ("mta_authserv_id", "authserv-id your MTA writes first in Authentication-Results (e.g. mx.hospital.tw)", "", "str"),
     # T-632 (OPS-013): the console is reached at https://<tls_hostname> through Caddy (RUNBOOK §12)
     ("tls_hostname", "Console DNS name for https (from hospital IT)", "", "str"),
-    ("tls_mode", "Certificate (internal = Caddy's own CA | hospital = the hospital's)", "internal", "str"),
+    # OPS-060: the hospital's certificate is the first choice; Caddy's own CA needs its root on every clinic PC by
+    # group policy and never works on a personal device
+    (
+        "tls_mode",
+        "Certificate (hospital = the hospital's, first choice | internal = Caddy's own CA)",
+        "hospital",
+        "str",
+    ),
     ("tls_cert_file", "Hospital certificate and chain, PEM (hospital mode)", "", "str"),
     ("tls_key_file", "Its key, PEM (hospital mode)", "", "str"),
     # D-138: log retention per country (tb_common.retention.DEFAULTS); "" = from the report language (ja -> jp)
@@ -290,10 +297,10 @@ def build(
             "ClinicalTrials.gov live: the box will reach clinicaltrials.gov:443 (the network sheet lists it)"
         )
     tls_host = str(a.get("tls_hostname") or "").strip()
-    tls_mode = str(a.get("tls_mode") or "internal").strip().lower()
+    tls_mode = str(a.get("tls_mode") or "hospital").strip().lower()
     tls_env: dict[str, str] = {}
     if tls_mode not in TLS_MODES:
-        errors.append(f"tls_mode must be internal or hospital, not {tls_mode!r}")
+        errors.append(f"tls_mode must be hospital or internal, not {tls_mode!r}")
     elif tls_host:
         if not re.fullmatch(r"[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?", tls_host) or "." not in tls_host:
             errors.append(f"tls_hostname {tls_host!r} is not a DNS name (for example trialbox.hospital.tw)")
@@ -301,8 +308,14 @@ def build(
         if tls_mode == "hospital":
             for k, var in (("tls_cert_file", "TB_TLS_CERT_FILE"), ("tls_key_file", "TB_TLS_KEY_FILE")):
                 if not str(a.get(k) or "").strip():
-                    errors.append(f"tls_mode hospital needs {k}")
+                    errors.append(f"tls_mode hospital (the default) needs {k}, or set tls_mode internal")
                 tls_env[var] = str(a.get(k) or "").strip()
+        else:
+            warnings.append(
+                "tls_mode internal: hospital IT must install Caddy's root certificate on every clinic PC (group "
+                "policy), and personal devices cannot open the console; the hospital's certificate is the first "
+                "choice (RUNBOOK §12)"
+            )
     else:
         warnings.append("tls_hostname is empty: install.sh asks for it (a PRODUCTION box runs only behind https)")
     twpas = _bool(a.get("twpas_enabled", "no"))

@@ -6,8 +6,9 @@ and off by default. All settings are in `deploy/.env`; the list with comments is
 `deploy/identity/identity.env.example`.
 
 **Ask hospital IT on day one** (lead time 2 to 6 weeks): a DNS name for the console (and one for Authelia when the
-site uses the hospital account), the firewall rule for 443 from the clinic PCs, and either a certificate for those
-names or permission to install Caddy's root certificate on the staff PCs. For the hospital account: a read-only AD
+site uses the hospital account), the firewall rule for 443 from the clinic PCs, and a certificate for those names from
+the hospital's CA (the first choice: every hospital PC already trusts it). Only when hospital IT cannot issue one:
+permission to install Caddy's root certificate on every staff PC by group policy (a personal device never trusts it). For the hospital account: a read-only AD
 bind account, the AD groups to map (below) and LDAPS (636) from the box to a domain controller.
 
 **TLS.**
