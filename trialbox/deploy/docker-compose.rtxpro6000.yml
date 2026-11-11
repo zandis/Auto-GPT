@@ -36,6 +36,8 @@ x-vllm-pro6000: &vllmpro
     VLLM_API_KEY: "${TB_LLM_API_KEY:-}"   # D-177: vLLM checks it on /v1 only; model-guard checks every call
   volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
   ipc: host
+  pids_limit: 4096   # T-108a (D-360); the memory caps are per server below
+  labels: {tb.watchdog: restart}   # the host's watchdog restarts a hung server (OPS-029)
   restart: unless-stopped
   deploy:
     resources:
@@ -51,6 +53,7 @@ x-vllm-pro6000: &vllmpro
 services:
   llm-service:
     <<: *vllmpro
+    mem_limit: ${TB_MEM_LLM:-48g}   # host memory, not the card's
     networks: {model-backend-net: {aliases: [llm-service-vllm]}}   # behind model-guard (D-177)
     command:
       - --model=/models/${JUDGE_MODEL_DIR:-gemma-4-26b-a4b-it-4bit}
@@ -63,6 +66,7 @@ services:
 
   llm-verifier:
     <<: *vllmpro
+    mem_limit: ${TB_MEM_VERIFIER:-48g}   # host memory, not the card's
     networks: {model-backend-net: {aliases: [llm-verifier-vllm]}}   # behind model-guard (D-177)
     command:
       - --model=/models/${VERIFIER_MODEL_DIR:-qwen3.5-9b-4bit}

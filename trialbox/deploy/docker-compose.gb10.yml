@@ -29,6 +29,10 @@
 #   * nvidia-container-toolkit; Docker Engine 27+; cgroup v2.
 #   * TrialBox images built multi-arch (make images-multiarch) or arm64 (make images PLATFORM=linux/arm64).
 #
+# Limits (T-108a, D-360): the base file's caps hold here too; a cap counts the host side of unified memory a
+# container maps, so the vLLM caps (TB_MEM_LLM, TB_MEM_VERIFIER, 48g each) leave room for the weights' page cache.
+# Not measured on a Spark (T-214 measures them).
+#
 # Every third-party image is pinned by digest in deploy/images.lock (D-348). The pins are multi-arch indexes that
 # include arm64. Unified memory is shared with HAPI, DuckDB and the embedder, so vLLM takes a smaller fraction than on
 # a discrete 32 GB GPU.
@@ -62,7 +66,7 @@ services:
 
   llm-verifier:
     <<: *arm
-    mem_limit: 23g   # deploy/gb10-profile.yaml (unmeasured, D-373)
+    mem_limit: ${TB_MEM_VERIFIER:-32g}   # deploy/gb10-profile.yaml (unmeasured, D-373)
     logging:
       driver: json-file
       options: {max-size: "50m", max-file: "5"}
@@ -87,6 +91,8 @@ services:
     ipc: host
     networks: {model-backend-net: {aliases: [llm-verifier-vllm]}}   # behind model-guard (D-177)
     restart: unless-stopped
+    pids_limit: 4096
+    labels: {tb.watchdog: restart}   # the host's watchdog restarts a hung server (OPS-029)
     depends_on:
       llm-service: {condition: service_healthy}
     deploy:
@@ -104,19 +110,19 @@ services:
   mail-gateway: {<<: *arm, mem_limit: 1g}
   orchestrator:
     <<: *arm
-    mem_limit: 4g   # deploy/gb10-profile.yaml (unmeasured, D-373)
+    mem_limit: 3g   # deploy/gb10-profile.yaml (unmeasured, D-373)
     environment:
       TB_MODEL_SWAP: "off"   # one pass per run with both models (orchestrator/twophase.py)
       TB_SCREEN_LLM_CONCURRENCY: "${JUDGE_MAX_SEQS:-8}"   # SCREEN calls in flight: vLLM --max-num-seqs (D-142)
-  criteria-compiler: {<<: *arm, mem_limit: 2g}
+  criteria-compiler: {<<: *arm, mem_limit: 1g}
   adapter: {<<: *arm, mem_limit: 3g}
-  lake: {<<: *arm, mem_limit: 8g}
+  lake: {<<: *arm, mem_limit: 6g}
   embed-service:
     <<: *arm
-    mem_limit: 6g   # deploy/gb10-profile.yaml (unmeasured, D-373)
+    mem_limit: 4g   # deploy/gb10-profile.yaml (unmeasured, D-373)
     environment:
       TB_EMBED_DEVICE: ${TB_EMBED_DEVICE:-cuda}  # bge-m3 on the GPU; falls back to CPU when CUDA is absent
-  doc-parser: {<<: *arm, mem_limit: 3g}
+  doc-parser: {<<: *arm, mem_limit: 2g}
   gateway:
     <<: *arm
     mem_limit: 2g   # deploy/gb10-profile.yaml (unmeasured, D-373)
@@ -127,10 +133,10 @@ services:
   console: {<<: *arm, mem_limit: 2g}
   model-guard: {<<: *arm, mem_limit: 1g}
   # Third-party services: multi-arch digests from docker-compose.yml resolve to their arm64 manifests here.
-  db: {<<: *arm, mem_limit: 10g}
+  db: {<<: *arm, mem_limit: 8g}
   fhir-store:
     <<: *arm
-    mem_limit: 8g   # deploy/gb10-profile.yaml (unmeasured, D-373)
+    mem_limit: ${TB_MEM_FHIR:-8g}   # the 6g heap below plus the JVM's own (T-108a, D-360); gb10-profile.yaml (D-373)
     environment:
       # same flags as the base file; explicit heap so HAPI does not size itself from the 128 GB of unified memory
       JAVA_TOOL_OPTIONS: "-Xmx${HAPI_XMX:-6g} -Duser.timezone=${TB_TZ:?set TB_TZ in deploy/.env to site.tz (D-315)}"

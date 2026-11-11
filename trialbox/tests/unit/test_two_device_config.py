@@ -252,7 +252,7 @@ def test_a_missing_or_wrong_memory_limit_on_the_spark_fails(profile: dict[str, A
     cfg["services"]["llm-verifier"]["mem_limit"] = "64g"
     bad = td.compose_problems("spark", cfg, profile)
     assert "llm-service: no memory limit on the Spark (the profile says 42 GiB)" in bad
-    assert "llm-verifier: memory limit 64 GiB, the profile says 23 GiB" in bad
+    assert "llm-verifier: memory limit 64 GiB, the profile says 32 GiB" in bad
 
 
 def test_the_link_needs_its_role_peer_alias_and_certificates(profile: dict[str, Any]) -> None:

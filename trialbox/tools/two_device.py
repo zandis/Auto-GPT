@@ -97,7 +97,10 @@ def _gib(value: Any) -> float | None:
         return None
     if isinstance(value, int | float):
         return float(value) / 2**30
-    s = str(value).strip().lower().removesuffix("b")
+    s = str(value).strip().lower()
+    if s.startswith("${") and ":-" in s and s.endswith("}"):
+        s = s[s.index(":-") + 2 : -1]  # ${TB_MEM_X:-8g}: the default (T-108a overrides)
+    s = s.removesuffix("b")
     units = {"k": 2**10, "m": 2**20, "g": 2**30, "t": 2**40}
     if s and s[-1] in units:
         return float(s[:-1]) * units[s[-1]] / 2**30

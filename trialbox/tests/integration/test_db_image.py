@@ -54,6 +54,7 @@ def test_images_lock_pins_the_db_base_by_digest_and_matches_the_dockerfile() -> 
         "postgresql-16-pgvector": args["PGVECTOR_VERSION"],
         "postgresql-16-pgdg-pgroonga": args["PGROONGA_VERSION"],
         "libgroonga0": args["LIBGROONGA_VERSION"],
+        "pgbackrest": args["PGBACKREST_VERSION"],  # D-371: from PGDG, pinned
     }
     assert db["trusted_extensions"] == list(IMAGE_EXTENSIONS) and "trusted = true" in DOCKERFILE.read_text()
     assert db["healthcheck"] == "/usr/local/bin/tb-db-check"
@@ -154,7 +155,7 @@ def image_db(image_container: tuple[str, str]) -> str:
 def test_the_image_has_both_extensions_at_the_locked_versions(image_db: str) -> None:
     with Database.connect(image_db, "probe") as db:
         assert extensions(db) == _lock()["extensions"]
-        assert db.fetchval("SHOW server_version").startswith("16.")
+        assert db.fetchval("SHOW server_version").startswith(_lock()["postgres_major"] + ".")
 
 
 @pytest.mark.integration
@@ -187,6 +188,16 @@ def test_the_extensions_are_trusted_and_owned_by_the_box_role(image_container: t
     ).stdout.split()  # fmt: skip
     assert out == ["pgroonga:trialbox", "vector:trialbox"]
     assert _docker("exec", name, "tb-db-check", check=False).returncode == 0
+
+
+@pytest.mark.integration
+def test_the_image_has_the_locked_major_and_pgbackrest(image_container: tuple[str, str]) -> None:
+    """D-371: ``pg_config --version`` is the lock's major (as in the demo image and CI); pgBackRest at its pin."""
+    name, _ = image_container
+    lock = _lock()
+    assert _docker("exec", name, "pg_config", "--version").stdout.startswith(f"PostgreSQL {lock['postgres_major']}.")
+    out = _docker("exec", name, "pgbackrest", "version").stdout.strip()
+    assert out == "pgBackRest " + lock["packages"]["pgbackrest"].split("-", 1)[0]
 
 
 def _seed(url: str) -> None:
