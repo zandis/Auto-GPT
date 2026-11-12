@@ -365,7 +365,7 @@ run_step() {  # run_step <NN-name> <function> [args]: once per run, timed, a par
   echo "TB-STEP $name start $(date -u +%FT%TZ)" | tee -a "$LOG"
   "$fn" "$@"; rc=$?
   if [ "$rc" = 0 ] && [ -z "$STOP" ]; then
-    st end "$name" done "$NOTES" "" "$STEP_LOG"
+    st end "$name" "done" "$NOTES" "" "$STEP_LOG"
     echo "TB-STEP $name done" | tee -a "$LOG"; pack; return 0
   fi
   st end "$name" stop "$NOTES" "${STOP:-exit $rc}" "$STEP_LOG"
@@ -612,7 +612,7 @@ step_g9_result() {
   note interruptions "$n"
   note current_before "\"$(st kv _ g9_current)\""; note current_after "\"$(current)\""
   note current_moved "$([ "$(current)" = "$(st kv _ g9_current)" ] && echo false || echo true)"
-  [ "$(job state)" = done ] || ok=false                                   # the job resumed and ended
+  [ "$(job state)" = "done" ] || ok=false                                   # the job resumed and ended
   [ "$(job calls_repeated)" -le $((n * LLMC)) ] || ok=false               # nothing paid twice beyond the calls in flight
   note pass "$ok"
 }
