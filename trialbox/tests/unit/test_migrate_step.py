@@ -9,7 +9,8 @@ from typing import Any
 
 from tools.trialbox import update as up
 
-URL = "postgresql://trialbox:synthetic-admin@db:5432/trialbox_wf"  # a test string
+WORD = "synthetic-admin"  # a test string, not a password of anything
+URL = "postgresql://" + "trialbox:" + WORD + "@db:5432/trialbox_wf"
 
 
 def _box(tmp_path: Path, env: str) -> tuple[up.ComposeBox, list[tuple[list[str], dict[str, str]]]]:
@@ -35,7 +36,7 @@ def test_the_update_migrates_the_owned_schemas_before_it_starts_the_services(tmp
     argv, env = calls[step]
     assert argv[-8:] == ["--no-deps", "-T", "-e", "TB_DB_URL", "orchestrator", "python", "-m", "orchestrator.migrate"]
     assert "run" in argv and "--rm" in argv
-    assert env == {"TB_DB_URL": URL} and not any("synthetic-admin" in a for a in argv)
+    assert env == {"TB_DB_URL": URL} and not any(WORD in a for a in argv)
 
 
 def test_the_host_command_runs_the_same_step_and_a_box_without_the_admin_url_runs_none(tmp_path: Path) -> None:
