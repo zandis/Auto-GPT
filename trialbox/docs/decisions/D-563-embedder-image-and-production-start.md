@@ -24,13 +24,19 @@ up healthy, and the box rehearsal was green only because it overrode the one set
    embedder). The publisher removed that file one commit later (`c400e3d6`, "Delete model.safetensors", no reason
    given) and its main branch (`5617a9f6`, the revision the licence register named before) holds pickle weights
    only, which D-429 refuses. The file lists of both revisions were read through the publisher's API; nothing was
-   downloaded; every other file of the two revisions is the same. The folder a box holds is that revision without
+   downloaded; the weight and tokenizer files of the two revisions are the same (the current one adds an
+   `onnx/` folder, and `README.md`, `.gitattributes` and two images differ). The folder a box holds is that revision without
    its three pickle files (`pytorch_model.bin`, `colbert_linear.pt`, `sparse_linear.pt`): the dense vectors need
    none of them (`provenance.copy: publisher-subset`, `left_out`). The registry row and the licence register name
    the revision. The expected manifest is written from the first hash of the real folder (lane G), and lane G
    compares the safetensors file's tensors with the current `pytorch_model.bin` once before that, because the
    publisher gave no reason for removing the file. Nothing is trusted on first use: until the manifest is written
    the install reports the embedder as not pinned and a PRODUCTION embed service refuses to start.
+   **Written on 2026-11-12** (follow-up to this card): `e131f3203849cd7ba89144fdefce52c950bd748c285c2235c1f5628ddcc6e895`,
+   18 files, 2,295,165,682 bytes, hashed by lane G with `tools.pin_model.weight_manifest` on the real files, after
+   it compared `model.safetensors` with `pytorch_model.bin`: 391 tensors, the same names, shapes and types, every
+   one equal. The manifest counts every visible file of the folder (the README and the images too), so a box
+   holds the whole folder, not the weights alone.
 2. **An image of its own, `trialbox-embed`.** It is the Python service image plus the `embed` extra of `uv.lock`,
    installed from a second hashed export, `deploy/requirements-embed.lock` (`make lock` writes it, `make lock-check`
    holds it). The other services do not carry the library.

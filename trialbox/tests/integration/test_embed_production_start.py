@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import uuid
@@ -65,7 +66,10 @@ def box(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, object]]
     # the registry as it will read once the real folder's manifest is written: here the tiny folder's
     committed = (ROOT / "models" / "registry.yaml").read_text(encoding="utf-8")
     row = committed.index(f"build_id: {BUILD}")
-    head, tail = committed[:row], committed[row:].replace("manifest_sha256: null", f"manifest_sha256: {manifest}", 1)
+    head, tail = (
+        committed[:row],
+        re.sub(r"manifest_sha256: (?:[0-9a-f]{64}|null)", f"manifest_sha256: {manifest}", committed[row:], count=1),
+    )
     registry = work / "registry.yaml"
     registry.write_text(head + tail, encoding="utf-8")
     shutil.copy(ROOT / "deploy" / "settings.example.yaml", deploy / "settings.example.yaml")

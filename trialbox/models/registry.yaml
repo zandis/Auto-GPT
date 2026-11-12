@@ -595,12 +595,15 @@ builds:
     # ENG-003 (D-563; the owner's answers Q3 of D-494 and of 2026-11-12): the embedder is BGE-M3 at the last revision
     # of the publisher's own repository that carries model.safetensors (2,271,064,456 bytes). The publisher removed
     # that file one commit later (c400e3d6, "Delete model.safetensors", no reason given) and has shipped pickle
-    # weights only since (main, 5617a9f6); D-429 refuses pickle weights. The other files of the two revisions are
-    # the same. The folder a box holds is this revision without its three pickle files (pytorch_model.bin,
-    # colbert_linear.pt, sparse_linear.pt: the dense vectors need none of them). The manifest of that folder is
-    # written from its first hash on real files (lane G); until then `pin_model --install` reports the build as not
-    # pinned and a PRODUCTION embed service refuses to start. Nothing is trusted on first use.
-    expected: {manifest_sha256: null, revision: 7b44caba5c06fd6f1ef1d2786261e636c38e4295}
+    # weights only since (main, 5617a9f6); D-429 refuses pickle weights. The weight and tokenizer files of the two
+    # revisions are the same (main adds an onnx/ folder; README.md, .gitattributes and two images differ). The
+    # folder a box holds is this revision without its three pickle files (pytorch_model.bin, colbert_linear.pt,
+    # sparse_linear.pt: the dense vectors need none of them). Its manifest was hashed on the real files with
+    # tools/pin_model.py by lane G on 2026-11-12: 18 files, 2,295,165,682 bytes, after model.safetensors was
+    # compared with pytorch_model.bin (391 tensors, equal). The manifest counts every visible file, the README and
+    # the images too: a box holds the whole folder, not the weights alone, or the pin is refused. Nothing is
+    # trusted on first use.
+    expected: {manifest_sha256: e131f3203849cd7ba89144fdefce52c950bd748c285c2235c1f5628ddcc6e895, revision: 7b44caba5c06fd6f1ef1d2786261e636c38e4295}
     provenance:  # D-392
       copy: publisher-subset
       source: BAAI/bge-m3
