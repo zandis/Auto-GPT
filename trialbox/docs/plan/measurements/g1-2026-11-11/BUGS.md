@@ -63,7 +63,7 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
   1. Run the two hospital parts on an on-demand VM (about 3x the price for those hours, no pre-emption), or
   2. Make the hospital part resumable by stage: keep the stage results and the screened job and skip finished stages.
   3. Either way, the cap must be re-computed for a resumed shard (see A4).
-- **Status.** Open. This is review finding G1-2 in PR #279.
+- **Status.** Fixed in #301 (D-468: an on-demand VM for a shard that holds a hospital part).
 
 ### A4. The estimate for a hospital part is far too low (Medium; makes the hard cap unsafe)
 
@@ -100,7 +100,9 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
   - the check's expected set assumes the small synthetic site.
 - **Fix.** Reproduce with `tools/complete_run.py --only hospital-ja --patients 50000` on the stub model (no GPU
   needed), then fix the cause, not the check. This touches D-149 / T-207 (derived and confirmed facts).
-- **Status.** Open.
+- **Status.** Open. #297 (D-470, proposed) keeps an undated chart fact unknown and makes stage 12 record which
+  expected facts were read, missing or undated, so the next run with the real models settles the cause (undated
+  facts, or dropped birth date and sex). A fix that dated facts from the section heading was reviewed and rejected.
 
 ### B2. Fixed limits tuned for small data break at production scale (Blocker class)
 
@@ -124,7 +126,7 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
   in a checkout.
 - **Fix.** Default to a copy under `TB_DATA_DIR`, and never write to the source tree. Add a test that the checkout
   is unchanged after a compile.
-- **Status.** Open.
+- **Status.** Fixed in #294.
 
 ## C. Fixed: keep them fixed
 

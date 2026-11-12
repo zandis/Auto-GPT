@@ -12,6 +12,9 @@ the adapter does (``adapter.mapping.site``). The feed folder on the host becomes
 ``data_source.path`` the folder it is mounted at (``TB_SOURCE_MOUNT``). The console's DNS name and certificate mode
 become ``TB_TLS_HOSTNAME`` and ``TB_TLS_MODE``: ``deploy/install.sh`` turns TLS on from them.
 
+The box (T-729, D-466): ``tools/box/plan.py`` writes the answers from the owner's first-run answers and the detected
+hardware; its ``env_extra`` (declared ``TB_*`` settings only: the memory caps, the backup target) goes into ``.env``.
+
     python -m tools.settings_wizard                                   # interactive
     python -m tools.settings_wizard --answers site_c.yaml --out deploy/settings.yaml --env-out deploy/.env
 """
@@ -336,6 +339,7 @@ def build(
                                                                "attachments_days")})  # fmt: skip
     except ValueError as exc:
         errors.append(str(exc))
+    extra = env_extra(a.get("env_extra"), errors)
     if errors:
         raise WizardError("; ".join(errors))
     site_id = str(get("site_id")).upper()
@@ -448,7 +452,31 @@ def build(
     env["TB_SOURCE_DIR"] = str(a.get("data_source_host_dir") or "./site/feed")
     env["TB_SOURCE_MOUNT"] = str(data_source.get("path") or "/data/source/site")
     env.update(tls_env)
+    env.update(extra)
     return settings, env, warnings
+
+
+def env_extra(raw: Any, errors: list[str]) -> dict[str, str]:
+    """``env_extra`` of an answers file (the box's plan, T-729): only declared ``TB_*`` settings, string values."""
+    if not raw:
+        return {}
+    if not isinstance(raw, dict):
+        errors.append("env_extra must be a mapping of TB_* settings")
+        return {}
+    from tb_common.config import DECLARED, DECLARED_FAMILIES
+
+    out: dict[str, str] = {}
+    for k, v in raw.items():
+        name = str(k)
+        if not re.fullmatch(r"TB_[A-Z0-9_]+", name) or not (
+            name in DECLARED or any(name.startswith(f) for f in DECLARED_FAMILIES)
+        ):
+            errors.append(f"env_extra: {name} is not a declared TB_* setting")
+        elif "\n" in str(v) or "\r" in str(v):
+            errors.append(f"env_extra: {name} has a line break")
+        else:
+            out[name] = str(v)
+    return out
 
 
 def write(settings: dict[str, Any], env: dict[str, str], out: Path, env_out: Path | None) -> None:

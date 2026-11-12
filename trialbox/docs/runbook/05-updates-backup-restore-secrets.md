@@ -192,5 +192,6 @@ audit-writer` says what it found.
 
 The mail passwords and a cloud-model key are the hospital's: change them at their source, put the new value in
 `deploy/.env`, then `docker compose --project-directory deploy up -d --force-recreate mail-gateway` (or `gateway`). A
-box installed before step 8 keeps its shared `TB_SERVICE_TOKEN` (with a warning) until the first full rotation. The
+box installed before step 8 keeps its shared `TB_SERVICE_TOKEN` (with a warning) until the first full rotation;
+outside DEV and TEST the gateway (D-437) and the orchestrator (D-464) refuse it, so run `secrets init` first. The
 administrator's token for scripts is `deploy/secrets/services/operator.token` (header `X-TB-Service-Token`).

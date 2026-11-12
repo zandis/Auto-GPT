@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}{{ t('firstrun.title') }}{% endblock %}
+{% block content %}
+{# T-729 (D-466): the box's first-run wizard, before any account exists (console.firstrun) #}
+<section class="card narrow" data-testid="firstrun">
+<h1>{{ t('firstrun.title') }}</h1>
+{% if step != 'done' %}<nav class="langpick" aria-label="{{ t('lang.label') }}">{% for l in langs %}<a href="/login/first-run{% if step == 'answers' %}/answers{% endif %}?lang={{ l }}" lang="{{ l }}" hreflang="{{ l }}" class="button{{ '' if l == lang else ' secondary' }}"{% if l == lang %} aria-current="true"{% endif %}>{{ t('lang.name.' + l) }}</a>{% endfor %}</nav>{% endif %}
+{% if step == 'code' %}
+<p>{{ t('firstrun.intro') }}</p>
+{% if wrong %}<p class="error" role="alert" data-testid="firstrun-wrong">{{ t('firstrun.code.wrong') }}</p>{% endif %}
+<form method="post" action="/login/first-run">
+  <input type="hidden" name="lang" value="{{ lang }}">
+  <label for="code">{{ t('firstrun.code') }}</label>
+  <input id="code" name="code" required maxlength="64" autocomplete="one-time-code" autocapitalize="none" spellcheck="false">
+  <button type="submit" data-testid="firstrun-code">{{ t('firstrun.continue') }}</button>
+</form>
+{% elif step == 'answers' %}
+<p>{{ t('firstrun.form.intro') }}</p>
+{% if errors %}<p class="error" role="alert" data-testid="firstrun-errors">{{ t('firstrun.errors') }}</p>{% endif %}
+{% macro err(name) %}{% if errors.get(name) %}<span class="error" data-testid="err-{{ name }}">{{ t('firstrun.err.' + errors[name]) }}</span>{% endif %}{% endmacro %}
+<form method="post" action="/login/first-run/answers" autocomplete="off">
+  <input type="hidden" name="fr_csrf" value="{{ fr_csrf }}">
+  <input type="hidden" name="lang" value="{{ lang }}">
+  <fieldset><legend>{{ t('firstrun.site') }}</legend>
+    <label for="site_name">{{ t('firstrun.site_name') }}</label>
+    <input id="site_name" name="site_name" required maxlength="200" value="{{ values.get('site_name', '') }}">{{ err('site_name') }}
+    <label for="tz">{{ t('firstrun.tz') }}</label>
+    <input id="tz" name="tz" list="tz-list" required maxlength="64" value="{{ values.get('tz', '') }}" aria-describedby="tz-help">{{ err('tz') }}
+    <datalist id="tz-list">{% for z in timezones %}<option value="{{ z }}">{% endfor %}</datalist>
+    <p class="hint" id="tz-help">{{ t('firstrun.tz.help') }}</p>
+    <label for="language">{{ t('firstrun.language') }}</label>
+    <select id="language" name="language">{% for l in languages %}<option value="{{ l }}"{% if values.get('language', lang) == l %} selected{% endif %}>{{ t('lang.name.' + l) }}</option>{% endfor %}</select>{{ err('language') }}
+  </fieldset>
+  <fieldset><legend>{{ t('firstrun.owner') }}</legend>
+    <p class="hint">{{ t('firstrun.owner.help', steward=steward, admin=admin) }}</p>
+    <label for="owner_full_name">{{ t('firstrun.owner_full_name') }}</label>
+    <input id="owner_full_name" name="owner_full_name" required maxlength="200" value="{{ values.get('owner_full_name', '') }}">{{ err('owner_full_name') }}
+    <label for="owner_username">{{ t('firstrun.owner_username') }}</label>
+    <input id="owner_username" name="owner_username" required maxlength="26" autocapitalize="none" spellcheck="false" value="{{ values.get('owner_username', '') }}">{{ err('owner_username') }}
+    <label for="owner_email">{{ t('firstrun.owner_email') }}</label>
+    <input id="owner_email" name="owner_email" type="email" required maxlength="254" value="{{ values.get('owner_email', '') }}">{{ err('owner_email') }}
+    <label for="password">{{ t('firstrun.password') }}</label>
+    <input id="password" name="password" type="password" required minlength="12" maxlength="256" autocomplete="new-password">{{ err('password') }}
+    <label for="password2">{{ t('firstrun.password2') }}</label>
+    <input id="password2" name="password2" type="password" required minlength="12" maxlength="256" autocomplete="new-password">{{ err('password2') }}
+  </fieldset>
+  <fieldset><legend>{{ t('firstrun.mfa') }}</legend>
+    <p class="hint">{{ t('firstrun.mfa.help') }}</p>
+    <label for="totp-key">{{ t('firstrun.mfa.key') }}</label>
+    <input id="totp-key" readonly value="{{ key }}" data-testid="firstrun-key">
+    <p><a href="{{ link }}">{{ t('firstrun.mfa.link') }}</a></p>
+    <label for="totp">{{ t('firstrun.mfa.code') }}</label>
+    <input id="totp" name="totp" required inputmode="numeric" maxlength="8" autocomplete="one-time-code">{{ err('totp') }}
+  </fieldset>
+  <fieldset><legend>{{ t('firstrun.box') }}</legend>
+    <label for="box_name">{{ t('firstrun.box_name') }}</label>
+    <input id="box_name" name="box_name" required maxlength="63" autocapitalize="none" spellcheck="false" value="{{ values.get('box_name', '') }}" aria-describedby="box-help">{{ err('box_name') }}
+    <p class="hint" id="box-help">{{ t('firstrun.box_name.help') }}</p>
+  </fieldset>
+  <fieldset><legend>{{ t('firstrun.backup') }}</legend>{{ err('backup_kind') }}
+    {% if disks %}<label><input type="radio" name="backup_kind" value="second_disk"{% if values.get('backup_kind') == 'second_disk' %} checked{% endif %}> {{ t('firstrun.backup.second_disk') }}</label>
+    <label for="backup_disk">{{ t('firstrun.backup.disk') }}</label>
+    <select id="backup_disk" name="backup_disk">{% for d in disks %}<option value="{{ d.path }}"{% if values.get('backup_disk') == d.path %} selected{% endif %}>{{ d.path }} ({{ d.size_gib }} GiB{% if d.transport %}, {{ d.transport }}{% endif %})</option>{% endfor %}</select>{{ err('backup_disk') }}
+    <p class="hint">{{ t('firstrun.backup.disk.help') }}</p>
+    {% else %}<p class="hint">{{ t('firstrun.backup.no_disk') }}</p>{% endif %}
+    <label><input type="radio" name="backup_kind" value="share"{% if values.get('backup_kind') == 'share' %} checked{% endif %}> {{ t('firstrun.backup.share') }}</label>
+    <label for="backup_share">{{ t('firstrun.backup.share.addr') }}</label>
+    <input id="backup_share" name="backup_share" maxlength="255" value="{{ values.get('backup_share', '') }}">{{ err('backup_share') }}
+    <label><input type="radio" name="backup_kind" value="later"{% if values.get('backup_kind') == 'later' %} checked{% endif %}> {{ t('firstrun.backup.later') }}</label>
+  </fieldset>
+  <fieldset><legend>{{ t('firstrun.source') }}</legend>{{ err('source') }}
+    <p class="hint">{{ t('firstrun.source.help') }}</p>
+    {% for s in sources %}<label><input type="radio" name="source" value="{{ s }}"{% if values.get('source', 'later') == s %} checked{% endif %}> {{ t('firstrun.source.' + s) }}</label>{% endfor %}
+  </fieldset>
+  {% if not tpm %}<fieldset><legend>{{ t('firstrun.kek') }}</legend>
+    <p class="hint">{{ t('firstrun.kek.help') }}</p>
+    <label for="kek">{{ t('firstrun.kek.pass') }}</label>
+    <input id="kek" name="kek" type="password" required minlength="12" maxlength="256" autocomplete="new-password">{{ err('kek') }}
+    <label for="kek2">{{ t('firstrun.kek.pass2') }}</label>
+    <input id="kek2" name="kek2" type="password" required minlength="12" maxlength="256" autocomplete="new-password">{{ err('kek2') }}
+  </fieldset>{% endif %}
+  <button type="submit" data-testid="firstrun-submit">{{ t('firstrun.submit') }}</button>
+</form>
+{% else %}
+<h2>{{ t('firstrun.done.title') }}</h2>
+<p data-testid="firstrun-done">{{ t('firstrun.done.body', steward=steward) }}</p>
+<p><a class="button" href="/login?lang={{ lang }}">{{ t('firstrun.done.signin') }}</a></p>
+{% endif %}
+</section>
+{% endblock %}

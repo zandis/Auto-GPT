@@ -58,7 +58,8 @@ def test_every_part_runs_on_exactly_one_vm(vms: int) -> None:
         assert s["cap_hours"] >= s["hours"] * 1.3 and s["cap_hours"] == int(s["cap_hours"])
     fixed = cr.BOOT_HOURS + cr.SETUP_HOURS  # every VM pays its own start and setup
     assert abs(p["hours"] - (e["hours"] + (vms - 1) * fixed)) < 0.05
-    assert abs(p["usd"] - p["hours"] * cr.PRICE_PER_HOUR) < 0.05
+    # D-468: a VM with a hospital part is on demand, the others spot
+    assert abs(p["usd"] - sum(s["hours"] * cr.price_per_hour(s["provisioning"]) for s in p["shards"])) < 0.05
 
 
 def test_four_vms_finish_the_50000_run_in_one_hospital_part() -> None:
