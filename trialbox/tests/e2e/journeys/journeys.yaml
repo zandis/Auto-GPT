@@ -80,11 +80,11 @@ journeys:
         covers: [conflict]
         langs: [en, ja, zh-TW]
       - id: J-STW-04
-        do: Open the data-operations page and accept the held night of J-ADM-02 with a reason.
-        expect: The held batch is listed and can be accepted or rejected with a reason.
-        expected_failure:
-          card: T-112b
-          why: the data-operations page `/data-ops` is not on master (the batches table of T-112a is)
+        do: Open "Data operations". Find the held night of J-ADM-02, read the tables the gate named, and reject it
+          with a reason (the export is redone tonight).
+        expect: The held night is listed with the lab table; "Accept" is not offered yet; after "Reject" the night
+          is rejected with your reason on its trail, and the readiness page no longer says the feed was held.
+        covers: [held_feed]
 
   - id: J-CRC
     role: coordinator
@@ -154,6 +154,10 @@ journeys:
       - id: J-PI-06
         do: On "Delegation log" of RA-JAK, give the CRO's monitor a grant for a monitoring visit (MV-01) of three days.
         expect: The grant is on the log with its visit id and end date.
+      - id: J-PI-07
+        do: Open this week's sample of RA-JAK "Criteria not matched" patients; send one back with a note.
+        expect: Ten patients (or all, if fewer) with the week's counter; after "Send back" the patient is on the
+          weekly list again, marked "sent back".
 
   - id: J-SI
     role: investigator
@@ -220,12 +224,17 @@ journeys:
           and the patient page (404) at once, and is not on the next screening run's list.
         covers: [opt_out]
       - id: J-PRV-03
+        do: Wait for the opt-out worker's next run (every 5 minutes).
+        expect: The run clears every store it keeps for the patient (the candidate pool, the candidate registry)
+          and fails none.
+        covers: [opt_out]
+      - id: J-PRV-04
         do: After the opt-out worker's run, look for the patient in the lake.
         expect: No note chunk of the patient is left for search.
         expected_failure:
-          card: T-206a
-          why: the opt-out worker is not on master; the register hides the patient on every read, the lake keeps
-            the chunks
+          card: T-206b
+          why: the opt-out worker v1 (T-206a) hides the patient on every read and withholds OMOP records; erasing
+            lake snapshots, note chunks and vectors is the rest of T-206
 
 # The order a site walks the steps in: one site day across the roles. Within a journey the order is the journey's.
 walk:
@@ -254,6 +263,7 @@ walk:
   - J-CRC-06
   - J-CRC-07
   - J-PI-06
+  - J-PI-07
   - J-MON-01
   - J-MON-02
   - J-MON-03
@@ -262,3 +272,4 @@ walk:
   - J-PRV-01
   - J-PRV-02
   - J-PRV-03
+  - J-PRV-04

@@ -207,9 +207,21 @@ def _stw_conflict(s: Site, st: dict[str, Any]) -> None:
 
 @step("J-STW-04")
 def _stw_data_ops(s: Site, st: dict[str, Any]) -> None:
-    r = s.c[user("stw")].get("/data-ops")
-    assert r.status_code == 200, r.status_code
-    assert s.state["held_snapshot"] in js.text(r.text)
+    stw = s.c[user("stw")]
+    page = stw.get("/data-ops")
+    assert page.status_code == 200, page.status_code
+    held = [m for m in re.finditer(r'data-testid="held" data-batch="(\d+)">(.*?)</tr>', page.text, re.S)
+            if s.state["held_snapshot"] in m.group(2)]  # fmt: skip
+    assert held and "lab" in js.text(held[0].group(2)), js.text(page.text)[:400]
+    assert 'value="accept"' not in page.text and 'data-testid="dataops-accept-off"' in page.text  # D-443: not yet
+    bid = held[0].group(1)
+    r = stw.post(f"/data-ops/batches/{bid}/decide", data={"csrf": poc.csrf(page.text), "decision": "reject",
+                 "reason": "lab extract missing; the export is redone tonight"}, follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303 and r.headers["location"] == "/data-ops?done=reject", r.headers.get("location")
+    trail = js.text(stw.get(f"/data-ops/batches/{bid}").text)
+    assert "REJECTED" in trail.upper() and "the export is redone tonight" in trail, trail[:400]
+    gone = tr("en", "site.miss.feed_held", tables="lab")
+    assert gone not in js.text(s.c[user("it")].get(f"/site?study={RS}").text)  # decided: no longer shown as held
 
 
 # ---------------------------------------------------------------------------------------------- coordinator
@@ -324,6 +336,24 @@ def _pi_monitor_grant(s: Site, st: dict[str, Any]) -> None:
     assert grant and grant[-1].training_ref == "MV-01" and grant[-1].end == form["end"]
 
 
+@step("J-PI-07")
+def _pi_weekly_sample(s: Site, st: dict[str, Any]) -> None:
+    name = user("pi")
+    page = s.get(name, f"/studies/{RS}/not-matched/sample")
+    assert 'data-testid="nm-counter"' in page.text and 'data-testid="nm-held"' not in page.text, js.text(page.text)[
+        :300
+    ]
+    shown = list(dict.fromkeys(re.findall(rf'action="/studies/{RS}/not-matched/sample/([0-9a-f]+)"', page.text)))
+    assert 1 <= len(shown) <= 10, len(shown)
+    pid = shown[0]
+    r = s.post(name, f"/studies/{RS}/not-matched/sample/{pid}", {"answer": "send_back",
+               "note": "the record shows the value inside the range"}, page.text, follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303 and "done=send_back" in r.headers["location"], r.headers.get("location")
+    row = next((x for x in poc.rows(s, RS) if str(x["pid"]) == pid), None)
+    assert row is not None and row.get("sent_back"), row
+    s.state["sent_back"] = pid
+
+
 # ---------------------------------------------------------------------------------------------- sub-investigator
 @step("J-SI-01")
 def _si_sign_in(s: Site, st: dict[str, Any]) -> None:
@@ -419,6 +449,19 @@ def _prv_opt_out(s: Site, st: dict[str, Any]) -> None:
 
 
 @step("J-PRV-03")
+def _prv_worker(s: Site, st: dict[str, Any]) -> None:
+    from datacore import optout_worker
+
+    out = optout_worker.tick(s.box.orch)
+    assert out is not None and out["failed"] == [], out
+    assert out["opted_out"] >= 1 and {"candidate_pool", "candidate_registry"} <= set(out["stores"]), out
+    pid = s.state["opted_out"]
+    for rs in sorted({str(x["ruleset"]) for x in s.box.orch.db.candidate_summaries()}):
+        for row in s.box.orch.db.candidates(rs):
+            assert str(row["pid"]) != pid or row["status"] not in optout_worker.OPEN_STATUSES, (rs, row["status"])
+
+
+@step("J-PRV-04")
 def _prv_lake(s: Site, st: dict[str, Any]) -> None:
     lake = s.box.orch.services.lake
     n = lake.query("SELECT count(*) AS n FROM document_chunk WHERE pid = ?", [s.state["opted_out"]]).to_pylist()
