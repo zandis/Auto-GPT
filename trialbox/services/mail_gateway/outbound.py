@@ -1,5 +1,6 @@
 """Outbound mail (SPEC §4.1): Markdown body -> text + HTML, attachments from the object store, routing enforcement,
-encryption of PHI attachments (7z AES-256 with a separately mailed password, or S/MIME sign + encrypt)."""
+delivery of PHI attachments: a sign-in link (the default, D-369), S/MIME sign + encrypt, or 7z AES-256 with a
+separately mailed password (PPAP; refused for patient files outside DEV and TEST, D-369)."""
 
 from __future__ import annotations
 
@@ -20,13 +21,15 @@ from tb_common.crypto import random_password
 from tb_common.objstore import ObjectStore
 from tb_common.routing import is_internal
 from tb_common.timeutil import now
+from tb_common.wording import statement, text_lang
 from tb_contracts import SendRequest
 
 Transport = Callable[[str, list[str], bytes], None]
 HTML_WRAP = (
     '<!doctype html><html><head><meta charset="utf-8"></head><body style="font-family:\'Noto Sans TC\',Arial,'
     'sans-serif;font-size:14px">{body}<hr><p style="color:#777;font-size:11px">TrialBox · automated message · '
-    "do not forward outside the hospital unless the content is aggregate.</p></body></html>"
+    "do not forward outside the hospital unless the content is aggregate.</p>"
+    '<p style="color:#777;font-size:11px" data-testid="intended-use">{statement}</p></body></html>'
 )
 
 
@@ -45,6 +48,15 @@ class EncryptionError(RuntimeError):
     pass
 
 
+class NotSent(RuntimeError):
+    """The transport failed before the server could have accepted the message (T-108c, D-401): DNS, connect, TLS,
+    the greeting, sign-in, MAIL, RCPT, or a DATA that the server answered with an error. Safe to send again."""
+
+    def __init__(self, cause: BaseException) -> None:
+        super().__init__(f"{type(cause).__name__}: {cause}")
+        self.cause = cause
+
+
 @dataclass
 class Prepared:
     message_id: str
@@ -55,14 +67,45 @@ class Prepared:
 
 
 def smtp_transport(host: str, port: int, user: str = "", password: str = "", starttls: bool = True) -> Transport:
+    """SMTP that says which phase failed (T-108c, CR-085). Everything up to the end of the message body is
+    :class:`NotSent` (nothing can have been accepted); a failure while the body and its final dot are on the wire or
+    the answer is awaited propagates as it is: the message may have arrived."""
+
     def send(sender: str, to: list[str], data: bytes) -> None:
         cls = smtplib.SMTP_SSL if port == 465 else smtplib.SMTP
-        with cls(host, port, timeout=60) as s:
-            if starttls and cls is smtplib.SMTP:
-                s.starttls()
-            if user:
-                s.login(user, password)
-            s.sendmail(sender, to, data)
+        try:
+            s = cls(host, port, timeout=60)  # DNS, connect, the TLS handshake on 465, the greeting
+        except (OSError, smtplib.SMTPException) as exc:
+            raise NotSent(exc) from exc
+        with s:
+            try:
+                if starttls and cls is smtplib.SMTP:
+                    s.starttls()
+                if user:
+                    s.login(user, password)
+                s.ehlo_or_helo_if_needed()
+                code, resp = s.mail(sender)
+                if code != 250:
+                    raise smtplib.SMTPSenderRefused(code, resp, sender)
+                refused = {}
+                for r in to:
+                    code, resp = s.rcpt(r)
+                    if code not in (250, 251):
+                        refused[r] = (code, resp)
+                if len(refused) == len(to):
+                    raise smtplib.SMTPRecipientsRefused(refused)
+                code, resp = s.docmd("data")
+                if code != 354:
+                    raise smtplib.SMTPDataError(code, resp)
+            except (OSError, smtplib.SMTPException) as exc:
+                raise NotSent(exc) from exc
+            body = re.sub(rb"(?m)^\.", b"..", data)
+            if not body.endswith(b"\r\n"):
+                body += b"\r\n"
+            s.send(body + b".\r\n")  # from here an error means the message may have arrived
+            code, resp = s.getreply()
+            if code != 250:  # the server answered: it did not take the message
+                raise NotSent(smtplib.SMTPDataError(code, resp))
 
     return send
 
@@ -108,9 +151,17 @@ def plain_text(body_md: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip() + "\n"
 
 
+def mail_statement(body_md: str) -> str:
+    """The intended-use statement every mail carries (TB-IU-01 §1 condition C1; T-116), in the body's language: a send
+    request names no language, so it is read from the body's script (kana, Han, else English)."""
+    return statement(text_lang(body_md))
+
+
 def render_body(body_md: str) -> tuple[str, str]:
     html = markdown.markdown(body_md, extensions=["tables", "fenced_code", "sane_lists"])
-    return plain_text(body_md), HTML_WRAP.format(body=html)
+    st = mail_statement(body_md)
+    text = plain_text(body_md).rstrip("\n") + "\n\n-- \n" + st + "\n"
+    return text, HTML_WRAP.format(body=html, statement=html_lib.escape(st))
 
 
 def seven_zip(files: list[tuple[str, bytes]], password: str) -> bytes:
@@ -156,11 +207,18 @@ def prepare(
     store: ObjectStore,
     sender: str,
     internal_domains: list[str],
-    mode: str = "zip",
+    mode: str = "link",
     smime_certs: dict[str, str] | None = None,
     smime_dir: Path | None = None,
-    tz: str = "Asia/Taipei",
+    tz: str | None = None,
+    link_base: str = "",
+    allow_phi_zip: bool = False,
+    message_id: str | None = None,
 ) -> Prepared:
+    """``message_id``: the Message-ID of a send that waited in the outbox (T-108c), so the mail that finally leaves
+    has the id its caller recorded. ``allow_phi_zip``: D-369 (OD-1, CR-025) mails no patient file as a password zip,
+    because the password goes to the same person on the same channel. Only a synthetic box (TB_ENV DEV or TEST) may
+    still do so; elsewhere a ``phi`` attachment in ``zip`` mode is refused before anything is built or sent."""
     to = sorted({norm(r) for r in req.to if r})
     if not to:
         raise RoutingRefused("no recipients")
@@ -172,9 +230,28 @@ def prepare(
             f"phi content may not be sent outside {', '.join(internal_domains)}: {', '.join(external)}"
         )
     encrypt = bool(atts) and (req.encrypt or phi)
+    if mode == "zip" and phi and atts and not allow_phi_zip:
+        raise EncryptionError(
+            "patient files are not mailed as a password zip (D-369): set attachment_encryption to link (with "
+            "TB_CONSOLE_URL) or smime"
+        )
     domain = sender.rsplit("@", 1)[-1] or "trialbox.local"
-    mid = make_msgid(idstring=(req.job_id or "trialbox")[:26], domain=domain)
+    mid = message_id or make_msgid(idstring=(req.job_id or "trialbox")[:26], domain=domain)
     text, html = render_body(req.body_md)
+    if encrypt and mode == "link":
+        # D-127: the site chose no patient files by mail; the mail says where to sign in and download them
+        if not link_base:
+            raise EncryptionError("attachment_encryption is 'link' but TB_CONSOLE_URL (the console's address) is unset")
+        url = f"{link_base.rstrip('/')}/pilot/jobs/{req.job_id}"
+        names = ", ".join(a.filename for a in atts)
+        lines = [
+            f"Files ({names}) are on TrialBox. Sign in to download: {url}",
+            f"ファイル（{names}）は TrialBox にあります。サインインしてダウンロードしてください: {url}",
+            f"檔案（{names}）在 TrialBox 上，請登入後下載: {url}",
+        ]
+        text += "\n\n" + "\n".join(lines)
+        html += "".join(f"<p>{ln.replace(url, f'<a href="{url}">{url}</a>')}</p>" for ln in lines)
+        atts, encrypt = [], False  # nothing attached, so nothing to encrypt
     files = [(a.filename, store.get(a.minio_key)) for a in atts]
 
     def headers(m: Message, subject: str, rcpt: list[str], msg_id: str) -> None:
@@ -204,7 +281,7 @@ def prepare(
             pm = EmailMessage()
             pm.set_content(
                 f"Password for the encrypted attachment of '{req.subject}' (message {mid}):\n\n    {password}\n\n"
-                "Sent separately; do not forward."
+                "Sent separately; do not forward.\n\n-- \n" + statement("en") + "\n"
             )
             headers(pm, f"Password: {req.subject}", [r], make_msgid(idstring="pw", domain=domain))
             password_mails.append((r, pm.as_bytes(policy=SMTP_UNFOLDED)))

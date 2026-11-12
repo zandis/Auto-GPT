@@ -1,0 +1,554 @@
+# TrialBox CI gate v1 (D-206, T-007, WS-01.4, WS-12.2, WS-13.8): every pull request that touches trialbox/ and every
+# push to master runs these jobs; `make ci` runs the same list locally. Job names are stable: branch protection on
+# master requires unit, lint, contracts, goldens, data-scan and e2e-simple (the owner sets the list; RUNBOOK §3).
+# The security job (secret scan, static security scan) is T-654. The nightly drills are in trialbox-e2e.yml; the
+# supply-chain gates (lock-check, allow-list, pip-audit, licences) are trialbox-supply-chain.yml (D-185, D-186) and
+# are not repeated here. A job marked continue-on-error carries the date and the reason.
+name: TrialBox CI
+
+# No `paths:` filter on the triggers: a required check whose workflow never starts blocks a pull request for ever.
+# The `changes` job decides instead; a job it skips reports "skipped", which satisfies a required check.
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trialbox-ci-${{ github.ref }}
+  # a running push to master is never cancelled; a push run still waiting in the group is replaced by a newer push
+  # (GitHub keeps one pending run per concurrency group), so master is checked at its newest commit
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+    working-directory: trialbox
+
+env:
+  TB_SCRATCH: ${{ github.workspace }}/../tb-scratch  # pglocal compares resolved paths, so the .. is harmless
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      trialbox: ${{ steps.diff.outputs.trialbox }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: diff
+        working-directory: .
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then echo "trialbox=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" \
+              | grep -qE '^(trialbox/|\.github/workflows/trialbox-)'; then
+            echo "trialbox=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "trialbox=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  lint:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - name: Python environment (uv.lock, exactly)
+        run: make venv
+      - name: ruff
+        run: .venv/bin/python -m ruff check . && .venv/bin/python -m ruff format --check .
+      - name: actionlint (the workflows themselves)
+        working-directory: .
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9 -color .github/workflows/trialbox-*.yml
+
+  types:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      - name: mypy (strict)
+        run: .venv/bin/python -m mypy libs services tools tests
+
+  docs:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      - name: doclint (the eight documents; link and path problems are warnings, D-311)
+        run: .venv/bin/python tools/doclint.py
+      - name: decision numbers (one number, one text; registry rows are notes only; D-306, D-311)
+        run: .venv/bin/python -m tools.decisions_index --check
+      - name: licence register (every shipped data file has a row; no SNOMED CT; model licence rows; T-617b, D-342)
+        run: PYTHONPATH=libs:services:. .venv/bin/python -m tools.licence_register --check
+
+  contracts:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      - name: generated contracts are what the schemas generate (no hand edit)
+        run: make contracts-check
+      - name: shipped rulesets are what the compiler gives (ValueSets, SQL, CQL; T-613a, D-322)
+        run: TB_ENV=DEV TB_TZ=Asia/Taipei PYTHONPATH=libs:services:. .venv/bin/python -m tools.build_rulesets --check
+
+  trace:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      - name: the traceability CSV (warnings only, never blocks a merge; D-311)
+        run: .venv/bin/python tools/gen_traceability.py --check
+
+  # T-619a (D-417; STD-011, STD-017, STD-070): standards conformance. TW Core 1.0.0 through the HL7 validator on 200
+  # mapped synthetic resources (0 errors, each fillable slice matched); the TW Core and JP Core rule files rebuilt from
+  # their pinned packages; JP Core 1.2.0 against the pinned 1.1.0 (printed for the Japan site); the five rulesets with
+  # a test set translated with the pinned jars and run by the local CQL engine, with the UTC-edge and censored cases.
+  # GitHub-hosted runner, no paid service. Jars and FHIR packages come from the caches; a miss downloads them, and
+  # every download is retried (a runner once lost the DNS answer for packages.fhir.org).
+  standards:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 45
+    env:
+      TB_ENV: DEV
+      TB_TZ: Asia/Taipei
+      PYTHONPATH: libs:services:.
+      TB_CQL_LOCAL_LIB: ${{ github.workspace }}/trialbox/.cache/cql-local/lib
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78  # v6.2.0
+        with:
+          distribution: temurin
+          java-version-file: trialbox/.java-version
+          cache: maven
+          cache-dependency-path: |
+            trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
+            trialbox/tools/cql_local/pom.xml
+      - run: make venv
+      # the same cache as the unit job (same paths, same key), so one of the two fills it for both
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            trialbox/.cache/jvm
+            trialbox/.cache/fonts
+          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/tools/jvm-deps.sha256', 'trialbox/tools/fhir-packages.sha256', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
+      # the local CQL engine's jars and the IG packages the rule files are built from
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            trialbox/.cache/cql-local
+            trialbox/.cache/fhir
+          key: tb-standards-${{ hashFiles('trialbox/tools/cql_local/pom.xml', 'trialbox/tools/jpcore_rules.py') }}
+      - name: JVM dependencies and fonts (validator, translator jars, FHIR package cache)
+        run: make jvm-deps fonts
+      - name: Local CQL engine (Maven, three tries)
+        run: |
+          if ls "$TB_CQL_LOCAL_LIB"/cqf-fhir-cql-*.jar >/dev/null 2>&1; then echo "cached"; exit 0; fi
+          for i in 1 2 3; do .venv/bin/python -m tools.cql_eval --fetch && exit 0; sleep $((i * 10)); done
+          exit 1
+      - name: TW Core and JP Core rule files are what their pinned packages give
+        run: |
+          .venv/bin/python -m tools.jpcore_rules --fetch --check
+          .venv/bin/python -m tools.jpcore_rules --ig tw --fetch --check
+      # STD-017: printed for the Japan site to choose a version; never blocks (the package is on jpfhir.jp, not on the
+      # FHIR registries, 2026-11-11)
+      - name: JP Core 1.2.0 against the pinned 1.1.0 (information)
+        continue-on-error: true
+        run: .venv/bin/python -m tools.jpcore_rules --fetch --version 1.2.0 --diff
+      - name: TW Core 1.0.0, HL7 validator on 200 mapped synthetic resources
+        env:
+          TB_HL7_VALIDATOR_JAR: ${{ github.workspace }}/trialbox/.cache/jvm/validator_cli.jar
+          TB_FHIR_PACKAGE_HOME: ${{ github.workspace }}/trialbox/.cache/jvm/fhir-home
+        run: .venv/bin/python -m tools.twcore_check --json "$RUNNER_TEMP/twcore.json"
+      - name: Five rulesets through the pinned jars and the CQL engine; the UTC-edge and censored cases
+        run: .venv/bin/python -m tools.cql_path_check --json "$RUNNER_TEMP/cql-path.json"
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: standards
+          path: |
+            ${{ runner.temp }}/twcore.json
+            ${{ runner.temp }}/cql-path.json
+          if-no-files-found: ignore
+
+  unit:
+    runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 60  # each xdist worker starts its own throwaway cluster; the suite now takes 30 to 40 minutes (two runs hit 40 at 94-96% on 2026-11-11)
+    # no service container: the tests start throwaway clusters from the runner's own PostgreSQL (tools/pglocal.py),
+    # so pg_dump/pg_restore and the server are one version, as on a developer machine (a postgres:16 service with the
+    # runner's newer client tools failed the backup tests on transaction_timeout)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78  # v6.2.0
+        with:
+          distribution: temurin
+          java-version-file: trialbox/.java-version
+          cache: maven
+          cache-dependency-path: trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
+      - run: make venv
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            trialbox/.cache/jvm
+            trialbox/.cache/fonts
+          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/tools/jvm-deps.sha256', 'trialbox/tools/fhir-packages.sha256', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
+      - name: JVM dependencies and fonts
+        run: make jvm-deps fonts
+      - name: PostgreSQL server binaries
+        run: tools/ci_postgres.sh  # the one major of deploy/images.lock, pg_config --version checked (D-371)
+      - name: pytest -n auto
+        env:
+          TB_DATA_DIR: ${{ runner.temp }}/tb-data  # the services' default /data is not writable for the runner user
+          # T-651 (ENG-029): line coverage of the run under sys.monitoring, which costs next to nothing; branches are
+          # measured nightly (trialbox-nightly-quality.yml)
+          COVERAGE_CORE: sysmon
+          PYTEST_ADDOPTS: --cov --cov-report=json:${{ runner.temp }}/coverage.json
+        run: make test PYTEST_N=auto 2>&1 | tee "$RUNNER_TEMP/unit.log"
+      # D-203: the test log carries no identifier either
+      - name: Data-handling scan of the test log
+        run: make data-scan SCAN="--log $RUNNER_TEMP/unit.log"
+      # T-651: a package more than 0.5 point under tools/coverage_baseline.json, or a safety-core file under its floor
+      - name: Coverage ratchet
+        run: .venv/bin/python -m tools.coverage_ratchet "$RUNNER_TEMP/coverage.json"
+      - name: Keep coverage.json
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: coverage
+          path: ${{ runner.temp }}/coverage.json
+          if-no-files-found: ignore
+
+  # T-737 (D-463, plan §7.5): the `property` gate. The safety properties (tests/unit/test_safety_properties.py), the
+  # hypothesis properties of the unit tests and tests/property/ when it exists; `make property`. The unit job runs the
+  # same files too; this job names the gate and fails alone. Until hypothesis is in uv.lock its five tests skip (the
+  # job prints the skips and a warning).
+  property:
+    runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      - name: PostgreSQL server binaries
+        run: tools/ci_postgres.sh  # the one major of deploy/images.lock, pg_config --version checked (D-371)
+      # the path-independence tests (T-705) run whole SCREEN jobs, whose report step needs the fonts; same cache as
+      # the unit job (restore only: the unit job fills it)
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            trialbox/.cache/jvm
+            trialbox/.cache/fonts
+          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/tools/jvm-deps.sha256', 'trialbox/tools/fhir-packages.sha256', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
+      - name: Fonts
+        run: make fonts
+      - name: Property tests
+        env:
+          TB_DATA_DIR: ${{ runner.temp }}/tb-data
+        run: make property
+
+  # T-202 (D-384): e2e-simple and goldens run once per lake source. The legacy run keeps the job's plain name (the
+  # required check of branch protection); the OMOP run is "<job> (omop)". Neither may fail (fail-fast off).
+  e2e-simple:
+    name: ${{ matrix.lake_source == 'legacy' && 'e2e-simple' || 'e2e-simple (omop)' }}
+    runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        lake_source: [legacy, omop]
+    env:
+      TB_LAKE_SOURCE: ${{ matrix.lake_source }}  # seeds the lake.source flag of the run's fresh database (T-008)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78  # v6.2.0
+        with:
+          distribution: temurin
+          java-version-file: trialbox/.java-version
+          cache: maven
+          cache-dependency-path: trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
+      - run: make venv
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            trialbox/.cache/jvm
+            trialbox/.cache/fonts
+          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/tools/jvm-deps.sha256', 'trialbox/tools/fhir-packages.sha256', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
+      - name: JVM dependencies and fonts
+        run: make jvm-deps fonts
+      - name: PostgreSQL server binaries
+        run: tools/ci_postgres.sh  # the one major of deploy/images.lock, pg_config --version checked (D-371)
+      - name: e2e_simple (the build gate of D-111)
+        run: make e2e-simple E2E_DIR="$RUNNER_TEMP/e2e"
+      - name: Keep the check list
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: e2e-simple-${{ matrix.lake_source }}
+          path: ${{ runner.temp }}/e2e.json
+          if-no-files-found: ignore
+
+  goldens:
+    name: ${{ matrix.lake_source == 'legacy' && 'goldens' || 'goldens (omop)' }}
+    runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        lake_source: [legacy, omop]
+    env:
+      TB_LAKE_SOURCE: ${{ matrix.lake_source }}  # tools.goldens --check builds and checks this one source
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      # each lake source writes to PostgreSQL; tools/pglocal.py starts a throwaway cluster from the server binaries
+      - name: PostgreSQL server binaries
+        run: tools/ci_postgres.sh  # the one major of deploy/images.lock, pg_config --version checked (D-371)
+      # T-006 (D-205): the committed goldens must not move unless the same pull request rewrites them with
+      # `make goldens REASON="D-nnn: ..."`
+      - name: Goldens identical, or regenerated in the same commit
+        run: make goldens-check
+
+  data-scan:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      - name: Data-handling scan (D-203, WS-13.10, TB-SITE-03)
+        run: make data-scan
+
+  # T-654 (ENG-010, ENG-011): secret scanning (detect-secrets) over every tracked file and a static security scan
+  # (bandit, medium severity and confidence) over the Python code; both from uv.lock. Reviewed findings, each with a
+  # reason and a count, are in tools/security_scan_ignores.yaml. tests/unit/test_security_scan.py shows that a
+  # planted fake key and a planted shell injection fail these commands.
+  security:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      - name: Secret scan (detect-secrets)
+        run: .venv/bin/python -m tools.security_scan secrets
+      - name: Static security scan (bandit)
+        run: .venv/bin/python -m tools.security_scan sast
+
+  shell:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      # gates on warnings (OPS-076): the warnings D-206 listed are fixed, so a new one fails the job
+      - name: shellcheck
+        run: |
+          git ls-files -z '*.sh' | xargs -0 shellcheck --severity=warning --format=gcc
+      # T-509 (D-330): the PoC host's scripts at warning level, and its Caddyfile through caddy itself (the image the VM
+      # runs, by digest)
+      - name: PoC host scripts and Caddyfile
+        run: |
+          shellcheck --severity=warning deploy/gcp/poc-host.sh deploy/gcp/hosted-demo-startup.sh
+          TB_MD_TB_DOMAIN=poc.example.org TB_MD_TB_IMAGE=r.example.org/demo@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+            bash deploy/gcp/hosted-demo-startup.sh --print-caddyfile > "$RUNNER_TEMP/Caddyfile"
+          pin=$(sed -n 's/^CADDY_IMAGE_PIN="\(.*\)"$/\1/p' deploy/gcp/hosted-demo-startup.sh)
+          docker run --rm -v "$RUNNER_TEMP/Caddyfile:/etc/caddy/Caddyfile:ro" "$pin" \
+            caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
+
+  images:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 15
+    # D-206: gating since 2026-11-10; the first findings were triaged as inline ignores with a reason in each Dockerfile
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: hadolint
+        run: |
+          rc=0
+          for f in deploy/docker/python.Dockerfile deploy/docker/jvm.Dockerfile demo/Dockerfile; do
+            echo "== $f"
+            docker run --rm -i hadolint/hadolint:v2.12.0@sha256:30a8fd2e785ab6176eed53f74769e04f125afb2f74a6c52aef7d463583b6d45e hadolint --failure-threshold warning - < "$f" || rc=1
+          done
+          exit "$rc"
+
+  # T-501 (OPS-001, ROLE-002, ROLE-003, UX-001): the demo image from a fresh checkout (no .cache, no make jvm-deps),
+  # started with no -e flag: /login answers and every seeded account signs in (over plain http here: the Secure cookie
+  # is only a header to the server), within the memory and start-time budget of trialbox/demo/README.md
+  demo-boot:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - name: Build demo/Dockerfile from the fresh checkout
+        run: |
+          test ! -e .cache/jvm
+          DOCKER_BUILDKIT=1 docker build -f demo/Dockerfile -t trialbox-demo:ci .
+      - name: Start it with no -e flag and wait for /login (budget 600 s)
+        run: |
+          docker run -d --name tb-demo -p 8080:8080 trialbox-demo:ci
+          start=$(date +%s)
+          until curl -fsS -o /dev/null http://127.0.0.1:8080/login; do
+            if [ "$(docker inspect -f '{{.State.Running}}' tb-demo)" != true ]; then
+              echo "the container stopped"; docker logs tb-demo 2>&1 | grep -v '^password' | tail -60; exit 1
+            fi
+            if [ $(( $(date +%s) - start )) -gt 600 ]; then echo "no answer on /login within 600 s"; exit 1; fi
+            sleep 5
+          done
+          echo "first answer on /login after $(( $(date +%s) - start )) s" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Peak memory of the demo process (budget 2.5 GB)
+        run: |
+          peak=$(docker exec tb-demo awk '/^VmHWM/ {print $2}' /proc/1/status)
+          echo "peak RSS of the demo process: $(( peak / 1024 )) MB" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$peak" -le 2621440
+      - name: Each seeded account signs in
+        run: |
+          pw=$(docker logs tb-demo 2>&1 | sed -n 's/^password (all accounts): //p')
+          test -n "$pw"
+          echo "::add-mask::$pw"
+          DEMO_PW="$pw" python3 - admin crc pi subpi cra viewer <<'PY'
+          import http.client, os, re, sys, urllib.parse
+
+          def req(method, path, body=None, cookies=None):
+              c = http.client.HTTPConnection("127.0.0.1", 8080, timeout=30)
+              h = {"Cookie": "; ".join(f"{k}={v}" for k, v in (cookies or {}).items())}
+              if body is not None:
+                  h["Content-Type"] = "application/x-www-form-urlencoded"
+              c.request(method, path, body=body, headers=h)
+              r = c.getresponse()
+              text = r.read().decode("utf-8", "replace")
+              jar = {}
+              for k, v in r.getheaders():
+                  if k.lower() == "set-cookie":
+                      name, _, rest = v.partition("=")
+                      jar[name] = rest.split(";", 1)[0]
+              return r.status, {k.lower(): v for k, v in r.getheaders()}, jar, text
+
+          bad = []
+          for user in sys.argv[1:]:
+              st, _, jar, html = req("GET", "/login")
+              tok = re.search(r'name="login_csrf" value="([^"]+)"', html)
+              if st != 200 or not tok:
+                  bad.append((user, "/login", st))
+                  continue
+              form = urllib.parse.urlencode({"username": user, "password": os.environ["DEMO_PW"], "login_csrf": tok.group(1)})
+              st, hdr, jar2, _ = req("POST", "/login", form, jar)
+              session = {k: v for k, v in jar2.items() if v and k not in jar}
+              if st != 303 or not session:
+                  bad.append((user, "sign-in", st))
+                  continue
+              path = hdr.get("location", "/home")
+              for _ in range(4):  # a role's home may redirect (pi to the study week, cra to /reports)
+                  st, h3, _, _ = req("GET", path, cookies=session)
+                  if st not in (302, 303) or h3.get("location", "").startswith("/login"):
+                      break
+                  path = h3["location"]
+              print(f"{user}: signed in, {path} answers {st}")
+              if st != 200:
+                  bad.append((user, path, st))
+          sys.exit(f"sign-in failed: {bad}" if bad else 0)
+          PY
+      # T-504 (LIFE-002): the CGMH amend-and-approve walk (GZQO amended, approved on S20, the changed list) inside
+      # the container, in ja, zh-TW and en, on its own synthetic site and box (plain http in process: no Secure cookie)
+      - name: The GZQO amend-and-approve walk in the container, in three languages
+        run: |
+          for lang in ja zh-TW en; do
+            # bash -eo pipefail: a failed walk fails the step
+            docker exec -e TB_CONSOLE_SECURE_COOKIE=0 tb-demo python -m tools.cgmh_demo --dir /tmp/tb-cgmh --walk amend --lang "$lang" 2>&1 | grep -v '^{"ts"' | tail -5
+          done
+      - name: The container log (password line left out)
+        if: always()
+        run: docker logs tb-demo 2>&1 | grep -v '^password' | tail -80 || true

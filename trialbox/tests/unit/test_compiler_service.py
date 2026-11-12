@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-import shutil
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -14,6 +13,7 @@ import tb_contracts as c
 from criteria_compiler.compile_cql.translator import Translation
 from criteria_compiler.repo import RulesetRepo
 from criteria_compiler.review import parse_review_xlsx
+from criteria_compiler.semantics import compiled
 from criteria_compiler.service import CompileFailed, Compiler, CompilerDeps
 from criteria_compiler.terminology.mapper import Terminology
 from doc_parser.parser import parse
@@ -23,6 +23,8 @@ from openpyxl import load_workbook
 from tb_common.audit import AuditLog, verify
 from tb_common.llm import LlmClient
 from tb_common.objstore import FsStore
+
+from tests.rulesets_guard import copy_rulesets
 
 ROOT = Path(__file__).resolve().parents[2]
 PDF = ROOT / "tests/fixtures/protocols/GZQO_protocol_v3.pdf"
@@ -42,7 +44,7 @@ class FakeGate:
         self, criteria: list[c.CriterionIR], sql: str, library: str, index_date: date, seed: str
     ) -> c.EquivalenceReport:
         self.calls += 1
-        ids = [x.id for x in criteria if x.class_ == "structured"]
+        ids = [x.id for x in compiled(criteria)]  # T-652: a gate answers for every compiled criterion, mixed too
         per = {i: (50.0 if i in self.failing else 100.0) for i in ids}
         return c.EquivalenceReport(
             overall_pct=100.0 if not self.failing else 90.0,
@@ -56,7 +58,7 @@ class FakeGate:
 @pytest.fixture
 def env(tmp_path: Path) -> dict[str, Any]:
     seed = tmp_path / "seed"
-    shutil.copytree(ROOT / "rulesets", seed, ignore=shutil.ignore_patterns("GZQO", "RA-BIO"))
+    copy_rulesets(seed, "GZQO", "RA-BIO")
     store = FsStore(tmp_path / "obj")
     audit = AuditLog(tmp_path / "audit")
     llm = LlmClient("http://stub/v1", "stub", audit=audit)
@@ -129,6 +131,14 @@ def test_approve_all_tags_and_materializes(env: dict[str, Any]) -> None:
     assert out.manifest is not None and out.manifest.status == "approved"
     assert out.manifest.review is not None and out.manifest.review.approved_by == "crc1@hospa.test"
     assert (env["tmp"] / "repo" / "GZQO" / "manifest.yaml").exists()
+    # D-318: the approval pins the judge prompt the box has now, with its text and schema shas
+    from tb_llm.prompt_registry import default_registry
+
+    active = default_registry().entry("judge")
+    pins = out.manifest.prompt_pins or {}
+    assert pins["judge"].version == active.version and pins["judge"].sha256 == active.sha256
+    assert pins["judge"].schema_sha256 == active.schema_sha256
+    assert out.manifest.models is not None and out.manifest.models.judge_prompt == f"judge_v{active.version}"
 
 
 def test_edit_round_then_approve(env: dict[str, Any]) -> None:
@@ -251,3 +261,19 @@ def test_one_uncompilable_criterion_goes_to_review_instead_of_failing_the_protoc
     assert hit.class_ == "human" and hit.human_question and {"needs_review", "compile_error"} <= set(hit.flags or [])
     assert res.needs_review and hit.id in res.needs_review
     assert sum(1 for x in res.criteria if x.class_ == "structured") == 17  # every other criterion still compiled
+
+
+def test_a_model_down_during_concept_mapping_fails_the_compile_by_step(env: dict[str, Any]) -> None:
+    """Audit 2026-11-11: a concept_map call the model did not answer was an unhandled error (HTTP 500, "internal
+    error" in the requester's mail); ir_extract already failed by its step."""
+    from tb_common.llm import LlmError
+
+    class Down:
+        def chat_json(self, *a: Any, **kw: Any) -> Any:
+            raise LlmError("LLM endpoint unreachable (local): connection refused")
+
+    comp: Compiler = env["comp"]
+    comp.d.llm = Down()  # type: ignore[assignment]
+    with pytest.raises(CompileFailed) as got:
+        comp._concept_map("J")("gout flare", "condition", [])
+    assert got.value.step == "concept_map" and "gout flare" in str(got.value)

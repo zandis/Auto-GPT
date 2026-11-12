@@ -1,0 +1,10 @@
+#!/bin/bash
+# Rehearsal shim: one RTX PRO 6000, 62574 of 97887 MiB used (the live record of the cloud run of 2026-11-09).
+case "$*" in
+  *--query-gpu=memory.used,memory.total*) echo "62574, 97887" ;;
+  *--query-gpu=name,memory.total,memory.used,driver_version*)   # tools/serving_config.py capture (T-119)
+    echo "NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887, 62574, 580.95.05" ;;
+  *--query-gpu=mig.mode.current*) echo "Disabled" ;;
+  -L) echo "GPU 0: NVIDIA RTX PRO 6000 Blackwell Server Edition (UUID: GPU-rehearsal)" ;;
+  *) echo "NVIDIA RTX PRO 6000 Blackwell Server Edition (rehearsal shim) | Driver Version: 580.95.05  CUDA Version: 13.0 |" ;;
+esac

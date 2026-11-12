@@ -1,0 +1,289 @@
+# Day 2 on the platform (T-633, D-416; OPS-050, OPS-068, OPS-069): what the appliance does with host cron and
+# `docker compose exec` (D-187, D-138), as Kubernetes objects in TrialBox's own namespace. RUNBOOK §26.
+#
+#   trialbox-backup   CronJob, nightly: the encrypted .tbbak (the appliance's format, layout 2, D-187) to the backup
+#                     share claim. The dump is taken in one database snapshot by the database image's own psql and
+#                     pg_dump (init containers), then `trialbox backup` packs and encrypts it with every data claim.
+#   trialbox-logs     CronJob, daily: yesterday's pod logs (the site's day, TB_TZ) through the API server, pruning,
+#                     and the audit chain archived (verified before and after), into the logs-data claim.
+#   trialbox-restore  CronJob, suspended: never runs on a schedule. A restore is
+#                     `kubectl create job --from=cronjob/trialbox-restore <name>` with the restore key Secret in place.
+#
+# A site overlay sets `spec.timeZone` of the two scheduled jobs to the site's zone (site.tz; doctor --platform checks
+# it, check backup_job) and binds the claim backup-share to the hospital's backup share (a PersistentVolume for the
+# NFS or SMB share, or the share's storage class): the backups on it are encrypted to the hospital's key, so the
+# share needs no encryption of its own. The public key is the ConfigMap trialbox-backup-pub (key backup.pub) the
+# platform team creates; the private key never stays in the namespace (only for a restore, then deleted: D-126).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: backup-share, labels: {app.kubernetes.io/component: storage, trialbox.io/storage: backup-share}}
+spec: {accessModes: [ReadWriteMany], resources: {requests: {storage: 500Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: logs-data, labels: {app.kubernetes.io/component: storage}}  # collected logs, the audit archive
+spec: {accessModes: [ReadWriteMany], resources: {requests: {storage: 20Gi}}}
+---
+# the log job reads the namespace's pods and their logs (nothing else; never a Secret)
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: trialbox-ops, labels: {app.kubernetes.io/component: logs}}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: trialbox-ops, labels: {app.kubernetes.io/component: logs}}
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [list]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: trialbox-ops, labels: {app.kubernetes.io/component: logs}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: trialbox-ops}
+subjects: [{kind: ServiceAccount, name: trialbox-ops}]
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata: {name: trialbox-backup, labels: {app.kubernetes.io/component: backup, trialbox.io/tier: ops}}
+spec:
+  schedule: "45 4 * * *"  # the appliance's 04:45 (deploy/backup/trialbox-backup.cron), in spec.timeZone
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata: {labels: {app.kubernetes.io/component: backup, trialbox.io/tier: ops}}
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 21600
+      template:
+        metadata: {labels: {app.kubernetes.io/component: backup, trialbox.io/tier: ops}}
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+          initContainers:
+            - name: prepare  # the snapshot script for each database (backup_schedule.snapshot_script); no value on disk
+              image: trialbox-py
+              command: ["python", "-m", "tools.trialbox", "platform-day2", "snapshot-prepare", "--spool", "/spool"]
+              env:
+                - {name: TB_DB_URL, valueFrom: {secretKeyRef: {name: trialbox-db, key: TB_DB_URL}}}
+                - {name: TB_HAPI_DB_URL, valueFrom: {secretKeyRef: {name: trialbox-db, key: TB_HAPI_DB_URL, optional: true}}}
+              resources: {requests: {cpu: 50m, memory: 128Mi}, limits: {memory: 256Mi}}
+              securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+              volumeMounts:
+                - {name: spool, mountPath: /spool}
+                - {name: tmp, mountPath: /tmp}
+            - name: snapshot  # psql and pg_dump of the database image, one REPEATABLE READ snapshot per database
+              image: trialbox-postgres
+              command: ["sh", "/scripts/pg-snapshot.sh", "/spool"]
+              env:
+                - {name: TB_DB_URL, valueFrom: {secretKeyRef: {name: trialbox-db, key: TB_DB_URL}}}
+                - {name: TB_HAPI_DB_URL, valueFrom: {secretKeyRef: {name: trialbox-db, key: TB_HAPI_DB_URL, optional: true}}}
+              resources: {requests: {cpu: 250m, memory: 256Mi}, limits: {memory: 1Gi}}
+              securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+              volumeMounts:
+                - {name: spool, mountPath: /spool}
+                - {name: scripts, mountPath: /scripts, readOnly: true}
+                - {name: tmp, mountPath: /tmp}
+          containers:
+            - name: backup
+              image: trialbox-py
+              command: ["python", "-m", "tools.trialbox", "platform-day2", "backup", "--share", "/backup/trialbox",
+                        "--public", "/etc/trialbox/backup/backup.pub"]
+              envFrom:
+                - configMapRef: {name: trialbox-env}
+              env:
+                - {name: TB_DB_URL, valueFrom: {secretKeyRef: {name: trialbox-db, key: TB_DB_URL}}}
+                - {name: TB_HAPI_DB_URL, valueFrom: {secretKeyRef: {name: trialbox-db, key: TB_HAPI_DB_URL, optional: true}}}
+                - {name: TB_PG_DUMP_DIR, value: /spool}
+                - name: TB_BACKUP_DIRS  # the appliance's names (backup.DEFAULT_DIRS): a backup restores on either form
+                  value: lake=/vol/lake,objects=/vol/objects,audit=/vol/audit,rulesets=/vol/rulesets,orchestrator=/vol/orchestrator,mail=/vol/mail,secrets=/vol/secrets,console=/vol/console
+              resources: {requests: {cpu: 250m, memory: 512Mi}, limits: {memory: 2Gi}}
+              securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+              volumeMounts:
+                - {name: spool, mountPath: /spool}
+                - {name: tmp, mountPath: /tmp}
+                - {name: backup-pub, mountPath: /etc/trialbox/backup, readOnly: true}
+                - {name: backup-share, mountPath: /backup}
+                - {name: lake-data, mountPath: /vol/lake, readOnly: true}
+                - {name: objects-data, mountPath: /vol/objects, readOnly: true}
+                - {name: audit-data, mountPath: /vol/audit, readOnly: true}
+                - {name: rulesets-data, mountPath: /vol/rulesets, readOnly: true}
+                - {name: orch-data, mountPath: /vol/orchestrator, readOnly: true}
+                - {name: mail-data, mountPath: /vol/mail, readOnly: true}
+                - {name: tb-secrets, mountPath: /vol/secrets, readOnly: true}
+                - {name: console-data, mountPath: /vol/console, readOnly: true}
+          volumes:
+            - {name: spool, emptyDir: {}}
+            - {name: tmp, emptyDir: {}}
+            - {name: scripts, configMap: {name: trialbox-day2-scripts, defaultMode: 0555}}
+            - {name: backup-pub, configMap: {name: trialbox-backup-pub}}
+            - {name: backup-share, persistentVolumeClaim: {claimName: backup-share}}
+            - {name: lake-data, persistentVolumeClaim: {claimName: lake-data, readOnly: true}}
+            - {name: objects-data, persistentVolumeClaim: {claimName: objects-data, readOnly: true}}
+            - {name: audit-data, persistentVolumeClaim: {claimName: audit-data, readOnly: true}}
+            - {name: rulesets-data, persistentVolumeClaim: {claimName: rulesets-data, readOnly: true}}
+            - {name: orch-data, persistentVolumeClaim: {claimName: orch-data, readOnly: true}}
+            - {name: mail-data, persistentVolumeClaim: {claimName: mail-data, readOnly: true}}
+            - {name: tb-secrets, persistentVolumeClaim: {claimName: tb-secrets, readOnly: true}}
+            - {name: console-data, persistentVolumeClaim: {claimName: console-data, readOnly: true}}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata: {name: trialbox-logs, labels: {app.kubernetes.io/component: logs, trialbox.io/tier: ops}}
+spec:
+  schedule: "20 0 * * *"  # the appliance's 00:20 (logs daily), in spec.timeZone
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata: {labels: {app.kubernetes.io/component: logs, trialbox.io/tier: ops}}
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 7200
+      template:
+        metadata: {labels: {app.kubernetes.io/component: logs, trialbox.io/tier: ops}}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: trialbox-ops
+          automountServiceAccountToken: true
+          securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+          containers:
+            - name: logs
+              image: trialbox-py
+              command: ["python", "-m", "tools.trialbox", "platform-day2", "logs", "--log-dir", "/logs",
+                        "--audit", "/vol/audit", "--archive", "/logs/audit-archive",
+                        "--settings", "/etc/trialbox/settings.yaml"]
+              envFrom:
+                - configMapRef: {name: trialbox-env}
+              resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 1Gi}}
+              securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+              volumeMounts:
+                - {name: settings, mountPath: /etc/trialbox/settings.yaml, subPath: settings.yaml, readOnly: true}
+                - {name: logs-data, mountPath: /logs}
+                - {name: audit-data, mountPath: /vol/audit, readOnly: true}
+                - {name: tmp, mountPath: /tmp}
+          volumes:
+            - {name: settings, configMap: {name: trialbox-settings}}
+            - {name: logs-data, persistentVolumeClaim: {claimName: logs-data}}
+            - {name: audit-data, persistentVolumeClaim: {claimName: audit-data, readOnly: true}}
+            - {name: tmp, emptyDir: {}}
+---
+# A restore (RUNBOOK §26): scale the services to 0, create the Secret trialbox-backup-restore-key (key backup.key,
+# from hospital IT's envelope), `kubectl create job --from=cronjob/trialbox-restore <name>`, wait, read its log, delete
+# the Secret, apply the build again. TB_RESTORE_FILE (`kubectl set env cronjob/trialbox-restore TB_RESTORE_FILE=...`)
+# names a file on the share; `newest` takes the newest complete one. pg_restore and pg_dump run in the database image
+# beside it (pg-spool.sh); the Python container hands them each call through the spool folder.
+apiVersion: batch/v1
+kind: CronJob
+metadata: {name: trialbox-restore, labels: {app.kubernetes.io/component: restore, trialbox.io/tier: ops}}
+spec:
+  schedule: "0 0 31 2 *"  # 31 February: never; and suspended
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    metadata: {labels: {app.kubernetes.io/component: restore, trialbox.io/tier: ops}}
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 21600
+      template:
+        metadata: {labels: {app.kubernetes.io/component: restore, trialbox.io/tier: ops}}
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+          containers:
+            - name: restore
+              image: trialbox-py
+              command: ["python", "-m", "tools.trialbox", "platform-day2", "restore", "--share", "/backup/trialbox",
+                        "--key", "/etc/trialbox/restore-key/backup.key", "--public", "/etc/trialbox/backup/backup.pub",
+                        "--keep-to", "/backup/pre-restore", "--spool", "/spool/pg"]
+              envFrom:
+                - configMapRef: {name: trialbox-env}
+              env:
+                - {name: TB_DB_URL, valueFrom: {secretKeyRef: {name: trialbox-db, key: TB_DB_URL}}}
+                - {name: TB_HAPI_DB_URL, valueFrom: {secretKeyRef: {name: trialbox-db, key: TB_HAPI_DB_URL, optional: true}}}
+                - {name: TB_RESTORE_FILE, value: newest}
+                - {name: TB_RESTORE_ACTOR, value: trialbox platform restore}
+                - {name: TB_PG_SPOOL, value: /spool/pg}
+                - {name: TB_PG_DUMP_CMD, value: python -m tools.trialbox platform-day2 pg pg_dump}
+                - {name: TB_PG_RESTORE_CMD, value: python -m tools.trialbox platform-day2 pg pg_restore}
+                - name: TB_BACKUP_DIRS
+                  value: lake=/vol/lake,objects=/vol/objects,audit=/vol/audit,rulesets=/vol/rulesets,orchestrator=/vol/orchestrator,mail=/vol/mail,secrets=/vol/secrets,console=/vol/console
+              resources: {requests: {cpu: 250m, memory: 512Mi}, limits: {memory: 2Gi}}
+              securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+              volumeMounts:
+                - {name: spool, mountPath: /spool}
+                - {name: tmp, mountPath: /tmp}
+                - {name: backup-pub, mountPath: /etc/trialbox/backup, readOnly: true}
+                - {name: restore-key, mountPath: /etc/trialbox/restore-key, readOnly: true}
+                - {name: backup-share, mountPath: /backup}
+                - {name: lake-data, mountPath: /vol/lake}
+                - {name: objects-data, mountPath: /vol/objects}
+                - {name: audit-data, mountPath: /vol/audit}
+                - {name: rulesets-data, mountPath: /vol/rulesets}
+                - {name: orch-data, mountPath: /vol/orchestrator}
+                - {name: mail-data, mountPath: /vol/mail}
+                - {name: tb-secrets, mountPath: /vol/secrets}
+                - {name: console-data, mountPath: /vol/console}
+            - name: pg-spool  # the database tools for the restore container; exits when it is done
+              image: trialbox-postgres
+              command: ["sh", "/scripts/pg-spool.sh", "/spool/pg"]
+              env:
+                - {name: TB_DB_URL, valueFrom: {secretKeyRef: {name: trialbox-db, key: TB_DB_URL}}}
+                - {name: TB_HAPI_DB_URL, valueFrom: {secretKeyRef: {name: trialbox-db, key: TB_HAPI_DB_URL, optional: true}}}
+              resources: {requests: {cpu: 250m, memory: 256Mi}, limits: {memory: 1Gi}}
+              securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+              volumeMounts:
+                - {name: spool, mountPath: /spool}
+                - {name: scripts, mountPath: /scripts, readOnly: true}
+                - {name: tmp, mountPath: /tmp}
+          volumes:
+            - {name: spool, emptyDir: {}}
+            - {name: tmp, emptyDir: {}}
+            - {name: scripts, configMap: {name: trialbox-day2-scripts, defaultMode: 0555}}
+            - {name: backup-pub, configMap: {name: trialbox-backup-pub}}
+            - {name: restore-key, secret: {secretName: trialbox-backup-restore-key, defaultMode: 0400}}
+            - {name: backup-share, persistentVolumeClaim: {claimName: backup-share}}
+            - {name: lake-data, persistentVolumeClaim: {claimName: lake-data}}
+            - {name: objects-data, persistentVolumeClaim: {claimName: objects-data}}
+            - {name: audit-data, persistentVolumeClaim: {claimName: audit-data}}
+            - {name: rulesets-data, persistentVolumeClaim: {claimName: rulesets-data}}
+            - {name: orch-data, persistentVolumeClaim: {claimName: orch-data}}
+            - {name: mail-data, persistentVolumeClaim: {claimName: mail-data}}
+            - {name: tb-secrets, persistentVolumeClaim: {claimName: tb-secrets}}
+            - {name: console-data, persistentVolumeClaim: {claimName: console-data}}
+---
+# the backup and restore jobs reach the database, and nothing else (the default deny holds the rest)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: trialbox-day2-to-db}
+spec:
+  podSelector:
+    matchExpressions: [{key: app.kubernetes.io/component, operator: In, values: [backup, restore]}]
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector: {matchLabels: {app.kubernetes.io/component: db}}
+      ports: [{protocol: TCP, port: 5432}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: trialbox-db-from-day2}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: db}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions: [{key: app.kubernetes.io/component, operator: In, values: [backup, restore]}]
+      ports: [{protocol: TCP, port: 5432}]

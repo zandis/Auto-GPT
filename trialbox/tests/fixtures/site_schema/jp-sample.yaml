@@ -1,0 +1,54 @@
+# FICTIONAL site schema (T-011): describes no real hospital. It is written the way a steward writes one from a
+# signed survey (TB-SITE-01 questions 24 to 35): structure and code lists only, never a patient value. The codes are
+# the synthetic sample rows of services/adapter/mapping/jp_core/*.csv (all marked "verify" there).
+schema_version: 1
+site: jp-sample
+fictional: true
+country: JP
+tz: Asia/Tokyo
+survey: TB-SITE-01 v0.2 (fictional answers)
+feed:                     # q24 SS-MIX2 storage; q28 standardized storage, MSH-18 ~ISO IR87
+  layout: ssmix2
+  encoding: iso-2022-jp
+  date_format: iso
+identifiers:
+  chart_number: {letters: 0, digits: 10, check: none}   # q26: a 10-digit 患者ID, no check digit
+tables:                   # q28: the tables SS-MIX2 does not standardize, exported beside it (extended/)
+  practitioner:
+    source: practitioner
+    columns: {staff_id: staff_id, name: name, dept_code: dept_code}
+  appointment:
+    source: appointment
+    columns: {appt_no: appt_no, mrn: mrn, appt_datetime: appt_datetime, duration_min: duration_min, staff_id: staff_id, dept_code: dept_code, status: status}
+  note:
+    source: note
+    columns: {note_no: note_no, mrn: mrn, enc_no: enc_no, note_datetime: note_datetime, note_type: note_type, text: text}
+code_lists:
+  department:
+    - {code: "01", name: 内科}
+    - {code: "05", name: 整形外科}
+    - {code: "12", name: 脳神経内科}
+  lab:                    # q28: JLAC10 always present; the lab table with units
+    - {code: 3C020000002327101, name: 尿酸, unit: mg/dL, range: [3, 9]}
+    - {code: 3C015000002327101, name: クレアチニン, unit: mg/dL, range: [0.5, 1.6]}
+    - {code: 3D046000001906202, name: HbA1c, unit: "%", range: [4.8, 9.5]}
+    - {code: 3B045000002327201, name: ALT, unit: U/L, range: [8, 80]}
+    - {code: 2A080000001930101, name: 赤沈, unit: mm/h, range: [2, 40]}
+  diagnosis:              # q28: 標準病名 with ICD-10 always
+    - {code: ZB10, name: 1型糖尿病, icd10: E10.9}
+    - {code: ZB11, name: 2型糖尿病, icd10: E11.9}
+    - {code: ZB04, name: 結腸癌, icd10: C18.9}
+  drug:                   # YJ codes with ATC
+    - {code: 3943001F1020, name: アロプリノール錠100mg, atc: M04AA01}
+    - {code: 3962002F1020, name: メトホルミン塩酸塩錠500mg, atc: A10BA02}
+    - {code: 2171022F1020, name: アムロジピン錠5mg, atc: C08CA01}
+provider: {in_encounter: true, directory: true}          # q33
+appointments: true                                        # q34
+notes: {types: [progress, discharge]}                     # q35
+plants:
+  share: 0.04
+  unmapped_lab:           # JLAC10-shaped codes that are in no lookup (fictional)
+    - {code: 9Z999000009999901, name: 架空検査A, unit: U/L, range: [1, 50]}
+    - {code: 9Z999000009999902, name: 架空検査B, unit: mg/dL, range: [1, 5]}
+  unit_mismatch:          # creatinine in µmol/L where the lookup expects mg/dL
+    - {code: 3C015000002327101, unit: umol/L, factor: 88.4}

@@ -22,23 +22,24 @@ permissions:
   CASE: [senders]        # single-chart eligibility check; the sheet is PHI and goes only to an internal requester
 reviewers: ["crc1@hospa.test", "pi@hospa.test"]
 require_spf_dkim: true
-rate_limit_per_sender_per_day: 20
+rate_limit_per_sender_per_day: 20   # per heavy job type (FEAS, SCREEN, COHORT, NAV, MICROBATCH, CALIBRATION), D-146
+# rate_limits_per_day: {SCREEN: 40, FEAS: 10}   # per type override; 0 = no limit. CASE, CONSENT, STATUS: never counted
 data_source: {type: csv, path: /data/source/site-a, mapping: mapping/tw_core/demo_his.yaml, nightly_at: "02:00"}
 mrn_regex: "^\\d{8}$"
-profiles: {tw_core: "1.0.0", twpas_version: "1.2.5"}
+profiles: {tw_core: "1.0.0", twpas_version: "1.2.5"}  # TWPAS IG version; the cache holds this one (D-372)
 models: {judge: qwen3.5-35b-a3b-q4, extract_local: gpt-oss-120b-mxfp4, embed: bge-m3, cloud_enabled: false}
 thresholds: {tier_high_confidence: 0.75, small_cell: 5, equivalence_min_pct: 98, validation_error_max_pct: 0.5}
 schedule: {ingest: "02:00", microbatch: "MON 03:00", nav: "MON 03:30", cohort: "1st 04:00", retention: "05:00", calibration: "1st 05:30"}
 site_capabilities: {fundus_photography: true, injection_training: true, cold_chain: true, ediary_support: true}
 registry_source: {type: csv, path: /data/source/site-a/registry.csv}
-attachment_encryption: zip
+attachment_encryption: zip  # synthetic test stacks only; per site (D-127, D-369): link (the default; needs TB_CONSOLE_URL), smime, or zip (refused for patient files outside TB_ENV DEV/TEST)
 departments: {RHEU: "風濕免疫科", META: "新陳代謝科", NEPH: "腎臟科", CARD: "心臟內科", FM: "家庭醫學科", ONC: "腫瘤科", ORTH: "骨科"}
 practitioners:
   P12345: {name: "Dr. A (synthetic)", department: RHEU, email: "pi@hospa.test", capacity_per_month: 4, license: "DEMO-MD-0001"}
   P23456: {name: "Dr. B (synthetic)", department: RHEU, email: "rheu-dr@hospa.test", capacity_per_month: 3, license: "DEMO-MD-0002"}
   P34567: {name: "Dr. C (synthetic)", department: META, capacity_per_month: 2, license: "DEMO-MD-0003"}
   P78901: {name: "Dr. G (synthetic)", department: ONC, email: "onc-dr@hospa.test", license: "DEMO-MD-0007"}
-retention: {attachments_days: 90, outputs_days: 365, logs_days: 180, nightly_snapshots: 3, month_end_snapshots_months: 36, pool_months_after_ruleset: 24, audit_years: 10}
+retention: {attachments_days: 90, outputs_days: 365, logs_days: 365, mail_log_days: 2555, nightly_snapshots: 3, month_end_snapshots_months: 36, pool_months_after_ruleset: 24, audit_years: 10}
 calibration_defaults: {reach_rate: 0.6, accept_rate: 0.35}
 # org_id must exist in the TWPAS organization-identifier code system; the synthetic site uses the IG's example code.
 twpas: {enabled: true, dry_run: true, org_id: "0101090517", org_name: "示範醫院A"}

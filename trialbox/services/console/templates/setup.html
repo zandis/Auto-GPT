@@ -1,75 +1,142 @@
 {% extends "base.html" %}
 {% block title %}{{ t('setup.title') }} · {{ rs }}{% endblock %}
-{% macro errbox(e) %}<p class="error" role="alert" data-testid="setup-error">{{ t('rc.err.' + e.code, fields=e.fields, msg=e.msg) }}{% if e.code not in ('unavailable',) %} <span class="hint mono">{{ e.code }}</span>{% endif %}</p>{% endmacro %}
+{% macro errbox(e) %}<p class="error" role="alert" data-testid="setup-error">{% if e.code == 'RC-LINK-FIELD' and not e.fields %}{{ t('rc.err.RC-LINK-FIELD.none') }}{% else %}{{ t('rc.err.' + e.code, fields=e.fields, msg=e.msg) }}{% endif %}{% if e.code not in ('unavailable',) %} <span class="hint mono">{{ e.code }}</span>{% endif %}</p>{% endmacro %}
 {% set q = request.query_params %}
+{% set dis = '' if editable else ' disabled' %}
+{% set f = lk_form or lk %}
+{# D-133 (review F-11): with the project's data dictionary read, every field is picked from a list #}
+{% macro pick(name, label, value, default='') %}{% set v = value or default %}
+<div><label for="{{ name }}">{{ label }}</label>
+{% if rc_dict %}<select id="{{ name }}" name="{{ name }}"{{ dis }} data-testid="pick-{{ name }}"><option value="">{{ t('rc.pick.none') }}</option>
+{% set known = rc_dict.fields|map(attribute='name')|list %}{% if v and v not in known %}<option value="{{ v }}" selected>{{ v }}</option>{% endif %}
+{% for form, fs in rc_dict.fields|groupby('form') %}<optgroup label="{{ form }}">{% for x in fs %}<option value="{{ x.name }}"{% if x.name == v %} selected{% endif %}>{{ x.label or x.name }} ({{ x.name }})</option>{% endfor %}</optgroup>{% endfor %}</select>
+{% else %}<input id="{{ name }}" name="{{ name }}" class="mono" value="{{ v }}"{{ dis }} autocapitalize="none" spellcheck="false">{% endif %}</div>
+{% endmacro %}
 {% block content %}
-<div class="headrow"><h1>{{ rs }} · {{ t('setup.title') }}</h1><a href="/studies/{{ rs }}/screening-log">{{ t('log.title') }}</a></div>
-<p class="hint">{{ t('setup.help') }}</p>
+<div class="headrow"><h1>{{ rs }} · {{ t('setup.title') }}</h1><a href="/studies/{{ rs }}/state" data-testid="to-study-state">{{ t('sstate.link') }}</a> <a href="/studies/{{ rs }}/screening-log">{{ t('log.title') }}</a></div>
+{% include "_data_nav.html" %}
+<p>{{ t('setup.help') }}</p>
 {% if not editable %}<p class="hint" data-testid="setup-readonly">{{ t('setup.readonly') }}</p>{% endif %}
 {% if err %}{{ errbox(err) }}{% endif %}
 {% if q.get('rc_err') %}{{ errbox({'code': q.get('rc_err'), 'fields': '', 'msg': ''}) }}{% endif %}
-{% if saved %}<p class="ok" role="status" data-testid="setup-saved">{{ t('rc.saved') if saved == 'redcap' else t('setup.saved') }}</p>{% endif %}
+{% if saved or q.get('saved') %}<p class="ok" role="status" data-testid="setup-saved">{{ t('rc.saved') if (saved or q.get('saved')) == 'redcap' else t('setup.saved') }}</p>{% endif %}
 {% if q.get('read') is not none %}<p class="ok" role="status" data-testid="read-done">{{ t('rc.read.done', n=q.get('read')) }}</p>{% endif %}
 {% if row %}<p class="hint" data-testid="setup-entered">{{ t('setup.entered', by=row.entered_by|replace('console:', ''), at=row.entered_at|local) }}</p>{% else %}<p class="hint" data-testid="setup-local">{{ t('setup.local') }}</p>{% endif %}
+<ol class="wizard-steps" aria-label="{{ t('setup.title') }}"><li class="{{ 'done' if row else '' }}"><a href="#study">{{ t('setup.step.study') }}</a></li><li class="{{ 'done' if row else '' }}"><a href="#log">{{ t('setup.step.log') }}</a></li><li class="{{ 'done' if link and link.enabled else '' }}"><a href="#redcap">{{ t('setup.step.redcap') }}</a></li><li><a href="#save">{{ t('setup.step.save') }}</a></li></ol>
 
+<form method="post" action="/studies/{{ rs }}/setup" data-guard data-testid="setup-form">
+<input type="hidden" name="csrf" value="{{ csrf }}">
 <section class="card" id="study" data-testid="setup-study">
 <h2>{{ t('setup.s1') }}</h2>
-<form method="post" action="/studies/{{ rs }}/setup/study">
-  <input type="hidden" name="csrf" value="{{ csrf }}">
   <label for="study_type">{{ t('setup.type') }}</label>
-  <select id="study_type" name="study_type"{% if not editable %} disabled{% endif %}>{% for x in study_types %}<option value="{{ x }}"{% if conf.study_type == x %} selected{% endif %}>{{ t('setup.type.' + x) }}</option>{% endfor %}</select>
+  <select id="study_type" name="study_type"{{ dis }}>{% for x in study_types %}<option value="{{ x }}"{% if conf.study_type == x %} selected{% endif %}>{{ t('setup.type.' + x) }}</option>{% endfor %}</select>
   <label for="cohort_kind">{{ t('setup.cohort') }}</label>
-  <select id="cohort_kind" name="cohort_kind"{% if not editable %} disabled{% endif %}>{% for x in cohort_kinds %}<option value="{{ x }}"{% if conf.cohort_kind == x %} selected{% endif %}>{{ t('setup.cohort.' + x) }}</option>{% endfor %}</select>
+  <select id="cohort_kind" name="cohort_kind"{{ dis }}>{% for x in cohort_kinds %}<option value="{{ x }}"{% if conf.cohort_kind == x %} selected{% endif %}>{{ t('setup.cohort.' + x) }}</option>{% endfor %}</select>
+  {% set scope_now = scope_form if scope_form is not none else (row.consent_scope if row else '') %}
   <label for="consent_scope">{{ t('setup.scope') }}</label>
-  <select id="consent_scope" name="consent_scope"{% if not editable %} disabled{% endif %}><option value="">{{ t('setup.scope.unset') }}</option>{% for x in scopes %}<option value="{{ x }}"{% if row and row.consent_scope == x %} selected{% endif %}>{{ t('setup.scope.' + x) }}</option>{% endfor %}</select>
-  {% if editable %}<button type="submit" data-testid="save-study">{{ t('setup.save') }}</button>{% endif %}
-</form>
-</section>
-
-{% set f = lk_form or lk %}
-<section class="card" id="redcap" data-testid="setup-redcap">
-<h2>{{ t('setup.s2') }}</h2>
-{% if link %}{% if link.enabled %}<p><span class="pill ok" data-testid="link-on">{{ t('rc.on') }}</span> <span class="hint">{{ t('setup.entered', by=link.set_by|replace('console:', ''), at=link.set_at|local) }}</span></p>{% else %}<p class="error" data-testid="link-off">{{ t('rc.off', problem=link.problem or '') }}</p>{% endif %}{% else %}<p class="hint">{{ t('rc.unlinked') }}</p>{% endif %}
-<p class="hint">{{ t('rc.link_help') }}</p>
-{% if not tokens %}<p class="warn" data-testid="no-token">{{ t('rc.token.none') }}</p>{% endif %}
-<form method="post" action="/studies/{{ rs }}/setup/redcap" class="grid2">
-  <input type="hidden" name="csrf" value="{{ csrf }}">
-  {% set dis = '' if editable else ' disabled' %}
-  <div><label for="token_ref">{{ t('rc.token') }}</label><select id="token_ref" name="token_ref"{{ dis }}>{% for tk in tokens %}<option value="{{ tk }}"{% if f.token_ref == tk %} selected{% endif %}>{{ tk }}</option>{% endfor %}</select></div>
-  <div><label for="project_id">{{ t('rc.project') }}</label><input id="project_id" name="project_id" inputmode="numeric" value="{{ f.project_id or '' }}" maxlength="9"{{ dis }}></div>
-  <div><label for="link_field">{{ t('rc.link_field') }}</label><input id="link_field" name="link_field" class="mono" value="{{ f.link_field or 'tb_screening_no' }}"{{ dis }}></div>
-  <div><label for="dag">{{ t('rc.dag') }}</label><input id="dag" name="dag" class="mono" value="{{ f.dag or '' }}"{{ dis }}></div>
-  <div><label for="consent_field">{{ t('rc.consent') }}</label><input id="consent_field" name="consent_field" class="mono" value="{{ f.consent_field or '' }}"{{ dis }}></div>
-  <div><label for="consent_event">{{ t('rc.consent_event') }}</label><input id="consent_event" name="consent_event" class="mono" value="{{ f.consent_event or '' }}"{{ dis }}></div>
-  <div><label for="enrol_field">{{ t('rc.enrol') }} · {{ t('rc.code') }}</label><span class="pair"><input id="enrol_field" name="enrol_field" class="mono" value="{{ f.enrol_field or '' }}"{{ dis }}><input name="enrol_value" class="mono short" aria-label="{{ t('rc.code') }}" value="{{ f.enrol_value or '1' }}"{{ dis }}></span></div>
-  <div><label for="withdraw_field">{{ t('rc.withdraw') }} · {{ t('rc.code') }}</label><span class="pair"><input id="withdraw_field" name="withdraw_field" class="mono" value="{{ f.withdraw_field or '' }}"{{ dis }}><input name="withdraw_value" class="mono short" aria-label="{{ t('rc.code') }}" value="{{ f.withdraw_value or '1' }}"{{ dis }}></span></div>
-  <div><label for="screenfail_field">{{ t('rc.sf') }}</label><input id="screenfail_field" name="screenfail_field" class="mono" value="{{ f.screenfail_field or '' }}"{{ dis }}></div>
-  <div><label for="screenfail_choice_map">{{ t('rc.sf_map') }}</label><input id="screenfail_choice_map" name="screenfail_choice_map" class="mono" value="{{ sf_map if not lk_form else '' }}"{{ dis }}><p class="hint">{{ t('rc.sf_map.help') }}</p></div>
-  <div><label for="subject_no_field">{{ t('rc.subject') }}</label><input id="subject_no_field" name="subject_no_field" class="mono" value="{{ f.subject_no_field or '' }}"{{ dis }}></div>
-  {% if editable %}<div class="full"><button type="submit" data-testid="save-link">{{ t('rc.save') }}</button></div>{% endif %}
-</form>
-{% if link and user.can_request %}<form method="post" action="/studies/{{ rs }}/setup/redcap/test" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="secondary" data-testid="test-link">{{ t('rc.test') }}</button></form>{% endif %}
-{% if test %}<div class="mt" data-testid="test-result"><p>{{ t('rc.test.result', p=test.project_id, title=test.project_title, n=test.records) }}</p>
-{% if test.sample %}<table class="candidates"><thead><tr><th>{{ t('log.record') }}</th><th>{{ t('log.no') }}</th><th>{{ t('wb.c.status') }}</th><th>{{ t('log.subject') }}</th></tr></thead><tbody>{% for j in test.sample %}<tr><td class="mono">{{ j.record_id }}</td><td class="mono">{{ j.no }}</td><td>{{ t('registry.status.' + j.status) if j.status else '–' }}</td><td class="mono">{{ j.subject_no or '–' }}</td></tr>{% endfor %}</tbody></table>{% else %}<p class="hint">{{ t('rc.test.none') }}</p>{% endif %}</div>{% endif %}
-
-<h3 class="mt">{{ t('rc.read.title') }}</h3>
-<p class="hint">{{ t('rc.read.help') }}</p>
-{% include "_rc_read.html" %}
+  <select id="consent_scope" name="consent_scope"{{ dis }}><option value="">{{ t('setup.scope.unset') }}</option>{% for x in scopes %}<option value="{{ x }}"{% if scope_now == x %} selected{% endif %}>{{ t('setup.scope.' + x) }}</option>{% endfor %}</select>
 </section>
 
 <section class="card" id="log" data-testid="setup-log">
 <h2>{{ t('setup.s3') }}</h2>
-<form method="post" action="/studies/{{ rs }}/setup/log">
-  <input type="hidden" name="csrf" value="{{ csrf }}">
   <label for="screening_prefix">{{ t('setup.prefix') }}</label>
-  <input id="screening_prefix" name="screening_prefix" class="mono" value="{{ conf.screening_prefix }}" maxlength="16" placeholder="{{ rs }}-"{% if not editable %} disabled{% endif %}>
+  <input id="screening_prefix" name="screening_prefix" class="mono" value="{{ conf.screening_prefix }}" maxlength="16" placeholder="{{ rs }}-"{{ dis }}>
   <p class="hint">{{ t('setup.prefix.help', rs=rs, example=example) }}</p>
   <label for="first_no">{{ t('setup.next') }}</label>
-  <input id="first_no" name="first_no" inputmode="numeric" value="{{ conf.first_no }}" maxlength="6"{% if not editable %} disabled{% endif %}>
+  <input id="first_no" name="first_no" inputmode="numeric" value="{{ conf.first_no }}" maxlength="6"{{ dis }}>
   <fieldset><legend>{{ t('setup.reasons') }}</legend>
-  <ul class="checks">{% for r in all_reasons %}<li><label><input type="checkbox" name="reasons" value="{{ r }}"{% if r in conf.reasons %} checked{% endif %}{% if not editable %} disabled{% endif %}> {{ t('reason.' + r) }}</label></li>{% endfor %}</ul>
+  <ul class="checks plain">{% for r in all_reasons %}<li><label><input type="checkbox" name="reasons" value="{{ r }}"{% if r in conf.reasons %} checked{% endif %}{{ dis }}> {{ t('reason.' + r) }}</label></li>{% endfor %}</ul>
   </fieldset>
-  {% if editable %}<button type="submit" data-testid="save-log">{{ t('setup.save') }}</button>{% endif %}
-</form>
 </section>
+
+<section class="card" id="redcap" data-testid="setup-redcap">
+<h2>{{ t('setup.s2') }}</h2>
+{% if link %}{% if link.enabled %}<p><span class="pill ok" data-testid="link-on">{{ t('rc.on') }}</span> <span class="hint">{{ t('setup.entered', by=link.set_by|replace('console:', ''), at=link.set_at|local) }}</span></p>{% else %}<p class="error" data-testid="link-off">{{ t('rc.off', problem=link.problem or '') }}</p>{% endif %}{% else %}<p class="hint">{{ t('rc.unlinked') }}</p>{% endif %}
+<ol class="steps-list" data-testid="rc-wizard"><li>{{ t('rc.wiz.1') }}</li><li>{{ t('rc.wiz.2') }}</li><li>{{ t('rc.wiz.3') }}</li></ol>
+{% if not tokens %}<p class="warn" data-testid="no-token">{{ t('rc.token.none') }}</p>{% endif %}
+<div class="grid2">
+  <div><label for="token_ref">{{ t('rc.token') }}</label><select id="token_ref" name="token_ref"{{ dis }}>{% if not f.token_ref %}<option value="">{{ t('rc.pick.none') }}</option>{% endif %}{% for tk in tokens %}<option value="{{ tk }}"{% if f.token_ref == tk %} selected{% endif %}>{{ tk }}</option>{% endfor %}</select></div>
+  {% if editable and tokens %}<div><button type="submit" name="action" value="read" class="secondary" data-testid="read-fields">{{ t('rc.read_fields') }}</button></div>{% endif %}
+</div>
+{% if rc_dict %}<p class="ok" role="status" data-testid="dict-read">{{ t('rc.dict.ok', p=rc_dict.project_id, title=rc_dict.project_title, n=rc_dict.fields|length) }}</p>{% elif tokens %}<p class="hint">{{ t('rc.dict.none') }}</p>{% endif %}
+<div class="grid2">
+  <div><label for="project_id">{{ t('rc.project') }}</label><input id="project_id" name="project_id" inputmode="numeric" value="{{ f.project_id or '' }}" maxlength="9"{{ dis }}></div>
+  {{ pick('link_field', t('rc.link_field'), f.link_field, 'tb_screening_no') }}
+  {{ pick('consent_field', t('rc.consent'), f.consent_field) }}
+  {{ pick('enrol_field', t('rc.enrol'), f.enrol_field) }}
+  <div><label for="enrol_value">{{ t('rc.enrol') }} · {{ t('rc.code') }}</label><input id="enrol_value" name="enrol_value" class="mono short" value="{{ f.enrol_value or '1' }}"{{ dis }}></div>
+  {{ pick('withdraw_field', t('rc.withdraw'), f.withdraw_field) }}
+  <div><label for="withdraw_value">{{ t('rc.withdraw') }} · {{ t('rc.code') }}</label><input id="withdraw_value" name="withdraw_value" class="mono short" value="{{ f.withdraw_value or '1' }}"{{ dis }}></div>
+  {{ pick('screenfail_field', t('rc.sf'), f.screenfail_field) }}
+  {{ pick('subject_no_field', t('rc.subject'), f.subject_no_field) }}
+</div>
+<details class="mt" data-testid="rc-more"><summary>{{ t('rc.more') }}</summary>
+<div class="grid2">
+  <div><label for="screenfail_choice_map">{{ t('rc.sf_map') }}</label><input id="screenfail_choice_map" name="screenfail_choice_map" class="mono" value="{{ sf_map if not lk_form else (lk_form.screenfail_choice_map.items()|map('join', '=')|join(', ')) }}"{{ dis }}><p class="hint">{{ t('rc.sf_map.help') }}</p></div>
+  <div><label for="dag">{{ t('rc.dag') }}</label><input id="dag" name="dag" class="mono" value="{{ f.dag or '' }}"{{ dis }}></div>
+  <div><label for="consent_event">{{ t('rc.consent_event') }}</label><input id="consent_event" name="consent_event" class="mono" value="{{ f.consent_event or '' }}"{{ dis }}></div>
+  <div class="full"><h3>{{ t('rc.write.title') }}</h3><p class="hint">{{ t('rc.write.help') }}</p></div>
+  <div><label for="write_mode">{{ t('rc.write.mode') }}</label><select id="write_mode" name="write_mode" data-testid="write-mode"{{ dis }}>{% for m in ('off', 'existing', 'create') %}<option value="{{ m }}"{% if (f.write_mode or 'off') == m %} selected{% endif %}>{{ t('rc.write.mode.' + m) }}</option>{% endfor %}</select></div>
+  <div><label for="write_form">{{ t('rc.write.form') }}</label><input id="write_form" name="write_form" class="mono" value="{{ f.write_form or 'trialbox_screening' }}"{{ dis }}></div>
+  <div><label for="write_event">{{ t('rc.write.event') }}</label><input id="write_event" name="write_event" class="mono" value="{{ f.write_event or '' }}"{{ dis }}></div>
+</div>
+</details>
+</section>
+{% if editable %}<div class="savebar card" id="save"><button type="submit" name="action" value="save" data-testid="save-setup">{{ t('setup.save_all') }}</button><span class="hint">{{ t('setup.unsaved') }}</span></div>{% endif %}
+</form>
+
+{% if contact_rule is not none %}{# D-407 (LIFE-017): the study's contact-attempt limit; after it the investigator decides #}
+<section class="card" id="contact" data-testid="setup-contact">
+<h2>{{ t('setup.contact.title') }}</h2>
+<p class="hint">{{ t('setup.contact.help') }}</p>
+<p data-testid="setup-contact-now">{{ t('setup.contact.now', n=contact_rule.max_attempts, d=contact_rule.min_days) }}{% if contact_rule.set_by %} {{ t('sae.rule.by', who=contact_rule.set_by|who, at=contact_rule.set_at|local) }}{% else %} <span class="hint">{{ t('setup.contact.default') }}</span>{% endif %}</p>
+{% if editable %}<form method="post" action="/studies/{{ rs }}/setup/contact" class="markform"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="max_attempts">{{ t('setup.contact.max') }}</label><input id="max_attempts" name="max_attempts" type="number" min="1" max="20" value="{{ contact_rule.max_attempts }}" data-testid="setup-contact-max">
+<label for="min_days">{{ t('setup.contact.days') }}</label><input id="min_days" name="min_days" type="number" min="0" max="60" value="{{ contact_rule.min_days }}" data-testid="setup-contact-days">
+<button type="submit" data-testid="setup-contact-save">{{ t('setup.contact.save') }}</button></form>{% endif %}
+</section>
+{% endif %}
+
+{% if sae_rule is not none %}{# D-277 (LIFE-023): the study's SAE reporting rules, one field; who saved it confirmed it #}
+<section class="card" id="sae" data-testid="setup-sae">
+<h2>{{ t('sae.setup.title') }}</h2>
+<p class="hint">{{ t('sae.setup.help') }}</p>
+{% set sr = sae_rule.rules or {} %}
+<p data-testid="setup-sae-now">{{ t('sae.rule.set', rs=rs, name=t('sae.set.' + sr.name) if sr.name else '–', regulator=sr.regulator or '–') }}{% if sr.confirmed_by %} {{ t('sae.rule.by', who=sr.confirmed_by|who, at=sr.confirmed_at|local) }}{% else %} <span class="warn">{{ t('sae.rule.unconfirmed') }}</span>{% endif %}</p>
+{% if editable %}<form method="post" action="/studies/{{ rs }}/setup/sae" class="markform"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="rule_set">{{ t('sae.setup.field') }}</label>
+<select id="rule_set" name="rule_set" data-testid="setup-sae-set">{% for k, v in (sae_rule.sets or {}).items() if not sae_country or v.country == sae_country %}<option value="{{ k }}"{% if sae_rule.rule_set == k %} selected{% endif %}>{{ t('sae.set.' + k) }} · {{ v.regulator }}</option>{% endfor %}</select>
+<button type="submit" data-testid="setup-sae-save">{{ t('sae.setup.save') }}</button></form>{% endif %}
+</section>
+{% endif %}
+
+{% if screen_scope is not none %}{# D-146 (review J-26): who the study's screening runs look at #}
+<section class="card" id="who" data-testid="setup-who">
+<h2>{{ t('setup.who.title') }}</h2>
+<p class="hint">{{ t('setup.who.help') }}</p>
+{% set wm = screen_scope.mode %}
+<p data-testid="who-now">{% if wm == 'hospital' %}{{ t('setup.who.now.hospital') }}{% elif wm == 'practitioners' %}{{ t('setup.who.now.pract', ids=screen_scope.practitioners|join(', ')) }}{% else %}<span class="warn">{{ t('setup.who.unset') }}</span>{% endif %}{% if screen_scope.set_by %} <span class="hint">{{ t('setup.entered', by=screen_scope.set_by|replace('console:', ''), at=screen_scope.set_at|local) }}</span>{% endif %}</p>
+{% if editable %}<form method="post" action="/studies/{{ rs }}/setup/scope" data-testid="who-form">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<fieldset><legend>{{ t('setup.who.title') }}</legend>
+<ul class="checks plain">
+<li><label><input type="radio" name="mode" value="hospital"{% if wm != 'practitioners' %} checked{% endif %} data-testid="who-hospital"> {{ t('setup.who.hospital') }}</label></li>
+<li><label><input type="radio" name="mode" value="practitioners"{% if wm == 'practitioners' %} checked{% endif %} data-testid="who-pract"> {{ t('setup.who.pract') }}</label></li>
+</ul></fieldset>
+<label for="who-ids">{{ t('setup.who.ids') }}</label>
+<input id="who-ids" name="practitioners" class="mono" value="{{ screen_scope.practitioners|join(', ') }}" autocapitalize="none" spellcheck="false" data-testid="who-ids">
+<p class="hint">{{ t('setup.who.ids.help') }}</p>
+<button type="submit" data-testid="who-save">{{ t('setup.who.save') }}</button>
+</form>{% endif %}
+</section>
+{% endif %}
+
+{% if link %}<section class="card" data-testid="setup-redcap-check">
+<h2>{{ t('rc.read.title') }}</h2>
+{% if user.can_request %}<form method="post" action="/studies/{{ rs }}/setup/redcap/test" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="secondary" data-testid="test-link">{{ t('rc.test') }}</button></form>{% endif %}
+{% if test %}<div class="mt" data-testid="test-result"><p>{{ t('rc.test.result', p=test.project_id, title=test.project_title, n=test.records) }}</p>
+{% if test.sample %}<div class="scroll" tabindex="0"><table class="candidates"><thead><tr><th>{{ t('log.record') }}</th><th>{{ t('log.no') }}</th><th>{{ t('wb.c.status') }}</th><th>{{ t('log.subject') }}</th></tr></thead><tbody>{% for j in test.sample %}<tr><td class="mono">{{ j.record_id }}</td><td class="mono">{{ j.no }}</td><td>{{ t('registry.status.' + j.status) if j.status else '–' }}</td><td class="mono">{{ j.subject_no or '–' }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="hint">{{ t('rc.test.none') }}</p>{% endif %}</div>{% endif %}
+<p class="hint">{{ t('rc.read.help') }}</p>
+{% include "_rc_read.html" %}
+</section>{% endif %}
 {% endblock %}

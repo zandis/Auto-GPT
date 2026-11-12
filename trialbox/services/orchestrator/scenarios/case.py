@@ -34,7 +34,9 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from tb_common.crypto import pid_for_mrn, sha256_bytes
+from tb_common import dates
+from tb_common.crypto import load_key, pid_for_mrn, sha256_bytes
+from tb_common.kek import key_present
 from tb_common.quotes import quote_in
 from tb_common.reasons import Reason
 from tb_common.routing import is_internal
@@ -66,34 +68,14 @@ MAX_CHART_CHARS = 200_000
 MAX_EXCERPT_CHARS = 1_800  # about 450 tokens; long paragraphs are split so that one criterion sees several excerpts
 LANGS = ("en", "ja", "zh-TW")
 
-# dates as they appear in Taiwan and Japan charts: ISO, slashed, 2026年3月14日, 民國115年3月14日 / 115.03.14,
-# 令和8年3月14日 / R8.3.14, 平成31年
-_ISO = re.compile(r"(?<!\d)((?:19|20)\d{2})[-/.年]\s?(\d{1,2})[-/.月]\s?(\d{1,2})日?(?!\d)")
-_MINGUO = re.compile(r"(?:民國\s?)?(?<![\d.])(1[0-2]\d)[./年]\s?(\d{1,2})[./月]\s?(\d{1,2})日?(?!\d)")
-_ERA = re.compile(r"(令和|平成|R|H)\s?(\d{1,2})[./年]\s?(\d{1,2})[./月]\s?(\d{1,2})日?(?!\d)")
-_ERA_BASE = {"令和": 2018, "R": 2018, "平成": 1988, "H": 1988}
 _HEADING = re.compile(r"^\s*(#{1,6}\s+|[【\[][^】\]]{1,40}[】\]]\s*$)")
 
 
 # ------------------------------------------------------------------------------------------------ chart text
 def find_date(text: str) -> date | None:
-    """The first plausible calendar date in ``text`` (ISO or slashed first, then Minguo, then a Japanese era)."""
-    for m in _ISO.finditer(text):
-        try:
-            return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-        except ValueError:
-            continue
-    for m in _ERA.finditer(text):
-        try:
-            return date(_ERA_BASE[m.group(1)] + int(m.group(2)), int(m.group(3)), int(m.group(4)))
-        except ValueError:
-            continue
-    for m in _MINGUO.finditer(text):
-        try:
-            return date(1911 + int(m.group(1)), int(m.group(2)), int(m.group(3)))
-        except ValueError:
-            continue
-    return None
+    """The first plausible calendar date in ``text`` (ISO or slashed first, then a Japanese era, then Minguo):
+    :func:`tb_common.dates.find` (D-215)."""
+    return dates.find(text)
 
 
 def _split_long(text: str) -> list[str]:
@@ -200,9 +182,9 @@ def resolve_subject(ctx: Ctx, mrn: str | None) -> Subject:
     if rx and not re.match(rx, mrn):
         raise StepFailed("received", f"mrn={mrn!r} does not look like a chart number of this site")
     key_file = Path(ctx.cfg.env.secrets_dir) / "site_hmac.key"
-    if not key_file.exists():
+    if not key_present(key_file):  # plain or wrapped under the KEK (T-210b)
         return Subject(note="the box has no site key yet (no ingest): structured criteria answered from the chart")
-    pid = pid_for_mrn(key_file.read_bytes(), mrn)
+    pid = pid_for_mrn(load_key(key_file), mrn)
     snapshot = ctx.services.lake.snapshot()
     if not snapshot:
         return Subject(pid=pid, note="the lake has no snapshot yet: structured criteria answered from the chart")
@@ -212,6 +194,19 @@ def resolve_subject(ctx: Ctx, mrn: str | None) -> Subject:
             pid=pid, note="chart number not in the hospital data: structured criteria answered from the chart"
         )
     return Subject(pid=pid, in_lake=True, snapshot=snapshot)
+
+
+def refuse_opted_out(ctx: Ctx, pid: str | None) -> None:
+    """D-441: no eligibility sheet for a patient on the opt-out register (D-147) as it stood when the job was
+    received. The refusal is audited without the pseudonym; the requester typed the chart number and is told why."""
+    if pid is None:
+        return
+    from tb_common.optout import opted_out
+
+    if pid in opted_out(as_of=ctx.job.received_at.isoformat()):
+        ctx.orch.audit.append("case.opt_out_refused", job_id=ctx.job.job_id, ruleset=ctx.job.ruleset,
+                              detail={"register": "optout"})  # fmt: skip
+        raise StepFailed("received", "This patient opted out of research use: no eligibility sheet is made.")
 
 
 # ------------------------------------------------------------------------------------------------ judging
@@ -262,7 +257,10 @@ def evaluate_case(
     evals: dict[str, PatientEvaluation] = {}
     if subj.in_lake and subj.pid:
         ids = [c.id for c in active if c.class_ in FILTERED]
-        engine = engine_from_env("sql", None, ctx.services.lake, subj.snapshot)  # the lake snapshot, deterministic
+        from orchestrator import derive
+
+        # the lake snapshot, deterministic; the stored-row read while the flag is on (D-442), as on every path
+        engine = engine_from_env("sql", None, ctx.services.lake, subj.snapshot, derive.reader_for(ctx))
         evals = engine.evaluate(rs, [subj.pid], index_date, ids) if ids else {}
     judge = judge_for(ctx, rs)
     cj = ChartJudge(judge, excerpts) if judge is not None else None
@@ -350,6 +348,7 @@ def run(ctx: Ctx) -> Outcome:
     excerpts, charts = read_charts(ctx)
     lang = pick_lang(ctx, " ".join(str(e.get("text", "")) for e in excerpts[:40]))
     subj = resolve_subject(ctx, opts.get("mrn"))
+    refuse_opted_out(ctx, subj.pid)
     if subj.snapshot:
         ctx.update(snapshot_date=date.fromisoformat(subj.snapshot))
     ctx.state("running")

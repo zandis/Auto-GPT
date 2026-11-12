@@ -1,0 +1,420 @@
+{
+ "criteria": [
+  {
+   "text": "Aged 18 to 75 years at screening.",
+   "label": "Age 18-75",
+   "source_ref": "§5.1 #1",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic",
+    "age": {
+     "min": 18,
+     "max": 75
+    }
+   },
+   "concept_candidates": []
+  },
+  {
+   "text": "Rheumatoid arthritis diagnosed at least 6 months before screening.",
+   "label": "RA ≥6 months",
+   "source_ref": "§5.1 #2",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "rheumatoid arthritis",
+    "quantifier": "any",
+    "window": {
+     "to_days": -180
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "rheumatoid arthritis",
+     "synonyms": [
+      "類風濕關節炎"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "Methotrexate for at least 3 months before screening (refills no more than 30 days apart).",
+   "label": "MTX ≥3 months",
+   "source_ref": "§5.1 #3",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "medication",
+    "concept": "methotrexate",
+    "duration": {
+     "min_days": 90,
+     "gap_days": 30
+    },
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "medication",
+     "name": "methotrexate",
+     "synonyms": [
+      "MTX"
+     ]
+    }
+   ],
+   "action": "confirm the methotrexate dose has been stable for 8 weeks"
+  },
+  {
+   "text": "DAS28 (CRP or ESR) of 3.2 or more within 90 days before screening.",
+   "label": "DAS28 ≥3.2",
+   "source_ref": "§5.1 #4",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "derived": "das28",
+    "quantifier": "latest",
+    "value": {
+     "op": ">=",
+     "num": 3.2
+    },
+    "window": {
+     "from_days": -90,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [],
+   "action": "record a DAS28 with all four components"
+  },
+  {
+   "text": "Inadequate response to at least one conventional synthetic DMARD, in the investigator's judgement.",
+   "label": "csDMARD inadequate response",
+   "source_ref": "§5.1 #5",
+   "kind": "inclusion",
+   "class": "human",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic"
+   },
+   "concept_candidates": [],
+   "human_question": "In the investigator's judgement, has the patient had an inadequate response to at least one conventional synthetic DMARD?",
+   "action": "investigator to confirm the csDMARD response"
+  },
+  {
+   "text": "Any prior biologic DMARD or JAK inhibitor.",
+   "label": "Prior biologic or JAK inhibitor",
+   "source_ref": "§5.2 #1",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "medication",
+    "concept": "biologic dmard or jak inhibitor",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "medication",
+     "name": "biologic dmard or jak inhibitor",
+     "synonyms": [
+      "tofacitinib",
+      "baricitinib",
+      "upadacitinib",
+      "adalimumab"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "Positive hepatitis B surface antigen (HBsAg).",
+   "label": "HBsAg positive",
+   "source_ref": "§5.2 #2",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "concept": "hbsag",
+    "quantifier": "latest",
+    "value": {
+     "op": "in",
+     "codes": [
+      "LA6576-8"
+     ]
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "observation",
+     "name": "hbsag",
+     "synonyms": [
+      "B型肝炎表面抗原"
+     ]
+    }
+   ],
+   "action": "order HBsAg"
+  },
+  {
+   "text": "Positive hepatitis B core antibody (anti-HBc) with detectable HBV DNA.",
+   "label": "Anti-HBc with HBV DNA",
+   "source_ref": "§5.2 #3",
+   "kind": "exclusion",
+   "class": "human",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic"
+   },
+   "concept_candidates": [],
+   "human_question": "If anti-HBc is positive, is HBV DNA detectable?",
+   "action": "order HBV DNA if anti-HBc is positive"
+  },
+  {
+   "text": "Positive interferon-gamma release assay (IGRA) within 1 year without tuberculosis preventive therapy.",
+   "label": "IGRA positive, untreated",
+   "source_ref": "§5.2 #4",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "op": "and",
+    "args": [
+     {
+      "domain": "observation",
+      "concept": "igra",
+      "quantifier": "latest",
+      "value": {
+       "op": "in",
+       "codes": [
+        "LA6576-8"
+       ]
+      },
+      "window": {
+       "from_days": -365,
+       "to_days": 0
+      }
+     },
+     {
+      "op": "not",
+      "args": [
+       {
+        "domain": "medication",
+        "concept": "tb preventive therapy",
+        "quantifier": "any",
+        "window": {
+         "from_days": -365,
+         "to_days": 0
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "concept_candidates": [
+    {
+     "domain": "observation",
+     "name": "igra",
+     "synonyms": [
+      "丙型干擾素釋放試驗"
+     ]
+    },
+    {
+     "domain": "medication",
+     "name": "tb preventive therapy",
+     "synonyms": [
+      "isoniazid"
+     ]
+    }
+   ],
+   "action": "order an IGRA"
+  },
+  {
+   "text": "Serious infection (sepsis or pneumonia) within 30 days before screening.",
+   "label": "Serious infection ≤30 days",
+   "source_ref": "§5.2 #5",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "serious infection",
+    "quantifier": "any",
+    "window": {
+     "from_days": -30,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "serious infection",
+     "synonyms": [
+      "sepsis",
+      "pneumonia"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "Herpes zoster within 12 months before screening.",
+   "label": "Herpes zoster ≤12 months",
+   "source_ref": "§5.2 #6",
+   "kind": "exclusion",
+   "class": "mixed",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "herpes zoster",
+    "quantifier": "any",
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "herpes zoster",
+     "synonyms": [
+      "帶狀皰疹",
+      "shingles"
+     ]
+    }
+   ],
+   "note_question": "Do the notes document an episode of herpes zoster (shingles) within the 12 months before the index date?",
+   "action": "ask about shingles in the last 12 months"
+  },
+  {
+   "text": "History of venous thromboembolism (deep vein thrombosis or pulmonary embolism).",
+   "label": "VTE history",
+   "source_ref": "§5.2 #7",
+   "kind": "exclusion",
+   "class": "mixed",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "venous thromboembolism",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "venous thromboembolism",
+     "synonyms": [
+      "深部靜脈栓塞",
+      "肺栓塞",
+      "deep vein thrombosis",
+      "pulmonary embolism"
+     ]
+    }
+   ],
+   "note_question": "Do the notes document a deep vein thrombosis or a pulmonary embolism at any time?",
+   "action": "ask about past blood clots"
+  },
+  {
+   "text": "Malignancy within the past 5 years.",
+   "label": "Malignancy ≤5 years",
+   "source_ref": "§5.2 #8",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "malignancy",
+    "quantifier": "any",
+    "window": {
+     "from_days": -1825,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "malignancy",
+     "synonyms": [
+      "cancer"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "Heart failure (NYHA class III or IV).",
+   "label": "Heart failure",
+   "source_ref": "§5.2 #9",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "heart failure",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "heart failure",
+     "synonyms": [
+      "心衰竭"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "Pregnancy (a pregnancy diagnosis within 280 days).",
+   "label": "Pregnancy",
+   "source_ref": "§5.2 #10",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "pregnancy",
+    "quantifier": "any",
+    "window": {
+     "from_days": -280,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "pregnancy",
+     "synonyms": [
+      "懷孕"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "Estimated GFR below 40 mL/min/1.73 m² (CKD-EPI 2021) at screening.",
+   "label": "eGFR <40",
+   "source_ref": "§5.2 #11",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "derived": "egfr",
+    "quantifier": "latest",
+    "value": {
+     "op": "<",
+     "num": 40,
+     "unit": "mL/min/{1.73_m2}"
+    },
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [],
+   "action": "order creatinine"
+  }
+ ]
+}

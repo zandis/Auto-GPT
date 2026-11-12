@@ -22,14 +22,17 @@ repository yet, so the AD-specific report rows (screen-failure default, AD capab
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import secrets
 import shutil
 import sys
+import tempfile
 from datetime import date
 from pathlib import Path
 from typing import Any
 
+from tb_common import service_auth as sa
 from tb_common.service_auth import actor_header, auth_headers
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,10 +46,23 @@ RUN = date(2026, 10, 5)  # a Monday, the synthetic reference date
 
 def orch_client(app: Any) -> Any:
     """The demo box's client for the in-process orchestrator. D-114: it authenticates like a real console, with a
-    per-process service token on every changing call."""
+    per-process service token on every changing call. D-464 (T-713): outside DEV and TEST the orchestrator admits only
+    a caller it can name, and the demo image runs with no ``TB_ENV`` (PRODUCTION by the one rule), so the box gets a
+    token registry naming that token as the console's, and the console's actor key, as ``trialbox secrets init``
+    writes them on a box (unless a registry is configured already)."""
     from fastapi.testclient import TestClient
 
-    os.environ.setdefault("TB_SERVICE_TOKEN", secrets.token_hex(16))
+    tok = os.environ.setdefault("TB_SERVICE_TOKEN", secrets.token_hex(16))
+    if not (os.environ.get(sa.REGISTRY_ENV) or "").strip():
+        d = Path(tempfile.mkdtemp(prefix="tb-demo-tokens-"))
+        reg, keys = d / "tokens.json", d / "actor-keys"
+        reg.write_text(json.dumps({"schema": sa.REGISTRY_SCHEMA, "services": {"console": sa.token_hash(tok)}}),
+                       encoding="utf-8")  # fmt: skip
+        keys.write_text(sa.actor_key(tok).hex() + "\n", encoding="utf-8")
+        for f in (reg, keys):
+            f.chmod(0o600)
+        os.environ[sa.REGISTRY_ENV] = str(reg)
+        os.environ.setdefault(sa.ACTOR_KEYS_ENV, str(keys))
     return TestClient(app, headers=auth_headers())
 
 
@@ -70,11 +86,28 @@ class InprocBackend:
         r = self.c.get(f"/jobs/{job_id}")
         return Job.model_validate(r.json()) if r.status_code == 200 else None
 
-    def create_job(self, req: Any) -> Any:
+    def create_job(self, req: Any, by: str = "", role: str = "") -> Any:
         from console.backend import Refused
         from tb_contracts import Job, dump
 
-        r = self.c.post("/jobs", json=dump(req))
+        # D-146 (review J-01): as the HTTP backend does, the signed-in person and role travel signed
+        r = self.c.post("/jobs", json=dump(req), headers=actor_header(by, role=role) if by and role else {})
+        if r.status_code != 200:
+            try:
+                detail = str(r.json().get("detail"))
+            except (ValueError, AttributeError):
+                detail = r.text
+            raise Refused(detail[:300])
+        job = Job.model_validate(r.json())
+        self.box.orch.drain()
+        return self.get_job(job.job_id) or job
+
+    def retry_scheduled_job(self, job_id: str, *, reply_to: str, by: str, role: str) -> Any:
+        from console.backend import Refused
+        from tb_contracts import Job
+
+        # T-746 (D-474): as the HTTP backend does: the job's id and the reply mailbox, the person and role signed
+        r = self.c.post(f"/jobs/{job_id}/retry", json={"reply_to": reply_to}, headers=actor_header(by, role=role))
         if r.status_code != 200:
             raise Refused(r.text[:300])
         job = Job.model_validate(r.json())
@@ -173,23 +206,33 @@ class InprocBackend:
     def registry_promote(self, ruleset: str, req: Any) -> int:
         return int(self._call("POST", f"/registry/{ruleset}/promote", req)["added"])
 
-    def registry_export(self, ruleset: str) -> bytes:
-        return bytes(self.c.get(f"/registry/{ruleset}/export.xlsx").content)
-
-    def reveal(self, job_id: str, pid: str, by: str) -> str | None:
+    def registry_export(self, ruleset: str, by: str, role: str = "", scope: str = "") -> bytes:
         from console.backend import Refused
 
-        r = self.c.post(f"/jobs/{job_id}/reveal", json={"pid": pid}, headers=actor_header(by))
+        r = self.c.get(f"/registry/{ruleset}/export.xlsx", headers=actor_header(by, role=role, scope=scope))
+        if r.status_code != 200:
+            raise Refused(r.text[:200])
+        return bytes(r.content)
+
+    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "", purpose: str = "",
+               reason: str = "") -> str | None:  # fmt: skip
+        from console.backend import Refused
+
+        # T-103 (D-438): the purpose and reason travel to the orchestrator's record, as from HttpBackend
+        body = {"pid": pid, **({"purpose": purpose} if purpose else {}), **({"reason": reason} if reason else {})}
+        r = self.c.post(f"/jobs/{job_id}/reveal", json=body, headers=actor_header(by, role=role, scope=scope))
         if r.status_code == 404:
             return None
         if r.status_code != 200:
             raise Refused(r.text[:200])
         return str(r.json().get("mrn") or "") or None
 
-    def study_api(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+    def study_api(self, method: str, path: str, body: dict[str, Any] | None = None,
+                  headers: dict[str, str] | None = None) -> Any:  # fmt: skip
         from console.backend import problem_of
 
-        r = self.c.request(method, path, json=body) if body is not None else self.c.request(method, path)
+        kw: dict[str, Any] = {"headers": headers} if headers else {}
+        r = self.c.request(method, path, json=body, **kw) if body is not None else self.c.request(method, path, **kw)
         if r.status_code >= 400:
             raise problem_of(r.status_code, r.text)
         return r.json()
@@ -251,7 +294,7 @@ def seed_activity(work: Path, bk: InprocBackend) -> None:
     pids = [str(r["pid"]) for r in rows]
     if len(pids) < 6:
         return
-    store = SiteStore(work / "console" / "site.sqlite")
+    store = SiteStore()  # the trial database of this run (TB_DB_URL, set by make_box)
     now = datetime.now(UTC)
 
     def at(days: int) -> str:
@@ -276,8 +319,10 @@ def seed_activity(work: Path, bk: InprocBackend) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tools.pglocal import scratch_root  # D-201: never a fixed /tmp path
+
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_DEMO_DIR", "/tmp/tb-role-demo")))
+    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_DEMO_DIR") or scratch_root() / "tb-role-demo"))
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")))
     ap.add_argument("--host", default=os.environ.get("TB_DEMO_HOST", "127.0.0.1"))
     ap.add_argument("--fresh", action="store_true", help="delete --dir first")
@@ -293,13 +338,13 @@ def main(argv: list[str] | None = None) -> int:
     from tb_common.audit import AuditLog
 
     password = os.environ.get("TB_DEMO_PASSWORD") or secrets.token_urlsafe(12)
-    users = UserStore(a.dir / "console" / "console.sqlite")
+    users = UserStore()  # schema auth of the trial database (TB_DB_URL, set by make_box)
     accounts = [
         ("admin", "admin", {}),
         ("crc", "coordinator", {}),
         ("pi", "investigator", {}),
         ("smo", "coordinator", {"affiliation": "smo", "studies": "GZQO", "expires": "2027-03-31"}),
-        ("cra", "cro", {"affiliation": "cro"}),
+        ("cra", "cro", {"affiliation": "cro", "studies": "GZQO,GOUT-COH"}),  # D-380: names its studies
         ("viewer", "viewer", {}),
     ]
     for name, role, scope in accounts:
@@ -309,6 +354,9 @@ def main(argv: list[str] | None = None) -> int:
             users.set_password(name, password)
         if scope:
             users.set_scope(name, **scope)
+    from tools.feas_demo import seed_pi
+
+    seed_pi()  # D-380: the demo investigator is each study's logged PI
     seed_activity(a.dir, InprocBackend(box, client, repo))
     env = {
         "TB_ENV": "DEV",

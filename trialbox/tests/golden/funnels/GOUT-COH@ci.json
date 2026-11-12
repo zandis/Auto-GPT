@@ -1,0 +1,163 @@
+{
+ "meta": {
+  "generator": "tools.synth_hospital profile ci + tools.public_site en",
+  "head": "e3ac1779aac2e0f5e13be8d94578e15142dc6697",
+  "lake_schema_version": 4,
+  "profile": "ci",
+  "reason": "D-442 (T-207): no eGFR under 18 (catalogue egfr_ckd_epi_2021 and egfr_jsn_2009: age < 18, do not compute); an eGFR criterion of a patient under 18 at the index date is unknown with derived_adult_only instead of met or not met",
+  "ref_date": "2026-11-01",
+  "ruleset": "GOUT-COH",
+  "ruleset_version": "1.0.0",
+  "seed": 42,
+  "written_with_source": "legacy+omop"
+ },
+ "sets": {
+  "public-en": {
+   "first_eligible": {},
+   "prevalent": 0,
+   "prevalent_pids_sha": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "remaining": {
+    "GOUT-COH-INC-01": 0,
+    "GOUT-COH-INC-02": 0,
+    "GOUT-COH-INC-03": 0,
+    "GOUT-COH-INC-04": 0,
+    "GOUT-COH-INC-05": 0,
+    "GOUT-COH-INC-06": 0,
+    "GOUT-COH-INC-07": 0
+   },
+   "start": 53,
+   "unknown": {
+    "GOUT-COH-INC-01": 0,
+    "GOUT-COH-INC-02": 0,
+    "GOUT-COH-INC-03": 0,
+    "GOUT-COH-INC-04": 0,
+    "GOUT-COH-INC-05": 0,
+    "GOUT-COH-INC-06": 0,
+    "GOUT-COH-INC-07": 0
+   },
+   "variants": {
+    "unknown_as_pass": 0
+   }
+  },
+  "ssmix2-jp": {
+   "first_eligible": {},
+   "prevalent": 0,
+   "prevalent_pids_sha": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "remaining": {
+    "GOUT-COH-INC-01": 118,
+    "GOUT-COH-INC-02": 79,
+    "GOUT-COH-INC-03": 59,
+    "GOUT-COH-INC-04": 15,
+    "GOUT-COH-INC-05": 4,
+    "GOUT-COH-INC-06": 3,
+    "GOUT-COH-INC-07": 0
+   },
+   "start": 400,
+   "unknown": {
+    "GOUT-COH-INC-01": 0,
+    "GOUT-COH-INC-02": 18,
+    "GOUT-COH-INC-03": 0,
+    "GOUT-COH-INC-04": 0,
+    "GOUT-COH-INC-05": 3,
+    "GOUT-COH-INC-06": 0,
+    "GOUT-COH-INC-07": 0
+   },
+   "variants": {
+    "unknown_as_pass": 2
+   }
+  },
+  "synthetic-jp-a": {
+   "first_eligible": {
+    "2026-07": 1,
+    "2026-09": 1,
+    "2026-10": 2
+   },
+   "prevalent": 3,
+   "prevalent_pids_sha": "25a4d148d83d923e32167f522d3132ee6887c5e223016a32b8a0417319ff0883",
+   "remaining": {
+    "GOUT-COH-INC-01": 734,
+    "GOUT-COH-INC-02": 557,
+    "GOUT-COH-INC-03": 372,
+    "GOUT-COH-INC-04": 124,
+    "GOUT-COH-INC-05": 28,
+    "GOUT-COH-INC-06": 12,
+    "GOUT-COH-INC-07": 4
+   },
+   "start": 2500,
+   "unknown": {
+    "GOUT-COH-INC-01": 0,
+    "GOUT-COH-INC-02": 79,
+    "GOUT-COH-INC-03": 0,
+    "GOUT-COH-INC-04": 0,
+    "GOUT-COH-INC-05": 38,
+    "GOUT-COH-INC-06": 6,
+    "GOUT-COH-INC-07": 0
+   },
+   "variants": {
+    "unknown_as_pass": 26
+   }
+  },
+  "synthetic-jp-a-deletes": {
+   "first_eligible": {
+    "2026-07": 1,
+    "2026-09": 1,
+    "2026-10": 1
+   },
+   "prevalent": 2,
+   "prevalent_pids_sha": "d67d7fce0a9bf00245a6dfec7a940e2d7154467e7f5c252b62bea9ad168abbdb",
+   "remaining": {
+    "GOUT-COH-INC-01": 700,
+    "GOUT-COH-INC-02": 504,
+    "GOUT-COH-INC-03": 342,
+    "GOUT-COH-INC-04": 100,
+    "GOUT-COH-INC-05": 19,
+    "GOUT-COH-INC-06": 8,
+    "GOUT-COH-INC-07": 3
+   },
+   "start": 2493,
+   "unknown": {
+    "GOUT-COH-INC-01": 0,
+    "GOUT-COH-INC-02": 102,
+    "GOUT-COH-INC-03": 0,
+    "GOUT-COH-INC-04": 0,
+    "GOUT-COH-INC-05": 44,
+    "GOUT-COH-INC-06": 5,
+    "GOUT-COH-INC-07": 0
+   },
+   "variants": {
+    "unknown_as_pass": 23
+   }
+  },
+  "synthetic-tw-a": {
+   "first_eligible": {
+    "2026-04": 1,
+    "2026-08": 1,
+    "2026-10": 1
+   },
+   "prevalent": 3,
+   "prevalent_pids_sha": "07b900d3583143a9b1ec4cb17b263f26d398b35de9c2c9f9314e90885b02e498",
+   "remaining": {
+    "GOUT-COH-INC-01": 750,
+    "GOUT-COH-INC-02": 544,
+    "GOUT-COH-INC-03": 347,
+    "GOUT-COH-INC-04": 113,
+    "GOUT-COH-INC-05": 26,
+    "GOUT-COH-INC-06": 14,
+    "GOUT-COH-INC-07": 3
+   },
+   "start": 2500,
+   "unknown": {
+    "GOUT-COH-INC-01": 0,
+    "GOUT-COH-INC-02": 102,
+    "GOUT-COH-INC-03": 0,
+    "GOUT-COH-INC-04": 0,
+    "GOUT-COH-INC-05": 33,
+    "GOUT-COH-INC-06": 8,
+    "GOUT-COH-INC-07": 0
+   },
+   "variants": {
+    "unknown_as_pass": 26
+   }
+  }
+ }
+}

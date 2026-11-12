@@ -1,0 +1,150 @@
+{
+ "feas": {
+  "start": 268,
+  "remaining": {
+   "PUB-ONC-EXC-01": 23,
+   "PUB-ONC-EXC-02": 23,
+   "PUB-ONC-INC-01": 129,
+   "PUB-ONC-INC-02": 23
+  },
+  "funnel": [
+   {
+    "applied": true,
+    "criterion_id": "PUB-ONC-INC-01",
+    "dropped": 140,
+    "label": "Age \u226518",
+    "pct": 48.1,
+    "remaining": 130,
+    "unknown": 120
+   },
+   {
+    "applied": true,
+    "criterion_id": "PUB-ONC-INC-02",
+    "dropped": 105,
+    "label": "Malignancy",
+    "pct": 9.3,
+    "remaining": 25,
+    "unknown": 0
+   },
+   {
+    "applied": false,
+    "criterion_id": "PUB-ONC-INC-03",
+    "dropped": 0,
+    "label": "ECOG 0\u20131",
+    "pct": 9.3,
+    "remaining": 25
+   },
+   {
+    "applied": true,
+    "criterion_id": "PUB-ONC-EXC-01",
+    "dropped": 0,
+    "label": "Pregnancy",
+    "pct": 9.3,
+    "remaining": 25,
+    "unknown": 0
+   },
+   {
+    "applied": true,
+    "criterion_id": "PUB-ONC-EXC-02",
+    "dropped": 0,
+    "label": "Active TB",
+    "pct": 9.3,
+    "remaining": 25,
+    "unknown": 0
+   },
+   {
+    "applied": false,
+    "criterion_id": "PUB-ONC-EXC-03",
+    "dropped": 0,
+    "label": "ILD / pneumonitis",
+    "pct": 9.3,
+    "remaining": 25
+   },
+   {
+    "applied": false,
+    "criterion_id": "PUB-ONC-EXC-04",
+    "dropped": 0,
+    "label": "Other trial \u226430 d",
+    "pct": 9.3,
+    "remaining": 25
+   }
+  ]
+ },
+ "screen": {
+  "funnel": {
+   "S0": 268,
+   "S1": 65,
+   "S3": 65,
+   "S4": 65
+  },
+  "tiers": {
+   "excluded": 203,
+   "high": 0,
+   "review": 65
+  },
+  "listed": 65,
+  "judging": {
+   "configured_note_block": "both_agree",
+   "disagreements": 2,
+   "failures": 1,
+   "judge_model": "local/gemma-4-26b-a4b-nvfp4",
+   "may_block": true,
+   "mode": "agreement",
+   "note_block": "both_agree",
+   "note_block_reason": "judge and verifier must both say fail",
+   "verifier_model": "local/qwen3.5-9b-awq"
+  },
+  "request_seconds": {
+   "PUB-ONC": 393.2,
+   "PUB-CA": 0.8
+  },
+  "stage_seconds": 394.0
+ },
+ "cohort_members": 23,
+ "seconds": 996.6211258820003,
+ "site": {
+  "patients": 268,
+  "by_source": {
+   "SIGIR": 53,
+   "MedTxt-CR": 123,
+   "MedTxt-RR": 92
+  },
+  "age_stated": 141,
+  "age_approx": 7,
+  "age_missing": 120,
+  "sex_stated": 149,
+  "with_dx": 127,
+  "dx_rows": 149,
+  "dx_counts": {
+   "C34.90 lung cancer": 44,
+   "C80.1 malignancy, other site": 24,
+   "C18.9 colorectal cancer": 11,
+   "C16.9 gastric cancer": 9,
+   "I10 hypertension": 8,
+   "E11.9 type 2 diabetes": 8,
+   "J18.9 pneumonia": 7,
+   "E66.9 obesity": 6,
+   "A15.9 tuberculosis": 6,
+   "Z33.1 pregnancy": 5,
+   "E78.5 hyperlipidaemia": 4,
+   "J45.9 asthma": 4,
+   "C22.0 hepatocellular carcinoma": 3,
+   "C50.9 breast cancer": 2,
+   "K85.90 pancreatitis": 2,
+   "I21.9 myocardial infarction": 1,
+   "I63.9 cerebral infarction": 1,
+   "B18.2 chronic hepatitis C": 1,
+   "I50.9 heart failure": 1,
+   "B18.1 chronic hepatitis B": 1,
+   "I48.9 atrial fibrillation": 1
+  },
+  "appointments_placed": 89
+ },
+ "terminology_missed": {
+  "codes": [
+   "C50.9",
+   "C80.1"
+  ],
+  "patients": 26
+ }
+}

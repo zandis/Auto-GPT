@@ -102,6 +102,17 @@ def test_lab_value_builder_quantity_conversion_and_coded(tmp_path: Path) -> None
     c = mp.map_row(m.resources[0], {"id": "2", "local_code": "HBS", "v": "pos"})
     assert c is not None and c["valueCodeableConcept"]["coding"][0]["code"] == "LA6576-8"
     assert mp.map_row(m.resources[0], {"id": "3", "local_code": "UNMAPPED", "v": "1"}) is None
+    # D-142 (review B-01): a flagged result is its number, a censored one keeps its comparator, text stays text
+    flagged = mp.map_row(m.resources[0], {"id": "4", "local_code": "CRP", "v": "1.25 H"})
+    assert (
+        flagged is not None
+        and flagged["valueQuantity"]["value"] == 12.5
+        and "comparator" not in flagged["valueQuantity"]
+    )
+    cens = mp.map_row(m.resources[0], {"id": "5", "local_code": "CRP", "v": "<0.3"})
+    assert cens is not None and (cens["valueQuantity"]["value"], cens["valueQuantity"]["comparator"]) == (3, "<")
+    text = mp.map_row(m.resources[0], {"id": "6", "local_code": "CRP", "v": "検出せず"})
+    assert text is not None and text["valueString"] == "検出せず" and "valueQuantity" not in text
 
 
 def test_bad_dates_raise(tmp_path: Path) -> None:

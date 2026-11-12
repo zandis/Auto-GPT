@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{# D-191 (independent plan review PR-17): one serious AE in the register: its reports and deadlines, the forms that
+   record a report sent (written to the AE form), a receipt and a follow-up, and the trail. No AE term. #}
+{% from "_sae_rules.html" import pname, rules_card with context %}
+{# D-277: the case names its rule set and regulator, the AE term (read from the AE form, never stored in the
+   register), expectedness and unblinding; the investigator acknowledges here too (UX-028); the trail is in words. #}
+{% macro trail_body(body) %}{% for k, v in body.items() %}{% if k == 'form_by' %}{{ t('sae.tk.form_by') }} {{ v|who }}{% elif k == 'form_at' %}{{ t('sae.tk.form_at') }} {{ v|local }}{% elif k == 'party' %}{{ pname(v, rules.regulator) }}{% elif k == 'kind' %}{{ t('sae.kind.' + v) }}{% elif v is mapping and 'new' in v %}{{ t('sae.tk.' + k) }} {{ '–' if v.old is none or v.old == '' else v.old }}→{{ '–' if v.new is none or v.new == '' else v.new }}{% elif v is mapping %}{{ t('sae.tk.' + k) }} {% for p, d in v.items() %}{{ pname(p, rules.regulator) }} {{ d or '–' }}{% if not loop.last %}, {% endif %}{% endfor %}{% elif v is sameas true or v is sameas false %}{{ t('sae.tk.' + k) }}: {{ t('sae.yesno.' + ('1' if v else '0')) }}{% elif k in ('source', 'origin') %}{{ t('sae.tk.' + k) }}: {{ v }}{% else %}{{ t('sae.tk.' + k) }} {{ v if v not in (none, '') else '–' }}{% endif %}{% if not loop.last %} · {% endif %}{% endfor %}{% endmacro %}
+{% block title %}{{ t('sae.case.title', r=record, ev=event) }} · {{ rs }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ t('sae.case.title', r=record, ev=event) }}</h1></div>
+<p class="hint chartlinks"><a href="/sae" data-testid="sae-back">{{ t('sae.back') }}</a>
+ <a href="/studies/{{ rs }}/subjects/{{ record|urlencode }}">{{ t('life.sae.open') }}</a>
+ {% if editable %}<a href="/studies/{{ rs }}/entry?record={{ record|urlencode }}&amp;form=tb_adverse_event&amp;event={{ event }}">{{ t('sae.case.ae_form') }}</a>{% endif %}</p>
+{% if done == 'acked' %}<p class="ok" role="status" data-testid="sae-acked">{{ t('sae.ack.done') }}</p>{% elif done %}<p class="ok" role="status" data-testid="sae-saved">{{ t('sae.done') }}</p>{% endif %}
+{% if refused %}<p class="error" role="alert" data-testid="sae-refused">{{ refused }}</p>{% endif %}
+{% if case and not case.serious %}<p class="warn" data-testid="sae-not-serious">{{ t('sae.no_longer') }}</p>{% endif %}
+{% if case %}<p class="hint">{{ t('sae.case.first_seen', at=case.created_at|local) }}</p>{% endif %}
+{% if one %}
+<section class="card{% if one.alert %} attention{% endif %}" data-testid="sae-case">
+<p>{{ t('sae.study', rs=rs) }} · <b class="mono">{{ record }}</b> <span class="hint mono">{{ one.short }}</span>
+{% if one.fatal %} <span class="pill bad">{{ t('life.sae.fatal') }}</span>{% elif one.grave %} <span class="pill bad">{{ t('sae.grave') }}</span>{% endif %}</p>
+{% if one.term %}<p data-testid="sae-term">{{ t('sae.case.term', term='') }}<span data-authored>{{ one.term }}</span></p>{% endif %}
+<p>{{ t('sae.dates', onset=one.onset or '–', aware=one.aware or '–') }}{% if one.aware_time %} {{ one.aware_time }}{% endif %}</p>
+{% if one.expected %}<p data-testid="sae-expected">{{ t('sae.case.expected', v=t('sae.yesno.' + one.expected)) }}</p>{% endif %}
+{% if one.unblinded == '1' %}<p class="warn" data-testid="sae-unblinded">{{ t('sae.case.unblinded', day=one.unblind_date or '–') }}</p>{% endif %}
+{% for f in one.flags %}<p class="{% if f in ('nostart', 'aware_before_onset', 'future_date', 'bad_sent', 'downgraded', 'noclock', 'serious_mismatch', 'unknown_rules', 'no_country', 'other_country', 'bad_override') %}error{% else %}hint{% endif %}" data-testid="sae-flag-{{ f }}">{{ t('sae.flag.' + f) }}</p>{% endfor %}
+<p>{% if one.downgraded %}<span class="pill warn" data-testid="sae-downgraded">{{ t('sae.downgraded', n=one.open) }}</span>{% elif one.ack_by %}{{ t('sae.ack.yes', who=one.ack_by|who, at=one.ack_at|local) }}{% else %}<span class="pill warn">{{ t('sae.ack.no') }}</span>{% if may_ack %}
+<form method="post" action="/studies/{{ rs }}/sae/{{ record|urlencode }}/{{ event }}/ack" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" data-testid="sae-case-ack">{{ t('sae.ack.do') }}</button></form>{% endif %}{% endif %}</p>
+<div class="scroll" tabindex="0"><table class="candidates" data-testid="sae-reports">
+<thead><tr><th scope="col">{{ t('sae.col.reports') }}</th><th scope="col">{{ t('sae.form.due') }}</th><th scope="col">{{ t('sae.state.sent') }}</th><th scope="col">{{ t('sae.trail.receipt') }}</th></tr></thead>
+<tbody>{% for r in one.reports %}<tr data-testid="sae-rep-{{ r.kind }}-{{ r.party }}{% if r.id %}-{{ r.id }}{% endif %}" data-state="{{ r.state }}">
+<td>{{ t('sae.kind.' + r.kind) }} · {{ pname(r.party, rules.regulator) }}{% if r.origin == 'request' %} <span class="hint">({{ t('sae.origin.request') }})</span>{% endif %}
+ <span class="pill{% if r.state in ('overdue', 'nostart', 'bad_sent') %} bad{% elif r.state in ('due_today', 'sent_late') %} warn{% endif %}">{{ t('sae.state.' + r.state) }}</span></td>
+<td class="nowrap">{% if r.due_at %}<span data-testid="sae-due-at-{{ r.party }}">{{ r.due_at[:16]|replace('T', ' ') }}</span>{% else %}{{ r.due or '–' }}{% endif %}</td>
+<td class="nowrap">{{ r.sent_on or '–' }}{% if r.ref %} <span class="hint">{{ t('sae.ref', ref=r.ref) }}</span>{% endif %}{% if r.closed_on %} <span class="hint">{{ t('sae.closed', day=r.closed_on) }}</span>{% endif %}
+{% if editable and one.downgraded and not r.sent_on and not r.closed_on and (r.kind == 'initial' or r.id) %}
+<form method="post" action="/studies/{{ rs }}/sae/{{ record|urlencode }}/{{ event }}/close" class="stack"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="party" value="{{ r.party }}"><input type="hidden" name="kind" value="{{ r.kind }}">{% if r.id %}<input type="hidden" name="id" value="{{ r.id }}">{% endif %}<input type="hidden" name="on" value="{{ today }}">
+<button type="submit" class="secondary" data-testid="sae-close-{{ r.kind }}-{{ r.party }}">{{ t('sae.form.close') }}</button></form>{% endif %}
+{% if editable and not r.sent_on and not r.closed_on %}{% if r.kind == 'initial' %}
+<form method="post" action="/studies/{{ rs }}/sae/{{ record|urlencode }}/{{ event }}/sent" class="stack"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="party" value="{{ r.party }}">
+<label for="sent-{{ r.party }}">{{ t('sae.form.on') }}</label><input id="sent-{{ r.party }}" name="on" type="date" value="{{ today }}" max="{{ today }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
+<label for="sref-{{ r.party }}">{{ t('sae.form.ref') }}</label><input id="sref-{{ r.party }}" name="ref" maxlength="60">
+<button type="submit" data-testid="sae-sent-{{ r.party }}">{{ t('sae.form.sent') }}</button></form>
+{% else %}
+<form method="post" action="/studies/{{ rs }}/sae/{{ record|urlencode }}/{{ event }}/followup_sent" class="stack"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="party" value="{{ r.party }}">{% if r.id %}<input type="hidden" name="id" value="{{ r.id }}">{% endif %}
+<label for="fs-{{ r.party }}-{{ r.id or 'rule' }}">{{ t('sae.form.on') }}</label><input id="fs-{{ r.party }}-{{ r.id or 'rule' }}" name="on" type="date" value="{{ today }}" max="{{ today }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
+<label for="fsref-{{ r.party }}-{{ r.id or 'rule' }}">{{ t('sae.form.ref') }}</label><input id="fsref-{{ r.party }}-{{ r.id or 'rule' }}" name="ref" maxlength="60">
+<button type="submit" data-testid="sae-fu-sent-{{ r.party }}-{{ r.id or 'rule' }}">{{ t('sae.form.fu_sent') }}</button></form>
+{% endif %}{% endif %}</td>
+<td class="nowrap">{{ r.receipt_on or '–' }}
+{% if editable and r.sent_on and r.state != 'bad_sent' and not r.receipt_on and (r.kind == 'initial' or r.id) %}
+<form method="post" action="/studies/{{ rs }}/sae/{{ record|urlencode }}/{{ event }}/receipt" class="stack"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="party" value="{{ r.party }}"><input type="hidden" name="kind" value="{{ r.kind }}">{% if r.id %}<input type="hidden" name="id" value="{{ r.id }}">{% endif %}
+<label for="rc-{{ r.kind }}-{{ r.party }}-{{ r.id or '' }}">{{ t('sae.form.on') }}</label><input id="rc-{{ r.kind }}-{{ r.party }}-{{ r.id or '' }}" name="on" type="date" value="{{ today }}" max="{{ today }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
+<label for="rcref-{{ r.kind }}-{{ r.party }}-{{ r.id or '' }}">{{ t('sae.form.ref') }}</label><input id="rcref-{{ r.kind }}-{{ r.party }}-{{ r.id or '' }}" name="ref" maxlength="60">
+<button type="submit" class="secondary" data-testid="sae-receipt-{{ r.kind }}-{{ r.party }}">{{ t('sae.form.receipt') }}</button></form>
+{% endif %}</td>
+</tr>{% endfor %}</tbody></table></div>
+{% if editable %}<p class="hint">{{ t('sae.form.help') }}</p>
+<form method="post" action="/studies/{{ rs }}/sae/{{ record|urlencode }}/{{ event }}/followup" class="markform" data-testid="sae-followup-form"><input type="hidden" name="csrf" value="{{ csrf }}">
+<h2>{{ t('sae.form.followup') }}</h2>
+<label for="fu-party">{{ t('sae.form.party') }}</label><select id="fu-party" name="party">{% for p in parties %}<option value="{{ p }}">{{ pname(p, rules.regulator) }}</option>{% endfor %}</select>
+<label for="fu-due">{{ t('sae.form.due') }}</label><input id="fu-due" name="due" type="date" min="{{ one.aware or one.onset }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
+<button type="submit" data-testid="sae-followup-add">{{ t('sae.form.followup') }}</button></form>{% endif %}
+</section>
+{% endif %}
+{% if rules %}{{ rules_card({rs: rules}, fu_rules, tz) }}{% endif %}
+<section class="card" data-testid="sae-trail">
+<h2>{{ t('sae.trail.title') }}</h2>
+<p class="hint">{{ t('sae.trail.help') }}</p>
+{% if not trail %}<p class="empty">{{ t('sae.trail.empty') }}</p>{% else %}
+<ul class="plain">{% for e in trail %}<li data-testid="sae-trail-{{ loop.index }}" data-action="{{ e.action }}"><span class="hint nowrap">{{ e.at|local }}</span> · {{ t('sae.trail.' + e.action) }} · <span class="hint">{{ e.by|who }}</span>
+<span class="hint">{{ trail_body(e.body) }}</span></li>{% endfor %}</ul>
+{% endif %}
+</section>
+{% endblock %}

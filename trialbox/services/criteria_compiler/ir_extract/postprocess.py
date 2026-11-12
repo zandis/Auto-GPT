@@ -5,6 +5,8 @@
 * derived atoms reference ``VS_<DERIVED>_COMPONENTS`` built from the shared constants; demographic atoms ``NONE``;
 * classification sanity: a ``structured`` (or ``mixed``) criterion whose logic cannot be compiled, or whose concepts
   did not map, is flagged ``needs_review`` (never silently dropped);
+* units (D-418): a numeric lab atom with no unit, or with a unit its analyte's usual unit cannot convert to, is
+  flagged ``value_unit_missing`` / ``value_unit_unconvertible`` (``criteria_compiler.unit_check``);
 * polarity (D-98): an exclusion ``note_question`` in the negative is rewritten to its positive form when a safe
   English rewrite exists (``negated_question_rewritten``, original kept in ``note_question_source``), else flagged
   ``negated_question`` for the reviewer. Either way the criterion needs review.
@@ -18,6 +20,7 @@ from typing import Any
 from tb_common.derived import CODES, COMPONENTS
 from tb_contracts import CriterionIR, LlmExtractOutput, dump
 
+from criteria_compiler import unit_check
 from criteria_compiler.ir_extract.polarity import is_negated, positive
 from criteria_compiler.semantics import FILTERED, JUDGED, CompileError, atoms, check_bool, kind
 from criteria_compiler.terminology.mapper import (
@@ -44,14 +47,16 @@ class PostResult:
         return ValueSets(ruleset, self.valuesets, term)
 
 
-def _convert_logic(node: dict[str, Any], concept_vs: dict[str, str]) -> dict[str, Any]:
+def _convert_logic(node: dict[str, Any], concept_vs: dict[str, str], egfr: str = "egfr") -> dict[str, Any]:
     if "op" in node and "args" in node:
-        return {"op": node["op"], "args": [_convert_logic(a, concept_vs) for a in node["args"]]}
+        return {"op": node["op"], "args": [_convert_logic(a, concept_vs, egfr) for a in node["args"]]}
     atom = {k: v for k, v in node.items() if k != "concept" and v is not None}
+    if atom.get("derived") == "egfr" and egfr != "egfr":  # D-149: the site's equation, named in the ruleset
+        atom["derived"] = egfr
     if node.get("domain") == "demographic":
         atom["valueset"] = "NONE"
-    elif node.get("derived"):
-        atom["valueset"] = f"VS_{str(node['derived']).upper()}_COMPONENTS"
+    elif atom.get("derived"):
+        atom["valueset"] = f"VS_{str(atom['derived']).upper()}_COMPONENTS"
     else:
         concept = node.get("concept")
         if not concept:
@@ -76,7 +81,10 @@ def postprocess(
     version: str = "1.0.0",
     llm_map: ConceptMapLLM | None = None,
     id_offset: dict[str, int] | None = None,
+    egfr: str = "egfr",
 ) -> PostResult:
+    """``egfr``: what a criterion that says only "eGFR" becomes at this site (D-149): ``egfr`` (CKD-EPI 2021, the
+    meaning it always had) or ``egfr_jsn`` at a Japanese site; a protocol that names its equation keeps it."""
     counters = dict(id_offset or {})
     concept_vs: dict[str, str] = {}
     valuesets: dict[str, dict[str, Any]] = {}
@@ -96,7 +104,14 @@ def postprocess(
             mappings[vs_name] = res
             concept_vs[key] = vs_name
             valuesets[vs_name] = valueset(
-                ruleset, vs_name, cand.name, res.concepts, version, res.needs_review, families=res.families
+                ruleset,
+                vs_name,
+                cand.name,
+                res.concepts,
+                version,
+                res.needs_review,
+                families=res.families,
+                ingredients=getattr(term, "ingredients", None) if cand.domain == "medication" else None,
             )
             if res.method == "none":
                 warnings.append(f"concept '{cand.name}' ({cand.domain}) could not be mapped")
@@ -109,7 +124,7 @@ def postprocess(
         raw = dump(ec)
         logic_raw = raw.get("logic") or {"domain": "demographic"}
         try:
-            logic = _convert_logic(logic_raw, concept_vs)
+            logic = _convert_logic(logic_raw, concept_vs, egfr)
         except CompileError as exc:
             warnings.append(f"{cid}: {exc}")
             logic, flags = {"domain": "demographic", "valueset": "NONE"}, ["needs_review", "logic_invalid"]
@@ -128,6 +143,10 @@ def postprocess(
                     m = mappings.get(a.valueset)
                     if m is not None and (m.needs_review or not m.concepts):
                         flags.append("concept_unmapped" if not m.concepts else "concept_needs_review")
+                    unit = unit_check.check(a, valuesets.get(a.valueset))
+                    if unit is not None:  # D-418: a lab number that would read every result as unknown
+                        flags.append(unit[0])
+                        warnings.append(f"{cid}: {unit[1]}")
             except CompileError as exc:
                 warnings.append(f"{cid}: {exc}")
                 flags.append("logic_invalid")

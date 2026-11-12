@@ -14,6 +14,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from tb_common import chartno
+
 PID_HEX_LEN = 32  # DECISIONS D-09
 
 
@@ -34,22 +36,68 @@ def sha256_file(path: Path, chunk: int = 1 << 20) -> str:
 
 
 def pid_for_mrn(site_key: bytes, mrn: str) -> str:
-    """Stable pseudonymous patient id: ``hex(HMAC-SHA256(site_key, MRN))[:32]`` (SPEC §4.6, D-09)."""
+    """Stable pseudonymous patient id: ``hex(HMAC-SHA256(site_key, MRN))[:32]`` (SPEC §4.6, D-09). The chart number
+    is written the site's way first (``tb_common.chartno``, R-48, D-301): with the default rule a chart number that is
+    already written that way hashes exactly as before."""
     if len(site_key) < 16:
         raise ValueError("site HMAC key must be at least 16 bytes")
-    return hmac.new(site_key, mrn.strip().encode("utf-8"), hashlib.sha256).hexdigest()[:PID_HEX_LEN]
+    norm = chartno.normalise(None, mrn)
+    return hmac.new(site_key, norm.encode("utf-8"), hashlib.sha256).hexdigest()[:PID_HEX_LEN]
 
 
 def load_or_create_key(path: Path, size: int = 32) -> bytes:
-    """Read a binary key file, creating it (mode 0600) with random bytes when absent."""
+    """Read a binary key file, creating it (mode 0600) with random bytes when absent.
+
+    Never for the site key (``site_hmac.key``, T-612, DATA-004): a new site key changes every pseudonym, so it is made
+    only by the install ceremony (:func:`create_key`) and read with :func:`load_key`."""
     if path.exists():
         return path.read_bytes()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    key = os.urandom(size)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "wb") as fh:
-        fh.write(key)
+    create_key(path, size)
+    return path.read_bytes()
+
+
+#: the pseudonymisation key of the site, in the secrets folder (SPEC §4.6, D-09)
+SITE_KEY_FILE = "site_hmac.key"
+
+
+class KeyMissingError(FileNotFoundError):
+    """A key file that must already exist is absent or empty (T-612): it is never made on first use."""
+
+
+def load_key(path: Path) -> bytes:
+    """Read a key file that the install ceremony made; :class:`KeyMissingError` when it is absent or empty. A key kept
+    under the KEK (``<path>.wrapped``, T-210b) is opened with it (``tb_common.kek.load_key_file``)."""
+    if path.with_name(path.name + ".wrapped").exists():
+        from tb_common.kek import load_key_file
+
+        return load_key_file(path)
+    try:
+        key = path.read_bytes()
+    except FileNotFoundError:
+        raise KeyMissingError(f"key file {path} is missing") from None
+    if not key:
+        raise KeyMissingError(f"key file {path} is empty")
     return key
+
+
+def create_key(path: Path, size: int = 32) -> bool:
+    """The install ceremony's step (T-612): write ``size`` random bytes to ``path`` (mode 0600) when it is absent.
+    Returns whether a key was made; an existing key, plain or wrapped under the KEK (T-210b), is never replaced."""
+    if path.with_name(path.name + ".wrapped").exists():
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return False
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(os.urandom(size))
+    return True
+
+
+def key_fingerprint(key: bytes) -> str:
+    """A one-way, domain-separated fingerprint of a key (32 hex): stored and shown, it reveals nothing of the key."""
+    return hashlib.sha256(b"trialbox key fingerprint\x00" + key).hexdigest()[:32]
 
 
 def aes_encrypt(key: bytes, plaintext: bytes, aad: bytes = b"") -> bytes:

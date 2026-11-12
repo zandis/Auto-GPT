@@ -5,45 +5,66 @@
 <span class="hint" data-testid="s20-split">{{ t('s20.split', n=rows|length, s=split.structured, m=split.note, x=split.mixed, h=split.human) }}</span></div>
 {% if done == 'tick' %}<p class="ok" role="status">{{ t('s20.ticked') }}</p>{% endif %}{% if done == 'label' %}<p class="ok" role="status">{{ t('wb.done.label') }}</p>{% endif %}
 <p>{{ t('s20.help') }}</p>
+<p class="hint" data-testid="s20-who">{{ t('s20.who') }}</p>
+{% if pin_state and pin_state.state == 'approval_needed' %}
+<section class="card attention" data-testid="pins-needed">
+<h2>{{ t('s20.pins.title') }}</h2>
+<ul>{% for r in pin_state.reasons %}<li data-testid="pin-{{ r.kind }}-{{ r.state }}">{{ t('s20.pins.' + r.kind + '.' + r.state, pinned=r.pinned, active=r.active or '') }}</li>{% endfor %}</ul>
+<p class="hint">{{ t('s20.pins.help') }}</p>
+</section>
+{% endif %}
+{% if pin_state and pin_state.derived_unpinned and pin_state.state != 'draft' %}<p class="hint" data-testid="pins-derived-unpinned">{{ t('s20.pins.unpinned') }}</p>{% endif %}
 {% if prev %}
 <section class="card attention" data-testid="changes">
 <h2>{{ t('s20.changes', v=prev) }}</h2>
 {% set nchg = diff.added|length + diff.text|length + diff.class|length + diff.removed|length %}
 {% if not nchg %}<p>{{ t('s20.changes.none') }}</p>{% else %}<ul>
 {% for i in diff.added %}<li><a href="#{{ i }}">{{ i }}</a> · {{ t('s20.chg.added') }}</li>{% endfor %}
-{% for i in diff.text %}<li><a href="#{{ i }}">{{ i }}</a> · {{ t('s20.chg.text') }}<br><span class="hint"><del>{{ old[i].text }}</del></span></li>{% endfor %}
+{% for i in diff.text %}<li><a href="#{{ i }}">{{ i }}</a> · {{ t('s20.chg.text') }}<br><span class="hint" data-authored><del>{{ old[i].text }}</del></span></li>{% endfor %}
 {% for i in diff.class %}<li><a href="#{{ i }}">{{ i }}</a> · {{ t('s20.chg.class', a=t('s20.class.' + (old[i]['class'] or 'structured')), b=t('s20.class.' + (rows|selectattr('id', 'equalto', i)|first)['class'])) }}</li>{% endfor %}
-{% for i in diff.removed %}<li>{{ i }} · {{ t('s20.chg.removed') }}<br><span class="hint"><del>{{ old[i].text }}</del></span></li>{% endfor %}
+{% for i in diff.removed %}<li>{{ i }} · {{ t('s20.chg.removed') }}<br><span class="hint" data-authored><del>{{ old[i].text }}</del></span></li>{% endfor %}
 </ul>{% endif %}
 </section>
 {% endif %}
 <section class="card">
-<div class="scroll"><table class="approval" data-testid="s20">
+<div class="scroll" tabindex="0"><table class="approval" data-testid="s20">
 <thead><tr><th>{{ t('feas.f.criterion') }}</th><th>{{ t('s20.c.check') }}</th><th>{{ t('s20.c.state') }}</th></tr></thead>
 <tbody>{% for r in rows %}{% set is_amber = r.amber %}{% set seen = r.id in opened %}
 <tr id="{{ r.id }}" class="{{ 'amber' if is_amber else '' }}{{ ' seen' if seen else '' }}" data-testid="row-{{ r.id }}">
-<td class="crit"><strong>{{ r.id }}</strong> <span class="hint">{{ t_or('kind.' + r.kind, r.kind) }}</span><br>{{ r.text }}
-{% if r.summary and r.summary != r.text %}<br><span class="hint">{{ r.summary }}</span>{% endif %}
+<td class="crit"><strong>{{ r.id }}</strong> <span class="hint">{{ t_or('kind.' + r.kind, r.kind) }}</span>
+{% if labels.get(r.id) %}<br><strong data-testid="site-label-{{ r.id }}">{{ labels[r.id] }}</strong>{% endif %}
+{# D-146: the draft is the protocol's own words, shown as written and marked so; the site's label goes above it #}
+<br><span data-authored>{{ r.text }}</span>{% if lang != 'en' %} <span class="hint" data-testid="as-written">({{ t('s20.as_written') }})</span>{% endif %}
+{% if r.summary and r.summary != r.text %}<br><span class="hint" data-authored>{{ r.summary }}</span>{% endif %}
 {% if is_amber %}<p class="amberwhy">{% for w in r.amber %}<span class="pill warn">{{ t('s20.why.' + w) }}</span> {% endfor %}{% if r.flags %}<br><span class="hint">{{ r.flags }}</span>{% endif %}</p>{% endif %}
 <details class="codes"{% if open_row == r.id %} open{% endif %}><summary>{{ t('s20.codes', n=r.codes_list|length) }}</summary>
 {% if r.codes_list %}<ul class="codes">{% for c in r.codes_list %}<li class="mono">{{ c }}</li>{% endfor %}</ul>{% else %}<p class="hint">{{ t('s20.codes.none') }}</p>{% endif %}
 {% if r.equivalence_pct is not none %}<p class="hint">{{ t('s20.eq', pct=r.equivalence_pct) }}</p>{% endif %}
 </details>
-{% if lang != 'en' and (user.can_request or user.can_approve) %}<form method="post" action="/pilot/jobs/{{ job.job_id }}/approval/label" class="inline labelform"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="crit" value="{{ r.id }}"><label for="lbl-{{ r.id }}">{{ t('s20.label', language=t('lang.name.' + lang)) }}</label> <input id="lbl-{{ r.id }}" name="text" maxlength="80" value="{{ labels.get(r.id, '') }}" data-testid="label-{{ r.id }}"> <button type="submit" class="small secondary">{{ t('s20.label.save') }}</button></form>{% endif %}
+{% if lang != 'en' and (user.can_request or user.can_approve) %}<form method="post" action="/pilot/jobs/{{ job.job_id }}/approval/label" class="inline labelform"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="crit" value="{{ r.id }}"><label for="lbl-{{ r.id }}">{{ t('s20.label', language=t('lang.name.' + lang)) }}</label> <input id="lbl-{{ r.id }}" name="text" maxlength="80" value="{{ labels.get(r.id, '') }}" data-testid="label-{{ r.id }}"{% if r.id in unlabelled %} required aria-invalid="true"{% endif %}> <button type="submit" class="small secondary">{{ t('s20.label.save') }}</button>
+{# D-309: the label step is required before approval #}
+{% if r.id in unlabelled %}<br><span class="pill warn" data-testid="label-missing-{{ r.id }}">{{ t('s20.label.missing', language=t('lang.name.' + lang)) }}</span>{% elif r.id in shipped %}<br><span class="hint" data-testid="label-shipped-{{ r.id }}">{{ t('s20.label.shipped') }}</span>{% endif %}</form>{% endif %}
 {% if r.id in ticks %}<p class="hint" data-testid="tick-{{ r.id }}">✓ {{ t('s20.ticked_by', by=ticks[r.id][0], at=ticks[r.id][1]|local) }}</p>{% endif %}
 </td>
 <td>{{ t('s20.class.' + (r['class'] or 'structured')) }}</td>
 <td class="nowrap">{% if is_amber %}{% if seen %}<span class="pill ok">{{ t('s20.opened') }}</span>{% elif user.can_approve %}<a class="button small" href="?open={{ r.id }}#{{ r.id }}" data-testid="open-{{ r.id }}">{{ t('s20.open_row') }}</a>{% else %}<span class="pill warn">{{ t('s20.amber') }}</span>{% endif %}{% else %}<span class="hint">{{ t('s20.ok') }}</span>{% endif %}
-{% if user.can_request and r.id not in ticks %}<form method="post" action="/pilot/jobs/{{ job.job_id }}/approval/tick" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="crit" value="{{ r.id }}"><button type="submit" class="small secondary" data-testid="tick-btn-{{ r.id }}">{{ t('s20.tick') }}</button></form>{% endif %}</td>
+{% if user.can_approve and r.id not in ticks %}<form method="post" action="/pilot/jobs/{{ job.job_id }}/approval/tick" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="crit" value="{{ r.id }}"><button type="submit" class="small secondary" data-testid="tick-btn-{{ r.id }}">{{ t('s20.tick') }}</button></form>{% endif %}</td>
 </tr>{% endfor %}</tbody></table></div>
 </section>
 <section class="card attention" data-testid="approve-box">
-{% if user.can_approve %}
-  {% if missing %}<p class="warn" data-testid="approve-missing">{{ t('s20.missing', n=missing|length) }}</p>
+{% if user.can_approve and approver %}
+  {% if missing or unlabelled %}{% if missing %}<p class="warn" data-testid="approve-missing">{{ t('s20.missing', n=missing|length) }}</p>{% endif %}
+  {% if unlabelled %}<p class="warn" data-testid="approve-unlabelled">{{ t('s20.labels.missing', n=unlabelled|length, language=t('lang.name.' + lang)) }}</p>{% endif %}
   <button type="button" disabled data-testid="approve">{{ t('s20.approve_all') }}</button>
   {% else %}
   <form method="post" action="/pilot/jobs/{{ job.job_id }}/approve" class="inline">
     <input type="hidden" name="csrf" value="{{ csrf }}">
+    <fieldset class="amend" data-testid="amend-record"><legend>{{ t('amend.legend') }}</legend>
+      <p class="hint">{{ t('amend.help') }}</p>
+      <label for="amend-eff">{{ t('amend.effective') }}</label> <input id="amend-eff" type="date" name="effective_from" data-testid="amend-effective"><span class="hint datefmt">{{ t('date.fmt') }}</span>
+      <label for="amend-irb">{{ t('amend.irb') }}</label> <input id="amend-irb" name="irb_reference" maxlength="32" pattern="[A-Za-z0-9,.:\-]{1,32}" data-testid="amend-irb">
+      <label for="amend-irbdate">{{ t('amend.irb_date') }}</label> <input id="amend-irbdate" type="date" name="irb_approved_on" data-testid="amend-irbdate"><span class="hint datefmt">{{ t('date.fmt') }}</span>
+    </fieldset>
     <button type="submit" data-testid="approve">{{ t('s20.approve_all') }}</button>
   </form>{% endif %}
   <p class="hint">{{ t('s20.legal') }}</p>

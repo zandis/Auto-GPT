@@ -16,13 +16,26 @@ Value expressions (one key per element)::
     builder: <name> [args]                          typed helper, merged at the element path
 
 ``type`` is one of ``str|int|decimal|date|datetime|instant|bool``. Datetimes are interpreted in the mapping's
-``tz`` and emitted with offset. ``when`` (element) / ``where`` (resource) filter on columns or lookups.
+``tz`` and emitted with offset. ``when`` (element) / ``where`` (resource) filter on columns or lookups
+(``equals``, ``in``, ``not_in``, ``not_empty``, ``numeric``, and the ISO date bounds ``date_before`` / ``date_from``);
+``{fhir_profiles: tw-core}`` holds only when the mapping's profile set is that one (T-619a: TW Core slices).
 
 Site mappings (onboarding kit, D-84) usually ``extends`` a shared profile mapping (e.g. ``tw_core/demo_his.yaml``)
 and only declare their ``tables``: each table's ``rename`` (local column → canonical column) and ``values``
 (canonical column → {local code: canonical code}) are applied to every source row before the shared resource
 definitions run; ``key`` / ``delta`` / ``identity`` name canonical columns. Resources of tables the site does not
 declare are dropped; lookups resolve relative to the file that declares them.
+
+A mapping can also re-profile the shared resources (D-137: the Japan mapping puts JP Core profiles on the TW Core
+resource set): ``profiles`` maps a base profile URL to this mapping's profile (``""`` drops the claim), and
+``overlay`` adds or replaces elements of the base resources of one type and table
+(``- {type: Observation, table: lab, elements: {code.text: {column: item_name}}}``).
+
+**Row provenance (T-106b, DATA-010).** A mapper given the night it ingests (``ingest_time``, which the nightly
+pipeline sets) stamps every resource it makes from a source row: ``meta.source`` is ``<site>/<table>#<row hash>``
+(the hash is an HMAC of the canonical source row under the site key, so it names the row without revealing it),
+``meta.lastUpdated`` the night, and a ``meta.tag`` of ``urn:trialbox:mapping-version`` the mapping's version
+(:attr:`Mapping.version`: its name and a hash of its files). The lake carries the four as columns.
 """
 
 from __future__ import annotations
@@ -31,6 +44,7 @@ import base64
 import csv
 import hashlib
 import hmac
+import json
 import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -41,17 +55,33 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import yaml
+from tb_common import labvalue
 from tb_common.crypto import pid_for_mrn
 
 Row = dict[str, Any]
 Resource = dict[str, Any]
 
+DATA_ABSENT = "http://terminology.hl7.org/CodeSystem/data-absent-reason"
 _PATH_RE = re.compile(r"([A-Za-z_$][A-Za-z0-9_$]*)(?:\[(\d+)\])?")
 _TOKEN_RE = re.compile(r"\{([^{}]+)\}")
+# T-616 (STD-015): a source date-time that states its own offset (``+09:00``, ``+0900``, ``Z``) after a time of day
+_OFFSET_RE = re.compile(r"\d[T ]\d{2}:?\d{2}(?::?\d{2}(?:\.\d+)?)?\s*(?:Z|[+-]\d{2}:?\d{2})$", re.IGNORECASE)
+MAPPING_VERSION = "urn:trialbox:mapping-version"  # the meta.tag system of the mapping version (lake.flatten)
 
 
 class MappingError(ValueError):
     pass
+
+
+def _zone(path: Path, name: object) -> ZoneInfo:
+    """A mapping states its source's zone (``tz``); it is the site's zone, and doctor compares it with ``TB_TZ``.
+    A mapping without one is refused: there is no default zone (D-315)."""
+    if not name:
+        raise MappingError(f"{path}: no tz: state the source's IANA time zone (the site's site.tz, e.g. Asia/Tokyo)")
+    try:
+        return ZoneInfo(str(name))
+    except Exception as exc:
+        raise MappingError(f"{path}: tz {name!r} is not a valid IANA time zone") from exc
 
 
 def resource_id(site_key: bytes, rtype: str, value: str) -> str:
@@ -92,6 +122,12 @@ class Mapping:
     resources: list[ResourceSpec]
     static: list[Resource]
     path: Path
+    profiles: dict[str, str] = field(default_factory=dict)
+    fhir_profiles: str = ""  # "jp-core": the ingest checks a sample against JP Core (D-137); "tw-core" (T-619a)
+    # D-149: the site's declared unit per analyte (LOINC code -> UCUM) for a feed result that arrives without one
+    unit_defaults: dict[str, str] = field(default_factory=dict)
+    # T-106b: ``<name>@<12 hex>``, the hash of the mapping file and the base it extends (a changed file, a new version)
+    version: str = ""
 
     @staticmethod
     def _read(path: Path) -> dict[str, Any]:
@@ -103,12 +139,15 @@ class Mapping:
     @classmethod
     def load(cls, path: Path) -> Mapping:
         doc = cls._read(path)
+        digest = hashlib.sha256(path.read_bytes())
         lookup_dirs = {name: path.parent for name in (doc.get("lookups") or {})}
         if doc.get("extends"):
-            base_path = Path(doc["extends"])
-            base_path = base_path if base_path.is_absolute() else (path.parent / base_path).resolve()
+            from adapter.mapping.site import resolve_extends  # a site mapping extends the image's base (T-632)
+
+            base_path = resolve_extends(path, str(doc["extends"]))
             if not base_path.exists():
                 raise MappingError(f"{path}: extends {doc['extends']} not found")
+            digest.update(base_path.read_bytes())
             base = cls._read(base_path)
             if base.get("extends"):
                 raise MappingError(f"{base_path}: a base mapping cannot extend another one")
@@ -124,6 +163,12 @@ class Mapping:
             merged["resources"] = [r for r in base.get("resources") or [] if r["table"] in site_tables]
             merged["static"] = doc.get("static", base.get("static"))
             doc = merged
+        for ov in doc.get("overlay") or []:
+            hits = [r for r in doc.get("resources") or [] if r["type"] == ov["type"] and r["table"] == ov["table"]]
+            if not hits and ov["table"] in (doc.get("tables") or {}):
+                raise MappingError(f"{path}: overlay for {ov['type']}/{ov['table']} matches no resource")
+            for r in hits:
+                r["elements"] = {**(r.get("elements") or {}), **(ov.get("elements") or {})}
         lookups = {
             name: Lookup.load(name, lookup_dirs[name] / spec["file"], spec["key"])
             for name, spec in (doc.get("lookups") or {}).items()
@@ -144,13 +189,17 @@ class Mapping:
                 raise MappingError(f"{path}: resource {r.type} uses undeclared table {r.table!r}")
         return cls(
             name=doc.get("name", path.stem),
-            tz=ZoneInfo(doc.get("tz", "Asia/Taipei")),
+            tz=_zone(path, doc.get("tz")),
             systems=doc.get("systems") or {},
             tables=doc.get("tables") or {},
             lookups=lookups,
             resources=resources,
             static=doc.get("static") or [],
             path=path,
+            profiles={str(k): str(v or "") for k, v in (doc.get("profiles") or {}).items()},
+            fhir_profiles=str(doc.get("fhir_profiles") or ""),
+            unit_defaults={str(k): str(v) for k, v in (doc.get("unit_defaults") or {}).items()},
+            version=f"{doc.get('name', path.stem)}@{digest.hexdigest()[:12]}",
         )
 
     def normalize(self, table: str, row: Row) -> Row:
@@ -176,10 +225,11 @@ class Mapping:
 class Mapper:
     """Applies a :class:`Mapping` to source rows."""
 
-    def __init__(self, mapping: Mapping, site_key: bytes, site_id: str) -> None:
+    def __init__(self, mapping: Mapping, site_key: bytes, site_id: str, ingest_time: str | None = None) -> None:
         self.m = mapping
         self.key = site_key
         self.site_id = site_id
+        self.ingest_time = ingest_time  # a FHIR instant: set, every resource carries its row provenance (DATA-010)
         self.builders: dict[str, Callable[[ResourceSpec, Row, dict[str, Any]], Any]] = {
             "lab_value": self._b_lab_value,
             "coding": self._b_coding,
@@ -188,6 +238,15 @@ class Mapper:
 
     # ------------------------------------------------------------------ scalar conversion
     def _parse_dt(self, raw: str) -> datetime:
+        """A source date-time. One that states its offset keeps it (the same instant, the same offset: T-616,
+        STD-015); a naive one is in the mapping's ``tz``; a date alone is its midnight in ``tz``."""
+        if _OFFSET_RE.search(raw.strip()):
+            text = raw.strip()
+            text = text[:-1] + "+00:00" if text[-1] in "zZ" else text
+            try:
+                return datetime.fromisoformat(text.replace(" ", "T", 1))
+            except ValueError as exc:
+                raise MappingError(f"unparseable datetime {raw!r}") from exc
         raw = raw.strip().replace("T", " ")
         for fmt in (
             "%Y-%m-%d %H:%M:%S",
@@ -302,13 +361,18 @@ class Mapper:
             raw = row.get(expr["column"])
             if "map" in expr:
                 key = "" if raw is None else str(raw)
-                raw = expr["map"].get(key, expr.get("default"))
+                if key.strip() and key not in expr["map"] and "unmapped" in expr:
+                    # D-275: a code the map does not know is not the empty default (a cancelled order must never
+                    # become "active" because the map lacks the word)
+                    raw = expr["unmapped"]
+                else:
+                    raw = expr["map"].get(key, expr.get("default"))
             elif (raw is None or str(raw).strip() == "") and "default" in expr:
                 raw = expr["default"]
             if "add_minutes" in expr and raw not in (None, ""):
                 minutes = row.get(expr["add_minutes"]) if isinstance(expr["add_minutes"], str) else expr["add_minutes"]
                 dt = self._parse_dt(str(raw)) + timedelta(minutes=int(minutes or 0))
-                raw = dt.strftime("%Y-%m-%d %H:%M:%S")
+                raw = dt.isoformat(sep=" ", timespec="seconds")  # an offset the source stated stays (STD-015)
             val = self.convert(raw, expr.get("type"))
             if val is not None and "factor" in expr:
                 val = float(Decimal(str(val)) * Decimal(str(expr["factor"])))
@@ -330,6 +394,11 @@ class Mapper:
 
     def cond(self, conds: Any, row: Row) -> bool:
         for c in conds if isinstance(conds, list) else [conds]:
+            if "fhir_profiles" in c:  # T-619a: the profile set of the mapping (tw-core, jp-core), not a column
+                if self.m.fhir_profiles != str(c["fhir_profiles"]):
+                    return False
+                if "column" not in c and "lookup" not in c:
+                    continue
             if "lookup" in c:
                 v: Any = self.lookup(c["lookup"], row)
             else:
@@ -343,6 +412,15 @@ class Mapper:
                 return False
             if "not_in" in c and sv in [str(x) for x in c["not_in"]]:
                 return False
+            if "date_before" in c or "date_from" in c:  # T-619a: an ISO date bound (a code edition by date)
+                try:
+                    day = self._parse_date(sv).isoformat() if sv.strip() else ""
+                except MappingError:
+                    day = ""
+                if not day or ("date_before" in c and day >= str(c["date_before"])):
+                    return False
+                if "date_from" in c and day < str(c["date_from"]):
+                    return False
             if "numeric" in c:
                 try:
                     float(sv)
@@ -355,14 +433,34 @@ class Mapper:
 
     # ------------------------------------------------------------------ builders
     def _b_lab_value(self, rs: ResourceSpec, row: Row, args: dict[str, Any]) -> Any:
-        """``value[x]`` from a lab result using the lookup's ucum/factor/value_type/answers columns."""
+        """``value[x]`` from a lab result using the lookup's ucum/factor/value_type/answers columns. With
+        ``unit_column`` the row's own unit is checked against the unit the lookup says the source reports (its
+        ``source_unit`` column, else ``ucum`` when ``factor`` is 1): a row in another unit, or in a unit nobody can
+        check, has no value (R-31, D-215, :func:`tb_common.labvalue.read`)."""
         lk = self.m.lookups[args["lookup"]].rows.get(str(row.get(args["key"], "")))
         raw = row.get(args["column"])
         if lk is None or raw is None or str(raw).strip() == "":
             return None
+        checked: labvalue.Reading | None = None
+        if args.get("unit_column") and lk.get("value_type") != "coded":
+            column = args["unit_column"]
+            if column not in row:  # a declared unit column the source does not have: stop, never skip the check
+                raise MappingError(f"{rs.type} from {rs.table}: unit_column {column!r} is not a column of the source")
+            source_unit = lk.get("source_unit") or (lk.get("ucum") if Decimal(lk.get("factor") or "1") == 1 else None)
+            checked = labvalue.read(raw, row[column], source_unit)
+            if checked.reason == labvalue.UNIT_MISMATCH:  # no value[x]: the engines read no value as unknown (D-130)
+                return {
+                    "dataAbsentReason": {
+                        "coding": [{"system": DATA_ABSENT, "code": "error"}],
+                        "text": labvalue.UNIT_MISMATCH,
+                    },
+                    "note": [{"text": f"{str(raw).strip()} {str(row[column] or '').strip()}"}],
+                }
         if lk.get("value_type") == "coded":
             answers = dict(a.split(":", 1) for a in (lk.get("answers") or "").split(";") if ":" in a)
-            code = answers.get(str(raw).strip().upper())
+            # the site's own word first, then the shared ja / zh-TW / en table (陰性, 未檢出, Non-reactive; D-334)
+            word = labvalue.answer_key(raw, answers)
+            code = answers.get(word) if word else None
             if code is None:
                 return {"valueString": str(raw)}
             loinc_answer, _, display = code.partition("|")
@@ -372,14 +470,29 @@ class Mapper:
                     "text": str(raw),
                 }
             }
-        try:
-            num = Decimal(str(raw).strip())
-        except InvalidOperation:
-            return {"valueString": str(raw)}
+        comparator: str | None = None
+        if checked is not None:  # D-215: the unit-checked reading is labvalue's alone (no 1.5E1, no NaN)
+            if checked.value is None:
+                return {"valueString": str(raw)}
+            num, comparator = Decimal(repr(checked.value)), checked.comparator
+        else:
+            try:
+                num = Decimal(str(raw).strip())
+            except InvalidOperation:
+                # D-142 (review B-01): "75 H" is 75 with a flag, "<0.3" / "0.3未満" is censored (Quantity.comparator);
+                # anything else stays text, which the screening engine reads as unknown, never as a failed test
+                got = labvalue.parse(raw)
+                if got is None:
+                    return {"valueString": str(raw)}
+                num, comparator = Decimal(repr(got[0])), got[1]
+            if not num.is_finite():  # "NaN", "Infinity": not a result (D-215)
+                return {"valueString": str(raw)}
         factor = Decimal(lk.get("factor") or "1")
         val = num * factor
         unit = lk.get("ucum") or ""
         q: dict[str, Any] = {"value": float(val) if val % 1 else int(val), "unit": unit}
+        if comparator:
+            q["comparator"] = comparator
         if unit:
             q["system"] = self.m.systems["ucum"]
             q["code"] = unit
@@ -445,26 +558,52 @@ class Mapper:
             return [v for v in items if v not in (None, {}, [], "")]
         return obj
 
+    def row_id(self, rs: ResourceSpec, row: Row) -> str:
+        if "pid" in rs.id:
+            return self.pid(row, rs.id["pid"])
+        if "hid" in rs.id:
+            return resource_id(self.key, rs.type, f"{row[rs.id['hid']]}{rs.id.get('suffix', '')}")
+        if "column" in rs.id:
+            return str(row[rs.id["column"]])
+        raise MappingError(f"{rs.type}: id needs pid/hid/column")
+
+    def tombstones(self, table: str, rows: Iterator[Row]) -> Iterator[tuple[str, str]]:
+        """``(resource type, id)`` of every resource a deleted source row would have made (dataflow review P0-1).
+
+        A deleted row is often a bare key, so ``where`` conditions and elements are not evaluated: each resource of
+        the table whose id the row can give is a tombstone, and a tombstone for an id not in the snapshot is a no-op.
+        A Patient is never tombstoned this way: removing a person is the opt-out path's job, not a feed delta's."""
+        specs = [r for r in self.m.resources if r.table == table and r.type != "Patient"]
+        for row in rows:
+            for rs in specs:
+                try:
+                    yield rs.type, self.row_id(rs, row)
+                except (KeyError, TypeError, ValueError):
+                    continue
+
     def map_row(self, rs: ResourceSpec, row: Row) -> Resource | None:
         if rs.where and not self.cond(rs.where, row):
             return None
-        res: Resource = {"resourceType": rs.type}
-        if "pid" in rs.id:
-            res["id"] = self.pid(row, rs.id["pid"])
-        elif "hid" in rs.id:
-            res["id"] = resource_id(self.key, rs.type, f"{row[rs.id['hid']]}{rs.id.get('suffix', '')}")
-        elif "column" in rs.id:
-            res["id"] = str(row[rs.id["column"]])
-        else:
-            raise MappingError(f"{rs.type}: id needs pid/hid/column")
+        res: Resource = {"resourceType": rs.type, "id": self.row_id(rs, row)}
         if rs.profile:
             prof = self.value(rs.profile, row, rs) if isinstance(rs.profile, dict) else rs.profile
+            prof = self.m.profiles.get(str(prof), prof) if prof else prof
             if prof:
                 res["meta"] = {"profile": [prof]}
         for path, expr in rs.elements.items():
             self.set_path(res, path, self.value(expr, row, rs))
+        if self.ingest_time:
+            meta = res.setdefault("meta", {})
+            meta["source"] = f"{self.site_id}/{rs.table}#{self.row_hash(row)}"
+            meta["lastUpdated"] = self.ingest_time
+            meta["tag"] = [*(meta.get("tag") or []), {"system": MAPPING_VERSION, "code": self.m.version}]
         pruned: Resource = self.prune(res)
         return pruned
+
+    def row_hash(self, row: Row) -> str:
+        """The source row's fingerprint: an HMAC under the site key of its canonical JSON (24 hex)."""
+        body = json.dumps(row, sort_keys=True, default=str, ensure_ascii=False).encode("utf-8")
+        return hmac.new(self.key, body, hashlib.sha256).hexdigest()[:24]
 
     def map_table(self, table: str, rows: Iterator[Row]) -> Iterator[Resource]:
         specs = [r for r in self.m.resources if r.table == table]

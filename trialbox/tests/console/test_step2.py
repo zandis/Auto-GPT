@@ -19,7 +19,22 @@ AT = "2026-11-02T07:00:00+00:00"
 
 
 def store(tmp_path: Path) -> SiteStore:
-    return SiteStore(tmp_path / "site.sqlite")
+    return SiteStore()  # schema site of the test's own TB_DB_URL (conftest)
+
+
+def test_console_stores_live_in_the_trial_database(monkeypatch: pytest.MonkeyPatch) -> None:
+    """D-126: schemas ``site`` and ``auth`` of TB_DB_URL; no URL is a clear error, never a local file."""
+    from console.auth import UserStore
+    from tb_common.db import DatabaseError
+
+    s, u = SiteStore(), UserStore()
+    assert s.db.schema.endswith("site") and u.db.schema.endswith("auth")
+    s.close()
+    u.close()
+    monkeypatch.delenv("TB_DB_URL")
+    for make in (SiteStore, UserStore):
+        with pytest.raises(DatabaseError, match="TB_DB_URL is not set"):
+            make()
 
 
 def test_one_mark_vocabulary_replace_and_withdraw(tmp_path: Path) -> None:
@@ -129,6 +144,15 @@ def test_n1_on_clinic_days_with_the_week_folded_below() -> None:
     assert "5/6 criteria met" in n.body
 
 
+def test_n1_never_carries_a_chart_number_even_for_the_investigator() -> None:
+    """D-143: the investigator may see chart numbers on the pages after sign-in, but the mail leaves TrialBox: N1
+    keeps pseudonyms (and screening numbers) only, whatever the row carries."""
+    row = {**_row("1" * 16, "2026-11-03T09:00:00+09:00"), "mrn": "70000054", "name": "山田太郎"}
+    n = notify.build_n1(PI, NotifyPerson("pi", "P1", lang="ja"), date(2026, 11, 3), [("GZQO", [row])])
+    assert n is not None and "11111111" in n.body
+    assert "70000054" not in n.body + n.subject and "山田" not in n.body + n.subject
+
+
 def test_n1_monday_fallback_without_a_practitioner_id() -> None:
     rows = [_row("1" * 16, "2026-11-03T09:00:00+09:00"), _row("2" * 16, "2026-11-12T10:00:00+09:00")]
     person = NotifyPerson("pi", None, lang="ja")
@@ -167,3 +191,16 @@ def test_exclusion_results_say_present_or_not() -> None:
     for lang, cat in CATALOGUES.items():
         assert cat["verdict.exclusion.pass"] not in (cat["verdict.pass"], cat["verdict.fail"]), lang
         assert cat["verdict.exclusion.fail"] != cat["verdict.pass"], lang
+
+
+def test_mail_shows_the_screening_number_beside_the_pseudonym() -> None:
+    """D-136 (owner, 2026-11-08): once a patient has a screening number, N1/N2 show it beside the pseudonym."""
+    assert notify.with_no("1" * 16, "GZQO-0041") == "11111111 (GZQO-0041)"
+    assert notify.with_no("2" * 16, None) == "22222222"
+    mk = Mark("1" * 16, "approach", None, None, "pi", "2026-11-02T08:00:00+00:00", "J1")
+    rows = [_row("1" * 16, "2026-11-02T09:00:00+09:00", mark=mk)]
+    rows[0]["short"] = notify.with_no("1" * 16, "GZQO-0041")
+    extra = {"marks": [mk], "retry": {}, "registry": {}, "nos": {"1" * 16: "GZQO-0041"}}
+    n = notify.build_n2(CRC, NotifyPerson("crc", None, lang="en"), date(2026, 11, 2), [("GZQO", rows, extra)], None)
+    assert n is not None and "contact patient 11111111 (GZQO-0041)" in n.body
+    assert n.body.count("11111111 (GZQO-0041)") == n.body.count("11111111")  # never the pseudonym alone

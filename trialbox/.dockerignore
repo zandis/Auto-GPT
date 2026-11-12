@@ -12,6 +12,21 @@ tools/testbench/
 deploy/site
 .cache/jvm/fhir-home
 .cache/jvm/validator_cli.jar*
+# T-504 (D-321): the local CQL engine is a build tool; its jars never enter an image
+.cache/jvm/cql-local
 .cache/trec_ct
 .cache/trialgpt_compare
 .cache/medtxt/responses
+# supply-chain tools and outputs (make scanners, lock-env, trivy-db, release-gates): never part of an image
+.cache/scanners
+.cache/trivy
+.cache/lock-env
+.cache/pip-audit-env
+build
+dist
+# T-501 (OPS-009): the review registers (open findings) are not shipped in any image
+docs/reviews
+# T-501: of the CQL translator jars (make jvm-deps) only the one the demo reads FHIRHelpers from enters this context;
+# jvm.Dockerfile has its own ignore file and takes them all
+.cache/jvm/cql-translator/lib/*
+!.cache/jvm/cql-translator/lib/quick-*.jar

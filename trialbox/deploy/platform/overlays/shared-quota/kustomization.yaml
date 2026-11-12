@@ -1,0 +1,34 @@
+# The `shared-quota` profile (WS-11.8, WS-14.8; D-211): CGMH's B200, shared with other work, TrialBox in its own
+# namespace on two dedicated MIG instances under a fixed quota (D-409). The judge and the verifier each take one MIG
+# instance (nvidia.com/gpu with the device plugin's `single` MIG strategy; for the `mixed` strategy patch the resource
+# name to nvidia.com/mig-<profile>, RUNBOOK §17); one instance is not enough, and a time-slice or MPS share is
+# refused (`doctor --platform`, check mig_instances). The serving values in serving.env are measured on the
+# instances, never assumed: until the shared-quota record exists (the owner's B200 qualification, T-114, then CGMH's
+# own instances at IQ) they read `unmeasured`, vLLM refuses to start and `doctor --platform` fails `serving_record`.
+# pin.yaml pins the pair from the models claim (tools/pin_model.py --install shared-quota).
+#
+#   kustomize build deploy/platform/overlays/shared-quota | kubeconform -strict -summary
+#   kustomize build deploy/platform/overlays/shared-quota | kubectl apply -n <namespace> -f -
+#
+# A site overlay on top of this one sets the namespace, the storage class, settings.yaml, site.env and platform.env
+# values and adds the rendered egress policies (`python -m tools.trialbox platform-egress`).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+  - pin.yaml  # the pair's pins from the models claim (D-409)
+components:
+  - ../../components/gpu-pair
+  - ../../components/release-images
+configMapGenerator:
+  - name: trialbox-env
+    behavior: merge
+    literals:
+      - TB_PROFILE=P-SHARED-QUOTA
+  - name: trialbox-serving
+    envs:
+      - serving.env
+  - name: trialbox-platform
+    behavior: merge
+    literals:
+      - TB_GPU_PROFILE=shared-quota

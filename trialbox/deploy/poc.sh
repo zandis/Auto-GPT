@@ -53,8 +53,8 @@ fi
 case "$MODE" in
   stub)
     COMPOSE+=(-f deploy/docker-compose.test.yml -f deploy/docker-compose.poc.yml --profile stub ${MAILPROF[@]+"${MAILPROF[@]}"})
-    # the consent explainer's second-model check goes to the stub too (a real pair: v-verifier on the Spark)
-    export TB_ENV=TEST TB_GATEWAY_MODEL="" TB_GATEWAY_VERIFIER_MODEL=trialbox-stub TB_SITE_DIR="./poc/site" ;;
+    # the second-model checks go to the stub under its second served name (a real pair: v-verifier on the Spark)
+    export TB_ENV=TEST TB_GATEWAY_MODEL="" TB_GATEWAY_VERIFIER_MODEL=stub-verifier TB_SITE_DIR="./poc/site" ;;
   openrouter)
     COMPOSE+=(-f deploy/docker-compose.test.yml -f deploy/docker-compose.poc.yml --profile stub ${MAILPROF[@]+"${MAILPROF[@]}"})
     export TB_ENV=DEV TB_GATEWAY_MODEL=j-workhorse TB_SITE_DIR="./poc/site" ;;
@@ -91,8 +91,10 @@ mkdir -p "$POC/secrets" "$POC/site"
 chmod 700 "$POC/secrets"
 if [ ! -f deploy/.env ]; then
   say "creating deploy/.env with random service passwords"
+  WF_PW="$(rand 32)"
   sed -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(rand 32)/" \
-      -e "s/^POSTGRES_WF_PASSWORD=.*/POSTGRES_WF_PASSWORD=$(rand 32)/" \
+      -e "s/^POSTGRES_WF_PASSWORD=.*/POSTGRES_WF_PASSWORD=$WF_PW/" \
+      -e "s|^TB_DB_URL=.*|TB_DB_URL=postgresql://trialbox:$WF_PW@db:5432/trialbox_wf|" \
       -e "s/^TB_SERVICE_TOKEN=.*/TB_SERVICE_TOKEN=$(rand 32)/" .env.example > deploy/.env
   chmod 600 deploy/.env
 elif grep -q 'change-me' deploy/.env; then

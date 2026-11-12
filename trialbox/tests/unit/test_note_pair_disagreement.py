@@ -23,8 +23,13 @@ IDX = date(2026, 2, 1)
 class FakeModel:
     """An LLM client answering every judge call with one fixed reply (or raising)."""
 
+    made = 0
+
     def __init__(self, verdict: str, conf: float = 0.9, quote: str | None = QUOTE, error: bool = False) -> None:
-        self.model = f"fake-{verdict}"
+        # each fake is its own model: two answers under one model name are one model's answer (D-276), and the
+        # name used to be the verdict, so an agreeing pair was one name asked twice
+        FakeModel.made += 1
+        self.model = f"fake-{FakeModel.made}-{verdict}"
         self.reply = {"verdict": verdict, "reason": "r", "confidence": conf, "quote": quote, "quote_date": "2026-01-10"}
         self.error = error
         self.calls = 0
@@ -130,10 +135,13 @@ def test_canary_runs_the_pair_and_fails_on_a_decided_wrong_pair_answer() -> None
     class Oracle:
         """Answers each case right, quoting the first excerpt; ``wrong`` ids answered the opposite way."""
 
-        model = "oracle"
+        made = 0  # each oracle is its own model: one model asked twice is not a pair (D-276)
 
         def __init__(self, wrong: set[str] | None = None) -> None:
             self.wrong = wrong or set()
+            Oracle.made += 1
+            self.model = f"oracle-{Oracle.made}"
+            self.served_root = self.model  # its own weights (D-276)
 
         def chat_json(self, prompt_id: str, variables: dict[str, Any], **kw: Any) -> LlmResult:
             case = next(
@@ -146,7 +154,7 @@ def test_canary_runs_the_pair_and_fails_on_a_decided_wrong_pair_answer() -> None
                 want = {"pass": "fail", "fail": "pass", "unknown": "fail"}[want]
             quote = None if want == "unknown" else case["excerpts"][0]["text"][:20]
             d = {"verdict": want, "reason": "r", "confidence": 0.9, "quote": quote, "quote_date": None}
-            return LlmResult(d, prompt_id, 4, "oracle", "local", "i" * 64, "o" * 64, 1, 1, 1)
+            return LlmResult(d, prompt_id, 4, self.model, "local", "i" * 64, "o" * 64, 1, 1, 1)
 
     ok = selftest.run_selftest(Oracle(), Oracle(), cases=cases)  # type: ignore[arg-type]
     assert ok["ok"] and ok["pair"]["decided_wrong"] == 0 and ok["pair"]["cases"] == 54

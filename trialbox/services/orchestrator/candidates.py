@@ -18,8 +18,9 @@ from datetime import datetime
 from pathlib import Path
 
 from tb_common.audit import AuditLog
-from tb_common.crypto import pid_for_mrn
+from tb_common.crypto import load_key, pid_for_mrn
 from tb_common.deterministic import normalize_ooxml
+from tb_common.kek import key_present
 from tb_contracts import RegistryEntry, RegistryEvent, RegistryPromote, RegistrySummary, RegistryUpdate
 
 from orchestrator.db import JobDB
@@ -63,17 +64,17 @@ class CandidateRegistry:
         if self.mrn_regex and not re.match(self.mrn_regex, upd.mrn):
             raise RegistryError("that does not look like a chart number of this site")
         key = self.secrets_dir / "site_hmac.key"
-        if not key.exists():
+        if not key_present(key):  # plain or wrapped under the KEK (T-210b)
             raise RegistryError("the box has no site key yet (no ingest has run), so chart numbers cannot be resolved")
-        return pid_for_mrn(key.read_bytes(), upd.mrn)
+        return pid_for_mrn(load_key(key), upd.mrn)
 
     def mrns(self, pids: list[str]) -> dict[str, str]:
-        db, key = self.secrets_dir / "pid_map.sqlite", self.secrets_dir / "pid_map.key"
-        if not db.exists() or not key.exists() or not pids:
+        key = self.secrets_dir / "pid_map.key"
+        if not key_present(key) or not pids:  # no map yet
             return {}
         from adapter.pidmap import PidMap
 
-        pm = PidMap(db, key)
+        pm = PidMap(key, self.db.url)  # the trial database of the registry's JobDB
         try:
             return pm.resolve_many(pids)
         finally:
@@ -144,15 +145,20 @@ class CandidateRegistry:
         return added
 
     # ------------------------------------------------------------------ export
-    def export_xlsx(self, ruleset: str, site_id: str) -> bytes:
+    def export_xlsx(self, ruleset: str, site_id: str, exclude: frozenset[str] | None = None) -> bytes:
         """The site's screening log: pseudonym, chart number (resolved in-box), status, dates, reasons; deterministic
-        OOXML (D-82) so a re-export of an unchanged registry is byte-identical. PHI (chart numbers)."""
+        OOXML (D-82) so a re-export of an unchanged registry is byte-identical. PHI (chart numbers). ``exclude``: the
+        pseudonyms on the opt-out register (D-147), left out of the file; read from the register when not given."""
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill
 
         ruleset = check_ruleset(ruleset)
-        rows = self.db.candidates(ruleset)
-        events = self.db.candidate_events(ruleset)
+        if exclude is None:
+            from tb_common.optout import opted_out
+
+            exclude = opted_out()
+        rows = [r for r in self.db.candidates(ruleset) if str(r["pid"]) not in exclude]
+        events = [e for e in self.db.candidate_events(ruleset) if str(e["pid"]) not in exclude]
         mrns = self.mrns([str(r["pid"]) for r in rows])
         wb = Workbook()
         wb.properties.creator = f"TrialBox {site_id}"

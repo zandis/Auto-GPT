@@ -1,0 +1,23 @@
+{# TB-PLAN-04 step 5b (D-131, D-132, D-135): the site set-up pages' shared pieces. #}
+{% macro site_nav(ws, rs, qs) %}<p class="hint chartlinks" data-testid="site-nav">
+{% for slug, key in (('', 'site.nav.ready'), ('/start', 'site.nav.start'), ('/charts', 'site.nav.charts'), ('/facts', 'site.nav.facts'), ('/codes', 'site.nav.codes'), ('/checks', 'site.nav.checks'), ('/sheets', 'site.nav.sheets'), ('/people', 'site.nav.people'), ('/patients', 'site.nav.patients'), ('/help', 'site.nav.help')) if site_wide is not defined or site_wide or slug in ('', '/help') %}
+<a href="/site{{ slug }}?{{ qs }}" data-testid="site-to{{ slug|replace('/', '-') or '-ready' }}"{% if path == '/site' + slug %} aria-current="page"{% endif %}>{{ t(key) }}</a>
+{% endfor %}</p>{% endmacro %}
+
+{% macro ws_name(ws) %}{% if ws == 'main' %}{{ t('site.ws.main') }}{% elif ws == 'practice' %}{{ t('site.ws.practice') }}{% else %}<span class="mono">{{ ws }}</span>{% endif %}{% endmacro %}
+
+{# which data and which study: one small form, no script #}
+{% macro site_switch(ws, rs, studies) %}<form method="get" action="{{ path }}" class="markform siteswitch" data-testid="site-switch">
+<label for="site-ws">{{ t('site.ws.label') }}</label>
+<select id="site-ws" name="ws">{% for w in (['main', 'practice'] if ws in ('main', 'practice') else ['main', 'practice', ws]) %}<option value="{{ w }}"{% if w == ws %} selected{% endif %}>{{ ws_name(w) }}</option>{% endfor %}</select>
+<label for="site-study">{{ t('site.study.label') }}</label>
+<select id="site-study" name="study">{% for s in studies %}<option value="{{ s }}"{% if s == rs %} selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+<button type="submit" class="secondary">{{ t('site.switch') }}</button>
+</form>{% endmacro %}
+
+{% macro state_pill(state) %}<span class="pill rd-{{ {'green': 'go', 'amber': 'conditional', 'red': 'nogo'}[state] }}" data-state="{{ state }}">{{ t('site.state.' + state) }}</span>{% endmacro %}
+
+{% macro domain(d) %}{{ t('site.domain.' + d) }}{% endmacro %}
+
+{# one fact as words: what, its value, its date #}
+{% macro fact_text(f) %}{% if f.domain == 'demographic' %}{{ t('site.demo.' + f.code) }}: {% if f.code == 'sex' %}{{ t('site.sex.' + f.value) }}{% else %}<span class="nowrap">{{ f.value }}</span>{% endif %}{% else %}{{ domain(f.domain) }}: {% if f.term %}{{ given(f.term) }} {% endif %}{% if f.code %}<span class="mono">{{ f.code }}</span>{% endif %}{% if f.value %} <b class="nowrap">{{ f.value }} {{ f.unit }}</b>{% endif %}{% endif %}{% if f.day %} <span class="hint nowrap">{{ f.day }}</span>{% endif %}{% endmacro %}

@@ -42,6 +42,13 @@
           "type": "string"
         }
       }
+    },
+    "reasons": {
+      "description": "Reason code (tb_common.reasons) of a criterion the runtime left unknown for a cause the compiled result does not show, e.g. unknown_code_system (D-130).",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
     }
   }
 }

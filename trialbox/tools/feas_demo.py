@@ -47,7 +47,7 @@ ACCOUNTS = [
     ("admin", "admin", "admin@hospa.test", {}),
     ("crc", "coordinator", "crc1@hospa.test", {}),
     ("pi", "investigator", "pi@hospa.test", {}),
-    ("cra", "cro", "cra@hospa.test", {"affiliation": "cro"}),
+    ("cra", "cro", "cra@hospa.test", {"affiliation": "cro", "studies": "GZQO,GOUT-COH"}),  # D-380: names its studies
     ("viewer", "viewer", "viewer@hospa.test", {}),
 ]
 
@@ -95,7 +95,66 @@ def merge_sites(sites: list[Path], out: Path) -> int:
     return patients
 
 
+# the Japanese demo site of scenario J1 (T-503): one hospital in Asia/Tokyo, Japanese page locale, notes in Japanese
+# and English only (UX-004: a ja reader never sees zh-TW note text or a Taipei clock)
+SITE_JP: dict[str, Any] = {
+    "site": {
+        "id": "DEMO-J",
+        "name": "デモ病院J（合成）",
+        "tz": "Asia/Tokyo",
+        "locale": "ja",
+        "contact": "crc1@hospa.test",
+    }
+}
+
+
+# T-513 (UX-003): a cell that is a date or a date-time, as the synthetic hospital's landing tables write them
+_DATE_CELL = re.compile(r"(\d{4}-\d{2}-\d{2})([ T]\d{2}:\d{2}(?::\d{2})?)?")
+SHIFT_FILE = ".date-shift"  # the number of days the hospital folder's dates were moved by
+
+
+def data_day() -> date:
+    """The synthetic data's own demo day: the box's day after an ingest of :data:`REF` (the PI's first clinic)."""
+    return REF + timedelta(days=1)
+
+
+def shift_dates(folder: Path, days: int) -> int:
+    """T-513 (UX-003): move every date and date-time cell of the landing tables in ``folder`` by ``days``, so the
+    synthetic hospital reads as if it had been made for another day. Intervals between dates are kept; note text is
+    not rewritten. Returns the number of cells moved."""
+    moved = 0
+    if not days:
+        return moved
+    step = timedelta(days=days)
+    for f in sorted(folder.glob("*.csv")):
+        with f.open(newline="", encoding="utf-8") as fh:
+            r = csv.DictReader(fh)
+            header = list(r.fieldnames or [])
+            rows = list(r)
+        for row in rows:
+            for k, v in row.items():
+                m = _DATE_CELL.fullmatch(v or "")
+                if m:
+                    row[k] = (date.fromisoformat(m.group(1)) + step).isoformat() + (m.group(2) or "")
+                    moved += 1
+        with f.open("w", newline="", encoding="utf-8") as fh:
+            w = csv.DictWriter(fh, fieldnames=header)
+            w.writeheader()
+            w.writerows(rows)
+    return moved
+
+
 def build(work: Path) -> tuple[Any, Any, Path, dict[str, Any]]:
+    """The demo's box on the ``ci`` hospital (tools.complete_run wraps this one-argument form)."""
+    return build_site(work)
+
+
+def build_site(
+    work: Path, profile: str = "ci", settings_update: dict[str, Any] | None = None, day: date | None = None
+) -> tuple[Any, Any, Path, dict[str, Any]]:
+    """``profile``: the ``tools.synth_hospital`` profile (``ci``: the JP + TW hospital; ``jp-ad``: the Japanese
+    memory-clinic site of scenario J1, with ``settings_update=SITE_JP``). ``day`` (T-513): the box's day; the
+    hospital's dates are moved so that its data is as of the day before (None: :func:`data_day`, nothing moved)."""
     from orchestrator import app as orch_app
 
     from tests.inproc_box import ingest_site, make_box
@@ -104,22 +163,77 @@ def build(work: Path) -> tuple[Any, Any, Path, dict[str, Any]]:
 
     synth = work / "synth"
     if not (synth / "summary.json").exists():
-        res = synth_run(synth, profile="ci", ref_date=REF)
+        res = synth_run(synth, profile=profile, ref_date=REF)
         if not res.passed:
             raise SystemExit("synthetic hospital checks failed:\n" + "\n".join(res.failures))
     summary = json.loads((synth / "summary.json").read_text(encoding="utf-8"))
     hospital = work / "hospital"
+    shift = (day - data_day()).days if day is not None else 0
     if not (hospital / "patient.csv").exists():
         merge_sites([synth / s["dir"] for s in summary["sites"]], hospital)
+        shift_dates(hospital, shift)
+        (hospital / SHIFT_FILE).write_text(f"{shift}\n", encoding="utf-8")
+    shift_file = hospital / SHIFT_FILE
+    had = int(shift_file.read_text(encoding="utf-8")) if shift_file.exists() else 0
+    if had != shift:
+        raise SystemExit(f"{work} holds a hospital made for another day (moved {had} days, not {shift}): use --fresh")
     sec = work / "sec"
     sec.mkdir(parents=True, exist_ok=True)
     (sec / "site_hmac.key").write_bytes(KEY)
+    site_id = str((settings_update or {}).get("site", {}).get("id") or "DEMO-A")
     if not (work / "lake").exists():
-        ingest_site(hospital, work / "lake", sec, (REF - timedelta(days=1)).isoformat())
+        snapshot = REF - timedelta(days=1) + timedelta(days=shift)
+        ingest_site(hospital, work / "lake", sec, snapshot.isoformat(), site_id=site_id)
     shutil.rmtree(work / "box", ignore_errors=True)  # the box (jobs, mail, repo) starts fresh on every run
-    box = make_box(work / "box", work / "lake", sec, REF + timedelta(days=1))
+    box = make_box(work / "box", work / "lake", sec, day or data_day(), settings_update=settings_update)
     orch_app._orch = box.orch
     return box, orch_client(orch_app.app), work / "box" / "repo", summary
+
+
+def reopen_site(work: Path, settings_update: dict[str, Any] | None = None) -> tuple[Any, Any, Path]:
+    """T-505b (``tools.demo --keep``): the box of an earlier :func:`build_site` run in ``work``, reopened as it was
+    left: the lake, the jobs, the rulesets repo and the audit log are kept, nothing is rebuilt or deleted."""
+    from orchestrator import app as orch_app
+
+    from tests.inproc_box import make_box
+    from tools.role_demo import orch_client
+
+    if not (work / "lake").exists() or not (work / "box" / "repo").exists():
+        raise SystemExit(f"{work} holds no seeded demo to keep; start once without --keep")
+    box = make_box(work / "box", work / "lake", work / "sec", REF + timedelta(days=1), settings_update=settings_update)
+    orch_app._orch = box.orch
+    return box, orch_client(orch_app.app), work / "box" / "repo"
+
+
+def fresh_console_db(work: Path) -> str:
+    """The run's trial database URL, with the console's stores (schemas ``auth`` and ``site``, D-126) emptied:
+    accounts, sessions, marks and site settings start fresh with the box, as the console's files used to."""
+    from tb_common.db import Database
+
+    from tools import pglocal
+
+    url = pglocal.for_work(work)
+    for name in ("auth", "site"):
+        with Database.connect(url, name) as db:
+            db.execute(f'DROP SCHEMA "{db.schema}" CASCADE')
+    return url
+
+
+def seed_pi(url: str | None = None, pi: str = "pi", studies: tuple[str, ...] = ()) -> None:
+    """D-380 (ROLE-008): only the PI a study's delegation log names acts as PI, so the demo writes the signed log's
+    PI entry for the demo investigator on every demo study (or on ``studies``) that has none (as the steward
+    would)."""
+    from console.teamstore import TeamStore
+
+    team = TeamStore(url)
+    try:
+        for rs in studies or tuple(sorted(p.name for p in (ROOT / "rulesets").iterdir() if (p / "ir").is_dir())):
+            if team.pi_of(rs, date.today()) is None:
+                team.add_entry(rs, username=pi, name="PI (demo)", role="pi", tasks=(), start="2026-01-01",
+                               end=None, training_day="2025-06-01", training_ref="demo seed (synthetic)",
+                               by="demo-seed", at="2026-01-01T00:00:00+00:00")  # fmt: skip
+    finally:
+        team.close()
 
 
 def console(work: Path, box: Any, client: Any, repo: Path, password: str) -> Any:
@@ -129,13 +243,15 @@ def console(work: Path, box: Any, client: Any, repo: Path, password: str) -> Any
 
     from tools.role_demo import InprocBackend
 
-    shutil.rmtree(work / "console", ignore_errors=True)  # accounts and sessions start fresh with the box
+    shutil.rmtree(work / "console", ignore_errors=True)  # the console's files start fresh with the box
     (work / "console").mkdir(parents=True)
-    users = UserStore(work / "console" / "console.sqlite")
+    url = fresh_console_db(work)
+    users = UserStore(url)  # and so do its accounts and sessions
     for name, role, mailbox, scope in ACCOUNTS:
         users.create(name, role, password, mailbox)  # type: ignore[arg-type]
         if scope:
             users.set_scope(name, **scope)
+    seed_pi(url)
     env = {
         "TB_ENV": "DEV",
         "TB_CONSOLE_PILOT": "1",
@@ -180,8 +296,10 @@ def funnel(box: Any, ruleset: str = RULESET) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tools.pglocal import scratch_root  # D-201: never a fixed /tmp path
+
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_DEMO_DIR", "/tmp/tb-feas-demo")))
+    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_DEMO_DIR") or scratch_root() / "tb-feas-demo"))
     ap.add_argument("--lang", default="ja", choices=["ja", "zh-TW", "en"])
     ap.add_argument("--serve", action="store_true", help="keep the console up after the run")
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")))

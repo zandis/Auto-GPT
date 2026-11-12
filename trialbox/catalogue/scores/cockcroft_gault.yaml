@@ -1,0 +1,31 @@
+score_id: onc.crcl_cg
+name: {en: Creatinine clearance (Cockcroft-Gault), ja: クレアチニンクリアランス（Cockcroft-Gault）, zh_tw: 肌酸酐清除率（Cockcroft-Gault）}
+version: 1
+formula_kind: power_product
+inputs:
+  - {role: scr, item: lab.creatinine, unit: mg/dL, required: true, anchor: true}
+  - {role: age, item: "PERSON → age", unit: a, required: true}
+  - {role: weight, item: vital.weight, unit: kg, required: true, window_days: 90, note: "protocols differ: actual, ideal or adjusted body weight - the criterion names it; default actual"}
+  - {role: sex, item: "PERSON gender_concept_id", unit: coded, required: true}
+formula: "CrCl = (140 − age) × weight / (72 × scr) × (0.85 if female)   [mg/dL form]; with µmol/L: (140 − age) × weight × 1.23 (M) or 1.04 (F) / scr"
+coefficients: {age_base: 140, denominator: 72, female_factor: 0.85, umol_constant_m: 1.23, umol_constant_f: 1.04}
+output: {unit: mL/min, min: 1, max: 300}
+rounding: "integer for display; one decimal stored"
+edge_cases:
+  - "no weight within 90 days: no row"
+  - "scr below 0.7-0.8 mg/dL: some protocols round up to 0.8; not done by default (flag only)"
+  - "ideal body weight (Devine): male 50 + 0.9 × (height_cm − 152), female 45.5 + 0.9 × (height_cm − 152) when the protocol asks"
+examples:
+  - inputs: {sex: female, age: 75, weight_kg_used: 69.8, weight_basis: "ideal body weight (height 179 cm)", scr_umol_L: 105}
+    expected: {crcl_mL_min: 44.93}
+    source: "Pharmaceutical Journal, 'Medication maths: estimations of kidney function' (worked example, read 2026-11-09)"
+    source_grade: secondary
+  - inputs: {sex: female, age: 60, weight_kg: 70, scr_mg_dL: 1.20}
+    expected: {crcl_mL_min: 55.1}
+    source: "GFR calculation example document (Scribd), quoted in web search 2026-11-09"
+    source_grade: calculator
+sources:
+  - "Cockcroft DW, Gault MH. Nephron 1976;16:31-41"
+  - "LOINC 35591-7 Creatinine renal clearance predicted by Cockcroft-Gault formula (verified 2026-11-09)"
+licence: "formula; free"
+verified: yes

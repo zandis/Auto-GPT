@@ -12,7 +12,7 @@ Generated from `models/registry.yaml` by `python -m registry.cards --write`. Do 
 | Revision | not yet pinned |
 | Quantisation | MXFP4 |
 | Context length | to record at qualification |
-| Licence | Apache-2.0 (to confirm) (SPDX: Apache-2.0; verified: no) |
+| Licence | Apache-2.0 (SPDX: Apache-2.0; verified: yes) |
 | Origin | OpenAI (US); non-PRC: yes |
 
 ## Contexts of use

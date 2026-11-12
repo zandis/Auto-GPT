@@ -1,0 +1,12 @@
+# The backup schedule (WS-08.6, D-187; RUNBOOK §5). deploy/install.sh installs it (D-274), as root from the install
+# folder: python3 -m tools.trialbox backup-install --deploy deploy  (writes /etc/cron.d/trialbox-backup, 0644, with
+# this folder for /opt/trialbox and the MAILTO line below replaced).
+# Times are the box's local time. Put the nightly run after the night's screening jobs (site survey question 72).
+# MAILTO: TB_BACKUP_MAILTO from deploy/.env on a host with a mail transfer agent, else empty: the alert then goes
+# through TB_BACKUP_ALERT_CMD (in PRODUCTION one of the two is required). No patient data is in what a run prints.
+SHELL=/bin/sh
+MAILTO=""
+# 04:45: the encrypted backup to every TB_BACKUP_TARGETS directory, then pgBackRest when WAL archiving is on
+45 4 * * * root cd /opt/trialbox && { python3 -m tools.trialbox backup-nightly >> /var/log/trialbox-backup.log 2>&1 || echo "backup-nightly failed: /var/log/trialbox-backup.log, RUNBOOK 5"; }
+# every hour: the age of the newest good off-box backup; prints (and alerts) only when something is wrong
+17 * * * * root cd /opt/trialbox && python3 -m tools.trialbox backup-status --quiet

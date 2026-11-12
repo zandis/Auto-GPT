@@ -1,17 +1,29 @@
 # TrialBox single-host deployment (SPEC §2). x86_64 default; GB10 overrides in docker-compose.gb10.yml.
 #   cd deploy && cp ../.env.example .env && docker compose up -d
-# Profiles: "stub" (CPU / macOS: deterministic LLM stub), "gpu" (vLLM), "test" (GreenMail + MailHog).
+# Profiles: "stub" (CPU / macOS: deterministic LLM stub), "gpu" (vLLM), "test" (GreenMail + Mailpit).
 # Models are reached only through tb-gateway (spec v4 LLM-1, NFR-B9): llm-service / llm-stub sit on model-net, which
 # only the gateway joins; the services that call a model get TB_GATEWAY_URL. The model registry, PHI guard and trace
 # store run inside the gateway process (services/gateway/app.py).
 name: trialbox
 
-x-logging: &logging   # no PHI in logs (pids only); size-based rotation keeps well under the 180-day retention
+# No PHI in logs (pids only). Each container keeps TB_LOG_MAX_SIZE x TB_LOG_MAX_FILE of JSON log; `trialbox logs daily`
+# copies the site's day to TB_LOG_DIR at 00:20, kept retention.logs_days (365). D-389 (OPS-034): 100m x 10 is a
+# provisional cap, about three times the estimated busiest night, NOT measured (G1 parked); COVERAGE.json of each collected
+# day measures it and `logs daily` exits 1 on a log gap.
+x-logging: &logging
   driver: json-file
-  options: {max-size: "50m", max-file: "5"}
+  options: {max-size: "${TB_LOG_MAX_SIZE:-100m}", max-file: "${TB_LOG_MAX_FILE:-10}"}
 
+# T-108a (D-360): every service has a memory cap (mem_limit, a TB_MEM_<NAME> setting in deploy/.env moves it) and a
+# pids cap, so one runaway process cannot take the box's memory or process table from the others (CR-082). No CPU
+# cap: CPU is shared, not exhausted, and a cap only slows a night run. The label tb.watchdog says what the host's
+# watchdog (python3 -m tools.trialbox watchdog, D-360) does when the service's health check fails: restart it and
+# audit the restart, or only report it (the database). Values follow deploy/platform/base (the Kubernetes form).
 x-py: &py
   logging: *logging
+  mem_limit: 2g
+  pids_limit: 512
+  labels: {tb.watchdog: restart}
   image: ${TB_IMAGE:-trialbox-py:1.0.0}
   build:
     context: ..
@@ -20,6 +32,8 @@ x-py: &py
   init: true
   restart: unless-stopped
   networks: [trialbox-net]
+  depends_on:   # services open the trial database at start; a gateway that raced the db exited (box rehearsal, D-176)
+    db: {condition: service_healthy}
   volumes: &settings_vol
     - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
   healthcheck: &pyhealth
@@ -34,18 +48,57 @@ services:
     # One PostgreSQL server for the box (TB-PLAN-03 step 6, D-121): database `hapi` for the FHIR store and
     # `trialbox_wf` for durable steps, outbox and recall ledger (spec v4 §11.0), made by db-init on first start.
     # Multi-arch index digest (linux/amd64 and linux/arm64 manifests). One volume, one backup, one restore.
+    # D-187 (WS-08.6): WAL compressed with zstd, TOAST with lz4 (PG 16 offers pglz and lz4 only); new clusters get
+    # data checksums. WAL archiving to pgBackRest (point-in-time restore) is off until the site turns it on: it needs
+    # an image with pgBackRest (POSTGRES_IMAGE, deploy/pgbackrest/Dockerfile), the repository on the hospital share
+    # (TB_PGBACKREST_REPO) and the cipher file in deploy/secrets/pgbackrest (RUNBOOK §5). Never set archive_mode=on
+    # without a working archive_command: Postgres would keep every WAL file until the disk is full.
     logging: *logging
-    image: ${POSTGRES_IMAGE:-postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea}
+    image: ${POSTGRES_IMAGE:-trialbox-postgres:16-1}  # deploy/docker/db.Dockerfile, pinned in deploy/images.lock (D-204)
+    command:
+      - postgres
+      - -c
+      - wal_compression=${TB_PG_WAL_COMPRESSION:-zstd}
+      - -c
+      - default_toast_compression=${TB_PG_TOAST_COMPRESSION:-lz4}
+      - -c
+      - archive_mode=${TB_PG_ARCHIVE_MODE:-off}
+      - -c
+      - archive_command=${TB_PG_ARCHIVE_COMMAND:-pgbackrest --stanza=trialbox archive-push %p}
+      - -c
+      - archive_timeout=${TB_PG_ARCHIVE_TIMEOUT:-300}
+      # T-209c (D-406, OPS-035): a failed statement is never written to the log with its text or its values
+      - -c
+      - log_min_error_statement=panic
+      - -c
+      - log_parameter_max_length_on_error=0
     environment:
       POSTGRES_DB: hapi
       POSTGRES_USER: hapi
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_WF_PASSWORD: ${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}
+      # D-378 (CR-037): each service's own role (docker/db-init/30-service-roles.sh); TB_DB_PW_<SERVICE> in .env
+      # (deploy/install.sh makes them), else the workflow password (a dev or test stack)
+      TB_DB_PW_LAKE: ${TB_DB_PW_LAKE:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
+      TB_DB_PW_CRITERIA_COMPILER: ${TB_DB_PW_CRITERIA_COMPILER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
+      TB_DB_PW_ADAPTER: ${TB_DB_PW_ADAPTER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
+      TB_DB_PW_ORCHESTRATOR: ${TB_DB_PW_ORCHESTRATOR:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
+      TB_DB_PW_MAIL_GATEWAY: ${TB_DB_PW_MAIL_GATEWAY:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
+      TB_DB_PW_GATEWAY: ${TB_DB_PW_GATEWAY:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
+      TB_DB_PW_CONSOLE: ${TB_DB_PW_CONSOLE:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
+      TB_DB_PW_AUDIT_WRITER: ${TB_DB_PW_AUDIT_WRITER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}
+      POSTGRES_INITDB_ARGS: ${POSTGRES_INITDB_ARGS:---data-checksums}
     volumes:
       - db-pg:/var/lib/postgresql/data
       - ./docker/db-init:/docker-entrypoint-initdb.d:ro
+      - ./pgbackrest/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
+      - ./secrets/pgbackrest:/etc/pgbackrest/conf.d:ro
+      - ${TB_PGBACKREST_REPO:-./pgbackrest/repo}:/var/lib/pgbackrest
     networks: [trialbox-net]
     restart: unless-stopped
+    mem_limit: ${TB_MEM_DB:-4g}
+    pids_limit: 512   # a backend per connection: well above max_connections (100)
+    labels: {tb.watchdog: report}   # a restart does not cure a database; the watchdog audits it and a person looks
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U hapi -d hapi && psql -U hapi -d hapi -tAc \"SELECT 1 FROM pg_database WHERE datname='trialbox_wf'\" | grep -q 1"]
       interval: 10s
@@ -72,9 +125,12 @@ services:
       HAPI_FHIR_ALLOW_MULTIPLE_DELETE: "true"
       HAPI_FHIR_BULK_EXPORT_ENABLED: "false"
       HAPI_FHIR_TESTER_HOME_ENABLED: "false"
-      JAVA_TOOL_OPTIONS: "-Xmx${HAPI_XMX:-3g} -Duser.timezone=${TB_TZ:-Asia/Taipei}"
+      JAVA_TOOL_OPTIONS: "-Xmx${HAPI_XMX:-3g} -Duser.timezone=${TB_TZ:?set TB_TZ in deploy/.env to site.tz (D-315)}"
     networks: [trialbox-net]
     restart: unless-stopped
+    mem_limit: ${TB_MEM_FHIR:-5g}   # the heap (HAPI_XMX, 3g) plus the JVM's own; raise both together
+    pids_limit: 1024
+    labels: {tb.watchdog: restart}
     healthcheck:
       test: ["CMD", "java", "-cp", "/app", "HealthCheck"]
       interval: 15s
@@ -84,23 +140,33 @@ services:
 
   lake:
     <<: *py
+    mem_limit: ${TB_MEM_LAKE:-8g}   # DuckDB takes 40 % of this per worker (lake.store.memory_limit)
     command: ["uvicorn", "lake.app:app", "--host", "0.0.0.0", "--port", "8013", "--workers", "2"]
-    environment: {PORT: "8013", TB_SERVICE_NAME: lake, TB_LAKE_DIR: /data/lake, TB_LAKE_EMBEDDER: http}
+    environment: {PORT: "8013", TB_SERVICE_NAME: lake,
+                  TB_DB_URL: "postgresql://tb_lake:${TB_DB_PW_LAKE:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_LAKE_DIR: /data/lake, TB_LAKE_EMBEDDER: http,
+                  TB_LAKE_MEMORY_LIMIT: "${TB_LAKE_MEMORY_LIMIT:-}", TB_LAKE_MAX_TEMP: "${TB_LAKE_MAX_TEMP:-}",
+                  TB_LAKE_SOURCE: "${TB_LAKE_SOURCE:-legacy}"}
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - lake-data:/data/lake
 
   embed-service:
     <<: *py
+    mem_limit: ${TB_MEM_EMBED:-4g}
     image: ${TB_EMBED_IMAGE:-trialbox-py:1.0.0}
     command: ["uvicorn", "embed_service.app:app", "--host", "0.0.0.0", "--port", "8014"]
-    environment: {PORT: "8014", TB_SERVICE_NAME: embed-service, TB_EMBED_MODEL_PATH: /models/bge-m3}
+    # T-607 (D-429): in PRODUCTION the service loads only the weights pinned for e-embed-1 in the site override
+    environment: {PORT: "8014", TB_SERVICE_NAME: embed-service, TB_EMBED_MODEL_PATH: /models/embedder,
+                  TB_REGISTRY_OVERRIDE: /etc/trialbox/site/registry.site.yaml}
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - "${TB_MODELS_DIR:-./models}:/models:ro"
+      - ${TB_SITE_DIR:-./site}:/etc/trialbox/site:ro
 
   doc-parser:
     <<: *py
+    mem_limit: ${TB_MEM_DOCPARSER:-2g}
     image: ${TB_DOCPARSER_IMAGE:-trialbox-py:1.0.0}
     command: ["uvicorn", "doc_parser.app:app", "--host", "0.0.0.0", "--port", "8011"]
     environment: {PORT: "8011", TB_SERVICE_NAME: doc-parser, TB_GATEWAY_URL: "http://gateway:8020/v1",
@@ -112,9 +178,13 @@ services:
   criteria-compiler:
     <<: *py
     image: ${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}
+    mem_limit: ${TB_MEM_COMPILER:-3g}
+    pids_limit: 1024   # JVM threads
     command: ["uvicorn", "criteria_compiler.app:app", "--host", "0.0.0.0", "--port", "8012"]
-    environment: {PORT: "8012", TB_SERVICE_NAME: criteria-compiler, TB_RULESETS_DIR: /data/rulesets, TB_AUDIT_DIR: /data/audit,
-                  TB_CTGOV_MODE: "${TB_CTGOV_MODE:-live}", TB_GATEWAY_URL: "http://gateway:8020/v1",
+    environment: {PORT: "8012", TB_SERVICE_NAME: criteria-compiler,
+                  TB_DB_URL: "postgresql://tb_criteria_compiler:${TB_DB_PW_CRITERIA_COMPILER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_RULESETS_DIR: /data/rulesets, TB_AUDIT_DIR: /data/audit, TB_AUDIT_WRITER: db,
+                  TB_CTGOV_MODE: "${TB_CTGOV_MODE:-offline}", TB_GATEWAY_URL: "http://gateway:8020/v1",
                   TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_DATA_CLASS: "${TB_DATA_CLASS:-}"}
     # only service allowed to reach clinicaltrials.gov (public registry, COHORT; network.sh); its cloud LLM calls go
     # through the gateway like every other model call
@@ -122,51 +192,91 @@ services:
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - rulesets-data:/data/rulesets
-      - audit-data:/data/audit
+      - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
       - objects-data:/data/objects
       - ${TB_EXTRA_CA:-/dev/null}:/run/tb-extra-ca.pem:ro   # hospital TLS-inspection CA (tb_common.extra_ca)
 
   adapter:
     <<: *py
     image: ${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}
+    mem_limit: ${TB_MEM_ADAPTER:-6g}   # the validator's heap (TB_VALIDATOR_XMX, 3g) plus the service
+    pids_limit: 1024   # JVM threads
     command: ["uvicorn", "adapter.app:app", "--host", "0.0.0.0", "--port", "8016"]
-    environment: {PORT: "8016", TB_SERVICE_NAME: adapter, TB_LAKE_DIR: /data/lake, TB_ADAPTER_LAKE: http,
-                  TB_AUDIT_DIR: /data/audit, TB_SECRETS_DIR: /run/secrets/trialbox, TB_VALIDATOR_XMX: 3g}
+    environment: {PORT: "8016", TB_SERVICE_NAME: adapter,
+                  TB_DB_URL: "postgresql://tb_adapter:${TB_DB_PW_ADAPTER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_LAKE_DIR: /data/lake, TB_ADAPTER_LAKE: http,
+                  TB_AUDIT_DIR: /data/audit, TB_AUDIT_WRITER: db, TB_SECRETS_DIR: /run/secrets/trialbox,
+                  TB_VALIDATOR_XMX: 3g}
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
-      - ${TB_SOURCE_DIR:-../tests/fixtures/synthetic_patients/site-a}:/data/source/site-a:ro
+      # the site's feed folder (the wizard writes TB_SOURCE_DIR, the host folder, and TB_SOURCE_MOUNT, the
+      # settings data_source.path; install.sh requires both in PRODUCTION) and the site's own mapping folder,
+      # looked up before the image's (adapter.mapping.site, T-632, D-382)
+      - ${TB_SOURCE_DIR:-../tests/fixtures/synthetic_patients/site-a}:${TB_SOURCE_MOUNT:-/data/source/site-a}:ro
+      - ${TB_MAPPING_HOST_DIR:-./site/mapping}:/etc/trialbox/mapping:ro
       - lake-data:/data/lake
-      - audit-data:/data/audit
+      - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
       - tb-secrets:/run/secrets/trialbox
+      - ${TB_KEK_HOST_DIR:-/run/trialbox}:/run/trialbox:ro   # the KEK the unseal writes (tb_common.kek, D-347): read-only
+
+  audit-writer:
+    # D-394 (T-211b, CR-042): the one writer of the audit chain. The services send their events to the append-only
+    # audit.journal table (tb_common.audit_writer.open_audit); this copies them, in order, into the hash chain. Its
+    # role, tb_audit_writer, may only read the journal; it is the only container that mounts audit-data read-write.
+    <<: *py
+    mem_limit: ${TB_MEM_AUDIT_WRITER:-256m}
+    pids_limit: 64
+    command: ["python", "-m", "tb_common.audit_writer", "drain"]
+    environment: {TB_SERVICE_NAME: audit-writer,
+                  TB_DB_URL: "postgresql://tb_audit_writer:${TB_DB_PW_AUDIT_WRITER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_AUDIT_DIR: /data/audit}
+    volumes:
+      - audit-data:/data/audit
+    healthcheck:   # the drain touches its heartbeat at least once a second while it runs
+      test: ["CMD", "python", "-c", "import os,sys,time; sys.exit(0 if time.time()-os.path.getmtime('/tmp/tb-audit-writer.alive')<60 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
   orchestrator:
     <<: *py
     image: ${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}
+    mem_limit: ${TB_MEM_ORCH:-4g}
+    pids_limit: 1024   # JVM threads
     command: ["uvicorn", "orchestrator.app:app", "--host", "0.0.0.0", "--port", "8010"]
-    environment: {PORT: "8010", TB_SERVICE_NAME: orchestrator, TB_AUDIT_DIR: /data/audit, TB_RULESETS_DIR: /data/rulesets,
+    environment: {PORT: "8010", TB_SERVICE_NAME: orchestrator,
+                  TB_DB_URL: "postgresql://tb_orchestrator:${TB_DB_PW_ORCHESTRATOR:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_AUDIT_DIR: /data/audit, TB_AUDIT_WRITER: db, TB_RULESETS_DIR: /data/rulesets,
                   TB_ORCH_DIR: /data/orchestrator, TB_SECRETS_DIR: /run/secrets/trialbox,
                   TB_GATEWAY_URL: "http://gateway:8020/v1", TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}",
                   TB_GATEWAY_VERIFIER_MODEL: "${TB_GATEWAY_VERIFIER_MODEL:-}", TB_DATA_CLASS: "${TB_DATA_CLASS:-}",
                   TB_NOTE_BLOCK: "${TB_NOTE_BLOCK:-both_agree}", TB_MODEL_SWAP: "${TB_MODEL_SWAP:-}",
-                  TB_SELFTEST: "${TB_SELFTEST:-on}"}
+                  TB_SELFTEST: "${TB_SELFTEST:-on}",
+                  TB_LAKE_MAX_SNAPSHOT_AGE_DAYS: "${TB_LAKE_MAX_SNAPSHOT_AGE_DAYS:-3}",  # D-383
+                  TB_SITE_PUBLISH_BATCH_SECONDS: "${TB_SITE_PUBLISH_BATCH_SECONDS:-300}"}  # D-403
     networks: [trialbox-net, egress-net]   # only service allowed to reach NHI_TWPAS_BASE_URL (network.sh)
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - orch-data:/data/orchestrator
-      - audit-data:/data/audit
+      - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
       - rulesets-data:/data/rulesets:ro
       - objects-data:/data/objects
       - tb-secrets:/run/secrets/trialbox
       - ${TB_EXTRA_CA:-/dev/null}:/run/tb-extra-ca.pem:ro   # hospital TLS-inspection CA (tb_common.extra_ca)
+      - ${TB_KEK_HOST_DIR:-/run/trialbox}:/run/trialbox:ro   # the KEK the unseal writes (tb_common.kek, D-347): read-only
 
   mail-gateway:
     <<: *py
+    mem_limit: ${TB_MEM_MAIL:-1g}
     command: ["uvicorn", "mail_gateway.app:app", "--host", "0.0.0.0", "--port", "8015"]
-    environment: {PORT: "8015", TB_SERVICE_NAME: mail-gateway, TB_AUDIT_DIR: /data/audit, TB_MAIL_DIR: /data/mail}
+    environment: {PORT: "8015", TB_SERVICE_NAME: mail-gateway,
+                  TB_DB_URL: "postgresql://tb_mail_gateway:${TB_DB_PW_MAIL_GATEWAY:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_AUDIT_DIR: /data/audit, TB_AUDIT_WRITER: db, TB_MAIL_DIR: /data/mail}
     networks: [trialbox-net, egress-net]   # only service allowed to reach IMAP/SMTP (network.sh)
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
-      - audit-data:/data/audit
+      - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
       - mail-data:/data/mail
       - objects-data:/data/objects
       - ${TB_EXTRA_CA:-/dev/null}:/run/tb-extra-ca.pem:ro   # hospital TLS-inspection CA (tb_common.extra_ca)
@@ -176,10 +286,13 @@ services:
     # through models/registry.yaml plus the site pins in ./site (tools/pin_model.py; a missing file = nothing pinned,
     # so production routes nothing). Registry, PHI guard and trace store run in this process.
     <<: *py
+    mem_limit: ${TB_MEM_GATEWAY:-2g}
     command: ["uvicorn", "--factory", "gateway.app:create_app", "--host", "0.0.0.0", "--port", "8020"]
-    environment: {PORT: "8020", TB_SERVICE_NAME: gateway, TB_ENV: "${TB_ENV:-DEV}", TB_TOPOLOGY: "${TB_TOPOLOGY:-A}",
+    environment: {PORT: "8020", TB_SERVICE_NAME: gateway,
+                  TB_DB_URL: "postgresql://tb_gateway:${TB_DB_PW_GATEWAY:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_ENV: "${TB_ENV:-PRODUCTION}", TB_TOPOLOGY: "${TB_TOPOLOGY:-A}",
                   TB_PROFILE: "${TB_PROFILE:-P-GB10}", TB_CLOUD_OPT_IN: "${TB_CLOUD_OPT_IN:-}", TB_AUDIT_DIR: /data/audit,
-                  TB_TRACESTORE_PATH: /data/traces/traces.sqlite,
+                  TB_AUDIT_WRITER: db, TB_TRACESTORE: "on",
                   TB_REGISTRY_OVERRIDE: /etc/trialbox/site/registry.site.yaml, TB_MODEL_SWAP: "${TB_MODEL_SWAP:-}",
                   TB_GATEWAY_INTERACTIVE_TIMEOUT_S: "${TB_GATEWAY_INTERACTIVE_TIMEOUT_S:-30}"}
     # model-net: the only network with llm-service / llm-stub; egress-net: external model endpoints, filtered per
@@ -188,15 +301,55 @@ services:
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - ${TB_SITE_DIR:-./site}:/etc/trialbox/site:ro
-      - audit-data:/data/audit
+      - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
       - traces-data:/data/traces
       - ${TB_EXTRA_CA:-/dev/null}:/run/tb-extra-ca.pem:ro   # hospital TLS-inspection CA (tb_common.extra_ca)
+
+  console:
+    # The product console (D-127, review F-01): sign-in, the PI and CRC lists, marks, approval, the screening log,
+    # the REDCap link and the admin control plane. Published on TB_CONSOLE_BIND (127.0.0.1 by default); for other PCs
+    # on the hospital LAN use deploy/docker-compose.identity.yml (Caddy, TLS; RUNBOOK §12). Unset, the session cookie is
+    # Secure in PRODUCTION (D-192); an explicit TB_CONSOLE_SECURE_COOKIE=0 is refused there.
+    <<: *py
+    mem_limit: ${TB_MEM_CONSOLE:-2g}
+    command: ["uvicorn", "--factory", "console.app:create_app", "--host", "0.0.0.0", "--port", "8090",
+              "--proxy-headers", "--forwarded-allow-ips", "${TB_CONSOLE_FORWARDED_ALLOW_IPS:-127.0.0.1}"]
+    environment: {PORT: "8090", TB_SERVICE_NAME: console,
+                  TB_DB_URL: "postgresql://tb_console:${TB_DB_PW_CONSOLE:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
+                  TB_CONSOLE_DIR: /data/console, TB_AUDIT_DIR: /data/audit, TB_AUDIT_WRITER: db,
+                  TB_RULESETS_DIR: /data/rulesets, TB_GATEWAY_URL: "http://gateway:8020/v1",
+                  TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_CONSOLE_SECURE_COOKIE: "${TB_CONSOLE_SECURE_COOKIE:-}",
+                  TB_OPS_DIR: /data/ops}  # D-178: the mount below; the host's TB_OPS_DIR in .env is the host path
+    volumes:
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - console-data:/data/console
+      - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
+      - rulesets-data:/data/rulesets:ro
+      - objects-data:/data/objects
+      # D-178: the operations folder shared with the host's runner (python3 -m tools.trialbox ops run): requests in,
+      # results and the status out; never a secret
+      - ${TB_OPS_DIR:-./ops}:/data/ops
+    ports: ["${TB_CONSOLE_BIND:-127.0.0.1}:${TB_HOST_CONSOLE_PORT:-8090}:8090"]
+    # Docker publishes no port of a container that is only on internal networks: on trialbox-net alone the console
+    # was unreachable from the host (found by the box rehearsal, D-176). console-net carries the published port only.
+    networks: [trialbox-net, console-net]
+    # console-net is not internal, so Docker's resolver would forward outside names for the console. Send them to an
+    # address that is never assigned (TEST-NET-1, RFC 5737), reached from the console's own namespace (Docker 26+
+    # forwards to a loopback resolver from the host's namespace, so not 127.0.0.1) and, with no NAT on console-net,
+    # never answered. The box's own names still resolve. deploy/network.sh drops the query too (D-176).
+    dns: [192.0.2.53]
+    depends_on:
+      db: {condition: service_healthy}
+      orchestrator: {condition: service_healthy}
+      mail-gateway: {condition: service_healthy}
+      gateway: {condition: service_healthy}
 
   llm-stub:
     <<: *py
     profiles: [stub]
+    mem_limit: 1g
     command: ["uvicorn", "llm_stub.app:app", "--host", "0.0.0.0", "--port", "8000"]
-    environment: {PORT: "8000", TB_SERVICE_NAME: llm-stub}
+    environment: {PORT: "8000", TB_SERVICE_NAME: llm-stub, TB_DB_URL: ""}  # opens no database (D-378)
     networks:
       model-net:
         aliases: [llm-service, llm-verifier]  # stands in for both serving endpoints (routing.yaml)
@@ -204,23 +357,34 @@ services:
   llm-service:
     logging: *logging
     profiles: [gpu]
-    # the vLLM release the 2026-11-06 GPU run measured (deploy/gcp/gpu-sim-startup.sh); a new release is a model
-    # change: re-run `make selftest` and the TrialGPT check before moving the tag. Structured output uses vLLM's
-    # default backend (--guided-decoding-backend no longer exists in this release).
-    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0}
+    # the vLLM release the 2026-11-06 GPU run measured (deploy/gcp/gpu-sim-startup.sh), by the digest of
+    # deploy/images.lock (D-348); a new release is a model change: re-run `python3 -m tools.trialbox selftest` and the TrialGPT check
+    # before moving the lock entry. Structured output uses vLLM's default backend, `auto` (no flag; the lock and the
+    # serving record name it; --guided-decoding-backend no longer exists in this release).
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}
     command:
       - --model=/models/${LLM_MODEL_DIR:-qwen3.5-35b-a3b-q4}
       - --served-model-name=${LLM_MODEL:-qwen3.5-35b-a3b-q4}
       - --max-model-len=32768
       - --max-num-seqs=64
       - --gpu-memory-utilization=${GPU_MEM_UTIL:-0.85}
+    # D-177 / D-450: VLLM_API_KEY from the vLLM servers' own env file (`trialbox secrets` writes it with
+    # secrets/model/llm.key); vLLM checks it on /v1 only, model-guard on every call. Never from deploy/.env. A box
+    # without the file runs the server open behind model-guard, and doctor --serving (install, update) FAILs it.
+    env_file: [{path: ./secrets/model/vllm.env, required: false}]
     environment:
       HF_HUB_OFFLINE: "1"
       VLLM_NO_USAGE_STATS: "1"
+      VLLM_LOGGING_LEVEL: WARNING   # no request or prompt lines in the log at any vLLM version (T-605, LLM-042)
     volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
     ipc: host
-    networks: [model-net]
+    networks: {model-backend-net: {aliases: [llm-service-vllm]}}   # behind model-guard (D-177)
     restart: unless-stopped
+    # host memory, not the card's: the process, its pinned buffers and, with sleep mode, the weights while asleep
+    mem_limit: ${TB_MEM_LLM:-48g}
+    pids_limit: 4096   # vLLM's worker, tokenizer and compile threads
+    # a hung server answers no /health: after the health check's retries the watchdog restarts it (OPS-029)
+    labels: {tb.watchdog: restart}
     deploy:
       resources:
         reservations:
@@ -232,17 +396,67 @@ services:
       retries: 40
       start_period: 300s
 
+  model-guard:
+    # D-177: the only way to the model servers. vLLM checks its key on /v1 only (/invocations, /tokenize, /metrics
+    # and, in dev mode, /collective_rpc answer without it), so vLLM sits on model-backend-net and this guard answers
+    # to its names on model-net: the key on every call, and only /v1/models, /v1/chat/completions, /v1/completions
+    # (/sleep, /wake_up, /is_sleeping with TB_GUARD_ADMIN=1) and /health. Everything else is 404 (services/model_guard).
+    profiles: [gpu]
+    logging: *logging
+    image: ${TB_IMAGE:-trialbox-py:1.0.0}
+    command: ["python", "-m", "model_guard"]
+    expose: ["8000"]
+    user: "10001:10001"
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    mem_limit: 512m
+    pids_limit: 256
+    labels: {tb.watchdog: restart}
+    environment:
+      PORT: "8000"
+      TB_LLM_API_KEY: "${TB_LLM_API_KEY:-}"
+      TB_GUARD_ROUTES: "llm-service=llm-service-vllm:8000,llm-verifier=llm-verifier-vllm:8000"
+      TB_GUARD_ADMIN: "${TB_GUARD_ADMIN:-0}"
+    networks:
+      model-net:
+        aliases: [llm-service, llm-verifier]   # the names the gateway calls (models/routing.yaml)
+      model-backend-net: {}
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
 networks:
   trialbox-net:
     name: trialbox-net
     internal: true        # no default route: deny-by-default egress at the compose level
   model-net:
     name: trialbox-model-net
-    internal: true        # gateway <-> llm-service / llm-stub only; no other service joins it
+    internal: true        # gateway <-> model-guard (llm-service, llm-verifier) / llm-stub only
+  model-backend-net:
+    name: trialbox-model-backend
+    internal: true        # model-guard <-> the vLLM servers only (D-177)
   egress-net:
     name: trialbox-egress  # host-level nftables (network.sh) restricts destinations per container
+  console-net:
+    # The console's published port only (D-176). Not internal (Docker publishes no port there), so it is closed by
+    # hand: no NAT out (no reply ever comes back from outside), published ports bind to 127.0.0.1 unless
+    # TB_CONSOLE_BIND says otherwise, no IPv6, no traffic between its members (the console is the only one).
+    # deploy/network.sh drops everything from it that is not a reply, and every connection into it that is not to
+    # the published port.
+    name: trialbox-console
+    enable_ipv6: false
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"
+      com.docker.network.bridge.host_binding_ipv4: "127.0.0.1"
+      com.docker.network.bridge.enable_icc: "false"
 
 volumes:
+  console-data:
   objects-data:   # attachments and outputs (ADR-16 filesystem store; MinIO removed in D-121)
   db-pg:
   lake-data:

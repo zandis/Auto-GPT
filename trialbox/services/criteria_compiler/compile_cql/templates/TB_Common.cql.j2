@@ -29,25 +29,84 @@ define function "LatestValue"(obs List<FHIR.Observation>):
   "ObsValue"("LatestObs"(obs))
 
 define function "IsFemale"(P FHIR.Patient):
-  if P.gender is null then null else P.gender.value = 'female'
+  if P.gender.value in { 'male', 'female' } then P.gender.value = 'female' else null
+
+/* D-442: complete years at asOf, as the Python reference and the SQL count them: the day before the birthday is
+   still the younger age, so a 29 February birth turns 18 on 1 March of a common year (the engine's AgeInYearsAt
+   gave 18 on 28 February) */
+define function "AgeAt"(P FHIR.Patient, asOf System.Date):
+  if P.birthDate.value is null or asOf is null then null
+  else (year from asOf) - (year from P.birthDate.value)
+    - (if (month from asOf) < (month from P.birthDate.value)
+          or ((month from asOf) = (month from P.birthDate.value) and (day from asOf) < (day from P.birthDate.value))
+       then 1 else 0)
 
 define function "BMI"(weightKg System.Decimal, heightCm System.Decimal):
   weightKg / Power(heightCm / 100.0, 2.0)
 
-/* CKD-EPI 2021, race-free */
+/* the recorded unit of an Observation, spelled as the conversion table spells it (D-149) */
+/* "Swap" is Combine(Split(..)), not ReplaceMatches: in CQL engine 5.4.0 (HAPI FHIR 8.12) ReplaceMatches returns
+   its input in quotes when the pattern does not match, so no unit was ever recognised (D-321); Split of '' is no
+   list, so '' stays '' (no unit) */
+define function "Swap"(s System.String, a System.String, b System.String):
+  if s is null or s = '' then s else Combine(Split(s, a), b)
+
+define function "UnitOf"(O FHIR.Observation):
+  Lower("Swap"("Swap"("Swap"(Coalesce((O.value as FHIR.Quantity).code.value,
+    (O.value as FHIR.Quantity).unit.value, ''), ' ', ''), 'µ', 'u'), 'μ', 'u'))
+
+/* x when it is inside the item's scale, else null (D-189: a 0-10 global holding 40 is not a 40) */
+define function "InScale"(x System.Decimal, lo System.Decimal, hi System.Decimal):
+  if x is null then null else if x >= lo and x <= hi then x else null
+
+/* the unit of a Quantity as two spellings of it compare equal (tb_common.labunit.key, D-275) */
+define function "UnitKey"(Q FHIR.Quantity):
+  "Swap"("Swap"("Swap"("Swap"("Swap"("Swap"("Swap"("Swap"("Swap"(Lower(Coalesce(
+    if Q.code.value = '' then null else Q.code.value, Q.unit.value, '')),
+    '[', ''), ']', ''), '{', ''), '}', ''), '_', ''), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*')
+
+/* a component in the unit its formula expects; null when the recorded unit is not allowed (D-149) */
+{%- for comp, (target, factors, rng) in units %}
+define function "Conv_{{ comp }}"(O FHIR.Observation):
+  if O is null then null
+  else {% if rng %}"InScale"({% endif %}case "UnitOf"(O)
+{%- for u, f in factors %}
+    when '{{ u }}' then "ObsValue"(O) * {{ f }}
+{%- endfor %}
+    else null end{% if rng %}, {{ rng[0] }}, {{ rng[1] }}){% endif %}
+{%- endfor %}
+{%- for comp, allowed in unitless %}
+define function "Conv_{{ comp }}"(O FHIR.Observation):
+  if O is null then null
+  else if "UnitOf"(O) in { {{ allowed }} } then "ObsValue"(O) else null
+{%- endfor %}
+
+/* the same visit: X within the given days of the anchor component's row (D-149) */
+define function "SameVisit"(X FHIR.Observation, A FHIR.Observation, maxDays System.Integer):
+  if A is null then false
+  else Abs((difference in days between "ObsDate"(A) and "ObsDate"(X))) <= maxDays
+
+/* CKD-EPI 2021, race-free; adults only: no value under {{ min_age }} (D-442) */
 define function "EGFR2021"(scr System.Decimal, age System.Integer, female System.Boolean):
-  if scr is null or age is null or female is null then null
+  if scr is null or age is null or age < {{ min_age }} or female is null then null
   else {{ egfr.k }} * Power(Min({ scr / (if female then {{ egfr.kappa_f }} else {{ egfr.kappa_m }}), 1.0 }),
                          if female then {{ egfr.alpha_f }} else {{ egfr.alpha_m }})
        * Power(Max({ scr / (if female then {{ egfr.kappa_f }} else {{ egfr.kappa_m }}), 1.0 }), {{ egfr.exp_hi }})
        * Power({{ egfr.age_base }}, age)
        * (if female then {{ egfr.female }} else 1.0)
 
-/* DAS28-ESR if ESR available, else DAS28-CRP (CRP mg/L) */
-define function "DAS28"(tjc System.Decimal, sjc System.Decimal, ptga System.Decimal, esr System.Decimal, crp System.Decimal):
+/* JSN 2009 (Japanese Society of Nephrology; D-149) */
+define function "EGFRJSN"(scr System.Decimal, age System.Integer, female System.Boolean):
+  if scr is null or scr <= 0 or age is null or age < {{ min_age }} or female is null then null
+  else {{ jsn.k }} * Power(scr, {{ jsn.scr_exp }}) * Power(age, {{ jsn.age_exp }}) * (if female then {{ jsn.female }} else 1.0)
+
+/* DAS28-ESR if the visit has an ESR row (its value in mm/h, null when its unit does not fit or it is 0), else
+   DAS28-CRP (CRP mg/L) */
+define function "DAS28"(tjc System.Decimal, sjc System.Decimal, ptga System.Decimal, hasEsr System.Boolean, esr System.Decimal, crp System.Decimal):
   if tjc is null or sjc is null or ptga is null then null
-  else if esr is not null then
-    {{ das.tjc }} * Power(tjc, 0.5) + {{ das.sjc }} * Power(sjc, 0.5) + {{ das.esr_ln }} * Ln(esr) + {{ das.gh }} * ptga
+  else if hasEsr then
+    if esr is null or esr <= 0 then null
+    else {{ das.tjc }} * Power(tjc, 0.5) + {{ das.sjc }} * Power(sjc, 0.5) + {{ das.esr_ln }} * Ln(esr) + {{ das.gh }} * ptga
   else if crp is not null then
     {{ das.tjc }} * Power(tjc, 0.5) + {{ das.sjc }} * Power(sjc, 0.5) + {{ das.crp_ln }} * Ln(crp + 1.0) + {{ das.gh }} * ptga + {{ das.crp_const }}
   else null
@@ -57,3 +116,11 @@ define function "BASDAI"(q1 System.Decimal, q2 System.Decimal, q3 System.Decimal
 
 define function "ASDAS"(back System.Decimal, stiff System.Decimal, ptga System.Decimal, periph System.Decimal, crp System.Decimal):
   {{ asdas.back }} * back + {{ asdas.stiff }} * stiff + {{ asdas.ptga }} * (ptga / 10.0) + {{ asdas.periph }} * periph + {{ asdas.crp_ln }} * Ln(crp + 1.0)
+
+/* CDAI = TJC28 + SJC28 + PtGA (0-10) + EvGA (0-10) (D-189; catalogue cdai.yaml) */
+define function "CDAI"(tjc System.Decimal, sjc System.Decimal, ptga System.Decimal, evga System.Decimal):
+  tjc + sjc + ptga + evga
+
+/* SDAI = CDAI + CRP in mg/dL; crp arrives in mg/L from Conv_crp (D-189; catalogue sdai.yaml) */
+define function "SDAI"(tjc System.Decimal, sjc System.Decimal, ptga System.Decimal, evga System.Decimal, crp System.Decimal):
+  tjc + sjc + ptga + evga + crp / 10.0

@@ -32,6 +32,7 @@ _T = datetime(2026, 11, 7, 9, 0, tzinfo=UTC)
 def b4(box: dict[str, Any]) -> dict[str, Any]:  # noqa: F811
     for name, role in (("crc", "coordinator"), ("pi", "investigator"), ("cra", "cro")):
         box["users"].create(name, role, PW, f"{name}@hospa.test")
+    box["users"].set_scope("cra", "cro", "GZQO", None)  # D-380 (ROLE-011): a CRO account names its studies
     return {**box, "h": box["app"].state.helpers}
 
 
@@ -170,6 +171,19 @@ def test_notices_received(b4: dict[str, Any]) -> None:
     assert "not for the PI" not in page
 
 
+def test_notices_received_in_site_time(b4: dict[str, Any]) -> None:
+    """T-513 (UX-020): the list showed the stored UTC time ("2026-11-01 22:00" for a 07:00 mail in Tokyo) while its
+    footer says times are site time."""
+    from console.timefmt import local_time, site_zone
+
+    b4["h"].store.log_notice("N1", "pi", "2026-11-02", "2026-11-01T22:00:00+00:00", "GZQO: 2 patients before clinic")
+    c, _ = login(b4["app"], "pi", PW)
+    page = c.get("/notices/received").text
+    shown = local_time("2026-11-01T22:00:00+00:00", site_zone(b4["h"].bk))
+    assert f'data-testid="received-at">{shown}<' in page
+    assert shown != "2026-11-01 22:00" and "2026-11-01 22:00" not in page
+
+
 # ---------------------------------------------------------------------------------------------- S13 / S26 / S24
 def _failed_job(bk: Any) -> Job:
     f = JobFile(
@@ -242,6 +256,79 @@ def test_admin_tabs_cancel_and_retry(b4: dict[str, Any]) -> None:
     crc, crc_csrf = login(b4["app"], "crc", PW)
     assert crc.get("/admin").status_code == 403
     assert crc.post(f"/admin/jobs/{failed.job_id}/retry", data={"csrf": crc_csrf, "confirm": "yes"}).status_code == 403
+
+
+def _scheduler_types() -> list[str]:
+    from types import SimpleNamespace
+
+    from orchestrator.scheduler import plan
+
+    return [t for t, _ in plan(SimpleNamespace(schedule=None))]  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("jtype", _scheduler_types())
+def test_admin_retry_of_a_scheduler_job(b4: dict[str, Any], jtype: str) -> None:
+    """T-746 (D-474; replaces T-713's "three types run again on schedule"): the administrator retries a failed job of
+    the box's scheduler of every type. The console asks the orchestrator's retry route with the job's id and the
+    administrator's mailbox only (the orchestrator copies the type and parameters); it never sends a JobCreate."""
+    bk = b4["backend"]
+    nightly = bk.add_job(
+        Job(
+            job_id=_ulid(703),
+            type=jtype,  # type: ignore[arg-type]
+            ruleset="GZQO",
+            requested_by="scheduler",
+            received_at=_T,
+            updated_at=_T,
+            state="failed",
+            options={"window": "1"},
+            error=JobError(step="running", message="x"),
+        )
+    )
+    c, csrf = login(b4["app"])
+    page = c.get("/admin", params={"tab": "jobs"}).text
+    assert f'data-testid="retry-{nightly.job_id}"' in page and "on-schedule-" not in page
+    n = len(bk.created)
+    r = c.post(f"/admin/jobs/{nightly.job_id}/retry", data={"csrf": csrf})
+    assert 'data-testid="admin-confirm"' in r.text and not getattr(bk, "retried", [])  # asks first
+    r = c.post(f"/admin/jobs/{nightly.job_id}/retry", data={"csrf": csrf, "confirm": "yes", "type": "SCREEN",
+                                                          "options": "window=99"}, follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303 and len(bk.created) == n  # no POST /jobs: the orchestrator copies the failed job
+    job_id, reply_to, by, role = bk.retried[-1]
+    assert (job_id, by, role) == (nightly.job_id, "console:admin", "admin") and "@" in reply_to
+    new = [j for j in bk.jobs.values() if j.parent_job_id == nightly.job_id][-1]
+    assert (new.type, new.ruleset, new.options) == (jtype, "GZQO", {"window": "1"})
+    ops = [r for r in bk.audit() if r.event == "console.operate" and r.detail.get("action") == "retry"]
+    assert ops and ops[-1].detail["from"] == nightly.job_id and ops[-1].job_id == new.job_id
+
+
+def test_a_scheduler_job_retry_needs_the_matrix_row_and_a_failed_job(
+    b4: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from console import step4
+    from tb_common import authz
+
+    bk = b4["backend"]
+    base: dict[str, Any] = {"type": "INGEST", "ruleset": None, "requested_by": "scheduler", "received_at": _T,
+                            "updated_at": _T, "options": {}}  # fmt: skip
+    failed = bk.add_job(Job(job_id=_ulid(704), state="failed", error=JobError(step="running", message="x"), **base))
+    running = bk.add_job(Job(job_id=_ulid(705), state="running", **base))
+    c, csrf = login(b4["app"])
+    assert c.post(f"/admin/jobs/{running.job_id}/retry", data={"csrf": csrf, "confirm": "yes"}).status_code == 409
+    real = authz.permit
+    monkeypatch.setattr(step4, "permit", lambda role, action, *a: authz.Decision(False, role, action, "role")
+                        if action == "job.retry_scheduled" else real(role, action, *a))  # fmt: skip
+    assert f'data-testid="retry-{failed.job_id}"' not in c.get("/admin", params={"tab": "jobs"}).text
+    assert c.post(f"/admin/jobs/{failed.job_id}/retry", data={"csrf": csrf, "confirm": "yes"}).status_code == 403
+    assert not getattr(bk, "retried", [])
+
+
+def test_only_the_administrator_holds_the_retry_of_scheduled_jobs() -> None:
+    from tb_common.authz import MATRIX_ROLES, permit, role_allowed
+
+    assert [r for r in MATRIX_ROLES if permit(r, "job.retry_scheduled").allowed] == ["admin"]
+    # the retry right is not a right to start them: the administrator still may not start these three
+    assert {t for t in _scheduler_types() if not role_allowed("admin", t)} == {"INGEST", "RETENTION", "CALIBRATION"}
 
 
 def test_admin_data_sources_from_ingest_records(b4: dict[str, Any]) -> None:
@@ -356,7 +443,7 @@ def test_models_tile_shows_the_canary_date_and_result_and_runs_it(b4: dict[str, 
         "canary": {"gate": "on", "code": "failed", "running": False, "at": "2026-11-08T03:10:00"},
     }
     page = c.get("/admin").text
-    assert "failed 2026-11-08 03:10: note answers cannot exclude until it passes" in page
+    assert "failed 2026-11-08 03:10: note answers cannot count as a criterion not matched until it passes" in page
     r = c.post("/admin/models/canary", data={"csrf": csrf}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/admin?notice=canary" and bk.canary_runs == 1
     assert "The model self-test is running" in c.get(r.headers["location"]).text

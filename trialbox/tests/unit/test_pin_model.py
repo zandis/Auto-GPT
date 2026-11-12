@@ -24,6 +24,7 @@ from registry.registry import DEFAULT_PATH, Registry, RegistryError, apply_overr
 from tb_common.audit import AuditLog
 from tb_common.policy.classes import Environment, Topology
 
+from tests.model_pins import promote_pins
 from tools import pin_model
 from tools.trialbox import doctor
 
@@ -43,6 +44,8 @@ def _model_dir(root: Path, payload: bytes = b"synthetic-weights") -> Path:
 
 
 def _pin(tmp_path: Path, **kw: Any) -> tuple[pin_model.Manifest, Path]:
+    """BUILD names no expected weights in the registry: pinned as an evaluation candidate on first use (T-012b)."""
+    kw.setdefault("trust_first_use", True)
     return pin_model.pin(BUILD, _model_dir(tmp_path), served_name=SERVED, out=tmp_path / "site" / "o.yaml", **kw)
 
 
@@ -106,11 +109,14 @@ def test_pin_writes_a_site_override_and_the_build_resolves_only_with_it(tmp_path
 
 @pytest.mark.req("S1-07", "MOD-7")
 def test_champion_pin_resolves_in_production_and_other_pins_are_kept(tmp_path: Path) -> None:
-    _, out = _pin(tmp_path, status="champion")
+    with pytest.raises(pin_model.PinError, match="champion only through qualify"):  # T-012b
+        _pin(tmp_path / "refused", status="champion")
+    _, out = _pin(tmp_path)
     other = tmp_path / "other"
     other.mkdir()
     (other / "w.gguf").write_bytes(b"g")
-    pin_model.pin("gpt-oss-120b-candidate", other, served_name="v-local", out=out)
+    pin_model.pin("gpt-oss-120b-candidate", other, served_name="v-local", out=out, trust_first_use=True)
+    promote_pins(out, [BUILD])  # as a passing qualification record would (tests/unit/test_champion_qualify.py)
     reg = Registry.load(DEFAULT_PATH, out)
     assert reg.resolve("j-workhorse", "serving", role="judge", env=Environment.PRODUCTION).build.build_id == BUILD
     assert reg.resolve("v-verifier", "serving", role="judge", env=Environment.TEST).served_name == "v-local"
@@ -153,8 +159,10 @@ def test_cli_refuses_the_stub_unknown_builds_and_a_missing_served_name(tmp_path:
     )
     assert pin_model.main(["--build", "nope", "--model-dir", str(d), "--out", str(out), "--served-name", "x"]) == 2
     assert pin_model.main(["--build", BUILD, "--model-dir", str(d), "--out", str(out)]) == 2
+    args = ["--build", BUILD, "--model-dir", str(d), "--out", str(out), "--served-name", SERVED]
+    assert pin_model.main(args) == 2  # nothing expected for BUILD: no trust on first use (T-012b)
     assert not out.exists()
-    assert pin_model.main(["--build", BUILD, "--model-dir", str(d), "--out", str(out), "--served-name", SERVED]) == 0
+    assert pin_model.main([*args, "--trust-first-use"]) == 0
 
 
 # ------------------------------------------------------------------------------------------------ gateway path
@@ -237,8 +245,10 @@ def test_client_default_model_is_sent_unless_the_call_names_one() -> None:
     seen: list[Any] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
-        seen.append(json.loads(req.content).get("model"))
-        return httpx.Response(200, json={"model": "m", "choices": [{"message": {"content": "{}"}}]})
+        named = json.loads(req.content).get("model")
+        seen.append(named)
+        tb = {"alias": named or "trialbox-stub", "expected_alias": named or "trialbox-stub", "fallbacks": 0}  # T-601
+        return httpx.Response(200, json={"model": "m", "choices": [{"message": {"content": "{}"}}], "tb": tb})
 
     _, body = _judge(None)
     labels = CallLabels("D0", "feasibility", "GZQO", "s3_note_judgement", "judge", "judge@3")

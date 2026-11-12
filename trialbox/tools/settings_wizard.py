@@ -6,6 +6,15 @@ validated against ``schemas/settings.schema.json`` plus the cross-checks that th
 departments exist, mail recipients are inside the internal domains, the MRN regex compiles, the mapping file exists).
 Secrets in ``.env`` (MinIO, Postgres, mailbox) are generated randomly unless given; the file is written with mode 0600.
 
+Site inputs (T-632, D-382): the mapping is looked up in the site's mapping folder first (``--mapping-dir``,
+``TB_MAPPING_DIR``, the ``mapping/`` folder beside the answers file, ``deploy/site/mapping``), then in the image, as
+the adapter does (``adapter.mapping.site``). The feed folder on the host becomes ``TB_SOURCE_DIR`` and the settings'
+``data_source.path`` the folder it is mounted at (``TB_SOURCE_MOUNT``). The console's DNS name and certificate mode
+become ``TB_TLS_HOSTNAME`` and ``TB_TLS_MODE``: ``deploy/install.sh`` turns TLS on from them.
+
+The box (T-729, D-466): ``tools/box/plan.py`` writes the answers from the owner's first-run answers and the detected
+hardware; its ``env_extra`` (declared ``TB_*`` settings only: the memory caps, the backup target) goes into ``.env``.
+
     python -m tools.settings_wizard                                   # interactive
     python -m tools.settings_wizard --answers site_c.yaml --out deploy/settings.yaml --env-out deploy/.env
 """
@@ -13,6 +22,7 @@ Secrets in ``.env`` (MinIO, Postgres, mailbox) are generated randomly unless giv
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import secrets
 import sys
@@ -28,12 +38,14 @@ for _p in ("libs", "services"):
 
 EXAMPLE = ROOT / "deploy" / "settings.example.yaml"
 MAPPING_ROOT = ROOT / "services" / "adapter"
+SITE_MAPPING = ROOT / "deploy" / "site" / "mapping"  # the site's own mappings (kept by every update, D-367)
+TLS_MODES = ("hospital", "internal")  # OPS-060: the hospital certificate is the first choice
 
 # key, question, default (None = from the example settings), kind
 QUESTIONS: list[tuple[str, str, Any, str]] = [
     ("site_id", "Site id (short, upper case)", None, "str"),
     ("site_name", "Site name", None, "str"),
-    ("tz", "Time zone (IANA)", "Asia/Taipei", "str"),
+    ("tz", "Time zone (IANA, e.g. Asia/Tokyo; the mapping's tz)", "", "str"),  # no default zone (D-315)
     ("locale", "Report language (zh-TW | ja)", "zh-TW", "str"),
     ("contact", "Box contact e-mail (operations)", None, "str"),
     ("internal_domains", "Internal mail domains (comma separated)", None, "list"),
@@ -43,9 +55,11 @@ QUESTIONS: list[tuple[str, str, Any, str]] = [
     ("reviewers", "Ruleset reviewers / approvers (comma separated)", None, "list"),
     ("alliance_sites", "Alliance member boxes (comma separated, may be empty)", [], "list"),
     ("data_source_type", "HIS source type (csv | cgrd_sql | fhir_bulk)", "csv", "str"),
-    ("data_source_path", "Source directory (csv / fhir_bulk) or empty", "/data/source/site", "str"),
+    ("data_source_path", "Source directory as the adapter sees it (csv / fhir_bulk)", "/data/source/site", "str"),
+    # T-632 (OPS-011): the host folder the nightly export lands in; compose mounts it at data_source_path
+    ("data_source_host_dir", "Feed folder on this host (relative = under deploy/)", "./site/feed", "str"),
     ("data_source_dsn_env", "Env var holding the SQL DSN (cgrd_sql) or empty", "", "str"),
-    ("mapping", "Mapping YAML (relative to services/adapter)", "mapping/tw_core/demo_his.yaml", "str"),
+    ("mapping", "Mapping YAML (in deploy/site/mapping, else the shipped ones)", "mapping/tw_core/demo_his.yaml", "str"),
     ("mrn_regex", "MRN pattern (regular expression)", r"^\d{8}$", "str"),
     ("registry_type", "Consent registry (csv | sql | none)", "none", "str"),
     ("registry_path", "Registry CSV path (csv) or empty", "", "str"),
@@ -53,7 +67,9 @@ QUESTIONS: list[tuple[str, str, Any, str]] = [
     ("practitioners", "Practitioners id=name|dept|email|capacity|license (comma separated)", None, "practitioners"),
     ("llm_mode", "LLM (gpu | stub)", "gpu", "str"),
     ("cloud_enabled", "Allow the cloud LLM for protocol extraction (yes/no)", "no", "bool"),
-    ("attachment_encryption", "PHI attachments (zip | smime)", "zip", "str"),
+    # D-369 (OD-1): patient files by a sign-in link by default; zip (a password zip) is refused for them on a real box
+    ("attachment_encryption", "Patient files by mail (link | smime)", "link", "str"),
+    ("console_url", "Address of the console that mail links point to (e.g. https://trialbox.hospital.tw)", "", "str"),
     ("twpas_enabled", "TWPAS bundles in NAV (yes/no)", "no", "bool"),
     ("twpas_org_id", "NHI hospital code (TWPAS)", "", "str"),
     ("alliance_root", "This box is the alliance root (yes/no)", "no", "bool"),
@@ -65,7 +81,46 @@ QUESTIONS: list[tuple[str, str, Any, str]] = [
     ("imap_port", "IMAP port", "993", "str"),
     ("imap_user", "Intake mailbox user", "trialbox", "str"),
     ("mta_authserv_id", "authserv-id your MTA writes first in Authentication-Results (e.g. mx.hospital.tw)", "", "str"),
+    # T-632 (OPS-013): the console is reached at https://<tls_hostname> through Caddy (RUNBOOK §12)
+    ("tls_hostname", "Console DNS name for https (from hospital IT)", "", "str"),
+    # OPS-060: the hospital's certificate is the first choice; Caddy's own CA needs its root on every clinic PC by
+    # group policy and never works on a personal device
+    (
+        "tls_mode",
+        "Certificate (hospital = the hospital's, first choice | internal = Caddy's own CA)",
+        "hospital",
+        "str",
+    ),
+    ("tls_cert_file", "Hospital certificate and chain, PEM (hospital mode)", "", "str"),
+    ("tls_key_file", "Its key, PEM (hospital mode)", "", "str"),
+    # D-138: log retention per country (tb_common.retention.DEFAULTS); "" = from the report language (ja -> jp)
+    ("retention_rules", "Retention defaults (jp | tw; empty = from the report language)", "", "str"),
+    ("logs_days", "Days to keep service logs (empty = the default of those rules)", "", "str"),
+    ("mail_log_days", "Days to keep the mail logs (empty = the default of those rules)", "", "str"),
+    # D-140 (owner, 2026-11-09): ClinicalTrials.gov offline (the data pack of each update) unless the hospital says live
+    ("ctgov_mode", "ClinicalTrials.gov (offline | live)", "offline", "ctgov"),
 ]
+
+# D-140: the ClinicalTrials.gov choice in plain words, in the three languages of the box (install.sh asks the same)
+CTGOV_QUESTION = {
+    "en": "ClinicalTrials.gov: may this box reach clinicaltrials.gov on the internet?\n"
+    "  offline = no (default). TrialBox uses the copy that comes with each update: no outbound access; the data are "
+    "as of the update.\n"
+    "  live    = yes. TrialBox asks ClinicalTrials.gov directly: always current; one outbound address; no patient data "
+    "is sent.",
+    "ja": "ClinicalTrials.gov：この機器からインターネット上の clinicaltrials.gov に接続してよいですか？\n"
+    "  offline = いいえ（既定）。更新のたびに届く写しを使います。外部へは接続しません。データは更新の時点のものです。\n"
+    "  live    = はい。TrialBox が ClinicalTrials.gov に直接問い合わせます。常に最新。外部への接続先は1か所で、"
+    "患者データは送りません。",
+    "zh-TW": "ClinicalTrials.gov：本機可以連上網際網路的 clinicaltrials.gov 嗎？\n"
+    "  offline = 不可以（預設）。使用每次更新附帶的資料副本：不對外連線；資料為該次更新當時的版本。\n"
+    "  live    = 可以。TrialBox 直接查詢 ClinicalTrials.gov：資料隨時最新；只對外連一個位址；不傳送病人資料。",
+}
+CTGOV_MODES = ("offline", "live")
+# T-607 (D-429, LLM-013): the embed service's modes (services/embed_service/embedder.py MODES). A GPU box runs the
+# pinned local embedder; a stub box the hash stub, which an embed service with TB_ENV PRODUCTION refuses to start.
+EMBED_MODE_GPU = "model"
+EMBED_MODE_STUB = "hash"
 
 
 class WizardError(ValueError):
@@ -129,7 +184,13 @@ def defaults() -> dict[str, Any]:
 def ask(answers: dict[str, Any], prompt: Callable[[str], str] = input) -> dict[str, Any]:
     base = defaults()
     out: dict[str, Any] = {}
-    for key, question, default, _kind in QUESTIONS:
+    preset = os.environ.get("TB_CTGOV_MODE", "").strip().lower()  # install.sh --ctgov: already answered
+    for key, question, default, kind in QUESTIONS:
+        if kind == "ctgov":
+            if preset in CTGOV_MODES:
+                out[key] = preset
+                continue
+            print("\n".join(CTGOV_QUESTION[lang] for lang in ("en", "ja", "zh-TW")))
         d = default if default is not None else base.get(key, "")
         shown = ", ".join(d) if isinstance(d, list) else d
         if isinstance(d, dict):
@@ -140,7 +201,38 @@ def ask(answers: dict[str, Any], prompt: Callable[[str], str] = input) -> dict[s
     return out
 
 
-def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]:
+def _zone_errors(tz: str, mapping: Path) -> list[str]:
+    """site.tz must be a real zone and the one the data source mapping states (D-315, doctor check site_tz)."""
+    from zoneinfo import ZoneInfo
+
+    if not tz:
+        return ["tz is required: the site's IANA time zone (for example Asia/Tokyo)"]
+    try:
+        ZoneInfo(tz)
+    except Exception:
+        return [f"tz {tz!r} is not a valid IANA time zone"]
+    try:
+        stated = (yaml.safe_load(mapping.read_text(encoding="utf-8")) or {}).get("tz")
+    except (OSError, yaml.YAMLError, AttributeError):
+        return []  # a missing mapping is reported above
+    if stated and str(stated) != tz:
+        return [f"tz {tz} differs from the mapping's tz {stated} ({mapping.name}): the source's days would move"]
+    return []
+
+
+def find_mapping(mapping: str, mapping_dirs: list[Path] | None = None) -> Path:
+    """The mapping file, as the adapter finds it: the site's folders first, then the image (T-632)."""
+    from adapter.mapping.site import resolve
+
+    path = Path(mapping)
+    if path.is_absolute() or path.exists():  # an absolute path, or one relative to where the wizard runs
+        return path
+    return resolve(mapping, [*(mapping_dirs or []), SITE_MAPPING])
+
+
+def build(
+    a: dict[str, Any], mapping_dirs: list[Path] | None = None
+) -> tuple[dict[str, Any], dict[str, str], list[str]]:
     """Answers -> (settings dict, env dict, warnings). Raises WizardError on inconsistent answers."""
     base = defaults()
 
@@ -167,9 +259,15 @@ def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]
     for pid, p in prac.items():
         if p.get("department") and p["department"] not in depts:
             errors.append(f"practitioner {pid}: department {p['department']!r} is not in departments")
-    mapping = str(get("mapping"))
-    if not (MAPPING_ROOT / mapping).exists() and not Path(mapping).exists():
-        errors.append(f"mapping file {mapping} not found (copy a template from services/adapter/mapping/templates)")
+    mapping = str(get("mapping") or "mapping/tw_core/demo_his.yaml")
+    mapping_file = find_mapping(mapping, mapping_dirs)
+    if not mapping_file.is_file():
+        errors.append(
+            f"mapping file {mapping} not found in the site mapping folder (deploy/site/mapping) or the image "
+            "(copy a template from services/adapter/mapping/templates into deploy/site/mapping)"
+        )
+    tz = str(a.get("tz") or "").strip()  # the site's zone: one answer, no default (D-315)
+    errors += _zone_errors(tz, mapping_file)
     ds_type = str(get("data_source_type"))
     data_source: dict[str, Any] = {"type": ds_type, "mapping": mapping, "nightly_at": "02:00"}
     if ds_type == "cgrd_sql":
@@ -187,13 +285,61 @@ def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]
     if not alliance_root and _split(a.get("cohort_rulesets")) and not root_addr:
         warnings.append("cohort rulesets without an alliance root address: tables stay on this box")
     if not str(a.get("mta_authserv_id") or "").strip():
-        warnings.append(
-            "mta_authserv_id is empty: the top-most Authentication-Results header is trusted whoever wrote it; set it "
-            "unless the MTA always adds its own header in front of the intake mailbox"
+        warnings.append(  # D-369 (SEC-11): sender authentication fails closed without it
+            "mta_authserv_id is empty: no sender can be authenticated, so the box refuses every request mail until "
+            "TB_MAIL_AUTHSERV_ID is set"
         )
+    attach = str(a.get("attachment_encryption") or "link").strip().lower()
+    if attach not in ("link", "smime", "zip"):
+        errors.append(f"attachment_encryption must be link or smime, not {attach!r}")
+    elif attach == "zip":
+        warnings.append("attachment_encryption zip: patient files are refused by mail outside TB_ENV DEV, TEST (D-369)")
+    elif attach == "link" and not str(a.get("console_url") or "").strip():
+        warnings.append("attachment_encryption link without console_url: mails with patient files are refused")
+    ctgov = str(a.get("ctgov_mode") or os.environ.get("TB_CTGOV_MODE") or "offline").strip().lower()
+    if ctgov not in CTGOV_MODES:
+        errors.append(f"ctgov_mode must be offline or live, not {ctgov!r}")
+    elif ctgov == "live":
+        warnings.append(
+            "ClinicalTrials.gov live: the box will reach clinicaltrials.gov:443 (the network sheet lists it)"
+        )
+    tls_host = str(a.get("tls_hostname") or "").strip()
+    tls_mode = str(a.get("tls_mode") or "hospital").strip().lower()
+    tls_env: dict[str, str] = {}
+    if tls_mode not in TLS_MODES:
+        errors.append(f"tls_mode must be hospital or internal, not {tls_mode!r}")
+    elif tls_host:
+        if not re.fullmatch(r"[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?", tls_host) or "." not in tls_host:
+            errors.append(f"tls_hostname {tls_host!r} is not a DNS name (for example trialbox.hospital.tw)")
+        tls_env = {"TB_TLS_HOSTNAME": tls_host, "TB_TLS_MODE": tls_mode}
+        if tls_mode == "hospital":
+            for k, var in (("tls_cert_file", "TB_TLS_CERT_FILE"), ("tls_key_file", "TB_TLS_KEY_FILE")):
+                if not str(a.get(k) or "").strip():
+                    errors.append(f"tls_mode hospital (the default) needs {k}, or set tls_mode internal")
+                tls_env[var] = str(a.get(k) or "").strip()
+        else:
+            warnings.append(
+                "tls_mode internal: hospital IT must install Caddy's root certificate on every clinic PC (group "
+                "policy), and personal devices cannot open the console; the hospital's certificate is the first "
+                "choice (RUNBOOK §12)"
+            )
+    else:
+        warnings.append("tls_hostname is empty: install.sh asks for it (a PRODUCTION box runs only behind https)")
     twpas = _bool(a.get("twpas_enabled", "no"))
     if twpas and not a.get("twpas_org_id"):
         errors.append("TWPAS needs the NHI hospital code (twpas_org_id)")
+    from tb_common.retention import defaults_for
+
+    rules = str(a.get("retention_rules") or "").strip().lower() or (
+        "jp" if str(a.get("locale", "zh-TW")).startswith("ja") else "tw"
+    )
+    retention: dict[str, int] = {}
+    try:
+        retention = defaults_for(rules, {k: a.get(k) for k in ("logs_days", "mail_log_days", "outputs_days",
+                                                               "attachments_days")})  # fmt: skip
+    except ValueError as exc:
+        errors.append(str(exc))
+    extra = env_extra(a.get("env_extra"), errors)
     if errors:
         raise WizardError("; ".join(errors))
     site_id = str(get("site_id")).upper()
@@ -201,7 +347,7 @@ def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]
         "site": {
             "id": site_id,
             "name": str(get("site_name")),
-            "tz": str(a.get("tz", "Asia/Taipei")),
+            "tz": tz,
             "locale": str(a.get("locale", "zh-TW")),
             "contact": str(get("contact")),
         },
@@ -227,11 +373,11 @@ def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]
         "rate_limit_per_sender_per_day": 20,
         "data_source": data_source,
         "mrn_regex": str(get("mrn_regex")),
-        "profiles": {"tw_core": "1.0.0", "twpas_version": "1.2.0"},
+        "profiles": {"tw_core": "1.0.0", "twpas_version": "1.2.5"},
         "models": {
             "judge": "qwen3.5-35b-a3b-q4",
             "extract_local": "gpt-oss-120b-mxfp4",
-            "embed": "bge-m3",
+            "embed": "e-embed",  # the registry alias; the build is e-embed-1 (D-429)
             "cloud_enabled": _bool(a.get("cloud_enabled", "no")),
         },
         "thresholds": {
@@ -249,18 +395,10 @@ def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]
             "calibration": "1st 05:30",
         },
         "registry_source": registry,
-        "attachment_encryption": str(a.get("attachment_encryption", "zip")),
+        "attachment_encryption": attach,
         "departments": depts,
         "practitioners": prac,
-        "retention": {
-            "attachments_days": 90,
-            "outputs_days": 365,
-            "logs_days": 180,
-            "nightly_snapshots": 3,
-            "month_end_snapshots_months": 36,
-            "pool_months_after_ruleset": 24,
-            "audit_years": 10,
-        },
+        "retention": retention,
         "calibration_defaults": {"reach_rate": 0.6, "accept_rate": 0.35},
         "twpas": {"enabled": twpas, "dry_run": True, **({"org_id": str(a["twpas_org_id"])} if twpas else {})},
         "cohort": {
@@ -271,12 +409,13 @@ def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]
         },
     }
     intake = str(get("intake_address"))
+    embed_mode = EMBED_MODE_GPU if str(a.get("llm_mode", "gpu")) == "gpu" else EMBED_MODE_STUB
     env = {
         "TB_SITE_ID": site_id,
         "TB_TZ": settings["site"]["tz"],
         "COMPOSE_PROFILES": "gpu" if str(a.get("llm_mode", "gpu")) == "gpu" else "stub",
         "TB_LLM_MODE": "vllm" if str(a.get("llm_mode", "gpu")) == "gpu" else "stub",
-        "TB_EMBED_MODE": "model" if str(a.get("llm_mode", "gpu")) == "gpu" else "hash",
+        "TB_EMBED_MODE": embed_mode,
         "IMAP_HOST": str(a.get("imap_host", "")),
         "IMAP_PORT": str(a.get("imap_port", "993")),
         "IMAP_SSL": "true",
@@ -301,14 +440,43 @@ def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]
         "TB_SERVICE_TOKEN": secrets.token_urlsafe(24),
         "NHI_TWPAS_BASE_URL": "",
         "ATTACH_PASSWORD_MODE": settings["attachment_encryption"],
+        "TB_CONSOLE_URL": str(a.get("console_url") or "").strip(),
         "LOG_LEVEL": "INFO",
         "POSTGRES_PASSWORD": secrets.token_urlsafe(24),
         "TB_SETTINGS": "/etc/trialbox/settings.yaml",
-        "TB_CTGOV_MODE": "live",
+        "TB_CTGOV_MODE": ctgov,
     }
     if ds_type == "cgrd_sql" and a.get("data_source_dsn"):
         env[str(get("data_source_dsn_env"))] = str(a["data_source_dsn"])
+    # T-632 (OPS-011): the feed folder on the host and where the adapter sees it (deploy/docker-compose.yml)
+    env["TB_SOURCE_DIR"] = str(a.get("data_source_host_dir") or "./site/feed")
+    env["TB_SOURCE_MOUNT"] = str(data_source.get("path") or "/data/source/site")
+    env.update(tls_env)
+    env.update(extra)
     return settings, env, warnings
+
+
+def env_extra(raw: Any, errors: list[str]) -> dict[str, str]:
+    """``env_extra`` of an answers file (the box's plan, T-729): only declared ``TB_*`` settings, string values."""
+    if not raw:
+        return {}
+    if not isinstance(raw, dict):
+        errors.append("env_extra must be a mapping of TB_* settings")
+        return {}
+    from tb_common.config import DECLARED, DECLARED_FAMILIES
+
+    out: dict[str, str] = {}
+    for k, v in raw.items():
+        name = str(k)
+        if not re.fullmatch(r"TB_[A-Z0-9_]+", name) or not (
+            name in DECLARED or any(name.startswith(f) for f in DECLARED_FAMILIES)
+        ):
+            errors.append(f"env_extra: {name} is not a declared TB_* setting")
+        elif "\n" in str(v) or "\r" in str(v):
+            errors.append(f"env_extra: {name} has a line break")
+        else:
+            out[name] = str(v)
+    return out
 
 
 def write(settings: dict[str, Any], env: dict[str, str], out: Path, env_out: Path | None) -> None:
@@ -338,6 +506,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, default=ROOT / "deploy" / "settings.yaml")
     ap.add_argument("--env-out", type=Path, help="also write the .env (mode 0600)")
     ap.add_argument("--check", type=Path, help="only validate an existing settings.yaml")
+    ap.add_argument(
+        "--mapping-dir",
+        type=Path,
+        action="append",
+        default=[],
+        help="a site mapping folder to look in first (default: mapping/ beside --answers, deploy/site/mapping)",
+    )
     args = ap.parse_args(argv)
     from tb_common.config import ConfigError, load_settings
 
@@ -352,7 +527,8 @@ def main(argv: list[str] | None = None) -> int:
     answers = yaml.safe_load(args.answers.read_text(encoding="utf-8")) if args.answers else {}
     a = answers if args.answers else ask({})
     try:
-        settings, env, warnings = build(a)
+        dirs = list(args.mapping_dir) + ([args.answers.parent / "mapping"] if args.answers else [])
+        settings, env, warnings = build(a, dirs)
         write(settings, env, args.out, args.env_out)
     except (WizardError, ConfigError) as exc:
         print(f"not written: {exc}", file=sys.stderr)

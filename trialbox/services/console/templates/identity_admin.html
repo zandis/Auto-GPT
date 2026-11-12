@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{# D-192: the administrator's recovery actions. Unlock, Enrolment code and Reset authenticator are audited; a reset
+   signs the account out. An enrolment code is shown once, on this answer only (review H2). An administrator never
+   acts on their own account here (another administrator or console.cli does). #}
+{% block title %}{{ t('identity.title') }}{% endblock %}
+{% block content %}
+<h1>{{ t('identity.title') }}</h1>
+<p>{{ t('identity.help') }}</p>
+<p class="hint" data-testid="identity-policy">{{ t('identity.policy', mfa=t('identity.mfa.' + mfa), oidc=t('identity.oidc.' + ('on' if oidc else 'off')), idle=idle_minutes, hours=session_hours) }}</p>
+{% if done == 'unlock' %}<p class="ok" role="status" data-testid="identity-done">{{ t('identity.done.unlock') }}</p>{% endif %}
+{% if code %}<section class="card attention" data-testid="identity-code" aria-labelledby="code-h">
+<h2 id="code-h">{{ t('identity.code.title', user=code_for) }}</h2>
+{% if done == 'reset_totp' %}<p>{{ t('identity.done.reset_totp') }}</p>{% endif %}
+<label for="enrol-code-value">{{ t('identity.code.label') }}</label>
+<input id="enrol-code-value" class="mono" readonly value="{{ code }}" data-testid="identity-code-value" autocomplete="off" spellcheck="false">
+<p class="warn">{{ t('identity.code.once') }}</p>
+</section>{% endif %}
+{% if mfa == 'totp' and unenrolled %}<section class="card attention" data-testid="identity-unenrolled" aria-labelledby="unenrolled-h">
+<h2 id="unenrolled-h">{{ t('identity.unenrolled.title', n=unenrolled|length) }}</h2>
+<p>{{ t('identity.unenrolled.help') }}</p>
+<ul>{% for r in unenrolled %}<li data-user="{{ r.user.username }}">{{ r.user.username }}{% if r.enrol_live %} · {{ t('identity.code.live') }}{% endif %}</li>{% endfor %}</ul>
+</section>{% endif %}
+<table data-testid="identity-table">
+<thead><tr><th>{{ t('identity.col.user') }}</th><th>{{ t('identity.col.kind') }}</th><th>{{ t('identity.col.totp') }}</th><th>{{ t('identity.col.lock') }}</th><th><span class="sr">{{ t('col.actions') }}</span></th></tr></thead>
+<tbody>
+{% for r in rows %}<tr data-user="{{ r.user.username }}" id="u-{{ r.user.username }}">
+<td>{{ r.user.username }} · {{ t('role.' + r.user.role) }}</td>
+<td>{{ t('identity.kind.idp') if r.idp else t('identity.kind.local') }}</td>
+<td>{% if r.idp %}–{% else %}{{ t('identity.yes') if r.totp else t('identity.no') }}{% endif %}</td>
+<td>{{ r.locked_until|local if r.locked_until else '–' }}</td>
+<td class="row">
+{% if r.locked_until %}<form method="post" action="/ops/identity" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="unlock"><input type="hidden" name="username" value="{{ r.user.username }}"><button type="submit" class="secondary" data-testid="unlock-{{ r.user.username }}">{{ t('identity.unlock') }}</button></form>{% endif %}
+{% if not r.idp and r.user.username != user.username %}{% if r.totp %}<form method="post" action="/ops/identity" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="reset_totp"><input type="hidden" name="username" value="{{ r.user.username }}"><button type="submit" class="secondary" data-testid="reset-totp-{{ r.user.username }}">{{ t('identity.reset') }}</button></form>
+{% else %}<form method="post" action="/ops/identity" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="enrol_code"><input type="hidden" name="username" value="{{ r.user.username }}"><button type="submit" class="secondary" data-testid="enrol-code-{{ r.user.username }}">{{ t('identity.code.issue') }}</button></form>{% endif %}{% endif %}
+</td></tr>{% endfor %}
+</tbody>
+</table>
+{% endblock %}

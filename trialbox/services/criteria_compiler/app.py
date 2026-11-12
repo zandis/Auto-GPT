@@ -5,16 +5,16 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from lake.client import LakeHttp
-from tb_common.audit import AuditLog
+from tb_common.audit_writer import open_audit
 from tb_common.config import get_config
 from tb_common.fhir import FhirEvaluator
 from tb_common.http import make_app
 from tb_common.llm import LlmClient
 from tb_common.objstore import from_config
+from tb_common.ruleset import SEED_RULESETS
 from tb_contracts import (
     ApproveRequest,
     ApproveResult,
@@ -29,23 +29,34 @@ from tb_contracts import (
 from criteria_compiler.compile_cql.translator import Translator, available
 from criteria_compiler.repo import RulesetRepo
 from criteria_compiler.service import CompileFailed, Compiler, CompilerDeps
-from criteria_compiler.terminology.mapper import Terminology
+from criteria_compiler.terminology import resolver
 
 _compiler: Compiler | None = None
-SEED = Path(__file__).resolve().parents[2] / "rulesets"
+SEED = SEED_RULESETS  # D-469: read-only; the working copy is cfg.env.rulesets_path
+
+
+def _egfr(tz: str, locale: str | None) -> str:
+    """D-149: a plain "eGFR" criterion is JSN 2009 at a Japanese site, CKD-EPI 2021 (``egfr``) elsewhere."""
+    from tb_common.derived import country_of, egfr_for_site
+
+    site = egfr_for_site(country_of(tz, locale))
+    return "egfr" if site == "egfr_ckd_epi" else site
 
 
 def compiler() -> Compiler:
     global _compiler
     if _compiler is None:
+        from tb_common.refdata import synonym_lookup
+
         cfg = get_config()
-        audit = AuditLog(cfg.env.audit_path, cfg.env.tz)
+        audit = open_audit(cfg.env.audit_path, cfg.env.tz)
         th = cfg.settings.thresholds
         deps = CompilerDeps(
             store=from_config(),
             repo=RulesetRepo(cfg.env.rulesets_path, SEED),
             llm=LlmClient.from_config(audit),
-            term=Terminology(),
+            # D-172: the loaded zh-TW synonym dictionary; the source and release from the resolver (D-301)
+            term=resolver.jp_ingredients(resolver.terminology(name_synonyms=synonym_lookup())),  # T-610: JP stems
             settings_thresholds={
                 "equivalence_min_pct": th.equivalence_min_pct,
                 "tier_high_confidence": th.tier_high_confidence,
@@ -58,6 +69,7 @@ def compiler() -> Compiler:
             translator=Translator() if available() else None,
             audit=audit,
             judge_model=(cfg.settings.models.judge if cfg.settings.models else "") or "",
+            egfr_equation=_egfr(cfg.env.tz, cfg.settings.site.locale),
         )
         _compiler = Compiler(deps)
     return _compiler

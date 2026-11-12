@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% block title %}{{ t('nav.week') }}{% endblock %}
 {% block content %}
+{% from "_life.html" import sae_banner, sae_failed, report_banner with context %}
 <h1>{{ t('week.title') }}</h1>
+{% if life %}{{ sae_failed(life.sae_failed) }}{{ sae_banner(life.sae) }}{{ report_banner(life.reports) }}{% endif %}
 {% for j in approvals or [] %}<p class="warn" data-testid="approval-waiting"><a href="/pilot/jobs/{{ j.job_id }}/approval">{{ t('s20.waiting', rs=j.ruleset, v=j.ruleset_version) }}</a></p>{% endfor %}
 {% if not studies %}<section class="card"><p>{{ t('week.none') }}</p></section>{% endif %}
 <section class="card"><ul class="plain">{% for r in studies %}<li><a href="/studies/{{ r.id }}/week">{{ r.id }}</a></li>{% endfor %}{% for r in cohorts or [] %}<li><a href="/studies/{{ r.id }}/cohort">{{ r.id }}</a> <span class="hint">{{ t('cohort.title') }}</span></li>{% endfor %}</ul></section>

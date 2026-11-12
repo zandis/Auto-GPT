@@ -2,7 +2,13 @@
 
 * **Screening log** (ICH E6(R3) §2.8 / Appendix C "subject screening log", pseudonymous): one line per patient the
   study approached, by screening number (FR-STUDY-08), with the PI's mark, the contact outcomes and the registry
-  status. The chart number stays off the log; the site's existing registry export resolves it on the box.
+  status. The chart number stays off the log; the site's existing registry export resolves it on the box. D-387
+  (LIFE-015, LIFE-016) adds the criteria version of the mark, the criterion not met on a screen failure with its
+  version ("GZQO-EXC-06 (v3.0.0)"), the day of consent, the consent form version and the day of enrolment.
+* **Pre-screen log** (D-387, LIFE-015): one pseudonymous line per investigator mark, approached or not, so a patient
+  set aside or not approached is on a per-patient log too: first listed, the criteria version the mark was made on,
+  the mark and its reason, a later mark or withdrawal, the screening number if one was given, the referral answer
+  and the screening-log status and reason. No screening number is needed. Same page and XLSX as the screening log.
 * **Cohort list** for a registry or observational study (RA-BIO, RA-COH, GOUT-COH): the members found by the latest
   run who were not listed before. There is no contact step and no PI mark: a cohort study counts and follows members,
   it does not approach them for a trial (FR-SCR-12).
@@ -17,7 +23,10 @@ import json
 import re
 from typing import Any
 
+from datacore import sponsor
+from datacore.lifecycle import failed_label
 from fastapi import FastAPI, Request, Response
+from tb_common.authz import permit
 from tb_contracts import Job
 
 from console import s28
@@ -25,6 +34,7 @@ from console import studies as st
 from console.auth import Session
 from console.backend import Problem, Unavailable
 from console.home import Helpers
+from console.studies import known_study
 from console.timefmt import local_date, site_zone
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
@@ -43,8 +53,78 @@ def _rc_note(reason: str) -> tuple[str, str] | None:
     return (m.group(1), m.group(2) or "") if m else None
 
 
+def criteria_choices(bk: Any, rid: str) -> tuple[str, list[str]]:
+    """The criteria a "not eligible" screen failure can name (D-387, LIFE-016): the ids on the latest candidate list
+    of the study and the criteria version it screened under. ``("", [])`` when no list has run."""
+    try:
+        job = st.latest_job(bk.list_jobs(limit=500), rid, ("SCREEN", "MICROBATCH"))
+        out = st.output(job, "candidate_list_", ".json")
+        data = json.loads(bk.get_object(out.minio_key)) if out is not None else None
+    except (KeyError, ValueError, OSError, Unavailable):
+        return "", []
+    if not isinstance(data, dict):
+        return "", []
+    ids: list[str] = []
+    for r in data.get("rows") or []:
+        for v in r.get("criteria") or []:
+            cid = str(v.get("id") or "")
+            if cid and cid not in ids:
+                ids.append(cid)
+    version = str(data.get("version") or (job.ruleset_version if job is not None else "") or "")
+    return version, ids
+
+
+def prescreen_rows(marks: list[Any], numbers: dict[str, str], seen: dict[str, tuple[str, str]],
+                   reg: dict[str, Any], refs: dict[str, Any], gone: set[str]) -> list[dict[str, Any]]:  # fmt: skip
+    """The pre-screen log (D-387, LIFE-015): one row per investigator mark, oldest first. A withdrawal is not a mark
+    of its own: it shows on the mark it took back (``later`` "withdrawn"); a newer mark shows as "replaced"."""
+    rows: list[dict[str, Any]] = []
+    by_pid: dict[str, list[dict[str, Any]]] = {}
+    for m in marks:
+        if m.pid in gone:
+            continue
+        mine = by_pid.setdefault(m.pid, [])
+        if m.mark == "withdrawn":
+            if mine and not mine[-1]["later"]:
+                mine[-1]["later"] = "withdrawn"
+            continue
+        if mine and not mine[-1]["later"]:
+            mine[-1]["later"] = "replaced"
+        e = reg.get(m.pid)
+        row = {
+            "pid": m.pid,
+            "short": m.pid[:8],
+            "listed": (seen.get(m.pid) or ("", ""))[1],
+            "version": m.version or "",
+            "mark": m,
+            # a "not now" mark's reason is the recheck date, a plan rather than something that happened: this log
+            # records what happened (nothing after today, T-513), so the date stays on the patient page and week list
+            "mark_reason": "" if m.mark == "not_now" else (m.reason or ""),
+            "later": "",
+            "no": numbers.get(m.pid, ""),
+            "referral": refs.get(m.pid),
+            "status": e.status if e else "",
+            "reason": (e.reason if e else "") or "",
+        }
+        mine.append(row)
+        rows.append(row)
+    return rows
+
+
 def suppress(n: int, k: int) -> int | str:
     return f"<{k}" if 0 < n < k else n
+
+
+def study_lines(store: Any, rid: str) -> list[list[str]]:
+    """D-386 (LIFE-008, LIFE-013): the rows the log's "about" sheet prints for the study: its sponsor, protocol
+    number, SIV date and registry ids (as entered, each checked against its registry's format when saved), the state
+    now, and every state change with its date, who and why."""
+    out = [[k, v] for k, v in store.study_identity(rid).lines()]
+    cur = store.study_state(rid)
+    out.append(["state", cur.state])
+    for e in store.state_history(rid):
+        out.append([f"state.{e.state}", e.at, e.by, e.reason])
+    return out
 
 
 def register(app: FastAPI, h: Helpers) -> None:
@@ -53,7 +133,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def study_or_404(sess: Session, rs: str) -> str:
         rid = rs.strip().upper()
-        if not _RS.match(rid) or not sess.user.sees_study(rid):
+        if not _RS.match(rid) or not sess.user.sees_study(rid) or not known_study(bk, rid):
             raise h.problem(404, "notfound")
         return rid
 
@@ -92,9 +172,26 @@ def register(app: FastAPI, h: Helpers) -> None:
             return None
         return out if isinstance(out, dict) else None
 
+    def life_detail(rs: str) -> dict[str, dict[str, Any]]:
+        """Per screening number, the lifecycle's consent, enrolment and screen-failure detail (D-387)."""
+        if not s28.has_api(bk):
+            return {}
+        try:
+            out = s28.call(bk, "GET", f"/studies/{rs}/subjects")
+        except (Problem, Unavailable):
+            return {}
+        return {str(x.get("record")): x for x in (out or {}).get("subjects") or [] if isinstance(x, dict)}
+
+    def prescreen(rs: str) -> list[dict[str, Any]]:
+        refs: dict[str, Any] = h.team.latest_referrals(rs) if h.team is not None else {}
+        gone = h.optout.active() if h.optout is not None else set()
+        return prescreen_rows(store.all_marks(rs), store.screening_nos(rs), store.first_seen(rs), registry_rows(rs),
+                              refs, set(gone))  # fmt: skip
+
     def log_rows(rs: str) -> list[dict[str, Any]]:
         reg = registry_rows(rs)
         rc = rc_records(rs)
+        life = life_detail(rs)
         marks: dict[str, list[Any]] = {}
         for m in store.all_marks(rs):
             marks.setdefault(m.pid, []).append(m)
@@ -102,11 +199,21 @@ def register(app: FastAPI, h: Helpers) -> None:
         for o in store.outcomes(rs):
             outs.setdefault(o.pid, []).append(o)
         seen = store.first_seen(rs)
+        # D-147: the referral route and outcome per row, Approach marked despite an IRB warning; opted-out patients
+        # leave the log and its exports
+        refs: dict[str, Any] = h.team.latest_referrals(rs) if h.team is not None else {}
+        overrides: dict[str, tuple[str, list[str], str, str]] = {}
+        for o in h.team.overrides(rs) if h.team is not None else []:
+            overrides[o[0]] = o
+        gone = h.optout.active() if h.optout is not None else set()
         rows = []
         for pid, no, at in store.screening_rows(rs):
+            if pid in gone:
+                continue
             e = reg.get(pid)
             mk = [m for m in marks.get(pid, []) if m.mark != "withdrawn"]
             oc = outs.get(pid, [])
+            lf = life.get(no) or {}
             rows.append(
                 {
                     "no": no,
@@ -123,6 +230,14 @@ def register(app: FastAPI, h: Helpers) -> None:
                     "updated": local_date(e.updated_at.isoformat(), tz) if e else "",
                     "record_id": (rc.get(pid) or {}).get("record_id") or "",
                     "subject_no": (rc.get(pid) or {}).get("subject_no") or "",
+                    "referral": refs.get(pid),
+                    "override": overrides.get(pid),
+                    "version": (mk[-1].version or "") if mk else "",
+                    "failed": failed_label(str(lf.get("criterion") or ""), str(lf.get("criteria_version") or "")),
+                    "consented": str(lf.get("consented") or ""),
+                    "icf_version": str(lf.get("icf_version") or ""),
+                    "enrolled": str(lf.get("enrolled") or ""),
+                    "randomised": str(lf.get("randomised") or ""),  # D-407 (LIFE-020): in the sponsor's IRT
                 }
             )
         return rows
@@ -131,8 +246,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def screening_log(request: Request, rs: str) -> Response:
         sess = h.need(request)
         rid = study_or_404(sess, rs)
-        if not sess.user.can_view_phi:
-            raise h.problem(403, "forbidden")
+        h.need_rows(sess, rid, request.url.path)  # D-273 (PV-3), ROLE-017: one question with the XLSX and /api/v1
         link = rc_link(rid)
         reads = (link or {}).get("reads") or []
         return h.page(
@@ -141,44 +255,48 @@ def register(app: FastAPI, h: Helpers) -> None:
             sess,
             rs=rid,
             rows=log_rows(rid),
+            pre=prescreen(rid),
             link=link,
             last=reads[0] if reads else None,
             back="log",
+            sstate=store.study_state(rid),  # D-386: the study's state and identifiers above the log
+            sident=store.study_identity(rid),
+            sponsor_cols=current_layout(rid) is not None,  # T-302c: the link to the log in the sponsor's columns
         )
 
+    def current_layout(rs: str) -> dict[str, Any] | None:
+        """The study's sponsor layout in force (D-435) when it names the log's columns, else None."""
+        cur = None
+        if s28.has_api(bk):
+            try:
+                cur = (s28.call(bk, "GET", f"/studies/{rs}/sponsor/layout") or {}).get("current")
+            except (Problem, Unavailable):
+                cur = None
+        return cur if isinstance(cur, dict) and (cur.get("layout") or {}).get("log") else None
+
+    def sponsor_layout(rs: str) -> dict[str, Any]:
+        """The study's sponsor layout (D-435), or 404 when none is saved."""
+        cur = current_layout(rs)
+        if cur is None:
+            raise h.problem(404, "notfound")
+        return cur
+
     @app.get("/studies/{rs}/screening-log.xlsx")
-    def screening_log_xlsx(request: Request, rs: str) -> Response:
+    def screening_log_xlsx(request: Request, rs: str, layout: str = "") -> Response:
         from openpyxl import Workbook
 
         sess = h.need(request)
         rid = study_or_404(sess, rs)
-        if not sess.user.can_request:
-            au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
-            raise h.problem(403, "forbidden")
+        h.need_rows(sess, rid, request.url.path)  # ROLE-017: the page's question (it holds pseudonyms, D-280)
+        if layout not in ("", "sponsor"):
+            raise h.problem(404, "notfound")
         wb = Workbook()
         ws: Any = wb.active
         ws.title = "screening log"
-        ws.append(
-            [
-                "screening_no",
-                "pseudonym",
-                "first_listed",
-                "number_given",
-                "pi_mark",
-                "pi_mark_reason",
-                "pi_mark_date",
-                "last_contact_outcome",
-                "contact_attempts",
-                "status",
-                "reason",
-                "status_date",
-                "redcap_record_id",
-                "subject_no",
-            ]
-        )
+        table: list[list[Any]] = []
         for r in log_rows(rid):
-            mk, oc = r["mark"], r["outcome"]
-            ws.append(
+            mk, oc, rf, ov = r["mark"], r["outcome"], r["referral"], r["override"]
+            table.append(
                 [
                     r["no"],
                     r["pid"],
@@ -194,12 +312,59 @@ def register(app: FastAPI, h: Helpers) -> None:
                     r["updated"],
                     r["record_id"],
                     r["subject_no"],
+                    rf.route if rf else "",
+                    rf.state if rf else "",
+                    rf.reason if rf else "",
+                    local_date(rf.requested_at, tz) if rf else "",
+                    local_date(rf.answered_at, tz) if rf and rf.answered_at else "",
+                    ",".join(ov[1]) if ov else "",
+                    r["version"],
+                    r["failed"],
+                    r["consented"],
+                    r["icf_version"],
+                    r["enrolled"],
+                    r["randomised"],
                 ]
             )
+        if layout == "sponsor":  # D-435: the same rows in the sponsor's columns, words and date format
+            cur = sponsor_layout(rid)
+            heads, body = sponsor.log_table(cur["layout"], table)
+            ws.append(heads)
+            for line in body:
+                ws.append(line)
+            about = wb.create_sheet("about")
+            about.append(["study", rid])
+            about.append(["made", h.clock().isoformat(timespec="seconds")])
+            about.append(
+                ["layout", f"{cur['layout'].get('sponsor', '')} (layout {cur.get('id', '')}, {cur.get('at', '')})"]
+            )
+            about.append(["note", "Pseudonymous ICH E6(R3) screening log. Chart numbers are not in this file."])
+            buf = io.BytesIO()
+            wb.save(buf)
+            name = f"screening_log_{rid}_sponsor.xlsx"
+            au.append("console.export", ruleset=rid, actor=h.actor(sess),
+                      detail={"filename": name, "layout": cur.get("id")})  # fmt: skip
+            return Response(buf.getvalue(), media_type=XLSX,
+                            headers={"Content-Disposition": f'attachment; filename="{name}"'})  # fmt: skip
+        ws.append(list(sponsor.LOG_COLUMNS))
+        for line in table:
+            ws.append(line)
+        pre = wb.create_sheet("pre-screen log")  # D-387 (LIFE-015): one row per investigator mark
+        pre.append(["pseudonym", "first_listed", "criteria_version", "pi_mark", "pi_mark_reason", "pi_mark_date",
+                    "pi_mark_by", "later", "screening_no", "referral_outcome", "referral_reason", "status",
+                    "reason"])  # fmt: skip
+        for p in prescreen(rid):
+            mk, rf = p["mark"], p["referral"]
+            pre.append([p["pid"], local_date(p["listed"], tz), p["version"], mk.mark, mk.reason or "",
+                        local_date(mk.at, tz), mk.by, p["later"], p["no"], rf.state if rf else "",
+                        rf.reason if rf else "", p["status"], p["reason"]])  # fmt: skip
         about = wb.create_sheet("about")
         about.append(["study", rid])
         about.append(["made", h.clock().isoformat(timespec="seconds")])
         about.append(["note", "Pseudonymous ICH E6(R3) screening log. Chart numbers are not in this file."])
+        for row in study_lines(store, rid):  # D-386 (LIFE-008, LIFE-013): identifiers and the state's dates
+            about.append(row)
+        about.append(["pre-screen log", "One row per investigator mark, approached or not (D-387)."])
         buf = io.BytesIO()
         wb.save(buf)
         au.append("console.export", ruleset=rid, actor=h.actor(sess), detail={"filename": "screening_log.xlsx"})
@@ -213,8 +378,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def cohort(request: Request, rs: str) -> Response:
         sess = h.need(request)
         rid = study_or_404(sess, rs)
-        if not sess.user.can_view_phi:
-            raise h.problem(403, "forbidden")
+        h.need_rows(sess, rid, request.url.path)  # D-273 (PV-3), ROLE-017: one question with the XLSX and /api/v1
         info = next((r for r in bk.rulesets() if r.id == rid), None)
         kind = info.kind if info else ""
         conf = s28.load(bk, store, rid, st.study_defaults(rid, kind))
@@ -226,7 +390,11 @@ def register(app: FastAPI, h: Helpers) -> None:
         jobs.sort(key=lambda j: j.updated_at or j.received_at)
         job = jobs[-1] if jobs else None
         cl = load(job, "candidate_list_")
-        members = [str(r.get("pid")) for r in (cl or {}).get("rows") or [] if r.get("tier") == "high"]
+        gone = h.optout.active() if h.optout is not None else set()  # D-147: opted-out patients are on no list
+        members = [
+            str(r.get("pid")) for r in (cl or {}).get("rows") or [] if r.get("tier") == "high"
+            and str(r.get("pid")) not in gone
+        ]  # fmt: skip
         rows: list[dict[str, Any]] = []
         dropped = 0
         if job is not None:
@@ -292,14 +460,14 @@ def register(app: FastAPI, h: Helpers) -> None:
         return out
 
     def office_allowed(sess: Session) -> bool:
-        return sess.user.role in ("admin", "viewer", "coordinator")  # the CRO never sees the site's own totals
+        return permit(sess.user.role, "report.office").allowed  # the CRO never sees the site's own totals
 
     @app.get("/reports/research-office")
     def research_office(request: Request, year: int = 0) -> Response:
         sess = h.need(request)
         if not office_allowed(sess):
             raise h.problem(403, "forbidden")
-        y = year or h.clock().year
+        y = year or h.today().year  # the site's year (D-270)
         k = SMALL_CELL
         return h.page(request, "research_office.html", sess, year=y, rows=office_counts(y, k), keys=COUNT_KEYS, small=k)
 
@@ -311,7 +479,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not office_allowed(sess):
             au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
-        y = year or h.clock().year
+        y = year or h.today().year  # the site's year (D-270)
         k = SMALL_CELL
         wb = Workbook()
         ws: Any = wb.active

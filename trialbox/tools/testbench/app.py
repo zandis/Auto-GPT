@@ -1,4 +1,4 @@
-"""TrialBox Test Bench web app (FastAPI + Jinja2 + vendored htmx; docs/HANDOFF.md §5).
+"""TrialBox Test Bench web app (FastAPI + Jinja2 + vendored htmx; docs/VALIDATION.md §6).
 
     TB_ENV=DEV PYTHONPATH=libs:services:. .venv/bin/python -m tools.testbench          # 127.0.0.1:8765
     TB_ENV=DEV PYTHONPATH=libs:services:. .venv/bin/python -m uvicorn tools.testbench.app:app --port 8765
@@ -34,7 +34,7 @@ DEFAULT_WORKDIR = ROOT / ".cache" / "testbench"
 PAGES = [
     ("/", "Home"),
     ("/run", "Run"),
-    ("/dataplat", "Data platform"),
+    ("/ingest", "Ingest gate"),
     ("/llm", "LLM lab"),
     ("/guard", "PHI guard"),
     ("/recall", "Recall"),
@@ -225,21 +225,21 @@ def create_app(env: Mapping[str, str] | None = None, workdir: Path | None = None
 
         return job_response(request, jobs.start("tests", "Run all tests (unit)", work))
 
-    # ------------------------------------------------------------------------------------------------ data platform
-    @app.get("/dataplat", response_class=HTMLResponse)
-    def dataplat_page(request: Request) -> HTMLResponse:
-        return page(request, "dataplat.html", defects=list(drivers.DEFECT_TABLE), last=jobs.latest("dataplat"))
+    # ------------------------------------------------------------------------------------------------ ingest gate
+    @app.get("/ingest", response_class=HTMLResponse)
+    def ingest_page(request: Request) -> HTMLResponse:
+        return page(request, "ingest.html", defects=list(drivers.DEFECT_TABLE), last=jobs.latest("ingest"))
 
-    @app.post("/dataplat")
-    def dataplat_run(request: Request, defect: str = Form("")) -> Response:
+    @app.post("/ingest")
+    def ingest_run(request: Request, defect: str = Form("")) -> Response:
         ds = require("synthea_site_a", environment)
         if defect and defect not in drivers.DEFECT_TABLE:
             raise PolicyError(f"unknown defect {defect!r}")
 
-        def work(log: Log, wd: Path) -> drivers.DataplatResult:
-            return drivers.run_dataplat(ds.path, defect, log, wd)
+        def work(log: Log, wd: Path) -> drivers.IngestGateResult:
+            return drivers.run_ingest_gate(ds.path, defect, log, wd)
 
-        return job_response(request, jobs.start("dataplat", f"Data platform: {defect or 'clean'}", work))
+        return job_response(request, jobs.start("ingest", f"Ingest gate: {defect or 'clean'}", work))
 
     # ------------------------------------------------------------------------------------------------ LLM lab
     def _topology(v: str) -> Topology:

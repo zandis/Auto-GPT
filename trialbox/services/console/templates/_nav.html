@@ -9,11 +9,19 @@
       {{ item('/reports', 'nav.reports', path.startswith('/reports') or path.endswith('/feasibility')) }}
     {% elif r in ('cro', 'viewer') %}
       {{ item('/reports', 'nav.reports', path.startswith('/reports') or path.endswith('/feasibility')) }}
+    {% elif r in ('steward', 'privacy') %}{# D-280, D-380: the registers, the break-glass review, the item catalogue #}
+      {% if permit(r, 'breakglass.review') %}{{ item('/breakglass', 'nav.breakglass', path.startswith('/breakglass')) }}{% endif %}
+      {{ item('/site/opt-outs', 'team.optout.title', path.startswith('/site/opt-outs')) }}
+      {{ item('/site/staff', 'team.staff.title', path.startswith('/site/staff')) }}
+      {% if permit(r, 'items.view') %}{{ item('/data/items', 'items.title', path.startswith('/data/items')) }}{% endif %}
+      {% if permit(r, 'conflicts.resolve') %}{{ item('/data/conflicts', 'conflicts.title', path.startswith('/data/conflicts')) }}{% endif %}
+      {% if permit(r, 'dataops.view') %}{{ item('/data-ops', 'dataops.title', path.startswith('/data-ops')) }}{% endif %}
+      {% if permit(r, 'audit.browse') %}{{ item('/audit', 'nav.audit', path.startswith('/audit')) }}{% endif %}{# T-211c (D-451) #}
     {% elif r == 'admin' %}
       {{ item('/home', 'nav.admin', path == '/home') }}
       {{ item('/home?view=studies', 'nav.studies', false) }}
       {{ item('/ops/users', 'nav.users', path.startswith('/ops/users')) }}
-      {{ item('/audit', 'nav.audit', path.startswith('/audit')) }}
+      {% if permit(r, 'audit.browse') %}{{ item('/audit', 'nav.audit', path.startswith('/audit')) }}{% endif %}{# T-211c (D-451) #}
     {% else %}
       {{ item('/home', 'nav.studies', path == '/home') }}
       {{ item('/week', 'nav.week', path.startswith('/week') or path.endswith('/week') or '/patients/' in path) }}
@@ -25,32 +33,51 @@
       <div class="more-items">
         <a href="/account" data-testid="more-account">{{ t('account.title') }}</a>
         <a href="/help?back={{ path|urlencode }}">{{ t('help.title') }}</a>
+        {% if r in ('investigator', 'coordinator', 'admin') %}<a href="/site" data-testid="more-site">{{ t('site.ready.title') }}</a>{% endif %}
         {% if r in ('investigator', 'coordinator', 'admin') %}<a href="/notices/received" data-testid="more-notices">{{ t('received.title') }}</a>{% endif %}
+        {% if settings.pilot and permit(r, 'sae.view') %}<a href="/sae" data-testid="more-sae">{{ t('sae.nav') }}</a>{% endif %}
         {% if r == 'cro' %}<a href="/reports">{{ t('nav.reports') }}</a>{% else %}
+        {% set sp = path.split('/') %}{% if user.can_view_phi and sp|length > 2 and sp[1] == 'studies' and sp[2] and user.sees_study(sp[2]) %}{% set srs = sp[2]|upper %}
+        <a href="/studies/{{ srs }}/setup" data-testid="more-setup">{{ srs }} · {{ t('setup.title') }}</a>
+        <a href="/studies/{{ srs }}/sources" data-testid="more-sources">{{ srs }} · {{ t('dc.sources.title') }}</a>
+        <a href="/studies/{{ srs }}/conflicts" data-testid="more-conflicts">{{ srs }} · {{ t('dc.conflicts.title') }}</a>
+        <a href="/studies/{{ srs }}/entry" data-testid="more-entry">{{ srs }} · {{ t('dc.entry.title') }}</a>
+        <a href="/studies/{{ srs }}/forms" data-testid="more-forms">{{ srs }} · {{ t('dc.forms.title') }}</a>
+        {% if user.can_view_phi %}<a href="/studies/{{ srs }}/candidates" data-testid="more-candidates">{{ srs }} · {{ t('team.cand.title') }}</a>
+        <a href="/studies/{{ srs }}/referrals" data-testid="more-referrals">{{ srs }} · {{ t('team.ref.title') }}</a>
+        <a href="/studies/{{ srs }}/team" data-testid="more-team">{{ srs }} · {{ t('team.log.title') }}</a>
+        <a href="/studies/{{ srs }}/irb" data-testid="more-irb">{{ srs }} · {{ t('team.irb.title') }}</a>{% endif %}{% endif %}
+        {% if user.can_view_phi or permit(r, 'staff.keep') %}<a href="/site/staff" data-testid="more-staff">{{ t('team.staff.title') }}</a>{% endif %}
+        {% if permit(r, 'optout.keep') %}<a href="/site/opt-outs" data-testid="more-optouts">{{ t('team.optout.title') }}</a>{% endif %}
+        {% if permit(r, 'breakglass.read', BEST) %}<a href="/breakglass" data-testid="more-breakglass">{{ t('nav.breakglass') }}</a>{% endif %}
         {% if r == 'admin' %}<a href="/admin?tab=health">{{ t('admin.tab.health') }}</a><a href="/admin?tab=jobs">{{ t('admin.tab.jobs') }}</a><a href="/admin?tab=sources">{{ t('admin.tab.sources') }}</a>{% endif %}
         <a href="/">{{ t('nav.overview') }}</a>
-        <a href="/jobs">{{ t('nav.jobs') }}</a>
+        {% if user.aggregate_only %}<a href="/reports">{{ t('nav.reports') }}</a>{% else %}{# D-146: viewer and CRO open no run, registry or audit page #}
+        {% if not user.studies %}<a href="/jobs">{{ t('nav.jobs') }}</a>{% endif %}{% endif %}{# ROLE-018: a study-scoped account opens no cross-study list #}
         {% if user.can_request %}
         <a href="/pilot/request">{{ t('nav.request') }}</a>
         <a href="/pilot/protocol">{{ t('nav.protocol') }}</a>
         <a href="/pilot/consent">{{ t('nav.consent') }}</a>
-        <a href="/pilot/cascade">{{ t('nav.cascade') }}</a>
+        {% if not user.studies %}<a href="/pilot/cascade">{{ t('nav.cascade') }}</a>{% endif %}
+        {% elif r == 'investigator' %}<a href="/pilot/request" data-testid="nav-request">{{ t('nav.request') }}</a>{# T-512 #}
         {% endif %}
+        {% if not user.aggregate_only %}
         <a href="/pilot/case">{{ t('nav.case') }}</a>
         <a href="/pilot/registry">{{ t('nav.registry') }}</a>
-        {% if settings.test_smtp %}<a href="/pilot/mailbox">{{ t('nav.mailbox') }}</a>{% endif %}
-        <a href="/audit">{{ t('nav.audit') }}</a>
+        {% if settings.test_smtp and not user.studies %}<a href="/pilot/mailbox">{{ t('nav.mailbox') }}</a>{% endif %}
+        {% if not user.studies and permit(r, 'audit.browse') %}<a href="/audit">{{ t('nav.audit') }}</a>{% endif %}
+        {% endif %}
         <a href="/settings/notices">{{ t('notices.title') }}</a>
-        {% if r in ('admin', 'viewer') %}<a href="/admin/redcap">{{ t('s36.title') }}</a>{% endif %}
+        {% if r == 'admin' %}<a href="/admin/redcap">{{ t('s36.title') }}</a>{% endif %}
         {% if user.role in ('admin', 'viewer', 'coordinator') %}<a href="/reports/research-office">{{ t('office.title') }}</a>{% endif %}
-        {% if user.is_admin %}<a href="/ops/users">{{ t('nav.users') }}</a>{% endif %}
+        {% if permit(r, 'ops.view') %}<a href="/ops/users">{{ t('nav.users') }}</a>{% endif %}
         {% endif %}
       </div>
     </details>
   {% else %}
     <a href="/" class="{{ 'active' if path == '/' else '' }}">{{ t('nav.overview') }}</a>
-    <a href="/jobs" class="{{ 'active' if path.startswith('/jobs') else '' }}">{{ t('nav.jobs') }}</a>
-    <a href="/audit" class="{{ 'active' if path.startswith('/audit') else '' }}">{{ t('nav.audit') }}</a>
+    {% if not user.aggregate_only %}<a href="/jobs" class="{{ 'active' if path.startswith('/jobs') else '' }}">{{ t('nav.jobs') }}</a>
+    {% endif %}{% if permit(user.role, 'audit.browse') %}<a href="/audit" class="{{ 'active' if path.startswith('/audit') else '' }}">{{ t('nav.audit') }}</a>{% endif %}
     {% if user.is_admin %}<a href="/ops/users" class="{{ 'active' if path.startswith('/ops/users') else '' }}">{{ t('nav.users') }}</a>{% endif %}
   {% endif %}
 </nav>

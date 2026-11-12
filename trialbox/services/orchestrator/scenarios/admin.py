@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
+from datetime import UTC, datetime
 
+from tb_common.db import ENV
 from tb_common.subject import job_subject
 from tb_contracts import IngestRequest, dump
 
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_language, job_markdown
 from orchestrator.i18n import t
+
+log = logging.getLogger("orchestrator.admin")
 
 
 def _target(ctx: Ctx) -> str:
@@ -49,6 +55,21 @@ def cancel(ctx: Ctx) -> Outcome:
     return Outcome(summary_md=f"Job `{tid}` {note}.")
 
 
+def twins_after_ingest(ctx: Ctx, snapshot: object) -> None:
+    """T-204 (D-440): the study patients' twins from the snapshot this ingest published (one step of the night; a
+    confirmed fact reaches the twin with the publish that carries it). Never fails the ingest."""
+    if not os.environ.get(ENV):
+        return  # no trial database: there is no twin store (a bare test stack)
+    from patient_profile.twin import after_ingest as build_twins
+
+    try:
+        orch_db, lake = ctx.orch.db, ctx.services.lake
+    except Exception as exc:  # an orchestrator without its job store or lake (a test's stand-in): nothing to build
+        log.warning("twin build after the ingest skipped (%s)", type(exc).__name__)
+        return
+    build_twins(orch_db, lake, str(snapshot), datetime.now(UTC).isoformat(timespec="seconds"))
+
+
 def ingest(ctx: Ctx) -> Outcome:
     if ctx.services.adapter is None:
         raise StepFailed("running", "adapter service not configured")
@@ -62,4 +83,12 @@ def ingest(ctx: Ctx) -> Outcome:
     ctx.publish(f"ingest_report_{report.snapshot}.json", body, "aggregate", [])
     if not report.passed:
         raise StepFailed("ingest", "The nightly ingest finished with errors: " + "; ".join((report.errors or [])[:5]))
+    from orchestrator import derive
+    from orchestrator.scheduler import after_ingest
+
+    # D-442: the stored derived rows of the new snapshot before anything screens it
+    derive.after_ingest(getattr(ctx, "orch", None), str(report.snapshot))
+    # D-397: the new patients booked in each study's window are screened now, not next week
+    after_ingest(ctx.orch, timed=opts.get("timer") == "1")
+    twins_after_ingest(ctx, report.snapshot)
     return Outcome(summary_md=f"Ingest {report.snapshot}: passed.")

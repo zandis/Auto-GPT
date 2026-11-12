@@ -3,22 +3,87 @@
 Each check returns PASS, WARN or FAIL; any FAIL makes the command exit 1, and a check that raises is a FAIL (fail
 closed). Checks:
 
+* ``inputs`` (OPS-016): one FAIL line per input that cannot be read (a ``--settings`` file that is missing or does not
+  parse); the other checks still run, on empty settings;
 * ``topology``: ``TB_TOPOLOGY`` (A/B/C) and ``TB_ENV`` (DEV/TEST/VALIDATION/PRODUCTION) are valid;
 * ``env_class_ceiling``: no configured data store (``settings.data_stores``), dataset (``eval/DATASETS.yaml``, in
   DEV and TEST) or ``TB_DATA_CLASS`` exceeds the environment ceiling of §17.8 (D3 data in DEV fails);
 * ``routing_perimeter``: ``models/routing.yaml`` has no row, and no lookup, that sends D3/D4 outside the perimeter;
 * ``gateway_only_model_reach``: the egress allowlist (``deploy/egress.py``) gives a model host to the gateway only;
 * ``channel_engine``: ``channels.engine`` is valid (native is the only engine, D-121);
-* ``secure_cookie``: the console session cookie is marked Secure (``TB_CONSOLE_SECURE_COOKIE=1``). FAIL in
+* ``secure_cookie``: the console session cookie is marked Secure (``TB_CONSOLE_SECURE_COOKIE=1``, or unset or empty in
+  PRODUCTION, the console's default since D-192). FAIL in
   PRODUCTION and VALIDATION, WARN elsewhere (a DEV/TEST box may serve plain http on localhost; D-121);
+* ``console_mfa`` (D-447, CR-033 rest; D-192 "Open"): every way into the console asks for a second factor:
+  ``TB_CONSOLE_MFA`` resolves to ``totp`` (the console's default outside DEV and TEST), OIDC, when on, keeps
+  ``TB_OIDC_REQUIRE_MFA``, and no trusted identity header (``TB_CONSOLE_SSO_HEADER``, D-93) signs people in. FAIL in
+  PRODUCTION and VALIDATION, WARN elsewhere;
 * ``publish_gate``: the data platform has a current signed snapshot and the last gate decision is known;
 * ``note_block``: ``TB_NOTE_BLOCK=both_agree`` (the default, D-95) needs a verifier build (``TB_GATEWAY_VERIFIER_MODEL``
   or ``LLM_VERIFIER_BASE_URL``) and ``TB_SCREEN_JUDGE`` other than ``single``; otherwise the box runs single-model
   and SCREEN falls back to ``never`` (a note answer may send a patient to review, never out: D-97). WARN in
   DEV/TEST, FAIL in VALIDATION/PRODUCTION, since the site then believes two models agree when one did;
+* ``judge_route`` (T-601; D-142 "not done"): the gateway built from this box's settings (routing file, registry with
+  the site pins, ``TB_ENV``, ``TB_TOPOLOGY``, ``TB_PROFILE``, no step confirmer, as compose runs it) takes one
+  synthetic judge call as the orchestrator sends it (``TB_GATEWAY_MODEL``, ``TB_DATA_CLASS`` or D3), and one verifier
+  call when ``TB_GATEWAY_VERIFIER_MODEL`` is set, against a stand-in model server. FAIL in VALIDATION and PRODUCTION
+  (WARN in DEV and TEST) when it would refuse either (no route, an unpinned or non-champion build, a D3 call with
+  no step outside the box policy) or another alias answers: the box would screen no note. PASS when the judge does
+  not use the gateway;
 * ``registry_pins``: the committed registry with the site override (``TB_REGISTRY_OVERRIDE``, default
-  ``deploy/site/registry.site.yaml``) loads; lists the site-pinned builds. WARN when no model build is pinned
-  (production routes nothing) or, in VALIDATION/PRODUCTION, when no pinned build is ``champion``.
+  ``site/registry.site.yaml`` in the deploy folder of ``--env-file``, else the repository's ``deploy/``; OPS-016)
+  loads; lists the site-pinned builds. WARN when no model build is pinned
+  (production routes nothing) or, in VALIDATION/PRODUCTION, when no pinned build is ``champion``;
+* ``site_tz`` (D-315; STD-016, OPS-056): the site's time zone is one setting. ``site.tz`` (settings.yaml), ``TB_TZ``
+  (the containers' zone), the ``tz`` of the data source mapping (``data_source.mapping``) and the host's zone (cron
+  runs the backup and the log jobs in it; ``TB_HOST_TZ`` when doctor runs in a container) must name the same zone.
+  FAIL when none is set, one is not a zone, or two differ; the host is not compared when it cannot be read;
+* ``flags``: a seed variable such as ``TB_LAKE_SOURCE`` that disagrees with its feature flag is ignored since the
+  box's first start (T-008, D-207): WARN, naming the flag's value and where to change it;
+* ``backup`` (D-274; CR-058, OPS-028, OPS-048): read from the deploy folder of ``--env-file``. FAIL in PRODUCTION
+  (WARN elsewhere) when there is no target, no off-box target, no alert route (``TB_BACKUP_ALERT_CMD`` or
+  ``TB_BACKUP_MAILTO``), no ``/etc/cron.d/trialbox-backup`` on a host with ``/etc/cron.d``, no good backup or one
+  older than ``TB_BACKUP_MAX_AGE_HOURS`` (``backup-status``'s rules); WARN in PRODUCTION when WAL archiving is off;
+  on a platform it passes and points to ``backup_target`` and ``backup_job``;
+* ``site_key`` (T-612, DATA-004): ``site_hmac.key`` is in the secrets folder (``TB_SECRETS_DIR``) and its fingerprint
+  is the one recorded in the lake (``site_key.json``) and in the pid map. FAIL when it is missing or another key (the
+  ingest then refuses every night); WARN when the folder is not on this host. Prints the fingerprint, never the key;
+* ``key_custody`` (T-210b, CR-041, D-347): the site keys are wrapped under the KEK (``tb_common.kek``). FAIL when a key
+  is both plain and wrapped, a wrapped key has no ``kek.json`` or names another KEK, the KEK file is in the secrets
+  folder or is not this box's KEK, or (in VALIDATION and PRODUCTION) a site key is a plain file; WARN for a plain key
+  in DEV/TEST and when the keys are wrapped but the KEK is not unsealed where doctor runs. Opens no key.
+* ``clock`` (T-211a, OPS-055, REG-026): the audit chain's times need a true clock. FAIL when the clock is more than
+  ``TB_CLOCK_MAX_SKEW_S`` (default 60) seconds from the site's time server (``TB_NTP_SERVER``, one SNTP exchange); in
+  VALIDATION and PRODUCTION also FAIL when the kernel clock is not NTP-synchronised, when the time server does not
+  answer, or when neither can be read. WARN for those in DEV and TEST.
+
+``--verify-all`` adds one check that hashes the model weights (minutes for tens of GB; ``--weights`` runs it alone,
+as the ``trialbox-weights`` timer before the night's runs and an update after its restart do; T-677, D-393):
+
+* ``weights`` (LLM-008, SEC-64): every build pinned in the site override (``TB_REGISTRY_OVERRIDE``, default
+  ``site/registry.site.yaml`` in the deploy folder) still hashes to its pin under the models folder (``TB_MODELS_DIR``,
+  default ``models/`` in the deploy folder of ``--env-file``, else the repository's ``deploy/models``;
+  ``tools/pin_model.py --verify-all``). FAIL on any difference: it writes the weights flag
+  ``weights_changed.json`` beside the override (``TB_WEIGHTS_FLAG`` moves it), and the gateway refuses every model
+  call while the flag is there (``gateway.app.StartCheck``). A pass removes the flag. WARN when nothing is pinned.
+
+``--two-device`` adds one check, for a device of the GB10 two-device form (T-214, D-373; ``deploy/two-device/``):
+
+* ``two_device``: ``TB_LINK_ROLE`` (spark or workstation) names this device; its rendered compose (``--compose-config``,
+  else ``docker compose config --format json`` of the device's services in the deploy folder) runs only what the GB10
+  profile (``deploy/gb10-profile.yaml``) puts on it, the link is the only port the Spark publishes and only on the
+  link address (a gateway or any listener on 0.0.0.0 there is a FAIL), the link has its certificates, its peer and
+  its route alias, and the Spark's memory limits are the profile's. WARN when the driver hold's re-test is past due.
+
+``--live`` adds one check that talks to the model servers, so it runs where the gateway's network is (install.sh
+runs it in a one-off container on ``trialbox-model-net``; ``--serving`` runs it alone):
+
+* ``serving`` (D-177): for each on-box endpoint (``models/routing.yaml``, zone ``perimeter``) that a pinned build is
+  served on, ``GET <url>/models`` with the endpoint's key (``api_key_env``, ``TB_LLM_API_KEY``) must answer 200 and list
+  every pinned served name, and the same call without the key must be refused. FAIL when a server is down, refuses
+  the key (401/403) or does not serve a pinned name (vLLM would answer every call 404); a server that runs without a
+  key, or a box with no key, is a FAIL in VALIDATION and PRODUCTION and a WARN elsewhere. WARN when nothing local is
+  pinned (nothing to check).
 """
 
 from __future__ import annotations
@@ -27,8 +92,12 @@ import importlib.util
 import json
 import os
 import sys
+import tempfile
+import urllib.error
+import urllib.request
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Literal
@@ -36,7 +105,7 @@ from typing import Any, Literal
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-Status = Literal["PASS", "WARN", "FAIL"]
+Status = Literal["PASS", "WARN", "FAIL", "SKIP"]  # SKIP: doctor --platform --no-gpu (D-211)
 
 
 @dataclass(frozen=True)
@@ -52,7 +121,19 @@ class DoctorInputs:
     settings: Mapping[str, Any] = field(default_factory=dict)
     routing_path: Path = ROOT / "models" / "routing.yaml"
     datasets_path: Path = ROOT / "eval" / "DATASETS.yaml"
-    dataplat_workdir: Path | None = None
+    ingest_lake: Path | None = None  # T-659b: the adapter's lake folder (its CURRENT and gates/), when given
+    host_tz: str | None = None  # the host's zone; None: TB_HOST_TZ, else read from /etc (check site_tz)
+    platform: bool = False  # doctor --platform: pods on a cluster, no host cron, so no host zone to compare
+    deploy: Path | None = None  # the deploy folder (from --env-file): the backup record and the cron file (D-274)
+    cron_dir: Path = Path("/etc/cron.d")
+    resolver: Callable[[str], list[str]] | None = None  # check perimeter_addresses; None: the system resolver
+    compose_config: Mapping[str, Any] | None = None  # doctor --two-device: the device's rendered compose (D-373)
+    input_errors: tuple[str, ...] = ()  # OPS-016: a settings file that is missing or does not parse is a FAIL line
+
+
+def _site_dir(inp: DoctorInputs) -> Path:
+    """The site folder: ``site/`` beside ``--env-file`` when it is given, else the repository's (OPS-016)."""
+    return (inp.deploy or ROOT / "deploy") / "site"
 
 
 def _egress() -> ModuleType:
@@ -158,6 +239,30 @@ def check_gateway_only_model_reach(inp: DoctorInputs) -> Check:
     return Check("gateway_only_model_reach", "PASS", f"only {eg.GATEWAY} reaches model hosts ({n} egress rules)")
 
 
+def check_perimeter_addresses(inp: DoctorInputs) -> Check:
+    """T-604 (D-388; review LLM-036): each perimeter endpoint's host and the addresses it resolves to now. In
+    PRODUCTION on topology A an address off the box is a FAIL (the gateway refuses to start on it); elsewhere a WARN.
+    Run on the host, a compose service name does not resolve: it is shown as such (the gateway resolves it on the
+    box network when it starts)."""
+    from gateway.policy import RoutingPolicy, perimeter_addresses, perimeter_checked, resolve_host
+    from tb_common.policy.classes import Environment, Topology
+
+    env = {k: v for k, v in inp.env.items()}
+    environment = (env.get("TB_ENV") or "DEV").strip().upper()
+    topo = env.get("TB_TOPOLOGY", "A")
+    rows = perimeter_addresses(RoutingPolicy.load(inp.routing_path), env, environment, inp.resolver or resolve_host)
+    shown = "; ".join(f"{r.endpoint} {r.host} -> {', '.join(r.addresses) or 'compose service'}" for r in rows)
+    problems = [r.problem for r in rows if r.problem]
+    if not problems:
+        return Check("perimeter_addresses", "PASS", f"on the box: {shown or 'no perimeter endpoint set'}")
+    strict = (
+        topo in Topology.__members__
+        and environment in Environment.__members__
+        and perimeter_checked(Topology(topo), Environment(environment))
+    )
+    return Check("perimeter_addresses", "FAIL" if strict else "WARN", "; ".join(problems))
+
+
 def check_channel_engine(inp: DoctorInputs) -> Check:
     from channels.config import ChannelsConfig, ChannelsConfigError
 
@@ -169,39 +274,72 @@ def check_channel_engine(inp: DoctorInputs) -> Check:
 
 
 def check_secure_cookie(inp: DoctorInputs) -> Check:
-    on = inp.env.get("TB_CONSOLE_SECURE_COOKIE", "0").lower() in ("1", "true")
-    if on:
-        return Check("secure_cookie", "PASS", "console session cookie is Secure (https only)")
+    """The console's own rule (``console.identity.secure_cookie_default``, D-192): an explicit value wins; unset or
+    empty means Secure in PRODUCTION (the base compose file passes it empty) and off elsewhere."""
     env = inp.env.get("TB_ENV", "DEV")
+    raw = (inp.env.get("TB_CONSOLE_SECURE_COOKIE") or "").strip().lower()
+    on = raw in ("1", "true", "on", "yes") if raw else env.strip().upper() == "PRODUCTION"
+    if on:
+        why = "console session cookie is Secure (https only)" + ("" if raw else ", the PRODUCTION default")
+        return Check("secure_cookie", "PASS", why)
     status: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
     why = f"TB_CONSOLE_SECURE_COOKIE is off in {env}: the session cookie can travel on http"
     return Check("secure_cookie", status, why)
 
 
+def check_console_mfa(inp: DoctorInputs) -> Check:
+    """The console's own rules (``console.identity.IdentitySettings.from_env``, ``console.oidc.OidcSettings``; D-192,
+    D-447), read from the settings as compose passes them: a box with no second factor on some way in fails in
+    PRODUCTION and VALIDATION (the console also refuses to start there; doctor says why before it is started)."""
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    dev = env in ("DEV", "TEST")
+    off = ("1", "true", "on", "yes")
+    mfa = (inp.env.get("TB_CONSOLE_MFA") or ("off" if dev else "totp")).strip().lower()
+    gaps = []
+    if mfa != "totp":
+        gaps.append(f"TB_CONSOLE_MFA={mfa}: local accounts sign in with a password alone")
+    oidc_on = (inp.env.get("TB_OIDC_ENABLED") or "").strip().lower() in off
+    if oidc_on and (inp.env.get("TB_OIDC_REQUIRE_MFA") or "1").strip().lower() in ("0", "false", "off", "no"):
+        gaps.append("TB_OIDC_REQUIRE_MFA=0: a directory sign-in without a second factor is accepted")
+    if (inp.env.get("TB_CONSOLE_SSO_HEADER") or "").strip():
+        gaps.append("TB_CONSOLE_SSO_HEADER is set: a trusted header signs people in with no second factor")
+    if not gaps:
+        return Check("console_mfa", "PASS", "every console sign-in asks for a second factor"
+                     + (" (TOTP; OIDC with a second factor)" if oidc_on else " (TOTP)"))  # fmt: skip
+    status: Status = "WARN" if dev else "FAIL"
+    return Check("console_mfa", status, f"{env}: " + "; ".join(gaps))
+
+
 def check_publish_gate(inp: DoctorInputs) -> Check:
-    wd = inp.dataplat_workdir
-    if wd is None:
-        return Check("publish_gate", "WARN", "no data-platform workdir configured (TB_DATAPLAT_DIR)")
-    pointer = wd / "l5" / "CURRENT.json"
-    gates = sorted((wd / "gates").glob("*.json")) if (wd / "gates").is_dir() else []
+    """T-659b (D-370): the adapter's lake: its ``CURRENT`` and the newest of its one-per-night gate records
+    (``gates/<night>.json``)."""
+    lake = inp.ingest_lake
+    if lake is None:
+        return Check("publish_gate", "WARN", "no ingest lake given (--lake-dir or TB_LAKE_DIR)")
+    pointer = lake / "CURRENT"
+    gates = sorted((lake / "gates").glob("*.json")) if (lake / "gates").is_dir() else []
     last = json.loads(gates[-1].read_text(encoding="utf-8")) if gates else None
-    if not pointer.exists():
+    cur = pointer.read_text(encoding="utf-8").strip() if pointer.exists() else ""
+    if not cur:
         outcome = last.get("outcome") if last else "none"
-        return Check("publish_gate", "FAIL", f"no current snapshot pinned (last gate outcome: {outcome})")
-    cur = json.loads(pointer.read_text(encoding="utf-8"))
+        return Check("publish_gate", "FAIL", f"no current snapshot (last gate outcome: {outcome})")
     if last is None:
-        return Check("publish_gate", "WARN", f"snapshot {cur.get('snapshot_id')} pinned but no gate record found")
+        return Check("publish_gate", "WARN", f"snapshot {cur} current but no gate record found")
     if last.get("outcome") == "HOLD":
         reasons = ", ".join(last.get("blocking_reasons") or [])
-        return Check("publish_gate", "WARN", f"last cycle held ({reasons}); serving stays on {cur.get('snapshot_id')}")
-    return Check("publish_gate", "PASS", f"snapshot {cur.get('snapshot_id')} current; last gate {last.get('outcome')}")
+        return Check("publish_gate", "WARN", f"last night held ({reasons}); the box stays on {cur}")
+    return Check("publish_gate", "PASS", f"snapshot {cur} current; last gate {last.get('outcome')}")
+
+
+def _override(inp: DoctorInputs) -> Path:
+    raw = inp.env.get("TB_REGISTRY_OVERRIDE")
+    return Path(raw) if raw else _site_dir(inp) / "registry.site.yaml"
 
 
 def check_registry_pins(inp: DoctorInputs) -> Check:
     from registry.registry import DEFAULT_PATH, Registry, Status
 
-    raw = inp.env.get("TB_REGISTRY_OVERRIDE")
-    override = Path(raw) if raw else ROOT / "deploy" / "site" / "registry.site.yaml"
+    override = _override(inp)
     try:
         reg = Registry.load(DEFAULT_PATH, override)
     except (ValueError, OSError, yaml.YAMLError) as e:
@@ -217,6 +355,138 @@ def check_registry_pins(inp: DoctorInputs) -> Check:
     return Check("registry_pins", "PASS", f"{reg.version}: pinned {names}")
 
 
+def verifier_is_the_judge(env: Mapping[str, str]) -> str | None:
+    """Why the configured verifier is the judge's own model, read from the settings alone (the running box checks
+    the served models too: ``tb_common.pair.same_model`` and ``combine``); None when the names differ.
+
+    The orchestrator builds the judge from ``TB_GATEWAY_URL`` / ``TB_GATEWAY_MODEL`` (else ``LLM_BASE_URL`` /
+    ``LLM_MODEL``) and the verifier from ``TB_GATEWAY_VERIFIER_MODEL`` (else ``LLM_VERIFIER_BASE_URL`` /
+    ``LLM_VERIFIER_MODEL``, which falls back to ``LLM_MODEL``)."""
+
+    def key(v: str | None) -> str:
+        return " ".join((v or "").split()).casefold()
+
+    def url(v: str | None) -> str:
+        return (v or "").strip().rstrip("/").casefold()
+
+    from tb_common.pair import gateway_default_alias
+
+    judge_gw = url(env.get("TB_GATEWAY_URL"))
+    v_alias = key(env.get("TB_GATEWAY_VERIFIER_MODEL"))
+    v_gw = url(env.get("TB_GATEWAY_VERIFIER_URL")) or judge_gw
+    if v_alias and v_gw:
+        if not judge_gw:  # the judge goes straight to an endpoint: the two cannot be told apart (D-276, F-02)
+            return "the verifier goes through the gateway and the judge does not, so they cannot be told apart"
+        if judge_gw != v_gw:
+            return None
+        default = gateway_default_alias(env.get("TB_ENV", "DEV"))
+        j_alias = key(env.get("TB_GATEWAY_MODEL")) or default
+        if j_alias == v_alias:
+            return f"TB_GATEWAY_VERIFIER_MODEL={v_alias} is the build the judge gets (TB_GATEWAY_MODEL, or the default)"
+        return None
+    if env.get("LLM_VERIFIER_BASE_URL"):
+        if judge_gw:
+            return "the judge goes through the gateway and the verifier (LLM_VERIFIER_BASE_URL) does not"
+        v_model = key(env.get("LLM_VERIFIER_MODEL"))
+        if not v_model:
+            return "LLM_VERIFIER_MODEL is not set, so the verifier asks for the judge's model (LLM_MODEL)"
+        if v_model == key(env.get("LLM_MODEL")):
+            return f"LLM_VERIFIER_MODEL={v_model} is the judge's model (LLM_MODEL)"
+    return None
+
+
+def _judge_answer(served: str) -> dict[str, Any]:
+    """What a model server sends back to a judge call: the served name it was asked under and a valid judge answer."""
+    content = json.dumps({"verdict": "unknown", "confidence": 0.0, "quote": None, "quote_date": None, "reason": "-"})
+    return {
+        "model": served,
+        "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+    }
+
+
+def check_judge_route(inp: DoctorInputs) -> Check:
+    """T-601 (D-142 "not done"): put one synthetic judge call, and one verifier call when a gateway verifier is named,
+    to the gateway built from this box's settings (routing file, registry with the site pins, environment, topology,
+    profile, no step confirmer as compose runs it), with a stand-in model server that answers under the pinned served
+    name. FAIL when the gateway refuses either call or another alias answers: the box would then screen no note."""
+    import httpx
+    from gateway.core import Gateway, GatewayConfig
+    from gateway.policy import RoutingPolicy
+    from guard.guard import Guard
+    from registry.registry import DEFAULT_PATH, Registry
+    from tb_common.audit import AuditLog
+    from tb_common.config import environment_name
+    from tb_common.llm import load_prompt, render
+    from tb_contracts import inline_schema
+    from tb_llm import GatewayClient, GatewayError, GatewayRefused, json_schema_format
+    from tb_llm.client import v1_labels
+
+    url = (inp.env.get("TB_GATEWAY_URL") or "").strip()
+    if not url:
+        return Check("judge_route", "PASS", "the judge does not go through the gateway (no TB_GATEWAY_URL)")
+    env = dict(inp.env)
+    # FAIL where the box screens real notes; WARN in DEV and TEST (synthetic data, a box being set up)
+    bad: Status = "FAIL" if env.get("TB_ENV", "DEV") in ("VALIDATION", "PRODUCTION") else "WARN"
+    with tempfile.TemporaryDirectory(prefix="tb-doctor-") as tmp:
+
+        def upstream(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=_judge_answer(str(json.loads(req.content).get("model") or "")))
+
+        gw = Gateway(
+            RoutingPolicy.load(inp.routing_path),
+            Registry.load(Path(env.get("TB_REGISTRY_PATH") or DEFAULT_PATH), _override(inp)),
+            AuditLog(Path(tmp) / "audit"),
+            GatewayConfig.from_env(env),
+            http=httpx.Client(transport=httpx.MockTransport(upstream)),
+            guard=Guard(None),
+            env=env,
+        )
+
+        def gateway(req: httpx.Request) -> httpx.Response:
+            res = gw.chat(dict(req.headers), json.loads(req.content))
+            return httpx.Response(res.status, json=res.body, headers=res.headers)
+
+        http = httpx.Client(transport=httpx.MockTransport(gateway))
+        p = load_prompt("judge", environment_name(env))  # the version this box's environment serves (D-359)
+        labels = v1_labels(
+            p.meta.id,
+            p.meta.version,
+            phi=bool(p.meta.phi),
+            study_id="doctor",
+            data_class=env.get("TB_DATA_CLASS") or ("D3" if p.meta.phi else "D1"),
+            prompt_sha=p.sha256,
+        )
+        labels = replace(labels, step_id=env.get("TB_STEP_ID", ""))
+        variables = {"criterion_text": "x", "note_question": "x?", "index_date": "2026-01-01", "excerpts": []}
+        asks = [("judge", env.get("TB_GATEWAY_MODEL") or "")]
+        v_alias = (env.get("TB_GATEWAY_VERIFIER_MODEL") or "").strip()
+        if v_alias:
+            asks.append(("verifier", v_alias))
+        got: list[str] = []
+        for who, alias in asks:
+            client = GatewayClient("http://gateway/v1", "orchestrator", http=http)  # the judge's caller
+            try:
+                res = client.chat(
+                    render(p, variables),
+                    labels,
+                    response_format=json_schema_format(p.meta.id, inline_schema(p.meta.output_schema)),
+                    max_tokens=p.meta.max_tokens,
+                    model=alias or None,
+                )
+            except GatewayRefused as e:
+                return Check(
+                    "judge_route",
+                    bad,
+                    f"the gateway would refuse the {who} ({labels.data_class}, role {labels.role}"
+                    f"{', ' + alias if alias else ''}): {e.reason}: {str(e)[:300]}",
+                )
+            except GatewayError as e:
+                return Check("judge_route", bad, f"the {who}'s call through the gateway fails: {str(e)[:300]}")
+            got.append(f"{who} {res.alias} ({res.payload.get('tb', {}).get('build_id', '?')})")
+    return Check("judge_route", "PASS", f"the gateway takes the {labels.data_class} judge call: " + "; ".join(got))
+
+
 def check_note_block(inp: DoctorInputs) -> Check:
     policy = (inp.env.get("TB_NOTE_BLOCK") or "both_agree").strip().lower()
     if policy == "never":
@@ -230,6 +500,23 @@ def check_note_block(inp: DoctorInputs) -> Check:
     direct = bool(inp.env.get("LLM_VERIFIER_BASE_URL"))
     if mode != "single" and (gw or direct):
         via = "gateway verifier build" if gw else "LLM_VERIFIER_BASE_URL"
+        one = verifier_is_the_judge(inp.env)
+        if one:  # D-276 (review S-2): a verifier that is the judge again agrees with it every time
+            return Check(
+                "note_block",
+                "FAIL",
+                f"TB_NOTE_BLOCK=both_agree but the verifier is not a second model: {one}. The box treats this as "
+                f"one model and never excludes on a note answer; name a different verifier model",
+            )
+        env = inp.env.get("TB_ENV", "DEV")
+        if not gw and env in ("VALIDATION", "PRODUCTION"):  # D-276 (review F-02): fail closed on the direct path
+            return Check(
+                "note_block",
+                "FAIL",
+                "TB_NOTE_BLOCK=both_agree with a direct verifier (LLM_VERIFIER_BASE_URL): which weights each endpoint "
+                "serves is known only from its /models at start, so this check cannot confirm two models. Use the "
+                "gateway verifier build (TB_GATEWAY_VERIFIER_MODEL), whose build hash is compared on every answer",
+            )
         return Check("note_block", "PASS", f"both_agree with a verifier ({via}): two models must agree to exclude")
     why = "TB_SCREEN_JUDGE=single" if mode == "single" else "no verifier configured"
     env = inp.env.get("TB_ENV", "DEV")
@@ -242,22 +529,437 @@ def check_note_block(inp: DoctorInputs) -> Check:
     )
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirect is an answer, never followed: the model key must not travel to another host."""
+
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
+def _get_models(url: str, key: str, timeout: float = 10.0) -> tuple[int | None, Any]:
+    """(HTTP status, JSON body or error text); status None when the server cannot be reached."""
+    req = urllib.request.Request(f"{url.rstrip('/')}/models", headers={"Authorization": f"Bearer {key}"} if key else {})
+    try:
+        with urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout) as r:
+            return r.status, json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        return e.code, e.reason
+    except (OSError, ValueError) as e:
+        return None, f"{type(e).__name__}: {e}"
+
+
+# vLLM routes outside /v1 that answer without the key (vLLM checks it on /v1, /v2, /inference, /cohere only)
+UNKEYED_PROBES = ("/invocations", "/tokenize")
+
+
+def _post_open(url: str, timeout: float = 10.0) -> int | None:
+    """HTTP status of an empty-keyed POST (a tiny chat body), None when unreachable. Redirects are answers."""
+    body = json.dumps({"messages": [{"role": "user", "content": "doctor probe"}], "prompt": "doctor probe"}).encode()
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout) as r:
+            return int(r.status)
+    except urllib.error.HTTPError as e:
+        return int(e.code)
+    except (OSError, ValueError):
+        return None
+
+
+def check_serving(inp: DoctorInputs) -> Check:
+    from gateway.policy import RoutingPolicy, endpoint_key
+    from registry.registry import DEFAULT_PATH, Registry
+
+    env = dict(inp.env)
+    strict = env.get("TB_ENV", "DEV") in ("VALIDATION", "PRODUCTION")
+    reg = Registry.load(DEFAULT_PATH, _override(inp))
+    policy = RoutingPolicy.load(inp.routing_path)
+    want: dict[str, list[tuple[str, str]]] = {}
+    for b in reg.builds:
+        if not b.pinned or b.serving in ("stub", "hosted"):
+            continue
+        for ep_name, name in sorted(b.served.items()):
+            ep = policy.endpoints.get(ep_name)
+            if name and ep is not None and ep.zone == "perimeter":
+                want.setdefault(ep_name, []).append((b.build_id, name))
+    if not want:
+        return Check("serving", "WARN", "no pinned on-box build: no model server to check")
+    fails: list[str] = []
+    warns: list[str] = []
+    good: list[str] = []
+    for ep_name, builds in sorted(want.items()):
+        ep = policy.endpoints[ep_name]
+        url = ep.url(env)
+        key_var = ep.api_key_env or "api_key_env (not set in routing.yaml)"
+        # the key file (TB_LLM_API_KEY_FILE, deploy/secrets/model/llm.key; D-437, D-450) first, else the variable
+        key = endpoint_key(ep.api_key_env, env) if ep.api_key_env else ""
+        if not key:
+            (fails if strict else warns).append(
+                f"{ep_name}: no key, {key_var} is empty: anyone on model-net may call it"
+            )
+        status, doc = _get_models(url, key)
+        if status is None:
+            fails.append(f"{ep_name} ({url}) not reachable: {doc}")
+            continue
+        if status in (401, 403):
+            why = (
+                f"{key_var} is missing or is not the server's key (deploy/secrets/model/llm.key and vllm.env, "
+                "`trialbox secrets rotate --service model`)"
+            )
+            fails.append(f"{ep_name}: the model server refused the key (HTTP {status}): {why}")
+            continue
+        if status != 200 or not isinstance(doc, dict):
+            fails.append(f"{ep_name}: GET {url}/models answered HTTP {status}")
+            continue
+        served = [str(m.get("id")) for m in doc.get("data") or [] if isinstance(m, dict)]
+        for build, name in builds:
+            if name not in served:
+                fix = "restore JUDGE_MODEL / VERIFIER_MODEL in deploy/.env or re-pin (tools/pin_model.py, RUNBOOK §8)"
+                fails.append(
+                    f"{ep_name}: {build} is pinned to the served name {name!r} but the server serves {served}, "
+                    f"so every call would be refused 404: {fix}"
+                )
+        if key and _get_models(url, "")[0] == 200:
+            (fails if strict else warns).append(f"{ep_name}: the server answers without the key (VLLM_API_KEY unset)")
+        root = url.rstrip("/").removesuffix("/v1")
+        for path in UNKEYED_PROBES:  # vLLM answers these with no key at all: only model-guard keeps them away
+            st = _post_open(root + path)
+            if st is not None and st not in (401, 403, 404, 405, 501):
+                (fails if strict else warns).append(
+                    f"{ep_name}: POST {path} without the key answered HTTP {st}: the model is reachable without "
+                    "the key (model-guard missing in front of the server? docker-compose.yml model-guard, D-177)"
+                )
+        good.append(f"{ep_name} serves {', '.join(repr(n) for _, n in builds)}")
+    if fails:
+        return Check("serving", "FAIL", "; ".join(fails))
+    if warns:
+        return Check("serving", "WARN", "; ".join(warns))
+    return Check("serving", "PASS", "; ".join(good) + "; key required")
+
+
+MAPPING_ROOT = ROOT / "services" / "adapter"
+ETC = Path("/etc")
+
+
+def _host_zone(inp: DoctorInputs) -> str | None:
+    """The host's zone name: given, ``TB_HOST_TZ``, else /etc/timezone or the /etc/localtime link. None inside a
+    container (its /etc is the image's, not the host's) or when it cannot be read."""
+    given = inp.host_tz or inp.env.get("TB_HOST_TZ")
+    if given:
+        return given.strip()
+    if inp.platform or Path("/.dockerenv").exists() or os.environ.get("KUBERNETES_SERVICE_HOST"):
+        return None
+    try:
+        name = (ETC / "timezone").read_text(encoding="utf-8").strip()
+        if name:
+            return name
+    except OSError:
+        pass
+    try:
+        link = str((ETC / "localtime").readlink())
+    except (OSError, ValueError):
+        return None
+    return link.split("zoneinfo/", 1)[1] if "zoneinfo/" in link else None
+
+
+def _mapping_zone(settings: Mapping[str, Any], site_dir: Path = ROOT / "deploy" / "site") -> tuple[str | None, str]:
+    ds = settings.get("data_source") or {}
+    raw = ds.get("mapping") if isinstance(ds, Mapping) else None
+    if not raw:
+        return None, ""
+    path = Path(str(raw))
+    if not path.is_absolute():
+        # T-632: the site's mapping folder first, then the image's, as the adapter looks it up (adapter.mapping.site;
+        # not imported: the host tree has no services/)
+        site = site_dir / "mapping" / Path(*path.parts[(1 if path.parts[:1] == ("mapping",) else 0) :])
+        path = site if site.is_file() else MAPPING_ROOT / path
+    doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return (str(doc["tz"]) if doc.get("tz") else None), path.name
+
+
+def _same_zone(a: str, b: str) -> bool:
+    """Two names are the same zone when they agree on the UTC offset every day for a year (Japan == Asia/Tokyo)."""
+    from datetime import UTC, datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    if a == b:
+        return True
+    za, zb = ZoneInfo(a), ZoneInfo(b)
+    t = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0)
+    days = [t + timedelta(days=d) for d in range(366)]
+    return all(d.astimezone(za).utcoffset() == d.astimezone(zb).utcoffset() for d in days)
+
+
+def check_site_tz(inp: DoctorInputs) -> Check:
+    """D-315: site.tz, TB_TZ, the mapping's tz and the host's zone name one zone; there is no default zone."""
+    from zoneinfo import ZoneInfo
+
+    site = inp.settings.get("site")
+    mapped, mapping_name = _mapping_zone(inp.settings, _site_dir(inp))
+    sources: dict[str, str | None] = {
+        "site.tz": str((site if isinstance(site, Mapping) else {}).get("tz") or "").strip() or None,
+        "TB_TZ": (inp.env.get("TB_TZ") or "").strip() or None,
+        f"mapping tz ({mapping_name})": mapped,
+    }
+    if not sources["site.tz"] and not sources["TB_TZ"]:
+        return Check("site_tz", "FAIL", "no site time zone: set site.tz in settings.yaml and TB_TZ in deploy/.env")
+    host = _host_zone(inp)
+    if host:
+        sources["host zone"] = host
+    given = {k: v for k, v in sources.items() if v}
+    for k, v in given.items():
+        try:
+            ZoneInfo(v)
+        except Exception:
+            return Check("site_tz", "FAIL", f"{k}={v!r} is not an IANA time zone")
+    first = next(iter(given.values()))
+    if any(not _same_zone(first, v) for v in given.values()):
+        names = ", ".join(f"{k} {v}" for k, v in given.items())
+        return Check("site_tz", "FAIL", f"the site's time zone differs: {names}; records near midnight move a day")
+    unread = "" if host else ("; no host on a platform" if inp.platform else "; host zone not read (set TB_HOST_TZ)")
+    return Check("site_tz", "PASS", f"{first} ({', '.join(given)}){unread}")
+
+
+def check_flags(inp: DoctorInputs) -> Check:
+    """T-008 (D-207): a seed variable (``TB_LAKE_SOURCE``) seeds its flag at the first start only; one that now says
+    something else than the flag is ignored, which an operator must know: WARN."""
+    url = inp.env.get("TB_DB_URL", "")
+    if not url:
+        return Check("flags", "PASS", "no trial database configured here (TB_DB_URL): the flags were not read")
+    try:
+        from tb_common.flags import env_drift
+
+        drift = env_drift(dict(inp.env), url)
+    except Exception as e:  # the flags live on the box: unreadable from here is worth a look, not a failure
+        return Check("flags", "WARN", f"cannot read the feature flags ({type(e).__name__})")
+    if drift:
+        return Check("flags", "WARN", "; ".join(drift))
+    return Check("flags", "PASS", "every seed variable that is set agrees with its flag")
+
+
+def check_site_key(inp: DoctorInputs) -> Check:
+    """T-612 (DATA-004): the site key is in the secrets folder and is the key the box's data was made with (the
+    fingerprint in ``<lake>/site_key.json`` and in the pid map's ``site_key`` table). Shows the fingerprint, never
+    the key."""
+    from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key
+
+    sec = Path(inp.env.get("TB_SECRETS_DIR") or "/run/secrets/trialbox")
+    if not sec.is_dir():
+        return Check("site_key", "WARN", f"the secrets folder {sec} is not here (TB_SECRETS_DIR): the key was not read")
+    try:
+        key = load_key(sec / SITE_KEY_FILE)
+    except KeyMissingError as exc:
+        return Check(
+            "site_key",
+            "FAIL",
+            f"{exc}: the ingest refuses every night. Put the site's key back from the backup; only a new box makes "
+            f"one (deploy/install.sh, `python -m adapter.cli keys-init`)",
+        )
+    except PermissionError:
+        return Check("site_key", "WARN", f"{sec / SITE_KEY_FILE} cannot be read by this user: the key was not checked")
+    fp = key_fingerprint(key)
+    lake = Path(inp.env.get("TB_LAKE_DIR") or Path(inp.env.get("TB_DATA_DIR") or "/data") / "lake")
+    seen: list[str] = []
+    record = lake / "site_key.json"  # adapter.pipeline.SITE_KEY_RECORD
+    if record.is_file():
+        stored = str(json.loads(record.read_text(encoding="utf-8")).get("fingerprint"))
+        if stored != fp:
+            return Check("site_key", "FAIL", f"key {fp} is not the lake's {stored}: the ingest refuses every night")
+        seen.append("the lake")
+    site_id = str((inp.settings.get("site") or {}).get("id") or "")
+    url = inp.env.get("TB_DB_URL", "")
+    if url and site_id:
+        try:
+            from tb_common.db import Database
+
+            with Database.connect(url, "pidmap") as db:
+                row = db.fetchone("SELECT fingerprint FROM site_key WHERE site_id = ?", (site_id,))
+        except Exception as e:  # the pid map lives on the box: unreadable from here is worth a look
+            return Check("site_key", "WARN", f"key {fp}; the pid map's record cannot be read ({type(e).__name__})")
+        if row is not None and row[0] != fp:
+            return Check("site_key", "FAIL", f"key {fp} is not the pid map's {row[0]}: the ingest refuses every night")
+        if row is not None:
+            seen.append("the pid map")
+    where = f"; the same as {' and '.join(seen)}" if seen else "; no night has recorded one yet"
+    return Check("site_key", "PASS", f"key {fp}{where}")
+
+
+def check_backup(inp: DoctorInputs) -> Check:
+    """D-274 (CR-058, OPS-028, OPS-048): targets, an off-box one, an alert route, the cron file, the newest good
+    backup's age, WAL archiving. In PRODUCTION every problem is a FAIL except archiving off (WARN)."""
+    if inp.platform:
+        return Check(
+            "backup", "PASS", "not a host check on a platform: see backup_target and backup_job (no host cron)"
+        )
+    from tools.trialbox import backup_schedule as bs
+
+    prod = (inp.env.get("TB_ENV") or "PRODUCTION").upper() == "PRODUCTION"
+    if inp.deploy is None:
+        why = "the deploy folder is not known: run with --env-file deploy/.env"
+        return Check("backup", "FAIL" if prod else "WARN", why)
+    cfg = bs.config(inp.deploy, dict(inp.env), process_env=False)
+    st = bs.status(cfg)
+    fails = list(st["problems"])
+    if inp.cron_dir.is_dir() and not (inp.cron_dir / bs.CRON_NAME).is_file():
+        fails.append(f"no {inp.cron_dir / bs.CRON_NAME}: python3 -m tools.trialbox backup-install (RUNBOOK §5)")
+    warns = []
+    if not cfg.archive_on:
+        warns.append("WAL archiving is off: a crash loses up to a day (TB_PG_ARCHIVE_MODE, RUNBOOK §5)")
+    off = sum(t["offbox"] for t in st["targets"])
+    good = st["newest_good"]
+    facts = f"{len(cfg.targets)} target(s), {off} off-box; newest good " + (
+        f"{Path(good['path']).name} ({st['age_hours']} h old)" if good else "none")  # fmt: skip
+    if fails:
+        return Check("backup", "FAIL" if prod else "WARN", "; ".join(fails) + f" ({facts})")
+    if warns and prod:
+        return Check("backup", "WARN", "; ".join(warns) + f" ({facts})")
+    return Check("backup", "PASS", facts)
+
+
+def check_key_custody(inp: DoctorInputs) -> Check:
+    """T-210b (CR-041, D-347): the site keys are kept under a KEK held outside the secrets folder."""
+    from tb_common import kek
+
+    sec = Path(inp.env.get("TB_SECRETS_DIR") or "/run/secrets/trialbox")
+    if not sec.is_dir():
+        return Check("key_custody", "WARN", f"the secrets folder {sec} is not here (TB_SECRETS_DIR): not checked")
+    c = kek.custody(sec, {**os.environ, **inp.env})
+    if c.problems:
+        return Check("key_custody", "FAIL", "; ".join(c.problems))
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    if c.plain:
+        how = "python -m tools.keys init (the KEK ceremony), then the keys stay wrapped"
+        status: Status = "FAIL" if env in kek.STRICT_ENVS else "WARN"
+        return Check("key_custody", status, f"{', '.join(c.plain)} plain on disk in {env}: {how}")
+    if not c.wrapped:
+        return Check("key_custody", "PASS", "no site key in the secrets folder yet (made by the install ceremony)")
+    where = f"KEK {c.kek_id} ({c.backend})"
+    if c.kek == "locked":
+        return Check("key_custody", "WARN", f"{', '.join(c.wrapped)} wrapped under {where}; not unsealed here")
+    return Check("key_custody", "PASS", f"{', '.join(c.wrapped)} wrapped under {where}, unsealed")
+
+
+def check_clock(inp: DoctorInputs) -> Check:
+    """T-211a (OPS-055): NTP out of sync is a FAIL, and so is a clock more than the allowed skew from the site's
+    time server. ``tb_common.audit.clock_state`` reads both."""
+    from tb_common import audit
+
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    soft: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
+    st = audit.clock_state(inp.env)
+    limit = audit.max_skew(inp.env)
+    if st.offset is not None and abs(st.offset) > limit:
+        return Check("clock", "FAIL", f"the clock is {st.offset:+.1f} s from {st.server} (more than {limit:g} s): "
+                     "audit times are wrong and sign-in codes fail; fix the host's time sync")  # fmt: skip
+    problems: list[str] = []
+    if st.synced is False:
+        problems.append("the kernel clock is not NTP-synchronised (timedatectl; on WSL2 the host's time sync task)")
+    if st.server and st.offset is None:
+        problems.append(f"the time server {st.server} did not answer ({st.error})")
+    if st.synced is None and st.offset is None:
+        problems.append(f"the clock's sync state cannot be read here and no {audit.NTP_SERVER_ENV} is set")
+    if problems:
+        return Check("clock", soft, "; ".join(problems))
+    where = f"; {st.offset:+.2f} s from {st.server}" if st.offset is not None else ""
+    return Check("clock", "PASS", f"NTP-synchronised{where}" if st.synced else f"clock checked{where}")
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
     check_routing_perimeter,
     check_gateway_only_model_reach,
+    check_perimeter_addresses,
     check_channel_engine,
     check_secure_cookie,
+    check_console_mfa,
     check_publish_gate,
     check_note_block,
+    check_judge_route,
     check_registry_pins,
+    check_site_tz,
+    check_flags,
+    check_site_key,
+    check_backup,
+    check_key_custody,
+    check_clock,
 )
 
 
-def run(inp: DoctorInputs) -> list[Check]:
-    out: list[Check] = []
-    for fn in CHECKS:
+LIVE: tuple[Callable[[DoctorInputs], Check], ...] = (check_serving,)
+
+
+def _models_root(inp: DoctorInputs) -> Path:
+    raw = (inp.env.get("TB_MODELS_DIR") or "").strip()
+    return Path(raw) if raw else (inp.deploy or ROOT / "deploy") / "models"
+
+
+def check_weights(inp: DoctorInputs) -> Check:
+    """Every pinned build's weights against its pin; a FAIL sets the flag the gateway refuses on (T-677, D-393)."""
+    from gateway.app import weights_flag_path
+
+    from tools import pin_model
+
+    override = _override(inp)
+    flag = weights_flag_path({**inp.env, "TB_REGISTRY_OVERRIDE": str(override)})
+    assert flag is not None
+    root = _models_root(inp)
+    try:
+        if not (pin_model.load_override(override).get("builds") if override.is_file() else None):
+            flag.unlink(missing_ok=True)
+            return Check("weights", "WARN", f"no model build pinned in {override}: no weights to check")
+        good, lines = pin_model.verify_all(root, override)
+    except (pin_model.PinError, OSError, ValueError, yaml.YAMLError) as e:
+        good, lines = False, [f"{override}: {type(e).__name__}: {e}"]
+    if good:
+        flag.unlink(missing_ok=True)
+        return Check("weights", "PASS", "; ".join(lines))
+    doc = {
+        "format": "trialbox-weights-flag/1",
+        "override": str(override),
+        "models_root": str(root),
+        "lines": lines,
+        "checked_at": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
+    try:
+        flag.parent.mkdir(parents=True, exist_ok=True)
+        flag.write_text(json.dumps(doc, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        held = f"the gateway refuses every model call while {flag} exists"
+    except OSError as e:
+        held = f"the weights flag could not be written ({flag}: {e}); stop the gateway by hand"
+    fix = "restore the pinned files or re-pin (tools/pin_model.py, RUNBOOK §8), then run doctor --verify-all again"
+    return Check("weights", "FAIL", f"{'; '.join(lines)}: {held}; {fix}")
+
+
+WEIGHTS: tuple[Callable[[DoctorInputs], Check], ...] = (check_weights,)
+
+
+def check_two_device(inp: DoctorInputs) -> Check:
+    """The GB10 two-device form on this device (T-214, D-373): what runs here, what listens where, the link."""
+    from tools import two_device as td
+
+    role = inp.env.get("TB_LINK_ROLE", "").strip()
+    if role not in td.ROLES:
+        return Check("two_device", "FAIL", f"TB_LINK_ROLE must be {' or '.join(td.ROLES)} (deploy/.env), not {role!r}")
+    profile = td.load_profile()
+    bad = [f"profile: {p}" for p in td.profile_problems(profile)]
+    if inp.compose_config is None:
+        bad.append("no rendered compose (give --compose-config, or run doctor where docker compose works)")
+    else:
+        bad += td.compose_problems(role, inp.compose_config, profile)
+    if bad:
+        return Check("two_device", "FAIL", "; ".join(bad))
+    late = td.driver_hold_overdue(profile) if role == "spark" else None
+    if late:
+        return Check("two_device", "WARN", late)
+    return Check("two_device", "PASS", f"{role}: {', '.join(profile['devices'][role])}; the link only on its address")
+
+
+TWO_DEVICE: tuple[Callable[[DoctorInputs], Check], ...] = (check_two_device,)
+
+
+def run(inp: DoctorInputs, checks: tuple[Callable[[DoctorInputs], Check], ...] = CHECKS) -> list[Check]:
+    out: list[Check] = [Check("inputs", "FAIL", why) for why in inp.input_errors]
+    for fn in checks:
         name = fn.__name__.removeprefix("check_")
         try:
             out.append(fn(inp))
@@ -271,7 +973,7 @@ def ok(checks: list[Check]) -> bool:
 
 
 def inputs_from(
-    *, env_file: Path | None, settings: Path | None, routing: Path | None, dataplat: Path | None
+    *, env_file: Path | None, settings: Path | None, routing: Path | None, lake: Path | None
 ) -> DoctorInputs:
     env: dict[str, str] = {}
     if env_file is not None and env_file.exists():
@@ -280,15 +982,36 @@ def inputs_from(
             if line and not line.startswith("#") and "=" in line:
                 k, v = line.split("=", 1)
                 env[k.strip()] = v.strip().strip('"').strip("'")
-    env.update(
-        {k: v for k, v in os.environ.items() if k.startswith("TB_") or k in ("CLOUD_LLM_BASE_URL", "EGRESS_EXTRA")}
-    )
+    keep = ("CLOUD_LLM_BASE_URL", "EGRESS_EXTRA", "COMPOSE_FILE")
+    env.update({k: v for k, v in os.environ.items() if k.startswith("TB_") or k in keep})
+    if env.get("COMPOSE_FILE") and not env.get("TB_GATEWAY_URL"):
+        # an installed box's deploy/.env (install.sh writes COMPOSE_FILE): compose itself gives the orchestrator this
+        # gateway address, so note_block judges the box as it runs (found by the box rehearsal, D-176)
+        env["TB_GATEWAY_URL"] = "http://gateway:8020/v1"
     doc: dict[str, Any] = {}
+    errors: list[str] = []
     if settings is not None:
-        doc = yaml.safe_load(settings.read_text(encoding="utf-8")) or {}
-    wd = dataplat or (Path(env["TB_DATAPLAT_DIR"]) if env.get("TB_DATAPLAT_DIR") else None)
+        # OPS-016: a FAIL line, not a traceback, when the settings file is missing or does not parse
+        try:
+            loaded = yaml.safe_load(settings.read_text(encoding="utf-8")) or {}
+        except FileNotFoundError:
+            errors.append(f"settings file {settings} not found: pass the box's settings.yaml with --settings")
+        except (OSError, UnicodeDecodeError, yaml.YAMLError) as e:
+            errors.append(f"settings file {settings} cannot be read: {type(e).__name__}: {e}")
+        else:
+            if isinstance(loaded, dict):
+                doc = loaded
+            else:
+                errors.append(f"settings file {settings} is not a mapping")
+    wd = lake or (Path(env["TB_LAKE_DIR"]) if env.get("TB_LAKE_DIR") else None)
+    deploy = env_file.resolve().parent if env_file is not None and env_file.exists() else None
     return DoctorInputs(
-        env=env, settings=doc, routing_path=routing or ROOT / "models" / "routing.yaml", dataplat_workdir=wd
+        env=env,
+        settings=doc,
+        routing_path=routing or ROOT / "models" / "routing.yaml",
+        ingest_lake=wd,
+        deploy=deploy,
+        input_errors=tuple(errors),
     )
 
 

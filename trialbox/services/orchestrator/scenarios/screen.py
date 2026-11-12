@@ -7,14 +7,17 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from matching import coded_values
+from matching.coverage import unknown_system_counts
 from tb_common.authz import norm
+from tb_common.kek import key_present
 from tb_common.ruleset import Ruleset
 from tb_common.subject import job_subject
 from tb_common.timeutil import add_months
@@ -39,19 +42,20 @@ from orchestrator.scenarios.evaluate import (
     sort_key,
 )
 from orchestrator.scenarios.review import recipients, require_approved
-from orchestrator.scenarios.screen_cascade import pipeline, screen_with_cascade
+from orchestrator.scenarios.screen_cascade import max_pairs_of, pipeline, screen_with_cascade
+from orchestrator.scheduler import require_open
 
 SCOPE_SQL = """
 WITH a AS (
   SELECT pid, min(start) AS next_appt, arg_min(practitioner_id, start) AS pr, arg_min(dept, start) AS dept
   FROM appointment
-  WHERE list_contains(CAST($1 AS VARCHAR[]), practitioner_id) AND status = 'booked'
+  WHERE (CAST($5 AS BOOLEAN) OR list_contains(CAST($1 AS VARCHAR[]), practitioner_id)) AND status = 'booked'
     AND CAST(start AS DATE) BETWEEN CAST($2 AS DATE) AND CAST($3 AS DATE)
   GROUP BY pid),
 e AS (
   SELECT pid, max(start) AS last_enc, arg_max(practitioner_id, start) AS pr, arg_max(dept, start) AS dept
   FROM encounter
-  WHERE list_contains(CAST($1 AS VARCHAR[]), practitioner_id)
+  WHERE (CAST($5 AS BOOLEAN) OR list_contains(CAST($1 AS VARCHAR[]), practitioner_id))
     AND CAST(start AS DATE) BETWEEN CAST($4 AS DATE) AND CAST($2 AS DATE)
   GROUP BY pid)
 SELECT p.pid, CAST(a.next_appt AS VARCHAR) AS next_appt, coalesce(a.pr, e.pr) AS practitioner_id,
@@ -59,8 +63,26 @@ SELECT p.pid, CAST(a.next_appt AS VARCHAR) AS next_appt, coalesce(a.pr, e.pr) AS
 FROM patient p LEFT JOIN a ON a.pid = p.pid LEFT JOIN e ON e.pid = p.pid
 WHERE (a.pid IS NOT NULL OR e.pid IS NOT NULL)
   AND (p.deceased_date IS NULL OR p.deceased_date > CAST($2 AS DATE))
+  AND (p.deceased_date IS NOT NULL OR p.deceased IS NOT TRUE)
 ORDER BY p.pid
 """
+
+
+# FIT-U04 (T-629, D-415): who of a list the current snapshot records as dead, with a date or without one (T-616)
+DECEASED_SQL = """
+SELECT pid FROM patient
+WHERE list_contains(CAST($1 AS VARCHAR[]), pid) AND (deceased_date IS NOT NULL OR deceased IS TRUE)
+ORDER BY pid
+"""
+
+
+def deceased_now(lake: Any, pids: list[str]) -> list[str]:
+    """The pseudonyms of ``pids`` whose record in the lake's current snapshot says the patient died. The console
+    asks at each view of a list, so a death recorded after the run takes the patient off it at once. A snapshot
+    built before schema 4 reads ``deceased`` as unknown and still gives the death date (``lake.store``)."""
+    if not pids:
+        return []
+    return [str(r["pid"]) for r in lake.query(DECEASED_SQL, [list(pids)]).to_pylist()]
 
 
 @dataclass
@@ -85,6 +107,8 @@ class ScreenRun:
     judge: NoteJudge | None
     judging: dict[str, Any] | None = None
     cascade: dict[str, Any] | None = None  # D-103: the cascade's stage log and counts when it ran the screen
+    whole_hospital: bool = False  # D-146: every doctor's patients (``practitioners`` is then empty)
+    s2b_sources: dict[str, dict[str, Any]] | None = None  # T-203b (D-449): only when the flag vec.s2b was on
 
     @property
     def pipeline(self) -> str:
@@ -118,22 +142,69 @@ def judging_sentence(j: dict[str, Any], lang: str = "en") -> str:
 
 
 def scope_patients(
-    ctx: Ctx, practitioners: list[str], run_date: date, window_days: int, recent_months: int, departments: list[str]
+    ctx: Ctx,
+    practitioners: list[str] | None,
+    run_date: date,
+    window_days: int,
+    recent_months: int,
+    departments: list[str],
+    snapshot: str | None = None,
 ) -> list[Scoped]:
+    """The patients in scope, read from the snapshot the screening then runs on (D-142, review B-02).
+    ``practitioners`` None: the whole hospital (D-146), every patient with a booked appointment in the window or a
+    recent visit, whoever the doctor."""
     rows = ctx.services.lake.query(
         SCOPE_SQL,
         [
-            practitioners,
+            list(practitioners or []),
             run_date.isoformat(),
             (run_date + timedelta(days=window_days)).isoformat(),
             add_months(run_date, -recent_months).isoformat(),
+            practitioners is None,
         ],
+        snapshot=snapshot,
     ).to_pylist()
     tz = ctx.cfg.env.tz
     out = [Scoped(r["pid"], local_iso(r["next_appt"], tz), r["practitioner_id"], r["dept"]) for r in rows]
     if departments:
         out = [s for s in out if s.department in departments]
     return out
+
+
+def drop_opted_out(ctx: Ctx, scoped: list[Scoped]) -> list[Scoped]:
+    """D-147: patients on the research office's opt-out register (``tb_common.optout``) are never screened. The
+    register is read as it stood when the job was received, so a re-run of an old job stays byte-identical (D-82).
+    The removal is audited by count (who opted out is itself private)."""
+    from tb_common.optout import opted_out
+
+    gone = opted_out(as_of=ctx.job.received_at.isoformat())
+    kept = [s for s in scoped if s.pid not in gone]
+    if len(kept) != len(scoped):
+        ctx.orch.audit.append(
+            "screen.opt_out_removed",
+            job_id=ctx.job.job_id,
+            ruleset=ctx.job.ruleset,
+            detail={"removed": len(scoped) - len(kept), "register": "optout"},
+        )
+    return kept
+
+
+def opted_out_now(ctx: Ctx, pids: Iterable[str], where: str) -> frozenset[str]:
+    """D-441 (review MED-3): the register read again, as it stands now, just before a run publishes or stores its
+    lists: a patient who opted out while the run was going (or before a re-run of an old job) leaves its files, its
+    mail and the pool. The scope read (:func:`drop_opted_out`) stays as of the job's receipt. Audited by count."""
+    from tb_common.optout import opted_out
+
+    want = set(pids)
+    gone = frozenset(opted_out() & want) if want else frozenset()
+    if gone:
+        ctx.orch.audit.append(
+            "screen.opt_out_at_publish",
+            job_id=ctx.job.job_id,
+            ruleset=ctx.job.ruleset,
+            detail={"removed": len(gone), "where": where, "register": "optout"},
+        )
+    return gone
 
 
 def local_iso(value: object, tz: str) -> str | None:
@@ -149,14 +220,48 @@ def judge_for(ctx: Ctx, rs: Ruleset) -> NoteJudge | None:
     single judge with ``TB_SCREEN_JUDGE=single``."""
     if ctx.services.llm is None:
         return None
-    prompt = rs.manifest.models.judge_prompt if rs.manifest.models and rs.manifest.models.judge_prompt else None
+    prompt = pinned_judge(rs)
     mode = os.environ.get("TB_SCREEN_JUDGE", "agreement").strip().lower()
     verifier = ctx.services.verifier if mode != "single" else None
     return NoteJudge(ctx.services.lake, ctx.services.llm, prompt or "judge", job_id=ctx.job.job_id, verifier=verifier)
 
 
+def pinned_judge(rs: Ruleset) -> str:
+    """The judge prompt the approved ruleset pins (D-318): its version, held to the approved text and schema, so a
+    newer registered version waits for the investigator's re-approval; a pinned text that changed is refused."""
+    from tb_llm.prompt_registry import PromptRegistryError, pinned_name
+
+    named = rs.manifest.models.judge_prompt if rs.manifest.models and rs.manifest.models.judge_prompt else "judge"
+    try:
+        return pinned_name(rs.manifest, named.rsplit("_v", 1)[0], named)
+    except PromptRegistryError as exc:
+        raise StepFailed("running", f"Ruleset {rs.id} v{rs.version}: {exc}") from exc
+
+
 def structured_engine(ctx: Ctx, snapshot: str) -> StructuredEngine:
-    return engine_from_env(os.environ.get("TB_SCREEN_ENGINE", "cql"), ctx.services.fhir, ctx.services.lake, snapshot)
+    """The SQL engine on ``snapshot``; it reads the stored derived rows while the flag is on (D-442)."""
+    from orchestrator import derive
+
+    return engine_from_env(
+        os.environ.get("TB_SCREEN_ENGINE", "sql"),
+        ctx.services.fhir,
+        ctx.services.lake,
+        snapshot,
+        derive.reader_for(ctx),
+    )
+
+
+def scores_unverified(ctx: Ctx, rs: Ruleset, snapshot: str) -> bool:
+    """D-442: while the stored-score read is on, whether this snapshot's scores were not verified (no finished derive
+    batch) for a ruleset that decides on stored scores: the list's header says so."""
+    from matching.stored_scores import unverified
+
+    from orchestrator import derive
+
+    try:
+        return unverified(rs.active(), derive.reader_for(ctx), snapshot)
+    except Exception:  # the store cannot be read: every score answer is unknown already, the line says so
+        return derive.reader_for(ctx) is not None
 
 
 def threshold(ctx: Ctx, rs: Ruleset) -> float:
@@ -197,7 +302,7 @@ def provenance(ctx: Ctx, rs: Ruleset, meta: ReportMeta, judging: dict[str, Any] 
     ran = models_used(judging) != NO_MODEL
     prompts: list[str] = []
     if ran:
-        pid = rs.manifest.models.judge_prompt if rs.manifest.models and rs.manifest.models.judge_prompt else "judge"
+        pid = pinned_judge(rs)
         try:
             from tb_common.llm import load_prompt
 
@@ -286,17 +391,18 @@ def report_meta(
 
 def pid_names(ctx: Ctx, pids: list[str]) -> dict[str, str]:
     """pid -> MRN from the in-box pid map (internal recipients only)."""
-    return resolve_mrns(Path(ctx.cfg.env.secrets_dir), pids)
+    return resolve_mrns(Path(ctx.cfg.env.secrets_dir), pids, ctx.orch.db.url)
 
 
-def resolve_mrns(sec: Path, pids: list[str]) -> dict[str, str]:
-    """pid -> chart number from the pid map under ``sec``; empty when the box has no map (stub installs)."""
-    db, key = sec / "pid_map.sqlite", sec / "pid_map.key"
-    if not db.exists() or not key.exists():
+def resolve_mrns(sec: Path, pids: list[str], url: str | None = None) -> dict[str, str]:
+    """pid -> chart number from the pid map of the key under ``sec``; empty when the box has no map (no key: stub
+    installs, no ingest yet). ``url``: the trial database (the orchestrator's; ``TB_DB_URL`` when None)."""
+    key = sec / "pid_map.key"
+    if not key_present(key):  # plain or wrapped under the KEK (T-210b)
         return {}
     from adapter.pidmap import PidMap
 
-    pm = PidMap(db, key)
+    pm = PidMap(key, url)
     try:
         return pm.resolve_many(pids)
     finally:
@@ -326,8 +432,11 @@ def evaluate_scope(
     scoped: list[Scoped],
     only: set[str] | None = None,
     all_candidates: bool = False,
+    judge: NoteJudge | None = None,
 ) -> dict[str, PatientVerdicts]:
-    judge = judge_for(ctx, rs)
+    """The v1 evaluator over ``scoped``. ``judge``: the run's note judge, so its counts reach the run's ``judging``
+    record (SCREEN with ``TB_SCREEN_PIPELINE=v1``); None builds one (:func:`judge_for`)."""
+    judge = judge if judge is not None else judge_for(ctx, rs)
     engine = structured_engine(ctx, snapshot)
     res = evaluate_patients(
         rs,
@@ -368,32 +477,87 @@ def evaluate_scope(
     return res
 
 
-def run_screen(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> ScreenRun:
+def study_scope(ctx: Ctx, ruleset: str) -> dict[str, Any] | None:
+    """Who the study's set-up page says to screen (D-146, review J-26); None when it was never set (or the run has no
+    trial database, as in some unit tests)."""
+    url = getattr(getattr(ctx.orch, "db", None), "url", None)
+    if not url:
+        return None
+    from orchestrator.studystore import screen_scope_of
+
+    return screen_scope_of(str(url), ruleset)
+
+
+def practitioners_of(ctx: Ctx, rs: Ruleset) -> list[str] | None:
+    """The practitioners a run screens, None for the whole hospital. The job's ``pract=`` (or ``scope=hospital``)
+    first, then the study's set-up page (D-146), then the ruleset's ``scopes.screen``."""
+    opts = ctx.job.options or {}
+    if opts.get("pract"):
+        return [p.strip() for p in opts["pract"].split(",") if p.strip()]
+    if (opts.get("scope") or "").lower() == "hospital":
+        return None
+    row = study_scope(ctx, rs.id)
+    if row and row.get("mode") == "hospital":
+        return None
+    if row and row.get("mode") == "practitioners" and row.get("practitioners"):
+        return list(row["practitioners"])
+    sc = rs.manifest.scopes.screen if rs.manifest.scopes and rs.manifest.scopes.screen else None
+    pract = list(sc.practitioners if sc and sc.practitioners else [])
+    if not pract:
+        raise StepFailed(
+            "running",
+            f"No one to screen for {rs.id}: choose the whole hospital or some doctors under 'Who to screen' on the "
+            "study's set-up page, or give pract=<id,...>.",
+        )
+    return pract
+
+
+def run_screen(
+    ctx: Ctx,
+    rs: Ruleset,
+    run_date: date,
+    snapshot: str,
+    select: Callable[[list[Scoped]], list[Scoped]] | None = None,
+) -> ScreenRun:
+    """``select`` (MICROBATCH, D-397): picks the patients to evaluate from the scope (the new ones, within the night
+    budget); SCREEN evaluates the whole scope."""
     opts = ctx.job.options or {}
     sc = rs.manifest.scopes.screen if rs.manifest.scopes and rs.manifest.scopes.screen else None
-    practitioners = (
-        [p.strip() for p in opts["pract"].split(",")]
-        if opts.get("pract")
-        else list(sc.practitioners if sc and sc.practitioners else [])
-    )
-    if not practitioners:
-        raise StepFailed("running", f"No practitioners in scope: give pract=<id,...> or set scopes.screen for {rs.id}.")
+    practitioners = practitioners_of(ctx, rs)
     try:
         window = int(opts.get("window") or (sc.appointment_window_days if sc and sc.appointment_window_days else 180))
     except ValueError as exc:
         raise StepFailed("running", "window must be a number of days") from exc
     depts = [d.strip().upper() for d in opts["dept"].split(",")] if opts.get("dept") else []
     recent = int(sc.recent_encounter_months if sc and sc.recent_encounter_months else 12)
-    scoped = scope_patients(ctx, practitioners, run_date, window, recent, depts)
+    # D-147: the research office's opt-out register applies to every screening run (and MICROBATCH's incident run)
+    scoped = drop_opted_out(ctx, scope_patients(ctx, practitioners, run_date, window, recent, depts, snapshot))
+    if select is not None:
+        scoped = select(scoped)
     ctx.metrics(patients_scoped=len(scoped))
     judge = judge_for(ctx, rs)
+    if select is not None and not scoped:  # nobody to evaluate: no model call, no audit of an empty run
+        return ScreenRun(
+            rs, run_date, snapshot, [], {}, [], list(practitioners or []), depts, window, judge, judging_info(judge),
+            whole_hospital=practitioners is None,
+        )  # fmt: skip
     judging = judging_info(judge)
     cascade: dict[str, Any] | None = None
+    s2b_sources: dict[str, dict[str, Any]] | None = None
     if pipeline() == "cascade":  # D-103: the v4 cascade is the screening engine
         cs = screen_with_cascade(
-            ctx, rs, run_date, snapshot, [s.pid for s in scoped], judge, judging, threshold(ctx, rs), recent
+            ctx,
+            rs,
+            run_date,
+            snapshot,
+            [s.pid for s in scoped],
+            judge,
+            judging,
+            threshold(ctx, rs),
+            recent,
+            max_pairs_of(opts),
         )
-        results, judging, cascade = cs.results, cs.judging, cs.summary
+        results, judging, cascade, s2b_sources = cs.results, cs.judging, cs.summary, cs.s2b_sources
         tiers = {t: sum(1 for v in results.values() if v.tier == t) for t in ("high", "review", "excluded")}
         ctx.orch.audit.append(
             "screen.evaluated",
@@ -410,10 +574,17 @@ def run_screen(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> ScreenRu
                 "tiers": tiers,
                 "n_after": cascade["n_after"],
                 "judging": judging,
+                "budget": cascade.get("budget"),
             },
         )
     else:
-        results = evaluate_scope(ctx, rs, run_date, snapshot, scoped)
+        results = evaluate_scope(ctx, rs, run_date, snapshot, scoped, judge=judge)
+        judging = judging_info(judge)  # after the run: its disagreements and failures, as the cascade path does
+    # T-514 (D-362, review UX-008): each coded answer carries the record's value, unit, date and code for the person
+    # who checks it; display only, after every answer is decided
+    coded_values.attach(
+        ctx.services.lake, rs.active(), {p: pv.verdicts for p, pv in results.items()}, run_date, snapshot
+    )
     by_pid = {s.pid: s for s in scoped}
     stamp = job_stamp(ctx)  # evaluation time = the job's receipt: same inputs → same bytes (D-82)
     rows = [
@@ -422,8 +593,37 @@ def run_screen(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> ScreenRu
     ]
     rows.sort(key=sort_key)
     return ScreenRun(
-        rs, run_date, snapshot, scoped, results, rows, practitioners, depts, window, judge, judging, cascade
-    )
+        rs, run_date, snapshot, scoped, results, rows, list(practitioners or []), depts, window, judge, judging,
+        cascade, whole_hospital=practitioners is None, s2b_sources=s2b_sources,
+    )  # fmt: skip
+
+
+def s2b_source_doc(run: ScreenRun) -> dict[str, Any] | None:
+    """T-203b (D-449): per patient of the run, where S2b ranked from (the vector store or on the fly), why a pair fell
+    back and the model of each; None when the flag vec.s2b was off (no file, the run's outputs as before)."""
+    if run.s2b_sources is None:
+        return None
+    return {"ruleset": run.rs.id, "version": run.rs.version, "run_date": run.run_date.isoformat(),
+            "snapshot": run.snapshot, "flag": "vec.s2b", "patients": run.s2b_sources}  # fmt: skip
+
+
+def publish_s2b_source(ctx: Ctx, run: ScreenRun) -> None:
+    """T-203b (D-449): the S2b source per patient, with the job (label ``phi``, never mailed), on every path that ran
+    the cascade with the flag ``vec.s2b`` on (SCREEN, MICROBATCH); nothing when it was off. The register is read
+    again as it stands now (D-441): an opted-out patient leaves this file too."""
+    sources = getattr(run, "s2b_sources", None)  # a run built before T-203b (or a test's stand-in) has none
+    if sources is None:
+        return
+    gone = opted_out_now(ctx, list(sources), "s2b_source") if sources else frozenset()
+    run.s2b_sources = {p: v for p, v in sources.items() if p not in gone}
+    doc = s2b_source_doc(run)
+    if doc is not None:
+        ctx.publish(
+            f"s2b_source_{run.rs.id}_v{run.rs.version}.json",
+            json.dumps(doc, ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8"),
+            "phi",
+            [],
+        )
 
 
 def candidate_list(run: ScreenRun) -> CandidateList:
@@ -446,7 +646,48 @@ def candidate_list(run: ScreenRun) -> CandidateList:
     )
 
 
+def confirmed_facts(ctx: Ctx, pids: list[str]) -> set[str]:
+    """The record ids of the site's confirmed facts for these patients (D-135): a coded record that a person typed
+    or confirmed from a chart, not one the hospital's systems coded."""
+    if not pids:
+        return set()
+    try:
+        rows = ctx.services.lake.query("SELECT fid FROM site_fact WHERE basis = 'confirmed'").to_pylist()
+    except Exception:  # an older snapshot has no site_fact table: no confirmed fact
+        return set()
+    return {str(r["fid"]) for r in rows if r.get("fid")}
+
+
+def excluded_doc(ctx: Ctx, run: ScreenRun) -> dict[str, Any]:
+    """Every patient the run excluded, with the criterion (or the scope or consent rule) that excluded them, where
+    the answer came from (the coded records, a confirmed fact, or the notes with both models agreeing) and its
+    evidence (review 2026-11-09 P-04, D-143). Stored with the job for the console's "Excluded patients and why"
+    page; never mailed."""
+    ex = [r for r in run.rows if r.tier == "excluded"]
+    facts = confirmed_facts(ctx, [r.pid for r in ex])
+
+    def source(v: Any) -> str:
+        ev = v.evidence
+        if ev is not None and (ev.reason == "note" or ev.quote):
+            return "notes"
+        refs = {x.rsplit("/", 1)[-1] for x in (ev.resource_refs or [])} if ev is not None else set()
+        return "fact" if refs & facts else "coded"
+
+    rows = []
+    for r in ex:
+        failing = [
+            {"id": v.id, "source": source(v), **(v.evidence.model_dump(mode="json", exclude_none=True)
+                                                 if v.evidence is not None else {})}
+            for v in r.criteria if v.verdict == "fail"
+        ]  # fmt: skip
+        rows.append({"pid": r.pid, "criteria": failing, "actions": list(r.actions)})
+    return {"ruleset": run.rs.id, "version": run.rs.version, "run_date": run.run_date.isoformat(),
+            "snapshot": run.snapshot, "judging": run.judging or {}, "rows": rows}  # fmt: skip
+
+
 def persist_pool(ctx: Ctx, rs: Ruleset, rows: list[CandidateRow]) -> None:
+    gone = opted_out_now(ctx, [r.pid for r in rows], "pool")
+    rows = [r for r in rows if r.pid not in gone]
     ctx.orch.db.pool_upsert(
         rs.id,
         rs.version,
@@ -486,6 +727,10 @@ def deliver_lists(
     if not list_to:
         raise StepFailed("routing", f"Ruleset {rs.id} has no routing.list_to; patient lists cannot be sent.")
     listed = [r for r in rows if r.tier in ("high", "review") or (changes is not None and r.changed)]
+    gone = opted_out_now(ctx, [r.pid for r in listed], "list")
+    listed = [r for r in listed if r.pid not in gone]
+    if changes is not None and gone:
+        changes = [c for c in changes if c.pid not in gone]
     mrns = pid_names(ctx, [r.pid for r in listed])
     names = practitioner_names(ctx)
     xlsx = ctx.publish(f"{stem}.xlsx", candidate_xlsx.render(listed, rs, meta, mrns, names, changes), "phi", list_to)
@@ -549,6 +794,7 @@ def deliver_lists(
 
 def run(ctx: Ctx) -> Outcome:
     job = ctx.job
+    require_open(job.ruleset)  # D-386 (LIFE-008): no list for a study that is not open
     rs = require_approved(ctx, (job.ruleset or "").upper(), (job.options or {}).get("version"))
     ctx.update(ruleset_version=rs.version)
     ctx.state("running")
@@ -559,14 +805,24 @@ def run(ctx: Ctx) -> Outcome:
     run_date = ctx.today()
     srun = run_screen(ctx, rs, run_date, snapshot)
     ctx.state("reporting")
+    gone = opted_out_now(ctx, [r.pid for r in srun.rows], "publish")  # D-441: every file of the run
+    if gone:
+        srun.rows = [r for r in srun.rows if r.pid not in gone]
+        srun.results = {p: v for p, v in srun.results.items() if p not in gone}
     cl = candidate_list(srun)
     meta = report_meta(ctx, rs, snapshot, run_date, srun.judging)
+    unverified = scores_unverified(ctx, rs, snapshot)  # D-442: the list says so in its own header
+    if unverified:
+        meta = replace(meta, notice=t(job_language(ctx), "screen.scores_unverified", snapshot=snapshot))
     stem = f"candidates_{rs.id}_v{rs.version}_{run_date.isoformat()}"
     body = json.dumps(dump(cl), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
     deliveries, info = deliver_lists(
         ctx, rs, srun.rows, meta, stem, extra=(f"candidate_list_{rs.id}_v{rs.version}.json", body)
     )
     persist_pool(ctx, rs, [r for r in srun.rows if r.tier in ("high", "review")])
+    excluded = json.dumps(excluded_doc(ctx, srun), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
+    ctx.publish(f"excluded_{rs.id}_v{rs.version}.json", excluded, "phi", [])  # P-04: the console only, never mailed
+    publish_s2b_source(ctx, srun)
     agg_to = recipients(rs.manifest.routing, job.requested_by)
 
     def n(v: int) -> int:  # D-99: internal mail, PDF and console show exact counts; the sponsor pack suppresses
@@ -579,13 +835,23 @@ def run(ctx: Ctx) -> Outcome:
         t(
             lang,
             "screen.scope2",
-            pract=", ".join(srun.practitioners),
+            pract=t(lang, "screen.whole_hospital") if srun.whole_hospital else ", ".join(srun.practitioners),
             window=srun.window_days,
             scoped=n(len(srun.scoped)),
         ),
         judging_sentence(judging, lang),
+        *([meta.notice] if meta.notice else []),
         *([population_line(lang, rs.manifest.population)] if population_line(lang, rs.manifest.population) else []),
     ]
+    # D-130 (review F-10): patients kept because a record is coded in a system the mapping does not know
+    unknown_system = unknown_system_counts(srun.rows)
+    if unknown_system:
+        scope_lines.append(t(lang, "screen.unknown_system", n=n(unknown_system)))
+    budget = (srun.cascade or {}).get("budget") or {}
+    if budget.get("hit"):  # D-142 (review A-07): never a silent cap
+        scope_lines.append(
+            t(lang, "screen.budget_hit", max=budget.get("max_pairs"), n=n(int(budget.get("unprocessed") or 0)))
+        )
     unknown_by: dict[str, int] = {}
     for r in srun.rows:
         if r.tier in ("high", "review"):
@@ -604,6 +870,7 @@ def run(ctx: Ctx) -> Outcome:
                 "practitioner_names": practitioner_names(ctx),
                 "scope": {
                     "practitioners": srun.practitioners,
+                    "whole_hospital": srun.whole_hospital,
                     "departments": srun.departments,
                     "window_days": srun.window_days,
                     "n_scoped": n(len(srun.scoped)),
@@ -619,8 +886,10 @@ def run(ctx: Ctx) -> Outcome:
                 "cascade": srun.cascade,
                 "referrals": {k: n(v) for k, v in info["referrals"].items()},
                 "unknown_by_criterion": {k: n(v) for k, v in sorted(unknown_by.items())},
+                "unknown_code_system": n(unknown_system),
                 "judging": judging,
                 "provenance": provenance(ctx, rs, meta, judging),
+                "scores_unverified": bool(meta.notice),
             },
             ensure_ascii=False,
             indent=1,

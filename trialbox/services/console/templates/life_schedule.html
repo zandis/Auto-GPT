@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{# TB-PLAN-04 step 5 (D-134): the visit schedule: typed in here, or read from REDCap's arms and events. #}
+{% from "_life.html" import life_nav with context %}
+{% block title %}{{ t('life.schedule.title') }} · {{ rs }}{% endblock %}
+{% macro row(i, v) %}<tr data-testid="sched-row-{{ i }}">
+<td><label class="sr" for="visit-{{ i }}">{{ t('life.schedule.visit') }}</label><input id="visit-{{ i }}" name="visit" value="{{ v.visit if v else '' }}" class="mono" maxlength="41" pattern="[a-z][a-z0-9_]*" autocomplete="off"{% if not editable %} disabled{% endif %}></td>
+<td><label class="sr" for="label-{{ i }}">{{ t('life.schedule.label') }}</label><input id="label-{{ i }}" name="label" value="{{ (v.labels.get(lang) or v.labels.get('en') or '') if v else '' }}" maxlength="80"{% if not editable %} disabled{% endif %}></td>
+<td><label class="sr" for="day-{{ i }}">{{ t('life.schedule.day') }}</label><input id="day-{{ i }}" name="day" value="{{ v.day if v else '' }}" inputmode="numeric" class="short"{% if not editable %} disabled{% endif %}></td>
+<td><label class="sr" for="before-{{ i }}">{{ t('life.schedule.before') }}</label><input id="before-{{ i }}" name="before" value="{{ v.before if v else '' }}" inputmode="numeric" class="short"{% if not editable %} disabled{% endif %}></td>
+<td><label class="sr" for="after-{{ i }}">{{ t('life.schedule.after') }}</label><input id="after-{{ i }}" name="after" value="{{ v.after if v else '' }}" inputmode="numeric" class="short"{% if not editable %} disabled{% endif %}></td>
+<td><label class="sr" for="anchor-{{ i }}">{{ t('life.schedule.anchor') }}</label><select id="anchor-{{ i }}" name="anchor"{% if not editable %} disabled{% endif %}>{% for a in ('enrolment', 'consent') %}<option value="{{ a }}"{% if v and v.anchor == a %} selected{% endif %}>{{ t('life.anchor.' + a) }}</option>{% endfor %}</select></td>
+</tr>{% endmacro %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('life.schedule.title') }}</h1></div>
+{{ life_nav(rs) }}
+<p class="hint">{{ t('life.schedule.help') }}</p>
+{% if saved %}<p class="ok" role="status" data-testid="schedule-saved">{{ t('life.schedule.saved', n=saved) }}</p>{% endif %}
+{% if refused %}<p class="error" role="alert" data-testid="schedule-refused">{{ t('life.step.refused', why=(t('rc.err.unavailable') if refused == 'unavailable' else refused)) }}</p>{% endif %}
+{% if not editable %}<p class="hint" data-testid="schedule-readonly">{{ t('life.schedule.readonly') }}</p>{% endif %}
+<section class="card" data-testid="schedule">
+<form method="post" action="/studies/{{ rs }}/schedule">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="scroll" tabindex="0"><table class="candidates sched">
+<thead><tr><th>{{ t('life.schedule.visit') }}</th><th>{{ t('life.schedule.label') }}</th><th>{{ t('life.schedule.day') }}</th><th>{{ t('life.schedule.before') }}</th><th>{{ t('life.schedule.after') }}</th><th>{{ t('life.schedule.anchor') }}</th></tr></thead>
+<tbody>{% for v in schedule %}{{ row(loop.index0, v) }}{% endfor %}{% if editable %}{% for i in range(blank) %}{{ row(schedule|length + i, none) }}{% endfor %}{% endif %}</tbody>
+</table></div>
+{% if not schedule %}<p class="empty hint">{{ t('life.schedule.none') }}</p>{% endif %}
+{% if editable %}<button type="submit" name="action" value="save" data-testid="schedule-save">{{ t('life.schedule.save') }}</button>{% endif %}
+</form>
+</section>
+{% if editable and conns %}
+<section class="card" data-testid="schedule-redcap">
+<h2>{{ t('life.schedule.redcap') }}</h2>
+<p class="hint">{{ t('life.schedule.redcap.help') }}</p>
+<form method="post" action="/studies/{{ rs }}/schedule" class="markform">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="token_ref">{{ t('life.schedule.redcap.key') }}</label>
+<select id="token_ref" name="token_ref">{% for c in conns %}<option value="{{ c }}">{{ c }}</option>{% endfor %}</select>
+<button type="submit" name="action" value="redcap" class="secondary" data-testid="schedule-from-redcap">{{ t('life.schedule.redcap') }}</button>
+</form>
+</section>{% endif %}
+{% endblock %}

@@ -1,32 +1,40 @@
-# NVIDIA GB10 (DGX Spark class, aarch64, 128 GB unified memory) override — SPEC §2, §7.1; DECISIONS D-79.
+# NVIDIA GB10 (DGX Spark class, aarch64, 128 GB unified memory) override: the medium tier (TB-PLAN-04 step 1, D-124).
 #
 #   cd deploy && docker compose -f docker-compose.yml -f docker-compose.gb10.yml --profile gpu up -d --wait
-#   make spark-e2e     # the whole stack end to end with the pinned local model (docs/RUNBOOK.md section 8)
+#   deploy/install.sh <bundle> --mode gpu            # auto-detected on aarch64 (deploy/gpu_profile.sh)
 #
-# Two local models (the recommended DGX Spark pair, docs/RUNBOOK.md section 8): llm-service serves the judge
-# (j-workhorse: gpt-oss-120b, MXFP4) and llm-verifier the verifier (v-verifier: Gemma 4 26B-A4B-it), and a criterion
-# blocks only when both agree. Both are reached only by the gateway (model-net); pin their weights first
-# (tools/pin_model.py, endpoints `serving` and `verifier`) or the gateway routes nothing to them. Knobs: JUDGE_MODEL_DIR,
-# JUDGE_MODEL, VERIFIER_MODEL_DIR, VERIFIER_MODEL (directories under deploy/models and vLLM served names; LLM_MODEL in
-# deploy/.env is the legacy direct-client setting and does not apply here). Qwen3.5-35B-A3B on llm-service alone stays
-# the documented alternative (JUDGE_MODEL_DIR=JUDGE_MODEL=qwen3.5-35b-a3b-q4, JUDGE_MAX_LEN=32768, --scale
-# llm-verifier=0; RUNBOOK section 8).
+# The measured pair of every TrialBox box (D-95, D-124): llm-service serves the judge (j-workhorse: Gemma 4 26B-A4B-it
+# NVFP4) and llm-verifier the verifier (v-verifier: Qwen3.5-9B AWQ 4-bit, thinking off), both resident (no sleep
+# mode, TB_MODEL_SWAP=off) at 16k context; a note criterion excludes a patient only when both agree. gpt-oss-120b
+# is no longer the Spark judge (TB-PLAN-04 §3: the 2026-11-08 measurements chose this pair). Pin the weights first
+# (tools/pin_model.py, builds gemma-4-26b-a4b-it-spark on endpoint `serving`, qwen3.5-9b-spark on `verifier`) or the
+# gateway routes nothing to them. Knobs: JUDGE_MODEL_DIR, JUDGE_MODEL, JUDGE_CHAT_TEMPLATE, VERIFIER_MODEL_DIR, VERIFIER_MODEL.
 #
-# Unified-memory budget (128 GB shared by CPU and GPU; TO BE CONFIRMED on hardware with `trialbox bench`, NFR-B17 (f)):
-#   llm-service   JUDGE_GPU_MEM_UTIL 0.60     gpt-oss-120b MXFP4 weights ~61-65 GB + KV for 64k context (front desk)
-#   llm-verifier  VERIFIER_GPU_MEM_UTIL 0.25  Gemma 4 26B-A4B-it at FP8 ~26-28 GB + KV at 32k (BF16 ~52 GB: no fit)
-#   rest (~15%)                               OS, HAPI (HAPI_XMX 6g), Postgres x2, DuckDB, MinIO, embedder, services
+# Unified-memory budget (128 GB shared by CPU and GPU). Not measured on a Spark: the Spark is measured only when a
+# site orders one (owner decision 4, 2026-11-08), and install.sh starts this profile only on a record from
+# tools/serving_config.py measured gb10, or with TB_ACCEPT_UNMEASURED_GPU=1 for that first boot.
+#   llm-service   JUDGE_GPU_MEM_UTIL 0.30     weights 17.1 GiB + KV at 16k
+#   llm-verifier  VERIFIER_GPU_MEM_UTIL 0.15  weights 7.5 GiB + KV at 16k
+#   rest (~55%)                               OS, HAPI (HAPI_XMX 6g), Postgres, DuckDB, embedder, services
 # vLLM sizes its pool as a fraction of the whole device and checks free memory at start, so llm-verifier starts only
-# after llm-service is healthy. Lower VERIFIER_MAX_LEN / --max-num-seqs before raising the fractions.
+# after llm-service is healthy.
+# Every service has a memory limit (mem_limit, GiB), so no one service can starve the models of unified memory
+# (OPS-063). The limits are deploy/gb10-profile.yaml's, unmeasured until a Spark run records each peak (D-373);
+# tests/unit/test_two_device_config.py keeps the two equal. The two-device form: deploy/two-device/ (T-214).
 #
 # Host prerequisites (deploy/check_host.sh --gb10 checks them):
 #   * NVIDIA driver 580.142 exactly. Hold the package (apt-mark hold); the later 580.x builds regress vLLM on GB10
 #     (see the SPEC reference "GB10 driver regression note"). Do not take driver updates outside a signed update bundle.
+#     The hold is dated and re-tested every 28 days on the bench Spark (D-373, deploy/gb10-profile.yaml driver_hold).
 #   * nvidia-container-toolkit; Docker Engine 27+; cgroup v2.
 #   * TrialBox images built multi-arch (make images-multiarch) or arm64 (make images PLATFORM=linux/arm64).
 #
-# Every third-party image is pinned by digest. The pins below are multi-arch indexes (arm64 included) or arm64
-# manifests. Unified memory is shared with HAPI, DuckDB and the embedder, so vLLM takes a smaller fraction than on
+# Limits (T-108a, D-360): the base file's caps hold here too; a cap counts the host side of unified memory a
+# container maps, so the vLLM caps (TB_MEM_LLM, TB_MEM_VERIFIER, 48g each) leave room for the weights' page cache.
+# Not measured on a Spark (T-214 measures them).
+#
+# Every third-party image is pinned by digest in deploy/images.lock (D-348). The pins are multi-arch indexes that
+# include arm64. Unified memory is shared with HAPI, DuckDB and the embedder, so vLLM takes a smaller fraction than on
 # a discrete 32 GB GPU.
 x-arm: &arm
   platform: linux/arm64
@@ -34,46 +42,67 @@ x-arm: &arm
 services:
   llm-service:
     <<: *arm
-    # GB10 build of vLLM (aarch64, CUDA 13, sm_121). Station release 2026-10-01, arm64 manifest digest.
-    image: ${VLLM_GB10_IMAGE:-eugr/spark-vllm:station-20261001@sha256:f5700fdbb43e1bb254d8a559505ce95e4f8c0b8ba9d666f7ed1b5e25bf8c4d82}
+    mem_limit: 42g   # deploy/gb10-profile.yaml (unmeasured, D-373)
+    # D-348: the official vLLM release of every profile (deploy/images.lock), its arm64 manifest. Built for CUDA 13 and
+    # sm_120, which runs on the GB10's sm_121 (check_host.sh --gb10 checks the device and the driver against the lock).
+    # It replaced a community build for the DGX Station (sm_103a, DEP-003). To be confirmed on a Spark (T-214).
+    image: ${VLLM_GB10_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}
     entrypoint: ["vllm", "serve"]
     command:
-      - /models/${JUDGE_MODEL_DIR:-gpt-oss-120b}
-      - --served-model-name=${JUDGE_MODEL:-gpt-oss-120b}
-      - --max-model-len=${JUDGE_MAX_LEN:-65536}   # f-frontdesk is this build at 64k (NFR-B20)
-      - --max-num-seqs=64
-      - --gpu-memory-utilization=${JUDGE_GPU_MEM_UTIL:-0.60}
-      - --guided-decoding-backend=${GUIDED_BACKEND:-outlines}
+      - /models/${JUDGE_MODEL_DIR:-gemma-4-26b-a4b-it-4bit}
+      - --served-model-name=${JUDGE_MODEL:-local/gemma-4-26b-a4b-nvfp4}
+      # the developer's chat template at a pinned revision, not the quantised folder's (DEP-007, D-392)
+      - --chat-template=/models/${JUDGE_CHAT_TEMPLATE:-chat-templates/gemma-4-26b-a4b-it/chat_template.jinja}
+      - --max-model-len=${JUDGE_MAX_LEN:-16384}
+      - --max-num-seqs=${JUDGE_MAX_SEQS:-8}
+      - --enforce-eager
+      - --gpu-memory-utilization=${JUDGE_GPU_MEM_UTIL:-0.30}
+      - --limit-mm-per-prompt={"image":0,"audio":0,"video":0}
+    # D-177 / D-450: VLLM_API_KEY from the vLLM servers' own env file (`trialbox secrets` writes it with
+    # secrets/model/llm.key); vLLM checks it on /v1 only, model-guard on every call. Never from deploy/.env. A box
+    # without the file runs the server open behind model-guard, and doctor --serving (install, update) FAILs it.
+    env_file: [{path: ./secrets/model/vllm.env, required: false}]
     environment:
       HF_HUB_OFFLINE: "1"
       VLLM_NO_USAGE_STATS: "1"
+      VLLM_LOGGING_LEVEL: WARNING   # no request or prompt lines in the log at any vLLM version (T-605, LLM-042)
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
     healthcheck:
-      start_period: 1200s  # first load of a 120B MoE from NVMe into unified memory
+      start_period: 600s  # first load from NVMe into unified memory
 
   llm-verifier:
     <<: *arm
+    mem_limit: ${TB_MEM_VERIFIER:-32g}   # deploy/gb10-profile.yaml (unmeasured, D-373)
     logging:
       driver: json-file
-      options: {max-size: "50m", max-file: "5"}
+      options: {max-size: "${TB_LOG_MAX_SIZE:-100m}", max-file: "${TB_LOG_MAX_FILE:-10}"}  # D-389
     profiles: [gpu]
-    image: ${VLLM_GB10_IMAGE:-eugr/spark-vllm:station-20261001@sha256:f5700fdbb43e1bb254d8a559505ce95e4f8c0b8ba9d666f7ed1b5e25bf8c4d82}
+    image: ${VLLM_GB10_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}
     entrypoint: ["vllm", "serve"]
     command:
-      - /models/${VERIFIER_MODEL_DIR:-gemma-4-26b-a4b-it}
-      - --served-model-name=${VERIFIER_MODEL:-gemma-4-26b-a4b-it}
-      - --max-model-len=${VERIFIER_MAX_LEN:-32768}
-      - --max-num-seqs=32
-      - --gpu-memory-utilization=${VERIFIER_GPU_MEM_UTIL:-0.25}
-      - --guided-decoding-backend=${GUIDED_BACKEND:-outlines}
+      - /models/${VERIFIER_MODEL_DIR:-qwen3.5-9b-4bit}
+      - --served-model-name=${VERIFIER_MODEL:-local/qwen3.5-9b-awq}
+      - --max-model-len=${VERIFIER_MAX_LEN:-16384}
+      - --max-num-seqs=${VERIFIER_MAX_SEQS:-8}
+      - --enforce-eager
+      - --gpu-memory-utilization=${VERIFIER_GPU_MEM_UTIL:-0.15}
+      - --limit-mm-per-prompt={"image":0,"video":0}
+      - --default-chat-template-kwargs={"enable_thinking":false}
+    # D-177 / D-450: VLLM_API_KEY from the vLLM servers' own env file (`trialbox secrets` writes it with
+    # secrets/model/llm.key); vLLM checks it on /v1 only, model-guard on every call. Never from deploy/.env. A box
+    # without the file runs the server open behind model-guard, and doctor --serving (install, update) FAILs it.
+    env_file: [{path: ./secrets/model/vllm.env, required: false}]
     environment:
       HF_HUB_OFFLINE: "1"
       VLLM_NO_USAGE_STATS: "1"
+      VLLM_LOGGING_LEVEL: WARNING   # no request or prompt lines in the log at any vLLM version (T-605, LLM-042)
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
     volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
     ipc: host
-    networks: [model-net]
+    networks: {model-backend-net: {aliases: [llm-verifier-vllm]}}   # behind model-guard (D-177)
     restart: unless-stopped
+    pids_limit: 4096
+    labels: {tb.watchdog: restart}   # the host's watchdog restarts a hung server (OPS-029)
     depends_on:
       llm-service: {condition: service_healthy}
     deploy:
@@ -88,22 +117,37 @@ services:
       start_period: 900s
 
   # TrialBox services: the same images, arm64 variant (multi-arch tag or the local arm64 build).
-  mail-gateway: *arm
-  orchestrator: *arm
-  criteria-compiler: *arm
-  adapter: *arm
-  lake: *arm
+  mail-gateway: {<<: *arm, mem_limit: 1g}
+  orchestrator:
+    <<: *arm
+    mem_limit: 3g   # deploy/gb10-profile.yaml (unmeasured, D-373)
+    environment:
+      TB_MODEL_SWAP: "off"   # one pass per run with both models (orchestrator/twophase.py)
+      TB_SCREEN_LLM_CONCURRENCY: "${JUDGE_MAX_SEQS:-8}"   # SCREEN calls in flight: vLLM --max-num-seqs (D-142)
+  criteria-compiler: {<<: *arm, mem_limit: 1g}
+  adapter: {<<: *arm, mem_limit: 3g}
+  lake: {<<: *arm, mem_limit: 6g}
   embed-service:
     <<: *arm
+    mem_limit: 4g   # deploy/gb10-profile.yaml (unmeasured, D-373)
     environment:
       TB_EMBED_DEVICE: ${TB_EMBED_DEVICE:-cuda}  # bge-m3 on the GPU; falls back to CPU when CUDA is absent
-  doc-parser: *arm
-  gateway: *arm
-  llm-stub: *arm
+  doc-parser: {<<: *arm, mem_limit: 2g}
+  gateway:
+    <<: *arm
+    mem_limit: 2g   # deploy/gb10-profile.yaml (unmeasured, D-373)
+    environment:
+      TB_MODEL_SWAP: "off"   # both resident (services/gateway/swap.py)
+      TB_PROFILE: P-GB10
+  llm-stub: {<<: *arm, mem_limit: 1g}
+  console: {<<: *arm, mem_limit: 2g}
+  audit-writer: {<<: *arm, mem_limit: 256m}   # D-394; deploy/gb10-profile.yaml
+  model-guard: {<<: *arm, mem_limit: 1g}
   # Third-party services: multi-arch digests from docker-compose.yml resolve to their arm64 manifests here.
-  db: *arm
+  db: {<<: *arm, mem_limit: 8g}
   fhir-store:
     <<: *arm
+    mem_limit: ${TB_MEM_FHIR:-8g}   # the 6g heap below plus the JVM's own (T-108a, D-360); gb10-profile.yaml (D-373)
     environment:
       # same flags as the base file; explicit heap so HAPI does not size itself from the 128 GB of unified memory
-      JAVA_TOOL_OPTIONS: "-Xmx${HAPI_XMX:-6g} -Duser.timezone=${TB_TZ:-Asia/Taipei}"
+      JAVA_TOOL_OPTIONS: "-Xmx${HAPI_XMX:-6g} -Duser.timezone=${TB_TZ:?set TB_TZ in deploy/.env to site.tz (D-315)}"

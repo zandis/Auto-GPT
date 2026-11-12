@@ -8,6 +8,9 @@ the in-process gateway in front of ``llm_stub``).
 :func:`verify_span` is the CAS-16 check: the quote must sit, character for character, inside one excerpt that is
 dated inside the criterion window. A judgement whose span does not verify is ``insufficient`` and counts as
 ``unknown:uncertain``.
+
+The answer is validated against the prompt's output schema here too, as ``tb_common.llm`` does on the SCREEN path
+(T-608, D-445; review LLM-022): an answer outside it is ``unknown`` (``refused: schema_invalid``), its verdict unread.
 """
 
 from __future__ import annotations
@@ -18,7 +21,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, Protocol
 
-from tb_common.pair import Vote, combine, needs_verifier
+from tb_common.pair import Vote, combine, needs_verifier, served_keys
 from tb_common.quotes import quote_key
 
 JUDGE_PROMPT = "judge"
@@ -33,7 +36,8 @@ class JudgeReply:
     reason: str
     call_id: str = ""
     build_sha: str = ""
-    prompt: str = ""
+    prompt: str = ""  # id@version from the prompt registry (D-300)
+    prompt_sha: str = ""  # the registry's sha256 of that text
     tokens_in: int = 0
     tokens_out: int = 0
     refused: str | None = None  # gateway refusal code: the pair stays unknown, never excluded
@@ -79,7 +83,7 @@ class GatewayJudge:
         purpose: str,
     ) -> JudgeReply:
         from tb_common.llm import load_prompt, render
-        from tb_contracts import inline_schema
+        from tb_contracts import inline_schema, load_schema, null_absent, schema_errors
         from tb_llm import CallLabels, GatewayRefused, json_schema_format
 
         p = load_prompt(self.prompt_id)
@@ -98,6 +102,7 @@ class GatewayJudge:
             role=role,
             prompt=prompt,
             step_id=step_id,
+            prompt_sha=p.sha256,
         )
         self.calls += 1
         try:
@@ -110,8 +115,28 @@ class GatewayJudge:
         except GatewayRefused as exc:
             self.refusals.append(exc.reason)
             reason = f"gateway refused: {exc.reason}"
-            return JudgeReply("unknown", 0.0, None, None, reason, prompt=prompt, refused=exc.reason)
-        data = res.data if isinstance(res.data, dict) else {}
+            return JudgeReply(
+                "unknown", 0.0, None, None, reason, prompt=prompt, prompt_sha=p.sha256, refused=exc.reason
+            )
+        schema = p.meta.output_schema
+        data = null_absent(load_schema(schema), res.data) if isinstance(res.data, dict) else None
+        if not isinstance(data, dict) or schema_errors(schema, data):
+            # LLM-022: a reply outside the judge schema is no answer; it never reaches the verdict (fails safe)
+            self.refusals.append("schema_invalid")
+            return JudgeReply(
+                "unknown",
+                0.0,
+                None,
+                None,
+                "the answer is outside the judge schema",
+                call_id=res.call_id,
+                build_sha=res.build_sha,
+                prompt=prompt,
+                prompt_sha=p.sha256,
+                tokens_in=res.tokens_in,
+                tokens_out=res.tokens_out,
+                refused="schema_invalid",
+            )
         return JudgeReply(
             verdict=str(data.get("verdict", "unknown")),
             confidence=float(data.get("confidence") or 0.0),
@@ -121,6 +146,7 @@ class GatewayJudge:
             call_id=res.call_id,
             build_sha=res.build_sha,
             prompt=prompt,
+            prompt_sha=p.sha256,
             tokens_in=res.tokens_in,
             tokens_out=res.tokens_out,
         )
@@ -148,6 +174,11 @@ class AgreementJudge:
         if not needs_verifier(_vote(first)):
             return first
         second: JudgeReply = self.verifier.judge(role=role, **kw)
+        answered = second
+        mismatch = (first.prompt, first.prompt_sha) != (second.prompt, second.prompt_sha)
+        if mismatch:
+            # D-300: the pair agrees only on one registered prompt text; two texts are not two opinions on one question
+            second = replace(second, verdict="unknown", confidence=0.0)  # combine() -> unknown (disagree)
         d = combine(_vote(first), _vote(second))  # the one two-model rule (tb_common.pair, D-118)
         if d.disagreement:
             self.disagreements += 1
@@ -162,22 +193,26 @@ class AgreementJudge:
             call_id=first.call_id,
             build_sha=first.build_sha,
             prompt=first.prompt,
+            prompt_sha=first.prompt_sha,
             tokens_in=first.tokens_in + second.tokens_in,
             tokens_out=first.tokens_out + second.tokens_out,
             refused=second.refused,
-            opinions=[_opinion("judge", first), _opinion("verifier", second)] if d.disagreement else [],
+            opinions=[_opinion("judge", first), _opinion("verifier", answered, mismatch)] if d.disagreement else [],
         )
 
 
-def _opinion(role: str, r: JudgeReply) -> dict[str, Any]:
-    return {"role": role, "verdict": r.verdict, "quote": r.quote, "quote_date": r.quote_date}
+def _opinion(role: str, r: JudgeReply, prompt_mismatch: bool = False) -> dict[str, Any]:
+    o = {"role": role, "verdict": r.verdict, "quote": r.quote, "quote_date": r.quote_date}
+    if prompt_mismatch:  # D-300: why this answer did not count (the reason code stays "disagree", tb_common.reasons)
+        o["prompt_mismatch"] = f"{r.prompt} sha256 {r.prompt_sha[:12]}"
+    return o
 
 
 def _vote(r: JudgeReply) -> Vote:
     """A cascade reply as a vote: a refusal counts as a model that did not answer (never an agreement)."""
     if r.refused:
         return Vote("unknown", 0.0, "model_down")
-    return Vote(r.verdict, r.confidence, None)
+    return Vote(r.verdict, r.confidence, None, served_keys(build=r.build_sha))  # one build twice: one model (D-276)
 
 
 def norm(text: str) -> str:

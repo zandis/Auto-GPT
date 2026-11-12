@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{# D-399 (T-302a, LIFE-018): the re-consent worklist. The newest approved consent-form version in force that asks for
+   re-consent is the target; every subject on study whose last recorded consent is on an older version (or on one not
+   on the list) is listed, with the action that opens the consent form on the next re-consent event. #}
+{% block title %}{{ t('reconsent.title') }} · {{ rs }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('reconsent.title') }}</h1></div>
+{% include "_team_nav.html" %}
+<p class="hint">{{ t('reconsent.help') }}</p>
+{% if err %}{% include "_data_err.html" %}{% endif %}
+<section class="card" data-testid="reconsent">
+{% if not due.target %}<p class="empty" data-testid="reconsent-none">{{ t('reconsent.no_target') }} <a href="/studies/{{ rs }}/irb#icf">{{ t('icf.title') }}</a></p>
+{% else %}
+<p data-testid="reconsent-target">{{ t('reconsent.target', v=due.target.version, day=due.target.effective_from or t('icf.from_start')) }}</p>
+{% if not due.rows %}<p class="ok" data-testid="reconsent-empty">{{ t('reconsent.empty') }}</p>{% else %}
+<div class="scroll" tabindex="0"><table data-testid="reconsent-rows">
+<thead><tr><th>{{ t('reconsent.col.subject') }}</th><th>{{ t('reconsent.col.state') }}</th><th>{{ t('reconsent.col.version') }}</th><th>{{ t('reconsent.col.day') }}</th><th><span class="sr">{{ t('col.actions') }}</span></th></tr></thead>
+<tbody>{% for r in due.rows %}<tr data-testid="rc-{{ r.record }}">
+<td><a href="/studies/{{ rs }}/subjects/{{ r.record|urlencode }}" class="mono">{{ r.record }}</a>{% if r.pid %} <span class="hint mono">{{ r.pid[:8] }}</span>{% endif %}</td>
+<td>{{ t('life.state.' + r.state) }}</td>
+<td class="mono">{{ r.version or '–' }}{% if not r.listed %} <span class="pill warn">{{ t('icf.w.icf_not_listed') }}</span>{% endif %}</td>
+<td class="nowrap">{{ r.day }}</td>
+<td>{% if editable %}<a href="/studies/{{ rs }}/entry?record={{ r.record|urlencode }}&amp;form=tb_consent&amp;event={{ r.next_rc }}&amp;back=subject" data-testid="rc-do-{{ r.record }}">{{ t('reconsent.do') }}</a>{% endif %}</td>
+</tr>{% endfor %}</tbody></table></div>{% endif %}{% endif %}
+</section>
+{% endblock %}

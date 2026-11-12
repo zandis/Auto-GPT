@@ -1,0 +1,8 @@
+phenotype_id,status,checked,note
+ph.ra,synthetic,2026-11-11,the ICD-10-CM set of phenotype_icd10cm.csv run on the synthetic hospital; adult-onset Still's disease (M06.1) is left out
+ph.gout,synthetic,2026-11-11,the ICD-10-CM set run on the synthetic hospital; chronic gout (M1A) counts
+ph.dementia,synthetic,2026-11-11,the ICD-10-CM set run on the synthetic hospital (memory-clinic site); mild cognitive impairment (G31.84) does not count
+ph.epilepsy,synthetic,2026-11-11,the ICD-10-CM set run on the synthetic hospital with planted G40 rows; a single seizure (R56.9) does not count
+ph.lung_cancer,synthetic,2026-11-11,the ICD-10-CM set run on the synthetic hospital; skin and breast cancers do not count
+ph.ckd,synthetic,2026-11-11,the ICD-10-CM set run on the synthetic hospital; acute kidney injury (N17) does not count
+ph.t2dm,synthetic,2026-11-11,the ICD-10-CM set run on the synthetic hospital; type 1 diabetes (E10) does not count

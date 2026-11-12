@@ -105,6 +105,6 @@ def test_certificate_refused_without_exclusions(tmp_path: Path) -> None:
         note_criteria=[],
         human_criteria=[],
     )
-    out = certify(res, tmp_path / "l.sqlite", run_id="r", period="2026-10", plan=AuditPlan())
+    out = certify(res, run_id="r", period="2026-10", plan=AuditPlan())
     assert out.status == "refused" and out.reasons == ["no exclusions to certify"]
     assert out.as_pack_input()["refused"] is True

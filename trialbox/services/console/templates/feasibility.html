@@ -11,7 +11,7 @@
 </div>
 {% if saved %}<p class="ok" role="status">{{ t('feas.saved') }}</p>{% endif %}
 {% if refreshed %}<p class="ok" role="status" data-testid="refreshed">{{ t('feas.refreshed') }}</p>{% endif %}
-{% if rep and user.can_request %}<form method="post" action="/studies/{{ rs }}/feasibility/refresh" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="small secondary" data-testid="refresh">{{ t('feas.refresh') }}</button> <span class="hint">{{ t('feas.refresh.help') }}</span></form>{% endif %}
+{% if rep and can_refresh %}<form method="post" action="/studies/{{ rs }}/feasibility/refresh" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="small secondary" data-testid="refresh">{{ t('feas.refresh') }}</button> <span class="hint">{{ t('feas.refresh.help') }}</span></form>{% endif %}
 {% if user.can_view_phi %}<p class="hint">{% if registry %}<a href="/studies/{{ rs }}/cohort" data-testid="to-cohort">{{ t('cohort.title') }}</a>{% else %}<a href="/studies/{{ rs }}/week">{{ t('wb.title') }}</a> · <a href="/studies/{{ rs }}/screening-log">{{ t('log.title') }}</a>{% endif %}</p>{% endif %}
 {% if not rep %}
 <section class="card"><p>{{ t('feas.none') }}</p>{% if user.can_request %}<a class="button" href="/pilot/request?ruleset={{ rs }}">{{ t('next.feas') }}</a>{% endif %}</section>
@@ -54,13 +54,13 @@
 
 <section class="card" id="funnel">
 <h2>3 · {{ t('feas.s3') }}</h2>
-<div class="scroll"><table class="funnel" data-testid="funnel">
-<thead><tr><th>{{ t('feas.f.criterion') }}</th><th class="barcol"></th><th class="num">{{ t('feas.f.remaining') }}</th><th class="num">{{ t('feas.f.dropped') }}</th><th class="num">{{ t('feas.f.unknown') }}</th><th>{{ t('feas.f.how') }}</th></tr></thead>
+<div class="scroll" tabindex="0"><table class="funnel" data-testid="funnel">
+<thead><tr><th>{{ t('feas.f.criterion') }}</th><th class="barcol"><span class="sr">{{ t('col.bar') }}</span></th><th class="num">{{ t('feas.f.remaining') }}</th><th class="num">{{ t('feas.f.dropped') }}</th><th class="num">{{ t('feas.f.unknown') }}</th><th>{{ t('feas.f.how') }}</th></tr></thead>
 <tbody>
 <tr><td>{{ t('feas.f.scope') }}</td><td class="barcol"><svg viewBox="0 0 100 10" preserveAspectRatio="none" class="bar" aria-hidden="true"><rect x="0" y="1" width="100" height="8" class="b"/></svg></td><td class="num">{{ s.start }}</td><td></td><td></td><td></td></tr>
 {% for f in rep.funnel %}
 <tr class="{{ '' if f.applied else 'muted' }}">
-<td>{{ f.id }} {{ f.label }}</td>
+<td>{{ f.id }} {% if f.site_label %}{{ f.label }}{% else %}<span data-authored>{{ f.label }}</span>{% endif %}</td>
 <td class="barcol">{% if f.applied and f.width is not none %}<svg viewBox="0 0 100 10" preserveAspectRatio="none" class="bar" aria-hidden="true"><rect x="0" y="1" width="{{ '%.1f'|format(f.width) }}" height="8" class="b"/></svg>{% else %}<svg viewBox="0 0 100 10" preserveAspectRatio="none" class="bar" aria-hidden="true"><rect x="0" y="1" width="100" height="8" class="na"/></svg>{% endif %}</td>
 {% if f.applied %}<td class="num">{{ f.remaining }}</td><td class="num">{{ f.dropped }}</td><td class="num">{{ f.unknown }}</td>{% else %}<td colspan="3" class="hint">{{ t('feas.f.not_applied') }}</td>{% endif %}
 <td>{{ t('how.' + f.verified) }}</td>
@@ -78,13 +78,14 @@
 {% for g in bridge.gaps %}<li data-testid="bridge-gap">{{ t('feas.bridge.gap', label=g.label, n=g.n) }}</li>{% endfor %}
 {% for k in bridge.kept %}<li data-testid="bridge-kept">{{ t('feas.bridge.kept', label=k.label, n=k.n) }}</li>{% endfor %}
 {% if bridge.listed is defined %}<li data-testid="bridge-list">{{ t('feas.bridge.list', listed=bridge.listed, ready=bridge.ready, needs=bridge.needs) }}</li>
-<li data-testid="bridge-outside">{{ t('feas.bridge.outside', n=bridge.outside) }}</li>{% endif %}
+<li data-testid="bridge-outside">{{ t('feas.bridge.outside', n=bridge.outside) }}</li>
+<li data-testid="bridge-unknown-system">{{ t('feas.bridge.unknown_system', n=bridge.unknown_system) }}</li>{% endif %}
 </ul>
 </section>{% endif %}
 
 <section class="card" id="barriers">
 <h2>4 · {{ t('feas.s4') }}</h2>
-<div class="scroll"><table class="compact" data-testid="barriers">
+<div class="scroll" tabindex="0"><table class="compact" data-testid="barriers">
 <thead><tr><th>{{ t('feas.f.criterion') }}</th><th class="num">{{ t('feas.b.lost') }}</th><th class="num">{{ t('feas.b.failed') }}</th><th class="num">{{ t('feas.b.never') }}</th></tr></thead>
 <tbody>{% for b in rep.barriers %}<tr><td>{{ b.id }} {{ b.label }}</td><td class="num">{{ '{:,}'.format(b.dropped) }}</td><td class="num">{{ '{:,}'.format(b.failed) }}</td><td class="num">{{ '{:,}'.format(b.never) }}</td></tr>{% else %}<tr><td colspan="4" class="hint">–</td></tr>{% endfor %}</tbody>
 </table></div>
@@ -96,7 +97,7 @@
 
 <section class="card" id="sensitivity">
 <h2>5 · {{ t('feas.s5') }}</h2>
-<div class="scroll"><table class="compact"><thead><tr><th>{{ t('feas.f.criterion') }}</th><th>{{ t('feas.sens.variant') }}</th><th class="num">{{ t('feas.f.remaining') }}</th><th class="num">{{ t('feas.sens.delta') }}</th></tr></thead>
+<div class="scroll" tabindex="0"><table class="compact"><thead><tr><th>{{ t('feas.f.criterion') }}</th><th>{{ t('feas.sens.variant') }}</th><th class="num">{{ t('feas.f.remaining') }}</th><th class="num">{{ t('feas.sens.delta') }}</th></tr></thead>
 <tbody>{% for r in rep.sensitivity %}<tr><td>{% if r.criterion == '*' %}{{ t('feas.sens.all') }}{% else %}{{ r.criterion }} {{ r.label if r.label != r.criterion else '' }}{% endif %}</td><td>{% if r.variant == 'unknown_as_pass' %}{{ t('feas.sens.uap') }}{% else %}{{ r.variant }}{% endif %}</td><td class="num">{{ r.remaining }}</td><td class="num">{% if r.delta is not none %}{{ '%+d'|format(r.delta) }}{% else %}–{% endif %}</td></tr>{% endfor %}</tbody></table></div>
 </section>
 
@@ -138,7 +139,7 @@
 <section class="card" id="demographics">
 <h2>7 · {{ t('feas.s7') }}</h2>
 {% if rep.demographics %}
-<div class="scroll"><table class="compact" data-testid="demographics">
+<div class="scroll" tabindex="0"><table class="compact" data-testid="demographics">
 <thead><tr><th>{{ t('feas.d.age') }}</th><th class="num">{{ t('feas.d.f') }}</th><th class="num">{{ t('feas.d.m') }}</th><th class="num">{{ t('feas.d.total') }}</th></tr></thead>
 <tbody>{% for b in rep.demographics.bands %}<tr><td>{{ b.band }}</td><td class="num">{{ b.F }}</td><td class="num">{{ b.M }}</td><td class="num">{{ b.n }}</td></tr>{% endfor %}</tbody></table></div>
 <p class="hint">{{ t('feas.d.help') }}</p>
@@ -147,9 +148,9 @@
 
 <section class="card" id="site">
 <h2>8 · {{ t('feas.s8') }} <span class="hint">{% if rep.entered.at %}{{ t('feas.entered', by=rep.entered.by, at=rep.entered.at) }}{% else %}{{ t('feas.not_entered') }}{% endif %}</span></h2>
-{% if rep.capabilities %}<div class="scroll"><table class="compact" data-testid="capabilities"><tbody>{% for c in rep.capabilities %}<tr><td>{{ t('cap.' + c.key) }}</td><td>{{ t('capv.' + c.value) }}</td><td class="hint">{{ c.note if not rep.sponsor else '' }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="hint">{{ t('feas.not_entered') }}</p>{% endif %}
+{% if rep.capabilities %}<div class="scroll" tabindex="0"><table class="compact" data-testid="capabilities"><tbody>{% for c in rep.capabilities %}<tr><td>{{ t('cap.' + c.key) }}</td><td>{{ t('capv.' + c.value) }}</td><td class="hint">{{ c.note if not rep.sponsor else '' }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="hint">{{ t('feas.not_entered') }}</p>{% endif %}
 <h2 class="mt">9 · {{ t('feas.s9') }}</h2>
-{% if rep.competing %}<div class="scroll"><table class="compact" data-testid="competing"><thead><tr><th>ID</th><th>{{ t('feas.ct.title') }}</th><th>{{ t('feas.ct.overlap') }}</th><th>{{ t('feas.ct.status') }}</th></tr></thead><tbody>{% for c in rep.competing %}<tr><td>{{ c.id }}</td><td>{{ c.title }}</td><td>{{ c.overlap }}</td><td>{{ c.status }}</td></tr>{% endfor %}</tbody></table></div>
+{% if rep.competing %}<div class="scroll" tabindex="0"><table class="compact" data-testid="competing"><thead><tr><th>ID</th><th>{{ t('feas.ct.title') }}</th><th>{{ t('feas.ct.overlap') }}</th><th>{{ t('feas.ct.status') }}</th></tr></thead><tbody>{% for c in rep.competing %}<tr><td>{{ c.id }}</td><td>{{ c.title }}</td><td>{{ c.overlap }}</td><td>{{ c.status }}</td></tr>{% endfor %}</tbody></table></div>
 {% else %}<p class="hint">{{ t('feas.ct.none') }}</p>{% endif %}
 
 {% if can_edit and not rep.sponsor %}
@@ -163,13 +164,13 @@
   <div><label for="screen_fail">{{ t('feas.e.sf') }}</label><input id="screen_fail" name="screen_fail" type="number" min="0" max="99" step="1" value="{{ (site.screen_fail * 100)|round|int if site.screen_fail is not none else '' }}"><p class="hint">{{ t('feas.e.sf.help', dflt=((s.screen_fail * 100)|round|int ~ ' %') if s.screen_fail_source == 'default' else '–') }}</p></div>
 </div>
 <h3>{{ t('feas.s8') }}</h3>
-<div class="scroll"><table class="compact"><tbody>
+<div class="scroll" tabindex="0"><table class="compact"><tbody>
 {% for k in cap_keys %}{% set cur = site.capabilities.get(k, {}) %}<tr><td><label for="cap_{{ k }}" class="check">{{ t('cap.' + k) }}</label></td>
 <td><select id="cap_{{ k }}" name="cap_{{ k }}"><option value="">–</option>{% for v in cap_values %}<option value="{{ v }}" {{ 'selected' if cur.get('value') == v else '' }}>{{ t('capv.' + v) }}</option>{% endfor %}</select></td>
 <td><input name="capnote_{{ k }}" aria-label="{{ t('cap.' + k) }} {{ t('feas.e.note') }}" maxlength="200" value="{{ cur.get('note', '') }}" placeholder="{{ t('feas.e.note') }}"></td></tr>{% endfor %}
 </tbody></table></div>
 <h3>{{ t('feas.s9') }}</h3>
-<div class="scroll"><table class="compact"><thead><tr><th>{{ t('feas.ct.id') }}</th><th>{{ t('feas.ct.title') }}</th><th>{{ t('feas.ct.overlap') }}</th><th>{{ t('feas.ct.status') }}</th></tr></thead><tbody>
+<div class="scroll" tabindex="0"><table class="compact"><thead><tr><th>{{ t('feas.ct.id') }}</th><th>{{ t('feas.ct.title') }}</th><th>{{ t('feas.ct.overlap') }}</th><th>{{ t('feas.ct.status') }}</th></tr></thead><tbody>
 {% for i in range(5) %}{% set c = site.competing[i] if i < site.competing|length else {} %}<tr>
 <td><input name="ct_id_{{ i }}" aria-label="ID {{ i + 1 }}" maxlength="40" value="{{ c.get('id', '') }}"></td>
 <td><input name="ct_title_{{ i }}" aria-label="{{ t('feas.ct.title') }} {{ i + 1 }}" maxlength="160" value="{{ c.get('title', '') }}"></td>
@@ -192,7 +193,7 @@
 <p>{{ t('feas.method') }}</p>
 <p class="hint">{{ t('feas.validation') }}</p>
 <h2 class="mt">12 · {{ t('feas.s12') }}</h2>
-<div class="scroll"><table class="compact" data-testid="assumptions"><thead><tr><th>{{ t('feas.a.item') }}</th><th>{{ t('feas.a.value') }}</th><th>{{ t('feas.a.source') }}</th></tr></thead>
+<div class="scroll" tabindex="0"><table class="compact" data-testid="assumptions"><thead><tr><th>{{ t('feas.a.item') }}</th><th>{{ t('feas.a.value') }}</th><th>{{ t('feas.a.source') }}</th></tr></thead>
 <tbody>{% for k, v, src in rep.assumptions %}<tr><td>{{ t('as.' + k) }}</td><td>{% if v is none %}–{% elif v is number and v < 1 and k in ('reach', 'accept', 'screen_fail') %}{{ (v * 100)|round|int }} %{% else %}{{ v }}{% endif %}</td><td>{{ t_or('src.' + src, src) }}</td></tr>{% endfor %}</tbody></table></div>
 {% if s.screen_fail_ref and s.screen_fail_source == 'default' %}<p class="hint">{{ t('feas.sf_ref', ref=s.screen_fail_ref) }}</p>{% endif %}
 </section>

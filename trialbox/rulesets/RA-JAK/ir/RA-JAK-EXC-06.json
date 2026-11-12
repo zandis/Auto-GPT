@@ -1,0 +1,27 @@
+{
+ "action": "ask about shingles in the last 12 months",
+ "class": "mixed",
+ "id": "RA-JAK-EXC-06",
+ "kind": "exclusion",
+ "label": "Herpes zoster ≤12 months",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_HERPES_ZOSTER",
+  "window": {
+   "anchor": "index",
+   "from_days": -365,
+   "to_days": 0
+  }
+ },
+ "note_question": "Do the notes document an episode of herpes zoster (shingles) within the 12 months before the index date?",
+ "review": {
+  "at": "2026-11-11T04:31:43.359347+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-JAK",
+ "source_ref": "5.2 Exclusion Criteria 排除條件 #6",
+ "text": "Herpes zoster within 12 months before screening.",
+ "time_sensitive": false
+}

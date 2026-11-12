@@ -1,0 +1,45 @@
+{
+ "criteria": [
+  {
+   "text": "Aged 18 years or older.",
+   "label": "18歳以上",
+   "source_ref": "Inclusion #1",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {"domain": "demographic", "age": {"min": 18}},
+   "concept_candidates": []
+  },
+  {
+   "text": "Diagnosis of gout (ICD-10-CM M10 or M1A).",
+   "label": "痛風",
+   "source_ref": "Inclusion #2",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {"domain": "condition", "concept": "gout", "quantifier": "any"},
+   "concept_candidates": [{"domain": "condition", "name": "gout", "synonyms": ["痛風"]}]
+  },
+  {
+   "text": "Most recent serum urate in the last year at least 7.0 mg/dL.",
+   "label": "尿酸≥7.0",
+   "source_ref": "Inclusion #3",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {"domain": "observation", "concept": "serum urate", "quantifier": "latest",
+             "value": {"op": ">=", "num": 7.0, "unit": "mg/dL"}, "window": {"from_days": -365, "to_days": 0}},
+   "concept_candidates": [{"domain": "observation", "name": "serum urate", "synonyms": ["尿酸"]}]
+  },
+  {
+   "text": "Any history of malignancy.",
+   "label": "悪性腫瘍の既往",
+   "source_ref": "Exclusion #1",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {"domain": "condition", "concept": "malignancy", "quantifier": "any"},
+   "concept_candidates": [{"domain": "condition", "name": "malignancy", "synonyms": ["悪性腫瘍", "惡性腫瘤"]}]
+  }
+ ]
+}

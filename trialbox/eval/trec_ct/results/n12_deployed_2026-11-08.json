@@ -1,0 +1,109 @@
+{
+ "parameters": {
+  "patients": 50000,
+  "trials_per_year": 12,
+  "models": [
+   "local/gemma-4-26b-a4b-nvfp4",
+   "local/qwen3.5-9b-awq"
+  ],
+  "llm_share_of_criteria": 0.42,
+  "eligible_per_1k_patients_per_trial": 2.0,
+  "review_minutes_per_candidate": 10.0,
+  "gpu_tokens_per_s": 2500.0,
+  "bootstrap_reps": 2000,
+  "audit_model_errors_of_sampled": [
+   10,
+   30
+  ]
+ },
+ "measured_inputs": {
+  "s1_pass_rate (synthetic run)": 0.0279,
+  "s3_share_of_s1_survivors": 1.0,
+  "s5_queue_per_1k_patients": 18.46,
+  "model_calls_per_s3_patient": 0.98,
+  "trec_per_criterion_false_block": {
+   "point": 0.01968,
+   "p2.5": 0.01647,
+   "p97.5": 0.02366
+  },
+  "trec_excluded_pairs_caught": {
+   "point": 0.508,
+   "p2.5": 0.447,
+   "p97.5": 0.572
+  },
+  "criteria_per_trial (TREC sample)": 11.8,
+  "tokens_per_call (TREC)": 553,
+  "japanese": null
+ },
+ "per_year": {
+  "patient_trial_screens": 600000,
+  "pass_structured_filters": 16716,
+  "reach_llm": 16716,
+  "model_calls": 16344,
+  "gpu_hours": 1.0,
+  "review_queue": 11076,
+  "coordinator_hours": 1846,
+  "wrongly_dropped": [
+   {
+    "lang": "en",
+    "kind": "raw",
+    "eligible_patient_trial_pairs_per_year": 1200,
+    "share_dropped": {
+     "point": 0.094,
+     "p2.5": 0.0792,
+     "p97.5": 0.1121
+    },
+    "wrongly_dropped_per_year": {
+     "point": 112.8,
+     "p2.5": 95.0,
+     "p97.5": 134.5
+    }
+   },
+   {
+    "lang": "en",
+    "kind": "audit_adjusted",
+    "eligible_patient_trial_pairs_per_year": 1200,
+    "share_dropped": {
+     "point": 0.0313,
+     "p2.5": 0.0181,
+     "p97.5": 0.0499
+    },
+    "wrongly_dropped_per_year": {
+     "point": 37.6,
+     "p2.5": 21.7,
+     "p97.5": 59.9
+    }
+   },
+   {
+    "lang": "ja",
+    "kind": "raw",
+    "eligible_patient_trial_pairs_per_year": 1200,
+    "share_dropped": {
+     "point": 0.094,
+     "p2.5": 0.0792,
+     "p97.5": 0.1121
+    },
+    "wrongly_dropped_per_year": {
+     "point": 112.8,
+     "p2.5": 95.0,
+     "p97.5": 134.5
+    }
+   },
+   {
+    "lang": "ja",
+    "kind": "audit_adjusted",
+    "eligible_patient_trial_pairs_per_year": 1200,
+    "share_dropped": {
+     "point": 0.0313,
+     "p2.5": 0.0181,
+     "p97.5": 0.0499
+    },
+    "wrongly_dropped_per_year": {
+     "point": 37.6,
+     "p2.5": 21.7,
+     "p97.5": 59.9
+    }
+   }
+  ]
+ }
+}

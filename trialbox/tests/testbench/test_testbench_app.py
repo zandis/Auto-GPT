@@ -1,4 +1,4 @@
-"""Test Bench app (docs/HANDOFF.md §5) through FastAPI's TestClient: pages, refusals, and each driver."""
+"""Test Bench app (docs/VALIDATION.md §6) through FastAPI's TestClient: pages, refusals, and each driver."""
 
 from __future__ import annotations
 
@@ -182,11 +182,12 @@ def test_recall_simulation_shows_cs_and_cp(client: TestClient) -> None:
     assert "recall-table" in page and "repeated CP miss" in page and "<svg" in page and BANNER in page
 
 
-def test_dataplat_planted_defect_blocks_publish(client: TestClient) -> None:
-    loc = client.post("/dataplat", data={"defect": "null_identifier"}, follow_redirects=False)
+def test_ingest_planted_defect_holds_the_night(client: TestClient) -> None:
+    """T-659b: the adapter's gate holds the night with the planted defect's reason; the first night stays current."""
+    loc = client.post("/ingest", data={"defect": "null_identifier"}, follow_redirects=False)
     page = _wait(client, loc.headers["location"])
     assert 'data-testid="gate-outcome">PUBLISH' in page and 'data-testid="gate-outcome">HOLD' in page
-    assert "NULL_IDENTIFIER" in page and "Steward notice" in page and "tb.l1.validate" in page
+    assert "NULL_IDENTIFIER" in page and "demo_his.yaml" in page and "every mapped table meets its contract" in page
 
 
 def test_run_end_to_end_on_the_synthetic_fixture_passes(client: TestClient) -> None:

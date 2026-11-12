@@ -1,0 +1,20 @@
+concept_id	concept_name	domain_id	vocabulary_id	concept_class_id	standard_concept	concept_code	valid_start_date	valid_end_date	invalid_reason
+0	No matching concept	Metadata	None	Undefined		No matching concept	19700101	20991231	
+8507	MALE	Gender	Gender	Gender	S	M	19700101	20991231	
+8532	FEMALE	Gender	Gender	Gender	S	F	19700101	20991231	
+9201	Inpatient Visit	Visit	Visit	Visit	S	IP	19700101	20991231	
+9202	Outpatient Visit	Visit	Visit	Visit	S	OP	19700101	20991231	
+9203	Emergency Room Visit	Visit	Visit	Visit	S	ER	19700101	20991231	
+32817	EHR	Type Concept	Type Concept	Type Concept	S	OMOP4976890	19700101	20991231	
+3016723	Creatinine [Mass/volume] in Serum or Plasma	Measurement	LOINC	Lab Test	S	2160-0	19700101	20991231	
+8840	milligram per deciliter	Unit	UCUM	Unit	S	mg/dL	19700101	20991231	
+1503297	metformin	Drug	RxNorm	Ingredient	S	6809	19700101	20991231	
+1545958	atorvastatin	Drug	RxNorm	Ingredient	S	83367	19700101	20991231	
+1305058	methotrexate	Drug	RxNorm	Ingredient	S	6851	19700101	20991231	
+1332418	amlodipine	Drug	RxNorm	Ingredient	S	17767	19700101	20991231	
+1900000001	metformin	Drug	ATC	ATC 5th	C	A10BA02	19700101	20991231	
+1900000002	atorvastatin	Drug	ATC	ATC 5th	C	C10AA05	19700101	20991231	
+1900000003	methotrexate	Drug	ATC	ATC 5th	C	L04AX03	19700101	20991231	
+1900000004	amlodipine	Drug	ATC	ATC 5th	C	C08CA01	19700101	20991231	
+1900000005	atorvastatin and amlodipine	Drug	ATC	ATC 5th	C	C10BX03	19700101	20991231	
+1900000006	allopurinol	Drug	ATC	ATC 5th	C	M04AA01	19700101	20991231	

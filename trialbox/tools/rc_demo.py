@@ -68,7 +68,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     app, h, crc = res["app"], res["app"].state.helpers, res["crc"]
     no = res["screening_no"]
     admin = ld.sign_in(app, "admin", password, lang)
-    out: dict[str, Any] = {"list": res, "screening_no": no, "admin": admin, "crc": crc, "app": app}
+    out: dict[str, Any] = {"list": res, "screening_no": no, "admin": admin, "crc": crc, "app": app, "sim": sim}
 
     # 1 S36: URL and token, then Test connection
     page = ld.ok(admin.get("/admin/redcap"), "S36")
@@ -84,7 +84,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
 
     # 3 the CRC creates the REDCap record with the screening number and a consent date; Run now
     sc = TestClient(sim)
-    rec = {"record_id": "3", "tb_screening_no": no, "consent_date": h.clock().date().isoformat()}
+    rec = {"record_id": "3", "tb_screening_no": no, "consent_date": h.today().isoformat()}
     assert sc.post("/sim/records", json={"project_id": 101, "records": [rec]}).status_code == 200
     log = ld.ok(crc.get(f"/studies/{TRIAL}/screening-log"), "log")
     out["before"] = status_of(log.text, no)
@@ -103,8 +103,10 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tools.pglocal import scratch_root  # D-201: never a fixed /tmp path
+
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_DEMO_DIR", "/tmp/tb-rc-demo")))
+    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_DEMO_DIR") or scratch_root() / "tb-rc-demo"))
     ap.add_argument("--lang", default="ja", choices=["ja", "zh-TW", "en"])
     ap.add_argument("--serve", action="store_true", help="keep the console up after the run")
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")))

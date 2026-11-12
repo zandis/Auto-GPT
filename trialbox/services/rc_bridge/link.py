@@ -5,6 +5,11 @@ enrolment code, the screen-fail reason (with a choice map to TrialBox reason cat
 the sponsor subject number. ``validate`` checks every named field against the data dictionary (RC-LINK-FIELD);
 ``read_back`` joins the exported records to pseudonyms by screening number and derives one status per record.
 Only the default link mode ``tb_screening_no`` is built; ``mrn`` is a hospital-stage mode (H) and is refused.
+
+Write-back (D-123): ``write_mode`` ``existing`` fills TrialBox's own instrument (``write_form``, default
+``trialbox_screening``) in records the coordinator created; ``create`` also creates a record for a screening number
+REDCap does not have yet (a screening-log project). ``validate`` refuses a write form that holds any field the link
+reads, so TrialBox can never overwrite a REDCap-owned field.
 """
 
 from __future__ import annotations
@@ -14,6 +19,8 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 LINK_MODES = ("tb_screening_no",)  # `mrn` is H (TB-DS-08 §4.1a)
+WRITE_MODES = ("off", "existing", "create")
+WRITE_FIELDS = ("tb_screen_date", "tb_status", "tb_status_date")  # TrialBox's instrument (fixture projects A and B)
 REASON_CATEGORIES = ("inclusion", "exclusion", "consent_withdrawn", "lost_contact", "other")
 _FIELD = re.compile(r"^[a-z][a-z0-9_]{0,99}$")
 
@@ -43,6 +50,9 @@ class ProjectLink:
     withdraw_field: str = ""
     withdraw_value: str = "1"
     subject_no_field: str = ""
+    write_mode: str = "off"
+    write_form: str = "trialbox_screening"
+    write_event: str = ""
 
     @classmethod
     def from_dict(cls, body: dict[str, Any]) -> ProjectLink:
@@ -50,11 +60,14 @@ class ProjectLink:
         data = {k: v for k, v in body.items() if k in known}
         data["project_id"] = int(data.get("project_id") or 0)
         data["screenfail_choice_map"] = {str(k): str(v) for k, v in (data.get("screenfail_choice_map") or {}).items()}
+        data.setdefault("write_mode", "off")
         for k in known - {"project_id", "screenfail_choice_map"}:
             if k in data and data[k] is None:
                 data[k] = ""
             if k in data:
                 data[k] = str(data[k]).strip()
+        data["write_mode"] = data["write_mode"] or "off"
+        data["write_form"] = data.get("write_form") or "trialbox_screening"
         return cls(**data)
 
     def as_dict(self) -> dict[str, Any]:
@@ -84,6 +97,10 @@ class ProjectLink:
         bad = [f for f in self.fields() if not _FIELD.match(f)]
         if bad:
             raise LinkError("RC-LINK-FIELD", "REDCap field names are lower-case letters, digits and _", bad)
+        if self.write_mode not in WRITE_MODES:
+            raise LinkError("RC-LINK-FIELD", f"write-back is one of {', '.join(WRITE_MODES)}")
+        if self.write_mode != "off" and not _FIELD.match(self.write_form or ""):
+            raise LinkError("RC-LINK-FIELD", "name TrialBox's REDCap instrument", [self.write_form])
         cats = [c for c in self.screenfail_choice_map.values() if c not in REASON_CATEGORIES]
         if cats:
             raise LinkError("RC-LINK-FIELD", f"reason categories are {', '.join(REASON_CATEGORIES)}", cats)
@@ -127,6 +144,31 @@ def validate(link: ProjectLink, metadata: list[dict[str, Any]], project: dict[st
         bad = [c for c in link.screenfail_choice_map if ch and c not in ch]
         if bad:
             raise LinkError("RC-LINK-FIELD", f"{link.screenfail_field} has no choice {', '.join(bad)}", bad)
+    if link.write_mode != "off":
+        validate_write(link, by_name, project)
+
+
+def validate_write(link: ProjectLink, by_name: dict[str, dict[str, Any]], project: dict[str, Any] | None) -> None:
+    """TrialBox's instrument holds the three write fields and none of the fields the link reads (D-123)."""
+    from rc_bridge.writeback import STATUS_CODES
+
+    missing = [f for f in WRITE_FIELDS if f not in by_name]
+    if missing:
+        raise LinkError("RC-LINK-FIELD", "TrialBox's REDCap instrument lacks these fields", missing)
+    elsewhere = [f for f in WRITE_FIELDS if by_name[f].get("form_name") != link.write_form]
+    if elsewhere:
+        raise LinkError("RC-LINK-FIELD", f"these fields are not on the instrument {link.write_form}", elsewhere)
+    owned = [f for f in link.fields() if by_name[f].get("form_name") == link.write_form]
+    if owned:
+        raise LinkError("RC-LINK-WRITE", "fields TrialBox reads may not be on TrialBox's own instrument", owned)
+    ch = choices(by_name["tb_status"])
+    lacking = [c for c in STATUS_CODES.values() if c not in ch]
+    if lacking:
+        raise LinkError("RC-LINK-FIELD", "tb_status lacks the TrialBox status codes", lacking)
+    if project is not None and int(project.get("is_longitudinal") or 0) and not link.write_event:
+        raise LinkError(
+            "RC-LINK-FIELD", "a longitudinal project needs the event of TrialBox's instrument", ["write_event"]
+        )
 
 
 @dataclass

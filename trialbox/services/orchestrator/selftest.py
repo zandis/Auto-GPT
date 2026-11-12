@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from tb_common.llm import LlmClient, LlmError
+from tb_common.pair import same_model, served_keys
 
 from orchestrator.scenarios.evaluate import postprocess
 
@@ -57,6 +58,7 @@ class ModelReport:
     errors: list[str] = field(default_factory=list)
     wrong: list[dict[str, str]] = field(default_factory=list)
     answers: dict[str, str] = field(default_factory=dict)  # case id -> predicate (not reported, used for the pair)
+    served: list[str] = field(default_factory=list)  # the model names the answers came back under (D-276)
 
     @property
     def ok(self) -> bool:
@@ -77,8 +79,18 @@ def load_cases(path: Path = CASES) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def model_name(client: LlmClient) -> str:
+    """The name the canary reports: the client's model, else (a gateway client sends no model) the alias it asks the
+    gateway for, else the gateway's own choice for the role. Never empty: an empty name hid which model failed."""
+    name = str(getattr(client, "model", "") or "")
+    gw = getattr(client, "gateway", None)
+    if not name and gw is not None:
+        name = str(getattr(gw, "model", "") or "") or "(the gateway's build)"
+    return name or "(unnamed model)"
+
+
 def check_model(role: str, client: LlmClient, cases: list[dict[str, Any]], prompt: str = "judge") -> ModelReport:
-    rep = ModelReport(role, str(getattr(client, "model", "")), cases=len(cases))
+    rep = ModelReport(role, model_name(client), cases=len(cases))
     t0 = time.perf_counter()
     for c in cases:
         variables = {k: c[k] for k in ("criterion_text", "note_question", "index_date", "excerpts")}
@@ -88,6 +100,9 @@ def check_model(role: str, client: LlmClient, cases: list[dict[str, Any]], promp
             rep.errors.append(f"{c['id']}: {str(exc)[:120]}")
             continue
         rep.answered += 1
+        for name in served_keys(getattr(res, "model", ""), getattr(res, "build_sha", "")):
+            if name not in rep.served:
+                rep.served.append(name)
         got = postprocess(res.data, c["excerpts"]).predicate
         rep.answers[c["id"]] = got
         want = c["expected"]
@@ -132,11 +147,22 @@ def run_selftest(
             swap("serving")
         except LlmError as exc:
             problems.append(f"judge did not wake after the self-test: {exc}")
-    problems += [f"{m.role} {m.model} failed the canary" for m in models if not m.ok]
+    problems += [
+        f"{m.role} {m.model} failed the canary"
+        + (f" ({m.answered} of {m.cases} answered; {m.errors[0]})" if m.errors else "")
+        for m in models
+        if not m.ok
+    ]
     by_role = {m.role: m for m in models}
     pair = None
     if "judge" in by_role and "verifier" in by_role:
         pair = pair_report(by_role["judge"], by_role["verifier"], cs)
+        # D-276 (review S-2): a "pair" that is one model agrees with itself on every case and would pass
+        shared = sorted(set(by_role["judge"].served) & set(by_role["verifier"].served))
+        one = same_model(llm, verifier) or (f"both answered as the same model ({shared[0]})" if shared else None)
+        if one:
+            pair["same_model"] = one
+            problems.append(f"the verifier is not a second model ({one}): a note answer needs two different models")
         if pair["decided_wrong"] > MAX_PAIR_WRONG:
             problems.append(
                 f"the pair agreed on a wrong decided answer in {pair['decided_wrong']} cases (at most {MAX_PAIR_WRONG})"
@@ -221,14 +247,14 @@ def preflight(orch: Any, force: bool = False) -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from tb_common.audit import AuditLog
+    from tb_common.audit_writer import open_audit
     from tb_common.config import get_config
 
     from orchestrator.app import verifier_client
     from orchestrator.twophase import GatewaySwap
 
     cfg = get_config()
-    audit = AuditLog(cfg.env.audit_path, cfg.env.tz)
+    audit = open_audit(cfg.env.audit_path, cfg.env.tz)
     gs = GatewaySwap.from_env()
     report = run_selftest(
         LlmClient.from_config(audit),

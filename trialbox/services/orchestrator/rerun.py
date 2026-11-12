@@ -16,6 +16,7 @@ LLM-backed steps are reproducible when the model is (stub, or vLLM with temperat
 from __future__ import annotations
 
 import json
+import secrets
 import tempfile
 from dataclasses import dataclass, replace
 from datetime import date, datetime
@@ -34,6 +35,22 @@ class PinnedLake:
     def __init__(self, lake: Any, snapshot: str | None) -> None:
         self.lake = lake
         self.pinned = snapshot
+        self._tag = secrets.token_hex(4)
+
+    def _holder(self, holder: str) -> str:
+        """The re-run's own hold name: never the original job's, and one per re-run (two re-runs of a job at once)."""
+        return f"rerun.{holder}.{self._tag}"
+
+    def hold(self, snapshot: str, holder: str) -> None:
+        """D-462: a re-run holds its snapshot like the job did (``jobs.PinnedLake`` asks for it), so a publish cannot
+        rebuild it under the re-run. A lake without holds (a test's fake) holds nothing."""
+        hold = getattr(self.lake, "hold", None)
+        if hold is not None:
+            hold(snapshot, self._holder(holder))
+
+    def release(self, holder: str) -> bool:
+        release = getattr(self.lake, "release", None)
+        return bool(release(self._holder(holder))) if release is not None else False
 
     def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> Any:
         return self.lake.query(sql, params, snapshot or self.pinned)
@@ -101,7 +118,8 @@ def rerun(orch: Orchestrator, job_id: str) -> RerunResult:
         return RerunResult(job_id, original.type, False, [], f"{original.type} jobs with side effects are not re-run")
     received = original.received_at
     work = Path(tempfile.mkdtemp(prefix="tb-rerun-"))
-    db = JobDB(work / "jobs.sqlite")
+    # a scratch copy of the job tables in a schema of its own, dropped when the re-run ends
+    db = JobDB(orch.db.url, schema=f"orch_rerun_{secrets.token_hex(4)}")
     fresh = original.model_copy(
         update={"state": "received", "outputs": [], "error": None, "metrics": None, "updated_at": None}
     )
@@ -136,7 +154,7 @@ def rerun(orch: Orchestrator, job_id: str) -> RerunResult:
         {"filename": f, "original": before.get(f), "rerun": after.get(f), "same": before.get(f) == after.get(f)}
         for f in sorted(set(before) | set(after))
     ]
-    db.close()
+    db.drop()
     err = None if done.state == "done" else f"rerun {done.state}: {done.error.message if done.error else ''}"
     return RerunResult(job_id, original.type, err is None and all(x["same"] for x in files), files, err)
 

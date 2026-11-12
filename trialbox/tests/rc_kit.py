@@ -63,10 +63,10 @@ def study_service(tmp: Path, sim: FastAPI | None = None, url: str = "inproc://rc
     """A study service over a fresh registry, with tokens for both fixture projects pointing at ``sim``."""
     sim = sim or create_app()
     register_local(url, lambda: TestClient(sim, base_url="http://rc-sim"))
-    db = JobDB(tmp / "jobs.db")
+    db = JobDB()
     audit = AuditLog(tmp / "audit", "Asia/Tokyo")
     (tmp / "sec").mkdir(exist_ok=True)
-    store = StudyStore(tmp / "studies.db", tmp / "sec")
+    store = StudyStore(tmp / "sec")
     reg = CandidateRegistry(db, audit, tmp / "sec")
     clock = Clock(datetime(2026, 11, 7, 21, 0, tzinfo=TZ))
     svc = StudyService(store, reg, audit, clock)

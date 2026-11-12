@@ -2,6 +2,18 @@
 retention_days: 90
 # special-category (sc) traces keep a reduced retention (PRIV-14); the value is an estimate pending DPO approval
 sc_retention_days: 30
+# PRODUCTION keeps every trace at most this many days (T-208, D-346): enough to look into a call, too short for the
+# store to become a second copy of note text. DEV and TEST keep the two values above.
+production_retention_days: 7
+# PRODUCTION: a trace of these data classes keeps its prompt and output as a sha256 and a size only, never as text
+# (T-605, D-431, review LLM-040); DEV and TEST keep redacted text for debugging on synthetic data
+production_no_text_classes: [D3, D4]
+# a write prunes when the last prune is older than this (the scheduled prune; T-605, D-431, review REG-012)
+prune_every_hours: 1
+# traces of these studies (attribute tb.study_id) keep no prompt or output text at all: the call id, the span, the
+# special-category mark and the safe attributes only. The prompt-injection suite (tools/injection_eval.py) labels its
+# calls with this study; they are synthetic, and planted instructions are kept out of the store on principle (T-208).
+no_text_studies: [injection_suite]
 # role a viewer must hold to read traces (§14)
 read_role: "trace:read"
 # span attributes stored without redaction: identifiers and enumerations the gateway sets, never content

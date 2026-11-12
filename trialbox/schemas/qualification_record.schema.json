@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/qualification_record.schema.json",
+  "title": "QualificationRecord",
+  "description": "The record `trialbox eval qualify` writes (tools/qualify.py, D-313): one model pair on one hardware profile. Every step of tools.qualify.STEPS must be present and passed, else the status is failed. Hashes, counts and codes only: no note text, prompt or answer. Schema version 1.0.0 (format qualification-record/1).",
+  "type": "object",
+  "required": [
+    "format",
+    "record_id",
+    "profile",
+    "stub",
+    "gateway",
+    "builds",
+    "git_head",
+    "driver",
+    "cuda",
+    "operator",
+    "started",
+    "finished",
+    "steps",
+    "status",
+    "failed_steps",
+    "qualifies_production",
+    "change_protocol",
+    "sha256"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "format": {"const": "qualification-record/1"},
+    "record_id": {"type": "string", "minLength": 1},
+    "profile": {"enum": ["ci", "rtxpro6000", "gb10", "rtx5090", "shared-quota"]},
+    "stub": {"type": "boolean"},
+    "gateway": {"type": "string"},
+    "builds": {
+      "title": "QualificationBuilds",
+      "type": "object",
+      "required": ["judge", "verifier"],
+      "additionalProperties": false,
+      "properties": {
+        "judge": {"$ref": "#/$defs/qualified_build"},
+        "verifier": {"$ref": "#/$defs/qualified_build"}
+      }
+    },
+    "git_head": {"type": "string"},
+    "driver": {"type": "string"},
+    "cuda": {"type": "string"},
+    "operator": {"type": "string"},
+    "started": {"type": "string", "format": "date-time"},
+    "finished": {"type": "string", "format": "date-time"},
+    "steps": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/qualification_step"}
+    },
+    "status": {"enum": ["passed", "failed"]},
+    "failed_steps": {"type": "array", "items": {"type": "string"}},
+    "qualifies_production": {"type": "boolean"},
+    "change_protocol": {
+      "title": "QualificationChangeProtocol",
+      "description": "The model change protocol this record is evidence for (D-343): the document, the sha256 of its text and the change id of its table of foreseen changes.",
+      "type": "object",
+      "required": ["document", "sha256", "change"],
+      "additionalProperties": false,
+      "properties": {
+        "document": {"const": "docs/validation/model-change-protocol.md"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "change": {"type": "string", "pattern": "^MC-[0-9]+$"}
+      }
+    },
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "$defs": {
+    "qualified_build": {
+      "title": "QualifiedBuild",
+      "type": "object",
+      "required": ["build_id", "alias", "served_name", "weights_sha256", "revision", "context_length", "registry_status"],
+      "additionalProperties": false,
+      "properties": {
+        "build_id": {"type": "string", "minLength": 1},
+        "alias": {"type": "string"},
+        "served_name": {"type": "string"},
+        "weights_sha256": {
+          "description": "The weight manifest sha256 pinned in models/registry.yaml, 'synthetic' for the stub, '' when none is pinned.",
+          "type": "string",
+          "pattern": "^([0-9a-f]{64}|synthetic|)$"
+        },
+        "revision": {"type": ["string", "null"]},
+        "context_length": {"type": ["integer", "null"]},
+        "registry_status": {"type": "string"}
+      }
+    },
+    "qualification_step": {
+      "title": "QualificationStep",
+      "type": "object",
+      "required": ["status", "reason", "seconds", "detail"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {"enum": ["passed", "failed"]},
+        "reason": {"type": "string"},
+        "seconds": {"type": "number", "minimum": 0},
+        "detail": {"type": "object"}
+      }
+    }
+  }
+}

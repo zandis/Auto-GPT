@@ -5,13 +5,17 @@
   the audit chain keeps their sha256 (``retention.deleted`` per job: keys + hashes recorded when they were created);
 * candidate pools and CRC feedback of rulesets that are no longer approved on this box, untouched for
   ``retention.pool_months_after_ruleset`` months, are deleted;
+* mail logs (the mail gateway's intake / sent tables, finished sends, the console's morning-mail log) older than
+  ``retention.mail_log_days`` are deleted (D-138; a send that never finished stays);
 * lake / NDJSON snapshots are pruned by the adapter after each ingest (``tb_common.retention.snapshots_to_keep``);
-* the audit chain itself is never touched (10 years, backed up nightly); container logs rotate by size in compose.
+* the audit chain itself is never touched (archived every night by ``trialbox logs daily``, D-138); container logs
+  rotate by size in compose and are collected and pruned on the host (``retention.logs_days``).
 """
 
 from __future__ import annotations
 
 import json
+import os
 from datetime import timedelta
 from typing import Any
 
@@ -30,6 +34,23 @@ def _hashes(ctx: Ctx, job_id: str) -> dict[str, str]:
         return {}
     out = {f.minio_key: f.sha256 for f in job.inputs or []}
     out.update({o.minio_key: o.sha256 for o in job.outputs or []})
+    return out
+
+
+def prune_mail_logs(before_iso: str, before_day: Any) -> dict[str, int]:
+    """Mail logs (D-138): the mail gateway's intake / sent / finished-send rows and the console's morning-mail log
+    older than the cut-off, in the trial database (``TB_DB_URL``). The audit chain keeps every mail event."""
+    from mail_gateway.store import MailDB
+    from tb_common.db import Database
+
+    mdb = MailDB()
+    try:
+        out = mdb.prune(before_iso)
+    finally:
+        mdb.close()
+    with Database.connect(os.environ.get("TB_DB_URL"), "site") as site:
+        if site.fetchval("SELECT to_regclass(?)", (f'"{site.schema}".notify_log',)) is not None:
+            out["notify_log"] = site.execute("DELETE FROM notify_log WHERE day < ?", (before_day.isoformat(),))
     return out
 
 
@@ -58,7 +79,13 @@ def run(ctx: Ctx) -> Outcome:
             job_id=ctx.job.job_id,
             detail={"group": group, "objects": [{"key": k, "sha256": known.get(k)} for k in sorted(keys)]},
         )
-    approved = {rid for rid in list_rulesets(ctx.rulesets_dir) if approved_or_none(ctx, rid, None) is not None}
+    mail_days = int(ret.mail_log_days if ret and ret.mail_log_days else 1825)
+    mail = prune_mail_logs((now - timedelta(days=mail_days)).isoformat(), (now - timedelta(days=mail_days)).date())
+    if any(mail.values()):
+        ctx.orch.audit.append("retention.mail", job_id=ctx.job.job_id, detail={"days": mail_days, "rows": mail})
+    approved = {
+        rid for rid in list_rulesets(ctx.rulesets_dir) if approved_or_none(ctx, rid, None, run=False) is not None
+    }
     cutoff = (now - timedelta(days=round(pool_months * 30.44))).isoformat()
     pools = ctx.orch.db.prune_inactive(approved, cutoff)
     if pools["pool"] or pools["feedback"]:
@@ -69,7 +96,8 @@ def run(ctx: Ctx) -> Outcome:
         "by_prefix": {p: sum(1 for ks in deleted.values() for k in ks if k.startswith(p)) for p, _ in PREFIXES},
         "pool_rows_deleted": pools["pool"],
         "feedback_rows_deleted": pools["feedback"],
-        "limits": {**days, "pool_months_after_ruleset": pool_months},
+        "mail_log_rows_deleted": mail,
+        "limits": {**days, "pool_months_after_ruleset": pool_months, "mail_log_days": mail_days},
     }
     ctx.metrics(patients_scoped=0)
     ctx.publish(

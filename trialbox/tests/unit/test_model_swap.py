@@ -11,6 +11,7 @@ from typing import Any
 
 import httpx
 import pytest
+from channels.base import ClassifiedIntent
 from fastapi.testclient import TestClient
 from gateway.app import create_app
 from gateway.core import Gateway, GatewayConfig
@@ -20,7 +21,7 @@ from guard.guard import Guard
 from orchestrator import selftest
 from orchestrator.twophase import DeferredVerifier, MemoClient, two_phase
 from tb_common.audit import AuditLog
-from tb_common.llm import LlmError, LlmResult
+from tb_common.llm import LlmError, LlmResult, load_prompt, render
 from tb_common.policy.classes import Environment
 
 from tests.unit.test_gateway import H, _judge_body, _pinned_registry
@@ -206,8 +207,15 @@ CHAT_H = H(
     Prompt="classify_intent@1",
 )
 CHAT_BODY = {
-    "messages": [{"role": "user", "content": "how many patients for study X?"}],
-    "response_format": {"type": "json_schema", "json_schema": {"name": "x", "schema": {"type": "object"}}},
+    # the registered template of classify_intent rendered, and its schema (D-300: the gateway refuses others)
+    "messages": render(
+        load_prompt("classify_intent_v1"),
+        {"text": "how many patients for study X?", "attachments": [], "today": "2026-11-10", "language": "en"},
+    ),
+    "response_format": {
+        "type": "json_schema",
+        "json_schema": {"name": "x", "schema": ClassifiedIntent.model_json_schema()},
+    },
 }
 
 
@@ -408,6 +416,7 @@ def test_memo_replays_judge_errors_without_a_second_call() -> None:
 class CanaryModel:
     def __init__(self, model: str, flip: int = 0, down: bool = False) -> None:
         self.model = model
+        self.served_root = model  # its own weights (tb_common.pair.served_root, D-276)
         self.flip = flip
         self.down = down
 
@@ -487,7 +496,7 @@ def test_verify_all_checks_every_pin_and_refuses_an_empty_override(tmp_path: Pat
     d = _model_dir(models)
     out = tmp_path / "site" / "o.yaml"
     assert pin_model.verify_all(models, out) == (False, [f"nothing is pinned in {out}"])
-    pin_model.pin(BUILD, d, served_name=SERVED, out=out)
+    pin_model.pin(BUILD, d, served_name=SERVED, out=out, trust_first_use=True)
     assert pin_model.main(["--verify-all", str(models), "--out", str(out)]) == 0
     (d / "model-00001-of-00002.safetensors").write_bytes(b"tampered")
     good, lines = pin_model.verify_all(models, out)

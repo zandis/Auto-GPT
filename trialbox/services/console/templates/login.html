@@ -3,16 +3,25 @@
 {% block content %}
 <section class="card narrow">
 <h1>{{ t('login.title') }}</h1>
+{# D-133 (review F-05): a language choice before sign-in (the browser's language is only the first guess) #}
+<nav class="langpick" aria-label="{{ t('lang.label') }}" data-testid="login-lang">{% for l in langs %}<a href="/login?lang={{ l }}" lang="{{ l }}" hreflang="{{ l }}" class="button{{ '' if l == lang else ' secondary' }}"{% if l == lang %} aria-current="true"{% endif %}>{{ t('lang.name.' + l) }}</a>{% endfor %}</nav>
 {% if uninitialised %}<p class="warn" role="alert">{{ t('login.uninitialised') }}</p>{% endif %}
 {% if sso %}<p class="hint" data-testid="sso-hint">{{ t('login.sso') }}</p>{% endif %}
-{% if failed %}<p class="error" role="alert" data-testid="login-error">{{ t('login.failed') }}</p>{% endif %}
+{% if failed and wait %}<p class="error" role="alert" data-testid="login-slowed">{{ t('login.slowed', n=wait) }}</p>
+{% elif failed and until %}<div class="error" role="alert" data-testid="login-locked"><p><strong>{{ t('login.locked', n=left, until=until|local) }}</strong></p><p>{{ t('login.locked.wait') }}</p></div>
+{% elif failed and oidc_failed %}<p class="error" role="alert" data-testid="login-oidc-error">{{ t('login.oidc.failed') }}</p>
+{% elif failed %}<p class="error" role="alert" data-testid="login-error">{{ t('login.failed') }}</p>{% endif %}
+{# D-192: the hospital account (OIDC through Authelia) when the site turned it on; local accounts stay below #}
+{% if oidc %}<p><a class="button" href="/auth/oidc/start" data-testid="login-oidc">{{ t('login.oidc') }}</a></p>
+<p class="hint">{{ t('login.local') }}</p>{% endif %}
 <form method="post" action="/login">
   <input type="hidden" name="login_csrf" value="{{ login_csrf }}">
   <label for="username">{{ t('login.user') }}</label>
-  <input id="username" name="username" autocomplete="username" required maxlength="64">
+  <input id="username" name="username" autocomplete="username" required maxlength="64" autocapitalize="none" spellcheck="false">
   <label for="password">{{ t('login.password') }}</label>
   <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="256">
   <button type="submit" data-testid="login-submit">{{ t('login.submit') }}</button>
 </form>
+<p class="hint" data-testid="login-help">{% if admin_mail %}{{ t('login.ask.mail', mail=admin_mail) }}{% else %}{{ t('login.ask') }}{% endif %}</p>
 </section>
 {% endblock %}

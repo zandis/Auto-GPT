@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 from typing import Any, Protocol
@@ -16,16 +17,25 @@ class LakeAPI(Protocol):
     def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> pa.Table: ...
 
     def chunks_search(
-        self, pid: str, query: str, k: int = 5, date_from: date | None = None, date_to: date | None = None
+        self,
+        pid: str,
+        query: str,
+        k: int = 5,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        snapshot: str | None = None,
     ) -> list[dict[str, Any]]: ...
 
     def snapshot(self) -> str | None: ...
 
 
 class LakeHttp:
-    def __init__(self, base_url: str, timeout: float = 330) -> None:
+    def __init__(self, base_url: str, timeout: float = 330, poll: Any = None) -> None:
         self.base = base_url.rstrip("/")
-        self.client = httpx.Client(timeout=timeout)
+        from tb_common.service_auth import auth_headers
+
+        self.client = httpx.Client(timeout=timeout, headers=auth_headers())  # D-127 (F-11)
+        self._poll = poll  # T-690 (D-472): how a rebuild job is followed (tb_common.jobpoll.Poll); settings if None
 
     def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> pa.Table:
         body = dump(
@@ -37,13 +47,86 @@ class LakeHttp:
         return pa.ipc.open_stream(resp.content).read_all()
 
     def chunks_search(
-        self, pid: str, query: str, k: int = 5, date_from: date | None = None, date_to: date | None = None
+        self,
+        pid: str,
+        query: str,
+        k: int = 5,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        snapshot: str | None = None,
     ) -> list[dict[str, Any]]:
-        req = ChunkSearchRequest(pid=pid, query=query, k=k, date_from=date_from, date_to=date_to)
+        req = ChunkSearchRequest(
+            pid=pid,
+            query=query,
+            k=k,
+            date_from=date_from,
+            date_to=date_to,
+            snapshot=date.fromisoformat(snapshot) if snapshot else None,
+        )
         resp = self.client.post(f"{self.base}/chunks/search", json=dump(req))
         resp.raise_for_status()
         hits: list[dict[str, Any]] = resp.json()["hits"]
         return hits
+
+    def vec_s2b(self, pid: str, dids: list[str], query: str, snapshot: str | None = None) -> dict[str, Any]:
+        """T-203b (D-449): S2b's ranking from the vector store on the lake service. Any failure to get an answer is
+        the fallback answer (the cascade then ranks on the fly and records it), never an error of the run."""
+        from vec.s2b import UNAVAILABLE, fallback
+
+        body = {"pid": pid, "dids": dids, "query": query, "snapshot": snapshot}
+        try:
+            resp = self.client.post(f"{self.base}/vec/s2b", json=body)
+        except httpx.HTTPError:
+            return fallback(UNAVAILABLE)
+        if resp.status_code != 200:
+            return fallback(f"{UNAVAILABLE} (lake {resp.status_code})")
+        out: dict[str, Any] = resp.json()
+        return out
+
+    def put_site(self, resources: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
+        """D-135: replace the site's own inputs on the lake service (the next rebuild joins them)."""
+        resp = self.client.post(f"{self.base}/site", json={"resources": resources})
+        resp.raise_for_status()
+        out: dict[str, int] = resp.json()["counts"]
+        return out
+
+    def start_rebuild(self, snapshot: str, allow_empty: bool = False) -> dict[str, Any]:
+        """T-690 (D-472): start a rebuild job on the lake service and answer its state (202). A refusal known at once
+        (busy, a missing feed) is the service's 409, raised as ``httpx.HTTPStatusError`` (the header
+        ``X-TB-Lake-Busy`` says busy). ``allow_empty`` is the in-process lake's; the service decides it itself."""
+        resp = self.client.post(f"{self.base}/rebuild", json={"snapshot": snapshot})
+        resp.raise_for_status()
+        body: dict[str, Any] = resp.json()
+        return body
+
+    def rebuild_state(self, snapshot: str) -> dict[str, Any]:
+        """The state of the snapshot's last rebuild job on the lake service (T-690, D-472)."""
+        resp = self.client.get(f"{self.base}/rebuild/{snapshot}")
+        resp.raise_for_status()
+        body: dict[str, Any] = resp.json()
+        return body
+
+    def rebuild(self, snapshot: str) -> dict[str, Any]:
+        """Rebuild ``snapshot`` and answer its counts: the job is started and followed to its end (T-690, D-472), never
+        timed (OD-10). Busy (held, already building, held at the swap) raises :class:`lake.store.LakeBusy`; a refusal
+        of the data :class:`lake.store.RebuildError`; a failed, interrupted or lost job ``RuntimeError``."""
+        return follow_rebuild(
+            lambda: self.start_rebuild(snapshot), lambda: self.rebuild_state(snapshot), snapshot, self._poll
+        )
+
+    def hold(self, snapshot: str, holder: str) -> None:
+        """T-305b (D-403): ``holder`` (a job) reads ``snapshot`` to its end: not rebuilt, not pruned."""
+        self.client.post(f"{self.base}/holds", json={"snapshot": snapshot, "holder": holder}).raise_for_status()
+
+    def release(self, holder: str) -> bool:
+        resp = self.client.delete(f"{self.base}/holds/{holder}")
+        resp.raise_for_status()
+        return bool(resp.json().get("released"))
+
+    def holds(self) -> dict[str, str]:
+        resp = self.client.get(f"{self.base}/holds")
+        resp.raise_for_status()
+        return {str(k): str(v) for k, v in resp.json()["holds"].items()}
 
     def snapshot(self) -> str | None:
         body = self.client.get(f"{self.base}/healthz").json()
@@ -54,19 +137,110 @@ class LakeHttp:
 class LakeLocal:
     """In-process lake (tests, single-host tools)."""
 
-    def __init__(self, lake_dir: Path, embedder: Embedder, tz: str = "Asia/Taipei") -> None:
+    def __init__(
+        self,
+        lake_dir: Path,
+        embedder: Embedder,
+        tz: str | None = None,
+        vec_store: Any = None,
+        mrn_regex: str | None = None,
+    ) -> None:
         from lake.store import Lake
 
-        self.lake = Lake(lake_dir, tz)
+        self.lake = Lake(lake_dir, tz, mrn_regex)
         self.embedder = embedder
+        self.vec_store = vec_store  # T-203b: a vec.store.VecStore (or a fake) for S2b behind the flag vec.s2b
+
+    def vec_s2b(self, pid: str, dids: list[str], query: str, snapshot: str | None = None) -> dict[str, Any]:
+        return self.lake.vec_s2b(pid, dids, query, self.embedder, self.vec_store, snapshot)
 
     def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> pa.Table:
         return self.lake.query(sql, params, snapshot)
 
     def chunks_search(
-        self, pid: str, query: str, k: int = 5, date_from: date | None = None, date_to: date | None = None
+        self,
+        pid: str,
+        query: str,
+        k: int = 5,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        snapshot: str | None = None,
     ) -> list[dict[str, Any]]:
-        return self.lake.search(pid, query, self.embedder, k, date_from, date_to)
+        return self.lake.search(pid, query, self.embedder, k, date_from, date_to, snapshot)
 
     def snapshot(self) -> str | None:
         return self.lake.current()
+
+    def put_site(self, resources: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
+        return self.lake.put_site(resources)
+
+    def hold(self, snapshot: str, holder: str) -> None:
+        self.lake.hold(snapshot, holder)
+
+    def release(self, holder: str) -> bool:
+        return self.lake.release(holder)
+
+    def holds(self) -> dict[str, str]:
+        return self.lake.holds()
+
+    def rebuild(self, snapshot: str, allow_empty: bool = False) -> dict[str, Any]:
+        st = self.lake.rebuild(snapshot, self.embedder, allow_empty=allow_empty)
+        return {"snapshot": st.snapshot, "tables": st.tables, "chunks": st.chunks, "seconds": st.seconds}
+
+    def start_rebuild(self, snapshot: str, allow_empty: bool = False) -> dict[str, Any]:
+        """The in-process lake runs the job here and answers its end (no client limit to outlast: T-690)."""
+        return self.lake.start_rebuild(snapshot, self.embedder, allow_empty=allow_empty)
+
+    def rebuild_state(self, snapshot: str) -> dict[str, Any]:
+        return self.lake.rebuild_state(snapshot)
+
+
+def _refusal(resp: httpx.Response, snapshot: str) -> Exception:
+    """The lake service's answer to a rebuild it would not start, as the in-process lake raises it (D-462, D-271)."""
+    from lake.store import BUSY_HEADER, RebuildError, SnapshotBuilding, SnapshotHeld
+
+    try:
+        detail = str(resp.json().get("detail"))
+    except ValueError:
+        detail = resp.text[:500]
+    if resp.status_code == 409:
+        busy = resp.headers.get(BUSY_HEADER)
+        if busy == "building":
+            return SnapshotBuilding(detail)
+        if busy:
+            return SnapshotHeld(detail)
+        return RebuildError(detail)
+    return RuntimeError(f"lake service answered {resp.status_code} for snapshot {snapshot}: {detail}")
+
+
+def follow_rebuild(
+    start: Callable[[], dict[str, Any]], read: Callable[[], dict[str, Any]], snapshot: str, poll: Any = None
+) -> dict[str, Any]:
+    """Start a rebuild job over HTTP (``start``: the POST, raising ``httpx.HTTPStatusError`` on a refusal) and follow
+    its state (``read``: the GET) to its end; the answer as :func:`rebuild_answer` gives it (T-690, D-472). The caller
+    chooses the HTTP seam (``LakeHttp``'s client, the adapter's module-level calls); the logic is one."""
+    from tb_common.jobpoll import Poll
+
+    try:
+        job = start()
+    except httpx.HTTPStatusError as exc:
+        raise _refusal(exc.response, snapshot) from None
+    if job.get("state") == "running":
+        job = (poll or Poll()).until_done(read, f"lake rebuild {snapshot}")
+    return rebuild_answer(job, snapshot)
+
+
+def rebuild_answer(job: dict[str, Any], snapshot: str) -> dict[str, Any]:
+    """A rebuild job that ended, as its counts or the in-process lake's exception (T-690, D-472)."""
+    from lake.store import RebuildError, SnapshotBuilding, SnapshotHeld
+
+    state, detail = job.get("state"), str(job.get("detail") or "")
+    if state == "done":
+        out: dict[str, Any] = dict(job.get("result") or {})
+        out.setdefault("snapshot", snapshot)
+        return out
+    if state == "busy":
+        raise (SnapshotBuilding if job.get("busy") == "building" else SnapshotHeld)(detail or "lake busy")
+    if state == "refused":
+        raise RebuildError(detail)
+    raise RuntimeError(f"lake rebuild of {snapshot} {state}: {detail}")

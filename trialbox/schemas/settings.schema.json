@@ -102,8 +102,16 @@
       "default": true
     },
     "rate_limit_per_sender_per_day": {
+      "description": "Jobs of each heavy type (FEAS, SCREEN, COHORT, NAV, MICROBATCH, CALIBRATION) one sender may start in 24 hours (D-146)",
       "type": "integer",
       "default": 20
+    },
+    "rate_limits_per_day": {
+      "description": "Per job type daily limit per sender, overriding rate_limit_per_sender_per_day; 0 = no limit (D-146)",
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      }
     },
     "data_source": {
       "title": "DataSource",
@@ -136,6 +144,47 @@
         },
         "lab_local_to_loinc": {
           "type": "string"
+        },
+        "encoding": {
+          "description": "The character set the site declares for its csv export (T-615b): tried first by the one detector; UTF-8 is always read",
+          "enum": [
+            "utf-8",
+            "big5",
+            "cp950",
+            "shift_jis",
+            "cp932"
+          ]
+        }
+      }
+    },
+    "feed_completeness": {
+      "title": "FeedCompleteness",
+      "description": "The completeness gate of the nightly ingest (T-611): a night that fails it is held, never published",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_table_drop_pct": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 10,
+          "description": "a full night whose source table has this share fewer rows than the last good night is held"
+        },
+        "required_tables": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "mapping tables that must be present with rows on every night, the first one too"
+        },
+        "optional_tables": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "mapping tables that may be absent or empty on a night although the last good night had rows"
         }
       }
     },
@@ -211,7 +260,11 @@
       "properties": {
         "mode": {
           "type": "string",
-          "enum": ["auto", "nightly", "on_demand"],
+          "enum": [
+            "auto",
+            "nightly",
+            "on_demand"
+          ],
           "default": "auto",
           "description": "auto: on_demand with TB_ENV DEV, nightly otherwise (FR-OPS-12). on_demand: no timed runs; jobs run when requested."
         },
@@ -270,9 +323,11 @@
     "attachment_encryption": {
       "enum": [
         "zip",
-        "smime"
+        "smime",
+        "link"
       ],
-      "default": "zip"
+      "default": "link",
+      "description": "Patient files by mail, chosen per site: link (the default, D-369: no attachment; a link to the job on the box, where the named recipients download after sign-in; needs TB_CONSOLE_URL), smime, or zip (7z + password in a second mail, PPAP; refused for patient files outside TB_ENV DEV and TEST, D-369). D-127."
     },
     "smime_certs": {
       "type": "object",
@@ -333,7 +388,13 @@
         },
         "logs_days": {
           "type": "integer",
-          "default": 180
+          "default": 365,
+          "description": "service (container) logs collected on the host, then deleted (D-138)"
+        },
+        "mail_log_days": {
+          "type": "integer",
+          "default": 1825,
+          "description": "mail intake and sent log, the morning-mail log (D-138); the audit chain keeps every mail event"
         },
         "nightly_snapshots": {
           "type": "integer",
@@ -349,7 +410,8 @@
         },
         "audit_years": {
           "type": "integer",
-          "default": 10
+          "default": 10,
+          "description": "the audit chain is never deleted; it is copied to the archive every night (D-138)"
         }
       }
     },
@@ -391,7 +453,10 @@
       }
     },
     "ethics_gate": {
-      "type": ["boolean", "null"],
+      "type": [
+        "boolean",
+        "null"
+      ],
       "default": null,
       "description": "Study ethics gate (FR-STUDY-06, 20-build-map F6-03): always off with TB_ENV DEV or TEST; elsewhere this value, on when unset."
     },

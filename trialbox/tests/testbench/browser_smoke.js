@@ -1,4 +1,4 @@
-// Browser smoke test of the TrialBox Test Bench (docs/HANDOFF.md §5), driven by tests/testbench/test_testbench_browser.py.
+// Browser smoke test of the TrialBox Test Bench (docs/VALIDATION.md §6), driven by tests/testbench/test_testbench_browser.py.
 //
 //   node tests/testbench/browser_smoke.js http://127.0.0.1:8765 [screenshot-dir]
 //
@@ -10,7 +10,7 @@ const { chromium } = require("playwright");
 const path = require("path");
 
 const BANNER = "TEST BENCH: synthetic and open data only, not a clinical tool";
-const PAGES = ["/", "/run", "/dataplat", "/llm", "/guard", "/recall", "/match"];
+const PAGES = ["/", "/run", "/ingest", "/llm", "/guard", "/recall", "/match"];
 
 function fail(msg) {
   console.error("FAIL: " + msg);

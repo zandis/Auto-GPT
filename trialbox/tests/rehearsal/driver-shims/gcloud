@@ -1,0 +1,97 @@
+#!/bin/bash
+# The rehearsal's gcloud, for the REAL driver (deploy/gcp/complete-run.sh, unchanged): the VM is the container
+# $TB_REH_CONTAINER and its state lives in $TB_REH_STATE (status, metadata/, knobs/). Every call is logged.
+#   instances describe     status (RUNNING until the VM's poweroff shim writes TERMINATED), natIP 127.0.0.1, the cap
+#   instances set-scheduling  recorded (the cloud cap is not enforced here: the VM's own nets are what is rehearsed)
+#   instances add-metadata    files under metadata/; then the knobs/metadata/* overrides of the case (e.g. a 2-minute
+#                             idle limit, a 1-minute grace)
+#   instances start / stop    a boot of the container (vm/boot.sh), or a power-off
+#   instances remove-metadata  the keys' files go; set-service-account recorded
+#   instances describe --format=json  a service account with the cloud-platform scope, network default, tag tb-gpu-door
+#   firewall-rules list       tcp:443 open to the tag (TB_REH_OPEN80=1 adds a rule that opens tcp:80: refused)
+#   secrets describe / versions add / versions destroy  the door (T-119): $TB_REH_STATE/secrets/<secret>/<version>,
+#                             the file the VM's gcloud shim reads (secrets made by `mkdir`, as setup-gcp.sh does)
+#   storage cp                gs://<bucket>/<path> is $TB_REH_STATE/bucket/<bucket>/<path> (the VM's shim the same)
+#   project-info / regions describe --format=json   quota JSON: $TB_REH_GPU_LIMIT GPUs (default 1), 96 CPUs
+#   auth print-access-token   a fake token (the driver's probe)
+#   auth activate-service-account  accepted (the driver activates at the start of every command)
+S=${TB_REH_STATE:?}
+C=${TB_REH_CONTAINER:-tb-rehearsal-vm}
+echo "$(date -u +%T) gcloud $*" >> "$S/gcloud.log"
+fmt=""; mfiles=""; mvals=""; cap=""; keys=""; secret=""
+for a in "$@"; do
+  case "$a" in --format=*) fmt=${a#--format=} ;; --max-run-duration=*) cap=${a#--max-run-duration=} ;; esac
+done
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  case "${args[$i]}" in
+    --metadata-from-file) mfiles=${args[$((i + 1))]} ;;
+    --metadata) mvals=${args[$((i + 1))]} ;;
+    --keys) keys=${args[$((i + 1))]} ;;
+    --secret) secret=${args[$((i + 1))]} ;;
+    --secret=*) secret=${args[$i]#--secret=} ;;
+  esac
+done
+gs() { case "$1" in gs://*) echo "$S/bucket/${1#gs://}" ;; *) echo "$1" ;; esac; }
+quota() { printf '{"metric": "%s", "limit": %s, "usage": 0.0}' "$1" "$2"; }
+case "$1 $2 $3" in
+  "auth print-access-token"*) echo "rehearsal-token" ;;
+  "auth activate-service-account"*) true ;;   # every driver command activates first (G1 bug A2); no key is read
+  "compute instances describe")
+    case "$fmt" in
+      *status*) cat "$S/status" 2>/dev/null || echo TERMINATED ;;
+      *natIP*) echo 127.0.0.1 ;;
+      *maxRunDuration*) echo "$(cat "$S/cap" 2>/dev/null) STOP" ;;
+      json) printf '%s\n' '{"name": "tb-gpu-sim", "tags": {"items": ["tb-gpu-door"]},
+  "networkInterfaces": [{"network": "https://www.googleapis.com/compute/v1/projects/rehearsal/global/networks/default"}],
+  "serviceAccounts": [{"email": "tb-gpu@rehearsal.iam.gserviceaccount.com",
+                       "scopes": ["https://www.googleapis.com/auth/cloud-platform"]}]}' ;;
+      *) echo "{}" ;;
+    esac ;;
+  "compute instances set-scheduling") echo "$cap" > "$S/cap" ;;
+  "compute instances remove-metadata")
+    IFS=, read -r -a kv <<< "$keys"
+    for x in "${kv[@]}"; do [ -n "$x" ] && rm -f "$S/metadata/$x"; done
+    true ;;
+  "compute instances set-service-account") true ;;
+  "compute firewall-rules list")
+    open80=""
+    [ "${TB_REH_OPEN80:-0}" = 1 ] && open80='{"name": "default-allow-http", "network": "projects/rehearsal/global/networks/default",
+ "direction": "INGRESS", "allowed": [{"IPProtocol": "tcp", "ports": ["80"]}], "sourceRanges": ["0.0.0.0/0"],
+ "targetTags": ["tb-gpu-door"]},'
+    printf '[%s{"name": "tb-gpu-door", "network": "projects/rehearsal/global/networks/default", "direction": "INGRESS",
+ "allowed": [{"IPProtocol": "tcp", "ports": ["443"]}], "sourceRanges": ["0.0.0.0/0"], "targetTags": ["tb-gpu-door"]}]\n' "$open80" ;;
+  "secrets describe "*) [ -d "$S/secrets/$3" ] || { echo "ERROR: NOT_FOUND: secret $3" >&2; exit 1; }; echo "projects/rehearsal/secrets/$3" ;;
+  "secrets versions add")
+    d="$S/secrets/$4"; [ -d "$d" ] || { echo "ERROR: NOT_FOUND: secret $4" >&2; exit 1; }
+    df=""; for a in "$@"; do case "$a" in --data-file=*) df=${a#--data-file=} ;; esac; done
+    n=$(( $(cat "$d/.last" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$d/.last"
+    (umask 077; cp "$df" "$d/$n")
+    echo "projects/rehearsal/secrets/$4/versions/$n" ;;
+  "secrets versions destroy")
+    d="$S/secrets/$secret"; [ -f "$d/$4" ] || { echo "ERROR: NOT_FOUND: version $4" >&2; exit 1; }
+    rm -f "$d/$4" ;;
+  "storage cp "*)
+    dst=$(gs "${!#}"); mkdir -p "$(dirname "$dst")"; cp "$(gs "$3")" "$dst" ;;
+  "compute instances add-metadata")
+    mkdir -p "$S/metadata"
+    IFS=, read -r -a kv <<< "$mfiles"
+    for x in "${kv[@]}"; do [ -n "$x" ] && cp "${x#*=}" "$S/metadata/${x%%=*}"; done
+    IFS=, read -r -a kv <<< "$mvals"
+    for x in "${kv[@]}"; do [ -n "$x" ] && printf '%s' "${x#*=}" > "$S/metadata/${x%%=*}"; done
+    for f in "$S"/knobs/metadata/*; do [ -f "$f" ] && cp "$f" "$S/metadata/$(basename "$f")"; done
+    true ;;
+  "compute instances start")
+    [ "$(cat "$S/status" 2>/dev/null || echo TERMINATED)" = TERMINATED ] || { echo "ERROR: the VM is not TERMINATED" >&2; exit 1; }
+    echo RUNNING > "$S/status"
+    docker exec -d "$C" /rehearsal/h/vm/boot.sh ;;
+  "compute instances stop")
+    docker exec "$C" /rehearsal/h/shims/systemctl poweroff >/dev/null 2>&1 || true
+    echo TERMINATED > "$S/status" ;;
+  "compute project-info describe")
+    printf '{"quotas": [%s, %s]}\n' "$(quota GPUS_ALL_REGIONS "${TB_REH_GPU_LIMIT:-1}")" "$(quota CPUS_ALL_REGIONS 200)" ;;
+  "compute regions describe")
+    printf '{"name": "%s", "quotas": [%s, %s, %s, %s]}\n' "$4" "$(quota NVIDIA_RTX_PRO_6000_GPUS "${TB_REH_GPU_LIMIT:-1}")" \
+      "$(quota PREEMPTIBLE_NVIDIA_RTX_PRO_6000_GPUS 0)" "$(quota CPUS 96)" "$(quota PREEMPTIBLE_CPUS 0)" ;;
+  *) echo "rehearsal gcloud: not rehearsed: $*" >&2; exit 1 ;;
+esac

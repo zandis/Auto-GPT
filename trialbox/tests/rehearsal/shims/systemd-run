@@ -1,0 +1,25 @@
+#!/bin/bash
+# Rehearsal shim for systemd-run: --unit NAME [--on-active=Nmin] [--property=Restart=on-failure] CMD... -> a background
+# process (a timer unit sleeps first; Restart=on-failure starts it again when it exits non-zero).
+S=/rehearsal/s; unit=""; delay=0; restart=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --unit) unit=$2; shift 2 ;;
+    --unit=*) unit=${1#--unit=}; shift ;;
+    --on-active=*) v=${1#--on-active=}; delay=$(( ${v%min} * 60 )); shift ;;
+    --description) shift 2 ;;
+    --property=Restart=on-failure) restart=1; shift ;;
+    --property=*) shift ;;
+    *) break ;;
+  esac
+done
+echo "[systemd-run-shim] unit=$unit delay=${delay}s restart=$restart cmd=$1" >> $S/shim.log
+if [ "$delay" -gt 0 ]; then
+  nohup bash -c "sleep $delay; exec \"\$@\"" _ "$@" > "$S/units/$unit.log" 2>&1 &
+elif [ "$restart" = 1 ]; then
+  nohup bash -c 'until "$@"; do echo "restart $(date -u +%T)"; sleep 1; done' _ "$@" > "$S/units/$unit.log" 2>&1 &
+else
+  nohup "$@" > "$S/units/$unit.log" 2>&1 &
+fi
+echo $! > "$S/units/$unit.pid"
+echo "Running as unit: $unit.service"

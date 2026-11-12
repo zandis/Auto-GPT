@@ -1,4 +1,4 @@
-"""TWPAS prior-authorisation Bundle (SPEC §9.5) per IG ``tw.gov.mohw.nhi.pas`` (1.2.0 offline, DECISIONS D-63):
+"""TWPAS prior-authorisation Bundle (SPEC §9.5) per IG ``tw.gov.mohw.nhi.pas`` 1.2.5 (DECISIONS D-372):
 ``Bundle(type=collection)`` with Claim (prior-auth request), Patient, Practitioner, Organization (hospital, NHI),
 Coverage, Encounter, the applied MedicationRequest and supporting Observations (gene test with its Specimen and
 laboratory, ECOG patient assessment) as the data allow. The bundle carries PHI (identity resolved in-box) and is only
@@ -19,7 +19,9 @@ TWCS = "https://twcore.mohw.gov.tw/ig/twcore/CodeSystem"
 V2_0203 = "http://terminology.hl7.org/CodeSystem/v2-0203"
 UCUM = "http://unitsofmeasure.org"
 LOINC = "http://loinc.org"
-SCT = "http://snomed.info/sct"
+#: The oral route of the TWPAS route value set ``medication-path-sct-tw`` (required binding, one coding). The IG lists
+#: no oral code outside SNOMED CT, so the box writes this one code, with no SNOMED CT description (D-376, amends D-342)
+ROUTE_ORAL = {"system": "http://snomed.info/sct", "code": "26643006"}
 # department code (site) -> NHI consultation department code (TW Core medical-consultation-department-nhi-tw)
 NHI_DEPARTMENT = {
     "ONC": "AF",
@@ -237,7 +239,8 @@ def build(inp: TwpasInput, base: str = f"{PAS}") -> dict[str, Any]:
                         "coding": [{"system": "http://terminology.hl7.org/CodeSystem/v3-GTSAbbreviation", "code": "QD"}]
                     },
                 },
-                "route": {"coding": [{"system": SCT, "code": "26643006"}]},
+                # route.coding is 1..1 and bound to the IG's value set: TW Core #PO is not in it (D-376)
+                "route": {"coding": [dict(ROUTE_ORAL)], "text": "口服"},
                 "doseAndRate": [{"doseQuantity": {"value": inp.daily_dose_mg, "system": UCUM, "code": "mg"}}],
             }
         ],
@@ -323,7 +326,8 @@ def build(inp: TwpasInput, base: str = f"{PAS}") -> dict[str, Any]:
                 "subject": {"reference": ref["patient"]},
                 "effectiveDateTime": inp.ecog_date,
                 "performer": [{"reference": ref["practitioner"]}],
-                "valueInteger": int(inp.ecog),
+                # a Quantity of 0 to 5 since TWPAS 1.2.5 (invariant pat-ast-value; 1.2.0 took an integer), D-372
+                "valueQuantity": {"value": int(inp.ecog)},
             }
         )
         info("patientAssessment", valueReference={"reference": ref["ecog"]})

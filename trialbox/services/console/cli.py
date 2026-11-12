@@ -3,11 +3,17 @@ action is also a command, with the same audit).
 
     bootstrap-admin [--username admin] [--mailbox you@hospital] [--password-stdin]
         First administrator. Without --password-stdin a random password is generated and printed once.
-        Does nothing (exit 0) when an administrator exists.
+        Does nothing (exit 0) when an administrator exists. A printed password is replaced at first sign-in (D-279).
     add-user NAME --role admin|coordinator|investigator|viewer [--mailbox ADDR] [--password-stdin]
     reset-password NAME [--password-stdin]
+        The person who runs these sets the password, so its owner replaces it at the next sign-in (D-279, SEC-1).
     disable NAME
     list-users
+    unlock NAME                 lift a sign-in lock before it runs out (audited; D-192)
+    reset-totp NAME             clear an account's authenticator (lost phone); prints the enrolment code for the new one
+    enrol-code NAME             a one-time enrolment code (24 h) for an account without an authenticator (D-192); the
+                                supervised path for the first administrator after bootstrap-admin
+    check-tls                   check TB_TLS_* (the hospital certificate, its key and host name) before Caddy uses it
     ingest                      load the configured source (synthetic site A in the POC) through the adapter
     poc-settings --in FILE --out FILE --admin-email ADDR [--rate-limit N]
         POC settings: the example settings with the administrator's mailbox added to the senders and reviewers.
@@ -28,15 +34,14 @@ import yaml
 
 from console.auth import AuthError, UserStore, random_password
 
-DATA = Path(os.environ.get("TB_CONSOLE_DIR", "/data/console"))
-
 
 def _audit(event: str, **fields: Any) -> None:
-    from tb_common.audit import AuditLog
+    from tb_common.audit_writer import open_audit
+    from tb_common.config import site_tz
 
     directory = Path(os.environ.get("TB_AUDIT_DIR", "/data/audit"))
     try:
-        AuditLog(directory, os.environ.get("TB_TZ", "Asia/Taipei")).append(event, actor="console-cli", **fields)
+        open_audit(directory, site_tz()).append(event, actor="console-cli", **fields)
     except OSError as exc:  # no audit volume (developer shell): say so, never fail silently
         print(f"warning: audit not written ({exc})", file=sys.stderr)
 
@@ -120,7 +125,9 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--password-stdin", action="store_true")
     a = sub.add_parser("add-user")
     a.add_argument("name")
-    a.add_argument("--role", choices=("admin", "coordinator", "investigator", "viewer"), required=True)
+    a.add_argument(
+        "--role", choices=("admin", "coordinator", "investigator", "viewer", "steward", "privacy"), required=True
+    )
     a.add_argument("--mailbox", default="")
     a.add_argument("--password-stdin", action="store_true")
     r = sub.add_parser("reset-password")
@@ -129,6 +136,9 @@ def main(argv: list[str] | None = None) -> int:
     d = sub.add_parser("disable")
     d.add_argument("name")
     sub.add_parser("list-users")
+    for name in ("unlock", "reset-totp", "enrol-code"):
+        sub.add_parser(name).add_argument("name")
+    sub.add_parser("check-tls")
     sub.add_parser("ingest")
     p = sub.add_parser("poc-settings")
     p.add_argument("--in", dest="src", type=Path, required=True)
@@ -147,6 +157,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"wrote {args.out}: {build} -> openrouter:{args.model} (pin {sha[:12]})")
         return 0
 
+    if args.cmd == "check-tls":
+        from console.identity import check_tls
+
+        tls = check_tls(os.environ)
+        print(f"tls: mode {tls.mode}, host {tls.hostname or '-'}")
+        for note in tls.notes:
+            print(f"note: {note}")
+        for problem in tls.problems:
+            print(f"FAIL: {problem}", file=sys.stderr)
+        return 0 if tls.ok else 1
+
     if args.cmd == "poc-settings":
         poc_settings(args.src, args.out, args.admin_email, args.rate_limit)
         print(f"wrote {args.out}")
@@ -158,23 +179,24 @@ def main(argv: list[str] | None = None) -> int:
         from console.backend import HttpBackend
 
         cfg = get_config()
-        from tb_common.audit import AuditLog
+        from tb_common.audit_writer import open_audit
 
-        backend = HttpBackend(cfg, from_config(), AuditLog(cfg.env.audit_path, cfg.env.tz))
+        backend = HttpBackend(cfg, from_config(), open_audit(cfg.env.audit_path, cfg.env.tz))
         _audit("console.operate", detail={"action": "ingest"})
         rep = backend.ingest()
         _audit("console.operate", detail={"action": "ingest.done", "reason": "passed" if rep.get("passed") else "no"})
         print({k: rep.get(k) for k in ("passed", "snapshot", "counts", "fhir_loaded")})
         return 0 if rep.get("passed") else 1
 
-    store = UserStore(DATA / "console.sqlite")
+    store = UserStore()  # schema auth of the trial database (TB_DB_URL, D-126)
     try:
         if args.cmd == "bootstrap-admin":
             if store.count("admin") > 0:
                 print("console: an administrator exists already (use reset-password to set a new password)")
                 return 0
             pw, generated = _password(args)
-            store.create(args.username, "admin", pw, args.mailbox or None)
+            # D-279: a printed password has been seen on a screen; one typed on stdin is the administrator's own
+            store.create(args.username, "admin", pw, args.mailbox or None, must_change=generated)
             _audit("console.user", detail={"action": "create", "role": "admin"})
             print(
                 f"console: administrator '{args.username}' created"
@@ -184,14 +206,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"console: password (shown once): {pw}")
         elif args.cmd == "add-user":
             pw, generated = _password(args)
-            store.create(args.name, args.role, pw, args.mailbox or None)
+            store.create(args.name, args.role, pw, args.mailbox or None, must_change=True)  # D-279
             _audit("console.user", detail={"action": "create", "role": args.role})
             print(f"console: user '{args.name}' ({args.role}) created")
             if generated:
                 print(f"console: password (shown once): {pw}")
         elif args.cmd == "reset-password":
             pw, generated = _password(args)
-            store.set_password(args.name, pw)
+            store.set_password(args.name, pw, must_change=True)  # D-279: someone else set it
             _audit("console.user", detail={"action": "reset-password"})
             print(f"console: password of '{args.name}' changed; all sessions ended")
             if generated:
@@ -203,6 +225,23 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "list-users":
             for u in store.users():
                 print(f"{u.username}\t{u.role}\t{u.mailbox or '-'}")
+        elif args.cmd == "unlock":
+            was = store.unlock(args.name)
+            _audit("console.unlock", detail={"user": args.name, "was_locked": was})
+            print(f"console: '{args.name}' unlocked" + ("" if was else " (it was not locked)"))
+        elif args.cmd == "reset-totp":
+            if store.is_sso(args.name):
+                raise AuthError("this account signs in through the identity provider")
+            code = store.reset_totp(args.name)
+            _audit("console.totp_reset", detail={"user": args.name})
+            print(f"console: authenticator of '{args.name}' reset; all sessions ended")
+            print(f"console: enrolment code (shown once, valid 24 hours): {code}")
+        elif args.cmd == "enrol-code":
+            if store.is_sso(args.name):
+                raise AuthError("this account signs in through the identity provider")
+            code = store.issue_enrol_code(args.name)
+            _audit("console.enrol_code", detail={"user": args.name})
+            print(f"console: enrolment code for '{args.name}' (shown once, valid 24 hours): {code}")
     except AuthError as exc:
         print(f"console: {exc}", file=sys.stderr)
         return 2

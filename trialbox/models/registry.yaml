@@ -4,15 +4,37 @@
 # sha256 is the digest of the build's weight manifest (per-file SHA-256 list); for a `serving: hosted` build it is the
 # digest of its provider_pin descriptor (registry.provider_pin_sha). A null sha256 means "not yet pinned": the registry
 # refuses to route to such a build, except the stub in DEV/TEST. Hashes are filled in only from a
-# verified download at qualification (MOD-2, MOD-8); none is guessed here. Licence facts marked verified: false
-# must be confirmed by legal review before the build moves past `candidate`.
+# verified download at qualification (MOD-2, MOD-8); none is guessed here.
+#
+# Licence rows (T-617b, LLM-012): `verified: true` only with `register: <id>`, a row of docs/licences/register.csv
+# (kind model) that holds the check: the source repository, its revision, the licence URL, the date read and the
+# licence text's sha256. The row's spdx and status must agree with this file. A build without a verified licence
+# never moves past `candidate`, and `qualify` refuses a weight folder with no licence file. CI holds both files
+# together: python -m tools.licence_register --check.
 #
 # Status rules for routing (MOD-7): production roles resolve to `champion`, `shadow:<role>` to `shadow`, evaluation
 # roles to `qualified` or better; in DEV/TEST any status except `retired` and `suspended` may be used.
-version: registry-2026-10-25.3
+#
+# T-012b (LLM-007, LLM-029): every local build names its `expected` weights: the manifest sha256 (the digest
+# tools/pin_model.py computes over the visible files) and the upstream revision of the release, here taken from the
+# measured serving record. `pin_model` refuses a folder whose manifest differs (the 16-byte folder of the review) and
+# refuses to trust weights on first use when nothing is expected; the gateway refuses a pin that differs
+# (weights_unexpected). Install pins `candidate`; only `pin_model --promote` with a passing `trialbox eval qualify`
+# record makes a `champion`, and a PRODUCTION gateway refuses a champion without that record (champion_unqualified).
+#
+# T-674 (D-392; DEP-007, DEP-008, DEP-009, RSK-60): every local build has `provenance`: how the weights were got
+# (`copy`: publisher-quantisation, own-copy or own-quantisation), the source repository and revision, the base model,
+# the recipe and the licence file with their sha256. A deployed build (a GPU profile's pair, tools/pin_model.py
+# PROFILE_PAIRS, and the front desk on the judge's server) has no null revision; a test holds this. A judge build
+# names `chat_template`: the developer's template at a pinned revision, a file under the models root that compose
+# passes to vLLM with --chat-template and that pin_model records in the pin. `bakeoff` marks a build that exists for
+# a bake-off: its run's row in docs/plan/gpu-ledger.md and its state. No revision or sha256 here is guessed: a value
+# not read from the source is null and is listed as remaining in D-392.
+version: registry-2026-11-11.3
 
 aliases:
   trialbox-stub: {class: J, description: "deterministic OpenAI-compatible stub (services/llm_stub), DEV/TEST only"}
+  stub-verifier: {class: V, description: "the stub under a second served name, DEV/TEST only: a stub box's verifier"}
   j-workhorse: {class: J, description: "judge / workhorse (judging, extraction, intake, drafting)"}
   v-verifier: {class: V, description: "verifier (second opinion, second extraction)"}
   f-frontdesk: {class: F, description: "front desk (frontdesk_converse, tools, at least 64k context)"}
@@ -32,7 +54,7 @@ builds:
     quantisation: none
     context_length: null
     family: trialbox-stub
-    licence: {name: Proprietary (TrialBox), spdx: null, verified: true}
+    licence: {name: Proprietary (TrialBox), spdx: null, verified: true, register: model-trialbox-stub}
     origin: {developer: TrialBox, country: TW, non_prc: true}
 
   # The same stub behind the front-desk and guard aliases, so Hermes profiles keep their committed aliases in DEV/TEST
@@ -48,7 +70,7 @@ builds:
     quantisation: none
     context_length: null
     family: trialbox-stub
-    licence: {name: Proprietary (TrialBox), spdx: null, verified: true}
+    licence: {name: Proprietary (TrialBox), spdx: null, verified: true, register: model-trialbox-stub}
     origin: {developer: TrialBox, country: TW, non_prc: true}
 
   - build_id: g-guard-stub-1
@@ -62,49 +84,215 @@ builds:
     quantisation: none
     context_length: null
     family: trialbox-stub
-    licence: {name: Proprietary (TrialBox), spdx: null, verified: true}
+    licence: {name: Proprietary (TrialBox), spdx: null, verified: true, register: model-trialbox-stub}
     origin: {developer: TrialBox, country: TW, non_prc: true}
 
-  # ---------------------------------------------------------------- DGX Spark (P-GB10) default pair
-  # Recommended by the 2026-10-25 bake-off (eval/bakeoff/results/2026-10-25) and an independent comparison: gpt-oss-120b
-  # as the judge, Gemma 4 26B-A4B-it as the verifier, a criterion blocking only when both agree
-  # (matching.cascade.judge.AgreementJudge). Seed builds: the site pins the weights with tools/pin_model.py
-  # (j-workhorse on endpoint `serving`, v-verifier on endpoint `verifier`; deploy/docker-compose.gb10.yml serves both).
-  # The front desk on P-GB10 is the J build at 64k context (§8.4 table, NFR-B20), the same weights pinned again.
-  - build_id: gpt-oss-120b-spark
+  # The stub under a second served name: the verifier of a stub box (deploy/poc.sh, TB_GATEWAY_VERIFIER_MODEL). A
+  # verifier that is the judge's own build is one model, and the box then never excludes on a note answer (D-276),
+  # so the stub box names two. Reached only when the caller names the alias; unpinned, so DEV/TEST only.
+  - build_id: stub-verifier-1
+    alias: stub-verifier
+    status: champion
+    serving: stub
+    served: {stub: stub-verifier}
+    sha256: null
+    revision: null
+    repository: services/llm_stub (this repository)
+    quantisation: none
+    context_length: null
+    family: trialbox-stub
+    licence: {name: Proprietary (TrialBox), spdx: null, verified: true, register: model-trialbox-stub}
+    origin: {developer: TrialBox, country: TW, non_prc: true}
+
+  # ---------------------------------------------------------------- the pair on every box we sell (D-95, D-124)
+  # One judge and one verifier for every hardware profile, measured on the card 2026-11-08 (TB-PLAN-04 step 1):
+  # Gemma 4 26B-A4B-it NVFP4 as the judge (j-workhorse, endpoint `serving`) and Qwen3.5-9B AWQ 4-bit as the verifier
+  # (v-verifier, endpoint `verifier`, thinking off); a note criterion excludes only when both agree
+  # (matching.cascade.judge.AgreementJudge). The same weights serve all three profiles; each profile pins its own
+  # build because the context differs. The site pins the weights with tools/pin_model.py.
+  #
+  # RTX PRO 6000 (P-PRO6000, deploy/docker-compose.rtxpro6000.yml): both resident at 32k; the front desk is the
+  # judge's weights at the same 32k, pinned again.
+  - build_id: gemma-4-26b-a4b-it-rtxpro6000
     alias: j-workhorse
     status: candidate
     serving: vllm
     served: {serving: null}
     sha256: null
     revision: null
-    repository: openai/gpt-oss-120b
-    quantisation: MXFP4 (native release weights)
-    context_length: 65536
-    family: gpt-oss
-    model_name: gpt-oss-120b
-    licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
-    origin: {developer: OpenAI, country: US, non_prc: true}
+    repository: nvidia/Gemma-4-26B-A4B-NVFP4
+    expected:  # the release's weight manifest (tools/pin_model.py format) and revision, from the measured record
+      manifest_sha256: 5e5bef7a61feffc04e388886d2f1996dbffd1fa10b1722e2fa2a832c39e28a76
+      revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
+      source: deploy/measured/serving_config.rtxpro6000.json
+    provenance:  # D-392 (DEP-007): the release named in expected, used as its publisher made it
+      copy: publisher-quantisation
+      source: nvidia/Gemma-4-26B-A4B-NVFP4
+      revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
+      base: {repository: google/gemma-4-26B-A4B-it, revision: 4d7ae4984b7d}
+      licence_file: none-in-source  # no LICENSE file there (register row model-gemma-4-26b-a4b-nvfp4)
+    chat_template:  # DEP-007: the developer's template, not the one in the NVFP4 folder; compose --chat-template
+      source: google/gemma-4-26B-A4B-it
+      revision: 4d7ae4984b7d  # short id read 2026-11-10 (deep review 08); the full id is written at first download
+      file: chat-templates/gemma-4-26b-a4b-it/chat_template.jinja  # under the models root (JUDGE_CHAT_TEMPLATE)
+      sha256: null  # not fetched from here: pin_model records the site's file until the download fills it in
+    quantisation: NVFP4 (NVIDIA release; measured 2026-11-08)
+    context_length: 32768
+    family: gemma
+    model_name: Gemma 4 26B-A4B-it (NVFP4, RTX PRO 6000 judge)
+    licence: {name: Apache-2.0 (Gemma 4), spdx: Apache-2.0, verified: true, register: model-gemma-4-26b-a4b-nvfp4}
+    origin: {developer: Google, country: US, non_prc: true}
 
-  - build_id: gemma-4-26b-a4b-it-spark
+  - build_id: qwen3.5-9b-rtxpro6000
     alias: v-verifier
     status: candidate
     serving: vllm
     served: {verifier: null}
     sha256: null
     revision: null
-    repository: google/gemma-4-26b-a4b-it
-    quantisation: BF16 or FP8 (recipe to record at qualification)
+    repository: cyankiwi/Qwen3.5-9B-AWQ-4bit
+    expected:  # the release's weight manifest (tools/pin_model.py format) and revision, from the measured record
+      manifest_sha256: 869b525324626a867331f26126a5605aeb10ae40e9dfbc14fee9849ac3e15982
+      revision: e4d2d39cede8c5d1716d824cd843e2889c648083
+      source: deploy/measured/serving_config.rtxpro6000.json
+    provenance:  # D-392 (DEP-008): own copy of the publisher's quantisation, licence file kept (the default)
+      copy: own-copy  # own-copy of the quantisation below, or own-quantisation of base with recipe
+      default: true  # the owner's question on the verifier copy is open; this stands until he answers
+      store: the vendor's model store, folder VERIFIER_MODEL_DIR (default qwen3.5-9b-4bit)
+      source: cyankiwi/Qwen3.5-9B-AWQ-4bit
+      revision: e4d2d39cede8c5d1716d824cd843e2889c648083
+      base: {repository: Qwen/Qwen3.5-9B, revision: c20223623576}
+      recipe: {path: recipe.yaml, sha256: c91b5f9da70ca35af40c69277da5be717a892627d0d6da8ffb412f7563e0a9b6}
+      licence_file: {path: LICENSE, sha256: bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a}
+    quantisation: AWQ 4-bit (measured 2026-11-08)
+    context_length: 32768
+    family: qwen
+    model_name: Qwen3.5-9B (AWQ 4-bit, RTX PRO 6000 verifier)
+    licence: {name: Apache-2.0, spdx: Apache-2.0, verified: true, register: model-qwen3.5-9b-awq-4bit}
+    origin: {developer: Alibaba Qwen, country: CN, non_prc: false}
+
+  - build_id: gemma-4-26b-a4b-it-frontdesk-rtxpro6000
+    alias: f-frontdesk
+    status: candidate
+    serving: vllm
+    served: {serving: null}
+    sha256: null
+    revision: null
+    repository: nvidia/Gemma-4-26B-A4B-NVFP4
+    expected:  # the release's weight manifest (tools/pin_model.py format) and revision, from the measured record
+      manifest_sha256: 5e5bef7a61feffc04e388886d2f1996dbffd1fa10b1722e2fa2a832c39e28a76
+      revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
+      source: deploy/measured/serving_config.rtxpro6000.json
+    provenance:  # D-392 (DEP-007): the release named in expected, used as its publisher made it
+      copy: publisher-quantisation
+      source: nvidia/Gemma-4-26B-A4B-NVFP4
+      revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
+      base: {repository: google/gemma-4-26B-A4B-it, revision: 4d7ae4984b7d}
+      licence_file: none-in-source  # no LICENSE file there (register row model-gemma-4-26b-a4b-nvfp4)
+    chat_template:  # DEP-007: the developer's template, not the one in the NVFP4 folder; compose --chat-template
+      source: google/gemma-4-26B-A4B-it
+      revision: 4d7ae4984b7d  # short id read 2026-11-10 (deep review 08); the full id is written at first download
+      file: chat-templates/gemma-4-26b-a4b-it/chat_template.jinja  # under the models root (JUDGE_CHAT_TEMPLATE)
+      sha256: null  # not fetched from here: pin_model records the site's file until the download fills it in
+    quantisation: NVFP4 (NVIDIA release; measured 2026-11-08)
     context_length: 32768
     family: gemma
-    model_name: Gemma 4 26B-A4B-it
-    licence: {name: Gemma 4 licence (terms to confirm), spdx: null, verified: false}
+    model_name: Gemma 4 26B-A4B-it (NVFP4, front desk, 32k)
+    licence: {name: Apache-2.0 (Gemma 4), spdx: Apache-2.0, verified: true, register: model-gemma-4-26b-a4b-nvfp4}
     origin: {developer: Google, country: US, non_prc: true}
 
-  # ---------------------------------------------------------------- one RTX 5090 (consumer card) pair, D-95
-  # 2026-11-05 assessment (docs/reviews/2026-11-05-consumer-gpu-filter-first.md): with filter first, Gemma 4 26B-A4B
-  # at 4-bit as the judge and Qwen3.5-9B as the verifier, both resident on one 32 GB card
-  # (deploy/docker-compose.rtx5090.yml). Measured only through OpenRouter fp4 / mixed-precision providers so far.
+  # DGX Spark (P-GB10, deploy/docker-compose.gb10.yml): the same pair resident at 16k. gpt-oss-120b is no longer the
+  # Spark judge (TB-PLAN-04 §3). Measured only when a site orders a Spark (owner decision 4, 2026-11-08).
+  - build_id: gemma-4-26b-a4b-it-spark
+    alias: j-workhorse
+    status: candidate
+    serving: vllm
+    served: {serving: null}
+    sha256: null
+    revision: null
+    repository: nvidia/Gemma-4-26B-A4B-NVFP4
+    expected:  # the release's weight manifest (tools/pin_model.py format) and revision, from the measured record
+      manifest_sha256: 5e5bef7a61feffc04e388886d2f1996dbffd1fa10b1722e2fa2a832c39e28a76
+      revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
+      source: deploy/measured/serving_config.rtxpro6000.json
+    provenance:  # D-392 (DEP-007): the release named in expected, used as its publisher made it
+      copy: publisher-quantisation
+      source: nvidia/Gemma-4-26B-A4B-NVFP4
+      revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
+      base: {repository: google/gemma-4-26B-A4B-it, revision: 4d7ae4984b7d}
+      licence_file: none-in-source  # no LICENSE file there (register row model-gemma-4-26b-a4b-nvfp4)
+    chat_template:  # DEP-007: the developer's template, not the one in the NVFP4 folder; compose --chat-template
+      source: google/gemma-4-26B-A4B-it
+      revision: 4d7ae4984b7d  # short id read 2026-11-10 (deep review 08); the full id is written at first download
+      file: chat-templates/gemma-4-26b-a4b-it/chat_template.jinja  # under the models root (JUDGE_CHAT_TEMPLATE)
+      sha256: null  # not fetched from here: pin_model records the site's file until the download fills it in
+    quantisation: NVFP4 (NVIDIA release; measured 2026-11-08)
+    context_length: 16384
+    family: gemma
+    model_name: Gemma 4 26B-A4B-it (NVFP4, Spark judge)
+    licence: {name: Apache-2.0 (Gemma 4), spdx: Apache-2.0, verified: true, register: model-gemma-4-26b-a4b-nvfp4}
+    origin: {developer: Google, country: US, non_prc: true}
+
+  - build_id: qwen3.5-9b-spark
+    alias: v-verifier
+    status: candidate
+    serving: vllm
+    served: {verifier: null}
+    sha256: null
+    revision: null
+    repository: cyankiwi/Qwen3.5-9B-AWQ-4bit
+    expected:  # the release's weight manifest (tools/pin_model.py format) and revision, from the measured record
+      manifest_sha256: 869b525324626a867331f26126a5605aeb10ae40e9dfbc14fee9849ac3e15982
+      revision: e4d2d39cede8c5d1716d824cd843e2889c648083
+      source: deploy/measured/serving_config.rtxpro6000.json
+    provenance:  # D-392 (DEP-008): own copy of the publisher's quantisation, licence file kept (the default)
+      copy: own-copy  # own-copy of the quantisation below, or own-quantisation of base with recipe
+      default: true  # the owner's question on the verifier copy is open; this stands until he answers
+      store: the vendor's model store, folder VERIFIER_MODEL_DIR (default qwen3.5-9b-4bit)
+      source: cyankiwi/Qwen3.5-9B-AWQ-4bit
+      revision: e4d2d39cede8c5d1716d824cd843e2889c648083
+      base: {repository: Qwen/Qwen3.5-9B, revision: c20223623576}
+      recipe: {path: recipe.yaml, sha256: c91b5f9da70ca35af40c69277da5be717a892627d0d6da8ffb412f7563e0a9b6}
+      licence_file: {path: LICENSE, sha256: bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a}
+    quantisation: AWQ 4-bit (measured 2026-11-08)
+    context_length: 16384
+    family: qwen
+    model_name: Qwen3.5-9B (AWQ 4-bit, Spark verifier)
+    licence: {name: Apache-2.0, spdx: Apache-2.0, verified: true, register: model-qwen3.5-9b-awq-4bit}
+    origin: {developer: Alibaba Qwen, country: CN, non_prc: false}
+
+  - build_id: gemma-4-26b-a4b-it-frontdesk-spark
+    alias: f-frontdesk
+    status: candidate
+    serving: vllm
+    served: {serving: null}
+    sha256: null
+    revision: null
+    repository: nvidia/Gemma-4-26B-A4B-NVFP4
+    expected:  # the release's weight manifest (tools/pin_model.py format) and revision, from the measured record
+      manifest_sha256: 5e5bef7a61feffc04e388886d2f1996dbffd1fa10b1722e2fa2a832c39e28a76
+      revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
+      source: deploy/measured/serving_config.rtxpro6000.json
+    provenance:  # D-392 (DEP-007): the release named in expected, used as its publisher made it
+      copy: publisher-quantisation
+      source: nvidia/Gemma-4-26B-A4B-NVFP4
+      revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
+      base: {repository: google/gemma-4-26B-A4B-it, revision: 4d7ae4984b7d}
+      licence_file: none-in-source  # no LICENSE file there (register row model-gemma-4-26b-a4b-nvfp4)
+    chat_template:  # DEP-007: the developer's template, not the one in the NVFP4 folder; compose --chat-template
+      source: google/gemma-4-26B-A4B-it
+      revision: 4d7ae4984b7d  # short id read 2026-11-10 (deep review 08); the full id is written at first download
+      file: chat-templates/gemma-4-26b-a4b-it/chat_template.jinja  # under the models root (JUDGE_CHAT_TEMPLATE)
+      sha256: null  # not fetched from here: pin_model records the site's file until the download fills it in
+    quantisation: NVFP4 (NVIDIA release; measured 2026-11-08)
+    context_length: 16384
+    family: gemma
+    model_name: Gemma 4 26B-A4B-it (NVFP4, front desk, 16k)
+    licence: {name: Apache-2.0 (Gemma 4), spdx: Apache-2.0, verified: true, register: model-gemma-4-26b-a4b-nvfp4}
+    origin: {developer: Google, country: US, non_prc: true}
+
+  # One RTX 5090 (P-5090, deploy/docker-compose.rtx5090.yml): the same pair at 8k with the sleep swap, one model awake
+  # at a time (D-112, D-116); measured on an RTX PRO 6000 capped to 32 GB, not yet on a physical 5090.
   - build_id: gemma-4-26b-a4b-it-rtx5090
     alias: j-workhorse
     status: candidate
@@ -112,12 +300,27 @@ builds:
     served: {serving: null}
     sha256: null
     revision: null
-    repository: google/gemma-4-26b-a4b-it
-    quantisation: 4-bit (NVFP4 or AWQ; recipe to record at qualification)
+    repository: nvidia/Gemma-4-26B-A4B-NVFP4
+    expected:  # the release's weight manifest (tools/pin_model.py format) and revision, from the measured record
+      manifest_sha256: 5e5bef7a61feffc04e388886d2f1996dbffd1fa10b1722e2fa2a832c39e28a76
+      revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
+      source: deploy/measured/serving_config.rtxpro6000.json
+    provenance:  # D-392 (DEP-007): the release named in expected, used as its publisher made it
+      copy: publisher-quantisation
+      source: nvidia/Gemma-4-26B-A4B-NVFP4
+      revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
+      base: {repository: google/gemma-4-26B-A4B-it, revision: 4d7ae4984b7d}
+      licence_file: none-in-source  # no LICENSE file there (register row model-gemma-4-26b-a4b-nvfp4)
+    chat_template:  # DEP-007: the developer's template, not the one in the NVFP4 folder; compose --chat-template
+      source: google/gemma-4-26B-A4B-it
+      revision: 4d7ae4984b7d  # short id read 2026-11-10 (deep review 08); the full id is written at first download
+      file: chat-templates/gemma-4-26b-a4b-it/chat_template.jinja  # under the models root (JUDGE_CHAT_TEMPLATE)
+      sha256: null  # not fetched from here: pin_model records the site's file until the download fills it in
+    quantisation: NVFP4 (NVIDIA release; measured 2026-11-08)
     context_length: 8192
     family: gemma
-    model_name: Gemma 4 26B-A4B-it (4-bit, RTX 5090 judge)
-    licence: {name: Gemma 4 licence (terms to confirm), spdx: null, verified: false}
+    model_name: Gemma 4 26B-A4B-it (NVFP4, RTX 5090 judge)
+    licence: {name: Apache-2.0 (Gemma 4), spdx: Apache-2.0, verified: true, register: model-gemma-4-26b-a4b-nvfp4}
     origin: {developer: Google, country: US, non_prc: true}
 
   - build_id: qwen3.5-9b-rtx5090
@@ -127,28 +330,119 @@ builds:
     served: {verifier: null}
     sha256: null
     revision: null
-    repository: Qwen/Qwen3.5-9B
-    quantisation: 4-bit (NVFP4 or AWQ; recipe to record at qualification)
+    repository: cyankiwi/Qwen3.5-9B-AWQ-4bit
+    expected:  # the release's weight manifest (tools/pin_model.py format) and revision, from the measured record
+      manifest_sha256: 869b525324626a867331f26126a5605aeb10ae40e9dfbc14fee9849ac3e15982
+      revision: e4d2d39cede8c5d1716d824cd843e2889c648083
+      source: deploy/measured/serving_config.rtxpro6000.json
+    provenance:  # D-392 (DEP-008): own copy of the publisher's quantisation, licence file kept (the default)
+      copy: own-copy  # own-copy of the quantisation below, or own-quantisation of base with recipe
+      default: true  # the owner's question on the verifier copy is open; this stands until he answers
+      store: the vendor's model store, folder VERIFIER_MODEL_DIR (default qwen3.5-9b-4bit)
+      source: cyankiwi/Qwen3.5-9B-AWQ-4bit
+      revision: e4d2d39cede8c5d1716d824cd843e2889c648083
+      base: {repository: Qwen/Qwen3.5-9B, revision: c20223623576}
+      recipe: {path: recipe.yaml, sha256: c91b5f9da70ca35af40c69277da5be717a892627d0d6da8ffb412f7563e0a9b6}
+      licence_file: {path: LICENSE, sha256: bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a}
+    quantisation: AWQ 4-bit (measured 2026-11-08)
     context_length: 8192
     family: qwen
-    model_name: Qwen3.5-9B (4-bit, RTX 5090 verifier)
-    licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
+    model_name: Qwen3.5-9B (AWQ 4-bit, RTX 5090 verifier)
+    licence: {name: Apache-2.0, spdx: Apache-2.0, verified: true, register: model-qwen3.5-9b-awq-4bit}
     origin: {developer: Alibaba Qwen, country: CN, non_prc: false}
 
-  - build_id: gpt-oss-120b-frontdesk-spark
+  # shared-quota (D-211, D-409; deploy/platform/overlays/shared-quota, deploy/docker-compose.shared-quota.yml): CGMH's
+  # B200 and the owner's B200, the judge and the verifier each on its own MIG instance (two instances), the front
+  # desk on the judge's server. The same weights as every other profile (expected below), pinned by the platform's
+  # pin job (tools/pin_model.py --install shared-quota). The context is measured on the instances, never assumed:
+  # null until the shared-quota serving record exists (tools/serving_config.py, the rule keyed on the MIG profile).
+  - build_id: gemma-4-26b-a4b-it-sharedquota
+    alias: j-workhorse
+    status: candidate
+    serving: vllm
+    served: {serving: null}
+    sha256: null
+    revision: null
+    repository: nvidia/Gemma-4-26B-A4B-NVFP4
+    expected:  # the release's weight manifest (tools/pin_model.py format) and revision, from the measured record
+      manifest_sha256: 5e5bef7a61feffc04e388886d2f1996dbffd1fa10b1722e2fa2a832c39e28a76
+      revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
+      source: deploy/measured/serving_config.rtxpro6000.json
+    provenance:  # D-392 (DEP-007): the release named in expected, used as its publisher made it
+      copy: publisher-quantisation
+      source: nvidia/Gemma-4-26B-A4B-NVFP4
+      revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
+      base: {repository: google/gemma-4-26B-A4B-it, revision: 4d7ae4984b7d}
+      licence_file: none-in-source  # no LICENSE file there (register row model-gemma-4-26b-a4b-nvfp4)
+    chat_template:  # DEP-007: the developer's template, not the one in the NVFP4 folder; compose --chat-template
+      source: google/gemma-4-26B-A4B-it
+      revision: 4d7ae4984b7d  # short id read 2026-11-10 (deep review 08); the full id is written at first download
+      file: chat-templates/gemma-4-26b-a4b-it/chat_template.jinja  # under the models root (JUDGE_CHAT_TEMPLATE)
+      sha256: null  # not fetched from here: pin_model records the site's file until the download fills it in
+    quantisation: NVFP4 (NVIDIA release; the same weights as the measured pair; NVFP4 under MIG unproven, RSK-43)
+    context_length: null  # measured on the MIG instance (T-114, then the site's own at IQ); never assumed
+    family: gemma
+    model_name: Gemma 4 26B-A4B-it (NVFP4, shared-quota judge on its MIG instance)
+    licence: {name: Apache-2.0 (Gemma 4), spdx: Apache-2.0, verified: true, register: model-gemma-4-26b-a4b-nvfp4}
+    origin: {developer: Google, country: US, non_prc: true}
+
+  - build_id: qwen3.5-9b-sharedquota
+    alias: v-verifier
+    status: candidate
+    serving: vllm
+    served: {verifier: null}
+    sha256: null
+    revision: null
+    repository: cyankiwi/Qwen3.5-9B-AWQ-4bit
+    expected:  # the release's weight manifest (tools/pin_model.py format) and revision, from the measured record
+      manifest_sha256: 869b525324626a867331f26126a5605aeb10ae40e9dfbc14fee9849ac3e15982
+      revision: e4d2d39cede8c5d1716d824cd843e2889c648083
+      source: deploy/measured/serving_config.rtxpro6000.json
+    provenance:  # D-392 (DEP-008): own copy of the publisher's quantisation, licence file kept (the default)
+      copy: own-copy  # own-copy of the quantisation below, or own-quantisation of base with recipe
+      default: true  # the owner's question on the verifier copy is open; this stands until he answers
+      store: the vendor's model store, folder VERIFIER_MODEL_DIR (default qwen3.5-9b-4bit)
+      source: cyankiwi/Qwen3.5-9B-AWQ-4bit
+      revision: e4d2d39cede8c5d1716d824cd843e2889c648083
+      base: {repository: Qwen/Qwen3.5-9B, revision: c20223623576}
+      recipe: {path: recipe.yaml, sha256: c91b5f9da70ca35af40c69277da5be717a892627d0d6da8ffb412f7563e0a9b6}
+      licence_file: {path: LICENSE, sha256: bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a}
+    quantisation: AWQ 4-bit (the same weights as the measured pair)
+    context_length: null  # measured on the MIG instance (T-114, then the site's own at IQ); never assumed
+    family: qwen
+    model_name: Qwen3.5-9B (AWQ 4-bit, shared-quota verifier on its MIG instance)
+    licence: {name: Apache-2.0, spdx: Apache-2.0, verified: true, register: model-qwen3.5-9b-awq-4bit}
+    origin: {developer: Alibaba Qwen, country: CN, non_prc: false}
+
+  - build_id: gemma-4-26b-a4b-it-frontdesk-sharedquota
     alias: f-frontdesk
     status: candidate
     serving: vllm
     served: {serving: null}
     sha256: null
     revision: null
-    repository: openai/gpt-oss-120b
-    quantisation: MXFP4 (native release weights)
-    context_length: 65536
-    family: gpt-oss
-    model_name: gpt-oss-120b (front desk, 64k)
-    licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
-    origin: {developer: OpenAI, country: US, non_prc: true}
+    repository: nvidia/Gemma-4-26B-A4B-NVFP4
+    expected:  # the release's weight manifest (tools/pin_model.py format) and revision, from the measured record
+      manifest_sha256: 5e5bef7a61feffc04e388886d2f1996dbffd1fa10b1722e2fa2a832c39e28a76
+      revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
+      source: deploy/measured/serving_config.rtxpro6000.json
+    provenance:  # D-392 (DEP-007): the release named in expected, used as its publisher made it
+      copy: publisher-quantisation
+      source: nvidia/Gemma-4-26B-A4B-NVFP4
+      revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
+      base: {repository: google/gemma-4-26B-A4B-it, revision: 4d7ae4984b7d}
+      licence_file: none-in-source  # no LICENSE file there (register row model-gemma-4-26b-a4b-nvfp4)
+    chat_template:  # DEP-007: the developer's template, not the one in the NVFP4 folder; compose --chat-template
+      source: google/gemma-4-26B-A4B-it
+      revision: 4d7ae4984b7d  # short id read 2026-11-10 (deep review 08); the full id is written at first download
+      file: chat-templates/gemma-4-26b-a4b-it/chat_template.jinja  # under the models root (JUDGE_CHAT_TEMPLATE)
+      sha256: null  # not fetched from here: pin_model records the site's file until the download fills it in
+    quantisation: NVFP4 (NVIDIA release; the same weights as the measured pair; NVFP4 under MIG unproven, RSK-43)
+    context_length: null  # measured on the MIG instance (T-114, then the site's own at IQ); never assumed
+    family: gemma
+    model_name: Gemma 4 26B-A4B-it (NVFP4, front desk on the judge's MIG instance)
+    licence: {name: Apache-2.0 (Gemma 4), spdx: Apache-2.0, verified: true, register: model-gemma-4-26b-a4b-nvfp4}
+    origin: {developer: Google, country: US, non_prc: true}
 
   - build_id: gpt-oss-safeguard-20b-candidate
     alias: g-guard
@@ -158,12 +452,64 @@ builds:
     sha256: null
     revision: null
     repository: openai/gpt-oss-safeguard-20b
+    expected: {manifest_sha256: null, revision: null}  # unknown until the release is measured: never champion
     quantisation: MXFP4
     context_length: null
     family: gpt-oss
     model_name: gpt-oss-safeguard-20b
-    licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
+    licence: {name: Apache-2.0, spdx: Apache-2.0, verified: true, register: model-gpt-oss-safeguard-20b}
     origin: {developer: OpenAI, country: US, non_prc: true}
+
+  # ---------------------------------------------------------------- bake-off candidates (D-392)
+  # The larger judge challenger (DEP-009): the developer's own 4-bit QAT build, same publisher as the judge's
+  # template. Its bake-off run is queued on the spot VM (docs/plan/gpu-ledger.md row S4) and has not run: nothing
+  # is measured, so nothing is expected and the build is never promoted from this file.
+  - build_id: gemma-4-31b-it-qat-challenger
+    alias: j-workhorse
+    status: candidate
+    serving: vllm
+    served: {serving: null}
+    sha256: null
+    revision: null
+    repository: google/gemma-4-31B-it-qat-w4a16-ct
+    expected: {manifest_sha256: null, revision: null}  # unknown until the release is measured: never champion
+    provenance:
+      copy: publisher-quantisation
+      source: google/gemma-4-31B-it-qat-w4a16-ct
+      revision: null  # read at download for the S4 run; not fetched from here
+      licence_file: null  # to record with the download
+    bakeoff: {ledger: S4, state: queued, role: judge challenger}
+    quantisation: w4a16 QAT, compressed-tensors (Google release)
+    context_length: 32768
+    family: gemma
+    model_name: Gemma 4 31B-it (QAT w4a16, judge challenger)
+    licence: {name: Apache-2.0 (Gemma 4; to confirm at download), spdx: Apache-2.0, verified: false}
+    origin: {developer: Google, country: US, non_prc: true}
+
+  # A second verifier candidate (RSK-60, PLAN-036): a hospital may refuse a PRC-origin verifier. Different developer,
+  # country, architecture and tokenizer from the judge (deep review 03a, row 2). Not measured in the bake-off harness
+  # yet; the weights would be an own 4-bit build from the developer's release (its RedHatAI build is not used).
+  - build_id: ministral-3-14b-verifier-candidate
+    alias: v-verifier
+    status: candidate
+    serving: vllm
+    served: {verifier: null}
+    sha256: null
+    revision: null
+    repository: mistralai/Ministral-3-14B-Instruct-2512
+    expected: {manifest_sha256: null, revision: null}  # unknown until the own build is made: never champion
+    provenance:
+      copy: own-quantisation
+      source: mistralai/Ministral-3-14B-Instruct-2512
+      revision: 29439f81c2be  # short id read 2026-11-10 (deep review 03a); the full id is written at download
+      licence_file: null  # to record with the download
+    bakeoff: {ledger: null, state: unmeasured, role: second verifier candidate, risk: RSK-60}
+    quantisation: 4-bit own build (recipe to commit with the build)
+    context_length: 32768
+    family: mistral
+    model_name: Ministral 3 14B Instruct 2512 (second verifier candidate)
+    licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
+    origin: {developer: Mistral AI, country: FR, non_prc: true}
 
   # ---------------------------------------------------------------- earlier candidates (Qwen: documented alternative)
   - build_id: nemotron-3-nano-candidate
@@ -174,6 +520,7 @@ builds:
     sha256: null
     revision: null
     repository: null
+    expected: {manifest_sha256: null, revision: null}  # unknown until the release is measured: never champion
     quantisation: null
     context_length: null
     family: nemotron
@@ -189,6 +536,7 @@ builds:
     sha256: null
     revision: null
     repository: null
+    expected: {manifest_sha256: null, revision: null}  # unknown until the release is measured: never champion
     quantisation: null
     context_length: null
     family: nemotron
@@ -204,6 +552,7 @@ builds:
     sha256: null
     revision: null
     repository: null
+    expected: {manifest_sha256: null, revision: null}  # unknown until the release is measured: never champion
     quantisation: 4-bit (recipe to record at qualification)
     context_length: null
     family: qwen
@@ -219,12 +568,37 @@ builds:
     sha256: null
     revision: null
     repository: null
+    expected: {manifest_sha256: null, revision: null}  # unknown until the release is measured: never champion
     quantisation: MXFP4
     context_length: null
     family: gpt-oss
     model_name: gpt-oss-120b
     licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
     origin: {developer: OpenAI, country: US, non_prc: true}
+
+  # ---------------------------------------------------------------- the embedder (T-607, D-429; LLM-013, LLM-014)
+  # One build for the e-embed alias, served by embed-service (routing endpoint `embed`, route `vectors`). The
+  # embedder is pinned like a model: tools/pin_model.py --build e-embed-1 --endpoint embed writes its manifest digest
+  # into the site override, and embed-service in PRODUCTION loads only the weights that match it
+  # (services/embed_service/embedder.py). D-429's criterion: safetensors weights from the publisher, so the
+  # pickle-only incumbent is out and is never converted here. Which candidate wins is measured in G1 (T-004); until
+  # that record names it, repository, revision, expected and the licence are null and the build can only be pinned
+  # with --trust-first-use (an evaluation candidate, never promoted). The values to fill are listed in D-429.
+  - build_id: e-embed-1
+    alias: e-embed
+    status: candidate
+    serving: local
+    served: {embed: null}
+    sha256: null
+    revision: null
+    repository: null
+    expected: {manifest_sha256: null, revision: null}  # from the G1 record (T-004): D-429 "Remains"
+    quantisation: none
+    context_length: null
+    family: embedder
+    model_name: the embedder (1024 dimensions, safetensors from the publisher; chosen in G1)
+    licence: {name: set with the chosen embedder (D-429), spdx: null, verified: false}
+    origin: {developer: set with the chosen embedder (D-429), country: to record, non_prc: null}
 
   # ---------------------------------------------------------------- hosted bake-off builds (S1-14, DEV / D0 only)
   # A hosted build is one dated provider version of a model served by a third party (OpenRouter). It has no weights
@@ -274,7 +648,7 @@ builds:
     context_length: null
     family: gemma
     model_name: Gemma 4 26B-A4B-it (hosted)
-    licence: {name: Gemma 4 licence (terms to confirm), spdx: null, verified: false}
+    licence: {name: Apache-2.0 (Gemma 4; hosted, provider terms not checked), spdx: Apache-2.0, verified: false}
     origin: {developer: Google, country: US, non_prc: true}
 
   - build_id: or-nemotron-3-nano-30b-a3b

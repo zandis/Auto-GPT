@@ -92,3 +92,48 @@ encounter,rheumatology clinic visit,department,RHEU,exact
 claim,ra biologic,nhi_drug,KC00017248,exact
 claim,ra biologic,nhi_drug,KC00018248,exact
 claim,ra biologic,nhi_drug,KC00019248,exact
+condition,alzheimer's disease,icd10cm,G30,prefix
+condition,アルツハイマー病,icd10cm,G30,prefix
+condition,mild cognitive impairment,icd10cm,G31.84,exact
+condition,軽度認知障害,icd10cm,G31.84,exact
+condition,mild cognitive impairment or alzheimer's disease,icd10cm,G31.84,exact
+condition,mild cognitive impairment or alzheimer's disease,icd10cm,G30,prefix
+condition,cognitive impairment or dementia,icd10cm,G31.84,exact
+condition,cognitive impairment or dementia,icd10cm,G30,prefix
+condition,cognitive impairment or dementia,icd10cm,F01,prefix
+condition,cognitive impairment or dementia,icd10cm,F02,prefix
+condition,cognitive impairment or dementia,icd10cm,F03,prefix
+condition,dementia,icd10cm,F01,prefix
+condition,dementia,icd10cm,F02,prefix
+condition,dementia,icd10cm,F03,prefix
+condition,dementia,icd10cm,G30,prefix
+condition,認知症,icd10cm,F01,prefix
+condition,認知症,icd10cm,F02,prefix
+condition,認知症,icd10cm,F03,prefix
+condition,認知症,icd10cm,G30,prefix
+condition,transient ischemic attack,icd10cm,G45.0,exact
+condition,transient ischemic attack,icd10cm,G45.1,exact
+condition,transient ischemic attack,icd10cm,G45.2,exact
+condition,transient ischemic attack,icd10cm,G45.8,exact
+condition,transient ischemic attack,icd10cm,G45.9,exact
+condition,一過性脳虚血発作,icd10cm,G45.9,exact
+medication,anticoagulant,atc,B01AA,prefix
+medication,anticoagulant,atc,B01AE,prefix
+medication,anticoagulant,atc,B01AF,prefix
+medication,抗凝固薬,atc,B01AA,prefix
+medication,抗凝固薬,atc,B01AE,prefix
+medication,抗凝固薬,atc,B01AF,prefix
+encounter,memory clinic visit,department,NEUR,exact
+encounter,memory clinic visit,department,PSY,exact
+condition,herpes zoster,icd10cm,B02,prefix
+condition,帶狀皰疹,icd10cm,B02,prefix
+condition,venous thromboembolism,icd10cm,I26,prefix
+condition,venous thromboembolism,icd10cm,I82.4,prefix
+condition,venous thromboembolism,icd10cm,I82.5,prefix
+condition,靜脈血栓栓塞,icd10cm,I26,prefix
+condition,靜脈血栓栓塞,icd10cm,I82.4,prefix
+condition,靜脈血栓栓塞,icd10cm,I82.5,prefix
+medication,biologic dmard or jak inhibitor,atc,L04AB,prefix
+medication,biologic dmard or jak inhibitor,atc,L04AC07,exact
+medication,biologic dmard or jak inhibitor,atc,L04AF,prefix
+medication,jak inhibitor,atc,L04AF,prefix

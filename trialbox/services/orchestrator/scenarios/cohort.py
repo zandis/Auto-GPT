@@ -26,6 +26,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+from criteria_compiler.compile_sql.overlay import safe_sql
 from tb_common.authz import norm
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import suppress
@@ -36,6 +37,7 @@ from orchestrator.core import Ctx, Delivery, Outcome
 from orchestrator.db import JobDB
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen import report_meta, small_cell
+from orchestrator.scheduler import require_open
 
 COLUMNS = (
     "site_id",
@@ -98,8 +100,14 @@ def population_id(rs: Ruleset) -> str:
     return first.id
 
 
-def items_at(ctx: Ctx, rs: Ruleset, index: date) -> list[Item]:
-    rows = ctx.services.lake.query(rs.sql, [[index.isoformat()], None]).to_pylist()
+def items_at(ctx: Ctx, rs: Ruleset, index: date, snapshot: str | None = None) -> list[Item]:
+    rows = ctx.services.lake.query(safe_sql(rs), [[index.isoformat()], None], snapshot).to_pylist()
+    from matching.stored_scores import apply_rows
+
+    from orchestrator import derive
+
+    # D-442: the stored-row read while the flag is on, the same function as every screening path
+    apply_rows(rows, rs.active(), derive.reader_for(ctx), snapshot, getattr(rs.manifest, "derived_pins", None))
     pop = population_id(rs)
     p_rows = [r for r in rows if r.get(f"C_{pop}") is True]
     out = [Item(pop, _label(rs, pop), {r["pid"] for r in p_rows})]
@@ -119,26 +127,40 @@ def items_at(ctx: Ctx, rs: Ruleset, index: date) -> list[Item]:
     return out
 
 
-def contactable_pids(ctx: Ctx, index: date) -> set[str] | None:
-    """Patients with an active research-contact consent at ``index``; ``None`` when the site has no registry."""
+def contactable_pids(ctx: Ctx, index: date, snapshot: str | None = None) -> set[str] | None:
+    """Patients with an active research-contact consent at ``index``; ``None`` when the site has no registry.
+
+    The patient's latest consent record on or before ``index`` decides (an undated one counts as the oldest): a
+    later withdrawal (``inactive``, ``rejected``) ends an earlier ``active`` consent. A record entered in error is
+    not a statement."""
+    from matching.cascade.engine import missing_table
+
     reg = ctx.cfg.settings.registry_source
     if reg is None or reg.type == "none":
         return None
     try:
         rows = ctx.services.lake.query(
-            "SELECT pid, contact_ok FROM consent WHERE status = 'active' "
-            "AND (date IS NULL OR date <= CAST($1 AS DATE)) ORDER BY pid, date",
+            "SELECT pid, status, contact_ok FROM consent WHERE coalesce(status, '') <> 'entered-in-error' "
+            "AND (date IS NULL OR date <= CAST($1 AS DATE)) "
+            # D-441 (review MED-2): dates are whole days; of two statements on one day the not-contactable one is
+            # taken (it sorts last), so a same-day withdrawal or refusal is never read as contactable
+            "ORDER BY pid, date NULLS FIRST, coalesce(status = 'active' AND contact_ok, false) DESC",
             [index.isoformat()],
+            snapshot,
         ).to_pylist()
-    except Exception:  # lake without a consent table (registry never ingested)
+    except Exception as exc:
+        if not missing_table(exc, "consent"):  # only a lake without a consent table (registry never ingested)
+            raise
         return None
     latest: dict[str, bool] = {}
     for r in rows:
-        latest[r["pid"]] = bool(r["contact_ok"])
+        latest[r["pid"]] = r["status"] == "active" and bool(r["contact_ok"])
     return {p for p, ok in latest.items() if ok}
 
 
-def table_rows(ctx: Ctx, rs: Ruleset, quarters: list[date]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def table_rows(
+    ctx: Ctx, rs: Ruleset, quarters: list[date], snapshot: str | None = None
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Alliance rows (suppressed) and the unsuppressed population sizes kept in the box for the report."""
     site = ctx.cfg.settings.site.id
     sc = small_cell(ctx, rs)
@@ -146,8 +168,8 @@ def table_rows(ctx: Ctx, rs: Ruleset, quarters: list[date]) -> tuple[list[dict[s
     rows: list[dict[str, Any]] = []
     raw: dict[str, Any] = {}
     for q in quarters:
-        items = items_at(ctx, rs, q)
-        contact = contactable_pids(ctx, q)
+        items = items_at(ctx, rs, q, snapshot)
+        contact = contactable_pids(ctx, q, snapshot)
         raw[quarter_label(q)] = {it.criterion_id: len(it.pids) for it in items}
         for it in items:
             rows.append(
@@ -261,6 +283,7 @@ def run_cohort(ctx: Ctx) -> Outcome:
     from orchestrator.scenarios import trials
 
     job = ctx.job
+    require_open(job.ruleset)  # D-386 (LIFE-008): no list for a study that is not open
     rs = require_approved(ctx, (job.ruleset or "").upper(), (job.options or {}).get("version"))
     if rs.manifest.kind != "cohort":
         raise StepFailed("ruleset", f"{rs.id} is a {rs.manifest.kind} ruleset; COHORT needs a cohort ruleset.")
@@ -272,7 +295,7 @@ def run_cohort(ctx: Ctx) -> Outcome:
     n_quarters = int((job.options or {}).get("lookback") or 4)
     quarters = completed_quarters(min(ctx.today(), date.fromisoformat(snapshot)), max(1, min(n_quarters, 12)))
     ctx.state("running")
-    rows, raw = table_rows(ctx, rs, quarters)
+    rows, raw = table_rows(ctx, rs, quarters, snapshot)  # every count from the snapshot the report names
     table = CohortTable.model_validate({"schema_version": SCHEMA_VERSION, "rows": rows})
     site = ctx.cfg.settings.site.id
     sc = small_cell(ctx, rs)

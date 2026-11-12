@@ -1,0 +1,216 @@
+{
+ "meta": {
+  "generator": "tools.synth_hospital profile ci + tools.public_site en",
+  "head": "e3ac1779aac2e0f5e13be8d94578e15142dc6697",
+  "lake_schema_version": 4,
+  "profile": "ci",
+  "reason": "D-442 (T-207): no eGFR under 18 (catalogue egfr_ckd_epi_2021 and egfr_jsn_2009: age < 18, do not compute); an eGFR criterion of a patient under 18 at the index date is unknown with derived_adult_only instead of met or not met",
+  "ref_date": "2026-11-01",
+  "ruleset": "AD-MAB",
+  "ruleset_version": "1.0.0",
+  "seed": 42,
+  "written_with_source": "legacy+omop"
+ },
+ "sets": {
+  "public-en": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "441614807fbbeed4a6a57750e05370885de9d8cdcc264dccd326f7082d80f1e5",
+   "patients": 53,
+   "structured_criteria": [
+    "AD-MAB-INC-01",
+    "AD-MAB-INC-02",
+    "AD-MAB-EXC-01",
+    "AD-MAB-EXC-03",
+    "AD-MAB-EXC-04"
+   ],
+   "verdicts": {
+    "AD-MAB-EXC-01": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "AD-MAB-EXC-03": {
+     "met": 1,
+     "not_met": 52,
+     "unknown": 0
+    },
+    "AD-MAB-EXC-04": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    },
+    "AD-MAB-INC-01": {
+     "met": 18,
+     "not_met": 34,
+     "unknown": 1
+    },
+    "AD-MAB-INC-02": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    }
+   }
+  },
+  "ssmix2-jp": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "bcd12f717963f47ac20b0278aa7e286dbd7dc70b7cfbc66e78a2fbdfa33e6d8e",
+   "patients": 400,
+   "structured_criteria": [
+    "AD-MAB-INC-01",
+    "AD-MAB-INC-02",
+    "AD-MAB-EXC-01",
+    "AD-MAB-EXC-03",
+    "AD-MAB-EXC-04"
+   ],
+   "verdicts": {
+    "AD-MAB-EXC-01": {
+     "met": 0,
+     "not_met": 400,
+     "unknown": 0
+    },
+    "AD-MAB-EXC-03": {
+     "met": 4,
+     "not_met": 396,
+     "unknown": 0
+    },
+    "AD-MAB-EXC-04": {
+     "met": 46,
+     "not_met": 152,
+     "unknown": 202
+    },
+    "AD-MAB-INC-01": {
+     "met": 212,
+     "not_met": 188,
+     "unknown": 0
+    },
+    "AD-MAB-INC-02": {
+     "met": 0,
+     "not_met": 400,
+     "unknown": 0
+    }
+   }
+  },
+  "synthetic-jp-a": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "347448e89b028202af7e65940744afb8867c376c61bb78394911cb4ada55e1cb",
+   "patients": 2500,
+   "structured_criteria": [
+    "AD-MAB-INC-01",
+    "AD-MAB-INC-02",
+    "AD-MAB-EXC-01",
+    "AD-MAB-EXC-03",
+    "AD-MAB-EXC-04"
+   ],
+   "verdicts": {
+    "AD-MAB-EXC-01": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "AD-MAB-EXC-03": {
+     "met": 35,
+     "not_met": 2465,
+     "unknown": 0
+    },
+    "AD-MAB-EXC-04": {
+     "met": 310,
+     "not_met": 899,
+     "unknown": 1291
+    },
+    "AD-MAB-INC-01": {
+     "met": 1319,
+     "not_met": 1157,
+     "unknown": 24
+    },
+    "AD-MAB-INC-02": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    }
+   }
+  },
+  "synthetic-jp-a-deletes": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "3d9964e4bbf6b64a0d414339dc1baf1a128ee94d76df4824ab1e9b3fe3000cec",
+   "patients": 2500,
+   "structured_criteria": [
+    "AD-MAB-INC-01",
+    "AD-MAB-INC-02",
+    "AD-MAB-EXC-01",
+    "AD-MAB-EXC-03",
+    "AD-MAB-EXC-04"
+   ],
+   "verdicts": {
+    "AD-MAB-EXC-01": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "AD-MAB-EXC-03": {
+     "met": 34,
+     "not_met": 2466,
+     "unknown": 0
+    },
+    "AD-MAB-EXC-04": {
+     "met": 302,
+     "not_met": 803,
+     "unknown": 1395
+    },
+    "AD-MAB-INC-01": {
+     "met": 1330,
+     "not_met": 1162,
+     "unknown": 8
+    },
+    "AD-MAB-INC-02": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    }
+   }
+  },
+  "synthetic-tw-a": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "209a5ed18a8dae5e0e7109883c1bb324dea6171e36199cea0abdfb1e1bca61cb",
+   "patients": 2500,
+   "structured_criteria": [
+    "AD-MAB-INC-01",
+    "AD-MAB-INC-02",
+    "AD-MAB-EXC-01",
+    "AD-MAB-EXC-03",
+    "AD-MAB-EXC-04"
+   ],
+   "verdicts": {
+    "AD-MAB-EXC-01": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "AD-MAB-EXC-03": {
+     "met": 33,
+     "not_met": 2467,
+     "unknown": 0
+    },
+    "AD-MAB-EXC-04": {
+     "met": 325,
+     "not_met": 885,
+     "unknown": 1290
+    },
+    "AD-MAB-INC-01": {
+     "met": 1291,
+     "not_met": 1185,
+     "unknown": 24
+    },
+    "AD-MAB-INC-02": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    }
+   }
+  }
+ }
+}

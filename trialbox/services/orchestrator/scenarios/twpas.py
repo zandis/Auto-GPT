@@ -11,6 +11,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from tb_common.kek import key_present
 from tb_common.ruleset import Ruleset
 from tb_contracts import NavRow, Precheck
 
@@ -18,7 +19,7 @@ from orchestrator.core import Ctx
 from orchestrator.reports import twpas_bundle
 from orchestrator.scenarios.facts import Facts
 
-DEFAULT_IG = "tw.gov.mohw.nhi.pas#1.2.0"  # the only version on the npm mirror (DECISIONS D-63)
+DEFAULT_IG = "tw.gov.mohw.nhi.pas#1.2.5"  # the version tools/fetch_fhir_packages.py caches (DECISIONS D-372)
 _ECOG = re.compile(r"ECOG\s*體能狀態\s*(\d)\s*分|ECOG\s*(?:PS)?\s*[:：]?\s*(\d)", re.I)
 
 
@@ -49,11 +50,11 @@ def enabled(ctx: Ctx, rs: Ruleset) -> bool:
 
 def _identity(ctx: Ctx, pid: str) -> dict[str, str]:
     sec = Path(ctx.cfg.env.secrets_dir)
-    if not (sec / "pid_map.sqlite").exists():
+    if not key_present(sec / "pid_map.key"):  # no map yet (plain or wrapped under the KEK, T-210b)
         return {}
     from adapter.pidmap import PidMap
 
-    pm = PidMap(sec / "pid_map.sqlite", sec / "pid_map.key")
+    pm = PidMap(sec / "pid_map.key", ctx.orch.db.url)  # the orchestrator's trial database
     try:
         out = dict(pm.identity(pid) or {})
         mrn = pm.resolve(pid)

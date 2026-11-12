@@ -8,6 +8,20 @@ site:
     ra: 0.26
     onc: 0.04
     general: 0.4
+  # the Japanese memory-clinic site of scenario J1 (T-503, ``Generator(mix="mix_jp_ad")``): early AD / MCI patients
+  # beside the usual gout, RA and general patients. ``mix`` above stays the default (same seed -> same fixtures).
+  mix_jp_ad:
+    ad: 0.4
+    gout: 0.1
+    ra: 0.1
+    general: 0.4
+  # the Taiwanese rheumatology site of scenarios T1 to T3 (T-504, ``Generator(mix="mix_tw_ra")``): RA patients screened
+  # for the JAK-inhibitor trial RA-JAK beside gout patients (GZQO, T1) and the usual RA patients (RA-COH, T3).
+  mix_tw_ra:
+    rajak: 0.45
+    gout: 0.15
+    ra: 0.05
+    general: 0.35
 gout:
   injection:
     willing: 0.5
@@ -170,6 +184,135 @@ onc:
   egfr_mut:
     pos: 0.75
     neg: 0.25
+# Early Alzheimer's disease / MCI at the memory clinic (T-503, scenario J1: trial AD-MAB, registry NEUR-COH;
+# ``tools.synth.ad``). Each attribute decides one AD-MAB criterion; ``amyloid`` is unknown for most patients, as at a
+# real memory clinic (no PET or CSF test yet), so the list must keep them under "needs information".
+ad:
+  age_band:
+    in: 0.86
+    young: 0.07
+    old: 0.07
+  ad_dx:
+    mci: 0.4
+    ad: 0.4
+    uncoded: 0.2
+  mmse:
+    in_range: 0.45
+    low: 0.2
+    hdsr_only: 0.1
+    absent: 0.25
+  cdr:
+    half: 0.3
+    one: 0.2
+    two: 0.1
+    absent: 0.4
+  amyloid:
+    pet_pos: 0.12
+    pet_neg: 0.06
+    csf_pos: 0.06
+    not_done: 0.1
+    absent: 0.66
+  microbleeds:
+    few: 0.35
+    many: 0.08
+    siderosis: 0.04
+    no_mri: 0.53
+  anticoag:
+    current: 0.15
+    past: 0.07
+    none: 0.78
+  stroke:
+    recent: 0.06
+    old: 0.08
+    none: 0.86
+  creatinine:
+    normal: 0.8
+    low: 0.08
+    missing: 0.12
+  partner:
+    'yes': 0.6
+    'no': 0.15
+    no_info: 0.25
+  appointment:
+    soon: 0.6
+    later: 0.25
+    none: 0.15
+# RA at the rheumatology clinic, screened for the synthetic JAK-inhibitor trial RA-JAK (T-504, scenario T2;
+# ``tools.synth.rajak``). Each attribute decides one RA-JAK criterion. ``zoster`` and ``vte`` are the two states
+# planted for the trial: coded, written only in the notes, or denied in the notes.
+rajak:
+  age_band:
+    in: 0.9
+    young: 0.03
+    old: 0.07
+  ra_dx:
+    long: 0.88
+    recent: 0.12
+  mtx:
+    long: 0.65
+    short: 0.15
+    none: 0.2
+  das28:
+    high: 0.35
+    moderate: 0.3
+    low: 0.15
+    missing_component: 0.1
+    none: 0.1
+  prior:
+    none: 0.75
+    biologic: 0.15
+    jak: 0.1
+  hbsag:
+    neg: 0.7
+    pos: 0.08
+    missing: 0.22
+  ahbc:
+    neg: 0.45
+    pos: 0.25
+    missing: 0.3
+  tb:
+    igra_neg: 0.45
+    igra_pos_untreated: 0.08
+    igra_pos_treated: 0.1
+    none: 0.37
+  infection:
+    recent: 0.06
+    old: 0.1
+    none: 0.84
+  zoster:
+    coded_recent: 0.08
+    coded_old: 0.06
+    note_recent: 0.08
+    negated: 0.2
+    none: 0.58
+  vte:
+    coded_dvt: 0.05
+    coded_pe: 0.03
+    note_only: 0.06
+    negated: 0.16
+    none: 0.7
+  malignancy:
+    recent: 0.05
+    old: 0.05
+    none: 0.9
+  hf:
+    'yes': 0.05
+    'no': 0.95
+  pregnancy:
+    dx: 0.1
+    'no': 0.9
+  creatinine:
+    normal: 0.8
+    low: 0.08
+    missing: 0.12
+  csdmard_response:
+    inadequate: 0.6
+    adequate: 0.15
+    no_info: 0.25
+  appointment:
+    soon: 0.6
+    later: 0.25
+    none: 0.15
 # PHI planted in notes in gold mode only (tools.synth_hospital; TB-DS-21 §3.1, rates proposed there): the share of
 # notes that carry PHI, then the chance of each span type in such a note (3.0 spans per PHI-bearing note on average).
 phi:

@@ -55,7 +55,7 @@ FILES = {
     "RR": ["MedTxt-RR/MedTxt-RR-{L}-training-pub.xml", "MedTxt-RR/MedTxt-RR-{L}-test-answer-pub.xml"],
 }
 LANGS = ("ja", "en")
-# Candidate amendment to the judge prompt (tested here, not yet in services/orchestrator/prompts/judge_v3.md): a
+# Candidate amendment to the judge prompt (tested here, not yet in libs/tb_llm/prompts/judge_v3.md): a
 # suspected finding is not a confirmed one, so it should go to review rather than exclude the patient.
 SUSPECTED = (
     " A finding the note calls suspected, possible, probable, likely, 'cannot be ruled out' or 'to be ruled out' is "
@@ -74,12 +74,14 @@ def fetch() -> None:
     CACHE.mkdir(parents=True, exist_ok=True)
     r = httpx.get(URL, timeout=120, follow_redirects=True)
     r.raise_for_status()
+    tmp = CACHE / "Test collection.part"  # renamed once complete: a cut download never looks like the corpus
     with zipfile.ZipFile(io.BytesIO(r.content)) as z:
         for n in z.namelist():
             if n.startswith("Test collection/") and n.endswith(".xml") and "__MACOSX" not in n:
-                out = CACHE / n
+                out = tmp / n.removeprefix("Test collection/")
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_bytes(z.read(n))
+    tmp.rename(dest)
 
 
 ART = re.compile(r'<article id="([^"]+)"[^>]*>(.*?)</article>', re.S)

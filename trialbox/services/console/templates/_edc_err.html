@@ -1,0 +1,6 @@
+{# EDC prefill (D-160): an orchestrator refusal in the reader's language; needs err {code, fields, problems}. #}
+{% set k = 'edc.err.' + err.code %}{% set rk = 'rc.err.' + err.code %}
+<div class="error" role="alert" data-testid="edc-error"><p>{% if err.code == 'unavailable' %}{{ t('rc.err.unavailable') }}{% elif t(k) != k %}{{ t(k) }}{% elif err.code.startswith('odm.') %}{{ t('edc.err.odm_file') }}{% elif err.code.startswith('RC-') and t(rk) != rk %}{{ t(rk, fields=err.fields, msg='') }}{% else %}{{ t('edc.err.other') }}{% endif %}</p>
+{# T-685 (UX-030): the refusal code only under "Technical details", never beside the sentence #}
+{% if err.problems %}<ul class="plain" data-testid="edc-problems">{% for p in err.problems %}<li><span class="mono">{{ p.item or p.field }}</span> · {{ t_or('edc.problem.' + (p.code or ''), p.code or '') }}</li>{% endfor %}</ul>{% endif %}
+{% if err.code != 'unavailable' %}<details class="tech" data-testid="edc-error-code"><summary class="hint">{{ t('edc.err.details') }}</summary><span class="hint mono">{{ err.code }}</span></details>{% endif %}</div>

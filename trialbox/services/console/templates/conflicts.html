@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{# T-201 (D-426): the clinical conflicts of the whole database for the data steward (the matrix's conflicts.resolve). #}
+{% block title %}{{ t('conflicts.title') }}{% endblock %}
+{% macro item_name(i) %}{{ t_or('conflicts.item.' + i, i) }}{% endmacro %}
+{% block content %}
+<div class="headrow"><h1>{{ t('conflicts.title') }}</h1>
+<a href="/data/conflicts{{ '' if everything else '?all=1' }}" data-testid="conflicts-toggle">{{ t('conflicts.show_open' if everything else 'conflicts.show_all') }}</a>
+{% if permit(user.role, 'dataops.view') %}<a href="/data-ops" data-testid="conflicts-dataops">{{ t('dataops.title') }}</a>{% endif %}</div>
+<p class="hint">{{ t('conflicts.help') }}</p>
+<p data-testid="conflicts-counts">{% for i, n in per_item.items() %}<span data-item="{{ i }}" data-n="{{ n }}">{{ item_name(i) }}: {{ t('conflicts.open_n', n=n) }}</span>{{ ' · ' if not loop.last else '' }}{% endfor %}</p>
+{% if done %}<p class="ok" role="status" data-testid="conflicts-done">{{ t('conflicts.done') }}</p>{% endif %}
+{% if err %}<p class="warn" role="alert" data-testid="conflicts-err">{{ t('conflicts.err.' + err) }}</p>{% endif %}
+<section class="card" data-testid="conflicts">
+{% if not rows %}<p class="empty" data-testid="conflicts-none">{{ t('conflicts.none') }}</p>{% else %}
+<div class="scroll" tabindex="0"><table>
+<thead><tr><th scope="col">{{ t('conflicts.col.patient') }}</th><th scope="col">{{ t('conflicts.col.item') }}</th><th scope="col">{{ t('conflicts.col.claims') }}</th><th scope="col">{{ t('conflicts.col.found') }}</th><th scope="col">{{ t('conflicts.col.state') }}</th><th scope="col">{{ t('conflicts.col.resolve') if not everything else t('conflicts.col.outcome') }}</th></tr></thead>
+<tbody>{% for c in rows %}<tr data-testid="conflict" data-conflict="{{ c.conflict_id }}" data-state="{{ c.state }}">
+<td class="mono">{{ c.pid }}</td><td>{{ item_name(c.item) }}</td>
+<td><ul class="plain">{% for cl in c.claims %}<li><span class="mono">{{ cl.value }}</span> <span class="hint">{{ t_or('conflicts.source.' + cl.source[0], cl.source[0]) }}</span></li>{% endfor %}</ul></td>
+<td>{{ c.detected_at|local }}</td><td>{{ t('conflicts.state.' + c.state) }}</td>
+<td>{% if c.state == 'open' %}<form method="post" action="/data/conflicts/{{ c.conflict_id }}/resolve" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}">
+<fieldset><legend class="sr">{{ t('conflicts.col.resolve') }}</legend>
+{% for v in c.values %}<label><input type="radio" name="choice" value="{{ v }}" required> {{ t('conflicts.keep', v=v) }}</label><br>{% endfor %}
+<label><input type="radio" name="choice" value="{{ unknown }}" required> {{ t('conflicts.keep_unknown') }}</label></fieldset>
+<label for="why-{{ c.conflict_id }}">{{ t('conflicts.reason') }}</label> <input id="why-{{ c.conflict_id }}" name="reason" maxlength="500" required>
+<button type="submit" data-testid="resolve-{{ c.conflict_id }}">{{ t('conflicts.submit') }}</button></form>
+{% elif c.state == 'resolved' %}{{ t('conflicts.outcome.value', v=c.resolved_value, who=c.resolved_by|who, at=c.resolved_at|local, why=c.reason) if c.resolution == 'value' else t('conflicts.outcome.unknown', who=c.resolved_by|who, at=c.resolved_at|local, why=c.reason) }}{% else %}–{% endif %}</td>
+</tr>{% endfor %}</tbody></table></div>{% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,99 @@
+{
+ "ok": true,
+ "cases": 54,
+ "models": [
+  {
+   "role": "judge",
+   "model": "local/gemma-4-26b-a4b-nvfp4",
+   "cases": 54,
+   "answered": 54,
+   "correct": 53,
+   "flips": 1,
+   "seconds": 122.6,
+   "errors": [],
+   "wrong": [
+    {
+     "id": "ja:preg:yes",
+     "expected": "pass",
+     "got": "fail"
+    }
+   ],
+   "ok": true
+  },
+  {
+   "role": "verifier",
+   "model": "local/qwen3.5-9b-awq",
+   "cases": 54,
+   "answered": 54,
+   "correct": 49,
+   "flips": 1,
+   "seconds": 105.3,
+   "errors": [],
+   "wrong": [
+    {
+     "id": "en:preg:silent",
+     "expected": "unknown",
+     "got": "fail"
+    },
+    {
+     "id": "en:stroke:silent",
+     "expected": "unknown",
+     "got": "fail"
+    },
+    {
+     "id": "ja:preg:silent",
+     "expected": "unknown",
+     "got": "fail"
+    },
+    {
+     "id": "ja:chemo:yes",
+     "expected": "pass",
+     "got": "fail"
+    },
+    {
+     "id": "zh-TW:stroke:silent",
+     "expected": "unknown",
+     "got": "fail"
+    }
+   ],
+   "ok": true
+  }
+ ],
+ "pair": {
+  "cases": 54,
+  "correct": 52,
+  "decided_wrong": 0,
+  "disagreed": 2,
+  "wrong": []
+ },
+ "problems": [],
+ "thresholds": {
+  "min_answered": 0.95,
+  "max_flips": 1,
+  "min_accuracy": 0.85,
+  "max_pair_wrong": 0
+ },
+ "seconds": 274.0,
+ "at": "2026-11-08T08:29:06",
+ "wake_checks": {
+  "serving": [
+   {
+    "swap_s": 15.65,
+    "ok": true,
+    "why": null
+   },
+   {
+    "swap_s": 17.12,
+    "ok": true,
+    "why": null
+   }
+  ],
+  "verifier": [
+   {
+    "swap_s": 13.4,
+    "ok": true,
+    "why": null
+   }
+  ]
+ }
+}

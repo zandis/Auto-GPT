@@ -27,6 +27,15 @@ on a non-hosted build. At call time the gateway asks the endpoint for exactly th
 :func:`check_served` requires the response to report the pinned model id *and* the pinned provider.
 ``tools/pin_provider.py`` writes these pins and re-checks that the provider has not moved the model id to a new dated
 version (``--verify``).
+
+**Expected weights and the qualification record** (T-012b, LLM-007, LLM-029). A local build carries in the committed
+file what its weights must be: ``expected.manifest_sha256`` (the digest of the release's weight manifest, in the
+format of ``tools/pin_model.py``) and ``expected.revision`` (the upstream revision). A site pin whose sha256 or
+revision differs from them is refused at resolution (``weights_unexpected``), so a folder of other files never routes
+even when the override is edited by hand. ``champion`` is reached only through ``qualify``: ``pin_model --promote``
+writes the build's ``qualification`` reference (record id, record sha256, the weights the record qualified) after
+``tools.qualify.check_record`` accepts the record. In PRODUCTION a champion without a reference that qualifies
+PRODUCTION for exactly the pinned weights is refused (``champion_unqualified``), whatever the override's status says.
 """
 
 from __future__ import annotations
@@ -53,8 +62,25 @@ EVALUATION_ROLES = frozenset({"bakeoff", "optimise_prompt"})
 OVERRIDE_ENV = "TB_REGISTRY_OVERRIDE"
 OVERRIDE_KIND = "registry-site-override"
 OVERRIDE_FIELDS = frozenset(
-    {"sha256", "served", "revision", "status", "quantisation", "context_length", "weights", "provider_pin"}
+    {
+        "sha256",
+        "served",
+        "revision",
+        "status",
+        "quantisation",
+        "context_length",
+        "weights",
+        "provider_pin",
+        "qualification",
+    }
 )
+EXPECTED_FIELDS = frozenset({"manifest_sha256", "revision", "source"})
+QUALIFICATION_FIELDS = frozenset(
+    {"record_id", "record", "sha256", "profile", "weights_sha256", "qualifies_production", "promoted_at"}
+)
+# the refusal codes of :meth:`Registry.resolve`, most specific first: the code of a refused alias is the first that
+# any of its builds gave
+REFUSAL_ORDER = ("champion_unqualified", "weights_unexpected", "build_unpinned")
 HOSTED = "hosted"
 PROVIDER_PIN_FIELDS = (
     "endpoint",
@@ -103,11 +129,39 @@ class Build:
     context_length: int | None = None
     weights: dict[str, Any] = field(default_factory=dict)  # site pin provenance (tools/pin_model.py)
     provider_pin: dict[str, Any] | None = None  # hosted builds: dated provider version (tools/pin_provider.py)
+    expected: dict[str, Any] = field(default_factory=dict)  # committed: manifest_sha256, revision of the release
+    qualification: dict[str, Any] | None = None  # site: the qualification record that made it champion (T-012b)
     extra: dict[str, Any] = field(default_factory=dict)
 
     @property
     def pinned(self) -> bool:
         return self.sha256 is not None
+
+    @property
+    def expected_sha256(self) -> str | None:
+        v = self.expected.get("manifest_sha256")
+        return str(v) if v else None
+
+    @property
+    def expected_revision(self) -> str | None:
+        v = self.expected.get("revision")
+        return str(v) if v else None
+
+    def unexpected_weights(self) -> str:
+        """Why the pin is not the release's weights (empty: it is, or nothing is expected or pinned)."""
+        if not self.pinned or self.serving == HOSTED:
+            return ""
+        if self.expected_sha256 and self.sha256 != self.expected_sha256:
+            return f"pinned weights {str(self.sha256)[:12]} are not the expected manifest {self.expected_sha256[:12]}"
+        if self.expected_revision and self.revision and self.revision != self.expected_revision:
+            return f"pinned revision {self.revision} is not the expected {self.expected_revision}"
+        return ""
+
+    @property
+    def qualified_for_production(self) -> bool:
+        """A qualification reference that qualifies PRODUCTION for exactly the pinned weights (T-012b)."""
+        q = self.qualification or {}
+        return bool(q.get("qualifies_production") is True and self.pinned and q.get("weights_sha256") == self.sha256)
 
     @property
     def model_sha(self) -> str:
@@ -187,14 +241,25 @@ class Registry:
                 reasons.append(f"{b.build_id}: status {b.status.value}")
                 continue
             if not b.pinned and not (b.serving == "stub" and env in (Environment.DEV, Environment.TEST)):
-                reasons.append(f"{b.build_id}: sha256 not pinned")
+                reasons.append(f"{b.build_id}: sha256 not pinned [build_unpinned]")
+                continue
+            why = b.unexpected_weights()
+            if why:
+                reasons.append(f"{b.build_id}: {why} [weights_unexpected]")
+                continue
+            if env == Environment.PRODUCTION and b.status == Status.CHAMPION and not b.qualified_for_production:
+                # T-012b (LLM-029): champion only through qualify; an install or a hand edit cannot make one
+                reasons.append(
+                    f"{b.build_id}: champion without a qualification record for these weights "
+                    "(run trialbox eval qualify, then pin_model --promote) [champion_unqualified]"
+                )
                 continue
             served = b.served.get(endpoint)
             if not served:
                 reasons.append(f"{b.build_id}: not served on {endpoint}")
                 continue
             return Resolved(b, served, endpoint)
-        code = "build_unpinned" if any("not pinned" in r for r in reasons) else "no_eligible_build"
+        code = next((c for c in REFUSAL_ORDER if any(r.endswith(f"[{c}]") for r in reasons)), "no_eligible_build")
         raise RegistryError(code, f"alias {alias!r} on {endpoint}: no routable build ({'; '.join(reasons) or 'none'})")
 
     def table(self) -> list[dict[str, Any]]:
@@ -212,6 +277,10 @@ class Registry:
                 "origin": b.origin,
                 "model_name": b.model_name,
                 "provider_pin": b.provider_pin,
+                "expected": b.expected,
+                "weights_expected": b.pinned and not b.unexpected_weights() and bool(b.expected_sha256),
+                "qualification": b.qualification,
+                "qualified_for_production": b.qualified_for_production,
             }
             for b in self.builds
         ]
@@ -235,6 +304,8 @@ def _build(raw: dict[str, Any]) -> Build:
         "context_length",
         "weights",
         "provider_pin",
+        "expected",
+        "qualification",
     }
     for key in ("build_id", "alias", "status", "serving", "licence", "origin"):
         if key not in raw:
@@ -256,8 +327,36 @@ def _build(raw: dict[str, Any]) -> Build:
         context_length=raw.get("context_length"),
         weights=dict(raw.get("weights") or {}),
         provider_pin=dict(raw["provider_pin"]) if raw.get("provider_pin") else None,
+        expected=_expected(raw),
+        qualification=_qualification(raw),
         extra={k: v for k, v in raw.items() if k not in known},
     )
+
+
+def _expected(raw: dict[str, Any]) -> dict[str, Any]:
+    exp = raw.get("expected") or {}
+    where = f"registry: build {raw.get('build_id')!r} expected"
+    if not isinstance(exp, dict) or set(exp) - EXPECTED_FIELDS:
+        raise ValueError(f"{where} takes only {sorted(EXPECTED_FIELDS)}")
+    sha = exp.get("manifest_sha256")
+    if sha is not None and not (isinstance(sha, str) and _SHA.match(sha)):
+        raise ValueError(f"{where}.manifest_sha256 is not a lowercase hex SHA-256")
+    return dict(exp)
+
+
+def _qualification(raw: dict[str, Any]) -> dict[str, Any] | None:
+    q = raw.get("qualification")
+    if q is None:
+        return None
+    where = f"registry: build {raw.get('build_id')!r} qualification"
+    if not isinstance(q, dict) or set(q) - QUALIFICATION_FIELDS:
+        raise ValueError(f"{where} takes only {sorted(QUALIFICATION_FIELDS)}")
+    for key in ("sha256", "weights_sha256"):
+        if not (isinstance(q.get(key), str) and _SHA.match(q[key])):
+            raise ValueError(f"{where}.{key} is not a lowercase hex SHA-256")
+    if not q.get("record_id"):
+        raise ValueError(f"{where} names no record_id")
+    return dict(q)
 
 
 def provider_pin_sha(pin: Mapping[str, Any]) -> str:
@@ -363,6 +462,37 @@ def provider_routing(pin: Mapping[str, Any]) -> dict[str, Any]:
     return out
 
 
+LICENCE_FILE_NOTES = {"none-in-source": "none in the source repository (the licence register row holds the text)"}
+
+
+def _provenance_rows(b: Build) -> list[str]:
+    """Card rows for T-674 (D-392): where the weights come from, the licence file, the chat template, the bake-off."""
+    rows: list[str] = []
+    prov = b.extra.get("provenance") or {}
+    if prov:
+        how = str(prov.get("copy") or "not recorded")
+        if prov.get("default"):
+            how += ", the default until the owner answers"
+        rows.append(f"| Source | `{prov.get('source')}` at {prov.get('revision') or 'revision not yet read'} ({how}) |")
+        base = prov.get("base") or {}
+        if base:
+            rows.append(f"| Base model | `{base.get('repository')}` at {base.get('revision') or 'not recorded'} |")
+        lic = prov.get("licence_file")
+        if isinstance(lic, dict):
+            rows.append(f"| Licence file | `{lic.get('path')}` sha256 {lic.get('sha256')} |")
+        else:
+            rows.append(f"| Licence file | {LICENCE_FILE_NOTES.get(str(lic), 'to record at download')} |")
+    tpl = b.extra.get("chat_template") or {}
+    if tpl:
+        sha = tpl.get("sha256") or "recorded in the site pin"
+        rows.append(f"| Chat template | `{tpl.get('source')}` at {tpl.get('revision')}, `{tpl.get('file')}` ({sha}) |")
+    bake = b.extra.get("bakeoff") or {}
+    if bake:
+        where = f"GPU ledger row {bake['ledger']}" if bake.get("ledger") else "not in the GPU ledger"
+        rows.append(f"| Bake-off | {bake.get('role')}: {bake.get('state')} ({where}) |")
+    return rows
+
+
 def card_markdown(b: Build) -> str:
     """Model card v0 generated from the build record (§8.4; CHAI-style sections filled at qualification)."""
     lic = b.licence
@@ -387,6 +517,7 @@ def card_markdown(b: Build) -> str:
         f"| Context length | {b.context_length or 'to record at qualification'} |",
         f"| Licence | {lic.get('name')} (SPDX: {lic.get('spdx') or 'n/a'}; verified: {verified}) |",
         f"| Origin | {org.get('developer')} ({org.get('country')}); non-PRC: {non_prc} |",
+        *_provenance_rows(b),
         "",
         "## Contexts of use",
         "",

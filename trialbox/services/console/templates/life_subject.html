@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{# TB-PLAN-04 step 5 (D-134): one participant: the state, the next legal steps (a bar of buttons, as the patient
+   sheet's mark bar), Undo, every step so far, the visits with their windows, AEs and deviations. #}
+{% from "_life.html" import life_nav, state_pill, vlabel, report_clock with context %}
+{% block title %}{{ t('life.subject.title', r=record) }} · {{ rs }}{% endblock %}
+{% macro src(s) %}{% set k = s.split(':') %}{% if k[0] == 'form' %}{{ t('life.source.form', form=k[1]) }}{% else %}{{ t_or('life.source.' + k[0], k[0]) }}{% endif %}{% endmacro %}
+{% block content %}
+{% set sub = one.subject if one else none %}
+<div class="headrow"><h1><span class="mono">{{ record }}</span> · {{ t('life.subjects.title') }}</h1></div>
+{{ life_nav(rs) }}
+{% if err %}{% include "_data_err.html" %}{% endif %}
+{% if done == 'step' %}<p class="ok" role="status" data-testid="life-saved">{{ t('life.step.saved', state=t('life.state.' + sub.state)) if sub else '' }}</p>{% endif %}
+{% if done == 'entry' %}<p class="ok" role="status" data-testid="life-entry-saved">{{ t('life.entry.saved') }}</p>{% endif %}
+{% if done == 'ack' %}<p class="ok" role="status" data-testid="sae-acked">{{ t('life.sae.done') }}</p>{% endif %}
+{% if done == 'undo' %}<p class="ok" role="status" data-testid="life-undone">{{ t('life.undone') }}</p>{% endif %}
+{% if refused %}<p class="error" role="alert" data-testid="life-refused">{{ t('life.step.refused', why=refused) }}</p>{% endif %}
+{% if sub %}
+<section class="card" data-testid="life-now">
+<p class="big">{{ state_pill(sub.state) }} <span class="hint">{{ t('life.subject.now', state=t('life.state.' + sub.state), day=sub.since) }}</span></p>
+{# T-516 (LIFE-019): consent is never implied by a later form; the participant waits here until the consent form is saved #}
+{% if sub.consent_missing %}<p class="warn" role="alert" data-testid="consent-missing">{{ t('life.alert.consent_missing', form=src(sub.consent_missing)) }}{% if editable %} <a href="/studies/{{ rs }}/entry?record={{ record|urlencode }}&amp;form=tb_consent&amp;back=subject" data-testid="consent-missing-do">{{ t('life.alert.consent_missing.do') }}</a>{% endif %}</p>{% endif %}
+{% include "_consent_record.html" %}
+{% if sub.next %}
+  {% if editable %}
+  <h2>{{ t('life.subject.next') }}</h2>
+  <p class="hint">{{ t('life.subject.next.help') }}</p>
+  <form method="post" action="/studies/{{ rs }}/subjects/{{ record|urlencode }}/step" class="markform" data-testid="step-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label for="on_day">{{ t('life.step.day') }}</label>
+    <input id="on_day" name="on_day" type="date" value="{{ today }}" max="{{ today }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
+    {% if 'screen_fail' in sub.next or 'withdrawn' in sub.next %}
+    <label for="reason">{{ t('life.step.reason') }}</label>
+    <select id="reason" name="reason" data-testid="step-reason"><option value=""></option>
+      {% if 'screen_fail' in sub.next %}<optgroup label="{{ t('life.state.screen_fail') }}">{% for r in sf_reasons %}<option value="{{ r }}">{{ t('life.reason.sf.' + r) }}</option>{% endfor %}</optgroup>{% endif %}
+      {% if 'withdrawn' in sub.next %}<optgroup label="{{ t('life.state.withdrawn') }}">{% for r in wd_reasons %}<option value="{{ r }}">{{ t('life.reason.wd.' + r) }}</option>{% endfor %}</optgroup>{% endif %}
+    </select>
+    {% if 'screen_fail' in sub.next and sf_criteria %}
+    <label for="criterion">{{ t('life.step.criterion') }}</label>
+    <select id="criterion" name="criterion" data-testid="step-criterion"><option value=""></option>{% for c in sf_criteria %}<option value="{{ c }}">{{ c }}</option>{% endfor %}</select>
+    <p class="hint">{{ t('life.step.criterion.help', version=sf_version) }}</p>{% endif %}{% endif %}
+    <label for="note">{{ t('life.step.note') }}</label>
+    <input id="note" name="note" maxlength="300">
+    <div class="markbar" data-testid="step-bar">{% for s in sub.next %}{% if s == 'consented' and sub.consent and sub.consent.here %}<a class="button" href="/studies/{{ rs }}/entry?record={{ record|urlencode }}&amp;form=tb_consent&amp;back=subject" data-testid="go-consented">{{ t('consent.record.do') }}</a>{% else %}<button type="submit" name="to" value="{{ s }}"{% if s in ('withdrawn', 'screen_fail') %} class="secondary danger"{% endif %} data-testid="go-{{ s }}">{{ t('life.go.' + s) }}</button>{% endif %}{% endfor %}</div>
+  </form>
+  {% else %}<p class="hint" data-testid="life-readonly">{{ t('life.subject.readonly') }}</p>{% endif %}
+{% else %}<p class="hint" data-testid="life-final">{{ t('life.subject.final', state=t('life.state.' + sub.state)) }}</p>{% endif %}
+{% if editable and one.steps|length > 1 %}
+<form method="post" action="/studies/{{ rs }}/subjects/{{ record|urlencode }}/undo" class="inline">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button type="submit" class="secondary" data-testid="life-undo">{{ t('life.undo') }}</button>
+</form>
+<p class="hint">{{ t('life.undo.help') }}</p>{% endif %}
+</section>
+
+<section class="card" data-testid="life-visits">
+<h2>{{ t('life.visits.title') }}</h2>
+{% if not one.visits %}<p class="empty">{{ t('life.visits.none_scheduled') }} <a href="/studies/{{ rs }}/schedule">{{ t('life.to.schedule') }}</a></p>{% else %}
+<div class="scroll" tabindex="0"><table class="candidates">
+<thead><tr><th>{{ t('life.col.visit') }}</th><th>{{ t('life.col.status') }}</th><th>{{ t('life.col.window') }}</th><th><span class="sr">{{ t('col.actions') }}</span></th></tr></thead>
+<tbody>{% for v in one.visits %}<tr data-testid="sv-{{ v.visit }}" data-status="{{ v.status }}">
+<td>{{ vlabel(v) }}</td>
+<td><span class="pill v-{{ v.status }}">{{ t('life.vstate.' + v.status) }}</span>{% if v.done_on %} <span class="nowrap">{{ v.done_on }}</span>{% if v.in_window == false %} <span class="hint">{{ t('life.visit.out') }}</span>{% endif %}{% endif %}{% if v.days_late %} <span class="hint">{{ t('life.visit.late', n=v.days_late) }}</span>{% endif %}</td>
+<td class="nowrap">{% if v.due %}{{ t('life.visit.window', start=v.start, end=v.end) }}{% else %}–{% endif %}</td>
+<td>{% if editable and v.status != 'unplanned' %}<a href="/studies/{{ rs }}/entry?record={{ record|urlencode }}&amp;form=tb_visit&amp;event={{ v.visit }}&amp;back=subject" data-testid="sv-open-{{ v.visit }}">{{ t('life.visit.open') }}</a>{% endif %}</td>
+</tr>{% endfor %}</tbody></table></div>{% endif %}
+</section>
+
+<section class="card" data-testid="life-aes">
+<h2>{{ t('life.ae.title') }}</h2>
+{% if not one.aes %}<p class="empty">{{ t('life.ae.none') }}</p>{% else %}
+<ul class="plain">{% for a in one.aes %}<li data-testid="ae-{{ a.event }}"><span class="mono">{{ a.event }}</span> · <span data-authored>{{ a.ae_term }}</span> · {{ t('life.ae.onset') }} {{ a.ae_onset or '–' }}{% if a.serious %} <span class="pill bad">{{ t('life.ae.serious') }}</span>{% endif %}{% if a.fatal %} <span class="pill bad">{{ t('life.sae.fatal') }}</span>{% elif a.ongoing %} <span class="hint">{{ t('life.ae.ongoing') }}</span>{% endif %}
+ {% if a.serious and a.ack_by %}<span class="hint" data-testid="ae-acked-{{ a.event }}">{{ t('life.sae.acked', who=a.ack_by|replace('console:', ''), at=a.ack_at|local) }}</span>{% elif a.serious and user.role == 'investigator' %}<form method="post" action="/studies/{{ rs }}/subjects/{{ record|urlencode }}/aes/{{ a.event }}/ack" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" data-testid="ae-ack-{{ a.event }}">{{ t('life.sae.ack') }}</button></form>{% elif a.serious %}<span class="hint">{{ t('life.sae.wait_pi') }}</span>{% endif %}
+ {{ report_clock(a) }}
+ {% if editable %}<a href="/studies/{{ rs }}/entry?record={{ record|urlencode }}&amp;form=tb_adverse_event&amp;event={{ a.event }}&amp;back=subject">{{ t('life.subjects.open') }}</a>{% endif %}</li>{% endfor %}</ul>{% endif %}
+{% if editable %}<p><a class="button secondary" href="/studies/{{ rs }}/entry?record={{ record|urlencode }}&amp;form=tb_adverse_event&amp;event={{ one.next_ae }}&amp;back=subject" data-testid="ae-add">{{ t('life.ae.add') }}</a></p>{% endif %}
+</section>
+
+<section class="card" data-testid="life-dvs">
+<h2>{{ t('life.dv.title') }}</h2>
+{% if not one.deviations %}<p class="empty">{{ t('life.dv.none') }}</p>{% else %}
+<ul class="plain">{% for d in one.deviations %}<li data-testid="dv-{{ d.event }}"><span class="mono">{{ d.event }}</span> · {{ d.get('dv_date', '–') }} · <span data-authored>{{ d.get('dv_what', '') }}</span>
+ {% if editable %}<a href="/studies/{{ rs }}/entry?record={{ record|urlencode }}&amp;form=tb_deviation&amp;event={{ d.event }}&amp;back=subject">{{ t('life.subjects.open') }}</a>{% endif %}</li>{% endfor %}</ul>{% endif %}
+{% if editable %}<p><a class="button secondary" href="/studies/{{ rs }}/entry?record={{ record|urlencode }}&amp;form=tb_deviation&amp;event={{ one.next_dv }}&amp;back=subject" data-testid="dv-add">{{ t('life.dv.add') }}</a></p>{% endif %}
+</section>
+
+<section class="card" data-testid="life-trail">
+<h2>{{ t('life.trail.title') }}</h2>
+<p class="hint">{{ t('life.trail.help') }}</p>
+<div class="scroll" tabindex="0"><table class="candidates">
+<thead><tr><th>{{ t('life.col.day') }}</th><th>{{ t('life.col.step') }}</th><th>{{ t('life.col.who') }}</th><th>{{ t('life.col.source') }}</th><th>{{ t('life.col.note') }}</th></tr></thead>
+<tbody>{% for s in one.steps %}<tr data-testid="step-{{ s.id }}">
+<td class="nowrap">{{ s.on_day }}</td>
+<td>{% if s.old %}{{ t('life.state.' + s.old) }} → {% endif %}<b>{{ t('life.state.' + s.new) }}</b>{% if s.reason %} <span class="hint">({{ t_or('life.reason.sf.' + s.reason, t_or('life.reason.wd.' + s.reason, s.reason)) }})</span>{% endif %}{% if s.criterion %} <span class="hint" data-testid="step-criterion-{{ s.id }}">{{ t('life.trail.criterion', c=s.criterion ~ (' (v' ~ s.criteria_version ~ ')' if s.criteria_version else '')) }}</span>{% endif %}</td>
+<td class="mono">{{ s.who|replace('console:', '') }}</td>
+<td>{{ src(s.source) }}</td>
+<td>{% if s.note.startswith('implied by ') %}{{ t('life.note.implied', src=src(s.note[11:])) }}{% else %}<span data-authored>{{ s.note }}</span>{% endif %}</td>
+</tr>{% endfor %}</tbody></table></div>
+</section>
+{% endif %}
+{% endblock %}

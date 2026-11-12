@@ -1,4 +1,4 @@
-"""MIMIC-IV FHIR demo normalisation tables and step (services/adapter/mapping/mimic; docs/OPEN_DATA.md)."""
+"""MIMIC-IV FHIR demo normalisation tables and step (services/adapter/mapping/mimic; docs/VALIDATION.md §5)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ from adapter.mapping.mimic.normalise import (
     ICD10PCS,
     LOINC,
     MIMIC_CS,
-    SNOMED,
     UCUM,
     MimicNormaliser,
     MimicTables,
@@ -49,38 +48,6 @@ def luhn_ok(loinc: str) -> bool:
     return (10 - total % 10) % 10 == int(check)
 
 
-_VD = [
-    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
-    [1, 2, 3, 4, 0, 6, 7, 8, 9, 5],
-    [2, 3, 4, 0, 1, 7, 8, 9, 5, 6],
-    [3, 4, 0, 1, 2, 8, 9, 5, 6, 7],
-    [4, 0, 1, 2, 3, 9, 5, 6, 7, 8],
-    [5, 9, 8, 7, 6, 0, 4, 3, 2, 1],
-    [6, 5, 9, 8, 7, 1, 0, 4, 3, 2],
-    [7, 6, 5, 9, 8, 2, 1, 0, 4, 3],
-    [8, 7, 6, 5, 9, 3, 2, 1, 0, 4],
-    [9, 8, 7, 6, 5, 4, 3, 2, 1, 0],
-]
-_VP = [
-    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
-    [1, 5, 7, 6, 2, 8, 3, 0, 9, 4],
-    [5, 8, 0, 3, 7, 9, 6, 1, 4, 2],
-    [8, 9, 1, 6, 0, 4, 3, 5, 2, 7],
-    [9, 4, 5, 3, 1, 2, 6, 8, 7, 0],
-    [4, 2, 8, 6, 5, 7, 3, 9, 0, 1],
-    [2, 7, 9, 3, 8, 0, 6, 4, 1, 5],
-    [7, 0, 4, 6, 9, 1, 3, 2, 5, 8],
-]
-
-
-def verhoeff_ok(sctid: str) -> bool:
-    """SNOMED CT identifiers end with a Verhoeff check digit."""
-    c = 0
-    for i, ch in enumerate(reversed(sctid)):
-        c = _VD[c][_VP[i % 8][int(ch)]]
-    return c == 0
-
-
 # ---------------------------------------------------------------------------------------------- tables
 def test_tables_well_formed() -> None:
     assert T.icd9 and T.labs and T.drugs and T.icu_items
@@ -93,17 +60,26 @@ def test_tables_well_formed() -> None:
         assert lab.ucum and lab.display
     for _, atc, _ in T.drugs:
         assert ATC_RE.match(atc), atc
-    for itemid, (sctid, _) in T.icu_items.items():
-        assert itemid.isdigit() and verhoeff_ok(sctid), (itemid, sctid)
+    for itemid, maps in T.icu_items.items():
+        assert itemid.isdigit() and maps, itemid
+        for m in maps:
+            assert re.fullmatch(r"[0-9A-HJ-NP-Z]{7}", m.icd10pcs) and m.display, (itemid, m)
+
+
+def test_icu_ventilation_is_coded_by_its_charted_duration() -> None:
+    """No SNOMED CT on the box (T-617b): ICU items take ICD-10-PCS, ventilation by hours (open end: shortest)."""
+    vent = T.icu_items["225792"]
+    pick = {h: next(m.icd10pcs for m in vent if m.fits(h)) for h in (None, 2, 24, 95.5, 96, 500)}
+    assert pick == {None: "5A1935Z", 2: "5A1935Z", 24: "5A1945Z", 95.5: "5A1945Z", 96: "5A1955Z", 500: "5A1955Z"}
+    assert [m.icd10pcs for m in T.icu_items["225802"] if m.fits(None)] == ["5A1D90Z"]
 
 
 def test_check_digit_helpers() -> None:
     assert luhn_ok("2160-0") and luhn_ok("33762-6") and not luhn_ok("2160-1")
-    assert verhoeff_ok("40617009") and not verhoeff_ok("40617008")
 
 
 def test_duplicate_icd9_rejected(tmp_path: Path) -> None:
-    for name in ("labitem_to_loinc.csv", "drug_to_atc.csv", "icu_item_to_snomed.csv"):
+    for name in ("labitem_to_loinc.csv", "drug_to_atc.csv", "icu_item_to_icd10pcs.csv"):
         (tmp_path / name).write_text((open_data_tables() / name).read_text("utf-8"), "utf-8")
     (tmp_path / "icd9_to_icd10cm.csv").write_text(
         "icd9,icd10cm,display,basis\n4280,I50.9,x,gem\n4280,I50.1,y,gem\n", "utf-8"
@@ -339,7 +315,7 @@ def test_normalise_bundle(tmp_path: Path) -> None:
     assert meds["r3"]["medicationCodeableConcept"]["text"] == "Torsemide + Sodium Chloride 0.9%"
     assert _first(meds["r3"], "medicationCodeableConcept")["code"] == "C03CA04"
     proc = {p["id"]: p for p in out["Procedure"]}
-    assert _first(proc["x1"])["system"] == SNOMED and proc["x1"]["performedDateTime"].startswith(anchor.isoformat())
+    assert _first(proc["x1"])["code"] == "5A1D90Z" and proc["x1"]["performedDateTime"].startswith(anchor.isoformat())
     assert _first(proc["x2"]) == {"system": ICD9CM, "code": "39.95"}
     assert _first(proc["x3"]) == {"system": ICD10PCS, "code": "5A1D90Z"}
     counts = norm.report.as_dict()["counts"]
@@ -394,20 +370,19 @@ def test_open_data_rulesets_compile(rid: str) -> None:
 
 @pytest.mark.parametrize("rid", open_data_e2e.RULESETS)
 def test_ruleset_codes_are_reachable(rid: str) -> None:
-    """Every LOINC / ATC / SNOMED code a ruleset matches on can be produced by the normalisation tables."""
+    """Every LOINC / ATC / ICD-10-PCS code a ruleset matches on can be produced by the normalisation tables (an
+    ICD-10-PCS code also comes straight from MIMIC's own procedure system); no ruleset matches on SNOMED CT."""
     rs = Ruleset.load(OPEN / "rulesets" / rid)
     loinc = {lab.loinc for lab in T.labs.values()}
     atc = {a for _, a, _ in T.drugs}
-    sct = {s for s, _ in T.icu_items.values()}
     for name, vs in rs.valuesets.items():
         for inc in vs["compose"]["include"]:
             codes = {c["code"] for c in inc["concept"]}
+            assert "snomed" not in inc["system"], name
             if inc["system"] == LOINC:
                 assert codes <= loinc, (name, codes - loinc)
             elif inc["system"] == ATC:
                 assert codes <= atc, (name, codes - atc)
-            elif inc["system"] == SNOMED:
-                assert codes <= sct, (name, codes - sct)
             elif inc["system"] == ICD10CM:
                 assert all(ICD10CM_RE.match(c) for c in codes), name
 

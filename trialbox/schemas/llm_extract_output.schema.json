@@ -36,7 +36,7 @@
         "duration": {"$ref": "criterion_ir.schema.json#/$defs/duration"},
         "age": {"$ref": "criterion_ir.schema.json#/$defs/age"},
         "sex": {"enum": ["male", "female"]},
-        "derived": {"enum": ["bmi", "egfr", "das28", "basdai", "asdas"]}
+        "derived": {"enum": ["bmi", "egfr", "egfr_ckd_epi", "egfr_jsn", "das28", "basdai", "asdas", "cdai", "sdai"]}
       }
     },
     "extracted_bool3": {

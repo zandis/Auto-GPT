@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{# TB-PLAN-04 step 5b (D-131): charts one by one. Paste the EMR screen's text, or upload .txt, Word, PDF or a scan
+   (read by OCR on the box). The chart number makes the link to the patient and is never stored. #}
+{% from "_site.html" import site_nav, ws_name with context %}
+{% block title %}{{ t('site.charts.title') }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ t('site.charts.title') }} · {{ ws_name(ws) }}</h1></div>
+{{ site_nav(ws, rs, qs) }}
+<p class="hint">{{ t('site.charts.help') }}</p>
+{% if done %}<p class="ok" role="status" data-testid="chart-saved">{{ t('site.chart.saved', n=done) }} <a href="/site/facts?{{ qs }}" data-testid="chart-to-facts">{{ t('site.nav.facts') }}</a></p>{% endif %}
+{% if err %}<p class="error" role="alert" data-testid="chart-err">{{ t_or('site.err.' + err, t('site.err.other')) }}</p>{% endif %}
+{% if editable %}<section class="card" data-testid="chart-form-card">
+<form method="post" action="/site/charts" enctype="multipart/form-data" class="formstack" data-testid="chart-form">
+<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="ws" value="{{ ws }}"><input type="hidden" name="study" value="{{ rs }}">
+<label for="chart-no">{{ t('site.chart.no') }}</label>
+<input id="chart-no" name="chart_no" required autocomplete="off" inputmode="numeric" data-testid="chart-no">
+<p class="hint">{{ t('site.chart.no.help') }}</p>
+<label for="chart-text">{{ t('site.chart.paste') }}</label>
+<textarea id="chart-text" name="text" rows="8" data-testid="chart-text"></textarea>
+<label for="chart-file">{{ t('site.chart.file') }}</label>
+<input id="chart-file" name="file" type="file" accept=".txt,.md,.docx,.pdf,.png,.jpg,.jpeg,.tif,.tiff">
+<p class="hint">{{ t('site.chart.file.help') }}</p>
+<button type="submit" data-testid="chart-save">{{ t('site.chart.save') }}</button>
+</form>
+</section>{% else %}<p class="hint" data-testid="site-readonly">{{ t('site.readonly') }}</p>{% endif %}
+<section class="card" data-testid="chart-list">
+<h2>{{ t('site.charts.recent') }}</h2>
+{% if not inputs %}<p class="empty">{{ t('site.charts.none') }}</p>{% else %}
+<ul class="plain">{% for i in inputs %}<li data-testid="chart-{{ i.id }}"><span class="mono">{{ (i.pid or '')[:8] }}</span> · <span class="nowrap">{{ i.ref_day }}</span> · {{ t('site.chart.method.' + (i.summary.method or 'text')) }} · {{ t('site.chart.facts', n=i.summary.facts or 0) }}</li>{% endfor %}</ul>{% endif %}
+</section>
+{% endblock %}

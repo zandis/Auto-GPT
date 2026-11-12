@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{{ t('dc.forms.title') }} · {{ rs }}{% endblock %}
+{% set q = request.query_params %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('dc.forms.title') }}</h1></div>
+{% include "_data_nav.html" %}
+<p class="hint">{{ t('dc.forms.help') }}</p>
+{% if not editable %}<p class="hint" data-testid="dc-readonly">{{ t('dc.readonly') }}</p>{% endif %}
+{% if err %}{% include "_data_err.html" %}{% endif %}
+{% if q.get('forms') is not none %}<p class="ok" role="status" data-testid="dc-imported">{{ t('dc.imported', forms=q.get('forms'), fields=q.get('fields', '0'), dropped=q.get('dropped', '0')) }}</p>{% endif %}
+
+{% if q.get('builtin') %}<p class="ok" role="status" data-testid="dc-builtin-added">{{ t('dc.builtin.added', n=q.get('builtin')) }}{% if q.get('ctcae') %} <span data-testid="dc-ctcae-added">{{ t('dc.ctcae.added', v='CTCAE v' ~ q.get('ctcae') ~ '.0') }}</span>{% endif %}</p>{% endif %}
+{% if q.get('err') %}{% with err = {'code': q.get('err'), 'fields': q.get('fields', '')} %}{% include "_data_err.html" %}{% endwith %}{% endif %}
+{% if editable %}<section class="card" data-testid="dc-builtin">
+<h2>{{ t('dc.builtin.title') }}</h2>
+<p class="hint">{{ t('dc.builtin.help') }}</p>
+<p class="hint">{{ t('dc.ctcae.help') }}</p>
+<form method="post" action="/studies/{{ rs }}/forms/builtin" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>{{ t('dc.ctcae.label') }} <select name="ctcae" data-testid="builtin-ctcae"><option value="">{{ t('dc.ctcae.none') }}</option><option value="5">CTCAE v5.0</option><option value="6">CTCAE v6.0</option></select></label>
+<button type="submit" data-testid="add-builtin">{{ t('dc.builtin.go') }}</button></form>
+</section>{% endif %}
+{% if not forms %}<section class="card"><p class="empty" data-testid="dc-no-forms">{{ t('dc.forms.none') }}</p></section>{% endif %}
+{% for fm in forms %}
+<section class="card" data-testid="form-{{ fm.name }}">
+<h2>{% if fm.titles.get(lang) and fm.titles.get(lang) != fm.name %}{{ fm.titles.get(lang) }} {% endif %}<span class="mono">{{ fm.name }}</span> <span class="hint">{{ t('dc.forms.items', n=fm.fields|length) }}</span></h2>
+<div class="scroll" tabindex="0"><table class="candidates">
+<thead><tr><th>{{ t('dc.col.field') }}</th><th>{{ t('dc.col.type') }}</th><th>{{ t('dc.col.label') }}</th><th>{{ t('dc.col.choices') }}</th><th>{{ t('dc.col.owner') }}</th></tr></thead>
+<tbody>{% for f in fm.fields %}<tr data-testid="field-{{ f.name }}">
+<td class="mono">{{ f.name }}{% if f.required %} <span class="hint">· {{ t('dc.required') }}</span>{% endif %}</td>
+<td>{{ t_or('dc.kind.' + f.kind, f.kind) }}</td>
+<td>{{ f.labels.get(lang) or f.label }}{% if f.branching %}<br><span class="hint">{{ t('dc.forms.shown_if') }} <span class="mono">{{ f.branching }}</span></span>{% endif %}{% if f.vmin or f.vmax %}<br><span class="hint">{{ t('dc.entry.range', min=f.vmin or '–', max=f.vmax or '–') }}</span>{% endif %}</td>
+<td>{% for c in f.choices %}<span class="mono">{{ c.code }}</span> {{ c.labels.get(lang) or c.label }}{% if not loop.last %} · {% endif %}{% else %}–{% endfor %}</td>
+<td data-testid="form-owner-{{ f.name }}">{{ t('dc.owner.trialbox') if f.owner == 'trialbox' else t_or('dc.source.' + f.owner, f.owner) }}</td>
+</tr>{% endfor %}</tbody></table></div>
+</section>
+{% endfor %}
+
+{% if forms and user.can_view_phi %}<section class="card" data-testid="dc-exports">
+<h2>{{ t('dc.export.title') }}</h2>
+<p class="hint">{{ t('dc.export.help') }}</p>
+<p class="exports"><a class="button" href="/studies/{{ rs }}/export.odm.xml" data-testid="export-odm">{{ t('dc.export.odm') }}</a>
+<a class="button" href="/studies/{{ rs }}/export.csv" data-testid="export-csv">{{ t('dc.export.csv') }}</a>
+<a class="button" href="/studies/{{ rs }}/export.xlsx" data-testid="export-xlsx">{{ t('dc.export.xlsx') }}</a>
+<a class="button secondary" href="/studies/{{ rs }}/export.cdisc.odm.xml" data-testid="export-cdisc">{{ t('dc.export.cdisc') }}</a></p>
+<p class="hint">{{ t('dc.export.cdisc.help') }}</p>
+</section>{% endif %}
+
+{% if editable %}
+<section class="card" id="import" data-testid="dc-import">
+<h2>{{ t('dc.import.title') }}</h2>
+<p class="hint">{{ t('dc.import.help') }}</p>
+<form method="post" action="/studies/{{ rs }}/forms/dictionary" enctype="multipart/form-data">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label for="dictionary">{{ t('dc.import.file') }}</label>
+  <input id="dictionary" name="dictionary" type="file" accept=".csv,text/csv">
+  <label for="record_field">{{ t('dc.import.record') }}</label>
+  <input id="record_field" name="record_field" class="mono" maxlength="100">
+  <button type="submit" data-testid="import-dictionary">{{ t('dc.import.go') }}</button>
+</form>
+</section>
+{% endif %}
+{% endblock %}

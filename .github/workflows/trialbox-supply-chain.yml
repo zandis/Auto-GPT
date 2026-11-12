@@ -1,0 +1,73 @@
+# TrialBox supply chain, lock side (trialbox/docs/SECURITY.md §8; DECISIONS D-185, D-186). On every pull request
+# touching trialbox/ and weekly: the hashed lock is current and complete, the allow-list is valid, pip-audit (from a
+# hashed lock) passes the gate, the lock's SBOM (Syft over an environment installed from the lock) passes the
+# licence gate, and the gate tests pass. No images: trialbox-images.yml scans those.
+# Every action is pinned to a commit (tag in the comment); Syft and Trivy come with pinned sha256
+# (trialbox/tools/supply_chain/scanners.py).
+name: TrialBox supply chain
+
+on:
+  pull_request:
+    paths:
+      - "trialbox/**"
+      - ".github/workflows/trialbox-supply-chain.yml"
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trialbox-supply-chain-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lock:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: trialbox
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+
+      # uv below 0.13.4 trusts a compromised CA root (GHSA-hq85-5cpj-mr62, DEP-006); lock-check refuses it too
+      - name: uv version
+        run: uv --version
+
+      - name: Python environment
+        run: make venv
+
+      # fails when uv.lock is stale against pyproject.toml, when deploy/requirements.lock is not the export of
+      # uv.lock, or when any entry (or the pip-audit lock) has no sha256 (D-185)
+      - name: Hashed lock is current
+        run: make lock-check
+
+      - name: Allow-list entries have a reason and a live review date
+        run: make allowlist-check
+
+      - name: pip-audit gate
+        run: make pip-audit
+
+      - name: Licence gate on the lock's SBOM
+        run: make licences
+
+      - name: Gate tests
+        run: .venv/bin/python -m pytest -q tests/unit/test_supply_chain.py
+
+      - name: Keep the reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: supply-chain-lock
+          path: |
+            trialbox/build/supply-chain/pip-audit.json
+            trialbox/dist/sbom
+          if-no-files-found: ignore

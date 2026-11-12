@@ -20,6 +20,12 @@
    }
   ]
  },
+ "extension": [
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L04AB"
+  }
+ ],
  "id": "RA-COH-VS-RA-BIOLOGIC",
  "name": "VS_RA_BIOLOGIC",
  "resourceType": "ValueSet",

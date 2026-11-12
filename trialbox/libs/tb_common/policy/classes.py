@@ -104,6 +104,25 @@ def lower(label: ClassLabel, transform: str, certificate: str) -> ClassLabel:
 
 # ------------------------------------------------------------------------------------------------ v1 contracts
 _D0 = {"CtgovSearchRequest", "CtgovSearchResult", "CtgovStudy", "TrialSimResult", "TrialSimRow", "TrialSimStep"}
+# T-011: a site schema is structure and code lists from the survey, refused when it carries a value: no patient data
+_D0 |= {
+    "SiteSchema",
+    "SiteFeed",
+    "SiteChartNumber",
+    "SiteIdentifiers",
+    "SiteTable",
+    "SiteSexCodes",
+    "SiteEncounterTypeCodes",
+    "SiteCodeLists",
+    "SiteCode",
+    "SiteLabItem",
+    "SiteDiagnosisCode",
+    "SiteDrugCode",
+    "SiteProvider",
+    "SiteNotes",
+    "SitePlants",
+    "SiteUnitMismatch",
+}
 _D1 = {
     # configuration, rule content, protocol-derived structures, job plumbing without patient data
     "AgeRange",
@@ -153,10 +172,35 @@ _D1 = {
     "DocTable",
     "IEBlock",
     "PromptMeta",
+    "PromptPin",
+    "DerivedPin",  # D-442: a score definition's version and sha, no patient data
     "ModelEntry",
     "ModelManifest",
+    # the qualification record (D-313): build ids, hashes, counts and codes, no note text
+    "QualificationRecord",
+    "QualificationBuilds",
+    "QualifiedBuild",
+    "QualificationStep",
+    "QualificationChangeProtocol",
+    # the G1b record on the owner's B200 (T-114, D-428): host versions, hashes and statuses, no site or patient data
+    "B200QualificationRecord",
+    "B200Host",
+    "B200Bundle",
+    "B200Layout",
+    "B200FileRef",
+    "B200ServingRecordRef",
+    "B200QualificationRef",
+    "HostFingerprint",
     "UpdateFile",
     "UpdateManifest",
+    # release.json (T-110b, D-340): versions, digests and sums of the vendor's own build, no site or patient data
+    "ReleaseRecord",
+    "ReleaseImage",
+    "ReleaseFile",
+    "ReleaseComponent",
+    "ReleaseSource",
+    "ReleaseGates",
+    "KeyRotation",
     "Settings",
     "SiteInfo",
     "Allowlist",
@@ -167,6 +211,7 @@ _D1 = {
     "Schedule",
     "RegistrySource",
     "Retention",
+    "FeedCompleteness",  # T-611
     "CalibrationDefaults",
     "TwpasSettings",
     "CohortSettings",
@@ -190,6 +235,7 @@ _D1 = {
     "Precheck",
     "ValidationSummary",
     "IngestReport",
+    "OmopLoadSummary",  # T-106: counts and check names of a dual-write load, no patient data
     "JobCreate",
     "Job",
     # aggregates released after small-cell suppression
@@ -208,6 +254,12 @@ _D1 = {
     "RegistrySummary",  # counts per status, no pseudonym
 }
 _D3 = {
+    # D-135 (step 5b): facts read from one patient's chart with their quotes, and the assistant's answer about a
+    # patient's screening trail (by pseudonym): patient-level, the strictest class
+    "LlmChartFactsOutput",
+    "LlmCrfPrefillOutput",  # D-160: a value and its quote from one patient's notes: patient level
+    "ChartFact",
+    "LlmAssistOutput",
     "AuditEvent",
     "CandidateList",
     "CandidateRow",
@@ -217,6 +269,7 @@ _D3 = {
     "CriterionVerdict",
     "Evidence",
     "Opinion",  # each model's answer and quote when the two checks disagree (D-120): patient level, as Evidence
+    "CodedValue",  # a coded record's value, unit, date and code behind an answer (T-514, D-362): as Evidence
     "LakeQuery",
     "LlmJudgeOutput",
     "LlmDraftDocOutput",
@@ -231,6 +284,22 @@ _D3 = {
     "RegistryEntry",  # pseudonym + status (D-92)
     "RegistryEvent",
     "RegistryPromote",
+    # T-204 (D-440): the patient twin, one patient's coded record, timeline and scores by pseudonym: patient level, as
+    # CandidateRow. Every part is D3, the basis and the source citations included (they name one patient's rows)
+    "PatientProfile",
+    "ProfileBasis",
+    "ProfileLayers",
+    "ProfileSource",
+    "ProfileRecordLayer",
+    "ProfileRecordItem",
+    "ProfileTimelineLayer",
+    "ProfileTimelineItem",
+    "ProfilePhenotypeLayer",
+    "ProfilePhenotypeItem",
+    "ProfileDerivedLayer",
+    "ProfileDerivedItem",
+    "ProfileDerivedInput",
+    "ProfileOpenLayer",
 }
 # RegistryUpdate may carry the chart number (mrn) on its way into the box: a direct identifier until resolved
 _D4 = {"SendRequest", "SendAttachment", "SendResult", "PractitionerInfo", "RegistryUpdate"}

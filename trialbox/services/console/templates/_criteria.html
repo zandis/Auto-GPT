@@ -1,0 +1,27 @@
+{# A candidate's criteria: the verdict, the cited record (quote, date, opinions) and how it was checked. Shared by
+   the patient page and the candidate page (D-147); needs crits. #}
+<section class="card">
+<h2>{{ t('patient.criteria') }}</h2>
+{% if crits|selectattr('opinions')|list %}<p class="hint" data-testid="opinion-explain">{{ t('opinion.explain') }}</p>{% endif %}
+<div class="scroll" tabindex="0" role="region" aria-label="{{ t('patient.criteria') }}"><table class="candidates stack" data-testid="criteria">
+<thead><tr><th>{{ t('feas.f.criterion') }}</th><th>{{ t('patient.type') }}</th><th>{{ t('patient.result') }}</th><th>{{ t('patient.evidence') }}</th><th>{{ t('patient.source') }}</th></tr></thead>
+<tbody>{% for c in crits %}<tr>
+<td class="crit"><strong>{{ given(c.label) }}</strong>{% if c.original %} <span class="hint" data-original data-testid="original-{{ c.id }}">({{ given(c.original) }})</span>{% endif %}{% if c.text and c.text != c.label %}<br><span class="hint" data-testid="text-{{ c.id }}">{{ given(c.text) }}</span>{% endif %} <span class="hint mono nowrap">{{ c.id }}</span>
+{# D-309: the criterion text in the page language with the protocol's own words one tap away; an answer read from
+   notes by the test model says so #}
+{% if c.text_original %}<details class="original"><summary>{{ t('crit.original') }}</summary><span class="hint" data-original data-testid="text-original-{{ c.id }}">{{ given(c.text_original) }}</span></details>{% endif %}
+{% if c.test_model %}<br><span class="pill warn" data-testid="test-model-{{ c.id }}" title="{{ t('model.test.why') }}">{{ t('model.test') }}</span>{% endif %}</td>
+<td>{{ t_or('kind.' + c.kind, c.kind) }}</td>
+<td>{% set vk = 'verdict.exclusion.' + c.verdict if c.kind == 'exclusion' and c.verdict in ('pass', 'fail') else 'verdict.' + c.verdict %}<span class="pill vd-{{ c.verdict }}" data-testid="verdict-{{ c.id }}">{{ t(vk) }}</span></td>
+<td>{# the evidence cell, one line per part: the record's words and date, the coded records' value, unit, date and
+   code (T-514), the reason, then the two checks (T-515). #}
+{% if c.quote %}<blockquote class="quote">{{ c.quote }}</blockquote>{% endif %}
+{% if c.date %}<span class="hint">{{ c.date }}</span>{% endif %}
+{% with cid=c.id, cv=c.coded %}{% include "_coded.html" %}{% endwith %}
+{% if c.reason and not c.quote and reason_label(c.reason, lang) %}<span class="hint" data-testid="reason-{{ c.id }}">{{ reason_label(c.reason, lang) }}</span>{% endif %}
+{% if c.disagree %}<span class="pill warn" data-testid="opinion-disagree-{{ c.id }}">{{ t('opinion.disagree') }}</span>{% endif %}
+{% for o in c.opinions %}<div class="opinion" data-testid="opinion-{{ c.id }}-{{ o.role }}"><span class="hint">{{ t('opinion.' + o.role) }} · {{ t('opinion.says.' + o.verdict) if o.verdict in ('pass', 'fail') else t('verdict.unknown') }}{% if o.quote_date %} · {{ o.quote_date }}{% endif %}{% if o.label %} · {% include "_opinion_src.html" %}{% endif %}</span><blockquote class="quote">{{ o.quote }}</blockquote></div>{% endfor %}
+</td>
+<td>{{ t('how.' + c.source) }}</td>
+</tr>{% endfor %}</tbody></table></div>
+</section>

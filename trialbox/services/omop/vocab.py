@@ -1,0 +1,508 @@
+"""Concepts for the OMOP store: the few standard concepts the loader writes, TrialBox's shared concepts and the
+site's local concepts (D-151).
+
+* **Standard concepts the loader writes** (:data:`STANDARD`): gender, visit, the EHR type concept, the measurement
+  value operators, UTF-8 and concept 0. They are seeded with their OHDSI ids so the Athena bundle, when it is loaded
+  (WS-04.2), replaces them with identical rows. The vocabulary, domain and concept-class rows they need are seeded
+  as stand-ins with concept 0 until then.
+* **TrialBox shared concepts** (:data:`SHARED`, 2,000,000,001 and up): the suspected-diagnosis status, the type
+  concepts that tell a site input and a proposed fact from the hospital record, and the panel relationship.
+* **Local source concepts** (the site block, ``TB_OMOP_CONCEPT_BLOCK``): one per (code system, code) the feed
+  carries, minted once in a TrialBox vocabulary per code system (``TB-ICD10CM``, ``TB-LOINC``, ``TB-ATC``, ``TB-NHI``,
+  ...; ``vocabulary_reference`` is the FHIR system URI, so the lake export gets the system back exactly). A local
+  concept is never standard (``standard_concept`` NULL). It is the record's ``*_source_concept_id``; the record's
+  ``*_concept_id`` is the standard concept when the vocabulary holds one for the same code (a LOINC code with the
+  Athena LOINC loaded), else the one its OHDSI source concept ``Maps to`` (an ATC class its RxNorm ingredient,
+  :func:`maps_to`, STD-030), else 0. Conditions stay 0: ICD-10-CM maps to SNOMED, which the box does not hold
+  (no licence, Q-22; design §2.2 question 2).
+* **The code-map registry** (T-316b, D-419): the consortium's shared maps, released by ``tools/codemap_release.py``
+  as a refdata pack part. Its own concepts sit in the registry band (:data:`CODEMAP_MIN` to :data:`CODEMAP_MAX`,
+  inside TB-SHARED): fixed ids, the same on every box (:func:`seed_registry_concepts`). A loaded release is the
+  active ``tb_vocab_release`` row :data:`CODEMAP`, and :func:`release` names it beside the terminology release.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
+from datetime import date
+from typing import Any
+
+from tb_common.db import Database
+
+from omop.schema import LOCAL_MIN, OmopError
+
+VALID_FROM, VALID_TO = date(1970, 1, 1), date(2099, 12, 31)
+
+OPERATOR_VOCAB = "None"  # OHDSI's own placeholder vocabulary (concept 0's); TB-* is for ids >= 2e9 only
+# OHDSI standard concepts written by the loader (id, name, domain, vocabulary, class, code)
+STANDARD: tuple[tuple[int, str, str, str, str, str], ...] = (
+    (0, "No matching concept", "Metadata", "None", "Undefined", "No matching concept"),
+    (8507, "MALE", "Gender", "Gender", "Gender", "M"),
+    (8532, "FEMALE", "Gender", "Gender", "Gender", "F"),
+    (9201, "Inpatient Visit", "Visit", "Visit", "Visit", "IP"),
+    (9202, "Outpatient Visit", "Visit", "Visit", "Visit", "OP"),
+    (9203, "Emergency Room Visit", "Visit", "Visit", "Visit", "ER"),
+    (32817, "EHR", "Type Concept", "Type Concept", "Type Concept", "OMOP4976890"),
+    # the measurement value operators keep OHDSI's concept ids (what operator_concept_id means to OHDSI tools), but
+    # not the SNOMED CT vocabulary and codes they carry in Athena: the box ships no SNOMED CT (T-617b, STD-044)
+    (4171756, "<", "Meas Value Operator", OPERATOR_VOCAB, "Qualifier Value", "<"),
+    (4171754, "<=", "Meas Value Operator", OPERATOR_VOCAB, "Qualifier Value", "<="),
+    (4172703, "=", "Meas Value Operator", OPERATOR_VOCAB, "Qualifier Value", "="),
+    (4172704, ">", "Meas Value Operator", OPERATOR_VOCAB, "Qualifier Value", ">"),
+    (4171755, ">=", "Meas Value Operator", OPERATOR_VOCAB, "Qualifier Value", ">="),
+    (32678, "UTF-8", "Metadata", "Note Encoding", "Undefined", "UTF-8"),
+    (21, "Measurement", "Metadata", "Domain", "Domain", "OMOP generated"),
+)
+GENDER = {"male": 8507, "female": 8532}
+# FHIR v3 ActCode encounter class -> OMOP visit; OBSENC and SS (observation, short stay) wait for the vocabulary load
+VISIT = {"AMB": 9202, "IMP": 9201, "ACUTE": 9201, "NONAC": 9201, "EMER": 9203}
+EHR = 32817
+UTF8 = 32678
+OPERATOR = {"<": 4171756, "<=": 4171754, "=": 4172703, ">": 4172704, ">=": 4171755}
+OPERATOR_CODE = {v: k for k, v in OPERATOR.items()}
+# OMOP domain concept ids used in FACT_RELATIONSHIP
+DOMAIN_MEASUREMENT = 21
+
+# TrialBox shared concepts (TB-SHARED, design §2.4): fixed ids, the same on every box
+SUSPECTED = 2_000_000_001
+SITE_INPUT = 2_000_000_011
+PROPOSED_FACT = 2_000_000_012
+DEATH_DATE_IMPUTED = 2_000_000_013  # T-616 (STD-013, D-400): a death recorded without a date
+HAS_COMPONENT = 2_000_000_021
+COMPONENT_OF = 2_000_000_022
+SHARED: tuple[tuple[int, str, str, str, str, str], ...] = (
+    (
+        SUSPECTED,
+        "Suspected diagnosis (FHIR verificationStatus provisional, differential or unconfirmed; 疑い)",
+        "Condition Status",
+        "TB-SHARED",
+        "TB Status",
+        "suspected",
+    ),
+    (SITE_INPUT, "TrialBox site input (sheet, dump or chart)", "Type Concept", "TB-SHARED", "TB Type", "site-input"),
+    (
+        PROPOSED_FACT,
+        "TrialBox proposed fact, not checked by a person",
+        "Type Concept",
+        "TB-SHARED",
+        "TB Type",
+        "proposed",
+    ),
+    (
+        DEATH_DATE_IMPUTED,
+        "TrialBox death recorded without a date (death_date is the night it was loaded, the latest it can be)",
+        "Type Concept",
+        "TB-SHARED",
+        "TB Type",
+        "death-date-imputed",
+    ),
+    (
+        HAS_COMPONENT,
+        "Has component (panel to component row)",
+        "Relationship",
+        "TB-SHARED",
+        "TB Relationship",
+        "has-component",
+    ),
+    (
+        COMPONENT_OF,
+        "Component of (component row to panel)",
+        "Relationship",
+        "TB-SHARED",
+        "TB Relationship",
+        "component-of",
+    ),
+)
+TB_SHARED_VOCAB_CONCEPT = 2_000_000_000
+
+# The code-map registry (T-316b, D-419): its concepts take ids in this band of TB-SHARED, the same on every box. The
+# registry divides the band into ranges, one per owner (the consortium, each member hospital); an id is never
+# renumbered nor reused. Below the reference concepts (``omop.schema.REF_MIN``), far above the catalogue's ids.
+CODEMAP_MIN, CODEMAP_MAX = 2_005_000_000, 2_009_999_999
+CODEMAP = "CODEMAP"  # the tb_vocab_release row of the loaded registry release (one active at a time)
+CODEMAP_CLASS = "TB Registry Code"
+CODEMAP_MAP_PREFIX = "codemap-"  # each map of a release loads as the map release ``map:codemap-<map id>``
+
+# FHIR code system URI -> TrialBox source vocabulary (the OMOP vocabulary of the same code system, for standards)
+KNOWN_SYSTEMS: dict[str, tuple[str, str | None]] = {
+    "http://hl7.org/fhir/sid/icd-10-cm": ("TB-ICD10CM", "ICD10CM"),
+    "http://hl7.org/fhir/sid/icd-10": ("TB-ICD10", "ICD10"),
+    "http://loinc.org": ("TB-LOINC", "LOINC"),
+    "http://www.whocc.no/atc": ("TB-ATC", "ATC"),
+    "http://unitsofmeasure.org": ("TB-UCUM", "UCUM"),
+    "http://snomed.info/sct": ("TB-SNOMED", "SNOMED"),
+    "http://www.nlm.nih.gov/research/umls/rxnorm": ("TB-RXNORM", "RxNorm"),
+    "https://trialbox.local/fhir/CodeSystem/nhi-drug": ("TB-NHI-DRUG", None),
+    "https://trialbox.local/fhir/CodeSystem/nhi-order": ("TB-NHI-ORDER", None),
+    "https://trialbox.local/fhir/CodeSystem/clinical-score": ("TB-SCORE", None),
+    "urn:trialbox:demographic": ("TB-DEMOGRAPHIC", None),
+}
+NO_SYSTEM = "TB-NOSYS"  # a code sent without a system (kept; its system reads back as none)
+
+
+def vocabulary_id(system: str | None) -> str:
+    """The TrialBox vocabulary of a FHIR code system: a known name, else ``TB-`` and 12 hex of the URI's sha1
+    (``vocabulary_id`` is 20 characters at most)."""
+    if not system:
+        return NO_SYSTEM
+    known = KNOWN_SYSTEMS.get(system)
+    if known:
+        return known[0]
+    return "TB-" + hashlib.sha1(system.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
+
+
+def standard_vocabulary(system: str | None) -> str | None:
+    known = KNOWN_SYSTEMS.get(system or "")
+    return known[1] if known else None
+
+
+def seed(db: Database) -> None:
+    """The standard, stand-in and shared rows; idempotent (an Athena load replaces the standard ones in place)."""
+    with db.transaction() as tx:
+        vocabs = {(c[3], None) for c in STANDARD} | {("TB-SHARED", None)}
+        for vid, _ in sorted(vocabs):
+            concept = TB_SHARED_VOCAB_CONCEPT if vid == "TB-SHARED" else 0
+            name = "TrialBox shared concepts" if vid == "TB-SHARED" else f"{vid} (stand-in until the vocabulary load)"
+            tx.execute(
+                "INSERT INTO vocabulary (vocabulary_id, vocabulary_name, vocabulary_reference, vocabulary_version, "
+                "vocabulary_concept_id) SELECT ?, ?, NULL, NULL, ? WHERE NOT EXISTS "
+                "(SELECT 1 FROM vocabulary WHERE vocabulary_id = ?)",
+                (vid, name, concept, vid),
+            )
+        domains = {c[2] for c in (*STANDARD, *SHARED)} | {
+            "Condition",
+            "Measurement",
+            "Drug",
+            "Procedure",
+            "Observation",
+            "Note",
+            "Unit",
+            "Meas Value",
+            "Provider",
+            "Visit",
+        }
+        for d in sorted(domains):
+            tx.execute(
+                "INSERT INTO domain (domain_id, domain_name, domain_concept_id) SELECT ?, ?, 0 WHERE NOT EXISTS "
+                "(SELECT 1 FROM domain WHERE domain_id = ?)",
+                (d, d, d),
+            )
+        classes = {c[4] for c in (*STANDARD, *SHARED)} | {"TB Source Code", "Vocabulary"}
+        for k in sorted(classes):
+            tx.execute(
+                "INSERT INTO concept_class (concept_class_id, concept_class_name, concept_class_concept_id) "
+                "SELECT ?, ?, 0 WHERE NOT EXISTS (SELECT 1 FROM concept_class WHERE concept_class_id = ?)",
+                (k, k, k),
+            )
+        for cid, name, dom, voc, cls, code in STANDARD:
+            _insert_concept(tx, cid, name, dom, voc, cls, code, "S" if cid else None)
+        _insert_concept(
+            tx,
+            TB_SHARED_VOCAB_CONCEPT,
+            "TrialBox shared concepts",
+            "Metadata",
+            "TB-SHARED",
+            "Vocabulary",
+            "TB-SHARED",
+            None,
+        )
+        for cid, name, dom, voc, cls, code in SHARED:
+            _insert_concept(tx, cid, name, dom, voc, cls, code, None)
+
+
+def _insert_concept(tx: Any, cid: int, name: str, dom: str, voc: str, cls: str, code: str, std: str | None) -> None:
+    tx.execute(
+        "INSERT INTO concept (concept_id, concept_name, domain_id, vocabulary_id, concept_class_id, standard_concept, "
+        "concept_code, valid_start_date, valid_end_date, invalid_reason) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL "
+        "WHERE NOT EXISTS (SELECT 1 FROM concept WHERE concept_id = ?)",
+        (cid, name[:255], dom, voc, cls, std, code, VALID_FROM, VALID_TO, cid),
+    )
+
+
+# How a source code reaches its standard concept, in order (STD-030): OMOP's ``Maps to``; for an ATC class with
+# no ``Maps to`` row, its RxNorm ingredient (the primary lateral link first). The first relationship the code has
+# decides, and only when it gives one concept: a combination (two ingredients) stays 0 rather than half-coded.
+MAP_RELATIONSHIPS = ("Maps to", "ATC - RxNorm pr lat", "ATC - RxNorm")
+INGREDIENT_VOCABS = ("RxNorm", "RxNorm Extension")
+
+
+def maps_to(tx: Any, vocabulary: str, codes: Iterable[str]) -> dict[str, int]:
+    """``code -> standard concept id`` for the codes of an OHDSI ``vocabulary`` (ids below 2e9: the Athena bundle,
+    ``omop.vocab_load.load_athena``) that reach exactly one valid standard concept by :data:`MAP_RELATIONSHIPS`.
+    ICD-10-CM maps to SNOMED, which is not on the box (no licence): a condition code finds nothing and stays 0."""
+    want = sorted(set(codes))
+    if not want:
+        return {}
+    found: dict[str, dict[str, set[int]]] = {}
+    for code, rel, cid in tx.fetchall(
+        "SELECT s.concept_code, r.relationship_id, t.concept_id FROM concept s JOIN concept_relationship r ON "
+        "r.concept_id_1 = s.concept_id AND r.invalid_reason IS NULL AND r.relationship_id = ANY(?) JOIN concept t "
+        "ON t.concept_id = r.concept_id_2 AND t.standard_concept = 'S' AND t.invalid_reason IS NULL "
+        "AND t.concept_id > 0 AND t.concept_id < ? WHERE s.vocabulary_id = ? AND s.concept_code = ANY(?) "
+        "AND s.concept_id > 0 AND s.concept_id < ? AND (r.relationship_id = 'Maps to' OR "
+        "(t.concept_class_id = 'Ingredient' AND t.vocabulary_id = ANY(?)))",
+        (list(MAP_RELATIONSHIPS), LOCAL_MIN, vocabulary, want, LOCAL_MIN, list(INGREDIENT_VOCABS)),
+    ):
+        found.setdefault(str(code), {}).setdefault(str(rel), set()).add(int(cid))
+    out: dict[str, int] = {}
+    for code, by_rel in found.items():
+        first = next(by_rel[r] for r in MAP_RELATIONSHIPS if r in by_rel)
+        if len(first) == 1:
+            out[code] = next(iter(first))
+    return out
+
+
+@dataclass(frozen=True)
+class Code:
+    system: str | None
+    code: str
+    display: str | None
+    domain: str
+
+
+class Concepts:
+    """Resolves (system, code) to the local source concept (minting it once) and to a standard concept when the
+    vocabulary has one. One instance per load, inside the load's transaction."""
+
+    def __init__(self, tx: Any) -> None:
+        self.tx = tx
+        self.source: dict[tuple[str, str], int] = {}
+        self.standard: dict[tuple[str, str], int] = {}
+        self.minted = 0
+
+    def prepare(self, codes: Iterable[Code], std_only: Iterable[tuple[str | None, str]] = ()) -> None:
+        """Mint the local concepts ``codes`` need; look up standard concepts for them and for ``std_only``."""
+        want: dict[tuple[str, str], Code] = {}
+        for c in codes:
+            if c.code and len(c.code) <= 50:
+                want.setdefault((vocabulary_id(c.system), c.code), c)
+        self._standards([*((c.system, c.code) for c in want.values()), *std_only])
+        if not want:
+            return
+        vocabs = {v for v, _ in want}
+        for vid in sorted(vocabs):
+            system = next(c.system for (v, _), c in want.items() if v == vid)
+            self._vocabulary(vid, system)
+        rows = self.tx.fetchall(
+            "SELECT vocabulary_id, concept_code, concept_id FROM concept WHERE vocabulary_id = ANY(?) "
+            "AND concept_id >= ?",
+            (sorted(vocabs), LOCAL_MIN),
+        )
+        self.source.update({(v, code): int(cid) for v, code, cid in rows})
+        new = [(k, c) for k, c in want.items() if k not in self.source]
+        if new:
+            ids = [
+                int(r[0])
+                for r in self.tx.fetchall(
+                    "SELECT nextval('tb_local_concept_seq') FROM generate_series(1, ?)", (len(new),)
+                )
+            ]
+            rows_out = []
+            for (k, c), cid in zip(new, ids, strict=True):
+                self.source[k] = cid
+                rows_out.append(
+                    (
+                        cid,
+                        (c.display or c.code)[:255],
+                        c.domain,
+                        k[0],
+                        "TB Source Code",
+                        None,
+                        c.code,
+                        VALID_FROM,
+                        VALID_TO,
+                        None,
+                    )
+                )
+            self.tx.copy_rows(
+                "concept",
+                [
+                    "concept_id",
+                    "concept_name",
+                    "domain_id",
+                    "vocabulary_id",
+                    "concept_class_id",
+                    "standard_concept",
+                    "concept_code",
+                    "valid_start_date",
+                    "valid_end_date",
+                    "invalid_reason",
+                ],
+                rows_out,
+            )
+            self.minted += len(new)
+
+    def _standards(self, pairs: Iterable[tuple[str | None, str]]) -> None:
+        std_want: dict[str, set[str]] = {}
+        for system, code in pairs:
+            sv = standard_vocabulary(system)
+            if sv and code:
+                std_want.setdefault(sv, set()).add(code)
+        for sv, codes in std_want.items():
+            for code, cid in self.tx.fetchall(
+                "SELECT concept_code, concept_id FROM concept WHERE vocabulary_id = ? AND concept_code = ANY(?) "
+                "AND standard_concept = 'S' AND invalid_reason IS NULL AND concept_id < ?",
+                (sv, sorted(codes), LOCAL_MIN),
+            ):
+                self.standard[(sv, str(code))] = int(cid)
+            rest = sorted(c for c in codes if (sv, c) not in self.standard)
+            if rest:
+                self.standard.update({(sv, c): cid for c, cid in maps_to(self.tx, sv, rest).items()})
+
+    def _vocabulary(self, vid: str, system: str | None) -> None:
+        have = self.tx.fetchone("SELECT vocabulary_reference FROM vocabulary WHERE vocabulary_id = ?", (vid,))
+        if have is not None:
+            if (have[0] or None) != (system or None):
+                raise OmopError(f"vocabulary {vid} is {have[0]!r}, not {system!r} (two systems, one short name)")
+            return
+        if system and len(system) > 255:
+            raise OmopError(f"code system URI longer than 255 characters: {system[:60]}...")
+        cid = int(self.tx.fetchval("SELECT nextval('tb_local_concept_seq')"))
+        name = f"TrialBox source codes: {system or 'no system given'}"
+        self.tx.execute(
+            "INSERT INTO concept (concept_id, concept_name, domain_id, vocabulary_id, concept_class_id, "
+            "standard_concept, concept_code, valid_start_date, valid_end_date, invalid_reason) "
+            "VALUES (?, ?, 'Metadata', ?, 'Vocabulary', NULL, ?, ?, ?, NULL)",
+            (cid, name[:255], vid, vid, VALID_FROM, VALID_TO),
+        )
+        self.tx.execute(
+            "INSERT INTO vocabulary (vocabulary_id, vocabulary_name, vocabulary_reference, vocabulary_version, "
+            "vocabulary_concept_id) VALUES (?, ?, ?, 'site', ?)",
+            (vid, name[:255], system, cid),
+        )
+        self.minted += 1
+
+    def source_id(self, system: str | None, code: str | None) -> int:
+        """The local source concept, or 0 when there is no code (or it is longer than a concept code may be)."""
+        if not code:
+            return 0
+        return self.source.get((vocabulary_id(system), code), 0)
+
+    def standard_id(self, system: str | None, code: str | None) -> int:
+        sv = standard_vocabulary(system)
+        if not code or not sv:
+            return 0
+        return self.standard.get((sv, code), 0)
+
+
+# ------------------------------------------------------------------------------------------------ code-map registry
+def seed_registry_concepts(
+    tx: Any, rows: Iterable[tuple[int, str, str, str, str]], systems: Mapping[str, str], version: str
+) -> int:
+    """The registry's concepts ``(concept_id, vocabulary_id, code, name, domain)`` at their fixed ids (T-316b, D-419),
+    with their vocabularies (``systems``: vocabulary id -> code system URI, at ``version``). Idempotent; a name
+    change is applied. Refused, before anything is written, when an id is outside the registry
+    band, when an id holds another code, or when a code already sits at another id (ids are never renumbered).
+    Returns the rows written or renamed."""
+    want = list(rows)
+    problems: list[str] = []
+    for cid, vid, code, _, _ in want:
+        if not CODEMAP_MIN <= cid <= CODEMAP_MAX:
+            problems.append(f"{vid} {code}: id {cid} is outside the registry band {CODEMAP_MIN:,}-{CODEMAP_MAX:,}")
+    if want:
+        held = {
+            int(c): (str(v), str(k), str(n))
+            for c, v, k, n in tx.fetchall(
+                "SELECT concept_id, vocabulary_id, concept_code, concept_name FROM concept WHERE concept_id = ANY(?)",
+                ([r[0] for r in want],),
+            )
+        }
+        at = {
+            (str(v), str(k)): int(c)
+            for v, k, c in tx.fetchall(
+                "SELECT vocabulary_id, concept_code, concept_id FROM concept WHERE vocabulary_id = ANY(?) "
+                "AND concept_code = ANY(?)",
+                (sorted({r[1] for r in want}), sorted({r[2] for r in want})),
+            )
+        }
+    else:
+        held, at = {}, {}
+    for cid, vid, code, _, _ in want:
+        if cid in held and held[cid][:2] != (vid, code):
+            problems.append(f"id {cid} holds {held[cid][0]} {held[cid][1]}, not {vid} {code}")
+        if (vid, code) in at and at[(vid, code)] != cid:
+            problems.append(f"{vid} {code} is concept {at[(vid, code)]}, not {cid} (an id is never renumbered)")
+    if problems:
+        raise OmopError("; ".join(problems[:5]) + (f" (+{len(problems) - 5} more)" if len(problems) > 5 else ""))
+    tx.execute(
+        "INSERT INTO concept_class (concept_class_id, concept_class_name, concept_class_concept_id) "
+        "SELECT ?, ?, 0 WHERE NOT EXISTS (SELECT 1 FROM concept_class WHERE concept_class_id = ?)",
+        (CODEMAP_CLASS, CODEMAP_CLASS, CODEMAP_CLASS),
+    )
+    for vid in sorted({r[1] for r in want}):
+        tx.execute(
+            "INSERT INTO vocabulary (vocabulary_id, vocabulary_name, vocabulary_reference, vocabulary_version, "
+            "vocabulary_concept_id) SELECT ?, ?, ?, ?, 0 WHERE NOT EXISTS "
+            "(SELECT 1 FROM vocabulary WHERE vocabulary_id = ?)",
+            (vid, f"{vid} (code-map registry concepts)", (systems.get(vid) or "")[:255] or None, version[:255], vid),
+        )
+    n = 0
+    for cid, vid, code, name, dom in want:
+        tx.execute(
+            "INSERT INTO domain (domain_id, domain_name, domain_concept_id) SELECT ?, ?, 0 WHERE NOT EXISTS "
+            "(SELECT 1 FROM domain WHERE domain_id = ?)",
+            (dom, dom, dom),
+        )
+        if cid in held:
+            if held[cid][2] != name[:255]:
+                tx.execute("UPDATE concept SET concept_name = ? WHERE concept_id = ?", (name[:255], cid))
+                n += 1
+            continue
+        _insert_concept(tx, cid, name, dom, vid, CODEMAP_CLASS, code, None)
+        n += 1
+    return n
+
+
+def record_codemap(tx: Any, *, version: str, sha256: str, registry: str, rows: int, by: str) -> bool:
+    """Make the release ``version`` (content ``sha256``) of ``registry`` the box's active code-map release; False when
+    it already is. A release is never a compile release: a map changes the data, never a compiled ruleset."""
+    have = tx.fetchone("SELECT active FROM tb_vocab_release WHERE release_name = ? AND sha256 = ?", (CODEMAP, sha256))
+    if have is not None and have[0]:
+        return False
+    tx.execute("UPDATE tb_vocab_release SET active = false WHERE release_name = ?", (CODEMAP,))
+    if have is not None:
+        tx.execute("UPDATE tb_vocab_release SET active = true WHERE release_name = ? AND sha256 = ?", (CODEMAP, sha256))
+        return True
+    tx.execute(
+        "INSERT INTO tb_vocab_release (release_name, sha256, vocabulary_id, version, source, rows, compile, "
+        "loaded_by) VALUES (?, ?, 'TB-SHARED', ?, ?, ?, false, ?)",
+        (CODEMAP, sha256, version, registry, rows, by),
+    )
+    return True
+
+
+def release(db: Any) -> dict[str, Any]:
+    """What the box's vocabulary is, by name: the terminology release the compiler pins (``TR-...``, '' when none
+    is loaded) and the active code-map registry release (None when none is loaded): its registry, version, sha256,
+    who loaded it and when, and its maps with their versions (T-316b, D-419)."""
+    from omop import vocab_load  # vocab_load imports this module
+
+    row = db.fetchone(
+        "SELECT version, sha256, source, rows, loaded_by, loaded_at FROM tb_vocab_release "
+        "WHERE release_name = ? AND active ORDER BY loaded_at DESC LIMIT 1",
+        (CODEMAP,),
+    )
+    codemap: dict[str, Any] | None = None
+    if row is not None:
+        version, sha, registry, rows, by, at = row
+        maps = db.fetchall(
+            "SELECT release_name, version, rows FROM tb_vocab_release WHERE active AND release_name LIKE ? "
+            "ORDER BY release_name",
+            (f"map:{CODEMAP_MAP_PREFIX}%",),
+        )
+        codemap = {
+            "name": f"{registry} {version}",
+            "registry": str(registry),
+            "version": str(version),
+            "sha256": str(sha),
+            "rows": int(rows),
+            "loaded_by": str(by),
+            "loaded_at": at,
+            "maps": {
+                str(n).removeprefix(f"map:{CODEMAP_MAP_PREFIX}"): {"version": str(v), "rows": int(r)}
+                for n, v, r in maps
+            },
+        }
+    return {"terminology": vocab_load.terminology_release(db), "codemap": codemap}

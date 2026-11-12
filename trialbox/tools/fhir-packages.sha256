@@ -1,0 +1,14 @@
+# sha256 of every FHIR package tarball tools/fetch_fhir_packages.py downloads (ENG-013, T-110b), by name#version.
+# A tarball whose sum differs, or a package not listed here, is refused before anything is written to the cache.
+# To add or move a package, add its line in the same pull request (the fetch prints the sum it refused).
+# The sums are of the tarballs packages.fhir.org serves (D-372, checked 2026-11-11); an npm mirror's tarballs differ.
+ebd7731df7d36b5b7d39d5fb6c9d77b44bb7fe5742f1a2e87f164738c3289d44  hl7.fhir.r4.core#4.0.1
+da2aac8e480ce66fe27812af18e3c9bc190b08a33d5d7e1c850caf9097fb210e  hl7.fhir.us.davinci-pas#2.2.1
+9e72cb92118a3e64babf442394fdc300b97f5d53b295469aee5ed34f216a830e  hl7.fhir.uv.extensions#5.4.0
+e93eb1ece7d14e6b3dfaa7af5ac510577957cb5fd2b61ef95cdcfbbdca81c96d  hl7.fhir.uv.extensions.r4#5.4.0
+212f6318414ca2ac077a3928e214711038b049d652962b119cf5d56fc22fa1a9  hl7.fhir.uv.tools.r4#1.1.0
+f3bb9fa2083402e88a02b41f433655274e8a1cca563211c8f7ba6fd0badf537a  hl7.fhir.xver-extensions#0.1.0
+c54ebe534cd3f2474459eaed68e54c34f09b003766605b19e5552db376f2cc42  hl7.terminology#7.5.0
+1da3004587602c3f5120061abc2309fef1f96668a477a9964354fa9af6fa6e60  hl7.terminology.r4#7.5.0
+d2b03b984d2e41428fda050b16c377e1eee7e08ee607dd25c4ca574521557cf9  tw.gov.mohw.nhi.pas#1.2.5
+a9ea37f16ea163b2c584ce7d423a5095587a1c027d0d4e4a5cdb0e7445e4932d  tw.gov.mohw.twcore#1.0.0

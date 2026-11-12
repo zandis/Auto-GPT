@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}{{ t('dc.sources.title') }} · {{ rs }}{% endblock %}
+{% set q = request.query_params %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('dc.sources.title') }}</h1></div>
+{% include "_data_nav.html" %}
+<p class="hint">{{ t('dc.sources.help') }}</p>
+{% if not editable %}<p class="hint" data-testid="dc-readonly">{{ t('dc.readonly') }}</p>{% endif %}
+{% if err %}{% include "_data_err.html" %}{% endif %}
+{% if q.get('done') in ('attach', 'detach', 'sync', 'undo') %}<div class="toastp" role="status" data-testid="dc-done"><span>{{ t('dc.done.' + q.get('done')) }}</span>
+{% if q.get('done') == 'detach' and can_undo_detach and editable %}<form method="post" action="/studies/{{ rs }}/sources/redcap/undo" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="secondary" data-testid="detach-undo">{{ t('mark.undo') }}</button></form>{% endif %}
+</div>{% endif %}
+{% if open_n %}<p class="warn" data-testid="dc-open"><a href="/studies/{{ rs }}/conflicts">{{ t('dc.conflicts.open', n=open_n) }}</a></p>{% endif %}
+
+<section class="card" data-testid="dc-sources">
+{% if not sources %}<p class="empty" data-testid="dc-no-source">{{ t('dc.sources.none') }}</p>{% else %}
+<div class="scroll" tabindex="0"><table class="candidates">
+<thead><tr><th>{{ t('dc.col.source') }}</th><th>{{ t('dc.col.direction') }}</th><th>{{ t('dc.col.last_sync') }}</th><th>{{ t('dc.col.last_result') }}</th><th>{{ t('dc.col.owns') }}</th>{% if editable %}<th><span class="sr">{{ t('col.actions') }}</span></th>{% endif %}</tr></thead>
+<tbody>{% for s in sources %}<tr data-testid="source-{{ s.name }}">
+<td>{{ t_or('dc.source.' + s.name, s.name) }}{% if s.token_ref %} <span class="hint mono">{{ s.token_ref }}</span>{% endif %}</td>
+<td data-testid="dir-{{ s.name }}">{{ t('dc.dir.' + s.direction) }}</td>
+<td>{{ s.last_sync|local if s.last_sync else t('dc.never') }}</td>
+<td>{% if s.result %}{{ t('dc.result', pulled=s.result.pulled, taken=s.result.taken, pushed=s.result.pushed, conflicts=s.result.conflicts) }}{% if s.result.created %}<br><span class="hint">{{ t('dc.result.created', n=s.result.created) }}</span>{% endif %}{% if s.result.waiting %}<br><span class="hint">{{ t('dc.result.waiting', n=s.result.waiting) }}</span>{% endif %}{% else %}–{% endif %}</td>
+<td>{{ t('dc.owns', n=s.owned|length, m=s.carried) }}</td>
+{% if editable %}<td><form method="post" action="/studies/{{ rs }}/sources/{{ s.name }}/sync" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" data-testid="sync-{{ s.name }}">{{ t('dc.sync') }}</button></form>
+{% if s.name == 'redcap' %}<form method="post" action="/studies/{{ rs }}/sources/redcap/detach" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="secondary" data-testid="detach-redcap">{{ t('dc.detach') }}</button></form>{% endif %}</td>{% endif %}
+</tr>{% endfor %}</tbody></table></div>
+{% if editable and has_redcap %}<p class="hint">{{ t('dc.detach.help') }}</p>{% endif %}
+{% endif %}
+</section>
+
+{% if editable and not has_redcap %}
+<section class="card" id="attach" data-testid="dc-attach">
+<h2>{{ t('dc.attach.title') }}</h2>
+<p class="hint">{{ t('dc.attach.help') }}</p>
+{% if not fields %}<p class="warn" data-testid="dc-attach-noforms">{{ t('dc.attach.noforms') }} <a href="/studies/{{ rs }}/forms">{{ t('dc.forms.title') }}</a></p>
+{% else %}
+{% if not tokens %}<p class="warn" data-testid="no-token">{{ t('rc.token.none') }}</p>{% endif %}
+<form method="post" action="/studies/{{ rs }}/sources/redcap" class="grid2">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <div><label for="token_ref">{{ t('rc.token') }}</label><select id="token_ref" name="token_ref">{% for tk in tokens %}<option value="{{ tk }}">{{ tk }}</option>{% endfor %}</select></div>
+  <div><label for="key_field">{{ t('dc.attach.key') }}</label><input id="key_field" name="key_field" class="mono" value="tb_screening_no"></div>
+  <div><label for="event">{{ t('dc.attach.event') }}</label><input id="event" name="event" class="mono"></div>
+  <div><label for="dag">{{ t('rc.dag') }}</label><input id="dag" name="dag" class="mono"></div>
+  <div class="full"><label for="field_map">{{ t('dc.attach.map') }}</label><textarea id="field_map" name="field_map" class="mono" rows="6">{{ identity }}</textarea></div>
+  <fieldset class="full"><legend>{{ t('dc.attach.owned') }}</legend>
+  <ul class="checks">{% for f in fields %}<li><label><input type="checkbox" name="owned" value="{{ f.name }}"> <span class="mono">{{ f.name }}</span>{% if f.label %} · {{ (f.labels or {}).get(lang) or f.label }}{% endif %}</label></li>{% endfor %}</ul></fieldset>
+  <div class="full"><label><input type="checkbox" name="create" value="1"> {{ t('dc.attach.create') }}</label></div>
+  <div class="full"><button type="submit" data-testid="attach-redcap">{{ t('dc.attach.save') }}</button></div>
+</form>
+{% endif %}
+</section>
+{% endif %}
+
+<section class="card" data-testid="dc-owners">
+<h2>{{ t('dc.owners.title') }}</h2>
+{% if not fields %}<p class="empty">{{ t('dc.forms.none') }}</p>{% else %}
+<div class="scroll" tabindex="0"><table class="candidates">
+<thead><tr><th>{{ t('dc.col.field') }}</th><th>{{ t('dc.col.form') }}</th><th>{{ t('dc.col.label') }}</th><th>{{ t('dc.col.owner') }}</th></tr></thead>
+<tbody>{% for f in fields %}<tr data-testid="owner-{{ f.name }}"><td class="mono">{{ f.name }}</td><td class="mono">{{ f.form }}</td><td>{{ (f.labels or {}).get(lang) or f.label }}</td><td data-testid="owned-by-{{ f.name }}">{{ t('dc.owner.trialbox') if f.owner == 'trialbox' else t_or('dc.source.' + f.owner, f.owner) }}</td></tr>{% endfor %}</tbody></table></div>
+{% endif %}
+</section>
+{% endblock %}

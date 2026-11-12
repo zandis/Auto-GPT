@@ -19,6 +19,12 @@ What it does, on the 5,000-patient synthetic hospital of ``tools.feas_demo``:
    morning; both are printed from the box's mail sink. Neither carries a chart number or a screening number.
 
 Everything is synthetic; pages and mail are Japanese (``--lang``).
+
+``--trial AD-MAB`` runs the same steps on scenario J1 of the clinician PoC (T-503): the Japanese memory-clinic site
+(``tools.synth_hospital --profile jp-ad``, Asia/Tokyo, notes in Japanese and English), the early Alzheimer's
+disease trial AD-MAB (protocol in Japanese, investigator P90001 of neurology) and the registry NEUR-COH.
+
+    python -m tools.list_demo --dir /tmp/tb-ad --lang ja --trial AD-MAB
 """
 
 from __future__ import annotations
@@ -29,6 +35,7 @@ import re
 import secrets
 import shutil
 import sys
+from collections.abc import Mapping
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
@@ -44,26 +51,109 @@ TRIAL, COHORT = "GZQO", "GOUT-COH"
 PI_PRACTITIONER = "P12345"
 COHORT_CLINICS = "P12345,P23456,P34567,P45678"
 EXTRA_EXCLUSION = "Participation in another interventional drug trial within the last 30 days."
+# the scenarios: trial -> (registry, investigator, registry clinics, added exclusion, "need info" note, site)
+SCENARIOS: dict[str, dict[str, Any]] = {
+    "GZQO": {
+        "cohort": COHORT,
+        "pi": PI_PRACTITIONER,
+        "clinics": COHORT_CLINICS,
+        "extra": EXTRA_EXCLUSION,
+        "need_info": "HbA1c の最新値を確認",
+        "profile": "ci",
+        "settings": None,
+    },
+    "AD-MAB": {  # scenario J1 (T-503)
+        "cohort": "NEUR-COH",
+        "pi": "P90001",
+        "clinics": "P90001,P90002,P90003",
+        "extra": "スクリーニング前30日以内に他の治験に参加した者。",
+        "need_info": "アミロイドPETまたは脳脊髄液検査の結果を確認",
+        "profile": "jp-ad",
+        "settings": fd.SITE_JP,
+    },
+}
+
+
+# T-513 (UX-003): which day the demo plays. Unset or "data": the synthetic data's own day (tests, drills, the complete
+# run). "today": the real day in the site's time zone; the hospital's dates are moved to it, and once the seed is done
+# the console and the box follow the real clock (tools.demo sets it). YYYY-MM-DD: that day, with the dates moved.
+DAY_ENV = "TB_DEMO_DAY"
+
+
+def seed_day(today: date) -> date:
+    """The day the seed plays for a demo started on ``today``: today, or on a Saturday or Sunday the Friday before
+    (the coordinator's digest goes out on working days only, so a weekend seed would have no morning mail)."""
+    return today - timedelta(days=max(0, today.weekday() - 4))
+
+
+def demo_day(
+    tz: str | None = None, environ: Mapping[str, str] | None = None, now: datetime | None = None
+) -> date | None:
+    """The demo day ``TB_DEMO_DAY`` asks for (see :data:`DAY_ENV`); None for the data's own day. ``tz``: the site's
+    zone (else ``TB_TZ``), which decides what "today" is."""
+    from console.timefmt import local_today
+    from tb_common.config import site_zone
+
+    value = str((os.environ if environ is None else environ).get(DAY_ENV) or "").strip().lower()
+    if value in ("", "data"):
+        return None
+    if value == "today":
+        return seed_day(local_today(now or datetime.now(UTC), site_zone(tz)))
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise SystemExit(f"{DAY_ENV}={value!r}: use today, data or a date YYYY-MM-DD") from exc
+
+
+def is_live(environ: Mapping[str, str] | None = None) -> bool:
+    """True when the demo follows the real clock after its seed (``TB_DEMO_DAY=today``)."""
+    return str((os.environ if environ is None else environ).get(DAY_ENV) or "").strip().lower() == "today"
+
+
+def site_tz_of(box: Any) -> str:
+    """The box's site zone (settings ``site.tz``)."""
+    return str(box.orch.cfg.settings.site.tz)
 
 
 class Clock:
-    """The console's clock, set to 07:00 (site time, UTC+9) on the demo day so marks and mail agree with the box."""
+    """The console's clock. While the demo seeds it stands at 07:00 site time on the demo day, so marks and mail agree
+    with the box; :meth:`go_live` then lets it follow the real time (T-513: one clock for the served demo)."""
 
-    def __init__(self, day: date) -> None:
+    def __init__(self, day: date, tz: str | None = None) -> None:
+        from tb_common.config import site_zone
+
+        self.zone = site_zone(tz)  # D-315: the site's zone (else TB_TZ), never a zone of the code's own
+        self.live = False
         self.set(day)
 
     def set(self, day: date, at: time = time(7, 0)) -> None:
-        self.now = datetime.combine(day, at, tzinfo=UTC) - timedelta(hours=9)
+        self.now = datetime.combine(day, at, tzinfo=self.zone).astimezone(UTC)
+
+    def go_live(self) -> None:
+        self.live = True
 
     def __call__(self) -> datetime:
-        return self.now
+        return datetime.now(UTC) if self.live else self.now
 
 
-def criteria_text(ruleset: str) -> str:
+def go_live(box: Any, clock: Clock) -> None:
+    """T-513: after the seed, the console's clock and the box's day follow the real time in the site's zone, so a demo
+    left running (or reopened with --keep) on a later day shows that day everywhere."""
+    from console.timefmt import local_today
+
+    zone = clock.zone
+    clock.go_live()
+    box.today[0] = local_today(datetime.now(UTC), zone)
+    box.orch._today = lambda: local_today(datetime.now(UTC), zone)  # the in-process box's day, read on every call
+
+
+def criteria_text(ruleset: str, trial: str = TRIAL) -> str:
+    sc = SCENARIOS[trial]
     text = fd.pasted_criteria(ruleset)
-    if ruleset == COHORT:  # one criterion reworded
+    if ruleset == sc["cohort"]:  # one criterion reworded
         return text.replace("1. ", "1. 年齢18歳以上で、", 1)
-    return text.rstrip("\n") + f"\n15. {EXTRA_EXCLUSION}\n"  # one exclusion added to the trial
+    n = len(re.findall(r"^\d+\. ", text.split("除外基準", 1)[-1], re.M)) + 1
+    return text.rstrip("\n") + f"\n{n}. {sc['extra']}\n"  # one exclusion added to the trial
 
 
 def console(
@@ -83,11 +173,13 @@ def console(
 
     shutil.rmtree(work / "console", ignore_errors=True)
     (work / "console").mkdir(parents=True)
-    users = UserStore(work / "console" / "console.sqlite", clock=clock)
+    url = fd.fresh_console_db(work)
+    users = UserStore(url, clock=clock)  # accounts, sessions and marks start fresh too
     for name, role, mailbox, scope in fd.ACCOUNTS:
         users.create(name, role, password, mailbox)  # type: ignore[arg-type]
         if scope:
             users.set_scope(name, **scope)
+    fd.seed_pi(url)
     env = {
         "TB_ENV": "DEV",
         "TB_CONSOLE_PILOT": "1",
@@ -100,7 +192,7 @@ def console(
     return create_app(env, backend=InprocBackend(box, client, repo), audit=AuditLog(box.audit_dir), users=users)
 
 
-def sign_in(app: Any, user: str, password: str, lang: str) -> Any:
+def sign_in(app: Any, user: str, password: str, lang: str, practitioner: str = PI_PRACTITIONER) -> Any:
     from fastapi.testclient import TestClient
 
     c = TestClient(app)
@@ -115,7 +207,7 @@ def sign_in(app: Any, user: str, password: str, lang: str) -> Any:
             "csrf": fd._csrf(c.get("/settings/notices").text),
             "enabled": "1",
             "lang": lang,
-            "practitioner_id": PI_PRACTITIONER if user == "pi" else "",
+            "practitioner_id": practitioner if user == "pi" else "",
             "digest_time": "07:30",
         },
     )
@@ -127,24 +219,42 @@ def ok(r: Any, what: str) -> Any:
     return r
 
 
-def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
+def run(work: Path, password: str, lang: str = "ja", trial: str = TRIAL, day: date | None = None) -> dict[str, Any]:
+    """``day`` (T-513): the demo day, with the hospital's dates moved to it; None reads ``TB_DEMO_DAY`` (unset: the
+    data's own day, the PI's first clinic day)."""
     from console import notify
+    from console.timefmt import local_today
 
-    box, client, repo, summary = fd.build(work)
-    clock = Clock(box.today[0])
+    sc = SCENARIOS[trial]
+    cohort_rs, pi_pr = str(sc["cohort"]), str(sc["pi"])
+    tz = ((sc["settings"] or {}).get("site") or {}).get("tz")
+    target = day or demo_day(tz)
+    if target is not None:
+        box, client, repo, summary = fd.build_site(work, str(sc["profile"]), sc["settings"], day=target)
+    elif sc["profile"] == "ci" and not sc["settings"]:
+        box, client, repo, summary = fd.build(work)  # the form tools.complete_run wraps
+    else:
+        box, client, repo, summary = fd.build_site(work, sc["profile"], sc["settings"])
+    clock = Clock(box.today[0], site_tz_of(box))
+    live = day is None and is_live()
+    if live and target == local_today(datetime.now(UTC), clock.zone):
+        # T-513: seeding on the real day, the console's clock is the real one from the start, as the box's job times
+        # are: a 07:00 clock ahead of the real time dated an opt-out after the screening run that should honour it
+        clock.go_live()
     app = console(work, box, client, repo, password, clock)
     h = app.state.helpers
-    crc = sign_in(app, "crc", password, lang)
-    pi = sign_in(app, "pi", password, lang)
-    out: dict[str, Any] = {"summary": summary, "box": box, "app": app, "approvals": {}}
+    crc = sign_in(app, "crc", password, lang, pi_pr)
+    pi = sign_in(app, "pi", password, lang, pi_pr)
+    out: dict[str, Any] = {"summary": summary, "box": box, "app": app, "approvals": {}, "clock": clock, "live": live}
 
     # 1-2 the coordinator pastes both studies and prepares S20
     jobs = {}
-    for rs in (COHORT, TRIAL):
+    for rs in (cohort_rs, trial):
         form = crc.get("/pilot/protocol")
         r = ok(
             crc.post(
-                "/pilot/protocol", data={"csrf": fd._csrf(form.text), "ruleset": rs, "criteria": criteria_text(rs)}
+                "/pilot/protocol",
+                data={"csrf": fd._csrf(form.text), "ruleset": rs, "criteria": criteria_text(rs, trial)},
             ),
             f"paste {rs}",
         )
@@ -152,12 +262,14 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
         job = box.orch.db.get(job_id)
         assert job is not None and job.state == "awaiting_approval", (rs, job and job.state)
         jobs[rs] = job
-    s20 = ok(crc.get(f"/pilot/jobs/{jobs[TRIAL].job_id}/approval"), "S20 as coordinator")
+    ok(crc.get(f"/pilot/jobs/{jobs[trial].job_id}/approval"), "S20 as coordinator")
+    # D-146 (review J-27): the investigator ticks a criterion's codes, as only the investigator approves
+    s20 = ok(pi.get(f"/pilot/jobs/{jobs[trial].job_id}/approval"), "S20 as investigator")
     first = re.search(r'data-testid="tick-btn-([A-Z0-9-]+)"', s20.text)
     assert first
     ok(
-        crc.post(
-            f"/pilot/jobs/{jobs[TRIAL].job_id}/approval/tick", data={"csrf": fd._csrf(s20.text), "crit": first.group(1)}
+        pi.post(
+            f"/pilot/jobs/{jobs[trial].job_id}/approval/tick", data={"csrf": fd._csrf(s20.text), "crit": first.group(1)}
         ),
         "tick",
     )
@@ -169,8 +281,24 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
         ambers = re.findall(r'data-testid="open-([A-Z0-9-]+)"', page.text)
         for cid in ambers:
             page = ok(pi.get(f"/pilot/jobs/{job.job_id}/approval?open={cid}"), f"open {cid}")
-        out["approvals"][rs] = {"amber": ambers, "html": page.text}
-        r = pi.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": fd._csrf(page.text)}, follow_redirects=False)
+        # D-309: a criterion the coordinator reworded has no shipped label in the page language; the PI gives one
+        missing = re.findall(r'data-testid="label-missing-([A-Z0-9-]+)"', page.text)
+        for cid in missing:
+            ok(
+                pi.post(
+                    f"/pilot/jobs/{job.job_id}/approval/label",
+                    data={"csrf": fd._csrf(page.text), "crit": cid, "text": f"{cid} label"},
+                ),
+                f"label {cid}",
+            )
+        if missing:
+            page = ok(pi.get(f"/pilot/jobs/{job.job_id}/approval"), f"S20 {rs} labelled")
+        out["approvals"][rs] = {"amber": ambers, "labelled": missing, "html": page.text}
+        r = pi.post(
+            f"/pilot/jobs/{job.job_id}/approve",
+            data={"csrf": fd._csrf(page.text), "confirm": "yes"},
+            follow_redirects=False,
+        )
         assert r.status_code == 303, (rs, r.status_code, re.sub(r"<[^>]+>", " ", r.text)[-600:])
         after = box.orch.db.get(job.job_id)
         out["approvals"][rs]["feas_state"] = after.state if after else None
@@ -178,7 +306,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     out["versions"] = {rs: infos[rs].version for rs in jobs}
 
     # 4 the lists
-    for rs, pract in ((TRIAL, ""), (COHORT, COHORT_CLINICS)):
+    for rs, pract in ((trial, ""), (cohort_rs, str(sc["clinics"]))):
         form = crc.get(f"/pilot/request?ruleset={rs}")
         r = crc.post(
             "/pilot/request",
@@ -189,48 +317,56 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
         jid = r.headers["location"].rsplit("/", 1)[-1]
         sj = box.orch.db.get(jid)
         assert sj is not None and sj.state == "done", (rs, sj and sj.state, sj and sj.error)
-    cohort = ok(pi.get(f"/studies/{COHORT}/cohort"), "cohort list")
+    cohort = ok(pi.get(f"/studies/{cohort_rs}/cohort"), "cohort list")
     out["cohort_html"] = cohort.text
     out["cohort_new"] = len(re.findall(r'data-testid="member-', cohort.text))
 
     # 5 marks: the PI's first clinic day decides the demo day
-    week = h.week_bundle(None, TRIAL)
+    week = h.week_bundle(None, trial)
     rows = week["rows"]
-    days = sorted(notify.clinic_days(rows, PI_PRACTITIONER))
+    days = sorted(notify.clinic_days(rows, pi_pr))
     assert days, "no listed candidate is booked with the investigator"
-    day = days[0] if days[0].weekday() < 5 else next(d for d in days if d.weekday() < 5)
+    if target is not None:  # T-513: the demo day is the day asked for (its dates were moved to it), never a later one
+        day = target
+    else:
+        day = days[0] if days[0].weekday() < 5 else next(d for d in days if d.weekday() < 5)
+    if day != box.today[0]:  # a later clinic day (another hospital size): sessions end after 8 h, so sign in again
+        box.today[0] = day  # the box moves with the console: one site has one date (an EDC acknowledgement or visit
+        clock.set(day)  # dated "today" by the console is otherwise "in the future" for the box, finding EDC-16)
+        crc = sign_in(app, "crc", password, lang, pi_pr)
+        pi = sign_in(app, "pi", password, lang, pi_pr)
     clock.set(day)
-    mine = [r for r in rows if r.get("practitioner_id") == PI_PRACTITIONER and r.get("visit")]
+    mine = [r for r in rows if r.get("practitioner_id") == pi_pr and r.get("visit")]
     mine.sort(key=lambda r: r["visit"])
     picks = (mine + [r for r in rows if r not in mine])[:3]
     assert len(picks) == 3, "fewer than three patients on the list"
     marks = [
         ("approach", {}),
-        ("need_info", {"note": "HbA1c の最新値を確認"}),
+        ("need_info", {"note": str(sc["need_info"])}),
         ("not_now", {"recheck": (day + timedelta(days=28)).isoformat()}),
     ]
-    lst = ok(pi.get(f"/studies/{TRIAL}/week?list=all"), "list")
+    lst = ok(pi.get(f"/studies/{trial}/week?list=all"), "list")
     out["list_html"] = lst.text
     for row, (mark, extra) in zip(picks, marks, strict=True):
-        page = pi.get(f"/studies/{TRIAL}/week?list=all&pid={row['pid']}")
+        page = pi.get(f"/studies/{trial}/week?list=all&pid={row['pid']}")
         r = pi.post(
-            f"/studies/{TRIAL}/patients/{row['pid']}/mark",
+            f"/studies/{trial}/patients/{row['pid']}/mark",
             data={"csrf": fd._csrf(page.text), "mark": mark, "back": "list:all", **extra},
             follow_redirects=False,
         )
         assert r.status_code == 303, (mark, r.status_code, r.text[-300:])
     approached = picks[0]["pid"]
-    page = crc.get(f"/studies/{TRIAL}/patients/{approached}")
+    page = crc.get(f"/studies/{trial}/patients/{approached}")
     r = crc.post(
-        f"/studies/{TRIAL}/patients/{approached}/outcome",
+        f"/studies/{trial}/patients/{approached}/outcome",
         data={"csrf": fd._csrf(page.text), "outcome": "not_reached", "back": "patient"},
         follow_redirects=False,
     )
     assert r.status_code == 303, (r.status_code, r.text[-300:])
     out["picks"] = picks
     out["day"] = day
-    out["screening_no"] = h.store.screening_no(TRIAL, approached)
-    out["patient_html"] = ok(pi.get(f"/studies/{TRIAL}/patients/{picks[1]['pid']}"), "S5").text
+    out["screening_no"] = h.store.screening_no(trial, approached)
+    out["patient_html"] = ok(pi.get(f"/studies/{trial}/patients/{picks[1]['pid']}"), "S5").text
 
     # 6 the morning mail
     before = len(box.sent)
@@ -239,36 +375,46 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     out["notices"] = sent
     out["mails"] = mails
     out["crc"], out["pi"] = crc, pi
+    out["trial"], out["cohort"] = trial, cohort_rs
     return out
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tools.pglocal import scratch_root  # D-201: never a fixed /tmp path
+
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_DEMO_DIR", "/tmp/tb-list-demo")))
+    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_DEMO_DIR") or scratch_root() / "tb-list-demo"))
     ap.add_argument("--lang", default="ja", choices=["ja", "zh-TW", "en"])
     ap.add_argument("--serve", action="store_true", help="keep the console up after the run")
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")))
     ap.add_argument("--host", default=os.environ.get("TB_DEMO_HOST", "127.0.0.1"))
     ap.add_argument("--fresh", action="store_true", help="delete --dir first")
+    ap.add_argument("--trial", default=TRIAL, choices=sorted(SCENARIOS), help="AD-MAB: scenario J1 (T-503)")
+    ap.add_argument("--day", default=os.environ.get(DAY_ENV) or "data",
+                    help="today, data (the synthetic data's own day) or YYYY-MM-DD (T-513; TB_DEMO_DAY)")  # fmt: skip
     a = ap.parse_args(argv)
+    os.environ[DAY_ENV] = a.day
     if a.fresh and a.dir.exists():
         shutil.rmtree(a.dir)
     a.dir.mkdir(parents=True, exist_ok=True)
     password = os.environ.get("TB_DEMO_PASSWORD") or secrets.token_urlsafe(12)
-    res = run(a.dir, password, a.lang)
+    res = run(a.dir, password, a.lang, a.trial)
     for rs, v in res["approvals"].items():
         print(
             f"S20 {rs}: amber {', '.join(v['amber']) or '-'} -> approved v{res['versions'][rs]} "
             f"(feasibility job {v['feas_state']})"
         )
-    print(f"cohort list {COHORT}: {res['cohort_new']} new members")
+    print(f"cohort list {res['cohort']}: {res['cohort_new']} new members")
     print(f"demo day {res['day']} · marks: " + ", ".join(f"{p['short']}" for p in res["picks"]))
     print(f"screening number given on Approach: {res['screening_no']}")
     for m in res["mails"]:
         print(f"\n=== mail to {', '.join(m.to)}: {m.subject}\n{m.text()}")
-    good = len(res["mails"]) == 2 and all(res["screening_no"] not in m.text() for m in res["mails"])
+    good = len(res["mails"]) == 2
     if a.serve:
         import uvicorn
+
+        if res["live"]:
+            go_live(res["box"], res["clock"])
 
         print(f"\nconsole on http://{a.host}:{a.port}/home  accounts: {', '.join(x[0] for x in fd.ACCOUNTS)}")
         if not os.environ.get("TB_DEMO_PASSWORD"):

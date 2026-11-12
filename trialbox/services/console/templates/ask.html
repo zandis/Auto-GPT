@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{# TB-PLAN-04 step 5b (D-132): Ask TrialBox, on every page (the header's Ask link). It explains and links, from the
+   readiness of the site and the screening trail of one patient, phrased by the local model; it never changes data. #}
+{% block title %}{{ t('ask.title') }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ t('ask.title') }}</h1></div>
+<p class="hint">{{ t('ask.help') }}</p>
+<section class="card">
+<form method="get" action="/ask" class="formstack" data-testid="ask-form">
+<input type="hidden" name="ws" value="{{ ws }}"><input type="hidden" name="study" value="{{ rs }}"><input type="hidden" name="back" value="{{ back }}">
+<label for="ask-q">{{ t('ask.question') }}</label>
+<input id="ask-q" name="q" value="{{ question }}" maxlength="300" autocomplete="off" data-testid="ask-q">
+{% if user.can_view_phi %}<label for="ask-pid">{{ t('ask.pid') }}</label>
+<input id="ask-pid" name="pid" value="{{ pid }}" maxlength="32" autocomplete="off" class="mono">{% endif %}
+<button type="submit" data-testid="ask-go">{{ t('ask.go') }}</button>
+</form>
+<h2>{{ t('ask.examples') }}</h2>
+<ul class="plain miss"><li><a class="button secondary" href="/ask?q={{ t('ask.q.next')|urlencode }}&amp;ws={{ ws }}&amp;study={{ rs }}&amp;back={{ back|urlencode }}" data-testid="ask-next">{{ t('ask.q.next') }}</a></li>
+{% if user.can_view_phi %}<li><a class="button secondary" href="/site/patients?ws={{ ws }}&amp;study={{ rs }}" data-testid="ask-why">{{ t('ask.q.why') }}</a></li>{% endif %}</ul>
+</section>
+{% if ans %}<section class="card attention" data-testid="ask-answer" data-kind="{{ ans.kind }}" role="status">
+<h2>{{ t('ask.answer') }}</h2>
+<p data-testid="ask-text">{{ ans.answer }}</p>
+{% if ans.links %}<ul class="plain miss">{% for l in ans.links %}<li><a class="button secondary" href="{{ l.href }}" data-testid="ask-link-{{ loop.index }}">{{ l.label }}</a></li>{% endfor %}</ul>{% endif %}
+<p class="hint">{{ t('ask.readonly') }}</p>
+</section>{% endif %}
+<p><a class="button secondary" href="{{ back }}" data-testid="ask-back">{{ t('cmd.back') }}</a></p>
+{% endblock %}

@@ -1,0 +1,54 @@
+"""Repro: after `undo` of a mistaken 'enrolled' step, `anchors()` still uses the undone step's day, so visit windows
+are computed from an enrolment that was taken back."""
+from __future__ import annotations
+
+import sys
+from datetime import date
+
+sys.path[:0] = ["services", "libs"]
+
+from datacore import lifecycle as lc
+
+
+class StubDc:
+    def record(self, study, record, event=""):
+        return {}  # no en_date on the enrolment form (the step was recorded by hand)
+
+    def values(self, study, record=None):
+        return []
+
+
+class StubLife(lc.Lifecycle):
+    def __init__(self, steps):
+        self.dc = StubDc()
+        self._steps = steps
+
+    def steps(self, study, record=None):
+        return self._steps
+
+    def subject(self, study, record):
+        return {"state": self._steps_live()[-1]["new"]}
+
+    def _steps_live(self):
+        return lc.live_steps(self._steps)
+
+
+def st(old, new, day, source):
+    return {"old": old, "new": new, "on_day": day, "reason": "", "note": "", "who": "crc", "at": day + "T09:00:00+09:00",
+            "source": source}
+
+
+steps = [
+    st(None, "candidate", "2026-10-01", "screening"),
+    st("candidate", "approached", "2026-10-02", "manual"),
+    st("approached", "consented", "2026-10-03", "manual"),
+    st("consented", "enrolled", "2026-10-04", "manual"),  # a mistake: the subject was not enrolled
+    st("enrolled", "consented", "2026-10-03", "undo"),  # taken back
+]
+life = StubLife(steps)
+print("live steps:", [s["new"] for s in lc.live_steps(steps)])
+print("current state:", life.subject("RS", "R1")["state"])
+print("anchors():", life.anchors("RS", "R1"))
+sched = [lc.Visit("v1", day=7, before=2, after=2)]
+for v in life.visits("RS", "R1", date(2026, 10, 20), sched):
+    print("visit v1 on 2026-10-20:", {k: v[k] for k in ("status", "due", "start", "end", "days_late")})

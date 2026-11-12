@@ -6,11 +6,11 @@
 #
 # Steps: host check -> images -> pin the models (site override) -> compose up (gpu|stub + test profiles; GB10 override
 # in gpu mode) -> wait healthy -> gateway probe -> trialbox doctor -> ingest synthetic site A -> FEAS email through
-# GreenMail, reply in MailHog -> cascade e2e through the gateway -> public eval suites through the gateway -> workflow
+# GreenMail, reply in Mailpit -> cascade e2e through the gateway -> public eval suites through the gateway -> workflow
 # store (outbox, recall ledger) on the compose Postgres -> one PASS/FAIL report with paths. Exit 0 only on PASS.
 #
-# The default is the recommended Spark pair: judge gpt-oss-120b (j-workhorse, llm-service, endpoint `serving`) and
-# verifier Gemma 4 26B-A4B-it (v-verifier, llm-verifier, endpoint `verifier`); the cascade then runs the two-model
+# The default is the measured pair (D-124): judge Gemma 4 26B-A4B-it NVFP4 (j-workhorse, llm-service, endpoint `serving`)
+# and verifier Qwen3.5-9B AWQ (v-verifier, llm-verifier, endpoint `verifier`); the cascade then runs the two-model
 # AgreementJudge (a criterion blocks only when both agree). TB_SPARK_VERIFIER=0 runs the judge alone (for example the
 # Qwen alternative: JUDGE_MODEL_DIR=JUDGE_MODEL=qwen3.5-35b-a3b-q4 TB_PIN_BUILD=qwen3.5-35b-a3b-candidate).
 #
@@ -22,8 +22,8 @@
 # TB_IMAGE / TB_JVM_IMAGE), TB_SPARK_STRICT_HOST=1 (every host-check FAIL is fatal), TB_SPARK_UP_TIMEOUT (s, 1800),
 # TB_SPARK_DOWN=1 (stop the stack at the end), TB_SPARK_REPRO (1 in stub mode, 0 in gpu mode), TB_EVAL_LIMIT (judge
 # pairs through the model, gpu default 300, 0 = all 1015), TB_MODELS_DIR (deploy/models), JUDGE_MODEL_DIR and
-# JUDGE_MODEL (gpt-oss-120b), TB_PIN_BUILD (gpt-oss-120b-spark), VERIFIER_MODEL_DIR and VERIFIER_MODEL
-# (gemma-4-26b-a4b-it), TB_PIN_VERIFIER_BUILD (gemma-4-26b-a4b-it-spark), TB_SPARK_VERIFIER (1), TB_SPARK_TRIAL (GZQO),
+# JUDGE_MODEL (local/gemma-4-26b-a4b-nvfp4), TB_PIN_BUILD (gemma-4-26b-a4b-it-spark), VERIFIER_MODEL_DIR and VERIFIER_MODEL
+# (local/qwen3.5-9b-awq), TB_PIN_VERIFIER_BUILD (qwen3.5-9b-spark), TB_SPARK_VERIFIER (1), TB_SPARK_TRIAL (GZQO),
 # PY (.venv/bin/python).
 set -uo pipefail
 
@@ -49,10 +49,10 @@ GATEWAY_URL="http://127.0.0.1:$GW_PORT/v1"
 TRIAL="${TB_SPARK_TRIAL:-GZQO}"
 MODELS_DIR="${TB_MODELS_DIR:-$ROOT/deploy/models}"
 # exported: deploy/docker-compose.gb10.yml reads the same names
-export JUDGE_MODEL_DIR="${JUDGE_MODEL_DIR:-gpt-oss-120b}" JUDGE_MODEL="${JUDGE_MODEL:-gpt-oss-120b}"
-export VERIFIER_MODEL_DIR="${VERIFIER_MODEL_DIR:-gemma-4-26b-a4b-it}" VERIFIER_MODEL="${VERIFIER_MODEL:-gemma-4-26b-a4b-it}"
-BUILD="${TB_PIN_BUILD:-gpt-oss-120b-spark}"
-VBUILD="${TB_PIN_VERIFIER_BUILD:-gemma-4-26b-a4b-it-spark}"
+export JUDGE_MODEL_DIR="${JUDGE_MODEL_DIR:-gemma-4-26b-a4b-it-4bit}" JUDGE_MODEL="${JUDGE_MODEL:-local/gemma-4-26b-a4b-nvfp4}"
+export VERIFIER_MODEL_DIR="${VERIFIER_MODEL_DIR:-qwen3.5-9b-4bit}" VERIFIER_MODEL="${VERIFIER_MODEL:-local/qwen3.5-9b-awq}"
+BUILD="${TB_PIN_BUILD:-gemma-4-26b-a4b-it-spark}"
+VBUILD="${TB_PIN_VERIFIER_BUILD:-qwen3.5-9b-spark}"
 VERIFIER="${TB_SPARK_VERIFIER:-1}"
 UP_ARGS=()
 
@@ -102,9 +102,7 @@ host_check() {
     for want in "aarch64 host" "NVIDIA driver 580.142" "nvidia container runtime"; do
       echo "$out" | grep -q "^PASS  $want" || { echo "required for the e2e: $want"; return 1; }
     done
-    # MailHog (test profile) is published for amd64 only: the Spark runs it under binfmt emulation
-    [ -e /proc/sys/fs/binfmt_misc/qemu-x86_64 ] \
-      || { echo "required: amd64 emulation for MailHog (docker run --privileged --rm tonistiigi/binfmt --install amd64)"; return 1; }
+    # D-348: Mailpit (test profile) has an arm64 image: no amd64 emulation is needed any more
   fi
   echo "informational (TB_SPARK_STRICT_HOST=1 makes them fatal): $(echo "$out" | grep -c '^FAIL') appliance check(s) failed"
   return 0
@@ -231,7 +229,7 @@ workflow_store() {
   local pw; pw="$(envfile_get POSTGRES_WF_PASSWORD)"; pw="${pw:-$(envfile_get POSTGRES_PASSWORD)}"
   "${COMPOSE[@]}" exec -T db sh -c \
     'psql -U trialbox -d trialbox_wf -tAc "SELECT 1 FROM pg_database WHERE datname='"'"'trialbox_wf_e2e'"'"'" | grep -q 1 \
-     || createdb -U trialbox trialbox_wf_e2e' || return 1
+     || createdb -U hapi -O trialbox trialbox_wf_e2e' || return 1  # trialbox has no CREATEDB (D-378)
   TB_PG_DSN="postgresql://trialbox:$pw@127.0.0.1:$WF_PORT/trialbox_wf_e2e" "$PY" -m pytest -q -p no:cacheprovider -rs \
     tests/unit/test_outbox_killloop.py::test_postgres_backend_same_semantics \
     tests/unit/test_recall_ledger.py::test_postgres_ledger_round_trip

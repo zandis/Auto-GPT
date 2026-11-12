@@ -1,0 +1,38 @@
+score_id: neuro.ledd
+name: {en: Levodopa equivalent daily dose, ja: レボドパ換算1日量, zh_tw: 左多巴等效劑量}
+version: 1
+formula_kind: conversion_table
+inputs:
+  - {role: drug_exposures, item: "DRUG_EXPOSURE rows with ATC N04B (dopaminergic agents), daily dose in mg", required: true}
+formula: "sum of daily_dose_mg × factor per ingredient (Tomlinson 2010); COMT inhibitors multiply the levodopa dose rather than add"
+conversion_table:
+  levodopa_immediate_release: 1.0
+  levodopa_controlled_release: 0.75
+  levodopa_with_entacapone: "levodopa dose × 1.33"
+  levodopa_with_tolcapone: "levodopa dose × 1.5"
+  pramipexole: 100
+  ropinirole: 20
+  rotigotine: 30
+  selegiline_oral: 10
+  rasagiline: 100
+  amantadine: 1.0
+  duodopa_intestinal_gel: 1.11
+output: {unit: mg/d, min: 0, max: 5000}
+rounding: integer
+edge_cases:
+  - "opicapone, safinamide, istradefylline (JP), zonisamide (JP low-dose for PD): not in Tomlinson 2010; later proposals exist (Schade 2020) - version 2 when approved"
+  - "pramipexole salt form: Tomlinson factor applies to the dihydrochloride dose as prescribed in JP/TW"
+examples:
+  - inputs: {pramipexole_mg: 1}
+    expected: {ledd_mg: 100}
+    source: "Tomlinson CL et al. Mov Disord 2010;25:2649-2653, conversion table"
+    source_grade: primary
+    note: "table values from the paper as remembered; not re-read at the source today (verified: no)"
+  - inputs: {levodopa_mg: 100, with_entacapone: true}
+    expected: {ledd_mg: 133}
+    source: "same table"
+    source_grade: primary
+sources:
+  - "Tomlinson CL et al. Mov Disord 2010;25:2649-2653"
+licence: "formula; no instrument"
+verified: no

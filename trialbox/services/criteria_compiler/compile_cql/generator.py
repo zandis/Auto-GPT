@@ -11,8 +11,25 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
-from tb_common.derived import ASDAS, CODES, COMPONENTS, DAS28, EGFR, LOINC, SCORE
+from tb_common.derived import (
+    ASDAS,
+    CODES,
+    COMPONENTS,
+    DAS28,
+    DOMAIN,
+    EGFR,
+    EGFR_JSN,
+    EGFR_MIN_AGE,
+    LOINC,
+    RANGE,
+    SAME_VISIT,
+    SCORE,
+    UNIT_OF_SCORE_ITEM,
+    UNITLESS,
+    UNITS,
+)
 from tb_common.fhir import library_name
+from tb_common.labunit import ANALYTES, DIGITS, UNITLESS_KEYS, conversion, key, scale_arms
 from tb_contracts import Atom, BoolExpr, CriterionIR
 
 from criteria_compiler.semantics import (
@@ -34,10 +51,57 @@ _env = Environment(
     loader=FileSystemLoader(TEMPLATES), undefined=StrictUndefined, keep_trailing_newline=True, autoescape=False
 )
 CS_NAMES = {LOINC: "LOINC", SCORE: "TBSCORE"}
+YJ_SHAPE = "[0-9]{7}[A-Z][0-9A-Z]{4}"  # a 12-character YJ code (T-610), as compile_sql's YJ_STEM_OF reads it
+# resource type and coding list of a presence atom whose ValueSet is a code-prefix grouper (D-113 families)
+FAMILY_CODINGS = {
+    "condition": ("Condition", "X.code.coding"),
+    "medication": ("MedicationRequest", "(X.medication as FHIR.CodeableConcept).coding"),
+    "procedure": ("Procedure", "X.code.coding"),
+    "report": ("DiagnosticReport", "X.code.coding"),
+    "observation": ("Observation", "X.code.coding"),
+}
+
+
+def _cql_dec(x: float) -> str:
+    """A CQL Decimal literal (at most 8 decimal places)."""
+    s = f"{x:.8f}".rstrip("0")
+    return s + "0" if s.endswith(".") else s
 
 
 def render_common() -> str:
-    return _env.get_template("TB_Common.cql.j2").render(egfr=EGFR, das=DAS28, asdas=ASDAS)
+    units = [
+        (
+            comp,
+            (
+                target,
+                [(u, _cql_dec(f)) for u, f in sorted(factors.items())],
+                tuple(_cql_dec(x) for x in RANGE[comp]) if comp in RANGE else None,
+            ),
+        )
+        for comp, (target, factors) in sorted(UNITS.items())
+    ]
+    unitless = [
+        (comp, ", ".join(f"'{u}'" for u in sorted(UNIT_OF_SCORE_ITEM.get(comp, UNITLESS))))
+        for comp in sorted(CODES)
+        if comp not in UNITS
+    ]
+    return _env.get_template("TB_Common.cql.j2").render(
+        egfr=EGFR, jsn=EGFR_JSN, das=DAS28, asdas=ASDAS, units=units, unitless=unitless, min_age=EGFR_MIN_AGE
+    )
+
+
+def domain_expr(comp: str, conv: str) -> str:
+    """D-275, the CQL twin of the SQL ``domain_sql``: the converted value when ``tb_common.derived.DOMAIN`` allows it,
+    else null (a null value fails every comparison, so it stays null; CQL decimals are always finite)."""
+    lo, hi, lo_allowed = DOMAIN.get(comp, (float("-inf"), float("inf"), True))
+    conds = []
+    if lo != float("-inf"):
+        conds.append(f"{conv} {'>=' if lo_allowed else '>'} {_cql_dec(lo)}")
+    if hi != float("inf"):
+        conds.append(f"{conv} <= {_cql_dec(hi)}")
+    if not conds:
+        return conv
+    return f"if {' and '.join(conds)} then {conv} else null"
 
 
 def q(name: str) -> str:
@@ -55,7 +119,56 @@ def win_expr(w: Window) -> str:
     return f"Interval[{lo}, {date_expr(w.to_days)}]"
 
 
-def cmp_expr(atom: Atom, value: str, code: str | None = None) -> str:
+def unit_function(name: str, want: str | None) -> str:
+    """D-275 (review S-1), the CQL twin of ``tb_common.labunit.value_sql``: a function giving a Quantity's number
+    in the criterion's unit, or null when its unit is another one that cannot be converted (or is missing).
+    ``Cd`` is the coding list of the observation (or component) the Quantity belongs to."""
+    need = key(want)
+    have = "TB.UnitKey(Q)"
+    if need in UNITLESS_KEYS:
+        allowed = ", ".join("'" + k + "'" for k in sorted(UNITLESS_KEYS))
+        arms = [f"when {have} in {{ {allowed} }} then Q.value.value"]
+    else:
+        esc = need.replace("\\", "\\\\").replace("'", "\\'")
+        arms = [f"when {have} = '{esc}' then Q.value.value"]
+        for (sy, cd), table in sorted(ANALYTES.items()):
+            for u in sorted(table):
+                conv = conversion(u, need, sy, cd)
+                if conv is not None:  # the factor as an exact decimal, the value rounded as in SQL (review F2, F4)
+                    op, k = conv
+                    arms.append(
+                        f"when exists (Cd C where C.system.value = '{sy}' and C.code.value = '{cd}') "
+                        f"and {have} = '{u}' then Round(Q.value.value {op} {_cql_dec(k)}, {DIGITS})"
+                    )
+        for u, op, k in scale_arms(need):  # units of one kind, any analyte, after the analytes' own (D-418)
+            esc_u = u.replace("\\", "\\\\").replace("'", "\\'")
+            arms.append(f"when {have} = '{esc_u}' then Round(Q.value.value {op} {_cql_dec(k)}, {DIGITS})")
+    body = "\n    ".join(arms)
+    return f"define function {q(name)}(Q FHIR.Quantity, Cd List<FHIR.Coding>):\n  case\n    {body}\n    else null end"
+
+
+# T-619a (CR-001, CR-098, CR-115), as the SQL's ``_CENSORED`` (D-142): a censored result ("<0.3": at most the bound,
+# ">1000": at least) decides a comparison only when every value on that side of the bound gives the same answer, else
+# null. The bound counts as reachable, so the answer can only stay unknown, never be wrong. (side, op) -> (when, answer)
+_CENSORED: dict[tuple[str, str], tuple[str, str]] = {
+    ("below", ">="): ("{x} < {n}", "false"),
+    ("below", ">"): ("{x} <= {n}", "false"),
+    ("below", "<"): ("{x} < {n}", "true"),
+    ("below", "<="): ("{x} <= {n}", "true"),
+    ("below", "="): ("{x} < {n}", "false"),
+    ("below", "between"): ("{x} < {n}", "false"),
+    ("above", ">="): ("{x} >= {n}", "true"),
+    ("above", ">"): ("{x} > {n}", "true"),
+    ("above", "<"): ("{x} >= {n}", "false"),
+    ("above", "<="): ("{x} > {n}", "false"),
+    ("above", "="): ("{x} > {n}", "false"),
+    ("above", "between"): ("{x} > {n2}", "false"),
+}
+
+
+def cmp_expr(atom: Atom, value: str, code: str | None = None, censor: str | None = None) -> str:
+    """The comparison of one value. ``censor``: the CQL of the result's ``Quantity.comparator`` (T-619a); with it a
+    censored result is compared as the SQL compares ``value_cmp``."""
     v = atom.value
     assert v is not None and v.op is not None
     if v.op == "in":
@@ -63,9 +176,22 @@ def cmp_expr(atom: Atom, value: str, code: str | None = None) -> str:
         return f"({code} in {{ {codes} }})"
     if v.op == "between":
         assert v.num is not None and v.num2 is not None
-        return f"({value} >= {fmt_num(v.num)} and {value} <= {fmt_num(v.num2)})"
-    assert v.num is not None
-    return f"({value} {v.op} {fmt_num(v.num)})"
+        plain = f"({value} >= {fmt_num(v.num)} and {value} <= {fmt_num(v.num2)})"
+    else:
+        assert v.num is not None
+        plain = f"({value} {v.op} {fmt_num(v.num)})"
+    if censor is None:
+        return plain
+    n, n2 = fmt_num(v.num), fmt_num(v.num2) if v.num2 is not None else ""
+    side = {}
+    for s in ("below", "above"):
+        cond, answer = _CENSORED[(s, v.op)]
+        side[s] = f"if {cond.format(x=value, n=n, n2=n2)} then {answer} else null"
+    # no comparator, or one the lake does not read as censored ("ad"): the plain comparison, as the SQL
+    return (
+        f"(case when {censor} in {{ '<', '<=' }} then ({side['below']}) "
+        f"when {censor} in {{ '>', '>=' }} then ({side['above']}) else {plain} end)"
+    )
 
 
 @dataclass
@@ -95,6 +221,14 @@ class CqlGenerator:
             case "medication":
                 date = "date from X.authoredOn"
                 retrieve = f"[MedicationRequest: {vs}] X"
+                stems = self.vs.yj_stems(atom.valueset)
+                if stems:  # T-610: a YJ code whose ingredient stem the ValueSet lists matches, as in the SQL
+                    listed = ", ".join(f"'{st}'" for st in stems)
+                    retrieve = (
+                        f"[MedicationRequest] X where exists (({FAMILY_CODINGS['medication'][1]}) Cd where "
+                        f"FHIRHelpers.ToCode(Cd) in {vs} or (Matches(Cd.code.value, '{YJ_SHAPE}') and "
+                        f"Substring(Cd.code.value, 0, 7) in {{{listed}}})) and"
+                    )
             case "procedure":
                 date = "date from (X.performed as FHIR.dateTime)"
                 retrieve = f"[Procedure: {vs}] X"
@@ -113,15 +247,44 @@ class CqlGenerator:
             case _:
                 raise CompileError(f"unsupported domain {atom.domain}")
         joiner = " " if retrieve.endswith(" and") else " where "
-        defs = [f"define {q('Q_' + p)}:\n  {retrieve}{joiner}{date} in {win}"]
+        un, qn = q("U_" + p), q("Q_" + p)
+        # an undated record cannot be placed in the window: unknown where the dated ones do not settle the atom, as
+        # the SQL says (scenario run DUMP-01)
+        defs = [
+            f"define {qn}:\n  {retrieve}{joiner}{date} in {win}",
+            f"define {un}:\n  {retrieve}{joiner}{date} is null",
+        ]
         quant = atom.quantifier or "any"
         if quant == "count>=":
-            a = f"Count({q('Q_' + p)}) >= {atom.count}"
-        elif quant == "none":
-            a = f"not exists ({q('Q_' + p)})"
+            settled, reach = f"Count({qn}) >= {atom.count}", f"Count({qn}) + Count({un}) >= {atom.count}"
         else:
-            a = f"exists ({q('Q_' + p)})"
-        ev = f"{q('Q_' + p)} X return X.id + '|' + ToString({date})"
+            settled, reach = f"exists ({qn})", f"exists ({un})"
+        hit, miss = ("false", "true") if quant == "none" else ("true", "false")
+        a = f"if {settled} then {hit} else if {reach} then null as Boolean else {miss}"
+        ev = f"{qn} X return X.id + '|' + ToString({date})"
+        fams = self.vs.families(atom.valueset)
+        if not fams:
+            return defs, a, ev
+        # D-113 in CQL too (review F3, D-130): when the listed codes do not settle the atom but a record in the window
+        # is coded inside the grouper's family and outside its list, the answer is null (unknown), as the SQL says
+        if atom.domain not in FAMILY_CODINGS:
+            raise CompileError(f"code families are not supported on {atom.domain} atoms")
+        on = q("O_" + p)
+        in_family = " or ".join(
+            f"(Cd.system.value = '{sy}' and StartsWith(Cd.code.value, '{pre}'))" for sy, pre in sorted(set(fams))
+        )
+        for name, when in ((on, f"{date} in {win}"), (q("UO_" + p), f"{date} is null")):
+            defs.append(
+                f"define {name}:\n  [{FAMILY_CODINGS[atom.domain][0]}] X where ({when})\n"
+                f"    and exists (({FAMILY_CODINGS[atom.domain][1]}) Cd where ({in_family}) "
+                f"and not (FHIRHelpers.ToCode(Cd) in {vs}))"
+            )
+        if quant == "count>=":
+            reach = f"Count({qn}) + Count({un}) + Count({q('UO_' + p)}) >= {atom.count}"
+        else:
+            reach = f"exists ({un}) or exists ({q('UO_' + p)})"
+        a = f"if {settled} then {hit} else if exists ({on}) then null as Boolean else if {reach} then null as Boolean else {miss}"
+        ev = f"if exists ({qn}) then ({ev}) else ({on} X return X.id + '|' + ToString({date}))"
         return defs, a, ev
 
     def _obs_value(self, cid: str, n: int, atom: Atom, w: Window) -> tuple[list[str], str, str]:
@@ -129,45 +292,67 @@ class CqlGenerator:
         vsname = q(atom.valueset)
         win = win_expr(w)
         comp = self.vs.is_component_set(atom.valueset)
+        numeric = atom.value is not None and atom.value.op != "in"
+        nf = q("N_" + p)  # the value in the criterion's unit (D-275)
         if comp:
             retrieve = (
                 f"[Observation] X where TB.ObsDate(X) in {win} and exists (X.component C where C.code in {vsname})"
             )
 
             def val(o: str) -> str:
-                return f"TB.CompValue(First({o}.component C where C.code in {vsname}))"
+                c1 = f"First({o}.component C where C.code in {vsname})"
+                return f"{nf}({c1}.value as FHIR.Quantity, {c1}.code.coding)"
 
             def code(o: str) -> str:
                 return f"First(({o}.component C where C.code in {vsname}).value as FHIR.CodeableConcept).coding"
+
+            def censor(o: str) -> str:
+                return f"(First({o}.component C where C.code in {vsname}).value as FHIR.Quantity).comparator.value"
         else:
             retrieve = f"[Observation: {vsname}] X where TB.ObsDate(X) in {win}"
 
             def val(o: str) -> str:
-                return f"TB.ObsValue({o})"
+                return f"{nf}({o}.value as FHIR.Quantity, {o}.code.coding)"
 
             def code(o: str) -> str:
                 return f"TB.ObsCode({o})"
 
+            def censor(o: str) -> str:
+                return f"({o}.value as FHIR.Quantity).comparator.value"
+
         if comp and atom.value is not None and atom.value.op == "in":
             raise CompileError("coded comparisons on panel components are not supported")
         defs = [f"define {q('Q_' + p)}:\n  {retrieve}"]
+        if numeric:
+            assert atom.value is not None
+            defs.insert(0, unit_function("N_" + p, atom.value.unit))
         quant = atom.quantifier or "any"
         qn = q("Q_" + p)
         if quant == "latest":
             defs.append(f"define {q('L_' + p)}:\n  TB.LatestObs({qn})")
             ln = q("L_" + p)
-            a = f"if {ln} is null then null else {cmp_expr(atom, val(ln), code(ln))}"
+            a = f"if {ln} is null then null else {cmp_expr(atom, val(ln), code(ln), censor(ln))}"
             ev = f"if {ln} is null then List<String>{{}} else {{ {ln}.id + '|' + ToString(TB.ObsDate({ln})) }}"
             return defs, a, ev
-        c = cmp_expr(atom, val("X"), code("X"))
+        c = cmp_expr(atom, val("X"), code("X"), censor("X"))
+        # D-142 (review B-01), as the SQL: a record without a readable number leaves the answer unknown unless the
+        # readable records settle it; it never counts as a failed test
+        unread = f"exists ({qn} X where ({c}) is null)"
         if quant == "any":
-            a = f"if not exists ({qn}) then null else exists ({qn} X where {c})"
+            a = f"if not exists ({qn}) then null else if exists ({qn} X where {c}) then true else if {unread} then null else false"
         elif quant == "none":
-            a = f"if not exists ({qn}) then null else not exists ({qn} X where {c})"
+            a = f"if not exists ({qn}) then null else if exists ({qn} X where {c}) then false else if {unread} then null else true"
         elif quant == "all":
-            a = f"if not exists ({qn}) then null else AllTrue({qn} X return {c})"
+            a = (
+                f"if not exists ({qn}) then null else if exists ({qn} X where not ({c})) then false "
+                f"else if {unread} then null else true"
+            )
         elif quant == "count>=":
-            a = f"if not exists ({qn}) then null else Count({qn} X where {c}) >= {atom.count}"
+            met = f"Count({qn} X where {c})"
+            a = (
+                f"if not exists ({qn}) then null else if {met} >= {atom.count} then true "
+                f"else if {met} + Count({qn} X where ({c}) is null) >= {atom.count} then null else false"
+            )
         else:
             raise CompileError(f"quantifier {quant}")
         ev = f"{qn} X where {c} return X.id + '|' + ToString(TB.ObsDate(X))"
@@ -185,20 +370,41 @@ class CqlGenerator:
         defs: list[str] = []
         latest: dict[str, str] = {}
         assert atom.derived is not None
-        for comp in COMPONENTS[atom.derived]:
+        if atom.derived not in COMPONENTS:
+            raise CompileError(f"derived {atom.derived}")
+        rule = SAME_VISIT.get(atom.derived)  # D-149: one visit, anchored on the newest anchor component
+        comps = COMPONENTS[atom.derived]
+        order = [rule[0], *[c for c in comps if c != rule[0]]] if rule else list(comps)
+        for comp in order:
             cn = self._code_name(ctx, comp)
             qname = f"Q_{p}_{comp}"
-            defs.append(f"define {q(qname)}:\n  [Observation: {q(cn)}] X where TB.ObsDate(X) in {win}")
+            near = ""
+            if rule is not None and comp != rule[0]:
+                near = f" and TB.SameVisit(X, {q(f'L_{p}_{rule[0]}')}, {int(rule[1][comp])})"
+            defs.append(f"define {q(qname)}:\n  [Observation: {q(cn)}] X where TB.ObsDate(X) in {win}{near}")
             defs.append(f"define {q(f'L_{p}_{comp}')}:\n  TB.LatestObs({q(qname)})")
-            latest[comp] = f"TB.ObsValue({q(f'L_{p}_{comp}')})"
+            # in the formula's unit (D-149), and only a value possible for the component (D-275)
+            conv = f"TB.{q('Conv_' + comp)}({q(f'L_{p}_{comp}')})"
+            defs.append(f"define {q(f'K_{p}_{comp}')}:\n  {domain_expr(comp, conv)}")
+            latest[comp] = q(f"K_{p}_{comp}")
         match atom.derived:
             case "bmi":
                 value = f"TB.BMI({latest['weight']}, {latest['height']})"
-            case "egfr":
-                value = f"TB.EGFR2021({latest['creatinine']}, AgeInYearsAt(IndexDate), TB.IsFemale(Patient))"
+            case "egfr" | "egfr_ckd_epi":
+                value = f"TB.EGFR2021({latest['creatinine']}, TB.AgeAt(Patient, IndexDate), TB.IsFemale(Patient))"
+            case "egfr_jsn":
+                value = f"TB.EGFRJSN({latest['creatinine']}, TB.AgeAt(Patient, IndexDate), TB.IsFemale(Patient))"
             case "das28":
+                has_esr = f"{q(f'L_{p}_esr')} is not null"
                 value = (
-                    f"TB.DAS28({latest['tjc28']}, {latest['sjc28']}, {latest['ptga']}, {latest['esr']}, "
+                    f"TB.DAS28({latest['tjc28']}, {latest['sjc28']}, {latest['ptga']}, {has_esr}, {latest['esr']}, "
+                    f"{latest['crp']})"
+                )
+            case "cdai":  # D-189
+                value = f"TB.CDAI({latest['tjc28']}, {latest['sjc28']}, {latest['ptga10']}, {latest['evga']})"
+            case "sdai":  # D-189: the CRP in mg/L from Conv_crp; TB.SDAI takes it to mg/dL
+                value = (
+                    f"TB.SDAI({latest['tjc28']}, {latest['sjc28']}, {latest['ptga10']}, {latest['evga']}, "
                     f"{latest['crp']})"
                 )
             case "basdai":
@@ -230,7 +436,8 @@ class CqlGenerator:
         gap = 30 if atom.duration.gap_days is None else atom.duration.gap_days
         lo = f"@{UNBOUNDED_PAST}" if w.from_days is None else date_expr(w.from_days)
         hi = date_expr(w.to_days)
-        qn, pn, dn = q("Q_" + p), q("P_" + p), q("D_" + p)
+        qn, pn, dn, on = q("Q_" + p), q("P_" + p), q("D_" + p), q("O_" + p)
+        start = "Coalesce(date from X.dispenseRequest.validityPeriod.start, date from X.authoredOn)"
         defs = [
             f"define {qn}:\n  [MedicationRequest: {q(atom.valueset)}] X",
             (
@@ -245,8 +452,14 @@ class CqlGenerator:
                 f"define {dn}:\n  Coalesce(Max((collapse ({pn} I return Interval[start of I, end of I + {gap} days]) "
                 f"per day) J\n    return (days between start of J and (end of J - {gap} days)) + 1), 0)"
             ),
+            # D-275 (review S-9), as the SQL: an order with no end date ran for an unknown time and one with no
+            # date cannot be placed; where the dated periods do not reach min_days the answer is null (unknown)
+            (
+                f"define {on}:\n  {qn} X\n    where {start} is null\n"
+                f"      or (X.dispenseRequest.validityPeriod.end is null and {start} <= {hi})"
+            ),
         ]
-        a = f"{dn} >= {atom.duration.min_days}"
+        a = f"if {dn} >= {atom.duration.min_days} then true else if exists ({on}) then null as Boolean else false"
         ev = f"{qn} X return X.id + '|' + ToString(date from X.authoredOn)"
         return defs, a, ev
 
@@ -254,11 +467,15 @@ class CqlGenerator:
         conds = []
         if atom.age is not None:
             if atom.age.min is not None:
-                conds.append(f"AgeInYearsAt(IndexDate) >= {fmt_num(atom.age.min)}")
+                conds.append(f"TB.AgeAt(Patient, IndexDate) >= {fmt_num(atom.age.min)}")
             if atom.age.max is not None:
-                conds.append(f"AgeInYearsAt(IndexDate) <= {fmt_num(atom.age.max)}")
+                conds.append(f"TB.AgeAt(Patient, IndexDate) <= {fmt_num(atom.age.max)}")
         if atom.sex is not None:
-            conds.append(f"(if Patient.gender is null then null else Patient.gender.value = '{atom.sex}')")
+            # D-275 (review S-5), as the SQL: other / unknown is null, not "not female"
+            conds.append(
+                f"(if Patient.gender.value in {{ 'male', 'female' }} then Patient.gender.value = '{atom.sex}' "
+                f"else null)"
+            )
         return [], "(" + " and ".join(conds) + ")", "List<String>{}"
 
     # ------------------------------------------------------------------ criteria

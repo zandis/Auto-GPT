@@ -13,15 +13,45 @@ from collections.abc import Mapping
 
 # English sentence -> (Japanese, Traditional Chinese)
 REFUSALS: dict[str, tuple[str, str]] = {
+    # D-380 (FIT-002): the monitor's read of the data core
+    "the data core refused the subject": ("データコアがこの被験者を拒否しました", "資料核心拒絕了這位受試者"),
+    "the data core did not answer": ("データコアが応答しませんでした", "資料核心沒有回應"),
+    # D-436 (T-303): the monitor's SDV pages read the data core and the EDC
+    "the data core refused the request": ("データコアが要求を拒否しました", "資料核心拒絕了此要求"),
+    "the EDC refused the request": ("EDC が要求を拒否しました", "EDC 拒絕了此要求"),
+    "the EDC did not answer": ("EDC が応答しませんでした", "EDC 沒有回應"),
+    # D-192: sign-in and recovery (/ops/identity, the TOTP step)
+    "no such account": ("そのアカウントはありません", "沒有此帳號"),
+    "this account signs in through the identity provider": (
+        "このアカウントは病院アカウントでログインします",
+        "此帳號以醫院帳號登入",
+    ),
+    "the authenticator key file does not match; ask an administrator": (
+        "認証アプリの鍵ファイルが一致しません。管理者に連絡してください",
+        "驗證器金鑰檔案不符，請聯絡管理者",
+    ),
+    "another administrator does this for your account": (
+        "ご自身のアカウントには別の管理者が行います",
+        "您自己的帳號須由另一位管理者處理",
+    ),
     "choose the page language the label is in first": (
         "先に表示名の言語をページの言語として選んでください",
         "請先將頁面語言切換為標籤的語言",
     ),
     "approve the criteria first": ("先に選択基準を承認してください", "請先核准收案條件"),
+    "give every criterion a short label first: ": (
+        "先にすべての基準に短いラベルを付けてください：",
+        "請先為每一項條件填寫簡短標籤：",
+    ),
     "attach a protocol file": ("プロトコルのファイルを添付してください", "請附上計畫書檔案"),
     "attach the informed-consent form": ("同意説明文書を添付してください", "請附上受試者同意書"),
     "attachments are at most 50 MB": ("添付ファイルは50 MBまでです", "附件最大 50 MB"),
     "bad pseudonym": ("仮名IDの形式が正しくありません", "假名代碼格式不正確"),
+    "too many exports with chart numbers in the last hour": (
+        "この 1 時間のカルテ番号付きの書き出しが上限に達しました",
+        "過去一小時內含病歷號的匯出已達上限",
+    ),
+    "choose why you need the chart number": ("カルテ番号が必要な理由を選んでください", "請選擇需要病歷號的原因"),
     "chart numbers are letters, digits or '-'": ("カルテ番号は英数字と「-」のみです", "病歷號只能包含英數字與「-」"),
     "chart numbers are revealed for finished screening jobs only": (
         "カルテ番号は完了したスクリーニングでのみ表示できます",
@@ -40,6 +70,11 @@ REFUSALS: dict[str, tuple[str, str]] = {
         "請選擇可行性評估或篩選，以及已核准的條件",
     ),
     "choose a ruleset and a status": ("基準と状態を選んでください", "請選擇條件與狀態"),
+    "choose the whole hospital or some doctors": (  # D-146 (J-26): the study's screening scope
+        "病院全体か、一部の医師の患者かを選んでください",
+        "請選擇全院或部分醫師的病人",
+    ),
+    "choose a staged bundle": ("取り込み済みの更新ファイルを選んでください", "請選擇已放入的更新檔"),  # D-178
     "choose an approved ruleset": ("承認済みの基準を選んでください", "請選擇已核准的條件"),
     "choose en, ja or zh-TW": ("英語・日本語・中国語（繁体字）から選んでください", "請選擇英文、日文或繁體中文"),
     "choose one of the contact outcomes": ("連絡結果を一つ選んでください", "請選擇一項聯絡結果"),
@@ -51,6 +86,7 @@ REFUSALS: dict[str, tuple[str, str]] = {
         "再確認日は YYYY-MM-DD で入力してください",
         "請以 YYYY-MM-DD 輸入再評估日期",
     ),
+    "attempts and days are whole numbers": ("回数と日数は整数で入力してください", "次數與天數請輸入整數"),
     "give the retry date as YYYY-MM-DD": (
         "再連絡日は YYYY-MM-DD で入力してください",
         "請以 YYYY-MM-DD 輸入再聯絡日期",
@@ -90,6 +126,10 @@ REFUSALS: dict[str, tuple[str, str]] = {
         "提案已過期，請重新提案",
     ),
     "the re-check date must be within the next year": ("再確認日は1年以内にしてください", "再評估日期須在一年內"),
+    "keep is trialbox or theirs": (
+        "TrialBox の値を残すか、ソースの値を採用するかを選んでください",
+        "請選擇保留 TrialBox 的值或採用來源的值",
+    ),
     "there is no mark to withdraw": ("取り消す判断がありません", "沒有可撤回的標記"),
     "this account has no mailbox (console.cli set-mailbox)": (
         "このアカウントにはメールアドレスがありません。管理者に連絡してください",
@@ -103,6 +143,64 @@ REFUSALS: dict[str, tuple[str, str]] = {
     ),
     "unknown trial": ("この試験はありません", "沒有此試驗"),
     "version is x.y.z": ("バージョンは x.y.z の形です", "版本格式為 x.y.z"),
+    # D-147: the delegation log, referral, IRB record, staff directory and opt-out register
+    "dates are YYYY-MM-DD": ("日付は YYYY-MM-DD で入力してください", "請以 YYYY-MM-DD 輸入日期"),
+    "choose the role: PI, sub-investigator, CRC or other": (
+        "役割を選んでください：責任医師・分担医師・CRC・その他",
+        "請選擇角色：試驗主持人、協同主持人、研究護理師或其他",
+    ),
+    "give the person's name": ("氏名を入力してください", "請輸入姓名"),
+    "give the start date": ("開始日を入力してください", "請輸入開始日"),
+    "the end date is before the start date": ("最終日が開始日より前です", "最後一天早於開始日"),
+    "no such entry in this study's log": ("この試験の委任リストにその行はありません", "本試驗的授權紀錄表沒有這一筆"),
+    "say whether the copy matches the signed log": (
+        "署名済みリストと一致しているかを選んでください",
+        "請選擇是否與已簽署的授權表一致",
+    ),
+    "no such person in the directory": ("職員名簿にその人はいません", "人員名冊中沒有此人"),
+    "give the department and who answers for it": (
+        "診療科と、その窓口の人を入力してください",
+        "請輸入科別與該科聯絡人",
+    ),
+    "choose how the treating doctor is asked": ("主治医への依頼方法を選んでください", "請選擇詢問主治醫師的方式"),
+    "choose the doctor's answer: agree, decline or discuss": (
+        "主治医の返事を選んでください：了承・見送り・相談",
+        "請選擇醫師的回覆：同意、婉拒或討論",
+    ),
+    "no such referral in this study": ("この試験にその紹介依頼はありません", "本試驗沒有這筆轉介請求"),
+    "this referral has its answer already; ask again with a new request": (
+        "この依頼にはすでに返事があります。あらためて依頼してください",
+        "這筆請求已有回覆；請重新提出請求",
+    ),
+    "the approval expires before it was given": ("承認の有効期限が承認日より前です", "核准有效期限早於核准日期"),
+    # D-399 (T-302a): the approved consent-form versions and the one way to record consent
+    "the version is letters, digits, spaces and . _ / ( ) -, at most 40": (
+        "版は英数字・空白・. _ / ( ) - で40文字までです",
+        "版本為英數字、空白及 . _ / ( ) -，最多 40 字",
+    ),
+    "a version is used only from its IRB approval date": (
+        "版はIRB承認日から使用できます",
+        "版本須自 IRB 核准日起才能使用",
+    ),
+    "that version is not on the list": ("その版は一覧にありません", "清單中沒有此版本"),
+    "say why the version is taken off the list": (
+        "版を一覧から外す理由を書いてください",
+        "請說明將此版本移出清單的原因",
+    ),
+    "record consent on the participant page: it opens the consent form": (
+        "同意は参加者のページで記録してください（同意書フォームが開きます）",
+        "請在受試者頁面記錄同意（會開啟同意書表單）",
+    ),
+    "no such account for this study": ("この試験にそのアカウントはありません", "本試驗沒有此帳號"),
+    "a sub-investigator signs in with an investigator account": (
+        "分担医師は医師アカウントでログインします",
+        "協同主持人須以醫師帳號登入",
+    ),
+    "give a chart number or a pseudonym": ("カルテ番号か仮名IDを入力してください", "請輸入病歷號或假名代碼"),
+    "the box could not turn the chart number into a pseudonym": (
+        "カルテ番号を仮名IDに変えられませんでした",
+        "無法將病歷號轉為假名代碼",
+    ),
 }
 
 UNTRANSLATED: dict[str, str] = {

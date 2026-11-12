@@ -1,8 +1,13 @@
 #!/bin/bash
-# TrialBox 5090-like simulation box: two vLLM servers capped to ~28 GB total of the 96 GB card, behind nginx :80.
+# TrialBox 5090-like simulation box: two vLLM servers capped to ~28 GB total of the 96 GB card, behind nginx
+# 127.0.0.1:80 (an ssh tunnel; T-119: no port 80 to the internet).
 exec > >(tee -a /var/log/tb-startup.log /dev/ttyS0) 2>&1
-set -x
-KEY=$(curl -s -H Metadata-Flavor:Google http://metadata.google.internal/computeMetadata/v1/instance/attributes/tb-key)  # random API key set at VM creation
+# no `set -x` (review A-12): the API key is on the docker command lines and would go to the serial log
+# the API key (T-119, CR-048): made here at the first boot, root-only in /root/tb-key, never in the metadata. Port 80
+# is on loopback only: reach it with `gcloud compute ssh <vm> --zone <zone> -- -N -L 8080:127.0.0.1:80` and read the
+# key over the same ssh (`sudo cat /root/tb-key`); nothing crosses the internet in plain HTTP.
+[ -s /root/tb-key ] || (umask 077; head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 43 > /root/tb-key)
+KEY=$(cat /root/tb-key)
 VLLM=vllm/vllm-openai:v0.32.0
 if ! command -v docker >/dev/null; then
   curl -fsSL https://get.docker.com | sh
@@ -42,7 +47,7 @@ http { server { listen 80; client_max_body_size 10m; proxy_read_timeout 600s;
   location /record/   { alias /srv/record/; default_type application/json; } } }
 NG
 mkdir -p /root/record
-docker run -d --name front --network tb -p 80:80 -v /root/nginx.conf:/etc/nginx/nginx.conf:ro -v /root/record:/srv/record:ro \
+docker run -d --name front --network tb -p 127.0.0.1:80:80 -v /root/nginx.conf:/etc/nginx/nginx.conf:ro -v /root/record:/srv/record:ro \
   --restart unless-stopped nginx:1.27-alpine
 for i in $(seq 1 80); do docker exec verifier python3 -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3)" 2>/dev/null && break; [ $((i % 8)) = 0 ] && docker logs verifier 2>&1 | grep -aE 'Error|memory|KV cache' | tail -4 | sed 's/^/TBV /'; sleep 15; done
 docker logs verifier 2>&1 | grep -aE 'Error|error|memory|Memory|KV cache|Started' | tail -15 | sed 's/^/TBV /'

@@ -1,0 +1,3 @@
+{# D-386 (T-622, LIFE-008, LIFE-013): the study's state and identifiers on the screening log (page and XLSX "about"
+   sheet print the same lines). Needs ``rs``, ``sstate`` (StudyState), ``sident`` (StudyIdentity). #}
+<p class="hint" data-testid="log-study-ids"><a href="/studies/{{ rs }}/state">{{ t('sstate.now', state=t('sstate.' + sstate.state)) }}</a>{% if sstate.by %} ({{ t('sstate.since', at=sstate.at|local, by=sstate.by|replace('console:', '')) }}){% endif %}{% for k, v in sident.lines() %} · {{ t('sid.' + k) }}: <span class="mono" data-testid="log-id-{{ k|replace('registry.', '') }}">{{ v }}</span>{% endfor %}</p>

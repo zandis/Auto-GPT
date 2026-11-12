@@ -1,4 +1,5 @@
 # Wizard answers for the onboarding test site C (synthetic). `python -m tools.settings_wizard --answers <this file>`
+# finds the site's mapping in mapping/ beside this file, as a box finds it in deploy/site/mapping (T-632).
 site_id: DEMO-C
 site_name: 示範醫院C (synthetic)
 tz: Asia/Taipei
@@ -12,6 +13,7 @@ reviewers: [crc@hospc.test, pi@hospc.test]
 alliance_sites: []
 data_source_type: csv
 data_source_path: /data/source/site-c
+data_source_host_dir: /srv/hospc/his-export
 mapping: mapping/tw_core/site_c.yaml
 mrn_regex: '^C\d{7}$'
 registry_type: none
@@ -20,7 +22,8 @@ practitioners:
   P12345: {name: Dr. C1 (synthetic), department: RHEU, email: pi@hospc.test, capacity_per_month: 3}
 llm_mode: stub
 cloud_enabled: no
-attachment_encryption: zip
+attachment_encryption: link
+console_url: https://trialbox.hospc.test
 twpas_enabled: no
 alliance_root: no
 alliance_root_address: trialbox@hospa.test
@@ -31,3 +34,7 @@ imap_host: imap.hospc.test
 imap_port: "993"
 imap_user: trialbox
 mta_authserv_id: mx.hospc.test
+tls_hostname: trialbox.hospc.test
+tls_mode: hospital  # the first choice (OPS-060); the files are the hospital's, read by install.sh
+tls_cert_file: /etc/trialbox/tls/site.crt
+tls_key_file: /etc/trialbox/tls/site.key

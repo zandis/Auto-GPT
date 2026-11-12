@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -34,6 +35,7 @@ from tb_common.llm import LlmClient
 from tb_common.objstore import FsStore
 from tb_common.subject import is_job_mail
 
+from tests.rulesets_guard import copy_rulesets
 from tests.unit.test_compiler_service import FakeGate, FakeTranslator
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -130,6 +132,9 @@ def make_box(
 ) -> Box:
     """``extra_profiles``: a folder of ``<RULESET>.yaml`` site profiles added to the seed (studies that exist only for
     a test, such as the public-data studies of ``tools.public_site``)."""
+    from tools import pglocal
+
+    pglocal.for_work(tmp_path)  # D-126: the box's trial database (TB_DB_URL, or a local throwaway one)
     upd = settings_update or {}
     domain = str((upd.get("internal_domains") or ["hospa.test"])[0])
     env = load_env(
@@ -138,17 +143,19 @@ def make_box(
             "MAIL_FROM_ADDR": f"trialbox@{domain}",
             "MAIL_INTAKE_ADDR": f"trialbox@{domain}",
             "TB_SECRETS_DIR": str(secrets_dir),
+            "TB_CONSOLE_URL": f"https://trialbox.{domain}",  # link mode (D-369) points here
         },
     )
     settings = load_settings(ROOT / "deploy/settings.example.yaml")
     if upd:
         settings = c.Settings.model_validate({**settings.model_dump(mode="json", exclude_none=True), **upd})
     cfg = Config(env=env, settings=settings)
-    store = FsStore(tmp_path / "obj")
+    store = FsStore(tmp_path / "obj", secrets_dir)  # sealed when the test sealed it (T-210c)
     audit_dir = tmp_path / "audit"
     audit = AuditLog(audit_dir)
     seed = tmp_path / "seed"
-    shutil.copytree(ROOT / "rulesets", seed, ignore=shutil.ignore_patterns("tests"))
+    if not seed.exists():  # a box reopened on its own folder (the demo's --keep, T-505b) keeps its repo and seed
+        copy_rulesets(seed, "tests")
     if extra_profiles is not None:
         for f in sorted(extra_profiles.glob("*.yaml")):
             shutil.copy2(f, seed / "profiles" / f.name)
@@ -180,18 +187,21 @@ def make_box(
     gw = Gateway(
         cfg,
         store,
-        MailDB(tmp_path / "mail.sqlite"),
+        MailDB(),
         audit,
         transport,
         jobs=lambda req: holder["o"].create(req),  # noqa: PLW0108 - orchestrator is created below
         secrets_dir=tmp_path,
+        authserv_id=f"mx.{domain}",  # the hospital MTA of the test mails (AUTH); D-369: no authserv-id trusts nothing
+        allow_phi_zip=True,  # a synthetic box: the tests open the zip (unzip_phi); a real box refuses it (D-369)
     )
     services = Services(
         lake=LakeLocal(lake_dir, HashEmbedder()), parser=InprocParser(store), compiler=comp, mail=gw, llm=llm
     )
     orch = Orchestrator(
         cfg,
-        JobDB(tmp_path / "jobs.sqlite"),
+        # TB_DB_URL (pglocal.for_work above); each box its own job tables, as it had its own jobs.sqlite
+        JobDB(schema="orch_" + hashlib.sha1(str(tmp_path.resolve()).encode()).hexdigest()[:10]),
         store,
         audit,
         services,
@@ -211,6 +221,8 @@ def ingest_site(src: Path, lake_dir: Path, secrets_dir: Path, snapshot: str, sit
     from adapter.pipeline import AdapterConfig, run_ingest
     from lake.store import Lake
 
+    from tools import pglocal
+
     def rebuild(snap: str, nd: Path) -> c.RebuildResult:
         st = Lake(lake_dir).rebuild(snap, HashEmbedder(), nd)
         return c.RebuildResult(
@@ -224,8 +236,21 @@ def ingest_site(src: Path, lake_dir: Path, secrets_dir: Path, snapshot: str, sit
         site_id=site_id,
         audit_dir=lake_dir / "audit",
         rebuild=rebuild,
+        # the pid map's trial database: TB_DB_URL, or the run's schemas in a local throwaway one (as make_box)
+        db_url=pglocal.for_work(lake_dir.parent),
     )
-    return run_ingest(cfg, "csv", str(src), snapshot=snapshot, load_fhir=False, validate=False)
+    report = run_ingest(cfg, "csv", str(src), snapshot=snapshot, load_fhir=False, validate=False)
+    if report.passed:  # D-442: the derive batch of the new snapshot, as the INGEST job runs it after a passed ingest
+        from lake.client import LakeLocal
+        from orchestrator import derive
+        from tb_common.derived_store import mapping_version_of, run_batch
+
+        st = derive.store(cfg.db_url)
+        if st is not None:
+            lake = LakeLocal(lake_dir, HashEmbedder())
+            run_batch(st, lake, mapping_version=mapping_version_of(lake, report.snapshot.isoformat()),
+                      snapshot=report.snapshot.isoformat())  # fmt: skip
+    return report
 
 
 def unzip_phi(box: Box, mail: Sent) -> dict[str, bytes]:

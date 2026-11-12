@@ -24,9 +24,11 @@ from tb_common.config import Config
 from tb_common.crypto import sha256_bytes
 from tb_common.http import ServiceClient, ServiceError
 from tb_common.objstore import ObjectStore
-from tb_common.ruleset import RulesetNotApproved, list_rulesets, load_approved
+from tb_common.ruleset import RulesetNotApproved, list_rulesets, load_approved, seed_working_copy
 from tb_common.service_auth import actor_header
 from tb_contracts import Job, JobCreate, JobFile, RegistryEntry, RegistryPromote, RegistrySummary, RegistryUpdate
+
+from console import ruleset_labels
 
 
 class Refused(RuntimeError):
@@ -40,12 +42,16 @@ class Unavailable(RuntimeError):
 class Problem(Refused):
     """A structured refusal from the orchestrator's study API (D-109): an ICD error code, a message, fields."""
 
-    def __init__(self, status: int, code: str, message: str, fields: list[str] | None = None) -> None:
+    def __init__(self, status: int, code: str, message: str, fields: list[str] | None = None,
+                 problems: list[dict[str, str]] | None = None,
+                 detail: dict[str, Any] | None = None) -> None:  # fmt: skip
         super().__init__(f"{code}: {message}")
         self.status = status
         self.code = code
         self.message = message
         self.fields = list(fields or [])
+        self.problems = list(problems or [])  # per field {field, code, ...} (a whole-form save, D-129)
+        self.detail = dict(detail or {})  # the whole answer (a lifecycle refusal's why, state and allowed steps)
 
 
 def problem_of(status: int, text: str) -> Exception:
@@ -55,7 +61,14 @@ def problem_of(status: int, text: str) -> Exception:
     except (ValueError, AttributeError):
         detail = None
     if isinstance(detail, dict) and detail.get("code"):
-        return Problem(status, str(detail["code"]), str(detail.get("message") or ""), detail.get("fields") or [])
+        return Problem(
+            status,
+            str(detail["code"]),
+            str(detail.get("message") or ""),
+            detail.get("fields") or [],
+            [p for p in detail.get("problems") or [] if isinstance(p, dict)],
+            detail,
+        )
     if status == 0 or status >= 500:
         return Unavailable(text[:200])
     return Problem(status, "REFUSED", str(detail or text)[:200])
@@ -101,7 +114,7 @@ class AuditRecord:
 class Backend(Protocol):
     def list_jobs(self, limit: int = 100) -> list[Job]: ...
     def get_job(self, job_id: str) -> Job | None: ...
-    def create_job(self, req: JobCreate) -> Job: ...
+    def create_job(self, req: JobCreate, by: str = "", role: str = "") -> Job: ...
     def put_input(self, job_id: str, filename: str, data: bytes, content_type: str) -> JobFile: ...
     def get_object(self, key: str) -> bytes: ...
     def thread(self, job_id: str) -> list[MailItem]: ...
@@ -118,29 +131,61 @@ class Backend(Protocol):
     def registry_rows(self, ruleset: str) -> list[RegistryEntry]: ...
     def registry_update(self, ruleset: str, upd: RegistryUpdate) -> RegistryEntry: ...
     def registry_promote(self, ruleset: str, req: RegistryPromote) -> int: ...
-    def registry_export(self, ruleset: str) -> bytes: ...
-    def reveal(self, job_id: str, pid: str, by: str) -> str | None: ...
+    def registry_export(self, ruleset: str, by: str, role: str = "", scope: str = "") -> bytes: ...
+    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "", purpose: str = "",
+               reason: str = "") -> str | None: ...  # fmt: skip
     def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str: ...
 
 
-def criteria_of(rulesets_dir: Path, ruleset: str) -> list[dict[str, str]]:
+def criteria_of(rulesets_dir: Path, ruleset: str) -> list[dict[str, Any]]:
     """Inclusion and exclusion criteria of the approved ruleset, in protocol order (id, kind, class, label, text):
-    what the role pages (D-104) print next to a verdict. Empty when there is no approved version."""
+    what the role pages (D-104) print next to a verdict. Empty when there is no approved version. T-507 (D-309):
+    ``action`` is the criterion's to-do and ``i18n`` the label, text and to-do the ruleset ships per language for
+    exactly this text (``console.ruleset_labels``)."""
     try:
         rs = load_approved(rulesets_dir, ruleset)
     except (RulesetNotApproved, FileNotFoundError, ValueError):
         return []
+    shipped = ruleset_labels.shipped(ruleset, rulesets_dir)
     return [
-        {"id": c.id, "kind": c.kind, "class": c.class_, "label": c.label or c.text[:60], "text": c.text}
+        {
+            "id": c.id,
+            "kind": c.kind,
+            "class": c.class_,
+            "label": c.label or c.text[:60],
+            "text": c.text,
+            "action": c.action or "",
+            "i18n": ruleset_labels.words(shipped.get(c.id), c.text, c.action or ""),
+        }
         for c in rs.active()
         if c.kind in ("inclusion", "exclusion")
     ]
+
+
+def approval_state_of(rulesets_dir: Path, ruleset: str) -> dict[str, Any] | None:
+    """Whether the approved version still stands as the investigator approved it (D-318): ``approval_needed`` with
+    the reasons (a newer prompt, a changed pinned prompt, another terminology release); None when nothing is
+    approved. The page shows the state only; the run itself enforces the pins."""
+    from tb_common.ruleset import approval_state
+
+    try:
+        rs = load_approved(rulesets_dir, ruleset)
+    except (RulesetNotApproved, FileNotFoundError, ValueError):
+        return None
+    try:
+        from criteria_compiler.terminology import resolver
+
+        release: str | None = resolver.current_release()
+    except Exception:  # the console may not read the vocabulary: no terminology reason (the run still refuses)
+        release = None
+    return approval_state(rs.manifest, terminology_release=release)
 
 
 # ---------------------------------------------------------------------------------------------- audit reading
 _SHOWN_DETAIL = (
     "from", "to", "type", "filename", "tag", "bytes", "subject", "reason", "action", "line", "role", "run",
     "source", "validation_error_pct", "intent",  # S24 ingest rows, the header command field (step 4)
+    "via", "purpose",  # T-103 (D-438): where a chart number was shown and what for
 )  # fmt: skip
 
 
@@ -207,9 +252,11 @@ class HttpBackend:
         self.audit_log = audit
         self.orch = ServiceClient(env.orchestrator_url, "orchestrator", timeout=60, retries=1)
         self.mail = ServiceClient(env.mail_gateway_url, "mail-gateway", timeout=15, retries=0)
-        self.adapter = ServiceClient(env.adapter_url, "adapter", timeout=1800, retries=0, idempotent=False)
+        # T-690 (D-472): the ingest is started (202) and never waited for here; the request is short
+        self.adapter = ServiceClient(env.adapter_url, "adapter", timeout=60, retries=0, idempotent=False)
         self.gateway_url = gateway_url
         self.test_smtp = test_smtp
+        seed_working_copy(env.rulesets_path)  # D-469: a first copy of the shipped rulesets; never the checkout
         self.services = {
             "orchestrator": env.orchestrator_url,
             "mail-gateway": env.mail_gateway_url,
@@ -236,8 +283,12 @@ class HttpBackend:
                 return None
             raise Unavailable(str(exc)) from exc
 
-    def create_job(self, req: JobCreate) -> Job:
+    def create_job(self, req: JobCreate, by: str = "", role: str = "") -> Job:
+        """``POST /jobs``. ``by`` and ``role``: the signed-in person (D-146, review J-01); the orchestrator then
+        authorises the request by the role in the signed assertion instead of by the mailbox."""
         try:
+            if by and role:
+                return Job.model_validate(self.orch.post_raw("/jobs", req, actor_header(by, role=role)).json())
             return self.orch.post("/jobs", req, Job)
         except ServiceError as exc:
             if exc.status in (400, 403, 422):
@@ -247,6 +298,21 @@ class HttpBackend:
                     detail = exc.detail
                 raise Refused(detail) from exc
             raise Unavailable(str(exc)) from exc
+
+    def retry_scheduled_job(self, job_id: str, *, reply_to: str, by: str, role: str) -> Job:
+        """T-746 (D-474): ``POST /jobs/{job_id}/retry``. The orchestrator copies the failed scheduler job; the call
+        names the job, the reply mailbox and the signed person and role, never a type or an option."""
+        try:
+            resp = self.orch.post_raw(f"/jobs/{job_id}/retry", {"reply_to": reply_to}, actor_header(by, role=role))
+        except ServiceError as exc:
+            if exc.status in (403, 404, 409, 422):
+                try:
+                    detail = str(json.loads(exc.detail).get("detail"))
+                except (ValueError, AttributeError):
+                    detail = exc.detail
+                raise Refused(detail) from exc
+            raise Unavailable(str(exc)) from exc
+        return Job.model_validate(resp.json())
 
     def cancel_job(self, job_id: str, by: str) -> Job:
         """S26 Cancel (step 4, FR-PLAT-12): the orchestrator's ``POST /jobs/{id}/cancel``; a queued job fails at once,
@@ -285,6 +351,9 @@ class HttpBackend:
     def criteria(self, ruleset: str) -> list[dict[str, str]]:
         return criteria_of(self.cfg.env.rulesets_path, ruleset)
 
+    def approval_state(self, ruleset: str) -> dict[str, Any] | None:
+        return approval_state_of(self.cfg.env.rulesets_path, ruleset)
+
     def models(self) -> dict[str, Any] | None:
         """The orchestrator's ``GET /models`` (judge, verifier, note-block policy in force); None when it is down."""
         try:
@@ -292,6 +361,19 @@ class HttpBackend:
         except ServiceError:
             return None
         return dict(data) if isinstance(data, dict) else None
+
+    def model_builds(self) -> list[dict[str, Any]] | None:
+        """The gateway's registry view (``/registry/v1/builds``: statuses, pins, qualification records; no endpoint
+        addresses) for the admin Models tile (T-012b); None without a gateway or when it does not answer."""
+        base = self.services.get("gateway")
+        if not base:
+            return None
+        try:
+            data = ServiceClient(base, "gateway", timeout=10, retries=0).get_json("/registry/v1/builds")
+        except ServiceError:
+            return None
+        builds = data.get("builds") if isinstance(data, dict) else None
+        return [dict(b) for b in builds if isinstance(b, dict)] if isinstance(builds, list) else None
 
     def run_canary(self) -> bool:
         """Start the pair canary on the orchestrator (``POST /models/canary``); False when it is down or refused."""
@@ -340,8 +422,18 @@ class HttpBackend:
             resp = self.adapter.post_raw("/run", {"source": "csv", "snapshot": snapshot})
         except ServiceError as exc:
             raise Unavailable(str(exc)) from exc
-        report: dict[str, Any] = resp.json()
-        return report
+        body = resp.json()  # T-690 (D-472): 202, the run id and "running"; the night's end is the adapter's audit
+        return {"run": str(body.get("run") or ""), "state": str(body.get("state") or "")}
+
+    def deceased(self, pids: list[str]) -> set[str]:
+        """FIT-U04 (T-629, D-415): which of ``pids`` the lake's current snapshot records as dead (the orchestrator's
+        ``POST /patients/deceased``). Raises :class:`Unavailable` when it cannot be asked: the caller then stops
+        contacts instead of reading "nobody died"."""
+        try:
+            data = self.orch.post_raw("/patients/deceased", {"pids": list(pids)}).json()
+        except ServiceError as exc:
+            raise Unavailable(str(exc)) from exc
+        return {str(p) for p in (data.get("deceased") or [])} if isinstance(data, dict) else set()
 
     # ------------------------------------------------------------------ candidate registry (D-92)
     def _registry_call(self, method: str, path: str, body: Any = None) -> Any:
@@ -370,15 +462,19 @@ class HttpBackend:
     def registry_promote(self, ruleset: str, req: RegistryPromote) -> int:
         return int(self._registry_call("POST", f"/registry/{ruleset}/promote", req)["added"])
 
-    def reveal(self, job_id: str, pid: str, by: str) -> str | None:
+    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "", purpose: str = "",
+               reason: str = "") -> str | None:  # fmt: skip
         """The chart number of one listed pseudonym (D-99): the orchestrator resolves and audits it; None when the
-        box has no pid map for it."""
+        box has no pid map for it. D-273: the person's role and studies travel signed, and the orchestrator checks
+        them; its refusal (403: role, study, opted out, not listed; 429: its cap) is a refusal here. T-103 (D-438):
+        the purpose and reason go with the request into the orchestrator's audit record."""
+        body = {"pid": pid, **({"purpose": purpose} if purpose else {}), **({"reason": reason} if reason else {})}
         try:
-            data = self.orch.post_raw(f"/jobs/{job_id}/reveal", {"pid": pid}, actor_header(by)).json()
+            data = self.orch.post_raw(f"/jobs/{job_id}/reveal", body, actor_header(by, role=role, scope=scope)).json()
         except ServiceError as exc:
             if exc.status == 404:
                 return None
-            if exc.status in (400, 409, 422):
+            if exc.status in (400, 403, 409, 422, 429):
                 raise Refused(exc.detail) from exc
             raise Unavailable(str(exc)) from exc
         mrn = data.get("mrn") if isinstance(data, dict) else None
@@ -395,18 +491,27 @@ class HttpBackend:
             raise Unavailable(str(exc)) from exc
         return str(data.get("message_id") or "")
 
-    def study_api(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
-        """The orchestrator's S-28 study store and REDCap routes (D-109)."""
+    def study_api(self, method: str, path: str, body: dict[str, Any] | None = None,
+                  headers: dict[str, str] | None = None) -> Any:  # fmt: skip
+        """The orchestrator's S-28 study store and REDCap routes (D-109); ``headers`` carry the signed-in user's
+        signed assertion where the orchestrator acts on who the user is (EDC prefill, D-162)."""
         try:
             kw: dict[str, Any] = {} if body is None else {"json": body}
+            if headers:
+                kw["headers"] = headers
             return self.orch._request(method, path, **kw).json()
         except ServiceError as exc:
             raise problem_of(exc.status, exc.detail) from exc
 
-    def registry_export(self, ruleset: str) -> bytes:
+    def registry_export(self, ruleset: str, by: str, role: str = "", scope: str = "") -> bytes:
+        """The screening log with chart numbers; the orchestrator verifies the signed actor, its role and its studies
+        (D-273), audits and rate-limits it (S-09)."""
         try:
-            return self.orch._request("GET", f"/registry/{ruleset}/export.xlsx").content
+            hdr = actor_header(by, role=role, scope=scope)
+            return self.orch._request("GET", f"/registry/{ruleset}/export.xlsx", headers=hdr).content
         except ServiceError as exc:
+            if exc.status in (403, 429):
+                raise Refused(exc.detail) from exc
             raise Unavailable(str(exc)) from exc
 
     def send_test_mail(self, sender: str, to: str, subject: str, body: str, files: list[tuple[str, bytes]]) -> str:

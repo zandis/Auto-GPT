@@ -1,7 +1,7 @@
 """Open-data end-to-end: MIMIC-IV FHIR demo -> adapter -> lake -> FEAS for two real ClinicalTrials.gov trials.
 
 In process (no compose stack). Needs the PhysioNet files from ``python tools/fetch_open_data.py`` (``make
-open-data-e2e``); skipped when they are absent so CI without network passes. docs/OPEN_DATA.md.
+open-data-e2e``); skipped when they are absent so CI without network passes. docs/VALIDATION.md §5.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ def test_ingest_and_mapping(report: dict[str, Any]) -> None:
     assert counts["condition.icd10"] > 1000 and counts["condition.icd9_mapped"] > 50
     assert counts["observation.loinc"] == counts["observation.total"] > 10000
     assert counts["medication_request.atc"] > 100 and counts.get("medication_request.unresolved", 0) == 0
-    assert counts["encounter.icu"] > 50 and counts["procedure.icu_snomed"] > 10
+    assert counts["encounter.icu"] > 50 and counts["procedure.icu_icd10pcs"] > 10
     lake = report["ingest"]["lake_tables"]
     assert lake["patient"] == 100 and lake["observation"] == counts["observation.total"]
     assert lake["condition"] == counts["condition.total"]

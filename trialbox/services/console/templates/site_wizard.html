@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{# TB-PLAN-04 step 5b (D-132): the set-up wizard. One question per screen, with examples, what each answer means and
+   progress to "ready". The shortest path: a protocol, then charts pasted one by one; feeds and sheets can come later. #}
+{% from "_site.html" import site_nav, state_pill, ws_name with context %}
+{% block title %}{{ t('site.start.title') }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ t('site.start.title') }} · {{ ws_name(ws) }}</h1></div>
+{{ site_nav(ws, rs, qs) }}
+<ol class="steps" data-testid="wizard-steps">{% for s in steps %}<li class="{{ 'now' if loop.index == step else ('done' if loop.index < step else '') }}"><b>{{ loop.index }}. {{ t('site.wiz.' + s + '.short') }}</b></li>{% endfor %}</ol>
+<section class="card" data-testid="wizard-{{ key }}">
+<h2>{{ t('site.wiz.' + key + '.q') }}</h2>
+<p>{{ t('site.wiz.' + key + '.why') }}</p>
+<h3>{{ t('site.wiz.examples') }}</h3>
+<p class="hint">{{ t('site.wiz.' + key + '.ex') }}</p>
+<h3>{{ t('site.wiz.means') }}</h3>
+<p class="hint">{{ t('site.wiz.' + key + '.means') }}</p>
+{% if rd %}{% set qn = {'trial': 'trial', 'charts': 'patients', 'bulk': 'patients', 'check': 'patients', 'records': 'records'}[key] %}
+<p>{{ t('site.wiz.now') }} {{ state_pill(rd.questions[qn].state) }}</p>{% endif %}
+{% if key == 'trial' %}
+<p><a class="button" href="/pilot/protocol" data-testid="wiz-protocol">{{ t('site.link.protocol') }}</a></p>
+{% elif key == 'charts' %}
+{% if editable %}<form method="post" action="/site/charts" class="formstack" data-testid="wiz-chart-form">
+<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="ws" value="{{ ws }}"><input type="hidden" name="study" value="{{ rs }}">
+<label for="wz-no">{{ t('site.chart.no') }}</label><input id="wz-no" name="chart_no" required autocomplete="off" inputmode="numeric">
+<label for="wz-text">{{ t('site.chart.paste') }}</label><textarea id="wz-text" name="text" rows="6"></textarea>
+<button type="submit" data-testid="wiz-chart-save">{{ t('site.chart.save') }}</button>
+</form>{% endif %}
+<p><a class="button secondary" href="/site/charts?{{ qs }}">{{ t('site.nav.charts') }}</a></p>
+{% elif key == 'bulk' %}
+<p><a class="button" href="/site/sheets?{{ qs }}" data-testid="wiz-sheets">{{ t('site.nav.sheets') }}</a> <a class="button secondary" href="/site/help?{{ qs }}">{{ t('site.help.templates') }}</a></p>
+{% elif key == 'check' %}
+<ul class="plain miss">
+<li><a class="button secondary" href="/site/facts?{{ qs }}">{{ t('site.nav.facts') }}</a></li>
+<li><a class="button secondary" href="/site/codes?{{ qs }}">{{ t('site.nav.codes') }}</a></li>
+<li><a class="button secondary" href="/site/checks?{{ qs }}">{{ t('site.nav.checks') }}</a></li>
+<li><a class="button secondary" href="/site/people?{{ qs }}">{{ t('site.nav.people') }}</a></li></ul>
+{% elif key == 'records' and rs %}
+<p><a class="button" href="/studies/{{ rs }}/forms" data-testid="wiz-forms">{{ t('site.wiz.records.forms') }}</a> <a class="button secondary" href="/studies/{{ rs }}/setup">{{ t('site.wiz.records.redcap') }}</a></p>
+{% endif %}
+</section>
+<nav class="pager" aria-label="{{ t('site.start.title') }}">
+{% if step > 1 %}<a class="button secondary" href="/site/start?{{ qs }}&amp;step={{ step - 1 }}" data-testid="wiz-back">{{ t('site.wiz.back') }}</a>{% endif %}
+{% if step < steps|length %}<a class="button" href="/site/start?{{ qs }}&amp;step={{ step + 1 }}" data-testid="wiz-next">{{ t('site.wiz.next') }}</a>
+{% else %}<a class="button" href="/site?{{ qs }}" data-testid="wiz-done">{{ t('site.wiz.done') }}</a>{% endif %}
+</nav>
+{% endblock %}

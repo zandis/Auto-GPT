@@ -5,6 +5,7 @@ POSTs exactly the audited bundle when live (SPEC §8.4, §9.5, §5)."""
 
 from __future__ import annotations
 
+import copy
 import csv
 import hashlib
 import json
@@ -23,14 +24,39 @@ KEY = b"trialbox-test-site-key-0123456789abcdef"
 RUN = date(2026, 10, 5)
 
 
-@pytest.fixture(scope="module")
-def world(synth_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
-    tmp = tmp_path_factory.mktemp("twpas")
-    sec = tmp / "sec"
+#: HL7 validator results by input (jar path, size and mtime, package cache, IGs, bundles): one JVM run per distinct set of bundles, whichever test runs
+#: it first. The NAV bundles of a fresh box are the same bytes in every test, and the validator is a pure function of
+#: its input, so a hit returns exactly what a new run would.
+_VALIDATED: dict[str, Any] = {}
+
+
+@pytest.fixture(autouse=True)
+def _memo_hl7_validator(monkeypatch: pytest.MonkeyPatch) -> None:
+    real = Hl7Validator.validate
+
+    def validate(self: Hl7Validator, resources: list[dict[str, Any]], extra_args: list[str] | None = None) -> Any:
+        jar = Path(self.jar).stat()
+        blob = json.dumps(
+            [str(self.jar), jar.st_size, jar.st_mtime_ns, str(self.cache_home), self.igs, resources, extra_args],
+            sort_keys=True,
+            ensure_ascii=False,
+        )
+        key = hashlib.sha256(blob.encode()).hexdigest()
+        if key not in _VALIDATED:
+            _VALIDATED[key] = real(self, resources, extra_args)
+        return copy.deepcopy(_VALIDATED[key])  # a caller that changes its result never changes the next test's
+
+    monkeypatch.setattr(Hl7Validator, "validate", validate)
+
+
+@pytest.fixture
+def world(synth_dir: Path, tmp_path: Path) -> dict[str, Any]:
+    """A fresh box per test (its own lake, pid map and job tables), so every test runs alone and in any order."""
+    sec = tmp_path / "sec"
     sec.mkdir()
     (sec / "site_hmac.key").write_bytes(KEY)
-    ingest_site(synth_dir / "site-a", tmp / "lake", sec, "2026-10-04")
-    box = make_box(tmp / "box", tmp / "lake", sec, RUN)
+    ingest_site(synth_dir / "site-a", tmp_path / "lake", sec, "2026-10-04")
+    box = make_box(tmp_path / "box", tmp_path / "lake", sec, RUN)
     pts = list(csv.DictReader((synth_dir / "site-a" / "patient.csv").open(encoding="utf-8")))
     states = json.loads((synth_dir / "site-a" / "states.json").read_text(encoding="utf-8"))
     return {
@@ -72,8 +98,7 @@ def _live(box: Box, monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_nav_onc_builds_bundles(world: dict[str, Any]) -> None:
     box: Box = world["box"]
-    job, files = _nav(box)
-    world["nav"] = job
+    _job, files = _nav(box)
     nav = c.NavLists.model_validate_json(
         next(v for k, v in files.items() if k.startswith("nav_lists") and k.endswith(".json"))
     )
@@ -111,7 +136,7 @@ def test_nav_onc_builds_bundles(world: dict[str, Any]) -> None:
 
 def test_submit_dry_run(world: dict[str, Any]) -> None:
     box: Box = world["box"]
-    nav: c.Job = world["nav"]
+    nav, _files = _nav(box)  # this test's own NAV run (the real validator and pre-check)
     out = next(o for o in nav.outputs or [] if o.filename.startswith("twpas_ONC-OSI_"))
     pid = next(p for p in world["patient"] if out.filename == f"twpas_ONC-OSI_{p[:12]}.json")
     # not a physician → refused at intake (permissions.SUBMIT = [physicians])
@@ -141,7 +166,7 @@ def test_submit_dry_run(world: dict[str, Any]) -> None:
 
 def test_submit_live_requires_validator_and_precheck(world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
     box: Box = world["box"]
-    nav: c.Job = world["nav"]
+    nav, _files = _nav(box)  # this test's own NAV run (the real validator and pre-check)
     out = next(o for o in nav.outputs or [] if o.filename.startswith("twpas_ONC-OSI_"))
     pid = next(p for p in world["patient"] if out.filename == f"twpas_ONC-OSI_{p[:12]}.json")
     report = json.loads(box.store.get(f"outputs/{nav.job_id}/twpas_validation_ONC-OSI.json"))
@@ -176,7 +201,7 @@ def test_submit_live_posts_audited_bundle(world: dict[str, Any], monkeypatch: py
         cr = {"resourceType": "ClaimResponse", "id": "nhi-1", "status": "active", "outcome": "complete"}
         return httpx.Response(200, json={"resourceType": "Bundle", "type": "collection", "entry": [{"resource": cr}]})
 
-    monkeypatch.setattr(httpx, "post", fake_post)
+    _nhi(monkeypatch, fake_post)
     _live(box, monkeypatch)
     for attempt in (1, 2):
         box.mail(f"SUBMIT ONC-OSI pid={pid} bundle={nav.job_id}", sender="onc-dr@hospa.test")
@@ -192,8 +217,11 @@ def test_submit_live_posts_audited_bundle(world: dict[str, Any], monkeypatch: py
             assert "already submitted" in job.error.message and len(posted) == 1
 
 
-def _live_ready(box: Box, world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
-    """A NAV run whose bundles count as validated + pre-checked, in live mode: (pid, bundle sha) not yet live."""
+def _live_ready(
+    box: Box, world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> tuple[c.Job, list[tuple[str, str]]]:
+    """A NAV run whose bundles count as validated + pre-checked, in live mode: the run and its (pid, bundle sha) not
+    yet live."""
     from orchestrator.precheck import PrecheckResult, PrecheckRunner
     from orchestrator.scenarios import twpas
 
@@ -206,8 +234,7 @@ def _live_ready(box: Box, world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
         if o.filename.startswith("twpas_ONC-OSI_") and not box.orch.db.submissions(o.sha256, live_only=True):
             pid = next(p for p in world["patient"] if o.filename == f"twpas_ONC-OSI_{p[:12]}.json")
             out.append((pid, o.sha256))
-    world["nav_live"] = nav
-    return out
+    return nav, out
 
 
 def _submit_job(box: Box, nav: c.Job, pid: str) -> str:
@@ -229,9 +256,8 @@ def test_live_submit_is_once_under_concurrency_and_restart(
     import httpx
 
     box: Box = world["box"]
-    ready = _live_ready(box, world, monkeypatch)
+    nav, ready = _live_ready(box, world, monkeypatch)
     assert len(ready) >= 3
-    nav = world["nav_live"]
     posted: list[bytes] = []
 
     def slow_post(url: str, content: bytes, headers: dict[str, str], timeout: float) -> httpx.Response:
@@ -240,7 +266,7 @@ def test_live_submit_is_once_under_concurrency_and_restart(
         cr = {"resourceType": "ClaimResponse", "id": "nhi-2", "status": "active", "outcome": "complete"}
         return httpx.Response(200, json=cr)
 
-    monkeypatch.setattr(httpx, "post", slow_post)
+    _nhi(monkeypatch, slow_post)
     pid, sha = ready[0]
     jobs = [_submit_job(box, nav, pid), _submit_job(box, nav, pid)]
     threads = [threading.Thread(target=box.orch.run, args=(j,)) for j in jobs]
@@ -281,8 +307,7 @@ def test_live_submit_failure_classification(world: dict[str, Any], monkeypatch: 
     import httpx
 
     box: Box = world["box"]
-    ready = _live_ready(box, world, monkeypatch)
-    nav = world["nav_live"]
+    nav, ready = _live_ready(box, world, monkeypatch)
     pid, sha = ready[0]
     calls: list[str] = []
 
@@ -293,13 +318,13 @@ def test_live_submit_failure_classification(world: dict[str, Any], monkeypatch: 
 
         return post
 
-    monkeypatch.setattr(httpx, "post", failing(httpx.ConnectError("refused")))
+    _nhi(monkeypatch, failing(httpx.ConnectError("refused")))
     jid = _submit_job(box, nav, pid)
     box.orch.drain()
     job = box.orch.db.get(jid)
     assert job is not None and job.state == "failed" and job.error is not None
     assert "nothing was submitted" in job.error.message and not box.orch.db.submissions(sha, live_only=True)
-    monkeypatch.setattr(httpx, "post", failing(httpx.ReadTimeout("no answer")))
+    _nhi(monkeypatch, failing(httpx.ReadTimeout("no answer")))
     jid = _submit_job(box, nav, pid)
     box.orch.drain()
     job = box.orch.db.get(jid)
@@ -312,3 +337,19 @@ def test_live_submit_failure_classification(world: dict[str, Any], monkeypatch: 
     job = box.orch.db.get(jid)
     assert job is not None and job.state == "failed" and job.error is not None
     assert "already submitted" in job.error.message and calls == ["ConnectError", "ReadTimeout"]
+
+
+def _nhi(monkeypatch: pytest.MonkeyPatch, post: Any) -> None:
+    """Put a fake NHI endpoint ``post(url, content, headers, timeout)`` behind the SSRF guard (T-212d, D-450): the test
+    name resolves to a public address (the guard checks it), and the guarded client's transport calls ``post`` with
+    the URL as the orchestrator wrote it (the name, from the Host header; the connection itself went to the address)."""
+    import httpx
+    from orchestrator.scenarios import submit
+    from tb_common import http as tbh
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = f"{request.url.scheme}://{request.headers['host']}{request.url.raw_path.decode()}"
+        return post(url, request.content, request.headers, 0.0)  # type: ignore[no-any-return]
+
+    monkeypatch.setattr(tbh, "resolve_now", lambda host, port: ["93.184.216.34"])  # TEST: a public address
+    monkeypatch.setattr(submit, "NHI_TRANSPORT", httpx.MockTransport(handler))

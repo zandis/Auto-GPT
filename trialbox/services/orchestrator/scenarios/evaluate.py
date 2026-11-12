@@ -1,10 +1,13 @@
 """Per-patient evaluation for SCREEN / MICROBATCH / NAV (SPEC §8.2, §7.3, §7.5).
 
-* Structured criteria: CQL ``Library/$evaluate`` per patient in fhir-store (8 concurrent calls; SPEC §4.4). The lake
-  SQL engine evaluates the same approved ruleset and is selectable with ``TB_SCREEN_ENGINE=sql`` (CPU CI, DECISIONS
-  D-49); the equivalence gate guarantees ≥98 % agreement between the two.
+* Structured criteria: the lake SQL engine, the only runtime engine (owner decision 3, TB-PLAN-04 step 6). CQL
+  (``CqlEngine``) is kept for the compile-time equivalence gate and the bench; ``TB_SCREEN_ENGINE`` other than ``sql``
+  is refused.
 * Note criteria: RAG over ``/chunks/search`` (k=5, window ``[index-365d, index]`` unless the IR window is narrower,
   ≤2,500 tokens, newest first) and the ``judge`` prompt (local only); full-record fallback for small candidate sets.
+  Both budgets are cut to what the judge's and the verifier's context leave beside the prompt and the answer (T-603,
+  review LLM-015; :meth:`NoteJudge.budget`). A note that does not fit is not dropped in silence: the answer carries
+  the reason ``notes_over_budget`` and the patient goes to review (T-603, review LLM-016 / CR-004 flag half).
   The quote must be a substring of one excerpt, else the verdict becomes ``unknown`` (``quote_not_found``).
 * Verdicts are reported from the eligibility perspective (D-25): inclusion pass = predicate true, exclusion pass =
   predicate false.
@@ -13,28 +16,49 @@
 from __future__ import annotations
 
 import os
+import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from typing import Any, Literal, Protocol, cast
 
+from criteria_compiler.compile_sql.overlay import safe_sql
+from guard.injection import planted_in
 from lake.client import LakeAPI
+from matching.coverage import Coverage
+from matching.proposed import Proposed
+from matching.stored_scores import apply_rows
 from tb_common.fhir import FhirEvaluator
-from tb_common.llm import LlmClient, LlmError
-from tb_common.pair import Vote, combine, needs_verifier
+from tb_common.labunit import reason_of as derived_reason
+from tb_common.llm import LlmClient, LlmError, LlmPromptTooLong
+from tb_common.pair import DECIDED, Vote, combine, needs_verifier, same_model, served_keys
 from tb_common.quotes import quote_in
 from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
 from tb_contracts import CandidateRow, CriterionIR, CriterionVerdict, Evidence, Opinion, PatientEvaluation
+from tb_llm.budget import excerpt_tokens
 
 from orchestrator.scenarios.terms import keywords
 from orchestrator.twophase import two_phase
 
 Verdict = Literal["pass", "fail", "unknown", "pending_human"]
-CHUNK_TOKENS = 2500
-FULL_RECORD_TOKENS = 28000
+CHUNK_TOKENS = 2500  # the retrieval budget (k=5 chunks); cut further to the models' context (T-603)
+FULL_RECORD_TOKENS = 28000  # used only when neither model's context is known; else the context decides (T-603)
 FULL_RECORD_MAX_CANDIDATES = 100
+NOTES_FLAG = "notes.reading"  # T-609 (OPS-042): off holds note reading (tb_common.flags, RUNBOOK §19)
+NOTES_HELD = "note reading is held (flag notes.reading is off): note answers never exclude"
+
+
+def notes_held() -> bool:
+    """True while an operator holds note reading (``trialbox model hold``, the flag ``notes.reading`` set to off).
+
+    Read before every model call of the note stage, through the flag's five-second cache, so a hold stops the note
+    stage within one step of a running job, without a restart. A flag store that cannot be read (no ``TB_DB_URL``,
+    the database down) is not a hold: the job's own database calls fail then anyway."""
+    from tb_common.flags import read
+
+    return read(NOTES_FLAG) == "off"
 
 
 class StructuredEngine(Protocol):
@@ -86,34 +110,63 @@ class SqlEngine:
     lake: LakeAPI
     snapshot: str | None = None
     name: str = "sql"
+    # D-442: the stored derived rows (``tb_common.derived_store.stored_read``: given only while the flag
+    # ``derived.stored_read`` is on). Given, :func:`matching.stored_scores.apply_rows` runs on the SQL's rows, as on
+    # the cascade's: a decided score answer stands only on its stored row of the snapshot's batch
+    stored: Any = None
 
     def evaluate(self, rs: Ruleset, pids: list[str], index_date: date, ids: list[str]) -> dict[str, PatientEvaluation]:
         if not pids:
             return {}
-        t = self.lake.query(rs.sql, [[index_date.isoformat()], list(pids)], self.snapshot).to_pylist()
+        t = self.lake.query(safe_sql(rs), [[index_date.isoformat()], list(pids)], self.snapshot).to_pylist()
+        crit = [c for c in rs.active() if c.id in set(ids)]
+        apply_rows(t, crit, self.stored, self.snapshot, getattr(rs.manifest, "derived_pins", None))
+        cov = Coverage.for_criteria(self.lake, crit, pids, self.snapshot, rs.valuesets)
+        prop = Proposed.for_criteria(self.lake, crit, pids, self.snapshot, rs.valuesets)
         out: dict[str, PatientEvaluation] = {}
         for row in t:
             res = {k[2:]: row[k] for k in row if k.startswith("C_") and k[2:] in ids}
             ev = {
                 k[2:]: [x for x in (row[k] or "").split(";") if x] for k in row if k.startswith("E_") and k[2:] in ids
             }
+            reasons: dict[str, str] = {}
+            for cid, items in list(ev.items()):  # D-149: a score with no value says why (missing input, unit)
+                why, refs = derived_reason(items)
+                if why is not None:
+                    ev[cid] = refs
+                    if res.get(cid) is None:
+                        reasons[cid] = why
+            for c in crit:  # F-10 (D-130): FALSE beside an unreadable code is unknown, not an exclusion
+                gap = cov.refs(c, str(row["pid"]), index_date) if res.get(c.id) is False else []
+                if gap:
+                    res[c.id], ev[c.id], reasons[c.id] = None, gap, Reason.UNKNOWN_CODE_SYSTEM.value
+                # D-135: a proposed fact that could change a decided answer makes it unknown ("needs information");
+                # it never decides one: it is not in the coded tables the SQL reads
+                fids = prop.refs(c, str(row["pid"]), index_date, res.get(c.id))
+                if fids:  # a suspected diagnosis (疑い, D-142) the same way, with its own reason
+                    res[c.id], ev[c.id], reasons[c.id] = None, fids, prop.reason(str(row["pid"]), fids)
             out[row["pid"]] = PatientEvaluation(
-                pid=row["pid"], index_date=index_date, engine="sql", results=res, evidence=ev
+                pid=row["pid"], index_date=index_date, engine="sql", results=res, evidence=ev, reasons=reasons or None
             )
         return out
 
 
-def engine_from_env(name: str, fhir: FhirEvaluator | None, lake: LakeAPI, snapshot: str | None) -> StructuredEngine:
-    if name == "sql" or fhir is None:
-        return SqlEngine(lake, snapshot)
-    return CqlEngine(fhir)
+def engine_from_env(
+    name: str, fhir: FhirEvaluator | None, lake: LakeAPI, snapshot: str | None, stored: Any = None
+) -> StructuredEngine:
+    """The runtime engine: SQL on the lake, always (owner decision 3, 2026-11-08; review F-05). CQL is kept for the
+    compile-time equivalence gate (``criteria_compiler.equivalence``) and the bench, never to screen a patient, so a
+    weekly list can no longer change with the engine a job type happened to use."""
+    if (name or "sql").strip().lower() != "sql":
+        raise ValueError(f"TB_SCREEN_ENGINE={name!r}: SQL is the only runtime engine (CQL is compile-time only)")
+    return SqlEngine(lake, snapshot, stored=stored)
 
 
 # --------------------------------------------------------------------------------------------- note criteria
 def _tokens(text: str) -> int:
-    """Conservative token estimate: CJK characters ~1 token each, Latin ~4 characters per token."""
-    cjk = sum(1 for ch in text if "　" <= ch <= "鿿" or "豈" <= ch <= "﫿")
-    return cjk + (len(text) - cjk) // 4 + 1
+    """What a note of ``text`` adds to the judge prompt (:func:`tb_llm.budget.excerpt_tokens`, T-603): CJK characters
+    ~1 token each, Latin ~4 characters per token, plus its JSON keys and escaping."""
+    return excerpt_tokens({"date": "0000-00-00", "note_type": "progress", "text": text})
 
 
 def note_window(c: CriterionIR, index_date: date) -> tuple[date, date]:
@@ -133,9 +186,11 @@ class NoteResult:
     reason: str | None = None  # a tb_common.reasons code, never free text (D-118)
     source: str = "chunks"  # chunks | full_record
     dids: list[str] = field(default_factory=list)
+    left_out: int = 0  # notes of the window the token budget did not show (T-603: flagged, never silent)
     model_reason: str = ""  # the judge model's own sentence: audit and debugging only, never shown on a page
     call_id: str = ""  # the judge call behind the answer (the cascade's evidence meta)
     model: str = ""
+    build_sha: str = ""  # through the gateway: the build that answered (D-276)
     prompt: str = ""
     tokens_in: int = 0
     tokens_out: int = 0
@@ -148,7 +203,7 @@ def _opinion(role: str, r: NoteResult) -> dict[str, Any]:
 
 
 def _vote(r: NoteResult) -> Vote:
-    return Vote(r.predicate, r.confidence, r.reason)
+    return Vote(r.predicate, r.confidence, r.reason, served_keys(r.model, r.build_sha))
 
 
 @dataclass
@@ -161,7 +216,13 @@ class NoteJudge:
     :func:`tb_common.pair.combine`: it stands only when both agree, else it is ``unknown`` with the reason
     (``disagree``, ``verifier_quote_missing``, ``model_down``), which the tiering sends to review. So a note criterion
     blocks a patient only when both models say so. A model that does not answer counts as a failure for
-    :func:`check_judge`; its error text never reaches a reason (``model_down``)."""
+    :func:`check_judge`; its error text never reaches a reason (``model_down``). Two answers served under one model
+    name or build are one model's answer, so the judge did not really answer: ``unknown`` / ``model_down``, counted
+    as a failure (D-276, review LLM-002).
+
+    D-276 (review S-10): when the token budget left some of the retrieved notes out (:meth:`judge_patient`), an
+    answer that would exclude is not final: ``unknown`` / ``not_evaluated``, and the evaluator's full-record read
+    gets its turn."""
 
     lake: LakeAPI | None
     llm: LlmClient
@@ -173,6 +234,16 @@ class NoteJudge:
     tokens_out: int = 0
     failures: int = 0  # model calls that got no answer (model down, timeout, out-of-schema)
     disagreements: int = 0  # decided answers the verifier did not confirm (became unknown)
+    same_model: int = 0  # decided answers the "verifier" gave as the judge's own model (became unknown, D-276)
+    held: int = 0  # note questions not put to a model because note reading was held (T-609)
+    # the counters are bumped from the evaluator's worker threads: one lock, so the >10 % model-down rule and the
+    # audit counts never lose an increment (review F-27)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+
+    def _count(self, **inc: int) -> None:
+        with self._lock:
+            for name, n in inc.items():
+                setattr(self, name, getattr(self, name) + n)
 
     @property
     def mode(self) -> str:
@@ -184,17 +255,39 @@ class NoteJudge:
         return self.lake
 
     def excerpts(self, pid: str, c: CriterionIR, index_date: date) -> list[dict[str, Any]]:
+        return self._chunks(pid, c, index_date)[0]
+
+    def budget(self, c: CriterionIR, index_date: date, default: int) -> int:
+        """Tokens of notes one judge prompt may hold (T-603, review LLM-015): what the judge's and the verifier's
+        context leave beside the rest of the prompt and the answer (the smaller of the two: both read the same
+        excerpts), at most ``default``. A client that cannot tell its context leaves ``default``."""
+        fixed = {
+            "criterion_text": c.text,
+            "note_question": c.note_question or c.text,
+            "index_date": index_date.isoformat(),
+            "excerpts": [],
+        }
+        out = default
+        for client in (self.llm, self.verifier):
+            fn = getattr(client, "text_budget", None) if client is not None else None
+            room = fn(self.prompt, fixed) if callable(fn) else None
+            if isinstance(room, int):
+                out = min(out, room)
+        return out
+
+    def _chunks(self, pid: str, c: CriterionIR, index_date: date) -> tuple[list[dict[str, Any]], int]:
+        """The excerpts and how many retrieved chunks the token budget left out (D-276)."""
         lo, hi = note_window(c, index_date)
         query = " ".join([c.note_question or c.text, *keywords(c.text)])
         hits = self._lake().chunks_search(pid, query, k=5, date_from=lo, date_to=hi)
         hits = [h for h in hits if h.get("date") and lo.isoformat() <= str(h["date"])[:10] <= hi.isoformat()]
         hits.sort(key=lambda h: (str(h["date"]), str(h.get("did", ""))), reverse=True)
         out: list[dict[str, Any]] = []
-        budget = CHUNK_TOKENS
+        budget = self.budget(c, index_date, CHUNK_TOKENS)
         for h in hits:
             n = _tokens(str(h["text"]))
             if n > budget:
-                break
+                continue  # T-603: an older, shorter chunk may still fit; this one is counted as left out
             budget -= n
             out.append(
                 {
@@ -204,9 +297,14 @@ class NoteJudge:
                     "did": h.get("did"),
                 }
             )
-        return out
+        return out, len(hits) - len(out)
 
     def full_record(self, pid: str, c: CriterionIR, index_date: date) -> list[dict[str, Any]]:
+        return self._record(pid, c, index_date)[0]
+
+    def _record(self, pid: str, c: CriterionIR, index_date: date) -> tuple[list[dict[str, Any]], int]:
+        """The window's notes, newest first, and how many the token budget left out (D-276). The budget is the
+        models' context (T-603): 28,000 tokens did not fit on a 16k or 8k model, and the server refused the call."""
         lo, hi = note_window(c, index_date)
         rows = (
             self._lake()
@@ -218,40 +316,66 @@ class NoteJudge:
             .to_pylist()
         )
         out: list[dict[str, Any]] = []
-        budget = FULL_RECORD_TOKENS
+        budget = self.budget(c, index_date, FULL_RECORD_TOKENS)
         for r in rows:
             n = _tokens(str(r["text"]))
             if n > budget:
-                break
+                continue  # T-603: counted as left out (the answer is flagged), the older notes still read
             budget -= n
             out.append(
                 {"date": r["d"].isoformat(), "note_type": r["type"] or "note", "text": r["text"], "did": r["did"]}
             )
-        return out
+        return out, len(rows) - len(out)
 
     def judge_patient(self, pid: str, c: CriterionIR, index_date: date, full: bool = False) -> NoteResult:
-        excerpts = self.full_record(pid, c, index_date) if full else self.excerpts(pid, c, index_date)
+        excerpts, left_out = self._record(pid, c, index_date) if full else self._chunks(pid, c, index_date)
         source = "full_record" if full else "chunks"
         if not excerpts:
             return NoteResult("unknown", 0.0, reason=Reason.NO_NOTES.value, source=source)
-        return self.judge_excerpts(c.text, c.note_question or c.text, index_date, excerpts, source)
+        r = self.judge_excerpts(c.text, c.note_question or c.text, index_date, excerpts, source)
+        if not left_out:
+            return r
+        # D-276 (review S-10): both models read the same excerpts, so their agreement says nothing about a note the
+        # budget left out. An answer that would exclude is then not final: unknown, a person (or the full read) looks
+        if r.predicate in DECIDED and eligibility(c.kind, r.predicate == "pass") == "fail":
+            return replace(
+                r, predicate="unknown", confidence=0.0, quote=None, quote_date=None, dids=[],
+                reason=Reason.NOTES_OVER_BUDGET.value, left_out=left_out,
+            )  # fmt: skip
+        # T-603 (review LLM-016, CR-004 flag half): an answer that keeps the patient stands, flagged: the candidate
+        # goes to review with the reason, so nobody reads "met" as "every note was read"
+        if r.predicate in DECIDED:
+            return replace(r, reason=Reason.NOTES_OVER_BUDGET.value, left_out=left_out)
+        return replace(r, left_out=left_out)
 
     def _ask(
         self, client: LlmClient, variables: dict[str, Any], excerpts: list[dict[str, Any]], source: str
     ) -> NoteResult:
+        if notes_held():  # T-609: no model is asked while note reading is held; a person reads the notes instead
+            self._count(held=1)
+            return NoteResult("unknown", 0.0, reason=Reason.NOT_EVALUATED.value, source=source)
         try:
             res = client.chat_json(self.prompt, variables, job_id=self.job_id)
-        except LlmError:
-            self.failures += 1
+        except LlmPromptTooLong:
+            # T-603: the excerpts did not fit this model (the budget is an estimate, the server counted more): the
+            # reason says so, and it counts as a failure, so a box whose sizing is wrong stops the run (check_judge)
+            self._count(failures=1)
+            return NoteResult("unknown", 0.0, reason=Reason.NOTES_OVER_BUDGET.value, source=source)
+        except LlmError:  # also an answer from an alias the call did not expect (tb_llm, T-601)
+            self._count(failures=1)
             return NoteResult("unknown", 0.0, reason=Reason.MODEL_DOWN.value, source=source)
-        self.calls += 1
-        self.tokens_in += res.tokens_in
-        self.tokens_out += res.tokens_out
+        if getattr(client, "gateway", None) is not None and not getattr(res, "build_sha", ""):
+            # T-601: through the gateway every answer names its build; one that does not cannot be told apart from
+            # the other model's answer in the pair's build comparison, so it is no answer (fail closed)
+            self._count(failures=1)
+            return NoteResult("unknown", 0.0, reason=Reason.MODEL_DOWN.value, source=source)
+        self._count(calls=1, tokens_in=res.tokens_in, tokens_out=res.tokens_out)
         r = postprocess(res.data, excerpts, source)
         return replace(
             r,
             call_id=res.output_sha[:16],
             model=res.model,
+            build_sha=getattr(res, "build_sha", ""),
             prompt=f"{res.prompt_id}@{res.prompt_version}",
             tokens_in=res.tokens_in,
             tokens_out=res.tokens_out,
@@ -281,7 +405,9 @@ class NoteJudge:
             second = self._ask(self.verifier, variables, excerpts, source)  # counts its own failure
         d = combine(_vote(first), None if second is None else _vote(second))
         if d.disagreement:
-            self.disagreements += 1
+            self._count(disagreements=1)
+        if d.same_model:  # the same build answered twice: the judge did not answer (a failure, review LLM-002)
+            self._count(same_model=1, failures=1)
         t_in = first.tokens_in + (second.tokens_in if second else 0)
         t_out = first.tokens_out + (second.tokens_out if second else 0)
         opinions = [_opinion("judge", first), _opinion("verifier", second)] if d.disagreement and second else []
@@ -321,7 +447,8 @@ def check_judge(judge: NoteJudge | None) -> None:
 
 
 def postprocess(d: dict[str, Any], excerpts: list[dict[str, Any]], source: str = "chunks") -> NoteResult:
-    """SPEC §7.3: the quote must be a substring of one excerpt (whitespace-normalised), else ``unknown``."""
+    """SPEC §7.3: the quote must be a substring of one excerpt (whitespace-normalised), else ``unknown``. A quote from
+    a sentence the guard's planted-instruction screen flags is ``unknown`` too (T-606, D-359)."""
     verdict = str(d.get("verdict", "unknown"))
     quote = d.get("quote")
     conf = float(d.get("confidence", 0.0))
@@ -331,6 +458,8 @@ def postprocess(d: dict[str, Any], excerpts: list[dict[str, Any]], source: str =
         match = next((e for e in excerpts if quote_in(q, str(e["text"]))), None)
         if match is None:
             return NoteResult("unknown", 0.0, reason=Reason.QUOTE_NOT_FOUND.value, source=source)
+        if planted_in(str(match["text"]), q):  # T-606 (D-359): an instruction found in a note is never evidence
+            return NoteResult("unknown", 0.0, reason=Reason.PLANTED_INSTRUCTION.value, source=source)
         did = match.get("did")
     why = Reason.NOTE.value if verdict in ("pass", "fail") else Reason.ABSTAINED.value
     model_reason = str(d.get("reason") or "")
@@ -360,8 +489,12 @@ def structured_verdict(c: CriterionIR, ev: PatientEvaluation | None) -> Criterio
     pred = None if ev is None else ev.results.get(c.id)
     refs = [] if ev is None or not ev.evidence else list((ev.evidence or {}).get(c.id) or [])
     known = pred if isinstance(pred, bool) else None
-    # D-113: unknown with records attached = coded inside the grouper's family but outside its code list
-    if known is None:
+    told = (ev.reasons or {}).get(c.id) if ev is not None else None
+    # D-113: unknown with records attached = coded inside the grouper's family but outside its code list;
+    # D-130: or a record in a code system the mapping does not know (the engine says so in ``reasons``)
+    if known is None and told:
+        why = told
+    elif known is None:
         why = Reason.CODE_OUTSIDE_LIST.value if refs else Reason.DATA_GAP.value
     else:
         why = Reason.CODED.value
@@ -395,13 +528,17 @@ def human_verdict(c: CriterionIR) -> CriterionVerdict:
     )
 
 
-def not_in_snapshot(rs: Ruleset, pid: str, kinds: tuple[str, ...] = ("inclusion", "exclusion")) -> PatientVerdicts:
+def not_in_snapshot(
+    rs: Ruleset,
+    pid: str,
+    kinds: tuple[str, ...] = ("inclusion", "exclusion"),
+    reason: Reason = Reason.NOT_IN_SNAPSHOT,
+) -> PatientVerdicts:
     """A scoped patient the records snapshot does not hold (moved, merged, a late registration): nothing is known,
-    so a person looks (tier ``review``), never an exclusion (Fable review 2026-11-08, finding 10; D-118)."""
+    so a person looks (tier ``review``), never an exclusion (Fable review 2026-11-08, finding 10; D-118). The same
+    for a patient the snapshot holds as deceased or not yet born on the screening date (``check_dates``, D-142)."""
     vs = [
-        CriterionVerdict(
-            id=c.id, verdict="unknown", evidence=Evidence(resource_refs=[], reason=Reason.NOT_IN_SNAPSHOT.value)
-        )
+        CriterionVerdict(id=c.id, verdict="unknown", evidence=Evidence(resource_refs=[], reason=reason.value))
         for c in rs.active()
         if c.kind in kinds
     ]
@@ -466,12 +603,17 @@ def effective_note_block(judge: NoteJudge | None) -> tuple[bool, str, str]:
     pair has not passed its canary (:mod:`orchestrator.canary_gate`, D-117). Returns
     ``(may_block, effective_policy, reason)``."""
     policy = note_block_policy()
+    if notes_held():  # T-609: before the configured policy, so a run under a hold always says why
+        return False, "never", NOTES_HELD
     if policy == "never":
         return False, "never", "configured: note answers never exclude"
     if judge is None:
         return False, "never", "no note judge on this box"
     if judge.verifier is None:
         return False, "never", "no verifier configured: a single model may not exclude"
+    one = same_model(judge.llm, judge.verifier)  # D-276 (review S-2): two clients are not yet two models
+    if one:
+        return False, "never", f"the verifier is not a second model ({one}): a single model may not exclude"
     from orchestrator.canary_gate import allows_block
 
     ok, why = allows_block()  # D-117: only on a pair that passed its canary (and every wake check since)
@@ -480,14 +622,20 @@ def effective_note_block(judge: NoteJudge | None) -> tuple[bool, str, str]:
     return True, "both_agree", "judge and verifier must both say fail"
 
 
+def _flagged(v: CriterionVerdict) -> bool:
+    return v.evidence is not None and v.evidence.reason == Reason.NOTES_OVER_BUDGET.value
+
+
 def tier(
-    rs: Ruleset, verdicts: list[CriterionVerdict], threshold: float, note_block: bool | None = None
+    rs: Ruleset, verdicts: list[CriterionVerdict], threshold: float, *, note_block: bool
 ) -> tuple[str, list[str], int]:
     """high: every structured/note criterion passes (note with confidence ≥ t), only human criteria pending;
-    excluded: any criterion fails (note fails only with confidence ≥ t, and only when note answers may block, see
-    :func:`note_block_policy`); review otherwise. Returns tier, actions, number of unknowns."""
-    if note_block is None:
-        note_block = note_block_policy() != "never"
+    excluded: any criterion fails (note fails only with confidence ≥ t, and only when ``note_block``); review
+    otherwise. Returns tier, actions, number of unknowns.
+
+    ``note_block`` is required and comes from :func:`effective_note_block` of the run's judge: the configured policy
+    alone is not enough (no verifier, one model twice, the canary gate). MICROBATCH once re-tiered with the policy
+    alone and a single model could exclude (D-276, review F-01)."""
     by_id = rs.by_id()
     actions: list[str] = []
     unknown = 0
@@ -508,8 +656,8 @@ def tier(
         elif v.verdict == "pending_human":
             if c.action:
                 actions.append(c.action)
-        elif v.verdict == "pass" and is_note_answer(c, v) and conf < threshold:
-            weak = True
+        elif v.verdict == "pass" and is_note_answer(c, v) and (conf < threshold or _flagged(v)):
+            weak = True  # T-603: a note answer with notes left out by the budget is flagged: review
             if c.action:
                 actions.append(c.action)
     if failed:
@@ -570,6 +718,11 @@ def evaluate_patients(
 
         # one GPU for both models (TB_MODEL_SWAP=sleep): judge pass, then the verifier pass, then the merge
         note_res = two_phase(judge, judge_all, workers=workers)
+        if note_res and notes_held():
+            # T-609: a hold that came during the note stage: the answers got before it are not used either (each
+            # becomes unknown, not evaluated: review), so a run that ends under a hold uses no note answer
+            note_res = {}
+            note_block = False
     out: dict[str, PatientVerdicts] = {}
     for p in pids:
         ev = evals.get(p)

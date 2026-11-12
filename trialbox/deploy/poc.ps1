@@ -44,7 +44,7 @@ $env:TB_CONSOLE_WEBMAIL_URL = "http://127.0.0.1:$($env:TB_HOST_MAILHOG_PORT)"
 $Compose = @("docker", "compose", "--project-directory", "deploy", "-f", "deploy/docker-compose.yml",
   "-f", "deploy/docker-compose.test.yml", "-f", "deploy/docker-compose.poc.yml", "--profile", "stub", "--profile", "test")
 switch ($Mode) {
-  "stub" { $env:TB_ENV = "TEST"; $env:TB_GATEWAY_MODEL = ""; $env:TB_GATEWAY_VERIFIER_MODEL = "trialbox-stub"; $env:TB_SITE_DIR = "./poc/site" }
+  "stub" { $env:TB_ENV = "TEST"; $env:TB_GATEWAY_MODEL = ""; $env:TB_GATEWAY_VERIFIER_MODEL = "stub-verifier"; $env:TB_SITE_DIR = "./poc/site" }
   "openrouter" { $env:TB_ENV = "DEV"; $env:TB_GATEWAY_MODEL = "j-workhorse"; $env:TB_SITE_DIR = "./poc/site" }
   default { Die "TB_LLM_MODE must be stub or openrouter on Windows (gpu: use deploy/poc.sh on the GPU host)" }
 }
@@ -72,10 +72,12 @@ New-Item -ItemType Directory -Force -Path (Join-Path $Poc "secrets"), (Join-Path
 $EnvFile = Join-Path $Root "deploy\.env"
 if (-not (Test-Path $EnvFile)) {
   Say "creating deploy\.env with random service passwords"
+  $WfPw = Rand 32
   (Get-Content (Join-Path $Root ".env.example")) `
-    -replace '^MINIO_SECRET_KEY=.*', "MINIO_SECRET_KEY=$(Rand 32)" `
     -replace '^POSTGRES_PASSWORD=.*', "POSTGRES_PASSWORD=$(Rand 32)" `
-    -replace '^POSTGRES_WF_PASSWORD=.*', "POSTGRES_WF_PASSWORD=$(Rand 32)" |
+    -replace '^POSTGRES_WF_PASSWORD=.*', "POSTGRES_WF_PASSWORD=$WfPw" `
+    -replace '^TB_DB_URL=.*', "TB_DB_URL=postgresql://trialbox:$WfPw@db:5432/trialbox_wf" `
+    -replace '^TB_SERVICE_TOKEN=.*', "TB_SERVICE_TOKEN=$(Rand 32)" |
     Set-Content -Encoding ascii $EnvFile
 }
 $KeyDir = Join-Path $Root ".cache\test-secrets"

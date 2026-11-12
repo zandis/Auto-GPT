@@ -17,6 +17,17 @@ Tasks come from ``tools/mlbench_tasks/``; weights, per-language floors and the c
 
 No result is recorded before a live run (§20.8 S1-14).
 
+What it cannot do (LLM-030): it compares hosted provider versions of a model, not the quantised weights a box runs, so
+its results cannot choose a box model. A box pair is chosen and qualified with ``trialbox eval qualify``
+(:mod:`tools.qualify`, D-313), which runs PR #64's judge gate (:mod:`tools.judge_bakeoff`) in pair mode through the
+gateway. The dry run's cost check fails (``within_cap: False``, ``prices_missing``) when a candidate's endpoint has
+no prices, instead of reporting US$0.00 as within the cap.
+
+What the dry run does not measure (T-608, D-445): it calls no model, so it says nothing about quality, latency or
+real token use. Its token figures are estimates (:mod:`tb_llm.budget`: a CJK character about one token, Latin about
+four characters per token), and the stub item shows the request path only. :data:`NOT_MEASURED` is printed with
+every plan.
+
 The live run (:mod:`tools.bakeoff_live`) is a client of a running gateway: the endpoint key lives in the gateway's
 environment only, and the build under test is pinned in the gateway's site override (``tools/pin_provider.py``). It
 first checks, against that gateway, that a D1 payload on ``bakeoff`` is refused and that the named build is pinned
@@ -41,6 +52,12 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WEIGHTS = ROOT / "eval" / "bakeoff" / "weights.yaml"
 BAKEOFF_ROUTE = "bakeoff"
+NOT_MEASURED = [
+    "quality, latency and real token use: the dry run calls no model",
+    "the box's own quantised weights: hosted provider versions only (LLM-030; eval qualify chooses a box pair)",
+    "token figures are estimates (tb_llm.budget), not counts from a tokenizer",
+    "the stub item shows the request path only; its token counts are estimates too",
+]
 
 
 @dataclass(frozen=True)
@@ -90,6 +107,7 @@ def plan(
     """``prices`` = (USD per 1k input, per 1k output) overrides the routing-table prices for the estimate only."""
     from gateway.policy import RoutingPolicy
     from registry.registry import Registry
+    from tb_llm.budget import estimate_messages
 
     from tools import mlbench
     from tools.mlbench_tasks import load_tasks
@@ -110,8 +128,9 @@ def plan(
         tok_in: dict[str, float] = {}
         for lang in use_langs:
             notes = mlbench.load_notes(lang)
-            sizes = [len(json.dumps(mlbench.messages(p, notes[p.patient_id]), ensure_ascii=False)) for p in subset]
-            tok_in[lang] = statistics.fmean(sizes) / 4 if sizes else 0.0  # ~4 characters per token (est.)
+            # an estimate (tb_llm.budget, CJK-aware): characters / 4 was four times low for Japanese and Chinese
+            sizes = [estimate_messages(mlbench.messages(p, notes[p.patient_id])) for p in subset]
+            tok_in[lang] = statistics.fmean(sizes) if sizes else 0.0
         calls_per_candidate = len(subset) * len(use_langs) * len(seeds)
         per_cand = []
         for c in cands:
@@ -148,6 +167,7 @@ def plan(
             }
         )
     cap = float(weights.get("cost_cap_usd", 0.0))
+    missing = sorted({c["build_id"] for r in roles for c in r["candidates"] if not c["prices_set"]})
     return {
         "weights_version": weights.get("version"),
         "routing_version": policy.version,
@@ -155,7 +175,10 @@ def plan(
         "roles": roles,
         "cost_estimate_usd": round(total_cost, 4),
         "cost_cap_usd": cap,
-        "within_cap": total_cost <= cap,
+        "prices_missing": missing,
+        "within_cap": not missing and total_cost <= cap,  # LLM-030: an unpriced estimate is not within any cap
+        "tokens": "estimate (tb_llm.budget)",
+        "not_measured": list(NOT_MEASURED),
     }
 
 
@@ -226,7 +249,7 @@ def render(p: dict[str, Any], probes: list[Probe]) -> str:
             price = "" if c["prices_set"] else " (no prices: pass --usd-per-1k IN OUT)"
             lines.append(
                 f"  {c['build_id']:<32} {c['alias']}@{c['endpoint']:<10} {c['status']:<9} pinned={c['pinned']!s:<5} "
-                f"calls={c['calls']} tokens_in~{c['tokens_in']} tokens_out~{c['tokens_out']} "
+                f"calls={c['calls']} tokens_in~{c['tokens_in']} tokens_out~{c['tokens_out']} (est.) "
                 f"cost~${c['cost_usd']:.2f} (${c['cost_per_1k_items_usd']:.2f}/1k){price}"
             )
     lines.append(
@@ -235,6 +258,8 @@ def render(p: dict[str, Any], probes: list[Probe]) -> str:
     lines.append("gateway preflight (network disabled):")
     for pr in probes:
         lines.append(f"  {'ALLOWED' if pr.allowed else 'REFUSED':<8} {pr.name:<34} {pr.code}")
+    lines.append("not measured by this plan:")
+    lines.extend(f"  - {x}" for x in p.get("not_measured") or NOT_MEASURED)
     lines.append("no result is recorded before a live run")
     return "\n".join(lines)
 

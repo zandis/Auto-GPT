@@ -1,0 +1,4 @@
+{# EDC prefill (D-160): the pages of one study's prefill; needs rs. #}
+<p class="hint" data-testid="edc-nav"><a href="/studies/{{ rs }}/edc"{% if path.endswith('/edc') %} aria-current="page"{% endif %}>{{ t('edc.title') }}</a>
+ · <a href="/studies/{{ rs }}/edc/map" data-testid="to-edc-map"{% if path.endswith('/map') %} aria-current="page"{% endif %}>{{ t('edc.map.title') }}</a>
+ · <a href="/studies/{{ rs }}/setup">{{ t('setup.title') }}</a></p>

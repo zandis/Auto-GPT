@@ -1,7 +1,7 @@
 #!/bin/bash
 # TrialBox 32 GB fit test on tb-gpu-sim (one RTX PRO 6000, 96 GB, capped by --gpu-memory-utilization to RTX 5090
-# sizes). Used as the VM's startup script for one boot (the usual one is gpu-sim-startup.sh); this container reaches
-# the VM over HTTP only, so every result is written to /root/record/fit.json and served at http://<vm>/record/.
+# sizes). Used as the VM's startup script for one boot (the usual one is gpu-sim-startup.sh); the driver reaches
+# it over an ssh tunnel, so every result is written to /root/record/fit.json and served at 127.0.0.1:80/record/ (an ssh tunnel).
 #
 # Cases (same vLLM image and model files as the 6 Nov pair):
 #   judge-alone / verifier-alone   one model at 0.30 of 96 GB (= 28.8 GB, 0.90 of a 32 GB card), 8k context, 4 seqs
@@ -11,8 +11,12 @@
 # For each: did it start, seconds to ready, nvidia-smi memory.used at rest and after one judge request, a one-line
 # answer check. Nothing else on the card while it runs.
 exec > >(tee -a /var/log/tb-fit.log /dev/ttyS0) 2>&1
-set -x
-KEY=$(curl -s -H Metadata-Flavor:Google http://metadata.google.internal/computeMetadata/v1/instance/attributes/tb-key)
+# no `set -x` (review A-12): the API key is on the docker command lines and would go to the serial log
+# the API key (T-119, CR-048): made here at the first boot, root-only in /root/tb-key, never in the metadata. Port 80
+# is on loopback only: reach it with `gcloud compute ssh <vm> --zone <zone> -- -N -L 8080:127.0.0.1:80` and read the
+# key over the same ssh (`sudo cat /root/tb-key`); nothing crosses the internet in plain HTTP.
+[ -s /root/tb-key ] || (umask 077; head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 43 > /root/tb-key)
+KEY=$(cat /root/tb-key)
 VLLM=vllm/vllm-openai:v0.32.0
 J=nvidia/Gemma-4-26B-A4B-NVFP4
 V=cyankiwi/Qwen3.5-9B-AWQ-4bit
@@ -26,7 +30,7 @@ cat > /root/nginx-fit.conf <<'NG'
 events {}
 http { server { listen 80; location /record/ { alias /srv/record/; default_type application/json; } } }
 NG
-docker run -d --name front -p 80:80 -v /root/nginx-fit.conf:/etc/nginx/nginx.conf:ro -v $REC:/srv/record:ro nginx:1.27-alpine
+docker run -d --name front -p 127.0.0.1:80:80 -v /root/nginx-fit.conf:/etc/nginx/nginx.conf:ro -v $REC:/srv/record:ro nginx:1.27-alpine
 
 used() { local u; u=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | head -1); echo "${u:-null}"; }
 add() {  # add one case result (a JSON object) to fit.json
@@ -48,8 +52,8 @@ start() {  # name model served util len seqs [extra...]
     --max-model-len "$len" --max-num-seqs "$seqs" --enforce-eager --gpu-memory-utilization "$util" --api-key "$KEY" "$@"
 }
 ready() {  # name timeout_s -> prints seconds to ready or -1
-  local t0=$(date +%s)
-  for i in $(seq 1 $(( $2 / 5 ))); do
+  local t0; t0=$(date +%s)
+  for _ in $(seq 1 $(( $2 / 5 ))); do
     docker exec "$1" python3 -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3)" 2>/dev/null && { echo $(( $(date +%s) - t0 )); return; }
     docker ps -a --filter name="^$1\$" --format '{{.Status}}' | grep -q Exited && break
     sleep 5
@@ -78,7 +82,7 @@ PY
 }
 jstr() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; }  # any text as a JSON string
 post() {  # name path -> seconds the POST took
-  local t0=$(date +%s.%N)
+  local t0; t0=$(date +%s.%N)
   docker exec "$1" python3 -c "import urllib.request;urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000$2',data=b'',method='POST',headers={'Authorization':'Bearer $KEY'}),timeout=600)" 2>&1 | tail -1
   python3 -c "import time;print(round(time.time()-$t0,1))"
 }
@@ -142,7 +146,7 @@ http { server { listen 80; client_max_body_size 10m; proxy_read_timeout 600s;
   location /record/   { alias /srv/record/; default_type application/json; } } }
 NG
 docker rm -f front
-docker run -d --name front --network tb -p 80:80 -v /root/nginx.conf:/etc/nginx/nginx.conf:ro -v $REC:/srv/record:ro nginx:1.27-alpine
+docker run -d --name front --network tb -p 127.0.0.1:80:80 -v /root/nginx.conf:/etc/nginx/nginx.conf:ro -v $REC:/srv/record:ro nginx:1.27-alpine
 python3 - <<'PY'
 import json
 p = "/root/record/fit.json"; d = json.load(open(p)); d["status"] = "done"; json.dump(d, open(p, "w"), indent=1)

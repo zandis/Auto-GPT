@@ -1,0 +1,27 @@
+{
+ "action": "order HBsAg",
+ "class": "structured",
+ "id": "RA-JAK-EXC-02",
+ "kind": "exclusion",
+ "label": "HBsAg positive",
+ "logic": {
+  "domain": "observation",
+  "quantifier": "latest",
+  "value": {
+   "codes": [
+    "LA6576-8"
+   ],
+   "op": "in"
+  },
+  "valueset": "VS_HBSAG"
+ },
+ "review": {
+  "at": "2026-11-11T04:31:43.359347+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-JAK",
+ "source_ref": "5.2 Exclusion Criteria 排除條件 #2",
+ "text": "Positive hepatitis B surface antigen (HBsAg).",
+ "time_sensitive": false
+}

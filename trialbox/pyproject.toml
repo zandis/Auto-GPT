@@ -25,7 +25,7 @@ dependencies = [
   "matplotlib>=3.9",
   "docxtpl>=0.18",
   "python-docx>=1.1",
-  "pypdf>=5.0",
+  "pypdf>=6.21.4",  # layer-2 review R-19: advisories below 6.21.4 on the mailed-protocol path (D-185)
   "py7zr>=0.22",
   "cryptography>=43",
   "apscheduler>=3.10,<4",
@@ -35,6 +35,7 @@ dependencies = [
   "tzdata>=2024.1",
   "markdown>=3.7",
   "dulwich>=0.22",
+  "zstandard>=0.23",  # .tbbak compression, zstd -3 multi-threaded (dataflow review P0-3, D-149)
 ]
 
 [project.optional-dependencies]
@@ -53,6 +54,20 @@ dev = [
   "types-python-dateutil",
   "types-jsonschema",
   "types-Markdown",
+  # the security scans of CI job `security` (T-654, ENG-010, ENG-011; tools/security_scan.py), pinned exactly
+  "bandit==1.9.4",
+  "detect-secrets==1.5.0",
+]
+
+# The test plugin set (D-201, T-003): exactly these, pinned, and locked in uv.lock with everything else. `make venv`
+# builds .venv with `uv sync --frozen --group test --extra dev`, which also removes anything installed by hand.
+[dependency-groups]
+test = [
+  "pytest==9.2.0",
+  "pytest-timeout==2.4.0",
+  "pytest-cov==7.1.0",
+  "pytest-xdist==3.8.0",
+  "hypothesis==6.170.15",
 ]
 
 [project.scripts]
@@ -63,21 +78,29 @@ trialbox-settings = "tools.settings_wizard:main"
 requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.uv]
+# D-185: uv.lock is the one hashed lock; deploy/requirements.lock is its export (`make lock`, checked by `make
+# lock-check`). Floors for transitive packages with advisories below them (layer-2 review R-19).
+constraint-dependencies = ["pillow>=13"]
+# the editable install of this project is rebuilt only when its metadata changes, so `make venv-check` (uv sync
+# --check) does not report every edited source file as drift
+cache-keys = [{ file = "pyproject.toml" }]
+
 [tool.setuptools.packages.find]
 where = ["libs", "services", "."]
 include = [
   "tb_contracts*", "tb_common*", "mail_gateway*", "doc_parser*", "criteria_compiler*",
   "adapter*", "lake*", "orchestrator*", "llm_stub*", "embed_service*", "tools*",
-  "tb_testkit*", "tb_llm*", "dataplat*", "gateway*", "registry*", "guard*", "tracestore*", "matching*", "channels*", "deliverables*", "console*",
+  "tb_testkit*", "tb_llm*", "gateway*", "registry*", "guard*", "tracestore*", "matching*", "channels*", "deliverables*", "console*",
 ]
 
 [tool.setuptools.package-data]
-"*" = ["*.json", "*.yaml", "*.yml", "*.md", "*.cql", "*.sql", "*.j2", "*.html", "*.docx", "*.csv", "*.parquet", "*.ttf"]
+"*" = ["*.json", "*.yaml", "*.yml", "*.md", "*.cql", "*.sql", "*.j2", "*.html", "*.docx", "*.csv", "*.parquet", "*.ttf", "*.css", "*.js"]
 
 [tool.ruff]
 line-length = 120
 target-version = "py312"
-extend-exclude = ["libs/tb_contracts/generated"]
+extend-exclude = ["libs/tb_contracts/generated", "docs/plan/design/tools"]  # design-set helpers, as delivered
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF", "PL", "S"]
@@ -90,6 +113,8 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S", "PLR", "N802", "B018", "E501"]
 "tests/console/test_role_pages.py" = ["F811"]  # pytest fixture imported from test_console_app and taken by name
+"tests/console/test_entry_pages.py" = ["F811"]  # the same, for the data-core fixture of test_data_pages
+"tests/console/test_team_pages.py" = ["F811"]  # the same fixture as test_role_pages (D-147)
 "services/criteria_compiler/compile_*/generator.py" = ["E501"]
 "services/criteria_compiler/review.py" = ["E501"]
 "services/console/i18n.py" = ["E501"]
@@ -123,10 +148,24 @@ init_forbid_extra = true
 init_typed = true
 warn_required_dynamic_aliases = true
 
+# Coverage of the unit suite (T-651, ENG-029): the unit job runs it with COVERAGE_CORE=sysmon and lines only (no cost
+# worth naming); the nightly job adds branches. tools/coverage_ratchet.py compares each package with
+# tools/coverage_baseline.json and fails on a drop of more than 0.5 point.
+[tool.coverage.run]
+source = ["libs", "services", "tools"]
+relative_files = true
+
+[tool.coverage.report]
+skip_empty = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "libs", "services"]
-addopts = "-ra --strict-markers"
+# -p no:randomly: random order is a nightly job, not a default (D-201, §5.2); no:cacheprovider: no .pytest_cache
+# shared between parallel runs. The basetemp keeps one run, and of it only the failed tests' directories.
+addopts = "-ra --strict-markers -p no:randomly -p no:cacheprovider"
+tmp_path_retention_count = 1
+tmp_path_retention_policy = "failed"
 markers = [
   "integration: needs docker compose services (fhir-store, mail)",
   "e2e: end-to-end through email against the compose test profile",

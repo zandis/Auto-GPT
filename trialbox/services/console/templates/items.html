@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{# T-107 (D-353): the clinical item catalogue for the data steward (the matrix's items.view, D-380), grouped by specialty. #}
+{% block title %}{{ t('items.title') }}{% endblock %}
+{% block content %}
+<h1>{{ t('items.title') }}</h1>
+<p>{{ t('items.help', n=total) }}</p>
+<form method="get" action="/data/items" class="card">
+  <label for="items-spec">{{ t('items.filter') }}</label>
+  <select id="items-spec" name="specialty">
+    <option value="" {{ 'selected' if not spec else '' }}>{{ t('items.filter.all') }}</option>
+    {% for s in specialties %}<option value="{{ s.id }}" {{ 'selected' if s.id == spec else '' }}>{{ t('items.spec.GEN') if s.id == 'GEN' else s.names[lang] }}</option>{% endfor %}
+  </select>
+  <button type="submit">{{ t('items.show') }}</button>
+</form>
+{% for s in sections %}
+<section class="card" id="spec-{{ s.id }}" data-testid="items-specialty" data-specialty="{{ s.id }}" aria-labelledby="spec-{{ s.id }}-h">
+<h2 id="spec-{{ s.id }}-h">{{ t('items.spec.GEN') if s.id == 'GEN' else s.names[lang] }} <span class="hint">{{ t('items.count', n=s['items']|length) }}</span></h2>
+<div class="scroll">
+<table>
+<thead><tr><th scope="col">{{ t('items.col.name') }}</th><th scope="col">{{ t('items.col.id') }}</th><th scope="col">{{ t('items.col.type') }}</th><th scope="col">{{ t('items.col.unit') }}</th><th scope="col">{{ t('items.col.code') }}</th><th scope="col">{{ t('items.col.storable') }}</th><th scope="col">{{ t('items.col.checked') }}</th><th scope="col">{{ t('items.col.exclude') }}</th><th scope="col">{{ t('items.col.phrasing') }}</th></tr></thead>
+<tbody>{% for i in s['items'] %}<tr data-testid="item" data-item="{{ i.id }}" data-storable="{{ i.storable }}">
+<td data-wording="source">{{ i.name(lang) }}</td><td class="mono">{{ i.id }}</td><td>{{ given(i.item_type) }}</td><td class="mono">{{ i.unit }}</td>
+<td class="mono">{% if i.loinc %}LOINC {{ i.loinc }}{% else %}{{ t('items.local', id=i.local_id) }}{% endif %}</td>
+<td>{{ t('items.storable.' + i.storable) }}</td><td>{{ t('items.fit.' + i.code_fit) if i.code_fit else '–' }}</td>
+<td data-may-exclude="{{ 'yes' if i.may_exclude else 'no' }}">{{ t('items.yes') if i.may_exclude else t('items.no') }}</td>
+<td data-wording="source">{{ given(i.criterion_phrasing) }}</td></tr>{% endfor %}</tbody>
+</table>
+</div>
+</section>
+{% endfor %}
+{% endblock %}

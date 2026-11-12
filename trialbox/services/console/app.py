@@ -1,15 +1,13 @@
-"""TrialBox console: the admin control plane (spec v4 §3.8, ``services/console/app.py``) plus the pilot workspace.
+"""TrialBox console: the admin control plane (spec v4 §3.8, ``services/console/app.py``) plus the clinical workspace.
 
 Two route sets, decided at start-up:
 
 * **Control plane** (always): sign-in, service health, the job list and the audit trail, metadata only, and the
   ``Operate`` action "ingest". This is the §3.8 surface; it renders no study content (FR-UX-21).
-* **Pilot workspace** (``/pilot/...``): only with ``TB_CONSOLE_PILOT=1`` **and** ``TB_ENV`` DEV or TEST **and**
-  ``TB_DATA_CLASS=D0``. It shows study content (attrition tables, the feasibility PDF/XLSX, the DL-1 pack, the
-  recall certificate) of synthetic data, and lets an administrator start requests from the browser. It is not one of
-  the five C-5′ product surfaces (FR-UX-12, §2.6 non-goals), so it can never be on in VALIDATION or PRODUCTION: the
-  app refuses to start when asked to (fail closed), and ``tests/console`` prove that a production app has no
-  ``/pilot`` route.
+* **Workspace** (``/pilot/...``, the path name is historical): the clinical product (D-127, review F-01): the PI
+  and CRC lists, marks, approval, the screening log, the REDCap link, reports and requests from the browser. On in
+  every environment unless ``TB_CONSOLE_WORKSPACE=off`` (the old ``TB_CONSOLE_PILOT=0`` still works), which leaves
+  the control plane alone. Real patient data still waits for the owner's gates (the ethics gate, the data class).
 
 Nothing here is a side door. A browser request becomes the exact grammar line of the e-mail subject
 (``console.proposals``) and the same ``JobCreate`` on the orchestrator's ``POST /jobs`` the mail gateway sends, so
@@ -19,6 +17,8 @@ adds ``console.*`` events to the shared audit chain before it acts.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import io
 import ipaddress
 import os
@@ -28,23 +28,32 @@ import time
 import zipfile
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
-from datetime import date
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, File, Form, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from tb_common.audit import AuditLog
+from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
+from tb_common.audit_writer import open_audit
+from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_rights
+from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
+from tb_common.flowledger import level_of_tag, record_export
 from tb_common.reasons import label as reason_label
+from tb_common.service_auth import bind_session
 from tb_common.ulid import new_ulid
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
+from console import api_first, demo_guard, feedback, firstrun, i18n_roles
+from console.admin_accounts import end_date
 from console.auth import (
     AFFILIATIONS,
     ROLES,
@@ -54,22 +63,30 @@ from console.auth import (
     UserStore,
     csrf_ok,
     random_password,
-    reveal_reason,
     scope_values,
 )
 from console.backend import Backend, MailItem, Refused, RulesetInfo, Unavailable
 from console.cascade import CascadeRuns
 from console.i18n import CATALOGUES, LANGS, pick_language, translate
+from console.identity import (
+    MUST_CHANGE_OPEN,
+    Hooks,
+    Identity,
+    IdentitySettings,
+    client_source,
+    secure_cookie_default,
+)
+from console.identity import register as register_identity
 from console.proposals import Classifier, Proposal, ProposalError, job_create, propose
 from console.refusals import localize as localize_refusal
-from console.registry_view import STATUSES, status_options
-from console.timefmt import local_time, site_zone
+from console.registry_view import RECORDED_ELSEWHERE, STATUSES, status_options
+from console.timefmt import local_time, local_today, site_zone
 
 HERE = Path(__file__).resolve().parent
 COOKIE = "tb_console"
 LOGIN_COOKIE = "tb_console_login"
+LANG_COOKIE = "tb_console_lang"  # D-133: the language picked on the sign-in page (a preference, not a secret)
 TERMINAL = frozenset({"done", "failed", "cancelled"})
-PILOT_ENVS = frozenset({"DEV", "TEST"})
 DOC_EXT = (".pdf", ".docx", ".txt", ".md")
 MAX_UPLOAD = 50 * 1024 * 1024
 _RULESET_ID = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,15}$")
@@ -78,10 +95,16 @@ _VERSION = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}$")
 _FILE = re.compile(r"^[\w.\-]{1,160}$")
 _ITEM_IDS = re.compile(r"^(?:I\d{2}|Q\d)(?:,(?:I\d{2}|Q\d))*$")
 PROPOSAL_TTL = 3600.0
+# D-133: one small first-party script (copy the one-time password, warn before leaving a form with unsaved edits),
+# inlined on every page and allowed by its SHA-256 hash only: no other script, inline or from any origin, runs. Every
+# page works without it (a progressive enhancement).
+CONSOLE_JS = (HERE / "static" / "console.js").read_text(encoding="utf-8").strip()
+_JS_HASH = base64.b64encode(hashlib.sha256(CONSOLE_JS.encode("utf-8")).digest()).decode("ascii")
 CSP = (
-    "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'none'; object-src 'none'; "
-    "frame-ancestors 'none'; form-action 'self'; base-uri 'none'"
+    f"default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'sha256-{_JS_HASH}'; "
+    "object-src 'none'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'"
 )
+_ASCII_WORDS = re.compile(r"[\x00-\x7F]+")
 
 
 class PilotRefused(RuntimeError):
@@ -127,6 +150,8 @@ class ConsoleSettings:
     # D-120: the studies this site runs (TB_CONSOLE_STUDIES); the request menu lists only these. Empty: every
     # approved study
     studies: tuple[str, ...] = ()
+    # D-192: the second factor, session timeouts and the optional OIDC sign-in (console.identity)
+    identity: IdentitySettings = field(default_factory=IdentitySettings)
 
     @property
     def sso(self) -> bool:
@@ -134,18 +159,13 @@ class ConsoleSettings:
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> ConsoleSettings:
-        environment = (env.get("TB_ENV") or "PRODUCTION").upper()
-        want_pilot = env.get("TB_CONSOLE_PILOT", "0").strip().lower() in ("1", "true", "yes")
+        environment = environment_name(env)
+        # D-127 (review F-01): the clinical workspace (PI/CRC lists, marks, approval, screening log, REDCap link) is
+        # the product, on in every environment. TB_CONSOLE_WORKSPACE=off (or the old TB_CONSOLE_PILOT=0) leaves the
+        # admin plane only. Real patient data still waits for the owner's gates (ethics gate, data class).
+        raw = env.get("TB_CONSOLE_WORKSPACE") or env.get("TB_CONSOLE_PILOT") or "on"
+        want_pilot = raw.strip().lower() not in ("0", "off", "false", "no")
         data_class = (env.get("TB_DATA_CLASS") or "").upper()
-        if want_pilot and environment not in PILOT_ENVS:
-            raise PilotRefused(
-                f"TB_CONSOLE_PILOT=1 is refused in TB_ENV={environment}: the pilot workspace is not a product "
-                f"surface (FR-UX-12) and runs only in DEV or TEST"
-            )
-        if want_pilot and data_class != "D0":
-            raise PilotRefused(
-                f"TB_CONSOLE_PILOT=1 needs TB_DATA_CLASS=D0 (synthetic or open data), got {data_class!r}"
-            )
         pw = env.get("TB_CONSOLE_ADMIN_PASSWORD_FILE", "").strip()
         src = env.get("TB_CONSOLE_SOURCE_DIR", "").strip()
         samples = env.get("TB_CONSOLE_SAMPLES_DIR", "").strip()
@@ -156,7 +176,7 @@ class ConsoleSettings:
             data_dir=Path(env.get("TB_CONSOLE_DIR") or "/data/console"),
             admin_email=(env.get("TB_CONSOLE_ADMIN_EMAIL") or "").strip().lower(),
             admin_password_file=Path(pw) if pw else None,
-            secure_cookie=env.get("TB_CONSOLE_SECURE_COOKIE", "0") in ("1", "true"),
+            secure_cookie=secure_cookie_default(env, environment),  # D-192: on by default in PRODUCTION
             test_smtp=env.get("TB_CONSOLE_TEST_SMTP", "").strip(),
             webmail_url=env.get("TB_CONSOLE_WEBMAIL_URL", "").strip(),
             intake_addr=(env.get("MAIL_INTAKE_ADDR") or "trialbox@hospa.test").strip().lower(),
@@ -181,16 +201,28 @@ class ConsoleSettings:
                 "public" if (env.get("TB_CONSOLE_DATA_SOURCE") or "").strip().lower() == "public" else "synthetic"
             ),
             studies=tuple(x.strip().upper() for x in (env.get("TB_CONSOLE_STUDIES") or "").split(",") if x.strip()),
+            identity=IdentitySettings.from_env(env, environment, Path(env.get("TB_CONSOLE_DIR") or "/data/console")),
         )
         if obj.sso_header and not obj.sso_trusted:
             raise PilotRefused("TB_CONSOLE_SSO_HEADER needs TB_CONSOLE_SSO_TRUSTED_PROXIES (the proxy addresses)")
         if obj.sso_default_role not in ROLES:
             raise PilotRefused(f"TB_CONSOLE_SSO_DEFAULT_ROLE must be one of {', '.join(ROLES)}")
+        if obj.sso_header and (obj.identity.totp_required or obj.identity.oidc.enabled):
+            # D-192 review H1: a trusted header skips the password and the second factor. It is allowed only where
+            # TOTP is off (DEV and TEST); a hospital uses the OIDC sign-in through Authelia instead.
+            raise PilotRefused(
+                "TB_CONSOLE_SSO_HEADER works only with TB_CONSOLE_MFA=off (DEV or TEST) and OIDC off; "
+                "use TB_OIDC_ENABLED (Authelia) for the hospital account"
+            )
         return obj
 
 
 class _LoginRequired(Exception):
     pass
+
+
+class _MustChange(Exception):
+    """A page asked by an account whose password someone else set (D-279): it goes to /account first."""
 
 
 class _Problem(Exception):
@@ -218,11 +250,57 @@ def cell(value: object, k: int) -> str:
     return str(value)
 
 
+# options that identify a patient: never shown on a page (UX review 2026-11-08, F-01: the CASE job line printed the
+# chart number in clear to every role that could open the job)
+# D-146 (review J-03/J-04/J-05): the paths an aggregate-only account (viewer, CRO) is refused, pages and /api/v1 alike;
+# job pages are decided by the job's type (see create_app._aggregate_denied)
+_AGGREGATE_DENY = re.compile(
+    r"^/(?:jobs|audit|admin/redcap|pilot/registry|pilot/mailbox|pilot/cascade|site|api/v1/site)(?:/|$)"
+    r"|^/(?:api/v1/)?studies/[^/]+/(?!feasibility$|monitor(?:/|$))"
+)
+# D-380 (FIT-002 grant half), D-436 (T-303): the patient-level routes a CRO account may reach, under a monitor grant
+# (console.sdv_page: the enrolled subjects and visit records, one subject's source references, the visit record)
+_MONITOR_ROUTE = re.compile(r"/(?:api/v1/)?studies/[A-Za-z0-9_-]+/monitor(?:/[A-Za-z0-9_-]+)?")
+for _lang, _cat in (("en", i18n_roles.EN), ("ja", i18n_roles.JA), ("zh-TW", i18n_roles.ZH)):
+    CATALOGUES[_lang].update(_cat)
+
+
+def role_description(role: str, lang: str) -> str:
+    """ROLE-018 (D-380): what a role may do, generated from the matrix (``tb_common.authz.role_rights``): one label
+    per row or group of rows, marked where it holds only as the study's delegation log allows."""
+    seen: dict[str, bool] = {}
+    for action, _what, conditional in role_rights(role):
+        key = i18n_roles.right_key(action)
+        seen[key] = seen.get(key, True) and conditional
+    if not seen:
+        return translate(lang, "roles.none")
+    parts = [translate(lang, k) for k in seen]
+    return "; ".join(translate(lang, "roles.cond", what=p) if seen[k] else p for k, p in zip(seen, parts, strict=True))
+
+
+# D-272 (CR-016): one rule for the job line, the pages and the audit's stored form (``tb_common.audit``): ``mask_ids``
+# turns ``CASE GZQO mrn=70000054`` into ``CASE GZQO mrn=•••`` and masks the same keys in a printed mapping
+_HIDDEN_OPTIONS = ID_KEYS
+
+
+def unmask_ids(text: str, options: Mapping[str, Any] | None) -> str:
+    """A masked request line with the job's own options put back (``mrn=•••`` -> ``mrn=<the job's mrn>``): the audit
+    keeps the line masked (D-272), the job keeps what it was asked; the page decides who sees it (D-143)."""
+    opts = {str(k).lower(): v for k, v in (options or {}).items()}
+
+    def back(m: re.Match[str]) -> str:
+        val = opts.get(m.group(1).lower())
+        return f"{m.group(1)}={val}" if val not in (None, "") else m.group(0)
+
+    return ID_IN_TEXT.sub(back, text or "")
+
+
 def job_line(job: Job) -> str:
     opts = dict(job.options or {})
     target = job.ruleset or opts.pop("target", "")
     opts.pop("target", None)
-    return " ".join([job.type, target, *[f"{k}={v}" for k, v in sorted(opts.items())]]).strip()
+    shown = [f"{k}={v}" for k, v in sorted(opts.items()) if k.lower() not in _HIDDEN_OPTIONS]
+    return " ".join([job.type, target, *shown]).strip()
 
 
 def _env_map(env: Mapping[str, str] | None) -> dict[str, str]:
@@ -236,7 +314,7 @@ def _default_backend(settings: ConsoleSettings) -> tuple[Backend, AuditLog]:
     from console.backend import HttpBackend
 
     cfg = get_config()
-    audit = AuditLog(cfg.env.audit_path, cfg.env.tz)
+    audit = open_audit(cfg.env.audit_path, cfg.env.tz)
     return HttpBackend(cfg, from_config(), audit, gateway_url=settings.gateway_url, test_smtp=settings.test_smtp), audit
 
 
@@ -328,10 +406,15 @@ def create_app(
     classify: Classifier | None = None,
     cascades: CascadeRuns | None = None,
 ) -> FastAPI:
+    from tb_common.logging import setup_logging
+
+    setup_logging("console")  # T-212d (D-450, PV-10): every scrubber rule on, as in every other service
     settings = ConsoleSettings.from_env(_env_map(env))
     if backend is None or audit is None:
         backend, audit = _default_backend(settings)
-    users = users or UserStore(settings.data_dir / "console.sqlite")
+    users = users or UserStore()  # schema auth of the trial database (TB_DB_URL, D-126)
+    users.idle, users.absolute = settings.identity.idle, settings.identity.absolute  # D-192
+    ident = Identity(settings.identity, users, audit, settings.secure_cookie)
     if settings.admin_password_file is not None:
         made = users.bootstrap_from_file(settings.admin_password_file, mailbox=settings.admin_email or None)
         if made is not None:
@@ -339,18 +422,28 @@ def create_app(
     if settings.pilot and classify is None and settings.gateway_url:
         from console.proposals import gateway_classifier
 
-        classify = gateway_classifier(settings.gateway_url, settings.gateway_model, "D0", date.today)
+        zone = site_zone(backend)  # the site's date, not the container's (D-270)
+        classify = gateway_classifier(
+            settings.gateway_url, settings.gateway_model, "D0", lambda: local_today(datetime.now(UTC), zone)
+        )
     if settings.pilot and cascades is None:
         cascades = CascadeRuns(settings.data_dir / "cascade", settings.source_dir)
     pending: dict[str, _Pending] = {}
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     site_tz = site_zone(backend)
     templates.env.filters["local"] = lambda v, n=16: local_time(v, site_tz, n)
+    templates.env.filters["mask_ids"] = lambda v: mask_ids(str(v))  # audit tables never show a chart number (P-01)
+    # D-146 (review J-17): a person, not the raw actor id ("console:crc" -> "crc"), on every translated page
+    templates.env.filters["who"] = lambda v: str(v or "").removeprefix("console:") or "–"
     templates.env.globals["reason_label"] = reason_label  # a candidate row's reason code in the page language (D-118)
     templates.env.globals["feas_notes"] = feas_notes  # a feasibility result's notes in the page language (D-119)
+    # D-380 (ROLE-018): the menu asks the matrix, as the routes do (``permit(user.role, action, BEST)``)
+    templates.env.globals["permit"] = permit
+    templates.env.globals["BEST"] = BEST_STANDING
     bk: Backend = backend
     au: AuditLog = audit
     us: UserStore = users
+    us.zone = site_tz  # an account's end date is a site day (D-270)
 
     boot: list[Callable[[], Any]] = []  # started with the app (the box's own timers, D-121)
 
@@ -365,8 +458,10 @@ def create_app(
                     sched.shutdown(wait=False)
 
     app = FastAPI(title="trialbox-console", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+    api_first.install(app)  # T-657 (D-444): /api/v1 changes check the session and permit before the body
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
     app.state.settings = settings
+    app.state.identity = ident
 
     # ------------------------------------------------------------------ plumbing
     @app.middleware("http")
@@ -434,7 +529,8 @@ def create_app(
             return None
 
     def session_of(request: Request) -> Session | None:
-        return us.session(request.cookies.get(COOKIE))
+        # D-192 review H3: a page's own auto-refresh (?auto=1, base.html) is not activity: the idle lock still runs
+        return us.session(request.cookies.get(COOKIE), touch=request.query_params.get("auto") != "1")
 
     def need(request: Request) -> Session:
         sess = session_of(request)
@@ -442,22 +538,47 @@ def create_app(
             user = sso_user(request)
             if user is None:
                 raise _LoginRequired()
-            token, sess = us.new_session(user, pick_language(request.headers.get("accept-language")))
+            token, sess = us.new_session(user, pick_language(request.headers.get("accept-language")), "sso")
             request.state.sso_cookie = token
             au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role, "via": "sso"})
+        # D-279 (SEC-1): with a password someone else set, the account reaches only its own password page
+        if request.url.path not in MUST_CHANGE_OPEN and us.must_change(sess.user.username):
+            if request.method == "GET" and not request.url.path.startswith("/api/"):
+                raise _MustChange()
+            raise _Problem(403, "account.must_change")
         _scope_check(request, sess)
+        bind_session(sess.token_sha[:16])  # S-09: the actor this request names to the orchestrator is signed with it
         return sess
+
+    def _aggregate_denied(path: str) -> bool:
+        """D-146 (review J-03/J-04/J-05): what an aggregate-only account (viewer, CRO; D-104) never opens, as a page or
+        through ``/api/v1``: the cross-study lists (runs, audit trail, registry), a study's patient-level and set-up
+        pages and APIs (all but its feasibility report), the site set-up, the REDCap connections, and any job page but
+        a feasibility run's (a CASE or SCREEN job page names patients). Masking (D-143) stays as it was."""
+        if _AGGREGATE_DENY.match(path):
+            return True
+        m = re.match(r"^/pilot/jobs/([0-9A-HJKMNP-TV-Z]{26})(?:/|$)", path)
+        if m:
+            job = bk.get_job(m.group(1))
+            return job is None or job.type != "FEAS"
+        return False
 
     def _scope_check(request: Request, sess: Session) -> None:
         """D-104: a CRO account sees the reports pages only; a study-scoped account (an SMO coordinator) reaches no
         job or registry page of another study."""
         path = request.url.path
         u = sess.user
-        if u.role == "cro" and not (
-            path in ("/", "/home", "/reports", "/lang", "/logout", "/cmd", "/account", "/account/password", "/help")
+        if u.sponsor_form and not (
+            path
+            in ("/", "/home", "/reports", "/lang", "/logout", "/cmd", "/account", "/account/password", "/help", "/ask")
             or re.fullmatch(r"/studies/[A-Za-z0-9_-]+/feasibility", path)
+            or _MONITOR_ROUTE.fullmatch(path)  # D-380: refused there unless a monitor grant holds
             or re.fullmatch(r"/pilot/jobs/[0-9A-HJKMNP-TV-Z]{26}/sponsor-pack\.zip", path)
+            or path == "/api/v1/studies"
         ):
+            au.append("console.denied", actor=f"console:{u.username}", detail={"action": path[:80]})
+            raise _Problem(403, "forbidden")
+        if u.aggregate_only and _aggregate_denied(path):
             au.append("console.denied", actor=f"console:{u.username}", detail={"action": path[:80]})
             raise _Problem(403, "forbidden")
         if not u.studies:
@@ -485,6 +606,12 @@ def create_app(
             raise _Problem(403, "forbidden")
         return sess
 
+    def confirm_step(request: Request, sess: Session, text: str, action: str, fields: Mapping[str, str],
+                     back: str) -> Response:  # fmt: skip
+        """Review 2026-11-09 P-10 (D-143): one sheet with the consequence in a sentence, Yes and No; Yes posts the same
+        form again with ``confirm=yes``. Used for Disable, Keep / Take a value, Detach REDCap and Approve all."""
+        return page(request, "confirm.html", sess, text=text, action=action, fields=dict(fields), back=back)
+
     def need_admin(request: Request, csrf: str) -> Session:
         """Operations: ingest, users. Administrators only."""
         sess = need(request)
@@ -495,9 +622,18 @@ def create_app(
         sess = need(request)
         return _need_role(request, csrf, sess.user.can_request, sess)
 
+    def need_runner(request: Request, csrf: str, command: str, ruleset: str) -> Session:
+        """Starting a FEAS, SCREEN or CASE run (T-512, D-349): coordinators and administrators as before; an
+        investigator by ``tb_common.authz.can_request`` with the study's delegation log (``Helpers.may_run``)."""
+        sess = need(request)
+        return _need_role(request, csrf, helpers.may_run(sess.user, ruleset.strip().upper(), command), sess)
+
     def lang_of(request: Request, sess: Session | None) -> str:
         if sess is not None and sess.lang in LANGS:
             return sess.lang
+        chosen = getattr(request.state, "lang", None) or request.cookies.get(LANG_COOKIE)  # the sign-in page's choice
+        if chosen in LANGS:
+            return str(chosen)
         return pick_language(request.headers.get("accept-language"))
 
     def page(request: Request, name: str, sess: Session | None, status: int = 200, **ctx: Any) -> HTMLResponse:
@@ -515,6 +651,19 @@ def create_app(
             text = t(key)
             return value if text == key else text
 
+        def given(value: object, cls: str = "") -> Markup | str:
+            """D-133 (review F-09): words that come from the study or the hospital's data (a criterion label, a
+            doctor's name) are shown as written. On a Japanese or Chinese page an English one is marked "as given"
+            (原文) and carries lang="en", so a reader sees it is the source's own word, not an untranslated label."""
+            text = str(value or "")
+            if not text:
+                return ""
+            if lang == "en" or not _ASCII_WORDS.fullmatch(text) or not re.search(r"[A-Za-z]{3,}", text):
+                return Markup('<span class="{}">{}</span>').format(cls, text) if cls else text
+            return Markup('<span class="given {}" lang="en" data-authored data-given="{}">{}</span>').format(
+                cls, t("given.mark"), text
+            )
+
         base = {
             "t": t,
             "t_or": t_or,
@@ -529,7 +678,13 @@ def create_app(
             "k": settings.small_cell,
             "cell": lambda v: cell(v, settings.small_cell),
             "state": state,
+            "given": given,
             "num": _num,
+            "console_js": CONSOLE_JS,
+            # the 5-second refresh of a running job's page asks with auto=1, so it does not keep the session awake
+            "refresh_url": request.url.path
+            + "?"
+            + urlencode([*((k, v) for k, v in request.query_params.multi_items() if k != "auto"), ("auto", "1")]),
         }
         return templates.TemplateResponse(request, name, {**base, **ctx}, status_code=status)
 
@@ -537,8 +692,16 @@ def create_app(
     async def _to_login(request: Request, _exc: _LoginRequired) -> Response:
         return RedirectResponse("/login", status_code=303)
 
+    @app.exception_handler(_MustChange)
+    async def _to_account(request: Request, _exc: _MustChange) -> Response:
+        return RedirectResponse("/account?must_change=1", status_code=303)  # D-279: the password page first
+
     @app.exception_handler(_Problem)
     async def _problem(request: Request, exc: _Problem) -> Response:
+        if request.url.path.startswith("/api/"):  # D-125: the API answers in JSON, never with a page
+            return JSONResponse(
+                {"error": exc.key, "detail": {k: str(v) for k, v in exc.values.items()}}, status_code=exc.status
+            )
         sess = session_of(request)
         values = localize_refusal(exc.values, lang_of(request, sess))  # no English refusal on a JA/zh-TW page
         return page(request, "problem.html", sess, status=exc.status, key=exc.key, values=values)
@@ -583,13 +746,27 @@ def create_app(
             ruleset=req.ruleset,
             actor=actor(sess),
             input_sha=",".join(f.sha256 for f in inputs) or None,
-            detail={"line": line, "mailbox": mailbox, "role": sess.user.role, "channel": "web"},
+            # D-272 (CR-016, PX-3): the request line is audited with its chart number masked
+            detail={"line": mask_ids(line), "mailbox": mailbox, "role": sess.user.role, "channel": "web"},
         )
         try:
-            return bk.create_job(req)
+            # D-146 (review J-01): the orchestrator authorises by the signed-in person's role, sent signed
+            return bk.create_job(req, by=actor(sess), role=sess.user.role)
         except Refused as exc:
             au.append("console.refused", job_id=job_id, actor=actor(sess), detail={"reason": str(exc)[:200]})
-            raise _Problem(403, "request.refused", reason=str(exc)) from exc
+            raise refusal_problem(str(exc), cmd, mailbox) from exc
+
+    def refusal_problem(reason: str, cmd: str, mailbox: str) -> _Problem:
+        """The orchestrator's refusal of a request as a page in the user's language (D-146, review J-01/J-02): the
+        daily limit, a role or a mailbox that may not start the request; anything else as before."""
+        m = re.search(r"rate limit reached \((\d+) (\w+) jobs", reason)
+        if m:
+            return _Problem(429, "request.limit", n=int(m.group(1)), kind=m.group(2))
+        if re.search(r"role may not run \w+", reason):
+            return _Problem(403, "request.role", kind=cmd)
+        if re.search(r"is not permitted to run \w+", reason):
+            return _Problem(403, "request.mailbox", kind=cmd, mailbox=mailbox)
+        return _Problem(403, "request.refused", reason=reason)
 
     def need_pilot() -> None:
         if not settings.pilot:
@@ -597,27 +774,51 @@ def create_app(
 
     # ------------------------------------------------------------------ control plane
     @app.get("/healthz")
-    def healthz() -> dict[str, Any]:
-        return {"status": "ok", "service": "console", "pilot": settings.pilot, "env": settings.environment}
+    def healthz() -> JSONResponse:
+        """Touches the console's own store (D-142, review A-02): with the database gone every page fails, so the
+        container must not look healthy. A lost connection is reopened on the way."""
+        body: dict[str, Any] = {
+            "status": "ok",
+            "service": "console",
+            "pilot": settings.pilot,
+            "env": settings.environment,
+        }
+        try:
+            body["checks"] = users.db.ping()
+        except Exception as exc:  # health must report, not raise
+            body.update(status="degraded", checks={"db": f"error: {type(exc).__name__}"})
+            return JSONResponse(body, status_code=503)
+        return JSONResponse(body)
 
-    @app.get("/login", response_class=HTMLResponse)
-    def login_form(request: Request) -> Response:
-        if settings.sso and (session_of(request) is not None or sso_user(request) is not None):
-            return RedirectResponse("/", status_code=303)
+    def login_page(request: Request, status: int = 200, failed: bool = False, **ctx: Any) -> Response:
         token = secrets.token_urlsafe(24)
         resp = page(
             request,
             "login.html",
             None,
+            status,
             login_csrf=token,
-            failed=False,
-            uninitialised=us.count("admin") == 0,
+            failed=failed,
+            admin_mail=settings.admin_email,
             sso=settings.sso,
+            oidc=ident.oidc_enabled,
+            **ctx,
         )
         resp.set_cookie(
             LOGIN_COOKIE, token, httponly=True, samesite="strict", secure=settings.secure_cookie, max_age=900
         )
+        chosen = getattr(request.state, "lang", None)
+        if chosen:  # D-133 (review F-05): the language chosen on the sign-in page, kept for the session it starts
+            resp.set_cookie(LANG_COOKIE, chosen, httponly=True, samesite="strict", secure=settings.secure_cookie)
         return resp
+
+    @app.get("/login", response_class=HTMLResponse)
+    def login_form(request: Request, lang: str = "") -> Response:
+        if settings.sso and (session_of(request) is not None or sso_user(request) is not None):
+            return RedirectResponse("/", status_code=303)
+        if lang in LANGS:
+            request.state.lang = lang
+        return login_page(request, uninitialised=us.count("admin") == 0)
 
     @app.post("/login")
     def login(
@@ -626,20 +827,38 @@ def create_app(
         cookie = request.cookies.get(LOGIN_COOKIE, "")
         if not cookie or not secrets.compare_digest(cookie, login_csrf):
             raise _Problem(400, "csrf")
-        user = us.authenticate(username[:64], password[:256])
-        if user is None:
-            au.append("console.login_failed", actor=f"console:{username.strip().lower()[:32] or '-'}")
-            token = secrets.token_urlsafe(24)
-            resp = page(request, "login.html", None, 401, login_csrf=token, failed=True, uninitialised=False)
-            resp.set_cookie(
-                LOGIN_COOKIE, token, httponly=True, samesite="strict", secure=settings.secure_cookie, max_age=900
-            )
+        src = client_source(request)  # D-279 (SEC-9): failures count per account and address
+        wait = us.throttled(src)
+        if wait:  # this address made many failed tries: it waits, nobody is locked out
+            au.append("console.login_failed", actor=f"console:{username.strip().lower()[:32] or '-'}",
+                      detail={"reason": "slowed", "source": src})  # fmt: skip
+            resp = login_page(request, 429, failed=True, uninitialised=False, wait=wait)
+            resp.headers["Retry-After"] = str(wait)
             return resp
-        token, _ = us.new_session(user, pick_language(request.headers.get("accept-language")))
+        # D-192: with a TOTP step to come, a right password does not clear the failure count; the code does
+        user = us.authenticate(
+            username[:64], password[:256], clear_failures=not settings.identity.totp_required, source=src
+        )
+        if user is None:
+            au.append("console.login_failed", actor=f"console:{username.strip().lower()[:32] or '-'}",
+                      detail={"source": src})  # fmt: skip
+            ident.after_failure(username, src)
+            until = us.locked_until(username[:64], src)
+            left = max(1, -(-int((until - us.clock()).total_seconds()) // 60)) if until else 0
+            return login_page(
+                request, 401, failed=True, uninitialised=False, until=until.isoformat() if until else "", left=left
+            )
+        if ident.needs_code(user):  # D-192: local accounts give a TOTP code before a session exists
+            return ident.second_step(user)
+        token, _ = us.new_session(user, lang_of(request, None), "password")
         au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role})
-        done = RedirectResponse("/home" if settings.pilot else "/", status_code=303)  # S1: land on the work list
+        landing = "/home" if settings.pilot else "/"  # S1: land on the work list
+        if us.must_change(user.username):  # D-279: a password someone else set is replaced first
+            landing = "/account?must_change=1"
+        done = RedirectResponse(landing, status_code=303)
         done.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=settings.secure_cookie)
         done.delete_cookie(LOGIN_COOKIE)
+        done.delete_cookie(LANG_COOKIE)
         return done
 
     @app.post("/logout")
@@ -649,9 +868,40 @@ def create_app(
             raise _Problem(400, "csrf")
         us.end_session(request.cookies.get(COOKIE, ""))
         au.append("console.logout", actor=actor(sess))
-        resp = RedirectResponse("/login", status_code=303)
+        resp = RedirectResponse(ident.logout_target(sess.user.username), status_code=303)  # D-192: OIDC logout
         resp.delete_cookie(COOKIE)
         return resp
+
+    register_identity(  # D-192: the TOTP step, the OIDC sign-in, /ops/identity (unlock, reset authenticator)
+        app,
+        ident,
+        Hooks(
+            need=need,
+            page=page,
+            login_page=login_page,
+            confirm=confirm_step,
+            lang_of=lang_of,
+            translate=translate,
+            csrf_ok=csrf_ok,
+            problem=_Problem,
+            secure=settings.secure_cookie,
+            session_cookie=COOKIE,
+            home="/home" if settings.pilot else "/",
+        ),
+    )
+
+    fr_dir = (_env_map(env).get("TB_FIRSTRUN_DIR") or "").strip()
+    firstrun.register(  # T-729 (D-466): the box's first-run wizard, before any account exists
+        app,
+        firstrun.FirstRunHooks(
+            users=us,
+            audit=au,
+            page=page,
+            seal=ident.box.seal,
+            secure=settings.secure_cookie,
+            folder=Path(fr_dir) if fr_dir else None,
+        ),
+    )
 
     @app.post("/lang")
     def set_lang(request: Request, lang: str = Form("en"), csrf: str = Form(""), back: str = Form("/")) -> Response:
@@ -684,11 +934,11 @@ def create_app(
     def ingest(request: Request, csrf: str = Form("")) -> Response:
         sess = need_admin(request, csrf)
         au.append("console.operate", actor=actor(sess), detail={"action": "ingest"})
-        report = bk.ingest()
+        started = bk.ingest()  # T-690 (D-472): started, not waited for; the night's end is the adapter's audit line
         au.append(
             "console.operate",
             actor=actor(sess),
-            detail={"action": "ingest.done", "reason": "passed" if report.get("passed") else "not passed"},
+            detail={"action": "ingest.started", "run": str(started.get("run") or "")},
         )
         return RedirectResponse("/?notice=ingested", status_code=303)
 
@@ -699,26 +949,39 @@ def create_app(
         running = any(j.state not in TERMINAL and j.state != "awaiting_approval" for j in items)
         return page(request, "jobs.html", sess, jobs=items, refresh=running)
 
-    @app.get("/audit", response_class=HTMLResponse)
-    def audit_view(request: Request) -> Response:
-        sess = need(request)
-        return page(request, "audit.html", sess, records=bk.audit(None, 300))
+    # D-133 (review F-02): a new or reset one-time password never travels in a URL (history, proxy and access logs,
+    # a forwarded link). It is kept here, in memory, for the session that made it, and shown once by the next page.
+    # Never written to a log, the audit trail or a database; a restart forgets it (reset the password again).
+    one_time: dict[str, tuple[str, str, float]] = {}
+
+    def keep_once(sess: Session, username: str, password: str) -> None:
+        now = time.monotonic()
+        for k in [k for k, v in one_time.items() if now - v[2] > 600]:  # unread for 10 minutes: gone
+            one_time.pop(k, None)
+        one_time[sess.token_sha] = (username, password, now)
 
     @app.get("/ops/users", response_class=HTMLResponse)
-    def users_view(request: Request, made: str = "", pw: str = "") -> Response:
+    def users_view(request: Request, undo: str = "", done: str = "") -> Response:
         sess = need(request)
         if not sess.user.is_admin:
             raise _Problem(403, "forbidden")
+        made, pw, _ = one_time.pop(sess.token_sha, ("", "", 0.0))
         rows = [(u, us.is_sso(u.username)) for u in us.users()]
+        off = us.disabled_users()
         return page(
             request,
             "users.html",
             sess,
             users=rows,
+            disabled=off,
+            undo=undo if undo in {u.username for u in off} else "",  # D-178: the toast's Undo after Disable
+            done=done if done in ("enabled",) else "",
             roles=ROLES,
+            role_desc={r: role_description(r, lang_of(request, sess)) for r in ROLES},  # ROLE-018: from the matrix
             affiliations=AFFILIATIONS,
             made=made,
             pw=pw,
+            pw_groups=pw.split("-") if pw else [],
             sso=settings.sso,
         )
 
@@ -733,18 +996,26 @@ def create_app(
         affiliation: str = Form("hospital"),
         studies: str = Form(""),
         expires: str = Form(""),
+        confirm: str = Form(""),
     ) -> Response:
-        """Add a user (password shown once), reset a password (shown once) or disable an account. Same as the
-        console.cli commands; every change is an audit event."""
+        """Add a user (password shown once), reset a password (shown once) or disable an account (after a
+        confirmation, P-10). Same as the console.cli commands; every change is an audit event."""
         sess = need_admin(request, csrf)
         name = username.strip().lower()[:32]
+        perm = {"reset": "account.reset", "disable": "account.disable", "enable": "account.enable"}.get(action)
+        if perm and not admin_allowed(sess.user.role, perm):  # D-178: the one role table (tb_common.authz)
+            au.append("console.denied", actor=actor(sess), detail={"action": f"/ops/users {action}"})
+            raise _Problem(403, "forbidden")
         try:
             if action == "add":
                 if role not in ROLES:
                     raise AuthError("unknown role")
-                scope_values(affiliation, studies, expires or None)  # refuse a bad scope before the account exists
+                scope_values(
+                    affiliation, studies, expires or None, role
+                )  # refuse a bad scope before the account exists
+                expires = end_date(role, expires or None, us.today()) or ""  # D-406 (OPS-059): at most 12 months
                 password = random_password()
-                us.create(name, role, password, mailbox.strip() or None)
+                us.create(name, role, password, mailbox.strip() or None, must_change=True)  # D-279: the owner's first
                 made_user = us.set_scope(name, affiliation, studies, expires or None)
                 au.append(
                     "console.user",
@@ -758,15 +1029,25 @@ def create_app(
                         "expires": made_user.expires or "",
                     },
                 )
-                return RedirectResponse(f"/ops/users?made={name}&pw={password}", status_code=303)
+                keep_once(sess, name, password)
+                return RedirectResponse("/ops/users#made", status_code=303)
             if action == "reset":
                 if us.is_sso(name):
                     raise AuthError("this account signs in through the hospital identity provider")
+                if confirm != "yes":  # D-178 (review J-14): the consequence first; a reset cannot be undone
+                    text = translate(lang_of(request, sess), "confirm.reset", user=name)
+                    return confirm_step(request, sess, text, "/ops/users", {"action": "reset", "username": name},
+                                        "/ops/users")  # fmt: skip
                 password = random_password()
-                us.set_password(name, password)
+                us.set_password(name, password, must_change=True)  # D-279: the owner replaces it at sign-in
                 au.append("console.user", actor=actor(sess), detail={"action": "reset", "user": name})
-                return RedirectResponse(f"/ops/users?made={name}&pw={password}", status_code=303)
+                keep_once(sess, name, password)
+                return RedirectResponse("/ops/users#made", status_code=303)
             if action == "scope":
+                scope_values(affiliation, studies, expires or None)
+                was = next((u for u in us.users() if u.username == name), None)
+                if was is not None:  # D-406 (OPS-059): a local account's end date, at most 12 months ahead
+                    expires = end_date(was.role, expires or None, us.today(), sso=us.is_sso(name)) or ""
                 u2 = us.set_scope(name, affiliation, studies, expires or None)
                 au.append(
                     "console.user",
@@ -783,18 +1064,49 @@ def create_app(
             if action == "disable":
                 if name == sess.user.username:
                     raise AuthError("you cannot disable your own account")
+                if confirm != "yes":
+                    text = translate(lang_of(request, sess), "confirm.disable", user=name)
+                    return confirm_step(request, sess, text, "/ops/users", {"action": "disable", "username": name},
+                                        "/ops/users")  # fmt: skip
                 us.disable(name)
                 au.append("console.user", actor=actor(sess), detail={"action": "disable", "user": name})
-                return RedirectResponse("/ops/users", status_code=303)
+                return RedirectResponse(f"/ops/users?undo={name}#undo", status_code=303)
+            if action == "enable":  # D-178 (review J-14): the undo of Disable, from the toast or the disabled list
+                us.enable(name)
+                au.append("console.user", actor=actor(sess),
+                          detail={"action": "enable", "user": name, "undo": confirm == "undo"})  # fmt: skip
+                return RedirectResponse("/ops/users?done=enabled", status_code=303)
         except AuthError as exc:
             raise _Problem(400, "request.refused", reason=str(exc)) from exc
         raise _Problem(400, "request.refused", reason="unknown action")
+
+    from console import audit_page
+
+    # T-211c (D-451): /audit, the privacy office's and the steward's audit browser, with or without the workspace
+    audit_page.register(
+        app, audit_page.Hooks(need=need, page=page, problem=_Problem, csrf_ok=csrf_ok, actor=actor, au=au)
+    )
 
     # ------------------------------------------------------------------ pilot workspace
     if not settings.pilot:
         return app
 
-    from console import approval, notify, screening_log, step4, study_setup
+    from console import (
+        admin_flags,
+        approval,
+        data_pages,
+        edc_pages,
+        entry_pages,
+        lifecycle_pages,
+        notify,
+        recorded_opinions,
+        screening_log,
+        sdv_page,
+        site_pages,
+        step4,
+        study_setup,
+        team,
+    )
     from console.home import Helpers
     from console.home import register as register_home
     from console.sitestore import SiteStore
@@ -802,26 +1114,83 @@ def create_app(
     helpers = Helpers(
         need=need,
         page=page,
+        confirm=confirm_step,
+        scope_check=_scope_check,
         problem=_Problem,
         csrf_ok=csrf_ok,
         actor=actor,
         bk=bk,
         au=au,
-        store=SiteStore(settings.data_dir / "site.sqlite"),
+        store=SiteStore(),  # schema site of the trial database (TB_DB_URL, D-126)
         users=us,
         clock=us.clock,
         submit=submit,
+        identity=ident,  # D-279: the second factor at signing (console.edc_pages)
+        recorded=recorded_opinions.from_env(_env_map(env)),  # T-515: DEV demo opinions (TB_DEMO_OPINIONS)
     )
     app.state.helpers = helpers  # console.notify (CLI) reads the same helpers
     register_home(app, helpers)
+    assert helpers.api_session is not None
+    audit_page.register_api(  # T-211c (D-451): the verify button's /api/v1 twin (T-657)
+        app,
+        audit_page.Hooks(need=need, page=page, problem=_Problem, csrf_ok=csrf_ok, actor=actor, au=au),
+        helpers.api_session,
+    )
     approval.register(app, helpers, submit)  # S20 (D-108): the investigator approves, on one page
     screening_log.register(app, helpers)
     notify.register(app, helpers)
     study_setup.register(app, helpers)  # S21 and S36 (D-109)
+    data_pages.register(app, helpers)  # TB-PLAN-04 step 3: Sources, Conflicts, Forms and their /api/v1 (D-123)
+    entry_pages.register(app, helpers)  # TB-PLAN-04 step 4: Entry, History, exports, built-in forms (D-129)
+    lifecycle_pages.register(app, helpers)  # TB-PLAN-04 step 5: participants, visits, schedule, report (D-134)
+    site_pages.register(app, helpers)  # TB-PLAN-04 step 5b: site set-up, readiness, review lists, Ask (D-135)
     step4.register(app, helpers)  # header command field, S22, S29, S37, S13 tabs with S24 and S26 (D-110)
+    raw_env = _env_map(env)
+    team.register(app, helpers, raw_env)  # delegation log, candidates, referral, IRB warning, opt-outs (D-147)
+    sdv_page.register(app, helpers)  # T-303 (D-436): the monitor's SDV pages, after team (it reads the standing)
+    admin_flags.register(app, helpers)  # /ops/flags and the flags' first-start seed (T-008, D-207)
+    edc_pages.register(app, helpers)  # EDC prefill: switch, map, review, e-signature, send, ODM (D-160)
+    from console import copy_assist_page
+
+    copy_assist_page.register(app, helpers)  # T-302c (D-434): copy-assist, its CSV and /api/v1
+    demo_guard.register(app, helpers)  # T-502 (D-328): demo mode's refusals, banner and acknowledgement
+    feedback.register(app, helpers)  # T-510 (D-331): the feedback control of every page and its CSV export
+    from console import items_page
+
+    items_page.register(app, helpers)  # T-107 (D-353): /data/items, the clinical item catalogue for the steward
+    from console import conflicts_page
+
+    conflicts_page.register(app, helpers)  # T-201 (D-426): /data/conflicts, the steward's clinical conflicts
+    from console import dataops_page
+
+    dataops_page.register(app, helpers)  # T-112b (D-443): /data-ops and /api/v1/data/*, the nights of every source
+    from console import instruments_page
+
+    instruments_page.register(app, helpers)  # T-307 (D-375): /data/instruments, the instrument copyright register
+
+    from console import ops_pages
+
+    ops_pages.register(app, helpers, raw_env)  # D-178: backups, update and rollback, logs, secrets, network sheet
+    from console import metrics_page
+
+    metrics_page.register(app, helpers)  # T-209a (D-379): /metrics and the box's health for the morning mail
+    from console import sae_pages
+
+    sae_pages.register(app, helpers)  # the SAE register and its worklist (D-191)
+    from console import admin_accounts
+
+    admin_accounts.register(app, helpers)  # T-209c (D-406): backup, update and account tiles; unused-account report
+    from console import breakglass
+
+    breakglass.register(app, helpers)  # D-280 (OD-5): the administrator's break-glass grants and the steward's review
+    from console import notmatched_pages
+
+    notmatched_pages.register(app, helpers, raw_env)  # T-310a (D-446): weekly sample, send-back, the site's check
+    from console import twin_api
+
+    twin_api.register(app, helpers)  # T-204 (D-440): the patient twin's read route, after break-glass (it uses grants)
     from console import timers
 
-    raw_env = _env_map(env)
     timers.plan(raw_env)  # a bad HH:MM fails at start, not at 07:00
     boot.append(lambda: timers.start(helpers, raw_env, site_tz))
 
@@ -916,8 +1285,13 @@ def create_app(
             raise _Problem(404, "notfound")
         # D-91/D-101: the CASE eligibility sheet carries chart text (phi); in the pilot workspace a requester or an
         # investigator may read it in the browser, exactly as the study team receives it by mail. Viewers may not.
-        if out.tag != "aggregate" and not (job.type == "CASE" and sess.user.can_view_phi):
+        # D-280 (OD-5): the administrator reads it only under a break-glass grant for this job; T-309 (D-430): so does
+        # an investigator the delegation log does not reach (one rule)
+        grant = _bg(sess, job, "case sheet") if out.tag != "aggregate" and job.type == "CASE" else None
+        if out.tag != "aggregate" and not (job.type == "CASE" and (sess.user.can_view_phi or grant is not None)):
             raise _Problem(404, "notfound")
+        if out.tag != "aggregate" and grant is None:  # D-273 (PV-3): an investigator reads it only as delegated
+            helpers.delegated(sess, job.ruleset or "", request.url.path)
         data = bk.get_object(out.minio_key)
         au.append(
             "console.view",
@@ -958,20 +1332,34 @@ def create_app(
         job = _job_or_404(job_id)
         return _job_page(request, sess, job)
 
+    def _bg(sess: Session, job: Job, what: str) -> Any:
+        """D-280 (OD-5): the open break-glass grant for this job (one audited use), else None. T-309 (D-430): asked
+        only when the account does not read the job's study by its own rights (``Helpers.reads``)."""
+        if helpers.breakglass is None or helpers.reads(sess.user, job.ruleset):
+            return None
+        return helpers.breakglass(sess, job_id=job.job_id, what=what)
+
     def _job_page(request: Request, sess: Session, job: Job, revealed: dict[str, str] | None = None) -> Response:
         job_id = job.job_id
+        grant = _bg(sess, job, "job page")
         review_html = next(
             (o for o in job.outputs or [] if o.filename.startswith("review_") and o.filename.endswith(".html")), None
         )
         audit_recs = bk.audit(job_id, 200)
         subjects = [str(r.detail.get("subject", "")) for r in audit_recs if r.event == "mail.received"]
         thread = bk.thread(job_id)
-        thread_rows: list[tuple[MailItem | None, str]] = [
+        raw_rows: list[tuple[MailItem | None, str]] = [
             (m, m.subject or (subjects[0] if m.direction == "in" and subjects else "")) for m in thread
         ]
         if not any(m.direction == "in" for m in thread) and any(r.event == "console.request" for r in audit_recs):
             web = next(r for r in audit_recs if r.event == "console.request")
-            thread_rows.insert(0, (None, str(web.detail.get("line", ""))))
+            # the audit holds the line masked (D-272); the chart number comes back from the job's options
+            raw_rows.insert(0, (None, unmask_ids(mask_ids(str(web.detail.get("line", ""))), job.options)))
+        case = _case_card(job)
+        out = _case_opted_out(job, case)
+        auto = request.query_params.get("auto") == "1"  # the page's own 5-second refresh (base.html)
+        thread_rows = [(m, shown_ids(sess, job, text, "thread", opted_out=out, bg=grant is not None, auto=auto))
+                       for m, text in raw_rows]  # fmt: skip
         return page(
             request,
             "job.html",
@@ -982,6 +1370,7 @@ def create_app(
             barriers=_barriers(feas),
             aggregate=[o for o in job.outputs or [] if o.tag == "aggregate"],
             phi=[o for o in job.outputs or [] if o.tag == "phi"],
+            phi_dl={o.filename for o in job.outputs or [] if o.tag == "phi" and phi_download_ok(sess, job, o)},
             review=_review_book(job) if job.state == "awaiting_approval" else None,
             review_html=review_html,
             split=_check_split(review_html) if job.state == "awaiting_approval" else None,
@@ -990,11 +1379,53 @@ def create_app(
             refresh=job.state not in TERMINAL and job.state != "awaiting_approval",
             rulesets=[r for r in bk.rulesets() if r.status == "approved"],
             consent=_consent_card(job),
-            case=_case_card(job),
-            screen=_screen_card(job, sess, revealed),
+            case=case,
+            screen=_screen_card(job, sess, revealed, bg=grant is not None),
+            breakglass=grant,
         )
 
-    def _screen_card(job: Job, sess: Session, revealed: dict[str, str] | None = None) -> dict[str, Any] | None:
+    def _case_opted_out(job: Job, case: dict[str, Any] | None) -> bool:
+        """D-273 (PV-4): is the job's subject on the opt-out register now? The pseudonym comes from the finished
+        CASE card or the job's options; for a CASE job still running, or failed, the box turns the job's own chart
+        number into the pseudonym (never shown, never returned). If the box cannot answer, the line stays masked."""
+        gone = helpers.gone()
+        if not gone:
+            return False
+        subj = str(((case or {}).get("subject") or {}).get("pid") or (job.options or {}).get("pid") or "")
+        if subj:
+            return subj in gone
+        chart = str((job.options or {}).get("mrn") or "").strip()
+        if job.type != "CASE" or not chart:
+            return False
+        from console import s28
+
+        try:
+            got = s28.call(bk, "POST", "/setup/pseudonym", {"chart_no": chart})
+        except Exception:  # the box is down or refuses: fail closed
+            return True
+        pid = str((got or {}).get("pid") or "")
+        return not pid or pid in gone
+
+    def shown_ids(sess: Session, job: Job, text: str, where: str, opted_out: bool = False, bg: bool = False,
+                  auto: bool = False) -> str:  # fmt: skip
+        """A request line or subject as this reader may see it (P-01, D-143): the chart number in clear for an
+        account with identifier authority for the job's study (coordinator, the study's delegated investigator) or
+        under the page's break-glass grant, through the one reveal path (T-103, D-438: one use of the cap per person,
+        job and hour, one record; the auto-refresh costs nothing); masked for everyone else (viewer, CRO)."""
+        masked = mask_ids(text)
+        if masked == text or opted_out:
+            return masked
+        basis = helpers.reveal.own_basis(sess, job.ruleset) if job.ruleset else ""
+        if not basis and not job.ruleset and sess.user.sees_ids(None):
+            basis = "role"  # a job without a study: an unscoped account with the ``id.reveal`` row
+        if not basis and not bg:
+            return masked
+        ok = helpers.reveal.shown_in_line(sess, job.ruleset or "", job.job_id, where, auto=auto,
+                                          basis=basis or "breakglass")  # fmt: skip
+        return text if ok else masked
+
+    def _screen_card(job: Job, sess: Session, revealed: dict[str, str] | None = None,
+                     bg: bool = False) -> dict[str, Any] | None:  # fmt: skip
         """The coordinator's screen for a finished SCREEN / MICROBATCH job (D-99): the run summary from the
         ``screen_*.json`` aggregate, and for administrators and coordinators the candidate rows (tier, next visit,
         practitioner, open questions, note quotes) from the candidate-list JSON the mail also carried. Viewers see the
@@ -1016,15 +1447,23 @@ def create_app(
                 card["summary"] = json.loads(bk.get_object(summary_out.minio_key))
             except (KeyError, ValueError, OSError):
                 card["summary"] = None
-        if list_out is not None and sess.user.can_view_phi:
+        # D-273 (PV-3, PV-4): the rows are patient level; an investigator sees them only as delegated ("screen"),
+        # and a patient on the opt-out register now is not shown, however old the job (only the count is)
+        # D-280 (OD-5): the administrator only under a break-glass grant for this job (``bg``)
+        if list_out is not None and (helpers.reads(sess.user, job.ruleset) or bg):
             try:
                 cl = json.loads(bk.get_object(list_out.minio_key))
             except (KeyError, ValueError, OSError):
                 cl = None
             if cl is not None:
                 rows = []
+                gone = helpers.gone()
+                card["removed"] = 0
                 for r in cl.get("rows") or []:
                     if r.get("tier") not in ("high", "review"):
+                        continue
+                    if str(r.get("pid", "")) in gone:
+                        card["removed"] += 1
                         continue
                     unknown = [v["id"] for v in r.get("criteria") or [] if v.get("verdict") == "unknown"]
                     failing = [v["id"] for v in r.get("criteria") or [] if v.get("verdict") == "fail"]
@@ -1060,28 +1499,29 @@ def create_app(
 
     @app.post("/pilot/jobs/{job_id}/reveal")
     def job_reveal(
-        request: Request, job_id: str, csrf: str = Form(""), pid: str = Form(""), reason: str = Form("")
+        request: Request,
+        job_id: str,
+        csrf: str = Form(""),
+        pid: str = Form(""),
+        reason: str = Form(""),
+        note: str = Form(""),
     ) -> Response:
-        """One chart number for one listed pseudonym, shown once on the page and audited on both sides (D-99)."""
-        sess = need_requester(request, csrf)
+        """One chart number for one listed pseudonym, shown once on the page (D-99): a thin handler over the one reveal
+        path (T-103, D-438), with the job so that a break-glass grant for this job counts."""
+        sess = need(request)
         job = _job_or_404(job_id)
+        _need_role(request, csrf, True, sess)
+        helpers.reveal.guard(sess, job.ruleset, request.url.path, "screening_list", reason, "job", job.job_id)
         if job.type not in ("SCREEN", "MICROBATCH") or job.state != "done":
             raise _Problem(409, "request.refused", reason="chart numbers are revealed for finished screening jobs only")
         pid = pid.strip()
         if not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", pid):
             raise _Problem(400, "request.refused", reason="bad pseudonym")
-        au.append(
-            "console.reveal",
-            job_id=job_id,
-            ruleset=job.ruleset,
-            actor=actor(sess),
-            detail={"pid": pid, "reason": reveal_reason(reason)},
-        )
-        try:
-            mrn = bk.reveal(job_id, pid, actor(sess))
-        except Refused as exc:
-            raise _Problem(409, "request.refused", reason=str(exc)) from exc
-        return _job_page(request, sess, job, revealed={pid: mrn or ""})
+        if not job.ruleset:
+            raise _Problem(403, "forbidden")
+        got = helpers.reveal.identifier(sess, job.ruleset, pid, "screening_list", reason, note=note, via="job",
+                                        path=request.url.path, job_id=job.job_id)  # fmt: skip
+        return _job_page(request, sess, job, revealed={pid: got.mrn})
 
     def _case_card(job: Job) -> dict[str, Any] | None:
         if job.type != "CASE" or job.state != "done":
@@ -1104,6 +1544,21 @@ def create_app(
             "subject": rec.get("subject") or {},
         }
 
+    def phi_download_ok(sess: Session, job: Job, out: JobOutput) -> bool:
+        """D-369 (OD-1, PV-18): the guarded download of link mode. A patient-level file leaves by the browser only
+        to a person the job mailed it to (its named recipients, by the account's mailbox), who may read patient data
+        (coordinator or investigator) for that study. The administrator, viewers and every other account never."""
+        box = (sess.user.mailbox or "").strip().lower()
+        named = {r.strip().lower() for r in out.recipients}
+        return (
+            out.tag == "phi"
+            and bool(box)
+            and box in named
+            and sess.user.can_view_phi
+            and sess.user.sees_study(job.ruleset or "")
+            and helpers.delegated_ok(sess.user, job.ruleset)
+        )
+
     @app.get("/pilot/jobs/{job_id}/files/{filename}")
     def job_file(request: Request, job_id: str, filename: str) -> Response:
         sess = need(request)
@@ -1111,9 +1566,13 @@ def create_app(
         if not _FILE.match(filename):
             raise _Problem(404, "notfound")
         out = next((o for o in job.outputs or [] if o.filename == filename), None)
-        if out is None or out.tag != "aggregate":  # patient-level files never leave by the browser
+        # patient-level files leave by the browser only to their named recipients (D-369 guarded download)
+        if out is None or (out.tag != "aggregate" and not phi_download_ok(sess, job, out)):
             raise _Problem(404, "notfound")
-        data = bk.get_object(out.minio_key)
+        if out.tag == "phi" and filename.lower().endswith(".xlsx"):  # every listed patient's chart number
+            data = helpers.reveal.workbook(sess, job, out, request.url.path)  # T-103 (D-438): the one path
+        else:
+            data = bk.get_object(out.minio_key)
         au.append(
             "console.download",
             job_id=job_id,
@@ -1121,6 +1580,12 @@ def create_app(
             output_sha=sha256_bytes(data),
             detail={"filename": filename, "tag": out.tag},
         )
+        level = level_of_tag(out.tag)
+        record_export(au, channel="console_download", filename=filename, data=data, identifier_level=level,
+                      approval=f"console role {sess.user.role}; {out.tag} output of job {job_id}"
+                      + ("; named recipient (D-369)" if out.tag == "phi" else ""),
+                      recipients=[sess.user.mailbox] if out.tag == "phi" and sess.user.mailbox else (),
+                      actor=actor(sess), ruleset=job.ruleset, job_id=job_id)  # fmt: skip
         ctype = {
             ".pdf": "application/pdf",
             ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1160,7 +1625,7 @@ def create_app(
         version: str = Form(""),
         pract: str = Form(""),
     ) -> Response:
-        sess = need_requester(request, csrf)
+        sess = need_runner(request, csrf, kind if kind in ("FEAS", "SCREEN") else "FEAS", ruleset)  # T-512
         rs = ruleset.strip().upper()
         if kind not in ("FEAS", "SCREEN") or not _RULESET_ID.match(rs):
             raise _Problem(400, "request.refused", reason="choose FEAS or SCREEN and an approved ruleset")
@@ -1243,6 +1708,7 @@ def create_app(
         protocol: Annotated[UploadFile | None, File()] = None,
     ) -> Response:
         sess = need_requester(request, csrf)
+        demo_guard.guard(request, _Problem)  # T-502: no upload or pasted text in demo mode
         rs = ruleset.strip().upper()
         if not _RULESET_ID.match(rs):
             raise _Problem(400, "request.refused", reason="ruleset ids are 1-16 letters, digits, '-' or '_'")
@@ -1292,6 +1758,7 @@ def create_app(
         icf: Annotated[UploadFile | None, File()] = None,
     ) -> Response:
         sess = need_requester(request, csrf)
+        demo_guard.guard(request, _Problem)  # T-502: no upload in demo mode
         code = study.strip().upper()
         sample = _consent_sample()
 
@@ -1338,7 +1805,8 @@ def create_app(
         lang: str = Form(""),
         charts: Annotated[list[UploadFile] | None, File()] = None,
     ) -> Response:
-        sess = need_requester(request, csrf)
+        sess = need_runner(request, csrf, "CASE", ruleset)  # T-512 (D-349): the PI asks a case question too
+        demo_guard.guard(request, _Problem)  # T-502: no chart upload in demo mode
         rs = ruleset.strip().upper()
         if not _RULESET_ID.match(rs):
             raise _Problem(400, "request.refused", reason="choose an approved ruleset")
@@ -1373,7 +1841,8 @@ def create_app(
 
     # ------------------------------------------------------------------ candidate registry (D-92)
     def _registry_page(request: Request, sess: Session, rs: str, status: int = 200, **ctx: Any) -> HTMLResponse:
-        rows = bk.registry_rows(rs)
+        gone = helpers.gone()  # D-273 (PV-4): the screening log's page leaves out who opted out, as its export does
+        rows = [e for e in bk.registry_rows(rs) if e.pid not in gone]
         from orchestrator.candidates import counts as _counts
 
         return page(
@@ -1407,6 +1876,10 @@ def create_app(
         rs = ruleset.strip().upper()
         if not _RULESET_ID.match(rs):
             raise _Problem(404, "notfound")
+        helpers.delegated(sess, rs, request.url.path)  # D-273 (PV-3): an investigator as delegated only
+        if sess.user.is_admin:  # D-280 (OD-5, CR-023): the registry's rows are patient level
+            au.append("console.denied", actor=actor(sess), detail={"action": request.url.path[:80]})
+            raise _Problem(403, "forbidden")
         try:
             return _registry_page(request, sess, rs)
         except Refused as exc:
@@ -1426,6 +1899,10 @@ def create_app(
         rs = ruleset.strip().upper()
         if not _RULESET_ID.match(rs) or status not in STATUSES:
             raise _Problem(400, "request.refused", reason="choose a ruleset and a status")
+        if status in RECORDED_ELSEWHERE:  # D-399 (UX-012): one way to record consent, the consent form
+            raise _Problem(
+                400, "request.refused", reason="record consent on the participant page: it opens the consent form"
+            )
         who = sess.user.mailbox or sess.user.username
         upd = RegistryUpdate(
             pid=pid.strip() or None,
@@ -1467,7 +1944,7 @@ def create_app(
         README that names the ruleset version, snapshot, approval record, population and the models that ran. The
         pack never contains a patient-level file; the download is audited."""
         sess = need(request)
-        if not (sess.user.can_request or sess.user.role == "cro"):  # D-104: a CRO account gets the sponsor pack
+        if not (sess.user.can_request or sess.user.sponsor_form):  # D-104: a CRO account gets the sponsor pack
             raise _Problem(403, "forbidden")
         job = _job_or_404(job_id)
         if not sess.user.sees_study(job.ruleset or ""):
@@ -1487,6 +1964,10 @@ def create_app(
             output_sha=sha256_bytes(data),
             detail={"action": "sponsor_pack", "files": [n for n, _ in files]},
         )
+        approval = f"ruleset {job.ruleset}@{job.ruleset_version}; console role {sess.user.role}"
+        record_export(au, channel="console_export", filename=f"sponsor_pack_{job.ruleset}_{job_id}.zip", data=data,
+                      identifier_level="aggregate", actor=actor(sess), ruleset=job.ruleset, job_id=job_id,
+                      approval=approval)  # fmt: skip
         return Response(
             data,
             media_type="application/zip",
@@ -1497,14 +1978,21 @@ def create_app(
         )
 
     @app.get("/pilot/registry/{ruleset}/export.xlsx")
-    def registry_export(request: Request, ruleset: str) -> Response:
+    def registry_export(request: Request, ruleset: str, reason: str = "", note: str = "") -> Response:
+        """The study's screening log with every chart number: through the one reveal path (T-103, D-438): own rights
+        and the delegation log (D-273 PV-5), a reason, one use of the cap, one record with the count; the
+        orchestrator checks the signed role and studies again and keeps its export cap (S-09)."""
         sess = need(request)
         rs = ruleset.strip().upper()
         if not _RULESET_ID.match(rs):
             raise _Problem(404, "notfound")
-        if not sess.user.can_request:  # the export carries chart numbers (phi): requesters only
-            raise _Problem(403, "forbidden")
-        data = bk.registry_export(rs)
+
+        def requested() -> None:  # D-273: audited before the file is built, once the rule has let it through
+            au.append("console.registry", actor=actor(sess), ruleset=rs,
+                      detail={"action": "export_requested", "role": sess.user.role})  # fmt: skip
+
+        data = helpers.reveal.screening_log(sess, rs, reason, note=note[:300], path=request.url.path,
+                                            before=requested)  # fmt: skip
         au.append(
             "console.registry",
             actor=actor(sess),
@@ -1599,6 +2087,9 @@ def create_app(
             output_sha=sha256_bytes(data),
             detail={"filename": path.name, "tag": "D1", "run": run.run_id},
         )
+        record_export(au, channel="console_download", filename=path.name, data=data, identifier_level="aggregate",
+                      approval=f"released (D1) cascade numbers of run {run.run_id}; console role {sess.user.role}",
+                      actor=actor(sess), ruleset=run.trial)  # fmt: skip
         media = {".pdf": "application/pdf", ".json": "application/json"}.get(path.suffix, "application/octet-stream")
         return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="{path.name}"'})
 
@@ -1618,6 +2109,7 @@ def create_app(
         attachment: Annotated[UploadFile | None, File()] = None,
     ) -> Response:
         sess = need_requester(request, csrf)
+        demo_guard.guard(request, _Problem)  # T-502: no attachment or pasted mail text in demo mode
         if not settings.test_smtp:
             raise _Problem(404, "notfound")
         sender = sess.user.mailbox or settings.admin_email

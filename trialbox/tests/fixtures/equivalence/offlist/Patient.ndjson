@@ -1,0 +1,14 @@
+{"resourceType": "Patient", "id": "OFF-LISTED", "birthDate": "1960-01-01", "gender": "female"}
+{"resourceType": "Patient", "id": "OFF-OFFLIST", "birthDate": "1960-01-01", "gender": "female"}
+{"resourceType": "Patient", "id": "OFF-SKIN", "birthDate": "1960-01-01", "gender": "female"}
+{"resourceType": "Patient", "id": "OFF-BOTH", "birthDate": "1960-01-01", "gender": "male"}
+{"resourceType": "Patient", "id": "OFF-NONE", "birthDate": "1960-01-01", "gender": "male"}
+{"resourceType": "Patient", "id": "UNK-WHO", "birthDate": "1960-01-01", "gender": "female"}
+{"resourceType": "Patient", "id": "UNK-MEDIS", "birthDate": "1960-01-01", "gender": "female"}
+{"resourceType": "Patient", "id": "UNK-TEXT", "birthDate": "1960-01-01", "gender": "female"}
+{"resourceType": "Patient", "id": "UNK-ICD9", "birthDate": "1960-01-01", "gender": "male"}
+{"resourceType": "Patient", "id": "UNK-OLD", "birthDate": "1960-01-01", "gender": "male"}
+{"resourceType": "Patient", "id": "ULT-LISTED", "birthDate": "1960-01-01", "gender": "male"}
+{"resourceType": "Patient", "id": "ULT-OFFLIST", "birthDate": "1960-01-01", "gender": "male"}
+{"resourceType": "Patient", "id": "ULT-YJ", "birthDate": "1960-01-01", "gender": "male"}
+{"resourceType": "Patient", "id": "ULT-OTHER", "birthDate": "1960-01-01", "gender": "male"}

@@ -56,6 +56,14 @@ def test_plan_uses_registry_candidates_and_cost_cap() -> None:
     assert p["cost_estimate_usd"] == pytest.approx(sum(c["cost_usd"] for c in role["candidates"]), abs=1e-3)
     assert p["within_cap"] is (p["cost_estimate_usd"] <= p["cost_cap_usd"])
     assert role["floors"]["zh-TW"] == 0.82 and role["data_class"] == "D0"
+    assert p["prices_missing"] == []
+
+
+@pytest.mark.req("S1-14")
+def test_an_estimate_without_prices_is_not_within_the_cap() -> None:
+    """LLM-030: the routing table has no prices for the bake-off endpoint, so US$0.00 is no estimate."""
+    p = bakeoff.plan(n=2, langs=["en"])
+    assert p["prices_missing"] and p["within_cap"] is False
 
 
 @pytest.mark.req("S1-14")

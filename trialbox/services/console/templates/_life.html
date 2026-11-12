@@ -1,0 +1,48 @@
+{# TB-PLAN-04 step 5 (D-134): the lifecycle pages' shared pieces. #}
+{% macro life_nav(rs) %}<p class="hint chartlinks" data-testid="life-nav"><a href="/studies/{{ rs }}/subjects" data-testid="to-subjects"{% if path.endswith('/subjects') %} aria-current="page"{% endif %}>{{ t('life.to.subjects') }}</a>
+ <a href="/studies/{{ rs }}/visits" data-testid="to-visits"{% if path.endswith('/visits') %} aria-current="page"{% endif %}>{{ t('life.to.visits') }}</a>
+ <a href="/studies/{{ rs }}/schedule" data-testid="to-schedule"{% if path.endswith('/schedule') %} aria-current="page"{% endif %}>{{ t('life.to.schedule') }}</a>
+ <a href="/studies/{{ rs }}/enrolment" data-testid="to-enrolment"{% if path.endswith('/enrolment') %} aria-current="page"{% endif %}>{{ t('life.to.report') }}</a>
+ <a href="/studies/{{ rs }}/deviations" data-testid="to-deviations"{% if path.endswith('/deviations') %} aria-current="page"{% endif %}>{{ t('dev.title') }}</a></p>{% endmacro %}
+
+{% macro state_pill(s) %}<span class="pill life-{{ s }}" data-state="{{ s }}">{{ t('life.state.' + s) }}</span>{% endmacro %}
+
+{% macro vlabel(v) %}{% set l = v.labels.get(lang) if v.labels else '' %}{% if l %}{{ l }} {% elif v.labels and v.labels.get('en') %}{{ given(v.labels.get('en')) }} {% endif %}<span class="mono">{{ v.visit }}</span>{% endmacro %}
+
+{# serious adverse events, prominent: the investigator's and the coordinator's home and week pages. Every serious AE
+   stays until the investigator acknowledges it, whatever its outcome (review 2026-11-09 P-02, D-143). #}
+{# T-684: compact (the week page) folds the list under a one-line heading with the count; the red frame stays #}
+{% macro sae_banner(sae, back='home', compact=false) %}{% if sae %}<section class="card attention sae{{ ' compact' if compact else '' }}" role="alert" data-testid="sae-banner">
+{% if compact %}<details data-testid="sae-fold"><summary><h2>{{ t('life.sae.title') }} · {{ sae|length }}</h2> <span class="hint">{{ t('fold.show') }}</span></summary>{% else %}<h2>{{ t('life.sae.title') }}</h2>{% endif %}
+<p class="hint">{{ t('life.sae.help') }}</p>
+<ul class="plain">{% for a in sae %}<li data-testid="sae-{{ a.record }}-{{ a.event }}">{{ t('life.sae.row', r=a.record, rs=a.rs, term=a.ae_term, day=a.ae_onset or '–') }}{% if a.fatal %} <span class="pill bad" data-testid="sae-fatal">{{ t('life.sae.fatal') }}</span>{% endif %}
+ <a class="button secondary" href="/studies/{{ a.rs }}/subjects/{{ a.record|urlencode }}">{{ t('life.sae.open') }}</a>
+ {% if user.role == 'investigator' %}<form method="post" action="/studies/{{ a.rs }}/subjects/{{ a.record|urlencode }}/aes/{{ a.event }}/ack" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}"><button type="submit" data-testid="sae-ack-{{ a.record }}-{{ a.event }}">{{ t('life.sae.ack') }}</button></form>{% else %}<span class="hint">{{ t('life.sae.wait_pi') }}</span>{% endif %}</li>{% endfor %}</ul>
+{% if compact %}</details>{% endif %}</section>{% endif %}{% endmacro %}
+
+{# CR-010 (D-277): the orchestrator did not answer for these studies, so their SAEs are unknown: never "no SAE" #}
+{% macro sae_failed(studies) %}{% if studies %}<p class="error" role="alert" data-testid="sae-home-failed">{{ t('sae.home_failed', studies=studies|join(', ')) }}</p>{% endif %}{% endmacro %}
+
+{# SAE reports past their due day (P-03): the investigator's and the coordinator's home pages #}
+{% macro report_banner(reports, compact=false) %}{% if reports %}<section class="card attention{{ ' compact' if compact else '' }}" role="alert" data-testid="sae-reports">
+{% if compact %}<details data-testid="sae-reports-fold"><summary><h2>{{ t('life.reports.title') }} · {{ reports|length }}</h2> <span class="hint">{{ t('fold.show') }}</span></summary>{% else %}<h2>{{ t('life.reports.title') }}</h2>{% endif %}
+<ul class="plain">{% for a in reports %}<li data-testid="sae-report-{{ a.record }}-{{ a.event }}-{{ a.party }}">{{ t('life.reports.row', r=a.record, rs=a.rs, party=t('life.clock.party.' + a.party), day=a.due) }}
+ <a class="button secondary" href="/studies/{{ a.rs }}/subjects/{{ a.record|urlencode }}">{{ t('life.sae.open') }}</a></li>{% endfor %}</ul>
+{% if compact %}</details>{% endif %}</section>{% endif %}{% endmacro %}
+
+{# one serious AE's reporting clock (P-03) #}
+{% macro report_clock(a) %}{% if a.serious %}<div class="clock" data-testid="clock-{{ a.event }}"><span class="hint">{{ t('life.clock.title') }}:</span>
+{% if not a.clock %} <span class="hint">{{ t('life.clock.nostart') }}</span>{% endif %}
+{% for c in a.clock %}<span class="nowrap" data-testid="clock-{{ a.event }}-{{ c.party }}">{{ t('life.clock.party.' + c.party) }} · {% if c.done %}{{ t('life.clock.done', day=c.done) }}{% elif c.due %}{{ t('life.clock.due', day=c.due, n=c.days) }}{% else %}{{ t('life.clock.nostart') }}{% endif %}{% if c.overdue %} <span class="pill bad">{{ t('life.clock.overdue') }}</span>{% endif %}</span>{% if not loop.last %}; {% endif %}{% endfor %}
+<br><span class="hint">{{ t('life.clock.help') }}</span></div>{% endif %}{% endmacro %}
+
+{# one visit row with its one-tap actions; back = where Save returns #}
+{% macro visit_row(rs, r, today, editable, back) %}<li class="vrow" data-testid="visit-{{ r.record }}-{{ r.visit }}">
+<div class="vmain"><span class="mono">{{ r.record }}</span> · {{ vlabel(r) }}
+ <span class="pill v-{{ r.status }}">{{ t('life.vstate.' + r.status) }}</span>
+ <span class="hint nowrap">{{ t('life.visit.due', day=r.due) }} · {{ t('life.visit.window', start=r.start, end=r.end) }}{% if r.days_late %} · {{ t('life.visit.late', n=r.days_late) }}{% endif %}</span></div>
+{% if editable %}<div class="vact">
+ <a class="button" href="/studies/{{ rs }}/entry?record={{ r.record|urlencode }}&amp;form=tb_visit&amp;event={{ r.visit }}&amp;prefill=done&amp;win={{ 1 if r.start <= today <= r.end else 0 }}&amp;back={{ back }}" data-testid="done-{{ r.record }}-{{ r.visit }}">{{ t('life.visit.done_today') }}</a>
+ <a class="button secondary" href="/studies/{{ rs }}/entry?record={{ r.record|urlencode }}&amp;form=tb_visit&amp;event={{ r.visit }}&amp;back={{ back }}" data-testid="open-{{ r.record }}-{{ r.visit }}">{{ t('life.visit.open') }}</a>
+</div>{% endif %}
+</li>{% endmacro %}

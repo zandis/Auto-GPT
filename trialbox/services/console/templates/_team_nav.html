@@ -1,0 +1,7 @@
+{# D-147: the study team's pages (candidates across the hospital, referrals, the delegation log, IRB and consent
+   form); needs rs. #}
+<p class="hint" data-testid="team-nav"><a href="/studies/{{ rs }}/candidates" data-testid="to-candidates"{% if '/candidates' in path %} aria-current="page"{% endif %}>{{ t('team.cand.title') }}</a>
+ · <a href="/studies/{{ rs }}/referrals" data-testid="to-referrals"{% if path.endswith('/referrals') %} aria-current="page"{% endif %}>{{ t('team.ref.title') }}</a>
+ · <a href="/studies/{{ rs }}/team" data-testid="to-team"{% if path.endswith('/team') %} aria-current="page"{% endif %}>{{ t('team.log.title') }}</a>
+ · <a href="/studies/{{ rs }}/irb" data-testid="to-irb"{% if path.endswith('/irb') %} aria-current="page"{% endif %}>{{ t('team.irb.title') }}</a>
+ · <a href="/studies/{{ rs }}/screening-log">{{ t('log.title') }}</a></p>

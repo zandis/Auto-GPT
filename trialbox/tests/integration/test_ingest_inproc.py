@@ -17,6 +17,7 @@ from embed_service.embedder import HashEmbedder
 from lake.store import Lake
 from tb_common.audit import verify
 from tb_common.crypto import pid_for_mrn
+from tb_common.db import Database
 
 SNAPSHOT = "2026-10-04"
 
@@ -53,11 +54,13 @@ def test_no_direct_identifiers_leave_the_adapter(ingested: dict[str, Any], synth
 
 
 def test_pidmap_resolves_internal_only(ingested: dict[str, Any], site_key_dir: Path) -> None:
-    pm = PidMap(site_key_dir / "pid_map.sqlite", site_key_dir / "pid_map.key")
+    url = ingested["cfg"].db_url
+    pm = PidMap(site_key_dir / "pid_map.key", url)
     pid = pid_for_mrn(ingested["key"], "10000001")
     assert pm.resolve(pid) == "10000001"
-    raw = (site_key_dir / "pid_map.sqlite").read_bytes()
-    assert b"10000001" not in raw  # encrypted at rest
+    with Database.connect(url, "pidmap") as db:
+        raw = repr(db.fetchall("SELECT * FROM pid_map")).encode()
+    assert pid in raw.decode() and b"10000001" not in raw  # encrypted at rest
     pm.close()
 
 
@@ -194,10 +197,11 @@ def test_ssmix2_source_reads_empty_storage(site_key_dir: Path, tmp_path: Path, r
 _ = os
 
 
-def test_undated_medication_orders_are_dropped(synth_dir: Path, tmp_path: Path) -> None:
-    """A MedicationRequest with no authoredOn and no validity start would count as exposure over a whole window in
-    both engines (CQL Max/Min and SQL greatest/least skip nulls), also for rulesets approved before the generator
-    fix; the adapter keeps it out of the snapshot and reports it."""
+def test_undated_medication_orders_are_kept_and_reported(synth_dir: Path, tmp_path: Path) -> None:
+    """D-275 (review S-9): a MedicationRequest with no authoredOn and no validity start is kept in the snapshot and
+    reported. It was dropped, so the patient failed "on the drug" with no trace. The compiled SQL places it in no
+    window and leaves the criterion unknown; SQL approved before that rule runs guarded by it
+    (``compile_sql.overlay``; ``tests/unit/test_criteria_safety.py``)."""
     import csv
     import shutil
 
@@ -217,5 +221,5 @@ def test_undated_medication_orders_are_dropped(synth_dir: Path, tmp_path: Path) 
     sec.mkdir()
     (sec / "site_hmac.key").write_bytes(b"trialbox-test-site-key-0123456789abcdef")
     rep = ingest_site(src, tmp_path / "lake", sec, "2026-10-04")
-    assert rep.counts["MedicationRequest"] == len(rows) - 1
-    assert (rep.missing_required or {}).get("MedicationRequest.authoredOn (no date at all: dropped)") == 1
+    assert rep.counts["MedicationRequest"] == len(rows)
+    assert (rep.missing_required or {}).get("MedicationRequest.authoredOn (no date at all: kept, read as unknown)") == 1

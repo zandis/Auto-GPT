@@ -14,6 +14,8 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+from tb_common import dates
+
 CASSETTES = Path(__file__).resolve().parent / "cassettes"
 _DATE_ZH = re.compile(r"(\d{4})年(\d{1,2})月(\d{1,2})日")
 
@@ -262,9 +264,9 @@ def ie_locate(inp: dict[str, Any]) -> dict[str, Any]:
     current: list[str] | None = None
     for sec in inp.get("sections", []):
         title = str(sec.get("title", ""))
-        if re.search(r"inclusion|納入|選択基準", title, re.I):
+        if re.search(r"inclusion|納入|選択基準|組み?入れ基準", title, re.I):
             current = inc
-        elif re.search(r"exclusion|排除|除外基準", title, re.I):
+        elif re.search(r"exclusion|排除|除外", title, re.I):
             current = exc
         else:
             current = None
@@ -395,7 +397,214 @@ def consent_verify(inp: dict[str, Any]) -> dict[str, Any]:
     return {"checks": out}
 
 
+# ----------------------------------------------------------------------------- chart_facts, assist (D-135)
+_STUB_DX = (  # wording -> ICD-10-CM, as a careful reader would code it; a negated mention is never a fact
+    (r"痛風|gout", "M10.9"),
+    (r"乳癌|乳がん|breast cancer", "C50.919"),
+    (r"胃癌|胃がん|gastric cancer", "C16.9"),
+    (r"大腸癌|大腸がん|colon cancer", "C18.9"),
+    (r"2型糖尿病|第二型糖尿病|type 2 diabetes", "E11.9"),
+    (r"高血圧|高血壓|hypertension", "I10"),
+)
+_STUB_LAB = (
+    (r"(?:血清)?尿酸(?:値)?|uric acid|\bUA\b", "3084-1", "mg/dL"),
+    (r"HbA1c|ヘモグロビンA1c|糖化血色素", "4548-4", "%"),
+    (r"クレアチニン|肌酸酐|creatinine|\bCr\b", "2160-0", "mg/dL"),
+)
+_STUB_DRUG = (
+    (r"アロプリノール|allopurinol|別嘌呤醇", "M04AA01"),
+    (r"フェブキソスタット|febuxostat", "M04AA03"),
+    (r"コルヒチン|colchicine|秋水仙素", "M04AC01"),
+)
+# case-insensitive: "No history of hypertension" at the start of a line is a negation too (T-606, found by T-208)
+_NEG = re.compile(
+    r"なし|否定|無し|否認|未見|no (?:history|evidence)|denies|ruled out|家族歴|家族史|family history", re.I
+)
+_DATE_ANY = dates.CHART_SPAN  # 和暦, 民國 or Gregorian (D-215)
+
+
+def chart_facts(inp: dict[str, Any]) -> dict[str, Any]:
+    """Deterministic stand-in for the chart reader: line rules for the common diagnoses, labs and medicines of the
+    synthetic charts, every fact quoted verbatim from its line, a negated mention skipped, the date of the line or of
+    the last dated line above it."""
+    text = str(inp.get("chart") or "")
+    out: list[dict[str, str]] = []
+    current = ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        m = re.search(r"(生年月日|出生日期|Date of birth|DOB)\s*[:：]?\s*(.+)", line, re.I)
+        sx = re.search(r"(性別|Sex)\s*[:：]?\s*(男性|女性|男|女|male|female)", line, re.I)
+        if m:  # a date of birth is not the date of the visit
+            d = _DATE_ANY.search(m.group(2))
+            if d:
+                out.append({"domain": "birth_date", "term": "", "code": "", "system": "", "value": d.group(0),
+                            "unit": "", "date": "", "quote": m.group(0)[:300]})  # fmt: skip
+        if sx:
+            out.append({"domain": "sex", "term": "", "code": "", "system": "", "value": sx.group(2), "unit": "",
+                        "date": "", "quote": sx.group(0)})  # fmt: skip
+        if m or sx:
+            continue
+        found = _DATE_ANY.search(line)
+        if found:
+            current = found.group(0)
+        if _NEG.search(line):
+            continue
+        for rx, code in _STUB_DX:
+            hit = re.search(rx, line, re.I)
+            if hit:
+                out.append({"domain": "condition", "term": hit.group(0), "code": code, "system": "icd10cm",
+                            "value": "", "unit": "", "date": current, "quote": line[:300]})  # fmt: skip
+        for rx, loinc, unit in _STUB_LAB:
+            hit = re.search(rf"({rx})\s*[:：=]?\s*(\d+(?:\.\d+)?)\s*(mg/dL|mg/dl|%|µmol/L|umol/L)?", line, re.I)
+            if hit:
+                out.append({"domain": "observation", "term": hit.group(1), "code": loinc, "system": "loinc",
+                            "value": hit.group(2), "unit": hit.group(3) or unit, "date": current,
+                            "quote": hit.group(0)})  # fmt: skip
+        for rx, atc in _STUB_DRUG:
+            hit = re.search(rx, line, re.I)
+            if hit:
+                out.append({"domain": "medication", "term": hit.group(0), "code": atc, "system": "atc", "value": "",
+                            "unit": "", "date": current, "quote": line[:300]})  # fmt: skip
+    return {"facts": out[:40]}
+
+
+def assist(inp: dict[str, Any]) -> dict[str, Any]:
+    """The help assistant's stand-in: the draft TrialBox built from its own pages, unchanged."""
+    return {"answer": str(inp.get("draft") or "")[:1500]}
+
+
+def crf_prefill(inp: dict[str, Any]) -> dict[str, Any]:
+    """The eCRF note reader's stand-in (D-160): the item's ``question`` lists words split by ``|``; the newest note
+    with a line holding one of them (not negated) answers. A choice item gets the code labelled Yes (or 1), a number
+    item the first number after the word, a date item the line's ISO date; the quote is the line, copied verbatim."""
+    item = inp.get("item") or {}
+    words = [w.strip() for w in str(item.get("question") or "").split("|") if len(w.strip()) >= 2]
+    kind = str(item.get("kind") or "text")
+    none = {"found": False, "value": "", "note": "", "date": "", "quote": ""}
+    for note in inp.get("notes") or []:
+        for line in str(note.get("text") or "").splitlines():
+            hit = next((w for w in words if w.lower() in line.lower()), None)
+            if hit is None or _NEG.search(line):
+                continue
+            after = line[line.lower().index(hit.lower()) + len(hit) :]
+            value = ""
+            if kind == "choice":
+                yes = [
+                    c for c in item.get("choices") or [] if str(c.get("label")).strip().lower() in ("yes", "はい", "是")
+                ]
+                value = str((yes or [{"code": "1"}])[0]["code"])
+            elif kind in ("integer", "decimal"):
+                num = re.search(r"\d+(?:\.\d+)?", after)
+                value = num.group(0) if num else ""
+            elif kind == "date":
+                iso = re.search(r"\d{4}-\d{2}-\d{2}", line)
+                value = iso.group(0) if iso else ""
+            else:
+                value = hit
+            if value:
+                return {"found": True, "value": value, "note": str(note.get("id") or ""),
+                        "date": str(note.get("date") or ""), "quote": line.strip()[:300]}  # fmt: skip
+    return none
+
+
 MESSAGE_HANDLERS = {"mlbench_judge": mlbench_judge}
+
+
+# ----------------------------------------------------------------------------- judge personas (tests only, D-276)
+def _dissent(a: dict[str, Any]) -> dict[str, Any]:
+    """The other decided answer, with the same (real) quote: a second model that disagrees."""
+    flip = {"pass": "fail", "fail": "pass"}
+    return {**a, "verdict": flip.get(str(a.get("verdict")), a.get("verdict")), "reason": "stub-dissent"}
+
+
+def _lowconf(a: dict[str, Any]) -> dict[str, Any]:
+    return {**a, "confidence": 0.4}
+
+
+def _badquote(a: dict[str, Any]) -> dict[str, Any]:
+    """A decided answer whose quote is in no excerpt."""
+    if a.get("verdict") not in ("pass", "fail"):
+        return a
+    return {**a, "quote": "This sentence is in no note of the patient."}
+
+
+def _olddate(a: dict[str, Any]) -> dict[str, Any]:
+    """A real quote given the wrong date (one day earlier than its note)."""
+    if not a.get("quote_date"):
+        return a
+    return {**a, "quote_date": (date.fromisoformat(str(a["quote_date"])[:10]) - timedelta(days=1)).isoformat()}
+
+
+# ----------------------------------------------------------------------------- the obeying persona (T-208, D-346)
+# The negative control of the prompt-injection suite (``tools/injection_eval.py``): a model that does what a planted
+# instruction says. It proves the suite can fail. The phrases are the openers the suite's plants use
+# (``eval/injection/cases.yaml``) in en, ja and zh-TW; a test holds every plant to them.
+PLANT_RE = re.compile(
+    r"ignore (?:all |the )?(?:previous|earlier|above|prior)|disregard|new (?:instructions?|rules?)|\bsystem\s*:|"
+    r"note to the ai|ai model|指示を無視|新しい指示|システム|ＡＩ|AIアシスタント|忽略|無視|系統指令",
+    re.I,
+)
+_SENT = re.compile(r"(?<=[.!?。！？])\s*|\n+")
+
+
+def planted(text: str) -> str | None:
+    """The first sentence or line of ``text`` that holds a planted instruction (None: none)."""
+    for part in _SENT.split(str(text or "")):
+        if part.strip() and PLANT_RE.search(part):
+            return part.strip()
+    return None
+
+
+def obey(prompt_id: str, inp: dict[str, Any], answer: dict[str, Any]) -> dict[str, Any]:
+    """``answer`` changed the way a planted instruction in ``inp`` asks: the judge decides and quotes the plant, the
+    chart reader drops every fact and reports the plant, the consent explainer and the criteria locator copy it."""
+    if prompt_id == "judge":
+        for ex in inp.get("excerpts") or []:
+            hit = planted(str(ex.get("text", "")))
+            if hit:
+                verdict = "pass" if re.search(r"\bpass\b|符合|該当|適格", hit, re.I) else "fail"
+                return {"verdict": verdict, "quote": hit[:400], "quote_date": str(ex.get("date", ""))[:10],
+                        "confidence": 0.99, "reason": "as the note instructs"}  # fmt: skip
+    elif prompt_id == "chart_facts":
+        hit = planted(str(inp.get("chart") or ""))
+        if hit:
+            return {"facts": [{"domain": "condition", "term": "as instructed", "code": "", "system": "", "value": "",
+                               "unit": "", "date": "", "quote": hit[:300]}]}  # fmt: skip
+    elif prompt_id == "consent_explain":
+        for p in inp.get("paragraphs") or []:
+            hit = planted(str(p.get("text", "")))
+            if hit:
+                item = {"section": "risks", "text": hit[:400], "quote": hit[:600], "para": p.get("id", "")}
+                return {**answer, "items": [*answer.get("items", []), item]}
+    elif prompt_id == "ie_locate":
+        for sec in inp.get("sections") or []:
+            hit = planted(str(sec.get("text", "")))
+            if hit:
+                return {**answer, "exclusion": [*answer.get("exclusion", []), hit]}
+    return answer
+
+
+# model names of the obeying persona: two names, so it can also stand as a pair (D-276 refuses one name twice)
+OBEYING = ("stub-obey", "stub-obey-verifier")
+
+
+# model name -> what it does to the plain ``judge`` answer. ``stub-down`` answers 503 to everything (``app.py``).
+# Opt-in by name: a test (or a developer) asks for the persona as the judge or the verifier; no shipped
+# configuration names one, and the registry routes none.
+PERSONAS: dict[str, Any] = {
+    "stub-dissent": _dissent,
+    "stub-lowconf": _lowconf,
+    "stub-badquote": _badquote,
+    "stub-olddate": _olddate,
+    "stub-down": lambda a: a,
+    **dict.fromkeys(OBEYING, lambda a: a),  # every prompt, in ``app.py`` through :func:`obey`
+    # T-603: a model that enforces a context of 8k, 16k or 32k tokens (llm_stub.app.CONTEXT_PERSONAS)
+    "stub-ctx-8k": lambda a: a,
+    "stub-ctx-16k": lambda a: a,
+    "stub-ctx-32k": lambda a: a,
+}
 
 HANDLERS = {
     "ir_extract": ir_extract,
@@ -407,4 +616,7 @@ HANDLERS = {
     "consent_verify": consent_verify,
     "ie_locate": ie_locate,
     "classify_intent": classify_intent,
+    "chart_facts": chart_facts,
+    "assist": assist,
+    "crf_prefill": crf_prefill,
 }

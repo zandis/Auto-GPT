@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ t('about.title') }}{% endblock %}
+{% block content %}
+{# T-617a (STD-044): the third-party notices of NOTICE; the notice texts are the licences' own English #}
+<h1>{{ t('about.title') }}</h1>
+<p class="hint">{{ t('about.intro') }}</p>
+<section class="card" data-testid="about-release"><h2>{{ t('about.release') }}</h2>
+<p class="mono">{{ t('about.version') }}: <span data-testid="about-version">{{ release.version or t('about.unknown') }}</span><br>
+{{ t('about.revision') }}: <span data-testid="about-revision">{{ release.revision or t('about.unknown') }}</span>{% if release.release_id %}<br>
+{{ t('about.release_id') }}: <span data-testid="about-release-id">{{ release.release_id }}</span>{% endif %}</p></section>
+<p><a href="/about/NOTICE.txt" data-testid="about-text">{{ t('about.text') }}</a> · <a href="/">{{ t('about.back') }}</a></p>
+{% if missing %}<p class="error" role="alert" data-testid="about-missing">{{ t('about.missing') }}</p>
+{% else %}<div lang="en" data-testid="about-notice">
+{% for s in sections %}<section class="card">
+{% if s.title %}<h2>{{ s.title }}</h2>{% endif %}
+{% for b in s.blocks %}<p class="mono">{% for line in b %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
+{% endfor %}</section>
+{% endfor %}</div>{% endif %}
+{% endblock %}

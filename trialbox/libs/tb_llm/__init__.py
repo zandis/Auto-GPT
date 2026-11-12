@@ -6,7 +6,16 @@ from tb_llm.client import (
     GatewayClient,
     GatewayError,
     GatewayRefused,
+    GatewayUnexpectedAlias,
     json_schema_format,
 )
 
-__all__ = ["CallLabels", "ChatResult", "GatewayClient", "GatewayError", "GatewayRefused", "json_schema_format"]
+__all__ = [
+    "CallLabels",
+    "ChatResult",
+    "GatewayClient",
+    "GatewayError",
+    "GatewayRefused",
+    "GatewayUnexpectedAlias",
+    "json_schema_format",
+]

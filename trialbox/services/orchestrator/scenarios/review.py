@@ -7,7 +7,7 @@ from typing import Any, cast
 
 from criteria_compiler.semantics import human_heavy
 from tb_common.authz import norm
-from tb_common.ruleset import Ruleset, RulesetNotApproved, load_approved
+from tb_common.ruleset import RecompileNeeded, Ruleset, RulesetNotApproved, load_approved
 from tb_contracts import CompileRequest, DiffRequest, JobFile, JobOutput, ParsedDoc, ParseRequest, Routing, dump_json
 
 from orchestrator.clients import StepFailed
@@ -17,13 +17,39 @@ DOC_EXT = (".pdf", ".docx", ".xlsx", ".txt", ".md", ".csv")
 _BODY = re.compile(r"<body[^>]*>(.*)</body>", re.S | re.I)
 
 
-def approved_or_none(ctx: Ctx, ruleset: str, version: str | None = None) -> Ruleset | None:
+def approved_or_none(ctx: Ctx, ruleset: str, version: str | None = None, run: bool = True) -> Ruleset | None:
+    """The approved ruleset, or None. ``run``: it is about to run, so one compiled against another terminology
+    release than the box's is refused (:class:`RecompileNeeded`, D-301), and the version is the one in force today
+    (D-364, LIFE-009): a version approved with a later effective date waits, its predecessor screens until then."""
+    from criteria_compiler.terminology import resolver
+
     try:
-        return load_approved(ctx.rulesets_dir, ruleset, version)
+        return load_approved(
+            ctx.rulesets_dir,
+            ruleset,
+            version,
+            terminology=resolver.guard() if run else None,
+            on=ctx.orch.today() if run else None,
+        )
+    except RecompileNeeded:  # approved, but compiled against another terminology release (D-301): never "none"
+        raise
     except RulesetNotApproved:
         if version:  # a specific version was requested and is not the approved one
             raise
         return None
+
+
+def pin_state(rs: Ruleset) -> dict[str, Any]:
+    """``tb_common.ruleset.approval_state`` of an approved ruleset against this box's prompt registry and terminology
+    release (D-318): ``approval_needed`` sends the same criteria to the investigator again as a new draft."""
+    from criteria_compiler.terminology import resolver
+    from tb_common.ruleset import approval_state
+
+    try:
+        release: str | None = resolver.current_release()
+    except Exception:  # the vocabulary cannot be read: the run itself refuses (D-301); no terminology reason here
+        release = None
+    return approval_state(rs.manifest, terminology_release=release)
 
 
 def protocol_input(ctx: Ctx) -> JobFile | None:
@@ -55,7 +81,7 @@ def compile_draft(ctx: Ctx, ruleset: str, doc: JobFile, approved: Ruleset | None
     opts = dict(ctx.job.options or {})
     if approved is not None:
         d = ctx.services.compiler.diff(DiffRequest(ruleset=ruleset, new_doc_key=key, job_id=ctx.job.job_id))
-        if not (d.changed or d.added or d.removed):
+        if not (d.changed or d.added or d.removed) and pin_state(approved)["state"] != "approval_needed":
             return None
     ctx.state("compiling")
     copts = {k: v for k, v in opts.items() if k in ("lookback",)}

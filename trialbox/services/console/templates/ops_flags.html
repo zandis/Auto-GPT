@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{# T-008 (D-207, MR-090): the feature flags, administrators only; a change needs a reason and one confirmation. #}
+{% block title %}{{ t('flags.title') }}{% endblock %}
+{% block content %}
+{# ROLE-026 (T-506): the first value's reason is written by the flag store in English; show it in the page's language #}
+{% macro seed_reason(r) %}{% set pre = 'seeded at the first start from ' %}{% if r == pre + 'the default' %}{{ t('flags.reason.seed_default') }}{% elif r and r.startswith(pre) %}{{ t('flags.reason.seed_env', env=r[pre|length:]) }}{% else %}{{ r }}{% endif %}{% endmacro %}
+<h1>{{ t('flags.title') }}</h1>
+<p>{{ t('flags.help') }}</p>
+{% for f in flags %}
+<section class="card" id="flag-{{ f.name }}" data-testid="flag" data-flag="{{ f.name }}" aria-labelledby="flag-{{ f.name }}-h">
+<h2 id="flag-{{ f.name }}-h" class="mono">{{ f.name }}</h2>
+<p>{{ t_or('flags.desc.' + f.name, f.help) }}</p>
+<dl>
+  <dt>{{ t('flags.value') }}</dt>
+  <dd data-testid="flag-value" data-value="{{ f.value or '' }}">{% if f.value %}<strong class="mono">{{ f.value }}</strong>{% else %}{{ t('flags.unset') }}{% endif %}</dd>
+  {% if f.changed_at %}<dt>{{ t('flags.changed') }}</dt>
+  <dd>{{ f.changed_at|local(19) }} · {{ t('flags.by') }} {{ f.changed_by|who }} · {{ seed_reason(f.reason) }}</dd>{% endif %}
+</dl>
+<form method="post" action="/ops/flags">
+  <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="name" value="{{ f.name }}">
+  <label for="value-{{ f.name }}">{{ t('flags.new') }}</label>
+  <select id="value-{{ f.name }}" name="value">{% for v in f['values'] %}<option value="{{ v }}" {{ 'selected' if v == f.value else '' }}>{{ v }}</option>{% endfor %}</select>
+  <label for="reason-{{ f.name }}">{{ t('flags.reason') }}</label>
+  <input id="reason-{{ f.name }}" name="reason" required maxlength="500" aria-describedby="reason-{{ f.name }}-help">
+  <p class="hint" id="reason-{{ f.name }}-help">{{ t('flags.reason.help') }}</p>
+  <button type="submit" data-testid="flag-change">{{ t('flags.change') }}</button>
+</form>
+</section>
+{% endfor %}
+<section class="card" aria-labelledby="flags-history-h">
+<h2 id="flags-history-h">{{ t('flags.history') }}</h2>
+{% if events %}
+<table data-testid="flag-history">
+<thead><tr><th scope="col">{{ t('flags.changed') }}</th><th scope="col">{{ t('flags.name') }}</th><th scope="col">{{ t('flags.value') }}</th><th scope="col">{{ t('flags.by') }}</th><th scope="col">{{ t('flags.reason') }}</th></tr></thead>
+<tbody>{% for e in events %}<tr data-kind="{{ e.kind }}"><td>{{ e.at|local(19) }}</td><td class="mono">{{ e.name }}</td><td>{{ t('flags.kind.' + e.kind) }}: {{ e.old_value or '–' }} → <strong>{{ e.new_value }}</strong></td><td>{{ e.actor|who }}</td><td>{{ seed_reason(e.reason) }}</td></tr>{% endfor %}</tbody>
+</table>
+{% else %}<p>{{ t('flags.history.none') }}</p>{% endif %}
+</section>
+{% endblock %}

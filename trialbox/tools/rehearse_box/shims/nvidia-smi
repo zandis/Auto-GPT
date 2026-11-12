@@ -1,0 +1,14 @@
+#!/bin/sh
+# Box-install rehearsal (D-176): stands in for the NVIDIA driver of one RTX PRO 6000 (tier large). Not a GPU: the
+# model servers are the strict vLLM stand-ins (tools/vllm_standin.py). Answers the queries install.sh, tiers.py,
+# gpu_profile.sh, check_host.sh and the WSL2 preflight make.
+NAME="NVIDIA RTX PRO 6000 Blackwell Server Edition"
+case "$*" in
+  *-L*) echo "GPU 0: $NAME (UUID: GPU-00000000-0000-0000-0000-rehearsal000)" ;;
+  *--query-gpu=name,driver_version,memory.total*) echo "$NAME, 580.142, 97887 MiB" ;;
+  *--query-gpu=name,driver_version*) echo "$NAME, 580.142" ;;
+  *--query-gpu=driver_version*) echo "580.142" ;;
+  *--query-gpu=memory.total*) echo "97887 MiB" ;;
+  *--query-gpu=name*) echo "$NAME" ;;
+  *) echo "nvidia-smi: TrialBox rehearsal stand-in for $NAME (no GPU here)" ;;
+esac

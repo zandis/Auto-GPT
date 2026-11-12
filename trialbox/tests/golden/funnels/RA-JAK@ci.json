@@ -1,0 +1,229 @@
+{
+ "meta": {
+  "generator": "tools.synth_hospital profile ci + tools.public_site en",
+  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
+  "lake_schema_version": 4,
+  "profile": "ci",
+  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
+  "ref_date": "2026-11-01",
+  "ruleset": "RA-JAK",
+  "ruleset_version": "1.0.0",
+  "seed": 42,
+  "written_with_source": "legacy+omop"
+ },
+ "sets": {
+  "public-en": {
+   "first_eligible": {},
+   "prevalent": 0,
+   "prevalent_pids_sha": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "remaining": {
+    "RA-JAK-EXC-01": 0,
+    "RA-JAK-EXC-02": 0,
+    "RA-JAK-EXC-04": 0,
+    "RA-JAK-EXC-05": 0,
+    "RA-JAK-EXC-08": 0,
+    "RA-JAK-EXC-09": 0,
+    "RA-JAK-EXC-10": 0,
+    "RA-JAK-EXC-11": 0,
+    "RA-JAK-INC-01": 40,
+    "RA-JAK-INC-02": 0,
+    "RA-JAK-INC-03": 0,
+    "RA-JAK-INC-04": 0
+   },
+   "start": 53,
+   "unknown": {
+    "RA-JAK-EXC-01": 0,
+    "RA-JAK-EXC-02": 0,
+    "RA-JAK-EXC-04": 0,
+    "RA-JAK-EXC-05": 0,
+    "RA-JAK-EXC-08": 0,
+    "RA-JAK-EXC-09": 0,
+    "RA-JAK-EXC-10": 0,
+    "RA-JAK-EXC-11": 0,
+    "RA-JAK-INC-01": 1,
+    "RA-JAK-INC-02": 0,
+    "RA-JAK-INC-03": 0,
+    "RA-JAK-INC-04": 0
+   },
+   "variants": {
+    "unknown_as_pass": 0
+   }
+  },
+  "ssmix2-jp": {
+   "first_eligible": {
+    "2026-05": 4,
+    "2026-06": 4,
+    "2026-07": 5,
+    "2026-08": 2,
+    "2026-09": 4,
+    "2026-10": 3
+   },
+   "prevalent": 12,
+   "prevalent_pids_sha": "ee6473eb92dd2f084090d0cc59f0b9914d95674a1491ef4e7e4e11f1aafb392d",
+   "remaining": {
+    "RA-JAK-EXC-01": 26,
+    "RA-JAK-EXC-02": 22,
+    "RA-JAK-EXC-04": 22,
+    "RA-JAK-EXC-05": 22,
+    "RA-JAK-EXC-08": 22,
+    "RA-JAK-EXC-09": 22,
+    "RA-JAK-EXC-10": 22,
+    "RA-JAK-EXC-11": 22,
+    "RA-JAK-INC-01": 345,
+    "RA-JAK-INC-02": 76,
+    "RA-JAK-INC-03": 52,
+    "RA-JAK-INC-04": 37
+   },
+   "start": 400,
+   "unknown": {
+    "RA-JAK-EXC-01": 0,
+    "RA-JAK-EXC-02": 8,
+    "RA-JAK-EXC-04": 12,
+    "RA-JAK-EXC-05": 0,
+    "RA-JAK-EXC-08": 0,
+    "RA-JAK-EXC-09": 0,
+    "RA-JAK-EXC-10": 0,
+    "RA-JAK-EXC-11": 22,
+    "RA-JAK-INC-01": 0,
+    "RA-JAK-INC-02": 0,
+    "RA-JAK-INC-03": 0,
+    "RA-JAK-INC-04": 10
+   },
+   "variants": {
+    "unknown_as_pass": 41
+   }
+  },
+  "synthetic-jp-a": {
+   "first_eligible": {
+    "2026-05": 36,
+    "2026-06": 44,
+    "2026-07": 27,
+    "2026-08": 12,
+    "2026-09": 8,
+    "2026-10": 11
+   },
+   "prevalent": 60,
+   "prevalent_pids_sha": "7d27a6b2005ce1e3b4ba9734e9eee22e9f1af55a2c9f89e8dbc3a90df7fb5d8c",
+   "remaining": {
+    "RA-JAK-EXC-01": 205,
+    "RA-JAK-EXC-02": 164,
+    "RA-JAK-EXC-04": 155,
+    "RA-JAK-EXC-05": 155,
+    "RA-JAK-EXC-08": 148,
+    "RA-JAK-EXC-09": 142,
+    "RA-JAK-EXC-10": 138,
+    "RA-JAK-EXC-11": 138,
+    "RA-JAK-INC-01": 2172,
+    "RA-JAK-INC-02": 493,
+    "RA-JAK-INC-03": 374,
+    "RA-JAK-INC-04": 291
+   },
+   "start": 2500,
+   "unknown": {
+    "RA-JAK-EXC-01": 0,
+    "RA-JAK-EXC-02": 44,
+    "RA-JAK-EXC-04": 82,
+    "RA-JAK-EXC-05": 0,
+    "RA-JAK-EXC-08": 0,
+    "RA-JAK-EXC-09": 0,
+    "RA-JAK-EXC-10": 0,
+    "RA-JAK-EXC-11": 138,
+    "RA-JAK-INC-01": 8,
+    "RA-JAK-INC-02": 0,
+    "RA-JAK-INC-03": 0,
+    "RA-JAK-INC-04": 39
+   },
+   "variants": {
+    "unknown_as_pass": 315
+   }
+  },
+  "synthetic-jp-a-deletes": {
+   "first_eligible": {
+    "2026-05": 17,
+    "2026-06": 27,
+    "2026-07": 19,
+    "2026-08": 9,
+    "2026-09": 9,
+    "2026-10": 17
+   },
+   "prevalent": 41,
+   "prevalent_pids_sha": "14dc5d43895b92d876d715c8595abba31905a821191cb305b4e8f50557b5d67b",
+   "remaining": {
+    "RA-JAK-EXC-01": 141,
+    "RA-JAK-EXC-02": 118,
+    "RA-JAK-EXC-04": 110,
+    "RA-JAK-EXC-05": 109,
+    "RA-JAK-EXC-08": 106,
+    "RA-JAK-EXC-09": 102,
+    "RA-JAK-EXC-10": 98,
+    "RA-JAK-EXC-11": 98,
+    "RA-JAK-INC-01": 2166,
+    "RA-JAK-INC-02": 478,
+    "RA-JAK-INC-03": 358,
+    "RA-JAK-INC-04": 208
+   },
+   "start": 2493,
+   "unknown": {
+    "RA-JAK-EXC-01": 0,
+    "RA-JAK-EXC-02": 35,
+    "RA-JAK-EXC-04": 62,
+    "RA-JAK-EXC-05": 0,
+    "RA-JAK-EXC-08": 0,
+    "RA-JAK-EXC-09": 0,
+    "RA-JAK-EXC-10": 0,
+    "RA-JAK-EXC-11": 98,
+    "RA-JAK-INC-01": 8,
+    "RA-JAK-INC-02": 0,
+    "RA-JAK-INC-03": 0,
+    "RA-JAK-INC-04": 112
+   },
+   "variants": {
+    "unknown_as_pass": 297
+   }
+  },
+  "synthetic-tw-a": {
+   "first_eligible": {
+    "2026-05": 29,
+    "2026-06": 43,
+    "2026-07": 31,
+    "2026-08": 11,
+    "2026-09": 14,
+    "2026-10": 6
+   },
+   "prevalent": 69,
+   "prevalent_pids_sha": "6ee302fd4ae903ef611ab604ab79f7ca42372e6fd329fe5978c24656ab3e2339",
+   "remaining": {
+    "RA-JAK-EXC-01": 195,
+    "RA-JAK-EXC-02": 156,
+    "RA-JAK-EXC-04": 152,
+    "RA-JAK-EXC-05": 151,
+    "RA-JAK-EXC-08": 139,
+    "RA-JAK-EXC-09": 135,
+    "RA-JAK-EXC-10": 134,
+    "RA-JAK-EXC-11": 134,
+    "RA-JAK-INC-01": 2147,
+    "RA-JAK-INC-02": 492,
+    "RA-JAK-INC-03": 365,
+    "RA-JAK-INC-04": 280
+   },
+   "start": 2500,
+   "unknown": {
+    "RA-JAK-EXC-01": 0,
+    "RA-JAK-EXC-02": 39,
+    "RA-JAK-EXC-04": 72,
+    "RA-JAK-EXC-05": 0,
+    "RA-JAK-EXC-08": 0,
+    "RA-JAK-EXC-09": 0,
+    "RA-JAK-EXC-10": 0,
+    "RA-JAK-EXC-11": 134,
+    "RA-JAK-INC-01": 8,
+    "RA-JAK-INC-02": 0,
+    "RA-JAK-INC-03": 0,
+    "RA-JAK-INC-04": 37
+   },
+   "variants": {
+    "unknown_as_pass": 295
+   }
+  }
+ }
+}

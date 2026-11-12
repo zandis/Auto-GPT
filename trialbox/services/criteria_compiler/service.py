@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
@@ -14,6 +14,8 @@ from zoneinfo import ZoneInfo
 import yaml
 from lake.client import LakeAPI
 from tb_common.audit import AuditLog
+from tb_common.config import site_tz
+from tb_common.derived import country_of, egfr_for_site
 from tb_common.fhir import FhirEvaluator, library_resource
 from tb_common.llm import LlmClient, LlmError
 from tb_common.objstore import ObjectStore
@@ -42,11 +44,11 @@ from criteria_compiler.compile_cql.generator import CqlGenerator, render_common
 from criteria_compiler.compile_cql.translator import TranslationError, Translator, fhirhelpers_source
 from criteria_compiler.compile_sql.generator import SqlGenerator
 from criteria_compiler.ctgov import CtGov, CtgovError
-from criteria_compiler.equivalence.gate import run_gate
+from criteria_compiler.equivalence.gate import run_gate, unproven
 from criteria_compiler.ir_extract.postprocess import KIND_CODE, postprocess
 from criteria_compiler.repo import RulesetRepo
 from criteria_compiler.review import draft_zip, json_bytes, review_html, review_xlsx
-from criteria_compiler.semantics import FILTERED, CompileError, class_split, compiled
+from criteria_compiler.semantics import FILTERED, CompileError, atoms, class_split, compiled
 from criteria_compiler.terminology.mapper import Concept, Terminology, ValueSets
 
 log = logging.getLogger("criteria-compiler")
@@ -58,6 +60,46 @@ class CompileFailed(RuntimeError):
     def __init__(self, step: str, message: str) -> None:
         super().__init__(f"{step}: {message}")
         self.step = step
+
+
+def approval_pins(manifest: RulesetManifest, criteria: Sequence[CriterionIR] = ()) -> dict[str, Any]:
+    """The prompts an approval pins (D-318): the registry's current version of the judge prompt with its text and
+    schema shas, and ``models.judge_prompt`` naming that version, so SCREEN runs what the investigator approved.
+    D-442: and ``derived_pins``, the score definitions the active criteria follow (:func:`tb_common.scores.pins`)."""
+    from tb_common.scores import pins as derived_pins
+    from tb_llm.prompt_registry import PromptRegistryError, default_registry
+
+    models = dump(manifest.models) if manifest.models else {}
+    pid = str(models.get("judge_prompt") or "judge").rsplit("_v", 1)[0]
+    try:
+        pins = default_registry().pins({pid: None})
+    except PromptRegistryError as exc:
+        raise CompileFailed("approve", f"the judge prompt cannot be pinned ({exc.reason}): {exc}") from exc
+    out: dict[str, Any] = {"models": {**models, "judge_prompt": f"{pid}_v{pins[pid]['version']}"}, "prompt_pins": pins}
+    dpins = derived_pins(a.derived for c in compiled(list(criteria)) for a in atoms(c.logic) if a.derived)
+    if dpins:
+        out["derived_pins"] = dpins
+    return out
+
+
+def amendment_record(req: ApproveRequest, today: date) -> dict[str, Any]:
+    """D-364 (LIFE-009): when the approved version starts to screen and which IRB approval it rests on. The effective
+    date is the approver's; none given = in force from the approval (``review.approved_at``). It is never before the
+    approval day, so a version cannot reach back over lists already sent. The IRB number and date are a record printed
+    with the approval, not a gate (D-311): an empty one is allowed. A field of the version before is never carried
+    over: each version states its own record or none."""
+    out: dict[str, Any] = {"effective_from": None, "irb_reference": None, "irb_approved_on": None}
+    if req.effective_from is not None:
+        if req.effective_from < today:
+            raise CompileFailed("approve", f"the effective date {req.effective_from} is before the approval {today}")
+        out["effective_from"] = req.effective_from.isoformat()
+    if req.irb_reference and req.irb_reference.strip():
+        out["irb_reference"] = req.irb_reference.strip()
+    if req.irb_approved_on is not None:
+        if req.irb_approved_on > today:
+            raise CompileFailed("approve", f"the IRB approval date {req.irb_approved_on} is after today {today}")
+        out["irb_approved_on"] = req.irb_approved_on.isoformat()
+    return out
 
 
 def _norm(text: str) -> str:
@@ -81,7 +123,7 @@ class CompilerDeps:
     llm: LlmClient
     term: Terminology
     settings_thresholds: dict[str, float]
-    tz: str = "Asia/Taipei"
+    tz: str = ""  # the site's zone; empty: TB_TZ (D-315), never a default
     mrn_regex: str | None = None
     lake: LakeAPI | None = None
     fhir: FhirEvaluator | None = None
@@ -90,6 +132,17 @@ class CompilerDeps:
     judge_model: str = ""
     equivalence: EquivalenceFn | None = None  # override for tests
     ctgov: CtGov | None = None  # ClinicalTrials.gov client (COHORT trial simulation); default from TB_CTGOV_MODE
+    # what a plain "eGFR" criterion becomes at this site (D-149); None: from the site's time zone (JP: JSN 2009)
+    egfr_equation: str | None = None
+
+    def __post_init__(self) -> None:
+        self.tz = site_tz(self.tz or None)
+
+    def egfr(self) -> str:
+        if self.egfr_equation:
+            return self.egfr_equation
+        site = egfr_for_site(country_of(self.tz))
+        return "egfr" if site == "egfr_ckd_epi" else site  # a plain egfr already means CKD-EPI 2021
 
 
 class Compiler:
@@ -148,11 +201,15 @@ class Compiler:
                 "candidates": [{"code": c.code, "system": c.system, "display": c.display} for c in cands],
             }
             guard = scan(variables_text(variables), self.d.mrn_regex)
-            out = LlmConceptMapOutput.model_validate(
-                self.d.llm.chat_json(
+            try:
+                res = self.d.llm.chat_json(
                     "concept_map", variables, job_id=job_id, clearance=guard.clearance, phi_guard_hit=guard.hit
-                ).data
-            )
+                )
+            except LlmError as exc:  # as ir_extract: the requester's Failed mail names the step, not "internal error"
+                raise CompileFailed(
+                    "concept_map", f"the model did not map {name!r} ({str(exc)[:160]}); send the protocol again"
+                ) from exc
+            out = LlmConceptMapOutput.model_validate(res.data)
             choices = [(c.code, c.system, c.confidence) for c in out.choices]
             return choices, out.needs_review or len(choices) > 1 or any(c[2] < 0.9 for c in choices)
 
@@ -230,7 +287,14 @@ class Compiler:
         elm: dict[str, str] = {}
         warnings: list[str] = []
         if self.d.translator is not None:
-            cql["FHIRHelpers"] = fhirhelpers_source()
+            try:  # T-501 (LIFE-005): a checkout or image without the translator jars fails by name, not a traceback
+                cql["FHIRHelpers"] = fhirhelpers_source()
+            except (OSError, KeyError) as exc:
+                raise CompileFailed(
+                    "cql_translate",
+                    "the CQL translator is not installed (FHIRHelpers-4.0.1.cql not found in its jars): "
+                    "run `make jvm-deps` or set TB_CQL_TRANSLATOR_LIB",
+                ) from exc
             try:
                 tr = self.d.translator.translate(cql)
             except TranslationError as exc:
@@ -255,7 +319,7 @@ class Compiler:
         if not compiled(active):
             return EquivalenceReport(overall_pct=100.0, per_criterion={}, failing=[], sample_size=0, engine="none")
         if self.d.equivalence is not None:
-            return self.d.equivalence(active, art.sql, art.library, index_date, seed)
+            return self.enforce(self.d.equivalence(active, art.sql, art.library, index_date, seed), active)
         if self.d.fhir is None or self.d.lake is None or not art.elm:
             ids = [c.id for c in compiled(active)]
             return EquivalenceReport(
@@ -267,7 +331,22 @@ class Compiler:
             library_resource(art.library, art.library_version, art.cql[art.library], art.elm.get(art.library)),
         ]
         self.d.fhir.load(libs, valuesets.values())
-        return run_gate(active, art.sql, art.library, self.d.lake, self.d.fhir, index_date, seed, threshold)
+        return self.enforce(
+            run_gate(active, art.sql, art.library, self.d.lake, self.d.fhir, index_date, seed, threshold), active
+        )
+
+    @staticmethod
+    def enforce(tests: EquivalenceReport, criteria: list[CriterionIR]) -> EquivalenceReport:
+        """T-652 (ENG-016): a report that compared no patient, or has no figure for a compiled criterion, never passes
+        it, whoever produced the report (the gate, an injected one, or one stored by an earlier version)."""
+        active = [c for c in criteria if not (c.review and c.review.status == "rejected")]
+        missing = unproven(tests, active)
+        if not missing or set(missing) <= set(tests.failing):
+            return tests
+        per = {**tests.per_criterion, **{cid: tests.per_criterion.get(cid, 0.0) for cid in missing}}
+        if tests.sample_size <= 0:
+            per.update(dict.fromkeys(missing, 0.0))
+        return tests.model_copy(update={"failing": sorted(set(tests.failing) | set(missing)), "per_criterion": per})
 
     @staticmethod
     def _flag(criteria: list[CriterionIR], tests: EquivalenceReport) -> list[CriterionIR]:
@@ -361,8 +440,18 @@ class Compiler:
             },
         )
         m.setdefault("models", {"judge": self.d.judge_model, "judge_prompt": "judge_v4"})
+        # the terminology release the ValueSets resolve through (D-301): a run against another one is refused
+        release = getattr(self.d.term, "release", "") if self.d.term is not None else ""
+        if release:
+            m["terminology_release"] = release
+        else:
+            m.pop("terminology_release", None)
         m.pop("review", None)
         m.pop("equivalence", None)
+        m.pop("prompt_pins", None)  # pinned again at approval (D-318)
+        m.pop("derived_pins", None)  # pinned again at approval (D-442)
+        for k in ("effective_from", "irb_reference", "irb_approved_on"):  # each version's own record (D-364)
+            m.pop(k, None)
         return RulesetManifest.model_validate(m)
 
     def _package(
@@ -430,11 +519,14 @@ class Compiler:
         guard_hit = False
         criteria_new: list[CriterionIR] = []
         valuesets: dict[str, dict[str, Any]] = dict(approved.valuesets) if approved else {}
-        warnings: list[str] = []
+        # the parser's warnings (hidden text, a planted instruction, masked contact lines; T-208, T-606): to the review
+        warnings: list[str] = list(parsed.warnings or [])
         if todo:
             extracted, guard = self._extract(req.job_id, ruleset, parsed.language, todo)
             guard_hit = guard.hit
-            post = postprocess(ruleset, extracted, self.d.term, version, self._concept_map(req.job_id), dict(offsets))
+            post = postprocess(
+                ruleset, extracted, self.d.term, version, self._concept_map(req.job_id), dict(offsets), self.d.egfr()
+            )
             criteria_new = post.criteria
             valuesets.update(post.valuesets)
             warnings.extend(post.warnings)
@@ -639,7 +731,9 @@ class Compiler:
         if to_extract:
             lines = [{"text": text, "kind": c.kind, "source_ref": c.source_ref or ""} for c, text in to_extract]
             extracted, _ = self._extract(job_id, req.ruleset, rs.manifest.language or "en", lines)
-            post = postprocess(req.ruleset, extracted, self.d.term, req.version, self._concept_map(job_id))
+            post = postprocess(
+                req.ruleset, extracted, self.d.term, req.version, self._concept_map(job_id), egfr=self.d.egfr()
+            )
             valuesets.update(post.valuesets)
             replaced = {
                 orig.id: new.model_copy(update={"id": orig.id, "review": CriterionReview(status="draft")})
@@ -674,7 +768,7 @@ class Compiler:
         if edits or prev is None or any(d.status == "reject" for d in req.decisions):
             tests = self._equivalence(updated, art, valuesets, index_date, f"{req.ruleset}|{req.version}")
         else:
-            tests = EquivalenceReport.model_validate_json(prev)
+            tests = self.enforce(EquivalenceReport.model_validate_json(prev), updated)
         updated = self._flag(updated, tests)
         active = [c for c in updated if not (c.review and c.review.status == "rejected")]
         blocking = sorted(
@@ -726,6 +820,8 @@ class Compiler:
         manifest = RulesetManifest.model_validate(
             {
                 **dump(manifest),
+                **approval_pins(manifest, updated),
+                **amendment_record(req, now.date()),
                 "status": "approved",
                 "review": {
                     "approved_by": req.by,
@@ -764,7 +860,12 @@ class Compiler:
             ruleset=req.ruleset,
             ruleset_version=req.version,
             actor=req.by,
-            detail={"tag": tag, "rounds": round_no},
+            detail={
+                "tag": tag,
+                "rounds": round_no,
+                "effective_from": str(manifest.effective_from or ""),
+                "irb_reference": manifest.irb_reference or "",
+            },
         )
         return ApproveResult(
             ruleset=req.ruleset,

@@ -6,7 +6,9 @@ offline and repeatable.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -14,6 +16,7 @@ from typing import Any
 import httpx
 import pytest
 import yaml
+from channels.base import ClassifiedIntent
 from fastapi.testclient import TestClient
 from gateway.app import create_app
 from gateway.core import Gateway, GatewayConfig
@@ -26,8 +29,10 @@ from tb_common.crypto import sha256_text
 from tb_common.llm import LlmClient, load_prompt, render
 from tb_common.policy.classes import Environment, Topology
 from tb_contracts import inline_schema
-from tb_llm import CallLabels, GatewayClient, GatewayRefused, json_schema_format
+from tb_llm import CallLabels, GatewayClient, GatewayRefused, json_schema_format, prompt_registry
 from tracestore.store import TraceStore
+
+from tests.model_pins import qualified
 
 ROOT = Path(__file__).resolve().parents[2]
 PIN = "ab" * 32  # synthetic test pin; the shipped registry has no hashes yet
@@ -40,7 +45,7 @@ JUDGE_VARS: dict[str, Any] = {
 
 
 def _judge_body(variables: dict[str, Any] | None = None) -> dict[str, Any]:
-    p = load_prompt("judge")
+    p = load_prompt("judge_v4")
     return {
         "messages": render(p, variables or JUDGE_VARS),
         "response_format": json_schema_format("judge", inline_schema(p.meta.output_schema)),
@@ -49,7 +54,7 @@ def _judge_body(variables: dict[str, Any] | None = None) -> dict[str, Any]:
 
 
 def _ir_body() -> dict[str, Any]:
-    p = load_prompt("ir_extract")
+    p = load_prompt("ir_extract_v2")
     v = {"ruleset": "GZQO", "language": "en", "criteria": [{"text": "Age >= 18", "kind": "inclusion"}]}
     return {"messages": render(p, v), "response_format": json_schema_format("ir", inline_schema(p.meta.output_schema))}
 
@@ -63,7 +68,7 @@ def H(**over: str) -> dict[str, str]:
         "X-TB-Study": "STUDY-1",
         "X-TB-Step": "step-1",
         "X-TB-Context-Of-Use": "s3_note_judgement",
-        "X-TB-Prompt": "judge@3",
+        "X-TB-Prompt": "judge@4",  # the body helpers render judge_v4, the baseline every environment serves (D-300, D-359)
     }
     for k, v in over.items():
         key = "X-TB-" + k.replace("_", "-")
@@ -71,6 +76,11 @@ def H(**over: str) -> dict[str, str]:
             h.pop(key, None)
         else:
             h[key] = v
+    # a registered prompt carries its registry sha, as tb_llm callers send it (D-300), unless the test sets one
+    pid, _, ver = h.get("X-TB-Prompt", "").partition("@")
+    if "Prompt_Sha" not in over and pid in prompt_registry.default_registry().ids and re.fullmatch(r"[1-9]\d*", ver):
+        with contextlib.suppress(prompt_registry.PromptRegistryError):
+            h["X-TB-Prompt-Sha"] = prompt_registry.default_registry().entry(pid, int(ver)).sha256
     return h
 
 
@@ -88,6 +98,7 @@ def _pinned_registry(*, served: str = "j-test", sha: str | None = PIN, status: s
                 "sha256": sha,
                 "licence": {"name": "test"},
                 "origin": {"developer": "test"},
+                **({"qualification": qualified(sha)} if sha else {}),  # T-012b: champion through qualify
             },
             {
                 "build_id": "v-test-1",
@@ -98,6 +109,7 @@ def _pinned_registry(*, served: str = "j-test", sha: str | None = PIN, status: s
                 "sha256": "cd" * 32,
                 "licence": {"name": "test"},
                 "origin": {"developer": "test"},
+                "qualification": qualified("cd" * 32),
             },
         ],
     }
@@ -264,7 +276,9 @@ def test_production_refuses_unpinned_and_non_champion_builds(tmp_path: Path) -> 
         tmp_path / "b", env=Environment.PRODUCTION, registry=_pinned_registry(sha=None), http=_mock("echo"), confirm=ok
     )
     r = unpinned.chat(H(Data_Class="D3", Step="s"), _judge_body())
-    assert r.status == 200 and r.body["tb"]["alias"] == "v-verifier"  # falls to the next pinned champion
+    # D-276 (review LLM-002): a judge call never falls to the next build of the patient route (it used to be answered
+    # by the verifier build, which then confirmed itself); an unpinned judge build is the call's error
+    assert (r.status, r.body["error"]["code"]) == (403, "build_unpinned")
     assert _records(tmp_path / "b")[0]["detail"]["fallbacks"] == 1
 
 
@@ -298,7 +312,7 @@ def test_response_cache_keyed_by_prompt_and_model_sha(tmp_path: Path) -> None:
         return httpx.Response(r.status_code, json=r.json())
 
     gw = _gw(tmp_path, http=httpx.Client(transport=httpx.MockTransport(counting)))
-    h = H(Caller="criteria-compiler", Role="extract_criteria", Purpose="protocol_ingest", Prompt="ir_extract@1")
+    h = H(Caller="criteria-compiler", Role="extract_criteria", Purpose="protocol_ingest", Prompt="ir_extract@2")
     a = gw.chat(h, _ir_body())
     b = gw.chat(h, _ir_body())
     assert a.status == b.status == 200 and len(seen) == 1
@@ -310,9 +324,25 @@ def test_response_cache_keyed_by_prompt_and_model_sha(tmp_path: Path) -> None:
     assert [r["detail"]["cache"] for r in _records(tmp_path)] == ["miss", "hit", "miss", "miss"]
 
 
+def test_only_allow_listed_fields_go_upstream(tmp_path: Path) -> None:
+    sent: list[dict[str, Any]] = []
+
+    def capture(req: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(req.content))
+        r = TestClient(stub).post("/v1/chat/completions", content=req.content, headers=dict(req.headers))
+        return httpx.Response(r.status_code, json=r.json())
+
+    gw = _gw(tmp_path, http=httpx.Client(transport=httpx.MockTransport(capture)))
+    extra = {"n": 5, "logit_bias": {"1": 100}, "stop": ["x"], "chat_template_kwargs": {"enable_thinking": True}}
+    res = gw.chat(H(), {**_judge_body(), **extra, "user": "someone"})
+    assert res.status == 200 and len(sent) == 1
+    assert not set(extra) & set(sent[0]) and "user" not in sent[0]
+    assert {"messages", "response_format", "max_tokens", "model"} <= set(sent[0])
+
+
 @pytest.mark.req("LLM-45", "LLM-46", "S1-08")
 def test_d3_production_call_traced_redacted(tmp_path: Path) -> None:
-    traces = TraceStore(tmp_path / "traces.sqlite", Guard("^\\d{8}$"))
+    traces = TraceStore(None, Guard("^\\d{8}$"))
     gw = _gw(
         tmp_path,
         env=Environment.PRODUCTION,
@@ -324,7 +354,7 @@ def test_d3_production_call_traced_redacted(tmp_path: Path) -> None:
     note = "患者陳志明先生，病歷號 20481234，聯絡電話 0912-345-678。目前急性痛風發作中。"
     res = gw.chat(H(Data_Class="D3"), _judge_body({**JUDGE_VARS, "excerpts": [{"date": "d", "text": note}]}))
     assert res.status == 200 and res.body["tb"]["build_sha"] == PIN and res.body["tb"]["route_id"] == "patient"
-    raw = (tmp_path / "traces.sqlite").read_bytes().decode("utf-8", "ignore")
+    raw = "\n".join(str(r[0]) for r in traces.db.fetchall("SELECT concat_ws(' ', call_id, body) FROM traces"))
     for planted in ("陳志明", "20481234", "0912-345-678"):
         assert planted not in raw
     (t,) = traces.read(res.body["tb"]["call_id"], user="qa1", purpose="dispute review", roles=frozenset({"trace:read"}))
@@ -340,8 +370,12 @@ def _intake(caller: str, role: str, data_class: str = "D3", **over: str) -> dict
 
 
 INTAKE_BODY: dict[str, Any] = {
-    "messages": [{"role": "user", "content": "請問 GZQO 目前收案狀況？"}],
-    "response_format": json_schema_format("classify_intent", {"type": "object"}),
+    # the registered template rendered and its schema (D-300: the gateway refuses other messages or another schema)
+    "messages": render(
+        load_prompt("classify_intent_v1"),
+        {"text": "請問 GZQO 目前收案狀況？", "attachments": [], "today": "2026-11-10", "language": "zh-TW"},
+    ),
+    "response_format": json_schema_format("classify_intent", ClassifiedIntent.model_json_schema()),
 }
 
 
@@ -364,12 +398,15 @@ def test_d3_intake_role_needs_no_study_step(tmp_path: Path, caller: str, role: s
         _intake("converse-native", "classify_intent", "D4"),
         _intake("converse-native", "frontdesk_converse"),  # converse-native's is classify_intent
         _intake("eval", "classify_intent", Purpose="evaluation"),  # a caller without the flag
-        _intake("orchestrator", "judge", Purpose="screening", Prompt="judge@3"),
+        _intake("orchestrator", "judge", Purpose="screening", Prompt="judge@4"),
         _intake("converse-native", "classify_intent", Step="step-1"),  # a named step must still be confirmed
     ],
 )
 def test_d3_without_step_still_refused_outside_the_intake_rule(tmp_path: Path, headers: dict[str, str]) -> None:
-    gw = _gw(tmp_path, env=Environment.PRODUCTION, registry=_pinned_registry(), http=_mock("j-test"))
+    # topology B (a cloud tenant): the box policy of D-142 (topology A only) does not apply, so LLM-2 decides alone
+    gw = _gw(
+        tmp_path, env=Environment.PRODUCTION, topology=Topology.B, registry=_pinned_registry(), http=_mock("j-test")
+    )
     res = gw.chat(headers, INTAKE_BODY if headers["X-TB-Caller"] != "orchestrator" else _judge_body())
     assert res.status == 403 and res.body["error"]["code"] == "step_unconfirmed", res.body
 
@@ -404,7 +441,8 @@ def test_http_app_and_tb_llm_client(tmp_path: Path) -> None:
         study_id="STUDY-1",
         context_of_use="s3_note_judgement",
         role="judge",
-        prompt="judge@3",
+        prompt="judge@4",
+        prompt_sha=load_prompt("judge_v4").sha256,
     )
     body = _judge_body()
     out = client.chat(body["messages"], labels, response_format=body["response_format"])
@@ -433,5 +471,5 @@ def test_tb_common_llm_shim_goes_through_gateway(tmp_path: Path) -> None:
     r = llm.chat_json("judge", JUDGE_VARS, job_id="J1", data_class="D0")
     assert r.data["verdict"] == "pass" and r.target == "gateway" and r.model == "trialbox-stub"
     (rec,) = _records(tmp_path)
-    assert rec["prompt_version"] == "judge@4" and rec["detail"]["study"] == "J1"
+    assert rec["prompt_version"] == "judge@5" and rec["detail"]["study"] == "J1"
     assert rec["detail"]["context_of_use"] == "s3_note_judgement"

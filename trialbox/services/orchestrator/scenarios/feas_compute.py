@@ -20,7 +20,10 @@ from datetime import date
 from typing import Any
 
 import numpy as np
+from criteria_compiler.compile_sql.overlay import safe_sql
 from lake.client import LakeAPI
+from matching.coverage import DOMAINS, Coverage, known_systems
+from matching.proposed import site_basis
 from tb_common.feas_notes import render as render_note
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import round_count
@@ -86,6 +89,8 @@ class FeasParams:
     capacity_per_month: float | None = None
     months: int = 12
     iterations: int = 1000
+    # pseudonyms left out of every count (the opt-out register as of the job's receipt, read by the caller; D-467)
+    exclude_pids: frozenset[str] = frozenset()
 
 
 @dataclass
@@ -101,6 +106,12 @@ class FeasRaw:
     index_dates: list[date]
     # pids eligible at the latest month-end (the "pool now"); in-box only, for the D-104 report profile
     prevalent_pids: list[str] = field(default_factory=list)
+    # D-130 (review F-10): patients of the population with a diagnosis / a medicine in a code system the mapping does
+    # not know; their coded inclusions are not "false" but unreadable, so the count says so
+    unknown_system: dict[str, int] = field(default_factory=dict)
+    # D-135 (step 5b): per step, of the patients counted, how many rest partly on facts a person confirmed from a
+    # chart (``confirmed``) and how many of the population not counted there have proposed facts to check
+    basis: dict[str, dict[str, int]] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------------------------- steps & variants
@@ -259,7 +270,7 @@ def funnel_query(rs: Ruleset, st: list[Step], variants: list[Variant], departmen
         vcte = f"v AS (SELECT * FROM (\n{vsql}\n)),\n"
     return (
         "-- FEAS funnel (orchestrator/scenarios/feas_compute.py): template SQL only; $3/$4 lookback, $5 departments\n"
-        f"WITH\nr AS (SELECT * FROM (\n{rs.sql}\n)),\n{vcte}"
+        f"WITH\nr AS (SELECT * FROM (\n{safe_sql(rs)}\n)),\n{vcte}"
         "pop AS (SELECT DISTINCT e.pid FROM encounter e\n"
         f"  WHERE CAST(e.start AS DATE) BETWEEN CAST($3 AS DATE) AND CAST($4 AS DATE){dept}),\n"
         f"x AS (SELECT r.*{vcols} FROM r JOIN pop ON pop.pid = r.pid{vjoin}),\n"
@@ -284,7 +295,10 @@ def compute(lake: LakeAPI, rs: Ruleset, p: FeasParams) -> tuple[FeasibilityResul
         params.append(list(p.departments))
     table = lake.query(sql, params, p.snapshot)
     cols = table.to_pydict()
-    n = table.num_rows
+    if p.exclude_pids:
+        keep = [i for i, pid in enumerate(cols["pid"]) if str(pid) not in p.exclude_pids]
+        cols = {k: [v[i] for i in keep] for k, v in cols.items()}
+    n = len(cols["pid"])
     applied = [s for s in st if s.applied]
     remaining = {s.id: sum(1 for x in cols[f"f{i}"] if x) for i, s in enumerate(applied)}
     # inclusion: reached the step, never passed and never had a known value there -> dropped for lack of data;
@@ -302,7 +316,17 @@ def compute(lake: LakeAPI, rs: Ruleset, p: FeasParams) -> tuple[FeasibilityResul
             first[key] = first.get(key, 0) + 1
     prevalent = sum(1 for x in cols["prevalent"] if x)
     pool = [str(pid) for pid, x in zip(cols["pid"], cols["prevalent"], strict=True) if x]
-    raw = FeasRaw(n, remaining, unknown, var_counts, first, prevalent, idx, pool)
+    population = {str(x) for x in cols["pid"]}
+    cov = Coverage.load(lake, None, p.snapshot, known_systems(rs.valuesets))
+    gaps = {d: len(cov.patients(d) & population) for d in DOMAINS}
+    raw = FeasRaw(n, remaining, unknown, var_counts, first, prevalent, idx, pool, {d: k for d, k in gaps.items() if k})
+    confirmed, proposed = site_basis(lake, p.snapshot)
+    if confirmed or proposed:  # a site with its own inputs (D-135); the hospital feed alone has none
+        pids = [str(x) for x in cols["pid"]]
+        for i, s in enumerate(applied):
+            kept = {pid for pid, f in zip(pids, cols[f"f{i}"], strict=True) if f}
+            c = len(kept & confirmed)
+            raw.basis[s.id] = {"coded": len(kept) - c, "confirmed": c, "proposed": len((population - kept) & proposed)}
     return _result(rs, p, st, variants, raw), raw
 
 
@@ -419,6 +443,16 @@ def _result(rs: Ruleset, p: FeasParams, st: list[Step], variants: list[Variant],
             keys.append(
                 ("feas.note.dropped" if s.inclusion else "feas.note.kept", {"id": s.id, "n": pub(raw.unknown[s.id])})
             )
+    for domain, k in sorted(raw.unknown_system.items()):
+        keys.append((f"feas.note.unknown_system.{domain}", {"n": pub(k)}))
+    last = next((s.id for s in reversed(st) if s.applied), None)
+    if last and raw.basis.get(last, {}).get("confirmed"):
+        b = raw.basis[last]
+        keys.append(("feas.note.basis.confirmed", {"n": pub(b["confirmed"])}))
+    if raw.basis:
+        n_prop = max(v["proposed"] for v in raw.basis.values())
+        if n_prop:
+            keys.append(("feas.note.basis.proposed", {"n": pub(n_prop)}))
     not_applied = [s.id for s in st if not s.applied]
     if not_applied:
         keys.append(("feas.note.not_applied", {"ids": ", ".join(not_applied)}))
@@ -517,4 +551,6 @@ def raw_json(raw: FeasRaw) -> bytes:
         "prevalent": raw.prevalent,
         "index_dates": [d.isoformat() for d in raw.index_dates],
     }
+    if raw.basis:
+        body["basis"] = raw.basis
     return (json.dumps(body, indent=1, sort_keys=True) + "\n").encode()

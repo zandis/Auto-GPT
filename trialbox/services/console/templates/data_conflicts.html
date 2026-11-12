@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}{{ t('dc.conflicts.title') }} · {{ rs }}{% endblock %}
+{% set q = request.query_params %}
+{% macro val(v) %}{% if v is none or v == '' %}<span class="hint">{{ t('dc.blank') }}</span>{% else %}<span class="mono">{{ v }}</span>{% endif %}{% endmacro %}
+{% macro src(name) %}{{ t('dc.owner.trialbox') if name == 'trialbox' else t_or('dc.source.' + name, name) }}{% endmacro %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('dc.conflicts.title') }}</h1>
+<a href="/studies/{{ rs }}/conflicts{{ '' if everything else '?all=1' }}" data-testid="toggle-resolved">{{ t('dc.hide_resolved' if everything else 'dc.show_resolved') }}</a></div>
+{% include "_data_nav.html" %}
+<p class="hint">{{ t('dc.conflicts.help') }}</p>
+{% if not editable %}<p class="hint" data-testid="dc-readonly">{{ t('dc.readonly') }}</p>{% endif %}
+{% if err %}{% include "_data_err.html" %}{% endif %}
+{% if q.get('done') %}<p class="ok" role="status" data-testid="dc-done">{{ t('dc.done.resolve') }}</p>{% endif %}
+
+<section class="card" data-testid="dc-conflicts">
+{% if not open_rows %}<p class="empty" data-testid="dc-no-conflict">{{ t('dc.conflicts.none') }}</p>{% else %}
+<div class="scroll" tabindex="0"><table class="candidates">
+<thead><tr><th>{{ t('dc.col.record') }}</th><th>{{ t('dc.col.field') }}</th><th>{{ t('dc.col.trialbox') }}</th><th>{{ t('dc.col.theirs') }}</th><th>{{ t('dc.col.source') }}</th><th>{{ t('dc.col.when') }}</th>{% if editable %}<th><span class="sr">{{ t('col.actions') }}</span></th>{% endif %}</tr></thead>
+<tbody>{% for c in open_rows %}<tr data-testid="conflict-{{ c.id }}">
+<td class="mono">{{ c.record }}{% if c.event %} · {{ c.event }}{% endif %}</td>
+<td><span class="mono">{{ c.field }}</span>{% if labels.get(c.field) %}<br><span class="hint">{{ labels[c.field] }}</span>{% endif %}<br><span class="hint">{{ t('dc.owned_by', o=src(c.owner)) }}</span></td>
+<td>{{ val(c.trialbox) }}</td><td>{{ val(c.theirs) }}</td><td>{{ src(c.source) }}</td><td>{{ c.at|local }}</td>
+{% if editable %}<td><form method="post" action="/studies/{{ rs }}/conflicts/{{ c.id }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}">
+<button type="submit" name="keep" value="trialbox" data-testid="keep-trialbox-{{ c.id }}">{{ t('dc.keep.trialbox') }}</button>
+<button type="submit" name="keep" value="theirs" class="secondary" data-testid="keep-theirs-{{ c.id }}">{{ t('dc.keep.theirs') }}</button></form></td>{% endif %}
+</tr>{% endfor %}</tbody></table></div>{% endif %}
+</section>
+
+{% if everything %}
+<section class="card" data-testid="dc-resolved">
+<h2>{{ t('dc.resolved.title') }}</h2>
+{% if not done_rows %}<p class="empty">{{ t('dc.resolved.none') }}</p>{% else %}
+<div class="scroll" tabindex="0"><table class="candidates">
+<thead><tr><th>{{ t('dc.col.record') }}</th><th>{{ t('dc.col.field') }}</th><th>{{ t('dc.col.trialbox') }}</th><th>{{ t('dc.col.theirs') }}</th><th>{{ t('dc.col.source') }}</th><th>{{ t('dc.col.when') }}</th><th>{{ t('dc.col.choice') }}</th></tr></thead>
+<tbody>{% for c in done_rows %}<tr data-testid="resolved-{{ c.id }}">
+<td class="mono">{{ c.record }}{% if c.event %} · {{ c.event }}{% endif %}</td><td class="mono">{{ c.field }}</td>
+<td>{{ val(c.trialbox) }}</td><td>{{ val(c.theirs) }}</td><td>{{ src(c.source) }}</td><td>{{ c.at|local }}</td>
+<td>{{ t('dc.resolved.line', choice=t('dc.kept.' + c.resolved) if c.resolved in ('trialbox', 'theirs') else c.resolved, by=(c.resolved_by or '')|replace('console:', ''), at=c.resolved_at|local if c.resolved_at else '–') }}</td>
+</tr>{% endfor %}</tbody></table></div>{% endif %}
+</section>
+{% endif %}
+{% endblock %}

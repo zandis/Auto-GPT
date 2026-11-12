@@ -2,6 +2,11 @@
 
 Each entry: decision, reason, consequence. Entries are appended per phase; nothing is silently dropped.
 
+**This log is frozen at D-270 (T-002, D-306).** A new decision is a file `docs/decisions/D-<nnn>-<slug>.md`, its
+number taken from `docs/decisions/REGISTRY.md` (new numbers from D-300). `python -m tools.decisions_index` prints the
+index of both; `--check` (CI job `docs`) fails on a new entry here, a number used twice, or a file with no registry
+row.
+
 ## Phase 0
 
 **D-01 Repository location.** TrialBox lives in `trialbox/` inside this repository (the host repo's existing content is
@@ -1057,7 +1062,8 @@ of `20-build-map.md` §2 (list and mail). What was decided, and why:
   from the appointment source the SCREEN run used; without an id the mail goes on Mondays with the next seven days.
   **N2, the coordinator's digest** (FR-NOTIF-02): working days, today's visits, next steps (call an approved patient,
   retry a call when due, find requested information), new pre-screens and the PI's marks since the last digest. Both
-  carry pseudonyms, times and counts only, never a chart number, a name or a screening number; each says why it was
+  carry pseudonyms, times and counts only, never a chart number, a name or a screening number (screening numbers
+  added beside the pseudonym by D-136); each says why it was
   sent and links to the person's notice settings (FR-NOTIF-09). They leave through a new orchestrator `POST /notices`
   (aggregate tag, internal addresses only, audited `notice.sent`) and are sent at most once per person and day.
   Sending is `python -m console.notify` (for the site's 07:00 / 07:30 timer) or "Send today's notices now" for an
@@ -1514,3 +1520,2946 @@ TB-PLAN-03 step 7 (`22-optimization-plan.md` §5, §10; finding 2's root cause; 
 * **Not done.** Real MEDIS/JLAC10/YJ releases (licensed; sites load theirs); WHO ICD-10 (Japan's 標準病名 maps to
   WHO ICD-10, mostly a subset of ICD-10-CM at category level); ADT-52 discharge and OMP-11/12 administrations;
   extended-storage `_contents.xml` documents; the CQL path still reads enumerated lists only.
+
+**D-123 The data core, its importers and REDCap write-back: TrialBox holds its own trial data and syncs two-way only
+with REDCap and spreadsheets (TB-PLAN-03 step 8, finished as TB-PLAN-04 step 3).**
+
+* **The data core** (`services/datacore`, schema `datacore` of `trialbox_wf`, D-126). A REDCap data dictionary (or
+  a built-in form) becomes FHIR Questionnaires; answers are rows, one per (study, record, event, field), with who
+  changed it last and when, and for each source the value last seen and last pushed. Every change is in `history`.
+  Identifier fields of a dictionary are dropped; a record is keyed by the screening number first, else the pseudonym
+  (a chart number turned into the HMAC pseudonym with the site key at import), else the row is refused and listed
+  with its place in the source, never guessed (`SyncResult.refused`).
+* **Ownership and conflicts.** Each field is owned by TrialBox or by one source. A source-owned change is taken; a
+  TrialBox-owned field is pushed when it changed; a different value at the source for a TrialBox field, or a source
+  value against an earlier TrialBox value, is a conflict: listed once, never forced, closed by a person (keep
+  TrialBox's or take the source's), and the trail kept.
+* **Sources.** REDCap (two-way, through its API; `create` makes the missing records), a PI's spreadsheet (CSV in
+  UTF-8, Shift_JIS or Big5, or XLSX; identifier columns dropped and listed; `POST /studies/{rs}/import/sheet`), a
+  FHIR bundle of QuestionnaireResponses. Hospital systems stay one-way in (owner decision 2, 2026-11-08).
+* **API** (`orchestrator/datacore_api.py`): forms, dictionary import, entry, REDCap attach and detach, sync,
+  conflicts and resolution, sheet import, FHIR export; console pages Sources, Conflicts and Forms with `/api/v1`.
+* **REDCap write-back of the screening fields** (below) stays the S21 link's job for now; folding it into the data
+  core's TrialBox-owned fields is step 5 (lifecycle), so one writer owns each REDCap field.
+* **Evidence (data core).** `tests/unit/test_datacore.py`, `tests/unit/test_datacore_api.py`; `e2e_simple` stage 9
+  on the simulator's longitudinal project B: REDCap off → entries in TrialBox → REDCap attached → TrialBox's fields
+  pushed and a missing record created → an earlier TrialBox value and a REDCap-side edit of a TrialBox field listed
+  as conflicts → resolved → pushed; a PI's sheet with a name column imported with the column dropped, the chart
+  number pseudonymised and a keyless row refused and listed.
+
+**The write-back of the screening fields:**
+
+* **What is written.** Three fields on TrialBox's own instrument (`write_form`, default `trialbox_screening`):
+  `tb_screen_date` (the day the screening number was issued), `tb_status` (the registry status as a code,
+  1 candidate … 7 withdrawn) and `tb_status_date`. Nothing else is ever sent for an existing record. A new record
+  (create mode only) also carries the link field `tb_screening_no` and, in a multi-site project, the link's DAG.
+* **Modes** (`write_mode` on the project link, S21 section 2): `off` (read only, the default and the old behaviour),
+  `existing` (fill the records the coordinator created; screening numbers without a record are listed as waiting),
+  `create` (also create a record per new screening number, auto-numbered by REDCap: a screening-log project).
+* **Never overwrite.** Saving the link refuses (`RC-LINK-WRITE`) an instrument that holds any field the link reads
+  (consent, enrolment, screen-fail, withdrawal, subject number, link field), so the fields TrialBox writes and the
+  fields REDCap owns cannot overlap. The import uses `overwriteBehavior=normal` (a blank never erases). A screening
+  number on two REDCap records is never written (RC-LINK-DUP stays the coordinator's call).
+* **When.** Run now and the nightly read: the read first (REDCap's statuses into the registry), then the write
+  (TrialBox's now current status into its instrument). A ledger (`rc_write`, hash per screening number) skips rows
+  that did not change. A failed write is reported on the log and retried on the next run; the read stands.
+* **API, no module.** The record import (`content=record` with `data`, `forceAutoNumber`, `returnContent=auto_ids`)
+  is a form post like the reads (`RedcapClient.import_records`); no REDCap External Module or PHP on the site's
+  REDCap. The simulator implements the import with REDCap's checks: unknown fields, unknown or missing events
+  (longitudinal), fields on a form the event does not carry (`form_event_mapping`) and unknown DAGs are refused whole.
+* **Evidence.** `tests/unit/test_rc_writeback.py` (import rules, plan modes, unchanged and duplicate handling, the
+  link check, read-then-write leaving every REDCap-owned field as it was, create mode then consent read back).
+  `e2e_simple` stage 8: write-back on through S21 → Run now → every screening number has its REDCap record with
+  TrialBox's instrument filled and no REDCap-owned field changed → consent entered in REDCap → the next Run now
+  shows *consented* on the log and `tb_status` follows → a third run writes nothing.
+* **Not done.** The REDCap project's instrument is created by the site's REDCap builder from the three-field data
+  dictionary in `services/rc_sim/fixtures/` (TrialBox does not change a project's design); repeating instruments.
+
+**D-124 A hardware profile for every box we sell, each serving the measured pair.** TB-PLAN-04 step 1 (fixes F1).
+D-123 is the data core on the step-3 branch (PR #31).
+
+* **One pair everywhere.** Judge Gemma 4 26B-A4B-it NVFP4 (`j-workhorse`, endpoint `serving`), verifier Qwen3.5-9B
+  AWQ 4-bit (`v-verifier`, endpoint `verifier`, thinking off). A note answer excludes only when both agree. One
+  weights directory (`deploy/models/gemma-4-26b-a4b-it-4bit`, `qwen3.5-9b-4bit`) serves all profiles; the registry
+  has a build per profile because the context differs.
+* **Three profiles.**
+
+  | `--gpu` | box | layout | context | compose |
+  | --- | --- | --- | --- | --- |
+  | `rtxpro6000` | RTX PRO 6000 96 GB (Japan head hospital, CGMH) | both resident, 0.40 + 0.20 of the card, `TB_MODEL_SWAP=off` | 32k | `docker-compose.rtxpro6000.yml` |
+  | `gb10` | DGX Spark (medium tier) | both resident, 0.30 + 0.15 of unified memory | 16k | `docker-compose.gb10.yml` |
+  | `rtx5090` | one RTX 5090 (small sites) | sleep swap, one awake (D-116) | 8k | `docker-compose.rtx5090.yml` |
+
+  gpt-oss-120b is gone from the Spark (judge and front desk); the front desk is the judge's weights pinned again at
+  the profile's context. `rtx4090` (judge alone, never excludes) and `default` stay.
+* **Detection.** `deploy/gpu_profile.sh` maps the machine and card name to the profile; `install.sh` calls it.
+  The RTX PRO 6000 used to fall to `default` (one base model, no pair).
+* **Measured or refused.** `install.sh` starts a pair profile only on a serving-config record of that profile on its
+  own uncapped card: `deploy/site/serving_config.<gpu>.json` (the site's) or `deploy/measured/serving_config.<gpu>.json`
+  (the vendor's, shipped with the kit), checked by `tools/serving_config.py measured <gpu>`; otherwise only with
+  `TB_ACCEPT_UNMEASURED_GPU=1`. The rule per profile: card name, not capped, judge and verifier both present, sleep
+  mode on (rtx5090) or off (rtxpro6000, gb10), context at least the profile's. `install.sh` writes `TB_PROFILE`
+  (`P-PRO6000`, `P-GB10`, `P-5090`).
+* **Evidence.** `tests/unit/test_hardware_profiles.py` (detection, compose files, registry, record rule).
+  The PRO 6000 record comes from `deploy/gcp/gpu-pro6000-run.sh` on `tb-gpu-sim` (uncapped, 32k), with `public_e2e`
+  and the pair canary against it.
+* **Not done.** The Spark is measured when a site orders one (owner decision 4, 2026-11-08). A physical 5090 record.
+  `tools/gpu_sizing.py` keeps its old comparison rows (arithmetic, not a profile).
+
+**D-125 Delivery on Windows, and apps after the platform.** Owner's answers, 2026-11-08.
+
+* **Windows workstation, WSL2.** The box is a dedicated Windows workstation (version chosen by the hospital; the
+  installer's pre-check accepts Windows 11 Pro/Enterprise and Server 2022+). The Linux stack runs unchanged inside
+  WSL2 with GPU access; staff never see Linux.
+* **Fully offline installer, installed by Aimedics on site.** One signed installer and a data file (images, models,
+  rulesets; about 30 GB) on USB or a file share; no internet at install or after; updates the same way. Built after
+  the platform is finished (after step 9); until then steps 2–9 build and test on Linux as planned.
+* **Data in:** a LAN shared folder (EMR exports, SS-MIX2 storage), a FHIR or read-only database endpoint, and USB /
+  console import, all one-way in; mail out through the hospital SMTP/Exchange server.
+* **Apps after the platform:** a phone app for PI/CRC, a desktop app, a documented API for other systems, and an
+  Aimedics admin app (box health and updates, no patient data). They must also work from outside the hospital, which
+  needs a secure path in (hospital VPN or a relay) and the hospital's approval when real data is used.
+* **Rule from now on:** every screen action goes through a documented, token-protected API, so the apps need no
+  screen rework later.
+
+**D-126 One trial database, backed up to the hospital's key.** TB-PLAN-04 step 2 (fixes F2), with the owner's
+answers of 2026-11-08.
+
+* **One database.** Everything TrialBox creates lives in PostgreSQL `trialbox_wf`, one schema per store:
+  `wf` (durable steps, outbox, recall ledger), `orch` (jobs), `study` (REDCap link and records), `site` (marks,
+  outcomes, labels, numbers), `auth` (users, sessions), `mail`, `pidmap`, `trace`, `mpi`, `library`. No SQLite file
+  is left in `services/` or `libs/`. `tb_common.db` is the one access layer: `?` placeholders, versioned migrations
+  under an advisory lock, `TB_DB_URL` for every service. HAPI keeps database `hapi` on the same server; the DuckDB
+  lake and the object files stay as they are (clinical facts and documents).
+* **Tests and demos run on real PostgreSQL.** `tools/pglocal.py` starts a socket-only throwaway cluster; each test
+  and each work directory gets its own schema prefix (`tb_prefix`). No SQLite path for tests.
+* **Backup and restore** (`trialbox backup`, `backup-verify`, `restore`, `backup-keygen`). One `.tbbak` file: a
+  `pg_dump` of both databases, every data folder, and a manifest of hashes and row counts, encrypted with
+  AES-256-GCM in chunks to an X25519 public key.
+  * **Key custody:** the box holds only the public key. The private key is printed and put on a USB stick at install
+    and kept by hospital IT in a sealed envelope. Aimedics never holds it, and the box cannot read its own backups.
+  * **Targets:** the same file goes to every target the site configures: a hospital NAS share (default), a USB
+    disk, a second disk and an off-site mount. Each target keeps the newest `--keep` (default 14).
+  * **Restore:** every hash is checked before anything is touched, replaced folders are moved aside rather than
+    deleted, and row counts are compared after.
+* **Owner's answers recorded here.**
+  * **Sign-in:** hospital AD/LDAP or local TrialBox accounts, chosen per site at install; local accounts stay as
+    the fallback.
+  * **First sites run all three kinds of study:** investigator-initiated, sponsor and observational/registry. The
+    lifecycle (steps 4–5) must fit all three: for sponsor trials TrialBox does pre-screening and site tracking, not
+    the sponsor's CRF.
+
+**D-127 Step 2 widened: safe storage, delivery and recovery; the console becomes the product.** Owner's answers of
+2026-11-08 to the design/code review (`docs/reviews/2026-11-08-fable-design-code-review.md`).
+
+* **The PI/CRC console is the product console.** The pilot-only lock (DEV/TEST and D0 only) goes; the console runs
+  in PRODUCTION in the compose stack with sign-in, roles and audit. Real-data use still waits for the owner's gates.
+* **`/api/v1` from step 2 on.** Marks, outcomes and screening numbers move into Postgres behind a versioned,
+  token-protected API that the console pages call; every later step adds its API with its pages (D-125).
+* **Step 2 also fixes** delivery through the outbox, never twice (review F-02), audit-log repair after a torn line
+  (F-03), runs that fail on consent or note query errors instead of skipping opt-outs (F-04), one environment rule
+  with the installer writing PRODUCTION (F-06), one store of record for screening numbers (F-08) and a service token
+  on every service (F-11). F-05 (SQL-only at runtime) and F-10 (unmapped code systems) go to step 6.
+
+**D-128 Per-service secrets move to the hardening and installer work.** Owner's answer, 2026-11-08.
+
+* The standards/security review found one `deploy/.env` with every secret (service token, mail passwords, database
+  passwords, cloud-model keys) injected into every container. Splitting it into per-service secret files changes the
+  installer, the PoC scripts and the settings wizard, which the Windows/WSL2 offline installer (D-125) replaces. So
+  it is done there, after the platform is finished, with the rest of the Windows/WSL2 hardening (BitLocker, WSL swap,
+  key custody, TLS and MFA). Until then the box is used on synthetic and public data only (no development gates).
+
+
+**D-129 Built-in data capture.** TB-PLAN-04 step 4 (plan v4 §3 "Built-in capture"), 2026-11-08.
+
+* **Seven built-in forms in ja, zh-TW and en.** Screening log, consent, enrolment, visit (done or missed, date,
+  window, window note, weight), adverse event (term as written, onset, serious and why, severity chosen by a person,
+  outcome, end date, related yes/no/unknown, description; nothing is graded automatically), deviation and withdrawal
+  (date, reason). They are a REDCap data dictionary, `services/datacore/builtin/forms.csv`, with TrialBox's own
+  language columns (`field_label:ja`, `select_choices_or_calculations:zh-TW`), read by the same
+  `forms.read_dictionary` as a site's REDCap dictionary. Field names carry a form prefix (`ic_`, `vs_`, `ae_` ...) so
+  they never shadow a REDCap dictionary's fields; adding them when another form already uses one of the names is
+  refused (FORM-DUP). `POST /studies/{rs}/forms/builtin` (orchestrator), one button on the Forms page and
+  `POST /api/v1/studies/{rs}/forms/builtin` add all seven in one call.
+* **What the dictionary carries now.** `Field` gains `labels` and `option_labels` per language, `vmin`/`vmax`
+  (`text_validation_min/max`) and `branching` (`branching_logic`); `required` was already read. On the FHIR
+  Questionnaire: the core `translation` extension on `text`, `title` and the choices' `display`, the `minValue` /
+  `maxValue` extensions, `required`, the rule as written in `urn:trialbox:fhir:branching-logic`, and `enableWhen`
+  when the rule is one comparison or a plain and/or of comparisons. A REDCap dictionary without these columns reads
+  as before.
+* **Branching subset** (`datacore/branching.py`): `[field] = 'v'`, `<>` (and `!=`), quoted or numeric values, `and`,
+  `or`, parentheses. Anything else (checkbox codes `[f(1)]`, `>`, functions, events, smart variables) is outside the
+  subset: the field is always shown and its required check is skipped (TrialBox cannot know whether REDCap would hide
+  it); the dictionary still imports unchanged.
+* **Checks at entry** (`sync.save_form`, one whole form): branching on the stored values with the save laid over
+  them; a hidden field is never required and a value sent for it is not written (a stored value stays); required
+  only when shown; type (a real calendar date, whole number, number, choice) and range per field; ownership as in
+  step 3. A refusal is whole: `DATA-FORM` with one `{field, code, ...}` per problem. The console shows each under its
+  field in the reader's language; the API returns them with a message in the account's language.
+* **Entry and History pages** (`console/entry_pages.py`, `data_entry.html`, `data_history.html`). The record is a
+  screening number this study issued, its pseudonym, or a record the data core already holds; anything else (a chart
+  number, a name) is refused and never stored. The event is a free lower-case name (`v1`, `week_4`), empty for a
+  once-per-record form. Branching runs in the browser without a script (the console's CSP forbids scripts): a
+  per-form stylesheet `/studies/{rs}/entry/{form}.css` hides a field by `#entry:not(:has(<checked radio>)) .q-<field>`
+  for rules on choice fields; a browser without `:has` shows the field, and the server decides either way. Save leads
+  to the record's history (who, when, event, field, old, new, source; newest first). Roles: the study's coordinator
+  enters and adds forms; the investigator and the admin read; viewer and CRA accounts get 403, CRO and other-study
+  accounts 404, as on the step-3 pages. `/api/v1`: `GET records`, `GET records/{record}`,
+  `PUT records/{record}/forms/{form}`, `GET export/{odm|csv|xlsx}`, one shared action function per action.
+* **Exports** (`datacore/export.py`), from the console (Entry and Forms pages), the orchestrator
+  (`GET /studies/{rs}/export/{fmt}`) and `/api/v1`. **CDISC ODM 1.3.2** (Snapshot): `Study`/`MetaDataVersion` from the
+  forms with REDCap's OIDs (`Project.<study>`, `Metadata.<study>_<stamp>`, `Event.<event>`, `Form.<form>`, item
+  groups `<form>.<first field>`, the field name as `ItemOID`), code lists, range checks and `TranslatedText` in every
+  language; `ClinicalData` from the values. **REDCap CSV**: flat, one row per record and event, `record_id`,
+  `redcap_event_name` when any value has an event, checkboxes as `field___code`. **XLSX**: the same rows plus the
+  dictionary with its languages. A value with no event sits on `event_1_arm_1`, REDCap's event of a classic project.
+  Records are screening numbers or pseudonyms only.
+* **The REDCap simulator takes ODM.** Record import with `format=odm` and `type=flat` turns `ClinicalData` into flat
+  rows (SubjectKey = record id, `Event.<name>` = event, `field___code` = checkbox) and runs the same checks as a JSON
+  import; a document with a DTD or an entity is refused. `POST /sim/projects` makes an empty project from a
+  dictionary (longitudinal when events are given).
+* **Evidence.** `e2e_simple` stage 10 "built-in data capture" (15 checks): the forms added in one call, the
+  coordinator's consent and visit through the console, a required and a range refusal in the page's language, the
+  edit in the history, the ODM export re-imported into a fresh `rc_sim` project with the same dictionary with every
+  value equal, the REDCap CSV columns equal to the dictionary. `tests/unit/test_datacore_capture.py` and
+  `tests/console/test_entry_pages.py`. The walk opens Entry (consent, visit v1) and History for the coordinator in
+  three languages on desktop and phone; on a 390 px phone in ja it saves a consent and a visit, checks that the visit
+  date appears only once the visit is marked done, edits the consent and finds old and new in the history.
+* **Not done.** Repeating instruments (several AEs per record use one event each, e.g. `ae1`, `ae2`; ODM repeat keys
+  are always 1); the schedule of events, visit windows and the subject state machine (step 5); calculated fields are
+  shown but not computed; the browser applies only rules on choice fields (rules on free text are server-only);
+  REDCap's "erase hidden values" prompt (a hidden field's stored value is kept); ODM import into TrialBox itself;
+  field notes, section headers and matrix groups are not shown; an ownership refusal names the source by its id
+  (`redcap`).
+
+**D-130 The screening engine finished: unreadable codes are unknown, CQL fails closed in the gate, reads need the
+token.** TB-PLAN-04 step 6 (plan v4 F3, F4; review findings F-05, F-10, F-14, F-27). F-05 (SQL the only runtime
+engine, CQL only in the compile-time gate) is the first commit of the step (432de3c); F-12 (reveal only for a listed
+patient, per-actor rate limit) was done in step 2.
+
+* **Codes in a system nobody can read are not a "no" (F-10).** A structured inclusion that is FALSE is a hard
+  exclusion outside the two-model rule. A diagnosis or medicine whose code no ValueSet can read used to make it FALSE
+  silently: a 標準病名 with no ICD-10 alternate and no lookup row (the SS-MIX2 reader leaves the code empty), WHO
+  ICD-10 or ICD-9-CM under their own URIs, a free-text diagnosis, a medicine without ATC (a YJ or local code).
+  `matching/coverage.py` reads, from the same lake snapshot, the rows of `condition` whose system is neither
+  ICD-10-CM nor a system of the ruleset's ValueSets (or that have no code) and the rows of `medication` without ATC.
+  When the compiled SQL says FALSE for an inclusion with a positive condition / medication atom (not under `not`, not
+  `none`) and the patient has such a row in that atom's window, the answer becomes `unknown` with the new reason code
+  `unknown_code_system` (words in en / ja / zh-TW) and the rows as evidence, so a person checks. Both runtime paths
+  do it: the SCREEN cascade at S1 (`_s1_outcome`; the S1 stage log counts the patients) and the SQL engine of NAV,
+  MICROBATCH and CASE (`PatientEvaluation.reasons`, a new optional contract field, read by `structured_verdict`).
+  The approved SQL is unchanged byte for byte, so no approved ruleset needs re-approval; exclusions are untouched.
+* **Counts.** S3 (the feasibility page's list bridge) prints "Diagnoses or medicines in an unknown code system: n
+  patients on the list"; the SCREEN report JSON has `unknown_code_system` and its summary PDF a scope line; FEAS adds
+  the notes `feas.note.unknown_system.condition` / `.medication` with the rounded number of patients in the
+  population (all three languages). `tools/mapping_check.py` reports the rows per table without ICD-10 / ATC and
+  now accepts `--source ssmix2`.
+* **CQL fails closed like SQL (F3).** The CQL generator adds, for a grouper ValueSet with code families, an `O_`
+  query (records in the window coded inside a family and not in the ValueSet) and the same three-valued rule as the
+  SQL's `_off` CTE (D-113): listed codes settle the atom, else an off-list family code makes it null. CQL stays
+  compile-time only. The ATOMS library (no families) renders as before.
+* **Fixtures with off-list codes** (`tests/fixtures/equivalence/offlist/`): 14 patients, a malignancy and a
+  urate-lowering-therapy grouper, codes inside a family but off the list (C50.9Z, M04AA99), codes in unknown systems
+  (WHO ICD-10, a MEDIS 病名 code, ICD-9-CM, free text, a YJ code without ATC, one outside the window), and the oracle
+  `expected.json` both engines are held to.
+* **Reads behind the token (F4).** `make_app(..., protect_reads=True)` puts GET and HEAD under the same rule as the
+  writes (`service_auth.check`): 401 without the token, 403 with a wrong one, open on a DEV/TEST box without a token,
+  503 on any other box without one; `/healthz` stays open. On for the orchestrator (jobs, outputs, registry, studies,
+  rulesets, models, the data core API), the lake, the mail gateway (threads) and the trace store. `ServiceClient`,
+  `LakeHttp` and the console backend already send the token on every call; the compose e2e test sends it on its reads.
+  The orchestrator's own token middleware is gone (one rule, in `make_app`). The console's pages stay cookie-based.
+* **Small review items.** F-14: both schedulers (orchestrator, console timers) run a missed cron run once within six
+  hours and coalesce missed runs (`tb_common.config.SCHEDULER_JOB_DEFAULTS`). F-27: the note judge's counters are
+  bumped under a lock (they come from the evaluator's worker threads).
+* **Evidence.** `tests/unit/test_code_coverage.py` (SQL equals the oracle and is null on off-list codes; the CQL has
+  the family check and translates with cql-to-elm 5.4.0 on the host; the SQL engine and the cascade keep the
+  unreadable patients unknown with the reason, and still fail a readable code outside the family);
+  `tests/integration/test_ssmix2_path.py::test_unmapped_diagnoses_are_not_silently_excluded`: the 400-patient SS-MIX2
+  hospital read without the 標準病名 and YJ lookups (every third message has no alternate code): of 118 gout patients,
+  15 had only code-less gout records and were "not gout" (excluded); all 15 are now unknown with the reason, readable
+  non-gout patients still fail, and FEAS counts 287 patients with unreadable diagnoses and 276 with unreadable
+  medicines. `tests/unit/test_service_auth.py` and `test_service_token_everywhere.py`: `GET /jobs` without the token
+  is 401 (and every other orchestrator read), 403 with a wrong one, 503 without a token in PRODUCTION, open in DEV
+  and TEST; the lake, mail gateway and trace store too; the clients send the token on reads.
+  `tests/integration/test_compile_compose.py::test_offlist_gate_on_hapi` runs the gate on HAPI over the fixture
+  (100 % and the oracle); it needs the compose stack and is skipped without it.
+* **Not done.** N-12 (TREC on the deployed files) is the GPU run of this step and is recorded separately. The CQL side
+  of the off-list fixture has been translated, not executed, here (no HAPI in this environment); the compose test
+  executes it. A TRUE inclusion with a `none` atom (e.g. "no malignancy") is not widened when an unreadable row exists
+  (the patient is listed, not excluded, and a person sees the record); exclusions are not widened either. YJ / local
+  drug codes that are carried with an ATC count as readable; a JP Core profile for the unreadable 標準病名 code (so the
+  local code reaches the lake instead of an empty code) belongs to step 7. Misfire: no catch-up run on start for a
+  job missed by more than six hours, and no "last run" per timer on the admin page. Per-service tokens stay with
+  D-128.
+* **N-12 on the deployed files (2026-11-08).** TREC CT 2021/22, 1,700 pairs and 20,096 criteria, judge and verifier
+  as deployed on the RTX PRO 6000 profile: eligible pairs wrongly dropped, audit-adjusted, **3.1 %** (95 % 1.8–5.0 %),
+  gate ≤ 5 %: **pass** (API 4-bit was 3.6 %); excluded pairs caught 50.8 %. `eval/trec_ct/results/n12_deployed_2026-11-08.md`.
+
+**D-131 Site setup and data harmonization: three questions, one rule, one readiness page.** Owner's answers,
+2026-11-08; a new plan step 5b, after the lifecycle and before handover.
+
+* **Three questions, in order.** (1) *Which trial?* A protocol file, paste or registry id; the LLM drafts the
+  criteria and the PI approves each one (as today). (2) *Which patients could fit?* Any mix of a hospital feed
+  (SS-MIX2, FHIR, CSV export; nightly), candidate spreadsheets, and charts one by one (text, Word or EMR print to PDF,
+  scanned paper through OCR on the box, or text pasted from the EMR screen). (3) *Where do trial records live?*
+  TrialBox's forms by default; REDCap or a sheet attached when the site wants it.
+* **One rule.** Every fact has one home and the LLM never writes a fact silently. Coded data from the hospital or
+  REDCap is used as is. Facts the LLM extracts from a chart are *proposed*: shown next to the quote they came from,
+  confirmed or corrected by a CRC in one tap. A proposed fact can only send a patient to "needs information"; once a
+  CRC confirms it, it counts like coded data and may exclude, with the confirmation in the audit. Note text stays
+  notes, read by the two models at screening. A patient from two inputs is joined by pseudonym, never by name;
+  disagreements are listed.
+* **One readiness page** shows the three questions as green, amber or red with "what's missing" (unmapped local codes
+  with a once-per-site mapping, sheet rows without a key, criteria not yet approved, the share of diagnoses in an
+  unknown code system), and feasibility shows how much of each count rests on coded, confirmed or proposed facts.
+* **Plan.** TB-PLAN-04 step 5b, about 1–2 weeks: the readiness page, chart upload with extraction (OCR included),
+  the proposed-fact review list, the local code mapping, and the join by pseudonym; an `e2e_simple` stage that sets up
+  a site from a protocol, a CSV feed, a sheet and two uploaded charts.
+
+**D-132 Novice users and imperfect data: start small, fix what is safe, guide every step.** Owner's answers,
+2026-11-08; widens step 5b.
+
+* **No perfect data assumed.** A first site may have only EMR screens (copy, paste or print to PDF), a one-time IT
+  dump in local formats, old Excel lists laid out differently by each PI, and past REDCap projects. CGRD-quality
+  data is the exception. Every input path works on its own, and each one can be added later.
+* **Start with the least.** A site starts with a protocol and charts pasted or uploaded one by one. Feeds, sheets
+  and REDCap come later. The box says plainly what it cannot do yet (for example, feasibility counts need a bulk
+  source) instead of failing.
+* **Messy data: fix what is safe, ask the rest.** Unambiguous fixes are made and listed: Japanese era dates
+  (令和5年 → 2023), 民國 years (民國112年 → 2023), full-width digits and letters, known unit conversions, unmerged Excel
+  cells, header rows found below titles. Anything ambiguous (a date that could be D/M or M/D, an unknown unit, a column
+  that might be the chart number) goes to a short "please check" list with a suggested answer. Nothing ambiguous is
+  guessed silently.
+* **Help.** (1) A step-by-step setup wizard: one question per screen, examples, what each answer means, and progress
+  to "ready". (2) An ask-the-box assistant on every page ("what do I do next?", "why is this patient on the list?") in
+  ja, zh-TW and en, run on the local model. It explains and links, and never changes data. (3) Excel templates and
+  mapping sheets in the site's language, plus a synthetic practice site. (4) Remote help from Aimedics: screen
+  guidance without patient data. It is built as an option that the hospital switches on (approval needed when real
+  data is present).
+* **Step 5b grows to L** (about 2–3 weeks). Its `e2e_simple` stage sets up a site the hard way: a protocol, a messy
+  Excel sheet (era dates, full-width digits, merged cells, a title row), an IT dump with local codes, and two pasted
+  charts. It ends with the readiness page green and a "please check" list that a scripted CRC works through.
+
+
+**D-133 Step 4b: easy for novices.** Owner approved, 2026-11-08, after the novice UI/UX review
+(`docs/reviews/2026-11-08-ux-review-novice.md`, 2.5 of 5) and the field research
+(`docs/reviews/2026-11-08-field-research-tw-jp-sites.md`). Before the lifecycle (step 5), so every later page follows
+the same patterns.
+
+* **Safety first.** The one-time password leaves the URL and is shown in a readable form with hand-over steps. "Not
+  suitable" needs a reason and has an undo. A contact outcome is recorded only after the PI has approved the patient.
+  The PI's reveal follows the role text. (The chart number in job lines and subjects was fixed in PR #35.)
+* **Phone.** A patient sheet with Back and Next and a sticky mark bar; compact headers; IDs that never wrap one
+  character per line; touch targets of at least 44 px and text of at least 15 px.
+* **Setup.** One wizard with an unsaved-changes guard; REDCap linking guided step by step, with the variable names
+  read from the dictionary instead of typed.
+* **Words.** One plain vocabulary per concept, from the review's glossary, checked against the field research
+  (選択・除外基準 / 納入／排除條件, 処理 / 作業, 治験依頼者 / 試驗委託者); every label and name translated before the first run.
+* **Sign-in and errors.** Lockout shown with a countdown and the admin to contact, plus a language choice; error pages
+  with a heading and three clear buttons; unknown studies answer 404.
+* **Guarded by tests.** axe-core in the walk (no serious or critical issue), a 44 px target check and an English-leak
+  check on ja and zh-TW pages; tap counts for the core tasks recorded before and after.
+
+*What was built (step 4b, 2026-11-08).*
+
+* **One-time password (F-02).** `random_password()` now gives five groups of four from an alphabet without look-alike
+  characters (`k7dm-q3xa-…`, about 99 bits; `0 O 1 l i` never appear). After Create or Reset the console keeps the
+  password in memory, keyed by the administrator's session, and redirects to `/ops/users#made`; the page pops it once.
+  It is never in a URL, a log line, the audit trail or a database, and a restart forgets it (reset again). The page
+  shows it grouped, in a read-only field with Copy, with three hand-over steps (in person or by phone, change it at
+  once, the page will not show it again).
+* **"Not suitable now" (F-03).** The reason is a required list with an empty first choice; `apply_mark` (the one
+  action behind the page and `/api/v1`) refuses a missing or unknown reason with `mark.reason_needed` instead of
+  recording "other". After any mark the toast offers **Undo** (`mark=undo`): the state before the user's last mark is
+  put back (the earlier mark with its reason and note, or no mark), as a new event with `undo` in the audit detail.
+  After a mark the panel shows that patient's real state, even when the patient has left the list.
+* **Contact outcomes (F-36).** `apply_outcome` refuses (409 `outcome.wait_pi`, audited `console.refused`) unless the
+  patient's current mark is Approach, so the page and `/api/v1` refuse alike; the page shows "Waiting for the
+  investigator's decision" instead of the outcome buttons.
+* **The investigator's reveal (F-38). Choice: investigators may not reveal.** It is the safer and simpler rule: it is
+  what the role text already says ("no chart numbers"), it matches the job page (requesters only since D-101), and the
+  coordinator, who keeps the screening log and makes the call, is the one who needs the number. `User.can_reveal`
+  (administrator, coordinator) guards the patient page's reveal; the form moved to the bottom of the page, needs a
+  reason, and says "recorded with your name" on the button. `e2e_simple` now checks the investigator's 403 and has
+  the coordinator reveal.
+* **Unknown study (F-37).** Every study route (`home`, `study_setup`, `screening_log`, `data_pages`, `entry_pages`)
+  checks `studies.known_study`: a ruleset of any status must exist, else the 404 page.
+* **Phone.** The week list on a phone shows the list only; a tapped row opens the patient as a full-screen sheet with
+  Back to the list, Next patient and a sticky mark bar (48 px buttons that reach their forms with the `form`
+  attribute). The header is one line of banner, the brand, Help, a Menu button (a checkbox and label, no script) and
+  the search field; the menu, language and Sign out sit behind Menu. IDs, dates and codes in tables never wrap (the
+  table scrolls in its card; job ids show their last eight characters with the full id as a title). The audit trail is
+  paged, 50 events a page (newest 1,000).
+* **Targets and text.** Buttons, inputs, selects, menu items, table links and summaries are at least 44 px; checkbox
+  and radio labels are 44 px rows; text is at least 15 px (16 px body); scroll regions are focusable.
+* **Setup (F-04, F-11).** `/studies/{rs}/setup` is one form with one Save (`POST /studies/{rs}/setup`), step chips
+  and a `data-guard` that warns before leaving with unsaved edits. "Read the fields from REDCap" (`action=read`)
+  reads the project's data dictionary through a new read-only orchestrator route,
+  `GET /redcap/connections/{ref}/dictionary`, and shows the page again with everything typed kept and each field as
+  a list (label and variable name, grouped by form); nothing is saved until Save. Save stores the study and the
+  numbering together and, when the link changed, checks it against the dictionary. The older per-section routes stay
+  for scripts. The CSV import on Forms and the field-map text on Sources remain for the uncommon cases.
+* **One script, by hash.** The guard, Copy and the error page's Back need a script. The console now inlines one
+  first-party script (`static/console.js`) and the CSP allows exactly that script by its SHA-256 (`script-src
+  'sha256-…'`, no `'self'`, no `'unsafe-inline'`); every page still works without it. A console test checks that the
+  page's only script is the one the policy names.
+* **Words (F-09, F-10, F-20–F-22).** The glossary was applied to the ja and zh-TW catalogues (219 replacements): 処理 /
+  作業 (not ジョブ / 工作), 選択・除外基準 / 納入／排除條件, 読み込み / 讀取 (not コンパイル / 編譯), 治験依頼者 / 試驗委託者,
+  ログイン, 役割, 金鑰, and TrialBox for the product (never 箱, 装置, 本機, 機器). A test fails if one of the old words comes
+  back. The week list has one name everywhere (This week's patients / 今週の患者 / 本週病人); "Patients" in the menu is
+  the Screening log. Mark labels stay as decided in D-108 (a "not suitable" label never reads as "not eligible").
+  Words from the study or the hospital's data (criterion labels, doctors' names, departments) are shown as written
+  and, on a ja or zh-TW page, marked "原文" with `lang="en"`. Help and the command page build their examples from
+  the user's own first study, and each example is a link. A typed patient code finds patients on this week's list.
+* **Sign-in and errors (F-05, F-12).** The sign-in page has a language choice (kept for the session it starts), says
+  for how many more minutes and until when an account is locked, and names the administrator's mailbox. The 403, 404
+  and other error pages have a heading, one sentence, and three buttons: home, back, help.
+* **Tests.** `tests/console/test_step4b.py` (one test per safety change, the one-form set-up with the dictionary
+  pickers, the sign-in page, the error pages, audit paging and the glossary). `tools/public_walk.js` injects axe-core
+  (from `node_modules`, else `tools/vendor/axe.min.js`, 4.10.2, SHA-256 `b511cd9d…75e3`) with `addScriptTag` and fails
+  on a serious or critical issue; fails on any target under 44 px (a link inside a sentence is WCAG 2.5.5's
+  exception); keeps the English-leak check; and walks the six core tasks with taps counted into `walk.json` (`taps`),
+  failing when a task needs more than the review's "could" column.
+
+*Before and after* (before: the review's 696 page loads; after: the walk's 480 pages, 5 roles x 3 languages x 2 views).
+
+| | Before | After |
+|---|---|---|
+| axe serious or critical | 6 pages (scrollable-region-focusable) | 0 (moderate 12, minor 72) |
+| Interactive targets under 44 px | 28,272 of 28,750 (98 %) | 0 of 12,468 |
+| T1 PI marks a patient, phone ja | 2 + an anchor jump and a long scroll back | 2, the sheet and mark bar in view (target 2) |
+| T2 CRC records an outcome, desktop zh-TW | 4 + a date | 2 (target 2) |
+| T3 CRC finds why a patient is listed, phone ja | 2 | 2 (target 2) |
+| T4 CRC set-up and REDCap, desktop en | 14 clicks, ~20 typed fields | 5, fields picked from the dictionary (target ~10) |
+| T5 admin adds a user and checks health, desktop ja | 7 | 5 (target 5) |
+| T6 first day, phone zh-TW | 3 (+2 for the language) | 3, language from the browser or one tap (target 3) |
+| Review score (novice) | 2.5 / 5 | not re-reviewed; our own reading: safety 4, accessibility 4, guidance 3 |
+
+*Left for later.* A re-review by the novice panel (and of the Entry and History pages, F-42); first-run wizard and
+forced password change (pattern 2, F-24); feasibility summary card first (F-14); job pages as result cards for PI and
+CRC (F-23); plain service names on the admin pages (F-25); confirmations on Disable, Detach, Keep/Take and Start a run
+(pattern 6); Undo for outcomes and conflict decisions; the command field as a real assistant (F-32, F-39); per-page
+help with screenshots; translated (not only marked) criterion labels before the first run, which needs the label
+editor made mandatory at approval; the mail gateway's own texts still say サインイン.
+
+**D-134 Step 5, trial lifecycle v1.** TB-PLAN-04 step 5 (plan v4 §3 "Lifecycle for the pilot", owner decision 4:
+the §3 list only; randomisation, drug accountability, SDV, eConsent and a patient portal come later), 2026-11-08.
+
+* **One state per participant** (`services/datacore/lifecycle.py`, tables `subject`, `subject_step` and `schedule`
+  in schema `datacore`, version 2 of its migrations, so they are in every backup). States: candidate → approached →
+  consented → enrolled → on study → completed, or withdrawn, or screen failure. `NEXT` is the only list of legal
+  steps; the three end states take none. An illegal step is refused (409 `LIFE-STEP` with `why`: `order`, `final`,
+  `reason`, `future` ...) and the console and `/api/v1` say why in the reader's language with the states named and
+  the possible next steps listed ("Enrolled cannot follow Candidate. Possible next steps: Approached, Screen
+  failure."). Screen failure needs a reason (not eligible, declined, not reached, other), withdrawal one of the
+  withdrawal form's six. **Undo** reverses the last step as a new step. Every change is a `subject_step` row (old, new,
+  the day it happened, reason, note, who, when, source) and an audit record (`life.step`, `life.refused`,
+  `console.life_step`).
+* **Where a state comes from, in this order.** (1) The data core's answers, after every saved form
+  (`datacore_api` → `lifecycle_api.derive_record`): screening log (`sl_approached`, `sl_eligible` 0 = screen
+  failure), consent (`ic_date`), enrolment (`en_date` with `en_eligible`), the first visit done (on study), every
+  scheduled visit done or missed with the last one done (completed), withdrawal (`wd_date`, `wd_reason`). A step the
+  answers imply is taken too and says so ("follows from form: tb_consent"). (2) The screening log's status (the
+  candidate registry, which the REDCap read-back feeds): this is how a **sponsor study** is tracked without TrialBox
+  owning the CRF; the sponsor's REDCap or EDC says consented or enrolled and the participant follows. (3) A person's
+  step on the participant page or `/api/v1`. Derivation never goes backwards and never past an end state; what does
+  not fit is listed as `held`, not forced.
+* **The screening log follows the lifecycle.** After every step the state is mirrored into the candidate registry
+  (approached = contacted; enrolled, on study and completed = enrolled), through the registry's own recorded
+  transitions, so the screening log, the enrolment report and the REDCap write-back's `tb_status` say the same.
+  *Decision:* the mirror runs only after a step, never on a plain refresh, so a REDCap value that disagrees with an
+  ended participant is not fought over on every Run now; it is shown as held.
+* **Participants are the study's screening numbers.** Every lifecycle page asks the orchestrator to bring the
+  participants up to date with the site store's screening numbers (`POST /studies/{rs}/subjects/refresh`) when the
+  reader is the coordinator; the investigator's, the administrator's and the home pages only read. The REDCap read-back
+  and the morning mail do the same. A record that only has forms (a pseudonym) becomes a participant when a lifecycle
+  form is saved for it.
+* **Schedule of events** per study: visit name, label per language, day from enrolment (or consent), days allowed
+  before and after. Typed on the Visit schedule page (one form, empty rows to add) or read from REDCap's arms and
+  events (`content=event`: `day_offset`, `offset_min`, `offset_max`; arm 1). The REDCap simulator answers `event` and
+  `arm` for a longitudinal project (project B now carries day offsets: screening day 0, month 12 day 365 ± 30) and
+  refuses them for a classic one, as REDCap does; TrialBox then says to type the visits in.
+* **Visit windows** are computed for a given day, the site's local date (`site.tz`; `now()` of the orchestrator is in
+  the site's zone, and the console turns its clock into the site's date): *coming* (the window has not opened),
+  *in the window*, *overdue*, *done*, *missed* (the visit form), *not needed* (the participant ended). A test passes
+  `today`, so the windows are deterministic: 00:30 in Tokyo is already the next day, the same instant in Taipei is not.
+  A visit done outside its window is marked so.
+* **The coordinator's visit list** (`/studies/{rs}/visits` and on the home page): today, this week (the next seven
+  days), overdue. Each row has **Done today**, which opens the built-in visit form filled in for today (done,
+  today's date, in or out of the window) so the coordinator checks it and taps Save, and **Open the visit form**.
+  Save returns to the list (or to the participant) with a confirmation. Rows are cards on a phone, buttons 44 px or
+  more; the participant page's next steps sit in a sticky bar like the patient sheet's mark bar (D-133).
+* **AEs and deviations** use the built-in `ae_*` and `dv_*` forms on numbered events (`ae1`, `ae2` ..., `dv1` ...);
+  "Add an adverse event" opens the next free one. Visit names may not look like these. An ongoing serious AE is a
+  red banner at the top of the investigator's home page (the week list) and the coordinator's home page, with a link
+  to the participant.
+* **Enrolment report** (`/studies/{rs}/enrolment`, `.xlsx`, `.csv`, `/api/v1/studies/{rs}/enrolment[/csv|xlsx]`):
+  participants per state now and ever reached, per month, screen-failure reasons, withdrawals with day and reason.
+  Screening numbers only. The XLSX is deterministic OOXML (as the registry export); the form data itself is exported
+  by the existing ODM / REDCap CSV / XLSX exports (D-129).
+* **Morning mail.** N2 (coordinator) gains "Study visits today" and "Overdue study visits", N1 (investigator) the
+  week's study visits of the investigator's studies and the number of serious AEs to review. Visits are named by the
+  patient's pseudonym (8 characters) and the visit's name, never by the screening number or chart number (the N1/N2
+  rule since D-108, checked by `e2e_simple` stage 4; the mail keeps pseudonyms only, screening numbers stay on the
+  pages). The mail key (one notice per person and day) is unchanged.
+* **REDCap write-back folded into the data core (one writer per field).** S21's three fields (`tb_screen_date`,
+  `tb_status`, `tb_status_date`) are now TrialBox-owned values of the study's data core, written by TrialBox and
+  pushed by the data core's sync through `rc_bridge.writeback.LinkSource` (the S21 link as a data-core source): a
+  value is pushed when it changed since the last push. *Behaviour changes:* (1) a REDCap-side edit of one of these
+  fields is now a **conflict** on the Conflicts page ("Values to check"), not silently left or later overwritten;
+  the Run now line says how many; (2) a study whose data-core REDCap source also maps one of these fields gets no S21
+  write (`RC-WRITE-OWNER`, the read stands). The result shape (updated, created, unchanged, waiting, duplicates,
+  records) and every rule of D-123 (never a REDCap-owned field, `existing` and `create` modes, DAG, duplicates never
+  written, unchanged rows skipped) are kept; the `rc_write` ledger is still written. The first run after an update
+  takes REDCap's current values as the starting point, so nothing is re-pushed or listed by mistake.
+* **Words.** New strings in `console/i18n_life.py` (en, ja, zh-TW, every key in all three, checked by a test), from
+  the glossary and the field research: 被験者 / 受試者, 来院 / 訪視, 許容範囲 / 訪視窗口, 来院スケジュール / 訪視時程, 有害事象 /
+  不良事件, 重篤 / 嚴重, 逸脱 / 偏差, 登録状況レポート / 收案報告, 声かけ済み / 已邀請 (the glossary's Approach), 已收案. The help
+  page has a "Words used on these pages" glossary (participant, screen failure, visit window, overdue, AE, serious,
+  deviation) in plain words. The old-word test still passes.
+
+*Evidence.*
+
+* `e2e_simple` stage 11 "trial lifecycle" (25 checks, 4.6 s; the whole run 76 s of its 15-minute budget): a new
+  screening number is a candidate → an illegal step is refused with the plain reason in Japanese and nothing changes →
+  approached by hand → consent and enrolment forms → enrolled → v1 is *coming*, *in the window*, *overdue* on three
+  given days → the coordinator's visit list and home page show it under Overdue → N2 lists it by pseudonym, never the
+  screening number → Done today, Save → done, on study → AEs on `ae1` (serious) and `ae2` → the serious AE on the
+  investigator's home page → withdrawal form → withdrawn, a further step refused, the other visits not needed, the
+  whole trail kept → Run now → **the screening log (XLSX), the enrolment report (CSV) and REDCap's read-back from the
+  simulator agree on every count** (enrolled 1, consented 1, withdrawn 1) and the participant reads withdrawn
+  (`tb_status` 7) in all three → the report downloads, carries no chart number → steps, refusals and the schedule
+  in the audit. Stage 10's "nothing written" check now looks at the consent fields (the record already holds
+  TrialBox's screening fields from stage 8).
+* `tests/unit/test_lifecycle.py` (state machine, refusals, undo, derivation with implied and held steps, a sponsor
+  study from the screening log, windows on given days, the Tokyo/Taipei date line, AEs on numbered events, the
+  report, the registry path, the API with the mirror, a schedule from project B's events, the S21 write through the
+  data core with a REDCap-side edit listed as a conflict and the one-writer refusal) and
+  `tests/console/test_lifecycle_pages.py` (the console path, the refusal in Japanese through `/api/v1`, roles, N2 by
+  pseudonym). `tests/unit/test_rc_writeback.py` passes unchanged; `tests/unit/test_rc_sim.py` now expects `arm` and
+  `event` to be answered (400 "classic project" for project A) instead of 501.
+* `public_e2e` 106/106 checks (stage 5b: a second participant enrolled through the forms with today's visit and a
+  serious AE). The walk (`node tools/public_walk.js` against `public_e2e --serve`): 586 checks, 0 failures; 576
+  pages, 5 roles x 3 languages x desktop and phone, with the five lifecycle pages for the coordinator and the
+  investigator, two for the administrator and 403 for viewer and CRA; axe 0 serious or critical (84 minor); 14,910
+  targets, 0 under 44 px.
+  Task **T7** "the coordinator marks today's visit done" (phone, ja): Done today on the home page, Save: **2 taps**
+  (target 2 to 3); T1 to T6 unchanged (2, 2, 2, 5, 5, 3).
+* `tools/backup_drill`: PASSED; the new tables are in the backup, and participants, steps and the visit schedule read
+  back the same after the restore (3 participants, 14 steps, 3 visits). Unit, console and testbench tests: 1258
+  passed.
+
+*Not done.* Randomisation, drug accountability, SDV, eConsent, a patient portal, sponsor EDC connectors (plan v4 §3);
+visit bookings (a visit has a window, not an appointment time; the hospital's appointment source is not joined to
+participants yet); unscheduled visits (any event name works on the Entry page but is not on the list); several arms
+(arm 1 only from REDCap); repeating instruments in REDCap (AEs stay one event each); the schedule is not versioned
+with protocol amendments (saving replaces it; the trail is in the audit); visits in the hospital calendar or LINE;
+the AE is never graded or reported to the IRB or the sponsor by TrialBox; the investigator's confirmation of an SAE
+is not recorded; a reminder when a window is about to close (only the overdue list and N2); the enrolment report's
+small-cell rule (k) is not applied because it never leaves the study team.
+
+**D-135 Step 5b, site setup and data harmonization.** TB-PLAN-04 step 5b (D-131, D-132; builds on D-123, D-126,
+D-129, D-130, D-133, D-134), 2026-11-09.
+
+*What was built.*
+
+* **The one rule, in the lake and the engines** (`lake.flatten`, `matching/proposed.py`).
+  * A fact the model read from a chart is *proposed*. It carries the tag `urn:trialbox:basis|proposed` and goes only
+    to the lake's new `site_fact` table, never to `condition`, `observation` or `medication`. The compiled SQL never
+    reads `site_fact`, so a proposed fact can never count as met and can never exclude. The approved SQL is
+    unchanged byte for byte; no ruleset needs re-approval.
+  * Beside the SQL, as with D-130, every decided answer is checked. If one of the patient's proposed facts could
+    change it, the answer becomes `unknown`, with the new reason code `proposed_fact` (words in en, ja and zh-TW)
+    and the fact as evidence.
+  * "Could change it" is decided per atom of the criterion:
+    * a condition or medicine that is present matters when the answer is FALSE;
+    * the same under `not` or `none` matters when the answer is TRUE;
+    * a value (a lab, eGFR, age, sex) matters either way.
+  * The fact must also match the atom: its domain, its code in the ValueSet or one of its families (or no code at
+    all), and its date inside the window.
+  * Both runtime paths apply the check: the SQL engine (NAV, MICROBATCH, CASE, and the patient check on the
+    readiness page) and the SCREEN cascade at S1. At S1 an exclusion left unknown keeps the patient, as D-18
+    does.
+  * A *confirmed* fact (the coordinator confirmed or corrected it; audited) is written to the coded tables like any
+    coded record, and is also listed in `site_fact`.
+* **Feasibility.** FEAS counts only coded and confirmed facts, by construction.
+  * `FeasRaw.basis` gives, for each step: the patients still counted, how many of them rest partly on confirmed
+    facts, and how many patients have proposed facts that are not counted.
+  * Two new notes, `feas.note.basis.confirmed` and `.proposed` (three languages), appear only when a site has such
+    facts. The hospital feed's reports are unchanged.
+  * A lake built before this step has no `site_fact` table and reads as "no proposed facts". Any other lake error
+    still stops the run (D-127).
+* **Site setup service** (`services/sitesetup`, schema `sitesetup` of the trial database).
+  * Tables: inputs; facts with their status (coded, proposed, confirmed, rejected; `before` keeps the model's version
+    after a correction); local codes and their mapping; the "please check" list with its answers; the fixes made;
+    settings; and what was last published.
+  * Files sit in the orchestrator's data folder (`sitesetup/<space>/inputs/`): the original file, its text, and a
+    redacted text for the lake. The folder is in every backup.
+  * Spaces: `main` is the hospital, and its facts go to the box's own lake beside the nightly feed. Any other name is
+    a separate site space with its own lake: the synthetic `practice` site, and the e2e stage's new site.
+  * Every decision is audited (`setup.*`, `console.site_*`), without chart numbers or names.
+  * APIs: the orchestrator's `/setup/...` (`orchestrator/setup_api.py`; reads behind the service token, as every read
+    is), the console's `/api/v1/site/...` (readiness, facts, charts, codes, checks) and `/api/v1/ask`.
+* **Messy data** (`sitesetup/messy.py`, a pure module).
+  * Safe fixes are made and listed by kind and column:
+    * era dates (令和, 平成, 昭和, 大正, 明治 and R, H, S, T, M; 元年);
+    * 民國 years and NHI's 7-digit ROC dates;
+    * Excel serial dates and other ISO date forms;
+    * slashed dates whose day is over 12;
+    * full-width digits and letters;
+    * known unit conversions: urate and creatinine in µmol/L, HbA1c in mmol/mol, glucose in mmol/L, weight in lb;
+    * merged cells, and title rows above the header.
+  * The ambiguous rest goes to "please check" with a suggested answer. Nothing is guessed:
+    * D/M against M/D: one question per column, suggested from the column's own unambiguous dates; the cells stay
+      empty until it is answered;
+    * an era date that does not exist (平成31年5月);
+    * two-digit years and unreadable dates;
+    * an unknown unit, suggesting the test's own unit when the value is plausible in it;
+    * a column that might hold chart numbers: held back, and its values are never shown;
+    * a sex value that cannot be read;
+    * rows without a chart number.
+  * Each answer re-reads the stored file, so the result always depends only on the file and the answers. Name,
+    phone and address columns are dropped and listed.
+* **Charts one by one** (`sitesetup/charts.py`, `ocr.py`).
+  * Accepted: pasted EMR text, .txt, Word, a PDF with a text layer, and scans (an image, or a PDF without text whose
+    page images are read).
+  * Scans go through `TesseractOcr` (jpn, chi_tra, eng) when it is installed. Without OCR a scan is refused with a
+    plain reason, and everything else still works. Tests use a fake OCR.
+  * The local model returns facts with quotes (prompt `chart_facts_v1`, schema `llm_chart_facts_output`; the stub in
+    tests and e2e). A fact is kept only when its quote is found in the chart (`tb_common.quotes`); it is then
+    normalised through the messy module.
+  * The chart number becomes the pseudonym on arrival and is never stored. Quotes and the lake's copy of the text
+    are redacted by the box's guard (chart number, names, phones, IDs). Quotes keep a date of birth so the
+    coordinator can check it.
+  * The chart text becomes a note in the lake: note text stays notes, read by the two models at screening.
+* **Local codes, mapped once per site** (`sitesetup/mapping.py`).
+  * A local code lives in `urn:trialbox:local:<kind>`, where the kind is one of: a diagnosis code, a diagnosis as
+    written, a lab code, a lab column, a drug code, a drug name.
+  * Suggestions come from the adapter's JP-Core lookups (byomei, JLAC10, YJ), the hospital lab table, the analyte
+    words, and the curated terminology by name (for example 痛風 → M10.9).
+  * A coordinator or administrator confirms each code once, on the page or through a filled XLSX mapping sheet. A
+    target must be a code of the domain's standard system.
+  * Until a code is mapped it stays in an unknown code system, so D-130 keeps the patient unknown.
+* **Join by pseudonym** (`sitesetup/publish.py`).
+  * One Patient per pseudonym across dump, sheet and chart.
+  * Counted demographic facts that disagree are listed and left out of the patient row. The patient stays unknown
+    ("needs information") until a person keeps one value; the other values are rejected, and the choice is audited.
+* **Readiness** (`sitesetup/readiness.py`, console `/site`). Three questions, each green, amber or red, with what is
+  missing and a link to fix it:
+  * Trial: no criteria, or not approved.
+  * Patients: proposed facts to check; unmapped codes, with record counts; rows without a key; other checks;
+    disagreements; the share of diagnoses not in ICD-10-CM; "feasibility needs a bulk source" when there are only
+    charts.
+  * Records: TrialBox's forms or REDCap.
+
+  The page also shows the feasibility table (coded, confirmed and proposed columns) and the criteria check: each
+  patient ready, needs information, or not eligible, with every criterion's reason.
+* **Help (D-132).**
+  1. The wizard `/site/start`: one question per screen, with examples, what each answer means, and progress steps.
+     The shortest path is a protocol plus pasted charts.
+  2. Ask TrialBox `/ask`, linked from every page's header.
+     * It answers "what do I do next?" from the readiness page, and "why is this patient on the list?" from the
+       week list's candidate row or the patient check, in ja, zh-TW and en.
+     * The local model (prompt `assist_v1`) only phrases a draft built from the pages. When the model is down, the
+       draft is the answer.
+     * It reads only with GETs. Its one POST (`/assist`) reads and writes nothing; a test proves both.
+     * CRO accounts may open it too (added to D-104's list) and get only the reader's answer.
+  3. An XLSX candidate template in the site's language with a sheet explaining each column, the mapping sheet, and a
+     synthetic practice site that loads and resets in one tap.
+  4. Remote help from Aimedics: only a switch, off by default, with a plain warning. When the box may hold real data
+     (not DEV or TEST, or not data class D0), turning it on needs "approved by". No networking.
+* **Words.** `console/i18n_site.py` has about 330 keys in en, ja and zh-TW, in plain words, with a glossary on the
+  help pages. The old-word test still passes, and a new test checks the new keys against the same banned words.
+
+*Decisions the owner should know.*
+
+* **The rule changes no existing answer.** Without site facts (every existing site), nothing differs. With them, a
+  proposed fact can turn a decided answer into "unknown" in either direction, and can never decide one:
+  * it can rescue a coded "no" into "needs information";
+  * it can stop a coded "yes" from counting as ready.
+* **Value facts are conservative.** A proposed value (a lab) touches value criteria in both directions. So a chart
+  that repeats a coded value also sends the patient to "needs information" until the value is confirmed.
+* **Spaces and reproducibility.** Every space other than `main` has its own in-process lake (hash embedder) under the
+  orchestrator's data folder.
+  * Publishing to `main` rebuilds the current snapshot under the same id. A job re-run after a same-day site change
+    is therefore not byte-identical (FR-REP-02). The hospital feed alone is unaffected.
+  * The e2e stage uses a separate space, and a check confirms the hospital lake is untouched.
+* **Local codes always need one confirmation.** Coded data from sheets and dumps is used as is, but each local code
+  needs one confirmation per site, even when the shipped lookup has it: the JP-Core lookups are marked "verify".
+
+*Evidence.*
+
+* **`e2e_simple` stage 12**, "site set-up and data harmonization": 23 checks in 20.6 s; the whole run took 99.9 s of
+  its 15-minute budget. Everything goes through the console, in ja:
+  1. A new study's protocol (SITE5B) is drafted and the investigator approves it.
+  2. Two charts are pasted. The page says "feasibility needs a bulk source", and both chart patients are "needs
+     information".
+  3. A Shift_JIS IT dump with hospital codes is loaded. The unknown code system is listed, and the patients behind
+     unmapped codes are unknown.
+  4. The codes are mapped with one tap each. A coded-eligible patient with a proposed malignancy is "needs
+     information", not excluded.
+  5. The messy Excel list is loaded. The era, 民國, width, unit, merged-cell and title-row fixes are listed; the
+     day/month, unit, ID-column and no-key questions are asked, and a scripted coordinator answers them.
+  6. One pseudonym is shared across dump, list and chart. The two birth dates are listed, then resolved.
+  7. FEAS shows the proposed facts as not counted.
+  8. The coordinator confirms each fact in one tap. The malignancy now excludes, the chart-only patient is ready, and
+     FEAS shows the confirmed basis.
+  9. The built-in forms are added, and the readiness page is green.
+  10. Ask TrialBox answers, and changes nothing.
+  11. No chart number or name appears on the pages or in the audit, and the hospital lake is untouched.
+* **`tests/unit/test_one_rule.py`** (the safety rule, on the SQL engine, cascade S1 and FEAS over one lake). Cases:
+  proposed-only; a proposed exclusion; a confirmed exclusion; a confirmed chart patient; a value in both directions;
+  outside the window; another code; no code; a rescued coded "no"; an old lake.
+* **Other unit tests.**
+  * `test_messy.py`: dates, units, layout, checks, answers.
+  * `test_site_setup.py`: the whole set-up at service level; Word, PDF and fake-OCR scans; quotes not in the chart are
+    dropped; joining by pseudonym, never by name; templates; the practice site.
+* **`tests/console/test_site_setup_pages.py`.**
+  * The pages, through to green.
+  * Every page in three languages for coordinator and investigator, with no raw keys.
+  * Roles: the investigator reads; viewer gets 403.
+  * Templates, the practice site and the remote-help approval.
+  * `/api/v1`, and the assistant's read-only rule.
+* **Suites.** Unit, console and testbench tests: 1,316 passed, 2 skipped.
+* **`tools/backup_drill`: PASSED.** After the restore the site set-up reads back the same: 4 inputs, 36 facts, 7
+  codes, 4 checks, and the 6 chart files.
+* **`public_e2e`: 112/112 checks.** Stage 5c: the practice site, a one-tap confirm, the hospital's space untouched,
+  and Ask.
+* **The walk** (`node tools/public_walk.js` against `public_e2e --serve`): 780 checks, 0 failures, over 768 pages.
+  That is 5 roles × 3 languages × desktop and phone, now with:
+  * the ten site pages for coordinator and investigator, three for the administrator, and 403 for viewer and CRA;
+  * Ask for every role.
+
+  axe: 0 serious or critical (84 minor). Interactive targets: 21,600, none under 44 px. Taps:
+  * T8, "CRC confirms a proposed fact on a phone" (ja): **2 taps** (target 2).
+  * T9, "CRC pastes a chart" (zh-TW, phone): **3 taps** (target 3).
+  * T1 to T7 unchanged: 2, 2, 2, 5, 5, 3, 2.
+
+*Not done.*
+
+* **OCR and the real model.**
+  * No real OCR run: tesseract is not installed here, so the interface and the refusal are tested with a fake.
+  * The real local model's extraction quality on real charts is untested; the stub reads the synthetic charts by
+    rules.
+* **Inputs.**
+  * Pasted text without a chart number cannot be joined, so it is refused.
+  * Codes from the hospital feed itself are not mapped here; only sheets and dumps fill the code list. The JP Core
+    profile for unreadable 標準病名 stays in step 7.
+  * A sheet's cells cannot be edited in TrialBox: the site fixes the file and reads it again.
+  * Only the five analytes and units listed above are known.
+* **Screening and the lake.**
+  * The patient check covers coded criteria only; the SCREEN run reads the note criteria.
+  * Publishing is not batched: every decision rebuilds the space's lake. That is fine for a site space, but at the
+    hospital's scale `main` needs a batched "apply".
+  * The LakeHttp `/site` route is tested at unit level only, with no compose run.
+* **Remote help.** Only the switch is built; screen sharing itself is not.
+
+
+**D-136 The morning mail shows the screening number.** Owner, 2026-11-08. N1 and N2 show the study's screening number
+beside the pseudonym once a patient has one (`a1b2c3d4 (GZQO-0041)`), in every row: this week's patients, next
+steps, marks and study visits. A coordinator can then find the patient's record in REDCap or on the screening log
+without opening the console. Chart numbers and names stay out of mail as before (D-108). Evidence:
+`tests/console/test_step2.py::test_mail_shows_the_screening_number_beside_the_pseudonym`; `e2e_simple` and
+`public_e2e` check that every pseudonym with a number in the sent mail carries it, and still that no chart number or
+name is in the mail.
+
+**D-137 Step 7, Japan completeness.** TB-PLAN-04 step 7 (plan v4 F5; D-122 "not done"; builds on D-130, D-135),
+2026-11-09.
+
+*What was built.*
+
+* **JP Core profiles on the adapter's output** (`mapping/jp_core/ssmix2_site.yaml`, `mapping/engine.py`).
+  * A mapping can now re-profile the shared resource set: `profiles` maps a base profile URL to its own (`""` drops
+    the claim) and `overlay` adds or replaces elements of one type and table. The TW mapping is unchanged.
+  * The Japan mapping claims JP Core 1.1.0: JP_Patient, JP_Practitioner, JP_Encounter, JP_Condition,
+    JP_Observation_LabResult / _Common / _VitalSigns / _BodyMeasurement, JP_MedicationRequest, JP_Procedure and
+    JP_DiagnosticReport_Common. DocumentReference claims none (JP Core 1.1.0 has no DocumentReference profile).
+  * It adds what JP Core asks for: the lab specimen (from the JLAC10 material code) and code text; the Rp number and
+    order-in-Rp identifiers of a MedicationRequest; the 標準病名 coding beside the ICD-10 (so a code nothing can read
+    reaches the lake as itself, the item D-130 left for this step); the class history of a visit; the HOT code.
+  * Code systems fixed: YJ is `urn:oid:1.2.392.100495.20.1.73` (D-122 had used HOT9's second OID); HOT9 is
+    `urn:oid:1.2.392.200119.4.403.1`; a hospital lab code and a claim's product code now sit in
+    `urn:trialbox:local:*` instead of being labelled JLAC10 or YJ (the check found both).
+* **JP Core `$validate` at ingest, offline** (`adapter/validate/jpcore.py`, `tools/jpcore_rules.py`).
+  * Choice: a pure-Python check, not the HL7 validator jar. JP Core's StructureDefinitions are differential-only; the
+    jar needs the R4 core package as well to snapshot them, and the box and the tests must run without either.
+  * `tools/jpcore_rules.py --fetch` downloads `jp-core.r4#1.1.0` at build time into `.cache/fhir/` (pinned URL,
+    sha256 `60567c583943150c26275f156d63c181e5608efcdf0616289a7fe5c032457da1`, the registry's sha1 checked too) and
+    writes `validate/jp_core_rules.json` (committed, 35 KB): per profile its parent and its differential
+    (cardinalities, fixed and pattern values, slices and discriminators, bindings), and the codes of the ValueSets the
+    package enumerates. The package itself is not in the repo; tests and the box need only the rules file. 1.1.0 is
+    the newest release on the FHIR package registry.
+  * Each resource: the claim (a profiled type must claim JP Core; a TW Core claim is an error); base R4
+    (`fhir.resources` R4B models); the profile chain (cardinality per parent instance, fixed and pattern values,
+    value and pattern slices, required bindings with enumerated codes); the code systems we hold (ICD-10-CM in the
+    full list, the LOINC check digit, the JLAC10 / YJ / HOT / MEDIS / ATC shapes; a code missing from a loaded
+    licensed release is a warning, never an error).
+  * The ingest checks 50 resources of each type (`AdapterConfig.profile_sample_per_type`), writes every outcome to
+    `jp_core_validation.json` beside the snapshot, puts the summary in the ingest report (`profile_validation`,
+    schema 1.2.0) and fails the report over `validation_error_max_pct`, with the first failure in plain words.
+    Nothing is dropped. `adapter validate` (CLI) and `POST /$validate` (adapter API; one resource gives its
+    OperationOutcome) do the same on demand. The reader's counts go to `reader.json`.
+* **Licensed MEDIS / JLAC10 / YJ loader** (`adapter/licensed.py`; schema `terminology` of the trial database, in every
+  backup).
+  * A site loads its own release: `python -m adapter.licensed load --kind medis|jlac10|yj --file … --version …`, or
+    `POST /terminology/load`. CSV or tab-separated, Shift_JIS or UTF-8 (detected and recorded); columns by the
+    vendors' header names after NFKC (MEDIS 病名基本テーブル, JLAC10's five part columns or one code column, the HOT
+    master's YJ, HOT13 and names); `--columns` for a release without a header row. Rows with a malformed or repeated
+    code are skipped and listed. Each release keeps its version, file name, sha256, encoding, rows and who loaded it;
+    the older release stays, inactive. Every load is audited (`terminology.load`).
+  * Used by the SS-MIX2 reader (a 標準病名 code with no ICD-10 alternate resolves through MEDIS, only to a code in the
+    ICD-10-CM list, else it stays unknown), by site set-up suggestions (method `licensed`: the file's ICD-10, or the
+    name it gives through the existing name rules), and by the JP Core check (membership warnings).
+  * Without the files, `licensed status`, `GET /terminology`, the orchestrator's `GET /setup/terminology` and a new
+    block on the hospital-codes page (en, ja, zh-TW) say "not loaded: its codes stay unknown", and D-130 keeps them
+    unknown.
+  * `tests/fixtures/licensed/` holds three made-up 10-row files in the vendors' layouts (MEDIS in Shift_JIS CSV,
+    JLAC10 in UTF-8 TSV, the HOT master in Shift_JIS CSV with full-width headers). No licensed data is in the repo.
+* **SS-MIX2 messages** (`sources/ssmix2/source.py`).
+  * ADT-52 is read by its trigger event: `A03` ends the visit (PV1-45, `finished`); `A06` / `A07`, or any event with
+    PV1-2, changes the patient class (患者区分変更) and keeps the old class and the time (`Encounter.classHistory`). A
+    change for a visit the storage lacks is counted, never made into a visit. An admission without a discharge is
+    `in-progress`. A delta night takes a visit changed or discharged after `since`.
+  * OMP-11 / OMP-12 (実施, RAS^O17, ORC/RXA) become MedicationRequest, as the brief asked: folded into the order with
+    the same ORC-2 (only empty fields are filled), else a medication of their own. YJ, HOT and ATC are read from the
+    primary and alternate codes of RXE-2 / RXA-5, and all three stay coded. OMP-02 / OMP-12 are marked injections.
+  * Extended storage (`<root>/extended_storage/<id>/<day>/<kind>/<file>`): text (UTF-8, Shift_JIS, ISO-2022-JP,
+    EUC-JP), HTML / XML, Word and PDF with a text layer become note rows: a DocumentReference and note text for the
+    two models. Standardized file names are versioned and deleted like the storage; a file without readable text (a
+    scan, an image) is kept as a document without text and counted. The document id is a keyed hash: neither the
+    chart number nor the path leaves the adapter.
+  * `tools/ssmix2_export.py` writes all of these into the synthetic hospital, each so that it reads back as the CSV's
+    rows: every 40th visit is an admission changed to outpatient (ADT^A07); injectables are OMP-02 orders; every
+    fifth oral and fourth injection order is only a 実施, every seventh / third has both; every other drug is sent
+    with a synthetic HOT9 primary code; a discharge summary (Shift_JIS) and an imaging report (PDF) go into extended
+    storage.
+
+*Decisions the owner should know.*
+
+* **Validator: offline structural, not the HL7 jar.** It checks what JP Core 1.1.0's differentials state, plus the
+  code systems we hold. It does not run FHIRPath invariants, `type` / `profile` / `url` slice discriminators
+  (extension and choice-type slices), or bindings to ValueSets the package does not enumerate. A site that wants the
+  HL7 jar's verdict can still run it on an NDJSON snapshot with `jp-core.r4#1.1.0` in a package cache.
+* **ADT-52 and OMP-11/12 read differently from D-122.** D-122 (and the SS-MIX2 storage specification as we read it)
+  calls ADT-52 the discharge (退院実施) and OMP-11/12 the 実施 records; the brief calls ADT-52 the patient class
+  change and OMP-11/12 orders. The reader takes ADT-52 by its trigger event, so both readings work; OMP-11/12 go into
+  MedicationRequest as asked (folded into their order), not MedicationAdministration. Check both on a site's real
+  storage.
+* **Injections claim JP_MedicationRequest**, not JP_MedicationRequest_Injection: that profile requires
+  `medicationReference` (a contained Medication), and the lake and the SQL engine read `medicationCodeableConcept`.
+* **A licensed MEDIS file gives WHO ICD-10.** A code is used only where it is also an ICD-10-CM code; any other code
+  stays unknown (D-130). Suggestions from the files still need one confirmation by a person (D-135).
+* **The MEDIS 病名交換用コード OID** (`urn:oid:1.2.392.200119.4.101.6`; JP Core 1.1.0 has no NamingSystem for it) and
+  the vendors' column names are our reading; verify them against the site's releases.
+* **GOUT-COH is pinned.** `e2e_simple` now checks the main run's GOUT-COH numbers against those recorded on master
+  f5c78fb before this step (`GOUT_COH_BEFORE_STEP7`).
+
+*Evidence.*
+
+* **`e2e_simple` stage 13**, "Japan: SS-MIX2, JP Core and the licensed code lists": 16 checks in 11.0 s; the whole
+  run PASSED in 107.8 s.
+  * A 400-patient synthetic SS-MIX2 hospital: 68 ADT-52 class changes, all read into their visits; OMP-02 165,
+    OMP-11 1,077 (392 with their order, 685 alone), OMP-12 109 (55 with, 54 alone); 30 extended-storage documents,
+    all in the lake with their text.
+  * Its patients, visits, medicines, diagnoses and results equal its CSV export's.
+  * JP Core `$validate` at ingest: **612 resources sampled (50 per type, 15 types), 0 failed**, 48 warnings (codes not
+    in the 10-row licensed samples). `$validate` over the written snapshot and `adapter validate` agree. The TW Core
+    output of the same hospital fails, saying "claims a TW Core profile".
+  * The licensed lists: "not loaded" for all three first; then each 10-row sample loads (Shift_JIS, UTF-8,
+    Shift_JIS) with its version and source, and is audited. With the site lookups removed, the MEDIS sample resolves
+    161 diagnoses; the codes it does not list stay unknown.
+  * GOUT-COH FEAS funnel of the SS-MIX2 storage = its CSV export's.
+  * **GOUT-COH of the main run, before and after: identical.** FEAS start 5,000; INC-02 1,210, INC-03 797, INC-04 237,
+    INC-05 54, INC-06 26, INC-07 6. SCREEN S0 3,341, S1 9, S3 0, S4 9; listed 9 (5 high, 4 review; 3,332 excluded).
+    Cohort list: 5 members.
+* **`tests/unit/test_japan_completeness.py`** (26 tests): the loader on the three samples, its refusals and skipped
+  rows, "not loaded"; D-130 with and without the MEDIS list (a WHO-only code stays unknown); suggestions; ADT-52
+  discharge, class change, an unknown visit and the delta; OMP-11/12 folded and alone, with HOT and YJ;
+  extended-storage versions, deletes, encodings, PDF and an image; a 120-patient hospital passing JP Core at ingest;
+  the check failing on 13 kinds of fault; the `$validate` and terminology APIs. `tests/console/test_site_setup_pages`:
+  the hospital-codes page shows each list loaded or not, in ja, zh-TW and en.
+* `tests/integration/test_ssmix2_path.py` (CSV funnel = SS-MIX2 funnel; D-130's unmapped diagnoses) passes with the new
+  messages.
+* Suites: unit, console and testbench 1,344 passed, 2 skipped. `make lint` clean. `public_e2e --lang ja`: 112/112.
+* `tools/backup_drill`: PASSED; a new check reads the licensed lists back after the restore (3 releases, 30 codes).
+* The walk (`node tools/public_walk.js` against `public_e2e --serve`): 780 checks, 0 failures over 768 pages; axe 0
+  serious or critical (84 minor); 21,618 targets, none under 44 px; taps T1 to T9 unchanged.
+
+*Not done.*
+
+* No real MEDIS, JLAC10 or YJ release was loaded (licensed); the column names and headerless layouts need a check
+  against them. JLAC10 releases carry no LOINC: `jlac10_to_loinc.csv` stays the site's own table.
+* No HL7 validator run against JP Core here (no R4 core package in the cache). Newer JP Core releases (1.1.2, 1.2.x)
+  are not on the package registry.
+* AllergyIntolerance (SS-MIX2 allergy messages) is not read, so no JP_AllergyIntolerance is produced; the rules cover
+  it. MedicationAdministration and contained Medication resources are not produced.
+* ADT-52's meaning at a real site, ADT-21/31/41/42/51 and vendors' RXA variants are untested on real storage. Extended
+  storage is read by folder kind only (no `_contents.xml` index); scans without a text layer need OCR.
+* The list status is on the hospital-codes page and the APIs, not on the readiness page or the admin home.
+
+**D-138 Step 8, handover.** TB-PLAN-04 step 8 (plan v4 §4 row 8; D-124, D-125, D-126, D-128), 2026-11-09. Built in
+a cloud container with no GPU and no Docker daemon, on synthetic data only.
+
+* **Tiers from measured records only** (`tools/tiers.py`, `deploy/install.sh --tier`). `small` = `rtx5090` (one RTX
+  5090, sleep swap, 8k), `medium` = `gb10` (DGX Spark, pair resident, 16k), `large` = `rtxpro6000` (RTX PRO 6000,
+  pair resident, 32k): the three boxes of D-124. A tier installs only when its profile has a serving record of its
+  own uncapped card (the site's `deploy/site/` or the vendor's `deploy/measured/serving_config.<gpu>.json`, the rule
+  of `tools/serving_config.py measured`) and the machine's card is that card (`deploy/gpu_profile.sh`). The check runs
+  first, with the host's python3, before Docker, the bundle or a setting is touched; a refusal (exit 3) names the
+  missing file and the two ways to get a record. No override: `TB_ACCEPT_UNMEASURED_GPU=1` stays for a `--gpu` trial
+  boot and does not open a tier. `--tier-check` asks only. Today `large` has a vendor record; `small` and `medium` are
+  refused until a card of theirs is measured.
+* **Per-service secrets** (D-128, review F-02; `tb_common/service_auth.py`, `tools/trialbox/svc_secrets.py`,
+  `deploy/docker-compose.secrets.yml`). Each of the nine TrialBox services has its own token
+  (`deploy/secrets/services/<service>.token`, 0600, owned by the container user, folder 0700), mounted into that
+  service only; the administrator's `operator` token stays on the host. Every service reads a registry of the
+  tokens' sha256 (`public/tokens.json`, not secret), knows which service is calling, and accepts only the callers of
+  `CALLERS` (orchestrator: console, mail-gateway; mail-gateway and adapter: orchestrator, console; lake: orchestrator,
+  criteria-compiler, adapter; doc-parser, criteria-compiler: orchestrator; embed-service: lake; gateway:
+  orchestrator, criteria-compiler, doc-parser, console). A doc-parser token is now refused by the orchestrator (403).
+  The overlay also clears the mail passwords outside mail-gateway, the cloud key outside the gateway, the database
+  passwords in every service, and `TB_DB_URL` in doc-parser and embed-service. `make_app` keeps `protect_reads`,
+  `/healthz` open and the `TB_ENV` rule (unset = PRODUCTION, which refuses without a token); a registry that is
+  configured and unreadable refuses every call (503). Without a registry (tests, `make demo`, older boxes) the shared
+  token rule is unchanged and the service warns once.
+  * **Migration**: a box installed before step 8 keeps its `TB_SERVICE_TOKEN` working, its hash in the registry as
+    `legacy`, with a warning in the log when it is used, until every token is rotated; then it is gone from the
+    registry and from `deploy/.env`. A new box never gets a shared token.
+  * **Rotation**, one place (RUNBOOK §5 "Secrets"): `python3 -m tools.trialbox secrets rotate [--service X]` writes
+    the new token, keeps both hashes while the rotated services are recreated (`docker compose up -d --no-deps
+    --force-recreate --wait`, file set from `COMPOSE_FILE` in `deploy/.env`), then drops the old one; `--service db`
+    changes both database passwords with `ALTER ROLE` (password on stdin, never on a command line) and recreates
+    their users. `secrets status` shows names, files, modes and ages, never a value.
+* **One-page network, port and secret sheet** (`tools/network_sheet.py`;
+  `docs/handover/network-sheet.{en,ja,zh-TW}.{md,html}`, A4 landscape). Generated from the five compose files a box
+  runs (base, secrets, three GPU profiles): 17 services, every listening port (8010 to 8016, 8020, 8090, 5432, 8080,
+  8000), the only published one (`127.0.0.1:8090`, the console), who may reach each (from `CALLERS`), the three
+  networks, the outbound rules of `deploy/egress.py` with the setting that opens each, and 19 secrets by name, place
+  and receiver. `install.sh` writes the site's own sheet from its file set and `deploy/.env` (host names only) to
+  `deploy/site/`. **Outbound by default is not quite "none"**: criteria-compiler reaches `clinicaltrials.gov:443`
+  while `TB_CTGOV_MODE=live`, the wizard's default (public registry, no patient data); the sheet says so.
+* **The update path** (`tools/apply_update.sh` → `tools/trialbox/update.py`). Verify and stage as before (Ed25519 and
+  sha256, D-77); then backup first (D-126; refused without `deploy/secrets/backup.pub` and `TB_BACKUP_TARGETS`; on a
+  compose box the services stop, the db container dumps both databases, and a one-off container on trialbox-net
+  writes the encrypted backup with every volume read-only, `TB_PG_DUMP_DIR`); a rollback point (replaced images
+  tagged `<repo>:rollback-<bundle>`, overwritten models kept, the local dumps, 0600, removed after success, because
+  the box cannot read its own encrypted backup); apply; `up -d --wait` (services migrate at start); rulesets; check;
+  `update.applied`. Any failure after the rollback point: images, models and databases back, restart, check,
+  `update.rolled_back`. Three boxes: compose (a site), demo (the demo VM's one container, checked by `e2e_simple` in
+  the new container) and in-process (`tools/update_drill.py`). The demo image gained PostgreSQL (missing since D-126,
+  so the image could not have started `tools.demo`); `demo-vm-startup.sh` now writes a recreate script and a
+  root-only env file instead of putting the password on the command line.
+* **Log retention** (`tb_common/retention.py`, `tools/trialbox/logs.py`, the RETENTION job; RUNBOOK §2 "Logs").
+  Service logs collected nightly on the host per service and day, kept `logs_days`; the audit chain never deleted,
+  copied nightly to `TB_AUDIT_ARCHIVE_DIR`, compressed, with a sha256 manifest, verified before and after (a chain
+  that does not verify is not archived); mail logs (intake, sent, finished sends, the morning-mail log) pruned by the
+  RETENTION job after `mail_log_days`, an unfinished send kept; job outputs and attachments as before. Install
+  defaults by country (wizard `retention_rules`, from the report language): service logs 365 days, mail logs 5 years
+  (JP, 医師法 §24) or 7 years (TW, 醫療法 §70), outputs 365 days, attachments 90 days, audit 10 years on the box
+  (review §6 q.5 and q.25). `logs_days`' schema default moved from 180 to 365; `mail_log_days` is new.
+* **Windows / WSL2 groundwork** (D-125): `docs/handover/OFFLINE-MEDIA.md` (the disk: WSL, the Ubuntu root file
+  system, the NVIDIA driver, debs, the signed bundle of images, models and rulesets, measured records, printed
+  sheets; nearer 40 GB than 30), `deploy/windows/preflight.ps1` and `preflight.sh` (Windows build and edition, CPU
+  virtualisation, WSL2, GPU driver, disk, memory, systemd; one PASS or FAIL line each),
+  `docs/handover/WINDOWS-INSTALL-CHECKLIST.md`.
+
+*Evidence.*
+
+* `tests/unit/test_install_tiers.py` (9): the mapping; `large` from the vendor record; `small` and `medium` refused
+  with the file and how to measure; wrong card, no card, unknown tier; a capped or wrong-mode record refused; a site
+  record of the card's own makes `small` installable; `install.sh` exits 3 before the host step, and the trial-boot
+  switch does not help; `--tier-check`; `--tier` with `--gpu` or `--mode stub` refused.
+* `tests/unit/test_service_secrets.py` (11): tokens 0600 and distinct, a registry of hashes only, `init` idempotent;
+  the caller table on real `make_app` services (doc-parser to orchestrator 403, console to lake 403, operator
+  everywhere, 401, 403, healthz open); the old token accepted with a warning that does not carry it, then refused
+  after a full rotation; behaviour without a registry and `TB_ENV` unchanged; an unreadable registry 503; a
+  one-service rotation restarts only it and keeps both hashes when the restart fails; the database rotation's
+  passwords only on stdin; the overlay gives each service its own token and clears the rest; a scan of every
+  service's clients against `CALLERS`.
+* `tests/unit/test_network_sheet.py` (7): every service and port of the compose files, read independently of the
+  sheet's code, is on the committed sheet in all three languages, which equals a fresh render; a site sheet shows its
+  mail hosts and no secret value although its `.env` has passwords.
+* `tests/unit/test_update_path.py` (13): the step order; a failed backup changes nothing; a failure at apply,
+  restart, rulesets or check rolls back and is audited; a failed rollback says so; the compose commands in order
+  (quiet box, dumps, backup container with passwords only in its environment, rollback tags, load, start) and their
+  rollback (tags back, both `pg_restore --clean`, models back); no key, no update; the demo box; a first install only
+  loads; the in-process box migrates, then rolls a migrated database back from its dump.
+* `tests/unit/test_log_retention.py` (7) and `tests/unit/test_windows_preflight.py` (3).
+* `tools/update_drill.py` (the in-process box, real bundles signed with a throwaway vendor key): PASSED, 13 checks in
+  233 s: e2e_simple's box; a tampered bundle refused; the good bundle backed up (the hospital key opens it), applied,
+  migrated, data unchanged, audited; a bad migration and an unhealthy release each rolled back to the same release,
+  models, schema version 1 and data; the audit chain verifies with `update.applied`, `update.rolled_back`,
+  `update.rolled_back`; no secret in the history; `e2e_simple` passes again on a fresh box afterwards.
+* Suites: unit, console and testbench 1,394 passed, 2 skipped (1,344 at step 7; 50 new). `make lint` clean.
+  `tools/e2e_simple.py`: PASSED in 110 s. `tools.backup_drill`: PASSED in 136 s. `public_e2e --lang ja`: 112/112
+  (a first run, started while the full suite used the same throwaway Postgres, stopped on a page without a csrf
+  token; run alone it passed). No page changed, so the walk was not re-run.
+
+*Not done.*
+
+* **Nothing ran on a GPU, in Docker or on the cloud.** `docker compose` with the secrets overlay, the compose and demo
+  boxes of the update path, the network sheet inside the image at install, and the new demo image build were not
+  executed here (no Docker daemon); they are tested against recorded commands. The demo-VM run below is the
+  done-check that remains.
+* fhir-store (HAPI) and Postgres have no per-caller token: network isolation and a password only (review F-11 for
+  HAPI). The gateway still routes on the self-declared `X-TB-Caller`; the verified caller is in
+  `request.state.tb_caller`, but the gateway's policy does not read it yet. No mTLS.
+* The mail passwords and the cloud key still live in `deploy/.env` (cleared in the containers that do not need them),
+  not in separate secret files; the hospital rotates them at their source. Key custody on Windows (BitLocker,
+  DPAPI/TPM; review F-01, F-10) and the full offline installer wait for D-125's post-platform work.
+* Anti-rollback, a key id and an expiry in the update manifest (review F-15) are not added; an older signed bundle
+  still applies. A failed rollback leaves the box to a restore from the encrypted backup with hospital IT's key.
+* `trialbox backup` run by hand on a compose box still needs `pg_dump` and the database reachable from where it runs;
+  the update path's one-off container is the route that works and could become the default.
+* The owner may want the wizard to default to `TB_CTGOV_MODE=cassette`, so that outbound is none by default.
+
+*The demo-VM commands still to run* (owner's OK; about one hour of `trialbox-demo`, e2-standard-4, about US$0.15,
+plus a few cents of storage):
+
+```sh
+deploy/gcp/demo-vm-update.sh build <bucket>   # a machine with Docker and about 15 GB free: images A, B (good), C (broken)
+gcloud compute instances add-metadata trialbox-demo --zone asia-east1-b \
+  --metadata-from-file startup-script=deploy/gcp/demo-vm-startup.sh,tb-demo-password=/mnt/project-files/trialbox-demo/password.txt \
+  --metadata tb-demo-image=gs://<bucket>/step8/trialbox-demo.tar.gz
+gcloud compute instances start trialbox-demo --zone asia-east1-b
+deploy/gcp/demo-vm-update.sh run <bucket>     # apply B --target demo, e2e_simple in it; apply C, rolled back to B
+gcloud compute instances stop trialbox-demo --zone asia-east1-b
+```
+
+**D-139 Step 9 preparation: run script and documents.** TB-PLAN-04 step 9 (plan v4 §4 row 9, §5; TB-PLAN-03 §9),
+2026-11-09. Everything of step 9 except the paid GPU run and the independent re-review. Built in a cloud container with
+no GPU and no Docker daemon, on synthetic and public data only.
+
+*What was built.*
+
+* **The complete-platform run** (`tools/complete_run.py`, `tools/stage_shots.js`). One command runs every stage of
+  plan v4 §5 in ja and zh-TW and writes `report/report.md` and `report.json` with per stage the checks, the time, a
+  screenshot and the git head. Each part runs in its own process, so one box at a time holds memory and environment:
+
+  | Part | What it runs | §5 |
+  | --- | --- | --- |
+  | prepare | the synthetic hospital of `--patients` (`tools.synth_hospital`, a JP and a TW site, notes in ja, zh-TW, en), made once | — |
+  | install | the vendor's (and on the card the live) serving record measures `rtxpro6000`; tier `large` resolves on the card; `small` is refused | install on a measured box |
+  | hospital ja, zh-TW | the `e2e_simple` path on that hospital: data in, criteria, approval, SCREEN (with the pair and the canary gate on `--model pair`), lists, marks, N1/N2 mail, REDCap two-way, data core and conflicts, built-in forms and ODM/REDCap CSV, lifecycle, site set-up, Japan (SS-MIX2, JP Core), audit, byte-identical re-run | import, paste and approve, screen, lists, forms, sync, mail, export, audit |
+  | public ja, zh-TW | `tools.public_e2e`: the same path in the console on real public notes | the same on real text |
+  | walk | a fresh public console on the stub, then `tools/public_walk.js`: 5 roles × 3 languages × desktop and phone, axe-core, 44 px targets, tap counts | desktop and phone |
+  | backup, update | `tools.backup_drill`, `tools.update_drill` | back up and restore; update |
+  | scale | `tools.hospital_sim scale` at `--patients` (cascade S0–S5, DL-1 pack, recall certificate) | — |
+
+  After each console part the console is served on a free local port and `tools/stage_shots.js` signs in as the role
+  that does the stage, in the part's language, and photographs the page that shows its result (the state at the end
+  of the part; the pages of earlier stages still show their results). Parts with no console of their own get a picture
+  of their check table. Screenshots go to the run's folder and are never committed (`.gitignore`).
+* **On the card** (`--model pair`): the judge and verifier clients of `public_e2e.real_models` go into the box
+  (`public_e2e.attach_models`, now shared), `TB_CANARY_GATE=on`, and `e2e_simple.PAIR` turns its stage-3 checks from
+  "stub, never excludes" to "the pair ran, the canary passed, a note excludes only when both agree". With the pair
+  the re-run stage re-runs FEAS only (a second SCREEN doubles the paid time, and batched model answers are not
+  bit-reproducible, as on the Spark), and the hospital's time limit is one night (8 h) instead of 15 minutes per 5,000
+  patients. The GPU key comes from `TB_GPU_KEY` only; the console password from `TB_DEMO_PASSWORD` or made at
+  random, never printed and never on a command line (the walk reads it from `TB_SHOT_PASSWORD` now).
+* **The VM wrapper** (`deploy/gcp/complete-run.sh`): private `CLOUDSDK_CONFIG` required; the hospital is made before
+  the VM starts; a fresh API key in a 0600 file; `gpu-pro6000-run.sh` as the startup script; wait for
+  `PRO6000-RUN-READY`; live serving record checked; the run; `--after-models` stops the VM as soon as the last model
+  part is done (the walk, backup, update and scale run on the stub and need no card); a trap stops it on any exit,
+  waits for `TERMINATED` and puts `gpu-sim-startup.sh` back; `--stop` does it by hand; `--dry-run` prints the
+  commands.
+* **Fixes found by running it at other sizes.** `list_demo` signs the PI and CRC in again when the demo's clinic day
+  is not the first day (sessions end after 8 hours; a 2,000-patient hospital's first clinic day is days later).
+  `e2e_simple` stage 13 compares GOUT-COH with the numbers pinned before step 7 only on the gate's own hospital (5,000
+  patients, stub); at another size or with the pair it checks that the FEAS and SCREEN funnels never grow.
+* **Tests:** `tests/unit/test_complete_run.py` (the plan of parts, a page for every stage of both tools, the report,
+  no password or key on a command line), `tests/unit/test_doclint.py`.
+
+*The documents: 18 → 8.* The plan's "18 → 8" (TB-PLAN-03 §9) counted the design set in `docs/plan/design/`. That set
+is frozen reference by the owner's build-stage rule (TB-DS-00R §1) and a record by this step's brief, so it stays as
+it is. The maintained documents at the repository level also number 18 (README, SPEC, SPEC_v3 and fifteen in
+`docs/`); they are the ones merged. The eight: `README.md`, `docs/ARCHITECTURE.md`, `docs/RUNBOOK.md`,
+`docs/SECURITY.md`, `docs/DATA.md`, `docs/VALIDATION.md`, `docs/USER_GUIDE.md`, `docs/DECISIONS.md` (unchanged,
+append-only). Records stay records: `docs/reviews/`, `docs/plan/`, `docs/research/`, `spec/v4/`, and the new
+`spec/archive/` (with an index).
+
+| Old | Went to |
+| --- | --- |
+| `README.md` | README (what it is, try it, map); the command table → USER_GUIDE §5; the POC → RUNBOOK §9; the Docker quickstart → RUNBOOK §9 "developer test stack"; site install → RUNBOOK §1 |
+| `docs/ARCHITECTURE.md` | ARCHITECTURE, rewritten to head (one Postgres `trialbox_wf`, no MinIO, no Hermes, the pair, tiers, console roles, data core, site set-up); its test table → VALIDATION §1 |
+| `docs/PLAN.md` (v1 plan) | module list and interfaces → ARCHITECTURE §2; data flows → ARCHITECTURE §4–6; test plan → VALIDATION §1; phase map and resolved §12.2 decisions dropped as stale (in DECISIONS D-02..D-04) |
+| `docs/RUNBOOK.md` | RUNBOOK §1–10, same section numbers for install (§1), logs (§2), updates/backup/secrets (§5), acceptance (§6), Spark and pins (§8), POC (§9), 5090 (§10); mail commands and roles → USER_GUIDE |
+| `docs/HARDENING.md` | SECURITY §1 (disk, TPM, swap, GB10), §2 (egress), §4 (TPM-sealed keys), §6 (updates, retention) |
+| `docs/DEMO_VM.md` | RUNBOOK §11 (demo VM, its update path, cost) |
+| `docs/SERVING_CONFIG.md` | the record and the model gate → VALIDATION §3; capture, GPU runs and cost → RUNBOOK §11; profiles → ARCHITECTURE §7 |
+| `docs/BENCH.md` | VALIDATION §4 (the bench table, the first hosted-model run summarised; per-model table left in `eval/bakeoff/results/2026-10-25/`) |
+| `docs/OPEN_DATA.md` | datasets, licences, the MIMIC notice → DATA §6; what runs, results, limits → VALIDATION §5; per-step funnel tables left in `.cache/open_data/report.md` (re-made by `make open-data-e2e`) |
+| `docs/CONSENT.md` | USER_GUIDE §6 |
+| `docs/HANDOFF.md` (2026-10-24) | the Test Bench rules → VALIDATION §6; how to run and the traps → RUNBOOK §4 and VALIDATION §1; licence traps (Mirth, Soda Core, Db2) and the LiteLLM compromise dropped as already applied (D-86 era); the v4 build order, phases and session rules dropped as stale (superseded by TB-PLAN-04) |
+| `docs/NEXT_SESSION_PROMPT.md` | dropped as stale (the starter prompt of plan v4 is `docs/plan/design/STARTER-PROMPT-plan-v4.md`) |
+| `docs/PROGRESS.md` | dropped as stale: the phase log duplicates DECISIONS D-01..D-111 and git history; its v1.0 checklist is done |
+| `docs/INTEGRATION_SCENARIOS.md` | moved unchanged to `spec/archive/`; the scenario table and open gaps → DATA §5; the legal baseline → SECURITY §7 |
+| `docs/LANDSCAPE.md` | moved unchanged to `spec/archive/` (corrected by `docs/research/2026-10_literature_competitors.md`) |
+| `SPEC.md`, `SPEC_v3.md` | moved unchanged to `spec/archive/` (v1 contract and v3, superseded by `spec/v4/`) |
+
+Words (counted with `wc -w`): the eighteen were 111,717 words (DECISIONS 33,426). The eight are 47,373 words (DECISIONS
+35,965); the seven new documents 11,408 words where their sources had 24,550 (README, ARCHITECTURE, PLAN, RUNBOOK,
+HARDENING, DEMO_VM, SERVING_CONFIG, BENCH, OPEN_DATA, CONSENT, HANDOFF, NEXT_SESSION_PROMPT, PROGRESS), 13,142 (53 %)
+fewer. The 53,741 words moved to `spec/archive/` are records, kept whole. Links fixed in code, scripts and tests
+(`Makefile`, `install.sh`, `check_host.sh`, the GCP scripts, `apply_update.sh`, `tiers.py`, `parity_replay.py`, the
+open-data tools, fixtures and tests, the Test Bench, `channels/grammar.py`). The records keep their links as they were
+written.
+
+*doclint* (`tools/doclint.py`, in `make lint`): the set is exactly the eight and no other Markdown file sits in `docs/`;
+one title, no skipped heading level, no heading twice; every relative link and `#anchor` resolves; every repository
+path in backticks exists or is ignored by git (made on the box); no file outside the records names a retired document.
+DECISIONS is checked for headings only (old entries name files removed later). The design-set linter
+`docs/plan/design/tools/doclint.py` is untouched. Result: clean.
+
+*The local run* (`python -m tools.complete_run --dir <dir>`, head a69b51b, a shared 4-CPU container, stub model,
+5,000 patients): **PASSED, 581 of 581 checks, 60 of 60 screenshots, 19.6 minutes.** The report is committed as
+`eval/complete_run/2026-11-09-stub-5000/report.md` and `report.json` (screenshots not committed).
+
+| Part | Checks | Seconds | Numbers |
+| --- | --- | --- | --- |
+| install | 3/3 | 1 | vendor record measures `rtxpro6000`; `large` resolves on its card; `small` refused |
+| hospital ja | 161/161 | 113 | SCREEN GZQO: S0 3,022 → S1 92 → S3 92 → S4 81; listed 81 (2 high, 79 review); stub, never excludes |
+| hospital zh-TW | 161/161 | 112 | the same funnel |
+| public ja | 112/112 | 44 | PUB-ONC: S0 268 → S1 90 → S3 90; listed 90 |
+| public zh-TW | 112/112 | 44 | the same |
+| walk | 5/5 | 422 | 780 checks over 768 pages, 0 failures; axe 0 serious or critical (84 minor); 21,600 targets, none under 44 px; taps T1–T9 2, 2, 2, 5, 5, 3, 2, 2, 3 |
+| backup | 11/11 | 113 | 11,367 rows in `trialbox_wf` and 982 files restored equal |
+| update | 12/12 | 248 | a good bundle applied; a tampered one refused; a bad migration and an unhealthy release rolled back |
+| scale | 2/2 | 78 | cascade at 5,000 patients: 75 s, 127 model calls |
+
+Earlier runs of the script at 2,000 patients found the two size-bound checks fixed above (the session timeout and the
+pinned GOUT-COH numbers); at 2,000 the GOUT-COH cohort list is empty, so the local run uses 5,000, as the gate does.
+
+*The other checks at this head.* `make lint` clean (with doclint). Unit, console and testbench suites: 1,405 passed,
+2 skipped (1,394 at step 8; 11 new; the first full run found `eval/complete_run/` missing from `eval/DATASETS.yaml`,
+now listed as D0 synthetic). `tools/e2e_simple.py`: PASSED in 115 s. `tools.backup_drill`: PASSED in 133 s.
+`public_e2e --lang ja`: 112/112 in 55 s.
+
+*The GPU run (not run: the owner's OK first).* Commands, from a checkout of the head to be measured:
+
+```sh
+export CLOUDSDK_CONFIG=$(mktemp -d); unset CLOUDSDK_AUTH_ACCESS_TOKEN
+gcloud auth activate-service-account --key-file /mnt/project-files/uploads/hearth/<key file>   # in place, never copied
+gcloud config set project trialbox-demo
+cd trialbox && TB_COMPLETE_DIR=/tmp/tb-complete-gpu deploy/gcp/complete-run.sh --patients 50000
+gcloud compute instances describe tb-gpu-sim --zone asia-east1-a --format='value(status)'   # must say TERMINATED
+```
+
+*Cost.* `tb-gpu-sim` is about US$2.74 an hour while it runs. The estimate, from the local timings above and the
+2026-11-08 PRO 6000 run (`eval/parity/gpu-run-2026-11-08-pro6000/`: `public_e2e` with the pair 1,303 s, of which
+PUB-ONC's SCREEN 563 s for 90 patients at S3, about 6.3 s a patient):
+
+| Step | Basis | Hours |
+| --- | --- | --- |
+| hospital made before the VM starts | 4 s per 10,000 patients here | 0 |
+| boot to `PRO6000-RUN-READY` | about 15 minutes with the weight hashes (the step-1 run) | 0.25 |
+| hospital ja, 50,000 patients | non-model path 113 s at 5,000, linear: about 0.3 h; SCREEN GZQO at S3 92 × 10 = about 920 patients × 6.3 s: 1.6 h; the canary at box start: a few minutes | 1.95 |
+| hospital zh-TW | the same | 1.95 |
+| public ja and zh-TW | 1,303 s each with the pair | 0.72 |
+| stop and check `TERMINATED` | the walk, backup, update and scale run after it | 0.05 |
+| **in all** | | **about 4.9 h, US$13.50** |
+
+Synthetic notes are shorter than the public case reports, so the model part may take half as long: then about 3.3 h,
+US$9. A spot preemption costs another boot (US$0.70) and a re-run. With steps 1 and 6 (about US$1.50 and US$2.30)
+this passes plan v4's "under US$15 of GPU time" by about US$2; the owner decides. A cheaper run at `--patients 20000`
+is about 2.6 h, US$7. Adding N-11 zh-TW on the deployed files while the VM is up (VALIDATION §3) is about 0.2 h more.
+
+*Self-review against the reviews' yardstick* (TB-PLAN-03 §9: complete; no stale references; built claims name a test
+or commit; one owner, status and history; the named reader can act alone. 4.5 = five points with one minor residue).
+This is the author's score; the independent re-review comes after the paid run.
+
+| Document | Score | Below 4.5, or the residue |
+| --- | --- | --- |
+| README | 4.5 | residue: the repository map names packages, not their tests |
+| ARCHITECTURE | 4.5 | residue: the C4 views are tables and text, not a model; "held by" covers each section, not each row |
+| RUNBOOK | 4.5 | residue: the Windows/WSL2 install lives in `docs/handover/` (a second document for that reader) |
+| SECURITY | 4.5 | residue: the law tables need the site's counsel by design (marked *legal review*) |
+| DATA | 4.5 | residue: the canonical column list is `services/adapter/mapping/templates/CANONICAL.md` |
+| VALIDATION | 4.5 | residue: the model-gate numbers are from the 2026-11-08 card runs, not from this head |
+| USER_GUIDE | **4.0** | gap: written in English only, pointing to the in-console help in ja and zh-TW; no committed screenshots (they come from the complete run). A ja and zh-TW copy is not cheap: left for after the re-review |
+| DECISIONS | **4.0** | gap: 35,000 words, entries of varying shape, old entries name removed files; append-only, so not fixed here |
+| The build | **4.0** | gaps: the complete run on the card has not run (plan v4 §5: not complete until it passes); N-11 zh-TW on the deployed files not recorded; no TOTP; HAPI and Postgres have no per-caller token; only `large` is installable (Spark and 5090 unmeasured); OCR never run on a real scan; no anti-rollback in the update manifest |
+
+Cheap gaps fixed in this step: an owner, status and history line on each of the seven new documents; the test that holds
+each built claim named in ARCHITECTURE, RUNBOOK and SECURITY; VALIDATION's gate table refreshed from this head's
+runs.
+
+*Not done.*
+
+* **The paid run** (above) and so the done-check's "run report with a screenshot per stage from head" on the card:
+  only the stub run exists. Until it passes the platform is not complete (plan v4 §5).
+* **The independent re-review** of the eight documents and the build.
+* **Not run here:** nothing ran on a GPU, in Docker or on the cloud; `deploy/gcp/complete-run.sh` was checked
+  with `--dry-run` only. The pair has never run the `e2e_simple` path; stage 12's chart reading and the hospital's
+  SCREEN with the real models may show checks that only held for the stub. The time estimate rests on one public
+  run's rate.
+* **The documents.** USER_GUIDE in ja and zh-TW; DECISIONS stays long. The design set in `docs/plan/design/` keeps its
+  own 18 documents and its own linter. `spec/v4/` still names the moved files as they were (a record).
+* **Numbers in VALIDATION** that are not from this head: the model gate (2026-11-08 card runs) and the bench
+  (2026-10).
+
+**D-140 Reference data pack and the two CT.gov modes.** TB-PLAN-04 (owner decision 2026-11-09), 2026-11-09. Built in
+a cloud container with network access through a proxy, no GPU, no Docker; tests on committed samples only.
+
+*Owner decisions (2026-11-09).*
+
+1. Keep both ClinicalTrials.gov modes; each hospital chooses at install, depending on its IT environment: **live**
+   (the box may reach clinicaltrials.gov:443) or **offline** (no outbound access; the trials come from the data pack).
+2. The release carries the full ClinicalTrials.gov data and the other essential reference data for Japan and Taiwan
+   whose licences allow it.
+3. The settings wizard and `install.sh` default to **offline**; live stays selectable at install and in the
+   settings. The network sheet's default text says so.
+4. A NOTICE / attribution page, generated from the pack manifest: `NOTICE.md` in every pack and the console's
+   "Sources and licences" page (en, ja, zh-TW): every source, its licence, its terms and the credit it asks for.
+5. ATC: no WHO ATC/DDD index. Only the ATC codes the Taiwan NHI drug list carries (`ATC代碼`, kept as given), plus
+   TrialBox's own drug-class table later (not built here).
+
+*Sources* (`tools/refdata_fetch.py sources` prints this table from the code; URLs pinned there).
+
+| Source | Decision | Licence | Size | Refresh |
+| --- | --- | --- | --- | --- |
+| ClinicalTrials.gov, all studies (API v2 bulk JSON zip) | ship | NLM terms; NLM disclaimer in the attribution | ~2.8 GB zip, 10.6 GB unpacked, 610,756 studies (2026-11-06); ~2.2 GB in the pack | monthly in the pack (daily at source) |
+| TFDA drug trials (data.gov.tw 177198, export 205) | ship | OGDL 1.0 | 44 MB zip, 5,983 trials | monthly |
+| TFDA trial indications with codes (177212, export 206) | ship (lookup, joined by indication text) | OGDL 1.0 | 0.4 MB zip, 19,234 rows, 4,234 indications | monthly |
+| MHLW 薬価基準収載品目リスト (4 workbooks) | ship | PDL 1.0 (MHLW site terms) | 1.3 MB, 12,442 items | monthly |
+| NHI 健保用藥品項查詢項目檔 (data.gov.tw 23715) | ship | OGDL 1.0 | 97 MB CSV, 45,224 codes | monthly |
+| ICD-10-CM FY2027 (CDC NCHS) | ship | public domain | 2.2 MB zip, 74,861 codes | yearly (Oct 1) |
+| Taiwan ICD-10-CM/PCS 2023 Chinese edition (NHIA) | ship (vendor passes the workbook: `--file`) | OGDL 1.0 | ~10 MB | per Taiwan edition |
+| LOINC (Regenstrief) | ship (notice + version; account download: `--file`) | LOINC licence | ~80 MB zip | twice a year |
+| UMIN-CTR daily snapshot | site-fetch (`site-load umin_ctr --file`) | UMIN-CTR terms: no commercial use, no redistribution, no download by software on the user's behalf | ~30 MB gz | daily |
+| jRCT | site-fetch / pending | jRCT terms: bulk use needs the help desk's permission | - | - |
+| WHO ICTRP | not usable | no commercial use | - | - |
+| JAPIC-CTI, JMACCT | not usable (nothing separate) | merged into jRCT on 2023-03-06 | - | - |
+| TFDA sites / drugs / ingredients (177215, 177216, 177218) | not usable | OGDL 1.0, but no column links a row to a trial; the sites file carries investigators' names; 177218's columns are shifted | 4.9 / 0.2 / 0.4 MB | monthly |
+
+* **ClinicalTrials.gov: API v2 bulk zip, not AACT.** The zip holds one API v2 record per study, the shape the box
+  already reads (live mode, `to_study`, the registry mirror), published by NLM itself; AACT is a CTTI relational
+  derivative (40+ pipe files to join back into a record) with its own terms. The pack keeps every record unchanged.
+  JP + TW subset for scale: about 9,961 + 13,118 studies (parallel licence review); the release ships all.
+* **TFDA metadata is wrong in places.** 177198's file has no 執行狀態 column although the metadata lists one (status
+  is empty in the pack). 177212 is titled ICD-9 but has no trial key, empty ICD-9 descriptions in 73 % of rows and
+  about 1,800 ICD-10-shaped codes; it is kept as an indication-text lookup and joined to 177198 by 適應症中文. No TFDA device-trial dataset was found in the TFDA series on data.gov.tw
+  (177180 to 177225 checked; the search API needs POST); device trials registered on ClinicalTrials.gov are in the
+  CT.gov part.
+* **MHLW**: the list gives the 12-character 薬価基準収載医薬品コード; a YJ code that differs from it still needs the
+  licensed YJ file of D-137, which this complements and does not replace.
+
+*Pack format* (`tb_common/refdata.py`, `trialbox-refdata/1`). A directory `trialbox-refdata-<YYYYMMDD>/` shipped as one
+deterministic tar: `manifest.json` (format, pack_id, data_as_of, sample, and per source: id, name, kind ctgov | trial
+| term, URL, download date, download sha256, record count, licence and licence URL, terms, attribution, refresh,
+distribution, files with sha256, bytes and records), `NOTICE.md` generated from it, and one `jsonl.gz` per source
+(deterministic gzip). `verify` checks every file's size, sha256 and record count; unsafe tar members are refused.
+The box loads it into the schema `refdata` of the trial database (D-126), so the backup and the update's rollback
+dump carry it: one transaction per pack replaces the rows of its own sources; a hospital's site-fetch part (UMIN)
+lives beside it and survives vendor packs. Offline queries: `ctgov_search(condition, countries, status)` (condition
+or keyword part, any case; whole-country match), `ctgov_study(nct_id)` (the full record), TFDA trials, terms by
+system and code. Size of a release pack: about 2.2 GB (CT.gov ~2.2 GB; everything else 18 MB, measured); in Postgres the CT.gov
+records take several GB (JSONB, TOAST-compressed) and grow the backup by the same.
+
+*Wiring.*
+
+* `TB_CTGOV_MODE=live | offline | cassette` (`criteria_compiler/ctgov.py`); offline reads the pack, cassette stays
+  for CI and the demo. The request takes `nct_id` (contract `ctgov` 2.1.0, additive; `source` gains `refdata`); live
+  asks `GET /studies/<NCT id>`. The client, compose and the egress rules default to offline; clinicaltrials.gov:443
+  opens only with live.
+* Update path: payload kind `refdata` (`update_manifest` 1.1.0, `tools/sign_bundle.py`); `apply_update` loads the
+  pack after the rulesets (compose: `docker compose cp` + `python -m tb_common.refdata load` in criteria-compiler;
+  the in-process box loads it directly); the local database dump rolls it back. A first install keeps it in
+  `deploy/refdata/pending/` and `install.sh` loads it once the database runs.
+* Admin page: a "Reference data" tile with the "data as of" date, each source and its records, and a link to
+  `/admin/notice` ("Sources and licences"), all strings in en, ja and zh-TW.
+
+*Install choice.* `install.sh --ctgov offline|live`; without it, a box that already has `TB_CTGOV_MODE` keeps it, a
+new box asks the wizard's question (plain words, en / ja / zh-TW: "may this box reach clinicaltrials.gov on the
+internet?"), default offline; `--yes` or no terminal takes offline. Choosing live probes clinicaltrials.gov once; no
+answer -> offline with a message (no internet -> offline). `install.sh --ctgov-check` only reports whether this host
+has internet. The settings wizard asks the same question (`ctgov_mode`, default offline; `TB_CTGOV_MODE` from
+install skips it). The site's network sheet (written at install) states the chosen mode in three languages; the
+committed sheet says offline is the default.
+
+*Evidence.*
+
+* `tests/unit/test_refdata.py` (15) and `tests/console/test_refdata_pages.py` (3): the manifest's fields and NOTICE,
+  a changed file or a missing attribution refused, a deterministic and safe tar; the parsers on the committed excerpts;
+  every source has a decision and a site-fetch source cannot be fetched; offline answers by condition, Japan, Taiwan,
+  status and NCT id and returns the full record, as the cassette of the same studies does; a second pack replaces its
+  sources and keeps the hospital's UMIN part; no pack -> a plain error; the default is offline; live and cassette look
+  up one id; the update bundle loads the pack; the wizard and install default and their three languages; the network
+  sheet per mode; the admin tile and the sources page, admin only.
+* `e2e_simple` stage 14: the sample pack built, verified, loaded; with every outbound TCP connection refused, NCT
+  id, gout + Japan, gout + Taiwan found, and the criteria drafted from the pack's record by the box's compiler.
+* Suites: unit, console and testbench 1,412 passed, 2 skipped. `make lint` clean. `tools/e2e_simple.py`: PASSED in
+  110 s. `tools.backup_drill`: PASSED in 117 s. `public_e2e --lang ja`: 112/112. The walk (`/admin/notice` added for
+  the administrator, 403 for the coordinator): 786 checks, 0 failures over 774 pages, axe 0 serious; an earlier run
+  lost two screenshots to the browser ("Unable to capture screenshot") and a second walk on the same server failed on
+  the state the first one left (the walk needs a fresh `--serve`).
+* Fetched and parsed here (`.cache/refdata`, not committed): CT.gov one API page (200 JP/TW studies, 10.9 MB) and the
+  first 60 MB of the bulk zip (13,318 studies, re-zipped and built: the bulk parser); MHLW four workbooks (12,442
+  items); NHI drug list (96.6 MB, 45,224 codes); ICD-10-CM FY2027 (74,861 codes); TFDA 205 (44.4 MB, 5,983 trials)
+  and 206 (4,234 indications); 207, 208, 209 inspected only. Built into one pack (19.6 MB tar), loaded into a
+  throwaway Postgres in about 2 s and queried (cancer + Japan / Taiwan, an NCT id, TFDA gout trials, terms).
+* Hosts: data.fda.gov.tw cut large transfers off mid-way from here (export 205 at 15 to 42 MB, five tries with
+  curl) before the fetcher's streamed download completed (44.4 MB); the fetcher retries and refuses a partial zip. www.nhi.gov.tw and loinc.org
+  answered 403; jrct.niph.go.jp and rctportal.niph.go.jp did not connect; info.nhi.gov.tw dropped one connection and
+  then worked.
+
+*Not done.*
+
+* The full CT.gov download was not run here (7 GB free disk; ~2.8 GB zip plus ~2.2 GB pack). The vendor runs
+  `fetch ctgov` and `build` on a machine with ~15 GB free.
+* NHI medical service codes (醫療服務給付項目): the data.gov.tw dataset id was not confirmed (search API
+  needs POST); no fetcher yet. NHIA PAS IG NHI-to-LOINC map (CC0): a ship candidate, not built.
+* The Taiwan ICD-10 workbook and UMIN CSV parsers read columns by header name and were tested on made-up samples; check
+  them against the real files at first use. LOINC is parsed from `LoincTableCore.csv` (not verified on a release).
+* jRCT waits for the help desk's answer. Offline search is substring matching (no synonyms as the live API's
+  `query.cond` has); trials of the TFDA and UMIN parts are queryable by the store but not yet used by COHORT.
+* Not run: Docker, a compose box's `apply_update` with a real refdata payload, `install.sh` beyond `--ctgov-check`.
+
+**D-141 Step 9: the scenario matrix and the fail-safe cloud run.** TB-PLAN-04 step 9 (owner decision 2026-11-09;
+builds on D-123, D-131, D-132, D-135, D-137, D-139, D-140), 2026-11-09. Built in a cloud container with no GPU and no
+Docker; no cloud resource was started.
+
+*Owner decisions (2026-11-09).*
+
+1. The complete run uses 50,000 synthetic patients as the bulk scale test, and only synthetic and public data.
+2. Every way a site gives TrialBox data is its own scenario, screened with the real judge and verifier pair: the
+   hospital database feed, the EMR (SS-MIX2 and FHIR), the site's own lists, a single chart pasted, chart files
+   (PDF, Word, scans), REDCap and the built-in forms, an IT dump with local codes, the offline registry.
+3. The real public datasets already downloaded run too, one scenario each where the licence allows it.
+4. The cloud run must survive a dead driver: the VM stops itself.
+
+*The scenario matrix* (`tools/scenarios.py`, run as `complete_run part scenario --scenario <name>`; one section per
+scenario in the report: input, counts, expected and got, model calls, model exclusions, time, a screenshot).
+
+| Scenario | Input (card / laptop) | Independent recount |
+| --- | --- | --- |
+| db-csv | the `hospital:<lang>` parts: CGRD-style CSV, 50,000 / 5,000 | lake = generator counts; FEAS INC-01/02 from the CSVs; model exclusions vs the note truth |
+| emr-ssmix2 | SS-MIX2 storage (ADT-52, OMP-02/11/12, extended storage, 疑い diagnoses, flagged lab values), 5,000 / 500 | FEAS = recount and = the CSV path's; JP Core `$validate` on 50 per type |
+| emr-fhir | FHIR bulk export (NDJSON with chart numbers, names, phones), 5,000 / 500 | every resource read; same pseudonyms as the feed; FEAS = recount and = CSV |
+| site-excel | an Excel list (title row, merged cells, era dates, full width, µmol/L, dd/mm dates), a Shift_JIS CSV and a Big5 CSV (民國), 1,000 / 100 rows over a 5,000 / 500 feed | each patient's state (SITE5B) from the generator's feed and list values |
+| chart-paste | EMR screen text, ja and zh-TW, 200 / 20 patients with a second chart for a quarter | precision and recall against the charts' facts; states from the confirmed facts |
+| chart-files | the same as Word, a PDF with a text layer, PNG scans and image-only PDFs, 60 / 12 | as chart-paste; OCR `tesseract` (jpn, chi_tra, eng) on the VM, `fake` here |
+| redcap | `rc_sim` project 202 (longitudinal, DAGs) two-way; the built-in forms; 500 / 50 records | every record in REDCap; REDCap's consent dates back; ODM export count |
+| it-dump | a Shift_JIS dump with five local diagnosis codes, a JLAC10 lab code, a YJ drug code, 2,000 / 200 | each patient's state before (unknown) and after mapping |
+| registry | the reference data pack sample, no network | trials by condition and country = recount of the raw records |
+| public-mimic | MIMIC-IV demo on FHIR (100 patients, ODbL) | patients = the release's; FEAS invariants; the cascade S0..S5 |
+| public-medtxt | MedTxt-CR case reports (ja, CC BY 4.0), 148 / 16, pasted as charts | the corpus's own positive / negative / suspected tags |
+| public-trec | TREC CT 2021/22 topics, qrels and trial texts, 100 / 10 pairs | the qrels (eligible 2, excluded 1) |
+| gateway | a judge and a chart-reading call through the gateway built as an installed box | none: a probe, reported as a finding |
+
+Not run, and why (`tools/scenarios.py` `NOT_RUN`): Chia and open_cohorts are not in `.cache` on this machine;
+Synthea has no mapping in this build; the full reference data pack is a box's install step.
+
+*Rules the scenarios keep.*
+
+* A proposed fact never excludes before confirmation (D-135): checked on every chart scenario, before the
+  coordinator acts, as "no exclusion and no failed criterion rests on a proposed fact".
+* Model exclusions are counted per scenario and checked against the generator's note truth (`note_truth.json`):
+  a model-driven exclusion (a note criterion failed, no coded one, not consent or scope) is true when the truth
+  blocks on that criterion; false exclusions must be 0. Each excluded patient is listed with its reason. On the stub
+  no note may exclude (D-115), so the card is where this counts.
+* With `--model pair` every model call goes through the gateway built as an installed box builds it
+  (`TB_ENV=PRODUCTION`, `TB_PROFILE=P-PRO6000`, no `TB_DATA_CLASS`); `--direct` bypasses it. On the VM nginx adds the
+  key on 127.0.0.1:8080, so the routing file stays the installed box's.
+* Known findings of the 2026-11-09 review are reported, not fixed, and do not fail the run: each has an id, what was
+  expected, what was seen.
+* Every DuckDB connection of a scenario may spill at most 2 GB to disk (a harness guard, after XL-02 filled the disk).
+
+*The fail-safe cloud run* (`deploy/gcp/complete-run.sh`, `deploy/gcp/complete-run-vm.sh`, `deploy/gcp/gcloud-auth.sh`).
+After the 2026-11-09 incident (the wrapper ran detached in a sandbox that killed it; its EXIT trap never ran; the
+service-account auth in the private config failed after about an hour; the VM ran 61 minutes until stopped by hand):
+
+1. **Cloud-side hard cap.** Before the start: `gcloud compute instances set-scheduling <vm> --zone <z>
+   --max-run-duration=<N>h --instance-termination-action=STOP`, N = the estimate × 1.3 rounded up (`--hours`).
+   Flags checked against `gcloud compute instances set-scheduling --help` (Cloud SDK 570.0.0, no authentication).
+2. **The VM stops itself.** The startup script starts a systemd hard cap and a watchdog before anything else: poweroff
+   when the heartbeat file is not touched for 20 minutes (the run touches it as its log grows; the driver over HTTP),
+   when setup passes 60 minutes, or when the done marker has stood 30 minutes (at once after the driver collects).
+3. **The workload runs on the VM** (48 vCPU), not on the driver. Chosen over "restartable parts on the driver"
+   because the incident's failure was the driver itself: with the workload on the VM, a dead driver costs at most the
+   time to the done marker plus 30 minutes, or 20 minutes of no progress, or the cap; the driver only uploads `git
+   archive` of HEAD, polls with short calls, downloads `results.tgz`, and runs the stub parts (walk, backup, update,
+   scale) after the VM has stopped. `--collect <run id>` picks a run up again. The parts are also restartable.
+4. **Fresh auth for every gcloud call.** `gc` re-activates the service account from `TB_SA_KEY_FILE` when a call fails
+   with an authentication error and retries once; `gc_probe` checks the credential before the start. The key file's
+   content is never printed.
+5. **Idempotent and resumable.** `complete_run --resume` keeps every part whose `parts/<tag>.json` has every check
+   passed; a part writes to a temporary file and renames it. A restarted VM resumes.
+6. **`--estimate`** prints hours and US$ per scenario: note-stage patients × 6.3 s (VALIDATION §3), a chart read as
+   one, criterion checks at 0.3 s, the canary per box, and the part's stub time scaled from the local run.
+7. Review A-12: `set -x` removed from `gpu-sim-startup.sh` and `gpu-fit-test.sh` (the key was on traced command lines).
+
+A billing budget with a kill switch is the last net; it needs billing permissions the project's service account does
+not have, so it stays an owner action.
+
+*Evidence (local, stub, 2026-11-09).*
+
+* `python -m tools.complete_run --patients 5000` with the matrix: **PASSED, 662 of 662 checks, 84 of 84 screenshots**,
+  22 parts in about 34 minutes (`eval/complete_run/2026-11-09-matrix-stub-5000/report.md`). Per scenario: db-csv
+  338/338 (both languages); emr-ssmix2 9/9 (500 patients, JP Core 615 sampled, 0 errors); emr-fhir 9/9; site-excel 7/7
+  (100 of 100 patients as the generator says); chart-paste 8/8 and chart-files 9/9 (precision and recall 1.0 on the
+  stub); redcap 8/8; it-dump 3/3; registry 2/2; public-mimic 5/5; public-medtxt 3/3; public-trec 1/1; gateway 1/1.
+* Known findings the run reports, each with what was seen: A-01 (the installed box's gateway refuses a judge call,
+  `step_unconfirmed`); GW-02 (`chart_facts` has no role in `libs/tb_llm/v1_roles.yaml`); P-04 (5 of 5 疑い-only
+  patients excluded by GZQO-EXC-07); FHIR-01 (SCREEN scope 0 on the FHIR path: Practitioner references hashed, ids
+  kept); XL-02 (SCREEN on `main` after a site list is published spills without bound; stopped at the 2 GB guard);
+  B-03 (a longitudinal REDCap link with no event: REDCap refuses every record); MAP-01 (name suggestions 胃癌 and 乳癌 to
+  C22.0, 本態性高血圧症 to E78.5); DUMP-01 (2 of 3 patients with an undated cancer row are "ready"). B-01 (flagged lab
+  values) holds on these paths: "8.2 H" and ">8.2" read as unknown, not FALSE, in the SQL engine and at S1.
+* `deploy/gcp/complete-run.sh --dry-run --patients 50000`: probe, `set-scheduling --max-run-duration=12h
+  --instance-termination-action=STOP` before `start`, metadata with the watchdog's limits, upload, poll, collect.
+* `--estimate --patients 50000`: about 8.9 h, US$24.3; hard cap 12 h, at most US$32.9.
+* Unit tests: `tests/unit/test_scenario_matrix.py` (the generators' truth, the stub against the chart traps, the
+  recounts, the estimate, resume, report-only, `gc` re-activating once and never printing the key, the driver's cap
+  before the start, the VM script's nets and no `set -x`). The stub now also treats 家族史 as a family history.
+
+*Not done; only the card can show.*
+
+* With the pair the default path is the installed box's gateway; until A-01 and GW-02 are fixed every model call of
+  the card run is refused there (the canary, SCREEN, chart reading). `--direct` runs the pair straight, as D-139 did.
+* Model exclusions against the note truth, extraction precision and recall of the real model in ja and zh-TW, and
+  tesseract on the rendered scans run only on the card. The floors (precision 0.90, recall 0.70) are this run's own.
+* The VM script, the watchdog, the HTTP door and the bucket path have not run on a VM; the gcloud flags were checked
+  against the SDK's help only. No billing budget (an owner action).
+* MIMIC's cascade uses `tools.cascade_e2e`'s own model path (the stub), TREC the evaluation client: neither goes
+  through the box. Chia, open_cohorts and Synthea are not run (`NOT_RUN` in `tools/scenarios.py`).
+
+**D-142 Review wave 1a: screening and data blockers fixed.** Pre-release review of 2026-11-09 (reports 01, 02 and 06;
+consolidated items R-01, R-37, R-38), 2026-11-09. One commit per item, each with a test that fails before the fix.
+Built in a cloud container, no GPU, no Docker; synthetic data only.
+
+* **PHI prompts on an installed box (A-01).** The compose gateway has no step confirmer, so every D3 call (the judge,
+  the verifier, chart facts: `phi: true` prompts, labelled D3 when `TB_DATA_CLASS` is empty, as install leaves it) was
+  refused. Decision: a box policy in `models/routing.yaml` (`phi_on_box`) instead of wiring the orchestrator's job
+  check first. On an on-prem box (topology A) in PRODUCTION, with **no** step confirmer wired, a D3 call from the
+  orchestrator or matching is allowed and sent to **perimeter endpoints only**; the audit record says
+  `step_basis: box_policy`. The data never leaves the box, which is what LLM-2's step check protects in the other
+  topologies. D4, topologies B (cloud tenant) and C (model egress), every other caller, and a box where a confirmer is
+  wired still need a live, delegated step; `may_reach` keeps D3/D4 off every external route as before; the loader
+  refuses any `phi_on_box` with a topology other than A or a class other than D3. `chart_facts` gets a gateway role
+  (`abstract_field`, it had none). Found on the way and fixed: `install.sh` wrote the compose profile (`gpu`) into
+  `TB_LLM_MODE`, which every service's config refuses; it now writes `vllm`. A pair profile now names its verifier
+  (`TB_GATEWAY_VERIFIER_MODEL=v-verifier`), else `both_agree` ran single-model.
+* **Pins that PRODUCTION routes (R-01).** No committed build has a sha256, and a pin made by hand without
+  `--status champion` does not route in PRODUCTION. `tools/pin_model.py --install <gpu>` pins the GPU profile's
+  deployed pair from the site's own weights in `deploy/models` (the served names compose gives vLLM, status
+  `champion`: the profile's measured release, D-112); `install.sh` runs it before `--verify-all`. Builds already
+  pinned are kept; missing weights are reported and that model routes nothing. `test_gateway_box_phi.py` builds the
+  gateway and the orchestrator's clients from `.env.example`, the lines install appends and the compose
+  `environment:` blocks, pins as install does, and runs a judge, a verifier and a chart-facts call through the real
+  gateway app; external, B, C, D4 and unlisted callers are refused.
+* **Lab text (B-01).** One reader, `tb_common.labvalue`, for the mapping (CSV, CGRD, SS-MIX2 OBX-5) and the lake
+  (FHIR `valueString`): "75 H" is 75; "<0.3", ">1000", "0.3未満", "100以上" are censored (`Quantity.comparator`, lake
+  column `observation.value_cmp`). A censored value decides a comparison only when every value on that side of the
+  bound does (the bound counts as reachable, so a borderline case stays unknown, never wrong). Text that is no number
+  ("検出せず", "陰性") is NULL. The SQL quantifiers `any`, `none`, `all`, `count>=` and `latest` are unknown, not FALSE,
+  when an unreadable row could change the answer; the CQL generator says the same for null values. Approved SQL of the
+  committed rulesets is unchanged (they use `latest`, already NULL on text).
+* **Patients without a base row (B-02).** A scoped patient the compiled SQL's `base` drops goes to review: reason
+  `not_in_snapshot` when the snapshot does not hold the patient, `check_dates` (new, en / ja / zh-TW) when it holds
+  them deceased or born after the screening date. The scope query reads the cascade's pinned snapshot. The run's
+  `opted_out` count no longer includes them (`not_at_index` counts them).
+* **疑い diagnoses (review 02, P-04, S10).** Verified against the SS-MIX2 標準化ストレージ仕様書 v1.2h, 表 3-47 (PRB, from
+  JAHIS 病名情報データ交換規約 3.1C): PRB-13 is the 疑い病名フラグ, JHSD 表 0005, code `1` 疑いあり (code table v1.2i,
+  表 95). The reader sets `suspected` from PRB-13, or from a 病名 whose text carries 疑い when a vendor sends no flag;
+  the shared mapping (every TW, CSV, CGRD and JP mapping extends it) writes `Condition.verificationStatus =
+  provisional`. The lake keeps provisional, differential and unconfirmed diagnoses (from any FHIR source too) out of
+  `condition` and lists them in `site_fact` with basis `suspected`; D-135's rule then makes any answer they could
+  change unknown, reason `suspected_diagnosis` (en / ja / zh-TW), in the SQL engine and the cascade. Refuted and
+  entered-in-error diagnoses are dropped. Other inputs: FHIR carries the same `verificationStatus` (handled); a CSV or
+  CGRD site can fill the canonical column `suspected`; Taiwan's CGRD and NHI exports have no such flag.
+* **REDCap longitudinal projects (B-03).** With no event set, the rows of one record (one per event or repeat
+  instance) are one row: a field takes its non-blank cell, a blank in another event is never a value, and a field with
+  different values on two events is refused and listed ("set the REDCap event"), not guessed.
+* **A lost database connection (A-02).** Decision: reopen, not `psycopg_pool`. Each store keeps one serialised
+  connection (the stores rely on it), and the pool package is not in the images. `Database.transaction()` reopens a
+  connection psycopg reports closed or broken, and retries `BEGIN` once on a fresh connection when the server dropped
+  it (nothing of the transaction ran, so reads and writes alike are safe). A failure inside a transaction is raised,
+  never repeated; the next call works. Advisory-lock `migrate` and `tb_prefix` are unchanged. `Database.ping()` backs
+  the console's `/healthz` (503 when the store is gone), the mail gateway's and the model gateway's (trace store); the
+  orchestrator's already reads its job store. Tests kill a backend and restart a throwaway cluster.
+* **Excerpts (A-06, R-37).** A note over half the excerpt budget is cut to that half (its evidence sentences first,
+  whole sentences of the note); a note that does not fit is skipped and the search goes on, so one long newest note no
+  longer hides the older evidence.
+* **S3/S4 throughput and the call budget (A-07, R-38).** The cascade runs patients' model calls `llm_concurrency` at
+  a time (each patient's criteria still in order, CAS-3; the budget reserved under a lock; answers equal to the
+  one-by-one run). SCREEN takes it from `TB_SCREEN_LLM_CONCURRENCY`, which the GPU compose files set to the judge's
+  `--max-num-seqs`. SCREEN's call budget is explicit: job option `max_pairs`, else `TB_SCREEN_MAX_PAIRS`, else 20,000
+  (was a silent 2,000). When it runs out, the summary says how many patients were not fully read (en / ja / zh-TW),
+  and the report JSON and the audit carry the count; those patients are listed for review, never excluded.
+* **Tests changed because they encoded the bug.** `test_gateway.py`: the D3-without-step refusals now run under
+  topology B (the box policy applies to A only).
+
+* **Evidence.** Suites: unit, console and testbench 1,460 passed. `make lint` clean (doclint clean).
+  `tools/e2e_simple.py`: PASSED in 165 s. `tools.backup_drill`: PASSED in 128 s.
+
+*Not done.*
+
+* LLM-2 proper (the orchestrator confirms the job step, `X-TB-Step`) for topologies B and C; `trialbox doctor` does not
+  yet fail when the gateway would refuse the judge.
+* The SS-MIX2 reader still takes ICD-10 from PRB-3's alternate coding only; the spec's example carries it in PRB-10
+  (`<ICD-10>^^I10^<診断種別>^...^JHSD0004`). PRB-14 is read as `R`/`resolved` only (HL7 0241 / JHSD0006 not mapped).
+* The CQL side does not read censored values (`TB_Common.cql`'s `ObsValue` ignores the comparator); CQL runs only in
+  the compile-time gate on fixtures, which have none. An "unreadable value" reason code (SQL NULL from text shows as a
+  data gap) and the "Excluded by records" page of P-04 are not built. A lake snapshot built before this step has no
+  `value_cmp` column: a ruleset compiled after the upgrade needs a rebuilt snapshot (the nightly rebuild makes one).
+* With concurrency, which patients a budget that runs out leaves unread depends on timing (it is counted and shown).
+* Not run here: Docker, `install.sh` on a box, a GPU pair. Other agents share this machine's Postgres.
+
+*Scenario-run fixes (D-141's matrix on this wave, 2026-11-09).* The matrix now checks A-01, GW-02, P-04 and B-03 as
+passed (the gateway probe pins the pair as `install.sh` does; B-03 also needed the push side: with no event set, each
+field goes to the event its form is designated for). Four new findings fixed, each with a test that failed before:
+XL-02, one `patient` row per pseudonym (a published site list duplicated every patient, and each criterion's join
+on `base` multiplied that to 2^(criteria + 1) rows), and the lake's spill capped (`TB_LAKE_MAX_TEMP`,
+`TB_LAKE_TEMP_DIR`, a `LAKE-LIMIT` error instead of a full disk); FHIR-01, the bulk import keeps a Practitioner's
+staff id in its id and in every reference; MAP-01, a diagnosis name is matched whole (known names in ja, zh-TW and
+en, then the ICD-10 title) with a confidence, never by a shared character, and nothing is suggested when unsure;
+DUMP-01, an undated record leaves a criterion unknown where the dated ones do not settle it, so the patient needs
+information (SQL and CQL; every input path reaches the lake that way). Committed rulesets' SQL is not recompiled
+here (as for B-01): a ruleset compiled after this step carries the rule.
+
+**D-143 Review wave 1b: console, safety and PI access (owner decision).** Pre-release review of 2026-11-09 (report
+06, end to end: P-01 to P-04, P-07, P-08, P-10; report 03, security: S-09), and the owner's decision of the same
+day: "PI can see everything, including chart number, patient information; they are the ones with full
+authorization."
+
+* **The study's PI may see and reveal identifiers (reverses D-133's "investigators may not reveal").**
+  `User.can_reveal` is administrator, coordinator and investigator; `User.sees_ids(study)` adds the study scope, so an
+  investigator of another study has no authority. The PI reveals on the patient page, the SCREEN job page and through
+  `POST /api/v1/studies/{rs}/patients/{pid}/reveal` (a reason is required, as on the page); the screening-log export
+  with chart numbers follows `sees_ids` too (it was any requester, unscoped). Kept: every reveal or view is audited
+  (`console.reveal_patient`, `console.reveal`, `console.view_id`), the orchestrator's 60-per-hour cap applies, and a
+  view on the console counts against the same cap. Viewer and CRO (sponsor, monitor) accounts stay masked everywhere.
+* **P-01.** The CASE job page's "web request" row showed `mrn=…` to every role. It shows the chart number only to an
+  account with identifier authority for the job's study, as one audited view under the cap (over the cap:
+  `console.view_id_refused`, masked); everyone else sees `mrn=•••`. Audit tables (job page and `/audit`) mask
+  identifiers for everyone. `public_e2e` stage 7b signs in as viewer and as CRA, opens every page the walk opens plus
+  the job pages, and fails on any chart number or name of the site; it also checks that the study's PI sees the CASE
+  request's chart number and that the view is audited.
+* **Mail (N1): a point for the owner to confirm.** Decision: N1, the PI's own mail, carries **no** chart number. Mail
+  leaves TrialBox (hospital mail servers, phones, forwarding); the PI sees the chart number on the page after sign-in,
+  where it is audited and capped. N1 and N2 keep the pseudonym and the screening number (D-136).
+* **P-02 / P-03, SAE.** A serious AE needs the investigator's acknowledgement, whatever its outcome (a fatal SAE,
+  outcome 5, counted as "not ongoing" and left the banner and N1 the moment it was saved). One tap on the banner, the
+  participant page or `POST /api/v1/studies/{rs}/aes/{record}/{event}/ack`; stored in the data core's `ae_ack` (schema
+  version 3: who and when; the first acknowledgement stands) and audited (`life.sae_ack` with the time and the outcome,
+  `console.sae_ack`). The coordinator sees "Waiting for the investigator's acknowledgement". N1 goes out on any working
+  day while an SAE waits. The AE form gains the day the site learned of it (`ae_aware`) and the report dates for
+  sponsor, IRB and regulator (`ae_rep_sponsor`, `ae_rep_irb`, `ae_rep_reg`, shown when serious). Each serious AE shows
+  its reporting clock on the participant page and the AE form; an overdue report is on the PI's and the CRC's home
+  pages and first in N2 (pseudonym, party and due day, never the AE term). Defaults, in days from the day the site
+  learned of it (else the onset), as fatal or life-threatening / other serious, chosen by the site's zone (Asia/Tokyo is
+  Japan) or `TB_SAE_RULES=jp|tw`, and overridden with `TB_SAE_REPORT_DAYS` (`sponsor=1,irb=7/15,regulator=0`; 0 turns
+  a party off):
+
+  | Report to | Japan (J-GCP art. 48; PMDA for investigator-initiated trials) | Taiwan (GCP; IRB SOPs; TFDA) |
+  | --- | --- | --- |
+  | Sponsor | 1 / 1 (直ちに) | 1 / 1 (at once) |
+  | IRB and the head of the institution | 1 / 1 (直ちに, through the head) | 7 / 15 |
+  | Regulator | 7 / 15 | 7 / 15 |
+
+  **These defaults need site confirmation** before the first patient: the IRB's SOP, the protocol and, for a sponsor
+  trial, the sponsor's SAE timelines decide; the regulator's report is usually the sponsor's duty (set it to 0 where the
+  site does not file).
+* **P-04.** Each SCREEN run stores `excluded_<study>_v<version>.json` with the job (tag phi, never mailed): every
+  excluded patient, the failing criterion with its evidence, and the source: the coded records, a confirmed fact (a
+  record whose id is a confirmed `site_fact`, D-135) or the notes with both models agreeing; a patient excluded by the
+  run's own rules (scope, research-contact consent) shows that rule in plain words. `/studies/{rs}/excluded` (PI, CRC,
+  administrator; 403 for viewer and CRO) shows them 25 to a page with a filter by source; "This is wrong, send to
+  review" is stored (site store `excluded_review`, schema version 2), listed first with who and when, and audited
+  (`console.excluded_review`). Linked from the week page and the study card; in the walk and in `public_e2e`.
+* **S-09.** The console signs the user it names to the orchestrator: `X-TB-Actor-Assertion` is
+  `v1.<expiry>.<session>.<hmac>`, HMAC-SHA256 over the actor, the console session (16 characters of the session
+  token's hash, bound per request) and an expiry two minutes ahead, keyed with `HMAC(console token,
+  "tb-actor-assertion/1")`, derived from D-138's per-service token, never the token itself. The orchestrator verifies it
+  for reveal, export, notices and cancel: with one shared token both sides derive the key; with per-service tokens
+  `trialbox secrets init` and `rotate` write the derived key to `deploy/secrets/services/actor/keys` (0600 in a 0700
+  folder), which only the orchestrator mounts (`TB_ACTOR_KEYS_FILE`); a console rotation keeps the old key valid until
+  the console runs on its new token. An unsigned or expired name is 403 and audited (`actor.refused`); no name is 400,
+  as before. The reveal cap and the new export cap count per calling service and verified person.
+  `GET /registry/{rs}/export.xlsx` now needs a verified user, is audited at the orchestrator (`registry.export`: actor,
+  session, sha256 of the file) and is capped (`TB_EXPORT_MAX_PER_HOUR`, 10). A box updated past this decision runs
+  `trialbox secrets init` once (RUNBOOK §5).
+* **P-07.** The REDCap read text said "Nothing is ever written to REDCap" under the write-back switch. It now says
+  TrialBox writes only when write-back is on, and then only its own three screening fields, never a field the study
+  team owns (en, ja, zh-TW).
+* **P-08.** The screening log's zh-TW "enrolled" is the glossary's 已收案 (was 已納入); the glossary test bans 已納入
+  and checks that the screening log and the lifecycle pages use one word for enrolled.
+* **P-10.** Disable account, Keep TrialBox's / Take the source's value, Detach REDCap and Approve all first show one
+  confirmation sheet with the consequence in a sentence; Yes posts the form again with `confirm=yes`. Role and study
+  checks come first. `/api/v1` calls are explicit and unchanged.
+
+*Evidence.* `tests/console/test_console_app.py` (the CASE request row by role, the view cap, the PI's reveal on the job
+page, the signed export), `tests/console/test_role_pages.py` (the PI's reveal on the page and through `/api/v1`, the
+viewer's 403), `tests/console/test_step2.py` (N1 never carries a chart number), `tests/unit/test_service_auth.py` and
+`tests/unit/test_service_secrets.py` (an unsigned, forged, expired or renamed actor refused; the per-person caps; the
+export audited and capped; the key file, its rotation and its one mount), `tests/console/test_sae_pages.py` (the JP/TW
+rules and the override; a fatal SAE stays until the PI acknowledges, on the pages, in N1 and N2, through `/api/v1`),
+`tests/console/test_excluded_page.py` (the page, sources, send to review, roles, Japanese; the run's excluded list),
+`tests/console/test_step4b.py` (P-07, P-08 and the new strings in three languages), `tests/console/test_data_pages.py`
+(confirmations). Suites: unit, console and testbench 1,438 passed. `make lint` clean. `tools/e2e_simple.py`: PASSED in
+166 s. `public_e2e --lang ja`: 117/117 (stage 7b: viewer and CRA on 50 pages each, no chart number or name).
+The walk (`node tools/public_walk.js` against a fresh `public_e2e --serve` on port 8957, random password never printed):
+810 checks, 0 failures over 798 pages (the excluded page for PI and CRC, 403 for viewer and CRA), axe 0 serious (84
+minor), 22,650 targets, 0 under 44 px, taps T1 to T9 within target.
+
+*Open.* Death does not move the participant to an end state, and an SAE is not linked to withdrawal; the reporting
+clock is one setting per box, not per study; a patient sent back from the excluded list does not enter the PI's
+weekly list by itself (the study team sees it on the page); the SS-MIX2 疑い flag (P-04's second half) is read by
+D-142 (wave 1a, integrated on this branch); "approached" still has two words per language (連絡済み / 声かけ済み, 已聯絡 / 已邀請); the rate limits are per
+process and in memory, not in Postgres; no Undo after a confirmed conflict decision; the owner confirms the N1
+decision and the site confirms the SAE defaults.
+
+**D-144 Owner decisions of 2026-11-09 on patient data, profile, roles, site operations, consortium and regulation (entered verbatim from the decisions record).** Owner, 2026-11-09; recorded here because the master plan (TB-PLAN-05) is under GAMP document control and its binding inputs must carry a sequence number (independent plan review PR-34). The source is `docs/reviews/2026-11-09-owner-decisions-data-and-profile.md`; this entry copies its decisions. Where a later entry changes one, the later entry says so.
+
+* **Scope and roles.** A full clinical repository now, used first for trials; the later Anamnesis layers on the same base. Structured facts for every patient in the hospital feed; written profiles for the departments that take part. **All history now.** Data steward: named hospital staff at each site; Aimedics never holds patient data. The steward may read all free-text notes at any time; every view audited. PI sees everything for their own studies' patients, chart numbers included (D-143). Treating physicians (clinician role) have access from the start; "own patients" = seen or ordered for in the last 24 months or booked in the next 90 days; each site's privacy office can add the inpatients of the physician's ward. Profile access: steward all; PI own studies; CRC own study; clinician own patients; every view audited and kept 10 years. Monitors: SDV on enrolled subjects only, cited record items. Break-glass: a reason and a second person on the steward/admin rota confirms; time-limited and audited.
+* **Whole-hospital screening, sub-PIs, referral.** A study screens the entire database. Sub-PI rights come by delegation (an ICH E6-style delegation log with ticked tasks: screen and see candidates, mark Approach, request referrals, enter data); only the PI approves criteria and signs off; every action records who did it. Candidate view: the PI and delegated sub-PIs see everything needed to decide about any candidate the screen finds anywhere in the hospital; each view logged with study and purpose and rate-limited. Referral: the treating physician is asked first through TrialBox (console and mail) and answers agree / decline with a reason / discuss; the PI contacts the patient only after agreement; each step logged and counted. The treating physician may be unknown to TrialBox: (1) a named attending is only suggested and the PI confirms or changes; (2) else the PI picks from a steward-maintained staff directory or types a name; (3) "arranged outside TrialBox" with the outcome recorded afterwards; (4) the steward's department contact list as the last fallback; a referral never stalls on a missing field.
+* **Site operations.** At the first site the CRC records the treating doctor's answer; mail with answer buttons and doctor accounts come later. IRB approval and ICF version before Approach: a warning, not a hard gate; each override logged. Delegation log: the trial office's signed log stays the record; TrialBox holds a copy that grants rights, with training dates; compared monthly. Opt-out kept by the office and recorded in TrialBox; the patient removed from screening, profiles, vectors and future exports; the removal logged. EDC: prefill, then the CRC confirms; REDCap through its API; other EDCs through CDISC ODM import, or by file or a copy-assist screen; no screen-scraping or RPA; items mapped to CDASH; TrialBox is part of the trial-data chain and needs GAMP 5 validation, a full audit trail and ER/ES / Part 11-style controls. Randomisation not in TrialBox. Drug accountability, TMF, site invoicing: inputs only (dispensing dates on the timeline, a dated indexed ISF bundle, an invoice-ready activity report per study and month). Patient messaging: a printed reminder card and a calendar file now; later opt-in reminders through the hospital's own SMS or LINE.
+* **Data model.** OMOP CDM v5.4 in Postgres is the store of record; FHIR (JP Core, TW Core) for exchange only; screening runs on a lake exported from OMOP with the same table names, counts identical. pgvector in the same Postgres. All subspecialties in one generic model; items mapped through the clinical item catalogue (LOINC, OMOP, OHDSI Phenotype Library, CDISC QRS, NIH CDE); first templates rheumatology, neurology, oncology, nephrology/general internal medicine. PI spreadsheets trusted as coded with the source shown; a sheet-vs-feed disagreement is a conflict and the item is unknown until the steward (whole database) or the PI (own study) picks a value; an unresolved conflict never excludes. Local code maps by the steward, a specialty PI confirms the important ones. SNOMED CT: ask about a licence; Aimedics holds it for the product, the consortium lead if the consortium buys its own; get a quote now; until then ICD-10-CM plus the WHO ICD-10 bridge. Consortium: counts and de-identified profiles may leave under IRB approval and a data-sharing agreement; export defaults project pseudonyms, dates shifted ±180 days, k = 5, no quotes, no vectors; a contract may only tighten; counts travel as signed files; the shared code-map registry is hosted at CGMH and shipped by Aimedics.
+* **Profile.** A wiki page per patient written by the model, every sentence cited and verified; physician annotations beside it; a machine-readable twin (JSON) and pgvector. v1 layers: cited record, timeline, phenotype, eligibility, personal lab setpoints, gap finder, similar patients. SaMD and clinicians (revised the same day): restricted until a written regulatory view exists; clinicians see the setpoint and gap layers only inside a study-referral context, as numbers without a disease name, behind a switch off by default, until a written PMDA/MHLW 該当性 view and a TFDA view exist; PIs and stewards see them labelled research use; forecasts stay out. A signed structured annotation counts as confirmed data; free text is read as a note; neither excludes silently; every exclusion listed on the "excluded and why" page (renamed "criteria not matched" by TB-PLAN-05 v1.2). Narrative written by the judge model at night in the site's language, English on request; nobody edits; the model abstains under 95 % cited sentences. Facts and the twin update within minutes; the narrative nightly or on request. First build: study patients first, nights only. Gap rules: approved by a PI of the specialty; live after at least 7 of 10 sample hits confirmed; model-proposed rules only after a prompt-injection and false-positive suite passes. Patients like me: structured catalogue items first, note embeddings re-rank, every match explained. Embeddings: bge-m3 default; Qwen3-Embedding-0.6B tested on ja/zh-TW data; all note types across the history; vectors in backups. One paid GPU test (about US$15–30) measures the profile cost before the build at scale.
+* **Hardware and order (morning).** First hospital box: 2 TB disk and 128 GB RAM, confirmed per site (changed by D-145). Order: Wave 1 and gate G1 first; OMOP, catalogue and profile in parallel, merging only after Wave 1.
+* **Accepted as recommended** (standalone review §6): profile versions kept 10 years; an open conflict blocks "ready"; setpoints as numbers with a "check" mark, never alerts; counts transport as a signed file; the first export reviewed by the exporter's privacy office and the lead site; consortium registry work starts now.
+* **Regulatory and commercial.** Light IEC 62304-shaped records for the profile module from now on. Business model: hospitals sign a platform licence; sponsors pay a per-study activation fee; no fees per enrolled patient. Evidence: draft the Study A protocol now (retrospective accuracy at CGMH, precision ≥ 0.75, wrong exclusion ≤ 2 %, opt-out/waiver route); no marketing claims before Study A.
+
+**D-145 Owner decisions of 2026-11-09 on the master plan and the pilot: frame, sites, hardware, hosting, contacts, and the answers to the independent plan review (entered verbatim).** Owner, 2026-11-09 (three sittings). Source: `docs/reviews/2026-11-09-owner-decisions-data-and-profile.md`, sections "Master plan and pilot", "Hardware, interim hosting and contacts" and "After the independent plan review". TB-PLAN-05 v1.2 (`docs/plan/25-master-plan.md`) is the plan these decisions produce.
+
+* **Frame.** "Both, linked": a product roadmap where every item traces to its regulatory record (requirement, risk, test; IEC 62304, ISO 14971, GAMP 5). Both pilot sites: CGMH (Taiwan) and Makoto's site (Japan). Claude agents build; Changfu and Makoto review and decide. Pilot scope "as complete as possible": screening, sub-PI delegation and referral, the OMOP core, study-patient profiles and REDCap EDC prefill. "Build all, use all": GAMP 5 validation of EDC prefill inside the pilot so prefill is live at go-live. Data feeds not known yet: the plan starts with a site survey. GPU budget approved; several GPUs may be used; the G1 run split across parallel capped VMs with the profile cost test and the bge-m3 vs Qwen3 embedding test (about US$50). Building continues while the plan is written.
+* **Hardware, hosting, contacts (second sitting).** CGMH hosts TrialBox on its own B200 server, shared with other work; no appliance box for CGMH; TrialBox runs in containers on CGMH's platform with a fixed GPU quota and its own install checks. One box for Makoto's site; keep the current model pair; size the box so a larger model can be added later. Before the hardware is ready: the hospital's private cloud with GPU, where the site has one approved for patient data. Changfu and Makoto find the IT, privacy-office and data-feed contacts; Aimedics drafts the site survey and the hospital IT security pack in ja and zh-TW. Wave 1c (job permission by role, viewer/CRO data leaks, PDF upload, screening scope, PI criteria ticks) fixed before the G1 run. Both pilot sites have IRB approval; the site survey confirms coverage of whole-hospital screening and patient profiles. CGMH first, then Japan. All recommendations of TB-PLAN-05 §13 accepted (Q-05 to Q-27).
+* **After the independent plan review (third sitting).** Full scope, later date: one go-live per site with everything in, CGMH about 2027-04-30, Japan about 2027-05-14; this replaces the February dates. Real patient data during the build: pseudonymised samples only, after the DPA is signed and where the IRB allows it; real data never goes into the repository, CI, logs, screenshots or review documents (the data-handling rule, `docs/plan/sites/data-handling-rule.md`). IRB amendments filed at both sites by 2026-11-20, covering profiles, vectors, cross-department identified views and the clinician role; Aimedics drafts them in ja and zh-TW. CGMH steward: Changfu for the pilot, with an independent CGMH second reviewer who co-signs validation and release records. B200 qualification: rent a cloud B200 in weeks 3 to 5 to qualify the model pair (about US$40–80, each VM capped and stopped); ask CGMH for a dedicated MIG partition, not a time-share. Review hours: about 14 hours a week each for Changfu and Makoto, plus the part-time safety-core engineer. Sponsor acknowledgement: EDC prefill is switched on per study only after the sponsor acknowledges in writing that TrialBox is in its source-data chain. Japan hardware: buy one DGX Spark now and benchmark it (model pair, 5k/50k screening, profile writer) before choosing between a Spark with a CPU-only workstation and an RTX PRO 6000 box; if the Spark is not enough, it becomes the development and demo machine.
+* **Evidence.** TB-PLAN-05 v1.2 §14 answers each of the 40 findings of `docs/reviews/2026-11-09-master-plan-independent-review.md`; `tools/gen_traceability.py` derives the traceability matrix and the totals from the plan's tables (`tests/unit/test_gen_traceability.py`).
+
+**D-146 Review wave 1c: the user journeys' high-risk findings (owner decisions).** User-journey review of 2026-11-09
+(`docs/reviews/2026-11-09-user-journeys-e2e.md`: J-01 to J-05, J-07, J-08, J-16, J-17, J-18, J-22, J-26, J-27), and the
+owner's decisions of the same day: a study must be able to screen the **whole hospital**, and **only the PI approves
+criteria**. Builds on D-104, D-108, D-120 and D-143 (S-09's signed actor). The sub-investigator delegation and
+referral work is on another branch and is not here; the role changes below are kept to `tb_common.authz`,
+`console.app._scope_check` and the approval page.
+
+* **J-01, a request is allowed by the person's role, not by a mailbox.** The console sends the signed-in person and
+  role with `POST /jobs` (`X-TB-Actor`, `X-TB-Actor-Role`; the S-09 assertion now covers the role, so a changed role
+  does not verify). The orchestrator then authorises by `tb_common.authz.ROLE_COMMANDS`: administrator and coordinator
+  start FEAS, SCREEN, COHORT, NAV, MICROBATCH, CASE, CONSENT, RELEASE, STATUS, CANCEL and FEEDBACK; the investigator
+  APPROVE and STATUS; viewer and CRO nothing. A mailed request (no person named) keeps the `settings.yaml` mailbox
+  rules. The mailbox stays the reply address; the `job.state` audit names the person and role. A refusal is a page in
+  the user's language (role, mailbox, or limit), never the orchestrator's JSON.
+* **J-02, the daily limit counts heavy runs only.** `rate_limit_per_sender_per_day` (default 20) now applies to each
+  heavy type on its own (FEAS, SCREEN, COHORT, NAV, MICROBATCH, CALIBRATION); CASE, CONSENT, STATUS, APPROVE and the
+  others are not counted. `rate_limits_per_day: {TYPE: n}` overrides per type (0 = no limit). Reached, the console
+  answers 429 with "Today's limit is reached" in en, ja and zh-TW. The mail gateway's own per-mail limit is unchanged.
+* **J-03 to J-05, one role rule for pages and `/api/v1`.** An aggregate-only account (viewer, CRO; D-104) is refused,
+  in one place (`console.app._aggregate_denied`, called from the page sign-in and from the API's bearer sign-in): every
+  `/studies/{rs}/…` page and `/api/v1/studies/{rs}/…` route but the study's feasibility report, the runs list, every
+  job page but a feasibility run's (the CASE job page printed a chart number line), the registry, the audit trail, the
+  site set-up and `/api/v1/site/…`, and the REDCap connections (`/admin/redcap` is the administrator's only; the
+  viewer read it). The patients and screening-log APIs check the page's `can_view_phi` too. The menus no longer offer
+  those pages to a viewer. The D-143 masking is unchanged: viewer and CRO are masked everywhere.
+* **J-07.** A PDF's text layer with NUL bytes (CJK fonts without a usable ToUnicode map) crashed the fact store
+  (`psycopg.DataError`) and the console said "try again later". Chart text of every format, and every string the model
+  writes back, is stripped of NUL, the other C0 controls but tab and line breaks, DEL and lone surrogates
+  (`sitesetup.charts.clean`).
+* **J-08.** `GET /setup/templates/codes` was read as the codes of a workspace named "templates" (a list; the console's
+  download was a 500). The template route is declared before the `/setup/{ws}/…` routes.
+* **J-26, Who to screen.** The study's set-up page has a "Who to screen" card (coordinator): **the whole hospital**
+  (every patient with a booked appointment in the window or a visit in the last 12 months, whoever the doctor) or only
+  some doctors' patients. Stored in S-28 (`study.screen_scope`, migration 3; `GET/PUT /studies/{rs}/screen-scope`,
+  audited `study.screen_scope`). A SCREEN uses, in order: the request's `pract=` (or `scope=hospital`), the set-up
+  page's choice, the ruleset's `scopes.screen`; with none it fails with "choose … under 'Who to screen' on the study's
+  set-up page". The run's mail and JSON say "the whole hospital" (`whole_hospital`).
+* **J-27, only the PI ticks and approves.** The per-criterion tick is the investigator's (was the coordinator's); the
+  page says who does what in three languages. The coordinator (and the PI) give the site's labels.
+* **Quick fixes.** J-17: the site pages show the account name, not `console:crc` (a `who` filter). J-22 / the draft
+  in English: the approval page shows the site's label above the protocol's words, which are marked as written
+  (`data-authored`, "as written in the protocol"); the feasibility funnel uses the site's label over the run's English
+  one. J-18: the username `pattern` is valid under the `v` flag (`[a-z0-9._\-]+`); a test checks every pattern. J-16:
+  `GET /api/v1/site/readiness` without `study=` answers 400 `study-required` (with the account's studies) when the
+  account has more than one.
+
+*Evidence.* `tests/unit/test_journey_rules.py` (role versus mailbox, the signed role, the heavy-only limit, NUL in a
+chart and a PDF, the whole-hospital scope on a real lake, the S-28 scope API and its order),
+`tests/console/test_journey_pages.py` (the person and role sent, the three refusals in three languages, every GET
+route walked as viewer and CRO, the study team's pages kept, the codes template, the account name, the readiness API,
+Who to screen, the strings, the site label, every `pattern`), and the updated `test_console_app.py` and
+`test_data_pages.py` (the PI ticks, the viewer's 403s). Each new test fails on f9481a2 (34 failed) and passes here.
+Also: `tests/conftest.py` restores `TB_SERVICE_TOKEN` after each test (the demo box set it for the process, and 5
+HTTP-surface tests failed after `test_list_demo` in `make test`, also on f9481a2), and `test_list_demo` follows D-143
+(N1/N2 carry the screening number). Checks: `make lint` clean; `make test` 1,640 passed, 2 skipped;
+`tools/e2e_simple.py` PASSED in 111 s; backup drill PASSED in 117 s; `public_e2e --lang ja` 120/120; the walk
+(`node tools/public_walk.js` on a fresh `public_e2e --serve`, random password never printed): 900 checks, 0 failures
+over 888 pages (viewer and CRA 403 on the CASE job, registry, audit, runs, set-up, sources and REDCap pages), axe 0
+serious (84 minor), 23,913 targets, 0 under 44 px, taps T1 to T9 within target.
+
+*Open.* The mail gateway still limits mail per sender (all commands, 20 a day); a console account without its own
+mailbox uses the administrator's address, so their limits are shared; the investigator does not refresh feasibility
+(J-22's second half); the site set-up pages are per site, not per study (J-06); no screen yet for the IT work (J-09) or
+the data steward (J-10).
+
+**D-147 Sub-investigators by delegation, the whole-hospital candidate view and the referral to the treating doctor.**
+Owner decisions of 2026-11-09 (`docs/reviews/2026-11-09-owner-decisions-data-and-profile.md`, "Whole-hospital
+screening, sub-investigators and referral" and "Site operations"), with the clinical-operations assessment
+(`docs/reviews/2026-11-09-holistic-01-clinical-operations.md` §2 rows 4–8, §3, §5 P0). Built 2026-11-09, no GPU, no
+Docker.
+
+*What the owner decided, and how it is built.*
+
+1. **Rights by delegation.** The PI keeps the study's delegation log (`/studies/{rs}/team`): each person, role (PI,
+   sub-investigator, CRC, other), the tasks the PI ticks (`screen` = see candidates, `approach` = mark Approach,
+   `refer` = ask a treating doctor, `enter_data`), first and last day, GCP training date and certificate. It is the
+   box's copy of the trial office's signed log, which stays the record; a monthly comparison is recorded on the page
+   (match / differs), and the CRC's home and the week page remind when it is more than 30 days old. The rights are rows
+   of D-146's role table (`libs/tb_common/authz.py`: `STUDY_TASKS`, `ROLE_STUDY_TASKS`, `study_tasks`); one function
+   (`services/console/team.py` `standing`) reads the study's log into it for the pages and `/api/v1`: the logged PI
+   has every task; a sub-investigator only the ticked ones, on the days the entry runs; an investigator not on a log that names
+   a PI is refused (403) on the week list, the patient page and the candidates. Only the logged PI approves criteria
+   (S20) and keeps the log. **Until a study's log names a PI, every investigator of the study acts as its PI**
+   (screen, approach, refer: the behaviour before D-147), so a study without a log keeps working. Coordinators and
+   administrators keep their role's rights; an investigator with the `enter_data` tick may also enter trial values
+   (adding forms stays the coordinator's). Every change and every action carries its actor (rows and audit:
+   `console.delegation`, `console.pi_mark`, `console.referral`, ...).
+2. **Candidates across the hospital** (`/studies/{rs}/candidates`): every candidate of the study's latest screening
+   run, whoever the treating doctor is, with the doctor as a *suggestion* from the data or "unknown", the referral
+   state and the mark. Whose patients the run looked at comes from D-146's "Who to screen": the page says whether it
+   was the whole hospital or some doctors' patients, and links the choice on the study's set-up. A candidate's page opens only with a purpose (decide fit, ask the doctor, prepare contact,
+   other); each view is audited (`console.candidate_view`: study, pseudonym, purpose) and counted in the `team`
+   schema, and limited per person (`TB_CANDIDATE_VIEWS_PER_HOUR`, default 60; over it, 429 and
+   `console.rate_limited`). It shows the identifiers, why the patient fits or not, the cited record (the patient
+   page's criteria table, now `_criteria.html`), the referral and its trail. **The chart number** goes through
+   D-143's reveal and nothing else: the candidate page calls the patient page's `apply_reveal` (identifier authority
+   `User.sees_ids`, a reason from the D-143 list, `console.reveal_patient` on the console and the orchestrator's audit,
+   the orchestrator's per-person cap), adding only `via: candidates` and the view's purpose to the record; there is no
+   second reveal route on `/api/v1` (`POST /api/v1/studies/{rs}/patients/{pid}/reveal` is the one). D-147 narrows
+   D-143 by the delegation log: once a study's log names a PI, an investigator reveals, on the patient page, the
+   candidate page and `/api/v1` alike, only as that PI or as a sub-investigator ticked `screen`. CRO and viewer
+   accounts get 403 on every page and route.
+3. **Referral; the treating doctor may be unknown.** From the candidate page the PI or a sub-investigator with
+   `refer` sends a request: confirm the doctor the data names (TrialBox only suggests), pick from the steward's staff
+   directory (`/site/staff`), type a name, choose "arranged outside TrialBox", or the department contact (the
+   default when the data names nobody). **No field is required**: a request without a name is stored with the doctor
+   unknown and the CRC finds them. The route, what the data suggested and what was chosen are kept. The patient gets
+   a screening number at the request. At the first sites **the CRC records the doctor's answer** on the referrals
+   page (agree to introduce / decline with a reason / discuss; by phone, in person, EMR message), so the doctor
+   needs no account; for "arranged outside TrialBox" the PI or sub-investigator may record it too. The open
+   referrals are on the CRC's home and in the N2 digest. **The PI contacts the patient only after agreement**: while
+   the latest referral is open or declined, Approach is refused (409 `approach.wait_referral`) on the page and the
+   API; a declined patient may be asked about again with a new request. The screening log (page, XLSX, `/api/v1`)
+   carries each referral's route and outcome (`referral_route`, `referral_outcome`, reason, dates).
+4. **IRB approval and the current consent-form version** (`/studies/{rs}/irb`: approval number, approved on, valid
+   until, consent-form version and its date). Missing or expired is **a warning, not a gate**: it is shown beside the
+   Approach button, and an Approach marked under it is recorded as an override (`approach_overrides` table,
+   `console.approach_override` audit event, the IRB page and an `approach_irb_override` column in the screening log).
+   An expired approval also expires the consent form approved under it. The clinical-operations review advised a hard
+   gate (its Q6); the owner chose the warning.
+5. **Opt-out register** (`/site/opt-outs`, `libs/tb_common/optout.py`, schema `optout`), kept by the research office
+   or the steward (coordinator and administrator accounts, as the site set-up, until the steward role exists). A
+   chart number typed there becomes the box's pseudonym through the orchestrator (`POST /setup/pseudonym`) and is
+   never stored; the register is an event log (opt-out, taken back). An opted-out patient is removed from **screening**
+   (the SCREEN and MICROBATCH scope, `screen.opt_out_removed` with the count), from **every candidate list and page**
+   (week list, patient and candidate pages, referrals, cohort list, N1/N2, `/api/v1`) and from **later exports** (the
+   screening log XLSX, the registry export). The register is read as it stood when a job was received, so a re-run
+   of an old job stays byte-identical (D-82). Each registration is audited (`console.opt_out`); lists show only the
+   count removed, never who.
+
+*Stores.* `team` (delegation log and its history and comparisons, staff directory, department contacts, referrals
+and their events, IRB records, Approach overrides, candidate views) and `optout`, each its own schema of the trial
+database with versioned migrations (D-126); both are in the backup.
+
+*Evidence.* `tests/console/test_team_pages.py` (13): the stores; the register's as-of reading; a sub-investigator
+without the Approach tick refused and allowed once ticked, an investigator not on the log refused everywhere, the
+sub-investigator unable to change their own ticks; only the logged PI approves; CRO and viewer masked on pages and
+the API; the purpose before any patient-level content, the view audited with the purpose; D-143's reveal on the candidate
+page (a reason required, `via` and purpose recorded) and on the patient page for the PI; the delegated sub-PI
+revealing on the patient page and the investigator not on the log refused there and on `/api/v1`; the view limit
+(429) and the orchestrator's cap reached from the candidate page (409, no chart number); an unknown doctor (department contact by default, a typed
+empty name, the directory instead of the suggestion, "outside" answered by the PI through the API), Approach refused
+until agreement and after a decline, the screening log's route and outcome; the IRB warning not a gate, each
+override recorded, an expired approval warning again; the opt-out removing the patient from the list, the pages, the
+log, its XLSX and the API, and back after it is taken back; the orchestrator's scope dropping the patient, and not
+for a job received before the opt-out; every page in three languages. `e2e_simple` stage 15 (15 checks): the PI and
+a sub-investigator on the log, the sub-investigator seeing every candidate and revealing a real chart number through
+D-143's reveal with a reason and the purpose, Approach refused without the tick, an "outside TrialBox" referral numbered, the PI's Approach waiting, the
+CRC's agreement, the override recorded, the XLSX route and outcome, the CRO and viewer refused, an opt-out entered
+by chart number registered under the pseudonym, gone from the lists, and left out of the next SCREEN run with its
+audit event. `tools/complete_run.py` maps stage 15 to the candidates page; the browser walk opens the new pages for
+the PI and the CRC and expects 403 for the viewer and the CRO. Runs here: `make lint` clean; `e2e_simple` PASSED (184 checks, stage 15: 15); `tools.backup_drill` PASSED;
+`public_e2e --lang ja` 120/120; the walk 1,002 checks, 0 failures, axe 0 serious, no target under 44 px. `make test`
+in file order (`-p no:randomly`): 1,681 passed, 1 failed: `tests/unit/test_no_direct_model_calls.py` flags model API calls in
+D-148's `tools/bench_profile.py` and `tests/unit/test_gpu_prep.py`, files this entry does not touch. With `pytest-randomly`, which is in this machine's shared
+virtual environment but not in `pyproject.toml`, the order changes on each run and up to six integration tests fail:
+`tests/integration/test_twpas_inproc.py`, `test_cohort_inproc.py` and `test_screen_inproc.py` share a module-scoped
+box and need their tests in file order. The same tests fail on the base commit alone under that plugin.
+
+*Not done.* FEAS counts do not read the opt-out register (the feed's consent
+table still applies there), and the data core's own exports (ODM, REDCap CSV of consented participants) are not
+filtered by it. The doctor's own console page and the mail with answer buttons are later (owner decision). No
+steward role yet: the coordinator and the administrator keep the staff directory and the register.
+
+**D-148 The next GPU runs: the complete run on several VMs, the embedding comparison and the profile cost stand-in.**
+Owner's approval of 2026-11-09 (three runs, about US$50 in all, several GPUs allowed), 2026-11-09. Code and dry runs
+only: built in a cloud container with no GPU; no VM was started or made and no gcloud call that changes anything was
+run.
+
+*Parallel complete run* (`deploy/gcp/complete-run.sh --vms N`, `tools/complete_run.py` `shard_plan`). The run is split
+into N shards of whole parts (`complete_run --only` tags), longest part first onto the least-loaded VM. Chosen over a
+split by patient range: each hospital part reads the whole 50,000-patient hospital (FEAS counts, SCREEN, the re-run's
+byte identity), so a range split would change what is measured; a split by parts keeps every part as on one VM and
+the merged report is the single-VM report. `prepare` goes with every shard that has a hospital part (same seed, same
+hospital), `install` with the first. Each VM keeps D-141's nets unchanged: its own cap (its estimate × 1.3, rounded
+up, set before its start), key, watchdog and heartbeat, its own run directory; the driver runs one child per VM (the
+D-141 code path), waits, merges `parts/` and the screenshots, runs the stub parts once and writes one report.
+`--collect` collects every VM of a run from its `plan.json`. VM 1 is `tb-gpu-sim`; VMs 2..N are clones
+(`--provision`: a machine image, then `instances create` with SPOT, STOP, a 30-minute cap and a startup script that
+powers off at once, because create starts the VM). Zones come from `--zones` (one per region where the GPU quota is
+1 per region); the default list after `asia-east1-a` is candidates only, and the dry run prints the owner's read-only
+zone and quota checks. `--estimate --vms N --parts ...` prints hours and US$ per VM and in all; the longest part
+(`db-csv`, 2.14 h on the card) bounds the wall time, so four VMs reach about 2.8 h.
+
+*Embedding comparison* (`tools/bench_embed.py`, part `embed`). bge-m3 (CLS pooling) against Qwen3-Embedding-0.6B
+(last-token pooling, an instruction on queries), fp16, 1024 dimensions, in the vLLM image already on the card (its
+torch and transformers run on the RTX PRO 6000). Corpus: every ja and zh-TW note of a 4,000-patient synthetic
+hospital (about 6,400). Labelled queries per language: the generator's planted needles (relevant: every note with the
+needle's sentence) and two paraphrased questions per note finding (relevant: every note with that finding; each
+criterion's two values are a negation trap). Measured: docs/s and tokens/s, GPU memory (weights and peak, torch),
+needle MRR@10 and recall@10, finding nDCG@10 and P@10, per language; halfvec size 2 × 1024 + 8 = 2,056 bytes a vector
+(about 1.9 GiB per million, column value only).
+
+*Profile cost stand-in* (`tools/bench_profile.py`, part `profile`). The judge writes a 4-8 sentence summary of one
+synthetic patient from that patient's facts (diagnoses, latest labs, medicines, vitals, procedures, reports, the
+three latest notes with their planted PHI masked), each sentence citing fact ids, through the installed box's
+gateway (role `abstract_field`, D3); if the gateway refuses, the reason is recorded and the bench calls the judge
+directly so the cost is still measured. 400 patients: 16 one at a time, the rest at 16 in parallel (the card's batch).
+Reported: tokens in and out, seconds per patient, GPU-hours per 1,000, citation validity, and the extrapolation to
+50,000 nightly, to the study patients (the generator's study archetypes, an upper bound) and to the note-stage
+patients (S3, 92 of 5,000).
+
+*Estimate* (`--estimate --patients 50000 --vms 4 --parts g1,embed,profile`): 10.95 VM-hours, US$30.00, wall about
+2.8 h; each VM capped at 4 h, so at most US$43.84. The bench times are set high until the card measures them
+(embeddings 0.25 h, profiles 400 s + 2 s a patient).
+
+*Evidence.* `tests/unit/test_gpu_prep.py` (every part on exactly one VM for N = 1..4, the hospital parts after their
+`prepare`, install on VM 1, the per-VM caps; the labelled set; retrieval metrics on known vectors; the hash-stub bench;
+facts without identity; the stub profile run and its extrapolation; the gateway path and its fallback; the driver's
+dry run for three VMs: each VM capped before its own start, its own `tb-only`, no VM made by a run; `--provision`).
+`make lint` clean; `tools/e2e_simple.py` PASSED; `complete-run.sh --dry-run` and `--estimate` for N = 1, 2, 3, 4.
+
+*Not done; only the card can show.* No bench number is measured yet. The clones, other zones and the quota are the
+owner's to check; the G4 zones in the default list are not verified here.
+
+**D-149 The data-flow lifecycle review's P0 fixes: deletes on delta nights, validation before `CURRENT`, one vector
+store, lake schema version and sidecar hashes, the export ledger v1, derived-score units and the JSN eGFR, zstd
+backups.**
+Source: `docs/reviews/2026-11-09-dataflow-lifecycle-review.md` §9 P0 and §4, with the owner's answers of 2026-11-09
+(D-144, D-145; the review's questions 1, 2, 4, 5 and 10 accepted as recommended: eGFR is JSN 2009 in Japan and
+CKD-EPI 2021 in Taiwan and a protocol may name either; a lab unit missing on a row is the declared default per analyte
+for a hospital feed and unknown for sheets and charts; embeddings in one store, not in snapshots; CPU zstd, no GPU
+compression). Workstreams of TB-PLAN-05 (`docs/plan/25-master-plan.md`): WS-03.7, WS-08.1, WS-05.3, WS-03.1, WS-08.3,
+WS-04.3 with WS-01.2, WS-08.6. Built in the cloud container on synthetic data; `deploy/gcp/` and
+`tools/complete_run.py` are untouched.
+
+1. *Deletes on delta nights* (P0-1, WS-03.7). `adapter/ndjson.write_snapshot` takes tombstones (type -> ids deleted
+   at the source) and drops them from the merged snapshot; a record sent again in the same run wins. The ids dropped
+   are written to `tombstones.json` beside the snapshot (absent when none, so a night without deletes is
+   byte-identical), counted in `IngestReport.tombstoned` (schema 1.3.0) and in the audit. Sources: a `deleted` column
+   on any CSV or SQL table (or the table's `deleted:` column; `1`, `true`, `y`, `d`, `deleted` count), which also keeps
+   such a row out of a full run; SS-MIX2 records whose newest file has flag `0` (`Ssmix2Source.deleted_rows`, read and
+   mapped like a live record to find its id; extended-storage documents the same); FHIR Bulk `deleted` Bundles
+   (`DELETE Type/id` entries beside the export or under `deleted/`; a Bundle is never read as a resource). The id is
+   computed exactly as for the record (`Mapper.tombstones`, `pipeline.bulk_id`). A Patient is never tombstoned by a
+   feed delta: removing a person is the opt-out path's job (P0-4, not in this entry). fhir-store follows because its
+   ledger already deletes what left the snapshot.
+2. *Validation before `CURRENT` moves* (P0-2, WS-08.1). The night now runs NDJSON, then the sample validation and JP
+   Core check, then fhir-store and the lake. Any error before loading (a mapping error, the 0.5 % limit, JP Core, a
+   validator that did not run) *holds* the night: fhir-store and the lake are not loaded, `CURRENT` keeps the
+   previous snapshot, `IngestReport.held` is true and the audit event is `ingest.held` (the console's Sources page
+   reads it with `ingest.done` / `ingest.failed`). The held night's NDJSON stays for the steward; the next delta night
+   merges over it, so no change of the source is lost. `Lake.rebuild` builds into `.building`, writes the sidecars,
+   renames, and only then writes `CURRENT` atomically (`Lake.promote`); `promote=False` builds without serving.
+3. *One vector store* (P0-6, WS-05.3; owner question 4 answer (b)). `document_chunk` keeps text, tokens and a new
+   `sha` column; the vectors live only in `embed_cache.duckdb` (keyed by sha and model, as before). `Lake.search`
+   reads the patient's chunk shas from the snapshot and their vectors from the store, ranks by cosine in NumPy with the
+   SQL's order and tie-break, and fuses with BM25 as before. The store is opened per read or write under one process
+   lock (DuckDB refuses a read-only and a read-write connection side by side) and waits up to 30 s for another
+   process's write lock; the rebuild no longer holds all vectors in memory. A snapshot of schema 1 (vectors inside) is
+   still searched with its own column. Saving: 4 KiB a chunk per kept snapshot (1,024 float32), the review's ~18 GB
+   times 39 snapshots at 50,000 patients. The store is in the lake folder, so it is in every backup (owner: vectors
+   in backups). pgvector (`note_chunk`) remains WS-05.3's P1 step.
+4. *Lake schema version and sidecar hashes* (P0-7, WS-03.1). `lake_meta` gains `schema_version` (2),
+   `schema_sha` (a hash of every table's columns and types and the chunk table), `embed_store` and `embed_model`.
+   `Lake.connect` checks the version on every open and refuses a snapshot without `lake_meta` or outside 1..2 with
+   `LAKE-SCHEMA: ... Rebuild it` / `... Finish the update`, instead of a missing-column error later. Every Parquet file
+   and the DuckDB file get a `<file>.sha256` sidecar (`sha256sum` format); `Lake.verify(snapshot)` lists any file that
+   does not match. Retention removes the sidecars with their snapshot.
+5. *Export ledger v1* (P0-8, WS-08.3). `tb_common/flowledger.py`: every file that leaves the box is a `flow.export`
+   event in the hash-chained audit with channel, file name, bytes, sha256, identifier level (`aggregate`,
+   `pseudonymised`, `identified`), the approval it left under, recipients, actor, ruleset and job. An export without an
+   approval reference or with an unknown level is refused before it leaves. Recorded today: every job output
+   (`Ctx.publish`: a `phi` file is `identified`; approval = the ruleset version and the job's requester), the console's
+   aggregate downloads, sponsor packs and D1 cascade files, the screening-log export with chart numbers, the data
+   core's ODM/CSV/XLSX exports and every REDCap sync that pushed values (hashed over its summary). `python -m
+   tools.trialbox exports [--days 30] [--json]` lists what left and to whom. The P1 `dataops.flow` table and page are
+   fed from these events.
+6. *Derived scores* (P0-5, WS-04.3 and WS-01.2). `tb_common/derived.py`:
+   - **Units.** Each component is converted to the formula's unit with UCUM factors (`UNITS`: CRP `mg/dL` x 10 =
+     `mg/L`, `ug/mL` = `mg/L`; creatinine `umol/L` / 88.4 = `mg/dL`; ESR `mm/h`; weight `g`, `[lb_av]`; height `m`,
+     `mm`, `[in_i]`); counts and scores accept no unit or a UCUM annotation, the patient global `mm`. Any other unit,
+     or a lab row with no unit (a sheet or chart value), gives no value and `derived_unit:<component>`. The hospital
+     feed's declared unit per analyte is the mapping's lab lookup (as before) and, new, `unit_defaults` (LOINC ->
+     UCUM) in the site mapping for a feed result that arrives without one, including FHIR Bulk
+     (`pipeline.apply_unit_defaults`, tagged `urn:trialbox:unit-source|site-default`, counted in the audit). The CRP
+     term no longer assumes mg/L whatever the row says.
+   - **Same visit.** DAS28 takes its components from one visit: the newest TJC28 in the window, then SJC28 and the
+     patient global on the same day and the ESR or CRP within 7 days of it (catalogue `das28_*.yaml` windows); BASDAI
+     and ASDAS the same way (`SAME_VISIT`). An ESR at the visit is used when it exists; its unit must fit and an ESR
+     of 0 is no value (the catalogue's zero rule), never a fall back to the CRP.
+   - **JSN 2009 eGFR.** `egfr_jsn` (194 x Cr^-1.094 x age^-0.287, x 0.739 female) beside `egfr_ckd_epi`; both in the
+     criterion IR (schema 1.1.0), the LLM extract schema, the SQL and CQL generators (`TB_Common.EGFRJSN`, per-unit
+     `Conv_<component>`, `SameVisit`) and the v3 calculators (`egfr_jsn_2009@1.0.0`, `egfr_ckd_epi_2021@1.1.0`). A
+     criterion that says only "eGFR" is compiled to `egfr_jsn` at a Japanese site (time zone or locale) and stays
+     `egfr` (CKD-EPI 2021, as approved before) elsewhere (`CompilerDeps.egfr`, `postprocess(egfr=...)`); a protocol
+     that names its equation keeps it, and the stored IR names it, so the approval covers the choice.
+   - **No value with a reason, never FALSE** (D-130). The SQL template writes `derived_missing_input:<c>` or
+     `derived_unit:<c>` as the atom's evidence when it has no value; the SQL engine and the cascade turn it into the
+     reasons `derived_missing_input` / `derived_unit` (new `Reason` codes with en, ja and zh-TW words) and keep the
+     patient (an unknown exclusion passes, an unknown inclusion is "needs information"). Before, the components' record
+     ids were the evidence, which the cascade read as "a code outside the list".
+   - **Worked examples** (`tests/unit/test_derived_scores.py`), in Python and in the compiled SQL on a small lake:
+     CKD-EPI 2021 59.3 (F 55, Cr 1.1) and 69.2 (M 60, Cr 1.2), the same woman in µmol/L; JSN 63.1 (M 50, Cr 1.0,
+     catalogue), 59.9 (M 60, Cr 1.0) and 40.9 (F 55, Cr 1.1: "eGFR >= 45" passes by CKD-EPI and fails by JSN);
+     DAS28-ESR 4.26; DAS28-CRP 3.99 with CRP 10 mg/L and with 1.0 mg/dL (3.37 before the fix); CDAI 14.5, 27 and 1.5;
+     SDAI 31 and 1.2; BMI 22.9 (height in metres); age at index 65 (born 1960-11-10, index 2026-11-09). CDAI and SDAI
+     are Python reference functions only; their engine rows come with WS-04.3's stored derived rows.
+   - The draft-document DAS28 (`orchestrator/scenarios/facts.py`) uses the same engine (`derived.compute`).
+7. *Backups* (P0-3 codec part, WS-08.6; owner question 10 answer (a)). The tar inside a `.tbbak` is zstd level 3 on
+   every core (`zstandard`, `threads=-1`, added to `pyproject.toml` and `deploy/requirements.lock`), then encrypted as
+   before. The authenticated header says `"compression": "zstd"`; a backup without the key is gzip, so every backup
+   made before D-149 verifies and restores unchanged (tested with a backup written in the old format). The layout
+   changes, hashes from the stream, the schedule and the age alert of WS-08.6 are not in this entry.
+
+*Evidence.* `tests/unit/test_dataflow_lake_p0.py` (tombstones in `write_snapshot`, a deleted CSV row on a delta
+night is gone from NDJSON and lake, a deleted row never enters a full run, FHIR Bulk deleted Bundles, SS-MIX2 flag
+0, a night over the validation limit leaves `CURRENT` and the lake untouched with `ingest.held`, no vectors in the
+snapshot and search equal to brute force, a schema-1 snapshot still searched, an unknown schema refused, sidecars
+catch a changed file); `tests/unit/test_export_ledger.py`; `tests/unit/test_derived_scores.py`; two new tests in
+`tests/unit/test_backup.py`. Each of these fails on `origin/master` f4c56d0 and passes here. The ATOMS CQL and SQL
+snapshots are regenerated for the unit, visit and reason columns; the CQL (with `TB_Common`) translates with the
+cql-to-elm jars. `make lint` clean; `make test` 1,720 passed, 2 skipped; `tools/e2e_simple.py` PASSED; the backup
+drill PASSED (its backup now zstd); `public_e2e --lang ja` 120/120.
+
+*Not done here.* The opt-out worker (P0-4) and the rest of the backup row (layout, stream hashes, schedule, age
+alert) are separate P0 items. Stored derived rows with provenance, `tb_score_definition` from
+`catalogue/scores/*.yaml`, CDAI/SDAI in the engines and derived-vs-documented conflicts are WS-04.3 (P1). The
+shipped mappings declare no `unit_defaults` yet: each site declares them in its survey (its lab lookup already
+carries a unit per analyte). The R-31 check of a row's own unit against the lookup's (WS-01.2) is still open for
+feed rows mapped through a lookup.
+
+**D-150 The cloud run made reliable, and its local rehearsal as the gate before any paid launch.** Independent review
+of the cloud GPU run (2026-11-09, 25 findings, after the four failed runs of that day), 2026-11-09. Built in a cloud
+container with no GPU; no VM was started and no gcloud command was run. On top of `gw404` (the served-name fix, C-01).
+
+*Why.* Every failure of 2026-11-09 lived where nothing had run before the paid VM: the VM script was tested by text
+greps, the driver by a dry run that never executes the VM script, and the local stub accepts any model name. The
+review's prototype ran the unchanged VM script in an Ubuntu 24.04 container against strict stand-ins and reproduced
+run 4's 404 for nothing. That is now permanent (`tests/rehearsal`, `make rehearse`) and the gate before any paid
+launch (RUNBOOK §11).
+
+*The VM* (`deploy/gcp/complete-run-vm.sh`). A run directory per run id (`/var/lib/tb/runs/<id>`; other runs' state,
+the old log and the old `results.tgz` are removed at boot; H-01, M-01). A pre-flight (docker with the NVIDIA runtime,
+nvidia-smi, both weight folders, 50 GB free; M-08). Both model servers must be healthy, list exactly their served
+name, answer one chat call through the run's own path and refuse a call without the key before `PRO6000-RUN-READY`;
+else `TB-SERVING-FAILED` with their logs in `results.tgz` (H-02). The watchdog limits each phase (serving and setup 45
+minutes, the code 35) instead of one hour from boot (M-04); docker is waited for, the door restarts on failure and is
+checked through nginx with the key, an empty key powers off (M-05). The driver puts the archive's sha256 in the
+metadata and the VM refuses anything else; `tar --no-same-owner` (M-06, the hardening part; HTTP stays). `git` is
+installed (M-08); Chromium must launch (L-05). `results.tgz` is re-packed after every part, atomically (M-10). A
+results-only boot (`tb-collect-only=1`: door and nginx, no models, no run) hands a stopped VM's results over (H-04,
+L-03). Every failure ends with a marker line, a `results.tgz` that says why, and the done marker.
+
+*The data git does not carry* (`tools/fetch_run_data.py`; C-02, C-03). The hospital parts crashed because the box
+reads FHIRHelpers from `quick-5.4.0.jar`; the in-process box's translator is a fake, so no JRE and none of
+`fetch_jvm_deps.sh`'s 770 MB are needed: the one jar (4.8 MB, Maven Central, sha256-pinned) replaces `gw404`'s maven
+step (M-11). Its Maven path is `org/cqframework`; `hosted-demo-startup.sh` had `info/cqframework`, a 404, fixed.
+MedTxt (1.4 MB) and TREC CT (topics, qrels, CT.gov fields, and the sampled trials streamed from NCBI's 275 MB corpus
+without keeping it) are fetched for the parts that need them, once per disk. A part whose data is missing fails at
+once with "data missing" and never builds a box, so it uses no card time (`complete_run.data_missing`).
+
+*The run* (`tools/complete_run.py`). Each part's result records its run id, HEAD and host; `--resume` keeps a part
+only when both match and removes the rest (H-01). While a part runs, the run touches the heartbeat whenever the
+part's processes used CPU in the last 30 s: a silent 50,000-patient SCREEN stays alive with no driver, a stuck part
+does not (H-03). The report takes HEAD, host and run id from the parts (the VM's, not the driver's at collect time);
+the stub parts run at the run's `--patients` with OCR tesseract (M-02); a crashed or data-less part is named in the
+headline with the number of its checks that never ran (from `--planned-from`, a full run's report; M-03); `profile`
+has a check "the gateway answered" that fails on the direct fallback, with a finding (M-03); the path says "synthetic
+weight pins" when the pins are of synthetic files (M-09). The driver's children used to ignore `--patients` (every
+VM generated 50,000); they now read it from the plan.
+
+*The driver* (`deploy/gcp/complete-run.sh`). `--no-wait`, then a short `--collect <run id>` as often as wanted: one
+look, the results so far, the report so far; a stopped VM with uncollected results is started once results-only
+(20-minute cloud cap); `--follow` keeps the old polling, `--detach` runs the driver under setsid/nohup (H-04). Before
+any start or `--provision` the GPU quota (`GPUS_ALL_REGIONS`, the region's RTX PRO 6000 quota, PREEMPTIBLE when it has
+a limit, else regular) and the CPU quota are read, and a too-small quota is refused before any machine image or VM is
+made (H-05, L-04). `--only TAG,TAG` bounds a run: estimate, cap and plan hold only those parts.
+
+*The rehearsal* (`tests/rehearsal/rehearse.sh`, `make rehearse`). The real driver at HEAD and the real VM script,
+unchanged, in an Ubuntu 24.04 container (a private dockerd when none answers): fakes only for gcloud, the metadata
+server, systemd, docker and nvidia-smi; vLLM stand-ins that check the key and answer 404 to any but the served name;
+real nginx, apt, PyPI, Node.js, Playwright and data hosts. One disk, booted again and again: `run-a` (fresh disk,
+bounded run at 500 patients), `run-b` (same disk, new run), and the negative cases `served`, `no-upload`, `hang`,
+`busy`; `check.py` holds the pass criteria. Model quality is not rehearsed: the canary, the checks that need a passed
+canary and TREC's verdicts may fail on the deterministic stub, by name; nothing else may.
+
+*Evidence.* `make rehearse` on `8890532` (the code of this entry; later commits change only this entry's number and
+text): **REHEARSAL PASSED**, all six cases, 94 of 94 criteria, 33 minutes, the private dockerd and its mounts removed
+afterwards. `run-a`: setup on a fresh disk in about 4 minutes; `TB-DATA` cql, medtxt and trec ready (TREC in about one
+minute); every part reported, none crashed: 326 of 331 checks, the 5 failing ones the canary and the checks that need
+it and TREC's verdicts (the stub's answers); judge 868 and verifier 452 calls answered, **0 × 404, 0 × 401** besides the
+pre-flight's own no-key refusal; the report's HEAD = the launched commit, "synthetic weight pins"; power-off one minute
+after the driver collected. `run-b`: nothing kept, one boot in the log, the report's HEAD right. Negative cases, each
+failing as it should: `served` stopped before any part with "TB-SERVING-FAILED: judge serves 'local/not-the-judge',
+the run asks for 'local/gemma-4-26b-a4b-nvfp4'", the servers' logs in `results.tgz`; `no-upload`: TB-NO-CODE, power-off
+after the grace; `hang`: "TB-WATCHDOG no heartbeat for 2 minutes in the run (a stuck part)", then `--collect` started
+the stopped VM results-only and got the log; `busy`: a 5-minute silent part with a 2-minute idle limit finished
+(PASS), power-off only after the grace, collected results-only. The rehearsal found three defects before they cost
+money: the run exited 127 when started with a `${X:+VAR=v}` prefix; a VM stopped during its first part had no
+`results.tgz`; and `--collect` restarted a VM with nothing to hand over at every call. Unit tests:
+`tests/unit/test_cloud_run.py` (20), with `test_complete_run`, `test_gpu_prep`, `test_scenario_matrix`,
+`test_served_names`, `test_no_direct_model_calls` green. `make lint` clean; `tools/e2e_simple.py` PASSED;
+`complete-run.sh --dry-run` and `--estimate` (full plan 8.87 h, US$24.29, cap 12 h).
+
+*Not done.* HTTPS or the bucket path for the door (M-06's transport part, M-07): the key still crosses plain HTTP and
+the bucket path is not rehearsed. Real weight pins on the VM (M-09 is labelled instead). L-01, L-02 (the judge name
+from config, the silent pin rename). The serving-record capture is not rehearsed (it needs `docker inspect`), so
+`install` is not among the rehearsal's parts. The project's quota allows one GPU: `--vms N > 1` is refused until it
+is raised.
+
+**D-151 The OMOP CDM v5.4 core, first slice: the `omop` schema, the loader, the lake exported from OMOP behind
+`TB_LAKE_SOURCE`, the equivalence test and DQD-style checks.** Owner decisions of 2026-11-09 (D-144, "Data model":
+OMOP v5.4 in Postgres is the store of record, FHIR for exchange only, screening on a lake exported from OMOP with the
+same table names so the counts stay identical, pgvector in the same Postgres, local concepts ≥ 2,000,000,000,
+conflicts recorded and unknown never excludes); TB-PLAN-05 WS-03.4 and WS-03.5, first slice; the design
+(`docs/reviews/2026-11-09-design-patient-data-and-roles.md` §2.2 to §2.6 and §5 step 4) and the two reviews of the
+same day (standalone database review §2.3 to §2.5; data-flow review §2.1 and §2.2). Built 2026-11-09, no GPU, no
+Docker.
+
+* **Where.** Schema `omop` of the trial database (`TB_OMOP_DB_URL`, else `TB_DB_URL`; `tb_prefix` honoured), so it
+  is in every backup with the other stores and pgvector can sit beside it. The box's lake (`TB_LAKE_DIR`) has
+  `omop`; any other lake folder (a practice site's own space, a test, a tool run) has its own `omop_<hash>`, so two
+  lakes never share a store of record. The plan's WS-03.4 says `cdm`; the brief for this slice says `omop`, and the
+  code follows the brief (one constant, `omop.schema.SCHEMA`).
+* **The DDL is the official one, pinned.** The four PostgreSQL files of OHDSI/CommonDataModel tag v5.4.2
+  (`inst/ddl/5.4/postgresql/`, Apache-2.0) are copied unchanged into `services/omop/ddl/` with their sha256 in
+  `pin.json`; a changed file is refused. Migration 1 is their CREATE TABLE, primary-key and index statements for
+  PERSON, OBSERVATION_PERIOD, VISIT_OCCURRENCE, CONDITION_OCCURRENCE, DRUG_EXPOSURE, PROCEDURE_OCCURRENCE,
+  MEASUREMENT, OBSERVATION, DEATH, NOTE, FACT_RELATIONSHIP, CARE_SITE and PROVIDER (the two a visit names),
+  CDM_SOURCE and the ten vocabulary tables. The foreign-key file is not applied (the OHDSI ETL guidance allows it):
+  the loader writes concept ids it does not own until the Athena bundle is loaded, and the keys are checked as data by
+  DQD's `isForeignKey`, generated from that same file.
+* **Extension tables, apart from the standard ones** (migration 2, prefix `tb_`). `tb_record`: one row per source
+  record (kind, resource type, source id, part); the OMOP row it became; the **record status** (coded, proposed,
+  confirmed, signed, derived, rejected, superseded, tombstoned) and the basis tag; **provenance** (source batch, file
+  and row, first and last batch, content sha); `extra`, the FHIR fields OMOP v5.4 has no column for, named by the lake
+  column they restore. `tb_record_event`: append-only (insert, update with the before-image, tombstone, restore,
+  status change with actor and reason). `tb_conflict`: open, resolved or withdrawn, with the claims and their
+  sources and the resolution's value, reason, authority and person. `tb_id_map`, `tb_load`, and the three lake tables
+  OMOP has no table for (`tb_appointment`, `tb_claim`, `tb_consent`; design Appendix A). Status changes follow one
+  state machine (`omop.schema.TRANSITIONS`); a person's change survives an unchanged re-load.
+* **The loader** (`omop.load.load_batch`). One batch is one source kind's complete set: `feed` (a snapshot's NDJSON)
+  or `site` (the site's published inputs). Field values come from the lake's own flattener, so the two lakes cannot
+  read FHIR differently. Pseudonyms only: `person_source_value` is the pseudonym and `person_id` an integer minted
+  once; no chart number reaches OMOP. Codes are kept verbatim in `*_source_value` (ICD-10, LOINC, ATC; the hospital's
+  NHI code when there is no ATC) with a **local source concept** minted once per code system and code in the site
+  block (`TB_OMOP_CONCEPT_BLOCK`, default 2,100,000,000; refused below 2,000,000,000), in one TrialBox vocabulary per
+  code system whose reference is the FHIR system URI. `*_concept_id` is the standard concept where the vocabulary
+  holds one (a LOINC code once Athena is loaded), else 0 (design question 2: no SNOMED; ICD-10-CM is the condition
+  standard). TrialBox's own concepts (suspected diagnosis, the site-input and proposed-fact type concepts, the panel
+  relationship) are 2,000,000,001 to 2,000,000,022, below the catalogue's 2,000,001,001. Re-loading the same batch
+  changes nothing (every record `same`, ids stable); a changed record is replaced in place with its before-image; a
+  record the batch no longer carries is deleted from the standard table and tombstoned, and comes back with the same
+  id; a batch older than the last one loaded is refused. A proposed fact is loaded with the proposed type concept and
+  never reaches a coded lake table; a refuted diagnosis is `rejected`; a suspected one has the suspected status
+  concept. Two sources that give a patient different birth dates, sexes or dates of death open a conflict: OMOP keeps
+  the hospital's value and the lake reads the item as unknown until a person resolves it (`resolve_conflict`, with a
+  reason and an authority); the same disagreement on the next night does not reopen a resolved conflict, a corrected
+  source withdraws it. A required OMOP date the source does not give is the date the record reached TrialBox,
+  flagged (`date_imputed`); a person with no birth date is kept with `year_of_birth` 0, because OMOP's "drop the
+  person" convention would turn an unknown into an exclusion. One batch is one transaction under an advisory lock.
+* **The lake from OMOP** (`omop.export`, `lake.source`). `TB_LAKE_SOURCE=legacy|omop`, default `legacy`
+  (`deploy/docker-compose.yml`, `.env.example`). With `omop`, `Lake.rebuild` loads the snapshot and the site inputs
+  and exports the same 13 tables, columns and row order; Parquet, DuckDB, chunks, embeddings and `CURRENT` are the
+  rebuild's own and unchanged. In `services/lake/store.py` only the line that makes the rows changed.
+* **DQD-style checks** (`omop.dqd`, `python -m omop dqd`, 226 checks): conformance (isRequired, isPrimaryKey,
+  isForeignKey, fkDomain, isStandardValidConcept; local concepts ≥ 2e9 and never standard; one live provenance record
+  per row), completeness (person, source-concept and standard-concept record completeness) and plausibility (year of
+  birth, after birth, before death, start before end, imputed dates). An expected gap is `known` with its reason (no
+  standard concepts before the Athena bundle; persons without a birth date), never hidden.
+
+*Equivalence.* `tools/omop_parity.py` rebuilds each data set's snapshot twice through `Lake.rebuild` (legacy and
+omop) and compares the lake tables row for row and, for all seven committed rulesets (`rulesets/*` and the two
+open-data rulesets), the FEAS funnel (start, remaining, unknowns, variants, first-eligible months, the prevalent
+pool, unknown-code-system and basis counts) and every patient's screening outcome (`SqlEngine`: verdict, evidence and
+reason per criterion, D-130 coverage and D-135 widening included). Results (`eval/omop_parity/report.json`, 2026-11-09, after D-149's lake changes): **identical everywhere**. The synthetic hospital (profile `ci`, the JP-style and TW-style sites of 2,500 patients each, with 40 planted site inputs per site: 180 `site_fact` rows and 8 open birth-date conflicts each): 13 of 13 lake tables identical (78,974 and 78,754 rows), FEAS identical and 0 of 2,500 patients different for each of the 7 rulesets. The public site (SIGIR and MedTxt, 268 patients, 120 without a birth date): 13 of 13 tables (1,044 rows), FEAS identical, 0 of 268 different, 7 rulesets. The MIMIC-IV FHIR demo (100 patients): 13 of 13 tables (51,668 rows), FEAS identical, 0 of 100 different, 7 rulesets. No difference was found, so none needed a cause. DQD on the loaded stores: 0 failures on the synthetic and public sets; one on MIMIC, a real finding: 100 of 415 visits have class `OBSENC` or `SS`, which have no visit concept until the vocabulary load (the lake reads the class, not the concept). `tools/e2e_simple.py` with `TB_LAKE_SOURCE=omop` also passes, stage 13's pinned GOUT-COH funnel included.
+
+*Evidence.* `tests/unit/test_omop_core.py` (the pinned DDL, and a changed file refused; the schema; the concept
+block; the export equal to the flattener and a re-load changing nothing; pseudonyms, source values and local
+concepts; a standard concept used when present; tombstones, restore and in-place updates with before-images; an older
+batch refused; site inputs, statuses and conflicts, resolved and withdrawn; a person's confirm within the state
+machine; the setting; DQD clean and catching a broken reference; all seven rulesets equal on both lakes). Checks, on master with D-149: `make lint` clean; `make test` 1,733 passed, 2 skipped; `tools/e2e_simple.py` PASSED in 125 s, and PASSED in 137 s with `TB_LAKE_SOURCE=omop`; the backup drill PASSED, 12 checks in 149 s (the new one: the `omop` schema, 5,000 persons and 162,933 source records, reads back with the same rows and exports the same lake); `public_e2e --lang ja` 120/120; `tools/omop_parity.py` IDENTICAL.
+
+*Open, for the next slices.* The adapter does not write OMOP itself yet: the load runs inside the lake rebuild, a whole
+batch at a time (WS-03.4's dual write by `COPY` as feed files arrive, partitions by year and the 5k and 50k timings
+are next). The vocabulary schema (WS-03.3: Athena, the terminology Parquet, the licensed masters and
+`sitesetup.local_code` into `concept` and `source_to_concept_map`, with "Maps to" from the TrialBox source concepts)
+is not built, so every `*_concept_id` but visits is 0. NOTE_NLP and METADATA are not loaded. Conflicts are detected
+for patient demographics only (WS-03.6 adds the clinical kinds and the steward's page). An older snapshot is refused
+rather than exported point-in-time. A delta night's deletes (D-149) leave the snapshot and so are tombstoned
+here by absence; the event does not yet say "deleted at the source" from `tombstones.json`. The consortium's 10-million site blocks (design §2.4) fit only four sites below
+the integer maximum of OMOP's `concept_id` (2,147,483,647): the block size must shrink (1 million gives 47 sites)
+before a second site is given one.
+
+**D-160 EDC prefill: drafts with citations, the CRC's review and signature, REDCap send and ODM export.** Owner
+decisions D-144 ("EDC: prefill, then the CRC confirms; REDCap through its API; other EDCs through CDISC ODM; no
+screen-scraping or RPA; items mapped to CDASH") and D-145 (prefill switched on per study only after the sponsor's
+written acknowledgement); TB-PLAN-05 WS-07.1, WS-07.2 (code), WS-07.4 (part), WS-07.7 (switch).
+
+* **Library `services/edc/`, schema `edc`.** `mapping` (the item map: per eCRF item a CDASH tag and one source:
+  patient, observation with codes and unit, condition, medication, a note passage, or none; `check` refuses a map
+  that could draft a wrong kind of value, and the record-id and link fields), `cdash` (tags, en/ja/zh-TW name hints;
+  diagnosis and medicine codes are never suggested), `prefill` (drafts from the box's lake), `store` (switch, map,
+  drafts and their fate, decisions, signatures, sends; nothing deleted), `odm` (CDISC ODM 1.3.2), `service`.
+* **Rules, each tested.** Every drafted value has a citation (record row, snapshot and day; a confirmed fact; or a
+  note with a verbatim quote checked against the note); no citation, no value. Proposed chart facts never count.
+  Unknown never becomes "No": a yes/no item is only drafted as yes. Ties, another unit, a censored result, a value
+  outside the window or failing the field's checks stay unknown with the reason. A value without a citation cannot be
+  confirmed; an edit needs a reason and passes the field's checks; a value is sent or exported only when confirmed,
+  signed and unchanged since (per-value hash). The REDCap send never overwrites a value TrialBox did not write (listed
+  as a conflict), never creates a record, and reads every value back.
+* **Switch.** Off by default. On needs the acknowledgement kind (sponsor letter, or the PI is the sponsor), its
+  reference and date (not in the future) and the blind re-entry result (≥ 30 pages, ≥ 98 %, WS-16.4); only the PI
+  turns it on; the PI or an admin turns it off. While off nothing is drafted, decided, signed, sent or exported.
+* **Signature.** The signer types their password again (failures count toward the lockout and are audited), ticks
+  that they read the meaning, and the signature keeps the printed name (delegation log), role, meaning text,
+  language, time and a hash of what was signed. SSO-only accounts cannot sign yet. A second factor (WS-13.1) is not
+  built; this is a known gap for WS-07.4.
+* **Roles.** `authz.EDC_ACTIONS` / `edc_allowed`: the work needs the `enter_data` study task; switch on: the PI;
+  switch off: the PI or an admin; viewer and CRO: nothing.
+* **Surfaces.** Orchestrator `/studies/{rs}/edc/*`; console pages *EDC prefill*, *Item map*, *Review*, *Audit trail*
+  (en, ja, zh-TW) and `/api/v1/studies/{rs}/edc/*`. Note items use the gateway prompt `crf_prefill` v1 (role
+  `abstract_field`), output schema `llm_crf_prefill_output`; the stub has a rule handler.
+* **Not done here.** Copy-assist screen, repeating instruments, arms, record lock after SDV, the second factor at
+  signing, the accept-without-edit weekly report (WS-16.4 after go-live).
+
+*Evidence.* `tests/unit/test_edc.py`, `tests/console/test_edc_pages.py`, `tools/e2e_simple.py` stage 16 (synthetic
+data, REDCap simulator).
+
+**D-161 Study A protocol, the intended-use statement and the SNOMED CT licence inquiry (documents).** Owner decision
+D-144 ("draft the Study A protocol now"; "SNOMED CT: ask about a licence; Aimedics holds it") and the clinician-view
+restriction; TB-PLAN-05 WS-16.1, WS-15.3, WS-13.7. New records under `docs/plan/`: `study-a-protocol.md`
+(TB-STUDY-A-01: retrospective accuracy at CGMH, English and zh-TW, sample size with its reasoning, blinded two-reader
+chart review with adjudication, endpoints, analysis, data handling, timeline), `intended-use.md` (TB-IU-01: the
+non-device statement and the conditions that keep it true, mapped to the MHLW/PMDA 該当性 questions and the TFDA
+questions, with the points a regulatory consultant must confirm) and `snomed-inquiry.md` (TB-LIC-01: a ready-to-send
+inquiry). They are drafts for the owner; none is sent or submitted by this change.
+
+**D-162 EDC prefill hardened after the independent code review (TB-REV-EDC-01).** Review
+`docs/reviews/2026-11-09-edc-prefill-review.md` (1 Blocker, 10 High, 14 Medium, 3 Low); every Blocker and High
+fixed with a test, the rest answered in the file. D-160 stays; this adds:
+
+* **Who acts.** The orchestrator's EDC routes take the person and role from the console's signed assertion
+  (`X-TB-Actor`, `X-TB-Actor-Assertion`, `X-TB-Actor-Role`), never from the body; the role must allow the action
+  (`authz.edc_role_may`). A signature needs an assertion the console made right after the password check (session
+  `reauth-...`). A body `by` counts only on a DEV or TEST box without a token (E-01).
+* **Delegation log.** To sign, the person needs their own active log entry; its name is the printed name (never a
+  login name). To switch on, the log must name the person as the study's PI (E-10).
+* **What is signed.** The sign call carries the draft ids and hashes the page showed; any difference refuses it. The
+  hash covers the pseudonym too; a record key stays bound to its first subject; the signature keeps each value's
+  hash; an edit that withdraws a signature writes a `signature_void` row (E-02, E-11, E-12).
+* **Drafts.** One current draft per item (rejected drafts are superseded by a new run; send and export refuse
+  duplicates). A changed value needs the person's own source; the machine citation is kept as "replaces" (E-03,
+  E-08). Medicine and diagnosis rows in `entered-in-error`, `cancelled`, `draft`, `refuted` or `not-taken` never count;
+  the status is shown in the citation; short code prefixes and hospital codes match whole (E-09, E-19). From a note,
+  only the yes code is drafted, and a number or date must appear in its quote; an over-long note is skipped, not the
+  rest (E-18, E-26).
+* **Send.** Refused for a project with repeating instruments or events; a screening number on two REDCap records, a
+  visit that is not an event of the project, an opted-out patient, and a value changed since the send began are each
+  listed and not sent (E-04 to E-07, E-17). The opt-out register is read at draft, decide, sign, send and export.
+* **ODM.** An export with a signed value whose item left the map or the dictionary is refused, not silently short;
+  user and file ids no longer collide (E-22, E-23, E-28). The `crf_prefill` prompt's purpose is `data_entry` (E-27).
+* **Still open** (in the review file with reasons): record lock and the second factor at signing (WS-07.4), the
+  switch's evidence as typed numbers (E-14), map and target versions on drafts (E-15, E-16), database-level
+  protection of the trail tables (E-21), audit of every refusal (E-20), the remaining ODM conformance points (E-23).
+
+*Evidence.* `tests/unit/test_edc.py` (tests named `test_e01_` to `test_e26_`), `tests/console/test_edc_pages.py`,
+`tools/e2e_simple.py` stage 16.
+
+**D-163 Study A protocol and intended use revised after the independent document review (TB-REV-SA-01).** Review
+`docs/reviews/2026-11-09-study-a-intended-use-review.md` (2 Blocker, 7 High, 10 Medium, 4 Low). Study A v0.2: P1
+design value 0.80 with the chance of meeting both parts of the target stated; P1 allocated in proportion to list
+size with a floor and an effective-size rule, Wilson interval on the effective size; P2 named as a false-omission
+rate with its design value on its own denominator, and the share of eligible patients lost added as the key
+secondary; a reading manual with a fixed rule for silent charts; samples drawn by the independent statistician and
+the key held by the CGMH second reviewer; every tuning sample left out; the release the claim covers; the IRB points
+of PDPA Art. 6, identified charts, personnel, protected records, retention, security and publication. The PI question
+is the owner's, to settle by G2 before submission. Intended use v0.2: the clinician own-patient view described as
+planned (C2); "consultant's opinion" and "authority's written answer" named apart, and the C6 switch needs the
+authority's answer in both countries. WS-06.7 and WS-16.4 of TB-PLAN-05 now leave their patients out of Study A.
+
+**D-170 Reference data items: one registry with version and sha256, and the NHI drug code -> ATC map.** WS-08.8,
+builds on D-140; 2026-11-09. Built in a cloud container with network access through a proxy; tests on committed
+excerpts only. Revised after the independent review of the same day (findings H2, H3, M3, M6, L4, L6). Revised
+again on 2026-11-10 after a second independent review (the map check, the matcher order, the PAS and ICD parsers,
+the licence read, the shared store).
+
+1. *One registry of items.* Every reference data source is one `tb_common.refdata.Item` (the old
+   `tools/refdata_fetch.py` `Source` is now this class): name, kind, distribution (ship, site-fetch, not usable),
+   URL, licence and licence URL, terms, attribution, refresh, size, note, and new fields: `country`, `decision`,
+   `parse` (the item's own loader), `extra_files` (more files of one item, all required), `derived_from` (read
+   another item's download, no second download), `meta_url` (a data.gov.tw dataset API URL read at fetch time),
+   `version` / `version_of`, and `sha256` (the pinned hash of a version-pinned URL). Country modules add their
+   items: `tb_common/refdata_tw.py` holds the Taiwan items, parsers and constants; a Japan module adds its own the
+   same way (`SOURCES = (..., *tw.ITEMS)`).
+2. *Pack format* stays `trialbox-refdata/1` (additive). New kinds `map` (`source_system`, `source_code`,
+   `source_display`, `target_system`, `target_code`, `target_display`, `relation`, `extra`; relation is the FHIR R4
+   ConceptMap equivalence) and `synonym` (`term`, `lang`, `canonical`, `canonical_lang`, `domain`, `curated`,
+   `extra`). Every source in a new pack records `version` (the file's own version, the dataset's modified date, or
+   "downloaded <date>" for a daily list) and `parts` (each downloaded file: name, URL, sha256, bytes);
+   `download_sha256` is the file's sha256, or for several files the sha256 over the parts' sha256s in order (NOTICE
+   and the page then list each part's own sha256). A map or synonym source without a version is refused.
+   `verify` and `build` check every map and synonym record as the box's load does (relation in the R4 set, terms
+   present), so a pack the hospital would refuse fails at the vendor. Older packs still verify and load.
+3. *Fetch and build integrity.* `fetch` writes each part's sha256 to `fetch.json`; `build` re-hashes every part
+   and stops when a file changed or is missing, when an `extra_files` member is missing, or when a version-pinned
+   URL's file differs from its pin (the PAS 1.3.0 package; a sample build skips only the pin). A parser that finds
+   no rows or misses a required column raises; `build` refuses an item with 0 records. For a data.gov.tw item,
+   `fetch` reads the dataset API, keeps its answer (`licence_check`) in `fetch.json` as evidence, and stops when
+   the `license` field is not 1 (OGDL 1.0) or the API does not answer (`--no-licence-check` skips the read and
+   records that in `fetch.json`). The reader and the expected licence belong to the item (`Item.read_meta`,
+   `Item.licence_id`; since the merge with D-173, the item's `licence_reader`), so a `meta_url` without a reader is refused and another portal brings its own reader; the
+   record must also list the URL fetched (D-172, second-review note, item 1).
+4. *Store.* Schema `refdata` version 2 (`DDL_V2`): `source` gains `version` and `download_sha256`; new tables
+   `concept_map` (indexed both ways) and `synonym` (indexed on the matcher's normal form, NFKC and lower case).
+   Queries: `map_targets`, `map_sources`, `synonyms`. A box at version 1 migrates in place; its old rows keep an
+   empty version and sha256 (tested). Lookups made often use one shared store per process (`refdata.shared`); a
+   database that does not answer is not retried for 60 s; a shared store whose query fails is closed and reopened
+   after that pause.
+5. *`in_set_via_map`* (a code read through a map against a list of exact codes; unknown never excludes): `yes` when
+   a target that holds the whole meaning (equivalent, equal, wider, subsumes) is in the list, or every target of a
+   split (narrower, specializes) is; `no` only when every target is equivalent, equal, narrower or specializes and
+   none is in the list; `unknown` otherwise, so inexact and relatedto rows never decide; `unmatched` rows are
+   dropped first. The list's prefix families (`MappingResult.families`) count as inside; a list in
+   another code system than the targets (the HL7 ICD-10-CM URI against the TW 2023 system) never gives `no`. Not
+   called by ingest yet.
+6. *Offline.* Only `tools/refdata_fetch.py fetch` downloads. The box reads the pack loaded from the signed update
+   bundle; the matcher and site set-up read the trial database.
+7. *NHI drug code -> ATC* (`nhi_drug_atc`, kind map, ship). Read from the `nhi_drugs` download (健保用藥品項查詢項目檔,
+   data.gov.tw 23715): the latest validity period per 藥品代號 (a date that cannot be read never wins), its `ATC代碼`
+   as given (D-140 owner decision 5: no WHO ATC/DDD text), relation `wider`, ATC level in `extra`; empty or
+   non-ATC-shaped values give no row. Licence checked at the source today: dataset API `license` = 1, the Open
+   Government Data License 1.0 (use, reproduction, distribution and adaptation, commercial included, with the
+   provider's attribution). Site set-up suggests the ATC code of an NHI drug code with one full ATC code (method
+   `refdata`, 0.90: the class is wider than the product).
+8. *The sources page* (`/admin/notice`) and `NOTICE.md` show each item's version and sha256 (per part for several
+   files); the strings exist in en, ja and zh-TW. Site set-up's new method `refdata` has its label in the three
+   languages ("from a public code map in the reference data (check it)").
+
+*Evidence.* `tests/unit/test_refdata_tw.py` (39 with the relation table), `tests/unit/test_refdata.py`,
+`tests/console/test_refdata_pages.py` (version and sha256 on the page for every item); `e2e_simple` stage 14 checks
+the Taiwan suggestions and the matcher offline. On the real list (the first 33 MB of 97 MB; info.nhi.gov.tw cut the
+transfer from here three times): 13,904 codes, all with an ATC code (13,583 level 5, 307 level 4, 14 level 3),
+0.5 MB in the pack.
+
+**D-171 Taiwan ICD-10-CM/PCS 2014 <-> 2023 map and the NHI lab code -> LOINC map.** WS-08.8; 2026-11-09. Revised
+after the independent review (H3, M4, L2, L3).
+
+1. *ICD 2014 <-> 2023* (`tw_icd_2014_2023`, kind map, ship). NHIA 2014年版與2023年版ICD-10-CM/PCS對應檔, data.gov.tw
+   177508, two CSVs (CM `rId=A21030000I-D20026-007`, PCS `-008`), one item with two parts; both are required.
+   Licence: dataset API `license` = 1 (OGDL 1.0); the attribution also names WHO (ICD-10) and NCHS / CMS. NHI claims
+   moved to the 2023 edition on 2025-01-01, so records before then carry 2014 codes. Systems
+   `urn:tw:nhi:icd-10-cm-2014` -> `urn:tw:nhi:icd-10-cm-2023` (the system of `tw_icd10_zh`), PCS likewise; the
+   reverse direction is `map_sources`. Relation: same code, one target and one source `equivalent`; a 2014 code split
+   into several 2023 codes `narrower`; several 2014 codes merged `wider`; both, or a one-to-one change of code,
+   `inexact`. A mapping NHIA added later for a deleted code (修訂日期 "增列對應", e.g. Z22.51 carrier -> B18.1
+   chronic hepatitis B) is `relatedto` and does not make the other rows a merge (B18.1 -> B18.1 stays
+   `equivalent`); site set-up does not suggest it. The 2014 and 2023 status, the zh names and the revision note go
+   in `extra`. Real files today: CM
+   74,872 rows -> 74,863 pairs (67,637 equivalent, 5,613 narrower, 236 wider, 1,377 inexact); PCS 79,062 rows ->
+   77,892 pairs; 3.5 MB in the pack. Note: 2014 I10 maps to 2023 I10 and I16.0 / I16.1 / I16.9, so a 2014 I10 read
+   against a list holding only I10 is unknown, not yes.
+2. *Site set-up, Taiwan sites only* (the site's country from its time zone, else its locale). A dx code that the
+   2023 edition no longer has and that maps to one 2023 code is suggested (`refdata`, 0.90; e.g. P83.8 -> P83.88);
+   a split gives no suggestion (the coordinator picks); a code still in 2023 (I10) is suggested as itself. A Japan
+   site's suggestions do not change.
+3. *NHI lab code -> LOINC* (`nhi_lab_loinc`, kind map, ship). The ConceptMap `nhi-loinc` of the NHIA PAS IG package
+   `tw.gov.mohw.nhi.pas` 1.3.0 (https://packages.fhir.org/tw.gov.mohw.nhi.pas/1.3.0), pinned to its sha256
+   `1bdc33f3ca30733d0fa911a0de9fd4a2896312bb347c9122ffec3c2c210dcfe3` (read today). Licence: `package.json` says
+   `CC0-1.0` (read today); the parser refuses a package with another licence. 806 rows, 53 NHI codes, every target
+   `relatedto` (candidates: 09026C has 16 LOINC codes). Only LOINC codes are shipped: a LOINC display in a later
+   release is never copied. The terms say the package is CC0 and the LOINC codes stay under the LOINC licence; the
+   attribution carries the LOINC notice; the version names the LOINC version the map states
+   (`tw.gov.mohw.nhi.pas 1.3.0, ConceptMap nhi-loinc 1.3.0, LOINC 2.77`). An R5 `relationship` is turned into the R4
+   equivalence; an unknown relation or an element without a code refuses the package; a no-match
+   target (`unmatched`, `disjoint`) is skipped; only groups from the NHI service code system are read, and a package
+   without one is refused. Site set-up suggests a LOINC code only when the NHI code has exactly one target (0.90, no
+   display: the NHI order's name is not the LOINC name); several candidates (09015C) give none, the coordinator
+   picks (the earlier 0.80 pick of the one candidate in TrialBox's lab table said nothing about the hospital's
+   specimen or method).
+
+**D-172 zh-TW clinical synonyms for the name matcher.** WS-08.8; 2026-11-09. Revised after the independent review
+(H1, M1, M2, M5).
+
+1. *Two synonym items* (kind synonym, ship). `naer_medical_terms`: 國家教育研究院 醫學學術名詞 (data.gov.tw 15460,
+   licence field 1 = OGDL 1.0, read today; 30,797 terms -> 32,083 zh-TW forms after splitting `；`; 0.6 MB). These
+   are academic translations: an English term lists several senses (stroke: 猝發；發作；中風), so they are not
+   curated. `tw_zh_synonyms`: TrialBox's own list (`libs/tb_common/refdata_src/zh_tw_clinical_synonyms.csv`, 42
+   rows): colloquial zh-TW words (類風濕關節炎 without 性, 第2型糖尿病, 減重手術) and the abbreviations of Taiwanese
+   notes (T2DM, NSCLC, SGPT = ALT, CXR), each with a domain. Every row's canonical name resolves in the matcher in
+   its domain (a test checks it); 20 rows whose canonical name the matcher does not know (hypertension, CKD,
+   hemodialysis and others) were dropped rather than mapped to a narrower code. Abbreviations with another meaning
+   in some specialty (RA, MI, CVA, GPT, MTX) carry `review = yes` and are not trusted. The cross-strait list
+   (data.gov.tw 15314, 885 rows) is not added: the medical list covers it.
+2. *Matcher.* `Terminology(name_synonyms=...)`, in this order: exact name; the curated table on the name; **2a** the
+   dictionary's trusted entries (curated, not marked for review) -> the curated table, then the exact names, on
+   their canonical names: method `synonym`, no review; the curated table and the exact names on the model's
+   synonyms (as before); **2c** the dictionary's other entries (NAER, ambiguous abbreviations): method `dictionary`,
+   always `needs_review`; then the LLM. When the exact name hits (心衰竭 is the display of I50.9) and a trusted
+   entry's canonical name gives those codes and more (heart failure, the I50 family), the trusted entry wins. So a NAER sense never pre-empts what the model's synonyms resolve (發作 with
+   the model's "gout" stays gout, not stroke), and a trusted entry that resolves nothing does not hide the others.
+   The note names the sources. The criteria compiler service wires `refdata.synonym_lookup()`; every other
+   `Terminology()` is unchanged. No database or no pack: the steps are skipped. The lookup does not filter by
+   language.
+
+*Licence summary.* All five items allow redistribution (OGDL 1.0, CC0, own work), so none is site-fetch.
+
+*Not done.* The full NHI drug list was not fetched here in one piece (transfers cut off); the vendor runs `fetch
+nhi_drugs` and `build` as for D-140. The mapping of a 2014 code in an old record at ingest (lake, adapter) is not
+wired: `in_set_via_map` is ready for it. The NHI 醫療服務給付項目 list itself (codes and names beyond the 53 lab
+codes) is still open (D-140). A source dropped from a later vendor pack keeps its rows (D-140 behaviour: a pack
+replaces only its own sources); withdrawing a source needs a manual delete for now, left for WS-08.8.
+
+*Second independent review (2026-11-10), further fixes* (beyond the revisions noted in D-170 and D-171 above):
+
+1. *Licence evidence binds the file and belongs to the item* (M4, L5): each item with a dataset record names its
+   reader and licence (first as `Item.read_meta` and `Item.licence_id`; merged with D-173's reader into one
+   mechanism, `Item.licence_reader`, see D-173 item 2; `refdata_tw.datagov_meta` reads data.gov.tw), so the
+   generic fetch knows no portal and a Japan module brings its own. The fetch also stops when the record does not
+   list the URL fetched: 15460 lists the opendata.naer.edu.tw CSV the NAER item downloads, 23715 and 177508 the
+   info.nhi.gov.tw files (checked 2026-11-10). `fetch.json` keeps every item's check (`licence_checks`, the derived
+   `nhi_drug_atc` too), and a vendor build refuses an item with a record but neither a check nor a recorded
+   `--no-licence-check` skip.
+2. *Deleted ICD codes* (M6): a 2014 code with no 2023 code gives one `unmatched` row without a target (the pack
+   allows an empty target for `unmatched` only), and site set-up then makes no suggestion instead of offering the
+   obsolete code as `same`. One-to-one code changes stay `inexact` (unknown in `in_set_via_map`; site set-up still
+   suggests them).
+3. *Site set-up* (M7, L1, L2, L4): see D-171 item 3 (no pick among several LOINC candidates, no NHI name as the
+   LOINC display, no cached LOINC table); site set-up's name matcher reads the synonym dictionary too
+   (dictionary-method answers are reviewed, so `_by_name` still ignores them).
+4. *NHI drug -> ATC* (L3): the ATC code of the newest validity period that states one, when the newest left it
+   empty.
+**D-173 Japan diagnoses: the WHO ICD-10 <-> ICD-10-CM bridge, the MEDIS 病名 loader, and the licence reader on each
+item.** WS-08.8, builds on D-170; 2026-11-10. Licences read at the source on the same day.
+
+1. *Japan module.* `tb_common/refdata_jp.py` holds the Japan items, parsers and constants and is added to the one
+   registry (`SOURCES = (..., *tw.ITEMS, *jp.ITEMS)`), as D-170 set out. Every item records its source, licence,
+   terms, attribution, version and sha256; the shipped ones are on `/admin/notice` and in `NOTICE.md`, and so is a
+   site-fetch item once the hospital loads it. Only `tools/refdata_fetch.py fetch` touches the network.
+2. *Licence reader on `Item`* (D-170 review M4). `Item.licence_reader` reads the item's licence at the source when
+   the vendor fetches it and returns `LicenceRead` (where, what was read, what was expected, ok, and a version
+   when the same answer gives one). `fetch` keeps it in `fetch.json` (`licence_check`, or `licence_checks` for a
+   derived item) and stops when the source does not answer or the licence no longer reads as expected;
+   `--no-licence-check` skips the read and records that. The data.gov.tw reader moved to
+   `refdata_tw.datagov_tw_licence` (set on the three data.gov.tw items); `refdata.page_licence_reader(url, words)`
+   reads a licence stated on a page (used for NCI, D-174). `fetch()` no longer knows any one site.
+   *One mechanism for Taiwan and Japan* (merge with the second review of D-170, M3, M4, L5): the D-170 review's
+   `read_meta` / `licence_id` pair became this reader. It fails closed: no answer, another licence, or a dataset
+   URL without a reader stops the fetch. `LicenceRead.downloads` carries the download URLs the licensed record lists
+   (data.gov.tw: the dataset's `distribution`), and fetch stops when a URL fetched is not among them; a record that
+   lists none (a licence page such as NCI's) binds nothing, so the file must then be pinned by `Item.sha256` (CTCAE
+   is), else the fetch stops. `fetch.json` keeps every item's check (`licence_checks`, derived items too), and a
+   vendor build refuses an item with a reader whose `fetch.json` holds neither a passed check nor a recorded
+   `--no-licence-check` skip.
+3. *WHO ICD-10 <-> ICD-10-CM bridge* (`icd10_who_cm_bridge`, kind map, ship; TrialBox's own work). No official map
+   exists. Built from the ICD-10-CM code list (`derived_from` the `icd10cm` download, U.S. public domain): one row
+   per ICD-10-CM category, WHO category -> the ICD-10-CM category of the same three characters. **The relation is
+   `inexact` (a candidate that never decides) unless the category was checked**; a checked category is `wider`
+   (the ICD-10-CM category holds all of the WHO category's meaning). ICD-10-CM narrowed or moved parts of many
+   categories, so the default cannot be `wider`: WHO A09 holds diarrhoea of unspecified origin (A09.9) but CM A09 is
+   infectious only (unspecified goes to K52.9), so a WHO A09.9 record would have answered "yes" against a CM A09
+   exclusion (review finding of PR #76); likewise WHO M10 holds chronic gout (CM M1A), WHO C categories hold
+   carcinoid tumours (CM C7A, C7B, D3A), WHO E13 holds what CM puts under E08 and E09.
+   *Audit method* (`refdata_src/icd10_who_cm_checked.csv`, one line per category with its reason): a category is
+   listed only when (a) ICD-10-CM's tabular list for it was read and nothing WHO puts in the category is sent
+   elsewhere by a CM "Excludes1" or by a CM category created by splitting it, and (b) it is not in a chapter or
+   block CM restructured (all C and D neoplasm categories, O, U, V to Y, Z) and not a category with a known
+   difference (A09, E13, M10). Where CM is wider by design (CM J45 also holds status asthmaticus, WHO J46; CM G40
+   holds status epilepticus, WHO G41; CM B20 holds all HIV disease, WHO B20 to B24) the WHO category is inside the
+   CM one and is listed. 36 categories are checked today (diabetes types 1 and 2, hypertension, ischaemic heart
+   disease, heart failure, atrial fibrillation, stroke, COPD, asthma, CKD, nephrotic syndrome, RA, SLE, ankylosing
+   spondylitis, psoriasis, IBD, cirrhosis, chronic viral hepatitis, HIV, thyroid, lipids, obesity, MS, epilepsy,
+   Parkinson's, Alzheimer's, schizophrenia, bipolar and depressive disorders); a test refuses the known
+   differences. A category is added only by the same method, with its reason. FY2027: 1,919 rows (36 wider, 1,883
+   inexact). A WHO category ICD-10-CM does not have (E14, B21) has no row. Code strings only, no WHO text (WHO's
+   ICD-10 text needs a WHO licence). `who_icd10_in_list` reads a WHO code by its category against an ICD-10-CM
+   list: `yes` only for a checked category inside the list's prefix family, otherwise `unknown`; the bridge never
+   gives `no` (no row is equivalent or narrower), so a WHO-only code never excludes. Not wired into ingest yet (the
+   SS-MIX2 reader keeps D-137's rule).
+4. *MEDIS 標準病名マスター -> ICD-10* (`medis_byomei_icd10`, kind map, **site-fetch, nothing shipped**). MEDIS-DC's
+   terms page: anyone may download and use the master, but use outside a medical institution or for distribution
+   needs MEDIS-DC's permission (使用許諾申請書); 病名 and HOT are on that list; a modified copy must name MEDIS.
+   TrialBox is a vendor, so the item has a loader only: the hospital downloads its release and runs
+   `tools/refdata_fetch.py site-load medis_byomei_icd10 --file ... [--columns ...] [--version Ver.x]`. A release
+   without a header row takes `--columns` (kept beside the file as `columns.txt`, the file unchanged). Rows:
+   病名交換用コード -> the WHO ICD-10 code the master gives, relation `wider`; a row without an ICD-10-shaped code
+   gives none. The D-137 terminology loader stays for the SS-MIX2 reader and the JP Core check.
+
+5. *A vendor build never packs a site-fetch item* (review finding of PR #76). `site-load` leaves the hospital's file
+   and its `fetch.json` under `<out>/raw`; `build` now builds `ship` items only, leaves site-fetch items out of its
+   default list and refuses one named in `--ids` (MEDIS, JLAC10, JCOG, UMIN-CTR). Only `site_load` builds a
+   site-fetch item, into the hospital's own part (`site=True`). An item with a dataset API URL but no licence
+   reader is refused at fetch (the D-170 guard, kept after the move).
+
+*Evidence.* `tests/unit/test_refdata_jp.py` (bridge relations, the checked list and the known differences, MEDIS
+headerless Shift_JIS file, site-load beside the vendor's pack, a vendor build over a raw directory holding the
+hospital's MEDIS and UMIN files, the licence reader), `tests/unit/test_refdata_tw.py` (the data.gov.tw reader
+through the item), `e2e_simple` stage 14.
+
+**D-174 Japan drugs, labs and adverse events: YJ -> ATC, the JLAC10 -> LOINC loader, CTCAE v5.0 in English and the
+JCOG Japanese loader.** WS-08.8; 2026-11-10.
+
+1. *YJ code -> ATC* (`jp_yj_atc`, kind map, ship; TrialBox's own table). No free public YJ -> ATC table exists (KEGG
+   is paid; CAPS publishes YJ codes without ATC). `refdata_src/jp_yj_atc.csv`: 56 seven-character YJ stems (薬効分類
+   4 + ingredient and route 3: every YJ and 薬価基準 code of that ingredient and route starts with it), each read
+   from MHLW's 薬価基準収載品目リスト of 2026-11 (PDL 1.0, credited as the licence asks) and checked to hold one
+   ingredient, -> its ATC code (diabetes, anticoagulants and antiplatelets, statins, gout, RA and immunosuppressants,
+   platinum, taxanes, antibodies, common analgesics). Where the route or use changes the ATC code the stems are
+   apart (methotrexate 3999016 RA L04AX03 and 4222001 oncology L01BA01; aspirin 3399007 B01AC06 and 1143001
+   N02BA01). Relation `wider`. ATC codes are identifiers only: the WHOCC site forbids commercial copying of the
+   index, and no WHOCC text is shipped (as D-140). Site set-up suggests the ATC code of a YJ code by its stem
+   (`refdata`, 0.90) when the code has the YJ shape (seven digits, then the 剤形 letter: an all-digit hospital code
+   is not read as YJ). A stem not in the table gives nothing (unknown).
+2. *JLAC10 -> LOINC* (`jlac10_loinc`, kind map, **site-fetch, nothing shipped**). No public map was found (MHLW,
+   JSLM, JLAC Center); JSLM's code page states no redistribution terms we could read, and the repository's JP-Core
+   sample rows stay marked `verify`. So TrialBox ships no JLAC10 -> LOINC rows; the hospital loads its own map file
+   (CSV, TSV or XLSX with a JLAC10 column, hyphenated or not, or its five part columns, and a LOINC column) with
+   `site-load`; rows without a JLAC10- or LOINC-shaped code are left out and their count is logged. The file's
+   own R4 equivalence is kept when it has one, else `relatedto`. Site set-up suggests the LOINC code when a JLAC10
+   code has one target (0.90); several, none.
+3. *CTCAE v5.0, English* (`ctcae_v5_en`, kind term, ship). NCI's workbook
+   (`dctd.cancer.gov/.../ctcae-v5.0.xlsx`), pinned to sha256 `2036d4933ee2b768a8d9955ea939439b8a4b9dd432053b244d7529f9826ea047`.
+   Licence: cancer.gov says NCI text is free of copyright and may be reused, crediting NCI (read by the item's
+   licence reader at each fetch); JCOG's page also calls CTCAE v5.0 a public-domain document. 837 terms: system
+   `urn:trialbox:ctcae:5.0`, code and display the English term, `extra` the SOC, the five grade texts ("-" becomes
+   empty), the definition and the navigational note. The MedDRA code column is **not** shipped (MedDRA is
+   licensed by subscription for industry). Grading stays with a person (D-129). Not wired into the AE form yet.
+4. *CTCAE v5.0 日本語訳JCOG版* (`ctcae_v5_ja_jcog`, kind synonym, **site-fetch, nothing shipped**). JCOG's page: JCOG
+   holds the translation's copyright; non-commercial trials may download and use it without permission, citing
+   it; commercial use needs a contract. TrialBox therefore ships only the loader: the hospital downloads the
+   body-only workbook (2025-09-01 edition, MedDRA/J v28.1) and loads it; rows are the Japanese term -> the English
+   term (domain `adverse_event`, system CTCAE, code the English term) with the Japanese SOC, grades and definition.
+   Checked today: all 837 English terms and MedDRA codes of the JCOG edition match NCI's v5.0 workbook, so every
+   Japanese row joins an English term. A zh-TW translation stays ours to write (baseline review).
+
+**D-175 Japanese clinical synonyms for the name matcher.** WS-08.8; 2026-11-10.
+
+1. *One synonym item* (`ja_synonyms`, kind synonym, ship): TrialBox's own list `refdata_src/ja_clinical_synonyms.csv`,
+   70 rows, same columns and rules as the zh-TW list (D-172; the reader is now one shared function,
+   `refdata.curated_synonyms`): Japanese disease, drug, test, procedure and report names (関節リウマチ, 2型糖尿病,
+   脳卒中, メトトレキサート, HbA1c as ヘモグロビンA1c, HBs抗原, 胸部X線) and note abbreviations (INH, MEN2, EGFR-TKI) ->
+   the name the matcher knows, per domain (血清尿酸値 and 尿酸値 both -> serum urate). Every canonical name
+   resolves in its domain and every trusted term maps to the same codes as its canonical name (tests). Ambiguous short forms (RA, AMI, MTX, PSL, GPT) carry
+   `review = yes`: method `dictionary`, always reviewed. Strings that are the same in zh-TW and ja (妊娠, 非小細胞肺癌)
+   are not repeated.
+2. *Public ja dictionaries not added.* Hyakuyaku and MANBYO (NAIST, CC BY 4.0) map surface forms to Japanese
+   generic or 標準病名 names, which the matcher does not know, and MANBYO's ICD-10 and 標準病名 columns derive from
+   the MEDIS master (D-173: not shippable). JMED-DICT mini's code links need NAIST's answer. Left for later.
+
+*Licence summary for D-173 to D-175.* Shipped: the bridge, YJ -> ATC and the ja synonyms (own work; ICD-10-CM U.S.
+public domain; YJ stems from MHLW lists under PDL 1.0; ATC codes as identifiers), CTCAE v5.0 English (NCI, free of
+copyright; no MedDRA codes). Not shipped, loader only: MEDIS 病名 (distribution needs MEDIS-DC's permission),
+JLAC10 -> LOINC (no public map; JSLM terms unknown), the JCOG translation (commercial use needs a contract).
+
+*Not done.* The bridge and the MEDIS map are not read at ingest (the SS-MIX2 reader and the lake keep D-137 and
+D-130); the CTCAE terms are not in the AE form; the MEDIS and JCOG permissions are not requested here (the owner's
+step, baseline review §1 actions 1 and 6); MHLW 一般名処方マスタ and the 薬効分類 -> drug-class table are open.
+
+**D-176 The box-install rehearsal (`make rehearse-box`) is the gate before any site's installation qualification.**
+Source: the owner's follow-up list of 2026-11-09 (task 3), after the cloud-run review showed that four cloud failures
+lived in steps nothing ran off the paid VM (`docs/reviews/2026-11-09-cloud-run-review.md` §5). The same gap existed for
+the box: nothing had run `deploy/install.sh` on a clean host from offline media.
+
+*Decision.* `tools/rehearse_box/rehearse.sh` (`make rehearse-box`, RUNBOOK §16) makes media as the vendor does, removes
+the box images from the Docker host, and runs the real installer (`--tier large`) in a clean Ubuntu 24.04 container
+that uses the host's Docker through its socket. The strict vLLM stand-ins of D-177 take the place of the GPU, given to
+the installer as `TB_COMPOSE_OVERRIDE` (a new, printed hook kept in `COMPOSE_FILE`). The steps and what each proves are
+in RUNBOOK §16: the WSL2 preflight, three media failures, the install, `doctor --live`, the served names, the offline
+media (images, CQL jars, reference data, no route out), the console, one SCREEN through the gateway, a power loss and
+restart, a wrong served name and a missing key. A FAIL stops the release. It does not replace the site's IQ: a real
+GPU, the egress rules, the host hardening and the mail server are checked there.
+
+*What the first runs found and fixed* (each stopped a fresh install or a part of it):
+1. `make images` failed: `python.Dockerfile` copied the `integrations/` folder removed in D-121; and the root
+   `.dockerignore` (demo image) kept the HL7 validator and the FHIR cache out of `jvm.Dockerfile`'s context. Fixed:
+   the copy is gone; `deploy/docker/jvm.Dockerfile.dockerignore` keeps them in for that image only.
+2. `tools/make_bundle.sh` bundled no third-party image on a vendor machine without `deploy/.env` (compose rendered
+   nothing and the error was hidden): it now renders with an empty env file of its own and stops if it finds none.
+   A digest-pinned image (`postgres`, `hapi`) saved by its digest loaded back without a name, so compose tried to
+   pull it offline: it is now saved under its tag. `--refdata` adds a reference data pack to the bundle.
+3. A first install could not verify its bundle: `tools/apply_update.sh` needed `tb_contracts` (jsonschema, pydantic)
+   on the host, else the `trialbox-py` image, which is still inside the bundle. `tools/verify_update.py` now checks
+   the manifest schema with the standard library when jsonschema is missing (after the signature, which needs only
+   `cryptography`); the two checks agree on every case of `tests/unit/test_verify_update_stdlib.py`.
+4. Every service stopped at start: `install.sh` made `settings.yaml` root-only (0600) and the services run as `tb`.
+   It is now 0640, group `tb`.
+5. Every SCREEN failed in reporting: `/data/objects` was not in the image, so its volume was root's. The image makes
+   it for `tb` (a box installed before keeps a root-owned volume: `chown 10001:10001` its folder once).
+6. The bundle's `update.applied` audit event after the first start crashed (`AuditLog` got a string) and was lost.
+7. The doctor in `check_host.sh` needs pydantic, which a site host lacks: it now runs in the box's image there. On an
+   installed box's `deploy/.env` the doctor assumes the gateway address compose gives the orchestrator, so
+   `note_block` reads the box as it runs instead of failing.
+8. The network sheet failed when a compose override was in use: the override is mounted for the sheet tool.
+9. The gateway, orchestrator and other Python services could start before the database and exit: every service of the
+   `x-py` anchor now waits for `db` to be healthy.
+10. The console was unreachable: Docker publishes no port of a container that is only on internal networks, and the
+    console was only on `trialbox-net`. It is now also on `console-net` (`trialbox-console`, not internal, no allowed
+    destination in `network.sh`), which carries only its published port. The network sheet lists it.
+11. A SCREEN fails at its mail step when the site's SMTP relay cannot be reached (`mail-gateway` answers 500). The
+    rehearsal gives it a plain SMTP sink (`tools/rehearse_box/smtp_sink.py`) as `smtp.hospa.test` and checks that the
+    SCREEN mailed something. The real relay is checked at the site's IQ.
+
+*After the independent review* (2026-11-10; RUNBOOK §16):
+12. *Digest pins on the classic image store.* Saved under its tag, a digest-pinned image resolves by its digest again
+    only on Docker's containerd image store. The classic `overlay2` store keeps no digests after `docker load`
+    (tried: `postgres:16-alpine@sha256:...` is "No such image" after the load), so compose would pull it. The bundle
+    now carries `image-pins.json` (signed with the rest): each digest reference and the image id `docker save` wrote.
+    `tools/image_pins.py` points the compose variable (`POSTGRES_IMAGE`, `HAPI_IMAGE`) at that id where the digest
+    does not resolve; an image id is its content, so this is the bundle's image. `install.sh` runs it before the
+    start, and an update before its restart.
+13. *No registry pull, proved for every image.* `install.sh` starts the stack with `--pull never` after checking
+    that every image is on the box (`TB_INSTALL_PULL=missing` for a site with its own mirror). The rehearsal removes
+    the bundle's images by id (every tag and digest), records the daemon's image events from then on, and checks that
+    every running container runs an image of the bundle, the third-party ones included, and that nothing was pulled
+    (`offline`, and a new last step, `no-registry-pull`).
+14. *`console-net` closed.* It is not internal, so the console had a route and a name resolver to the outside where
+    `network.sh` is not applied. Now: no NAT out, no IPv6, no traffic between members, published ports on 127.0.0.1
+    by default, and `dns: 192.0.2.53` for the console (an address never assigned; not 127.0.0.1, which Docker 26+
+    asks from the host's namespace). Outside names do not resolve; the box's own names do. Without NAT a packet can
+    still leave the host with no answer back: `network.sh` drops it, and also every connection into a box network
+    that is not to a published port. Docker allows no published port on an internal network, so this is as closed
+    as compose can make it. The rehearsal's
+    `console` step checks the options and that nothing outside resolves or answers from inside the console.
+
+*Evidence.* `make rehearse-box` on 2026-11-09 (Docker 29.9.2, no GPU): all 21 steps PASS in about 9 minutes with
+the build (install 138 s, each SCREEN about 85 s; 362 patients in scope, 19 model calls, 7 mails to the sink; no 401
+or 404 during either SCREEN; the wrong name and the missing key each FAIL the doctor and are refused by the servers,
+and the box recovers after each). After the review fixes, 2026-11-10 (Docker 29.9.2, containerd image store): all 22
+steps PASS (install 107 s; 14 containers, each on an image the bundle loaded, postgres and hapi included; 4 image
+loads and no pull; the console resolves no outside name). The classic overlay2 store, in a Docker-in-Docker daemon
+with a bundle made on the containerd store: after the load `postgres:16-alpine@sha256:...` is "No such image" and
+`compose up --pull never` fails; after `tools/image_pins.py resolve` the db runs the bundle's image by its id, and
+the daemon's events show two loads and no pull. (A full `make rehearse-box` on an overlay2 daemon needs about 10 GB
+more disk than this machine had free: run it there before a release, RUNBOOK §16.) Unit tests:
+`test_vllm_standin.py`, `test_doctor_serving.py`, `test_model_key.py`, `test_verify_update_stdlib.py`,
+`test_smtp_sink.py`, `test_image_pins.py`, `test_egress_rules.py`.
+
+**D-177 The on-box model servers need a key, and the rehearsal's vLLM stand-in is strict about names and keys.**
+Source: the owner's follow-up list of 2026-11-09 (task 3); the cloud-run review's served-name failure (run 4: every
+model call refused 404 because the pinned served name was not the one served).
+
+*Decision.*
+1. *A key for the local model servers.* In GPU mode `install.sh` writes `TB_LLM_API_KEY` (48 random characters) to
+   `deploy/.env` once. Every vLLM service of the four compose files gets it as `VLLM_API_KEY`, so vLLM answers `/v1`
+   only with `Authorization: Bearer <key>`. `models/routing.yaml` names it as `api_key_env` of the `serving` and
+   `verifier` endpoints, so the gateway sends it; the secrets overlay clears it in every other service. Before, any
+   container on `model-net` could call the models.
+2. *A live doctor check.* `trialbox doctor --live` adds `serving`: for each on-box endpoint that a pinned build is
+   served on, `GET /v1/models` with the key must list every pinned served name, and the same call without the key
+   must be refused. A server that is down, refuses the key or does not serve a pinned name is a FAIL; no key, or a
+   server that answers without one, is a FAIL in VALIDATION and PRODUCTION and a WARN elsewhere. `doctor --serving`
+   runs it alone; `install.sh` runs it on `trialbox-model-net` right after the stack starts and stops the install on a
+   FAIL, with what to fix (the served names in `deploy/.env`, the key, or a new pin).
+3. *The strict stand-in.* `tools/vllm_standin.py` (standard library and the stub's deterministic answers) takes
+   vLLM's own command line, answers only the exact `--served-model-name` (vLLM's 404 `NotFoundError` otherwise),
+   refuses every `/v1` call without the key (401), never starts without a key, and counts its model calls by status
+   (`/standin/stats`, with the key) so a rehearsal can assert no 401 and no 404. Only a `POST` to
+   `/v1/chat/completions` or `/v1/completions` is a model call: the container health check's `/health`, the stats
+   and unknown paths are not counted, and `/v1/models` is counted apart (independent review, 2026-11-10). It never
+   stands in for a model.
+
+*Second review* (2026-11-10, no Blocker or High): the doctor no longer follows a redirect with the key; the stand-in
+refuses a bad or huge `Content-Length` before reading; an update restarts with `--pull never` as the install does;
+`TB_COMPOSE_OVERRIDE` must be owned by root or the installer and not group- or world-writable.
+
+*Independent review of PR #68* (2026-11-10; 1 High, 6 Medium):
+4. *`model-guard`* (High). vLLM v0.32 checks its key only on `/v1`, `/v2`, `/inference` and `/cohere`: SageMaker's
+   `POST /invocations` (chat), `/tokenize`, `/score`, `/pooling`, `/classify`, `/metrics`, and with dev mode
+   `/collective_rpc`, `/reset_prefix_cache`, `/server_info` and `/sleep`, answered anyone on `model-net`. The vLLM
+   servers now sit only on `model-backend-net` (internal), and `model-guard` (`services/model_guard`, standard
+   library, read-only, no capabilities, no env file) answers to `llm-service` and `llm-verifier` on `model-net`. It
+   passes `GET /v1/models`, `POST /v1/chat/completions` and `POST /v1/completions` with the key only, `/sleep`,
+   `/wake_up` and `/is_sleeping` with the key on the RTX 5090 profile only (`TB_GUARD_ADMIN=1`; the gateway's swap
+   now sends the key; the sleep init containers call the servers on `model-backend-net`), and `/health`. Everything
+   else is 404 and never forwarded. `doctor --serving` POSTs `/invocations` and `/tokenize` without the key and FAILs
+   when either answers; the stand-in answers them as vLLM does, so a box without the guard fails the check.
+5. *Updates.* An update makes `TB_LLM_API_KEY` on a GPU box that has none and runs `doctor --serving` after the
+   restart; a FAIL rolls it back. `TB_INSTALL_PULL` is checked there too (never or missing).
+6. *The host.* `network.sh` has an input hook: no new connection from a box network to the host, except an allowed
+   destination on the host. The rehearsal reports, without asserting, whether the host answers the console (the
+   rules are not applied there).
+7. *Rehearsal honesty and safety.* The no-route-out check is its own step, `egress-override`, and covers only the
+   rehearsal's internal `egress-net`; the shipped `egress-net` with `network.sh` is checked at the site's IQ. A new
+   step `guard` checks `model-guard` (24 steps). The work folder is a fresh `mktemp` folder by default; a given one
+   must be absolute, three levels deep, not a system folder, and new or the caller's own earlier rehearsal folder.
+   The report names the Docker image store.
+
+*Not done.* `trialbox secrets rotate` does not rotate `TB_LLM_API_KEY` yet (RUNBOOK §16 says how to change it by hand).
+The one-off doctor containers get all of `deploy/.env` and run as root; they should get the `TB_*` values only.
+`llm-stub` (stub mode, where no key is made) still gets `deploy/.env` whole: the secrets overlay lists exactly the
+services with a token. `install.sh` gives `settings.yaml` to gid 10001, which may be a real group on a host.
+**D-178 Operations screens for hospital IT; every destructive action asks first and can be undone where it can.**
+Review J-09 asked for the box's operations on the console, not only on the command line; J-14 asked for a
+confirmation on each destructive action and an undo where one is possible. The administrator's `/admin/ops` page shows
+the version, backups (age, red after 36 hours, the last check), update and rollback history, logs, secrets by name and
+age only, and the network sheet. Its actions (back up, check backups, verify or apply a bundle, collect logs, write
+the network sheet) wrap the existing commands (`trialbox backup`, the new `trialbox backup-check`,
+`tools/apply_update.sh`, `trialbox logs`, `tools/network_sheet.py`); none is written again. The console container
+has no docker, so it leaves a request in an operations folder and a host runner (`python3 -m tools.trialbox ops run`,
+every minute) runs it and writes the result back, one runner at a time (a lock; a link or a pipe left in the
+requests folder is skipped, never read). A request that started and was cut off (a restart) is shown
+interrupted and never run again; one that waited over 60 minutes is not run; each result is a `console.ops`
+event in the box's audit chain. Tests and the demo run the same runner in process. Who may is a
+table in `tb_common.authz` (administrator only); a refusal is a `console.denied` audit event, each action a
+`console.ops` event. Confirmations: account reset (no undo, said so), disable (undo: enable again, also from a
+Disabled accounts list), rejecting a fact (undo puts it back to proposed with its old values; confirming and
+correcting also have undo), a closing contact outcome (undo restores the earlier status; only the person's own latest
+outcome), detaching a source (undo within 15 minutes, in memory). *Evidence:* `tests/console/test_ops_pages.py`, the
+browser walk's admin pages and role refusals. *Not done here:* `deploy/install.sh` does not install the runner's
+timer yet; RUNBOOK §15 says how.
+
+**D-179 The site pages are site-wide; a study-scoped account sees readiness and help only.**
+Review J-06 asked which site pages a study-scoped account sees. The site's facts, mappings and sources describe the
+whole hospital and belong to its data steward, so they stay site-wide: an account with studies listed gets 404 (and a
+`console.denied` event, reason study scope) on every site page except the readiness page, its API and the help page,
+where it sees a note that the page is site-wide and no fix links or start button. Accounts with no study list keep
+today's pages. Per-study site settings, if a study ever needs them, belong in that study's own pages.
+*Evidence:* `tests/console/test_ops_pages.py` (scoped 404s and 200s).
+**D-181 A judge bake-off that gates on wrong exclusions, with the box's own prompt and parser (no GPU yet).** Before
+a GPU run compares the current judge with `google/gemma-4-31B-it`, the comparison has to measure what matters for
+screening, on a fixed set, through any OpenAI-compatible endpoint.
+
+1. *The tool.* `tools/judge_bakeoff.py` puts every item through `NoteJudge.judge_excerpts` with one judge and no
+   verifier: the registry prompt `judge` (newest version), `tb_common.llm.chat_json` (structured output, schema check,
+   one retry) and `postprocess` (the quote must be in an excerpt, else unknown), then the product's `eligibility`. No
+   new prompt and no new parser.
+2. *The set.* The synthetic hospital set (`tools/make_judge_set.py`, planted truth, kind from the ruleset IR; 39 of
+   its 300 items have no note in the window and are not put to the model, 100 are `renewal`, scored like an
+   inclusion), MedTxt (`tools/medtxt_eval.py` items, the strict slice, ja and en: positive pass, stated absent fail,
+   suspected and not mentioned unknown) and TREC CT (`tools/trec_ct_eval.py`, NIST-eligible pairs: no criterion
+   should exclude). `--write-set` freezes the set; `--expect-set-sha` refuses another file; `gated` is set from the
+   source, never read from the file; `--compare` exits 1 when sets or prompt versions differ.
+3. *The gate, per gated source* (synthetic and MedTxt each on its own; a pooled rate let the larger set hide a
+   failure on the other): wrong exclusions <= 2 % over the judge's exclusions (Study A's measure, compared exactly),
+   at least 20 exclusions and 50 answers, at most 10 % unanswered (the product's model-down rule, also run-wide);
+   both sources present. Wilson and patient-cluster 95 % intervals are reported (the bootstrap resamples every
+   patient); `--max-upper-ci 0.05` gates the pooled upper bound and the RUNBOOK commands pass it. TREC CT is reported
+   (wrong exclusions, eligible pairs lost) but not gated: its labels are per pair and noisy (`eval/trec_ct/AUDIT.md`).
+   Also reported: precision of "fits", gold-unknown excluded and abstained, citation validity (quote found, dated as
+   an excerpt that holds it), latency per item and per HTTP call, tokens per call (failed attempts included).
+   `product:unknown_never_excludes` is a self-check of the product's mapping, not a model measure.
+4. *Pinning.* `--expect-root` is required for a real endpoint. `/v1/models` must list `--served-name` with that root
+   before the first item (exit 3 otherwise) and unchanged after the last. The root is only vLLM's start name, so
+   `--model-dir` records the weight manifest hash (`tools/pin_model.py` format), `--expect-manifest` refuses other
+   weights and `--revision` records the commit. The per-answer model name only catches a renaming proxy.
+5. *Robustness.* Only transport errors, 429 and 5xx are retried; a 4xx, a schema error or a malformed 200 is no
+   answer (never a crash). Rows are appended as they complete; `--resume` keeps the answered ones.
+6. *Secrets.* The endpoint key comes from the environment variable named by `--key-env` (default
+   `TB_BAKEOFF_API_KEY`), goes only into the Authorization header to `--base-url` (no proxy from the environment;
+   plain http only to loopback), and is never printed or written; results record only the variable's name. Rows carry
+   ids, gold, verdicts, reason codes, latency and tokens: no note text, no quote.
+7. *Relation to `tools/bakeoff.py` and `tools/bakeoff_live.py`.* Those pick a hosted model for the `judge_ml` task
+   through a tb-gateway with the `mlbench` prompt, scored by agreement and cost. This tool is the screening-safety gate
+   for one served model (a local vLLM on a GPU VM) with the box's own judge. It reuses their retry backoff, worker cap
+   and percentile helper, and `tools/trec_ct_eval.py`'s Wilson interval.
+
+*Evidence.* `tests/unit/test_judge_bakeoff.py` (20 tests) against a local stub server on 127.0.0.1 (the
+`services/llm_stub` judge handler, or a test answer): the stub run passes; a judge that says yes to everything fails
+with its interval; invented quotes exclude nobody and cannot pass (0 exclusions); the 2 % boundary (1/50 passes,
+9/449 fails); a 10 % failure on one source hidden in a 1.1 % pooled rate fails; unanswered gated items fail while
+TREC answers; the minimums, required sources and upper bound; a wrong served name or root, a missing
+`--expect-root`, a renaming proxy, a server swapped during the run and a wrong weight manifest are refused or fail;
+4xx not retried, 5xx retried, malformed 200s are no answer; resume; the frozen set checks (sha, `gated`, U+2028); the
+MedTxt and TREC builders; compare; a test key reaches the stub's header and appears in no output, stdout or stderr,
+and is refused over plain http to another host. The GPU procedure is RUNBOOK section 12. No real model or cloud
+endpoint was called.
+**D-185 One hashed lock: `uv.lock`, exported to `deploy/requirements.lock` with sha256 hashes and checked in CI.**
+Source: `docs/reviews/2026-11-09-component-review-layer2-verification.md` row 2 and R-19; master plan WS-14.6. The
+lock was made with `uv pip compile` without hashes, and pip-audit found 60 advisories in it (pillow 12.3.0: 39, pypdf
+6.19.0: 18, brotli, certifi, opentelemetry-api: 1 each).
+1. `uv.lock` (uv 0.11.32) is the one lock: every file of every package with its sha256. `deploy/requirements.lock` is
+   its `uv export` (runtime dependencies only, no extras, no dev, not the project), written by `make lock`; never
+   edited by hand. Every entry carries `--hash=sha256:`, so the images' `pip install -r` runs in hash-checking mode
+   and refuses a file whose bytes differ. pip-audit itself installs from its own hashed lock
+   (`tools/supply_chain/pip-audit.lock`).
+2. `make lock-check` (CI, every pull request) fails when `uv.lock` no longer satisfies `pyproject.toml`
+   (`uv lock --check`), when `deploy/requirements.lock` is not the export of `uv.lock`, or when an entry has no sha256,
+   is not pinned with `==`, is an option (`-e`, an index) or appears twice; when a `uv.lock` package comes from git or
+   a URL or has a file without a hash; and when the pip-audit lock is unhashed or not pip-audit 2.9.0. A unit test
+   compares the export byte for byte, so uv is pinned to 0.11.32 in the workflows.
+3. Floors for the advisories: `pypdf>=6.21.4` in `pyproject.toml`, `pillow>=13` as a uv constraint. pip-audit on the
+   new lock: none.
+4. The base images are pinned by index digest (`python:3.12-slim@sha256:5e2bdb1b…`, amd64 and arm64) in
+   `deploy/docker/python.Dockerfile` and `demo/Dockerfile`; the demo image installs pytest on its own pip line, since
+   hash-checking mode refuses an unpinned extra requirement.
+
+*Evidence.* `tests/unit/test_supply_chain.py` (lock part); `make lock-check` PASS; an environment installed from
+`deploy/requirements.lock` with `--require-hashes` (73 packages on CPython 3.12 Linux).
+
+*Not done here.* `make venv` still resolves from `pyproject.toml` (not `uv sync --frozen`).
+
+**D-186 SBOM per release, pip-audit and offline Trivy as gates on every shipped image, an allow-list with reasons, a
+licence report.** Source: the same review, row 2 and §3; WS-14.6; the independent review of PR #61 (6 High).
+1. **pip-audit** (2.9.0, from its hashed lock, on Python 3.12; build side only) on `deploy/requirements.lock`: every
+   advisory fails unless allow-listed; the audited set must equal the lock's entries for CPython 3.12 on Linux
+   (markers evaluated); a package it could not audit fails; an empty or unreadable report fails.
+2. **Trivy** (0.75.0) with the database loaded first (`make trivy-db`; on the media, `oras pull` of `trivy-db:2` and
+   `trivy-java-db:1`) and the scan offline, with no ignore file, no config file and every `TRIVY_*` setting removed.
+   CRITICAL or HIGH with a fixed version fails unless allow-listed; UNKNOWN (not scored yet) counts as HIGH; a missing or
+   odd severity fails; unfixed findings
+   and MEDIUM/LOW are listed. A report must show OS packages and the image's own language packages (Python; jars in
+   the JVM image). The database (and the Java one) may be at most 7 days old.
+3. **Release gates** (`make release-gates`): each image is pinned first, a local one by its image id, a third-party
+   one by its registry digest for the platform, and Trivy and Syft must both name that image. They cover
+   trialbox-py, trialbox-jvm, trialbox-demo and every third-party image compose pulls. `gates.json` and
+   `dist/sbom/index.json` record per image the reference, platform, image id, digests, and the report and SBOM with
+   their sha256. CI (`trialbox-images.yml`) runs them on amd64 and arm64 for pull requests that change what goes into
+   an image, weekly and for a release tag, and for a tag also on both platforms of `make images-multiarch` by digest.
+   `make release-bundle` bundles only images in a passing record at most 7 days old (`tools/make_bundle.sh --gates`).
+4. **SBOM per release**: Syft (1.56.0) CycloneDX JSON per image and platform, and for the lock: Syft over an
+   environment installed from the lock with hashes, so each package carries the licence of its installed metadata;
+   it must name every locked package that installs on the box, at its version.
+5. **Licence report** from the SBOMs (nested components, ids, names, expressions, URLs, full texts searched to the
+   end; Licence and License): flags GPL, LGPL, AGPL, unknown and dual. Only a licence on the known permissive list
+   counts as an `OR` choice; `LicenseRef-*`, `NOASSERTION`, `Proprietary` never do. Each flag of a package needs its
+   own allow-list entry in the lock and our images; a dual entry names the branch taken, an unknown entry the licence
+   a person verified. Unknown licences of jars and Go, Rust and other binaries in our images (Syft reads no licence
+   there) are counted per image and ecosystem against a reviewed budget that fails when one more appears (Python and
+   npm unknowns are never budgeted). Third-party images, redistributed unmodified, have one budget per image for all
+   their open flags; their terms are reviewed as a whole. Distro packages of a base image are listed, not gated.
+6. **The allow-list** `deploy/supply-chain-allowlist.yaml`: every entry needs its package, a reason (20 characters or
+   more) and `review_by` at most 180 days ahead; a key given twice or a list given as anything else is refused; after
+   `review_by` every gate fails until the entry is reviewed or removed; there is no date override. It starts with
+   the eight LGPL packages of the review, dulwich under Apache-2.0, six packages whose licence the SBOM cannot read
+   (duckdb, jinja2, kiwisolver, matplotlib, pycryptodomex, reportlab; each read in the wheel; reportlab ships a GPL
+   font as data), the base image's interpreter and pip's Windows launchers, and no vulnerability entries.
+7. Every GitHub action is pinned to a commit; Syft and Trivy are release archives with pinned sha256.
+8. Two faults that broke `make images` before this decision are fixed: `python.Dockerfile` copied `integrations/`,
+   removed in D-121; the root `.dockerignore` left out the JVM image's validator and FHIR packages
+   (`deploy/docker/jvm.Dockerfile.dockerignore` now applies to that build). A test checks every COPY source. The
+   build contexts also leave out the scanners and their outputs (the first CI run found Syft and Trivy, with their
+   Go modules, inside the demo image), and the Python images take Debian's security updates of the base's packages.
+
+*Evidence.* `tests/unit/test_supply_chain.py` (offline, fixtures trimmed from real Trivy and Syft output);
+`make pip-audit`, `make licences` and `make lock-check` PASS; the first CI runs of the image gates (amd64 and arm64)
+found real HIGH and CRITICAL findings with fixes: zlib1g in the base (now upgraded at build), jackson-databind,
+the HL7 FHIR core libraries, commons-beanutils, guava and httpcore5 in the validator and cql-to-elm jars, and many
+in the third-party images (MailHog alone over 1,500; MailHog has no arm64 image). Those are not allow-listed here:
+moving the jar versions and the third-party digests, or accepting a finding, is the security owner's decision.
+
+*Report mode* (owner decision of 2026-11-10, option (a)). Until the follow-up lands, CI runs the image gates with
+`--vuln-mode report`: fixable CRITICAL/HIGH findings in trialbox-jvm, trialbox-demo, MailHog, vLLM, postgres, HAPI
+and GreenMail (`VULN_REPORT_ONLY` in `tools/supply_chain/release.py`) are listed in the CI job summary per image and
+platform (CVE, package, installed and fixed version) and do not fail a pull request. trialbox-py's vulnerability
+gate, the licence gate, `make lock-check`, `make allowlist-check`, `make pip-audit` and every build, scan or report
+error still block, and `tools/make_bundle.sh --gates` never bundles an image that passed only in report mode.
+MailHog, published for amd64 only, is left out of the arm64 gates by name (`SC_AMD64_ONLY`). Each image's findings,
+owner (security owner, to assign), target date (2026-12-10) and planned fix are in
+`deploy/security/known-image-findings.md`; a test keeps that file and the report-mode set in step.
+
+*Not done here.* `THIRD_PARTY_NOTICES.md`; the SBOMs inside the signed bundle; `--gates` mandatory in
+`tools/make_bundle.sh` (optional with a warning, so the demo VM's update script keeps working).
+
+**D-187 Backups, layout 2: one snapshot, stream hashes, what a backup leaves out, sidecars.**
+Source: `docs/reviews/2026-11-09-dataflow-lifecycle-review.md` §6.3 and §7.1 to §7.3 (R-45, R-60) and WS-08.6, finishing the backup row D-149 left open.
+1. *One snapshot.* For each database, one session exports a `REPEATABLE READ` snapshot. `pg_dump --snapshot` dumps it, and the same session counts and hashes every table and copies the site-fetch refdata rows. The manifest says `rows_from: snapshot`. A restore that differs from such a manifest fails; one from a live-counted backup (layout 1, the update path) warns.
+2. *Stream hashes.* Every member's sha256 and size are those of the bytes written into the tar, from a single read. A file whose size, mtime or inode changes during the read is taken again (3 tries), and a file that shrinks fails the backup. The encrypted file's sha256 is taken while written and saved as `<file>.sha256`. Every target is read back once. A backup counts as complete only with its sidecar.
+3. *Layout.* Header and manifest carry `layout: 2`. These are left out, and listed: the data of `refdata.ctgov_study`, `trial` and `term` (vendor packs, reloaded on restore), the `*.ndjson` of lake snapshots older than `CURRENT` and the two newest, and lake `tmp/` and `.building` files. `pack`, `source`, `_schema_version` and site-fetch rows are kept. The dump is `-Fc -Z0`, compressed once by the zstd stream.
+4. *Restore.* Restore reads to the final chunk and checks the sidecar. It reloads the packs the manifest names from `deploy/refdata/loaded` (install and update keep them there), or exits 3 until they are given. A newer layout is refused. Layout 1 (gzip, and zstd from D-149) still restores.
+*Evidence.* `tests/unit/test_backup.py`; `tools/backup_drill.py`.
+
+**D-188 The backup schedule, the off-box rule, the age alert, and Postgres zstd/lz4 with pgBackRest PITR.**
+Source: WS-08.6 and WS-08.5 (the admin tile turns red 36 h after the last backup), RSK-13 and RSK-24; dataflow review §6.2 and §7.3.
+1. *Schedule.* `python3 -m tools.trialbox backup-nightly` runs from cron at 04:45 (`deploy/backup/trialbox-backup.cron`), one run at a time. It sweeps stale plaintext spools, checks free space, writes the `.tbbak` to every target, then runs pgBackRest when archiving is on: a full backup on the site's Sunday, a differential otherwise. The result goes to `deploy/site/backup-last.json` and the audit. Fewer targets written than configured is a failure.
+2. *Off-box.* A target is off-box when it is a network share, a USB disk, or a `TB_BACKUP_OFFBOX` path on another device than `/` and the deploy folder, or marked with `.trialbox-offbox`. In PRODUCTION a run without one fails, and only off-box backups count as good.
+3. *Age alert.* `backup-status` (hourly) is red when the recorded good backup is missing, changed, older than 36 h or more than 1 h in the future, or disagrees with its record. It is also red when the last run or pgBackRest failed, or when archiving is off, failing, stale or silent while configured on. Red is audited, repeated every 24 h, piped to `TB_BACKUP_ALERT_CMD` and mailed. The message has no error text and no patient data.
+4. *Postgres.* `wal_compression=zstd`, `default_toast_compression=lz4`, data checksums for new clusters. WAL archiving (off by default) goes to pgBackRest: zst, an aes-256-cbc repository, 3 full backups plus 7 differentials, at least two weeks of point-in-time restore. It is turned on per site (RUNBOOK §5); the cipher pass is mounted into db only.
+*Evidence.* `tests/unit/test_backup_schedule.py`; `tools/backup_drill.py`.
+*Not done here.* The docker-side runs; `doctor` failing on a local-only target; `install.sh` installing the cron file; the admin tile (WS-08.5); review items M2, M7, the repo-path half of M8, and the open Lows.
+
+**D-189 Score definitions from the catalogue; CDAI and SDAI in the SQL and CQL engines.**
+Source: `docs/reviews/2026-11-09-dataflow-lifecycle-review.md` §0.4, §4.2; D-149 "Not done here"; WS-04.3.
+1. `tools/gen_score_defs.py` generates `libs/tb_common/score_defs.json` from `catalogue/scores/*.yaml`. A
+   definition is `<score_id>@<version>` with the sha256 of its YAML; a YAML changed under the same version is
+   refused (bump the version). `tb_common.scores` reads it; the same-visit windows of CDAI, SDAI, DAS28-ESR and
+   DAS28-CRP come from it, and a test checks that the hand-written eGFR, JSN and DAS28 constants equal the catalogue's
+   coefficients.
+2. CDAI = TJC28 + SJC28 + PtGA + EvGA and SDAI = CDAI + CRP (mg/dL) are in the Python reference, the SQL generator
+   and the CQL `TB_Common` (`CDAI`, `SDAI`). The globals are LOINC 75844-1 / 75846-6 on a 0-10 scale: a 0-100 mm VAS
+   is divided by 10, a 10 cm VAS is 0-10, and a value outside 0-10 gives no value and `derived_unit` in every
+   engine. The criterion IR (schema 1.2.0) and the extract schema accept `cdai` and `sdai` (calculators
+   `cdai@1.0.0`, `sdai@1.0.0`).
+3. Worked examples (catalogue CDAI 27, 1.5, SDAI 31, 1.2; review CDAI 14.5; CKD-EPI 59.3; JSN 63.1) give the same
+   value in Python, in the compiled SQL on a lake and in the CQL helper text; a missing input or a unit that does not
+   fit is the same reason in each, never FALSE.
+4. An impossible value never raises in the Python reference: a creatinine of 0 or less, a joint count outside 0-28, a
+   negative CRP or ESR, or a value that is not a finite number gives no value and `derived_unit:<input>`; an age of 0
+   or less gives `derived_missing_input:age`. The SQL `egfr_jsn` template has the same creatinine and age guard.
+*Evidence.* `tests/unit/test_derived_definitions.py`.
+*Not done.* The SQL and CQL engines do not yet carry the joint-count, CRP and ESR ranges.
+
+**D-190 Stored derived rows with provenance, recompute on change, derived-vs-documented conflicts.**
+Source: the same review §4.2 (storage, recompute triggers, conflicts); WS-04.3.
+1. `tb_common.derived_store`: schema `derived` with `definition`, `score_row` (value or reason; unit; anchor;
+   definition version and sha; site mapping version; every input with its source table, row id, date, value and unit
+   as recorded, status, and the value and unit used), `input_link` (one per input) and `conflict`. Rows are
+   superseded, never updated in place or deleted. Stored scores: CDAI, SDAI, DAS28-ESR, DAS28-CRP, eGFR CKD-EPI
+   2021 and JSN 2009. Two stores opening at once load a definition once (insert or nothing, then re-read its sha).
+2. A row is written only when its fingerprint (definition version and sha, mapping version, inputs; age and sex for
+   eGFR) changes: an input added, corrected, confirmed or deleted, a new mapping or a new definition version. An
+   anchor gone at the source retires its row. `run_batch` reads the lake's `observation` (never `site_fact`). A
+   patient whose recompute fails is counted in the batch report (`failed`, `failed_pids`) and the batch goes on.
+3. Only rows with status final, amended, corrected, confirmed or signed are inputs: a proposed fact never counts.
+   The lake's `observation` has no status column, so the batch records each lake row's status as `not_recorded`,
+   which counts: the lake holds only feed rows and confirmed facts (a proposed fact stays out of `observation` by
+   its basis tag). An entered-in-error or preliminary feed row is not left out until the lake carries
+   `Observation.status`.
+4. A documented score (proposed or signed) within 7 days of a computed row and beyond the tolerance (CDAI and SDAI
+   0.5, DAS28 0.2, eGFR 5) opens a `derived_vs_documented` conflict; neither value is overwritten, the score reads
+   as unknown until a person chooses keep_derived, keep_documented or both_at_dates.
+5. A recomputed row takes over the conflicts of the row it replaces (`carried_from`), checked against the stored
+   documented value even when the batch is not given the documented scores: a conflict that still differs stays
+   open; one that now agrees is closed. A person's decision stays unless the new value differs from the value it was
+   made against (`resolved_value`) by more than the tolerance; then the conflict opens again. A documented record
+   given again with another value or status is checked as new.
+*Evidence.* `tests/unit/test_derived_store.py`.
+*Not done.* Screening reading stored rows; ruleset pinning of definition versions; scheduling the batch; a
+conflicts page; the eGFR under-18 rule; for the lake owner, `Observation.status` in the lake's `observation` table.
+
+**D-191 The SAE register: one record per serious AE on the one reporting clock (independent plan review PR-17).** The review found that the SAE clock had no system of record and no failure mode in the risk file. TrialBox now keeps an SAE register, schema `sae` of the trial database (`services/console/saerecord.py`), with a worklist at `/sae` and a case page at `/studies/{rs}/sae/{record}/{event}` (`services/console/sae_pages.py`).
+
+* **One place per fact.** Onset, the day learned, seriousness and outcome, and the day each first report was sent stay on the AE form (D-134, D-143). "Record the report sent" writes only that field through the data core's form save. A second "sent" is refused; corrections are made on the AE form. For a case no longer serious, a late "sent" or "closed" is kept in the register.
+* **One clock.** Deadlines are `datacore.lifecycle.report_clock` with `TB_SAE_RULES` / `TB_SAE_REPORT_DAYS` (D-143), on the site's local date. The rule's follow-up is due on day 0 + the first report's days + the follow-up days. A fatal or life-threatening case to the regulator is due on day 15 (ICH E2A 7 + 8; Taiwan 15-day report). `TB_SAE_FOLLOWUP_DAYS` overrides it. Receivers' requested follow-ups have their own due day.
+* **States.** Due, overdue, sent, sent late (counted, alerted) and a sent date to check (not counted, alerted).
+* **Trail.** Every create and change goes to `sae_trail` and the audit log (`console.sae`), dates and parties only. Changes read from the AE form are recorded as `system:sync` with the form's author and time; a person's own entries are recorded as that person.
+* **Date checks, never silently fixed:** no start day; the day learned before the onset; an onset or day learned in the future; late awareness. Each is flagged on the page.
+* **Downgrades.** A case no longer serious keeps its last clock. While it has open reports it stays in the alert, and they can be sent or closed.
+* **Worklist.** Overdue and late reports first, under an alert, in ja / zh-TW / en, linked from the header menu. The page names who confirmed the site rule (`TB_SAE_RULES_CONFIRMED`) and says the trial office's SAE log and SOP still govern. It shows no AE term, chart number or name.
+* **Access, deny by default** (`tb_common.authz.ROLE_SAE_ACTIONS`): the coordinator views and records (with `enter_data`); the investigator (with `screen` once a PI is named) and the administrator view; viewer and CRO get 403; another study gives 404; refusals are audited.
+* **Risk.** RSK-50: the register and the office log disagree, or a register date is wrong; traced from WS-06.13.
+
+*Evidence.* `tests/console/test_sae_record.py` (15 cases); PR #60 (review: 0 Blocker, 4 High fixed).
+*Open.* The office's SAE log stays the inspected record; compare monthly. Not built yet: the write-path sync from the orchestrator, the copy to the office mailbox, the OQ wrong-clock test, follow-ups on home pages and in mail, the `/api/v1` route, void and correct for receipts and requested follow-ups, and review items M5, M7 and M8.
+
+**D-192 Identity for the console: TOTP for local accounts by default, an optional OIDC sign-in through Authelia,
+the administrator's audited recovery, and hardened sessions.** Component review 2026-11-09 layer 1 rows 30 and 36
+and layer 2 item 1 (Authelia, Authlib, pyotp; corrections: the OIDC provider is beta, sign-out goes through
+Authelia, the portal needs a hospital host name and certificate); the IT security pack (§A.4 sign-in, §B session
+controls and password policy); master plan WS-13.1 (part), URS-ADM-01, RSK-07, TST-SEC-06 (part). Built 2026-11-09,
+no Docker.
+
+* **TOTP (RFC 6238) for local accounts, standard library only** (`services/console/totp.py`): HMAC-SHA1, 6 digits,
+  30 s, one step of drift either side, a step accepted once (the last step is stored; a replay is refused and
+  audited). pyotp was not added: the code is 30 lines and the supply-chain lock (task A) was being rebuilt in
+  parallel. Default `TB_CONSOLE_MFA=totp` outside DEV and TEST; `off` is refused in PRODUCTION. An account without an
+  authenticator enrols one at its next sign-in after the password (the first good code confirms it). The secret is
+  AES-256-GCM sealed with the account name as associated data, under `totp.key` on the console volume, not in the
+  database (`auth` schema version 2: `totp_secret`, `totp_step`, `idp_sub`, `pending_logins`, `oidc_pending`).
+* **Sign-in in two steps.** A right password makes a ten-minute pending sign-in (a SameSite=Strict cookie, its hash
+  stored), never a session. A wrong or replayed code counts as a failed sign-in, and with TOTP on a right password
+  no longer clears the failure count, so knowing the password does not buy unlimited code guesses. Five failures in
+  15 minutes lock the account for 15 minutes (as before); the lock is audited once (`console.lockout`).
+* **Recovery.** `/ops/identity` (administrators; new page, the Users page is unchanged) and `console.cli unlock|
+  reset-totp`: lift a lock early, or clear another account's authenticator after a confirmation sheet (never one's
+  own on the page). Both are audited (`console.unlock`, `console.totp_reset`) and the reset signs the account out.
+  The reset account enrols again after its password, so the identity check before a reset is a procedure (RUNBOOK
+  §12), not code.
+* **Sessions.** Idle timeout default 10 minutes (the IT pack's shared-PC lock; was 30), `TB_CONSOLE_IDLE_MINUTES`
+  1-60; absolute 8 h, `TB_CONSOLE_SESSION_HOURS` 1-12. Cookies HttpOnly and SameSite=Strict as before; Secure is now
+  on by default in PRODUCTION when `TB_CONSOLE_SECURE_COOKIE` is unset (the base compose file still passes `0` for
+  the plain-http 127.0.0.1 port; the identity overlay passes `1`).
+* **OIDC through Authelia, off by default** (`services/console/oidc.py`, `TB_OIDC_ENABLED`). Authorization-code flow
+  with PKCE S256, state bound to the browser by a Lax cookie and single use within 10 minutes, nonce; the ID token's
+  signature is checked against the provider's JWKS (RS256 or ES256 only; `none` and HS* refused), then issuer,
+  audience, `azp`, expiry, issue time, nonce and subject; `amr` must report a second factor unless
+  `TB_OIDC_REQUIRE_MFA=0`. No OIDC library was added (Authlib would need the lock regenerated): `httpx` and
+  `cryptography` are already dependencies. Roles come only from `TB_OIDC_GROUP_ROLES` (group:role pairs into the
+  existing five roles); a `role` claim or an unmapped group gives nothing, a person in no mapped group or in groups
+  of two roles is refused, the role is refreshed at each sign-in, an OIDC account is bound to its subject and never
+  takes over a local or header account of the same name. The callback answers with a same-origin page that moves on
+  (a Strict cookie set on a cross-site redirect would not be sent on the next hop). Sign-out continues to Authelia's
+  logout. Authelia's OIDC provider is OpenID Certified but beta (4.39): the console uses only the code flow, the
+  discovery document, the JWKS, the token and userinfo endpoints and a plain logout link.
+* **Unchanged:** the role table (`console.auth.User` properties, `tb_common/authz.py`), the signed actor assertion
+  (S-09, D-143), the trusted-header SSO (D-93).
+
+*Evidence.* `tests/console/test_identity.py` (35 tests: the RFC 6238 vectors; window, replay and input cleaning; the
+sealed secret; the defaults and bounds; enrolment with no session before the code; a half-done sign-in expiring
+after ten minutes; wrong and replayed codes; lock-out
+by codes with the password not resetting the count; password lock-out and the audited unlock; the audited reset and
+who may do it; one-step sign-in in TEST; idle and absolute expiry; Secure, HttpOnly and Strict cookies in PRODUCTION;
+OIDC off by default; OIDC settings refused when unsafe; a mapped group's sign-in, the token request with PKCE, the
+audited login and the provider logout; nine refusal cases including a `role` claim, unmapped and two-role groups, a
+missing second factor, nonce, audience, issuer and expiry; userinfo about another subject; state single-use, bound to
+the browser and expiring; no take-over of a local account; forged, `none`, HS256 and wrong-key tokens; ES256; the
+deploy files). `tests/console/test_console_app.py`: the PRODUCTION control-plane test signs in with the TOTP step
+over https.
+
+*After the independent review (2026-11-10, four High findings).* (H1) The trusted-header SSO (D-93) is refused at
+start unless TOTP and OIDC are both off (so only in DEV and TEST), a header never signs in a local or OIDC account,
+and Caddy strips the common identity headers and the site's configured ones from every request. (H2) A password no
+longer registers a device: an account without an authenticator (every account after the upgrade, and after a reset)
+needs a one-time enrolment code an administrator issues on `/ops/identity` or with `console.cli enrol-code|reset-totp`
+(24 hours, once, only its hash stored, never in the audit); without one it cannot sign in; the page lists the
+accounts without an authenticator first; `console.totp_enrolled` says `first` or `reset`. The first administrator's
+code comes from the shell on the box (the supervised path in RUNBOOK §12). (H3) A page's own 5-second refresh asks
+with `auto=1` and does not move the idle clock. (H4) CI job `trialbox-identity` runs `caddy validate` in both modes,
+`docker compose config` of the merged files (pytest asserts that only Caddy publishes, only 443) and Caddy in front of
+a stand-in console (HSTS, headers stripped, 80 and 8090 closed, no query strings in the log). Also: an explicit
+`TB_CONSOLE_SECURE_COOKIE=0` is refused in PRODUCTION and the base compose file leaves it unset; TOTP off only in DEV
+and TEST; `TB_OIDC_LOGOUT_URL` required with OIDC; the Authelia cookie scoped to its own host; HTTP errors from the
+provider caught; the OIDC state checked against the browser before it is used up; half-done sign-ins cleared on a
+password change and on disable.
+
+*Open.* WebAuthn in the console (Authelia offers it for directory users), step-up re-authentication before a reveal,
+an export or a signature, the breached-password list, password history and the forced first change, `doctor`
+failing without MFA (its `secure_cookie` check now follows the console's default), removing the trusted-header
+SSO altogether, the `steward` role (the role table stays as it is here). The full stack with Authelia has not been
+started on a box (no Docker daemon on the build machine).
+
+**D-193 TLS on the console through Caddy: its internal CA by default, the hospital's certificate by a setting.**
+Component review layer 1 row 36 and layer 2 item 1; IT security pack §A.3 (only 443 from the clinic PCs) and §B "In
+transit"; master plan CP-2 and RSK-27 (the internal CA as the fallback while hospital IT issues a certificate).
+
+* `deploy/docker-compose.identity.yml` adds Caddy 2.11.9 (pinned by digest) on 443 in front of the console, stops
+  publishing the console's own port (`ports: !reset []`, Compose 2.24 or later) and turns on Secure cookies; Authelia
+  4.39.28 (pinned by digest) is in the `oidc` profile with its own SQLite state, on the internal network plus the
+  egress network for LDAPS (opened by `EGRESS_EXTRA`). New services only; the base compose file is not changed.
+* `deploy/identity/Caddyfile`: `TB_TLS_MODE=internal` (default; `tls internal`, `local_certs`, never a public ACME CA)
+  or `hospital` (`TB_TLS_CERT_FILE` and `TB_TLS_KEY_FILE` from settings, mounted read-only); TLS 1.2 and 1.3, HSTS, no
+  Server header, admin API off. The CA keys stay in the `caddy-data` volume, which no other service mounts; the root
+  certificate is copied out for the staff PCs and for the console's back channel to Authelia (`TB_OIDC_CA`).
+* `python -m console.cli check-tls` (`console.identity.check_tls`) checks the hospital certificate before Caddy uses
+  it: readable PEM, valid today (a note 30 days before the end), the key is the certificate's, the host name is in the
+  SAN (wildcards one level), and a note when no intermediate is in the file.
+* Hospital-IT settings: `deploy/identity/identity.env.example` (copied into `deploy/.env`; settings.yaml is not used,
+  because the console and Caddy both read the environment and the settings schema is shared), the Authelia example
+  `deploy/identity/authelia/configuration.example.yml` (`activedirectory` over LDAPS, two-factor policy, PKCE, no
+  remember-me, the same 5/15/15 lock-out), RUNBOOK §12, SECURITY §2 and §3.
+
+*Evidence.* `tests/console/test_identity.py` (internal mode, a hospital certificate good, for another host, a
+wildcard, with a foreign key, expired, ending soon, missing; the CLI; the deploy files agree with the console).
+
+**D-270 The console's "today" is the site's date, never the UTC date (integrity review DI-1, DI-2).** The console's clock is a UTC instant. Nineteen places took its `.date()` as "today", so in Japan the console lived in yesterday until 09:00 (08:00 in Taiwan).
+
+* **What went wrong.** A PI whose delegation started today was refused until 09:00 (E-10, "no log entry"), and had no tasks. A delegation that ended yesterday still worked until 09:00. The 07:00 and 07:30 notices were built for yesterday: no Monday digest, one on Saturday, and the investigator's clinic list a day late.
+* **One helper.** `Helpers.today()` in `services/console/home.py` gives the site's calendar date: `timefmt.local_today(clock(), site_zone(bk))`, the zone being `site.tz`. Every "today" in `home.py`, `team.py`, `edc_pages.py`, `notify.py`, `timers.py`, `step4.py` and `screening_log.py` (the research-office report's default year) asks it, and so do the drivers `tools/e2e_simple.py` and `tools/rc_demo.py`. `clock()` stays the source of timestamps. The monthly delegation-log check (`team.check_due`) reads the stored check time on the site's calendar too.
+* **Accounts.** An account's end date is a site day too: `UserStore.today()` in `auth.py` reads the same zone (`console.app` sets it), so an ended account stops at 00:00 at the site, not at 09:00. The request classifier's "today" in `app.py` is the site's date, not the container's.
+* **No silent UTC.** `timefmt.site_zone` raises `SiteZoneError` for a zone name that is not a zone, and for a configured backend with no zone. The console asks at start-up, so it does not start. (`tb_common.config.load` already refuses a settings file without a valid `site.tz`.) Only a test double with no configuration and no `TB_TZ` reads UTC.
+* **Two more.** The orchestrator's night self-test result is kept per site date, not per container date (`scheduler.night_gate`). `python -m omop dqd` takes `--tz` (default `TB_TZ`) for its "today".
+* **Guard.** A unit test reads the syntax tree of `services/console` and `services/orchestrator` and fails on a calendar day taken from an instant without converting it: `.date()`, `.year`, `.month`, `.day` or `isoformat()[:10]` on `clock()`, `datetime.now(...)` or a name bound to one, and `date.today` / `datetime.today` / `datetime.utcnow`. Comments, strings and docstrings do not count; no file is exempt.
+
+*Evidence.* `tests/console/test_site_today.py` (00:30 in Tokyo and in Taipei on the start day and on the day after the end, for a delegation and for an account; E-10; the timers on Monday 07:00 and 07:30; the admin 30-day list; the monthly log check; a wrong zone; each form the guard catches and the forms it must not), `tests/unit/test_site_today_misc.py`. `tests/console/test_local_time.py` expected UTC for a wrong zone name and now expects the error.
+*Open.* The rest of DI-14: `omop/load.py` batch and release dates (metadata), the `AuditLog('/data/audit')` one-liners in `tools/trialbox/backup_schedule.py`, `tools/trialbox/update.py` and `deploy/install.sh` (default zone Taipei on every box), `backup_schedule.config` reading `TB_TZ` instead of `site.tz`, and the "last 24 hours" text comparison on the admin pages. From the review: a `UserStore` built outside the console app (`console.cli`, update and demo tools) reads `TB_TZ` for an account's end date; `tools/trialbox/logs.py` archives audit day files by the UTC date; `omop dqd --tz` defaults to `TB_TZ`, not `site.tz`, and a bad name gives a traceback; the gateway classifier's "today" and the notify command line's default day have no test of their own.

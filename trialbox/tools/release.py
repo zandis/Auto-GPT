@@ -1,0 +1,418 @@
+"""Release identity (T-110b, D-340): the version, the tag, and ``release.json``, the record of one signed bundle.
+
+    python -m tools.release version            # the version, from pyproject.toml (the one place it is written)
+    python -m tools.release tag                # the release tag for it: trialbox-v<version>
+    python -m tools.release build --id 2026.11-1 --release-seq 3 --gates build/supply-chain/gates.json \\
+        --sbom-dir dist/sbom --out-dir STAGE/meta --image REF=ARCHIVE ... -- kind:path=dest ...
+    python -m tools.release check dist/trialbox-2026.11-1.tar
+
+``build`` is run by ``tools/make_bundle.sh`` once the images are saved. It refuses to write anything unless every
+saved image (by the config digest inside its archive, which is its image id) is a passing image of a gate record of
+at most seven days (the same rule as ``tools.supply_chain bundle-check``), and every image has the SBOM that record
+names, with the same sha256. It then writes into ``--out-dir``:
+
+* ``release.json`` (``schemas/release.schema.json``): version, release id and sequence, source commit and tag, the
+  gate record's sha256, every image (tag, config digest, source reference, platform, archive, SBOM), every SBOM, and
+  every payload file of the bundle with its sha256 and size;
+* ``images.lock``: the release's image lock: ``deploy/images.lock`` with each image's digest filled, plus every other
+  image of the bundle, so that ``verify_update.py`` finds the two files agreeing (D-210);
+* ``sbom/``: the SBOMs, licence report and SBOM index copied from ``--sbom-dir`` and the gate record; and
+  ``items.txt``, the extra ``kind:path=dest`` items the bundle must carry for them.
+
+``check`` opens a built bundle and fails unless its ``release.json`` is valid and names every payload file with the
+sha256 the signed manifest gives it, and every image archive with its SBOM in the bundle.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import hashlib
+import json
+import re
+import shutil
+import subprocess
+import sys
+import tarfile
+import tomllib
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+PYPROJECT = ROOT / "pyproject.toml"
+IMAGES_LOCK = ROOT / "deploy" / "images.lock"
+FORMAT = "trialbox-release/1"
+TAG_PREFIX = "trialbox-v"
+KINDS = ("model", "ruleset", "image", "refdata", "other", "host")
+# what the bundle carries next to the image SBOMs (tools/supply_chain release-gates writes them in the SBOM folder)
+SBOM_EXTRAS = ("requirements.lock.cdx.json", "licences.md", "index.json")
+_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
+class ReleaseError(Exception):
+    """The release cannot be built or does not hold together."""
+
+
+# ------------------------------------------------------------------------------------------------ identity
+def version(pyproject: Path = PYPROJECT) -> str:
+    """The version of the release: ``[project] version`` in pyproject.toml, the only place it is written."""
+    data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    v = data.get("project", {}).get("version")
+    if not isinstance(v, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.-]+)?", v):
+        raise ReleaseError(f"{pyproject}: [project] version {v!r} is not a release version")
+    return v
+
+
+def tag_for(v: str) -> str:
+    return f"{TAG_PREFIX}{v}"
+
+
+def _git(*args: str) -> str | None:
+    try:
+        proc = subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True, check=False)
+    except OSError:
+        return None
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
+def source(v: str) -> dict[str, Any]:
+    """The commit the release is built from, whether the tree had changes, and the release tag when HEAD has it."""
+    commit = _git("rev-parse", "HEAD")
+    status = _git("status", "--porcelain", "--untracked-files=no")
+    tags = (_git("tag", "--points-at", "HEAD") or "").split()
+    return {
+        "commit": commit if commit and re.fullmatch(r"[0-9a-f]{40}", commit) else None,
+        "dirty": bool(status),
+        "tag": tag_for(v) if tag_for(v) in tags else None,
+    }
+
+
+# ------------------------------------------------------------------------------------------------ helpers
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        while chunk := fh.read(1 << 20):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def parse_item(text: str) -> tuple[str, Path, str]:
+    """``kind:path[=dest]`` as ``tools/sign_bundle.py`` takes it."""
+    kind, _, rest = text.partition(":")
+    src, _, dest = rest.partition("=")
+    if kind not in KINDS or not src:
+        raise ReleaseError(f"bad bundle item {text!r} (kind:path[=dest], kind one of {', '.join(KINDS)})")
+    return kind, Path(src), dest or Path(src).name
+
+
+def archive_configs(archive: Path) -> dict[str, str]:
+    """A ``docker save`` archive's ``{tag: config digest}`` (manifest.json; ``Config`` is ``<hex>.json`` or
+    ``blobs/sha256/<hex>``)."""
+    try:
+        with tarfile.open(archive) as tf:
+            member = tf.extractfile("manifest.json")
+            if member is None:
+                raise ReleaseError(f"{archive.name}: no manifest.json (not a docker save archive)")
+            entries = json.loads(member.read())
+    except (OSError, KeyError, tarfile.TarError, json.JSONDecodeError) as exc:
+        raise ReleaseError(f"{archive.name}: cannot read its manifest.json ({exc})") from exc
+    out: dict[str, str] = {}
+    for e in entries if isinstance(entries, list) else []:
+        name = str(e.get("Config", "")).rsplit("/", 1)[-1].removesuffix(".json")
+        digest = f"sha256:{name}" if re.fullmatch(r"[0-9a-f]{64}", name) else ""
+        for t in e.get("RepoTags") or []:
+            out[str(t)] = digest
+    if not out or not all(out.values()):
+        raise ReleaseError(f"{archive.name}: the archive names no tagged image with a config digest")
+    return out
+
+
+def repository(ref: str) -> str:
+    ref = ref.split("@", 1)[0]
+    head, _, last = ref.rpartition("/")
+    name = last.split(":", 1)[0]
+    return f"{head}/{name}" if head else name
+
+
+def image_name(ref: str, lock: dict[str, Any]) -> str:
+    """The key of an image in release.json and images.lock: the lock's name when the lock pins this reference
+    (``db``), else ``py`` for ``trialbox-py``, else the repository's last part (``hapi``, ``vllm-openai``)."""
+    for name, entry in (lock.get("images") or {}).items():
+        if isinstance(entry, dict) and entry.get("image") == ref:
+            return str(name)
+    last = repository(ref).rsplit("/", 1)[-1]
+    return last.removeprefix("trialbox-") if last.startswith("trialbox-") else last
+
+
+def gate_problems(record: Any, configs: dict[str, str], now: dt.datetime | None = None) -> list[str]:
+    """The release gates' own rule (``tools.supply_chain.release.bundle_problems``) over the archives' digests."""
+    from tools.supply_chain.release import bundle_problems
+
+    return bundle_problems(record, configs, now=now)
+
+
+# ------------------------------------------------------------------------------------------------ build
+def build(
+    *,
+    release_id: str,
+    release_seq: int,
+    gates: Path,
+    sbom_dir: Path,
+    out_dir: Path,
+    images: list[tuple[str, Path]],
+    items: list[tuple[str, Path, str]],
+    images_lock: Path = IMAGES_LOCK,
+    now: dt.datetime | None = None,
+    pyproject: Path = PYPROJECT,
+) -> dict[str, Any]:
+    """Check the bundle's images against the gate record, collect their SBOMs, write release.json and images.lock.
+
+    ``images``: (requested reference, saved archive); the archive must also be one of ``items`` (kind ``image``)."""
+    now = now or dt.datetime.now(dt.UTC)
+    v = version(pyproject)
+    if not images:
+        raise ReleaseError("the bundle carries no image")
+    try:
+        record_bytes = gates.read_bytes()
+        record = json.loads(record_bytes)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ReleaseError(f"no readable gate record {gates}: {exc}") from exc
+    lock = json.loads(images_lock.read_text(encoding="utf-8"))
+    dest_of = {src.resolve(): dest for kind, src, dest in items if kind == "image"}
+
+    # 1. every saved image passed the gates, by the digest inside its archive (what the box will load)
+    saved: list[tuple[str, Path, str, str]] = []  # (requested ref, archive, tag in archive, config digest)
+    for ref, archive in images:
+        if archive.resolve() not in dest_of:
+            raise ReleaseError(f"{ref}: its archive {archive.name} is not an image item of the bundle")
+        configs = archive_configs(archive)
+        if len(set(configs.values())) != 1:
+            raise ReleaseError(f"{archive.name}: one image per archive (found {len(set(configs.values()))})")
+        tag, digest = sorted(configs.items())[0]
+        saved.append((ref, archive, tag, digest))
+    problems = gate_problems(record, {f"{ref} ({tag})": d for ref, _, tag, d in saved}, now=now)
+    if problems:
+        raise ReleaseError("; ".join(problems))
+
+    # 2. the SBOM of each image, as the record names it, copied into the bundle unchanged
+    by_id: dict[str, dict[str, Any]] = {}
+    for e in record.get("images", []):
+        if e.get("ok") and e.get("image_id"):
+            by_id.setdefault(str(e["image_id"]), e)
+    sbom_out = out_dir / "sbom"
+    sbom_out.mkdir(parents=True, exist_ok=True)
+    extra_items: list[tuple[str, Path, str]] = []
+    sboms: list[dict[str, Any]] = []
+
+    def take_sbom(name: str, want: str | None, subject: str) -> str:
+        src = sbom_dir / name
+        if not src.is_file():
+            raise ReleaseError(f"{subject}: its SBOM {name} is not in {sbom_dir}")
+        got = sha256_file(src)
+        if want is not None and got != want:
+            raise ReleaseError(f"{subject}: SBOM {name} has sha256 {got}, the gate record says {want}")
+        dst = sbom_out / name
+        if not dst.exists():
+            shutil.copyfile(src, dst)
+            extra_items.append(("other", dst, f"sbom/{name}"))
+            sboms.append({"path": f"sbom/{name}", "sha256": got, "subject": subject})
+        return got
+
+    rel_images: dict[str, dict[str, Any]] = {}
+    for ref, archive, tag, digest in saved:
+        entry = by_id.get(digest)
+        if entry is None or not entry.get("sbom"):
+            raise ReleaseError(f"{ref}: the gate record names no SBOM for image {digest}")
+        sha = take_sbom(str(entry["sbom"]), entry.get("sbom_sha256"), tag)
+        name = image_name(tag, lock)
+        if name in rel_images:
+            raise ReleaseError(f"two images of the bundle have the name {name!r} ({rel_images[name]['image']}, {tag})")
+        rel_images[name] = {
+            "image": tag,
+            "digest": digest,
+            "source": ref,
+            "platform": entry.get("platform"),
+            "repo_digests": sorted(entry.get("repo_digests") or []),
+            "archive": dest_of[archive.resolve()],
+            "sbom": f"sbom/{entry['sbom']}",
+            "sbom_sha256": sha,
+        }
+    for name in SBOM_EXTRAS:
+        if not (sbom_dir / name).is_file():
+            raise ReleaseError(f"{name} is not in {sbom_dir} (make release-gates writes it)")
+        take_sbom(name, None, "requirements.lock" if name.endswith(".cdx.json") else "release")
+
+    # the gate record itself, so the site can read what was scanned and how (release.json carries its sha256)
+    shutil.copyfile(gates, sbom_out / "gates.json")
+    extra_items.append(("other", sbom_out / "gates.json", "sbom/gates.json"))
+
+    # 3. the release's image lock: the repository's lock with the digests filled, and the bundle's other images
+    bundle_lock: dict[str, Any] = {k: v2 for k, v2 in lock.items() if k != "images"}
+    bundle_lock["images"] = {}
+    for name, img in sorted(rel_images.items()):
+        base = dict((lock.get("images") or {}).get(name) or {})
+        base.update(image=img["image"], digest=img["digest"])
+        bundle_lock["images"][name] = base
+
+    # 4. every payload file of the bundle (SBOMs included), each with its sha256 and size
+    components = [
+        {"path": dest, "kind": kind, "sha256": sha256_file(src), "size": src.stat().st_size}
+        for kind, src, dest in [*items, *extra_items]
+    ]
+    paths = [dest for _, _, dest in [*items, *extra_items]]
+    if len(paths) != len(set(paths)):
+        raise ReleaseError(f"two bundle files share a path: {sorted({p for p in paths if paths.count(p) > 1})}")
+    rel = {
+        "format": FORMAT,
+        "product": "trialbox",
+        "version": v,
+        "release_id": release_id,
+        "release_seq": release_seq,
+        "created_at": now.isoformat(timespec="seconds"),
+        "source": source(v),
+        "gates": {
+            "record_sha256": hashlib.sha256(record_bytes).hexdigest(),
+            "created": str(record.get("created")),
+            "ok": True,
+            "vuln_mode": str(record.get("vuln_mode", "block")),
+        },
+        "images": rel_images,
+        "sboms": sboms,
+        "components": components,
+    }
+    from tb_contracts import validate
+
+    validate("release", rel)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "release.json").write_text(json.dumps(rel, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    (out_dir / "images.lock").write_text(json.dumps(bundle_lock, indent=2) + "\n", encoding="utf-8")
+    (out_dir / "items.txt").write_text("".join(f"{k}:{s}={d}\n" for k, s, d in extra_items), encoding="utf-8")
+    return rel
+
+
+# ------------------------------------------------------------------------------------------------ check
+def problems(release: Any, manifest: dict[str, Any], lock: Any = None) -> list[str]:
+    """What a bundle's release.json fails to name, against its signed manifest (and images.lock)."""
+    from tb_contracts import validate
+
+    out: list[str] = []
+    try:
+        validate("release", release)
+    except Exception as exc:
+        return [f"release.json is not a valid release record: {str(exc)[:300]}"]
+    files = {str(f["path"]): f for f in manifest.get("files", [])}
+    comps = {str(c["path"]): c for c in release["components"]}
+    for path, f in sorted(files.items()):
+        c = comps.get(path)
+        if c is None:
+            out.append(f"{path}: in the bundle but not named by release.json")
+        elif c["sha256"] != f.get("sha256") or c["kind"] != f.get("kind"):
+            out.append(
+                f"{path}: release.json gives {c['kind']} {c['sha256']}, the manifest {f.get('kind')} {f.get('sha256')}"
+            )
+    out += [f"{p}: named by release.json but not in the bundle" for p in sorted(set(comps) - set(files))]
+    archives = {img["archive"] for img in release["images"].values()}
+    out += [f"{p}: an image archive release.json does not pin" for p, f in sorted(files.items())
+            if f.get("kind") == "image" and p not in archives]  # fmt: skip
+    for name, img in sorted(release["images"].items()):
+        if img["archive"] not in files:
+            out.append(f"image {name}: archive {img['archive']} is not in the bundle")
+        sb = files.get(img["sbom"])
+        if sb is None:
+            out.append(f"image {name}: SBOM {img['sbom']} is not in the bundle")
+        elif sb.get("sha256") != img["sbom_sha256"]:
+            out.append(f"image {name}: SBOM {img['sbom']} sha256 differs from release.json")
+        if not _DIGEST.match(str(img.get("digest"))):
+            out.append(f"image {name}: no digest")
+    if release.get("release_seq") != manifest.get("release_seq"):
+        seq, mseq = release.get("release_seq"), manifest.get("release_seq")
+        out.append(f"release_seq {seq} differs from the manifest's {mseq}")
+    if lock is not None:
+        from tools.update_status import images_problems
+
+        out += images_problems(release, lock)
+    return out
+
+
+def check_bundle(bundle: Path) -> list[str]:
+    """Open a signed bundle (tools/sign_bundle.py layout) and check its release.json against the manifest."""
+    try:
+        with tarfile.open(bundle) as tf:
+
+            def read(name: str) -> Any:
+                m = tf.extractfile(name)
+                return None if m is None else json.loads(m.read())
+
+            names = set(tf.getnames())
+            manifest = read("manifest.json")
+            release = read("release.json") if "release.json" in names else None
+            lock = read("images.lock") if "images.lock" in names else None
+            payload = {n.removeprefix("files/") for n in names if n.startswith("files/")}
+    except (OSError, KeyError, tarfile.TarError, json.JSONDecodeError) as exc:
+        return [f"{bundle}: cannot read the bundle ({exc})"]
+    if release is None:
+        return ["the bundle carries no release.json"]
+    out = problems(release, manifest, lock)
+    listed = {str(f["path"]) for f in manifest.get("files", [])}
+    out += [f"{p}: a payload file the manifest does not list" for p in sorted(payload - listed)]
+    return out
+
+
+# ------------------------------------------------------------------------------------------------ CLI
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("version", help="the release version (pyproject.toml)")
+    sub.add_parser("tag", help="the release tag for the version")
+    b = sub.add_parser("build", help="release.json and images.lock for a bundle (tools/make_bundle.sh)")
+    b.add_argument("--id", required=True)
+    b.add_argument("--release-seq", type=int, required=True)
+    b.add_argument("--gates", type=Path, required=True, help="the passing gate record (make release-gates)")
+    b.add_argument("--sbom-dir", type=Path, required=True)
+    b.add_argument("--out-dir", type=Path, required=True)
+    b.add_argument("--images-lock", type=Path, default=IMAGES_LOCK)
+    b.add_argument("--image", action="append", default=[], metavar="REF=ARCHIVE")
+    b.add_argument("items", nargs="*", help="kind:path[=dest], every payload file of the bundle")
+    c = sub.add_parser("check", help="does a built bundle's release.json name every component?")
+    c.add_argument("bundle", type=Path)
+    args = ap.parse_args(argv)
+    try:
+        if args.cmd == "version":
+            print(version())
+        elif args.cmd == "tag":
+            print(tag_for(version()))
+        elif args.cmd == "build":
+            imgs = []
+            for text in args.image:
+                ref, sep, archive = text.rpartition("=")
+                if not sep or not ref:
+                    raise ReleaseError(f"--image {text!r}: REF=ARCHIVE")
+                imgs.append((ref, Path(archive)))
+            rel = build(
+                release_id=args.id,
+                release_seq=args.release_seq,
+                gates=args.gates,
+                sbom_dir=args.sbom_dir,
+                out_dir=args.out_dir,
+                images=imgs,
+                items=[parse_item(i) for i in args.items],
+                images_lock=args.images_lock,
+            )
+            print(
+                f"release: {rel['version']} {rel['release_id']} (seq {rel['release_seq']}): {len(rel['images'])} "
+                f"images, {len(rel['sboms'])} SBOM files, {len(rel['components'])} components"
+            )
+        else:
+            found = check_bundle(args.bundle)
+            for p in found:
+                print(f"release check: {p}", file=sys.stderr)
+            print(f"release check: {'FAIL' if found else 'PASS'} ({args.bundle.name})")
+            return 1 if found else 0
+    except ReleaseError as exc:
+        print(f"release: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

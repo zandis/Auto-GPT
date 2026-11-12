@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{# TB-PLAN-04 step 5 (D-134): the investigator's enrolment report: per state, per month, screen failures, withdrawals. #}
+{% from "_life.html" import life_nav, state_pill with context %}
+{% block title %}{{ t('life.report.title') }} · {{ rs }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('life.report.title') }}</h1></div>
+{{ life_nav(rs) }}
+<p class="hint">{{ t('life.report.help') }}</p>
+{% if err %}{% include "_data_err.html" %}{% endif %}
+{% if rep %}
+<p class="exports" data-testid="report-files"><a class="button secondary" href="/studies/{{ rs }}/enrolment.xlsx" data-testid="report-xlsx">{{ t('life.report.xlsx') }}</a>
+<a class="button secondary" href="/studies/{{ rs }}/enrolment.csv" data-testid="report-csv">{{ t('life.report.csv') }}</a></p>
+<section class="card" data-testid="report-states">
+<h2>{{ t('life.report.total', n=rep.total) }}</h2>
+<div class="scroll" tabindex="0"><table class="compact">
+<thead><tr><th>{{ t('life.col.step') }}</th><th class="num">{{ t('life.report.now') }}</th><th class="num">{{ t('life.report.ever') }}</th></tr></thead>
+<tbody>{% for s in states %}<tr data-testid="rep-{{ s }}"><td>{{ state_pill(s) }}</td><td class="num" data-testid="rep-now-{{ s }}">{{ rep.counts[s] }}</td><td class="num">{{ rep.ever[s] }}</td></tr>{% endfor %}</tbody>
+</table></div>
+</section>
+<section class="card" data-testid="report-months">
+<h2>{{ t('life.report.months') }}</h2>
+{% if not rep.months %}<p class="empty hint">{{ t('life.report.none') }}</p>{% else %}
+<div class="scroll" tabindex="0"><table class="compact">
+<thead><tr><th>{{ t('life.report.month') }}</th>{% for s in states if s != 'candidate' %}<th class="num">{{ t('life.state.' + s) }}</th>{% endfor %}</tr></thead>
+<tbody>{% for m in rep.months %}<tr><td class="nowrap">{{ m.month }}</td>{% for s in states if s != 'candidate' %}<td class="num">{{ m[s] }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+</table></div>{% endif %}
+</section>
+<section class="card" data-testid="report-reasons">
+<h2>{{ t('life.report.reasons') }}</h2>
+{% if not rep.screen_fail_reasons %}<p class="empty hint">{{ t('life.report.none') }}</p>{% else %}
+<ul class="plain">{% for k, n in rep.screen_fail_reasons.items() %}<li>{{ t_or('life.reason.sf.' + k, k) }}: <b>{{ n }}</b></li>{% endfor %}</ul>{% endif %}
+</section>
+<section class="card" data-testid="report-withdrawals">
+<h2>{{ t('life.report.withdrawals') }}</h2>
+{% if not rep.withdrawals %}<p class="empty hint">{{ t('life.report.none') }}</p>{% else %}
+<ul class="plain">{% for w in rep.withdrawals %}<li data-testid="wd-{{ w.record }}"><a href="/studies/{{ rs }}/subjects/{{ w.record|urlencode }}" class="mono">{{ w.record }}</a> · {{ w.day }} · {{ t_or('life.reason.wd.' + w.reason, w.reason) }}</li>{% endfor %}</ul>{% endif %}
+</section>
+{% endif %}
+{% endblock %}

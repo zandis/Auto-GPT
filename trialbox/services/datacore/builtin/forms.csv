@@ -1,0 +1,73 @@
+field_name,form_name,field_type,field_label,field_label:ja,field_label:zh-TW,select_choices_or_calculations,select_choices_or_calculations:ja,select_choices_or_calculations:zh-TW,text_validation_type_or_show_slider_number,text_validation_min,text_validation_max,branching_logic,required_field
+record_id,tb_screening_log,text,Screening number,スクリーニング番号,篩選編號,,,,,,,,
+sl_date,tb_screening_log,text,Screening date,スクリーニング日,篩選日期,,,,date_ymd,2000-01-01,,,y
+sl_how,tb_screening_log,radio,How the patient was found,候補者の見つけ方,病人來源,"1, Hospital data search | 2, Referral | 3, Clinic | 4, Other","1, 院内データ検索 | 2, 紹介 | 3, 外来 | 4, その他","1, 院內資料搜尋 | 2, 轉介 | 3, 門診 | 4, 其他",,,,,
+sl_eligible,tb_screening_log,radio,Eligible,適格性,是否符合資格,"1, Eligible | 0, Not eligible | 2, Not known yet","1, 適格 | 0, 不適格 | 2, 未確定","1, 符合 | 0, 不符合 | 2, 尚未確定",,,,,y
+sl_reason,tb_screening_log,text,Reason not eligible,不適格の理由,不符合的原因,,,,,,,[sl_eligible] = '0',y
+sl_criterion,tb_screening_log,text,Criterion not met (its id),満たさなかった基準(ID),未符合的條件(編號),,,,,,,[sl_eligible] = '0',
+sl_crit_version,tb_screening_log,text,Criteria version,基準の版,條件版本,,,,,,,[sl_eligible] = '0',
+sl_approached,tb_screening_log,radio,Told about the study,研究について説明した,已向病人說明研究,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,[sl_eligible] = '1',
+sl_note,tb_screening_log,notes,Note,メモ,備註,,,,,,,,
+ic_date,tb_consent,text,Date of consent,同意取得日,簽署同意日期,,,,date_ymd,2000-01-01,,,y
+ic_version,tb_consent,text,Consent form version,同意説明文書の版,受試者同意書版本,,,,,,,,y
+ic_by,tb_consent,text,Consent taken by (initials),同意取得者(イニシャル),取得同意者(姓名縮寫),,,,,,,,
+ic_copy,tb_consent,radio,Copy given to the participant,写しを参加者に渡した,已交付副本給受試者,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,y
+ic_reconsent,tb_consent,radio,Consent again on a new version,新しい版で再同意,依新版本重新同意,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,
+ic_reconsent_date,tb_consent,text,Date of the new consent,再同意日,重新同意日期,,,,date_ymd,2000-01-01,,[ic_reconsent] = '1',y
+ic_reconsent_version,tb_consent,text,Version of the new consent form,再同意の同意説明文書の版,重新同意的同意書版本,,,,,,,[ic_reconsent] = '1',
+ic_lang,tb_consent,radio,Language of the consent form,同意説明文書の言語,同意書的語言,"1, Japanese | 2, Chinese (Traditional) | 3, English | 4, Other","1, 日本語 | 2, 中国語（繁体字） | 3, 英語 | 4, その他","1, 日文 | 2, 繁體中文 | 3, 英文 | 4, 其他",,,,,
+ic_think_date,tb_consent,text,Date the form was given to think it over,検討のため説明文書を渡した日,交付同意書供考慮的日期,,,,date_ymd,2000-01-01,,,
+ic_explained_by,tb_consent,text,Explained by (initials),説明者(イニシャル),說明者(姓名縮寫),,,,,,,,
+ic_assisted_by,tb_consent,text,Explanation assisted by (initials),補助説明者(イニシャル),協助說明者(姓名縮寫),,,,,,,,
+ic_lar,tb_consent,radio,Consent given by a legal representative,代諾者による同意,由法定代理人同意,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,
+ic_lar_relation,tb_consent,text,The representative's relation to the participant,代諾者と参加者の続柄,法定代理人與受試者的關係,,,,,,,[ic_lar] = '1',y
+ic_witness,tb_consent,radio,An impartial witness was present,立会人が同席した,有公正見證人在場,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,
+ic_witness_by,tb_consent,text,Witness (initials),立会人(イニシャル),見證人(姓名縮寫),,,,,,,[ic_witness] = '1',
+ic_order,tb_consent,radio,The participant signed and dated on or before the day the person taking consent did,参加者は同意取得者と同日またはそれ以前に署名・日付を記入した,受試者簽名及日期與取得同意者同日或更早,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,
+en_date,tb_enrolment,text,Date of enrolment,登録日,收案日期,,,,date_ymd,2000-01-01,,,y
+en_subject_no,tb_enrolment,text,Study subject number,被験者番号,受試者編號,,,,,,,,
+en_eligible,tb_enrolment,radio,Eligibility confirmed by the investigator,研究責任者が適格性を確認した,主持人已確認符合資格,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,y
+en_age,tb_enrolment,text,Age at enrolment (years),登録時の年齢(歳),收案時年齡(歲),,,,integer,0,120,,
+vs_status,tb_visit,radio,Visit,来院,訪視,"1, Done | 2, Missed","1, 実施 | 2, 未実施","1, 已完成 | 2, 未到診",,,,,y
+vs_date,tb_visit,text,Visit date,来院日,訪視日期,,,,date_ymd,2000-01-01,,[vs_status] = '1',y
+vs_missed_reason,tb_visit,text,Why the visit was missed,未実施の理由,未到診原因,,,,,,,[vs_status] = '2',y
+vs_window,tb_visit,radio,Within the visit window,許容範囲内の来院,在訪視窗口內,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,[vs_status] = '1',
+vs_window_note,tb_visit,notes,Window note,許容範囲についてのメモ,訪視窗口備註,,,,,,,[vs_status] = '1' and [vs_window] = '0',
+vs_weight,tb_visit,text,Body weight (kg),体重(kg),體重(公斤),,,,number,1,400,[vs_status] = '1',
+ae_term,tb_adverse_event,text,Adverse event (term as written),有害事象(記載どおり),不良事件(依原文記載),,,,,,,,y
+ae_onset,tb_adverse_event,text,Onset date,発現日,發生日期,,,,date_ymd,2000-01-01,,,y
+ae_aware,tb_adverse_event,text,Date the site learned of it (starts the reporting clock),施設が知った日（報告期限の起算日）,院方獲知日期（通報期限的起算日）,,,,date_ymd,2000-01-01,,,
+ae_aware_time,tb_adverse_event,text,Time the site learned of it (HH:MM; starts the 24-hour report),施設が知った時刻（HH:MM、24時間以内の報告の起算時刻）,院方獲知時間（HH:MM，24小時內通報的起算時間）,,,,,,,,
+ae_serious,tb_adverse_event,radio,Serious,重篤,嚴重,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,y
+ae_serious_why,tb_adverse_event,radio,Why serious,重篤と判断した理由,判定為嚴重的原因,"1, Death | 2, Life-threatening | 3, Hospital stay or a longer stay | 4, Disability | 5, Congenital anomaly | 6, Other important medical event","1, 死亡 | 2, 生命を脅かす | 3, 入院または入院期間の延長 | 4, 障害 | 5, 先天異常 | 6, その他の医学的に重要な事象","1, 死亡 | 2, 危及生命 | 3, 住院或延長住院 | 4, 殘障 | 5, 先天性異常 | 6, 其他重要醫學事件",,,,[ae_serious] = '1',y
+ae_severity,tb_adverse_event,radio,Severity,重症度,嚴重程度,"1, Mild | 2, Moderate | 3, Severe","1, 軽度 | 2, 中等度 | 3, 高度","1, 輕度 | 2, 中度 | 3, 重度",,,,,y
+ae_ctcae_grade,tb_adverse_event,radio,CTCAE grade,CTCAE グレード,CTCAE 等級,"1, Grade 1 (mild) | 2, Grade 2 (moderate) | 3, Grade 3 (severe or medically significant) | 4, Grade 4 (life-threatening) | 5, Grade 5 (death related to the event)","1, グレード1(軽症) | 2, グレード2(中等症) | 3, グレード3(重症または医学的に重大) | 4, グレード4(生命を脅かす) | 5, グレード5(有害事象による死亡)","1, 第1級(輕度) | 2, 第2級(中度) | 3, 第3級(重度或具醫學重要性) | 4, 第4級(危及生命) | 5, 第5級(與該事件相關的死亡)",,,,,y
+ae_ctcae_version,tb_adverse_event,radio,CTCAE version used for the grade,グレード評価に用いたCTCAEの版,評定等級所用的CTCAE版本,"5, CTCAE v5.0 | 6, CTCAE v6.0","5, CTCAE v5.0 | 6, CTCAE v6.0","5, CTCAE v5.0 | 6, CTCAE v6.0",,,,,y
+ae_outcome,tb_adverse_event,radio,Outcome,転帰,結果,"1, Recovered | 2, Recovering | 3, Not recovered | 4, Recovered with lasting effects | 5, Fatal | 6, Unknown","1, 回復 | 2, 軽快 | 3, 未回復 | 4, 後遺症あり | 5, 死亡 | 6, 不明","1, 痊癒 | 2, 改善中 | 3, 未痊癒 | 4, 痊癒但有後遺症 | 5, 死亡 | 6, 不明",,,,,
+ae_death_date,tb_adverse_event,text,Date of death,死亡日,死亡日期,,,,date_ymd,2000-01-01,,[ae_outcome] = '5',
+ae_end,tb_adverse_event,text,End date,消失日,結束日期,,,,date_ymd,2000-01-01,,[ae_outcome] = '1' or [ae_outcome] = '4',
+ae_related,tb_adverse_event,radio,Related to the study treatment or procedure,研究治療・手順との関連,與研究治療或程序相關,"1, Yes | 0, No | 9, Unknown","1, あり | 0, なし | 9, 不明","1, 是 | 0, 否 | 9, 不明",,,,,y
+ae_sponsor_related,tb_adverse_event,radio,Related in the sponsor's assessment,治験依頼者の因果関係評価,試驗委託者評估的相關性,"1, Yes | 0, No | 9, Not yet assessed","1, あり | 0, なし | 9, 未評価","1, 是 | 0, 否 | 9, 尚未評估",,,,[ae_serious] = '1' or [ae_outcome] = '5',
+ae_expected,tb_adverse_event,radio,Expected per the reference safety information,参照安全性情報に照らして既知,依參考安全性資訊為預期,"1, Expected | 0, Unexpected | 9, Not yet assessed","1, 既知 | 0, 未知 | 9, 未評価","1, 預期 | 0, 非預期 | 9, 尚未評估",,,,[ae_serious] = '1' or [ae_outcome] = '5',
+ae_unblinded,tb_adverse_event,radio,Treatment unblinded for this event,この事象で割付を開鍵した,因本事件解盲,"1, Yes | 0, No | 8, Open-label study","1, はい | 0, いいえ | 8, 非盲検試験","1, 是 | 0, 否 | 8, 開放性試驗",,,,[ae_serious] = '1' or [ae_outcome] = '5',
+ae_unblind_date,tb_adverse_event,text,Date unblinded,開鍵日,解盲日期,,,,date_ymd,2000-01-01,,[ae_unblinded] = '1',
+ae_unblind_reason,tb_adverse_event,radio,Why unblinded,開鍵の理由,解盲原因,"1, Emergency treatment | 2, Expedited report to the regulator | 3, Other","1, 緊急の治療 | 2, 規制当局への緊急報告 | 3, その他","1, 緊急治療 | 2, 向主管機關的速報 | 3, 其他",,,,[ae_unblinded] = '1',
+ae_rep_sponsor,tb_adverse_event,text,Reported to the sponsor on,治験依頼者への報告日,通報試驗委託者日期,,,,date_ymd,2000-01-01,,[ae_serious] = '1',
+ae_rep_irb,tb_adverse_event,text,Reported to the IRB (and the head of the institution) on,IRB（実施医療機関の長）への報告日,通報人體試驗委員會（IRB）日期,,,,date_ymd,2000-01-01,,[ae_serious] = '1',
+ae_rep_reg,tb_adverse_event,text,Reported to the regulator (PMDA / TFDA) on,規制当局（PMDA）への報告日,通報主管機關（TFDA）日期,,,,date_ymd,2000-01-01,,[ae_serious] = '1',
+ae_note,tb_adverse_event,notes,Description,詳細,描述,,,,,,,,
+dv_date,tb_deviation,text,Date of the deviation,逸脱日,偏差日期,,,,date_ymd,2000-01-01,,,y
+dv_kind,tb_deviation,radio,Kind,種類,類別,"1, Eligibility | 2, Consent | 3, Visit window | 4, Procedure | 5, Other","1, 適格性 | 2, 同意 | 3, 来院の許容範囲 | 4, 手順 | 5, その他","1, 資格 | 2, 同意 | 3, 訪視窗口 | 4, 程序 | 5, 其他",,,,,y
+dv_kind_other,tb_deviation,text,Other kind,その他の種類,其他類別,,,,,,,[dv_kind] = '5',y
+dv_what,tb_deviation,notes,What happened,内容,經過,,,,,,,,y
+dv_reported,tb_deviation,radio,Reported to the ethics committee,倫理審査委員会への報告,已通報倫理委員會,"1, Yes | 0, No | 2, Not needed","1, 報告済み | 0, 未報告 | 2, 不要","1, 是 | 0, 否 | 2, 不需要",,,,,
+wd_date,tb_withdrawal,text,Date of withdrawal,中止日,退出日期,,,,date_ymd,2000-01-01,,,y
+wd_reason,tb_withdrawal,radio,Reason,理由,原因,"1, Participant's decision | 2, Investigator's decision | 3, Adverse event | 4, Lost to follow-up | 5, Death | 6, Other","1, 参加者の意思 | 2, 研究者の判断 | 3, 有害事象 | 4, 追跡不能 | 5, 死亡 | 6, その他","1, 受試者決定 | 2, 主持人決定 | 3, 不良事件 | 4, 失去追蹤 | 5, 死亡 | 6, 其他",,,,,y
+wd_reason_other,tb_withdrawal,text,Other reason,その他の理由,其他原因,,,,,,,[wd_reason] = '6',y
+wd_data_use,tb_withdrawal,radio,Data collected so far may be used,これまでのデータを使用してよい,已收集的資料可以使用,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,y
+wd_note,tb_withdrawal,notes,Note,メモ,備註,,,,,,,,
+en_rand,tb_enrolment,radio,Randomised in the sponsor's IRT,治験依頼者のIRTで割付済み,已於試驗委託者的IRT完成隨機分配,"1, Yes | 0, No | 8, Not a randomised study","1, はい | 0, いいえ | 8, 無作為化しない試験","1, 是 | 0, 否 | 8, 非隨機分配試驗",,,,,
+en_rand_date,tb_enrolment,text,Date of randomisation,割付日,隨機分配日期,,,,date_ymd,2000-01-01,,[en_rand] = '1',y
+en_rand_no,tb_enrolment,text,Randomisation number (from the IRT),割付番号(IRTの番号),隨機分配編號(IRT編號),,,,,,,[en_rand] = '1',
+dv_class,tb_deviation,radio,Class,分類,分級,"1, Major | 2, Minor | 9, Not yet classed","1, 重大 | 2, 軽微 | 9, 未分類","1, 重大 | 2, 輕微 | 9, 尚未分級",,,,,
+dv_rep_sponsor,tb_deviation,text,Reported to the sponsor on,治験依頼者への報告日,通報試驗委託者日期,,,,date_ymd,2000-01-01,,,

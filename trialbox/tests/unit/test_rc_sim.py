@@ -16,7 +16,8 @@ def post(c: TestClient, token: str, content: str, **extra: str) -> Any:
 
 def test_read_methods_answer_like_redcap() -> None:
     c = TestClient(create_app())
-    assert post(c, TOKEN_A, "version").json() == "16.0.10"
+    v = post(c, TOKEN_A, "version")  # plain text, as REDCap answers it (STD-060)
+    assert v.text == "16.0.10" and v.headers["content-type"].startswith("text/plain")
     assert post(c, TOKEN_A, "project").json()["project_id"] == 101
     meta = post(c, TOKEN_B, "metadata").json()
     assert {m["field_name"] for m in meta} >= {"rec_id", "tb_screening_no", "icf_dt", "rand_yn", "withdrawn"}
@@ -48,13 +49,16 @@ def test_wrong_token_unsupported_method_and_rate_limit() -> None:
     c = TestClient(create_app())
     r = post(c, "0" * 32, "record")
     assert r.status_code == 403 and r.json() == {"error": NO_PERMISSION}
-    for content in ("file", "import", "arm", "event", "participantList"):
+    for content in ("file", "import", "participantList"):
         r = post(c, TOKEN_A, content)
         assert r.status_code == 501 and "error" in r.json()
+    for content in ("arm", "event"):  # D-134: answered for a longitudinal project; project A is a classic one
+        r = post(c, TOKEN_A, content)
+        assert r.status_code == 400 and "classic" in r.json()["error"]
     limited = TestClient(create_app(rate_limit=2))
     assert [post(limited, TOKEN_A, "version").status_code for _ in range(3)] == [200, 200, 429]
     assert (
-        TestClient(create_app(version="12.4.1")).post("/api/", data={"token": TOKEN_A, "content": "version"}).json()
+        TestClient(create_app(version="12.4.1")).post("/api/", data={"token": TOKEN_A, "content": "version"}).text
         == "12.4.1"
     )
 

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{# Review 2026-11-09 P-04 (D-143): every patient the latest screening run excluded, with the criterion, where the answer
+   came from and its evidence, for the investigator and the coordinator to spot-check; "send to review" is audited. #}
+{% block title %}{{ t('ex.title') }} · {{ rs }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('ex.title') }}</h1></div>
+<p class="hint">{{ t('ex.help') }}</p>
+{% if done %}<p class="ok" role="status" data-testid="ex-sent">{{ t('ex.sent.done') }}</p>{% endif %}
+{#- T-310a (D-446, FIT-007): the list waits for the site's check where the gate is on; the weekly sample for the PI -#}
+{% if held and held.gated %}<p class="hint" data-testid="nm-check-state">{% if held.check and held.check.passed %}{{ t('nm.check.passed', record=held.check.record, at=held.check.at|local) }}{% else %}{{ t('nm.check.none') }}{% endif %}</p>{% endif %}
+{% if may_sample %}<p><a href="/studies/{{ rs }}/not-matched/sample" data-testid="to-nm-sample">{{ t('nm.sample.link') }}</a></p>{% endif %}
+{% if held and not held.shown %}<section class="card"><p class="attention" data-testid="nm-held">{{ t('nm.held.page') }}</p></section>
+{% elif not doc %}<section class="card"><p class="empty" data-testid="ex-norun">{{ t('ex.no_run') }}</p></section>
+{% else %}
+<section class="card">
+<p data-testid="ex-run">{{ t('ex.run', day=doc.run_date, snapshot=doc.snapshot, n=total) }}</p>
+{% if sent %}<p class="attention" data-testid="ex-sent-count">{{ t('ex.sent.title', n=sent|length) }}</p>{% endif %}
+<p class="chartlinks" data-testid="ex-filter">{{ t('ex.filter') }} <a href="/studies/{{ rs }}/not-matched"{% if not src %} aria-current="page"{% endif %}>{{ t('ex.filter.all') }}</a>{% for s in sources %}{% if counts[s] %} <a href="/studies/{{ rs }}/not-matched?src={{ s }}" data-testid="ex-src-{{ s }}"{% if src == s %} aria-current="page"{% endif %}>{{ t('ex.src.' + s) }} ({{ counts[s] }})</a>{% endif %}{% endfor %}</p>
+{% if not rows %}<p class="empty" data-testid="ex-none">{{ t('ex.none') }}</p>{% else %}
+<div class="scroll" tabindex="0"><table class="candidates" data-testid="excluded">
+<thead><tr><th scope="col">{{ t('ex.col.patient') }}</th><th scope="col">{{ t('ex.col.criterion') }}</th><th scope="col">{{ t('ex.col.source') }}</th><th scope="col">{{ t('ex.col.evidence') }}</th></tr></thead>
+<tbody>{% for r in rows %}{% for i in r['items'] %}<tr{% if loop.first %} id="x-{{ r.short }}"{% endif %} data-testid="ex-{{ r.short }}{% if not loop.first %}-{{ loop.index }}{% endif %}">
+{% if loop.first %}<td rowspan="{{ r['items']|length }}"><b class="nowrap mono">{{ t('week.patient', p=r.short) }}</b>
+{% if r.pid in sent %}<br><span class="hint" data-testid="ex-sent-{{ r.short }}">{{ t('ex.sent', who=sent[r.pid].by|replace('console:', ''), at=sent[r.pid].at|local) }}</span>{% if sent[r.pid].note %}<br><span data-authored>{{ sent[r.pid].note }}</span>{% endif %}
+{% elif may_send %}<form method="post" action="/studies/{{ rs }}/not-matched/{{ r.pid }}/review" class="stack"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="crit" value="{{ i.id }}"><label for="note-{{ r.short }}" class="hint">{{ t('ex.wrong.note') }}</label><input id="note-{{ r.short }}" name="note" maxlength="300"><button type="submit" class="secondary" data-testid="ex-wrong-{{ r.short }}">{{ t('ex.wrong') }}</button></form>{% endif %}</td>{% endif %}
+<td>{% if i.source == 'rule' %}{{ t('ex.rule.' + i.label) }}{% else %}<strong>{{ given(i.label) }}</strong> <span class="hint mono nowrap">{{ i.id }}</span>{% if i.kind %} <span class="hint">{{ t_or('kind.' + i.kind, i.kind) }}</span>{% endif %}{% endif %}</td>
+<td><span class="pill" data-testid="ex-source-{{ r.short }}-{{ loop.index }}">{{ t('ex.src.' + i.source) }}</span></td>
+<td>{% if i.quote %}<blockquote class="quote">{{ i.quote }}</blockquote>{% if i.date %}<span class="hint">{{ i.date }}</span>{% endif %}{% if i.test_model %} <span class="pill warn" data-testid="ex-test-model-{{ r.short }}-{{ loop.index }}" title="{{ t('model.test.why') }}">{{ t('model.test') }}</span>{% endif %}{% elif i.reason and reason_label(i.reason, lang) %}<span class="hint">{{ reason_label(i.reason, lang) }}</span>{% endif %}
+{#- T-514 (D-362): the coded records' value, unit, date and code; the record count only when none could be read -#}
+{% with cid=r.short ~ '-' ~ loop.index, cv=i.coded %}{% include "_coded.html" %}{% endwith %}{% if i.records and not (i.coded and i.coded.lines) %} <span class="hint">{{ t('ex.records', n=i.records) }}</span>{% endif %}</td>
+</tr>{% endfor %}{% endfor %}</tbody></table></div>
+{% if pages > 1 %}<nav class="pager" aria-label="{{ t('wb.pages') }}" data-testid="pager">{% if page_no > 1 %}<a href="?src={{ src }}&amp;page={{ page_no - 1 }}" rel="prev">← {{ t('wb.prev') }}</a>{% endif %}<span class="hint" data-testid="page-of">{{ t('wb.page_of', n=page_no, of=pages) }}</span>{% if page_no < pages %}<a href="?src={{ src }}&amp;page={{ page_no + 1 }}" rel="next" data-testid="next-page">{{ t('wb.next') }} →</a>{% endif %}</nav>{% endif %}
+{% endif %}
+</section>
+{% endif %}
+{% endblock %}

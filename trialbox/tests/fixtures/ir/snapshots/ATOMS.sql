@@ -2,6 +2,7 @@
 -- Deterministic template output; never edited by hand or produced by an LLM.
 -- Parameters: $1 index_dates DATE[] ; $2 pids VARCHAR[] (NULL = all patients alive at index).
 -- Output: one row per (pid, index_date) with "C_<ID>" BOOLEAN/NULL and "E_<ID>" VARCHAR per criterion.
+-- Safety rules: D-275 (units, sex, order dates).
 WITH
 params AS (SELECT CAST($1 AS DATE[]) AS idx_dates, CAST($2 AS VARCHAR[]) AS pids),
 idx AS (SELECT unnest(idx_dates) AS index_date FROM params),
@@ -9,6 +10,7 @@ base AS (
   SELECT p.pid, p.birth_date, p.sex, i.index_date FROM patient p CROSS JOIN idx i
   WHERE ((SELECT pids FROM params) IS NULL OR list_contains((SELECT pids FROM params), p.pid))
     AND (p.deceased_date IS NULL OR p.deceased_date > i.index_date)
+    AND (p.deceased_date IS NOT NULL OR p.deceased IS NOT TRUE)
     AND (p.birth_date IS NULL OR p.birth_date <= i.index_date)),
 vs(vs_id, system, code) AS (VALUES
   ('VS_BARIATRIC_SURGERY', 'https://trialbox.local/fhir/CodeSystem/nhi-order', '75613B'),
@@ -712,13 +714,13 @@ vs(vs_id, system, code) AS (VALUES
   ('VS_TYPE_1_DIABETES_MELLITUS', 'http://hl7.org/fhir/sid/icd-10-cm', 'E10.A2')),
 -- ATOMS-INC-01 (inclusion): age 18-75
 c_atoms_inc_01 AS (
-  SELECT b.pid, b.index_date, ((date_sub('year', b.birth_date, b.index_date) >= 18) AND (date_sub('year', b.birth_date, b.index_date) <= 75)) AS v,
+  SELECT b.pid, b.index_date, (((year(b.index_date) - year(b.birth_date) - CASE WHEN strftime(b.index_date, '%m-%d') < strftime(b.birth_date, '%m-%d') THEN 1 ELSE 0 END) >= 18) AND ((year(b.index_date) - year(b.birth_date) - CASE WHEN strftime(b.index_date, '%m-%d') < strftime(b.birth_date, '%m-%d') THEN 1 ELSE 0 END) <= 75)) AS v,
          concat_ws(';', NULL) AS ev
   FROM base b
   ),
 -- ATOMS-INC-02 (inclusion): female
 c_atoms_inc_02 AS (
-  SELECT b.pid, b.index_date, ((CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END)) AS v,
+  SELECT b.pid, b.index_date, ((CASE WHEN b.sex IN ('male', 'female') THEN b.sex = 'female' ELSE NULL END)) AS v,
          concat_ws(';', NULL) AS ev
   FROM base b
   ),
@@ -727,38 +729,59 @@ a_atoms_inc_03_1 AS (
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
   FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d FROM condition x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code)) e ON e.pid = b.pid AND e.d <= b.index_date
   GROUP BY b.pid, b.index_date),
+a_atoms_inc_03_1_nd AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d FROM condition x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code))) e ON e.pid = b.pid AND e.d IS NULL
+  GROUP BY b.pid, b.index_date),
 -- ATOMS-INC-03 (inclusion): gout ever
 c_atoms_inc_03 AS (
-  SELECT b.pid, b.index_date, (coalesce(a_atoms_inc_03_1.n, 0) > 0) AS v,
-         concat_ws(';', a_atoms_inc_03_1.ev) AS ev
+  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_atoms_inc_03_1.n, 0) > 0) THEN TRUE WHEN (coalesce(a_atoms_inc_03_1_nd.n, 0) > 0) THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', coalesce(a_atoms_inc_03_1.ev, a_atoms_inc_03_1_nd.ev)) AS ev
   FROM base b
-  LEFT JOIN a_atoms_inc_03_1 ON a_atoms_inc_03_1.pid = b.pid AND a_atoms_inc_03_1.index_date = b.index_date),
+  LEFT JOIN a_atoms_inc_03_1 ON a_atoms_inc_03_1.pid = b.pid AND a_atoms_inc_03_1.index_date = b.index_date
+  LEFT JOIN a_atoms_inc_03_1_nd ON a_atoms_inc_03_1_nd.pid = b.pid AND a_atoms_inc_03_1_nd.index_date = b.index_date),
 a_atoms_inc_04_1 AS (
   SELECT b.pid, b.index_date, count(*) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
   FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d FROM condition x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -30) AND b.index_date
   GROUP BY b.pid, b.index_date),
+a_atoms_inc_04_1_nd AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d FROM condition x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code))) e ON e.pid = b.pid AND e.d IS NULL
+  GROUP BY b.pid, b.index_date),
 -- ATOMS-INC-04 (inclusion): no gout dx in 30d
 c_atoms_inc_04 AS (
-  SELECT b.pid, b.index_date, (coalesce(a_atoms_inc_04_1.n, 0) = 0) AS v,
-         concat_ws(';', a_atoms_inc_04_1.ev) AS ev
+  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_atoms_inc_04_1.n, 0) > 0) THEN FALSE WHEN (coalesce(a_atoms_inc_04_1_nd.n, 0) > 0) THEN NULL ELSE TRUE END) AS v,
+         concat_ws(';', coalesce(a_atoms_inc_04_1.ev, a_atoms_inc_04_1_nd.ev)) AS ev
   FROM base b
-  LEFT JOIN a_atoms_inc_04_1 ON a_atoms_inc_04_1.pid = b.pid AND a_atoms_inc_04_1.index_date = b.index_date),
+  LEFT JOIN a_atoms_inc_04_1 ON a_atoms_inc_04_1.pid = b.pid AND a_atoms_inc_04_1.index_date = b.index_date
+  LEFT JOIN a_atoms_inc_04_1_nd ON a_atoms_inc_04_1_nd.pid = b.pid AND a_atoms_inc_04_1_nd.index_date = b.index_date),
 a_atoms_inc_05_1 AS (
   SELECT b.pid, b.index_date, count(*) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
   FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d FROM condition x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -730) AND b.index_date
   GROUP BY b.pid, b.index_date),
+a_atoms_inc_05_1_nd AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d FROM condition x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_GOUT' AND vs.system = x.system AND vs.code = x.code))) e ON e.pid = b.pid AND e.d IS NULL
+  GROUP BY b.pid, b.index_date),
 -- ATOMS-INC-05 (inclusion): >=2 gout dx in 2y
 c_atoms_inc_05 AS (
-  SELECT b.pid, b.index_date, (coalesce(a_atoms_inc_05_1.n, 0) >= 2) AS v,
-         concat_ws(';', a_atoms_inc_05_1.ev) AS ev
+  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_atoms_inc_05_1.n, 0) >= 2) THEN TRUE WHEN (coalesce(a_atoms_inc_05_1.n, 0) + coalesce(a_atoms_inc_05_1_nd.n, 0) >= 2) THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', coalesce(a_atoms_inc_05_1.ev, a_atoms_inc_05_1_nd.ev)) AS ev
   FROM base b
-  LEFT JOIN a_atoms_inc_05_1 ON a_atoms_inc_05_1.pid = b.pid AND a_atoms_inc_05_1.index_date = b.index_date),
+  LEFT JOIN a_atoms_inc_05_1 ON a_atoms_inc_05_1.pid = b.pid AND a_atoms_inc_05_1.index_date = b.index_date
+  LEFT JOIN a_atoms_inc_05_1_nd ON a_atoms_inc_05_1_nd.pid = b.pid AND a_atoms_inc_05_1_nd.index_date = b.index_date),
 a_atoms_inc_06_1 AS (
-  SELECT pid, index_date, coalesce(bool_or((o.value_num >= 8)), FALSE) AS v,
-         string_agg(CASE WHEN (o.value_num >= 8) THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid) AS ev
-  FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_code
+  SELECT pid, index_date, (CASE WHEN bool_or((CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 8) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 8 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 8 THEN TRUE END) END)) THEN TRUE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 8) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 8 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 8 THEN TRUE END) END) IS NULL) > 0 THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', CASE WHEN (CASE WHEN bool_or((CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 8) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 8 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 8 THEN TRUE END) END)) THEN TRUE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 8) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 8 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 8 THEN TRUE END) END) IS NULL) > 0 THEN NULL ELSE FALSE END) IS NULL AND bool_or(o.unit_bad) THEN 'unit_mismatch' END,
+           CASE WHEN (CASE WHEN bool_or((CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 8) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 8 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 8 THEN TRUE END) END)) THEN TRUE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 8) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 8 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 8 THEN TRUE END) END) IS NULL) > 0 THEN NULL ELSE FALSE END) IS NULL THEN string_agg(CASE WHEN o.unit_bad THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid) END,
+           string_agg(CASE WHEN (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 8) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 8 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 8 THEN TRUE END) END) THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid)) AS ev
+  FROM (SELECT b.pid, b.index_date, o.oid, o.effective, (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') IN ('', '#', '1', 'count', 'joints', 'score') THEN o.value_num END) AS value_num, o.value_cmp, o.value_code,
+         (o.value_num IS NOT NULL AND (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') IN ('', '#', '1', 'count', 'joints', 'score') THEN o.value_num END) IS NULL) AS unit_bad
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -365) AND b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_SERUM_URATE' AND vs.system = o.system AND vs.code = o.code)) o GROUP BY pid, index_date),
 -- ATOMS-INC-06 (inclusion): any urate >= 8 in 1y
@@ -768,9 +791,12 @@ c_atoms_inc_06 AS (
   FROM base b
   LEFT JOIN a_atoms_inc_06_1 ON a_atoms_inc_06_1.pid = b.pid AND a_atoms_inc_06_1.index_date = b.index_date),
 a_atoms_inc_07_1 AS (
-  SELECT pid, index_date, coalesce(bool_and((o.value_num < 9)), TRUE) AS v,
-         string_agg(CASE WHEN (o.value_num < 9) THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid) AS ev
-  FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_code
+  SELECT pid, index_date, (CASE WHEN NOT bool_and((CASE WHEN o.value_cmp IS NULL THEN (o.value_num < 9) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 9 THEN TRUE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 9 THEN FALSE END) END)) THEN FALSE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num < 9) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 9 THEN TRUE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 9 THEN FALSE END) END) IS NULL) > 0 THEN NULL ELSE TRUE END) AS v,
+         concat_ws(';', CASE WHEN (CASE WHEN NOT bool_and((CASE WHEN o.value_cmp IS NULL THEN (o.value_num < 9) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 9 THEN TRUE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 9 THEN FALSE END) END)) THEN FALSE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num < 9) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 9 THEN TRUE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 9 THEN FALSE END) END) IS NULL) > 0 THEN NULL ELSE TRUE END) IS NULL AND bool_or(o.unit_bad) THEN 'unit_mismatch' END,
+           CASE WHEN (CASE WHEN NOT bool_and((CASE WHEN o.value_cmp IS NULL THEN (o.value_num < 9) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 9 THEN TRUE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 9 THEN FALSE END) END)) THEN FALSE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num < 9) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 9 THEN TRUE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 9 THEN FALSE END) END) IS NULL) > 0 THEN NULL ELSE TRUE END) IS NULL THEN string_agg(CASE WHEN o.unit_bad THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid) END,
+           string_agg(CASE WHEN (CASE WHEN o.value_cmp IS NULL THEN (o.value_num < 9) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 9 THEN TRUE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 9 THEN FALSE END) END) THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid)) AS ev
+  FROM (SELECT b.pid, b.index_date, o.oid, o.effective, (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') IN ('', '#', '1', 'count', 'joints', 'score') THEN o.value_num END) AS value_num, o.value_cmp, o.value_code,
+         (o.value_num IS NOT NULL AND (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') IN ('', '#', '1', 'count', 'joints', 'score') THEN o.value_num END) IS NULL) AS unit_bad
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -730) AND b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_SERUM_URATE' AND vs.system = o.system AND vs.code = o.code)) o GROUP BY pid, index_date),
 -- ATOMS-INC-07 (inclusion): all urate < 9 in 2y
@@ -780,9 +806,12 @@ c_atoms_inc_07 AS (
   FROM base b
   LEFT JOIN a_atoms_inc_07_1 ON a_atoms_inc_07_1.pid = b.pid AND a_atoms_inc_07_1.index_date = b.index_date),
 a_atoms_inc_08_1 AS (
-  SELECT pid, index_date, NOT coalesce(bool_or((o.value_num > 10)), FALSE) AS v,
-         string_agg(CASE WHEN (o.value_num > 10) THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid) AS ev
-  FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_code
+  SELECT pid, index_date, (NOT (CASE WHEN bool_or((CASE WHEN o.value_cmp IS NULL THEN (o.value_num > 10) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num <= 10 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num > 10 THEN TRUE END) END)) THEN TRUE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num > 10) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num <= 10 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num > 10 THEN TRUE END) END) IS NULL) > 0 THEN NULL ELSE FALSE END)) AS v,
+         concat_ws(';', CASE WHEN (NOT (CASE WHEN bool_or((CASE WHEN o.value_cmp IS NULL THEN (o.value_num > 10) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num <= 10 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num > 10 THEN TRUE END) END)) THEN TRUE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num > 10) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num <= 10 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num > 10 THEN TRUE END) END) IS NULL) > 0 THEN NULL ELSE FALSE END)) IS NULL AND bool_or(o.unit_bad) THEN 'unit_mismatch' END,
+           CASE WHEN (NOT (CASE WHEN bool_or((CASE WHEN o.value_cmp IS NULL THEN (o.value_num > 10) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num <= 10 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num > 10 THEN TRUE END) END)) THEN TRUE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num > 10) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num <= 10 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num > 10 THEN TRUE END) END) IS NULL) > 0 THEN NULL ELSE FALSE END)) IS NULL THEN string_agg(CASE WHEN o.unit_bad THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid) END,
+           string_agg(CASE WHEN (CASE WHEN o.value_cmp IS NULL THEN (o.value_num > 10) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num <= 10 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num > 10 THEN TRUE END) END) THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid)) AS ev
+  FROM (SELECT b.pid, b.index_date, o.oid, o.effective, (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') IN ('', '#', '1', 'count', 'joints', 'score') THEN o.value_num END) AS value_num, o.value_cmp, o.value_code,
+         (o.value_num IS NOT NULL AND (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') IN ('', '#', '1', 'count', 'joints', 'score') THEN o.value_num END) IS NULL) AS unit_bad
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -730) AND b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_SERUM_URATE' AND vs.system = o.system AND vs.code = o.code)) o GROUP BY pid, index_date),
 -- ATOMS-INC-08 (inclusion): no urate > 10 in 2y
@@ -792,9 +821,12 @@ c_atoms_inc_08 AS (
   FROM base b
   LEFT JOIN a_atoms_inc_08_1 ON a_atoms_inc_08_1.pid = b.pid AND a_atoms_inc_08_1.index_date = b.index_date),
 a_atoms_inc_09_1 AS (
-  SELECT pid, index_date, (count(*) FILTER (WHERE (o.value_num >= 6)) >= 2) AS v,
-         string_agg(CASE WHEN (o.value_num >= 6) THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid) AS ev
-  FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_code
+  SELECT pid, index_date, (CASE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 6) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 6 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 6 THEN TRUE END) END)) >= 2 THEN TRUE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 6) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 6 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 6 THEN TRUE END) END)) + count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 6) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 6 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 6 THEN TRUE END) END) IS NULL) >= 2 THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', CASE WHEN (CASE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 6) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 6 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 6 THEN TRUE END) END)) >= 2 THEN TRUE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 6) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 6 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 6 THEN TRUE END) END)) + count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 6) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 6 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 6 THEN TRUE END) END) IS NULL) >= 2 THEN NULL ELSE FALSE END) IS NULL AND bool_or(o.unit_bad) THEN 'unit_mismatch' END,
+           CASE WHEN (CASE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 6) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 6 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 6 THEN TRUE END) END)) >= 2 THEN TRUE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 6) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 6 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 6 THEN TRUE END) END)) + count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 6) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 6 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 6 THEN TRUE END) END) IS NULL) >= 2 THEN NULL ELSE FALSE END) IS NULL THEN string_agg(CASE WHEN o.unit_bad THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid) END,
+           string_agg(CASE WHEN (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 6) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 6 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 6 THEN TRUE END) END) THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid)) AS ev
+  FROM (SELECT b.pid, b.index_date, o.oid, o.effective, (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') IN ('', '#', '1', 'count', 'joints', 'score') THEN o.value_num END) AS value_num, o.value_cmp, o.value_code,
+         (o.value_num IS NOT NULL AND (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') IN ('', '#', '1', 'count', 'joints', 'score') THEN o.value_num END) IS NULL) AS unit_bad
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -730) AND b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_SERUM_URATE' AND vs.system = o.system AND vs.code = o.code)) o GROUP BY pid, index_date),
 -- ATOMS-INC-09 (inclusion): >=2 urate >= 6 in 2y
@@ -804,10 +836,11 @@ c_atoms_inc_09 AS (
   FROM base b
   LEFT JOIN a_atoms_inc_09_1 ON a_atoms_inc_09_1.pid = b.pid AND a_atoms_inc_09_1.index_date = b.index_date),
 a_atoms_inc_10_1 AS (
-  SELECT pid, index_date, (o.value_num BETWEEN 5 AND 9) AS v,
-         o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
+  SELECT pid, index_date, (CASE WHEN o.value_cmp IS NULL THEN (o.value_num BETWEEN 5 AND 9) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 5 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num > 9 THEN FALSE END) END) AS v,
+         CASE WHEN o.unit_bad THEN 'unit_mismatch;' ELSE '' END || o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
   FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
-        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_code
+        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') IN ('', '#', '1', 'count', 'joints', 'score') THEN o.value_num END) AS value_num, o.value_cmp, o.value_code,
+         (o.value_num IS NOT NULL AND (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') IN ('', '#', '1', 'count', 'joints', 'score') THEN o.value_num END) IS NULL) AS unit_bad
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -365) AND b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_SERUM_URATE' AND vs.system = o.system AND vs.code = o.code))) o WHERE rn = 1),
 -- ATOMS-INC-10 (inclusion): latest urate between 5 and 9
@@ -818,9 +851,10 @@ c_atoms_inc_10 AS (
   LEFT JOIN a_atoms_inc_10_1 ON a_atoms_inc_10_1.pid = b.pid AND a_atoms_inc_10_1.index_date = b.index_date),
 a_atoms_inc_11_1 AS (
   SELECT pid, index_date, (o.value_code IN ('LA6577-6')) AS v,
-         o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
+         CASE WHEN o.unit_bad THEN 'unit_mismatch;' ELSE '' END || o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
   FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
-        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_code
+        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num AS value_num, o.value_cmp, o.value_code,
+         FALSE AS unit_bad
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE <= b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_HBSAG' AND vs.system = o.system AND vs.code = o.code))) o WHERE rn = 1),
 -- ATOMS-INC-11 (inclusion): latest HBsAg negative
@@ -834,16 +868,25 @@ a_atoms_inc_12_1 AS (
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
   FROM base b JOIN (SELECT pid, oid AS rid, effective::DATE AS d FROM observation x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_SERUM_URATE' AND vs.system = x.system AND vs.code = x.code)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -180) AND b.index_date
   GROUP BY b.pid, b.index_date),
+a_atoms_inc_12_1_nd AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, oid AS rid, effective::DATE AS d FROM observation x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_SERUM_URATE' AND vs.system = x.system AND vs.code = x.code))) e ON e.pid = b.pid AND e.d IS NULL
+  GROUP BY b.pid, b.index_date),
 -- ATOMS-INC-12 (inclusion): urate tested in 6 months
 c_atoms_inc_12 AS (
-  SELECT b.pid, b.index_date, (coalesce(a_atoms_inc_12_1.n, 0) > 0) AS v,
-         concat_ws(';', a_atoms_inc_12_1.ev) AS ev
+  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_atoms_inc_12_1.n, 0) > 0) THEN TRUE WHEN (coalesce(a_atoms_inc_12_1_nd.n, 0) > 0) THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', coalesce(a_atoms_inc_12_1.ev, a_atoms_inc_12_1_nd.ev)) AS ev
   FROM base b
-  LEFT JOIN a_atoms_inc_12_1 ON a_atoms_inc_12_1.pid = b.pid AND a_atoms_inc_12_1.index_date = b.index_date),
+  LEFT JOIN a_atoms_inc_12_1 ON a_atoms_inc_12_1.pid = b.pid AND a_atoms_inc_12_1.index_date = b.index_date
+  LEFT JOIN a_atoms_inc_12_1_nd ON a_atoms_inc_12_1_nd.pid = b.pid AND a_atoms_inc_12_1_nd.index_date = b.index_date),
 a_atoms_inc_13_1 AS (
-  SELECT pid, index_date, coalesce(bool_or((o.value_num >= 150)), FALSE) AS v,
-         string_agg(CASE WHEN (o.value_num >= 150) THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid) AS ev
-  FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_code
+  SELECT pid, index_date, (CASE WHEN bool_or((CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 150) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 150 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 150 THEN TRUE END) END)) THEN TRUE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 150) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 150 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 150 THEN TRUE END) END) IS NULL) > 0 THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', CASE WHEN (CASE WHEN bool_or((CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 150) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 150 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 150 THEN TRUE END) END)) THEN TRUE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 150) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 150 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 150 THEN TRUE END) END) IS NULL) > 0 THEN NULL ELSE FALSE END) IS NULL AND bool_or(o.unit_bad) THEN 'unit_mismatch' END,
+           CASE WHEN (CASE WHEN bool_or((CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 150) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 150 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 150 THEN TRUE END) END)) THEN TRUE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 150) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 150 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 150 THEN TRUE END) END) IS NULL) > 0 THEN NULL ELSE FALSE END) IS NULL THEN string_agg(CASE WHEN o.unit_bad THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid) END,
+           string_agg(CASE WHEN (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 150) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 150 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 150 THEN TRUE END) END) THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid)) AS ev
+  FROM (SELECT b.pid, b.index_date, o.oid, o.effective, (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') IN ('', '#', '1', 'count', 'joints', 'score') THEN o.value_num END) AS value_num, o.value_cmp, o.value_code,
+         (o.value_num IS NOT NULL AND (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') IN ('', '#', '1', 'count', 'joints', 'score') THEN o.value_num END) IS NULL) AS unit_bad
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -365) AND b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_SYSTOLIC_BLOOD_PRESSURE' AND vs.system = o.system AND vs.code = o.code)) o GROUP BY pid, index_date),
 -- ATOMS-INC-13 (inclusion): SBP any >= 150 in 1y (component)
@@ -853,22 +896,26 @@ c_atoms_inc_13 AS (
   FROM base b
   LEFT JOIN a_atoms_inc_13_1 ON a_atoms_inc_13_1.pid = b.pid AND a_atoms_inc_13_1.index_date = b.index_date),
 a_atoms_inc_14_1_weight AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN '[lb_av]' THEN o.value_num * 0.45359237 WHEN 'g' THEN o.value_num * 0.001 WHEN 'kg' THEN o.value_num * 1.0 WHEN 'lb' THEN o.value_num * 0.45359237 ELSE NULL END)) THEN (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN '[lb_av]' THEN o.value_num * 0.45359237 WHEN 'g' THEN o.value_num * 0.001 WHEN 'kg' THEN o.value_num * 1.0 WHEN 'lb' THEN o.value_num * 0.45359237 ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -365) AND b.index_date
     WHERE o.system = 'http://loinc.org' AND o.code = '29463-7') WHERE rn = 1),
 a_atoms_inc_14_1_height AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN '[in_i]' THEN o.value_num * 2.54 WHEN 'cm' THEN o.value_num * 1.0 WHEN 'in' THEN o.value_num * 2.54 WHEN 'm' THEN o.value_num * 100.0 WHEN 'mm' THEN o.value_num * 0.1 ELSE NULL END)) THEN (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN '[in_i]' THEN o.value_num * 2.54 WHEN 'cm' THEN o.value_num * 1.0 WHEN 'in' THEN o.value_num * 2.54 WHEN 'm' THEN o.value_num * 100.0 WHEN 'mm' THEN o.value_num * 0.1 ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -365) AND b.index_date
     WHERE o.system = 'http://loinc.org' AND o.code = '8302-2') WHERE rn = 1),
-a_atoms_inc_14_1 AS (
-  SELECT b.pid, b.index_date, weight.value_num / pow(height.value_num / 100.0, 2) AS val, concat_ws(';', weight.oid || '|' || strftime(weight.effective, '%Y-%m-%d'), height.oid || '|' || strftime(height.effective, '%Y-%m-%d')) AS ev
+a_atoms_inc_14_1_v AS (
+  SELECT b.pid, b.index_date, weight.conv / pow(height.conv / 100.0, 2) AS val, concat_ws(';', weight.oid || '|' || strftime(weight.effective, '%Y-%m-%d'), height.oid || '|' || strftime(height.effective, '%Y-%m-%d')) AS refs,
+         (CASE WHEN weight.oid IS NULL OR weight.value_num IS NULL THEN 'derived_missing_input:weight' WHEN weight.conv IS NULL THEN 'derived_unit:weight' WHEN height.oid IS NULL OR height.value_num IS NULL THEN 'derived_missing_input:height' WHEN height.conv IS NULL THEN 'derived_unit:height' ELSE 'derived_missing_input' END) AS why
   FROM base b
   LEFT JOIN a_atoms_inc_14_1_weight weight ON weight.pid = b.pid AND weight.index_date = b.index_date
   LEFT JOIN a_atoms_inc_14_1_height height ON height.pid = b.pid AND height.index_date = b.index_date),
+a_atoms_inc_14_1 AS (
+  SELECT pid, index_date, val, CASE WHEN val IS NULL THEN why ELSE refs END AS ev
+  FROM a_atoms_inc_14_1_v),
 -- ATOMS-INC-14 (inclusion): BMI computable
 c_atoms_inc_14 AS (
   SELECT b.pid, b.index_date, (CASE WHEN a_atoms_inc_14_1.val IS NULL THEN NULL ELSE TRUE END) AS v,
@@ -876,43 +923,51 @@ c_atoms_inc_14 AS (
   FROM base b
   LEFT JOIN a_atoms_inc_14_1 ON a_atoms_inc_14_1.pid = b.pid AND a_atoms_inc_14_1.index_date = b.index_date),
 a_atoms_inc_15_1_tjc28 AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END)) AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) >= 0.0 AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) <= 28.0 THEN (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -180) AND b.index_date
     WHERE o.system = 'https://trialbox.local/fhir/CodeSystem/clinical-score' AND o.code = 'TJC28') WHERE rn = 1),
 a_atoms_inc_15_1_sjc28 AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END)) AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) >= 0.0 AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) <= 28.0 THEN (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -180) AND b.index_date
+    JOIN a_atoms_inc_15_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 0
     WHERE o.system = 'https://trialbox.local/fhir/CodeSystem/clinical-score' AND o.code = 'SJC28') WHERE rn = 1),
 a_atoms_inc_15_1_ptga AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', 'mm') THEN o.value_num ELSE NULL END)) THEN (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', 'mm') THEN o.value_num ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -180) AND b.index_date
+    JOIN a_atoms_inc_15_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 0
     WHERE o.system = 'https://trialbox.local/fhir/CodeSystem/clinical-score' AND o.code = 'PTGA') WHERE rn = 1),
 a_atoms_inc_15_1_esr AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mm/(1.h)' THEN o.value_num * 1.0 WHEN 'mm/1h' THEN o.value_num * 1.0 WHEN 'mm/h' THEN o.value_num * 1.0 WHEN 'mm/hr' THEN o.value_num * 1.0 ELSE NULL END)) AND (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mm/(1.h)' THEN o.value_num * 1.0 WHEN 'mm/1h' THEN o.value_num * 1.0 WHEN 'mm/h' THEN o.value_num * 1.0 WHEN 'mm/hr' THEN o.value_num * 1.0 ELSE NULL END) >= 0.0 THEN (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mm/(1.h)' THEN o.value_num * 1.0 WHEN 'mm/1h' THEN o.value_num * 1.0 WHEN 'mm/h' THEN o.value_num * 1.0 WHEN 'mm/hr' THEN o.value_num * 1.0 ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -180) AND b.index_date
+    JOIN a_atoms_inc_15_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 7
     WHERE o.system = 'http://loinc.org' AND o.code = '4537-7') WHERE rn = 1),
 a_atoms_inc_15_1_crp AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 10.0 WHEN 'mg/l' THEN o.value_num * 1.0 WHEN 'ug/ml' THEN o.value_num * 1.0 ELSE NULL END)) AND (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 10.0 WHEN 'mg/l' THEN o.value_num * 1.0 WHEN 'ug/ml' THEN o.value_num * 1.0 ELSE NULL END) >= 0.0 THEN (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 10.0 WHEN 'mg/l' THEN o.value_num * 1.0 WHEN 'ug/ml' THEN o.value_num * 1.0 ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -180) AND b.index_date
+    JOIN a_atoms_inc_15_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 7
     WHERE o.system = 'http://loinc.org' AND o.code = '1988-5') WHERE rn = 1),
-a_atoms_inc_15_1 AS (
-  SELECT b.pid, b.index_date, (CASE WHEN tjc28.value_num IS NULL OR sjc28.value_num IS NULL OR ptga.value_num IS NULL THEN NULL WHEN esr.value_num IS NOT NULL THEN 0.56 * sqrt(tjc28.value_num) + 0.28 * sqrt(sjc28.value_num) + 0.014 * ptga.value_num + 0.7 * ln(esr.value_num) WHEN crp.value_num IS NOT NULL THEN 0.56 * sqrt(tjc28.value_num) + 0.28 * sqrt(sjc28.value_num) + 0.014 * ptga.value_num + 0.36 * ln(crp.value_num + 1) + 0.96 ELSE NULL END) AS val, concat_ws(';', tjc28.oid || '|' || strftime(tjc28.effective, '%Y-%m-%d'), sjc28.oid || '|' || strftime(sjc28.effective, '%Y-%m-%d'), ptga.oid || '|' || strftime(ptga.effective, '%Y-%m-%d'), esr.oid || '|' || strftime(esr.effective, '%Y-%m-%d'), crp.oid || '|' || strftime(crp.effective, '%Y-%m-%d')) AS ev
+a_atoms_inc_15_1_v AS (
+  SELECT b.pid, b.index_date, (CASE WHEN tjc28.conv IS NULL OR sjc28.conv IS NULL OR ptga.conv IS NULL THEN NULL WHEN esr.oid IS NOT NULL THEN (CASE WHEN esr.conv > 0 THEN 0.56 * sqrt(tjc28.conv) + 0.28 * sqrt(sjc28.conv) + 0.014 * ptga.conv + 0.7 * ln(esr.conv) ELSE NULL END) WHEN crp.conv IS NOT NULL THEN 0.56 * sqrt(tjc28.conv) + 0.28 * sqrt(sjc28.conv) + 0.014 * ptga.conv + 0.36 * ln(crp.conv + 1) + 0.96 ELSE NULL END) AS val, concat_ws(';', tjc28.oid || '|' || strftime(tjc28.effective, '%Y-%m-%d'), sjc28.oid || '|' || strftime(sjc28.effective, '%Y-%m-%d'), ptga.oid || '|' || strftime(ptga.effective, '%Y-%m-%d'), esr.oid || '|' || strftime(esr.effective, '%Y-%m-%d'), crp.oid || '|' || strftime(crp.effective, '%Y-%m-%d')) AS refs,
+         (CASE WHEN tjc28.oid IS NULL OR tjc28.value_num IS NULL THEN 'derived_missing_input:tjc28' WHEN tjc28.conv IS NULL THEN 'derived_unit:tjc28' WHEN sjc28.oid IS NULL OR sjc28.value_num IS NULL THEN 'derived_missing_input:sjc28' WHEN sjc28.conv IS NULL THEN 'derived_unit:sjc28' WHEN ptga.oid IS NULL OR ptga.value_num IS NULL THEN 'derived_missing_input:ptga' WHEN ptga.conv IS NULL THEN 'derived_unit:ptga' WHEN esr.oid IS NOT NULL AND esr.value_num IS NULL THEN 'derived_missing_input:esr' WHEN esr.oid IS NOT NULL AND esr.conv IS NULL THEN 'derived_unit:esr' WHEN esr.oid IS NOT NULL AND esr.conv <= 0 THEN 'derived_missing_input:esr' WHEN crp.oid IS NULL OR crp.value_num IS NULL THEN 'derived_missing_input:crp' WHEN crp.conv IS NULL THEN 'derived_unit:crp' ELSE 'derived_missing_input' END) AS why
   FROM base b
   LEFT JOIN a_atoms_inc_15_1_tjc28 tjc28 ON tjc28.pid = b.pid AND tjc28.index_date = b.index_date
   LEFT JOIN a_atoms_inc_15_1_sjc28 sjc28 ON sjc28.pid = b.pid AND sjc28.index_date = b.index_date
   LEFT JOIN a_atoms_inc_15_1_ptga ptga ON ptga.pid = b.pid AND ptga.index_date = b.index_date
   LEFT JOIN a_atoms_inc_15_1_esr esr ON esr.pid = b.pid AND esr.index_date = b.index_date
   LEFT JOIN a_atoms_inc_15_1_crp crp ON crp.pid = b.pid AND crp.index_date = b.index_date),
+a_atoms_inc_15_1 AS (
+  SELECT pid, index_date, val, CASE WHEN val IS NULL THEN why ELSE refs END AS ev
+  FROM a_atoms_inc_15_1_v),
 -- ATOMS-INC-15 (inclusion): DAS28 > 3.2 in 180 days
 c_atoms_inc_15 AS (
   SELECT b.pid, b.index_date, (a_atoms_inc_15_1.val > 3.2) AS v,
@@ -920,15 +975,19 @@ c_atoms_inc_15 AS (
   FROM base b
   LEFT JOIN a_atoms_inc_15_1 ON a_atoms_inc_15_1.pid = b.pid AND a_atoms_inc_15_1.index_date = b.index_date),
 a_atoms_inc_16_1_creatinine AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 1.0 WHEN 'umol/l' THEN o.value_num * 0.011312217194570135 ELSE NULL END)) AND (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 1.0 WHEN 'umol/l' THEN o.value_num * 0.011312217194570135 ELSE NULL END) > 0.0 THEN (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 1.0 WHEN 'umol/l' THEN o.value_num * 0.011312217194570135 ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -365) AND b.index_date
     WHERE o.system = 'http://loinc.org' AND o.code = '2160-0') WHERE rn = 1),
-a_atoms_inc_16_1 AS (
-  SELECT b.pid, b.index_date, (CASE WHEN creatinine.value_num IS NULL OR date_sub('year', b.birth_date, b.index_date) IS NULL OR (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) IS NULL THEN NULL ELSE 142.0 * pow(least(creatinine.value_num / (CASE WHEN (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) THEN 0.7 ELSE 0.9 END), 1.0), (CASE WHEN (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) THEN -0.241 ELSE -0.302 END)) * pow(greatest(creatinine.value_num / (CASE WHEN (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) THEN 0.7 ELSE 0.9 END), 1.0), -1.2) * pow(0.9938, date_sub('year', b.birth_date, b.index_date)) * (CASE WHEN (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) THEN 1.012 ELSE 1.0 END) END) AS val, concat_ws(';', creatinine.oid || '|' || strftime(creatinine.effective, '%Y-%m-%d')) AS ev
+a_atoms_inc_16_1_v AS (
+  SELECT b.pid, b.index_date, (CASE WHEN creatinine.conv IS NULL OR (year(b.index_date) - year(b.birth_date) - CASE WHEN strftime(b.index_date, '%m-%d') < strftime(b.birth_date, '%m-%d') THEN 1 ELSE 0 END) IS NULL OR (year(b.index_date) - year(b.birth_date) - CASE WHEN strftime(b.index_date, '%m-%d') < strftime(b.birth_date, '%m-%d') THEN 1 ELSE 0 END) < 18 OR (CASE WHEN b.sex IN ('male', 'female') THEN b.sex = 'female' ELSE NULL END) IS NULL THEN NULL ELSE 142.0 * pow(least(creatinine.conv / (CASE WHEN (CASE WHEN b.sex IN ('male', 'female') THEN b.sex = 'female' ELSE NULL END) THEN 0.7 ELSE 0.9 END), 1.0), (CASE WHEN (CASE WHEN b.sex IN ('male', 'female') THEN b.sex = 'female' ELSE NULL END) THEN -0.241 ELSE -0.302 END)) * pow(greatest(creatinine.conv / (CASE WHEN (CASE WHEN b.sex IN ('male', 'female') THEN b.sex = 'female' ELSE NULL END) THEN 0.7 ELSE 0.9 END), 1.0), -1.2) * pow(0.9938, (year(b.index_date) - year(b.birth_date) - CASE WHEN strftime(b.index_date, '%m-%d') < strftime(b.birth_date, '%m-%d') THEN 1 ELSE 0 END)) * (CASE WHEN (CASE WHEN b.sex IN ('male', 'female') THEN b.sex = 'female' ELSE NULL END) THEN 1.012 ELSE 1.0 END) END) AS val, concat_ws(';', creatinine.oid || '|' || strftime(creatinine.effective, '%Y-%m-%d')) AS refs,
+         (CASE WHEN creatinine.oid IS NULL OR creatinine.value_num IS NULL THEN 'derived_missing_input:creatinine' WHEN creatinine.conv IS NULL THEN 'derived_unit:creatinine' WHEN (year(b.index_date) - year(b.birth_date) - CASE WHEN strftime(b.index_date, '%m-%d') < strftime(b.birth_date, '%m-%d') THEN 1 ELSE 0 END) IS NULL OR (year(b.index_date) - year(b.birth_date) - CASE WHEN strftime(b.index_date, '%m-%d') < strftime(b.birth_date, '%m-%d') THEN 1 ELSE 0 END) <= 0 THEN 'derived_missing_input:age' WHEN (year(b.index_date) - year(b.birth_date) - CASE WHEN strftime(b.index_date, '%m-%d') < strftime(b.birth_date, '%m-%d') THEN 1 ELSE 0 END) < 18 THEN 'derived_adult_only:age' WHEN (CASE WHEN b.sex IN ('male', 'female') THEN b.sex = 'female' ELSE NULL END) IS NULL THEN 'derived_missing_input:sex' ELSE 'derived_missing_input' END) AS why
   FROM base b
   LEFT JOIN a_atoms_inc_16_1_creatinine creatinine ON creatinine.pid = b.pid AND creatinine.index_date = b.index_date),
+a_atoms_inc_16_1 AS (
+  SELECT pid, index_date, val, CASE WHEN val IS NULL THEN why ELSE refs END AS ev
+  FROM a_atoms_inc_16_1_v),
 -- ATOMS-INC-16 (inclusion): eGFR between 30 and 90
 c_atoms_inc_16 AS (
   SELECT b.pid, b.index_date, (a_atoms_inc_16_1.val BETWEEN 30 AND 90) AS v,
@@ -952,72 +1011,111 @@ a_atoms_inc_17_1 AS (
     SELECT pid, index_date, island, (max(e) - min(s)) + 1 AS len,
            string_agg(mid, ';' ORDER BY s, mid) AS ev FROM a_atoms_inc_17_1_i GROUP BY pid, index_date, island)
   GROUP BY pid, index_date),
+a_atoms_inc_17_1_o AS (
+  SELECT b.pid, b.index_date, count(*) AS n, string_agg(m.mid, ';' ORDER BY m.mid) AS ev
+  FROM base b JOIN medication m ON m.pid = b.pid
+  WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_METHOTREXATE' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = m.atc) OR EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_METHOTREXATE' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = m.nhi_code))
+    AND (coalesce(m.start, m.authored) IS NULL
+         OR (m."end" IS NULL AND coalesce(m.start, m.authored) <= b.index_date))
+  GROUP BY b.pid, b.index_date),
 -- ATOMS-INC-17 (inclusion): MTX >=180 days gap 0 in 2y
 c_atoms_inc_17 AS (
-  SELECT b.pid, b.index_date, (coalesce(a_atoms_inc_17_1.days, 0) >= 180) AS v,
-         concat_ws(';', a_atoms_inc_17_1.ev) AS ev
+  SELECT b.pid, b.index_date, (CASE WHEN coalesce(a_atoms_inc_17_1.days, 0) >= 180 THEN TRUE WHEN coalesce(a_atoms_inc_17_1_o.n, 0) > 0 THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', (CASE WHEN coalesce(a_atoms_inc_17_1.days, 0) >= 180 THEN a_atoms_inc_17_1.ev WHEN coalesce(a_atoms_inc_17_1_o.n, 0) > 0 THEN 'order_dates_missing;' || a_atoms_inc_17_1_o.ev ELSE a_atoms_inc_17_1.ev END)) AS ev
   FROM base b
-  LEFT JOIN a_atoms_inc_17_1 ON a_atoms_inc_17_1.pid = b.pid AND a_atoms_inc_17_1.index_date = b.index_date),
+  LEFT JOIN a_atoms_inc_17_1 ON a_atoms_inc_17_1.pid = b.pid AND a_atoms_inc_17_1.index_date = b.index_date
+  LEFT JOIN a_atoms_inc_17_1_o ON a_atoms_inc_17_1_o.pid = b.pid AND a_atoms_inc_17_1_o.index_date = b.index_date),
 a_atoms_inc_18_1 AS (
   SELECT b.pid, b.index_date, count(*) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
   FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_COLCHICINE' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc) OR EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_COLCHICINE' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -365) AND b.index_date
   GROUP BY b.pid, b.index_date),
+a_atoms_inc_18_1_nd AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_COLCHICINE' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc)) OR (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_COLCHICINE' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code))) e ON e.pid = b.pid AND e.d IS NULL
+  GROUP BY b.pid, b.index_date),
 -- ATOMS-INC-18 (inclusion): colchicine Rx in 1y
 c_atoms_inc_18 AS (
-  SELECT b.pid, b.index_date, (coalesce(a_atoms_inc_18_1.n, 0) > 0) AS v,
-         concat_ws(';', a_atoms_inc_18_1.ev) AS ev
+  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_atoms_inc_18_1.n, 0) > 0) THEN TRUE WHEN (coalesce(a_atoms_inc_18_1_nd.n, 0) > 0) THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', coalesce(a_atoms_inc_18_1.ev, a_atoms_inc_18_1_nd.ev)) AS ev
   FROM base b
-  LEFT JOIN a_atoms_inc_18_1 ON a_atoms_inc_18_1.pid = b.pid AND a_atoms_inc_18_1.index_date = b.index_date),
+  LEFT JOIN a_atoms_inc_18_1 ON a_atoms_inc_18_1.pid = b.pid AND a_atoms_inc_18_1.index_date = b.index_date
+  LEFT JOIN a_atoms_inc_18_1_nd ON a_atoms_inc_18_1_nd.pid = b.pid AND a_atoms_inc_18_1_nd.index_date = b.index_date),
 a_atoms_inc_19_1 AS (
   SELECT b.pid, b.index_date, count(*) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
   FROM base b JOIN (SELECT pid, rid, effective AS d FROM report x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_CHEST_X_RAY' AND vs.system = x.system AND vs.code = x.code)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -180) AND b.index_date
   GROUP BY b.pid, b.index_date),
+a_atoms_inc_19_1_nd AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, rid, effective AS d FROM report x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_CHEST_X_RAY' AND vs.system = x.system AND vs.code = x.code))) e ON e.pid = b.pid AND e.d IS NULL
+  GROUP BY b.pid, b.index_date),
 -- ATOMS-INC-19 (inclusion): CXR report in 180 d
 c_atoms_inc_19 AS (
-  SELECT b.pid, b.index_date, (coalesce(a_atoms_inc_19_1.n, 0) > 0) AS v,
-         concat_ws(';', a_atoms_inc_19_1.ev) AS ev
+  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_atoms_inc_19_1.n, 0) > 0) THEN TRUE WHEN (coalesce(a_atoms_inc_19_1_nd.n, 0) > 0) THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', coalesce(a_atoms_inc_19_1.ev, a_atoms_inc_19_1_nd.ev)) AS ev
   FROM base b
-  LEFT JOIN a_atoms_inc_19_1 ON a_atoms_inc_19_1.pid = b.pid AND a_atoms_inc_19_1.index_date = b.index_date),
+  LEFT JOIN a_atoms_inc_19_1 ON a_atoms_inc_19_1.pid = b.pid AND a_atoms_inc_19_1.index_date = b.index_date
+  LEFT JOIN a_atoms_inc_19_1_nd ON a_atoms_inc_19_1_nd.pid = b.pid AND a_atoms_inc_19_1_nd.index_date = b.index_date),
 a_atoms_inc_20_1 AS (
   SELECT b.pid, b.index_date, count(*) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
   FROM base b JOIN (SELECT pid, kid AS rid, created AS d FROM claim x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RA_BIOLOGIC' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.product)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -365) AND b.index_date
   GROUP BY b.pid, b.index_date),
+a_atoms_inc_20_1_nd AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, kid AS rid, created AS d FROM claim x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RA_BIOLOGIC' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.product))) e ON e.pid = b.pid AND e.d IS NULL
+  GROUP BY b.pid, b.index_date),
 -- ATOMS-INC-20 (inclusion): biologic application in 365 d
 c_atoms_inc_20 AS (
-  SELECT b.pid, b.index_date, (coalesce(a_atoms_inc_20_1.n, 0) > 0) AS v,
-         concat_ws(';', a_atoms_inc_20_1.ev) AS ev
+  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_atoms_inc_20_1.n, 0) > 0) THEN TRUE WHEN (coalesce(a_atoms_inc_20_1_nd.n, 0) > 0) THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', coalesce(a_atoms_inc_20_1.ev, a_atoms_inc_20_1_nd.ev)) AS ev
   FROM base b
-  LEFT JOIN a_atoms_inc_20_1 ON a_atoms_inc_20_1.pid = b.pid AND a_atoms_inc_20_1.index_date = b.index_date),
+  LEFT JOIN a_atoms_inc_20_1 ON a_atoms_inc_20_1.pid = b.pid AND a_atoms_inc_20_1.index_date = b.index_date
+  LEFT JOIN a_atoms_inc_20_1_nd ON a_atoms_inc_20_1_nd.pid = b.pid AND a_atoms_inc_20_1_nd.index_date = b.index_date),
 a_atoms_inc_21_1 AS (
   SELECT b.pid, b.index_date, count(*) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
   FROM base b JOIN (SELECT pid, eid AS rid, start::DATE AS d FROM encounter x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RHEUMATOLOGY_CLINIC_VISIT' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/department' AND vs.code = x.dept)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -365) AND b.index_date
   GROUP BY b.pid, b.index_date),
+a_atoms_inc_21_1_nd AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, eid AS rid, start::DATE AS d FROM encounter x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RHEUMATOLOGY_CLINIC_VISIT' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/department' AND vs.code = x.dept))) e ON e.pid = b.pid AND e.d IS NULL
+  GROUP BY b.pid, b.index_date),
 -- ATOMS-INC-21 (inclusion): >=3 RHEU visits in 1y
 c_atoms_inc_21 AS (
-  SELECT b.pid, b.index_date, (coalesce(a_atoms_inc_21_1.n, 0) >= 3) AS v,
-         concat_ws(';', a_atoms_inc_21_1.ev) AS ev
+  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_atoms_inc_21_1.n, 0) >= 3) THEN TRUE WHEN (coalesce(a_atoms_inc_21_1.n, 0) + coalesce(a_atoms_inc_21_1_nd.n, 0) >= 3) THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', coalesce(a_atoms_inc_21_1.ev, a_atoms_inc_21_1_nd.ev)) AS ev
   FROM base b
-  LEFT JOIN a_atoms_inc_21_1 ON a_atoms_inc_21_1.pid = b.pid AND a_atoms_inc_21_1.index_date = b.index_date),
+  LEFT JOIN a_atoms_inc_21_1 ON a_atoms_inc_21_1.pid = b.pid AND a_atoms_inc_21_1.index_date = b.index_date
+  LEFT JOIN a_atoms_inc_21_1_nd ON a_atoms_inc_21_1_nd.pid = b.pid AND a_atoms_inc_21_1_nd.index_date = b.index_date),
 a_atoms_exc_22_1 AS (
   SELECT b.pid, b.index_date, count(*) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
   FROM base b JOIN (SELECT pid, prid AS rid, performed AS d FROM procedure x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_BARIATRIC_SURGERY' AND vs.system = x.system AND vs.code = x.code)) e ON e.pid = b.pid AND e.d <= b.index_date
   GROUP BY b.pid, b.index_date),
+a_atoms_exc_22_1_nd AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, prid AS rid, performed AS d FROM procedure x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_BARIATRIC_SURGERY' AND vs.system = x.system AND vs.code = x.code))) e ON e.pid = b.pid AND e.d IS NULL
+  GROUP BY b.pid, b.index_date),
 -- ATOMS-EXC-22 (exclusion): bariatric surgery ever
 c_atoms_exc_22 AS (
-  SELECT b.pid, b.index_date, (coalesce(a_atoms_exc_22_1.n, 0) > 0) AS v,
-         concat_ws(';', a_atoms_exc_22_1.ev) AS ev
+  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_atoms_exc_22_1.n, 0) > 0) THEN TRUE WHEN (coalesce(a_atoms_exc_22_1_nd.n, 0) > 0) THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', coalesce(a_atoms_exc_22_1.ev, a_atoms_exc_22_1_nd.ev)) AS ev
   FROM base b
-  LEFT JOIN a_atoms_exc_22_1 ON a_atoms_exc_22_1.pid = b.pid AND a_atoms_exc_22_1.index_date = b.index_date),
+  LEFT JOIN a_atoms_exc_22_1 ON a_atoms_exc_22_1.pid = b.pid AND a_atoms_exc_22_1.index_date = b.index_date
+  LEFT JOIN a_atoms_exc_22_1_nd ON a_atoms_exc_22_1_nd.pid = b.pid AND a_atoms_exc_22_1_nd.index_date = b.index_date),
 a_atoms_exc_23_1 AS (
   SELECT pid, index_date, (o.value_code IN ('LA6576-8')) AS v,
-         o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
+         CASE WHEN o.unit_bad THEN 'unit_mismatch;' ELSE '' END || o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
   FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
-        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_code
+        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num AS value_num, o.value_cmp, o.value_code,
+         FALSE AS unit_bad
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE <= b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_IGRA' AND vs.system = o.system AND vs.code = o.code))) o WHERE rn = 1),
 a_atoms_exc_23_2 AS (
@@ -1025,43 +1123,62 @@ a_atoms_exc_23_2 AS (
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
   FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_TB_PREVENTIVE_THERAPY' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc) OR EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_TB_PREVENTIVE_THERAPY' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -365) AND b.index_date
   GROUP BY b.pid, b.index_date),
+a_atoms_exc_23_2_nd AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_TB_PREVENTIVE_THERAPY' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc)) OR (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_TB_PREVENTIVE_THERAPY' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code))) e ON e.pid = b.pid AND e.d IS NULL
+  GROUP BY b.pid, b.index_date),
 -- ATOMS-EXC-23 (exclusion): IGRA positive and not on TB prophylaxis
 c_atoms_exc_23 AS (
-  SELECT b.pid, b.index_date, (a_atoms_exc_23_1.v AND (NOT (coalesce(a_atoms_exc_23_2.n, 0) > 0))) AS v,
-         concat_ws(';', a_atoms_exc_23_1.ev, a_atoms_exc_23_2.ev) AS ev
+  SELECT b.pid, b.index_date, (a_atoms_exc_23_1.v AND (NOT (CASE WHEN (coalesce(a_atoms_exc_23_2.n, 0) > 0) THEN TRUE WHEN (coalesce(a_atoms_exc_23_2_nd.n, 0) > 0) THEN NULL ELSE FALSE END))) AS v,
+         concat_ws(';', a_atoms_exc_23_1.ev, coalesce(a_atoms_exc_23_2.ev, a_atoms_exc_23_2_nd.ev)) AS ev
   FROM base b
   LEFT JOIN a_atoms_exc_23_1 ON a_atoms_exc_23_1.pid = b.pid AND a_atoms_exc_23_1.index_date = b.index_date
-  LEFT JOIN a_atoms_exc_23_2 ON a_atoms_exc_23_2.pid = b.pid AND a_atoms_exc_23_2.index_date = b.index_date),
+  LEFT JOIN a_atoms_exc_23_2 ON a_atoms_exc_23_2.pid = b.pid AND a_atoms_exc_23_2.index_date = b.index_date
+  LEFT JOIN a_atoms_exc_23_2_nd ON a_atoms_exc_23_2_nd.pid = b.pid AND a_atoms_exc_23_2_nd.index_date = b.index_date),
 a_atoms_exc_24_1 AS (
   SELECT b.pid, b.index_date, count(*) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
   FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d FROM condition x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_TYPE_1_DIABETES_MELLITUS' AND vs.system = x.system AND vs.code = x.code)) e ON e.pid = b.pid AND e.d <= b.index_date
   GROUP BY b.pid, b.index_date),
+a_atoms_exc_24_1_nd AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d FROM condition x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_TYPE_1_DIABETES_MELLITUS' AND vs.system = x.system AND vs.code = x.code))) e ON e.pid = b.pid AND e.d IS NULL
+  GROUP BY b.pid, b.index_date),
 a_atoms_exc_24_3 AS (
-  SELECT pid, index_date, (o.value_num > 10) AS v,
-         o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
+  SELECT pid, index_date, (CASE WHEN o.value_cmp IS NULL THEN (o.value_num > 10) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num <= 10 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num > 10 THEN TRUE END) END) AS v,
+         CASE WHEN o.unit_bad THEN 'unit_mismatch;' ELSE '' END || o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
   FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
-        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_code
+        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') IN ('', '#', '1', 'count', 'joints', 'score') THEN o.value_num END) AS value_num, o.value_cmp, o.value_code,
+         (o.value_num IS NOT NULL AND (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') IN ('', '#', '1', 'count', 'joints', 'score') THEN o.value_num END) IS NULL) AS unit_bad
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -180) AND b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_HBA1C' AND vs.system = o.system AND vs.code = o.code))) o WHERE rn = 1),
 -- ATOMS-EXC-24 (exclusion): T1DM or (male and HbA1c > 10)
 c_atoms_exc_24 AS (
-  SELECT b.pid, b.index_date, ((coalesce(a_atoms_exc_24_1.n, 0) > 0) OR (((CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'male' END)) AND a_atoms_exc_24_3.v)) AS v,
-         concat_ws(';', a_atoms_exc_24_1.ev, NULL, a_atoms_exc_24_3.ev) AS ev
+  SELECT b.pid, b.index_date, ((CASE WHEN (coalesce(a_atoms_exc_24_1.n, 0) > 0) THEN TRUE WHEN (coalesce(a_atoms_exc_24_1_nd.n, 0) > 0) THEN NULL ELSE FALSE END) OR (((CASE WHEN b.sex IN ('male', 'female') THEN b.sex = 'male' ELSE NULL END)) AND a_atoms_exc_24_3.v)) AS v,
+         concat_ws(';', coalesce(a_atoms_exc_24_1.ev, a_atoms_exc_24_1_nd.ev), NULL, a_atoms_exc_24_3.ev) AS ev
   FROM base b
   LEFT JOIN a_atoms_exc_24_1 ON a_atoms_exc_24_1.pid = b.pid AND a_atoms_exc_24_1.index_date = b.index_date
+  LEFT JOIN a_atoms_exc_24_1_nd ON a_atoms_exc_24_1_nd.pid = b.pid AND a_atoms_exc_24_1_nd.index_date = b.index_date
   LEFT JOIN a_atoms_exc_24_3 ON a_atoms_exc_24_3.pid = b.pid AND a_atoms_exc_24_3.index_date = b.index_date),
 a_atoms_exc_25_1 AS (
   SELECT b.pid, b.index_date, count(*) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
   FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_COLCHICINE' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc) OR EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_COLCHICINE' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -10) AND (b.index_date + 10)
   GROUP BY b.pid, b.index_date),
+a_atoms_exc_25_1_nd AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_COLCHICINE' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc)) OR (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_COLCHICINE' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code))) e ON e.pid = b.pid AND e.d IS NULL
+  GROUP BY b.pid, b.index_date),
 -- ATOMS-EXC-25 (exclusion): future window: appointment-independent, med in [-10,+10]
 c_atoms_exc_25 AS (
-  SELECT b.pid, b.index_date, (coalesce(a_atoms_exc_25_1.n, 0) > 0) AS v,
-         concat_ws(';', a_atoms_exc_25_1.ev) AS ev
+  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_atoms_exc_25_1.n, 0) > 0) THEN TRUE WHEN (coalesce(a_atoms_exc_25_1_nd.n, 0) > 0) THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', coalesce(a_atoms_exc_25_1.ev, a_atoms_exc_25_1_nd.ev)) AS ev
   FROM base b
-  LEFT JOIN a_atoms_exc_25_1 ON a_atoms_exc_25_1.pid = b.pid AND a_atoms_exc_25_1.index_date = b.index_date)
+  LEFT JOIN a_atoms_exc_25_1 ON a_atoms_exc_25_1.pid = b.pid AND a_atoms_exc_25_1.index_date = b.index_date
+  LEFT JOIN a_atoms_exc_25_1_nd ON a_atoms_exc_25_1_nd.pid = b.pid AND a_atoms_exc_25_1_nd.index_date = b.index_date)
 SELECT b.pid, b.index_date,
   c_atoms_inc_01.v AS "C_ATOMS-INC-01", c_atoms_inc_01.ev AS "E_ATOMS-INC-01",
   c_atoms_inc_02.v AS "C_ATOMS-INC-02", c_atoms_inc_02.ev AS "E_ATOMS-INC-02",

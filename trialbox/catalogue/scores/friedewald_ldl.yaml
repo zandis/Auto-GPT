@@ -1,0 +1,25 @@
+score_id: lab.ldl_calc
+name: {en: LDL cholesterol (Friedewald), ja: LDLコレステロール（Friedewald式）, zh_tw: 低密度脂蛋白膽固醇（Friedewald 公式）}
+version: 1
+formula_kind: linear
+inputs:
+  - {role: tc, item: lab.cholesterol_total, unit: mg/dL, required: true, anchor: true}
+  - {role: hdl, item: lab.hdl, unit: mg/dL, required: true, window_days: 0}
+  - {role: tg, item: lab.triglyceride, unit: mg/dL, required: true, window_days: 0, note: "fasting sample"}
+formula: "LDL = TC − HDL − TG/5  (mg/dL); mmol/L form divides TG by 2.2"
+output: {unit: mg/dL, min: 0, max: 600}
+rounding: integer
+edge_cases:
+  - "TG ≥ 400 mg/dL (4.5 mmol/L): not valid, no row"
+  - "non-fasting sample or chylomicrons noted: flag"
+  - "a laboratory-reported calculated LDL (LOINC 13457-7) takes precedence; the derived row is only for panels without it"
+examples:
+  - inputs: {tc: 200, hdl: 50, tg: 150}
+    expected: {ldl: 120}
+    source: "R package 'cliot' documentation, calculate_ldl example (rdrr.io, read 2026-11-09)"
+    source_grade: calculator
+sources:
+  - "Friedewald WT, Levy RI, Fredrickson DS. Clin Chem 1972;18:499-502"
+  - "LOINC 13457-7 (verified 2026-11-09)"
+licence: "formula; free"
+verified: yes

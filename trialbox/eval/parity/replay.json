@@ -91,6 +91,7 @@
   }
  ],
  "n12": {
+  "basis": "unadjusted",
   "gate": 0.05,
   "inputs": {
    "audit_model_errors": "10/30 (Claude, not a clinician)",
@@ -108,13 +109,22 @@
    "google/gemma-4-26b-a4b-it@fp4",
    "qwen/qwen3.5-9b"
   ],
-  "projected_true_loss": 0.0356,
+  "note_audit_adjusted": {
+   "label": "note only, not a gate (D-343): the label check was by an AI assistant, not a clinician",
+   "projected_true_loss": 0.0356,
+   "recorded_95": [
+    0.0208,
+    0.0562
+   ],
+   "recorded_point": 0.0357
+  },
   "recorded_95": [
-   0.0208,
-   0.0562
+   0.0922,
+   0.1243
   ],
-  "recorded_point": 0.0357,
-  "status": "pass"
+  "recorded_point": 0.1071,
+  "status": "fail",
+  "unadjusted_loss": 0.1069
  },
  "reproduces": true
 }

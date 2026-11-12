@@ -1,4 +1,4 @@
-"""Browser smoke test of the Test Bench with Playwright (docs/HANDOFF.md §5).
+"""Browser smoke test of the Test Bench with Playwright (docs/VALIDATION.md §6).
 
 The Python ``playwright`` package is not in the venv, so the browser part is ``tests/testbench/browser_smoke.js`` on
 Node Playwright with the preinstalled Chromium (``PLAYWRIGHT_BROWSERS_PATH``); this wrapper starts the bench on a free
@@ -89,5 +89,5 @@ def test_browser_smoke_every_page_and_run_end_to_end(bench: str) -> None:
     r = subprocess.run(args, cwd=ROOT, capture_output=True, text=True, timeout=900, check=False)
     assert r.returncode == 0, r.stdout + r.stderr
     assert "ok run end to end: PASS" in r.stdout
-    for p in ("/", "/run", "/dataplat", "/llm", "/guard", "/recall", "/match"):
+    for p in ("/", "/run", "/ingest", "/llm", "/guard", "/recall", "/match"):
         assert f"ok page {p}\n" in r.stdout

@@ -10,6 +10,8 @@ every code in the families, so a valid code is never outside the list for want o
 the LLM candidates still read the curated ``icd10cm_tw`` only, so a grouper name is never shadowed by a header row.
 
 Steps: exact display-name match -> synonym table (exact codes or code-prefix groups expanded against the tables) ->
+the loaded synonym dictionary's curated entries (D-172; ``name_synonyms``) -> the model's synonyms -> the
+dictionary's other entries (public translations, ambiguous abbreviations: method ``dictionary``, reviewed) ->
 LLM ``concept_map`` over the top-20 lexical candidates, always flagged ``needs_review``. Output ValueSets carry only
 ``compose.include[].concept[]`` (no implicit expansions).
 """
@@ -43,6 +45,12 @@ SYSTEMS = {
     "department": "https://trialbox.local/fhir/CodeSystem/department",
     "loinc": "http://loinc.org",
 }
+# T-610 (STD-042): a drug ValueSet may carry YJ ingredient stems beside its ATC codes, as concepts of this system
+# (the first 7 characters of a YJ / 薬価基準 code: 薬効分類, ingredient, route). They are concepts, not an extension,
+# so the ValueSet's content hash covers them. The engines match a medication whose YJ code starts with a listed stem
+# exactly as one with a listed ATC code. A stem is added only for an ATC code (or an ATC family of a grouper) that
+# the ingredient-to-ATC table gives it.
+YJ_STEM = "urn:trialbox:jp:yj-stem7"  # as tb_common.refdata_jp.YJ_STEM
 # which table answers which IR domain (exact-name step)
 DOMAIN_TABLES = {
     "condition": ["icd10cm"],
@@ -64,6 +72,33 @@ TABLE_FILES = {
 
 FULL_FILES = {"icd10cm": "icd10cm_full"}
 
+# D-314: WHO ICD-10 categories that ICD-10-CM does not have (Japan codes in WHO ICD-10 2013, through MEDIS 標準病名).
+# A grouper whose ICD-10-CM family is one of the related categories (or a prefix of the WHO category: C9 holds C97)
+# also stands for the WHO-only category, under the WHO URI: a record coded E14.9, I64 or F00.1 is then inside the
+# family and outside the list, so the criterion is unknown (D-113), never a silent false. Category: the ICD-10-CM
+# categories whose groupers it can belong to. A WHO code that ICD-10-CM also has (E11.9) is not here.
+ICD10_WHO = "http://hl7.org/fhir/sid/icd-10"
+WHO_ONLY_CATEGORIES: dict[str, tuple[str, ...]] = {
+    "B24": ("B20",),  # unspecified HIV disease
+    "C97": ("C80",),  # malignant neoplasms of independent (primary) multiple sites
+    "E14": ("E08", "E09", "E10", "E11", "E13"),  # unspecified diabetes mellitus
+    "F00": ("F01", "F02", "F03", "G30"),  # dementia in Alzheimer's disease
+    "I64": ("I60", "I61", "I62", "I63"),  # stroke, not specified as haemorrhage or infarction
+}
+
+
+def who_only_families(families: set[tuple[str, str]] | list[tuple[str, str]]) -> set[tuple[str, str]]:
+    """The WHO-only ICD-10 categories (``WHO_ONLY_CATEGORIES``) that a grouper's ICD-10-CM families stand for, as
+    ``(WHO URI, category)`` families (D-314)."""
+    out: set[tuple[str, str]] = set()
+    for system, prefix in families:
+        if system != SYSTEMS["icd10cm"]:
+            continue
+        for cat, related in WHO_ONLY_CATEGORIES.items():
+            if prefix[:3] in related or cat.startswith(prefix):
+                out.add((ICD10_WHO, cat))
+    return out
+
 
 def norm(text: str) -> str:
     return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", text).strip().lower())
@@ -82,13 +117,15 @@ class MappingResult:
     name: str
     domain: str
     concepts: list[Concept]
-    method: str  # exact | synonym | llm | none
+    method: str  # exact | synonym | dictionary (D-172, always reviewed) | llm | none
     needs_review: bool
     notes: list[str] = field(default_factory=list)
     families: list[tuple[str, str]] = field(default_factory=list)  # (system, code prefix) of prefix groupers
 
 
 ConceptMapLLM = Callable[[str, str, list[Concept]], tuple[list[tuple[str, str, float]], bool]]
+# (name, domain) -> dictionary entries {canonical, curated, source_id}; tb_common.refdata.synonym_lookup (D-172)
+NameSynonyms = Callable[[str, str], list[dict[str, Any]]]
 
 
 def vs_resource_id(ruleset: str, vs_name: str) -> str:
@@ -109,8 +146,12 @@ def vs_name_for(concept: str, unique: bool = False) -> str:
 
 
 class Terminology:
-    def __init__(self, directory: Path = TERM_DIR) -> None:
+    def __init__(self, directory: Path = TERM_DIR, name_synonyms: NameSynonyms | None = None) -> None:
         self.dir = directory
+        self.name_synonyms = name_synonyms
+        # T-610: a Japanese site's ingredient-to-ATC table (stem -> {atc, ingredient}); drug ValueSets then carry
+        # the YJ stems of their ATC codes. None (every other site, and the shipped rulesets): no stems
+        self.ingredients: dict[str, dict[str, str]] | None = None
         self.rows: dict[str, list[dict[str, Any]]] = {}
         for key, fname in TABLE_FILES.items():
             path = directory / f"{fname}.parquet"
@@ -132,6 +173,21 @@ class Terminology:
             for r in rows:
                 c = self._concept(key, r)
                 self._by_code[(c.system, c.code)] = c
+
+    _release: str | None = None
+
+    @property
+    def release(self) -> str:
+        """The terminology release these tables are (D-301): the Parquet's own, or the vocabulary's when pinned by
+        ``criteria_compiler.terminology.resolver``. A compiled ruleset records it in its manifest."""
+        if self._release is None:
+            from criteria_compiler.terminology import resolver
+
+            self._release = resolver.parquet_release(self.dir)
+        return self._release
+
+    def pin(self, release: str) -> None:
+        self._release = release
 
     def _concept(self, table: str, r: dict[str, Any]) -> Concept:
         if table == "nhi_drug":
@@ -174,26 +230,53 @@ class Terminology:
                 if set(self._names(table, r)) & set(candidates)
             ]
 
-        # 1. exact display-name match on the concept name itself
-        hits = exact([primary])
-        if hits:
-            return MappingResult(name, domain, _dedupe(hits), "exact", False)
-        # 2. curated synonym/grouper table (name first, then the model's synonyms) — a grouper such as
-        #    "urate-lowering therapy" must win over exact matches of individual example drugs
-        for candidates in ([primary], names):
-            hits = []
+        def grouped(candidates: list[str]) -> tuple[list[Concept], set[tuple[str, str]]]:
+            hits: list[Concept] = []
             fams: set[tuple[str, str]] = set()
             for s in self.synonyms:
                 if s["domain"] == domain and norm(s["name"]) in candidates:
                     hits.extend(self.expand(s["table"], s["code"], s["match"]))
                     if s["match"] == "prefix":
                         fams.add((SYSTEMS[s["table"]], s["code"]))
-            if hits:
-                return MappingResult(name, domain, _dedupe(hits), "synonym", False, families=sorted(fams))
+            return hits, fams | who_only_families(fams)
+
+        # 1. exact display-name match on the concept name itself
+        hits = exact([primary])
+        trusted: list[dict[str, Any]] | None = None
+        if hits:
+            # a trusted dictionary entry whose canonical name holds the exact hit and more wins: 心衰竭 is the
+            # display of I50.9 but means heart failure, the whole I50 family (D-172)
+            trusted, other = self._dictionary(name, domain, primary)
+            wide = self._via(name, domain, trusted, grouped, exact, "synonym", False)
+            if wide is not None and {c.code for c in hits} < {c.code for c in wide.concepts}:
+                return wide
+            return MappingResult(name, domain, _dedupe(hits), "exact", False)
+        # 2. curated synonym/grouper table on the name — a grouper such as "urate-lowering therapy" must win over
+        #    exact matches of individual example drugs
+        hits, fams = grouped([primary])
+        if hits:
+            return MappingResult(name, domain, _dedupe(hits), "synonym", False, families=sorted(fams))
+        # 2a. the loaded synonym dictionary (D-172), trusted entries only: TrialBox's curated rows that are not
+        #     ambiguous (類風濕關節炎 -> rheumatoid arthritis, GPT -> alt), then the curated table and the exact names
+        #     on their canonical names. Such a match is a curated synonym: no review.
+        if trusted is None:
+            trusted, other = self._dictionary(name, domain, primary)
+        found = self._via(name, domain, trusted, grouped, exact, "synonym", False)
+        if found is not None:
+            return found
+        # 2 (cont.). the curated table on the model's synonyms
+        hits, fams = grouped(names)
+        if hits:
+            return MappingResult(name, domain, _dedupe(hits), "synonym", False, families=sorted(fams))
         # 2b. exact match on the synonyms (flagged for review: the grouping came from the model)
         hits = exact(names[1:])
         if hits:
             return MappingResult(name, domain, _dedupe(hits), "exact", True, ["matched via model synonyms"])
+        # 2c. the rest of the dictionary (a public dictionary's translations, ambiguous abbreviations): only after
+        #     everything above, with its own method, always for review (one English term has several senses)
+        found = self._via(name, domain, other, grouped, exact, "dictionary", True)
+        if found is not None:
+            return found
         # 3. LLM-proposed candidates (always needs_review)
         cands = self.candidates(domain, names, 20)
         if llm is not None and cands:
@@ -202,6 +285,40 @@ class Terminology:
             if chosen:
                 return MappingResult(name, domain, _dedupe(chosen), "llm", True, [f"LLM-proposed (review={review})"])
         return MappingResult(name, domain, [], "none", True, ["no mapping found"])
+
+    def _dictionary(self, name: str, domain: str, primary: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """The dictionary's entries for the name: (trusted, other). Trusted = curated by the TrialBox team and not
+        marked ambiguous (``curated``); other = public dictionaries and ambiguous rows. Never raises."""
+        if self.name_synonyms is None:
+            return [], []
+        try:
+            got = [e for e in self.name_synonyms(name, domain) if norm(str(e.get("canonical") or "")) != primary]
+        except Exception:
+            return [], []
+        return [e for e in got if e.get("curated")], [e for e in got if not e.get("curated")]
+
+    @staticmethod
+    def _via(
+        name: str,
+        domain: str,
+        entries: list[dict[str, Any]],
+        grouped: Callable[[list[str]], tuple[list[Concept], set[tuple[str, str]]]],
+        exact: Callable[[list[str]], list[Concept]],
+        method: str,
+        review: bool,
+    ) -> MappingResult | None:
+        """The curated table, then the exact names, on the entries' canonical names; None when nothing resolves."""
+        if not entries:
+            return None
+        canon = sorted({norm(str(e["canonical"])) for e in entries})
+        hits, fams = grouped(canon)
+        if not hits:
+            hits, fams = exact(canon), set()
+        if not hits:
+            return None
+        srcs = ", ".join(sorted({str(e.get("source_id") or "") for e in entries}))
+        note = f"via synonym dictionary ({srcs}): {', '.join(canon)}"
+        return MappingResult(name, domain, _dedupe(hits), method, review, [note], families=sorted(fams))
 
     def candidates(self, domain: str, names: list[str], k: int) -> list[Concept]:
         def toks(s: str) -> set[str]:
@@ -235,8 +352,14 @@ def valueset(
     needs_review: bool = False,
     status: str = "draft",
     families: list[tuple[str, str]] | None = None,
+    ingredients: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
+    """A FHIR ValueSet of the concepts. ``ingredients`` (``stem -> {atc, ingredient}``, a Japanese site's
+    ingredient-to-ATC table, :func:`tb_common.refdata_jp.ingredient_atc`) adds the YJ stems of its ATC codes and
+    families (:func:`yj_ingredients`)."""
     by_system: dict[str, list[Concept]] = {}
+    if ingredients:
+        concepts = [*concepts, *yj_ingredients(concepts, families or [], ingredients)]
     for c in concepts:
         by_system.setdefault(c.system, []).append(c)
     rid = vs_resource_id(ruleset, vs_name)
@@ -268,6 +391,22 @@ def valueset(
     return vs
 
 
+def yj_ingredients(
+    concepts: list[Concept], families: list[tuple[str, str]], ingredients: dict[str, dict[str, str]]
+) -> list[Concept]:
+    """The YJ stems (``YJ_STEM`` concepts) whose ATC code is one of the listed ATC concepts or lies in one of the
+    grouper's ATC families; none for a list without ATC codes (a diagnosis or lab list)."""
+    atc = SYSTEMS["atc"]
+    listed = {c.code for c in concepts if c.system == atc}
+    prefixes = [pre for sy, pre in families if sy == atc and pre]
+    out = [
+        Concept(YJ_STEM, stem, row.get("ingredient") or "")
+        for stem, row in sorted(ingredients.items())
+        if row.get("atc") and (row["atc"] in listed or any(row["atc"].startswith(p) for p in prefixes))
+    ]
+    return out
+
+
 @dataclass
 class ValueSets:
     """Lookup over a ruleset's ValueSet resources (by IR valueset id)."""
@@ -287,6 +426,13 @@ class ValueSets:
         if vs is None:
             raise KeyError(f"ValueSet {name} not defined for ruleset {self.ruleset}")
         return [(inc["system"], c["code"]) for inc in vs["compose"]["include"] for c in inc.get("concept", [])]
+
+    def yj_stems(self, name: str) -> list[str]:
+        """The YJ ingredient stems a drug ValueSet carries (T-610); empty for every other list. Only 7-digit codes
+        are stems (the generators inline them in SQL and CQL)."""
+        if name not in self.by_name:
+            return []
+        return sorted(c for s, c in self.codes(name) if s == YJ_STEM and re.fullmatch(r"[0-9]{7}", c))
 
     def families(self, name: str) -> list[tuple[str, str]]:
         """(system, prefix) of the code families a grouper ValueSet stands for (D-113); empty for plain lists."""

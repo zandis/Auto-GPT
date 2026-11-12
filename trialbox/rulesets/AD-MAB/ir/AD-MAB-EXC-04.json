@@ -1,0 +1,32 @@
+{
+ "action": "クレアチニンを測定",
+ "class": "structured",
+ "id": "AD-MAB-EXC-04",
+ "kind": "exclusion",
+ "label": "eGFR 30未満",
+ "logic": {
+  "derived": "egfr_jsn",
+  "domain": "observation",
+  "quantifier": "latest",
+  "value": {
+   "num": 30.0,
+   "op": "<",
+   "unit": "mL/min/{1.73_m2}"
+  },
+  "valueset": "VS_EGFR_JSN_COMPONENTS",
+  "window": {
+   "anchor": "index",
+   "from_days": -365,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-11-10T22:18:12.342983+09:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "AD-MAB",
+ "source_ref": "5.2 除外基準 #4",
+ "text": "eGFRが30 mL/min/1.73m²未満の者（日本腎臓学会の推算式による）。",
+ "time_sensitive": false
+}

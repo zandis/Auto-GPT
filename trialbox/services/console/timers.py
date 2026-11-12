@@ -10,6 +10,7 @@ Environment:
   orchestrator's ``schedule.mode``), ``on`` or ``off``.
 * ``TB_NOTICE_N1_AT`` (``07:00``), ``TB_NOTICE_N2_AT`` (``07:30``), ``TB_REDCAP_READ_AT`` (``03:00``, after the
   nightly ingest): local times in the site's zone.
+* ``TB_HEALTH_MAIL_AT`` (``07:00``): the administrators' daily health mail (T-209a, D-379).
 
 Each run is the same call as its button (admin "Send notices now", S21 "Run now"); a notice still goes at most once
 per person and day, so a timer and a button on the same morning never send twice.
@@ -22,6 +23,8 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
+
+from tb_common.config import environment_name
 
 log = logging.getLogger("console.timers")
 _HHMM = re.compile(r"([01]?\d|2[0-3]):([0-5]\d)")
@@ -51,7 +54,7 @@ def enabled(env: Mapping[str, str]) -> bool:
     if mode not in ("auto", "on", "off"):
         raise TimerError(f"TB_CONSOLE_TIMERS must be auto, on or off, got {mode!r}")
     if mode == "auto":
-        return (env.get("TB_ENV") or "").upper() in ("VALIDATION", "PRODUCTION")
+        return environment_name(env) in ("VALIDATION", "PRODUCTION")
     return mode == "on"
 
 
@@ -60,6 +63,7 @@ def plan(env: Mapping[str, str]) -> list[Timer]:
         Timer("redcap_read", *_at(env, "TB_REDCAP_READ_AT", "03:00")),
         Timer("notice_n1", *_at(env, "TB_NOTICE_N1_AT", "07:00")),
         Timer("notice_n2", *_at(env, "TB_NOTICE_N2_AT", "07:30")),
+        Timer("health_mail", *_at(env, "TB_HEALTH_MAIL_AT", "07:00")),
     ]
 
 
@@ -68,15 +72,18 @@ def jobs(h: Any) -> dict[str, Callable[[], object]]:
     from console import notify, rc_read
 
     def n1() -> object:
-        return notify.send_all(h, h.clock().date(), ("N1",), by="console:timer")
+        return notify.send_all(h, h.today(), ("N1",), by="console:timer")
 
     def n2() -> object:
-        return notify.send_all(h, h.clock().date(), ("N2",), by="console:timer")
+        return notify.send_all(h, h.today(), ("N2",), by="console:timer")
 
     def rc() -> object:
         return rc_read.run(h)
 
-    return {"redcap_read": rc, "notice_n1": n1, "notice_n2": n2}
+    def health() -> object:
+        return notify.send_all(h, h.today(), ("HEALTH",), by="console:timer")
+
+    return {"redcap_read": rc, "notice_n1": n1, "notice_n2": n2, "health_mail": health}
 
 
 def _guarded(name: str, fn: Callable[[], object]) -> Callable[[], None]:
@@ -95,8 +102,9 @@ def start(h: Any, env: Mapping[str, str], tz: Any) -> Any:
         log.info("console timers off (TB_CONSOLE_TIMERS / TB_ENV)")
         return None
     from apscheduler.schedulers.background import BackgroundScheduler
+    from tb_common.config import SCHEDULER_JOB_DEFAULTS
 
-    sched = BackgroundScheduler(timezone=tz)
+    sched = BackgroundScheduler(timezone=tz, job_defaults=SCHEDULER_JOB_DEFAULTS)  # review F-14 (D-130)
     calls = jobs(h)
     for t in plan(env):
         sched.add_job(_guarded(t.name, calls[t.name]), "cron", id=t.name, hour=t.hour, minute=t.minute)

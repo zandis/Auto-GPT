@@ -1,10 +1,18 @@
-# Site mapping template — source type `csv` (one <source>.csv per table, UTF-8, header row).
-# 1. Copy to services/adapter/mapping/tw_core/<site>.yaml (keep `extends`: the TW Core resources are shared).
+# Site mapping template — source type `csv` (one <source>.csv per table, header row; UTF-8, Big5 or Shift_JIS).
+# 1. Copy to deploy/site/mapping/tw_core/<site>.yaml, never into the image (keep `extends`: the shared TW Core
+#    mapping comes from the image; the adapter looks in deploy/site/mapping first, T-632).
 # 2. For every table: set `source` (file name without .csv), `rename` local -> canonical columns (CANONICAL.md),
 #    `values` local -> canonical codes. Leave out tables the HIS does not export (no rows, no resources).
 # 3. Copy lab_local_to_loinc.csv next to it and replace the local lab codes (local_code -> LOINC).
+#    The lab table must map the result's own unit column to `unit` (`UNIT: unit` below): every lab row is checked
+#    against the lookup's unit (R-31, D-215) and a row in another unit has no value (`unit_mismatch`). When the
+#    site reports an analyte in another unit, set the lookup's `source_unit` and `factor` (mapping_check proposes
+#    the factor) and, if the lookup's `ucum` changes, the matching `unit_defaults` line (D-149, D-334; inherited
+#    from tw_core/demo_his.yaml until this file declares its own).
 # 4. python tools/mapping_check.py --mapping <file> --source csv --path <export dir>
 # 5. settings.yaml: data_source: {type: csv, path: <export dir>, mapping: mapping/tw_core/<site>.yaml}
+#    (add `encoding: big5` or `encoding: cp932` when the HIS does not export UTF-8: it is tried first).
+# `delta: updated_at` is the row's change time (`--since` nights); map the HIS column that changes on every edit.
 version: 1
 name: SITE_his
 extends: ../tw_core/demo_his.yaml
@@ -23,8 +31,8 @@ tables:
   encounter:
     source: VISIT_FILE
     key: enc_no
-    delta: visit_datetime
-    rename: {VISIT_NO: enc_no, CHART_NO: mrn, VISIT_TIME: visit_datetime, DEPT: dept_code, DOC_ID: staff_id, VISIT_TYPE: enc_type}
+    delta: updated_at
+    rename: {UPDATE_TIME: updated_at, VISIT_NO: enc_no, CHART_NO: mrn, VISIT_TIME: visit_datetime, DEPT: dept_code, DOC_ID: staff_id, VISIT_TYPE: enc_type}
     values: {enc_type: {O: OPD, I: IPD, E: ER}}
   appointment:
     source: BOOKING_FILE
@@ -33,43 +41,43 @@ tables:
   diagnosis:
     source: DIAG_FILE
     key: diag_no
-    delta: recorded_date
-    rename: {DIAG_ID: diag_no, VISIT_NO: enc_no, CHART_NO: mrn, ICD10_CODE: icd10, DIAG_DATE: diag_date, KEYIN_DATE: recorded_date, DIAG_STATUS: status}
+    delta: updated_at
+    rename: {UPDATE_TIME: updated_at, DIAG_ID: diag_no, VISIT_NO: enc_no, CHART_NO: mrn, ICD10_CODE: icd10, DIAG_DATE: diag_date, KEYIN_DATE: recorded_date, DIAG_STATUS: status}
   lab:
     source: LAB_FILE
     key: lab_no
-    delta: sample_datetime
-    rename: {LAB_ID: lab_no, CHART_NO: mrn, ITEM_CODE: local_code, ITEM_NAME: item_name, RESULT: result_value, UNIT: unit, SAMPLE_TIME: sample_datetime}
+    delta: updated_at
+    rename: {UPDATE_TIME: updated_at, LAB_ID: lab_no, CHART_NO: mrn, ITEM_CODE: local_code, ITEM_NAME: item_name, RESULT: result_value, UNIT: unit, SAMPLE_TIME: sample_datetime}
   vital:
     source: VITAL_FILE
     key: vital_no
-    delta: measure_datetime
-    rename: {VS_ID: vital_no, CHART_NO: mrn, MEASURE_TIME: measure_datetime, HEIGHT: height_cm, WEIGHT: weight_kg, SBP: sbp, DBP: dbp}
+    delta: updated_at
+    rename: {UPDATE_TIME: updated_at, VS_ID: vital_no, CHART_NO: mrn, MEASURE_TIME: measure_datetime, HEIGHT: height_cm, WEIGHT: weight_kg, SBP: sbp, DBP: dbp}
   medication:
     source: RX_FILE
     key: rx_no
-    delta: order_date
-    rename: {RX_ID: rx_no, CHART_NO: mrn, NHI_CODE: nhi_drug_code, ATC_CODE: atc, DRUG_NAME: drug_name, ORDER_DATE: order_date, START_DATE: start_date, END_DATE: end_date, DOSE: daily_dose, DOSE_UNIT: dose_unit, RX_STATUS: status, DEPT: dept_code}
+    delta: updated_at
+    rename: {UPDATE_TIME: updated_at, RX_ID: rx_no, CHART_NO: mrn, NHI_CODE: nhi_drug_code, ATC_CODE: atc, DRUG_NAME: drug_name, ORDER_DATE: order_date, START_DATE: start_date, END_DATE: end_date, DOSE: daily_dose, DOSE_UNIT: dose_unit, RX_STATUS: status, DEPT: dept_code}
   procedure:
     source: PROC_FILE
     key: proc_no
-    delta: proc_date
-    rename: {PROC_ID: proc_no, CHART_NO: mrn, ORDER_CODE: order_code, PROC_NAME: proc_name, PROC_DATE: proc_date}
+    delta: updated_at
+    rename: {UPDATE_TIME: updated_at, PROC_ID: proc_no, CHART_NO: mrn, ORDER_CODE: order_code, PROC_NAME: proc_name, PROC_DATE: proc_date}
   report:
     source: EXAM_FILE
     key: rpt_no
-    delta: exam_date
-    rename: {EXAM_ID: rpt_no, CHART_NO: mrn, EXAM_CODE: exam_code, EXAM_NAME: exam_name, EXAM_DATE: exam_date, IMPRESSION: conclusion}
+    delta: updated_at
+    rename: {UPDATE_TIME: updated_at, EXAM_ID: rpt_no, CHART_NO: mrn, EXAM_CODE: exam_code, EXAM_NAME: exam_name, EXAM_DATE: exam_date, IMPRESSION: conclusion}
   note:
     source: NOTE_FILE
     key: note_no
-    delta: note_datetime
-    rename: {NOTE_ID: note_no, CHART_NO: mrn, VISIT_NO: enc_no, NOTE_TIME: note_datetime, NOTE_TYPE: note_type, NOTE_TEXT: text}
+    delta: updated_at
+    rename: {UPDATE_TIME: updated_at, NOTE_ID: note_no, CHART_NO: mrn, VISIT_NO: enc_no, NOTE_TIME: note_datetime, NOTE_TYPE: note_type, NOTE_TEXT: text}
   claim:
     source: NHI_APPLY_FILE
     key: claim_no
-    delta: created_date
-    rename: {APPLY_NO: claim_no, CHART_NO: mrn, APPLY_DATE: created_date, DRUG_CODE: product_code, APPLY_TYPE: apply_type, RESULT: outcome, APPROVE_FROM: approval_start, APPROVE_TO: approval_end}
+    delta: updated_at
+    rename: {UPDATE_TIME: updated_at, APPLY_NO: claim_no, CHART_NO: mrn, APPLY_DATE: created_date, DRUG_CODE: product_code, APPLY_TYPE: apply_type, RESULT: outcome, APPROVE_FROM: approval_start, APPROVE_TO: approval_end}
     values: {outcome: {Y: approved, N: denied, P: pending}}
   registry:
     source: CONSENT_FILE

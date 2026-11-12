@@ -113,19 +113,27 @@ def build(work: Path, llm: Any = None, verifier: Any = None) -> tuple[Any, Any, 
     site["ingest"] = {"passed": rep.passed, "counts": rep.counts, "missing_required": rep.missing_required}
     shutil.rmtree(work / "box", ignore_errors=True)
     box = make_box(work / "box", work / "lake", sec, ps.REF + timedelta(days=1), extra_profiles=PROFILES)
-    if llm is not None:  # real-model runs: the judge (and the verifier) read the notes; the compiler stays on the stub
-        for c in (llm, verifier):
-            if c is not None:
-                c.audit = box.orch.audit  # every real model call is an llm.call audit record, as in the box
-        box.orch.services.llm = llm
-        box.orch.services.verifier = verifier
-        from orchestrator import canary_gate
-
-        if canary_gate.gate_on():  # D-117: as at box start, the pair canary first; it gates note exclusions
-            canary_gate.run_canary(box.orch)
-            site["canary"] = canary_gate.status()
+    if llm is not None:
+        site["canary"] = attach_models(box, llm, verifier)
     orch_app._orch = box.orch
     return box, orch_client(orch_app.app), work / "box" / "repo", site
+
+
+def attach_models(box: Any, llm: Any, verifier: Any) -> dict[str, Any] | None:
+    """Real-model runs: the judge (and the verifier) read the notes; the compiler stays on the stub. Returns the
+    pair canary's status when the gate is on (D-117: as at box start, the canary runs first and gates exclusions)."""
+    for c in (llm, verifier):
+        if c is not None:
+            c.audit = box.orch.audit  # every real model call is an llm.call audit record, as in the box
+    box.orch.services.llm = llm
+    box.orch.services.verifier = verifier
+    from orchestrator import canary_gate
+
+    if not canary_gate.gate_on():
+        return None
+    canary_gate.run_canary(box.orch)
+    status: dict[str, Any] = canary_gate.status()
+    return status
 
 
 def _rows(path: Path) -> list[dict[str, str]]:
@@ -217,8 +225,12 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     stages: list[Stage] = []
     t0 = time.perf_counter()
     box, client, repo, site = build(work, llm, verifier)
-    clock = ld.Clock(box.today[0])
-    app = ld.console(work, box, client, repo, password, clock, extra_env=SITE_ENV)
+    clock = ld.Clock(box.today[0], ld.site_tz_of(box))
+    # D-178: the operations screens run their actions in this process (no host runner in the in-process box)
+    ops_env = {"TB_OPS_DIR": str(work / "ops"), "TB_OPS_RUNNER": "inline", "TB_OPS_DEPLOY": str(work / "ops-deploy")}
+    shutil.rmtree(work / "ops", ignore_errors=True)
+    app = ld.console(work, box, client, repo, password, clock, extra_env={**SITE_ENV, **ops_env})
+    fd.seed_pi(studies=(COHORT, TRIAL))  # D-380 (ROLE-008): the public studies' PI entries, as the steward writes
     h = app.state.helpers
     cat = CATALOGUES[lang]
     hosp = work / "hospital"
@@ -292,12 +304,16 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         )
         jobs[rs] = job
     s20 = crc.get(f"/pilot/jobs/{jobs[TRIAL].job_id}/approval")
-    first = re.search(r'data-testid="tick-btn-([A-Z0-9-]+)"', s20.text)
-    if first:
-        r = crc.post(
-            f"/pilot/jobs/{jobs[TRIAL].job_id}/approval/tick", data={"csrf": fd._csrf(s20.text), "crit": first.group(1)}
-        )
-        s.check("coordinator ticks a criterion's codes on S20", r.status_code == 200, r.status_code)
+    s.check("S20 says who ticks and approves; the coordinator has no tick", 'data-testid="s20-who"' in s20.text
+            and 'data-testid="tick-btn-' not in s20.text, "")  # fmt: skip
+    # D-146 (review J-27): the investigator ticks a criterion's codes, as only the investigator approves
+    p20 = pi.get(f"/pilot/jobs/{jobs[TRIAL].job_id}/approval")
+    first = re.search(r'data-testid="tick-btn-([A-Z0-9-]+)"', p20.text)
+    r = pi.post(
+        f"/pilot/jobs/{jobs[TRIAL].job_id}/approval/tick",
+        data={"csrf": fd._csrf(p20.text), "crit": first.group(1) if first else "-"},
+    )
+    s.check("investigator ticks a criterion's codes on S20", bool(first) and r.status_code == 200, r.status_code)
     r = crc.post(f"/pilot/jobs/{jobs[TRIAL].job_id}/approve", data={"csrf": fd._csrf(s20.text)}, follow_redirects=False)
     s.check("coordinator's approve refused (403)", r.status_code == 403, r.status_code)
     # D-120: at approval the coordinator gives each criterion a short label in the site's languages; the pages show
@@ -320,7 +336,20 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         page = pi.get(f"/pilot/jobs/{job.job_id}/approval")
         for cid in re.findall(r'data-testid="open-([A-Z0-9-]+)"', page.text):
             page = pi.get(f"/pilot/jobs/{job.job_id}/approval?open={cid}")
-        r = pi.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": fd._csrf(page.text)}, follow_redirects=False)
+        # D-309 (T-507): a criterion with no label in the page's language (none saved above, none shipped) gets one
+        # before Approve all, as the investigator would type it
+        for cid in re.findall(r'data-testid="label-missing-([A-Z0-9-]+)"', page.text):
+            pi.post(
+                f"/pilot/jobs/{job.job_id}/approval/label",
+                data={"csrf": fd._csrf(page.text), "crit": cid, "text": cid.rsplit("-", 2)[-2] + " " + cid[-2:]},
+                follow_redirects=False,
+            )
+        page = pi.get(f"/pilot/jobs/{job.job_id}/approval")
+        r = pi.post(
+            f"/pilot/jobs/{job.job_id}/approve",
+            data={"csrf": fd._csrf(page.text), "confirm": "yes"},
+            follow_redirects=False,
+        )
         after = box.orch.db.get(job.job_id)
         s.check(
             f"investigator approves {rs}; FEAS finishes",
@@ -411,6 +440,12 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         scr["judging"],
     )
 
+    # P-04 (D-143): every patient the run excluded is on "Excluded patients and why", with criterion and source
+    ex = pi.get(f"/studies/{TRIAL}/not-matched").text
+    m = re.search(r'data-testid="ex-run">([^<]*)<', ex)
+    s.check("the excluded patients and why: every excluded patient, with criterion and source",
+            m is not None and str(scr["tiers"]["excluded"]) in m.group(1) and 'data-testid="ex-source-' in ex,
+            m.group(1) if m else _text(ex)[-200:])  # fmt: skip
     out["screen"] = {
         "funnel": fun,
         "tiers": scr["tiers"],
@@ -498,6 +533,10 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     )
     out["picks"] = [p["pid"][:8] for p in picks]
     out["screening_no"] = no
+    # TB-PLAN-04 step 4 (D-129): the built-in forms, so the walk can open Entry and History and save on the phone
+    page = crc.get(f"/studies/{TRIAL}/forms")
+    r = crc.post(f"/studies/{TRIAL}/forms/builtin", data={"csrf": fd._csrf(page.text)})
+    s.check("the coordinator adds the built-in forms", 'data-testid="dc-builtin-added"' in r.text, r.status_code)
     s.seconds = time.perf_counter() - t
     stages.append(s)
 
@@ -511,7 +550,9 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     body = "\n".join(m.text() for m in mails)
     leaked = sorted(m for m in mrns if re.search(rf"(?<!\d){m}(?!\d)", body))
     s.check("mail carries no chart number", not leaked, leaked[:3])
-    s.check("mail carries no screening number", no not in body, no)
+    numbered = [(p[:8], n) for p, n in h.store.screening_nos(TRIAL).items() if f"({n})" in body]
+    s.check("mail shows the screening number beside the pseudonym (D-136)",
+            bool(numbered) and all(f"{p} ({n})" in body for p, n in numbered), numbered[:3])  # fmt: skip
     out["mails"] = [{"to": m.to, "subject": m.subject} for m in mails]
     s.seconds = time.perf_counter() - t
     stages.append(s)
@@ -578,6 +619,73 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     s.seconds = time.perf_counter() - t
     stages.append(s)
 
+    # ------------------------------------------------------------------ 5b the trial lifecycle (TB-PLAN-04 step 5)
+    s = Stage("5b trial lifecycle (D-134)")
+    t = time.perf_counter()
+    from console.timefmt import local_today, site_zone
+
+    today = local_today(h.clock(), site_zone(h.bk))
+    have = set(h.store.screening_nos(TRIAL))
+    # the last listed patient without a number (the walk's own patient, the first one not marked, stays untouched)
+    life_pid = next(r["pid"] for r in reversed(h.week_bundle(None, TRIAL)["rows"]) if r["pid"] not in have)
+    life_no = h.store.assign_screening_no(TRIAL, life_pid, h.settings_of(TRIAL), h.clock().isoformat())
+    page = crc.get(f"/studies/{TRIAL}/schedule")
+    r = crc.post(f"/studies/{TRIAL}/schedule", data={
+        "csrf": fd._csrf(page.text), "action": "save", "visit": ["v1", "v2"], "label": ["", ""], "day": ["7", "28"],
+        "before": ["2", "3"], "after": ["2", "3"], "anchor": ["enrolment", "enrolment"]})  # fmt: skip
+    s.check("the visit schedule is saved", 'data-testid="schedule-saved"' in r.text, r.status_code)
+    page = crc.get(f"/studies/{TRIAL}/subjects")
+    s.check("both screening numbers are participants", life_no in page.text and no in page.text, page.status_code)
+    csrf = fd._csrf(page.text)
+    enrol = today - timedelta(days=7)  # v1 is due today
+    crc.post(
+        f"/studies/{TRIAL}/subjects/{life_no}/step",
+        data={"csrf": csrf, "to": "approached", "on_day": (enrol - timedelta(days=2)).isoformat()},
+    )
+
+    def save(form: str, values: dict[str, str], event: str = "") -> Any:
+        data = {"csrf": csrf, "record": life_no, "event": event, "form": form, "back": "subject",
+                **{f"f_{k}": v for k, v in values.items()}}  # fmt: skip
+        return crc.post(f"/studies/{TRIAL}/entry", data=data)
+
+    save("tb_consent", {"ic_date": (enrol - timedelta(days=1)).isoformat(), "ic_version": "v1", "ic_copy": "1"})
+    r = save("tb_enrolment", {"en_date": enrol.isoformat(), "en_eligible": "1"})
+    s.check("enrolled through the forms", 'data-state="enrolled"' in r.text, r.status_code)
+    r = save("tb_adverse_event", {"ae_term": "肺炎", "ae_onset": today.isoformat(), "ae_serious": "1",
+                                  "ae_serious_why": "3", "ae_severity": "2", "ae_related": "9"}, "ae1")  # fmt: skip
+    s.check("a serious AE on ae1", 'data-testid="ae-ae1"' in r.text, r.status_code)
+    page = crc.get(f"/studies/{TRIAL}/visits").text
+    s.check("today's visit is on the coordinator's list", f'data-testid="done-{life_no}-v1"' in page)
+    s.check("the serious AE is on the investigator's home page", 'data-testid="sae-banner"' in pi.get("/week").text)
+    rep = crc.get(f"/studies/{TRIAL}/enrolment")
+    s.check("the enrolment report", rep.status_code == 200 and 'data-testid="report-states"' in rep.text)
+    out["life_record"] = life_no
+    s.seconds = time.perf_counter() - t
+    stages.append(s)
+
+    # ------------------------------------------------------------------ 5c site set-up (TB-PLAN-04 step 5b, D-135)
+    s = Stage("5c site set-up and data harmonization (D-135)")
+    t = time.perf_counter()
+    page = crc.get(f"/site/help?study={TRIAL}")
+    r = crc.post("/site/practice", data={"csrf": fd._csrf(page.text), "action": "load", "study": TRIAL})
+    s.check("the practice site loads in one tap", r.status_code == 200 and "ws=practice" in str(r.url), r.status_code)
+    sq = f"ws=practice&study={TRIAL}"
+    page = crc.get(f"/site?{sq}").text
+    s.check("its readiness lists what is missing", 'data-testid="miss-proposed"' in page
+            and 'data-testid="miss-unmapped"' in page and 'data-testid="miss-checks"' in page)  # fmt: skip
+    facts = crc.get(f"/site/facts?{sq}").text
+    ids = re.findall(r'data-testid="confirm-(\d+)"', facts)
+    s.check("proposed facts beside their quotes", len(ids) >= 7 and facts.count('data-testid="quote-') >= 7, len(ids))
+    r = crc.post(f"/site/facts/{ids[0]}", data={"csrf": fd._csrf(facts), "ws": "practice", "study": TRIAL,
+                                                  "action": "confirm"})  # fmt: skip
+    s.check("one tap confirms a fact", 'data-testid="fact-done"' in r.text, r.status_code)
+    s.check("the hospital's own data is untouched by the practice site",
+            'data-testid="miss-proposed"' not in crc.get(f"/site?study={TRIAL}").text)  # fmt: skip
+    ask = crc.get("/ask", params={"q": "What do I do next?", "ws": "practice", "study": TRIAL})
+    s.check("Ask TrialBox answers what to do next", 'data-kind="next"' in ask.text, ask.status_code)
+    s.seconds = time.perf_counter() - t
+    stages.append(s)
+
     # ------------------------------------------------------------------ 6 the other screens, every role
     s = Stage("6 other screens")
     t = time.perf_counter()
@@ -608,11 +716,19 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         "/ops/users",
         "/audit",
         "/jobs",
+        *(f"/admin/ops?tab={tab}" for tab in ("overview", "backups", "update", "logs", "secrets", "network")),
     ):
         r = admin.get(path)
         s.check(f"admin {path}", r.status_code == 200, r.status_code)
     r = pi.get("/admin")
     s.check("investigator cannot open admin", r.status_code in (403, 303, 404), r.status_code)
+    # D-178 (review J-09): the network sheet from the console, after a confirmation that names the consequence
+    page = admin.get("/admin/ops?tab=network")
+    r = admin.post("/admin/ops/network_sheet", data={"csrf": fd._csrf(page.text)})
+    s.check("operations: the action asks first", 'data-testid="confirm-text"' in r.text, r.status_code)
+    r = admin.post("/admin/ops/network_sheet", data={"csrf": fd._csrf(page.text), "confirm": "yes"})
+    s.check("operations: network sheet written", 'data-state="done"' in r.text and "network-sheet." in r.text, "")
+    s.check("operations: refused to the investigator", pi.get("/admin/ops").status_code == 403, "")
     r = crc.get("/no-such-page")
     s.check("404 page", r.status_code == 404, r.status_code)
     s.seconds = time.perf_counter() - t
@@ -630,7 +746,7 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
                 r.status_code == 200 and r.content.startswith(magic),
                 r.status_code,
             )
-    r = crc.get(f"/pilot/registry/{COHORT}/export.xlsx")
+    r = crc.get(f"/pilot/registry/{COHORT}/export.xlsx?reason=contact")  # T-103 (D-438): a reason
     s.check("cohort registry export XLSX", r.status_code == 200 and r.content[:2] == b"PK", r.status_code)
     # CASE: one real MedTxt case report, uploaded as the chart of its own patient
     case_p = next(p for p in site["patients"] if p["source"] == "MedTxt-CR" and p["dx"] and p["age"])
@@ -709,6 +825,42 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     s.seconds = time.perf_counter() - t
     stages.append(s)
 
+    # ------------------------------------------------------------------ 7b identifiers by role (P-01, P-32, D-143)
+    s = Stage("7b chart numbers and names by role")
+    t = time.perf_counter()
+    walk = {"trial": TRIAL, "cohort": COHORT, "pid_marked": picks[1]["pid"] if len(picks) > 1 else picks[0]["pid"],
+            "feas_job": fj.job_id, "approval_job": jobs[TRIAL].job_id, "case_job": cj.job_id if cj else "",
+            "consent_job": kj.job_id if kj else "", "screen_job": sj.job_id, "record": out.get("screening_no") or "",
+            "life_record": out.get("life_record") or "", "site_ws": "practice"}  # fmt: skip
+    ident = mrns | {p[k] for p in patients for k in ("name", "id_no", "phone") if p.get(k)}
+    swept = identifier_sweep(app, password, lang, walk_pages(walk), ident)
+    for who, seen in swept.items():
+        s.check(f"{who}: no chart number or name on any page of the walk ({len(seen['pages'])} pages)",
+                not seen["leaks"], seen["leaks"][:3])  # fmt: skip
+        # D-146 (review J-03 to J-05): no patient-level page or API, no registry, audit trail or set-up for them
+        shut = [
+            p
+            for p, code in seen["pages"]
+            if code == 200
+            and (
+                p == f"/pilot/jobs/{walk.get('case_job')}"
+                or re.match(
+                    r"^/(?:jobs|audit|pilot/registry|admin/redcap|studies/[^/]+/(?:setup|sources|forms|screening-log|week))",
+                    p,
+                )
+            )
+        ]
+        s.check(f"{who}: runs, registry, audit trail and study set-up refused (403)", not shut, shut[:3])  # fmt: skip
+    if cj is not None:  # the study's investigator has identifier authority: the CASE request row in clear, audited
+        page = pi.get(f"/pilot/jobs/{cj.job_id}").text
+        s.check("the study's investigator sees the CASE request's chart number (D-143)",
+                f"mrn={case_p['mrn']}" in page, "")  # fmt: skip
+        s.check("and that view is audited", any(r.event == "console.reveal_patient" and r.actor == "console:pi"
+                                                and r.detail.get("via") == "request_line"
+                                                for r in h.bk.audit(cj.job_id)))  # fmt: skip
+    s.seconds = time.perf_counter() - t
+    stages.append(s)
+
     # ------------------------------------------------------------------ 8 audit chain
     s = Stage("8 audit chain")
     t = time.perf_counter()
@@ -718,7 +870,8 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     stages.append(s)
 
     rows_now = h.week_bundle(None, TRIAL)["rows"]
-    fresh = next((r["pid"] for r in rows_now if r["pid"][:8] not in out["picks"]), rows_now[-1]["pid"])
+    fresh = next((r["pid"] for r in rows_now if r["pid"][:8] not in out["picks"] and r["pid"] != life_pid),
+                 rows_now[-1]["pid"])  # fmt: skip
     out["walk"] = {
         "trial": TRIAL,
         "cohort": COHORT,
@@ -728,6 +881,9 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         "approval_job": jobs[TRIAL].job_id,
         "case_job": cj.job_id if cj else "",
         "consent_job": kj.job_id if kj else "",
+        "record": out.get("screening_no") or "",  # a screening number: the walk's Entry and History record
+        "life_record": out.get("life_record") or "",  # D-134: a participant with today's visit and a serious AE
+        "site_ws": "practice",  # D-135: the practice site, loaded in stage 5c (proposed facts, codes, checks)
         # the study's own words (criterion labels, texts, actions) and the staff names from the data: shown as
         # written, so the walk's language check (D-119) does not count them as untranslated page text
         "authored": authored_strings(box, [TRIAL, COHORT]),
@@ -746,6 +902,53 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
             "admin": admin,
         }
     )
+    return out
+
+
+# roles that hold no identifier authority (D-143): they must never see a chart number or a patient's name
+NO_ID_ROLES = ("viewer", "cra")
+
+
+def walk_pages(w: dict[str, Any]) -> list[str]:
+    """Every page ``tools/public_walk.js`` opens for any role (its PAGES and FORBIDDEN lists), plus the job pages,
+    so that the identifier sweep covers what the walk shows."""
+    t, c, lr = w["trial"], w["cohort"], w["life_record"]
+    sq = f"ws={w['site_ws']}&study={t}"
+    site = [f"/site?{sq}", f"/site/start?{sq}&step=2", f"/site/charts?{sq}", f"/site/facts?{sq}", f"/site/codes?{sq}",
+            f"/site/checks?{sq}", f"/site/sheets?{sq}", f"/site/people?{sq}", f"/site/patients?{sq}",
+            f"/site/help?{sq}"]  # fmt: skip
+    life = [f"/studies/{t}/subjects", f"/studies/{t}/subjects/{lr}", f"/studies/{t}/visits",
+            f"/studies/{t}/schedule", f"/studies/{t}/enrolment"]  # fmt: skip
+    pages = ["/home", "/help", "/account", "/notices/received", "/settings/notices", f"/ask?q=next&{sq}", "/week",
+             f"/studies/{t}/week?list=all", f"/studies/{t}/patients/{w['pid_marked']}", f"/studies/{c}/cohort",
+             f"/studies/{t}/feasibility", f"/studies/{t}/screening-log", f"/studies/{t}/setup",
+             f"/studies/{t}/sources", f"/studies/{t}/conflicts?all=1", f"/studies/{t}/forms",
+             f"/studies/{t}/not-matched", f"/studies/{t}/entry?record={w['record']}&form=tb_consent",
+             f"/studies/{t}/history?record={w['record']}", *life, *site, "/pilot/protocol", "/pilot/request",
+             "/pilot/case", "/pilot/consent", f"/pilot/registry/{c}", "/reports", "/reports/research-office",
+             "/jobs", "/audit", "/admin?tab=health", "/admin?tab=jobs", "/ops/users"]  # fmt: skip
+    for k in ("feas_job", "case_job", "consent_job", "screen_job"):
+        if w.get(k):
+            pages.append(f"/pilot/jobs/{w[k]}")
+    if w.get("approval_job"):
+        pages.append(f"/pilot/jobs/{w['approval_job']}/approval")
+    return pages
+
+
+def identifier_sweep(app: Any, password: str, lang: str, pages: list[str], ids: set[str]) -> dict[str, Any]:
+    """Every page of the walk, as each role without identifier authority, searched for every chart number and name
+    of the site (review 2026-11-09 P-01/P-32: the CASE job page printed ``mrn=`` to the viewer; only the mail was
+    swept)."""
+    pats = [re.compile(rf"(?<![0-9A-Za-z]){re.escape(x)}(?![0-9A-Za-z])") for x in sorted(ids) if len(x) >= 4]
+    out: dict[str, Any] = {}
+    for who in NO_ID_ROLES:
+        c = ld.sign_in(app, who, password, lang)
+        seen: dict[str, Any] = {"pages": [], "leaks": []}
+        for path in pages:
+            r = c.get(path)
+            seen["pages"].append((path, r.status_code))
+            seen["leaks"] += [(path, m.pattern[-24:]) for m in pats if m.search(r.text)]
+        out[who] = seen
     return out
 
 
@@ -777,8 +980,13 @@ def table(stages: list[Stage]) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tb_common.config import adopt_site_tz
+
+    adopt_site_tz()  # a synthetic site in one process: its site.tz as TB_TZ (D-315)
+    from tools.pglocal import scratch_root  # D-201: never a fixed /tmp path
+
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_PUBLIC_DIR", "/tmp/tb-public")))
+    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_PUBLIC_DIR") or scratch_root() / "tb-public"))
     ap.add_argument("--lang", default="en", choices=["ja", "zh-TW", "en"])
     ap.add_argument("--serve", action="store_true")
     ap.add_argument("--judge-url", default="", help="real judge, e.g. http://<vm>/judge/v1 (key in TB_GPU_KEY)")

@@ -1,0 +1,81 @@
+#!/bin/bash
+# Rehearsal shim for `docker` on the "VM". The VM script is NOT changed; its docker calls become local processes:
+#   docker run ... --name judge|verifier <vllm image> --served-model-name S --api-key K ...  -> the vLLM stand-in
+#        (key and served-name checks, 404 for any other name, as vLLM) on 127.0.0.2 / 127.0.0.3 port 8000; the knob
+#        /rehearsal/s/knobs/served-<name> makes it serve another name (the negative case "wrong served name")
+#   docker run ... --name front nginx...                         -> the real nginx with the script's /root/nginx.conf
+#   docker run ... --entrypoint python3 <vllm image> ARGS       -> the harness venv's python (the embed bench)
+#   docker exec NAME python3 -c "...8000/health..."             -> curl the stand-in's /health
+#   docker info                                                  -> a daemon with the NVIDIA runtime
+#   docker logs NAME                                             -> the stand-in's log
+#   docker inspect NAME, docker image inspect, docker exec NAME python3 -c "import vllm..."
+#        -> what tools/serving_config.py capture reads (T-119: the serving record is rehearsed): the stand-in's own
+#           arguments as the container's Args, the pinned vLLM image, a rehearsal vLLM version
+#   docker rm/network/ps/pull                                    -> no-ops
+S=/rehearsal/s
+H=/rehearsal/h
+log() { echo "[docker-shim] $*" >> $S/shim.log; }
+cmd=$1; shift
+case "$cmd" in
+  info) printf 'Server Version: rehearsal\nRuntimes: io.containerd.runc.v2 nvidia runc\n'; exit 0 ;;
+  rm|network|ps|pull) log "$cmd $* (no-op)"; exit 0 ;;
+  logs) n=${!#}; tail -n 300 "$S/units/$n.log" 2>/dev/null; exit 0 ;;
+  inspect)
+    [ -f "$S/units/args-$1.json" ] || { echo "[]"; exit 1; }
+    python3 - "$S/units/args-$1.json" <<'PY'
+import json, sys
+a = json.load(open(sys.argv[1]))
+print(json.dumps([{"Args": a["args"], "Image": "sha256:" + "0" * 64, "Config": {"Image": a["image"]},
+                   "HostConfig": {"DeviceRequests": [{"Count": -1, "DeviceIDs": None}]}}]))
+PY
+    exit 0 ;;
+  image)
+    [ "$1" = inspect ] || { log "unhandled: image $*"; exit 1; }
+    echo '["vllm/vllm-openai@sha256:rehearsal"]'; exit 0 ;;
+  exec)
+    case "$*" in *vllm.__version__*) echo "0.32.0+rehearsal"; exit 0 ;; esac
+    ip=$(cat "$S/units/ip-$1" 2>/dev/null || echo 127.0.0.9)
+    /usr/bin/curl -sf -m 3 "http://$ip:8000/health" >/dev/null 2>&1; exit $? ;;
+  run)
+    name=""; entry=""; workdir="$PWD"; rest=()
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --name) name=$2; shift 2 ;;
+        --entrypoint) entry=$2; shift 2 ;;
+        -w) workdir=$2; shift 2 ;;
+        -d|--rm) shift ;;
+        --gpus|--ipc|--network|-v|-p|--add-host|--restart) shift 2 ;;
+        *) rest+=("$1"); shift ;;
+      esac
+    done
+    image=${rest[0]}; args=("${rest[@]:1}")
+    log "run name=$name entry=$entry image=$image args=${#args[@]}"
+    if [ "$name" = judge ] || [ "$name" = verifier ]; then
+      served=""; key=""
+      for ((i = 0; i < ${#args[@]}; i++)); do
+        [ "${args[$i]}" = --served-model-name ] && served=${args[$((i + 1))]}
+        [ "${args[$i]}" = --api-key ] && key=${args[$((i + 1))]}
+      done
+      [ -s "$S/knobs/served-$name" ] && served=$(cat "$S/knobs/served-$name")
+      ip=127.0.0.2; [ "$name" = verifier ] && ip=127.0.0.3
+      echo "$ip" > "$S/units/ip-$name"
+      (umask 077; printf '%s' "$key" > "$S/units/key-$name"
+       python3 -c 'import json, sys; json.dump({"image": sys.argv[2], "args": sys.argv[3:]}, open(sys.argv[1], "w"))' \
+         "$S/units/args-$name.json" "$image" "${args[@]}")
+      log "start stand-in $name served=$served at $ip (key: ${#key} chars, never logged)"
+      nohup /rehearsal/venv/bin/python $H/vllm_standin.py --host "$ip" --served "$served" --key-file "$S/units/key-$name" \
+        --load-seconds "${REHEARSE_LOAD_S:-10}" --name "$name" >> "$S/units/$name.log" 2>&1 &
+      echo $! > "$S/units/$name.pid"; echo "standin$name"; exit 0
+    fi
+    if [ "$name" = front ]; then
+      ln -sfn /root/record /srv/record
+      nginx -t -c /root/nginx.conf >> "$S/units/front.log" 2>&1 || { log "nginx config invalid"; exit 1; }
+      nohup nginx -c /root/nginx.conf -g 'daemon off;' >> "$S/units/front.log" 2>&1 &
+      echo $! > "$S/units/front.pid"; echo "standinfront"; exit 0
+    fi
+    if [ "$entry" = python3 ]; then  # the embed bench in the vLLM image: here the harness venv (no torch: a failed row)
+      cd "$workdir" && exec /rehearsal/venv/bin/python "${args[@]}"
+    fi
+    log "unhandled run: $image ${args[*]}"; exit 1 ;;
+  *) log "unhandled: $cmd $*"; exit 1 ;;
+esac

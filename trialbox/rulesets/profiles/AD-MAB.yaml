@@ -1,0 +1,16 @@
+# Site profile for ruleset AD-MAB (merged into manifest.yaml at compile time; not generated).
+# Scenario J1 of the clinician PoC (T-503): a fictional early Alzheimer's disease trial at the Japanese site.
+kind: trial
+title: "AD-MAB 早期アルツハイマー病 抗アミロイドβ抗体 第III相試験（合成）"
+trial_alias: "AD-MAB"
+sponsor: "合成製薬株式会社（架空）"
+protocol_version: "1.0"
+index_date_rule: run_date
+scopes:
+  feas: {population: hospital, lookback_months: 36}
+  screen: {practitioners: ["P90001", "P90002"], appointment_window_days: 180, departments: ["NEUR"],
+           recent_encounter_months: 12, microbatch_window_days: 14}
+routing:
+  aggregate_to: ["crc1@hospa.test"]
+  list_to: ["pi@hospa.test", "crc1@hospa.test"]
+thresholds: {tier_high_confidence: 0.75, small_cell: 5}

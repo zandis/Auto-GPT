@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{# T-502 (D-328, REG-015): the acknowledgement of 27-poc-plan §9.3, once per account, before any other page. Accepting
+   writes the audit event demo.ack (console.demo_guard). #}
+{% block title %}{{ t('demo.ack.title') }}{% endblock %}
+{% block content %}
+<section class="card" data-testid="demo-ack">
+<h1>{{ t('demo.ack.title') }}</h1>
+{% if missing %}<p class="error" role="alert" data-testid="demo-ack-missing">{{ t('demo.ack.missing') }}</p>{% endif %}
+<form method="post" action="/demo/ack" class="formstack">
+  <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}">
+  <p>{{ t('demo.ack.intro', version=version) }}</p>
+  {% for k in required %}<label class="check"><input type="checkbox" name="{{ k }}" value="yes" required{% if k in ticked %} checked{% endif %} data-testid="demo-ack-{{ k }}"> {{ t('demo.ack.' + k) }}</label>
+  {% endfor %}
+  {% for k in optional %}<label class="check"><input type="checkbox" name="{{ k }}" value="yes"{% if k in ticked %} checked{% endif %} data-testid="demo-ack-{{ k }}"> {{ t('demo.ack.' + k) }}</label>
+  {% endfor %}
+  <p class="hint">{{ t('demo.ack.who', user=user.username, role=t('role.' + user.role)) }}</p>
+  <button type="submit" data-testid="demo-ack-accept">{{ t('demo.ack.accept') }}</button>
+</form>
+</section>
+{% endblock %}

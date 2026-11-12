@@ -1,0 +1,32 @@
+score_id: onc.kps
+also_defines: onc.ecog (derived from KPS when only KPS is documented)
+name: {en: ECOG and Karnofsky mapping, ja: ECOG・Karnofsky対応表, zh_tw: ECOG 與 Karnofsky 對照}
+version: 1
+formula_kind: conversion_table
+inputs:
+  - {role: kps, item: onc.kps, unit: "%", required: true, anchor: true}
+formula: "look up ECOG for a KPS value; the derived ECOG is flagged 'from KPS' and never replaces a documented ECOG"
+conversion_table:
+  oken_1982_as_reproduced_in_protocols: {"90-100": 0, "70-80": 1, "50-60": 2, "30-40": 3, "10-20": 4, "0": 5}
+  ma_2010_alternative: {"100": 0, "80-90": 1, "60-70": 2, "40-50": 3, "10-30": 4}
+output: {unit: "{grade}", min: 0, max: 5}
+rounding: none
+edge_cases:
+  - "the two published mappings disagree at KPS 80 (ECOG 1 in both) and KPS 60-70 and 40-50; TrialBox uses the Oken-derived table reproduced in trial protocols and records the table version"
+  - "ECOG 'PS' in JP notes is taken as ECOG, not KPS"
+examples:
+  - inputs: {kps: 80}
+    expected: {ecog: 1}
+    source: "trial protocol appendix tables attributing the mapping to Oken 1982 (ClinicalTrials.gov NCT04727151 Prot_SAP), read 2026-11-09"
+    source_grade: secondary
+  - inputs: {kps: 60}
+    expected: {ecog_oken_table: 2, ecog_ma_2010: 2}
+    source: "both tables as quoted 2026-11-09 (Ma C et al. Eur J Cancer 2010;46:3175)"
+    source_grade: secondary
+sources:
+  - "Oken MM et al. Am J Clin Oncol 1982;5:649-655"
+  - "Karnofsky DA, Burchenal JH. 1949"
+  - "Ma C et al. Eur J Cancer 2010;46:3175-3183"
+  - "ECOG-ACRIN: scale 'in the public domain' with credit (verified 2026-11-09)"
+licence: "public domain (ECOG with credit; KPS public domain per CDISC QRS table)"
+verified: yes

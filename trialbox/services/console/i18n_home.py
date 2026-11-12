@@ -210,9 +210,10 @@ EN: dict[str, str] = {
     "feas.bridge.why": "These counts use the coded records only. The screening list also reads the notes and keeps every patient whose answer is still unknown, so a person can look.",
     "feas.bridge.eligible": "Meet every coded criterion: {n} (unknown inclusions are not counted).",
     "feas.bridge.gap": "{label}: {n} with no value: not in this count; the screening list keeps them as needing information.",
-    "feas.bridge.kept": "{label}: {n} not excluded only because no value is recorded: counted, and on the list as needing information.",
+    "feas.bridge.kept": "{label}: {n} kept only because no value is recorded: counted, and on the list as needing information.",
     "feas.bridge.list": "The latest screening list holds {listed} patients: {ready} ready to decide, {needs} needing information.",
     "feas.bridge.outside": "Coded with a code of the criterion's family that is not in its code list: {n} on the list (kept, a person checks).",
+    "feas.bridge.unknown_system": "Conditions or medicines in an unknown code system: {n} patients on the list (kept, a person checks).",
     "feas.ct.title": "Title",
     "feas.ct.overlap": "Same patients?",
     "feas.ct.status": "Status",
@@ -248,7 +249,7 @@ EN: dict[str, str] = {
     "facts.not_applied": "{n} criteria are not counted (notes or a person decide).",
     "facts.rounded": "Counts below {k} are hidden; the others are rounded to multiples of {k}.",
     "facts.site.missing": "The site has not entered capability, competing trials or a sponsor target yet.",
-    "feas.method": "Coded hospital records decide the structured criteria with fixed rules; no AI model takes part in these counts. At screening, notes are read by a model, and a note answer may exclude a patient only when two different models agree; one model alone can only send a patient to a person.",
+    "feas.method": "Coded hospital records decide the structured criteria with fixed rules; no AI model takes part in these counts. At screening, notes are read by a model, and a note answer may count as a criterion not matched only when two different models agree; one model alone can only send a patient to a person.",
     "feas.validation": "Validation (5 Nov 2026, public data, not this hospital's charts): on the TrialGPT set the one-GPU model pair lost 1 of 79 eligible patients in English and 2 of 79 in Japanese; on TREC 2021–2023 about 6 % of eligible patients were truly lost after a hand audit. Japanese notes lower recall more than English. Nothing has been measured on this hospital's records yet.",
     "feas.a.item": "Item",
     "feas.a.value": "Value",
@@ -274,6 +275,18 @@ EN: dict[str, str] = {
     "week.empty": "Nobody new on the list this week.",
     "week.counts": "{n} patients · {new} new · {pending} pending · {marked} marked",
     "week.meta": "From the {job} run of {date} · data snapshot {snapshot}",
+    "asof.line": "Data as of {day}",
+    "asof.stale": "Data as of {day}: more than two days old. Ask for a new run before you act on this list.",
+    # T-629 (FIT-U04, FIT-U03): a death recorded since the run; the same patient in another study
+    "asof.dead": "{n} patients on this run are not shown: their record now says the patient has died.",
+    "asof.dead_unchecked": "TrialBox could not check the death records just now. Do not contact any patient on this list until this message is gone; Approach and calls wait.",
+    "patient.deceased": "Not recorded: the hospital record now says this patient has died. The patient is off every list of this study.",
+    "patient.death_unchecked": "Not recorded: TrialBox could not check the death records just now. Try again in a minute; nobody is contacted until the check works.",
+    "elsewhere.candidate": "Also a candidate in {study}",
+    "elsewhere.candidate.other": "Also a candidate in another study",
+    "elsewhere.enrolled": "Consented or enrolled in {study}",
+    "elsewhere.enrolled.other": "Consented or enrolled in another study",
+    "elsewhere.open": "In another study: check this protocol's rule on other trials",
     "week.pipeline": "pipeline {p}",
     "week.help": "Patients who may fit and have a visit with a study doctor soon, by visit date. Read why each one fits, then mark them; your marks go to the coordinator.",
     "week.no_visit": "no visit booked",
@@ -299,7 +312,7 @@ EN: dict[str, str] = {
     "fit.todo": "To do:",
     "mark.approach": "Approach",
     "mark.need_info": "Need info",
-    "mark.not_suitable": "Not suitable",
+    "mark.not_suitable": "Not suitable now",
     "mark.reason": "Reason",
     "mark.note": "Note for the coordinator",
     "reason.stage": "wrong stage",
@@ -346,12 +359,12 @@ JA: dict[str, str] = {
     "users.scope.edit": "範囲を編集",
     "users.scope.save": "保存",
     "users.expires": "利用期限",
-    "users.role.cro": "確定した実施可能性レポートを依頼者向けの形（少数セルは非表示）で閲覧；リストや患者情報は不可",
+    "users.role.cro": "確定した実施可能性レポートを治験依頼者向けの形（少数セルは非表示）で閲覧；リストや患者情報は不可",
     "col.study": "試験",
     "home.studies": "担当試験",
     "home.studies.help": "試験ごとに1枚のカード。強調された行が次にやることです。",
-    "home.send_protocol": "プロトコールを送る",
-    "home.no_studies": "承認済みの試験はまだありません。プロトコールを送って始めてください。",
+    "home.send_protocol": "プロトコルを送る",
+    "home.no_studies": "承認済みの試験はまだありません。プロトコルを送って始めてください。",
     "home.smo_banner": "SMOアカウント・担当試験：{studies}・利用期限 {until}。カルテ番号を表示するたびに所属とともに記録されます。",
     "home.feas": "実施可能性",
     "home.feas.line": "月 {mid} 例（{low}〜{high}）・対象期間内の適格 {pool} 例、未検査の基準が満たされれば {potential} 例",
@@ -363,7 +376,7 @@ JA: dict[str, str] = {
     "home.registry.none": "患者はまだいません",
     "home.open_report": "レポートを開く",
     "home.open_week": "今週のリストを開く",
-    "home.more": "従来の画面（ジョブ、単一症例、同意説明、カスケード、監査）は「その他」にあります。",
+    "home.more": "従来の画面（処理、単一症例、同意説明、カスケード、監査）は「その他」にあります。",
     "next.approve": "次：基準を確認して承認する",
     "next.feas": "次：実施可能性レポートを作る",
     "next.site": "次：施設の入力欄を埋めてレポートを確定する",
@@ -374,7 +387,7 @@ JA: dict[str, str] = {
     "reading.go": "実施可",
     "reading.conditional": "条件付き",
     "reading.nogo": "実施困難",
-    "reading.none": "依頼者の目標が未入力：予測のみ",
+    "reading.none": "治験依頼者の目標が未入力：予測のみ",
     "admin.create": "アカウント作成",
     "admin.accounts": "アカウント",
     "admin.expiring": "{n} 件が30日以内に期限切れ",
@@ -385,29 +398,29 @@ JA: dict[str, str] = {
     "admin.audit24": "監査（直近24時間）",
     "admin.reveals": "カルテ番号の表示",
     "admin.exports": "ダウンロード・出力",
-    "admin.denied": "拒否・失敗したサインイン",
+    "admin.denied": "拒否・失敗したログイン",
     "admin.marks": "医師判断",
     "admin.full_audit": "監査証跡をすべて見る",
     "admin.system": "システム",
     "admin.overview": "サービスとモデル",
     "reports.title": "実施可能性レポート",
-    "reports.cro": "依頼者向けの版を表示しています：少数セルは非表示、その他は丸め値。患者単位の情報はありません。",
+    "reports.cro": "治験依頼者向けの版を表示しています：少数セルは非表示、その他は丸め値。患者単位の情報はありません。",
     "reports.run": "作成日",
     "reports.per_month": "月あたり",
-    "reports.reading": "判定",
+    "reports.reading": "読み取り",
     "reports.pool": "対象期間内の適格／潜在",
     "feas.title": "実施可能性レポート",
-    "feas.view_sponsor": "依頼者向け表示",
+    "feas.view_sponsor": "治験依頼者向け表示",
     "feas.view_internal": "院内表示に戻る",
-    "feas.pack": "依頼者パック（zip）",
+    "feas.pack": "治験依頼者パック（zip）",
     "feas.saved": "施設の入力を保存しました。",
     "feas.none": "この試験の実施可能性レポートはまだありません。",
-    "feas.meta": "ルールセット v{ver}・データ時点 {snapshot}・遡及 {lookback} か月・対象集団：{population}・院内のコード化データによる集計で、AIモデルは使っていません",
-    "feas.sponsor_banner": "依頼者向けの版：病院の外に出る内容です。少数セルは非表示、その他は丸め値。患者・引用なし。施設コメントはCRCが含めた場合のみ。",
+    "feas.meta": "選択・除外基準 v{ver}・データ時点 {snapshot}・遡及 {lookback} か月・対象集団：{population}・院内のコード化データによる集計で、AIモデルは使っていません",
+    "feas.sponsor_banner": "治験依頼者向けの版：病院の外に出る内容です。少数セルは非表示、その他は丸め値。患者・引用なし。施設コメントはCRCが含めた場合のみ。",
     "feas.s1": "要約",
     "feas.s2": "患者数",
     "feas.s3": "基準ファネル",
-    "feas.s4": "主な除外要因と記録で確認できない基準",
+    "feas.s4": "主な障壁と記録で確認できない基準",
     "feas.s5": "感度分析：基準を変えたら",
     "feas.s6": "月ごとの新規患者と登録予測",
     "feas.s7": "適格者の年齢と性別",
@@ -421,13 +434,13 @@ JA: dict[str, str] = {
     "feas.month": "月",
     "feas.range": "範囲 {low}〜{high}",
     "feas.horizon": "{months} か月で {low}〜{high} 例、最も可能性が高いのは {mid} 例",
-    "feas.tile.reading": "依頼者の目標に対して",
+    "feas.tile.reading": "治験依頼者の目標に対して",
     "feas.target": "目標 {months} か月で {n} 例（施設入力）",
     "feas.tile.pool": "対象期間内の適格／潜在",
     "feas.pool.help": "潜在＝記録に値のない基準がすべて満たされた場合",
     "feas.tile.visits": "90日以内に受診予定の適格者",
     "feas.visits.help": "システム内の予約データによる",
-    "feas.barriers": "主な除外要因：",
+    "feas.barriers": "主な障壁：",
     "feas.never_n": "うち記録なし {n}",
     "feas.not_applied_n": "{n} 件の基準は記録では確認できず、スクリーニング時に確認します。",
     "feas.limit.consent": "スクリーニング脱落率が未設定のため、予測は無作為化ではなく同意取得数です。",
@@ -441,17 +454,17 @@ JA: dict[str, str] = {
     "feas.rounded": "共有できるよう少数セル基準で丸めています。正確な数は院内に残ります。",
     "feas.f.criterion": "基準",
     "feas.f.remaining": "残り",
-    "feas.f.dropped": "除外",
+    "feas.f.dropped": "減少",
     "feas.f.unknown": "記録なし",
     "feas.f.how": "確認方法",
     "feas.f.scope": "対象範囲",
     "feas.f.not_applied": "集計外：スクリーニング時に確認",
     "feas.f.help": "灰色の行はコード化された記録では確認できません。記録の限界を示すために表示し、集計には含めません。",
     "how.records": "コード化された記録",
-    "how.notes": "記録の文章",
+    "how.notes": "カルテ記載",
     "how.person": "スクリーニング時に担当者",
     "how.records_notes": "記録、次に診療記録",
-    "feas.b.lost": "除外",
+    "feas.b.lost": "減少",
     "feas.b.failed": "値が基準を満たさない",
     "feas.b.never": "記録なし",
     "feas.b.help": "「記録なし」は多くの場合、検査未実施か紙で保管されています。事前スクリーニング検査で取り戻せる患者です。",
@@ -482,9 +495,10 @@ JA: dict[str, str] = {
     "feas.bridge.why": "この集計はコード化された記録だけを使います。スクリーニングリストは記録の文章も読み、答えが不明の患者も担当者が確認できるよう残します。",
     "feas.bridge.eligible": "コード化された全基準を満たす：{n}（値のない選択基準は数えていません）。",
     "feas.bridge.gap": "{label}：値なし {n}。この件数には入りませんが、リストでは「情報が必要」として残ります。",
-    "feas.bridge.kept": "{label}：値の記録がないため除外していない {n}。件数に含まれ、リストでは「情報が必要」です。",
+    "feas.bridge.kept": "{label}：値の記録がないため残している {n}。件数に含まれ、リストでは「情報が必要」です。",
     "feas.bridge.list": "最新のスクリーニングリスト：{listed} 人（判断できる {ready} 人、情報が必要 {needs} 人）。",
-    "feas.bridge.outside": "基準の分類に属するが一覧にないコードの患者：リストに {n} 人（除外せず、担当者が確認）。",
+    "feas.bridge.outside": "基準の分類に属するが一覧にないコードの患者：リストに {n} 人（残したまま、担当者が確認）。",
+    "feas.bridge.unknown_system": "不明なコード体系の病名・薬剤：リストに {n} 人（残したまま、担当者が確認）。",
     "feas.ct.title": "試験名",
     "feas.ct.overlap": "対象患者が重なるか",
     "feas.ct.status": "状況",
@@ -493,13 +507,13 @@ JA: dict[str, str] = {
     "feas.missing": "未入力：",
     "miss.capability": "施設機能",
     "miss.competing": "競合試験",
-    "miss.target": "依頼者の目標",
-    "feas.e.target": "依頼者の目標（例数）",
+    "miss.target": "治験依頼者の目標",
+    "feas.e.target": "治験依頼者の目標（例数）",
     "feas.e.months": "期間（か月）",
     "feas.e.sf": "同意後のスクリーニング脱落率（%）",
     "feas.e.sf.help": "空欄なら既定値（{dflt}）を使います。",
     "feas.e.note": "備考",
-    "feas.e.to_sponsor": "施設コメントを依頼者向けの版に含める",
+    "feas.e.to_sponsor": "施設コメントを治験依頼者向けの版に含める",
     "feas.e.save": "施設の入力を保存",
     "capv.yes": "あり（院内）",
     "capv.partner": "連携施設で対応",
@@ -519,8 +533,8 @@ JA: dict[str, str] = {
     "facts.rates.measured": "来院率と同意率は当院の実績から算出しています。",
     "facts.not_applied": "{n} 件の基準は集計外です（診療記録または担当者が判断）。",
     "facts.rounded": "{k} 未満の数は非表示、その他は {k} の倍数に丸めています。",
-    "facts.site.missing": "施設機能、競合試験、依頼者の目標がまだ入力されていません。",
-    "feas.method": "構造化された基準はコード化された院内記録を固定ルールで判定し、この集計にAIモデルは関与しません。スクリーニングでは診療記録の文章をモデルが読み、2つの異なるモデルが一致した場合にのみ除外できます。1つのモデルだけでは担当者の確認に回すだけです。",
+    "facts.site.missing": "施設機能、競合試験、治験依頼者の目標がまだ入力されていません。",
+    "feas.method": "構造化された基準はコード化された院内記録を固定ルールで照合し、この集計にAIモデルは関与しません。スクリーニングでは診療記録の文章をモデルが読み、2つの異なるモデルが一致した場合にのみ、基準に合致しないとすることができます。1つのモデルだけでは担当者の確認に回すだけです。",
     "feas.validation": "検証（2026年11月5日、公開データ。当院のカルテではありません）：TrialGPT データでは1GPUのモデルの組で適格者79例中、英語1例・日本語2例を見落としました。TREC 2021〜2023 では手作業の監査後、適格者の約6 %が実際に失われました。日本語の記録は英語より再現率が下がります。当院の記録ではまだ何も測定していません。",
     "feas.a.item": "項目",
     "feas.a.value": "値",
@@ -531,7 +545,7 @@ JA: dict[str, str] = {
     "as.capacity": "月あたりの受入能力",
     "as.horizon": "予測期間（か月）",
     "as.iterations": "シミュレーション回数",
-    "as.target": "依頼者の目標",
+    "as.target": "治験依頼者の目標",
     "src.site": "施設入力",
     "src.default": "既定値",
     "src.calibrated": "当院の実績",
@@ -540,12 +554,23 @@ JA: dict[str, str] = {
     "src.fixed": "固定",
     "feas.sf_ref": "既定のスクリーニング脱落率：{ref}。",
     "kind.inclusion": "選択",
-    "kind.exclusion": "除外",
+    "kind.exclusion": "除外基準",
     "week.title": "今週の候補患者リスト",
     "week.none": "この試験のスクリーニングはまだ実施されていません。",
     "week.empty": "今週リストに載る患者はいません。",
     "week.counts": "{n} 例・新規 {new}・保留 {pending}・判断済み {marked}",
     "week.meta": "{date} の {job} 実行結果・データ時点 {snapshot}",
+    "asof.line": "データ時点 {day}",
+    "asof.stale": "データ時点 {day}：2 日以上前のデータです。このリストで動く前に新しい実行を依頼してください。",
+    "asof.dead": "この実行の {n} 人は表示していません：記録に死亡が記載されています。",
+    "asof.dead_unchecked": "死亡の記録をいま確認できませんでした。このメッセージが消えるまで、このリストの患者に連絡しないでください。「声をかける」と電話は待ちになります。",
+    "patient.deceased": "記録していません：病院の記録に、この患者の死亡が記載されています。この試験のどのリストにも表示しません。",
+    "patient.death_unchecked": "記録していません：死亡の記録をいま確認できませんでした。少し待ってからやり直してください。確認できるまで誰にも連絡しません。",
+    "elsewhere.candidate": "{study} でも候補です",
+    "elsewhere.candidate.other": "別の試験でも候補です",
+    "elsewhere.enrolled": "{study} で同意済みまたは登録済みです",
+    "elsewhere.enrolled.other": "別の試験で同意済みまたは登録済みです",
+    "elsewhere.open": "別の試験に参加中：他の試験への参加についてプロトコルの規定を確認",
     "week.pipeline": "処理 {p}",
     "week.help": "対象となる可能性があり、近く試験担当医の受診予定がある患者を受診日順に並べています。該当理由を読んで判断してください。判断はCRCに届きます。",
     "week.no_visit": "受診予約なし",
@@ -559,7 +584,7 @@ JA: dict[str, str] = {
     "wstatus.enrolled": "登録済み",
     "fit.inc": "記録で選択基準 {total} 件中 {met} 件を満たす",
     "fit.exc": "除外基準 {total} 件中 {clear} 件に該当なし",
-    "fit.note_exc": "診療記録に除外の記載：",
+    "fit.note_exc": "カルテに除外基準に当たる記載：",
     "fit.open_paren": "（",
     "fit.close_paren": "）",
     "fit.comma": "、",
@@ -569,9 +594,9 @@ JA: dict[str, str] = {
     "fit.not_met": "不適合：",
     "fit.person": "医師の判断が必要：",
     "fit.todo": "必要な対応：",
-    "mark.approach": "対応する",
+    "mark.approach": "声をかける",
     "mark.need_info": "要確認",
-    "mark.not_suitable": "対象外",
+    "mark.not_suitable": "今回は見合わせる",
     "mark.reason": "理由",
     "mark.note": "CRCへのメモ",
     "reason.stage": "病期が合わない",
@@ -596,7 +621,7 @@ JA: dict[str, str] = {
     "patient.evidence": "根拠（原文・日付）",
     "patient.source": "出典",
     "patient.history": "判断の履歴",
-    "patient.footer": "スクリーニングジョブ {job}・診療記録の判定：{judge}・判断の補助であり、最終判断は医師が行います。",
+    "patient.footer": "スクリーニング処理 {job}・診療記録の読み取り：{judge}・判断の補助であり、最終判断は医師が行います。",
 }
 
 ZH: dict[str, str] = {
@@ -614,11 +639,11 @@ ZH: dict[str, str] = {
     "users.affiliation": "所屬",
     "users.studies": "負責試驗",
     "users.studies.all": "所有試驗",
-    "users.studies.help": "留空表示所有試驗。SMO 的研究協調員通常只設定合約內的試驗。",
+    "users.studies.help": "留空表示所有試驗。SMO 的研究護理師通常只設定合約內的試驗。",
     "users.scope.edit": "編輯範圍",
     "users.scope.save": "儲存",
     "users.expires": "帳號到期日",
-    "users.role.cro": "以贊助者版本閱讀已定稿的可行性報告（小格數隱藏）；不可看名單或病人",
+    "users.role.cro": "以試驗委託者版本閱讀已定稿的可行性報告（小格數隱藏）；不可看名單或病人",
     "col.study": "試驗",
     "home.studies": "我的試驗",
     "home.studies.help": "每個試驗一張卡片。醒目的那一行就是下一步。",
@@ -635,7 +660,7 @@ ZH: dict[str, str] = {
     "home.registry.none": "尚無病人",
     "home.open_report": "開啟報告",
     "home.open_week": "開啟本週名單",
-    "home.more": "舊頁面（工作、單一病例、同意說明、串接篩選、稽核）在「更多」裡。",
+    "home.more": "舊頁面（作業、單一病例、同意說明、串接篩選、稽核）在「更多」裡。",
     "next.approve": "下一步：檢查並核准條件",
     "next.feas": "下一步：產生可行性報告",
     "next.site": "下一步：填寫院方欄位並定稿報告",
@@ -646,7 +671,7 @@ ZH: dict[str, str] = {
     "reading.go": "可執行",
     "reading.conditional": "有條件",
     "reading.nogo": "難以執行",
-    "reading.none": "未輸入贊助者目標：僅顯示預測",
+    "reading.none": "未輸入試驗委託者目標：僅顯示預測",
     "admin.create": "建立帳號",
     "admin.accounts": "帳號",
     "admin.expiring": "{n} 個將在 30 天內到期",
@@ -663,19 +688,19 @@ ZH: dict[str, str] = {
     "admin.system": "系統",
     "admin.overview": "服務與模型",
     "reports.title": "可行性報告",
-    "reports.cro": "您看到的是贊助者版本：小於門檻的數字隱藏，其餘四捨五入。沒有病人層級資料。",
+    "reports.cro": "您看到的是試驗委託者版本：小於門檻的數字隱藏，其餘四捨五入。沒有病人層級資料。",
     "reports.run": "產生日",
     "reports.per_month": "每月",
-    "reports.reading": "判定",
+    "reports.reading": "判讀",
     "reports.pool": "回溯期間內符合／潛在",
     "feas.title": "可行性報告",
-    "feas.view_sponsor": "以贊助者版本檢視",
+    "feas.view_sponsor": "以試驗委託者版本檢視",
     "feas.view_internal": "回到院內版本",
-    "feas.pack": "贊助者資料包（zip）",
+    "feas.pack": "試驗委託者資料包（zip）",
     "feas.saved": "已儲存院方欄位。",
     "feas.none": "此試驗尚無可行性報告。",
-    "feas.meta": "規則集 v{ver}・資料時點 {snapshot}・回溯 {lookback} 個月・族群：{population}・以院內編碼資料計數，未使用 AI 模型",
-    "feas.sponsor_banner": "贊助者版本：會離開醫院的內容。小格數隱藏，其餘四捨五入；無病人、無引文；院方意見僅在協調員勾選時納入。",
+    "feas.meta": "納入／排除條件 v{ver}・資料時點 {snapshot}・回溯 {lookback} 個月・族群：{population}・以院內編碼資料計數，未使用 AI 模型",
+    "feas.sponsor_banner": "試驗委託者版本：會離開醫院的內容。小格數隱藏，其餘四捨五入；無病人、無引文；院方意見僅在研究護理師勾選時納入。",
     "feas.s1": "摘要",
     "feas.s2": "病人數",
     "feas.s3": "條件漏斗",
@@ -693,7 +718,7 @@ ZH: dict[str, str] = {
     "feas.month": "月",
     "feas.range": "範圍 {low}–{high}",
     "feas.horizon": "{months} 個月內 {low}–{high} 例，最可能 {mid} 例",
-    "feas.tile.reading": "相對於贊助者目標",
+    "feas.tile.reading": "相對於試驗委託者目標",
     "feas.target": "目標 {months} 個月 {n} 例（院方輸入）",
     "feas.tile.pool": "回溯期間內符合／潛在",
     "feas.pool.help": "潛在＝若所有無紀錄值的條件都符合",
@@ -713,7 +738,7 @@ ZH: dict[str, str] = {
     "feas.rounded": "為了可分享，數字依小格數門檻四捨五入；精確數字留在院內。",
     "feas.f.criterion": "條件",
     "feas.f.remaining": "剩餘",
-    "feas.f.dropped": "排除",
+    "feas.f.dropped": "減少",
     "feas.f.unknown": "無紀錄",
     "feas.f.how": "確認方式",
     "feas.f.scope": "範圍內",
@@ -723,7 +748,7 @@ ZH: dict[str, str] = {
     "how.notes": "病歷文字",
     "how.person": "篩選時由人員確認",
     "how.records_notes": "先病歷，再病程紀錄",
-    "feas.b.lost": "排除",
+    "feas.b.lost": "減少",
     "feas.b.failed": "數值不符合條件",
     "feas.b.never": "無紀錄",
     "feas.b.help": "「無紀錄」通常表示未做檢查或以紙本保存：預篩檢查可以找回這些病人。",
@@ -754,24 +779,25 @@ ZH: dict[str, str] = {
     "feas.bridge.why": "此計數只使用結構化紀錄。篩選名單也讀取病歷文字，並保留答案仍未知的病人，讓人員查看。",
     "feas.bridge.eligible": "符合所有結構化條件：{n}（無數值的納入條件不計入）。",
     "feas.bridge.gap": "{label}：無數值 {n}，不計入此數；篩選名單將其列為「需要資訊」。",
-    "feas.bridge.kept": "{label}：僅因無紀錄數值而未排除 {n}，已計入，名單上列為「需要資訊」。",
+    "feas.bridge.kept": "{label}：僅因無紀錄數值而保留 {n}，已計入，名單上列為「需要資訊」。",
     "feas.bridge.list": "最新篩選名單共 {listed} 位病人：可決定 {ready} 位、需要資訊 {needs} 位。",
-    "feas.bridge.outside": "代碼屬於條件類別但不在清單中：名單上 {n} 位（未排除，由人員確認）。",
+    "feas.bridge.outside": "代碼屬於條件類別但不在清單中：名單上 {n} 位（保留，由人員確認）。",
+    "feas.bridge.unknown_system": "疾病或藥品使用無法辨識的代碼系統：名單上 {n} 位（保留，由人員確認）。",
     "feas.ct.title": "試驗名稱",
     "feas.ct.overlap": "病人是否重疊",
     "feas.ct.status": "狀態",
-    "feas.ct.none": "尚未輸入競爭試驗。TrialBox 沒有連接 jRCT 或 ClinicalTrials.gov，需由協調員輸入。",
+    "feas.ct.none": "尚未輸入競爭試驗。TrialBox 沒有連接 jRCT 或 ClinicalTrials.gov，需由研究護理師輸入。",
     "feas.edit": "編輯院方欄位",
     "feas.missing": "尚缺：",
     "miss.capability": "院方能力",
     "miss.competing": "競爭試驗",
-    "miss.target": "贊助者目標",
-    "feas.e.target": "贊助者目標（例數）",
+    "miss.target": "試驗委託者目標",
+    "feas.e.target": "試驗委託者目標（例數）",
     "feas.e.months": "期間（月）",
     "feas.e.sf": "同意後篩選失敗率（%）",
     "feas.e.sf.help": "留空則使用預設值（{dflt}）。",
     "feas.e.note": "備註",
-    "feas.e.to_sponsor": "在贊助者版本中納入院方意見",
+    "feas.e.to_sponsor": "在試驗委託者版本中納入院方意見",
     "feas.e.save": "儲存院方欄位",
     "capv.yes": "有（院內）",
     "capv.partner": "由合作醫院提供",
@@ -791,8 +817,8 @@ ZH: dict[str, str] = {
     "facts.rates.measured": "到院率與同意率來自本院實績。",
     "facts.not_applied": "{n} 項條件不計入（由病程紀錄或人員判斷）。",
     "facts.rounded": "小於 {k} 的數字隱藏，其餘取 {k} 的倍數。",
-    "facts.site.missing": "院方尚未輸入能力、競爭試驗或贊助者目標。",
-    "feas.method": "結構化條件以固定規則判讀院內編碼病歷，這些計數沒有 AI 模型參與。篩選時由模型閱讀病程紀錄，只有兩個不同模型一致時才能排除病人；單一模型只能把病人轉給人員確認。",
+    "facts.site.missing": "院方尚未輸入能力、競爭試驗或試驗委託者目標。",
+    "feas.method": "結構化條件以固定規則判讀院內編碼病歷，這些計數沒有 AI 模型參與。篩選時由模型閱讀病程紀錄，只有兩個不同模型一致時才能將病人列為未符合條件；單一模型只能把病人轉給人員確認。",
     "feas.validation": "驗證（2026 年 11 月 5 日，公開資料，不是本院病歷）：在 TrialGPT 資料上，單 GPU 模型組合在 79 位符合者中，英文漏掉 1 位、日文漏掉 2 位；在 TREC 2021–2023 經人工稽核後約 6 % 的符合者真正被漏掉。日文紀錄的召回率比英文低。尚未在本院病歷上做任何量測。",
     "feas.a.item": "項目",
     "feas.a.value": "值",
@@ -803,7 +829,7 @@ ZH: dict[str, str] = {
     "as.capacity": "每月容量",
     "as.horizon": "預測月數",
     "as.iterations": "模擬次數",
-    "as.target": "贊助者目標",
+    "as.target": "試驗委託者目標",
     "src.site": "院方輸入",
     "src.default": "預設值",
     "src.calibrated": "本院實績",
@@ -812,18 +838,29 @@ ZH: dict[str, str] = {
     "src.fixed": "固定",
     "feas.sf_ref": "預設篩選失敗率：{ref}。",
     "kind.inclusion": "納入",
-    "kind.exclusion": "排除",
+    "kind.exclusion": "排除條件",
     "week.title": "本週候選病人名單",
     "week.none": "此試驗尚未篩選。",
     "week.empty": "本週沒有病人在名單上。",
     "week.counts": "{n} 位・新增 {new}・待處理 {pending}・已判斷 {marked}",
     "week.meta": "來自 {date} 的 {job} 執行・資料時點 {snapshot}",
+    "asof.line": "資料時點 {day}",
+    "asof.stale": "資料時點 {day}：已超過兩天。依此清單行動前，請先要求重新執行。",
+    "asof.dead": "本次執行有 {n} 位病人未顯示：紀錄已記載病人死亡。",
+    "asof.dead_unchecked": "目前無法檢查死亡紀錄。在此訊息消失前，請勿聯絡此清單上的任何病人；「邀請」與電話聯絡須等待。",
+    "patient.deceased": "未記錄：醫院紀錄已記載此病人死亡。此病人已不在本研究的任何清單上。",
+    "patient.death_unchecked": "未記錄：目前無法檢查死亡紀錄。請稍後再試；檢查恢復前不會聯絡任何人。",
+    "elsewhere.candidate": "也是 {study} 的候選人",
+    "elsewhere.candidate.other": "也是另一項研究的候選人",
+    "elsewhere.enrolled": "已在 {study} 同意或收案",
+    "elsewhere.enrolled.other": "已在另一項研究同意或收案",
+    "elsewhere.open": "參與另一項研究：請確認本計畫書對參與其他試驗的規定",
     "week.pipeline": "流程 {p}",
-    "week.help": "可能符合且近期有試驗醫師門診的病人，依門診日期排序。先讀符合理由再判斷；判斷會送給協調員。",
+    "week.help": "可能符合條件且近期有試驗醫師門診的病人，依門診日期排序。先讀符合理由再判斷；判斷會送給研究護理師。",
     "week.no_visit": "無預約門診",
     "week.patient": "病人 {p}",
     "week.changed": "與上週不同：{ids}",
-    "week.footer": "僅為閱讀輔助，由試驗醫師決定。判斷不會改變篩選紀錄；聯絡與同意由協調員記錄。",
+    "week.footer": "僅為閱讀輔助，由試驗醫師決定。判斷不會改變篩選紀錄；聯絡與同意由研究護理師記錄。",
     "wstatus.new": "本週新增",
     "wstatus.pending": "待處理",
     "wstatus.contacted": "已聯絡",
@@ -831,7 +868,7 @@ ZH: dict[str, str] = {
     "wstatus.enrolled": "已收案",
     "fit.inc": "病歷顯示納入條件 {total} 項中符合 {met} 項",
     "fit.exc": "排除條件 {total} 項中 {clear} 項未出現",
-    "fit.note_exc": "病程紀錄中有排除記載：",
+    "fit.note_exc": "病程紀錄中有符合排除條件之記載：",
     "fit.open_paren": "（",
     "fit.close_paren": "）",
     "fit.comma": "、",
@@ -841,11 +878,11 @@ ZH: dict[str, str] = {
     "fit.not_met": "不符合：",
     "fit.person": "需要您判斷：",
     "fit.todo": "待辦：",
-    "mark.approach": "接觸",
+    "mark.approach": "邀請",
     "mark.need_info": "需資訊",
-    "mark.not_suitable": "不適合",
+    "mark.not_suitable": "暫不邀請",
     "mark.reason": "原因",
-    "mark.note": "給協調員的備註",
+    "mark.note": "給研究護理師的備註",
     "reason.stage": "病程階段不符",
     "reason.partner": "沒有研究陪同者",
     "reason.comorbidity": "其他疾病",
@@ -868,7 +905,7 @@ ZH: dict[str, str] = {
     "patient.evidence": "證據（原文、日期）",
     "patient.source": "來源",
     "patient.history": "判斷紀錄",
-    "patient.footer": "篩選工作 {job}・病程紀錄判讀：{judge}・閱讀輔助，由試驗醫師決定。",
+    "patient.footer": "篩選作業 {job}・病程紀錄判讀：{judge}・閱讀輔助，由試驗醫師決定。",
 }
 
 # ---------------------------------------------------------------------------------------------- D-105 workbench
@@ -979,8 +1016,8 @@ JA.update(
         "wb.list.review.help": "スクリーニングで見つかり、まだ判断していない患者。",
         "wb.list.info": "情報待ち",
         "wb.list.info.help": "CRCに確認を依頼した患者。",
-        "wb.list.approached": "承認・連絡済み",
-        "wb.list.approached.help": "連絡を承認した、またはCRCが連絡済みの患者。",
+        "wb.list.approached": "承認・声かけ済み",
+        "wb.list.approached.help": "声かけを承認した、またはCRCが声をかけた患者。",
         "wb.list.all": "リスト全体",
         "wb.list.all.help": "今週のリストの全員。",
         "wb.empty": "このリストには患者がいません。",
@@ -1037,7 +1074,7 @@ ZH.update(
         "steps.enrolled": "收案",
         "steps.enrolled.who": "試驗中心報告",
         "wb.title": "我的病人",
-        "wb.lists": "工作清單",
+        "wb.lists": "作業清單",
         "wb.list.clinic": "門診（未來兩週）",
         "wb.list.clinic.help": "14 天內有預約的候選病人，依時間排序。",
         "wb.list.ready": "可決定",
@@ -1053,8 +1090,8 @@ ZH.update(
         "wb.list.review.help": "篩選找到、尚未決定的病人。",
         "wb.list.info": "等待資料",
         "wb.list.info.help": "已請研究護理師查詢的病人。",
-        "wb.list.approached": "已核准與已聯絡",
-        "wb.list.approached.help": "已核准聯絡，或研究護理師已聯絡的病人。",
+        "wb.list.approached": "已核准與已邀請",
+        "wb.list.approached.help": "已核准邀請，或研究護理師已邀請的病人。",
         "wb.list.all": "名單上所有人",
         "wb.list.all.help": "本週名單上的所有人。",
         "wb.empty": "這個清單沒有病人。",
@@ -1073,7 +1110,7 @@ ZH.update(
         "wb.inclusion": "納入條件",
         "wb.exclusion": "排除條件",
         "wb.full": "開啟完整病歷檢視",
-        "wb.crc.title": "我的工作",
+        "wb.crc.title": "我的作業",
         "wb.tasks": "我的任務",
         "wb.tasks.help": "依主持人的決定與試驗步驟產生，最早到期者在前。",
         "wb.tasks.none": "沒有未完成的任務。",
@@ -1121,3 +1158,120 @@ from console.i18n_step4 import ZH as _S4_ZH  # noqa: E402
 EN.update(_S4_EN)
 JA.update(_S4_JA)
 ZH.update(_S4_ZH)
+
+# TB-PLAN-04 step 3 (D-123): the Sources, Conflicts and Forms pages of a study's own data core
+from console.i18n_data import EN as _DC_EN  # noqa: E402
+from console.i18n_data import JA as _DC_JA  # noqa: E402
+from console.i18n_data import ZH as _DC_ZH  # noqa: E402
+
+EN.update(_DC_EN)
+JA.update(_DC_JA)
+ZH.update(_DC_ZH)
+
+# TB-PLAN-04 step 4 (D-129): the Entry and History pages, the exports and the built-in forms
+from console.i18n_entry import EN as _DE_EN  # noqa: E402
+from console.i18n_entry import JA as _DE_JA  # noqa: E402
+from console.i18n_entry import ZH as _DE_ZH  # noqa: E402
+
+EN.update(_DE_EN)
+JA.update(_DE_JA)
+ZH.update(_DE_ZH)
+
+# TB-PLAN-04 step 4b (D-133): plain words and the novice fixes; merged last, so a glossary word replaces an earlier one
+from console.i18n_4b import EN as _4B_EN  # noqa: E402
+from console.i18n_4b import JA as _4B_JA  # noqa: E402
+from console.i18n_4b import ZH as _4B_ZH  # noqa: E402
+
+EN.update(_4B_EN)
+JA.update(_4B_JA)
+ZH.update(_4B_ZH)
+
+# TB-PLAN-04 step 5 (D-134): the trial lifecycle (participants, visits, schedule, AEs, the enrolment report); new keys
+from console.i18n_life import EN as _LIFE_EN  # noqa: E402
+from console.i18n_life import JA as _LIFE_JA  # noqa: E402
+from console.i18n_life import ZH as _LIFE_ZH  # noqa: E402
+
+EN.update(_LIFE_EN)
+JA.update(_LIFE_JA)
+ZH.update(_LIFE_ZH)
+
+# TB-PLAN-04 step 5b (D-135): site set-up, readiness, the review lists, help and Ask TrialBox; new keys
+from console.i18n_site import EN as _SITE_EN  # noqa: E402
+from console.i18n_site import JA as _SITE_JA  # noqa: E402
+from console.i18n_site import ZH as _SITE_ZH  # noqa: E402
+
+EN.update(_SITE_EN)
+JA.update(_SITE_JA)
+ZH.update(_SITE_ZH)
+
+# review 2026-11-09, wave 1b (D-143): the excluded-patients page (P-04) and the confirmation steps (P-10); new keys
+from console.i18n_review import EN as _RV_EN  # noqa: E402
+from console.i18n_review import JA as _RV_JA  # noqa: E402
+from console.i18n_review import ZH as _RV_ZH  # noqa: E402
+
+EN.update(_RV_EN)
+JA.update(_RV_JA)
+ZH.update(_RV_ZH)
+
+# review 2026-11-09, wave 1c (D-146): request refusals, who approves, who to screen; new keys and the PI's tick wording
+from console.i18n_journey import EN as _J_EN  # noqa: E402
+from console.i18n_journey import JA as _J_JA  # noqa: E402
+from console.i18n_journey import ZH as _J_ZH  # noqa: E402
+
+EN.update(_J_EN)
+JA.update(_J_JA)
+ZH.update(_J_ZH)
+
+# D-147: the delegation log, whole-hospital candidates, referral, the IRB warning, staff directory, opt-outs; new keys
+from console.i18n_team import EN as _TEAM_EN  # noqa: E402
+from console.i18n_team import JA as _TEAM_JA  # noqa: E402
+from console.i18n_team import ZH as _TEAM_ZH  # noqa: E402
+
+EN.update(_TEAM_EN)
+JA.update(_TEAM_JA)
+ZH.update(_TEAM_ZH)
+
+# D-160: EDC prefill (switch, item map, review, electronic signature, send, ODM); new keys
+from console.i18n_edc import EN as _EDC_EN  # noqa: E402
+from console.i18n_edc import JA as _EDC_JA  # noqa: E402
+from console.i18n_edc import ZH as _EDC_ZH  # noqa: E402
+
+EN.update(_EDC_EN)
+JA.update(_EDC_JA)
+ZH.update(_EDC_ZH)
+
+# D-178 / D-179: the operations screens, the confirmations and undos (J-09, J-14), the study-scoped site pages (J-06)
+from console.i18n_ops import EN as _OPS_EN  # noqa: E402
+from console.i18n_ops import JA as _OPS_JA  # noqa: E402
+from console.i18n_ops import ZH as _OPS_ZH  # noqa: E402
+
+EN.update(_OPS_EN)
+JA.update(_OPS_JA)
+ZH.update(_OPS_ZH)
+
+# T-684 (D-361): the clinical layout fixes (second skip link, folded procedure and SAE banners, registry words)
+from console.i18n_layout import EN as _LAY_EN  # noqa: E402
+from console.i18n_layout import JA as _LAY_JA  # noqa: E402
+from console.i18n_layout import ZH as _LAY_ZH  # noqa: E402
+
+EN.update(_LAY_EN)
+JA.update(_LAY_JA)
+ZH.update(_LAY_ZH)
+
+# D-398 (T-511): help text for the PoC pages, the referral form's select prompts, the EDC review's words; new keys
+from console.i18n_help import EN as _HELP_EN  # noqa: E402
+from console.i18n_help import JA as _HELP_JA  # noqa: E402
+from console.i18n_help import ZH as _HELP_ZH  # noqa: E402
+
+EN.update(_HELP_EN)
+JA.update(_HELP_JA)
+ZH.update(_HELP_ZH)
+
+# T-685 (D-402): the clinical UX polish (coordinator help, access keys, hidden headers, date format, short pseudonym)
+from console.i18n_polish import EN as _POL_EN  # noqa: E402
+from console.i18n_polish import JA as _POL_JA  # noqa: E402
+from console.i18n_polish import ZH as _POL_ZH  # noqa: E402
+
+EN.update(_POL_EN)
+JA.update(_POL_JA)
+ZH.update(_POL_ZH)

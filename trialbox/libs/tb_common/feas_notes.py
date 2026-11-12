@@ -47,6 +47,38 @@ NOTES: dict[str, dict[str, str]] = {
         "ja": "{id}：値の記録がないため除外していない患者が {n} 人います。",
         "zh-TW": "{id}：{n} 位病人僅因無紀錄數值而未被排除。",
     },
+    # D-130 (review F-10): records whose code no ValueSet can read (an unknown code system)
+    "feas.note.unknown_system.condition": {
+        "en": "Diagnoses in an unknown code system: {n} patients. Their coded inclusions cannot be read and are not "
+        "counted here; screening keeps them as unknown for a person to check.",
+        "ja": "不明なコード体系の病名：{n} 人。コードによる選択基準を読めないためこの件数には入りません。"
+        "スクリーニングでは「不明」として残し、担当者が確認します。",
+        "zh-TW": "診斷使用無法辨識的代碼系統：{n} 位。其結構化納入條件無法判讀，不計入此數；"
+        "篩選時列為未知，由人員確認。",
+    },
+    "feas.note.unknown_system.medication": {
+        "en": "Medicines without a code TrialBox can read (no ATC): {n} patients. Their coded inclusions cannot be "
+        "read and are not counted here; screening keeps them as unknown for a person to check.",
+        "ja": "読めるコード（ATC）のない薬剤：{n} 人。コードによる選択基準を読めないためこの件数には入りません。"
+        "スクリーニングでは「不明」として残し、担当者が確認します。",
+        "zh-TW": "藥品缺少可辨識的代碼（無 ATC）：{n} 位。其結構化納入條件無法判讀，不計入此數；"
+        "篩選時列為未知，由人員確認。",
+    },
+    # D-135 (step 5b): how much of the count rests on facts a person confirmed from a chart, and what is not counted
+    "feas.note.basis.confirmed": {
+        "en": "Of the patients counted at the last step, {n} rest partly on facts a coordinator confirmed from a "
+        "chart; the rest on coded records.",
+        "ja": "最後の段階で数えた患者のうち {n} 人は、コーディネーターがカルテから確認した情報にも基づいています。"
+        "残りはコード化された記録のみに基づきます。",
+        "zh-TW": "最後一步計入的病人中，有 {n} 位部分依據協調員從病歷確認的資料，其餘僅依據結構化紀錄。",
+    },
+    "feas.note.basis.proposed": {
+        "en": "Proposed facts read from charts and not yet confirmed: {n} patients. They are never counted here; "
+        "screening lists them under 'needs information' until a coordinator checks them.",
+        "ja": "カルテから読み取った未確認の情報：{n} 人。この件数には決して入りません。"
+        "コーディネーターが確認するまで、スクリーニングでは「情報が必要」に入ります。",
+        "zh-TW": "從病歷讀取、尚未確認的資料：{n} 位。絕不計入此數；在協調員確認前，篩選時列於「需要更多資訊」。",
+    },
     "feas.note.not_applied": {
         "en": "Not applied in counts (note/human criteria, checked at screening): {ids}.",
         "ja": "集計に使っていない基準（記録の文章・担当者が判断する基準。スクリーニング時に確認）：{ids}。",

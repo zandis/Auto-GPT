@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/llm_assist_output.schema.json",
+  "title": "LlmAssistOutput",
+  "description": "Output of prompt assist (TB-PLAN-04 step 5b, D-132, D-135): the ask-the-box assistant's answer in the reader's language, built only from the points it was given. It explains and links; it never changes data. Schema version 1.0.0.",
+  "type": "object",
+  "required": ["answer"],
+  "additionalProperties": false,
+  "properties": {"answer": {"type": "string", "maxLength": 1500}}
+}

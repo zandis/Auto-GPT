@@ -1,0 +1,13 @@
+id,item,source,earliest,basis,closes
+BL-001,"Mail with answer buttons and accounts for treating physicians; patient-initiated intake and campaign record; stipend tracking; search; close-out and archive with the retention clock; site performance metrics",WS-18.1,2027-04-29,"P1, after the first go-live (CGMH 2027-04-28)",
+BL-002,"Sponsor feasibility questionnaire filler (the question workbook fixture used by a service)",WS-18.1,2027-04-29,"P1, after the first go-live; LIFE-007 keeps it after go-live",LIFE-007
+BL-003,"Opt-in patient messages via the hospital's SMS or LINE with ethics-approved templates; LINE WORKS and Teams staff notices",WS-18.2,2027-04-29,"P1 and P2; needs the egress rule and the hospital's approval",
+BL-004,"Service merge to five processes; psycopg_pool",WS-18.3,2027-04-29,"P1, after go-live so it does not move the gates",
+BL-005,"Consortium exchange between the real sites; multilateral DSA; MOHW approval for material abroad; alliance channel",WS-18.4,2027-04-29,"P1; agreements take longer than code",
+BL-006,"Fleet telemetry and release channel; second model pair for a non-PRC tier; forecast layer and its device route; Study B (prospective)",WS-18.5,2027-05-14,"P2, after both go-lives (Japan 2027-05-13)",
+BL-007,"Remaining 157 Phenotype Library definitions validated per site; light specialty templates' missing items",WS-18.6,2027-04-29,"P1 and P2; the four first templates come first",
+BL-008,"Front-end design-system assessments (register MR-216 and DECISIONS)",WS-18.7,2027-05-14,"P2, after both go-lives",
+BL-009,"Public-corpus run: Chia eligibility criteria (not in .cache; tools/chia_routes.py fetches it)",D-141,2026-11-12,"any day a machine has the corpus in .cache",
+BL-010,"Public-corpus run: open_cohorts (SIGIR 2016 and TREC 2023 files not in .cache)",D-141,2026-11-12,"any day a machine has the files in .cache",
+BL-011,"Public-corpus run: Synthea (no Synthea mapping in this build)",D-141,2026-11-12,"after a Synthea mapping exists",
+BL-012,"Accept-without-edit weekly report with the 5 % blind re-entry sample",D-160,2027-04-29,"WS-16.4, after go-live",

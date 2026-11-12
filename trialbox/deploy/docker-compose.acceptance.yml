@@ -1,0 +1,127 @@
+# Acceptance environment (T-213a, D-410; CR-071, OPS-051): the mirrors a hospital gives the box, on the acceptance
+# box itself (the owner's B200 or the rental workstation), so the identity overlay runs end to end without a hospital:
+#
+#   * acceptance-directory   a test directory (LLDAP) on LDAPS 6360 as dc01.acceptance.test, with synthetic accounts
+#                            in the TB-* groups of TB_OIDC_GROUP_ROLES and a read-only bind account (svc-trialbox)
+#   * acceptance-directory-seed  one-shot: writes those accounts and groups into the directory at every start
+#   * acceptance-mail        a real-shaped mail server (GreenMail) with sign-in required, IMAPS 993 and SMTPS 465 as
+#                            mail.acceptance.test; the mail gateway reads and sends through it
+#   * authelia               reads the acceptance configuration and secrets, trusts the acceptance test CA
+#
+# Never on a hospital box. No port is published here: only Caddy's 443 (the identity overlay). Every file it mounts is
+# made by `python -m tools.acceptance_env prepare` under TB_ACCEPTANCE_DIR (default deploy/site/acceptance, not in
+# git): the test CA, the site certificate for TB_TLS_MODE=hospital, the Authelia configuration (the site template with
+# the acceptance values), the directory's settings and seed, the mail keystore, and acceptance.env (the compose
+# variables). The tool also prints and runs the command; add this file after the identity overlay:
+#
+#   docker compose --project-directory deploy --env-file deploy/.env --env-file deploy/site/acceptance/acceptance.env \
+#       -f deploy/docker-compose.yml -f deploy/docker-compose.secrets.yml [-f deploy/docker-compose.<gpu>.yml] \
+#       -f deploy/docker-compose.identity.yml -f deploy/docker-compose.acceptance.yml \
+#       --profile stub|gpu --profile oidc up -d --wait
+#
+# The directory is LLDAP, not Active Directory: Authelia runs with `implementation: lldap` here and
+# `activedirectory` at a site. The sign-in with the hospital's own directory stays a site step (RUNBOOK §12, IQ).
+
+services:
+  acceptance-directory:
+    image: ${LLDAP_IMAGE:-lldap/lldap:v0.6.3-alpine-rootless@sha256:ba2c50930ea998eefd5454aa678a7977448019248b1827da87d330df0b71c284}
+    restart: unless-stopped
+    logging: {driver: json-file, options: {max-size: "20m", max-file: "3"}}
+    mem_limit: ${TB_MEM_ACCEPTANCE_DIRECTORY:-256m}
+    pids_limit: 256
+    labels: {tb.watchdog: restart}
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    # the settings file holds the directory's secrets (0600, the image's uid 1000), so it replaces the image default
+    command: ["run", "--config-file", "/run/directory/lldap_config.toml"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:17170/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    volumes:
+      - ${TB_ACCEPTANCE_DIR:-./site/acceptance}/directory:/run/directory:ro
+      - acceptance-directory-data:/data
+    networks:
+      trialbox-net:
+        aliases: [dc01.acceptance.test]
+
+  acceptance-directory-seed:
+    image: ${LLDAP_IMAGE:-lldap/lldap:v0.6.3-alpine-rootless@sha256:ba2c50930ea998eefd5454aa678a7977448019248b1827da87d330df0b71c284}
+    restart: "no"   # one-shot; idempotent (an account is created or updated, its password set again)
+    logging: {driver: json-file, options: {max-size: "20m", max-file: "3"}}
+    mem_limit: 128m
+    pids_limit: 128
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    entrypoint: ["/app/bootstrap.sh"]
+    environment:
+      LLDAP_URL: http://acceptance-directory:17170
+      LLDAP_ADMIN_USERNAME: admin
+      LLDAP_ADMIN_PASSWORD_FILE: /run/directory/admin_password
+      USER_CONFIGS_DIR: /run/directory/users
+      GROUP_CONFIGS_DIR: /run/directory/groups
+      DO_CLEANUP: "true"   # the directory holds exactly the seed: an account not in it is removed
+    volumes:
+      - ${TB_ACCEPTANCE_DIR:-./site/acceptance}/directory:/run/directory:ro
+    networks: [trialbox-net]
+    depends_on:
+      acceptance-directory: {condition: service_healthy}
+
+  acceptance-mail:
+    image: ${GREENMAIL_IMAGE:-greenmail/standalone:2.1.15@sha256:309ba544ea482e5d4265d09921cdab07c8dad2cc4481d715c9b8ff5d3f0a149f}
+    restart: unless-stopped
+    logging: {driver: json-file, options: {max-size: "20m", max-file: "3"}}
+    mem_limit: ${TB_MEM_ACCEPTANCE_MAIL:-1g}
+    pids_limit: 512
+    labels: {tb.watchdog: restart}
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    # sign-in required (no greenmail.auth.disabled), TLS only, the keystore issued by the acceptance test CA
+    environment:
+      GREENMAIL_OPTS: >-
+        -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.imaps.port=993 -Dgreenmail.smtps.port=465
+        -Dgreenmail.users=trialbox:${TB_ACCEPTANCE_MAIL_PASSWORD:?run python -m tools.acceptance_env prepare}@acceptance.test
+        -Dgreenmail.tls.keystore.file=/run/mail/mail.p12
+        -Dgreenmail.tls.keystore.password=${TB_ACCEPTANCE_MAIL_KEYSTORE_PASSWORD:?run python -m tools.acceptance_env prepare}
+        -Dgreenmail.verbose=false
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/993"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    volumes:
+      - ${TB_ACCEPTANCE_DIR:-./site/acceptance}/mail:/run/mail:ro
+    networks:
+      trialbox-net:
+        aliases: [mail.acceptance.test]
+
+  authelia:
+    # the same target paths as the identity overlay, so these mounts replace its site configuration and secrets
+    volumes:
+      - ${TB_ACCEPTANCE_DIR:-./site/acceptance}/authelia/configuration.yml:/config/configuration.yml:ro
+      - ${TB_ACCEPTANCE_DIR:-./site/acceptance}/authelia/secrets:/run/authelia:ro
+      - ${TB_ACCEPTANCE_DIR:-./site/acceptance}/ca:/config/certificates:ro   # certificates_directory: the test CA
+    depends_on:
+      acceptance-directory-seed: {condition: service_completed_successfully}
+
+  mail-gateway:
+    # the acceptance mailbox instead of the site's; the test CA comes in through TB_EXTRA_CA (acceptance.env)
+    environment:
+      IMAP_HOST: mail.acceptance.test
+      IMAP_PORT: "993"
+      IMAP_SSL: "true"
+      IMAP_USER: trialbox
+      IMAP_PASS: ${TB_ACCEPTANCE_MAIL_PASSWORD:?run python -m tools.acceptance_env prepare}
+      SMTP_HOST: mail.acceptance.test
+      SMTP_PORT: "465"
+      SMTP_STARTTLS: "false"
+      SMTP_USER: trialbox
+      SMTP_PASS: ${TB_ACCEPTANCE_MAIL_PASSWORD:?run python -m tools.acceptance_env prepare}
+    depends_on:
+      acceptance-mail: {condition: service_healthy}
+
+volumes:
+  acceptance-directory-data:

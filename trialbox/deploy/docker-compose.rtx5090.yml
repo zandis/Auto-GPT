@@ -38,23 +38,30 @@
 # install.sh re-checks every pinned build's weight hashes before it starts the stack (pin_model --verify-all), and
 # the scheduler runs the canary (orchestrator/selftest.py) before each night's LLM jobs.
 #
-# vLLM v0.32.0 is the release the 2026-11-06 run used (deploy/gcp/gpu-sim-startup.sh), with the same flags; moving
-# the tag is a model change (re-run `make selftest` and the TrialGPT check).
+# vLLM v0.32.0 is the release the 2026-11-06 run used (deploy/gcp/gpu-sim-startup.sh), with the same flags, by the
+# digest of deploy/images.lock (D-348); moving the lock entry is a model change (re-run `python3 -m tools.trialbox selftest` and the TrialGPT check).
 
 x-vllm-5090: &vllm5090
   logging:
     driver: json-file
-    options: {max-size: "50m", max-file: "5"}
+    options: {max-size: "${TB_LOG_MAX_SIZE:-100m}", max-file: "${TB_LOG_MAX_FILE:-10}"}  # D-389
   profiles: [gpu]
-  image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0}
+  image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}
+  # D-177 / D-450: VLLM_API_KEY from the vLLM servers' own env file (`trialbox secrets` writes it with
+  # secrets/model/llm.key); vLLM checks it on /v1 only, model-guard on every call. Never from deploy/.env. A box
+  # without the file runs the server open behind model-guard, and doctor --serving (install, update) FAILs it.
+  env_file: [{path: ./secrets/model/vllm.env, required: false}]
   environment:
     HF_HUB_OFFLINE: "1"
     VLLM_NO_USAGE_STATS: "1"
-    VLLM_SERVER_DEV_MODE: "1"   # exposes /sleep, /wake_up, /is_sleeping (model-net only; the gateway drives them)
+    VLLM_LOGGING_LEVEL: WARNING   # no request or prompt lines in the log at any vLLM version (T-605, LLM-042)
+    VLLM_SERVER_DEV_MODE: "1"   # /sleep, /wake_up, /is_sleeping (and /collective_rpc ...): model-guard passes only
+                                # the first three, with the key (TB_GUARD_ADMIN=1 below), D-177
   volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
   ipc: host
-  networks: [model-net]
   restart: unless-stopped
+  pids_limit: 4096   # T-108a (D-360); the memory caps are per server below
+  labels: {tb.watchdog: restart}   # the host's watchdog restarts a hung server (OPS-029)
   deploy:
     resources:
       reservations:
@@ -86,9 +93,13 @@ x-sleep: &sleep
 services:
   llm-service:
     <<: *vllm5090
+    networks: {model-backend-net: {aliases: [llm-service-vllm]}}   # behind model-guard (D-177)
+    mem_limit: ${TB_MEM_LLM:-48g}   # host memory: holds the judge's ~18 GB of weights while it sleeps
     command:
       - --model=/models/${JUDGE_MODEL_DIR:-gemma-4-26b-a4b-it-4bit}
-      - --served-model-name=${JUDGE_MODEL:-gemma-4-26b-a4b-it}
+      - --served-model-name=${JUDGE_MODEL:-local/gemma-4-26b-a4b-nvfp4}
+      # the developer's chat template at a pinned revision, not the quantised folder's (DEP-007, D-392)
+      - --chat-template=/models/${JUDGE_CHAT_TEMPLATE:-chat-templates/gemma-4-26b-a4b-it/chat_template.jinja}
       - --max-model-len=${JUDGE_MAX_LEN:-8192}
       - --max-num-seqs=${JUDGE_MAX_SEQS:-4}
       - --enforce-eager
@@ -98,19 +109,24 @@ services:
 
   judge-sleep-init:
     profiles: [gpu]
-    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0}
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}
     entrypoint: *sleep
-    command: ["http://llm-service:8000", "/sleep?level=1"]
-    networks: [model-net]
+    command: ["http://llm-service-vllm:8000", "/sleep?level=1"]
+    networks: [model-backend-net]
     restart: "no"
+    mem_limit: 256m   # a one-shot call (T-108a, D-360)
+    pids_limit: 64
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "2"}}
     depends_on:
       llm-service: {condition: service_healthy}
 
   llm-verifier:
     <<: *vllm5090
+    networks: {model-backend-net: {aliases: [llm-verifier-vllm]}}   # behind model-guard (D-177)
+    mem_limit: ${TB_MEM_VERIFIER:-48g}   # host memory: holds the verifier's weights while it sleeps
     command:
       - --model=/models/${VERIFIER_MODEL_DIR:-qwen3.5-9b-4bit}
-      - --served-model-name=${VERIFIER_MODEL:-qwen3.5-9b}
+      - --served-model-name=${VERIFIER_MODEL:-local/qwen3.5-9b-awq}
       - --max-model-len=${VERIFIER_MAX_LEN:-8192}
       - --max-num-seqs=${VERIFIER_MAX_SEQS:-4}
       - --enforce-eager
@@ -124,21 +140,27 @@ services:
   model-swap-init:
     # daytime state: verifier asleep, judge awake (the gateway's first activate call confirms it)
     profiles: [gpu]
-    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0}
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}
     entrypoint: *sleep
-    command: ["http://llm-verifier:8000", "/sleep?level=1"]
-    networks: [model-net]
+    command: ["http://llm-verifier-vllm:8000", "/sleep?level=1"]
+    networks: [model-backend-net]
     restart: "no"
+    mem_limit: 256m   # a one-shot call (T-108a, D-360)
+    pids_limit: 64
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "2"}}
     depends_on:
       llm-verifier: {condition: service_healthy}
 
   judge-wake-init:
     profiles: [gpu]
-    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0}
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}
     entrypoint: *sleep
-    command: ["http://llm-service:8000", "/wake_up"]
-    networks: [model-net]
+    command: ["http://llm-service-vllm:8000", "/wake_up"]
+    networks: [model-backend-net]
     restart: "no"
+    mem_limit: 256m   # a one-shot call (T-108a, D-360)
+    pids_limit: 64
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "2"}}
     depends_on:
       model-swap-init: {condition: service_completed_successfully}
 
@@ -146,6 +168,11 @@ services:
     environment:
       TB_MODEL_SWAP: "${TB_MODEL_SWAP:-sleep}"
 
+  model-guard:
+    environment:
+      TB_GUARD_ADMIN: "1"   # the gateway's sleep swap: /sleep, /wake_up, /is_sleeping, with the key
+
   orchestrator:
     environment:
+      TB_SCREEN_LLM_CONCURRENCY: "${JUDGE_MAX_SEQS:-4}"   # SCREEN calls in flight: vLLM --max-num-seqs (D-142)
       TB_MODEL_SWAP: "${TB_MODEL_SWAP:-sleep}"

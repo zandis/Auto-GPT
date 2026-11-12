@@ -16,6 +16,10 @@
     "status": {"enum": ["draft", "approved"], "default": "draft"},
     "source_documents": {"type": "array", "items": {"type": "string"}},
     "protocol_version": {"type": "string"},
+    "protocol_date": {"type": "string", "format": "date", "description": "the date of the protocol version these criteria come from (D-364)"},
+    "effective_from": {"type": "string", "format": "date", "description": "the first site day this criteria version screens (D-364, LIFE-009): until then the box keeps screening on the version before it"},
+    "irb_reference": {"type": "string", "maxLength": 64, "description": "the IRB approval number of this protocol version as the approver typed it (D-364): a record printed with the approval, not a gate (D-311)"},
+    "irb_approved_on": {"type": "string", "format": "date", "description": "the day the IRB approved this protocol version (D-364), a record"},
     "language": {"type": "string"},
     "index_date_rule": {"enum": ["run_date", "month_end"]},
     "library": {"type": "string", "description": "CQL library name TB_<RULESET>_v<major>_<minor>"},
@@ -32,9 +36,35 @@
     "cohort": {"$ref": "#/$defs/cohort_config"},
     "population": {"$ref": "#/$defs/population_spec"},
     "nct_id": {"type": "string"},
+    "terminology_release": {"type": "string", "pattern": "^TR-[0-9a-f]{12}$", "description": "the terminology release the ruleset was compiled against (D-301): a run against another release is refused until it is recompiled"},
+    "prompt_pins": {"type": "object", "additionalProperties": {"$ref": "#/$defs/prompt_pin"}, "description": "the prompts the approved ruleset runs with, by prompt id (D-318): SCREEN runs the pinned version and text until the investigator re-approves; a newer registered version puts the study in approval needed"},
+    "derived_pins": {"type": "object", "additionalProperties": {"$ref": "#/$defs/derived_pin"}, "description": "the score definitions the approved ruleset's criteria follow, by engine score (D-442): a definition of another version or text on the box puts the study in approval needed, and until then screening reads those scores as unknown"},
     "source_last_update": {"type": "string"}
   },
   "$defs": {
+    "derived_pin": {
+      "title": "DerivedPin",
+      "description": "One score definition as the investigator approved it (D-442): the catalogue's def_version and the sha256 of its YAML.",
+      "type": "object",
+      "required": ["def_version", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "def_version": {"type": "string", "pattern": "^[a-z0-9_.]+@[0-9]+$"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "prompt_pin": {
+      "title": "PromptPin",
+      "description": "One prompt as the investigator approved it (D-318): the registry's version, text sha256 and output schema sha256.",
+      "type": "object",
+      "required": ["version", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "version": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "schema_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
     "scopes": {
       "title": "Scopes",
       "type": "object",

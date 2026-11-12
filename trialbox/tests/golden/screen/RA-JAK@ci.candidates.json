@@ -1,0 +1,775 @@
+{
+ "meta": {
+  "generator": "tools.synth_hospital profile ci + tools.public_site en",
+  "head": "e3ac1779aac2e0f5e13be8d94578e15142dc6697",
+  "lake_schema_version": 4,
+  "profile": "ci",
+  "reason": "D-442 (T-207): no eGFR under 18 (catalogue egfr_ckd_epi_2021 and egfr_jsn_2009: age < 18, do not compute); an eGFR criterion of a patient under 18 at the index date is unknown with derived_adult_only instead of met or not met",
+  "ref_date": "2026-11-01",
+  "ruleset": "RA-JAK",
+  "ruleset_version": "1.0.0",
+  "seed": 42,
+  "written_with_source": "legacy+omop"
+ },
+ "sets": {
+  "public-en": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "f33d42d99c1a795ef2f415a5d52ba9210514452cb3091891632f22d4899acaec",
+   "patients": 53,
+   "structured_criteria": [
+    "RA-JAK-INC-01",
+    "RA-JAK-INC-02",
+    "RA-JAK-INC-03",
+    "RA-JAK-INC-04",
+    "RA-JAK-EXC-01",
+    "RA-JAK-EXC-02",
+    "RA-JAK-EXC-04",
+    "RA-JAK-EXC-05",
+    "RA-JAK-EXC-06",
+    "RA-JAK-EXC-07",
+    "RA-JAK-EXC-08",
+    "RA-JAK-EXC-09",
+    "RA-JAK-EXC-10",
+    "RA-JAK-EXC-11"
+   ],
+   "verdicts": {
+    "RA-JAK-EXC-01": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-02": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    },
+    "RA-JAK-EXC-04": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    },
+    "RA-JAK-EXC-05": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-06": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-07": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-08": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-09": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-10": {
+     "met": 3,
+     "not_met": 50,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-11": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    },
+    "RA-JAK-INC-01": {
+     "met": 40,
+     "not_met": 12,
+     "unknown": 1
+    },
+    "RA-JAK-INC-02": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "RA-JAK-INC-03": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "RA-JAK-INC-04": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    }
+   }
+  },
+  "ssmix2-jp": {
+   "candidate_pids": [
+    "058011fd2d53805b32e58a91bf67a056",
+    "0fbf7cb1a064002b4fba09ca2d20560b",
+    "1edec6352d38b5c7cf3f6b97f82b8dfd",
+    "2c8b680c5ef9808113ac551527e6e344",
+    "395b9118c3f8c7e52feed1e63054564f",
+    "3d4031a755feaa95d6cb3a7d9f56e0ce",
+    "5b4354ee4a33615e25021273d159a8d0",
+    "6ab25a7c88cad12e1cb0a83b3d091135",
+    "74c10254172eb3821d8d535a387a3483",
+    "9a642144517387a2db498ec83f1a2866",
+    "b7f0cbcc041b20d6880f6dddca45015a",
+    "c3ce3faac3f223edf36eef659ec33f81",
+    "c989e1ca73a1d8b71711b2f7d0f7d82c",
+    "d4f38f3ffdf00507bdb81ae740385030"
+   ],
+   "candidates": 14,
+   "outcomes_sha": "95f82db7fe320a287a8f9bd88489f963da77b8a8273af4337150ad7a03c0bd71",
+   "patients": 400,
+   "structured_criteria": [
+    "RA-JAK-INC-01",
+    "RA-JAK-INC-02",
+    "RA-JAK-INC-03",
+    "RA-JAK-INC-04",
+    "RA-JAK-EXC-01",
+    "RA-JAK-EXC-02",
+    "RA-JAK-EXC-04",
+    "RA-JAK-EXC-05",
+    "RA-JAK-EXC-06",
+    "RA-JAK-EXC-07",
+    "RA-JAK-EXC-08",
+    "RA-JAK-EXC-09",
+    "RA-JAK-EXC-10",
+    "RA-JAK-EXC-11"
+   ],
+   "verdicts": {
+    "RA-JAK-EXC-01": {
+     "met": 38,
+     "not_met": 362,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-02": {
+     "met": 19,
+     "not_met": 68,
+     "unknown": 313
+    },
+    "RA-JAK-EXC-04": {
+     "met": 10,
+     "not_met": 47,
+     "unknown": 343
+    },
+    "RA-JAK-EXC-05": {
+     "met": 9,
+     "not_met": 391,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-06": {
+     "met": 0,
+     "not_met": 400,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-07": {
+     "met": 0,
+     "not_met": 400,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-08": {
+     "met": 31,
+     "not_met": 369,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-09": {
+     "met": 5,
+     "not_met": 395,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-10": {
+     "met": 5,
+     "not_met": 395,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-11": {
+     "met": 42,
+     "not_met": 156,
+     "unknown": 202
+    },
+    "RA-JAK-INC-01": {
+     "met": 326,
+     "not_met": 74,
+     "unknown": 0
+    },
+    "RA-JAK-INC-02": {
+     "met": 85,
+     "not_met": 315,
+     "unknown": 0
+    },
+    "RA-JAK-INC-03": {
+     "met": 63,
+     "not_met": 337,
+     "unknown": 0
+    },
+    "RA-JAK-INC-04": {
+     "met": 60,
+     "not_met": 18,
+     "unknown": 322
+    }
+   }
+  },
+  "synthetic-jp-a": {
+   "candidate_pids": [
+    "02ed9cbb930bf8c66963887f2f9515df",
+    "050ae25aeb4dc41ec93678402be075fb",
+    "074e0c0d944ee80dd101c9c896c3c26b",
+    "09ad5d105572b1d1da0354836ddb2530",
+    "0cd3ec62ceb41d6aa95862f01899edd7",
+    "0d77538cd206d7c3f81ee18ee300bd1d",
+    "0e42368c1a4247eebe82d151a95683c6",
+    "1892ac870d3a0f6d5f8ec21bf79aaa28",
+    "1afe9a0c93d540d2310cb54c880981c0",
+    "20fcc4e803832a20321a67125122073a",
+    "25d31b469e0bd1eb396c7a094e2c034c",
+    "2675ec9581e54480b03ab38c0b8ee442",
+    "26cd4fbc844df06e3b991ceb211c106a",
+    "28c1ac564579e4d9d93692bd433fd8b3",
+    "29b71059e1a8a3c56d3a53c673cfba2a",
+    "2a9de2914dfe130e01e43a39481bd1b5",
+    "2c53764fab16a95935e837a876e94c80",
+    "2d4fee9a3c5ef46520487b25f9cff5ca",
+    "2d6a366273f9bb456ec42aa26c59168c",
+    "2e7733144a5158b53d74c0cb5bdcc90f",
+    "2f342117a7a8bd3829a4cc40110e1509",
+    "345fb4e834fb2ccb63dc7ed26787b1f7",
+    "34614dd76921e9e2ba92526a6b2d646f",
+    "36c793b7018fa45553dfb425bcf4c914",
+    "387043ca31fa5d4b7cb76aa2bb4c2488",
+    "3a5422853004fae7f2e7f939be479ca2",
+    "3be5d915a616bfaab7b691b4af3567be",
+    "417f25fc77197df8bf3f85849802b8c8",
+    "4312585af39f4e01ff15da778918ecca",
+    "4517caf6bf9aec8d17643a297f14ca9c",
+    "46975616b77a9a1fbe44770021c6630e",
+    "4d7d7d968256b5ed4892536ccc25d86c",
+    "4f2e25247a963f26740c55817ee8e6c5",
+    "51b6a9beda0e8876945adee2b923474a",
+    "53fbd3a8b9b1f8144cea7e1453a49d30",
+    "58153b7887b6db7c36db398056f0a0eb",
+    "5b0689a50b2da251a737fc341f5193f7",
+    "610a024ed610e310061fba0ca51c867b",
+    "629a625dc67b91bf5f1d566c5cd6d380",
+    "635d60948137b50bff50b163198ed19e",
+    "6405d10e55af2ff66611be141c6d58f3",
+    "6c959cd712747b117bea61a0e908a9db",
+    "6c96a674eb571034f80047b2a5607123",
+    "6f6244a020879ab25af2e9b99e8df327",
+    "70a631b2beea5d512f8792574c871022",
+    "74739a7c5770dbeedc41ac8a2333737c",
+    "74aa37e85323b46632a41562a3555481",
+    "759d91520c9ccfb779868ba41d4af4cd",
+    "76d489f92ccb8551d1ee018f21d46783",
+    "7e394a8cd7559d76f23e4a306f3724a4",
+    "7e95c9780562cee66898d05340d97790",
+    "8607aec66ee0458315441762f6338685",
+    "8803eb0caa16a5fb262863cb538b8c29",
+    "8b251f5d9c6c0849684858ee72254ab3",
+    "8bc3d7e0928950aa84fd572ffd72deb6",
+    "9178c83398b44501e6d6205c91e0fa21",
+    "94adaad2550b1b070f907a5ff8b62f64",
+    "969606c8bdcc51b97ac3ea18c496bc70",
+    "9962e725d234e692b5153acfc715b9d8",
+    "9aaed08d67d70efbcc6fe8ea3fed2072",
+    "9f818bd7b96edf77b5298317e255736d",
+    "a5c7517ffc05a5be224e6ce2e7e9165d",
+    "a6041494406900f429e670d5dbcf3526",
+    "a7ab2077b762f59230828bb97f703618",
+    "abe53cbadd2e77ad9e47170afb99c15c",
+    "ac4f3fc87b1fa46f62d3fd242351de3c",
+    "b3a2e2a095ba1eae3ff5a21cd2159bec",
+    "b69d18116fcaedfb410bcf256274a623",
+    "b9b21524cb327cdf393205557ae46a31",
+    "c1bc71b51601663b6cce8fac05caee67",
+    "c4750934a7a034a50698b612d8d6c42e",
+    "c9a0cfad6dea55e545f8b793e95f5a3c",
+    "cb3c8c9014a79ee000f4fc6fdaa6c1b7",
+    "cbad0c37c33d2f2d50be3be237be331a",
+    "cc21bd026b9bd491ef44f97aef4d1e15",
+    "cc5d1752747a611c6e762266e52e6c39",
+    "d972d975ad39a621a6b9c3b4b14998db",
+    "e346254ecaf975952b3d1284bd3d79eb",
+    "e47aafa6609ad3ba050e62d281c3cca2",
+    "e604d972f92e63ce62bb130bba7cad31",
+    "e8af0e73a46348dd6aef23d38db17e17",
+    "e9a9bb26d101cb5fc0190257379ba577",
+    "ef11e7054be08370301b160184a8582a",
+    "f0ac81819b9f3adebd5c7f0cb1103251",
+    "f61c2724c3b4dc2cea1356ce5b4a11c4",
+    "f78306a72ea983aaf75aa3317ceed4df",
+    "f7c35909bad893475611a7a33b74494a",
+    "f98d30f6a9ffe6bfb42a2bc7e5707416",
+    "fd7be4962be6aaa2c61387ff84e3f27b"
+   ],
+   "candidates": 89,
+   "outcomes_sha": "b1c79f0716c06388a04ef687c6ad44321d6d6775af490ea10df510c7b3e35098",
+   "patients": 2500,
+   "structured_criteria": [
+    "RA-JAK-INC-01",
+    "RA-JAK-INC-02",
+    "RA-JAK-INC-03",
+    "RA-JAK-INC-04",
+    "RA-JAK-EXC-01",
+    "RA-JAK-EXC-02",
+    "RA-JAK-EXC-04",
+    "RA-JAK-EXC-05",
+    "RA-JAK-EXC-06",
+    "RA-JAK-EXC-07",
+    "RA-JAK-EXC-08",
+    "RA-JAK-EXC-09",
+    "RA-JAK-EXC-10",
+    "RA-JAK-EXC-11"
+   ],
+   "verdicts": {
+    "RA-JAK-EXC-01": {
+     "met": 274,
+     "not_met": 2226,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-02": {
+     "met": 112,
+     "not_met": 438,
+     "unknown": 1950
+    },
+    "RA-JAK-EXC-04": {
+     "met": 56,
+     "not_met": 351,
+     "unknown": 2093
+    },
+    "RA-JAK-EXC-05": {
+     "met": 36,
+     "not_met": 2464,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-06": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-07": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-08": {
+     "met": 175,
+     "not_met": 2305,
+     "unknown": 20
+    },
+    "RA-JAK-EXC-09": {
+     "met": 26,
+     "not_met": 2474,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-10": {
+     "met": 33,
+     "not_met": 2467,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-11": {
+     "met": 297,
+     "not_met": 912,
+     "unknown": 1291
+    },
+    "RA-JAK-INC-01": {
+     "met": 2032,
+     "not_met": 444,
+     "unknown": 24
+    },
+    "RA-JAK-INC-02": {
+     "met": 531,
+     "not_met": 1969,
+     "unknown": 0
+    },
+    "RA-JAK-INC-03": {
+     "met": 429,
+     "not_met": 2056,
+     "unknown": 15
+    },
+    "RA-JAK-INC-04": {
+     "met": 385,
+     "not_met": 106,
+     "unknown": 2009
+    }
+   }
+  },
+  "synthetic-jp-a-deletes": {
+   "candidate_pids": [
+    "02ed9cbb930bf8c66963887f2f9515df",
+    "050ae25aeb4dc41ec93678402be075fb",
+    "074e0c0d944ee80dd101c9c896c3c26b",
+    "09ad5d105572b1d1da0354836ddb2530",
+    "0cd3ec62ceb41d6aa95862f01899edd7",
+    "0d77538cd206d7c3f81ee18ee300bd1d",
+    "0e42368c1a4247eebe82d151a95683c6",
+    "1892ac870d3a0f6d5f8ec21bf79aaa28",
+    "1afe9a0c93d540d2310cb54c880981c0",
+    "20fcc4e803832a20321a67125122073a",
+    "25d31b469e0bd1eb396c7a094e2c034c",
+    "2675ec9581e54480b03ab38c0b8ee442",
+    "26cd4fbc844df06e3b991ceb211c106a",
+    "28c1ac564579e4d9d93692bd433fd8b3",
+    "29b71059e1a8a3c56d3a53c673cfba2a",
+    "2a87c6d106fd23f6a12e64f8e963a9a8",
+    "2a9de2914dfe130e01e43a39481bd1b5",
+    "2c53764fab16a95935e837a876e94c80",
+    "2d4fee9a3c5ef46520487b25f9cff5ca",
+    "2d6a366273f9bb456ec42aa26c59168c",
+    "2e7733144a5158b53d74c0cb5bdcc90f",
+    "2f342117a7a8bd3829a4cc40110e1509",
+    "345fb4e834fb2ccb63dc7ed26787b1f7",
+    "34614dd76921e9e2ba92526a6b2d646f",
+    "36c793b7018fa45553dfb425bcf4c914",
+    "387043ca31fa5d4b7cb76aa2bb4c2488",
+    "3a5422853004fae7f2e7f939be479ca2",
+    "3be5d915a616bfaab7b691b4af3567be",
+    "417f25fc77197df8bf3f85849802b8c8",
+    "4312585af39f4e01ff15da778918ecca",
+    "43df4965dcdf231074313e1486eec768",
+    "4517caf6bf9aec8d17643a297f14ca9c",
+    "46975616b77a9a1fbe44770021c6630e",
+    "49ffdaf302cc217e2f1d1388566201e0",
+    "4d7d7d968256b5ed4892536ccc25d86c",
+    "4f2e25247a963f26740c55817ee8e6c5",
+    "51b6a9beda0e8876945adee2b923474a",
+    "53fbd3a8b9b1f8144cea7e1453a49d30",
+    "58153b7887b6db7c36db398056f0a0eb",
+    "5b0689a50b2da251a737fc341f5193f7",
+    "610a024ed610e310061fba0ca51c867b",
+    "635d60948137b50bff50b163198ed19e",
+    "6405d10e55af2ff66611be141c6d58f3",
+    "6c959cd712747b117bea61a0e908a9db",
+    "6c96a674eb571034f80047b2a5607123",
+    "6f6244a020879ab25af2e9b99e8df327",
+    "70a631b2beea5d512f8792574c871022",
+    "74739a7c5770dbeedc41ac8a2333737c",
+    "74aa37e85323b46632a41562a3555481",
+    "759d91520c9ccfb779868ba41d4af4cd",
+    "76d489f92ccb8551d1ee018f21d46783",
+    "7e394a8cd7559d76f23e4a306f3724a4",
+    "7e95c9780562cee66898d05340d97790",
+    "8607aec66ee0458315441762f6338685",
+    "869b973d670289008a28745391c97b67",
+    "8803eb0caa16a5fb262863cb538b8c29",
+    "8b251f5d9c6c0849684858ee72254ab3",
+    "9178c83398b44501e6d6205c91e0fa21",
+    "94adaad2550b1b070f907a5ff8b62f64",
+    "966df944eab97e7d5dec2db2c331a226",
+    "969606c8bdcc51b97ac3ea18c496bc70",
+    "9962e725d234e692b5153acfc715b9d8",
+    "9aaed08d67d70efbcc6fe8ea3fed2072",
+    "9f818bd7b96edf77b5298317e255736d",
+    "a33dd93d07d9d44fc0d172abe0c4a64c",
+    "a5c7517ffc05a5be224e6ce2e7e9165d",
+    "a6041494406900f429e670d5dbcf3526",
+    "a7ab2077b762f59230828bb97f703618",
+    "a8469201c57535e7d2a704d4c8487236",
+    "abe53cbadd2e77ad9e47170afb99c15c",
+    "ac4f3fc87b1fa46f62d3fd242351de3c",
+    "b3a2e2a095ba1eae3ff5a21cd2159bec",
+    "b9b21524cb327cdf393205557ae46a31",
+    "c385cf7f9d3fcbaa242333b3e05255ec",
+    "c3d373432ddc7c446aee5ff3db068613",
+    "c4750934a7a034a50698b612d8d6c42e",
+    "c9a0cfad6dea55e545f8b793e95f5a3c",
+    "cb3c8c9014a79ee000f4fc6fdaa6c1b7",
+    "cc21bd026b9bd491ef44f97aef4d1e15",
+    "cc5d1752747a611c6e762266e52e6c39",
+    "ccc3a93509305431ad15742fd6604394",
+    "d972d975ad39a621a6b9c3b4b14998db",
+    "e346254ecaf975952b3d1284bd3d79eb",
+    "e47aafa6609ad3ba050e62d281c3cca2",
+    "e604d972f92e63ce62bb130bba7cad31",
+    "e6ef73a769f9a7ebffa09453d4cc52d6",
+    "e8af0e73a46348dd6aef23d38db17e17",
+    "ea125b9284fa0d2cf1eb51e9c9e885bf",
+    "ef11e7054be08370301b160184a8582a",
+    "f0ac81819b9f3adebd5c7f0cb1103251",
+    "f1072926a0ad8e0cb959dd779d3f32df",
+    "f61c2724c3b4dc2cea1356ce5b4a11c4",
+    "f78306a72ea983aaf75aa3317ceed4df",
+    "f91b73701742ae8dd6ad8ebb9bf4c85c",
+    "f98d30f6a9ffe6bfb42a2bc7e5707416",
+    "fd7be4962be6aaa2c61387ff84e3f27b"
+   ],
+   "candidates": 96,
+   "outcomes_sha": "bc0cc9f8c93a2d5d2a5a060a34a84b4cd67f9b96b78d1d455fc2917a22fe1e57",
+   "patients": 2500,
+   "structured_criteria": [
+    "RA-JAK-INC-01",
+    "RA-JAK-INC-02",
+    "RA-JAK-INC-03",
+    "RA-JAK-INC-04",
+    "RA-JAK-EXC-01",
+    "RA-JAK-EXC-02",
+    "RA-JAK-EXC-04",
+    "RA-JAK-EXC-05",
+    "RA-JAK-EXC-06",
+    "RA-JAK-EXC-07",
+    "RA-JAK-EXC-08",
+    "RA-JAK-EXC-09",
+    "RA-JAK-EXC-10",
+    "RA-JAK-EXC-11"
+   ],
+   "verdicts": {
+    "RA-JAK-EXC-01": {
+     "met": 273,
+     "not_met": 2227,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-02": {
+     "met": 107,
+     "not_met": 405,
+     "unknown": 1988
+    },
+    "RA-JAK-EXC-04": {
+     "met": 54,
+     "not_met": 325,
+     "unknown": 2121
+    },
+    "RA-JAK-EXC-05": {
+     "met": 33,
+     "not_met": 2467,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-06": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-07": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-08": {
+     "met": 145,
+     "not_met": 2345,
+     "unknown": 10
+    },
+    "RA-JAK-EXC-09": {
+     "met": 23,
+     "not_met": 2477,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-10": {
+     "met": 28,
+     "not_met": 2472,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-11": {
+     "met": 290,
+     "not_met": 815,
+     "unknown": 1395
+    },
+    "RA-JAK-INC-01": {
+     "met": 2045,
+     "not_met": 447,
+     "unknown": 8
+    },
+    "RA-JAK-INC-02": {
+     "met": 518,
+     "not_met": 1982,
+     "unknown": 0
+    },
+    "RA-JAK-INC-03": {
+     "met": 415,
+     "not_met": 2085,
+     "unknown": 0
+    },
+    "RA-JAK-INC-04": {
+     "met": 268,
+     "not_met": 64,
+     "unknown": 2168
+    }
+   }
+  },
+  "synthetic-tw-a": {
+   "candidate_pids": [
+    "055d9dd8d3f6d39b1c45aa4f893b2f45",
+    "06f8cfe3248a0ae857ebf81b87a74de9",
+    "0730dd9912fb9d73aa49667a3bdbc4c8",
+    "0ab52f1b24da875d773ef520a25158ef",
+    "0b32616801ab7d06d82183915d753133",
+    "0d1567ff4c012223ebc0a0800dd1d42c",
+    "0f20f179941dd63bb664ec9307e74dc8",
+    "16268f8affef5ec163b711dd54cd979c",
+    "198befeb62caa6b5e0f85771506232da",
+    "1f3923046a06f4a2cc5f0f235792661c",
+    "1fbeb3ce0534200054b3276a58dc84c9",
+    "212a109fda3f04154ab3b161af1b312f",
+    "216e3a6c6c08b5f8a354b93cb2253b63",
+    "22e35979a3efca179b7412ac0881e957",
+    "25aeebb9336d55789aeed718659f9437",
+    "25c3dc12c4cb168e2d16c98d0a8787c1",
+    "2bb22b25ca640a2fc43dfcb215491cae",
+    "2e1edc6db6cf3042e1f4b2880d4ede8b",
+    "395eb6456935febb96f3047afbae5d71",
+    "3999ae7c1142952a899a3646a2087bd3",
+    "3cf583a6c3bef56a37d009c0992c04ca",
+    "3e49006e0553b8a5d9285ddd8ab1fcb8",
+    "3ebb1d7e1fd80a58b814c6832cdda6a5",
+    "3f16550c959d75f75306c19114fe6a5a",
+    "470fd352a2e5773c3504ece35c197b6e",
+    "4cb6073495e8429be24f830aaaaa2fb1",
+    "4dcd7765476f94bc59ebcd541a281712",
+    "577f0b1e526eda518b9db8cefe19c979",
+    "5ab92ecc18870abdec4caeef3adce813",
+    "5cf7e4dff1f53058d12ec11b9253b7a0",
+    "6199ce3c947e18d5e08e3b231f7feda7",
+    "65717c7608d0fbd0296964a2025fdcb3",
+    "659e9c31a2c499f7f58b30439e184f9c",
+    "699a60aafde489657dea664422575e3a",
+    "6d10298e7d96179b484f4dd46338e41c",
+    "6d907758fa325e151b24cc7f7cd3fa4b",
+    "6e325cb1c2a429d393beb13038eae385",
+    "6ea88ca87526e6496d0b5b93966c77ea",
+    "73a2332d5a280d418fc5754de1914633",
+    "76ddd616615bcce8dd53f024b51de713",
+    "84316c5c29d4a462e64d56059fe09cfd",
+    "871a0dbfa86f2357d93f369bd0c619c2",
+    "881eeaab290b757f52b61182fc043cfd",
+    "8b93cc4cac66c334803df4391869af70",
+    "8bdb9a5ca9293268bee6be4c79b6bb46",
+    "9144ebdef77cbb3cfb2b84c22df0db71",
+    "9384d5ae675db2da2627f72f410022a1",
+    "94d2b027c5671050fa7c8df0db4893d8",
+    "96f00f1faaee28a8d0f9c99e8da0c59e",
+    "97046dcbd38cce08331000624177d4b2",
+    "9816ecf8b4a7325a6c403ae621cc00b0",
+    "9af601b1104574572421c23fe12d1e35",
+    "9ca73746d32f1d84d3e4347f6afee43f",
+    "a236aef675996cdac1cc75c5b244dd54",
+    "a61c3f92985c159d441631435d560ec9",
+    "a9dfbbb1b8d12962ae149eab9b0a267b",
+    "b1a96dfabb10ae0e264fa1950f9d913f",
+    "b2e0b69f98a8eaf9c1461d8c726ef0db",
+    "b491c130eaa918248624aee0c3277392",
+    "b591084c66a1f3acbbe66c0d2b0e746b",
+    "b8a4022736d0988b804927aeeb088b79",
+    "b91c6d613c74fdea11b4c2391d2673cd",
+    "bc926bfbdccbccb1bbda9bf232d5cf54",
+    "be569ee1c8de75dc4af79a6398d44b30",
+    "c19bd8c6ea59bfe789966ae16cbe274f",
+    "c2778154ff0ed331c7c579fbc514c1e8",
+    "c5f5dede9c7ed638a5b09d0dfa0aea69",
+    "c71c6dc388cf53ad40778e1a3345802a",
+    "ccd745fb9d9dd816806933d530dc3d13",
+    "d067104e732439b7dcb0d99d4674433d",
+    "d43a8cc2f5731f0d6b8f31e1964ce35d",
+    "db4c870511da378ce8769d9a4cfbbbd4",
+    "db8cf4c1e9cd4628eb3a0c7330b671ef",
+    "e2e41a593db826666d3700b8f288a263",
+    "e581b53eb86ba6003ea6c8e66287a2e3",
+    "e85d0b492c0513ea9fcf1460726ab327",
+    "ea30c261805720fd6bb47dbb17795933",
+    "ee0534d1ed12be22546a4723233c492d",
+    "eee4d4875db95b2128d27dc1f7ead0e5",
+    "efa257bbcce606624858e3e569e60208",
+    "efcd6101e1ef80ba7504f5587d6bc1ce",
+    "f07a67707a247dd6dcaaf299891e790f",
+    "f783e665e486590ad75c30ecaf4019d0",
+    "f84a3a49ac6d94ff7675b1f59b406cf6",
+    "f8fb2525e30c02f8071a7a7005e4c192",
+    "fa2efd1ed5627ac07b7fe164e4800f78"
+   ],
+   "candidates": 86,
+   "outcomes_sha": "427201f483636f53ec9fb3ece43a88fdf64621d8d3239bc8c88fb5faaf00c286",
+   "patients": 2500,
+   "structured_criteria": [
+    "RA-JAK-INC-01",
+    "RA-JAK-INC-02",
+    "RA-JAK-INC-03",
+    "RA-JAK-INC-04",
+    "RA-JAK-EXC-01",
+    "RA-JAK-EXC-02",
+    "RA-JAK-EXC-04",
+    "RA-JAK-EXC-05",
+    "RA-JAK-EXC-06",
+    "RA-JAK-EXC-07",
+    "RA-JAK-EXC-08",
+    "RA-JAK-EXC-09",
+    "RA-JAK-EXC-10",
+    "RA-JAK-EXC-11"
+   ],
+   "verdicts": {
+    "RA-JAK-EXC-01": {
+     "met": 253,
+     "not_met": 2247,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-02": {
+     "met": 124,
+     "not_met": 429,
+     "unknown": 1947
+    },
+    "RA-JAK-EXC-04": {
+     "met": 58,
+     "not_met": 359,
+     "unknown": 2083
+    },
+    "RA-JAK-EXC-05": {
+     "met": 42,
+     "not_met": 2458,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-06": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-07": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-08": {
+     "met": 183,
+     "not_met": 2299,
+     "unknown": 18
+    },
+    "RA-JAK-EXC-09": {
+     "met": 25,
+     "not_met": 2475,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-10": {
+     "met": 23,
+     "not_met": 2477,
+     "unknown": 0
+    },
+    "RA-JAK-EXC-11": {
+     "met": 311,
+     "not_met": 899,
+     "unknown": 1290
+    },
+    "RA-JAK-INC-01": {
+     "met": 1983,
+     "not_met": 493,
+     "unknown": 24
+    },
+    "RA-JAK-INC-02": {
+     "met": 532,
+     "not_met": 1968,
+     "unknown": 0
+    },
+    "RA-JAK-INC-03": {
+     "met": 409,
+     "not_met": 2072,
+     "unknown": 19
+    },
+    "RA-JAK-INC-04": {
+     "met": 401,
+     "not_met": 111,
+     "unknown": 1988
+    }
+   }
+  }
+ }
+}

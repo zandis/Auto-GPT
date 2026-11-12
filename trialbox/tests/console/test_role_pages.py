@@ -24,6 +24,7 @@ from tests.console.test_console_app import (  # noqa: F401 - the fixture is used
     _ulid,
     box,
     login,
+    name_pi,
 )
 
 PW = "role-pages-password-01"
@@ -154,7 +155,7 @@ def test_feas_report_applies_screen_failure_and_target() -> None:
 
 
 def test_site_store_profile_marks_and_seen(tmp_path: Path) -> None:
-    s = SiteStore(tmp_path / "site.sqlite")
+    s = SiteStore()
     assert s.profile("GZQO").missing == ["capability", "competing", "target"]
     s.save_profile(
         "GZQO", SiteProfile(target_n=6, capabilities={"amyloid_pet": {"value": "partner", "note": ""}}), "crc1", "t"
@@ -180,9 +181,10 @@ def test_each_role_lands_on_its_own_home_with_at_most_four_items(box: dict[str, 
     r = crc.get("/")
     assert r.url.path == "/home" and 'data-testid="study-GZQO"' in r.text and 'data-testid="next-GZQO"' in r.text
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     r = pi.get("/")
     assert r.url.path == "/studies/GZQO/week"
-    cro = _user(box, "cra1", "cro", affiliation="cro")
+    cro = _user(box, "cra1", "cro", affiliation="cro", studies="GZQO")
     r = cro.get("/")
     assert r.url.path == "/reports" and 'data-testid="cro-note"' in r.text
     for c in (admin, crc, pi, cro):
@@ -227,13 +229,14 @@ def test_feasibility_report_sections_site_fields_and_sponsor_view(box: dict[str,
 def test_weekly_list_marks_and_patient_page_in_three_languages(box: dict[str, Any]) -> None:
     _done_screen(box["backend"], _ulid(951))
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     page = pi.get("/studies/GZQO/week").text
     assert 'data-testid="row-aaaaaaaa"' in page and 'data-testid="row-bbbbbbbb"' in page
     assert page.index("row-aaaaaaaa") < page.index("row-bbbbbbbb")  # booked visit first, no visit last
     assert "cccccccc" not in page  # excluded tier never listed
     r = pi.post(
         f"/studies/GZQO/patients/{'b' * 32}/mark",
-        data={"csrf": _csrf(page), "mark": "not_suitable", "reason": "partner"},
+        data={"csrf": _csrf(page), "mark": "not_suitable", "reason": "comorbidity"},
         follow_redirects=True,
     )
     assert 'data-testid="row-bbbbbbbb"' not in r.text  # not suitable leaves the list
@@ -241,18 +244,28 @@ def test_weekly_list_marks_and_patient_page_in_three_languages(box: dict[str, An
         f"/studies/GZQO/patients/{'a' * 32}/mark", data={"csrf": _csrf(page), "mark": "approach"}, follow_redirects=True
     )
     assert 'data-testid="mark-aaaaaaaa"' in r.text
-    events = [json.loads(x) for f in sorted((box["dir"] / "audit").glob("*")) for x in f.read_text().splitlines() if x]
+    events = [
+        json.loads(x) for f in sorted((box["dir"] / "audit").glob("*.jsonl")) for x in f.read_text().splitlines() if x
+    ]
     assert sum(1 for e in events if e.get("event") == "console.pi_mark") == 2
     p = pi.get(f"/studies/GZQO/patients/{'a' * 32}").text
     assert "two flares this spring" in p and 'data-testid="criteria"' in p
-    r = pi.post(f"/studies/GZQO/patients/{'a' * 32}/reveal", data={"csrf": _csrf(p)})
+    # D-143 (owner, 2026-11-09, reversing D-133): the investigator has full authorisation for the study's patients
+    assert 'data-testid="reveal"' in p
+    r = pi.post(f"/studies/GZQO/patients/{'a' * 32}/reveal", data={"csrf": _csrf(p), "reason": ""})
+    assert r.status_code == 400 and not box["backend"].revealed  # a reason, always
+    r = pi.post(f"/studies/GZQO/patients/{'a' * 32}/reveal", data={"csrf": _csrf(p), "reason": "contact"})
     assert "MRN-000123" in r.text and box["backend"].revealed[-1][2] == "console:drsato"
     crc = _user(box, "crc1", "coordinator")
+    cp = crc.get(f"/studies/GZQO/patients/{'a' * 32}").text
+    assert 'data-testid="reveal"' in cp and "recorded with your name" in cp
+    r = crc.post(f"/studies/GZQO/patients/{'a' * 32}/reveal", data={"csrf": _csrf(cp), "reason": "contact"})
+    assert "MRN-000123" in r.text and box["backend"].revealed[-1][2] == "console:crc1"
     r = crc.post(
         f"/studies/GZQO/patients/{'a' * 32}/mark", data={"csrf": _csrf(crc.get("/home").text), "mark": "approach"}
     )
     assert r.status_code == 403  # marks are the investigator's
-    for lang, word in (("ja", "今週の候補患者リスト"), ("zh-TW", "本週候選病人名單")):
+    for lang, word in (("ja", "今週の患者"), ("zh-TW", "本週病人")):  # D-133: one name per page
         pi.post("/lang", data={"csrf": _csrf(page), "lang": lang, "back": "/studies/GZQO/week"})
         assert word in pi.get("/studies/GZQO/week").text
     # D-119: a row's reason is a code, said in the page's language, never the English token
@@ -263,7 +276,7 @@ def test_weekly_list_marks_and_patient_page_in_three_languages(box: dict[str, An
 def test_cro_and_scoped_accounts_see_only_what_they_may(box: dict[str, Any]) -> None:
     feas = _done_feas(box["backend"])
     _done_screen(box["backend"], _ulid(952))
-    cro = _user(box, "cra1", "cro", affiliation="cro")
+    cro = _user(box, "cra1", "cro", affiliation="cro", studies="GZQO")
     assert cro.get("/studies/GZQO/feasibility").status_code == 200
     assert 'data-testid="sponsor-banner"' in cro.get("/studies/GZQO/feasibility").text  # always the sponsor copy
     for path in (
@@ -314,7 +327,7 @@ def test_expired_sso_account_is_refused(tmp_path: Path) -> None:
 
     backend = FakeBackend()
     backend.audit_dir = tmp_path / "audit"
-    users = UserStore(tmp_path / "c.sqlite")
+    users = UserStore()
     users.create("admin", "admin", ADMIN_PW, "admin@hospa.test")
     app = create_app(
         {**SSO_ENV, "TB_CONSOLE_DIR": str(tmp_path)}, backend=backend, audit=AuditLog(backend.audit_dir), users=users
@@ -397,6 +410,7 @@ def test_pi_workbench_selects_marks_and_creates_coordinator_task(box: dict[str, 
     _done_feas(box["backend"])
     _done_screen(box["backend"], _ulid(953))
     pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     page = pi.get("/studies/GZQO/week?list=all")
     assert page.status_code == 200 and 'data-testid="workbench"' in page.text and 'data-testid="chart"' in page.text
     assert 'data-testid="steps"' in page.text and 'data-testid="list-review"' in page.text
@@ -447,9 +461,54 @@ def test_public_data_banner_own_studies_and_site_labels(tmp_path: Path) -> None:
     assert ConsoleSettings.from_env(base).data_source == "synthetic" and ConsoleSettings.from_env(base).studies == ()
     for lang in ("en", "ja", "zh-TW"):
         words = CATALOGUES[lang]["pilot.banner.public"]
-        assert "D0" in words and words != CATALOGUES[lang]["pilot.banner"]
-    store = SiteStore(tmp_path / "site.sqlite")
+        # T-685 (UX-041): plain words, no "TB_ENV" or "D0" (the footer names both)
+        assert "TB_ENV" not in words and "D0" not in words and words != CATALOGUES[lang]["pilot.banner"]
+    store = SiteStore()
     store.save_label("pub-onc", "PUB-ONC-INC-01", "ja", "18歳以上", "crc", "2026-11-08T00:00:00Z")
     assert store.labels("PUB-ONC", "ja") == {"PUB-ONC-INC-01": "18歳以上"} and store.labels("PUB-ONC", "zh-TW") == {}
     store.save_label("PUB-ONC", "PUB-ONC-INC-01", "ja", "", "crc", "2026-11-08T00:00:01Z")  # empty clears it
     assert store.labels("PUB-ONC", "ja") == {}
+
+
+def test_api_v1_does_what_the_pages_do_with_a_bearer_token(box: dict[str, Any]) -> None:
+    """D-125/D-127 (review F-07): the phone and desktop apps use /api/v1; the same rules as the pages apply."""
+    from fastapi.testclient import TestClient
+
+    _done_screen(box["backend"], _ulid(952))
+    _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
+    _user(box, "crc1", "coordinator")
+    api = TestClient(box["app"])
+    assert api.get("/api/v1/studies").status_code == 401
+    assert api.post("/api/v1/session", json={"username": "drsato", "password": "wrong"}).status_code == 401
+    tok = api.post("/api/v1/session", json={"username": "drsato", "password": PW}).json()["token"]
+    pi = {"Authorization": f"Bearer {tok}"}
+    assert "GZQO" in [s["id"] for s in api.get("/api/v1/studies", headers=pi).json()]
+    rows = api.get("/api/v1/studies/GZQO/patients", headers=pi).json()["patients"]
+    assert {r["pid"][:8] for r in rows} >= {"aaaaaaaa", "bbbbbbbb"} and all("mrn" not in r for r in rows)
+    r = api.post(f"/api/v1/studies/GZQO/patients/{'a' * 32}/mark", json={"mark": "approach"}, headers=pi)
+    assert r.status_code == 200 and r.json()["screening_no"]
+    assert (
+        api.post(f"/api/v1/studies/GZQO/patients/{'a' * 32}/mark", json={"mark": "bogus"}, headers=pi).json()["error"]
+        == "request.refused"
+    )
+    crc_tok = api.post("/api/v1/session", json={"username": "crc1", "password": PW}).json()["token"]
+    crc = {"Authorization": f"Bearer {crc_tok}"}
+    r = api.post(f"/api/v1/studies/GZQO/patients/{'a' * 32}/mark", json={"mark": "approach"}, headers=crc)
+    assert r.status_code == 403  # marks stay the investigator's, through the API as on the page
+    r = api.post(f"/api/v1/studies/GZQO/patients/{'a' * 32}/outcome", json={"outcome": "not_reached"}, headers=crc)
+    assert r.status_code == 200
+    log = api.get("/api/v1/studies/GZQO/screening-log", headers=crc).json()
+    assert any(x["pid"].startswith("aaaaaaaa") for x in log)
+    # D-143: the investigator reveals through /api/v1 as on the page (reason, audit); a viewer never does
+    r = api.post(f"/api/v1/studies/GZQO/patients/{'a' * 32}/reveal", json={"reason": "contact"}, headers=pi)
+    assert r.status_code == 200 and r.json()["mrn"] == "MRN-000123"
+    assert box["backend"].revealed[-1][2] == "console:drsato"
+    assert api.post(f"/api/v1/studies/GZQO/patients/{'a' * 32}/reveal", json={}, headers=pi).status_code == 400
+    v_tok = api.post("/api/v1/session", json={"username": "viewer", "password": "viewer-password-0001"}).json()
+    v = {"Authorization": f"Bearer {v_tok['token']}"}
+    n = len(box["backend"].revealed)
+    r = api.post(f"/api/v1/studies/GZQO/patients/{'a' * 32}/reveal", json={"reason": "contact"}, headers=v)
+    assert r.status_code == 403 and len(box["backend"].revealed) == n
+    api.delete("/api/v1/session", headers=pi)
+    assert api.get("/api/v1/studies", headers=pi).status_code == 401

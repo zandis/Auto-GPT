@@ -1,0 +1,308 @@
+"""The supply-chain allow-list (D-186): ``deploy/supply-chain-allowlist.yaml``.
+
+A finding is accepted only by a written entry: which package, why, and until when. Two lists:
+
+    vulnerabilities:
+      - id: GHSA-xxxx-xxxx-xxxx          # or CVE-..., PYSEC-...; matches the finding id or any alias
+        package: pillow                  # required: the entry covers this package only
+        reason: Not reachable: ...       # required, a sentence a reviewer can check
+        review_by: 2027-01-31            # required ISO date, at most 180 days ahead; after it the gate fails
+        owner: security owner            # optional
+        image: hapiproject/hapi          # optional (T-110b): accepts the finding in this image repository only
+    licences:
+      - package: psycopg
+        class: lgpl                      # lgpl, gpl, agpl, unknown or dual, as the licence report flags it
+        reason: Used unmodified as an installed package; licence text in the notices
+        review_by: 2027-05-01
+      - package: dulwich
+        class: dual
+        chosen: Apache-2.0               # dual: the permissive branch taken; it must be one the package offers
+        reason: ...
+        review_by: 2027-05-01
+      - package: matplotlib
+        class: unknown
+        licence: PSF-based matplotlib licence (classifier Python Software Foundation License; LICENSE read)
+        reason: ...                      # unknown: ``licence`` records what a person verified
+        review_by: 2027-05-01
+
+    budgets:                             # open licence flags counted per image and ecosystem (licences.evaluate)
+      - image: trialbox-jvm              # an image repository, or requirements.lock
+        ecosystem: maven                 # a purl type; "*" (all) for a third-party image only
+        max: 68                          # more fails; never pypi or npm (or "*") for our own images
+        reason: ...
+        review_by: 2027-02-01
+
+The checker rejects an entry with no reason, a reason shorter than 20 characters, no or a bad ``review_by``, a date
+in the past or more than 180 days ahead, an unknown or duplicate key, a duplicate entry, a vulnerability entry without
+a package, a dual entry without ``chosen``, and an unknown entry without ``licence``. "Today" is the build machine's
+date (``today()``); there is no override on the command line.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[2]
+ALLOWLIST = ROOT / "deploy" / "supply-chain-allowlist.yaml"
+MIN_REASON = 20
+MAX_AHEAD_DAYS = 180
+LICENCE_CLASSES = ("lgpl", "gpl", "agpl", "unknown", "dual")
+
+_VULN_KEYS = {"id", "package", "reason", "review_by", "owner", "image"}
+_LIC_KEYS = {"package", "class", "chosen", "licence", "reason", "review_by", "owner"}
+_BUDGET_KEYS = {"image", "ecosystem", "max", "reason", "review_by", "owner"}
+# in our own images and the lock, an unknown licence in these ecosystems is never budgeted: each needs an entry
+STRICT_ECOSYSTEMS = ("pypi", "npm")
+LOCK_SUBJECT = "requirements.lock"
+
+
+def is_own(subject: str) -> bool:
+    """Our images (trialbox-*, in any registry) and the Python lock: the strict licence rules apply."""
+    return subject == LOCK_SUBJECT or subject.rsplit("/", 1)[-1].startswith("trialbox-")
+
+
+def today() -> dt.date:
+    """The date entries are judged against (tests replace this function)."""
+    return dt.date.today()
+
+
+@dataclass(frozen=True)
+class VulnEntry:
+    id: str
+    package: str
+    reason: str
+    review_by: dt.date
+    image: str | None = None  # an image repository: the entry accepts the finding in that image only (T-110b)
+
+
+@dataclass(frozen=True)
+class LicenceEntry:
+    package: str
+    cls: str
+    reason: str
+    review_by: dt.date
+    chosen: str | None = None
+    licence: str | None = None
+
+
+@dataclass(frozen=True)
+class BudgetEntry:
+    image: str  # the SBOM subject: an image repository ("trialbox-jvm", "vllm/vllm-openai") or "requirements.lock"
+    ecosystem: str  # a purl type ("maven", "golang", "cargo", "generic"...) or "*" (a third-party image only)
+    max: int
+    reason: str
+    review_by: dt.date
+
+
+@dataclass
+class Allowlist:
+    vulnerabilities: list[VulnEntry]
+    licences: list[LicenceEntry]
+    budgets: list[BudgetEntry] = field(default_factory=list)
+
+    def vuln(self, ids: set[str], package: str, subject: str | None = None) -> VulnEntry | None:
+        """The entry accepting a finding known by any of ``ids`` in ``package``, if one does. An entry scoped to an
+        image accepts it only when ``subject`` (the scanned image reference) is that image."""
+        wanted = {i.upper() for i in ids}
+        for e in self.vulnerabilities:
+            if e.id.upper() in wanted and e.package == norm(package) and image_matches(e.image, subject):
+                return e
+        return None
+
+    def licence(self, package: str, cls: str) -> LicenceEntry | None:
+        for e in self.licences:
+            if e.package == norm(package) and e.cls == cls:
+                return e
+        return None
+
+    def budget(self, subject: str, ecosystem: str) -> BudgetEntry | None:
+        """The budget for open licence flags of ``ecosystem`` in the SBOM of ``subject``, if one is written."""
+        for e in self.budgets:
+            if (subject == e.image or subject.endswith("/" + e.image)) and e.ecosystem in (ecosystem, "*"):
+                return e
+        return None
+
+
+def image_repository(ref: str) -> str:
+    """``hapiproject/hapi:v8@sha256:..`` -> ``hapiproject/hapi``; ``localhost:5000/x:1`` -> ``localhost:5000/x``."""
+    ref = ref.split("@", 1)[0]
+    head, _, last = ref.rpartition("/")
+    name = last.split(":", 1)[0]
+    return f"{head}/{name}" if head else name
+
+
+def image_matches(scope: str | None, subject: str | None) -> bool:
+    """An unscoped entry matches everywhere; a scoped one only the scanned image of that repository (any registry)."""
+    if scope is None:
+        return True
+    if not subject:
+        return False
+    repo = image_repository(subject)
+    return repo == scope or repo.endswith("/" + scope)
+
+
+def norm(name: str) -> str:
+    """PEP 503 name form, so ``Pillow`` and ``pillow`` match."""
+    return name.strip().lower().replace("_", "-").replace(".", "-")
+
+
+class _StrictLoader(yaml.SafeLoader):
+    """SafeLoader that refuses a mapping with the same key twice (the second would silently win)."""
+
+
+def _no_duplicates(loader: _StrictLoader, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
+    keys: set[Any] = set()
+    for key_node, _ in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in keys:
+            raise yaml.constructor.ConstructorError(None, None, f"duplicate key {key!r}", key_node.start_mark)
+        keys.add(key)
+    return dict(loader.construct_pairs(node, deep=deep))
+
+
+_StrictLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicates)
+
+
+def _date(value: Any) -> dt.date | None:
+    if isinstance(value, dt.datetime):
+        return value.date()
+    if isinstance(value, dt.date):
+        return value
+    if isinstance(value, str):
+        try:
+            return dt.date.fromisoformat(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def _text(raw: dict[str, Any], key: str) -> str | None:
+    value = raw.get(key)
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _common(where: str, raw: dict[str, Any], keys: set[str], on: dt.date | None) -> tuple[list[str], dt.date | None]:
+    errors = [f"{where}: unknown key {k!r}" for k in sorted(set(raw) - keys, key=str)]
+    reason = raw.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        errors.append(f"{where}: no reason; every entry must say why it is accepted")
+    elif len(reason.strip()) < MIN_REASON:
+        errors.append(f"{where}: reason {reason.strip()!r} is too short (at least {MIN_REASON} characters)")
+    when = _date(raw.get("review_by"))
+    if when is None:
+        errors.append(f"{where}: review_by must be an ISO date (YYYY-MM-DD), got {raw.get('review_by')!r}")
+    elif on is not None:
+        if when < on:
+            errors.append(f"{where}: review_by {when} has passed; review the entry or remove it")
+        elif (when - on).days > MAX_AHEAD_DAYS:
+            errors.append(f"{where}: review_by {when} is more than {MAX_AHEAD_DAYS} days ahead")
+    return errors, when
+
+
+def parse(data: Any, *, today: dt.date | None) -> tuple[Allowlist, list[str]]:
+    """Validate an allow-list document. ``today=None`` checks structure only (no dates), for tests of the file."""
+    errors: list[str] = []
+    out = Allowlist(vulnerabilities=[], licences=[])
+    if data is None:
+        return out, errors
+    if not isinstance(data, dict):
+        return out, ["the allow-list must be a mapping with 'vulnerabilities' and 'licences'"]
+    errors += [
+        f"unknown top-level key {k!r}" for k in sorted(set(data) - {"vulnerabilities", "licences", "budgets"}, key=str)
+    ]
+    lists: dict[str, list[Any]] = {}
+    for list_key in ("vulnerabilities", "licences", "budgets"):
+        value = data.get(list_key)
+        if value is None:
+            lists[list_key] = []
+        elif isinstance(value, list):
+            lists[list_key] = value
+        else:
+            errors.append(f"'{list_key}' must be a list, got {type(value).__name__}")
+            lists[list_key] = []
+    seen: set[tuple[str, str, str | None]] = set()
+    for i, raw in enumerate(lists["vulnerabilities"]):
+        if not isinstance(raw, dict):
+            errors.append(f"vulnerabilities[{i}]: must be a mapping")
+            continue
+        vid, pkg, img = _text(raw, "id"), _text(raw, "package"), _text(raw, "image")
+        where = f"vulnerabilities[{i}] ({vid})" if vid else f"vulnerabilities[{i}]"
+        errs, when = _common(where, raw, _VULN_KEYS, today)
+        if "image" in raw and (img is None or img != image_repository(img)):
+            errs.append(f"{where}: image must be an image repository without tag or digest, got {raw.get('image')!r}")
+        if not vid:
+            errs.append(f"{where}: no id")
+        if not pkg:
+            errs.append(f"{where}: no package; an entry covers one package")
+        if vid and pkg:
+            key = (vid.upper(), norm(pkg), img)
+            if key in seen:
+                errs.append(f"{where}: duplicate entry")
+            seen.add(key)
+        errors += errs
+        if not errs and when is not None and vid and pkg:
+            out.vulnerabilities.append(VulnEntry(vid, norm(pkg), str(raw["reason"]).strip(), when, img))
+    seen_l: set[tuple[str, str]] = set()
+    for i, raw in enumerate(lists["licences"]):
+        if not isinstance(raw, dict):
+            errors.append(f"licences[{i}]: must be a mapping")
+            continue
+        pkg, cls = _text(raw, "package"), raw.get("class")
+        where = f"licences[{i}] ({pkg})"
+        errs, when = _common(where, raw, _LIC_KEYS, today)
+        if not pkg:
+            errs.append(f"{where}: no package")
+        if cls not in LICENCE_CLASSES:
+            errs.append(f"{where}: class must be one of {', '.join(LICENCE_CLASSES)}, got {cls!r}")
+        chosen, licence = _text(raw, "chosen"), _text(raw, "licence")
+        if cls == "dual" and not chosen:
+            errs.append(f"{where}: a dual entry must name the chosen permissive branch in 'chosen'")
+        if cls != "dual" and "chosen" in raw:
+            errs.append(f"{where}: 'chosen' belongs to dual entries only")
+        if cls == "unknown" and not licence:
+            errs.append(f"{where}: an unknown entry must record the verified licence in 'licence'")
+        if pkg and isinstance(cls, str):
+            key_l = (norm(pkg), cls)
+            if key_l in seen_l:
+                errs.append(f"{where}: duplicate entry")
+            seen_l.add(key_l)
+        errors += errs
+        if not errs and when is not None and pkg and isinstance(cls, str):
+            out.licences.append(LicenceEntry(norm(pkg), cls, str(raw["reason"]).strip(), when, chosen, licence))
+    seen_b: set[tuple[str, str]] = set()
+    for i, raw in enumerate(lists["budgets"]):
+        if not isinstance(raw, dict):
+            errors.append(f"budgets[{i}]: must be a mapping")
+            continue
+        image, eco, top = _text(raw, "image"), _text(raw, "ecosystem"), raw.get("max")
+        where = f"budgets[{i}] ({image} {eco})"
+        errs, when = _common(where, raw, _BUDGET_KEYS, today)
+        if not image or not eco:
+            errs.append(f"{where}: needs image and ecosystem")
+        if not isinstance(top, int) or isinstance(top, bool) or top < 0:
+            errs.append(f"{where}: max must be a whole number of components, 0 or more")
+        if image and eco and is_own(image) and (eco in STRICT_ECOSYSTEMS or eco == "*"):
+            errs.append(f"{where}: unknown {eco} licences in our own images are not budgeted; write an entry each")
+        if image and eco:
+            if (image, eco) in seen_b:
+                errs.append(f"{where}: duplicate entry")
+            seen_b.add((image, eco))
+        errors += errs
+        if not errs and when is not None and image and eco and isinstance(top, int):
+            out.budgets.append(BudgetEntry(image, eco, top, str(raw["reason"]).strip(), when))
+    return out, errors
+
+
+def load(path: Path = ALLOWLIST, *, today: dt.date | None) -> tuple[Allowlist, list[str]]:
+    if not path.is_file():
+        return Allowlist([], []), [f"{path} is missing"]
+    try:
+        data = yaml.load(path.read_text(encoding="utf-8"), Loader=_StrictLoader)
+    except yaml.YAMLError as exc:
+        return Allowlist([], []), [f"{path} is not valid YAML: {exc}"]
+    return parse(data, today=today)

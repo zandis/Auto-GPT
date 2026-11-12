@@ -1,0 +1,22 @@
+{
+ "action": "order HBV DNA if anti-HBc is positive",
+ "class": "human",
+ "human_question": "If anti-HBc is positive, is HBV DNA detectable?",
+ "id": "RA-JAK-EXC-03",
+ "kind": "exclusion",
+ "label": "Anti-HBc with HBV DNA",
+ "logic": {
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "review": {
+  "at": "2026-11-11T04:31:43.359347+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-JAK",
+ "source_ref": "5.2 Exclusion Criteria 排除條件 #3",
+ "text": "Positive hepatitis B core antibody (anti-HBc) with detectable HBV DNA.",
+ "time_sensitive": false
+}

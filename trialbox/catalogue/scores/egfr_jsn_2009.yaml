@@ -1,0 +1,27 @@
+score_id: neph.egfr_jsn_2009
+name: {en: eGFR Japanese equation (JSN 2009), ja: eGFRcreat（日本腎臓学会 2009）, zh_tw: eGFR（日本腎臟學會 2009）}
+version: 1
+formula_kind: power_product
+inputs:
+  - {role: scr, item: lab.creatinine, unit: mg/dL, required: true, anchor: true, note: "enzymatic, IDMS-traceable creatinine as used in Japan"}
+  - {role: age, item: "PERSON → age at measurement", unit: a, required: true, note: "adults ≥ 18"}
+  - {role: sex, item: "PERSON gender_concept_id", unit: coded, required: true}
+formula: "194 × scr^-1.094 × age^-0.287 × (0.739 if female)"
+coefficients: {constant: 194, scr_exp: -1.094, age_exp: -0.287, female_factor: 0.739}
+output: {unit: "mL/min/{1.73_m2}", min: 1, max: 200}
+rounding: "one decimal (the JSN 早見表 prints one decimal)"
+edge_cases:
+  - "age < 18: no row (pediatric JSN equations exist, not defined here)"
+  - "the 5-variable JSN equation (adds albumin and urea nitrogen) is more accurate but not routine; not implemented"
+  - "JP laboratory reports usually print this eGFR already; the derived row is computed only when absent and is marked derived"
+interpretation: "CKD診療ガイド: ≥ 90 G1, 60-89 G2, 45-59 G3a, 30-44 G3b, 15-29 G4, < 15 G5 (same as KDIGO)"
+examples:
+  - inputs: {scr_mg_dL: 1.0, age: 50, sex: male}
+    expected: {egfr: 63.1}
+    source: "eGFR 早見表 reproduced by Okayama City (derived from 日本腎臓学会 CKD診療ガイド2023) and by Kagoshima Prefecture (computed from the formula); both read 2026-11-09"
+    source_grade: secondary
+sources:
+  - "Matsuo S et al. Am J Kidney Dis 2009;53:982-992 (verified 2026-11-09)"
+  - "日本腎臓学会 CKD診療ガイド2023 (早見表)"
+licence: "formula; free"
+verified: yes

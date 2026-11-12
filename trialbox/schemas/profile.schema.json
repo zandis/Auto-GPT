@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/profile.schema.json",
+  "title": "PatientProfile",
+  "description": "The patient twin tb_patient_profile v1 (T-204, D-440; tag phi, pseudonymous). Every layer is null until built, else stamped with the version that built it; every item names its source row. Schema version 1.0.0.",
+  "type": "object",
+  "required": ["profile", "pid", "basis", "layers"],
+  "additionalProperties": false,
+  "properties": {
+    "profile": {"const": "tb_patient_profile/1"},
+    "pid": {"type": "string", "minLength": 1},
+    "basis": {
+      "title": "ProfileBasis",
+      "type": "object",
+      "required": ["snapshot", "mapping_versions"],
+      "additionalProperties": false,
+      "properties": {
+        "snapshot": {"type": "string", "minLength": 1},
+        "mapping_versions": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "layers": {
+      "title": "ProfileLayers",
+      "type": "object",
+      "required": ["record", "timeline", "phenotype", "derived", "eligibility", "similarity"],
+      "additionalProperties": false,
+      "properties": {
+        "record": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/record_layer"}]},
+        "timeline": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/timeline_layer"}]},
+        "phenotype": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/phenotype_layer"}]},
+        "derived": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/derived_layer"}]},
+        "eligibility": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/open_layer"}]},
+        "setpoint": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/open_layer"}]},
+        "gap": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/open_layer"}]},
+        "similarity": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/open_layer"}]}
+      }
+    }
+  },
+  "$defs": {
+    "scalar": {"type": ["string", "number", "boolean", "null"]},
+    "source": {
+      "title": "ProfileSource",
+      "type": "object",
+      "required": ["table", "row_hash", "lake_table", "row", "date"],
+      "additionalProperties": false,
+      "properties": {
+        "table": {"type": "string"},
+        "row_hash": {"type": ["string", "null"]},
+        "lake_table": {"type": ["string", "null"]},
+        "row": {"type": "string"},
+        "date": {"type": ["string", "null"]}
+      }
+    },
+    "layer_version": {"type": "string", "pattern": "^[a-z]+@[0-9]+$"},
+    "record_layer": {
+      "title": "ProfileRecordLayer",
+      "type": "object",
+      "required": ["version", "items"],
+      "additionalProperties": false,
+      "properties": {
+        "version": {"$ref": "#/$defs/layer_version"},
+        "items": {
+          "type": "array",
+          "items": {
+            "title": "ProfileRecordItem",
+            "type": "object",
+            "required": ["field", "value", "source"],
+            "additionalProperties": false,
+            "properties": {
+              "field": {"enum": ["birth_date", "sex", "deceased", "deceased_date"]},
+              "value": {"$ref": "#/$defs/scalar"},
+              "source": {"$ref": "#/$defs/source"}
+            }
+          }
+        }
+      }
+    },
+    "timeline_layer": {
+      "title": "ProfileTimelineLayer",
+      "type": "object",
+      "required": ["version", "items"],
+      "additionalProperties": false,
+      "properties": {
+        "version": {"$ref": "#/$defs/layer_version"},
+        "items": {
+          "type": "array",
+          "items": {
+            "title": "ProfileTimelineItem",
+            "type": "object",
+            "required": ["kind", "date", "code", "system", "value", "unit", "comparator", "status", "source"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": {"enum": ["encounter", "condition", "observation", "medication", "procedure", "report", "document"]},
+              "date": {"type": ["string", "null"]},
+              "code": {"type": ["string", "null"]},
+              "system": {"type": ["string", "null"]},
+              "value": {"$ref": "#/$defs/scalar"},
+              "unit": {"type": ["string", "null"]},
+              "comparator": {"type": ["string", "null"]},
+              "status": {"type": ["string", "null"]},
+              "source": {"$ref": "#/$defs/source"}
+            }
+          }
+        }
+      }
+    },
+    "phenotype_layer": {
+      "title": "ProfilePhenotypeLayer",
+      "type": "object",
+      "required": ["version", "items"],
+      "additionalProperties": false,
+      "properties": {
+        "version": {"$ref": "#/$defs/layer_version"},
+        "items": {
+          "type": "array",
+          "items": {
+            "title": "ProfilePhenotypeItem",
+            "type": "object",
+            "required": ["system", "code", "first", "last", "count", "status", "sources"],
+            "additionalProperties": false,
+            "properties": {
+              "system": {"type": ["string", "null"]},
+              "code": {"type": "string"},
+              "first": {"type": ["string", "null"]},
+              "last": {"type": ["string", "null"]},
+              "count": {"type": "integer", "minimum": 1},
+              "status": {"type": ["string", "null"]},
+              "sources": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/source"}}
+            }
+          }
+        }
+      }
+    },
+    "derived_layer": {
+      "title": "ProfileDerivedLayer",
+      "type": "object",
+      "required": ["version", "items"],
+      "additionalProperties": false,
+      "properties": {
+        "version": {"$ref": "#/$defs/layer_version"},
+        "items": {
+          "type": "array",
+          "items": {
+            "title": "ProfileDerivedItem",
+            "type": "object",
+            "required": ["score", "value", "reason", "unit", "date", "def_version", "source", "inputs"],
+            "additionalProperties": false,
+            "properties": {
+              "score": {"type": "string"},
+              "value": {"type": ["number", "null"]},
+              "reason": {"type": ["string", "null"]},
+              "unit": {"type": ["string", "null"]},
+              "date": {"type": ["string", "null"]},
+              "def_version": {"type": ["string", "null"]},
+              "source": {"$ref": "#/$defs/source"},
+              "inputs": {
+                "type": "array",
+                "items": {
+                  "title": "ProfileDerivedInput",
+                  "type": "object",
+                  "required": ["component", "table", "row", "row_hash", "date"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "component": {"type": ["string", "null"]},
+                    "table": {"type": "string"},
+                    "row": {"type": "string"},
+                    "row_hash": {"type": ["string", "null"]},
+                    "date": {"type": ["string", "null"]}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "open_layer": {
+      "title": "ProfileOpenLayer",
+      "description": "A layer another card builds (eligibility: T-311a; setpoint, gap: T-313; similarity: T-203). Its items are that card's to define, each with a source.",
+      "type": "object",
+      "required": ["version", "items"],
+      "properties": {
+        "version": {"$ref": "#/$defs/layer_version"},
+        "items": {"type": "array", "items": {"type": "object", "required": ["source"]}}
+      }
+    }
+  }
+}

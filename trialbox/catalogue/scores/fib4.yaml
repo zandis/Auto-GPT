@@ -1,0 +1,42 @@
+score_id: gi.fib4
+name: {en: FIB-4 index, ja: FIB-4 index, zh_tw: FIB-4 指數}
+version: 1
+formula_kind: ratio
+inputs:
+  - {role: age, item: "PERSON → age at the AST date", unit: a, required: true}
+  - {role: ast, item: lab.ast, unit: U/L, required: true, anchor: true}
+  - {role: alt, item: lab.alt, unit: U/L, required: true, window_days: 0}
+  - {role: platelets, item: lab.platelets, unit: "10*9/L", required: true, window_days: 7}
+formula: "FIB-4 = (age × AST) / (platelets × sqrt(ALT))"
+output: {unit: "{score}", min: 0, max: 50}
+rounding: "two decimals"
+edge_cases:
+  - "ALT = 0: no row"
+  - "platelets in 10^3/µL equal 10^9/L; JP 万/µL × 10 = 10^9/L"
+  - "age < 35 or > 65: cut-offs less reliable (age-adjusted lower cut-off 2.0 for ≥ 65 proposed) - flag"
+interpretation:
+  hcv_original: {low_risk_below: 1.45, high_risk_above: 3.25}
+  masld_nafld: {low_below: 1.3, high_above: 2.67}
+examples:
+  - inputs: {age: 40, ast: 35, alt: 48, platelets: 220}
+    expected: {fib4: 0.92, band: low}
+    source: "primecalcpro FIB-4 page (calculator; three examples cross-checked by hand in the search of 2026-11-09)"
+    source_grade: calculator
+  - inputs: {age: 55, ast: 65, alt: 55, platelets: 150}
+    expected: {fib4: 3.21, band: indeterminate}
+    source: "same"
+    source_grade: calculator
+  - inputs: {age: 62, ast: 90, alt: 50, platelets: 95}
+    expected: {fib4: 8.31, band: high}
+    source: "same"
+    source_grade: calculator
+  - inputs: {cut_offs: true}
+    expected: {npv_below_1_45: "94.7% for severe fibrosis", ppv_above_3_25: "82.1%"}
+    source: "Vallet-Pichard A et al. Hepatology 2007;46:32-36 (PubMed 17567829, read 2026-11-09)"
+    source_grade: primary
+sources:
+  - "Sterling RK et al. Hepatology 2006;43:1317-1325"
+  - "Vallet-Pichard A et al. Hepatology 2007;46:32-36"
+  - "LOINC 98488-0 (verified 2026-11-09)"
+licence: "formula; free"
+verified: yes

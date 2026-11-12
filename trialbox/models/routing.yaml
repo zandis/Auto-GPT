@@ -3,19 +3,26 @@
 # A route maps (role, data class, topology, environment[, hardware profile]) to an ordered list of
 # `alias@endpoint` candidates. The gateway evaluates every candidate with tb_common.policy.classes.may_reach before
 # use, so a wrong row here cannot send D3/D4 outside the perimeter; tests/unit/test_routing_policy.py also proves the
-# shipped file has no such row. Fallbacks move only down a route's list (§8.2).
+# shipped file has no such row. Fallbacks move only down a route's list (§8.2), and only on a route that says
+# `fallback: any` (T-601, D-333): left out, it is `none`. A route that serves a patient role may not say `any`, and a
+# patient role never falls back on any route (D-276). A failed build is first tried once more (transport error, 5xx);
+# an HTTP 400 or 404 from a model server ends the call (a configuration fault, never another build's answer).
 #
 # Endpoint zones: perimeter (on box or the attested tenant), tre (Z-TRE), external (vendor model, topology C),
 # dev_public (developer / bake-off endpoints, Z-DEV). Only tb-gateway reads endpoint addresses (LLM-1);
 # deploy/egress.py turns the non-perimeter hosts into egress rules for the gateway container only (NFR-B9).
-version: routing-2026-11-07.1
+version: routing-2026-11-10.2
 
 # MOD-4 sampling the gateway forces on every role except free-form ones (frontdesk_converse)
 sampling: {temperature: 0, top_p: 1, seed: 20261025}
 
-profiles: [P-GB10, P-5090, P-Scale, P-Mac]
+profiles: [P-PRO6000, P-GB10, P-5090, P-Scale, P-Mac]
 topologies: [A, B, C]
 environments: [DEV, TEST, VALIDATION, PRODUCTION]
+
+# D-276 (review R2-01): contexts whose answers a second model checks never fall back to another build: the consent
+# explainer's draft, answered by the verifier build when the judge failed, was then checked by that same build
+no_fallback_contexts: [consent_explainer_draft, consent_explainer_translation, consent_explainer_verification]
 
 endpoints:
   stub:
@@ -29,6 +36,7 @@ endpoints:
     zone: perimeter
     url_env: TB_EP_SERVING_URL
     default_url: http://llm-service:8000/v1
+    api_key_env: TB_LLM_API_KEY   # D-177: vLLM's --api-key (VLLM_API_KEY in compose), made by install.sh
     cost: {gpu_second_usd: 0.0001} # (est.) amortised P-GB10 hardware + power per productive GPU-second, §8.11
   verifier:
     # the V build's own serving process (P-GB10: a second vLLM next to the J build, deploy/docker-compose.gb10.yml);
@@ -36,6 +44,7 @@ endpoints:
     zone: perimeter
     url_env: TB_EP_VERIFIER_URL
     default_url: http://llm-verifier:8000/v1
+    api_key_env: TB_LLM_API_KEY
     cost: {gpu_second_usd: 0.0001} # (est.) as serving
   embed:
     zone: perimeter
@@ -69,8 +78,9 @@ endpoints:
       training_use: none
     cost: {usd_per_1k_in: 0.0, usd_per_1k_out: 0.0}
 
+# data_entry: EDC prefill (D-160) reads one subject's notes for one eCRF item (crf_prefill, role abstract_field)
 purposes: [feasibility, validation, evaluation, qa, "prescreen:*", screening, protocol_ingest, intake, documents, ops,
-  development]
+  development, data_entry]
 
 # Role table (§8.15). cacheable: the gateway response cache may serve it (D0/D1 only, §8.12).
 roles:
@@ -109,7 +119,7 @@ callers:
     roles: [judge, second_opinion, registry_match_patient, match_keywords, abstract_field, draft_query_answer,
       s2b_screen, embed, rerank, draft_narrative, summarise_aggregate, draft_document, summarise_external,
       "shadow:*"]
-    purposes: [screening, feasibility, "prescreen:*", qa, validation, documents]
+    purposes: [screening, feasibility, "prescreen:*", qa, validation, documents, data_entry]
   criteria-compiler:
     roles: [match_criterion_library, extract_criteria, concept_select, answer_protocol, propose_mapping,
       map_questionnaire]
@@ -141,16 +151,44 @@ callers:
     roles: ["*"]
     purposes: [development, evaluation]
 
+# The verified caller (T-212b, D-437, CR-040). X-TB-Caller is a claim; the service the request's X-TB-Service-Token
+# identifies (tb_common.service_auth, D-138) may claim only the names listed here, so the roles and purposes above are
+# bound to the verified service. A claim outside this map is refused caller_unverified (403, audited). Without a
+# service identity (no token, or the old shared token) only DEV and TEST believe the header. operator is the
+# administrator's token on the host (doctor, qualify, eval, testbench); it is never mounted into a container.
+service_callers:
+  orchestrator: [orchestrator, matching]   # matching runs inside the orchestrator
+  criteria-compiler: [criteria-compiler]
+  doc-parser: [doc-parser]   # it parses outside documents: never orchestrator, eval or testbench
+  console: [converse-native]   # the front desk (console/proposals.py)
+  operator: ["*"]
+# who may wake, sleep and hold the one-GPU swap (/v1/serving/activate, /v1/serving/release, D-116)
+serving_control: [orchestrator, operator]
+
+# PHI on the box (D-142, review A-01). On an on-prem appliance (topology A) the models answer on the box itself, so a
+# D3 call from a listed caller is allowed by this policy without a confirmed study step: the data never leaves the
+# box. The gateway then sends it to perimeter endpoints only and records step_basis "box_policy". Where a step
+# confirmer is wired (LLM-2), its answer alone decides. D4 and every other topology (a cloud tenant, model egress)
+# still need a live, delegated step, and may_reach still keeps D3/D4 off every external route. The loader refuses
+# any topology but A and any class but D3.
+phi_on_box:
+  topologies: [A]
+  environments: [PRODUCTION]
+  classes: [D3]
+  callers: [orchestrator, matching]
+
 routes:
   # ------------------------------------------------------------------ validation / production (§8.5 table)
   - id: converse
     roles: ["@converse"]
+    fallback: any # the next build may answer; X-TB-Fallbacks says so, tb_llm refuses it by default (T-601)
     classes: [D1, D3]
     topologies: [A, B, C]
     environments: [VALIDATION, PRODUCTION]
     builds: [f-frontdesk@serving, j-workhorse@serving] # cloud routes never receive conversation text
   - id: documents-d1
     roles: ["@documents"]
+    fallback: any # the next build may answer; X-TB-Fallbacks says so, tb_llm refuses it by default (T-601)
     classes: [D0, D1]
     topologies: [A, B, C]
     environments: [VALIDATION, PRODUCTION]
@@ -158,12 +196,14 @@ routes:
     builds: [j-workhorse@serving, x-external@external_x, v-verifier@verifier] # external only under C + opt-in
   - id: documents-d3
     roles: ["@documents"]
+    fallback: none
     classes: [D3]
     topologies: [A, B, C]
     environments: [PRODUCTION]
     builds: [j-workhorse@serving]
   - id: protocol
     roles: ["@protocol"]
+    fallback: any # the next build may answer; X-TB-Fallbacks says so, tb_llm refuses it by default (T-601)
     classes: [D0, D1]
     topologies: [A, B, C]
     environments: [VALIDATION, PRODUCTION]
@@ -171,48 +211,56 @@ routes:
     external_requires: [sponsor_consent] # the Study Card records sponsor consent (D1)
   - id: mapping
     roles: ["@mapping"]
+    fallback: any # the next build may answer; X-TB-Fallbacks says so, tb_llm refuses it by default (T-601)
     classes: [D1]
     topologies: [A, B, C]
     environments: [VALIDATION, PRODUCTION]
     builds: [j-workhorse@serving, x-external@external_x]
   - id: patient
     roles: ["@patient"]
+    fallback: none # a failed judge is an error, never the verifier's answer (D-276, LLM-002)
     classes: [D3]
     topologies: [A, B, C]
     environments: [PRODUCTION]
     builds: [j-workhorse@serving, v-verifier@verifier] # never external
   - id: patient-validation
     roles: ["@patient"]
+    fallback: none # a failed judge is an error, never the verifier's answer (D-276, LLM-002)
     classes: [D2-L]
     topologies: [A, B, C]
     environments: [VALIDATION, PRODUCTION]
     builds: [j-workhorse@serving, v-verifier@verifier]
   - id: vectors
     roles: ["@vectors"]
+    fallback: none
     classes: [D1, D3]
     topologies: [A, B, C]
     environments: [VALIDATION, PRODUCTION]
     builds: [e-embed@embed]
   - id: aggregate
     roles: ["@aggregate"]
+    fallback: any # the next build may answer; X-TB-Fallbacks says so, tb_llm refuses it by default (T-601)
     classes: [D1]
     topologies: [A, B, C]
     environments: [VALIDATION, PRODUCTION]
     builds: [j-workhorse@serving, f-frontdesk@serving, x-external@external_x]
   - id: ops
     roles: ["@ops"]
+    fallback: any # the next build may answer; X-TB-Fallbacks says so, tb_llm refuses it by default (T-601)
     classes: [D1]
     topologies: [A, B, C]
     environments: [VALIDATION, PRODUCTION]
     builds: [f-frontdesk@serving, x-external@external_x]
   - id: guard
     roles: ["@guard"]
+    fallback: none
     classes: [D0, D1, D2-L, D3, D4]
     topologies: [A, B, C]
     environments: [DEV, TEST, VALIDATION, PRODUCTION]
     builds: [g-guard@serving] # never external
   - id: shadow
     roles: ["shadow:*"]
+    fallback: none # a shadow answer names the build it compares (T-601)
     classes: [D1, D3]
     topologies: [A, B, C]
     environments: [PRODUCTION]
@@ -220,21 +268,27 @@ routes:
   # ------------------------------------------------------------------ development and test (D0 only, §17.8)
   - id: bakeoff
     roles: ["@evaluation"]
+    fallback: none # a bake-off answer is the named build's, never the other one's (T-601)
     classes: [D0]
     topologies: [A, B, C]
     environments: [DEV]
     builds: [j-workhorse@openrouter, v-verifier@openrouter]
   - id: dev-public
     roles: ["@protocol", "@converse", "@documents", "@patient", "@aggregate"]
+    fallback: none
     classes: [D0]
     topologies: [A, B, C]
     environments: [DEV]
     builds: [trialbox-stub@stub, j-workhorse@openrouter]
   - id: dev-stub
     roles: ["*"]
+    fallback: none
     classes: [D0]
     topologies: [A, B, C]
     environments: [DEV, TEST]
-    # the stub first; the on-box build only when the caller names it (model: j-workhorse, TB_GATEWAY_MODEL) or the
-    # stub is down, and only once a site has pinned it (tools/pin_model.py): synthetic and open D0 data on the box
-    builds: [trialbox-stub@stub, f-frontdesk@stub, g-guard@stub, j-workhorse@serving, v-verifier@verifier]
+    # the stub first; the on-box build only when the caller names it (model: j-workhorse, TB_GATEWAY_MODEL), and only
+    # once a site has pinned it (tools/pin_model.py): synthetic and open D0 data on the box. A stub that is down is
+    # an error, not the on-box build's answer (T-601)
+    # stub-verifier: the stub under its second served name, a stub box's verifier (D-276); only when named
+    builds: [trialbox-stub@stub, f-frontdesk@stub, g-guard@stub, j-workhorse@serving, v-verifier@verifier,
+             stub-verifier@stub]

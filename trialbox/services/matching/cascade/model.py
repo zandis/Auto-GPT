@@ -59,14 +59,22 @@ class PatientTrace:
     exit_stage: Stage | None = None  # stage at which the patient left the cascade (excluded)
     exit_criterion: str | None = None
     unprocessed: bool = False  # budget ran out before S3 finished (CAS-4, SAFE-13: never an exclusion)
+    # criteria whose judged excerpts left an evidence note out (T-603, CR-004 flag half): never "strong", a person looks
+    notes_over_budget: list[str] = field(default_factory=list)
     sampled: bool = True  # CAS-8: in a feasibility run S3/S4 see only a stratified sample
     sample_stratum: str = ""  # CAS-8 stratum: S2/S2b outcome signature × department
     tier: Tier = "out_of_scope"
     review: dict[str, Any] | None = None  # S5 decision
+    # T-203b (D-449): where S2b's ranking came from when a stored-vector source was given (flag ``vec.s2b``): pairs
+    # ranked from the vector store, pairs that fell back to the on-the-fly path and why, the model of each. None (and
+    # left out of the trace file) when no source was given, so a run with the flag off writes the same bytes as before
+    s2b_source: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["index_date"] = self.index_date.isoformat()
+        if d["s2b_source"] is None:
+            del d["s2b_source"]
         return d
 
 
@@ -123,6 +131,7 @@ class CascadeMetrics:
     s2b_embed_batches: int = 0
     sampled_patients: int = 0
     gateway_refusals: int = 0
+    notes_over_budget: int = 0  # patients flagged because an evidence note did not fit the excerpts (T-603)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

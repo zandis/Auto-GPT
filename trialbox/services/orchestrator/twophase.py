@@ -40,11 +40,12 @@ from typing import Any
 
 import httpx
 from tb_common.llm import LlmClient, LlmError, LlmResult
+from tb_common.service_auth import auth_headers
 
 log = logging.getLogger(__name__)
 
 MAX_ROUNDS = 3
-COUNTERS = ("calls", "tokens_in", "tokens_out", "failures", "disagreements")
+COUNTERS = ("calls", "tokens_in", "tokens_out", "failures", "disagreements", "same_model")
 
 
 def swap_enabled(env: dict[str, str] | None = None) -> bool:
@@ -123,7 +124,9 @@ class DeferredVerifier:
             raise LlmError("verifier answer not available after the swap rounds")
         mine = self.judge.lookup(k)  # the judge was asked the same question just before
         if isinstance(mine, LlmResult):
-            return mine
+            # a stand-in, never a result (the last round is strict): it names no model, so the pair rule does not
+            # take it for the judge answering twice (tb_common.pair, D-276)
+            return replace(mine, model="", build_sha="")
         raise LlmError("deferred verifier: no judge answer to stand in for")
 
     def resolve(self, workers: int, broken: str | None = None) -> int:
@@ -170,7 +173,7 @@ class GatewaySwap:
             r = self.http.post(
                 f"{self.url}/serving/activate",
                 json={"endpoint": endpoint, "hold": True},
-                headers={"X-TB-Caller": self.caller},
+                headers={"X-TB-Caller": self.caller, **auth_headers()},
             )
         except httpx.HTTPError as exc:
             raise LlmError(f"model swap to {endpoint} failed: {type(exc).__name__}") from exc
@@ -181,7 +184,7 @@ class GatewaySwap:
         """Let go of the card; the gateway wakes the judge when the next call needs it. Never raises: a release that
         fails only means the hold lapses on its own (``TB_SWAP_HOLD_S``)."""
         try:
-            self.http.post(f"{self.url}/serving/release", headers={"X-TB-Caller": self.caller})
+            self.http.post(f"{self.url}/serving/release", headers={"X-TB-Caller": self.caller, **auth_headers()})
         except httpx.HTTPError as exc:
             log.warning("model swap release failed: %s", type(exc).__name__)
 

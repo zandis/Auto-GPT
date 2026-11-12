@@ -1,6 +1,49 @@
 {% extends "base.html" %}
-{% block title %}{{ t('nav.audit') }}{% endblock %}
+{# T-211c (D-451): the audit browser of the privacy office and the steward. Filters and the cursor run in the reader
+   (console.audit_page.search); one patient's report is the second step from the patient box. #}
+{% block title %}{{ t('audit.title') }}{% endblock %}
 {% block content %}
 <h1>{{ t('audit.title') }}</h1>
-<section class="card">{% set rows = records %}{% include "_audit_table.html" %}</section>
+<p class="hint">{{ t('audit.help') }}</p>
+
+<section class="card" data-testid="audit-patient">
+<h2>{{ t('audit.patient.title') }}</h2>
+<p class="hint">{{ t('audit.patient.help') }}</p>
+<form method="get" action="/audit/patients" class="inline" data-testid="audit-patient-form">
+<label for="p-pid">{{ t('audit.filter.pid') }}</label> <input id="p-pid" name="pid" value="{{ f.pid }}" maxlength="32" size="34" class="mono" autocomplete="off" spellcheck="false">
+<button type="submit" data-testid="audit-patient-go">{{ t('audit.patient.go') }}</button>
+</form>
+{% if bad_pid %}<p class="warn" role="alert" data-testid="audit-bad-pid">{{ t('audit.bad_pid') }}</p>{% endif %}
+</section>
+
+<section class="card" data-testid="audit-verify">
+<h2>{{ t('audit.verify.title') }}</h2>
+<p class="hint">{{ t('audit.verify.help') }}</p>
+{% if verified %}{% set v = verified %}
+<p class="{{ 'ok' if v.ok else 'warn' }}" role="status" data-testid="audit-verify-result" data-ok="{{ 'yes' if v.ok else 'no' }}">{{ t('audit.verify.pass' if v.ok else 'audit.verify.fail', lines=v.lines, files=v.files, head=v.head) }}</p>
+{% if v.errors %}<ul class="plain mono" data-testid="audit-verify-errors">{% for e in v.errors %}<li>{{ e|mask_ids }}</li>{% endfor %}{% if v.more_errors %}<li>{{ t('audit.verify.more', n=v.more_errors) }}</li>{% endif %}</ul>{% endif %}
+<p data-testid="audit-verify-signed">{% if v.signed %}{{ t('audit.verify.signed', lines=v.signed.lines, ts=v.signed.ts|local(19), kid=v.signed.key_id) }}{% else %}{{ t('audit.verify.unsigned') }}{% endif %}</p>
+{% if v.anchors %}<ul class="plain" data-testid="audit-verify-anchors">{% for a in v.anchors %}<li>{% if not a.reachable %}{{ t('audit.verify.anchor_gone', name=a.name) }}{% elif a.newest %}{{ t('audit.verify.anchor', name=a.name, n=a.count, lines=a.newest.lines, ts=a.newest.ts|local(19)) }}{% else %}{{ t('audit.verify.anchor_empty', name=a.name) }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+{% for s in v.say %}<p class="hint">{{ t('audit.verify.' + s) }}</p>{% endfor %}
+{% if v.notes %}<ul class="plain mono hint">{% for n in v.notes %}<li>{{ n|mask_ids }}</li>{% endfor %}</ul>{% endif %}
+{% endif %}
+<form method="post" action="/audit/verify" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" data-testid="audit-verify-go">{{ t('audit.verify.go') }}</button></form>
+</section>
+
+<section class="card" data-testid="audit-browser">
+<form method="get" action="/audit" class="inline" data-testid="audit-filter">
+<label for="f-kind">{{ t('audit.filter.kind') }}</label> <select id="f-kind" name="kind"><option value="">{{ t('audit.filter.all') }}</option>{% for k in kinds %}<option value="{{ k }}"{% if k == f.kind %} selected{% endif %}>{{ t('audit.kind.' + k) }}</option>{% endfor %}</select>
+<label for="f-event">{{ t('audit.filter.event') }}</label> <select id="f-event" name="event"><option value="">{{ t('audit.filter.all') }}</option>{% for e in events %}<option value="{{ e }}"{% if e == f.event %} selected{% endif %}>{{ t_or('audit.ev.' + e, e) }}</option>{% endfor %}</select>
+<label for="f-who">{{ t('audit.filter.who') }}</label> <input id="f-who" name="who" value="{{ f.who }}" maxlength="80">
+<label for="f-pid">{{ t('audit.filter.pid') }}</label> <input id="f-pid" name="pid" value="{{ f.pid }}" maxlength="32" class="mono">
+<label for="f-job">{{ t('audit.filter.job') }}</label> <input id="f-job" name="job" value="{{ f.job }}" maxlength="40" class="mono">
+<label for="f-since">{{ t('audit.filter.since') }}</label> <input id="f-since" name="since" type="date" value="{{ f.since }}"> <span class="hint datefmt">{{ t('date.fmt') }}</span>
+<label for="f-until">{{ t('audit.filter.until') }}</label> <input id="f-until" name="until" type="date" value="{{ f.until }}"> <span class="hint datefmt">{{ t('date.fmt') }}</span>
+<button type="submit">{{ t('audit.filter.go') }}</button> <a href="/audit">{{ t('audit.filter.clear') }}</a>
+</form>
+{% if not records %}<p class="empty" data-testid="audit-none">{{ t('audit.none') }}</p>{% else %}
+{% set rows = records %}{% include "_audit_table.html" %}{% endif %}
+{% set q = f.query() %}
+{% if next_before or not first %}<nav class="pager" aria-label="{{ t('wb.pages') }}" data-testid="audit-pager">{% if not first %}<a class="button secondary" href="/audit{{ '?' + q if q else '' }}" rel="first">{{ t('audit.first') }}</a>{% endif %}{% if next_before %}<a class="button secondary" href="/audit?{{ q + '&' if q else '' }}before={{ next_before|urlencode }}" rel="next" data-testid="audit-older">{{ t('audit.older') }} →</a>{% endif %}</nav>{% endif %}
+</section>
 {% endblock %}

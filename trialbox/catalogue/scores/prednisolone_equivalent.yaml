@@ -1,0 +1,42 @@
+score_id: rheum.gc_dose_pred_eq
+name: {en: Glucocorticoid dose in prednisolone equivalents, ja: プレドニゾロン換算量, zh_tw: Prednisolone 當量劑量}
+version: 1
+formula_kind: conversion_table
+inputs:
+  - {role: drug_exposures, item: "DRUG_EXPOSURE rows with ATC H02AB (systemic glucocorticoids), daily dose in mg", required: true, window_days: 0}
+formula: "sum over active systemic glucocorticoids of daily_dose_mg × factor(ingredient), factor = 5 / anti-inflammatory equivalent dose"
+conversion_table:
+  prednisolone: 1.0
+  prednisone: 1.0
+  methylprednisolone: 1.25
+  triamcinolone: 1.25
+  dexamethasone: 6.67
+  betamethasone: 6.67
+  hydrocortisone: 0.25
+  cortisone: 0.2
+  deflazacort: 0.83
+output: {unit: mg/d, min: 0, max: 2000}
+rounding: "one decimal"
+edge_cases:
+  - "inhaled, topical, intra-articular and ophthalmic routes are excluded (route from the drug record; if unknown, excluded and flagged)"
+  - "pulse therapy (≥ 250 mg/d methylprednisolone) is recorded as a separate flag, not averaged into the daily dose"
+  - "alternate-day dosing: average over two days and flag"
+interpretation:
+  low_dose: "≤ 7.5 mg/d (EULAR nomenclature)"
+  medium: "> 7.5 to ≤ 30"
+  high: "> 30 to ≤ 100"
+examples:
+  - inputs: {methylprednisolone_mg: 4}
+    expected: {prednisolone_equivalent_mg: 5}
+    source: "standard glucocorticoid equivalence table (prednisone 5 mg = methylprednisolone 4 mg = dexamethasone 0.75 mg = hydrocortisone 20 mg); Meikle AW, Tyler FH. Am J Med 1977;63:200; Buttgereit F et al. Ann Rheum Dis 2002;61:718 (nomenclature)"
+    source_grade: secondary
+    note: "table values from standard references; not re-read at the source today (verified: no)"
+  - inputs: {dexamethasone_mg: 0.75}
+    expected: {prednisolone_equivalent_mg: 5}
+    source: "same table"
+    source_grade: secondary
+sources:
+  - "Meikle AW, Tyler FH. Am J Med 1977;63:200-207"
+  - "Buttgereit F et al. Ann Rheum Dis 2002;61:718-722"
+licence: "formula; no instrument"
+verified: no

@@ -1,4 +1,4 @@
-"""REDCap API read client (ICD-04 R1-R3, R7, R8) over plain httpx form posts.
+"""REDCap API client (ICD-04 R1-R3, R7, R8 reads; the record import for the write-back, D-123) over httpx.
 
 The ICD names PyCap as the client; PyCap is not a dependency of the build, and the five read methods are one form
 post each, so the connector posts the documented form fields itself (D-109). Errors map to the ICD register:
@@ -13,8 +13,11 @@ from collections.abc import Callable
 from typing import Any, ClassVar
 
 import httpx
+from tb_common.http import EgressRefused
 
-SUPPORTED_MAJORS = (14, 15, 16)  # LTS lines the connector is tested on; the pilot sites run 16.x (FR-RC-14)
+# REDCap majors the connector accepts (FR-RC-14). Tested only against rc_sim so far: no real REDCap instance yet;
+# each site's version is recorded at go-live (RUNBOOK §6, DEP-026, D-393)
+SUPPORTED_MAJORS = (14, 15, 16)
 TOKEN_RE = re.compile(r"^[0-9A-F]{32}$")
 INPROC_PREFIX = "inproc://"  # demo and test only: a URL served by an in-process ASGI app (the simulator)
 _LOCAL: dict[str, Callable[[], httpx.Client]] = {}
@@ -55,9 +58,11 @@ def check_token(token: str) -> str:
 
 
 def api_url(base: str) -> str:
-    """The ``/api/`` endpoint of a REDCap base URL (``https://redcap.example/`` or ``.../api/``)."""
+    """The ``/api/`` endpoint of a REDCap base URL (``https://redcap.example/`` or ``.../api/``). Only ``https://``:
+    the token travels in every request body, so plain ``http://`` is refused (SEC-14, T-115). ``inproc://`` is the
+    demo's and tests' in-process simulator."""
     b = base.strip()
-    if not (b.startswith("https://") or b.startswith("http://") or b.startswith(INPROC_PREFIX)):
+    if not (b.lower().startswith("https://") or b.startswith(INPROC_PREFIX)):
         raise RcError("RC-UPSTREAM", "the REDCap URL must start with https://")
     b = b.rstrip("/")
     return b if b.endswith("/api") else b + "/api"
@@ -82,8 +87,10 @@ class RedcapClient:
                     raise RcError("RC-UPSTREAM", f"no in-process REDCap is registered at {key}")
                 http = _LOCAL[key]()
                 self.url = "/api/"
-            else:
-                http = httpx.Client(timeout=timeout)
+            else:  # T-212d (D-450): the URL an administrator typed goes through the SSRF guard
+                from tb_common.http import guarded_client
+
+                http = guarded_client(timeout=timeout)
         self.http = http
 
     def close(self) -> None:
@@ -96,18 +103,18 @@ class RedcapClient:
     def __exit__(self, *_: object) -> None:
         self.close()
 
-    def _post(self, content: str, extra: dict[str, str] | None = None) -> Any:
+    def _send(self, content: str, extra: dict[str, str] | None = None) -> httpx.Response:
+        """One API call; the answer when REDCap says 200, an :class:`RcError` otherwise."""
         data = {"token": self.token, "content": content, "format": "json", "returnFormat": "json", **(extra or {})}
         url = self.url if self.url.endswith("/") else self.url + "/"
         try:
             resp = self.http.post(url, data=data)
+        except EgressRefused as exc:
+            raise RcError("RC-UPSTREAM", f"the REDCap address is not allowed ({exc.reason}): {exc.host}") from exc
         except httpx.HTTPError as exc:
             raise RcError("RC-UPSTREAM", f"REDCap did not answer ({type(exc).__name__})") from exc
         if resp.status_code == 200:
-            try:
-                return resp.json()
-            except ValueError as exc:
-                raise RcError("RC-UPSTREAM", "REDCap answered with something that is not JSON") from exc
+            return resp
         if resp.status_code == 403:
             raise RcError("RC-TOKEN", "REDCap refused the token (no API rights for this project)")
         if resp.status_code in (429, 503):
@@ -118,9 +125,18 @@ class RedcapClient:
             msg = ""
         raise RcError("RC-UPSTREAM", f"REDCap returned {resp.status_code}" + (f": {msg[:200]}" if msg else ""))
 
+    def _post(self, content: str, extra: dict[str, str] | None = None) -> Any:
+        resp = self._send(content, extra)
+        try:
+            return resp.json()
+        except ValueError as exc:
+            raise RcError("RC-UPSTREAM", "REDCap answered with something that is not JSON") from exc
+
     # ------------------------------------------------------------------ ICD-04 R1-R3, R7, R8
     def version(self) -> str:
-        return str(self._post("version")).strip().strip('"')
+        """REDCap answers ``content=version`` with plain text (``16.0.8``), whatever the format asked (STD-060,
+        D-281); a JSON string (``"16.0.8"``) is read too."""
+        return self._send("version").text.strip().strip('"').strip()
 
     def check_version(self) -> str:
         v = self.version()
@@ -146,6 +162,24 @@ class RedcapClient:
         out = self._post("dag")
         return [dict(d) for d in out] if isinstance(out, list) else []
 
+    def events(self) -> list[dict[str, Any]]:
+        """A longitudinal project's events (arm, unique name, ``day_offset``, ``offset_min``, ``offset_max``)."""
+        out = self._post("event")
+        return [dict(e) for e in out] if isinstance(out, list) else []
+
+    def form_event_mapping(self) -> list[dict[str, Any]]:
+        """A longitudinal project's instrument designations: ``{arm_num, unique_event_name, form}`` per pair."""
+        out = self._post("formEventMapping")
+        return [dict(m) for m in out] if isinstance(out, list) else []
+
+    def repeating_forms_events(self) -> list[dict[str, Any]]:
+        """The project's repeating instruments and events (``event_name`` blank in a classic project, ``form_name``
+        blank for a whole repeating event); T-302b."""
+        out = self._post("repeatingFormsEvents")
+        if not isinstance(out, list):
+            raise RcError("RC-UPSTREAM", "the repeating instruments and events are not a list")
+        return [dict(r) for r in out]
+
     def records(
         self,
         fields: list[str] | None = None,
@@ -166,3 +200,27 @@ class RedcapClient:
         if not isinstance(out, list):
             raise RcError("RC-UPSTREAM", "the record export is not a list")
         return [dict(r) for r in out]
+
+    # ------------------------------------------------------------------ import (write-back, D-123)
+    def import_records(self, rows: list[dict[str, str]], auto_number: bool = False, erase: bool = False) -> list[str]:
+        """Import flat rows with ``overwriteBehavior=normal`` (a blank never erases a value). Returns the record ids
+        written; with ``auto_number`` REDCap names new records itself and the ids are the names it gave, in order.
+        ``erase`` (T-302b, the EDC's erase of a hidden value it wrote): ``overwriteBehavior=overwrite``, so a blank
+        erases; the caller sends only the fields it erases."""
+        if not rows:
+            return []
+        import json
+
+        extra = {
+            "type": "flat",
+            "overwriteBehavior": "overwrite" if erase else "normal",
+            "forceAutoNumber": "true" if auto_number else "false",
+            "returnContent": "auto_ids" if auto_number else "ids",
+            "data": json.dumps(rows, ensure_ascii=False),
+        }
+        out = self._post("record", extra)
+        if not isinstance(out, list):
+            raise RcError("RC-UPSTREAM", "the record import did not answer with the record ids")
+        if auto_number:  # "new_id,given_name" pairs
+            return [str(x).split(",", 1)[0] for x in out]
+        return [str(x) for x in out]

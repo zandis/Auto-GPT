@@ -1,131 +1,73 @@
 # TrialBox
 
-> **Next build:** the v4 specification is in [`spec/v4/`](spec/v4/README.md). The build handoff is [`docs/HANDOFF.md`](docs/HANDOFF.md), and the
-> starter prompt for the next session is [`docs/NEXT_SESSION_PROMPT.md`](docs/NEXT_SESSION_PROMPT.md).
+*Owner: Product owner. Status: living; changed in the same pull request as the code it describes. History: the git log of this file; the merge into eight documents is D-139.*
 
-TrialBox is an on-prem appliance driven by e-mail. It compiles eligibility rules (clinical-trial protocols, Taiwan
-NHI reimbursement rules, alliance cohort definitions) into **auditable, deterministic patient screens** over the
-hospital's own data.
+TrialBox is a box a hospital owns. It finds patients for clinical trials in the hospital's own data, and it helps the
+site run the trial after that. Nothing leaves the box unless the site says so.
 
-- Nothing to log into: send `FEAS GZQO` to the box and a feasibility report comes back.
-- Patient lists go only to internal recipients, encrypted.
-- Every output file is hashed into an append-only audit chain.
-- SQL and CQL are generated from templates and checked against each other (≥ 98 % equivalence) before a ruleset can
-  be approved. LLMs only extract criteria from documents and judge free-text notes, through schema-constrained
-  calls.
+- A coordinator pastes a protocol. The investigator approves the criteria. The box counts the patients who fit.
+- Each night it screens the patients. Rules in SQL go first. Then two local models read the notes. A note answer
+  excludes a patient only when both models agree on a quote.
+- The investigator and the coordinator work through a list on a desktop or a phone, in Japanese, Chinese or English.
+- The site records consent, enrolment, visits, adverse events and deviations in TrialBox's own forms, and can sync
+  them two-way with REDCap or a spreadsheet.
+- Every step goes into a hash-chained audit log.
 
-| What | Command (mail subject) | You get |
+All patient data in this repository is synthetic or public. No real patient record is here.
+
+## The documents
+
+| Document | For | What |
 | --- | --- | --- |
-| Feasibility | `FEAS GZQO` (+ protocol PDF the first time) | funnel PDF + XLSX, enrolment simulation |
-| Approve a compiled protocol | reply with the filled `review.xlsx` | approved ruleset (git tag) |
-| Screening | `SCREEN GZQO version=1.0.0` | candidate workbook (encrypted) + summary PDF; weekly `this_week_visit1.xlsx` |
-| NHI navigation | `NAV RA-BIO dept=RHEU` | likely-eligible / renewal / doc-gap / maybe-ineligible lists, application drafts, TWPAS bundles |
-| NHI submission | `SUBMIT ONC-OSI pid=… bundle=<NAV job>` (physicians) | ClaimResponse (dry run by default) |
-| Cohort tables | `COHORT GOUT-COH` | alliance CSV, report, ClinicalTrials.gov trial simulation; `COHORT MERGE` at the alliance root |
-| Consent explainer | `CONSENT GZQO lang=en,ja,zh-TW` (+ the IRB-approved consent form) | review sheet + DRAFT plain-language guides; `RELEASE <job id>` (reviewers) releases them. A reading aid, not the consent form or an e-signature ([docs/CONSENT.md](docs/CONSENT.md)) |
-| Single case | `CASE GZQO mrn=10000001 lang=zh-TW` (+ the patient's chart) or the console's "Single case" page | eligibility sheet per criterion with quotes (encrypted, study team only); structured criteria from the box's data when the chart number is known, else from the chart |
-| Candidate registry | console "Registry" page, or `POST /registry/<ruleset>` | per-study screening log: candidate → contacted → consented → enrolled (or screen fail / declined / withdrawn), promotion from a SCREEN run, XLSX export for the monitor |
+| [README](README.md) | everyone | this page: what TrialBox is, how to try it, the map |
+| [Architecture](docs/ARCHITECTURE.md) | builders, hospital IT | services, stores, data and rule paths, models |
+| [Runbook](docs/RUNBOOK.md) | the site's IT | install, update, back up, operate, fix, support, recovery |
+| [Security and compliance](docs/SECURITY.md) | security officers | hardening, secrets, network, audit, laws |
+| [Data and integration](docs/DATA.md) | hospital IT, data owners | sources, mapping, REDCap, open data and licences |
+| [Validation and evidence](docs/VALIDATION.md) | owner, reviewers | the gates, the tests, the measured numbers |
+| [User guide](docs/USER_GUIDE.md) | PIs, CRCs, admins | roles, daily tasks, help in ja, zh-TW and en |
+| [Decisions](docs/DECISIONS.md) | everyone | every choice (D-nnn), append-only |
+| [Developing](docs/DEVELOPING.md) | the team | checks before a push, the team's procedures, documents and drills (D-390) |
 
-## Try the POC in 10 minutes (web console + e-mail, one command)
+Records that are not maintained: `docs/reviews/` (reviews), `docs/plan/` (plans and the design set),
+`docs/research/` (research), `spec/v4/` (the v4 specification) and `spec/archive/` (older specifications).
 
-Everything runs in Docker on synthetic data: the whole box, a test mail server (GreenMail in, MailHog web mail out)
-and the admin console. Works on Linux, macOS, WSL2, a DGX Spark, or a cloud VM; on Windows use PowerShell.
+## Try it (no GPU, no Docker)
 
-```sh
-deploy/poc.sh                                  # or: make poc      Windows: powershell -File deploy\poc.ps1
-TB_LLM_MODE=openrouter deploy/poc.sh           # OpenRouter model (key: OPENROUTER_API_KEY or deploy/poc/secrets/openrouter_api_key)
-TB_LLM_MODE=gpu deploy/poc.sh                  # local GPU / DGX Spark (needs a pinned model, RUNBOOK §8)
-```
-
-The script builds the images when missing, writes random service passwords, starts the stack, creates the console
-administrator (the password is printed **once**), ingests the 600-patient synthetic hospital and prints the URLs:
-
-| URL | What |
-| --- | --- |
-| <http://127.0.0.1:8090> | Console. Sign in as `admin`. **New request** → FEAS on GZQO; **Protocol** → upload a protocol (or the bundled synthetic one), approve the review round, the feasibility runs; **Cascade (v4)** → DL-1 pack and recall certificate; every job page shows the attrition table, the PDF/XLSX downloads, the e-mail thread and the audit trail |
-| <http://127.0.0.1:8025> | Web mail (MailHog): every mail the box sends |
-| SMTP `127.0.0.1:3025` | Mail **to** the box (`trialbox@hospa.test`, from `admin@hospa.test`): the console's **Test mailbox** page, or `tools/send_test_mail.py "FEAS GZQO" --sender admin@hospa.test` |
-
-The web and e-mail paths are the same: a console action is the exact e-mail subject line (shown on the job page) and
-goes to the same orchestrator call, with the same permissions, audit and delivery rules; results also arrive by mail.
-Add a read-only user with `docker exec -i trialbox-console-1 python -m console.cli add-user ana --role viewer`. Stop
-with `deploy/poc.sh down` (`reset` deletes the data). Real mailbox, remote access with TLS, and details: RUNBOOK §9.
-
-## 10-minute quickstart (synthetic data, no GPU)
-
-Prerequisites: Docker 27+ with compose, Python 3.12 and `uv`, about 15 GB of disk. Runs on Linux x86_64 and on
-macOS. On macOS, set `TB_LLM_MODE=stub` (the default in `.env.example`).
+You need Python 3.12 and `uv`.
 
 ```sh
 cd trialbox
-make venv                      # .venv with the pinned dependencies
-make images                    # fetches fonts + HL7 validator + CQL translator + FHIR packages, builds 2 images
-make up-test                   # whole box + stub LLM + GreenMail (IMAP 3143/SMTP 3025) + MailHog (8025)
-make ingest-test               # ingest synthetic site A (adapter -> lake + FHIR store)
-.venv/bin/python tools/send_test_mail.py "FEAS GZQO"
+make venv                 # .venv with the pinned dependencies
+make e2e-simple           # the build gate: about 2 minutes, prints PASSED
+make demo                 # the whole flow seeded, console on http://127.0.0.1:8080
+python -m tools.public_e2e --dir /tmp/tb-public --lang ja      # the same path on public notes
+python -m tools.complete_run --dir /tmp/tb-complete            # every stage, ja and zh-TW, with screenshots
 ```
 
-Open <http://127.0.0.1:8025>. Within a few seconds MailHog shows "[GZQO] FEAS received · job …", then "[GZQO] FEAS done: 1–7 in 12 mo · job …" with the
-feasibility PDF and XLSX for the GZQO retatrutide gout protocol on the 600 synthetic patients.
+`make demo` prints one password for the seven accounts (`admin`, `crc`, `pi`, `subpi`, `cra`, `viewer`, `stw`, the steward), or uses
+`TB_DEMO_PASSWORD` when set and then prints nothing. The data is a
+5,000-patient synthetic hospital with notes in Japanese, Chinese and English.
 
-Next, try:
-```sh
-.venv/bin/python tools/send_test_mail.py "SCREEN GZQO version=1.0.0"        # encrypted list; password in a 2nd mail
-.venv/bin/python tools/send_test_mail.py "NAV RA-BIO dept=RHEU" --sender nurse-rheu@hospa.test
-.venv/bin/python tools/send_test_mail.py "COHORT GOUT-COH"
-```
+With Docker, `deploy/poc.sh` (or `make poc`) runs the whole box with test mail servers on synthetic data
+([Runbook §9](docs/RUNBOOK.md#9-proof-of-concept-with-docker)).
 
-Run the checks a contributor runs:
-```sh
-make lint test                 # ruff, mypy --strict, ~270 unit + in-process tests (no services needed)
-make test-integration          # against the running test stack (HAPI, validator, mail)
-make test-e2e                  # every scenario by e-mail
-```
+## Install at a site
 
-## v4 pilot (no Docker needed)
-
-```sh
-make venv
-make e2e-cascade               # synthetic site A: data platform -> cascade -> feasibility pack + recall certificate
-make testbench                 # Test Bench on http://127.0.0.1:8765 (synthetic and open data only)
-make open-data-e2e             # MIMIC-IV FHIR demo (downloads ~10 MB, ODbL)
-python -m tools.feas_demo --dir /tmp/tb-feas   # build step 1: paste criteria -> feasibility funnel (D-106)
-python -m tools.list_demo --dir /tmp/tb-list   # build step 2: approve on S20 -> list, marks, N1/N2 mail (D-108)
-python -m tools.rc_demo --dir /tmp/tb-rc       # build step 3: REDCap simulator -> link -> Run now -> log status (D-109)
-python -m tools.role_demo --fresh --dir /tmp/tb-roles  # build step 4: five role homes, header command field, ja/zh-TW/en (D-110)
-make e2e-simple                # build step 5: the build gate, criteria -> report -> list -> mail -> REDCap -> log (D-111)
-make demo                      # build step 5: the whole step 1-4 flow seeded and checked, console on :8080 (D-111)
-python -m tools.parity_replay  # build step 5: model gate N-11/N-12 from recorded answers, no model (D-111)
-```
-
-## Deploying a real site
-
-Follow **`docs/RUNBOOK.md`**:
-1. Harden the host (`docs/HARDENING.md`: LUKS + TPM, swap off, `deploy/check_host.sh`).
-2. Run `python -m tools.settings_wizard`.
-3. Copy a mapping template from `services/adapter/mapping/templates/` and check it with `tools/mapping_check.py`.
-4. Bring the stack up: `docker compose --profile gpu up -d`, with `-f docker-compose.gb10.yml` on NVIDIA GB10.
-5. Apply the egress rules: `deploy/network.sh apply`.
-6. Run the §11.2 go-live acceptance with `tools/acceptance.py`.
-
-No code changes are needed for a new site.
+Read the [Runbook](docs/RUNBOOK.md). In short: harden the host ([Security](docs/SECURITY.md)), then
+`sudo deploy/install.sh trialbox-<version>.tar --tier large --answers site.yaml`. The installer refuses a tier whose
+card has no measured serving record.
 
 ## Repository map
 
 | Path | What |
 | --- | --- |
-| `SPEC.md` | the specification (v1.0) |
-| `docs/` | `PLAN.md`, `ARCHITECTURE.md` (as built), `DECISIONS.md` (every choice and deviation), `PROGRESS.md` (phase log + evidence), `RUNBOOK.md`, `HARDENING.md`, `BENCH.md`, `OPEN_DATA.md` (open-data end-to-end test; MIMIC-IV demo ODbL notice) |
-| `schemas/` → `libs/tb_contracts` | JSON Schemas (the contracts) → generated pydantic v2 models (`make contracts`) |
-| `libs/tb_common` | config, audit chain, LLM gateway, PHI guard, routing, crypto, deterministic outputs, … |
-| `services/` | mail_gateway, orchestrator (scenarios + reports), criteria_compiler, doc_parser, adapter, lake, embed_service, llm_stub |
-| `rulesets/` | approved rulesets shipped with the box: GZQO (trial), RA-BIO + ONC-OSI (NHI), GOUT-COH + RA-COH (cohort) |
-| `deploy/` | compose files (x86, test, GB10), Dockerfiles, `settings.example.yaml`, `network.sh`, `check_host.sh` |
-| `tools/` | fixtures, ruleset build, bench, acceptance, wizard, mapping check, update signing/applying, audit verify, … |
-| `spec/v4/` | the v4 specification; `docs/HANDOFF.md` is the build order |
-| `tools/testbench/` | Test Bench: dev/test-only web UI (`make testbench`, then <http://127.0.0.1:8765>) |
-| `tests/` | unit, integration (in process + services), e2e (mail), LLM, fixtures (synthetic hospitals A/B, protocols, onboarding) |
-
-All patient data in this repository is synthetic (`tools/make_fixtures.py`, 600 + 520 patients; the larger
-JP/TW-style hospital with JA, zh-TW and EN notes and gold files is `python -m tools.synth_hospital`, D-106). ClinicalTrials.gov
-records in the cassettes are fictional (`NCT990000xx`, titled `[SYNTHETIC]`).
+| `services/` | console, orchestrator, gateway, mail_gateway, criteria_compiler, doc_parser, adapter, lake, embed_service, datacore, edc, omop, sitesetup, matching, deliverables, registry, guard, model_guard, tracestore, rc_bridge, rc_sim, llm_stub, channels |
+| `libs/` | `tb_contracts` (models generated from `schemas/`), `tb_common` (config, audit, db, service tokens, crypto, LLM client, retention), `tb_llm`, `tb_testkit` |
+| `schemas/` | JSON Schemas, the one source of every contract |
+| `rulesets/` | approved demo rulesets: trials GZQO, AD-MAB and RA-JAK; cohorts GOUT-COH, RA-COH and NEUR-COH; NHI lists RA-BIO and ONC-OSI |
+| `deploy/` | compose files per GPU profile, `install.sh`, `network.sh`, `check_host.sh`, measured serving records, Windows preflight, GCP scripts |
+| `tools/` | the gates and drills (`e2e_simple`, `public_e2e`, `complete_run`, `backup_drill`, `update_drill`), the synthetic hospital, the walk, the CLI `tools/trialbox` |
+| `tests/` | unit, console, testbench, integration, e2e, LLM |
+| `eval/` | measured results: model gate, TREC, public data, GPU runs |
+| `docs/handover/` | the printed network sheet (en, ja, zh-TW), offline media, Windows checklist |

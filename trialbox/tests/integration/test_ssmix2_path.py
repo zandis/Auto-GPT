@@ -89,6 +89,55 @@ def test_ssmix2_storage_gives_the_csv_funnel(hospital: dict[str, Path], site_key
     assert labs and labs <= jlac, labs - jlac
 
 
+def test_unmapped_diagnoses_are_not_silently_excluded(
+    hospital: dict[str, Path], site_key_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review F-10 (D-130): the same storage read by a site whose lookups lack the 標準病名 and YJ rows. Every third
+    message carries no ICD-10 / ATC alternate, so those records reach the lake with no code a ValueSet can read. A
+    gout patient whose gout record is such a row used to be "not gout" (FALSE, a hard exclusion outside the two-model
+    rule); now the inclusion is unknown with the reason ``unknown_code_system`` and FEAS says how many there are."""
+    from adapter.sources.ssmix2 import source as ss
+    from orchestrator.scenarios.evaluate import SqlEngine, structured_verdict
+    from tb_common.crypto import pid_for_mrn
+
+    empty = tmp_path / "no-lookups"
+    empty.mkdir()
+    monkeypatch.setattr(ss, "JP_CORE", empty)  # byomei_to_icd10.csv and yj_to_atc.csv: absent
+    src = Ssmix2Source(hospital["ssmix2"])
+    assert sum(1 for r in src.rows("diagnosis", "diagnosis", None, None) if not r["icd10"]) > 0
+    assert any(k.startswith("diagnosis:") for k in src.missed)
+    # the onboarding check says so before the first night
+    from tools import mapping_check
+
+    rep = mapping_check.check(MAPPINGS["ssmix2"], "ssmix2", str(hospital["ssmix2"]), rows=5000)
+    assert rep["tables"]["diagnosis"]["unknown_code_system"]["rows"] > 0
+    assert rep["tables"]["medication"]["unknown_code_system"]["rows"] > 0
+
+    lake_dir = tmp_path / "lake"
+    _ingest("ssmix2", hospital["ssmix2"], lake_dir, site_key_dir)
+    lake = LakeLocal(lake_dir, HashEmbedder(), "Asia/Tokyo")
+    rs = Ruleset.load(ROOT / "rulesets" / "GOUT-COH")
+    inc = next(c for c in rs.active() if c.id == "GOUT-COH-INC-01")  # any gout diagnosis (M10 / M1A)
+    key = (site_key_dir / "site_hmac.key").read_bytes()
+    with (hospital["csv"] / "diagnosis.csv").open(encoding="utf-8") as fh:
+        gout = {pid_for_mrn(key, r["mrn"]) for r in csv.DictReader(fh) if r["icd10"][:3] in ("M10", "M1A")}
+    idx = date.fromisoformat(SNAPSHOT)
+    compiled = {r["pid"]: r[f"C_{inc.id}"] for r in lake.query(rs.sql, [[idx.isoformat()], None]).to_pylist()}
+    lost = sorted(p for p in gout if compiled.get(p) is False)  # gout in the hospital, "not gout" by the codes
+    assert lost, "the fixture must have gout patients whose only gout records lost their code"
+
+    evals = SqlEngine(lake).evaluate(rs, sorted(compiled), idx, [inc.id])
+    for pid in lost:
+        v = structured_verdict(inc, evals[pid])
+        assert v.verdict == "unknown" and v.evidence is not None and v.evidence.reason == "unknown_code_system", pid
+    # a patient with no unreadable diagnosis keeps the plain answer
+    readable = [p for p, v in compiled.items() if v is False and not (evals[p].reasons or {})]
+    assert all(structured_verdict(inc, evals[p]).verdict == "fail" for p in readable[:20])
+
+    _, raw = compute(lake, rs, FeasParams(run_date=REF, snapshot=SNAPSHOT, lookback_months=36))
+    assert raw.unknown_system.get("condition", 0) >= len(lost)
+
+
 def test_reader_versions_deletes_and_delta(tmp_path: Path) -> None:
     """Latest timestamp wins, flag 0 deletes, ISO-2022-JP and UTF-8 both decode, ``since`` filters the delta column."""
     root = tmp_path / "ss"

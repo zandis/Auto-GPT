@@ -1,0 +1,50 @@
+# TrialBox on a hospital platform (WS-14.8, D-211): the same images as the appliance, as Kubernetes objects a
+# platform team applies in TrialBox's own namespace. No install.sh host steps. Do not apply the base: apply an overlay
+# (overlays/shared-quota for CGMH's MIG partition, overlays/interim-cloud for a private cloud with a whole GPU), which
+# pins the images to release.json (components/release-images) and adds the GPU pair (components/gpu-pair).
+#
+#   kustomize build deploy/platform/overlays/shared-quota | kubectl apply -n <namespace> -f -
+#
+# What the platform team provides before the first apply (RUNBOOK §17): the namespace with its ResourceQuota (the
+# MIG devices, CPU and memory: `trialbox doctor --platform --manifests` prints the minimum), a storage class that is
+# encrypted (evidenced) and offers ReadWriteMany, the Secrets trialbox-db, trialbox-mail (optional),
+# trialbox-cloud (optional) and trialbox-token-<service>, the ConfigMap trialbox-service-tokens, and the platform's
+# declarations in a site overlay (platform.env). The key-encryption key is never a Secret (WS-13.11). For day 2
+# (RUNBOOK §26): the ConfigMap trialbox-backup-pub (the backup public key), the claim backup-share bound to the
+# hospital's backup share, a block storage class for the database's claim, and spec.timeZone on the CronJobs.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: trialbox
+    includeSelectors: false
+    includeTemplates: true
+resources:
+  - storage.yaml
+  - db.yaml
+  - fhir-store.yaml
+  - apps.yaml
+  - networkpolicy.yaml
+  - doctor.yaml
+  - day2.yaml  # backup, logs and audit archive, restore (T-633, D-416; RUNBOOK §26)
+configMapGenerator:
+  - name: trialbox-settings  # a site overlay replaces it (behavior: replace) with the site's settings.yaml
+    files:
+      - settings.yaml=settings.example.yaml
+  - name: trialbox-db-init
+    files:
+      - db-init/10-trialbox-wf.sh
+      - db-init/20-extensions.sh
+      - db-init/30-service-roles.sh  # D-378: the roles; the platform's services still sign in as trialbox
+  - name: trialbox-env  # the non-secret part of the appliance's deploy/.env; a site overlay merges its values
+    envs:
+      - site.env
+  - name: trialbox-platform  # what the platform team declares and evidences (doctor --platform reads it)
+    envs:
+      - platform.env
+  - name: trialbox-day2-scripts  # the database image's side of the backup and restore jobs (day2.yaml)
+    files:
+      - day2/pg-snapshot.sh
+      - day2/pg-spool.sh
+generatorOptions:
+  disableNameSuffixHash: false

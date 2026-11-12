@@ -1,0 +1,67 @@
+# TrialBox's own volumes (the appliance's named volumes). On the platform's encrypted storage class (a site overlay
+# sets storageClassName; doctor --platform checks every claim uses TB_PLATFORM_STORAGE_CLASS). Volumes several
+# services mount are ReadWriteMany; the sizes are a starting point the site survey (question 25) replaces.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: lake-data, labels: {app.kubernetes.io/component: storage}}
+spec: {accessModes: [ReadWriteMany], resources: {requests: {storage: 100Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: audit-data, labels: {app.kubernetes.io/component: storage}}
+spec: {accessModes: [ReadWriteMany], resources: {requests: {storage: 20Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: objects-data, labels: {app.kubernetes.io/component: storage}}
+spec: {accessModes: [ReadWriteMany], resources: {requests: {storage: 50Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: rulesets-data, labels: {app.kubernetes.io/component: storage}}
+spec: {accessModes: [ReadWriteMany], resources: {requests: {storage: 5Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: tb-secrets, labels: {app.kubernetes.io/component: storage}}
+spec: {accessModes: [ReadWriteMany], resources: {requests: {storage: 1Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: console-data, labels: {app.kubernetes.io/component: storage}}
+spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 5Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: orch-data, labels: {app.kubernetes.io/component: storage}}
+spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 20Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: mail-data, labels: {app.kubernetes.io/component: storage}}
+spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 5Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: traces-data, labels: {app.kubernetes.io/component: storage}}
+spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 10Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: source-data, labels: {app.kubernetes.io/component: storage}}  # the hospital's export (read-only)
+spec: {accessModes: [ReadWriteMany], resources: {requests: {storage: 50Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: models-data, labels: {app.kubernetes.io/component: storage}}  # weights, mounted read-only
+spec: {accessModes: [ReadWriteMany], resources: {requests: {storage: 200Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: iq-evidence, labels: {app.kubernetes.io/component: storage}}  # iq-evidence.json, canary.json
+spec: {accessModes: [ReadWriteMany], resources: {requests: {storage: 1Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: model-pins, labels: {app.kubernetes.io/component: storage}}  # registry.site.yaml (the pin job)
+spec: {accessModes: [ReadWriteMany], resources: {requests: {storage: 1Gi}}}

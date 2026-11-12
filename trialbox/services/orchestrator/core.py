@@ -24,11 +24,12 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from lake.client import LakeAPI
-from tb_common.audit import AuditLog
-from tb_common.authz import allowed, norm
+from tb_common.audit import AuditLog, mask_detail
+from tb_common.authz import allowed, daily_limit, norm, role_allowed
 from tb_common.config import Config
 from tb_common.crypto import sha256_bytes
 from tb_common.fhir import FhirEvaluator
+from tb_common.flowledger import level_of_tag, record_export
 from tb_common.http import ServiceError
 from tb_common.llm import LlmClient
 from tb_common.objstore import ObjectStore
@@ -53,10 +54,20 @@ from tb_contracts import (
 from orchestrator import i18n
 from orchestrator.clients import AdapterAPI, CompilerAPI, MailAPI, ParserAPI, StepFailed
 from orchestrator.db import TERMINAL, JobDB
+from orchestrator.jobs import guarded_services, pinned_services, release_hold
 
 log = logging.getLogger("orchestrator")
 SYSTEM_SENDERS = ("scheduler", "system")
 FAST_LANE = ("STATUS", "CANCEL")
+
+
+def send_key(job_id: str, kind: str, to: list[str], subject: str, filenames: list[str]) -> str:
+    """The idempotency key of one mail (D-127, review F-02): the same job, kind, recipients, subject and attachment
+    names give the same key, so a step re-run after a restart never mails the PI or the password twice."""
+    import hashlib
+
+    parts = [job_id, kind, ",".join(sorted(to)), subject, ",".join(sorted(filenames))]
+    return "tbmail-" + hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
 
 
 class Cancelled(RuntimeError):
@@ -65,6 +76,10 @@ class Cancelled(RuntimeError):
 
 class Rejected(RuntimeError):
     """Job creation refused (permission / rate limit)."""
+
+
+class NotRetryable(RuntimeError):
+    """A retry refused for the job's own state (D-474): not failed, not a scheduler job, or one already unfinished."""
 
 
 @dataclass
@@ -106,6 +121,7 @@ class Ctx:
     def __init__(self, orch: Orchestrator, job: Job) -> None:
         self.orch = orch
         self._job = job
+        self._services: Services | None = None
 
     @property
     def job(self) -> Job:
@@ -117,7 +133,12 @@ class Ctx:
 
     @property
     def services(self) -> Services:
-        return self.orch.services
+        """The orchestrator's services for this job: the lake pinned to the job's snapshot (T-305a, D-383) and the model
+        clients guarded by the cancel check and the SCREEN breaker (T-108d, D-389). One per job, so the judge and the
+        verifier keep their identity."""
+        if self._services is None:
+            self._services = guarded_services(self, pinned_services(self))
+        return self._services
 
     @property
     def store(self) -> ObjectStore:
@@ -178,6 +199,26 @@ class Ctx:
             recipients=out.recipients,
             detail={"filename": safe, "tag": tag, "bytes": len(data)},
         )
+        job = self._job
+        record_export(  # the export ledger (dataflow P0-8, D-149): what leaves, how identifiable, under what approval
+            self.orch.audit,
+            channel="job_output",
+            filename=safe,
+            sha256=out.sha256,
+            nbytes=len(data),
+            identifier_level=level_of_tag(tag),
+            approval=(
+                f"ruleset {job.ruleset}@{job.ruleset_version}; job {job.type} requested by {job.requested_by}"
+                if job.ruleset
+                else f"job {job.type} requested by {job.requested_by}"
+            ),
+            recipients=out.recipients,
+            actor="orchestrator",
+            ruleset=job.ruleset,
+            ruleset_version=job.ruleset_version,
+            job_id=job.job_id,
+            snapshot=job.snapshot_date.isoformat() if job.snapshot_date else None,
+        )
         outputs = [o for o in (self._job.outputs or []) if o.filename != safe] + [out]
         self.update(outputs=outputs)
         return out
@@ -215,6 +256,9 @@ class Orchestrator:
         self._wake = threading.Condition()
         self._threads: list[threading.Thread] = []
         self._notify = ThreadPoolExecutor(max_workers=2, thread_name_prefix="notify") if async_notify else None
+        # T-305b (D-403): called after a job ends and its lake hold is released (the site's batched publish waits
+        # for the jobs that read the snapshot it would rebuild)
+        self.after_job: list[Callable[[], None]] = []
 
     # ------------------------------------------------------------------ time
     def today(self) -> date:
@@ -229,7 +273,10 @@ class Orchestrator:
         return now(self.cfg.env.tz)
 
     # ------------------------------------------------------------------ job lifecycle
-    def create(self, req: JobCreate, notify: bool = True) -> Job:
+    def create(self, req: JobCreate, notify: bool = True, role: str = "", by: str = "") -> Job:
+        """A new job. ``role`` and ``by``: the console account behind the request, from the console's signed actor
+        assertion (D-146, review J-01); the request is then authorised by that role, not by the mailbox, which stays
+        the reply address. A mailed request (no role) is authorised by the mailbox rules of settings.yaml."""
         if req.job_id:
             existing = self.db.get(req.job_id)
             if existing is not None:  # idempotent on the pre-allocated id
@@ -237,12 +284,23 @@ class Orchestrator:
         sender = norm(req.requested_by)
         jtype = req.type
         if sender not in SYSTEM_SENDERS:
-            if not allowed(self.cfg.settings, jtype, sender):
+            if role:
+                if not role_allowed(role, jtype):
+                    raise Rejected(f"the {role} role may not run {jtype}")
+            elif not allowed(self.cfg.settings, jtype, sender):
                 raise Rejected(f"{sender} is not permitted to run {jtype}")
-            limit = self.cfg.settings.rate_limit_per_sender_per_day or 20
+            limit = daily_limit(self.cfg.settings, jtype)  # D-146 (J-02): heavy job types only, each on its own
             since = (self._now() - timedelta(days=1)).isoformat()
-            if self.db.count_since(sender, since) >= limit:
-                raise Rejected(f"rate limit reached ({limit} jobs per sender per day)")
+            if limit is not None and self.db.count_since(sender, since, jtype) >= limit:
+                raise Rejected(f"rate limit reached ({limit} {jtype} jobs per sender per day)")
+        who = {"by": by, "role": role} if role else {}  # D-146: the console account behind the request, when known
+        return self._admit(req, sender, who, notify)
+
+    def _admit(
+        self, req: JobCreate, sender: str, who: dict[str, str], notify: bool, parent_job_id: str | None = None
+    ) -> Job:
+        """Store, audit and queue (or run, for the fast lane) a job already authorised by the caller."""
+        jtype = req.type
         ts = self._now()
         job = Job(
             job_id=req.job_id or new_ulid(),
@@ -256,6 +314,7 @@ class Orchestrator:
             comment=req.comment,
             message_id=req.message_id,
             in_reply_to=req.in_reply_to,
+            parent_job_id=parent_job_id,
             inputs=list(req.inputs or []),
             outputs=[],
             metrics=JobMetrics(),
@@ -268,7 +327,8 @@ class Orchestrator:
             ruleset=job.ruleset,
             actor=sender,
             input_sha=",".join(f.sha256 for f in job.inputs or []) or None,
-            detail={"from": None, "to": "received", "type": jtype, "options": job.options},
+            # D-272 (CR-016): the options are audited masked; the job keeps them for the run
+            detail={"from": None, "to": "received", "type": jtype, "options": mask_detail(job.options), **who},
         )
         if jtype in FAST_LANE:  # answered at once, never queued behind long jobs
             return self._fast(job)
@@ -279,6 +339,67 @@ class Orchestrator:
                 self._received_mail(job)
         with self._wake:
             self._wake.notify()
+        return job
+
+    # ------------------------------------------------------------------ the administrator's retry (T-746, D-474)
+    def scheduled_root(self, job: Job) -> Job | None:
+        """The scheduler job ``job`` runs again: ``job`` itself when the box's scheduler started it (a type of
+        ``scheduler.plan``, ``requested_by: scheduler``), the start of its ``parent_job_id`` chain when it is a retry
+        of one (every link of the same type and study); None otherwise."""
+        from orchestrator.scheduler import scheduled_types
+
+        if job.type not in scheduled_types():
+            return None
+        seen: set[str] = set()
+        cur: Job | None = job
+        while cur is not None and cur.job_id not in seen:
+            seen.add(cur.job_id)
+            if (cur.type, cur.ruleset) != (job.type, job.ruleset):
+                return None
+            if norm(cur.requested_by) == "scheduler" and not cur.parent_job_id:
+                return cur
+            cur = self.db.get(cur.parent_job_id) if cur.parent_job_id else None
+        return None
+
+    def retry_scheduled(self, job_id: str, *, by: str, role: str, reply_to: str) -> Job:
+        """Run a failed scheduler job again (``job.retry_scheduled``, D-474): the new job copies the failed job's type,
+        study, options, comment and inputs (nothing chosen by the caller), names ``reply_to`` (the administrator's
+        mailbox) and the failed job (``parent_job_id``). KeyError: no such job; Rejected: the role may not;
+        :class:`NotRetryable`: not failed, not a scheduler job, or one of its type and study is not finished."""
+        from tb_common.authz import permit
+
+        if not permit(role, "job.retry_scheduled").allowed:
+            raise Rejected(f"the {role or 'unnamed'} role may not retry a scheduled job")
+        failed = self.db.get(job_id)
+        if failed is None:
+            raise KeyError(job_id)
+        if failed.state != "failed":
+            raise NotRetryable(f"job {job_id} has not failed")
+        if self.scheduled_root(failed) is None:
+            raise NotRetryable(f"job {job_id} was not started by the box's scheduler")
+        sender = norm(reply_to)
+        if not sender or sender in SYSTEM_SENDERS or "@" not in sender:
+            raise Rejected("a retry names the administrator's mailbox (console.cli set-mailbox)")
+        busy = self.db.unfinished(failed.type, failed.ruleset)
+        if busy:
+            raise NotRetryable(f"a {failed.type} job of the same study is already queued or running ({busy[0]})")
+        req = JobCreate(
+            type=failed.type,
+            ruleset=failed.ruleset,
+            options=dict(failed.options or {}) or None,
+            comment=failed.comment,
+            requested_by=sender,
+            inputs=list(failed.inputs or []) or None,
+        )
+        job = self._admit(req, sender, {"by": by, "role": role, "retry_of": failed.job_id}, notify=True,
+                          parent_job_id=failed.job_id)  # fmt: skip
+        self.audit.append(
+            "job.retried",
+            job_id=job.job_id,
+            ruleset=job.ruleset,
+            actor=by or sender,
+            detail={"from": failed.job_id, "type": job.type, "by": by, "role": role},
+        )
         return job
 
     def _fast(self, job: Job) -> Job:
@@ -297,7 +418,7 @@ class Orchestrator:
             ruleset_version=job.ruleset_version,
             snapshot=job.snapshot_date.isoformat() if job.snapshot_date else None,
             actor=job.requested_by,
-            detail={"from": prev, "to": state, **({"error": job.error.model_dump()} if job.error else {})},
+            detail={"from": prev, "to": state, **({"error": mask_detail(job.error.model_dump())} if job.error else {})},
         )
         return job
 
@@ -310,7 +431,13 @@ class Orchestrator:
         self.db.request_cancel(job_id)
         if job.state in ("received", "awaiting_approval"):  # not in a worker: fail now
             job = self.set_state(job, "failed", error=JobError(step="cancelled", message=f"Cancelled by {norm(by)}."))
+            self._release_waiting(job)
         return job
+
+    def _release_waiting(self, job: Job) -> None:
+        """A job that ends outside a worker (cancelled or failed while it waited) releases its lake hold (D-403)."""
+        if job.snapshot_date is not None:
+            release_hold(self.services, job.job_id)
 
     def requeue(self, job_id: str) -> None:
         self.db.enqueue(job_id)
@@ -332,6 +459,7 @@ class Orchestrator:
         for job in self.db.find(state="awaiting_approval", ruleset=ruleset, version=version):
             job = self.set_state(job, "failed", error=JobError(step=step, message=message))
             self._failed_mail(job)
+            self._release_waiting(job)
             ids.append(job.job_id)
         return ids
 
@@ -369,7 +497,20 @@ class Orchestrator:
                 log.exception("job %s failed in %s", job_id, job.state)
             job = self.set_state(job, "failed", error=err)
             self._failed_mail(job)
+        if job.state in TERMINAL:
+            self._end_hold(ctx, job)
         return job
+
+    def _end_hold(self, ctx: Ctx, job: Job) -> None:
+        """T-305b (D-403): the ended job's lake hold is released, then the hooks waiting for it run."""
+        if ctx._services is None and job.snapshot_date is None:
+            return  # the job never read the lake
+        release_hold(ctx._services, job.job_id)
+        for hook in list(self.after_job):
+            try:
+                hook()
+            except Exception:  # a hook's failure is its own; the job is already finished
+                log.exception("after-job hook failed")
 
     def _deliver(self, job: Job, outcome: Outcome) -> None:
         requester_served = False
@@ -412,6 +553,7 @@ class Orchestrator:
             encrypt=tag == "phi",
             tag=tag,
             in_reply_to=job.message_id,
+            idempotency_key=send_key(job.job_id, kind, to, subject, [o.filename for o in outputs]),
         )
         res = self.services.mail.send(req)
         self.db.add_mail(res.message_id, job.job_id, kind, subject, self._now().isoformat())
@@ -483,15 +625,22 @@ class Orchestrator:
             except Exception:  # never let a worker die
                 log.exception("worker error on %s", jid)
 
-    def drain(self, timeout: float = 600) -> None:
-        """Run queued jobs synchronously until the queue is empty (tests / CLI)."""
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
+    def drain(self, total: float | None = None) -> None:
+        """Run queued jobs synchronously until the queue is empty (tests / CLI).
+
+        A job that finishes is progress, however long it took: one screening job over 50,000 patients on the real
+        model pair runs for hours (G1 of 2026-11-11 failed its first hospital part after 2.6 h because a finished
+        job was measured against a 600 s window). A synchronous drain cannot see a job hang while it runs, so there
+        is no stall window here; a hung job is stopped by the caller's own limit (the cloud run's watchdog and
+        hard cap). ``total`` optionally caps the whole drain, checked after each finished job."""
+        start = time.monotonic()
+        while True:
             jid = self.db.claim()
             if jid is None:
                 return
             self.run(jid)
-        raise TimeoutError("queue not drained")
+            if total is not None and time.monotonic() - start > total:
+                raise TimeoutError("queue not drained")
 
 
 def job_language(ctx: Ctx) -> str:

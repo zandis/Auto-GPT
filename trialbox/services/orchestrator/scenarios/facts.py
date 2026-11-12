@@ -144,7 +144,7 @@ def collect(lake: LakeAPI, rs: Ruleset, pid: str, run_date: date) -> Facts:
 def _das28(lake: LakeAPI, pid: str, run_date: date, label: str, lo: int, hi: int) -> dict[str, str]:
     comps = {k: derived.CODES[k][1] for k in derived.COMPONENTS["das28"]}
     rows = lake.query(
-        "SELECT code, value_num, CAST(effective AS DATE) AS d FROM observation WHERE pid = $1 "
+        "SELECT code, value_num, unit, oid, CAST(effective AS DATE) AS d FROM observation WHERE pid = $1 "
         "AND list_contains(CAST($2 AS VARCHAR[]), code) AND CAST(effective AS DATE) BETWEEN CAST($3 AS DATE) "
         "AND CAST($4 AS DATE) AND value_num IS NOT NULL ORDER BY effective DESC, oid DESC",
         [
@@ -154,10 +154,17 @@ def _das28(lake: LakeAPI, pid: str, run_date: date, label: str, lo: int, hi: int
             (run_date + timedelta(days=hi)).isoformat(),
         ],
     ).to_pylist()
-    latest: dict[str, tuple[float, date]] = {}
+    by_code = {code: k for k, code in comps.items()}
+    obs: dict[str, list[derived.Obs]] = {}
     for r in rows:
-        latest.setdefault(r["code"], (float(r["value_num"]), r["d"]))
-    get = {k: latest.get(code) for k, code in comps.items()}
+        obs.setdefault(by_code[r["code"]], []).append(
+            derived.Obs(float(r["value_num"]), r["unit"], r["d"], str(r["oid"]))
+        )
+    # D-149: one visit and converted units, as the screening engines compute it
+    res = derived.compute("das28", obs)
+    get = {k: (o.value, o.on) if o.value is not None else None for k, o in res.inputs.items()}
+    for k in comps:
+        get.setdefault(k, None)
     out = {
         "label": label,
         "date": MISSING,
@@ -180,14 +187,8 @@ def _das28(lake: LakeAPI, pid: str, run_date: date, label: str, lo: int, hi: int
     dates = [v[1] for v in get.values() if v]
     if dates:
         out["date"] = max(dates).isoformat()
-    if get["tjc28"] and get["sjc28"] and get["ptga"] and marker:
-        t, s, g = get["tjc28"][0], get["sjc28"][0], get["ptga"][0]
-        if get["esr"]:
-            score, method = derived.das28_esr(t, s, g, get["esr"][0]), "DAS28-ESR"
-        else:
-            assert get["crp"] is not None
-            score, method = derived.das28_crp(t, s, g, get["crp"][0]), "DAS28-CRP"
-        out["score"], out["method"] = f"{score:.2f}", method
+    if res.value is not None:
+        out["score"], out["method"] = f"{res.value:.2f}", "DAS28-ESR" if get["esr"] else "DAS28-CRP"
     return out
 
 

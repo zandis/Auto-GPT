@@ -2,6 +2,7 @@
 -- Deterministic template output; never edited by hand or produced by an LLM.
 -- Parameters: $1 index_dates DATE[] ; $2 pids VARCHAR[] (NULL = all patients alive at index).
 -- Output: one row per (pid, index_date) with "C_<ID>" BOOLEAN/NULL and "E_<ID>" VARCHAR per criterion.
+-- Safety rules: D-275 (units, sex, order dates).
 WITH
 params AS (SELECT CAST($1 AS DATE[]) AS idx_dates, CAST($2 AS VARCHAR[]) AS pids),
 idx AS (SELECT unnest(idx_dates) AS index_date FROM params),
@@ -9,16 +10,40 @@ base AS (
   SELECT p.pid, p.birth_date, p.sex, i.index_date FROM patient p CROSS JOIN idx i
   WHERE ((SELECT pids FROM params) IS NULL OR list_contains((SELECT pids FROM params), p.pid))
     AND (p.deceased_date IS NULL OR p.deceased_date > i.index_date)
+    AND (p.deceased_date IS NOT NULL OR p.deceased IS NOT TRUE)
     AND (p.birth_date IS NULL OR p.birth_date <= i.index_date)),
 vs(vs_id, system, code) AS (VALUES
   ('VS_CHEST_X_RAY', 'http://loinc.org', '36643-5'),
   ('VS_EGFR_MUTATION', 'https://trialbox.local/fhir/CodeSystem/clinical-score', 'EGFR-MUT'),
   ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EB04'),
+  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34'),
+  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.0'),
+  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.00'),
+  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.01'),
+  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.02'),
+  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.1'),
+  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.10'),
   ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.11'),
-  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.90')),
+  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.12'),
+  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.2'),
+  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.3'),
+  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.30'),
+  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.31'),
+  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.32'),
+  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.8'),
+  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.80'),
+  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.81'),
+  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.82'),
+  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.9'),
+  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.90'),
+  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.91'),
+  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34.92')),
+vsf(vs_id, system, prefix) AS (VALUES
+  ('VS_EGFR_TYROSINE_KINASE_INHIBITOR', 'http://www.whocc.no/atc', 'L01EB'),
+  ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34')),
 -- ONC-OSI-INC-01 (inclusion): 病患年齡須滿十八歲。
 c_onc_osi_inc_01 AS (
-  SELECT b.pid, b.index_date, ((date_sub('year', b.birth_date, b.index_date) >= 18)) AS v,
+  SELECT b.pid, b.index_date, (((year(b.index_date) - year(b.birth_date) - CASE WHEN strftime(b.index_date, '%m-%d') < strftime(b.birth_date, '%m-%d') THEN 1 ELSE 0 END) >= 18)) AS v,
          concat_ws(';', NULL) AS ev
   FROM base b
   ),
@@ -27,17 +52,30 @@ a_onc_osi_inc_02_1 AS (
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
   FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d FROM condition x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_NON_SMALL_CELL_LUNG_CANCER' AND vs.system = x.system AND vs.code = x.code)) e ON e.pid = b.pid AND e.d <= b.index_date
   GROUP BY b.pid, b.index_date),
+a_onc_osi_inc_02_1_nd AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d FROM condition x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_NON_SMALL_CELL_LUNG_CANCER' AND vs.system = x.system AND vs.code = x.code) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_NON_SMALL_CELL_LUNG_CANCER' AND vsf.system = x.system AND starts_with(x.code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_NON_SMALL_CELL_LUNG_CANCER' AND vs.system = x.system AND vs.code = x.code)))) e ON e.pid = b.pid AND e.d IS NULL
+  GROUP BY b.pid, b.index_date),
+a_onc_osi_inc_02_1_off AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
+  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d FROM condition x WHERE (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_NON_SMALL_CELL_LUNG_CANCER' AND vsf.system = x.system AND starts_with(x.code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_NON_SMALL_CELL_LUNG_CANCER' AND vs.system = x.system AND vs.code = x.code))) e ON e.pid = b.pid AND e.d <= b.index_date
+  GROUP BY b.pid, b.index_date),
 -- ONC-OSI-INC-02 (inclusion): 經病理或細胞學診斷為非小細胞肺癌。
 c_onc_osi_inc_02 AS (
-  SELECT b.pid, b.index_date, (coalesce(a_onc_osi_inc_02_1.n, 0) > 0) AS v,
-         concat_ws(';', a_onc_osi_inc_02_1.ev) AS ev
+  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_onc_osi_inc_02_1.n, 0) > 0) THEN TRUE WHEN coalesce(a_onc_osi_inc_02_1_off.n, 0) > 0 THEN NULL WHEN (coalesce(a_onc_osi_inc_02_1_nd.n, 0) > 0) THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', coalesce(a_onc_osi_inc_02_1.ev, a_onc_osi_inc_02_1_off.ev, a_onc_osi_inc_02_1_nd.ev)) AS ev
   FROM base b
-  LEFT JOIN a_onc_osi_inc_02_1 ON a_onc_osi_inc_02_1.pid = b.pid AND a_onc_osi_inc_02_1.index_date = b.index_date),
+  LEFT JOIN a_onc_osi_inc_02_1 ON a_onc_osi_inc_02_1.pid = b.pid AND a_onc_osi_inc_02_1.index_date = b.index_date
+  LEFT JOIN a_onc_osi_inc_02_1_nd ON a_onc_osi_inc_02_1_nd.pid = b.pid AND a_onc_osi_inc_02_1_nd.index_date = b.index_date
+  LEFT JOIN a_onc_osi_inc_02_1_off ON a_onc_osi_inc_02_1_off.pid = b.pid AND a_onc_osi_inc_02_1_off.index_date = b.index_date),
 a_onc_osi_inc_03_1 AS (
   SELECT pid, index_date, (o.value_code IN ('LA9633-4')) AS v,
-         o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
+         CASE WHEN o.unit_bad THEN 'unit_mismatch;' ELSE '' END || o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
   FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
-        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_code
+        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num AS value_num, o.value_cmp, o.value_code,
+         FALSE AS unit_bad
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE <= b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_MUTATION' AND vs.system = o.system AND vs.code = o.code))) o WHERE rn = 1),
 -- ONC-OSI-INC-03 (inclusion): 腫瘤組織檢測證實具 EGFR 基因突變（exon 19 deletion 或 L858R）。
@@ -51,34 +89,58 @@ a_onc_osi_exc_01_1 AS (
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
   FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc) OR EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -365) AND b.index_date
   GROUP BY b.pid, b.index_date),
+a_onc_osi_exc_01_1_nd AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vsf.system = 'http://www.whocc.no/atc' AND starts_with(x.atc, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc))) OR (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vsf.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND starts_with(x.nhi_code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)))) e ON e.pid = b.pid AND e.d IS NULL
+  GROUP BY b.pid, b.index_date),
+a_onc_osi_exc_01_1_off AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
+  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vsf.system = 'http://www.whocc.no/atc' AND starts_with(x.atc, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc)) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vsf.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND starts_with(x.nhi_code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_TYROSINE_KINASE_INHIBITOR' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code))) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -365) AND b.index_date
+  GROUP BY b.pid, b.index_date),
 -- ONC-OSI-EXC-01 (exclusion): 申請前一年內已使用 EGFR 酪胺酸激酶抑制劑者（本申請限第一線治療）。
 c_onc_osi_exc_01 AS (
-  SELECT b.pid, b.index_date, (coalesce(a_onc_osi_exc_01_1.n, 0) > 0) AS v,
-         concat_ws(';', a_onc_osi_exc_01_1.ev) AS ev
+  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_onc_osi_exc_01_1.n, 0) > 0) THEN TRUE WHEN coalesce(a_onc_osi_exc_01_1_off.n, 0) > 0 THEN NULL WHEN (coalesce(a_onc_osi_exc_01_1_nd.n, 0) > 0) THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', coalesce(a_onc_osi_exc_01_1.ev, a_onc_osi_exc_01_1_off.ev, a_onc_osi_exc_01_1_nd.ev)) AS ev
   FROM base b
-  LEFT JOIN a_onc_osi_exc_01_1 ON a_onc_osi_exc_01_1.pid = b.pid AND a_onc_osi_exc_01_1.index_date = b.index_date),
+  LEFT JOIN a_onc_osi_exc_01_1 ON a_onc_osi_exc_01_1.pid = b.pid AND a_onc_osi_exc_01_1.index_date = b.index_date
+  LEFT JOIN a_onc_osi_exc_01_1_nd ON a_onc_osi_exc_01_1_nd.pid = b.pid AND a_onc_osi_exc_01_1_nd.index_date = b.index_date
+  LEFT JOIN a_onc_osi_exc_01_1_off ON a_onc_osi_exc_01_1_off.pid = b.pid AND a_onc_osi_exc_01_1_off.index_date = b.index_date),
 a_onc_osi_doc_01_1 AS (
   SELECT b.pid, b.index_date, count(*) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
   FROM base b JOIN (SELECT pid, rid, effective AS d FROM report x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_CHEST_X_RAY' AND vs.system = x.system AND vs.code = x.code)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -60) AND b.index_date
   GROUP BY b.pid, b.index_date),
+a_onc_osi_doc_01_1_nd AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, rid, effective AS d FROM report x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_CHEST_X_RAY' AND vs.system = x.system AND vs.code = x.code))) e ON e.pid = b.pid AND e.d IS NULL
+  GROUP BY b.pid, b.index_date),
 -- ONC-OSI-DOC-01 (documentation): 二個月內胸部影像檢查報告。
 c_onc_osi_doc_01 AS (
-  SELECT b.pid, b.index_date, (coalesce(a_onc_osi_doc_01_1.n, 0) > 0) AS v,
-         concat_ws(';', a_onc_osi_doc_01_1.ev) AS ev
+  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_onc_osi_doc_01_1.n, 0) > 0) THEN TRUE WHEN (coalesce(a_onc_osi_doc_01_1_nd.n, 0) > 0) THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', coalesce(a_onc_osi_doc_01_1.ev, a_onc_osi_doc_01_1_nd.ev)) AS ev
   FROM base b
-  LEFT JOIN a_onc_osi_doc_01_1 ON a_onc_osi_doc_01_1.pid = b.pid AND a_onc_osi_doc_01_1.index_date = b.index_date),
+  LEFT JOIN a_onc_osi_doc_01_1 ON a_onc_osi_doc_01_1.pid = b.pid AND a_onc_osi_doc_01_1.index_date = b.index_date
+  LEFT JOIN a_onc_osi_doc_01_1_nd ON a_onc_osi_doc_01_1_nd.pid = b.pid AND a_onc_osi_doc_01_1_nd.index_date = b.index_date),
 a_onc_osi_doc_02_1 AS (
   SELECT b.pid, b.index_date, count(*) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
   FROM base b JOIN (SELECT pid, oid AS rid, effective::DATE AS d FROM observation x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_MUTATION' AND vs.system = x.system AND vs.code = x.code)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -365) AND b.index_date
   GROUP BY b.pid, b.index_date),
+a_onc_osi_doc_02_1_nd AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, oid AS rid, effective::DATE AS d FROM observation x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_MUTATION' AND vs.system = x.system AND vs.code = x.code))) e ON e.pid = b.pid AND e.d IS NULL
+  GROUP BY b.pid, b.index_date),
 -- ONC-OSI-DOC-02 (documentation): 一年內 EGFR 基因檢測報告。
 c_onc_osi_doc_02 AS (
-  SELECT b.pid, b.index_date, (coalesce(a_onc_osi_doc_02_1.n, 0) > 0) AS v,
-         concat_ws(';', a_onc_osi_doc_02_1.ev) AS ev
+  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_onc_osi_doc_02_1.n, 0) > 0) THEN TRUE WHEN (coalesce(a_onc_osi_doc_02_1_nd.n, 0) > 0) THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', coalesce(a_onc_osi_doc_02_1.ev, a_onc_osi_doc_02_1_nd.ev)) AS ev
   FROM base b
-  LEFT JOIN a_onc_osi_doc_02_1 ON a_onc_osi_doc_02_1.pid = b.pid AND a_onc_osi_doc_02_1.index_date = b.index_date)
+  LEFT JOIN a_onc_osi_doc_02_1 ON a_onc_osi_doc_02_1.pid = b.pid AND a_onc_osi_doc_02_1.index_date = b.index_date
+  LEFT JOIN a_onc_osi_doc_02_1_nd ON a_onc_osi_doc_02_1_nd.pid = b.pid AND a_onc_osi_doc_02_1_nd.index_date = b.index_date)
 SELECT b.pid, b.index_date,
   c_onc_osi_inc_01.v AS "C_ONC-OSI-INC-01", c_onc_osi_inc_01.ev AS "E_ONC-OSI-INC-01",
   c_onc_osi_inc_02.v AS "C_ONC-OSI-INC-02", c_onc_osi_inc_02.ev AS "E_ONC-OSI-INC-02",

@@ -2,7 +2,7 @@
 
 MIMIC-on-FHIR is already FHIR R4, but it uses MIMIC code systems and a per-patient date shift that the lake and the
 criteria compiler cannot use as they are. This step runs before the ``fhir_bulk`` adapter source and is
-table-driven (``tables/*.csv``; every table is documented in docs/OPEN_DATA.md):
+table-driven (``tables/*.csv``; summarised in docs/VALIDATION.md §5):
 
 * **Diagnoses.** ``mimic-diagnosis-icd10`` codes (no dot, e.g. ``I5023``) become ICD-10-CM (``I50.23``).
   ``mimic-diagnosis-icd9`` codes are cross-walked to ICD-10-CM with ``icd9_to_icd10cm.csv``: a small explicit table
@@ -15,8 +15,8 @@ table-driven (``tables/*.csv``; every table is documented in docs/OPEN_DATA.md):
   resolved into ``medicationCodeableConcept`` (drug name as text, NDC coding when present); drug names are matched
   to ATC with ``drug_to_atc.csv`` (whole-word, case-insensitive generic names).
 * **Procedures.** ICD-9 / ICD-10 procedure systems become ICD-9-CM / ICD-10-PCS; ICU charted procedures
-  (``mimic-d-items``) get a SNOMED CT coding from ``icu_item_to_snomed.csv`` and ``performedDateTime`` from
-  ``performedPeriod.start``.
+  (``mimic-d-items``) get an ICD-10-PCS coding from ``icu_item_to_icd10pcs.csv`` (ventilation by its charted
+  duration; no SNOMED CT on the box, T-617b) and ``performedDateTime`` from ``performedPeriod.start``.
 * **Encounters.** The MIMIC service (``MED``, ``CMED`` …) becomes the department code; ICU stays get department
   ``ICU``.
 * **Dates.** MIMIC shifts every patient into 2100–2200, each by a different offset, so no single run date sees the
@@ -46,7 +46,6 @@ MIMIC_CS = "http://mimic.mit.edu/fhir/mimic/CodeSystem/"
 ICD10CM = "http://hl7.org/fhir/sid/icd-10-cm"
 ICD9CM = "http://hl7.org/fhir/sid/icd-9-cm"
 ICD10PCS = "http://www.cms.gov/Medicare/Coding/ICD10"
-SNOMED = "http://snomed.info/sct"
 LOINC = "http://loinc.org"
 UCUM = "http://unitsofmeasure.org"
 ATC = "http://www.whocc.no/atc"
@@ -80,11 +79,31 @@ class LabMap:
 
 
 @dataclass(frozen=True)
+class IcuMap:
+    """One ICD-10-PCS code of a charted ICU procedure, for durations ``min_hours <= h < max_hours`` (open ends
+    when empty)."""
+
+    icd10pcs: str
+    display: str
+    min_hours: float | None
+    max_hours: float | None
+
+    def fits(self, hours: float | None) -> bool:
+        if self.min_hours is None and self.max_hours is None:
+            return True
+        if hours is None:  # no end charted: the shortest band (the code never claims a longer run than seen)
+            return self.min_hours is None
+        return (self.min_hours is None or hours >= self.min_hours) and (
+            self.max_hours is None or hours < self.max_hours
+        )
+
+
+@dataclass(frozen=True)
 class MimicTables:
     icd9: dict[str, tuple[str, str]]  # ICD-9 (MIMIC form, no dot) -> (ICD-10-CM, display)
     labs: dict[str, LabMap]  # MIMIC lab itemid -> LOINC
     drugs: list[tuple[re.Pattern[str], str, str]]  # (whole-word generic name, ATC, display)
-    icu_items: dict[str, tuple[str, str]]  # MIMIC ICU itemid -> (SNOMED CT, display)
+    icu_items: dict[str, list[IcuMap]]  # MIMIC ICU itemid -> its ICD-10-PCS codes, by duration
 
     @classmethod
     def load(cls, directory: Path = TABLES) -> MimicTables:
@@ -102,7 +121,10 @@ class MimicTables:
             (re.compile(rf"\b{re.escape(r['pattern'].lower())}\b"), r["atc"], r["display"])
             for r in rows("drug_to_atc.csv")
         ]
-        icu = {r["itemid"]: (r["snomed"], r["display"]) for r in rows("icu_item_to_snomed.csv")}
+        icu: dict[str, list[IcuMap]] = {}
+        for r in rows("icu_item_to_icd10pcs.csv"):
+            lo, hi = (float(r[k]) if r[k] else None for k in ("min_hours", "max_hours"))
+            icu.setdefault(r["itemid"], []).append(IcuMap(r["icd10pcs"], r["display"], lo, hi))
         return cls(icd9, labs, drugs, icu)
 
     def atc_for(self, drug_name: str) -> tuple[str, str] | None:
@@ -111,6 +133,15 @@ class MimicTables:
             if pattern.search(name):
                 return atc, display
         return None
+
+
+def _hours(period: dict[str, Any]) -> float | None:
+    """The length of a FHIR period in hours, or None without both ends."""
+    try:
+        start, end = datetime.fromisoformat(period["start"]), datetime.fromisoformat(period["end"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return (end - start).total_seconds() / 3600
 
 
 def icd10_dotted(code: str) -> str:
@@ -406,9 +437,10 @@ class MimicNormaliser:
         elif system == f"{MIMIC_CS}mimic-procedure-icd10":
             new = [{"system": ICD10PCS, "code": code.upper(), "display": c.get("display")}]
         elif system == f"{MIMIC_CS}mimic-d-items" and code in self.t.icu_items:
-            snomed, display = self.t.icu_items[code]
-            new = [{"system": SNOMED, "code": snomed, "display": display}]
-            self.report.counts["procedure.icu_snomed"] += 1
+            m = next((m for m in self.t.icu_items[code] if m.fits(_hours(r.get("performedPeriod") or {}))), None)
+            if m is not None:
+                new = [{"system": ICD10PCS, "code": m.icd10pcs, "display": m.display}]
+                self.report.counts["procedure.icu_icd10pcs"] += 1
         if new:
             r["code"] = {**(r.get("code") or {}), "coding": [{k: v for k, v in x.items() if v} for x in new] + codings}
         if not r.get("performedDateTime") and (r.get("performedPeriod") or {}).get("start"):

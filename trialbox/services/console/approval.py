@@ -5,11 +5,21 @@
 * Amber rows need the investigator's eyes (compiler flags, CQL and SQL not fully equivalent, left to a person, new or
   changed since the approved version). Opening an amber row is recorded on the server (the console has no script);
   **Approve all** is offered once every amber row was opened by the investigator who approves.
-* A coordinator (or administrator) prepares the approval: ticking a row's codes as checked is its own audit event
-  (``console.code_tick``) and is shown to the investigator; it never approves.
+* Only the investigator ticks the criteria and approves them (owner decision 2026-11-09, D-146, review J-27): a tick
+  is its own audit event (``console.code_tick``); the page says who may. A coordinator (or administrator) prepares:
+  reads the draft and gives each criterion the site's own label.
 * A re-approval shows **Changes since vN**: criteria added, with new text or check class, and removed.
+* **Approval needed** (D-318): the approved version pins its judge prompt and terminology release; when the box has a
+  newer prompt or another release, the page says so and that SCREEN keeps the approved prompt until this approval.
+* **Planted instruction** (T-606, D-359): a criterion whose text the guard's screen flags as written to a model
+  ("ignore the above criteria", a note to the AI) is amber with its own warning: the investigator opens it and
+  checks it against the protocol before approval.
 * **Approve all** sends ``APPROVE <study> version=<v>`` with the review workbook the compiler wrote, exactly what a
-  reply to the review mail does; the orchestrator still checks the approver against the site's reviewers.
+  reply to the review mail does; the orchestrator checks the approver's role (D-146).
+* **Amendment record** (D-364, LIFE-009): the investigator may give the day the version takes effect and the IRB
+  approval number and date of the protocol version. They travel on the APPROVE line (``effective=``, ``irb=``,
+  ``irbdate=``) into the approved manifest. The IRB fields are a record, not a gate (D-311); the box screens on the
+  version before until the effective day.
 """
 
 from __future__ import annotations
@@ -17,19 +27,49 @@ from __future__ import annotations
 import io
 import re
 from collections.abc import Callable
+from datetime import date
 from typing import Any
 
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
+from guard.injection import screen
 from tb_contracts import Job
 
+from console import ruleset_labels
 from console import studies as st
 from console.auth import Session
 from console.home import Helpers
+from console.i18n import translate
 
 _ULID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
 _CRIT = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,63}$")
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_IRB = re.compile(r"^[A-Za-z0-9,.:\-]{1,32}$")  # the APPROVE line's value grammar (tb_common.subject)
+
+
+def amendment_line(effective_from: str, irb_reference: str, irb_approved_on: str, today: date) -> str:
+    """D-364: the APPROVE options of the amendment record, checked the way the compiler will check them; a plain
+    refusal (``ValueError``) names the field. Empty fields add nothing."""
+    out: list[str] = []
+    for key, text in (("effective", effective_from), ("irbdate", irb_approved_on)):
+        text = text.strip()
+        if not text:
+            continue
+        try:
+            day = date.fromisoformat(text)
+        except ValueError as exc:
+            raise ValueError(f"amend.bad_date.{key}") from exc
+        if key == "effective" and day < today:
+            raise ValueError("amend.past_effective")
+        if key == "irbdate" and day > today:
+            raise ValueError("amend.future_irb")
+        out.append(f"{key}={day.isoformat()}")
+    irb = irb_reference.strip()
+    if irb:
+        if not _IRB.match(irb):
+            raise ValueError("amend.bad_irb")
+        out.append(f"irb={irb}")
+    return " ".join(out)
 
 
 def review_rows(data: bytes) -> list[dict[str, Any]]:
@@ -71,6 +111,24 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
             raise h.problem(409, "request.refused", reason="this job is not waiting for approval")
         return job, books[-1]
 
+    def label_step(job: Job, rows: list[dict[str, Any]], lang: str) -> dict[str, Any]:
+        """D-309 (T-507): on a Japanese or Chinese page every criterion needs a short label in that language before
+        **Approve all**: the one the site saved (D-120) or, until then, the one the ruleset ships for exactly this
+        text (``console.ruleset_labels``). ``unlabelled`` lists the rows still without one."""
+        if lang == "en":
+            return {"labels": {}, "shipped": set(), "unlabelled": []}
+        rs = job.ruleset or ""
+        mine = store.labels(rs, lang)
+        texts = {str(r["id"]): str(r.get("text") or "") for r in rows}
+        box_dir = getattr(getattr(getattr(bk, "cfg", None), "env", None), "rulesets_path", None)
+        given = ruleset_labels.labels_for(rs, lang, texts, box_dir)
+        labels = {**given, **mine}
+        return {
+            "labels": labels,
+            "shipped": {c for c in given if c not in mine},
+            "unlabelled": [str(r["id"]) for r in rows if not labels.get(str(r["id"]))],
+        }
+
     def context(sess: Session, job: Job, book: Any) -> dict[str, Any]:
         rows = review_rows(bk.get_object(book.minio_key))
         fn = getattr(bk, "criteria", None)
@@ -80,10 +138,14 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         changed = set(diff["added"]) | set(diff["text"]) | set(diff["class"])
         for r in rows:
             r["amber"] = st.amber(r, changed)
+            if screen(str(r.get("text") or "")).hit:  # T-606 (D-359): a criterion that reads as an order to a model
+                r["amber"].append("instruction")
         ambers = [str(r["id"]) for r in rows if r["amber"]]
         opened = store.opened_rows(job.job_id, sess.user.username)
         old = {str(a["id"]): a for a in approved}
+        pins = getattr(bk, "approval_state", None)  # D-318: why the approved version needs the investigator again
         return {
+            "pin_state": pins(job.ruleset) if pins else None,
             "job": job,
             "rs": job.ruleset,
             "version": job.ruleset_version,
@@ -95,8 +157,10 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
             "opened": opened,
             "missing": [a for a in ambers if a not in opened],
             "ticks": store.code_ticks(job.job_id),
-            "labels": store.labels(job.ruleset or "", sess.lang) if sess.lang != "en" else {},
+            **label_step(job, rows, sess.lang),
             "split": {c: sum(1 for r in rows if r.get("class") == c) for c in ("structured", "note", "mixed", "human")},
+            # D-147: a sub-investigator never approves; the study's PI does
+            "approver": h.may_approve is None or h.may_approve(sess.user, (job.ruleset or "").upper()),
         }
 
     @app.get("/pilot/jobs/{job_id}/approval")
@@ -135,7 +199,7 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         sess = h.need(request)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
-        if not sess.user.can_request:
+        if not sess.user.can_approve:  # D-146 (review J-27): the investigator ticks, as only the investigator approves
             au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
         job, book = waiting_job(sess, job_id)
@@ -182,7 +246,15 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         return RedirectResponse(f"/pilot/jobs/{job_id}/approval?done=label#{crit}", status_code=303)
 
     @app.post("/pilot/jobs/{job_id}/approve")
-    def approve(request: Request, job_id: str, csrf: str = Form("")) -> Response:
+    def approve(
+        request: Request,
+        job_id: str,
+        csrf: str = Form(""),
+        confirm: str = Form(""),
+        effective_from: str = Form(""),
+        irb_reference: str = Form(""),
+        irb_approved_on: str = Form(""),
+    ) -> Response:
         sess = h.need(request)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
@@ -190,11 +262,35 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
             au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
         job, book = waiting_job(sess, job_id)
+        if job.ruleset and h.may_approve is not None and not h.may_approve(sess.user, job.ruleset.upper()):
+            # D-147: once the study's delegation log names its PI, only that PI approves (never a sub-investigator)
+            au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            raise h.problem(403, "forbidden")
         ctx = context(sess, job, book)
         if ctx["missing"]:
             raise h.problem(
                 409, "request.refused", reason="open every amber row first: " + ", ".join(ctx["missing"][:5])
             )
+        if ctx["unlabelled"]:  # D-309: the label step comes before approval
+            raise h.problem(
+                409,
+                "request.refused",
+                reason="give every criterion a short label first: " + ", ".join(ctx["unlabelled"][:5]),
+            )
+        try:
+            amend = amendment_line(effective_from, irb_reference, irb_approved_on, h.today())
+        except ValueError as exc:
+            raise h.problem(400, "request.refused", reason=translate(sess.lang, str(exc))) from exc
+        if confirm != "yes" and h.confirm is not None:  # P-10 (D-143): the consequence first
+            text = translate(sess.lang, "confirm.approve_all", n=len(ctx["rows"]))
+            if effective_from.strip():
+                text += " " + translate(sess.lang, "amend.confirm_effective", day=effective_from.strip())
+            fields = {
+                "effective_from": effective_from,
+                "irb_reference": irb_reference,
+                "irb_approved_on": irb_approved_on,
+            }
+            return h.confirm(request, sess, text, request.url.path, fields, f"/pilot/jobs/{job.job_id}/approval")
         au.append(
             "console.approve_all",
             job_id=job.job_id,
@@ -206,8 +302,10 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
                 "amber": len(ctx["ambers"]),
                 "ticked": len(ctx["ticks"]),
                 "since": ctx["prev"] or "",
+                "amendment": amend,
             },
         )
         data = bk.get_object(book.minio_key)
-        new = submit(sess, f"APPROVE {job.ruleset} version={job.ruleset_version}", [("review.xlsx", data, XLSX)])
+        line = f"APPROVE {job.ruleset} version={job.ruleset_version}" + (f" {amend}" if amend else "")
+        new = submit(sess, line, [("review.xlsx", data, XLSX)])
         return RedirectResponse(f"/pilot/jobs/{new.job_id}", status_code=303)

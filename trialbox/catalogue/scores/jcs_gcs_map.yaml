@@ -1,0 +1,31 @@
+score_id: neuro.jcs
+name: {en: Japan Coma Scale to GCS conversion, ja: JCS→GCS換算, zh_tw: 日本昏迷量表轉 GCS}
+version: 1
+formula_kind: conversion_table
+inputs:
+  - {role: jcs, item: neuro.jcs, unit: "{grade}", required: true, anchor: true}
+formula: "look up the GCS value for the JCS grade in the published conversion table; output is a derived GCS flagged 'converted from JCS'"
+conversion_table:
+  note: "fill from Nakajima 2023 (J Epidemiol 33:531) Table; only the two rows below were confirmed from a second source today"
+  3: 13
+  30: 9
+output: {unit: "{score}", min: 3, max: 15}
+rounding: integer
+edge_cases:
+  - "JCS 0 and JCS 1 both map to GCS 15 in the Nakajima table (a commenter's point acknowledged by the authors): the derived value carries the JCS so screening can tell them apart"
+  - "the authors state the method 'is not intended to serve as a blanket recommendation for use in the clinical setting' - the derived GCS is for research pre-screening only and is shown with the original JCS"
+  - "a directly recorded GCS always takes precedence"
+examples:
+  - inputs: {jcs: 3}
+    expected: {gcs: 13}
+    source: "Saiseikai Stroke Database supplementary conversion table, quoted in web search 2026-11-09"
+    source_grade: secondary
+  - inputs: {jcs: 30}
+    expected: {gcs: 9}
+    source: "same"
+    source_grade: secondary
+sources:
+  - "太田富雄 ほか. 脳神経外科 1974 (3-3-9度方式)"
+  - "Nakajima M et al. J Epidemiol 2023;33(10):531-535 (PMC10483104)"
+licence: "public classification; conversion table from an open-access paper"
+verified: partial

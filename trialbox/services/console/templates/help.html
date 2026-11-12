@@ -11,16 +11,24 @@
   <h2>{{ t('help.your_role') }}</h2>
   <p>{{ t('help.role.' + user.role) }}</p>
 </section>
+{% if user.can_view_phi %}<section class="card" data-testid="help-words">
+  <h2>{{ t('help.words') }}</h2>
+  <ul class="plain">{% for w in ('participant', 'screen_fail', 'window', 'overdue', 'ae', 'sae', 'deviation') %}<li>{{ t('life.gloss.' + w) }}</li>{% endfor %}</ul>
+</section>{% endif %}
 <section class="card">
   <h2>{{ t('help.field') }}</h2>
   <p>{{ t('help.field.text') }}</p>
-  <ul class="plain">{% for n in range(1, 7) %}{% set ex = t('cmd.ex.' ~ user.role ~ '.' ~ n) %}{% if ex != 'cmd.ex.' ~ user.role ~ '.' ~ n %}<li><code>{{ ex }}</code></li>{% endif %}{% endfor %}</ul>
+  {# D-133 (review F-10): the examples name the user's own study, and each one is a link that runs it #}
+  {# D-398 (UX-029): "your study" is the study of the page the help was opened from, else the account's own (delegation log) #}
+  <h3>{{ t('help.yours') }}</h3>
+  <ul class="plain" data-testid="help-examples">{% for n in range(1, 7) %}{% set ex = t('cmd.ex.' ~ user.role ~ '.' ~ n) %}{% if ex != 'cmd.ex.' ~ user.role ~ '.' ~ n and (mine or 'GZQO' not in ex) %}{% set ex = ex|replace('GZQO', mine) %}<li><a href="/cmd?q={{ ex|urlencode }}&amp;back={{ back|urlencode }}"><code>{{ ex }}</code></a></li>{% endif %}{% endfor %}</ul>
+  {% if not studies %}<p class="hint">{{ t('help.yours.none') }}</p>{% endif %}
 </section>
 <section class="card">
   <h2>{{ t('help.ask') }}</h2>
   <p>{{ t('help.ask.text', mail=settings.admin_email or '–') }}</p>
   <p class="hint">{{ t('help.guide_later') }}</p>
 </section>
-<p><a href="{{ back }}" data-testid="help-back">{{ t('cmd.back') }}</a></p>
+<p><a class="button secondary" href="{{ back }}" data-testid="help-back">{{ t('cmd.back') }}</a></p>
 </div>
 {% endblock %}

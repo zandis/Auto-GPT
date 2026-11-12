@@ -1,0 +1,96 @@
+# The `shared-quota` GPU profile on a Docker host (WS-11.8, WS-14.8; D-211, D-409): a shared card (CGMH's B200, the
+# owner's B200 of the qualification) split into MIG instances, the judge and the verifier each on its own instance
+# (two instances), both behind the base file's model-guard with the model key, as on the appliance (LLM-028).
+#
+#   cd deploy && docker compose -f docker-compose.yml -f docker-compose.secrets.yml -f docker-compose.shared-quota.yml \
+#       -f platform/docker-compose.platform.yml --profile gpu up -d --wait
+#
+# Not started by install.sh (a shared host has no install.sh host steps; deploy/gpu_profile.sh names a MIG-enabled
+# card `shared-quota`, which install.sh refuses). The Kubernetes form is deploy/platform/overlays/shared-quota.
+#
+# Measured, never assumed: every serving value below has NO default. They come from the shared-quota serving record
+# (tools/serving_config.py capture on the partition: the cloud B200 qualification, T-114, then CGMH's own partition at
+# IQ), and compose refuses to start while one is unset:
+#   TB_MIG_PROFILE          the MIG profile of the instances (nvidia-smi mig -lgi), e.g. as granted in survey 51
+#   TB_MIG_JUDGE_DEVICE     the judge's MIG instance UUID (nvidia-smi -L: MIG-xxxxxxxx-...)
+#   TB_MIG_VERIFIER_DEVICE  the verifier's MIG instance UUID (another instance: a device serves one container)
+#   JUDGE_MAX_LEN, VERIFIER_MAX_LEN              --max-model-len each server ran with in the record
+#   JUDGE_MAX_SEQS, VERIFIER_MAX_SEQS            --max-num-seqs
+#   JUDGE_GPU_MEM_UTIL, VERIFIER_GPU_MEM_UTIL    --gpu-memory-utilization, a fraction of the MIG instance's memory
+# Weights: the same 4-bit builds as the RTX PRO 6000 profile (NVFP4 judge, AWQ verifier), pinned with
+# tools/pin_model.py; vLLM v0.32.0 unless the qualification names a fallback (RSK-43).
+
+x-vllm-shared: &vllmshared
+  logging:
+    driver: json-file
+    options: {max-size: "${TB_LOG_MAX_SIZE:-100m}", max-file: "${TB_LOG_MAX_FILE:-10}"}  # D-389
+  profiles: [gpu]
+  image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}
+  # D-177 / D-450: VLLM_API_KEY from the vLLM servers' own env file (`trialbox secrets` writes it with
+  # secrets/model/llm.key); vLLM checks it on /v1 only, model-guard on every call. Never from deploy/.env. A box
+  # without the file runs the server open behind model-guard, and doctor --serving (install, update) FAILs it.
+  env_file: [{path: ./secrets/model/vllm.env, required: false}]
+  environment:
+    HF_HUB_OFFLINE: "1"
+    VLLM_NO_USAGE_STATS: "1"
+    VLLM_LOGGING_LEVEL: WARNING   # no request or prompt lines in the log at any vLLM version (T-605, LLM-042)
+  volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
+  ipc: host
+  pids_limit: 4096   # T-108a (D-360); the memory caps are per server below
+  labels: {tb.watchdog: restart}   # the host's watchdog restarts a hung server (OPS-029)
+  restart: unless-stopped
+  healthcheck:
+    test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
+    interval: 30s
+    timeout: 10s
+    retries: 40
+    start_period: 300s
+
+services:
+  llm-service:
+    <<: *vllmshared
+    networks: {model-backend-net: {aliases: [llm-service-vllm]}}   # behind model-guard (D-177, D-409)
+    mem_limit: ${TB_MEM_LLM:-48g}   # host memory, not the card's
+    command:
+      - --model=/models/${JUDGE_MODEL_DIR:-gemma-4-26b-a4b-it-4bit}
+      - --served-model-name=${JUDGE_MODEL:-local/gemma-4-26b-a4b-nvfp4}
+      # the developer's chat template at a pinned revision, not the quantised folder's (DEP-007, D-392)
+      - --chat-template=/models/${JUDGE_CHAT_TEMPLATE:-chat-templates/gemma-4-26b-a4b-it/chat_template.jinja}
+      - --max-model-len=${JUDGE_MAX_LEN:?measured on the partition (shared-quota serving record)}
+      - --max-num-seqs=${JUDGE_MAX_SEQS:?measured on the partition (shared-quota serving record)}
+      - --enforce-eager
+      - --gpu-memory-utilization=${JUDGE_GPU_MEM_UTIL:?measured on the partition (shared-quota serving record)}
+      - --limit-mm-per-prompt={"image":0,"audio":0,"video":0}
+    deploy:
+      resources:
+        reservations:
+          devices: !override [{driver: nvidia, device_ids: ["${TB_MIG_JUDGE_DEVICE:?the judge's MIG instance UUID}"], capabilities: [gpu]}]
+
+  llm-verifier:
+    <<: *vllmshared
+    networks: {model-backend-net: {aliases: [llm-verifier-vllm]}}   # behind model-guard (D-177, D-409)
+    mem_limit: ${TB_MEM_VERIFIER:-48g}   # host memory, not the card's
+    command:
+      - --model=/models/${VERIFIER_MODEL_DIR:-qwen3.5-9b-4bit}
+      - --served-model-name=${VERIFIER_MODEL:-local/qwen3.5-9b-awq}
+      - --max-model-len=${VERIFIER_MAX_LEN:?measured on the partition (shared-quota serving record)}
+      - --max-num-seqs=${VERIFIER_MAX_SEQS:?measured on the partition (shared-quota serving record)}
+      - --enforce-eager
+      - --gpu-memory-utilization=${VERIFIER_GPU_MEM_UTIL:?measured on the partition (shared-quota serving record)}
+      - --limit-mm-per-prompt={"image":0,"video":0}
+      - --default-chat-template-kwargs={"enable_thinking":false}
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, device_ids: ["${TB_MIG_VERIFIER_DEVICE:?the verifier's MIG instance UUID}"], capabilities: [gpu]}]
+
+  gateway:
+    environment:
+      TB_MODEL_SWAP: "off"   # both resident, each on its own instance: no sleep, no hold
+      TB_PROFILE: P-SHARED-QUOTA
+      TB_MIG_PROFILE: "${TB_MIG_PROFILE:?the MIG profile the partition was granted}"
+
+  orchestrator:
+    environment:
+      TB_MODEL_SWAP: "off"
+      TB_SCREEN_LLM_CONCURRENCY: "${JUDGE_MAX_SEQS:?measured on the partition (shared-quota serving record)}"

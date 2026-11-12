@@ -7,7 +7,16 @@ Backends produce a list of markdown-like lines (``# heading`` lines + text + ``|
 
 The same deterministic section and I/E heuristics then run on those lines (``Inclusion Criteria|納入條件|選択基準``,
 ``Exclusion|排除條件|除外基準``, plus ``續用``/renewal and ``應檢附``/documentation for NHI rules). If no block is
-found, the ``ie_locate`` LLM prompt is used. Scanned PDFs (< 50 chars/page) go to PaddleOCR when installed.
+found, the ``ie_locate`` LLM prompt is used. Text drawn so nobody can see it (white, invisible, tiny, Word's hidden
+format) is counted and named in ``warnings`` (:mod:`doc_parser.hidden_text`, T-208). Scanned PDFs (< 50 chars/page)
+go to PaddleOCR when installed.
+
+T-606 (D-359): every section is put through the guard's planted-instruction screen (:mod:`guard.injection`); a section
+with text written as an instruction to a model is named in ``warnings`` (kinds only), and the text is kept as it is.
+Before the ``ie_locate`` call, a line the gateway's PHI tripwire would hit (a contact line: a doctor's name, a
+telephone number, an e-mail address) is masked with the guard's type tags, so a protocol's front page or contact
+section no longer gets the whole call refused (review LLM-035). Only the call's copy is masked; ``sections`` keep the
+document's text.
 """
 
 from __future__ import annotations
@@ -20,8 +29,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from guard.guard import Guard
 from tb_common.crypto import sha256_bytes
 from tb_contracts import DocSection, DocTable, IEBlock, ParsedDoc
+
+from doc_parser.hidden_text import hidden_text
 
 HEADINGS = {
     "inclusion": re.compile(
@@ -303,6 +315,52 @@ def language(lines: list[str]) -> str:
     return "zh-TW" if len(_CJK.findall(text)) / len(text) > 0.1 else "en"
 
 
+def screen_warnings(secs: list[DocSection], guard: Guard) -> list[str]:
+    """One warning per section that holds text written as an instruction to a model (T-606): title and kinds only."""
+    out = []
+    for s in secs:
+        v = guard.screen(f"{s.title}\n{s.text}")
+        if v.hit:
+            out.append(
+                f"planted instruction suspected in section {s.title[:80]!r} ({', '.join(v.kinds)}): the text is kept "
+                "as data; check the criteria against the protocol before approval"
+            )
+    return out
+
+
+def mask_contacts(text: str, guard: Guard) -> tuple[str, list[str]]:
+    """``text`` with each line the PHI tripwire hits masked by the guard's type tags (``[NAME]``, ``[PHONE]``); a line
+    that still hits after masking is replaced by ``[CONTACT]``. Returns the text and the kinds masked (LLM-035)."""
+    kinds: set[str] = set()
+    lines = []
+    for line in text.split("\n"):
+        v = guard.tripwire(line)
+        if v.hit:
+            kinds.update(v.kinds)
+            line = guard.redact(line)
+            if guard.tripwire(line).hit:
+                line = "[CONTACT]"
+        lines.append(line)
+    return "\n".join(lines), sorted(kinds)
+
+
+def locator_sections(secs: list[DocSection], guard: Guard) -> tuple[list[dict[str, Any]], list[str]]:
+    """The sections as the ``ie_locate`` call carries them (at most 60, 4,000 characters each), contact lines masked,
+    and a warning naming what was masked (kinds and line counts only)."""
+    out: list[dict[str, Any]] = []
+    masked: set[str] = set()
+    n = 0
+    for s in secs[:60]:
+        title, k1 = mask_contacts(s.title, guard)
+        text, k2 = mask_contacts(s.text[:4000], guard)
+        if k1 or k2:
+            n += 1
+            masked.update(k1 + k2)
+        out.append({"title": title, "text": text})
+    warn = [f"contact details masked in {n} section(s) before the criteria locator call ({', '.join(sorted(masked))})"]
+    return out, warn if n else []
+
+
 def parse(data: bytes, filename: str, ie_locator: IeLocator | None = None, backend: str | None = None) -> ParsedDoc:
     backend = backend or os.environ.get("TB_PARSER", "auto")
     kind = _kind(filename, data)
@@ -324,11 +382,18 @@ def parse(data: bytes, filename: str, ie_locator: IeLocator | None = None, backe
             doc = _text(data)
     except Exception as exc:  # corrupt, truncated or mislabelled file: a reason for the requester, not a 500
         raise UnreadableDocument(f"{filename} could not be read as {kind.upper()} ({type(exc).__name__})") from exc
+    hidden = hidden_text(kind, data)  # T-208 (D-346): text nobody sees on the page is flagged, never dropped
+    if hidden.found:
+        doc.warnings.append(hidden.warning())
     secs = sections(doc.lines)
+    guard = Guard.from_settings()
+    doc.warnings.extend(screen_warnings(secs, guard))  # T-606 (D-359): flagged, never dropped
     block = ie_block(secs)
     source: Literal["heuristic", "llm", "none"] = "heuristic" if (block.inclusion or block.exclusion) else "none"
     if source == "none" and ie_locator is not None:
-        located = ie_locator([{"title": s.title, "text": s.text[:4000]} for s in secs][:60])
+        sent, masked = locator_sections(secs, guard)  # LLM-035: contact lines masked, not a refused call
+        doc.warnings.extend(masked)
+        located = ie_locator(sent)
         block = IEBlock(inclusion=located.get("inclusion", []), exclusion=located.get("exclusion", []))
         source = "llm" if (block.inclusion or block.exclusion) else "none"
     return ParsedDoc(

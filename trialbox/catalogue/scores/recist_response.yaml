@@ -1,0 +1,37 @@
+score_id: onc.recist_response
+name: {en: RECIST 1.1 target-lesion response, ja: RECIST 1.1 標的病変効果判定, zh_tw: RECIST 1.1 目標病灶反應}
+version: 1
+formula_kind: rule_table
+inputs:
+  - {role: baseline_sum, item: onc.recist_sum_diameters, unit: mm, required: true, note: "sum of diameters at baseline (≤ 5 target lesions, ≤ 2 per organ)"}
+  - {role: nadir_sum, item: onc.recist_sum_diameters, unit: mm, required: true, note: "smallest sum on study (may be baseline)"}
+  - {role: current_sum, item: onc.recist_sum_diameters, unit: mm, required: true, anchor: true}
+  - {role: new_lesions, item: "local finding", unit: coded, required: true}
+  - {role: non_target, item: "local finding (CR/non-CR non-PD/PD)", unit: coded, required: false}
+formula: |
+  CR: all target lesions disappear (nodes < 10 mm short axis).
+  PR: ≥ 30% decrease in current_sum vs baseline_sum.
+  PD: ≥ 20% increase in current_sum vs nadir_sum AND absolute increase ≥ 5 mm, or any new lesion.
+  SD: neither PR nor PD, referenced to the nadir.
+  Overall response combines target, non-target and new lesions per the RECIST 1.1 table.
+output: {unit: coded, values: [CR, PR, SD, PD, NE]}
+rounding: none
+edge_cases:
+  - "PR must be confirmed ≥ 4 weeks later in non-randomised studies"
+  - "a 20% increase that is < 5 mm absolute is not PD (e.g. 20 → 24 mm)"
+  - "a radiology report that states 'PD' is stored as an entered response (trust proposed); the derived response needs the sums"
+  - "iRECIST / irRECIST for immunotherapy are separate definitions"
+examples:
+  - inputs: {baseline_sum_mm: 165, week8_sum_mm: 63, week16_sum_mm: 65}
+    expected: {week8: PR, week16: "continued PR (increase of 2 mm from nadir 63 is below the 20% and 5 mm thresholds)"}
+    source: "RECIST guideline example reproduced in a registry manual (CIBMTR FIM manual 'RECIST criteria'), read 2026-11-09"
+    source_grade: secondary
+  - inputs: {thresholds: true}
+    expected: {pr_decrease: "≥ 30%", pd_increase: "≥ 20% and ≥ 5 mm absolute"}
+    source: "Eisenhauer EA et al. Eur J Cancer 2009;45:228-247 (quoted by recist.eortc.org and trial protocols 2026-11-09)"
+    source_grade: primary
+sources:
+  - "Eisenhauer EA et al. Eur J Cancer 2009;45:228-247"
+  - "recist.eortc.org"
+licence: "RECIST 1.1 published by EORTC/RECIST Working Group; free to use"
+verified: yes

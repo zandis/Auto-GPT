@@ -9,13 +9,17 @@ a person decides (CDR, study partner, …).
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any
 
+from tb_common.config import environment_name
 from tb_contracts import Job
 
+from console import coded_view
+from console.recorded_opinions import view
 from console.sitestore import DEFAULT_REASONS, Mark, SiteProfile, StudySettings
 
 TERMINAL_REGISTRY = frozenset({"screen_fail", "declined", "withdrawn"})
@@ -23,6 +27,16 @@ STATUS_ORDER = ("new", "pending", "contacted", "screened", "enrolled", "set_asid
 
 
 # ---------------------------------------------------------------------------------------------- jobs
+def known_study(bk: Any, rid: str) -> bool:
+    """D-133 (review F-37): a study page answers only for a study TrialBox has (a ruleset of any status, so a study
+    whose protocol was read but not yet approved can be set up). A mistyped code gets the 404 page, never an empty
+    set-up form for a study that does not exist."""
+    try:
+        return any(r.id == rid for r in bk.rulesets())
+    except Exception:
+        return True
+
+
 def latest_job(jobs: Iterable[Job], ruleset: str, types: Sequence[str], state: str | None = "done") -> Job | None:
     """The most recently updated job of one of ``types`` for ``ruleset`` (and ``state``)."""
     best: Job | None = None
@@ -78,9 +92,55 @@ class CriterionMeta:
     label: str
     text: str = ""
     original: str = ""  # the label as the study wrote it, when ``label`` is the site's translation (D-120)
+    text_original: str = ""  # the text as the study wrote it, when ``text`` is the ruleset's translation (D-309)
+    todo: str = ""  # the criterion's to-do in the page language (D-309)
+    todo_original: str = ""  # the to-do as the run writes it, which ``todo`` replaces on the page
+
+
+def criterion_meta(row: Mapping[str, Any], lang: str, site_label: str = "") -> CriterionMeta:
+    """One approved criterion for a page in ``lang`` (T-507, D-309): the label the site gave at approval (D-120), else
+    the label the ruleset ships for this text, else the study's own label; the shipped text and to-do in ``lang``
+    when the ruleset has them. Whatever replaces the study's words keeps them beside it (``original``,
+    ``text_original``)."""
+    written = str(row.get("label") or row["id"])
+    text = str(row.get("text") or "")
+    tr = (row.get("i18n") or {}).get(lang) or {}
+    local = site_label or str(tr.get("label") or "")
+    local_text = str(tr.get("text") or "")
+    todo = str(tr.get("todo") or "")
+    return CriterionMeta(
+        str(row["id"]),
+        str(row["kind"]),
+        str(row.get("class") or "structured"),
+        local or written,
+        local_text or text,
+        written if local else "",
+        text if local_text and local_text != text else "",
+        todo,
+        str(row.get("action") or "") if todo else "",
+    )
+
+
+def test_model_in_use(environ: Mapping[str, str] | None = None) -> bool:
+    """T-507 (D-309, LLM-045): the box's note answers come from the test model with fixed answers. True with
+    ``TB_LLM_MODE=stub``; with no ``TB_LLM_MODE`` on a DEV or TEST box, whose demo and tests run the in-process stub.
+    A page marks every answer read from notes as "test model" then (DEV pages label the test model)."""
+    env = os.environ if environ is None else environ
+    mode = (env.get("TB_LLM_MODE") or "").strip().lower()
+    if mode:
+        return mode == "stub"
+    return environment_name(env) in ("DEV", "TEST")
 
 
 VERIFIED_BY = {"structured": "records", "note": "notes", "human": "person", "mixed": "records_notes"}
+
+
+def site_or_written(written: object, meta: CriterionMeta | None, cid: str) -> tuple[str, bool]:
+    """(label, is the site's own label): the label the site gave at approval wins over the words a run wrote down
+    (D-146, review J-22 / R-72); otherwise the study's own words, which a page shows as written (``data-authored``)."""
+    if meta is not None and meta.original:
+        return meta.label, True
+    return str(written or (meta.label if meta else "") or cid), False
 
 
 def feas_report(
@@ -130,10 +190,12 @@ def feas_report(
         width = None
         if f.get("applied") is not False and start_i and _int(rem) is not None:
             width = max(0.5, min(100.0, 100.0 * (_int(rem) or 0) / start_i))
+        label, site_label = site_or_written(f.get("label"), meta, cid)
         funnel_rows.append(
             {
                 "id": cid,
-                "label": f.get("label") or (meta.label if meta else cid),
+                "label": label,
+                "site_label": site_label,
                 "kind": meta.kind if meta else "",
                 "applied": f.get("applied") is not False,
                 "remaining": _fmt(rem),
@@ -155,7 +217,7 @@ def feas_report(
         bars.append(
             {
                 "id": f.get("criterion_id"),
-                "label": f.get("label") or (meta.label if meta else f.get("criterion_id")),
+                "label": site_or_written(f.get("label"), meta, str(f.get("criterion_id") or ""))[0],
                 "dropped": d,
                 "never": never,
                 "failed": d - never,
@@ -294,10 +356,11 @@ class Fit:
     open: list[str] = field(default_factory=list)  # unknown labels
     not_met: list[str] = field(default_factory=list)  # inclusion criteria a note or record says are not met
     person: list[str] = field(default_factory=list)  # pending_human labels
+    todo_words: dict[str, str] = field(default_factory=dict)  # a run's to-do -> its words in the page language (D-309)
 
 
 def fit_facts(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, CriterionMeta]) -> Fit:
-    fit = Fit()
+    fit = Fit(todo_words={m.todo_original: m.todo for m in crit.values() if m.todo and m.todo_original})
     for v in criteria:
         cid = str(v.get("id"))
         meta = crit.get(cid)
@@ -391,6 +454,112 @@ def weekly_rows(
     return rows
 
 
+# ---------------------------------------------------------------------------------------------- amendment re-screen
+RESCREEN_GROUPS = ("returns", "no_longer", "in_screening")  # D-364 (LIFE-010), in the order the page shows them
+SET_ASIDE_MARKS = ("not_suitable", "not_now")
+LISTED = ("high", "review")
+
+
+def semver(v: str | None) -> tuple[int, ...]:
+    """``1.2.0`` -> (1, 2, 0); no version (a mark made before D-364) sorts before every version."""
+    try:
+        return tuple(int(x) for x in str(v or "").split("."))
+    except ValueError:
+        return ()
+
+
+def rescreen_list(
+    cl: Mapping[str, Any] | None,
+    marks: Mapping[str, Mark],
+    registry: Mapping[str, str],
+    crit: Mapping[str, CriterionMeta] | None = None,
+    old: Mapping[str, Any] | None = None,
+    changed: Sequence[str] = (),
+) -> list[dict[str, Any]]:
+    """The amendment re-screen list (D-364, LIFE-010): who the investigator looks at again once a new criteria
+    version screens. ``cl`` is the latest candidate list (run on the new version); ``old`` the latest list of an
+    earlier version, when one is stored; ``changed`` the criterion ids the amendment added or changed.
+
+    * ``returns``: set aside ("Not suitable", "Not now") under an earlier version, or a screen failure in the
+      screening log, and on the new list with a better answer: off the old list, or a criterion that did not pass
+      under the old version passes now (a relaxed criterion).
+    * ``no_longer``: approached or waiting for information under an earlier version, or in the log as a candidate or
+      contacted, and excluded by the new version.
+    * ``in_screening``: consented and not yet enrolled: the investigator confirms them against the new version.
+
+    A patient leaves the list once the investigator marks them on a list of the new version. Each row names the
+    criteria behind it, as labels: those whose answer changed between the two lists, else the amendment's changes."""
+    version = str((cl or {}).get("version") or "")
+    if not version or old is None or semver(str(old.get("version") or "")) >= semver(version):
+        return []  # no list of an earlier version: no amendment has screened yet
+    crit = crit or {}
+    label = {cid: (m.label or cid) for cid, m in crit.items()}
+    rows = {str(r.get("pid") or ""): r for r in (cl or {}).get("rows") or []}
+    before = {str(r.get("pid") or ""): r for r in old.get("rows") or []}
+
+    def verdicts(r: Mapping[str, Any] | None) -> dict[str, str]:
+        return {str(v.get("id")): str(v.get("verdict") or "") for v in (r or {}).get("criteria") or []}
+
+    def why(pid: str, want: str) -> list[str]:
+        now, then = verdicts(rows.get(pid)), verdicts(before.get(pid))
+        ids = [c for c, v in now.items() if then and then.get(c) not in (None, v) and v == want]
+        if not ids:
+            ids = [c for c in changed if c in now] or list(changed)
+        return [label.get(c, c) for c in ids]
+
+    def improved(pid: str) -> bool:
+        """The new version answers better: the patient was off the old list, or a criterion that did not pass
+        passes now."""
+        then = before.get(pid)
+        if then is None or str(then.get("tier") or "") not in LISTED:
+            return True
+        now, was = verdicts(rows.get(pid)), verdicts(then)
+        return any(v == "pass" and was.get(c) not in (None, "pass") for c, v in now.items())
+
+    def earlier(mk: Mark | None) -> bool:
+        return mk is not None and semver(mk.version) < semver(version)
+
+    out: list[dict[str, Any]] = []
+    pids = sorted(set(rows) | {p for p, st in registry.items() if st == "consented"})
+    for pid in pids:
+        if not pid:
+            continue
+        mk, reg, row = marks.get(pid), registry.get(pid), rows.get(pid)
+        if mk is not None and not earlier(mk):
+            continue  # the investigator already looked at this patient on a list of the new version
+        tier = str((row or {}).get("tier") or "")
+        group = ""
+        was = ""
+        if reg == "consented":
+            group, was = "in_screening", "consented"
+        elif tier in LISTED and improved(pid):
+            if mk is not None and mk.mark in SET_ASIDE_MARKS and reg in (None, "candidate"):
+                group, was = "returns", mk.mark
+            elif reg == "screen_fail":
+                group, was = "returns", "screen_fail"
+        elif tier == "excluded" and (
+            (mk is not None and mk.mark in ("approach", "need_info")) or reg in ("candidate", "contacted")
+        ):
+            group, was = "no_longer", (mk.mark if mk is not None else str(reg))
+        if not group:
+            continue
+        out.append(
+            {
+                "pid": pid,
+                "short": pid[:8],
+                "group": group,
+                "was": was,
+                "was_version": (mk.version or "") if mk is not None else "",
+                "version": version,
+                "criteria": why(pid, "fail" if group == "no_longer" else "pass") if group != "in_screening" else [],
+                "tier": tier,
+            }
+        )
+    order = {g: i for i, g in enumerate(RESCREEN_GROUPS)}
+    out.sort(key=lambda r: (order[r["group"]], r["pid"]))
+    return out
+
+
 def list_bridge(rep: Mapping[str, Any] | None, rows: Sequence[Mapping[str, Any]] | None, today: date) -> dict[str, Any]:
     """S3 (D-120): why the screening list is longer than the feasibility count. The count leaves out unknown
     inclusions and keeps unknown exclusions; the list keeps every patient whose answer is unknown (needs information)
@@ -416,6 +585,12 @@ def list_bridge(rep: Mapping[str, Any] | None, rows: Sequence[Mapping[str, Any]]
             1
             for r in live
             if any(((v.get("evidence") or {}).get("reason") == "code_outside_list") for v in r.get("criteria") or [])
+        )
+        # D-130 (review F-10): a record in a code system nobody can read made a coded inclusion unknown
+        out["unknown_system"] = sum(
+            1
+            for r in live
+            if any(((v.get("evidence") or {}).get("reason") == "unknown_code_system") for v in r.get("criteria") or [])
         )
     return out
 
@@ -452,14 +627,23 @@ def patient_rows(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Crite
                 "label": meta.label if meta else cid,
                 "original": meta.original if meta else "",
                 "text": meta.text if meta else "",
+                "text_original": meta.text_original if meta else "",
+                "test_model": bool(meta and meta.cls in ("note", "mixed") and v.get("verdict") != "pending_human")
+                and test_model_in_use(),
                 "verdict": v.get("verdict"),
                 "quote": ev.get("quote"),
                 "date": ev.get("quote_date"),
                 "reason": ev.get("reason"),
-                "opinions": [o for o in ev.get("opinions") or [] if o.get("quote")],  # both quotes (D-120)
+                # both quotes (D-120); each says where it came from: the test model, a recorded run or a synthetic
+                # example (T-515)
+                "opinions": [view(o, test_model_in_use()) for o in ev.get("opinions") or [] if o.get("quote")],
                 "source": VERIFIED_BY.get(meta.cls, "records") if meta else "records",
+                # T-514 (D-362): the coded records' value, unit, date and code
+                "coded": coded_view.view(ev, v.get("verdict")),
             }
         )
+        verdicts = {o.get("verdict") for o in ev.get("opinions") or [] if o.get("quote")}
+        out[-1]["disagree"] = len(verdicts) > 1  # the two checks differ (T-515)
     return out
 
 

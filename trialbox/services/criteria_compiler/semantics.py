@@ -8,11 +8,18 @@ Normative semantics (DECISIONS D-17):
   ``report``, ``observation`` without ``value``) are never null.
 * ``observation`` with ``value``: null when no matching observation is in the window; ``latest`` compares the most
   recent observation (ties broken by resource id); ``any``/``all``/``none``/``count>=`` over all matching ones.
-* ``demographic``: age = complete years at the index date; null when birth date / gender is missing.
+  A number is compared in the criterion's unit (``value.unit``): a row in another unit is converted when
+  ``tb_common.labunit`` has a factor for that analyte, or when both units are of one kind (g/L and g/dL, D-418), and
+  otherwise (a row with no unit included) has no usable number, like a text result: it never makes the comparison
+  true or false (D-275).
+* ``demographic``: age = complete years at the index date; null when the birth date is missing or the gender is
+  not ``male`` / ``female`` (missing, ``other``, ``unknown``; D-275).
 * ``derived``: computed from the latest components in the window; null when a component is missing; without
   ``value`` the atom is true when computable.
 * ``medication`` with ``duration``: validity periods clipped to the window, merged when the gap <= ``gap_days``,
-  longest island in days (inclusive) compared with ``min_days``; never null.
+  longest island in days (inclusive) compared with ``min_days``. Null when the dated periods do not reach
+  ``min_days`` and a matching order has no end date (it began on or before the window's end) or no date at all:
+  its length is not known (D-275). An order with no end date still counts one day towards the dated periods.
 """
 
 from __future__ import annotations

@@ -1,0 +1,23 @@
+{
+ "disagreements": [],
+ "engine": "duckdb sql vs the generator's planted gold (tw-ra site); CQL recorded in tests/expected.json (cqf-fhir-cql 4.13.0 LibraryEngine in process (CQL engine 5.4.0, as HAPI 8.12 CR $evaluate))",
+ "failing": [],
+ "overall_pct": 100.0,
+ "per_criterion": {
+  "RA-JAK-EXC-01": 100.0,
+  "RA-JAK-EXC-02": 100.0,
+  "RA-JAK-EXC-04": 100.0,
+  "RA-JAK-EXC-05": 100.0,
+  "RA-JAK-EXC-06": 100.0,
+  "RA-JAK-EXC-07": 100.0,
+  "RA-JAK-EXC-08": 100.0,
+  "RA-JAK-EXC-09": 100.0,
+  "RA-JAK-EXC-10": 100.0,
+  "RA-JAK-EXC-11": 100.0,
+  "RA-JAK-INC-01": 100.0,
+  "RA-JAK-INC-02": 100.0,
+  "RA-JAK-INC-03": 100.0,
+  "RA-JAK-INC-04": 100.0
+ },
+ "sample_size": 675
+}

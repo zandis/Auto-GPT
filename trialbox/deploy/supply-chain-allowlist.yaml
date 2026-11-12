@@ -1,0 +1,2204 @@
+# Supply-chain allow-list (D-186). The pip-audit, Trivy and licence gates fail on a finding unless an entry here
+# accepts it. Format and rules: tools/supply_chain/allowlist.py. Checked by `make allowlist-check` (CI):
+#   - every entry has a reason of at least 20 characters that a reviewer can check;
+#   - every entry has review_by (YYYY-MM-DD), at most 180 days ahead; once it passes, the gates fail until the
+#     entry is reviewed (new date and reason) or removed;
+#   - a vulnerability entry names one package and matches its id or any alias (CVE, GHSA, PYSEC);
+#   - a licence entry matches a package and one flag: lgpl, gpl, agpl, unknown (records the licence a person
+#     verified in `licence`) or dual (names the permissive branch taken in `chosen`); every flag of a package
+#     needs its own entry, so a stricter licence (LGPL to GPL) fails again;
+#   - a key given twice, or a list given as anything else, is refused.
+# Change this file in a pull request the security owner approves.
+
+vulnerabilities:  # pip-audit on deploy/requirements.lock was clean on 2026-11-09; none accepted for it
+  # Dated per-image exceptions that replace report mode for the HAPI FHIR and vLLM images (T-110b, D-340, ENG-007).
+  # Each accepts one finding of the image gates of 2026-11-10 in that image only (`image:`); a new finding blocks.
+  # They lapse on 2026-12-10, the target date of deploy/security/known-image-findings.md: by then the image moves to
+  # a patched tag (and the entries go) or each entry is reviewed again with a new date and reason.
+  - id: CVE-2026-102554
+    package: com-google-guava:guava
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 33.7.2; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-111497
+    package: libbrotli1
+    image: hapiproject/hapi
+    reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 1.1.0-2+deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-33701
+    package: io-opentelemetry-javaagent:opentelemetry-javaagent
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 2.26.1; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-35568
+    package: io-modelcontextprotocol-sdk:mcp-core
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 1.0.0; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-47884
+    package: org-springframework:spring-webmvc
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 7.0.9; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-47890
+    package: org-springframework:spring-webmvc
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 7.0.9; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-66046
+    package: libexpat1
+    image: hapiproject/hapi
+    reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 2.9.0-1~deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-76844
+    package: zlib1g
+    image: hapiproject/hapi
+    reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 1:1.3.dfsg+really1.3.1-1+deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-76956
+    package: libexpat1
+    image: hapiproject/hapi
+    reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 2.9.0-1~deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-76957
+    package: libexpat1
+    image: hapiproject/hapi
+    reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 2.9.0-1~deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-77214
+    package: libexpat1
+    image: hapiproject/hapi
+    reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 2.9.0-1~deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-85091
+    package: zlib1g
+    image: hapiproject/hapi
+    reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 1:1.3.dfsg+really1.3.1-1+deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89407
+    package: com-fasterxml-jackson-core:jackson-core
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 2.18.11; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89407
+    package: tools-jackson-core:jackson-core
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 3.1.7; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89425
+    package: com-fasterxml-jackson-core:jackson-core
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 2.21.7; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89425
+    package: tools-jackson-core:jackson-core
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 3.1.7; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-91776
+    package: com-fasterxml-jackson-core:jackson-databind
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 2.18.11; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-91776
+    package: tools-jackson-core:jackson-databind
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 3.1.7; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-91777
+    package: com-fasterxml-jackson-core:jackson-databind
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 2.21.7; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-91777
+    package: tools-jackson-core:jackson-databind
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 3.1.7; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-93990
+    package: libexpat1
+    image: hapiproject/hapi
+    reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 2.9.0-1~deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: DSA-6572-1
+    package: ca-certificates
+    image: hapiproject/hapi
+    reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 20250419+deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-47273
+    package: setuptools
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image, fixed in 78.1.1; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-68973
+    package: dirmngr
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-68973
+    package: gnupg
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-68973
+    package: gnupg-utils
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-68973
+    package: gnupg2
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-68973
+    package: gpg
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-68973
+    package: gpg-agent
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-68973
+    package: gpgconf
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-68973
+    package: gpgsm
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-68973
+    package: gpgv
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-68973
+    package: keyboxd
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-109518
+    package: apt
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.8.4ubuntu0.1; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-109518
+    package: libapt-pkg6-0t64
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.8.4ubuntu0.1; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-111497
+    package: libbrotli1
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 1.1.0-2ubuntu0.1; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-114613
+    package: msgpack
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image, fixed in 1.2.3; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-119194
+    package: pyasn1
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image, fixed in 0.6.5; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-119195
+    package: pyasn1
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image, fixed in 0.6.5; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-119196
+    package: pyasn1
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image, fixed in 0.6.5; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-119197
+    package: pyasn1
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image, fixed in 0.6.5; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-45447
+    package: libssl3t64
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 3.0.13-0ubuntu3.11; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-45447
+    package: openssl
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 3.0.13-0ubuntu3.11; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-84782
+    package: libssl3t64
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 3.0.13-0ubuntu3.16; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-84782
+    package: openssl
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 3.0.13-0ubuntu3.16; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-97687
+    package: urllib3
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image, fixed in 2.8.0; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-97689
+    package: urllib3
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image, fixed in 2.8.0; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: GHSA-6q48-6c7w-9gw2
+    package: certifi
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image, fixed in 2026.10.18; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: GHSA-6v7p-g79w-8964
+    package: msgpack
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image, fixed in 1.2.1; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: GHSA-hq85-5cpj-mr62
+    package: uv
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image, fixed in 0.13.4; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+
+  # trialbox-postgres (T-104's db image) is scanned and blocking since T-110b. Its findings come from the official
+  # postgres:16-trixie base it is built FROM: gosu (Go 1.24.6, used once by the entrypoint to drop root) and zlib1g
+  # (the Debian fix is newer than the pinned base). Same date and rule as the HAPI and vLLM entries: move the base
+  # digest in deploy/images.lock and the Dockerfile together, or review each entry again.
+  # Findings published 2026-11-11 against unchanged images (owner chose dated waivers on 2026-11-11, same date and rule).
+  - id: CVE-2026-97054
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib 1.24.6 inside gosu of the postgres base (entrypoint privilege drop only), fixed in Go 1.26.11; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-68159
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74478
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74587
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74588
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74597
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89530
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89652
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89659
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2024-52560
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-38204
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-40064
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-40074
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-40139
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-40158
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-40168
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-23385
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-53250
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-64017
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-64581
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-68138
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-68198
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-68253
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-68266
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-68451
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-68452
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-72111
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-72413
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-72463
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74268
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74334
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74347
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74350
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74446
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74454
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74456
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74458
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74465
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74469
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74470
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74479
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74480
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74488
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74492
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74493
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74494
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74496
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74498
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74499
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74502
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74505
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74510
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74518
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74522
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74531
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74535
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74540
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74541
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74556
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74565
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74569
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74580
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74581
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74582
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74583
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74585
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74586
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74589
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74590
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74594
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74607
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74609
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74615
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74616
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74624
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74628
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74630
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74631
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74632
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74641
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74649
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74656
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74662
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74677
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74684
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74700
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74714
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74724
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-74744
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-80551
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-80554
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-80671
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-80681
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-80691
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-80700
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-80702
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-80710
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-80714
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-80716
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-80718
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-80837
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-80841
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-80852
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-80864
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-80891
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-80937
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-80980
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-80982
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-80991
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89448
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89481
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89492
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89520
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89526
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89531
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89544
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89550
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89564
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89565
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89580
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89622
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89633
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89638
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89676
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89680
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89685
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89707
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89708
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89803
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89837
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89922
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-90003
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-90037
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-90048
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-90057
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-90092
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-90108
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-90148
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-90150
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-90152
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-90169
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-90199
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-90200
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-90227
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-90313
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-90375
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-90392
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-90398
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-92507
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-92509
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-92510
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-92511
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-92512
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-93105
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-93192
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-93196
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-93199
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-93210
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-93787
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-93790
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-93792
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-93796
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-93806
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-93817
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-93824
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-93828
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-97415
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-97429
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-97442
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-97497
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-97530
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-97555
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-97557
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-97562
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-97564
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-97581
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-97615
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-97906
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98017
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98041
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98056
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98104
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98107
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98164
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98167
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98171
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98222
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98229
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98260
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98283
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98359
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98365
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98432
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98441
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98442
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98454
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98456
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98457
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98459
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98462
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98464
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98479
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98487
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98490
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98491
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98503
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98515
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98524
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98526
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98532
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98548
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98561
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98567
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98568
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98572
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98573
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98580
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98586
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98588
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98590
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98591
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98606
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98621
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98624
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98625
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98626
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98632
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98634
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98642
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98699
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98701
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98704
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98706
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98707
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98708
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98709
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98725
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98733
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98734
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98735
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98737
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98738
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98739
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98741
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98742
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98752
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98754
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98763
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98792
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98794
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98797
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98805
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98823
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98827
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98836
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98837
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98846
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-98862
+    package: linux-libc-dev
+    image: vllm/vllm-openai
+    reason: Ubuntu kernel headers package 6.8.0-147 of the upstream vLLM image, build-time headers not the running kernel; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-61726
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.24.12; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-61729
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.24.11; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-68121
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.24.13; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-111943
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.26.10; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-25679
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.25.8; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-27145
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.25.11; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-32280
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.25.9; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-32281
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.25.9; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-32283
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.25.9; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-33811
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.25.10; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-33814
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.25.10; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-33818
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.25.13; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-39820
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.25.10; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-39821
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.25.13; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-39822
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.25.12; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-39824
+    package: golang-org/x/sys
+    image: trialbox-postgres
+    reason: Go golang-org/x/sys inside gosu of the postgres base (entrypoint privilege drop only), fixed in 0.44.0; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-39836
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.25.10; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-42499
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.25.10; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-42504
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.25.11; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-56853
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.25.13; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-56858
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.25.13; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-56859
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.25.13; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-56860
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.25.13; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-56862
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.25.13; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-76844
+    package: zlib1g
+    image: trialbox-postgres
+    reason: Debian zlib1g of the pinned postgres:16-trixie base, fixed in 1:1.3.dfsg+really1.3.1-1+deb13u1; goes with the next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-78667
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.26.9; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-78669
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.26.9; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-85091
+    package: zlib1g
+    image: trialbox-postgres
+    reason: Debian zlib1g of the pinned postgres:16-trixie base, fixed in 1:1.3.dfsg+really1.3.1-1+deb13u1; goes with the next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-97031
+    package: stdlib
+    image: trialbox-postgres
+    reason: Go stdlib inside gosu of the postgres base (entrypoint privilege drop only), fixed in 1.26.9; next base digest (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+
+licences:
+  # The eight LGPL packages of the layer-2 review (docs/reviews/2026-11-09-component-review-layer2-verification.md
+  # section 3). Installed unmodified from PyPI wheels into images the hospital controls; the library can be
+  # replaced; the licence texts go in THIRD_PARTY_NOTICES (WS-14.6). Never vendor or patch them.
+  - package: psycopg
+    class: lgpl
+    reason: LGPL-3.0-only; used unmodified as an installed package, replaceable, licence text shipped in the notices
+    review_by: 2027-05-01
+  - package: psycopg-binary
+    class: lgpl
+    reason: LGPL-3.0-only; unmodified wheel (bundles libpq and OpenSSL under their own permissive licences); notices
+    review_by: 2027-05-01
+  - package: docxtpl
+    class: lgpl
+    reason: LGPL-2.1-only; used unmodified as an installed package, replaceable, licence text shipped in the notices
+    review_by: 2027-05-01
+  - package: py7zr
+    class: lgpl
+    reason: LGPL-2.1-or-later; unmodified; 7z attachments only; goes away if R-12 replaces attachments with links
+    review_by: 2027-05-01
+  - package: pybcj
+    class: lgpl
+    reason: LGPL-2.1-or-later; unmodified dependency of py7zr; goes away with py7zr (R-12); notices
+    review_by: 2027-05-01
+  - package: pyppmd
+    class: lgpl
+    reason: LGPL-2.1-or-later; unmodified dependency of py7zr; goes away with py7zr (R-12); notices
+    review_by: 2027-05-01
+  - package: inflate64
+    class: lgpl
+    reason: LGPL-2.1-or-later; unmodified dependency of py7zr; goes away with py7zr (R-12); notices
+    review_by: 2027-05-01
+  - package: multivolumefile
+    class: lgpl
+    reason: LGPL-2.1-or-later; unmodified dependency of py7zr; goes away with py7zr (R-12); notices
+    review_by: 2027-05-01
+
+  # Dual licence: the permissive branch is taken.
+  - package: dulwich
+    class: dual
+    chosen: Apache-2.0
+    reason: Apache-2.0 OR GPL-2.0-or-later; used under Apache-2.0, unmodified; Apache notice in the notices
+    review_by: 2027-05-01
+
+  # No licence the report can read from the SBOM (no field, a hash of the text, or a free name). Each was read in
+  # the installed metadata and licence file of the locked version on 2026-11-09.
+  - package: duckdb
+    class: unknown
+    licence: MIT (classifier "MIT License"; dist-info/licenses/LICENSE is the MIT text)
+    reason: Permissive licence verified in the wheel; the SBOM carries no licence field for it
+    review_by: 2027-05-01
+  - package: jinja2
+    class: unknown
+    licence: BSD-3-Clause (classifier "BSD License"; dist-info/licenses/LICENSE.txt is the 3-clause text)
+    reason: Permissive licence verified in the wheel; the SBOM carries no licence field for it
+    review_by: 2027-05-01
+  - package: kiwisolver
+    class: unknown
+    licence: BSD-3-Clause ("Modified BSD License" in dist-info/licenses/LICENSE; classifier "BSD License")
+    reason: Permissive licence verified in the wheel; the SBOM gives only a hash of the licence text
+    review_by: 2027-05-01
+  - package: matplotlib
+    class: unknown
+    licence: Matplotlib licence, PSF-based (classifier "Python Software Foundation License"); bundled DejaVu and STIX fonts under their own font licences
+    reason: Permissive licence verified in the wheel; the SBOM gives only a hash of the licence text
+    review_by: 2027-05-01
+  - package: pycryptodomex
+    class: unknown
+    licence: BSD-2-Clause and public domain (LICENSE.rst; classifiers "BSD License", "Public Domain")
+    reason: Permissive licence and public-domain parts verified in the wheel; "BSD, Public Domain" is not an SPDX id
+    review_by: 2027-05-01
+  # From the python:3.12-slim base image (Syft scan of the pinned digest, both platforms, 2026-11-09).
+  - package: python
+    class: unknown
+    licence: PSF-2.0 (the CPython interpreter of the official python image, /usr/local/bin/python3.12)
+    reason: The interpreter of the base image, unmodified; Syft finds the binary but no licence field
+    review_by: 2027-05-01
+  - package: Simple Launcher
+    class: unknown
+    licence: PSF-2.0 / distlib (pip/_vendor/distlib/t32.exe etc.; Windows launchers vendored by pip)
+    reason: Windows .exe launchers inside pip in the base image; never run on Linux; licence of distlib
+    review_by: 2027-05-01
+  - package: reportlab
+    class: unknown
+    licence: BSD-3-Clause (dist-info/licenses/LICENSE); bundled DarkGarden font under GPL-2.0 (font data, unmodified)
+    reason: BSD code verified in the wheel; the GPL font file ships unmodified as data and is listed in the notices
+    review_by: 2027-05-01
+  # TrialBox's own npm manifest (T-677, D-393): tools/package.json records the browser test tools (axe-core, Playwright)
+  # and rides in the images with tools/. Syft reads it as a package; nothing is installed from it in an image.
+  - package: trialbox-browser-tests
+    class: unknown
+    licence: UNLICENSED (TrialBox's own manifest, proprietary like the project; not a third-party package)
+    reason: Our own lock of the test tools, read by Syft as an npm package; it ships no third-party code
+    review_by: 2027-05-01
+  # From the trialbox-jvm image (CI release gates, 2026-11-10, amd64 and arm64).
+  - package: hl7-fhir-us-davinci-pas
+    class: unknown
+    licence: CC0-1.0 (HL7 FHIR specification content; one Da Vinci PAS extension definition, subset by tools/fetch_fhir_packages.py)
+    reason: HL7 publishes FHIR implementation guide content under CC0; the package.json of the subset has no licence field
+    review_by: 2027-05-01
+  - package: openjdk
+    class: unknown
+    licence: GPL-2.0-only WITH Classpath-exception-2.0 (Eclipse Temurin JRE 21, copied unmodified from the pinned eclipse-temurin image)
+    reason: The JRE ships unmodified; the Classpath exception covers the jars run on it; listed in the notices
+    review_by: 2027-05-01
+
+# Licence budgets: open licence flags counted per image and ecosystem (tools/supply_chain/licences.py evaluate). A
+# count above its budget fails, so every new component is reviewed; when a count drops, lower the budget.
+budgets:
+  # trialbox-postgres (T-110b): gosu and its Go modules in the postgres:16-trixie base, Syft reads no licence from a
+  # Go binary (gosu is Apache-2.0, its modules BSD-3-Clause and Apache-2.0)
+  - image: trialbox-postgres
+    ecosystem: golang
+    max: 3
+    reason: gosu and its Go modules from the official postgres base image, counted because Go binaries carry no licence data
+    review_by: 2027-02-01
+  # Our images: Syft reads no licence from most jars (pom.properties only), so they are counted, not named.
+  # The jars are the HL7 validator and the CQL translator with their dependencies (tools/fetch_jvm_deps.sh).
+  - image: trialbox-jvm
+    ecosystem: maven
+    # 71 since T-672: HL7 FHIR core 6.9.12 brings okhttp-jvm 5.3.2, okio 3.16.4 and okio-jvm 3.16.4 (Apache-2.0 in
+    # their Maven Central poms; Syft reads no licence from the jars)
+    max: 71
+    reason: HL7 validator and cql-to-elm jars without licence data in the jar; reviewed list in dist/sbom/licences.md
+    review_by: 2027-02-01
+  - image: trialbox-demo
+    ecosystem: maven
+    max: 67  # the same three Apache-2.0 jars as trialbox-jvm (T-672)
+    reason: The same cql-to-elm jars in the demo image (the validator is left out of its context); reviewed list
+    review_by: 2027-02-01
+  # Third-party images, redistributed unmodified under their publishers' terms: all their open flags (unknown,
+  # copyleft, dual) are counted per image. The image's own terms are reviewed as a whole (counsel: the vLLM image's
+  # CUDA libraries, layer-2 review section 3). Counts are the larger of amd64 and arm64 on 2026-11-10.
+  - image: vllm/vllm-openai
+    ecosystem: "*"
+    max: 630
+    reason: vLLM image v0.32.0 unmodified; Rust crates, Go modules, CUDA wheels without licence data; counsel reviews it
+    review_by: 2027-02-01
+  - image: hapiproject/hapi
+    ecosystem: "*"
+    max: 179
+    reason: HAPI FHIR server image unmodified (Apache-2.0 project); its jars carry no licence data for Syft
+    review_by: 2027-02-01
+  - image: greenmail/standalone
+    ecosystem: "*"
+    max: 36
+    reason: GreenMail test mail server image unmodified (Apache-2.0 project); test and POC profiles only
+    review_by: 2027-02-01
+  - image: postgres
+    ecosystem: "*"
+    max: 4
+    reason: Official postgres image unmodified; gosu and the server binary carry no licence data for Syft
+    review_by: 2027-02-01
+  - image: axllent/mailpit
+    ecosystem: "*"
+    max: 52
+    reason: Mailpit test mail catcher image unmodified (MIT project, replaced MailHog in D-348); test profile only; Go modules of its binary carry no licence data for Syft
+    review_by: 2027-02-01

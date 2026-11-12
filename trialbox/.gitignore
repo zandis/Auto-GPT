@@ -23,3 +23,13 @@ deploy/poc/
 # Hermes fragment runtime material (deploy/hermes/prepare.py): certificates, keys, directory, DEV profile
 deploy/secrets/
 deploy/.objects/
+# update rollback points and history (tools/trialbox/update.py, D-138); the box's collected logs
+deploy/updates/
+deploy/refdata/
+deploy/logs/
+# the console's operations requests, results and status (tools/trialbox/ops.py, D-178)
+deploy/ops/
+# the complete run (tools/complete_run.py, D-139): screenshots and work folders are never committed
+eval/complete_run/**/shots/
+# the browser test tools lock (DEP-025, D-393); the repository root ignores every package-lock.json
+!tools/package-lock.json

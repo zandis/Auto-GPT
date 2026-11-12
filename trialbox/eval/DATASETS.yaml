@@ -61,6 +61,16 @@ datasets:
     data_class: D0
     kind: open
     licence: TREC Clinical Trials 2021/2022 topics and qrels (NIST, synthetic patient descriptions); trial texts from the NCBI TrialGPT corpus (ClinicalTrials.gov public records)
+  qualification:
+    path: eval/qualification (qualification records of `trialbox eval qualify` and the schema probes, D-313; hashes, counts and codes only)
+    data_class: D0
+    kind: synthetic
+    licence: written for TrialBox (synthetic probes, no patient data)
+  injection:
+    path: eval/injection (the prompt-injection and false-positive suite, T-208, D-346; synthetic notes, charts, consent forms and protocols with planted instructions in en / ja / zh-TW)
+    data_class: D0
+    kind: synthetic
+    licence: written for TrialBox (fictional text, no patient data)
   canary_local:
     path: eval/canary_local (answers of 4-bit GGUF builds on CPU to the orchestrator canary, services/orchestrator/canary; 2026-11-08)
     data_class: D0
@@ -86,11 +96,26 @@ datasets:
     data_class: D0
     kind: open
     licence: SIGIR notes public domain (NCBI); MedTxt CC BY 4.0 (Sociocom NAIST); derived fields and test protocols are TrialBox's own
+  complete_run:
+    path: eval/complete_run (reports of tools/complete_run.py, D-139; screenshots are never committed)
+    data_class: D0
+    kind: synthetic
+    licence: generated synthetic hospital (tools/synth_hospital), synthetic charts (tools/synth_charts) and the public site (see public_site); the D-141 scenarios also read mimic_iv_fhir_demo, medtxt and trec_ct (see those entries; only counts reach the report); reports are TrialBox's own
   hospital_sim:
     path: eval/hospital_sim (measured pipeline runs on generated hospitals and projections)
     data_class: D0
     kind: synthetic
     licence: generated (tools/synth via tools/hospital_sim.py)
+  omop_parity:
+    path: eval/omop_parity (tools/omop_parity.py, D-151; counts and verdict totals only, no patient row)
+    data_class: D0
+    kind: synthetic
+    licence: generated synthetic hospital (tools/synth_hospital) and the public site and MIMIC-IV demo (see public_site and mimic_iv_fhir_demo; only counts reach the report); the report is TrialBox's own
+  vec_parity:
+    path: eval/vec_parity (tools/vec_parity.py, D-449; S2b counts per ruleset with the flag vec.s2b off and on, no patient row)
+    data_class: D0
+    kind: synthetic
+    licence: generated synthetic hospital (tools/synth_hospital); the report is TrialBox's own
   parity:
     path: eval/parity (offline model-gate replay of recorded SIGIR/TREC answers and serving-configuration records, D-111)
     data_class: D0

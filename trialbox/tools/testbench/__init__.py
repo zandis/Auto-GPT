@@ -1,4 +1,4 @@
-"""TrialBox Test Bench: a developer and validation web tool, never a product surface (docs/HANDOFF.md §5).
+"""TrialBox Test Bench: a developer and validation web tool, never a product surface (docs/VALIDATION.md §6).
 
 It runs only with ``TB_ENV`` set to ``DEV`` or ``TEST``, loads only D0 datasets from ``eval/DATASETS.yaml``, binds
 ``127.0.0.1`` by default and shows :data:`BANNER` on every page. It lives under ``tools/`` so that no product image

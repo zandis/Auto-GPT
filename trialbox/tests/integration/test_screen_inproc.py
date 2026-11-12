@@ -26,9 +26,10 @@ KEY = b"trialbox-test-site-key-0123456789abcdef"
 RUN = date(2026, 10, 5)  # a Monday, the synthetic reference date
 
 
-@pytest.fixture(scope="module")
-def world(synth_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
-    tmp = tmp_path_factory.mktemp("screen")
+@pytest.fixture
+def world(synth_dir: Path, tmp_path: Path) -> dict[str, Any]:
+    """A fresh box per test (its own lake, pid map and job tables), so every test runs alone and in any order."""
+    tmp = tmp_path
     sec = tmp / "sec"
     sec.mkdir()
     (sec / "site_hmac.key").write_bytes(KEY)
@@ -43,12 +44,18 @@ def _list_mail(box: Box, prefix: str, to: str = "pi@hospa.test") -> dict[str, by
     return unzip_phi(box, mail)
 
 
-def test_screen_by_email(world: dict[str, Any], synth_dir: Path) -> None:
-    box: Box = world["box"]
+def _screen(box: Box) -> c.Job:
+    """``SCREEN GZQO`` by email on ``box``: the run fills the GZQO candidate pool."""
     assert box.mail("SCREEN GZQO version=1.0.0") == "Processed"
     box.orch.drain()
     job = box.orch.db.find(type_="SCREEN")[0]
     assert job.state == "done", job.error
+    return job
+
+
+def test_screen_by_email(world: dict[str, Any], synth_dir: Path) -> None:
+    box: Box = world["box"]
+    job = _screen(box)
     assert (job.metrics.patients_scoped or 0) > 50 and (job.metrics.llm_calls or 0) > 0  # type: ignore[union-attr]
     files = _list_mail(box, "[GZQO] SCREEN candidates")
     xlsx = next(v for k, v in files.items() if k.endswith(".xlsx"))
@@ -104,8 +111,9 @@ def test_screen_by_email(world: dict[str, Any], synth_dir: Path) -> None:
 
 def test_microbatch_changes_on_seeded_changes(world: dict[str, Any], synth_dir: Path) -> None:
     box: Box = world["box"]
+    _screen(box)  # the pool the micro-batch compares against
     pool = box.orch.db.pool("GZQO")
-    assert pool, "run after test_screen_by_email"
+    assert pool
     by_v = {p["pid"]: {v["id"]: v["verdict"] for v in p["verdicts"]} for p in pool}
     ok = sorted(pid for pid, v in by_v.items() if v.get("GZQO-EXC-04") == "pass" and v.get("GZQO-EXC-11") != "fail")
     assert len(ok) >= 4, by_v
@@ -166,12 +174,18 @@ def test_microbatch_changes_on_seeded_changes(world: dict[str, Any], synth_dir: 
     }
     assert got == want
     tiers = {r[1]: r[2] for r in wb["candidates"].iter_rows(min_row=2, values_only=True) if r[1]}
-    assert all(tiers[p] == "excluded" for p in glp + flare)
+    assert all(tiers[p] == "excluded" for p in glp)  # a coded exclusion (GLP-1 started) excludes
+    # this box has one model (the stub judge, no verifier): its note "flare now" sends the patient to review, never
+    # out, as SCREEN on the same box does. Before D-276 (review F-01) MICROBATCH re-tiered with the configured policy
+    # alone and these patients were excluded on one model's word.
+    assert all(tiers[p] == "review" for p in flare), {p: tiers[p] for p in flare}
 
 
 def test_feedback_and_calibration(world: dict[str, Any]) -> None:
     box: Box = world["box"]
+    _screen(box)  # feedback is only taken for pids in the candidate pool
     pool = [p["pid"] for p in box.orch.db.pool("GZQO")]
+    assert pool
     outcomes = ["enrolled"] * 3 + ["screen_fail"] * 4 + ["declined"] * 5 + ["not_contacted"] * 4
     buf = io.StringIO()
     w = csv.writer(buf)
