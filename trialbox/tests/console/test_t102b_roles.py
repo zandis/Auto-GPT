@@ -263,11 +263,15 @@ def _fake_core(monkeypatch: pytest.MonkeyPatch) -> None:
     real = s28.call
 
     def call(bk: Any, method: str, path: str, body: Any = None, headers: Any = None) -> Any:
+        if method == "GET" and path.startswith("/studies/GZQO/edc/"):  # no EDC value yet (the SDV page reads them)
+            return [] if "/edc/drafts" in path else {"drafts": [], "decisions": [], "signatures": []}
         m = re.match(r"^/studies/GZQO/subjects/([^?/]+)\?", path)
         if method == "GET" and m:
             if m.group(1) not in SUBJECTS:
                 raise Problem(404, "notfound", "no such subject")
-            return dict(SUBJECTS[m.group(1)])
+            # the data core's real reply shape (orchestrator.lifecycle_api.get_subject): the subject is nested (D-436)
+            return {"study": "GZQO", "today": "2026-11-11", "subject": dict(SUBJECTS[m.group(1)]), "steps": [],
+                    "visits": [], "aes": [], "deviations": []}  # fmt: skip
         return real(bk, method, path, body, headers)
 
     monkeypatch.setattr(s28, "call", call)

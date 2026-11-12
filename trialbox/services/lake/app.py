@@ -43,7 +43,11 @@ def embedder() -> Embedder:
     return _embedder
 
 
-app = make_app("lake", checks=[lambda: {"snapshot": lake().current() or "none"}], protect_reads=True)  # D-130
+def _vec_check() -> dict[str, Any]:
+    return vec_health()  # defined below, with the S2b route (D-449)
+
+
+app = make_app("lake", checks=[lambda: {"snapshot": lake().current() or "none"}, _vec_check], protect_reads=True)
 
 
 def to_ipc(table: pa.Table) -> bytes:
@@ -83,6 +87,64 @@ def chunks_search(req: ChunkSearchRequest) -> ChunkSearchResult:
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return ChunkSearchResult(hits=[ChunkHit(**h) for h in hits])
+
+
+_vec: Any = None
+_vec_failed_at: float | None = None
+VEC_RETRY_S = 300.0  # a store that would not open is tried again after this long, not on every pair (D-449)
+#: answers of /vec/s2b since the service started, for its health line (D-449, review LOW 3)
+VEC_COUNTS: dict[str, int] = {"vec_ranked": 0, "vec_fallback": 0}
+
+
+def vec_store() -> Any:
+    """The vector store (schema ``vec`` of ``TB_DB_URL``, this service's role, D-378), opened on first use; None when
+    it cannot be opened (no database, no pgvector): S2b then ranks on the fly (D-449). A failed open is remembered for
+    :data:`VEC_RETRY_S`, so a run does not reconnect, migrate and log on every pair. The search by patient needs no
+    HNSW index, so none is made here (the indexer makes the model's)."""
+    global _vec, _vec_failed_at
+    import time
+
+    if _vec is None:
+        if _vec_failed_at is not None and time.monotonic() - _vec_failed_at < VEC_RETRY_S:
+            return None
+        try:
+            from vec.store import VecStore
+
+            _vec = VecStore()
+            _vec_failed_at = None
+        except Exception as exc:  # logged by name only: the URL may hold a password
+            import logging
+
+            _vec_failed_at = time.monotonic()
+            logging.getLogger("lake").warning("vector store unavailable for S2b: %s", type(exc).__name__)
+            return None
+    return _vec
+
+
+def vec_health() -> dict[str, Any]:
+    """The S2b counts on ``/healthz`` once the store was asked at all (nothing while the flag is off)."""
+    return dict(VEC_COUNTS) if any(VEC_COUNTS.values()) else {}
+
+
+@app.post("/vec/s2b")
+def vec_s2b(body: dict[str, Any]) -> dict[str, Any]:
+    """T-203b (D-449, flag ``vec.s2b`` on the orchestrator's side): one patient's window notes ranked from the vector
+    store on the pinned snapshot, or a fallback answer with its reason."""
+    pid, dids, query, snap = body.get("pid"), body.get("dids"), body.get("query"), body.get("snapshot")
+    if not isinstance(pid, str) or not isinstance(query, str) or not isinstance(dids, list):
+        raise HTTPException(status_code=400, detail="pid, dids and query are required")
+    if not all(isinstance(d, str) for d in dids) or not (snap is None or isinstance(snap, str)):
+        raise HTTPException(status_code=400, detail="dids are note ids; snapshot is a snapshot id")
+    from vec.s2b import UNAVAILABLE, fallback
+
+    try:
+        out = lake().vec_s2b(pid, dids, query, embedder(), vec_store(), snap)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:  # the store went away mid-run: the cascade falls back for this pair
+        out = fallback(f"{UNAVAILABLE} ({type(exc).__name__})")
+    VEC_COUNTS["vec_ranked" if out.get("state") == "vec" else "vec_fallback"] += 1
+    return out
 
 
 @app.post("/site")
