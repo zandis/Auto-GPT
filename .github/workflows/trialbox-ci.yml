@@ -224,14 +224,25 @@ jobs:
             ${{ runner.temp }}/cql-path.json
           if-no-files-found: ignore
 
-  unit:
+  # T-747 (D-475): the unit suite in parallel shards. Each test file runs in exactly one shard, chosen by a hash of its
+  # path (tools/test_shard.py; `make test SHARD=i/N` locally), so module- and session-scoped fixtures stay together
+  # and a new file moves no other. Six shards: the one-runner suite took 35 to 43 minutes of pytest on 2026-11-12 (up
+  # to 55), set-up under a minute; six gave `unit` 16 minutes after a push at about 1.5 times the billed minutes,
+  # eight no faster at about 2.5 times (D-475, from the shards' --durations=30). Each shard keeps its coverage data
+  # and the record of what it collected and kept; the job `unit` below checks them all.
+  unit-shard:
+    name: unit-shard (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
     needs: changes
     if: needs.changes.outputs.trialbox == 'true'
-    timeout-minutes: 60  # each xdist worker starts its own throwaway cluster; the suite now takes 30 to 40 minutes (two runs hit 40 at 94-96% on 2026-11-11)
+    timeout-minutes: 30  # each xdist worker starts its own throwaway cluster; the whole suite took 35 to 55 minutes on one runner
     # no service container: the tests start throwaway clusters from the runner's own PostgreSQL (tools/pglocal.py),
     # so pg_dump/pg_restore and the server are one version, as on a developer machine (a postgres:16 service with the
     # runner's newer client tools failed the backup tests on transaction_timeout)
+    strategy:
+      fail-fast: false  # every shard reports, so one push shows every failure
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
@@ -256,17 +267,64 @@ jobs:
         run: make jvm-deps fonts
       - name: PostgreSQL server binaries
         run: tools/ci_postgres.sh  # the one major of deploy/images.lock, pg_config --version checked (D-371)
-      - name: pytest -n auto
+      - name: pytest -n auto, one shard
         env:
           TB_DATA_DIR: ${{ runner.temp }}/tb-data  # the services' default /data is not writable for the runner user
           # T-651 (ENG-029): line coverage of the run under sys.monitoring, which costs next to nothing; branches are
-          # measured nightly (trialbox-nightly-quality.yml)
+          # measured nightly (trialbox-nightly-quality.yml). No report here: `unit` combines the shards' data.
           COVERAGE_CORE: sysmon
-          PYTEST_ADDOPTS: --cov --cov-report=json:${{ runner.temp }}/coverage.json
-        run: make test PYTEST_N=auto 2>&1 | tee "$RUNNER_TEMP/unit.log"
+          PYTEST_ADDOPTS: --cov --cov-report= --durations=30  # the 30 slowest tests of the shard, to watch the balance
+        run: |
+          mkdir -p "$RUNNER_TEMP/shard"
+          make test PYTEST_N=auto SHARD=${{ matrix.shard }}/${{ strategy.job-total }} SHARD_RECORD="$RUNNER_TEMP/shard/shard.json" 2>&1 | tee "$RUNNER_TEMP/unit.log"
       # D-203: the test log carries no identifier either
       - name: Data-handling scan of the test log
         run: make data-scan SCAN="--log $RUNNER_TEMP/unit.log"
+      - name: Keep the shard's coverage data and record
+        if: always()
+        run: if [ -f .coverage ]; then mv .coverage "$RUNNER_TEMP/shard/coverage.db"; fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        if: always()
+        with:
+          name: unit-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/shard/
+          if-no-files-found: ignore
+          retention-days: 3
+
+  # T-747 (D-475): the required check `unit` (branch protection and the project's tooling read this name). It passes
+  # only when every shard passed, the shards together ran every collected test exactly once, and the coverage ratchet
+  # (T-651, unchanged) holds on the combined coverage of all shards. It runs when a shard failed too, so the check
+  # turns red instead of staying skipped; it is skipped only with the rest of the gate (no trialbox/ change).
+  unit:
+    runs-on: ubuntu-latest
+    needs: [changes, unit-shard]
+    if: ${{ !cancelled() && needs.changes.outputs.trialbox == 'true' }}
+    timeout-minutes: 15
+    steps:
+      - name: Every shard passed
+        working-directory: .
+        run: |
+          echo "unit-shard: ${{ needs.unit-shard.result }}"
+          if [ "${{ needs.unit-shard.result }}" != "success" ]; then
+            echo "::error::a unit shard did not pass (${{ needs.unit-shard.result }}): see the unit-shard jobs"; exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          pattern: unit-shard-*
+          path: ${{ runner.temp }}/shards
+      - name: Every collected test ran in exactly one shard
+        run: .venv/bin/python -m tools.test_shard check "$RUNNER_TEMP"/shards/unit-shard-*/shard.json
+      - name: Combined coverage of all shards
+        run: |
+          .venv/bin/python -m coverage combine --data-file="$RUNNER_TEMP/coverage.db" "$RUNNER_TEMP"/shards/unit-shard-*/coverage.db
+          .venv/bin/python -m coverage json --data-file="$RUNNER_TEMP/coverage.db" -o "$RUNNER_TEMP/coverage.json"
       # T-651: a package more than 0.5 point under tools/coverage_baseline.json, or a safety-core file under its floor
       - name: Coverage ratchet
         run: .venv/bin/python -m tools.coverage_ratchet "$RUNNER_TEMP/coverage.json"
@@ -277,6 +335,29 @@ jobs:
           name: coverage
           path: ${{ runner.temp }}/coverage.json
           if-no-files-found: ignore
+
+  # T-747 (D-475): the tests that fail only when two cards meet (`make cross-card`, the list in the Makefile), first
+  # and alone, with no coverage, so a pull request learns in minutes that it met another card. The unit shards run
+  # them too. No JVM or fonts: none of them needs one.
+  cross-card:
+    runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      - name: PostgreSQL server binaries
+        run: tools/ci_postgres.sh  # the one major of deploy/images.lock, pg_config --version checked (D-371)
+      - name: The cross-card tests
+        env:
+          TB_DATA_DIR: ${{ runner.temp }}/tb-data
+        run: make cross-card PYTEST_N=auto
 
   # T-737 (D-463, plan §7.5): the `property` gate. The safety properties (tests/unit/test_safety_properties.py), the
   # hypothesis properties of the unit tests and tests/property/ when it exists; `make property`. The unit job runs the

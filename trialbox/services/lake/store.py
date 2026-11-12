@@ -38,7 +38,7 @@ import re
 import shutil
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -59,7 +59,9 @@ from lake.textproc import chunk, token_string
 
 log = logging.getLogger("lake")
 DIM = 1024
-INSERT_BATCH = 4096  # chunk rows per Arrow batch: bounds memory on hospital-size snapshots (D-105)
+INSERT_BATCH = (
+    4096  # rows per Arrow batch and Parquet row group: bounds memory on hospital-size snapshots (D-105, T-692)
+)
 _ARROW = {
     "VARCHAR": pa.string(),
     "DATE": pa.date32(),
@@ -512,6 +514,41 @@ class LakeLimitError(RuntimeError):
     ``TB_LAKE_MAX_TEMP``). The query is stopped; nothing is left on disk."""
 
 
+class _NdjsonFile:
+    """One NDJSON file of a snapshot or of the site's inputs, parsed line by line each time it is iterated (T-692)."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+
+    def __iter__(self) -> Iterator[dict[str, Any]]:
+        with self.path.open(encoding="utf-8") as fh:
+            for line in fh:
+                if line.strip():
+                    yield json.loads(line)
+
+    def count(self) -> int:
+        """Records in the file (lines, without parsing)."""
+        with self.path.open("rb") as fh:
+            return sum(1 for line in fh if line.strip())
+
+
+def _write_parquet(rows: Iterable[dict[str, Any]], schema: pa.Schema, path: Path) -> int:
+    """``rows`` into one Parquet file, :data:`INSERT_BATCH` rows per row group (T-692): never the whole table."""
+    n = 0
+    with pq.ParquetWriter(path, schema) as writer:
+        batch: list[dict[str, Any]] = []
+        for row in rows:
+            batch.append(row)
+            if len(batch) >= INSERT_BATCH:
+                writer.write_table(pa.Table.from_pylist(batch, schema=schema))
+                n += len(batch)
+                batch = []
+        if batch or not n:
+            writer.write_table(pa.Table.from_pylist(batch, schema=schema))
+            n += len(batch)
+    return n
+
+
 def _limit_message(exc: Exception) -> str:
     return (
         "LAKE-LIMIT: the lake query needed more than the box allows (memory_limit "
@@ -806,11 +843,10 @@ class Lake:
             log.warning("lake snapshot %s is older than CURRENT %s: built, not promoted (DATA-007)", snapshot, cur)
             promote = False
         src, allow_empty = self._source_or_refuse(snapshot, ndjson_dir, allow_empty)
-        by_type: dict[str, list[dict[str, Any]]] = {}
-        for f in sorted(src.glob("*.ndjson")):
-            with f.open(encoding="utf-8") as fh:
-                by_type[f.stem] = [json.loads(line) for line in fh if line.strip()]
-        have = {t: len(v) for t, v in by_type.items() if v and t not in feedguard.STATIC_TYPES}
+        # T-692 (D-473): the NDJSON is read as each table is written, never held; here only its lines are counted
+        by_type = {f.stem: _NdjsonFile(f) for f in sorted(src.glob("*.ndjson"))}
+        lines = {t: v.count() for t, v in by_type.items()}
+        have = {t: n for t, n in lines.items() if n and t not in feedguard.STATIC_TYPES}
         if not have and not allow_empty:
             raise RebuildError(
                 f"lake snapshot {snapshot}: {src} holds no patient or clinical record; nothing built, CURRENT unchanged"
@@ -864,67 +900,79 @@ class Lake:
         snapshot: str,
         embedder: Embedder,
         src: Path,
-        by_type: dict[str, list[dict[str, Any]]],
+        by_type: dict[str, _NdjsonFile],
         pdir: Path,
         tmp: Path,
     ) -> tuple[dict[str, int], int, int]:
         """The build itself, into ``pdir`` (the staging Parquet folder) and ``tmp`` (``<snapshot>.building``): nothing
         a reader sees is touched here."""
         # D-135: the site's own inputs (sheets, dumps, charts; ``put_site``) join every snapshot built here
-        site: dict[str, list[dict[str, Any]]] = {}
-        for f in sorted((self.dir / "site").glob("*.ndjson")):
-            with f.open(encoding="utf-8") as fh:
-                site.setdefault(f.stem, []).extend(json.loads(line) for line in fh if line.strip())
-        # D-151: flattened from the NDJSON (TB_LAKE_SOURCE=legacy) or exported from the OMOP store (omop)
-        rows = lake_rows(by_type, site, tz=self.tz, snapshot=snapshot, lake_dir=self.dir, deleted=_tombstones(src))
-        by_type.clear()  # the flat rows replace the resources; free them before the embedding pass
-        site.clear()
-        counts = {name: len(rows[name]) for name in SCHEMAS}
+        site = {f.stem: _NdjsonFile(f) for f in sorted((self.dir / "site").glob("*.ndjson"))}
+        # D-151: flattened from the NDJSON (TB_LAKE_SOURCE=legacy) or exported from the OMOP store (omop). T-692: the
+        # legacy rows are streams, written one row group at a time; nothing of the night is held
+        rows = lake_rows(
+            by_type, site, tz=self.tz, snapshot=snapshot, lake_dir=self.dir, deleted=_tombstones(src), stream=True
+        )
+        counts: dict[str, int] = {}
         pdir.mkdir(parents=True, exist_ok=True)
         for name, cols in SCHEMAS.items():
             schema = pa.schema([(c, _ARROW[t]) for c, t in cols])
-            table = pa.Table.from_pylist(rows[name], schema=schema)
-            pq.write_table(table, pdir / f"{name}.parquet")
-            del table
-            if name != "document":
-                rows[name] = []  # DuckDB reads the Parquet file; only document rows are needed for chunking
-        # chunks: from the masked note text (T-600, D-337). The ``document`` table and its Parquet file, labelled
-        # ``phi`` (``lake.flatten.PHI_COLUMNS``), keep the original; chunks, BM25 tokens and embeddings never see it.
-        chunk_rows: list[dict[str, Any]] = []
-        for doc in sorted(rows["document"], key=lambda r: r["did"]):
-            for i, text in enumerate(chunk(mask_note(doc["text"] or "", self.mrn_regex))):
-                chunk_rows.append(
-                    {
-                        "did": doc["did"],
-                        "chunk_no": i,
-                        "pid": doc["pid"],
-                        "date": doc["date"],
-                        "type": doc["type"],
-                        "text": text,
-                        "tok": token_string(text),
-                        "sha": sha256_text(text),
-                    }
-                )
-        new = self._embed(chunk_rows, embedder)
+            counts[name] = _write_parquet(rows[name], schema, pdir / f"{name}.parquet")
+        del rows  # an OMOP export's lists go here; DuckDB reads the Parquet files
         tmp.unlink(missing_ok=True)
         con = duckdb.connect(str(tmp))
+        n_chunks = new = 0
         try:
             con.execute(f"LOAD '{fts_extension_path()}'")
+            spill = temp_dir(self.dir)
+            spill.mkdir(parents=True, exist_ok=True)
+            con.execute(f"SET memory_limit = '{memory_limit()}'")  # the build stays inside the lake's cap (D-80)
+            con.execute(f"SET temp_directory = '{spill}'")
             for name in SCHEMAS:
                 con.execute(f"CREATE TABLE {name} AS SELECT * FROM read_parquet(?)", [str(pdir / f"{name}.parquet")])
             con.execute("CREATE TABLE document_chunk (" + ", ".join(f"{c} {t}" for c, t in CHUNK_COLUMNS) + ")")
-            if chunk_rows:
-                for i in range(0, len(chunk_rows), INSERT_BATCH):
-                    part = chunk_rows[i : i + INSERT_BATCH]
-                    batch: dict[str, Any] = {
+            # chunks: from the masked note text (T-600, D-337). The ``document`` table and its Parquet file, labelled
+            # ``phi`` (``lake.flatten.PHI_COLUMNS``), keep the original; chunks, BM25 tokens and embeddings never see
+            # it. T-692: the notes are read in ``did`` order (the order of the file among equal ids) in batches; each
+            # batch is chunked, embedded (new texts only) and stored before the next is read
+            docs = con.cursor()
+            try:
+                res = docs.execute(
+                    "SELECT did, pid, date, type, text FROM read_parquet(?, file_row_number = true) "
+                    "ORDER BY did, file_row_number",
+                    [str(pdir / "document.parquet")],
+                )
+                while batch := res.fetchmany(INSERT_BATCH):
+                    part = [
+                        {
+                            "did": did,
+                            "chunk_no": i,
+                            "pid": pid,
+                            "date": date_,
+                            "type": typ,
+                            "text": text,
+                            "tok": token_string(text),
+                            "sha": sha256_text(text),
+                        }
+                        for did, pid, date_, typ, note in batch
+                        for i, text in enumerate(chunk(mask_note(note or "", self.mrn_regex)))
+                    ]
+                    if not part:
+                        continue
+                    new += self._embed(part, embedder)
+                    n_chunks += len(part)
+                    arrow: dict[str, Any] = {
                         k: [r[k] for r in part]
                         for k in ("did", "chunk_no", "pid", "date", "type", "text", "tok", "sha")
                     }
-                    batch["chunk_key"] = [f"{r['did']}#{r['chunk_no']}" for r in part]
-                    con.register("chunks_arrow", pa.table(batch))
+                    arrow["chunk_key"] = [f"{r['did']}#{r['chunk_no']}" for r in part]
+                    con.register("chunks_arrow", pa.table(arrow))
                     chunk_cols = ", ".join(c for c, _ in CHUNK_COLUMNS)
                     con.execute(f"INSERT INTO document_chunk SELECT {chunk_cols} FROM chunks_arrow")
                     con.unregister("chunks_arrow")
+            finally:
+                docs.close()
+            if n_chunks:
                 con.execute(
                     "PRAGMA create_fts_index('document_chunk', 'chunk_key', 'tok', stemmer='none', "
                     "stopwords='none', ignore='\\s+', strip_accents=0, lower=1, overwrite=1)"
@@ -947,7 +995,7 @@ class Lake:
             con.close()
         for f in sorted(pdir.glob("*.parquet")):
             write_sidecar(f)
-        return counts, len(chunk_rows), new
+        return counts, n_chunks, new
 
     def _cache(self, read_only: bool) -> duckdb.DuckDBPyConnection:
         """A connection to the vector store; another process holding the write lock is waited for (up to 30 s)."""

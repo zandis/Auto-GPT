@@ -114,7 +114,8 @@ def run_syft(source: str, out: Path, env: dict[str, str], *, platform: str | Non
     except FileNotFoundError as exc:
         raise SbomError("syft is not on PATH (make scanners)") from exc
     if proc.returncode != 0 or not out.is_file():
-        raise SbomError(f"{source}: syft failed: {proc.stderr.strip()[-400:]}")
+        said = proc.stderr.strip()[-400:] or "no message (a full disk or a killed process)"
+        raise SbomError(f"{source}: syft failed (exit {proc.returncode}): {said}")
     doc = json.loads(out.read_text(encoding="utf-8"))
     problems = validate(doc)
     if problems:
