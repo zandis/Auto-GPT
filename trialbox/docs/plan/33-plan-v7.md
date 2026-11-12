@@ -6,7 +6,7 @@
 | Date | 2026-11-12 |
 | Version | 7.2 (2026-11-12): v7.1 (the owner's nine answers, D-494) reviewed by the integrator session against `master` and the open pull requests; corrections listed in section 9 |
 | Owner | Changfu Kuo (Aimedics) |
-| Status | **Proposed.** It replaces the task lists and the order of work of `28-master-plan-v6.md` (TB-PLAN-06) and `31-master-plan-v6.1-addendum.md` (TB-PLAN-06.1) once the owner accepts it. The owner decisions OD-10 to OD-21 and D-311 are unchanged and win over this file. The nine questions of section 2 were answered by the owner on 2026-11-12 (`docs/decisions/D-494-plan-v7-owner-answers-windows-box.md`). |
+| Status | **The working plan since 2026-11-12** (the owner, after the split of section 5 was put to him: "go on to work as your plan"). It replaces the task lists and the order of work of `28-master-plan-v6.md` (TB-PLAN-06) and `31-master-plan-v6.1-addendum.md` (TB-PLAN-06.1) . The owner decisions OD-10 to OD-21 and D-311 are unchanged and win over this file. The nine questions of section 2 were answered by the owner on 2026-11-12 (`docs/decisions/D-494-plan-v7-owner-answers-windows-box.md`). |
 | Basis | The deep review of 2026-11-12, `docs/reviews/2026-11-12-deep-review/` (TB-DR2-00 to TB-DR2-13), on `master` at `514ae9b`. Finding ids below (PLAN-, ARCH-, ENG-, JRN-, UX-, LLM-, PERF-, DIN-, LIFE-, EDC-, STD-, OPS-, HW-) are that review's. |
 | Dates held | CGMH go-live **Wed 2027-04-28**. Japan go-live **Thu 2027-05-13**. |
 
