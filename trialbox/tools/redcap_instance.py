@@ -55,7 +55,9 @@ WORK = ROOT / "deploy" / "site" / "redcap"  # ignored by the repository (deploy/
 DEFAULT_ZIP = WORK / "redcap.zip"
 COMPOSE = ROOT / "deploy" / "redcap-test" / "compose.yml"
 INSTANCE = "instance.json"  # the instance's address, project ids and tokens: mode 0600, never printed
-_VERSION_DIR = re.compile(r"^redcap/redcap_v(\d+\.\d+\.\d+)/$")
+_VERSION_PATH = re.compile(r"^redcap/redcap_v([^/]+)/")  # every entry under a version folder names it
+_VERSION = re.compile(r"\d+\.\d+\.\d+")
+_HEX = re.compile(r"[0-9A-Fa-f]{32,}")  # a token, whatever its case or its length (32 or 64)
 # what an install reads from the zip, relative to ``redcap/redcap_v<version>/``
 INSTALL_SQL = ("Resources/sql/install.sql", "Resources/sql/install_data.sql")
 R8_RECORDS = 1000  # R8 of the review: "1,000 synthetic records; one send"
@@ -102,10 +104,8 @@ def inspect_zip(path: Path) -> dict[str, Any]:
     bad = [n for n in names if n.startswith(("/", "\\")) or ".." in Path(n).parts or not n.startswith("redcap/")]
     if bad:
         raise ZipRefused(f"{path}: {len(bad)} entries are outside the folder redcap/ (the first: {bad[0][:60]!r})")
-    versions = sorted({m.group(1) for n in names if (m := _VERSION_DIR.match(n))})
-    if not versions:  # some archives list no folder entries: read the version off a file path
-        versions = sorted({m.group(1) for n in names if (m := re.match(r"^redcap/redcap_v(\d+\.\d+\.\d+)/", n))})
-    if len(versions) != 1:
+    versions = sorted({m.group(1) for n in names if (m := _VERSION_PATH.match(n))})
+    if len(versions) != 1 or not _VERSION.fullmatch(versions[0]):
         raise ZipRefused(f"{path}: one folder redcap/redcap_v<version>/ is expected, found {len(versions)}")
     base = f"redcap/redcap_v{versions[0]}/"
     need = ["redcap/database.php", "redcap/install.php", *(base + f for f in INSTALL_SQL)]
@@ -156,9 +156,16 @@ def import_rows(post: Post, token: str, rows: list[dict[str, str]], **extra: str
     return call(post, token, "record", type="flat", overwriteBehavior="normal", data=_data(rows), **extra)
 
 
-def export_rows(post: Post, token: str, **extra: str) -> list[dict[str, Any]]:
+def export_rows(post: Post, token: str, **extra: str) -> list[dict[str, Any]] | None:
+    """The rows of an export, or None when REDCap did not give them: never read as "nothing was written"."""
     status, body = call(post, token, "record", type="flat", rawOrLabel="raw", **extra)
-    return [dict(r) for r in body] if status == 200 and isinstance(body, list) else []
+    return [dict(r) for r in body] if status == 200 and isinstance(body, list) else None
+
+
+def scrub(text: str) -> str:
+    """``text`` with every run of 32 or more hexadecimal characters taken out: a token never reaches a record, a
+    message or the screen, whatever its case and whichever token it is (a user's, the creator's, the super token)."""
+    return _HEX.sub("<token>", text)
 
 
 # -------------------------------------------------------------------------------------------- building a project
@@ -298,8 +305,12 @@ class RealAdmin(Admin):
 
     def sql(self, statement: str) -> str:
         """Run SQL in the database container; the password goes through the container's own environment."""
-        return self.compose("exec", "-T", "db", "sh", "-c", 'exec mariadb -N -uredcap -p"$MARIADB_PASSWORD" redcap',
-                            stdin=statement)  # fmt: skip
+        try:
+            return self.compose("exec", "-T", "db", "sh", "-c",
+                                'exec mariadb -N -uredcap -p"$MARIADB_PASSWORD" redcap', stdin=statement)  # fmt: skip
+        except RuntimeError as exc:  # the statement REDCap's tables did not take, without a token in it
+            first = " ".join(statement.split())[:160]
+            raise RuntimeError(scrub(f"{exc}\nthe statement began: {first}")) from None
 
     def up(self, zip_file: Path) -> dict[str, Any]:
         info = inspect_zip(zip_file)
@@ -371,7 +382,7 @@ class RealAdmin(Admin):
                                                          data=_data(k.CONF_DAGS)))  # fmt: skip
         pid = int(self._must("read the project", call(post, main, "project"))["project_id"])
         logic_pid = int(self._must("read the logic project", call(post, logic, "project"))["project_id"])
-        tokens = {"full": main, "logic": logic}
+        tokens = {"logic": logic}
         users = [{k2: v for k2, v in u.items() if k2 != "data_access_group"} for u in k.CONF_USERS.values()]
         names = ", ".join(f"('{u['username']}', '{u['username']}@example.org', 'TrialBox', 'Test')" for u in users)
         self.sql("INSERT IGNORE INTO redcap_user_information (username, user_email, user_firstname, user_lastname) "
@@ -380,7 +391,7 @@ class RealAdmin(Admin):
         dag_rows = [{"username": u["username"], "redcap_data_access_group": u["data_access_group"]}
                     for u in k.CONF_USERS.values() if u.get("data_access_group")]  # fmt: skip
         self._must("bind a user to a group", call(post, main, "userDagMapping", action="import", data=_data(dag_rows)))
-        for key in ("export_only", "dag", "expired"):  # the API gives a user only their own token: an admin's SQL
+        for key in ("full", "export_only", "dag", "expired"):  # the API gives a user only their own token
             tokens[key] = secrets.token_hex(16).upper()
             self.sql(f"UPDATE redcap_user_rights SET api_token = '{tokens[key]}' WHERE project_id = {pid} AND "
                      f"username = '{k.CONF_USERS[key]['username']}';")  # fmt: skip
@@ -435,31 +446,70 @@ def _refused(got: tuple[int, Any]) -> bool:
     return got[0] != 200
 
 
+def _through_client(admin: Admin, token: str, rows: list[dict[str, str]]) -> dict[str, Any]:
+    """The same import through ``rc_bridge.client.RedcapClient``, as the product sends it: the ids it returns, or
+    the error code and the whole message it raises (the review's R1 and R4 ask what TrialBox then says)."""
+    from rc_bridge.client import RcError, RedcapClient
+
+    post = admin.post()
+
+    class Http:
+        def post(self, _url: str, data: dict[str, str]) -> Any:
+            status, text = post(data)
+
+            class Resp:
+                status_code = status
+
+                def json(self) -> Any:
+                    return json.loads(text)
+
+            return Resp()
+
+        def close(self) -> None:
+            return None
+
+    client = RedcapClient("https://redcap.invalid/", token, http=Http())  # type: ignore[arg-type]
+    try:
+        return {"ids": client.import_records(rows)}
+    except RcError as exc:
+        return {"code": exc.code, "message": exc.message}
+
+
 def r1_validation(admin: Admin, inst: Instance) -> dict[str, Any]:
-    """R1: values REDCap's own validation refuses; whether one bad value refuses the batch whole; and whether
-    TrialBox's own check (``forms.problem``) refuses the same five."""
+    """R1: values REDCap's own validation refuses; whether one bad value refuses the batch whole; whether
+    TrialBox's own check (``forms.problem``) refuses the same; and what the product's client then says."""
     from datacore import forms
 
     from tests import edc_kit as k
 
     post, tok = admin.post(), inst.tokens["full"]
     fields = {f.name: f for f in forms.read_dictionary(_csv(k.CONF_CRF))}
-    cases = [("sex", "9"), ("mh_gout", "maybe"), ("weight", "heavy"), ("brthdat", "115/11/01"), ("temp", "37")]
+    key1 = {"record_id": "1", "redcap_event_name": k.CONF_SCREEN1}
+    # (field, value, REDCap must refuse it). ``temp`` is number_1dp: 37 is refused, 37.0 (what TrialBox sends for
+    # 37, ``forms.redcap_value``) is taken. ``visit_dmy`` is date_dmy: the API takes Y-M-D whatever the field shows.
+    cases = [("sex", "9", True), ("mh_gout", "maybe", True), ("weight", "heavy", True),
+             ("brthdat", "115/11/01", True), ("temp", "37", True), ("temp", "37.0", False),
+             ("visit_dmy", "2026-11-05", False), ("visit_dmy", "05-11-2026", True)]  # fmt: skip
     out: list[dict[str, Any]] = []
-    for name, value in cases:
-        got = import_rows(post, tok, [{"record_id": "1", "redcap_event_name": k.CONF_SCREEN1, name: value}])
+    for name, value, must_refuse in cases:
+        got = import_rows(post, tok, [{**key1, name: value}])
         ours = forms.problem(fields[name], value)
         out.append({"field": name, "value": value, **_said(got), "redcap_refused": _refused(got),
-                    "trialbox_refused": ours is not None, "trialbox_code": (ours or {}).get("code", "")})  # fmt: skip
-    batch = import_rows(post, tok, [
-        {"record_id": "1", "redcap_event_name": k.CONF_SCREEN1, "weight": "72.5"},
-        {"record_id": "2", "redcap_event_name": k.CONF_SCREEN2, "sex": "9"}])  # fmt: skip
+                    "redcap_must_refuse": must_refuse, "trialbox_refused": ours is not None,
+                    "trialbox_code": (ours or {}).get("code", ""),
+                    "trialbox_sends": forms.redcap_value(fields[name], value) if ours is None else ""})  # fmt: skip
+    marker = "71.3"  # a weight no other test writes: the good row of the mixed batch
+    batch = import_rows(post, tok, [{**key1, "weight": marker},
+                                    {"record_id": "2", "redcap_event_name": k.CONF_SCREEN2, "sex": "9"}])  # fmt: skip
     rows = export_rows(post, tok, **{"fields[0]": "record_id", "fields[1]": "weight"})
-    wrote_good = any(r.get("record_id") == "1" and r.get("weight") == "72.5" for r in rows)
-    # ``temp=37`` on number_1dp: REDCap refuses it, TrialBox accepts it and sends 37.0 (forms.redcap_value)
-    agree = all(c["redcap_refused"] and (c["trialbox_refused"] or c["field"] == "temp") for c in out)
-    return {"pass": agree and _refused(batch) and not wrote_good, "cases": out,
-            "batch": {**_said(batch), "the_good_row_was_written": wrote_good}}  # fmt: skip
+    wrote_good = None if rows is None else any(r.get("weight") == marker for r in rows)
+    said = _through_client(admin, tok, [{**key1, "sex": "9"}])
+    as_expected = all(c["redcap_refused"] == c["redcap_must_refuse"] for c in out)
+    # where REDCap refuses, TrialBox refuses too, or sends another spelling REDCap takes (temp 37 -> 37.0)
+    ours_holds = all(c["trialbox_refused"] or c["trialbox_sends"] != c["value"] for c in out if c["redcap_refused"])
+    return {"pass": as_expected and ours_holds and _refused(batch) and wrote_good is False and "message" in said,
+            "cases": out, "batch": {**_said(batch), "the_good_row_was_written": wrote_good},
+            "through_the_product_client": said}  # fmt: skip
 
 
 def r2_checkbox(admin: Admin, inst: Instance) -> dict[str, Any]:
@@ -471,49 +521,62 @@ def r2_checkbox(admin: Admin, inst: Instance) -> dict[str, Any]:
     bare = import_rows(post, tok, [{**key, "joints": "1,3"}])
     cols = import_rows(post, tok, [{**key, "joints___1": "1", "joints___2": "0", "joints___3": "1"}])
     rows = export_rows(post, tok, **{"records[0]": "1", "fields[0]": "record_id", "fields[1]": "joints"})
-    back = {c: v for r in rows for c, v in r.items() if c.startswith("joints")}
+    back = {c: v for r in rows or [] for c, v in r.items() if c.startswith("joints")}
     ok = _refused(bare) and not _refused(cols) and back.get("joints___1") == "1" and back.get("joints___3") == "1"
-    return {"pass": ok, "bare_column": _said(bare), "three_columns": _said(cols), "exported": back}
+    return {"pass": ok, "bare_column": _said(bare), "three_columns": _said(cols), "exported": back,
+            "export_read": rows is not None}  # fmt: skip
 
 
 def r3_lock(admin: Admin, inst: Instance) -> dict[str, Any]:
-    """R3: one locked form of record 1; a send that carries records 1 and 2. What REDCap says and what it wrote.
-    (That TrialBox then reports record 1 as refused and writes record 2 is EDC-007's repair, wave 3.)"""
+    """R3: one locked form of record 1; an import that carries records 1 and 2. What REDCap says, and what it wrote
+    of the two (read before anything else is sent). That TrialBox then reports record 1 as refused and writes
+    record 2 is EDC-007's repair (wave 3): not judged here."""
     from tests import edc_kit as k
 
     post, tok = admin.post(), inst.tokens["full"]
     why = admin.lock(inst, "1", k.CONF_SCREEN1, "baseline")
     if why:
         return {"pass": False, "not_run": why}
+    mark1, mark2 = "8.41", "7.13"  # urate values no other test writes
     try:
-        both = import_rows(post, tok, [
-            {"record_id": "1", "redcap_event_name": k.CONF_SCREEN1, "urate": "8.4"},
-            {"record_id": "2", "redcap_event_name": k.CONF_SCREEN2, "urate": "7.1"}])  # fmt: skip
-        alone = import_rows(post, tok, [{"record_id": "2", "redcap_event_name": k.CONF_SCREEN2, "urate": "7.1"}])
+        row1 = {"record_id": "1", "redcap_event_name": k.CONF_SCREEN1, "urate": mark1}
+        row2 = {"record_id": "2", "redcap_event_name": k.CONF_SCREEN2, "urate": mark2}
+        both = import_rows(post, tok, [row1, row2])
         rows = export_rows(post, tok, **{"fields[0]": "record_id", "fields[1]": "urate"})
+        alone = import_rows(post, tok, [row2])
     finally:
         admin.unlock(inst, "1", k.CONF_SCREEN1, "baseline")
-    wrote = {str(r.get("record_id")): r.get("urate", "") for r in rows if r.get("urate")}
-    return {"pass": _refused(both) and "1" not in wrote and not _refused(alone), "both_records": _said(both),
-            "record_2_alone": _said(alone), "urate_written": wrote,
-            "one_locked_form_refuses_the_whole_import": (_refused(both) and "2" not in wrote) or None}  # fmt: skip
+    if rows is None:
+        return {"pass": False, "both_records": _said(both), "export_failed": True}
+    wrote1 = any(r.get("urate") == mark1 for r in rows)
+    wrote2 = any(r.get("urate") == mark2 for r in rows)
+    return {"pass": _refused(both) and not wrote1 and not _refused(alone), "both_records": _said(both),
+            "the_locked_record_was_written": wrote1, "the_other_record_was_written_by_the_same_import": wrote2,
+            "one_locked_form_refuses_the_whole_import": _refused(both) and not wrote2,
+            "record_2_alone": _said(alone)}  # fmt: skip
 
 
 def r4_rights(admin: Admin, inst: Instance) -> dict[str, Any]:
-    """R4: a token without the import right, an expired user, a token bound to another group. Nothing is written."""
+    """R4: a token without the import right, an expired user, a token bound to another group. Nothing is written,
+    and what the product's client says for each."""
     from tests import edc_kit as k
 
     post = admin.post()
-    row1 = {"record_id": "1", "redcap_event_name": k.CONF_SCREEN1, "pt_initials": "AA"}
-    row2 = {"record_id": "2", "redcap_event_name": k.CONF_SCREEN2, "pt_initials": "BB"}
+    mark = f"R{secrets.randbelow(9000) + 1000}"  # initials no earlier run wrote
+    row1 = {"record_id": "1", "redcap_event_name": k.CONF_SCREEN1, "pt_initials": mark}
+    row2 = {"record_id": "2", "redcap_event_name": k.CONF_SCREEN2, "pt_initials": mark}
     got = {"export_only_imports": import_rows(post, inst.tokens["export_only"], [row1]),
            "expired_user_exports": call(post, inst.tokens["expired"], "record", type="flat"),
            "expired_user_imports": import_rows(post, inst.tokens["expired"], [row1]),
            "dag_user_writes_another_group": import_rows(post, inst.tokens["dag"], [row2])}  # fmt: skip
+    said = {"export_only_imports": _through_client(admin, inst.tokens["export_only"], [row1]),
+            "dag_user_writes_another_group": _through_client(admin, inst.tokens["dag"], [row2])}  # fmt: skip
     rows = export_rows(post, inst.tokens["full"], **{"fields[0]": "record_id", "fields[1]": "pt_initials"})
-    wrote = sorted(str(r.get("pt_initials")) for r in rows if r.get("pt_initials"))
-    return {"pass": all(_refused(g) for g in got.values()) and not wrote,
-            **{name: _said(g) for name, g in got.items()}, "written": wrote}  # fmt: skip
+    wrote = None if rows is None else sorted(str(r.get("record_id")) for r in rows if r.get("pt_initials") == mark)
+    return {"pass": all(_refused(g) for g in got.values()) and wrote == []
+            and all("message" in v for v in said.values()),
+            **{name: _said(g) for name, g in got.items()}, "records_written": wrote,
+            "through_the_product_client": said}  # fmt: skip
 
 
 def r5_repeat_and_arms(admin: Admin, inst: Instance) -> dict[str, Any]:
@@ -523,7 +586,7 @@ def r5_repeat_and_arms(admin: Admin, inst: Instance) -> dict[str, Any]:
     post, tok = admin.post(), inst.tokens["full"]
     sent = [
         {"record_id": "1", "redcap_event_name": k.CONF_SCREEN1, "redcap_repeat_instrument": "",
-         "redcap_repeat_instance": "", "weight": "72.5"},
+         "redcap_repeat_instance": "", "height": "176"},
         {"record_id": "1", "redcap_event_name": k.CONF_WEEK4_1, "redcap_repeat_instrument": "ae",
          "redcap_repeat_instance": "1", "ae_term": "Headache", "ae_serious": "0"},
         {"record_id": "1", "redcap_event_name": k.CONF_WEEK4_1, "redcap_repeat_instrument": "ae",
@@ -536,6 +599,8 @@ def r5_repeat_and_arms(admin: Admin, inst: Instance) -> dict[str, Any]:
                                          "redcap_repeat_instrument": "ae", "redcap_repeat_instance": "1",
                                          "ae_term": "wrong arm"}])  # fmt: skip
     rows = export_rows(post, tok)
+    if rows is None:
+        return {"pass": False, "import": _said(got), "export_failed": True}
 
     def at(r: dict[str, Any]) -> tuple[str, str, str, str]:
         return (str(r.get("record_id")), str(r.get("redcap_event_name")), str(r.get("redcap_repeat_instrument") or ""),
@@ -550,7 +615,7 @@ def r5_repeat_and_arms(admin: Admin, inst: Instance) -> dict[str, Any]:
 
 def r6_logic(admin: Admin, inst: Instance, today: date) -> dict[str, Any]:
     """R6: each expression as REDCap computes it, beside TrialBox's evaluator. Any difference keeps
-    ``erase_hidden`` off (plan 2.4)."""
+    ``erase_hidden`` off (plan 2.4). When REDCap does not take the rows nothing is compared."""
     from edc import logic
 
     from tests import edc_kit as k
@@ -566,6 +631,7 @@ def r6_logic(admin: Admin, inst: Instance, today: date) -> dict[str, Any]:
 
     cases = [(f"calc_{i:02d}", text, row, text) for i, (text, row) in enumerate(k.CONF_CALC, 1)]
     cases += [(f"show_{i:02d}", text, row, f"if({text}, 1, 0)") for i, (text, row) in enumerate(k.CONF_BRANCH, 1)]
+    not_run = ["[baseline_arm_1][w] - [w] (it reads another event; the logic project is classic)"]
     rows: list[dict[str, str]] = []
     for n, (_name, _text, row, _expr) in enumerate(cases, 1):
         flat = {"record_id": str(n)}
@@ -576,7 +642,11 @@ def r6_logic(admin: Admin, inst: Instance, today: date) -> dict[str, Any]:
                 flat[f] = v
         rows.append(flat)
     got = import_rows(post, tok, rows)
-    back = {str(r.get("record_id")): r for r in export_rows(post, tok)}
+    exported = export_rows(post, tok) if not _refused(got) else None
+    if exported is None:
+        return {"pass": False, "import": _said(got), "not_compared": "REDCap did not take or give back the rows",
+                "expressions": len(cases), "not_run": not_run}  # fmt: skip
+    back = {str(r.get("record_id")): r for r in exported}
     out: list[dict[str, Any]] = []
     for n, (name, text, row, expr) in enumerate(cases, 1):
         try:
@@ -587,32 +657,51 @@ def r6_logic(admin: Admin, inst: Instance, today: date) -> dict[str, Any]:
         out.append({"field": name, "expression": text, "row": row, "redcap": theirs, "trialbox": ours,
                     "equal": theirs == ours or logic.same_number(theirs, ours)})  # fmt: skip
     differ = [c["field"] for c in out if not c["equal"]]
-    return {"pass": not _refused(got) and not differ, "import": _said(got), "differ": differ, "cases": out,
-            "not_run": ["[baseline_arm_1][w] - [w] (reads another event: the logic project is classic)"]}  # fmt: skip
+    return {"pass": not differ, "import": _said(got), "differ": differ, "cases": out, "not_run": not_run}
 
 
 def r7_auto_number(admin: Admin, inst: Instance) -> dict[str, Any]:
-    """R7: ``forceAutoNumber`` with and without a group, and the same screening number sent twice (a forced retry):
-    the ids REDCap gives back and how many records then hold that screening number."""
+    """R7: ``forceAutoNumber`` with and without a group: the ids REDCap gives back; and, as the product does after a
+    lost answer, the screening number looked up before a second create. Pass: the ids parse and one record holds
+    each screening number."""
     from tests import edc_kit as k
 
     post = admin.post()
     note = admin.set_autonumber(inst, True)
+    run_id = secrets.token_hex(3)  # a screening number no earlier run used
+    out: dict[str, Any] = {"auto_numbering_switched": note or "on"}
+    not_run = [note] if note else []
+    if inst.tokens["dag"] == inst.tokens["full"]:
+        not_run.append("no token bound to a group on this instance")
     try:
-        out: dict[str, Any] = {"auto_numbering_switched": note or "on"}
         for name, tok in (("no_group", inst.tokens["full"]), ("group_bound_token", inst.tokens["dag"])):
-            row = {"record_id": "new", "redcap_event_name": k.CONF_SCREEN1, "tb_screening_no": f"S-9{name[:2]}"}
+            number = f"S-{run_id}-{name[:2]}"
+            row = {"record_id": "new", "redcap_event_name": k.CONF_SCREEN1, "tb_screening_no": number}
             first = import_rows(post, tok, [row], forceAutoNumber="true", returnContent="auto_ids")
-            again = import_rows(post, tok, [row], forceAutoNumber="true", returnContent="auto_ids")
+            blind = import_rows(post, tok, [row], forceAutoNumber="true", returnContent="auto_ids")  # a blind retry
             rows = export_rows(post, inst.tokens["full"], **{"fields[0]": "record_id", "fields[1]": "tb_screening_no"})
-            held = sorted(str(r.get("record_id")) for r in rows if r.get("tb_screening_no") == row["tb_screening_no"])
-            out[name] = {"first": _said(first), "the_same_row_again": _said(again), "records_with_that_number": held}
+            held = None if rows is None else sorted(str(r.get("record_id")) for r in rows
+                                                    if r.get("tb_screening_no") == number)  # fmt: skip
+            body = first[1]
+            parsed = (first[0] == 200 and isinstance(body, list) and len(body) == 1 and isinstance(body[0], str)
+                      and len(body[0].split(",")) == 2)  # fmt: skip
+            out[name] = {"first": _said(first), "ids_parse": parsed, "a_blind_retry": _said(blind),
+                         "records_with_that_number_after_a_blind_retry": held}  # fmt: skip
     finally:
         admin.set_autonumber(inst, False)
-    parsed = all(isinstance(out[n]["first"]["body"], list) and "," in str(out[n]["first"]["body"][:1])
-                 for n in ("no_group", "group_bound_token"))  # fmt: skip
-    # a retry of a create gives a second record: the link looks the number up before it creates (writeback.py)
-    return {"pass": parsed, **out}
+    off = import_rows(post, inst.tokens["full"], [{"record_id": "new", "redcap_event_name": k.CONF_SCREEN1,
+                                                   "tb_screening_no": f"S-{run_id}-off"}],
+                      forceAutoNumber="false", returnContent="ids")  # fmt: skip
+    out["auto_numbering_off"] = _said(off)
+    parts = [out["no_group"], out["group_bound_token"]]
+    # a blind retry of a create makes a second record on REDCap (no conditional write): what is recorded here is
+    # why the link looks the screening number up first (writeback.py). The test passes when the ids parse and the
+    # instance could run both halves.
+    return {
+        "pass": all(p["ids_parse"] for p in parts) and not not_run,
+        **out,
+        **({"not_run": not_run} if not_run else {}),
+    }
 
 
 def r8_limits(admin: Admin, inst: Instance) -> dict[str, Any]:
@@ -627,21 +716,26 @@ def r8_limits(admin: Admin, inst: Instance) -> dict[str, Any]:
     t1 = time.monotonic()
     back = export_rows(post, tok, **{"fields[0]": "record_id", "fields[1]": "weight"})
     t2 = time.monotonic()
-    n = sum(1 for r in back if str(r.get("record_id", "")).startswith("1") and len(str(r.get("record_id"))) == 5)
-    return {"pass": not _refused(got) and n == R8_RECORDS, "records": R8_RECORDS,
+    ids = {r["record_id"] for r in rows}
+    n = sum(1 for r in back or [] if str(r.get("record_id")) in ids)
+    return {"pass": not _refused(got) and n == R8_RECORDS, "records": R8_RECORDS, "read_back": n,
             "import": {"status": got[0], "seconds": round(t1 - t0, 2)},
-            "export": {"rows": len(back), "seconds": round(t2 - t1, 2)}, "rate_limited": got[0] == 429}  # fmt: skip
+            "export": {"rows": len(back or []), "seconds": round(t2 - t1, 2)},
+            "rate_limited": got[0] == 429}  # fmt: skip
 
 
 def r9_log(admin: Admin, inst: Instance) -> dict[str, Any]:
-    """R9: what REDCap's own log says about an API write: the user and the words (for the sponsor letter)."""
+    """R9: what REDCap's own log says about an API write: the user and the words (for the sponsor letter). Pass:
+    the log holds an entry for the write just made."""
     from tests import edc_kit as k
 
     post, tok = admin.post(), inst.tokens["full"]
-    import_rows(post, tok, [{"record_id": "1", "redcap_event_name": k.CONF_SCREEN1, "comments": "conformance R9"}])
+    mark = f"conformance R9 {secrets.token_hex(3)}"
+    import_rows(post, tok, [{"record_id": "1", "redcap_event_name": k.CONF_SCREEN1, "comments": mark}])
     got = admin.log(inst)
-    entries = got[1][:5] if got[0] == 200 and isinstance(got[1], list) else []
-    return {"pass": bool(entries), "status": got[0], "entries": entries,
+    entries = got[1] if got[0] == 200 and isinstance(got[1], list) else []
+    ours = [e for e in entries if mark in json.dumps(e, ensure_ascii=False)]
+    return {"pass": bool(ours), "status": got[0], "entries_in_the_log": len(entries), "the_entry_of_this_write": ours,
             **({} if entries else {"body": got[1]})}  # fmt: skip
 
 
@@ -666,21 +760,17 @@ TESTS: dict[str, Callable[..., dict[str, Any]]] = {
 
 def run(admin: Admin, inst: Instance, today: date) -> dict[str, Any]:
     """R1 to R9 in order; one that raises is recorded as failed with the error's type and words, and the run goes
-    on. The record never holds a token."""
+    on. The record never holds a token (:func:`scrub`)."""
     results: dict[str, Any] = {}
     for name, test in TESTS.items():
         try:
             results[name] = test(admin, inst, today) if test is r6_logic else test(admin, inst)
         except Exception as exc:
-            results[name] = {"pass": False, "error": f"{type(exc).__name__}: {exc}"[:500]}
+            results[name] = {"pass": False, "error": f"{type(exc).__name__}: {exc}"}
     record = {"instance": inst.kind, "version": inst.version, "day": today.isoformat(), "project": inst.project_id,
               "notes": inst.notes, "passed": [n for n, r in results.items() if r.get("pass")],
               "failed": [n for n, r in results.items() if not r.get("pass")], "results": results}  # fmt: skip
-    text = json.dumps(record, ensure_ascii=False)
-    for token in inst.tokens.values():
-        if token and token in text:  # a body that echoes a token is cut out, never written
-            text = text.replace(token, "<token>")
-    return dict(json.loads(text))
+    return dict(json.loads(scrub(json.dumps(record, ensure_ascii=False))))
 
 
 # --------------------------------------------------------------------------------------------------- the command
@@ -691,14 +781,41 @@ def _load(work: Path) -> Instance:
     return Instance(**json.loads(path.read_text(encoding="utf-8")))
 
 
+def not_private(path: Path) -> str:
+    """Why ``path`` may not hold the zip, the unpacked code, a token or a record: it is inside the repository and
+    git does not ignore it, so a commit, a bundle (``tools/host_tree.py`` packs untracked files of ``deploy/`` and
+    ``tools/``) or an image build could pick it up. "" when it is outside the repository or ignored."""
+    repo = ROOT.parent
+    full = path.expanduser().resolve()
+    if repo.resolve() not in full.parents and full != repo.resolve():
+        return ""
+    r = subprocess.run(["git", "-C", str(repo), "check-ignore", "-q", str(full)], check=False)
+    if r.returncode == 0:
+        return ""
+    return (f"{path} is inside the repository and not ignored by git: REDCap's code, a token or a record there "
+            "could be committed, bundled or built into an image. Use deploy/site/redcap (the default) or a folder "
+            "outside the repository")  # fmt: skip
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
     ap.add_argument("command", choices=("check", "up", "project", "run", "all"))
     ap.add_argument("--stand-in", action="store_true", help="project and run against the simulator (the dry run)")
-    ap.add_argument("--work", type=Path, default=WORK, help="the instance's folder (ignored by the repository)")
-    ap.add_argument("--out", type=Path, default=None, help="where the record of a run is written")
+    ap.add_argument("--work", type=Path, default=WORK,
+                    help="the instance's folder: outside the repository, or one git ignores")  # fmt: skip
+    ap.add_argument("--out", type=Path, default=None, help="where the record of a run is written (as --work)")
     args = ap.parse_args(argv)
     today = date.fromisoformat(os.environ.get(DAY_ENV) or date.today().isoformat())
+    for place in (zip_path(), args.work / INSTANCE, *([args.out] if args.out else [])):
+        why = not_private(place)
+        if why:
+            print(why, file=sys.stderr)
+            return 2
+    try:
+        import tests.edc_kit  # noqa: F401  (the conformance project is test data of the source tree)
+    except ImportError:
+        print("this tool runs from a source checkout of trialbox/ (it reads tests/edc_kit.py)", file=sys.stderr)
+        return 2
     if args.stand_in:
         if args.command not in ("run", "all", "project"):
             raise SystemExit("--stand-in goes with project, run or all")
@@ -708,14 +825,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "project":
             return 0
     else:
-        try:
-            info = inspect_zip(zip_path())
-        except (ZipMissing, ZipRefused) as exc:
-            print(str(exc), file=sys.stderr)
-            return 2
-        print(f"zip: REDCap {info['version']}, {info['entries']} entries, holds what an install needs")
-        if args.command == "check":
-            return 0
+        have = (args.work / INSTANCE).exists()
+        if not (args.command == "run" and have):  # a run on an instance that is up needs no zip
+            try:
+                info = inspect_zip(zip_path())
+            except (ZipMissing, ZipRefused) as exc:
+                print(str(exc), file=sys.stderr)
+                return 2
+            print(f"zip: REDCap {info['version']}, {info['entries']} entries, holds what an install needs")
+            if args.command == "check":
+                return 0
         real = RealAdmin(args.work)
         admin = real
         if args.command in ("up", "all"):

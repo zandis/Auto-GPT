@@ -76,6 +76,8 @@ def test_a_stand_in_archive_is_read_without_unpacking_it(tmp_path: Path) -> None
         ({"extra": {"/etc/cron.d/x": "x"}}, "outside the folder redcap/"),
         ({"extra": {"other/file.php": "x"}}, "outside the folder redcap/"),
         ({"extra": {"redcap/redcap_v1.2.3/x.php": "x"}}, "found 2"),
+        ({"extra": {"redcap/redcap_v1.2.3/": "", "redcap/redcap_v99.9.9.1/x.php": "x"}}, "found 3"),
+        ({"version": "99.9.9';--"}, "is expected"),
         ({"drop": f"redcap/redcap_v{VERSION}/Resources/sql/install.sql"}, "missing"),
         ({"drop": "redcap/database.php"}, "missing"),
     ],
@@ -147,31 +149,44 @@ def test_the_stand_in_fails_exactly_where_the_simulator_is_known_to_be_laxer_tha
     columns, has no locking, no rights per token and no log. NEW-EDC-1 makes it as strict; this list then shrinks,
     on purpose."""
     rec = dry["record"]
-    assert rec["failed"] == ["R1 validation", "R2 checkbox", "R3 lock", "R4 rights", "R6 logic", "R9 log"]
-    r1 = {c["field"]: c for c in rec["results"]["R1 validation"]["cases"]}
-    assert [f for f, c in r1.items() if not c["redcap_refused"]] == ["sex", "mh_gout", "weight", "brthdat"]
-    assert all(r1[f]["trialbox_refused"] for f in ("sex", "mh_gout", "weight", "brthdat"))  # our own check holds
-    assert r1["temp"]["redcap_refused"] and not r1["temp"]["trialbox_refused"]  # we send 37.0 for 37 (STD-061)
+    assert rec["failed"] == ["R1 validation", "R2 checkbox", "R3 lock", "R4 rights", "R6 logic", "R7 auto-number",
+                             "R9 log"]  # fmt: skip
+    r1 = {(c["field"], c["value"]): c for c in rec["results"]["R1 validation"]["cases"]}
+    lax = [f for (f, _v), c in r1.items() if c["redcap_must_refuse"] and not c["redcap_refused"]]
+    assert lax == ["sex", "mh_gout", "weight", "brthdat", "visit_dmy"]  # the simulator took what REDCap refuses
+    assert all(r1[k2]["trialbox_refused"] for k2 in r1 if k2[0] in ("sex", "mh_gout", "weight", "brthdat"))
+    t37 = r1[("temp", "37")]  # number_1dp: refused as 37, and TrialBox sends 37.0 for it (STD-061)
+    assert t37["redcap_refused"] and not t37["trialbox_refused"] and t37["trialbox_sends"] == "37.0"
+    assert not r1[("temp", "37.0")]["redcap_refused"] and not r1[("visit_dmy", "2026-11-05")]["redcap_refused"]
+    assert rec["results"]["R1 validation"]["batch"]["the_good_row_was_written"] is True  # the lax batch
     assert rec["results"]["R2 checkbox"]["bare_column"]["status"] == 200
     assert rec["results"]["R3 lock"]["not_run"] and rec["notes"]
     assert rec["results"]["R5 repeat and arms"]["rows_not_read_back_equal"] == []
-    assert rec["results"]["R8 limits"]["records"] == 1000 and rec["results"]["R8 limits"]["export"]["rows"] >= 1000
+    r6 = rec["results"]["R6 logic"]  # the simulator refuses the ``___`` columns: nothing is compared, no "differ"
+    assert r6["not_compared"] and "differ" not in r6 and r6["expressions"] == 23
+    r7 = rec["results"]["R7 auto-number"]  # the ids parse, but the stand-in cannot run the two halves
+    assert r7["no_group"]["ids_parse"] and len(r7["not_run"]) == 2
+    assert len(r7["no_group"]["records_with_that_number_after_a_blind_retry"]) == 2  # why the link looks up first
+    r8 = rec["results"]["R8 limits"]
+    assert r8["records"] == 1000 and r8["read_back"] == 1000
 
 
 def test_the_record_holds_no_token(dry: dict[str, Any]) -> None:
     import re
 
-    assert not re.search(r"\b[0-9A-F]{32}\b", dry["text"]) and "<token>" not in dry["text"]
-    inst = ri.Instance("stand-in", tokens={"full": "A" * 32})
-    out = ri.run(_Echo(), inst, date(2026, 11, 12))  # an instance that echoes the token in every body
-    assert "A" * 32 not in json.dumps(out) and "<token>" in json.dumps(out)
+    assert not re.search(r"[0-9A-Fa-f]{32}", dry["text"]) and "<token>" not in dry["text"]
+    tokens = {name: "A" * 32 for name in ("full", "export_only", "dag", "expired", "logic")}
+    out = ri.run(_Echo(), ri.Instance("stand-in", tokens=tokens), date(2026, 11, 12))
+    text = json.dumps(out)  # an instance that echoes the token in every body, in lower case, and a longer one
+    assert "<token>" in text and not re.search(r"[0-9A-Fa-f]{32}", text)
+    assert ri.scrub(f"x {'ab' * 32} y {'CD' * 16} z") == "x <token> y <token> z"
 
 
 class _Echo(ri.Admin):
     kind = "echo"
 
     def post(self) -> ri.Post:
-        return lambda data: (400, json.dumps({"error": f"bad token {data['token']}"}))
+        return lambda data: (400, json.dumps({"error": f"bad token {data['token'].lower()} and {'9f' * 32}"}))
 
     def lock(self, inst: ri.Instance, record: str, event: str, form: str) -> str:
         return ""
@@ -220,7 +235,8 @@ def test_the_real_set_up_makes_two_projects_four_tokens_and_a_locker_in_order(
                                                              "repeatingFormsEvents", "dag", "user", "userDagMapping"]  # fmt: skip
     users = json.loads(next(c["data"] for c in calls if c["content"] == "user"))
     assert {u["username"] for u in users} == {u["username"] for u in k.CONF_USERS.values()}
-    assert sum("UPDATE redcap_user_rights SET api_token" in s for s in sql) == 3  # the three tokens the API cannot give
+    assert sum("UPDATE redcap_user_rights SET api_token" in s for s in sql) == 4  # a user's token: an admin's SQL
+    assert "tb_full" in "".join(sql) and inst.tokens["full"] != "1" * 32  # not the creator's (a super user's)
     assert "site_admin" in sql[0] and "super_user = 1" in sql[0]
     assert admin.lock(inst, "1", k.CONF_SCREEN1, "baseline") == "no event screening_arm_1 in REDCap's tables"
 
@@ -240,3 +256,67 @@ def test_the_tool_downloads_nothing() -> None:
     for word in ("urlretrieve", "urlopen", "requests.", "curl", "wget", "projectredcap", "vanderbilt"):
         assert word not in src, word
     assert src.count("httpx.post(") == 1 and "http://127.0.0.1:" in src  # the one address it calls is its own
+
+
+# ---------------------------------------------------------------- the adversarial review of PR #352 (2026-11-12)
+@pytest.mark.parametrize("where", ["deploy/redcap", "tools/redcap-work", "deploy/redcap-test/work"])
+def test_a_place_inside_the_repository_that_git_does_not_ignore_is_refused(
+    where: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """H1: the host tree packs untracked files of ``deploy/`` and ``tools/``; a zip, an unpacked tree or a token file
+    there would travel in a bundle. Only an ignored folder or one outside the repository is taken."""
+    inside = ROOT / where
+    for argv, env in (
+        (["check", "--work", str(inside)], None),
+        (["run", "--stand-in", "--out", str(inside / "record.json")], None),
+        (["check"], str(inside / "redcap.zip")),
+    ):
+        if env:
+            monkeypatch.setenv(ri.ZIP_ENV, env)
+        assert ri.main(argv) == 2
+        assert "inside the repository and not ignored" in capsys.readouterr().err
+    assert not inside.exists()
+    assert ri.not_private(ri.WORK / ri.INSTANCE) == "" and ri.not_private(Path("/tmp/x/redcap.zip")) == ""
+
+
+class _Strict(ri.Admin):
+    """An instance that refuses what REDCap refuses and never answers an export: nothing can be read back."""
+
+    kind = "strict"
+
+    def post(self) -> ri.Post:
+        def post(data: dict[str, str]) -> tuple[int, str]:
+            if "data" in data:
+                return 400, json.dumps({"error": "refused"})
+            return 403, json.dumps({"error": "no export right"})
+
+        return post
+
+    def lock(self, inst: ri.Instance, record: str, event: str, form: str) -> str:
+        return ""
+
+    def unlock(self, inst: ri.Instance, record: str, event: str, form: str) -> None:
+        return None
+
+    def set_autonumber(self, inst: ri.Instance, on: bool) -> str:
+        return ""
+
+
+def test_an_export_that_fails_is_never_read_as_nothing_was_written() -> None:
+    """M3: R1, R3 and R4 passed when every import was refused and the export answered 403."""
+    tokens = {"full": "1" * 32, "export_only": "2" * 32, "dag": "3" * 32, "expired": "4" * 32, "logic": "5" * 32}
+    out = ri.run(_Strict(), ri.Instance("strict", tokens=tokens), date(2026, 11, 12))
+    assert out["passed"] == [] and not any("error" in r for r in out["results"].values())
+    assert out["results"]["R1 validation"]["batch"]["the_good_row_was_written"] is None
+    assert out["results"]["R3 lock"]["export_failed"] and out["results"]["R4 rights"]["records_written"] is None
+    assert out["results"]["R6 logic"]["not_compared"]
+
+
+def test_a_second_run_on_the_same_instance_judges_as_the_first(tmp_path: Path) -> None:
+    """M4: R5 wrote the weight R1 looks for, so R1 changed its verdict on a second run."""
+    admin = ri.SimAdmin()
+    inst = admin.build()
+    first = ri.run(admin, inst, date(2026, 11, 12))
+    again = ri.run(admin, inst, date(2026, 11, 12))
+    assert (first["passed"], first["failed"]) == (again["passed"], again["failed"])
+    assert again["results"]["R8 limits"]["read_back"] == 1000

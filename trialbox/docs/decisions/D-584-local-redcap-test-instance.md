@@ -32,14 +32,19 @@ source: an institution gets it under the REDCap Consortium licence and may not p
    access group; one whose rights expired; and a user who may lock a form. The tokens are random, made at set-up,
    written to `deploy/site/redcap/instance.json` (mode 0600, ignored by the repository) and never printed.
 5. **The record of a run** is a JSON file beside it (`conformance-<date>.json`): for each of R1 to R9 the status and
-   body REDCap gave (cut to a declared length), what was written, and pass or fail against the review's "pass"
-   column. Synthetic values only; no token in it.
+   whole body REDCap gave, what was written, what the product's own client then says, and pass or fail against the
+   review's "pass" column. Synthetic values only. Every run of 32 or more hexadecimal characters is taken out before
+   the record is written, so no token is in it.
 6. **A stand-in for the dry run.** `--stand-in` runs `project` and `run` against the simulator (`rc_sim`) in the
    tool's own process. It proves the tool, not REDCap: the simulator is known to accept what REDCap refuses
    (EDC-001), and the record says which tests it fails.
-7. **Not a box service.** The compose file is not one of the box's compose files (`deploy/docker-compose*.yml`), is
-   in no bundle and no network sheet, and runs on a developer's or the owner's machine. Its images are public
-   (PHP with Apache, MariaDB); REDCap's code is only ever in the ignored folder.
+7. **Not a box service.** The compose file is not one of the box's compose files (`deploy/docker-compose*.yml`): no
+   network sheet, images lock or compose rule reads it, and nothing on a box starts it. It runs on a developer's or
+   the owner's machine. Like every file under `tools/` and `deploy/`, the tool and the compose file themselves travel
+   in the host tree; they hold nothing of REDCap's. Its images are public (PHP with Apache, MariaDB).
+8. **REDCap's code, the tokens and the records live only where git ignores them or outside the repository.** The
+   tool refuses any other place for the zip, the instance's folder and the record (exit 2): the host tree packs
+   untracked files of `deploy/` and `tools/`, and an image build copies them.
 
 ## What the owner must do
 
