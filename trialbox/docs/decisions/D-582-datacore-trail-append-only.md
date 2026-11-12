@@ -17,12 +17,20 @@ those rows (review case 10c: both accepted). The screening log, the lifecycle an
 
 1. `datacore.history` and `datacore.subject_step` refuse UPDATE, DELETE and TRUNCATE by trigger. The code only ever
    inserted into them.
-2. `datacore.conflict` refuses DELETE and TRUNCATE. An UPDATE may only close an open conflict: it sets `resolved`,
-   `resolved_by` and `resolved_at` on a row whose `resolved` is empty and changes no other column. A closed conflict
-   is never changed again.
-3. The triggers are made when the store opens, as the pre-fill's are (a plpgsql body cannot go through the migration
-   splitter), idempotent and under an advisory lock. They are not a migration, so no stored schema version moves.
-4. As in D-281, this holds against every role but a table owner who drops the trigger; the database roles are T-718's.
+2. `datacore.conflict` refuses DELETE and TRUNCATE. An UPDATE may only close an open conflict: on a row whose
+   `resolved` is empty it sets `resolved`, `resolved_by` and `resolved_at`, each to a value that is not empty, and
+   changes no other column. A closed conflict is never changed again.
+3. **Closing comes first.** `sync.resolve` closes the conflict before it writes the value, with a statement that
+   only matches an open conflict. Of two people who resolve at once the second is refused (`DATA-CONFLICT`) before
+   anything is written, so the value and the conflict row never disagree.
+4. The triggers are made when the store opens, as the pre-fill's are (a plpgsql body cannot go through the migration
+   splitter), under an advisory lock. They are not a migration, so no stored schema version moves.
+5. **A function is made only when it is absent or its body differs; a trigger only when it is absent; a disabled
+   trigger is switched on again** (`datacore/pgfunc.py`). `CREATE OR REPLACE` on every open needs the function's
+   owner, and after a restore (`pg_restore --no-owner`) the functions belong to the restoring role: the store then
+   did not open for the service's role. The pre-fill's store and the data-operations store had the same defect and
+   use the same helper now.
+6. As in D-281, this holds against every role but a table owner who drops the trigger; the database roles are T-718's.
 
 ## Not in this card
 

@@ -121,3 +121,80 @@ def test_opening_the_store_twice_makes_the_triggers_once(dc: DataCore) -> None:
         again.close()
     assert names == ["conflict_close_only", "conflict_no_truncate", "history_append_only", "history_no_truncate",
                      "subject_step_append_only", "subject_step_no_truncate"]  # fmt: skip
+
+
+# ---------------------------------------------------------------- the adversarial review of PR #348 (2026-11-12)
+def test_two_people_resolving_at_once_the_second_is_refused_before_any_value_is_written(
+    dc: DataCore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MED-2: B read the conflict while it was open; A closed it first. B used to write the value and its history
+    row, then fail at the close with a database error: the value said "theirs", the conflict row "trialbox"."""
+    cid = _conflict(dc)
+    stale = dc.conflict(cid)
+    resolve(dc, cid, "trialbox", "crcA", AT)
+    before = (dc.record("GZQO", "GZQO-0001", "v1"), dc.history("GZQO"), dc.conflict(cid))
+    monkeypatch.setattr(dc, "conflict", lambda _cid: stale)
+    with pytest.raises(DataError) as e:
+        resolve(dc, cid, "theirs", "crcB", AT)
+    assert e.value.code == "DATA-CONFLICT"
+    monkeypatch.undo()
+    assert (dc.record("GZQO", "GZQO-0001", "v1"), dc.history("GZQO"), dc.conflict(cid)) == before
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "UPDATE conflict SET resolved = ''",
+        "UPDATE conflict SET resolved = 'theirs'",
+        "UPDATE conflict SET resolved = 'theirs', resolved_by = 'crc'",
+        "UPDATE conflict SET resolved = 'theirs', resolved_by = '', resolved_at = ''",
+    ],
+)
+def test_a_close_names_what_was_kept_who_and_when(dc: DataCore, sql: str) -> None:
+    cid = _conflict(dc)
+    with pytest.raises(REFUSED, match="datacore.conflict"), dc.db.transaction() as tx:
+        tx.execute(sql)
+    assert (dc.conflict(cid) or {})["resolved"] is None
+
+
+def test_a_disabled_trigger_is_switched_on_again_at_the_next_open(dc: DataCore) -> None:
+    _two_changes(dc)
+    with dc.db.transaction() as tx:
+        tx.execute("ALTER TABLE history DISABLE TRIGGER history_append_only")
+    DataCore().close()
+    with pytest.raises(REFUSED), dc.db.transaction() as tx:
+        tx.execute("UPDATE history SET new = 'x'")
+
+
+def test_a_function_that_is_there_is_not_made_again(dc: DataCore) -> None:
+    """HIGH-1: after a restore the functions belong to the restoring role; ``CREATE OR REPLACE`` on every open then
+    failed for the service's role ("must be owner of function") and the store did not open. A function whose body
+    is the one wanted is left alone, so no ownership is needed; one with another body is replaced."""
+    from datacore.dataops import DataOps
+    from edc.store import EdcStore
+
+    from tests import edc_kit
+
+    def stamps() -> dict[str, str]:
+        rows = dc.db.fetchall(
+            "SELECT p.proname, p.xmin::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+            "WHERE p.proname IN ('datacore_append_only', 'datacore_conflict_close_only', 'dataops_append_only', "
+            "'dataops_batch_has_step', 'edc_append_only')"
+        )
+        return {str(r[0]): str(r[1]) for r in rows}
+
+    _two_changes(dc)
+    DataOps().close()
+    EdcStore(sign_key=edc_kit.SIGN_KEY).close()
+    first = stamps()
+    assert len(first) == 5
+    DataCore().close()
+    DataOps().close()
+    EdcStore(sign_key=edc_kit.SIGN_KEY).close()
+    assert stamps() == first  # not one row of pg_proc was rewritten
+    with dc.db.transaction() as tx:
+        tx.execute("CREATE OR REPLACE FUNCTION datacore_append_only() RETURNS trigger LANGUAGE plpgsql AS "
+                   "$$ BEGIN RETURN NEW; END $$")  # fmt: skip
+    DataCore().close()
+    with pytest.raises(REFUSED), dc.db.transaction() as tx:
+        tx.execute("DELETE FROM history")

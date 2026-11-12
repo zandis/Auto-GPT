@@ -20,6 +20,7 @@ from typing import Any
 
 from tb_common.db import ENV, Database
 
+from datacore import pgfunc
 from datacore.forms import Field, fields_of
 
 SCHEMA = """
@@ -50,7 +51,8 @@ _TRAIL_FUNCTIONS = (
     "RAISE EXCEPTION USING MESSAGE = 'datacore.' || TG_TABLE_NAME || ' is append-only', "
     "ERRCODE = 'insufficient_privilege'; END $$",
     "CREATE OR REPLACE FUNCTION datacore_conflict_close_only() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
-    "IF TG_OP = 'UPDATE' AND OLD.resolved IS NULL AND NEW.resolved IS NOT NULL AND "
+    "IF TG_OP = 'UPDATE' AND OLD.resolved IS NULL AND NEW.resolved <> '' AND NEW.resolved_by <> '' AND "
+    "NEW.resolved_at <> '' AND "
     "(NEW.id, NEW.study, NEW.record, NEW.event, NEW.field, NEW.owner, NEW.source, NEW.theirs, NEW.at) = "
     "(OLD.id, OLD.study, OLD.record, OLD.event, OLD.field, OLD.owner, OLD.source, OLD.theirs, OLD.at) AND "
     "NEW.trialbox IS NOT DISTINCT FROM OLD.trialbox THEN RETURN NEW; END IF; "
@@ -99,15 +101,7 @@ class DataCore:
         because a plpgsql body holds ``;`` (``Database.migrate`` splits on it); idempotent, one maker at a time. As
         the pre-fill's triggers (D-281), this holds against any role but a table owner who drops it (T-718)."""
         with self._db.transaction() as tx:
-            tx.execute("SELECT pg_advisory_xact_lock(hashtext(current_schema() || '.datacore_append_only'))")
-            for fn in _TRAIL_FUNCTIONS:
-                tx.execute(fn)
-            have = {str(r[0]) for r in tx.fetchall(
-                "SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON "
-                "n.oid = c.relnamespace WHERE n.nspname = current_schema() AND NOT t.tgisinternal")}  # fmt: skip
-            for name, sql in _TRAIL_TRIGGERS.items():
-                if name not in have:
-                    tx.execute(sql)
+            pgfunc.ensure(tx, "datacore_append_only", _TRAIL_FUNCTIONS, _TRAIL_TRIGGERS)
 
     @property
     def db(self) -> Database:
@@ -230,9 +224,12 @@ class DataCore:
         rows = self._all("SELECT * FROM conflict WHERE id = ?", (cid,))
         return rows[0] if rows else None
 
-    def close_conflict(self, cid: int, keep: str, by: str, at: str) -> None:
-        self._run("UPDATE conflict SET resolved = ?, resolved_by = ?, resolved_at = ? WHERE id = ?",
-                  (keep, by, at, cid))  # fmt: skip
+    def close_conflict(self, cid: int, keep: str, by: str, at: str) -> bool:
+        """Close an open conflict. False: it was not open (someone closed it first); nothing changed (D-582)."""
+        with self._db.transaction() as tx:
+            n = tx.execute("UPDATE conflict SET resolved = ?, resolved_by = ?, resolved_at = ? WHERE id = ? AND "
+                           "resolved IS NULL", (keep, by, at, cid))  # fmt: skip
+        return bool(n)
 
     # ------------------------------------------------------------------ source record ids
     def source_id(self, study: str, source: str, record: str) -> str | None:
