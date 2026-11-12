@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import os
+import threading
+from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
 from embed_service.embedder import Embedder, from_env
 from fastapi import HTTPException, Response
+from fastapi.responses import JSONResponse
 from tb_common.config import site_tz
 from tb_common.http import make_app
 from tb_common.phi_guard import site_mrn_regex
@@ -18,7 +22,6 @@ from tb_contracts import (
     ChunkSearchResult,
     LakeQuery,
     RebuildRequest,
-    RebuildResult,
 )
 
 from lake.sqlguard import SqlRejected
@@ -184,13 +187,23 @@ def get_holds() -> dict[str, Any]:
     return {"holds": lake().holds()}
 
 
-@app.post("/rebuild")
-def rebuild(req: RebuildRequest) -> RebuildResult:
+def _spawn(run: Callable[[], None]) -> None:
+    """A rebuild job runs in its own thread of this worker; a killed worker leaves its state ``interrupted``."""
+    threading.Thread(target=run, name="lake-rebuild", daemon=True).start()
+
+
+@app.post("/rebuild", status_code=202)
+def rebuild(req: RebuildRequest) -> JSONResponse:
+    """T-690 (D-472): start a rebuild as a job and answer 202 with its state; ``GET /rebuild/<snapshot>`` follows it.
+    What is known at once is answered at once, nothing written: 409 with ``X-TB-Lake-Busy`` when a job holds the
+    snapshot or another rebuild of it runs (D-462), 409 when its feed folder is missing (D-271). A refusal found while
+    the records are read (no record, a drop, the OMOP store's) is the job's state ``refused``."""
+    snap = req.snapshot.isoformat()
     try:
-        stats = lake().rebuild(req.snapshot.isoformat(), embedder(), Path(req.ndjson_dir) if req.ndjson_dir else None)
+        job = lake().start_rebuild(snap, embedder(), Path(req.ndjson_dir) if req.ndjson_dir else None, spawn=_spawn)
     except LakeBusy as exc:  # D-462: held by a job or already building; nothing written, try again later
         raise HTTPException(status_code=409, detail=str(exc), headers={BUSY_HEADER: exc.reason}) from exc
-    except RebuildError as exc:  # D-271: a missing or empty feed is refused; CURRENT stays
+    except RebuildError as exc:  # D-271: a missing feed is refused; CURRENT stays
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         from omop.schema import OmopError
@@ -198,10 +211,16 @@ def rebuild(req: RebuildRequest) -> RebuildResult:
         if isinstance(exc, OmopError):  # D-271: the OMOP store refused the batch (a mass tombstone, an older batch)
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         raise
-    return RebuildResult(
-        snapshot=stats.snapshot,
-        tables=stats.tables,
-        chunks=stats.chunks,
-        embedded_new=stats.embedded_new,
-        seconds=stats.seconds,
-    )
+    return JSONResponse(job, status_code=202, headers={"Location": f"/rebuild/{snap}"})
+
+
+@app.get("/rebuild/{snapshot}")
+def rebuild_state(snapshot: str) -> dict[str, Any]:
+    """The state of the snapshot's last rebuild job (``running``, ``done`` with its counts, ``busy``, ``refused``,
+    ``failed``, ``interrupted``, or ``none``), read by any worker (T-690, D-472)."""
+    try:
+        snap = date.fromisoformat(snapshot).isoformat()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="a snapshot is a date (YYYY-MM-DD)") from exc
+    out: dict[str, Any] = lake().rebuild_state(snap)
+    return out

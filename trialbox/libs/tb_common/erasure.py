@@ -367,7 +367,7 @@ LAKE: dict[str, Entry] = {
     "lake:CURRENT.tmp": _none("the served snapshot's name while it is replaced"),
     "lake:FEED": _none("the date of the last feed snapshot"),
     "lake:.rebuild.lock": _none("the lock one lake rebuild holds (T-722), no patient"),
-    "lake:locks": _none("lock files of the lake's readers and writers (T-722), no patient"),
+    "lake:locks": _none("lock files of the lake's readers and writers (T-722), rebuild job states (T-690)"),
 }
 
 # ------------------------------------------------------------------------------------------------ object store

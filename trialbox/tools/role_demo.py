@@ -102,6 +102,18 @@ class InprocBackend:
         self.box.orch.drain()
         return self.get_job(job.job_id) or job
 
+    def retry_scheduled_job(self, job_id: str, *, reply_to: str, by: str, role: str) -> Any:
+        from console.backend import Refused
+        from tb_contracts import Job
+
+        # T-746 (D-474): as the HTTP backend does: the job's id and the reply mailbox, the person and role signed
+        r = self.c.post(f"/jobs/{job_id}/retry", json={"reply_to": reply_to}, headers=actor_header(by, role=role))
+        if r.status_code != 200:
+            raise Refused(r.text[:300])
+        job = Job.model_validate(r.json())
+        self.box.orch.drain()
+        return self.get_job(job.job_id) or job
+
     def cancel_job(self, job_id: str, by: str) -> Any:
         from console.backend import Refused
         from tb_contracts import Job

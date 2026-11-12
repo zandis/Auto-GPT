@@ -24,6 +24,8 @@ groups:
     - GET /jobs
   job_cancel:
     - POST /jobs/{job_id}/cancel
+  job_retry_scheduled:   # the administrator runs a failed scheduler job again (T-746, D-474): signed role checked in the handler
+    - POST /jobs/{job_id}/retry
   job_reveal:   # a chart number; the signed person, role and scope are checked again in the handler (D-273)
     - POST /jobs/{job_id}/reveal
   notices:
@@ -155,7 +157,7 @@ groups:
 # verified calling service -> the groups it may reach. A service of the token registry with no row reaches nothing.
 services:
   console:   # the front desk: services/console/backend.py, s28.call (data, entry, EDC, set-up, lifecycle pages)
-    groups: [jobs_start, job_read, jobs_list, job_cancel, job_reveal, notices, models_read, models_canary, rulesets,
+    groups: [jobs_start, job_read, jobs_list, job_cancel, job_retry_scheduled, job_reveal, notices, models_read, models_canary, rulesets,
              patients, registry, registry_export, study, datacore, lifecycle, sponsor, setup, edc]
   mail-gateway:   # parses hostile mail: starts the mail commands and reads the jobs that came in by mail, nothing else
     groups: [jobs_start, job_read]
