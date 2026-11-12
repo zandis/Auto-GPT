@@ -74,6 +74,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
         "依監測授權讀取已收案受試者",
     ),
     "console.twin_view": ("Patient record summary read", "患者記録要約の閲覧", "讀取病人紀錄摘要"),
+    "console.monitor_visit": ("Monitoring visit recorded", "モニタリング訪問の記録", "記錄監測訪視"),
     "console.view": ("Page read", "ページの閲覧", "讀取頁面"),
     "console.site_patients": ("Site patient list read", "施設患者一覧の閲覧", "讀取院內病人名單"),
     # break-glass (D-430)
