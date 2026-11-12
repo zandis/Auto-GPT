@@ -128,6 +128,25 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
   is unchanged after a compile.
 - **Status.** Fixed in #294.
 
+### B4. With the pair, the box's gateway refuses every model call as `caller_unverified` (Blocker for the paid run)
+
+- **Symptom.** `make rehearse` on master 73aa2d31, case run-a, 47/49: hospital-ja and public-ja crashed. The night
+  self-test said "judge ... failed the canary (0 of 54 answered; ... gateway refused judge: caller_unverified)", then
+  SCREEN stopped with "The judge model did not answer 5 calls in a row". The stand-in model servers answered 200. The
+  other cases passed. CI never runs this path.
+- **Evidence.** The rehearsal's `evidence/run-a/` and the VM's `vm.log` and `parts/hospital-ja.json`. Reproduced
+  locally with `tools.complete_run --model pair --only prepare hospital-ja` against `tests/rehearsal/vllm_standin.py`.
+- **Cause.** The in-process box (`tools.role_demo.orch_client`, D-464) keeps one token in the process environment
+  and registers it as the console's. The harness's gateway, built as an installed box (`TB_ENV=PRODUCTION`), sent
+  that same token on the judge and verifier calls. Since T-212b (D-437) the gateway binds `X-TB-Caller` to the token's
+  service, so it saw the console claiming `orchestrator` and refused every call.
+- **Fix.** The gateway check is unchanged. The in-process box now also makes the orchestrator's token, as
+  `trialbox secrets init` does on a box, and registers its hash. The harness's gateway client
+  (`tools.scenarios.gateway_client`) presents it, and `service_callers` allows the orchestrator to call as
+  `orchestrator`. Test: `test_the_pair_s_calls_carry_the_orchestrator_s_own_token_in_a_demo_box` (refused before the
+  fix). run-a of the rehearsal passes.
+- **Status.** Fixed in this branch (`claude/g1-b4-caller-identity`).
+
 ## C. Fixed: keep them fixed
 
 | # | What broke | Cause | Fix |

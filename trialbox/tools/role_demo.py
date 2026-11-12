@@ -44,20 +44,28 @@ KEY = b"trialbox-demo-site-key-0123456789abcdef"
 RUN = date(2026, 10, 5)  # a Monday, the synthetic reference date
 
 
+#: the in-process box's per-service tokens (never printed): the console's is the process's ``TB_SERVICE_TOKEN``; the
+#: orchestrator's is what the orchestrator's own token file holds on an installed box, presented by the harness's
+#: calls made as the orchestrator (``tools.scenarios.gateway_client``; G1 B4). Empty while no box made the registry.
+SERVICE_TOKENS: dict[str, str] = {}
+
+
 def orch_client(app: Any) -> Any:
     """The demo box's client for the in-process orchestrator. D-114: it authenticates like a real console, with a
     per-process service token on every changing call. D-464 (T-713): outside DEV and TEST the orchestrator admits only
     a caller it can name, and the demo image runs with no ``TB_ENV`` (PRODUCTION by the one rule), so the box gets a
-    token registry naming that token as the console's, and the console's actor key, as ``trialbox secrets init``
-    writes them on a box (unless a registry is configured already)."""
+    token registry naming that token as the console's, a second token as the orchestrator's (:data:`SERVICE_TOKENS`),
+    and the console's actor key, as ``trialbox secrets init`` writes them on a box (unless a registry is configured
+    already)."""
     from fastapi.testclient import TestClient
 
     tok = os.environ.setdefault("TB_SERVICE_TOKEN", secrets.token_hex(16))
     if not (os.environ.get(sa.REGISTRY_ENV) or "").strip():
         d = Path(tempfile.mkdtemp(prefix="tb-demo-tokens-"))
         reg, keys = d / "tokens.json", d / "actor-keys"
-        reg.write_text(json.dumps({"schema": sa.REGISTRY_SCHEMA, "services": {"console": sa.token_hash(tok)}}),
-                       encoding="utf-8")  # fmt: skip
+        SERVICE_TOKENS.update(console=tok, orchestrator=secrets.token_hex(32))
+        hashes = {name: sa.token_hash(t) for name, t in SERVICE_TOKENS.items()}
+        reg.write_text(json.dumps({"schema": sa.REGISTRY_SCHEMA, "services": hashes}), encoding="utf-8")
         keys.write_text(sa.actor_key(tok).hex() + "\n", encoding="utf-8")
         for f in (reg, keys):
             f.chmod(0o600)

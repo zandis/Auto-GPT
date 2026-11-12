@@ -176,6 +176,31 @@ def test_the_installed_gateway_reaches_both_servers_by_their_served_names(tmp_pa
     assert all(m["answered"] == m["cases"] for m in rep["models"]), rep["problems"]
 
 
+def test_the_pair_s_calls_carry_the_orchestrator_s_own_token_in_a_demo_box(
+    tmp_path: Path, no_data_class: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """G1 B4: the in-process box (``role_demo.orch_client``) registers its one process token as the console's (D-464);
+    the pair's PRODUCTION gateway (T-212b, D-437) then saw every judge call as the console claiming ``orchestrator``
+    and refused it (``caller_unverified``: 0 of 54 canary answered). The box now has the orchestrator's token too,
+    as ``trialbox secrets init`` writes it, and the harness's calls present it: allowed by ``service_callers``."""
+    from tb_common import service_auth as sa
+
+    from tools import role_demo
+
+    for k in ("TB_SERVICE_TOKEN", "TB_SERVICE_TOKEN_FILE", sa.REGISTRY_ENV, sa.ACTOR_KEYS_ENV):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("TB_ENV", "DEV")  # as complete_run runs the parts; the box's gateway is PRODUCTION
+    monkeypatch.setattr(role_demo, "SERVICE_TOKENS", {}, raising=False)
+    env = scenarios.installed_env(tmp_path / "audit", JUDGE_URL, VERIFIER_URL)
+    vllm = _Vllm()
+    judge = _client(env, vllm)  # built before the box, as complete_run's parts do
+    role_demo.orch_client(stub)  # the box: its process token is the console's
+    assert judge.chat_json("judge", JUDGE_VARS, job_id="t").data
+    assert [s for s in vllm.seen if s[2] != 200] == []
+    audit = "".join(p.read_text(encoding="utf-8") for p in (tmp_path / "audit").glob("*.jsonl"))
+    assert "caller_unverified" not in audit
+
+
 def test_a_pin_with_a_name_the_server_does_not_serve_is_a_named_404(tmp_path: Path, no_data_class: None) -> None:
     """The first run's state, replayed: the pins name what the card does not serve. The refusal now says which name
     was sent, and the canary names the model and the error instead of an empty name."""

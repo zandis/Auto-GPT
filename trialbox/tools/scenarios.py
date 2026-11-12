@@ -139,6 +139,18 @@ class Result:
 
 
 # ------------------------------------------------------------------------------------------------ models
+def _as_orchestrator(request: Any) -> None:
+    """Present the orchestrator's token of the in-process box (:data:`tools.role_demo.SERVICE_TOKENS`), when the box
+    has made one; without a token registry the call goes as before."""
+    from tb_common.service_auth import TOKEN_HEADER
+
+    from tools import role_demo
+
+    tok = role_demo.SERVICE_TOKENS.get("orchestrator")
+    if tok:
+        request.headers[TOKEN_HEADER] = tok
+
+
 def gateway_client(env: dict[str, str], upstream: Any = None) -> Any:
     """``tb_llm.GatewayClient`` to an in-process tb-gateway built exactly as an installed box builds it
     (:func:`gateway.app.from_env` over ``env``: ``TB_ENV``, ``TB_PROFILE``, ``TB_EP_*_URL``, the registry with its
@@ -161,7 +173,11 @@ def gateway_client(env: dict[str, str], upstream: Any = None) -> Any:
         guard=Guard.from_settings(),
         env=env,
     )
-    client = GatewayClient("http://tb-gateway/v1", "orchestrator", http=TestClient(create_app(gw)))
+    http = TestClient(create_app(gw))
+    # the calls are the orchestrator's: on an installed box they carry its own token (``trialbox secrets init``), not
+    # the console's that the in-process box keeps in this process's environment (G1 B4: else caller_unverified)
+    http.event_hooks = {"request": [_as_orchestrator]}
+    client = GatewayClient("http://tb-gateway/v1", "orchestrator", http=http)
     # the box's callers load the prompt version that box's TB_ENV serves (D-359), not this harness's environment
     client.prompt_environment = env.get("TB_ENV")  # type: ignore[attr-defined]
     return client
