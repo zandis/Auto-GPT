@@ -57,6 +57,7 @@ def test_default_install_passes() -> None:
         "key_custody",
         "clock",
         "ops_runner",
+        "memory_caps",
     }
 
 
