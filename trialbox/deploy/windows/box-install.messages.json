@@ -198,5 +198,15 @@
     "en": "The install is finished. The install log: {0}",
     "ja": "インストールが完了しました。インストールの記録: {0}",
     "zh-TW": "安裝完成。安裝記錄：{0}"
+  },
+  "wslconfig_written": {
+    "en": "WSL2 is given {0} GB of memory and {1} processors; {2} percent of this machine stays with Windows and the desktop.",
+    "ja": "WSL2 にメモリ {0} GB とプロセッサ {1} 個を割り当てました。この機械の {2} パーセントは Windows とデスクトップ用に残します。",
+    "zh-TW": "WSL2 分配到 {0} GB 記憶體與 {1} 個處理器；這台機器的 {2}% 保留給 Windows 與桌面使用。"
+  },
+  "wslconfig_too_small": {
+    "en": "This machine has {0} GB of memory and {1} processors: with {2} percent kept for the desktop nothing is left for TrialBox. Nothing was changed.",
+    "ja": "この機械のメモリは {0} GB、プロセッサは {1} 個です。デスクトップ用に {2} パーセントを残すと、TrialBox に割り当てる分がありません。何も変更していません。",
+    "zh-TW": "這台機器有 {0} GB 記憶體與 {1} 個處理器：保留 {2}% 給桌面後，沒有可分配給 TrialBox 的資源。沒有做任何變更。"
   }
 }

@@ -30,7 +30,7 @@ BeforeAll {
     $s = @{
       Base = $base; Media = $media; StateDir = (Join-Path $base "state"); Data = (Join-Path $base "data")
       Edition = "ProfessionalWorkstation"; Build = 26100; VirtFirmware = $true; Hypervisor = $false
-      Account = "BOX\owner"; IsAdmin = $true; FreeGB = 3000
+      Account = "BOX\owner"; IsAdmin = $true; FreeGB = 3000; MemoryGB = 192; Processors = 32
       Features = @{ "VirtualMachinePlatform" = $false; "Microsoft-Windows-Subsystem-Linux" = $false }
       FeatureRestart = $true; WslInstalled = $false; Distros = @(); WinGpu = $true
       Pid1 = "systemd"; SetupFail = @{}; InstallExit = 0; StateLine = "installed=1"
@@ -61,7 +61,8 @@ Describe "box-install.ps1" {
         HypervisorPresent = $s.Hypervisor; Account = $s.Account; IsAdmin = $s.IsAdmin; UiCulture = "en-US"
         SystemDrive = "C:"; UserProfile = (Join-Path $s.Base "profile") }
     }
-    Mock Get-TbDriveFacts { return @{ FreeGB = $script:S.FreeGB; Fixed = $true; FileSystem = "NTFS" } }
+    Mock Get-TbDriveFacts { return @{ FreeGB = $script:S.FreeGB; Fixed = $true; FileSystem = "NTFS"; SizeBytes = 4000787030016 } }
+    Mock Get-TbHardware { return @{ MemoryGB = $script:S.MemoryGB; Processors = $script:S.Processors } }
     Mock Get-TbDataDriveCandidates { return @() }
     Mock Protect-TbDirectory { New-Item -ItemType Directory -Force -Path $Path | Out-Null }
     Mock Get-TbFeatureEnabled { return [bool]$script:S.Features[$Name] }
@@ -172,7 +173,7 @@ Describe "box-install.ps1" {
     It "hands this run's settings to the run after the restart, and no path or secret beyond them" {
       $MinFreeGB = 200; $script:S.FreeGB = 250
       Invoke-Run | Should -Be 3010
-      $script:S.ResumeMore | Should -Be "-MinFreeGB 200 -MinWindowsBuild 22000 -StartWaitSeconds 120 -Distro TrialBox -Lang en"
+      $script:S.ResumeMore | Should -Be "-MinFreeGB 200 -MinWindowsBuild 22000 -StartWaitSeconds 120 -DesktopSharePercent 25 -Distro TrialBox -Lang en"
     }
     It "continues by itself after the restart and removes the resume task" {
       Invoke-Run | Should -Be 3010
@@ -213,11 +214,15 @@ Describe "box-install.ps1" {
       $state = Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json
       $state.finished | Should -BeTrue
     }
-    It "writes .wslconfig with swap off before WSL2 first starts, and no memory figure of its own" {
+    It "writes .wslconfig from the hardware before WSL2 first starts: the desktop's share kept, swap off, the disk limit" {
+      # NEW-WIN-3 (D-601) replaced NEW-WIN-1's file, which had swap=0 and no memory line
       Invoke-Run | Should -Be 0
       $cfg = Get-Content -LiteralPath (Join-Path $script:S.Base "profile/.wslconfig") -Raw
       $cfg | Should -Match "(?m)^swap=0"
-      $cfg | Should -Not -Match "memory="
+      $cfg | Should -Match "(?m)^memory=144GB"        # 192 GB installed less the declared 25 percent
+      $cfg | Should -Match "(?m)^processors=24"       # 32 logical processors less 25 percent
+      $cfg | Should -Match "(?m)^defaultVhdSize=4000787030016"
+      $cfg | Should -Match "(?m)^sparseVhd=true"
       $log = Get-Log
       $log.IndexOf("wslconfig: ok") | Should -BeLessThan $log.IndexOf("import: start")
     }
@@ -228,6 +233,20 @@ Describe "box-install.ps1" {
       Invoke-Run | Should -Be 0
       (Get-Content -LiteralPath (Join-Path $p ".wslconfig") -Raw) | Should -Match "memory=8GB"
       ($script:S.Said -join "`n") | Should -Match "swap"
+    }
+    It "writes its own .wslconfig again when the hardware changed, and upgrades the file NEW-WIN-1 wrote" {
+      $p = Join-Path $script:S.Base "profile"
+      New-Item -ItemType Directory -Force -Path $p | Out-Null
+      Set-Content -LiteralPath (Join-Path $p ".wslconfig") -Value "# TrialBox (NEW-WIN-1, D-421): no swap`n[wsl2]`nswap=0"
+      $script:S.MemoryGB = 256
+      Invoke-Run | Should -Be 0
+      (Get-Content -LiteralPath (Join-Path $p ".wslconfig") -Raw) | Should -Match "(?m)^memory=192GB"
+    }
+    It "stops when the desktop's share leaves nothing for WSL2" {
+      $script:S.MemoryGB = 1; $script:S.Processors = 1
+      Invoke-Run | Should -Be 1
+      ($script:S.Calls -join "`n") | Should -Not -Match "--import"
+      Get-Log | Should -Match "STOP step 6/\d+ wslconfig"
     }
     It "does nothing on a second run of a finished install" {
       Invoke-Run | Should -Be 0
@@ -306,6 +325,13 @@ Describe "box-install.ps1" {
     It "turns a Windows path into the path WSL2 mounts it at" {
       ConvertTo-TbWslPath "D:\TrialBox\install\wsl-setup.sh" | Should -Be "/mnt/d/TrialBox/install/wsl-setup.sh"
       ConvertTo-TbWslPath "e:\TRIALBOX-1.0\linux\x.tar" | Should -Be "/mnt/e/TRIALBOX-1.0/linux/x.tar"
+    }
+    It "computes WSL2's share by rounding down, and refuses a share that leaves nothing" {
+      Get-TbWslConfigText 255 20 25 0 | Should -Match "memory=191GB"
+      Get-TbWslConfigText 255 20 25 0 | Should -Match "processors=15"
+      Get-TbWslConfigText 255 20 25 0 | Should -Not -Match "defaultVhdSize"
+      Get-TbWslConfigText 64 8 0 0 | Should -Match "memory=64GB"
+      Get-TbWslConfigText 1 1 25 0 | Should -BeNullOrEmpty
     }
     It "picks the language from the Windows display language" {
       Get-TbLang "" "ja-JP" | Should -Be "ja"

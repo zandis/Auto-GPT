@@ -62,6 +62,11 @@ closed). Checks:
   ``tools/trialbox/db_secrets.py``) and from the environment of the containers that run now. FAIL in VALIDATION and
   PRODUCTION, WARN in DEV and TEST; not judged without ``--env-file``. No password is printed.
 
+* ``wsl2_memory`` (NEW-WIN-3, D-601): on a WSL2 kernel, the sum of the compose memory caps (the box's
+  ``COMPOSE_FILE``, each ``TB_MEM_*`` from ``--env-file`` or its default; the model servers at their caps, since no
+  serving record carries their measured host memory yet) against the memory WSL2 was given (``.wslconfig``, read as
+  ``MemTotal``). FAIL when the caps do not fit: the kernel would kill a service at night. PASS on a plain Linux host.
+
 * ``memory_caps`` (T-692, D-473, scale review F-05): ``TB_MEM_ADAPTER`` and ``TB_MEM_LAKE`` (``--env-file``, else the
   compose defaults) against what the patient count needs (``tools/trialbox/memcaps.py``: the measured record
   ``measured/ingest_memory.json`` of the deploy folder). The count is the lake's ``CURRENT`` snapshot, else
@@ -140,6 +145,7 @@ class DoctorInputs:
     resolver: Callable[[str], list[str]] | None = None  # check perimeter_addresses; None: the system resolver
     compose_config: Mapping[str, Any] | None = None  # doctor --two-device: the device's rendered compose (D-373)
     input_errors: tuple[str, ...] = ()  # OPS-016: a settings file that is missing or does not parse is a FAIL line
+    proc: Path = Path("/proc")  # NEW-WIN-3: the kernel's name and MemTotal (check wsl2_memory)
 
 
 def _site_dir(inp: DoctorInputs) -> Path:
@@ -888,6 +894,55 @@ def check_memory_caps(inp: DoctorInputs) -> Check:
     return Check("memory_caps", "FAIL" if status == "FAIL" else "WARN" if status == "WARN" else "PASS", detail)
 
 
+def check_wsl2_memory(inp: DoctorInputs) -> Check:
+    """NEW-WIN-3 (D-601): under WSL2 the compose memory caps must fit the memory ``.wslconfig`` gave WSL2."""
+    from tb_common.config import DECLARED
+
+    from tools.box import plan
+
+    name = "wsl2_memory"
+    try:
+        kernel = (inp.proc / "sys/kernel/osrelease").read_text(encoding="utf-8").strip()
+    except OSError:
+        kernel = ""
+    if "microsoft" not in kernel.lower():
+        return Check(name, "PASS", "not WSL2: the machine's whole memory is the box's")
+    total = 0.0
+    try:
+        for line in (inp.proc / "meminfo").read_text(encoding="utf-8").splitlines():
+            if line.startswith("MemTotal:"):
+                total = int(line.split()[1]) / 1048576
+    except (OSError, ValueError, IndexError):
+        total = 0.0
+    if total <= 0:
+        return Check(name, "FAIL", f"WSL2's memory could not be read from {inp.proc}/meminfo")
+    deploy = inp.deploy or ROOT / "deploy"
+    entries = [e for e in (inp.env.get("COMPOSE_FILE") or "docker-compose.yml").split(":") if e]
+    files = [f for f in (_compose_file(deploy, e) for e in entries) if f.is_file()]
+    if not files:
+        return Check(name, "WARN", f"no compose file of {deploy} could be read: the caps were not summed")
+    var, fixed = plan.compose_caps(files)
+    caps: dict[str, float] = {}
+    for key, default in var.items():
+        raw = (inp.env.get(key) or "").strip()
+        try:
+            caps[key] = plan._gib(raw) if raw else default
+        except (ValueError, IndexError):
+            return Check(name, "FAIL", f"{key}={raw!r} is not a memory size")
+    need = fixed + sum(caps.values())
+    share = (inp.env.get("TB_WSL_DESKTOP_SHARE_PCT") or "").strip() or DECLARED["TB_WSL_DESKTOP_SHARE_PCT"].default
+    said = (
+        f"the memory caps sum to {need:.1f} GiB ({len(caps)} set by TB_MEM_*, {fixed:.1f} GiB fixed; "
+        "the model servers at their caps)"
+    )
+    if need > total:
+        top = ", ".join(f"{k} {v:.1f}" for k, v in sorted(caps.items(), key=lambda kv: -kv[1])[:3])
+        return Check(name, "FAIL", f"{said}; WSL2 has {total:.1f} GiB (.wslconfig): a service would be killed. "
+                     f"Largest: {top}. Run the Windows installer again (it sets .wslconfig from the hardware; the "
+                     f"desktop's declared share is {share} percent, TB_WSL_DESKTOP_SHARE_PCT)")  # fmt: skip
+    return Check(name, "PASS", f"{said}; WSL2 has {total:.1f} GiB")
+
+
 def _compose_file(deploy: Path, entry: str) -> Path:
     """One entry of ``COMPOSE_FILE`` as this process can read it. ``install.sh`` writes the host's absolute paths
     (``$ROOT/deploy/...``); the doctor may run in the box's image, where the same folder is mounted elsewhere
@@ -966,6 +1021,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_clock,
     check_memory_caps,
     check_db_passwords,
+    check_wsl2_memory,
 )
 
 

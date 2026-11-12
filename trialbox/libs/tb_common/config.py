@@ -788,6 +788,9 @@ DECLARED: dict[str, Declared] = {
     "TB_TRACESTORE": Declared("str", "", "gateway trace store on"),
     "TB_TWPAS_IG": Declared("str", "", "TWPAS implementation guide"),
     "TB_TZ": Declared("str", "", "the site's IANA zone (D-315: no default)"),
+    "TB_WSL_DESKTOP_SHARE_PCT": Declared(
+        "int", "25", "Windows box: percent of memory and processors kept for the desktop; WSL2 gets the rest (D-601)"
+    ),
     "TB_UPDATE_BACKUP_CMD": Declared("str", "", "update: backup command"),
     "TB_UPDATE_CHECK_CMD": Declared("str", "", "update: health check command"),
     "TB_UPDATE_DRILL_DIR": Declared("path", "", "update drill: work folder"),

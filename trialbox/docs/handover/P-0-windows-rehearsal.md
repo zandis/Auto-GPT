@@ -50,6 +50,17 @@ the log: the installer can be started again later and goes on from the step that
 | 18 | Read `Get-ScheduledTask TrialBox-Install-Resume` | No such task (it was removed when step 5 found WSL ready) |
 | 19 | On a drive with no `TrialBox` folder (or on a second PC): as administrator make `<drive>\TrialBox` in Explorer, put any file in it, and start the installer with `-StateDir C:\tb-p0-state3 -DataDrive <that drive>` | It stops at step 4 `drive`: "The folder ... already exists and belongs to another account" (a folder open to other accounts is taken only when empty). The file is still there. Then empty the folder and start again: step 4 passes and line 5's "Access is denied" holds for it |
 
+## Part 2: NEW-WIN-3, `.wslconfig` from the hardware (D-601)
+
+Read these during Part 1; they need no extra run.
+
+| # | Do | Expect | Record |
+| --- | --- | --- | --- |
+| 20 | At step 6 read the window, then open `C:\Users\<you>\.wslconfig` in Notepad | "WSL2 is given N GB of memory and M processors; 25 percent ... stays with Windows". The file's `memory=` and `processors=` are three quarters of the PC's, rounded down | The PC's installed memory and logical processors (Task Manager, Performance) and the file's two lines |
+| 21 | After step 8, in another administrator window: `wsl -d TrialBox -- free -g` and `wsl -d TrialBox -- nproc` | Total memory within 1 GB of the file's `memory=`; `nproc` equal to `processors=`; the Swap line is 0 | The three figures |
+| 22 | `wsl -d TrialBox -- df -h /` | The size of `/` is near the data drive's size, not 1 TB | The Size column and the drive's size |
+| 23 | After line 15: `wsl -d TrialBox -u root -- bash -c "cd /opt/trialbox && python3 -m tools.trialbox doctor --env-file deploy/.env"` | A line `wsl2_memory` with PASS, the caps' sum and WSL2's memory | That line |
+
 ## What the answers decide
 
 - Line 2 "no": the launcher or the execution policy; fix in `Install-TrialBox.cmd`.
@@ -61,4 +72,6 @@ the log: the installer can be started again later and goes on from the step that
   for elevation); the owner would otherwise start the installer by hand, which already works.
 - Line 11 "no": the probe image of D-600 point 8 is replaced by a small image on the media.
 - Line 13 "question not visible": the pass-through in `wsl-setup.sh install` holds lines back; fix there.
+- Line 20 or 21 "no": WSL2 does not take the share the installer wrote; NEW-WIN-3's file is wrong for this WSL
+  version. Line 22 "no": the disk limit needs `wsl --manage TrialBox --resize` after the import instead.
 - Line 14: the address NEW-WIN-4 must make work from another PC.
