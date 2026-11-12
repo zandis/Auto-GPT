@@ -609,3 +609,27 @@ def test_the_publish_over_the_real_lake_service_is_recorded_with_one_rebuild(
         time.sleep(0.05)
     assert st.pub is not None and st.pub["snapshot"] == NIGHT and not out.get("pending")
     assert starts == [NIGHT] and lake.rebuild_state(NIGHT)["state"] == "done"
+
+
+def test_the_adapters_lake_step_starts_and_follows_on_one_seam(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The adapter's lake step (``build_config``'s HTTP mode) starts and reads the job through the same module-level
+    ``httpx`` calls, so a fake of that seam covers the whole step (the start and every state read)."""
+    from adapter.cli import HttpLakeStep, http_rebuild
+
+    clock, calls = Clock(), list[str]()
+    handler = _lake_transport(clock, 7300, calls).handler  # type: ignore[attr-defined]
+
+    def call(method: str) -> Callable[..., httpx.Response]:
+        def send(url: str, **k: Any) -> httpx.Response:
+            body = json.dumps(k["json"]).encode() if "json" in k else b""
+            req = httpx.Request(method, url, content=body)
+            resp = handler(req)
+            resp.request = req
+            return resp
+
+        return send
+
+    monkeypatch.setattr(httpx, "post", call("POST"))
+    monkeypatch.setattr(httpx, "get", call("GET"))
+    res = http_rebuild(HttpLakeStep("http://lake", poll=_poll(clock)), NIGHT)
+    assert res.snapshot == NIGHT and clock() >= 7300 and calls.count("POST /rebuild") == 1

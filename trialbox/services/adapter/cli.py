@@ -53,6 +53,33 @@ def _registry(reg: Any) -> tuple[str, str] | None:
     return ("sql", os.environ.get(reg.dsn_env, "") if reg.dsn_env else (reg.path or ""))
 
 
+class HttpLakeStep:
+    """The adapter's lake step over HTTP: the start (``POST /rebuild``) and the state reads (``GET /rebuild/<s>``)
+    through ``httpx``'s module calls with the box's service token, each a short request (T-690, D-472)."""
+
+    def __init__(self, lake_url: str, poll: Any = None) -> None:
+        self.base, self.poll = lake_url.rstrip("/"), poll
+
+    def _call(self, method: str, path: str, **kw: Any) -> dict[str, Any]:
+        import httpx
+        from tb_common.service_auth import auth_headers
+
+        resp = getattr(httpx, method)(f"{self.base}{path}", timeout=60, headers=auth_headers(), **kw)
+        resp.raise_for_status()
+        body: dict[str, Any] = resp.json()
+        return body
+
+    def rebuild(self, snapshot: str) -> dict[str, Any]:
+        from lake.client import follow_rebuild
+
+        return follow_rebuild(
+            lambda: self._call("post", "/rebuild", json={"snapshot": snapshot}),
+            lambda: self._call("get", f"/rebuild/{snapshot}"),
+            snapshot,
+            self.poll,
+        )
+
+
 def http_rebuild(lake: Any, snapshot: str) -> RebuildResult:
     """The night's lake step over HTTP (T-690, D-472): the rebuild is started as a job on the lake service and followed
     to its end, never timed (OD-10; before, 7,200 s: a longer rebuild failed the night while the lake finished it and
@@ -104,9 +131,7 @@ def build_config() -> tuple[AdapterConfig, str, str]:
                 embedded_new=st.embedded_new,
                 seconds=st.seconds,
             )
-        from lake.client import LakeHttp
-
-        return http_rebuild(LakeHttp(cfg.env.lake_url), snapshot)
+        return http_rebuild(HttpLakeStep(cfg.env.lake_url), snapshot)
 
     ret = cfg.settings.retention
     fc = cfg.settings.feed_completeness  # T-611

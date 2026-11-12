@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 from typing import Any, Protocol
@@ -109,15 +110,9 @@ class LakeHttp:
         """Rebuild ``snapshot`` and answer its counts: the job is started and followed to its end (T-690, D-472), never
         timed (OD-10). Busy (held, already building, held at the swap) raises :class:`lake.store.LakeBusy`; a refusal
         of the data :class:`lake.store.RebuildError`; a failed, interrupted or lost job ``RuntimeError``."""
-        from tb_common.jobpoll import Poll
-
-        try:
-            job = self.start_rebuild(snapshot)
-        except httpx.HTTPStatusError as exc:
-            raise _refusal(exc.response, snapshot) from None
-        if job.get("state") == "running":
-            job = (self._poll or Poll()).until_done(lambda: self.rebuild_state(snapshot), f"lake rebuild {snapshot}")
-        return rebuild_answer(job, snapshot)
+        return follow_rebuild(
+            lambda: self.start_rebuild(snapshot), lambda: self.rebuild_state(snapshot), snapshot, self._poll
+        )
 
     def hold(self, snapshot: str, holder: str) -> None:
         """T-305b (D-403): ``holder`` (a job) reads ``snapshot`` to its end: not rebuilt, not pruned."""
@@ -216,6 +211,23 @@ def _refusal(resp: httpx.Response, snapshot: str) -> Exception:
             return SnapshotHeld(detail)
         return RebuildError(detail)
     return RuntimeError(f"lake service answered {resp.status_code} for snapshot {snapshot}: {detail}")
+
+
+def follow_rebuild(
+    start: Callable[[], dict[str, Any]], read: Callable[[], dict[str, Any]], snapshot: str, poll: Any = None
+) -> dict[str, Any]:
+    """Start a rebuild job over HTTP (``start``: the POST, raising ``httpx.HTTPStatusError`` on a refusal) and follow
+    its state (``read``: the GET) to its end; the answer as :func:`rebuild_answer` gives it (T-690, D-472). The caller
+    chooses the HTTP seam (``LakeHttp``'s client, the adapter's module-level calls); the logic is one."""
+    from tb_common.jobpoll import Poll
+
+    try:
+        job = start()
+    except httpx.HTTPStatusError as exc:
+        raise _refusal(exc.response, snapshot) from None
+    if job.get("state") == "running":
+        job = (poll or Poll()).until_done(read, f"lake rebuild {snapshot}")
+    return rebuild_answer(job, snapshot)
 
 
 def rebuild_answer(job: dict[str, Any], snapshot: str) -> dict[str, Any]:
