@@ -50,6 +50,7 @@ from tb_common.flowledger import level_of_tag, record_export
 from tb_common.reasons import label as reason_label
 from tb_common.service_auth import bind_session
 from tb_common.ulid import new_ulid
+from tb_common.verdict_word import shown_of
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
 from console import api_first, demo_guard, feedback, firstrun, i18n_roles
@@ -1468,8 +1469,10 @@ def create_app(
                     if str(r.get("pid", "")) in gone:
                         card["removed"] += 1
                         continue
-                    unknown = [v["id"] for v in r.get("criteria") or [] if v.get("verdict") == "unknown"]
-                    failing = [v["id"] for v in r.get("criteria") or [] if v.get("verdict") == "fail"]
+                    # D-478: the words a person reads (one model's "not met" is an open point, not a failing one)
+                    words = {v["id"]: shown_of(v)[0] for v in r.get("criteria") or []}
+                    unknown = [i for i, w in words.items() if w == "unknown"]
+                    failing = [i for i, w in words.items() if w == "fail"]
                     quotes = [
                         {
                             "id": v["id"],

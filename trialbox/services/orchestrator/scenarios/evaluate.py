@@ -27,6 +27,8 @@ from typing import Any, Literal, Protocol, cast
 from criteria_compiler.compile_sql.overlay import safe_sql
 from guard.injection import planted_in
 from lake.client import LakeAPI
+from matching import decision
+from matching import verdict as verdict_table
 from matching.coverage import Coverage
 from matching.proposed import Proposed
 from matching.stored_scores import apply_rows
@@ -491,10 +493,15 @@ def postprocess(d: dict[str, Any], excerpts: list[dict[str, Any]], source: str =
 
 # --------------------------------------------------------------------------------------------- verdicts & tiers
 def eligibility(kind: str, predicate: bool | None) -> Verdict:
-    if predicate is None:
-        return "unknown"
-    ok = predicate if kind != "exclusion" else not predicate
-    return "pass" if ok else "fail"
+    """The eligibility answer of a coded or note predicate: T-652's table (``matching.verdict``), called here since
+    T-709 (D-478) instead of being written a second time."""
+    return verdict_table.eligibility(kind, predicate)
+
+
+def is_pair(judge: NoteJudge | None) -> bool:
+    """Whether the run's note judge is two different models (the ``pair`` basis of a note answer, D-478): a
+    verifier is configured and is not the judge's own model under another name (D-276)."""
+    return judge is not None and judge.verifier is not None and same_model(judge.llm, judge.verifier) is None
 
 
 @dataclass
@@ -519,19 +526,26 @@ def structured_verdict(c: CriterionIR, ev: PatientEvaluation | None) -> Criterio
         why = Reason.CODE_OUTSIDE_LIST.value if refs else Reason.DATA_GAP.value
     else:
         why = Reason.CODED.value
+    verdict = eligibility(c.kind, known)
     return CriterionVerdict(
         id=c.id,
-        verdict=eligibility(c.kind, known),
+        verdict=verdict,
         evidence=Evidence(resource_refs=refs[:20], reason=why),
+        basis="coded" if verdict != "unknown" else None,  # D-478: the records decided it
     )
 
 
-def note_verdict(c: CriterionIR, r: NoteResult) -> CriterionVerdict:
+def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> CriterionVerdict:
+    """``pair``: whether the answer is the judge's and a second, different model's (:func:`is_pair`); it becomes
+    the verdict's basis (D-478: ``pair`` or ``single``; a single model's "not met" never excludes). A caller that
+    does not say (a tool, a test of the judge) leaves the basis unstated, and the run's policy alone decides, as
+    before the field. Every screening path says."""
     pred = {"pass": True, "fail": False}.get(r.predicate)
     refs = [f"DocumentReference/{d}" for d in r.dids]
+    verdict = eligibility(c.kind, pred)
     return CriterionVerdict(
         id=c.id,
-        verdict=eligibility(c.kind, pred),
+        verdict=verdict,
         evidence=Evidence(
             resource_refs=refs,
             quote=r.quote,
@@ -540,6 +554,7 @@ def note_verdict(c: CriterionIR, r: NoteResult) -> CriterionVerdict:
             reason=r.reason,
             opinions=[Opinion(**o) for o in r.opinions] or None,
         ),
+        basis=("pair" if pair else "single") if verdict != "unknown" and pair is not None else None,
     )
 
 
@@ -555,7 +570,10 @@ def not_final(c: CriterionIR, v: CriterionVerdict, note_block: bool) -> Criterio
 
 def human_verdict(c: CriterionIR) -> CriterionVerdict:
     return CriterionVerdict(
-        id=c.id, verdict="pending_human", evidence=Evidence(resource_refs=[], reason=Reason.HUMAN.value)
+        id=c.id,
+        verdict="pending_human",
+        evidence=Evidence(resource_refs=[], reason=Reason.HUMAN.value),
+        basis="person",
     )
 
 
@@ -587,11 +605,8 @@ def coded_settles(c: CriterionIR, ev: PatientEvaluation | None) -> bool:
 
 
 def is_note_answer(c: CriterionIR, v: CriterionVerdict) -> bool:
-    """A verdict that came from the note judge (and so follows the confidence and note-block rules): every ``note``
-    verdict, and a ``mixed`` verdict the coded data did not settle (it carries a model confidence)."""
-    if c.class_ == "note":
-        return True
-    return c.class_ == "mixed" and v.evidence is not None and v.evidence.confidence is not None
+    """A verdict that came from the note judge (:func:`matching.decision.is_note_answer`, the rule's own home)."""
+    return decision.is_note_answer(c, v)
 
 
 def structured_candidate(rs: Ruleset, ev: PatientEvaluation | None, ids: set[str] | None = None) -> bool:
@@ -681,54 +696,18 @@ def effective_note_block(judge: NoteJudge | None) -> tuple[bool, str, str]:
     return note_block_why(judge)[:3]
 
 
-def _flagged(v: CriterionVerdict) -> bool:
-    return v.evidence is not None and v.evidence.reason == Reason.NOTES_OVER_BUDGET.value
-
-
 def tier(
     rs: Ruleset, verdicts: list[CriterionVerdict], threshold: float, *, note_block: bool
 ) -> tuple[str, list[str], int]:
-    """high: every structured/note criterion passes (note with confidence ≥ t), only human criteria pending;
-    excluded: any criterion fails (note fails only with confidence ≥ t, and only when ``note_block``); review
-    otherwise. Returns tier, actions, number of unknowns.
+    """A patient's tier, the actions of the open criteria and the number of unknowns: the one status function
+    (:func:`matching.decision.status_of`, T-709, D-478), under this run's policy.
 
-    ``note_block`` is required and comes from :func:`effective_note_block` of the run's judge: the configured policy
-    alone is not enough (no verifier, one model twice, the canary gate). MICROBATCH once re-tiered with the policy
-    alone and a single model could exclude (D-276, review F-01). A note fail stored with ``final: false`` was given
-    on a run that could not exclude on it: it stays a reason for review at every later re-tier (T-707, D-476)."""
-    by_id = rs.by_id()
-    actions: list[str] = []
-    unknown = 0
-    failed = False
-    weak = False
-    for v in verdicts:
-        c = by_id[v.id]
-        conf = v.evidence.confidence if v.evidence and v.evidence.confidence is not None else 1.0
-        if v.verdict == "fail":
-            if is_note_answer(c, v) and (conf < threshold or not note_block or v.final is False):
-                weak = True  # D-476: an answer stored as not final never excludes, whatever today's policy
-            else:
-                failed = True
-        elif v.verdict == "unknown":
-            unknown += 1
-            if c.action:
-                actions.append(c.action)
-        elif v.verdict == "pending_human":
-            if c.action:
-                actions.append(c.action)
-        elif v.verdict == "pass" and is_note_answer(c, v) and (conf < threshold or _flagged(v)):
-            weak = True  # T-603: a note answer with notes left out by the budget is flagged: review
-            if c.action:
-                actions.append(c.action)
-    if failed:
-        t = "excluded"
-    elif unknown or weak:
-        t = "review"
-    else:
-        t = "high"
-    seen: set[str] = set()
-    acts = [a for a in actions if not (a in seen or seen.add(a))]  # type: ignore[func-returns-value]
-    return t, acts, unknown
+    high: every structured and note criterion says yes, only criteria a person decides are open; excluded: an
+    answer says no (a note answer only when a pair gave it, it is final, sure enough and ``note_block``); review
+    otherwise. ``note_block`` is required and comes from the job's decision context (D-477): the configured policy
+    alone is not enough (no verifier, one model twice, the canary gate; D-276, review F-01)."""
+    st = decision.status_of(rs.by_id(), verdicts, decision.Policy(threshold, note_block))
+    return st.tier, st.actions, st.n_unknown
 
 
 def evaluate_patients(
@@ -785,6 +764,7 @@ def evaluate_patients(
             # becomes unknown, not evaluated: review), so a run that ends under a hold uses no note answer
             note_res = {}
             note_block = False
+    pair = is_pair(judge)  # D-478: the basis of this run's note answers
     out: dict[str, PatientVerdicts] = {}
     for p in pids:
         ev = evals.get(p)
@@ -798,7 +778,7 @@ def evaluate_patients(
             elif c.class_ in JUDGED:
                 r = note_res.get((p, c.id))
                 vs.append(
-                    not_final(c, note_verdict(c, r), note_block)
+                    not_final(c, note_verdict(c, r, pair), note_block)
                     if r is not None
                     else CriterionVerdict(
                         id=c.id,

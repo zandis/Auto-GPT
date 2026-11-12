@@ -45,9 +45,10 @@ from criteria_compiler.terminology.mapper import Terminology, ValueSets
 from embed_service.embedder import HashEmbedder
 from lake.client import LakeLocal
 from lake.store import Lake
+from matching import decision
 from tb_common.crypto import pid_for_mrn
 from tb_common.ruleset import Ruleset
-from tb_contracts import CriterionIR, JobCreate
+from tb_contracts import CriterionIR, CriterionVerdict, JobCreate
 
 from tests.inproc_box import Box, make_box
 from tests.judge_kit import Decisive, QuotingOracle, ScriptedModel, quoting_pair
@@ -239,6 +240,10 @@ class Seen:
     verdicts: dict[str, dict[str, str]] = field(default_factory=dict)
     covers: set[str] = field(default_factory=set)  # the patients this path was asked about
     why: dict[str, str] = field(default_factory=dict)  # an exclusion with no criterion: "refused" or "contact"
+    # what each published verdict says for eligibility (yes / no / unknown) by the one status function (D-478)
+    answers: dict[str, dict[str, str]] = field(default_factory=dict)
+    # the criteria whose stored answer says it was not allowed to exclude (final: false, D-476)
+    not_final: dict[str, set[str]] = field(default_factory=dict)
 
 
 def _outputs(box: Box, job: Any) -> dict[str, bytes]:
@@ -256,6 +261,15 @@ def _verdicts(criteria: list[dict[str, Any]]) -> dict[str, str]:
     return {v["id"]: v["verdict"] for v in criteria}
 
 
+def _answers(criteria: list[dict[str, Any]]) -> dict[str, str]:
+    """What each published verdict says for eligibility, by the one status function (``matching.decision``) under
+    the world's policy: the default threshold, a pair that may exclude."""
+    policy = decision.Policy(0.75, True)
+    by = {c["id"]: SimpleNamespace(class_=c["class"]) for c in CRITERIA}
+    return {v["id"]: decision.answer_of(by[v["id"]], CriterionVerdict.model_validate(v), policy)
+            for v in criteria if v["id"] in by}  # fmt: skip
+
+
 def screen_seen(box: Box, job: Any, covers: list[str]) -> Seen:
     """SCREEN: the candidate list (high, review; every verdict) and the excluded list (the failing criteria)."""
     assert job.state == "done", job.error
@@ -263,6 +277,7 @@ def screen_seen(box: Box, job: Any, covers: list[str]) -> Seen:
     for r in _doc(box, job, "candidate_list_")["rows"]:
         s.status[WHO[r["pid"]]] = r["tier"]
         s.verdicts[WHO[r["pid"]]] = _verdicts(r["criteria"])
+        s.answers[WHO[r["pid"]]] = _answers(r["criteria"])
     for r in _doc(box, job, "excluded_")["rows"]:
         s.status[WHO[r["pid"]]] = "excluded"
         s.verdicts[WHO[r["pid"]]] = {v["id"]: "fail" for v in r["criteria"]}
@@ -279,6 +294,7 @@ def pool_seen(box: Box, rid: str, covers: set[str]) -> Seen:
         if WHO[p["pid"]] in covers:
             s.status[WHO[p["pid"]]] = p["tier"]
             s.verdicts[WHO[p["pid"]]] = _verdicts(p["verdicts"])
+            s.not_final[WHO[p["pid"]]] = {v["id"] for v in p["verdicts"] if v.get("final") is False}
     return s
 
 
@@ -549,8 +565,9 @@ INTENDED: dict[str, Intended] = {
         "NAV's lists are not tiers: likely_eligible holds a patient whose every inclusion is met and no exclusion is "
         "known to apply; a patient SCREEN would send to review with an inclusion unknown is on no NAV list (its "
         "open items are the 確認 rows of a listed patient). So: SCREEN high or review with every inclusion met is "
-        "likely_eligible; everything else is on no list.",
-        "SPEC §8.4 (nav.py docstring)",
+        "likely_eligible; everything else is on no list. 'Met' is the one status function's yes (D-478): an "
+        "inclusion answered below the confidence threshold is a person's check, not met.",
+        "SPEC §8.4 (nav.py docstring), D-478",
     ),
     "nav.scope": Intended(
         "NAV scopes by the department's booked visits, SCREEN by the study's doctors: compared on the patients of "
@@ -603,8 +620,10 @@ INTENDED: dict[str, Intended] = {
         "A re-tier never upgrades an answer no pair gave: a 'not met' SCREEN stored under one model is final: false "
         "and keeps the patient at review, where SCREEN with the pair on the same snapshot may exclude. Only a full "
         "screen asks the pair. So: review at the one-model SCREEN and excluded at the reference is review here. "
-        "A time-sensitive criterion is asked again by the weekly re-check, so the pair's answer on it excludes.",
-        "D-476 (T-707)",
+        "A time-sensitive criterion is asked again by the weekly re-check, so the pair's answer on it excludes. "
+        "The stored word stays one model's, and the row says so (final: false, basis: single; D-478): such a "
+        "verdict is not compared with the pair's.",
+        "D-476 (T-707), D-478 (T-709)",
     ),
     "microbatch.new": Intended(
         "MICROBATCH screens as new only the patients no run has seen since the last SCREEN: compared on the "
@@ -673,7 +692,7 @@ def expected_status(w: World, rule: Rule, key: str) -> str | None:
             return "review" if stored == "review" and not asked_again else st
         return st
     if rule.family == "nav":
-        if st in ("high", "review") and all(ref.verdicts.get(key, {}).get(c) == "pass" for c in INCLUSIONS):
+        if st in ("high", "review") and all(ref.answers.get(key, {}).get(c) == "yes" for c in INCLUSIONS):
             return "likely_eligible"
         return "-"
     if rule.family == "case":
@@ -711,29 +730,16 @@ class Known:
     why: str
 
 
-H1 = Known("H1", "the pool row keeps the word of one model's 'present' (verdict=fail, final: false since D-476: it no "
-                 "longer excludes) where the pair's answer is unknown; the verdict carries its basis with T-709")  # fmt: skip
-H2 = Known("H2", "NAV drops a patient on one model's note answer: classify ignores the tier and the note-block")
 H4 = Known("H4", "the v1 path reads five retrieved chunks; their 'no flare' is final although the flare note was "
                  "never shown (only retrieved chunks that did not fit count as left out)")  # fmt: skip
-M1A = Known("M1", "(a) a 'met' at confidence 0.6: the cascade keeps it as met (strong), evaluate.tier and NAV's "
-                  "_ok send it to review / unknown")  # fmt: skip
 M4U = Known("M4", "FEAS drops an inclusion with no value (IS TRUE); SCREEN keeps the patient for review")
 
 KNOWN: dict[tuple[str, str, str], Known] = {
     ("screen.v1", "CUT", "status"): H4,
     ("screen.v1", "CUT", "verdicts"): H4,
-    ("screen.v1", "LOWCONF", "status"): M1A,
-    ("microbatch.recheck", "LOWCONF", "status"): M1A,
     ("nav", "CUT", "status"): H4,
-    ("nav", "LOWCONF", "status"): M1A,
     ("feas", "NOAGE", "status"): M4U,
-    ("nav.single", "INF", "status"): H2,
-    ("nav.single", "PREGNANT", "status"): H2,
-    ("nav.single", "CUT", "status"): Known("H4", H4.why + "; H2: and one model's answer drops the patient"),
-    ("nav.single", "LOWCONF", "status"): M1A,
-    ("microbatch.after_single", "INF", "verdicts"): H1,
-    ("microbatch.after_single", "LOWCONF", "status"): M1A,
+    ("nav.single", "CUT", "status"): H4,
 }
 
 
@@ -777,7 +783,8 @@ def test_the_same_patient_gets_the_same_answer_on_every_path(world: World, path:
                     if truth[c] in ("pass", "fail") and (v != "-") != (truth[c] == counted[c])}  # fmt: skip
         else:
             theirs = ref.verdicts.get(key, {})
-            diff = {c: (mine[c], theirs[c]) for c in mine.keys() & theirs.keys() if mine[c] != theirs[c]}
+            skip = seen.not_final.get(key, set()) if "microbatch.not_final" in rule.intended else set()
+            diff = {c: (mine[c], theirs[c]) for c in (mine.keys() & theirs.keys()) - skip if mine[c] != theirs[c]}
         assert not diff, f"{path} vs {rule.reference} for {key}: {diff}"
     else:  # consent: COHORT's n_contactable against the reference's lists, for the patients with a statement
         contactable = PID[key] in world.cohort["contactable"]
@@ -809,6 +816,10 @@ def test_the_world_is_not_vacuous(world: World) -> None:
     for n in refused:
         assert world.jobs[n].state == "failed" and "opted out" in world.jobs[n].error, n
     assert {"gout flare", "tuberculosis", "pregnan"} <= world.asked
+    # the row MICROBATCH re-tiered from one model's SCREEN says which answer may not exclude (D-476, D-478)
+    assert world.seen["microbatch.after_single"].not_final["INF"] == {"PI-EXC-01"}
+    assert world.seen["screen.cascade"].answers["LOWCONF"]["PI-INC-02"] == "unknown"  # a met below the threshold
+    assert world.seen["screen.cascade"].answers["ELIG"]["PI-INC-02"] == "yes"
     failed = {n: j.error for n, j in world.jobs.items() if j.state != "done" and n not in refused}
     assert not failed, failed
 

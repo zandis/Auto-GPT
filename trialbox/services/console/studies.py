@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from tb_common.config import environment_name
+from tb_common.verdict_word import shown_of
 from tb_contracts import Job
 
 from console import coded_view
@@ -366,26 +367,28 @@ def fit_facts(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Criterio
         meta = crit.get(cid)
         kind = meta.kind if meta else ("exclusion" if cid.upper().startswith(("E", "X")) else "inclusion")
         label = meta.label if meta else cid
-        verdict = v.get("verdict")
+        # D-478 (review of T-709): the word a person reads, not the stored one. A "not met" that one model gave, or
+        # that was given while notes could not exclude, is an open point, never "Not met:" on the list or the card
+        word, _why = shown_of(v)
         ev = v.get("evidence") or {}
         if kind == "inclusion":
             fit.inc_total += 1
-            if verdict == "pass":
+            if word == "pass":
                 fit.inc_met += 1
                 fit.key.append({"id": cid, "label": label, "date": ev.get("quote_date"), "quote": ev.get("quote")})
-            elif verdict == "fail":
+            elif word == "fail":
                 fit.not_met.append(label)
         else:
             fit.exc_total += 1
-            if verdict == "pass":
+            if word == "pass":
                 fit.exc_clear += 1
-            elif verdict == "fail" and ev.get("quote"):
+            elif word == "fail" and ev.get("quote"):
                 fit.note_exclusion.append(
                     {"id": cid, "label": label, "date": ev.get("quote_date"), "quote": ev.get("quote")}
                 )
-        if verdict == "unknown":
+        if word == "unknown":
             fit.open.append(label)
-        elif verdict == "pending_human":
+        elif word == "pending_human":
             fit.person.append(label)
     # prefer facts with a date or a quote: they are what a PI can check
     fit.key.sort(key=lambda k: (not (k.get("date") or k.get("quote")),))

@@ -18,6 +18,7 @@ import pytest
 from embed_service.embedder import HashEmbedder
 from lake.client import LakeLocal
 from matching.cascade.engine import CascadeConfig, run_cascade
+from matching.decision import Policy
 from orchestrator.scenarios import screen_cascade
 from orchestrator.scenarios.evaluate import (
     NoteJudge,
@@ -70,7 +71,9 @@ def _screen(lake: LakeLocal, crit: Any, pid: str, llm: Any, verifier: Any) -> tu
         note_block=may_block, absence_semantics=False,
     )  # fmt: skip
     res = run_cascade(lake, rs, cfg, judge=judge, embedder=HashEmbedder(), reviewer=None)
-    return verdicts_of(rs, res.traces[pid]), judge, res.traces[pid]
+    # the run's policy, as SCREEN passes it (D-478: a caller that names none gets "notes may not exclude")
+    policy = Policy(threshold=0.75, note_block=may_block)
+    return verdicts_of(rs, res.traces[pid], policy=policy), judge, res.traces[pid]
 
 
 def _reason(pv: PatientVerdicts, cid: str) -> str | None:

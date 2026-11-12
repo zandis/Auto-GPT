@@ -53,6 +53,10 @@ def state_matrix(res: CascadeResult) -> StateMatrix:
                 continue
             if o.status == "unknown":
                 cells[(pid, cid)] = f"unknown:{o.unknown_kind or 'uncertain'}"
+            elif o.status == "fail" and o.stage in ("S3", "S4") and not o.hard:
+                # D-478 (review of T-709): a soft "not met" (CAS-7: one model's, not allowed to exclude) removes
+                # nobody from a pool or a count: it is an open cell, as the cascade itself treats it
+                cells[(pid, cid)] = "unknown:uncertain"
             elif o.status == "pass" and o.reason == UNKNOWN_KEPT:
                 cells[(pid, cid)] = "pass:unknown_kept"
             else:
