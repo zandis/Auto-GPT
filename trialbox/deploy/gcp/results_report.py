@@ -307,9 +307,9 @@ def window(args: argparse.Namespace, plan: dict[str, Any], chosen: dict[str, Any
                            "calls_per_patient_source": per_source if per is not None else None}  # fmt: skip
     lacking = [n for n, v in (("patients (--window-patients)", patients), ("studies (--studies)", studies),
                               ("night hours (--night-hours)", hours), ("calls per patient", per)) if not v]  # fmt: skip
-    if lacking:
+    if not (patients and studies and hours and per):
         return {**out, "status": "NOT COMPUTED", "note": "not given and not in the plan: " + ", ".join(lacking)}
-    need = float(patients) * float(studies) * float(per or 0) / (float(hours or 0) * 3600 * float(share))
+    need = patients * studies * per / (hours * 3600 * share)
     got = (chosen or {}).get("calls_per_second")
     out.update(required_calls_per_second=round(need, 3), measured_calls_per_second=got)
     out["status"] = "NOT COMPUTED" if got is None else ("MEETS" if got >= need else "BELOW")
