@@ -57,6 +57,7 @@ from tb_common.authz import Standing as Grant
 from tb_common.config import environment_name
 from tb_common.optout import SOURCES, OptOutError, OptOutRegister
 
+from console import actor as acting
 from console import s28
 from console import studies as st
 from console.api_first import before_body, page_twin
@@ -987,7 +988,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return RedirectResponse(f"/site/staff?done={action}", status_code=303)
 
     # ------------------------------------------------------------------ opt-out register
-    def to_pid(chart_no: str, pid: str) -> str:
+    def to_pid(sess: Session, chart_no: str, pid: str) -> str:
         pid = pid.strip()
         if pid:
             if not _PID.match(pid):
@@ -999,7 +1000,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         if not _CHART.match(chart):
             raise refused(TeamError("chart numbers are letters, digits or '-'"))
         try:  # the box turns the chart number into the pseudonym at the door; the number is never stored
-            out = s28.call(bk, "POST", "/setup/pseudonym", {"chart_no": chart})
+            # T-719 (D-487): as the signed-in keeper of the register; the box refuses the console's token alone
+            out = acting.call(h, sess, "optout.keep", None, "POST", "/setup/pseudonym", {"chart_no": chart})
         except (Problem, Unavailable) as exc:
             raise h.problem(409, "request.refused",
                             reason="the box could not turn the chart number into a pseudonym") from exc  # fmt: skip
@@ -1020,7 +1022,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         by_chart = bool(body.chart_no.strip()) and not body.pid.strip()
         if by_chart:
             chart_lookup(sess, "optout")
-        pid = to_pid(body.chart_no, body.pid)
+        pid = to_pid(sess, body.chart_no, body.pid)
         if by_chart:
             au.append(
                 "console.chart_lookup",

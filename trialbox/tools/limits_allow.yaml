@@ -49,7 +49,7 @@ allow:
      reason: "F-14: the console's list_jobs default of 100 (protocol and HTTP backend); T-700"}
   - {path: services/console/backend.py, kind: limit, value: 200, count: 3,
      reason: "F-22: the newest 200 audit records per read, every file read per call; T-700 (read by date and event)"}
-  - {path: services/console/breakglass.py, kind: limit, value: 200, count: 1,
+  - {path: services/console/breakglass_store.py, kind: limit, value: 200, count: 1,
      reason: "F-21: the newest 200 break-glass grants; an older unreviewed one leaves the steward's list; T-700"}
   - {path: services/orchestrator/notmatched_sample.py, kind: limit, value: 500, count: 1,
      reason: "F-14: the weekly 'not matched' sample looks for SCREEN jobs in the newest 500 done; T-700"}
@@ -72,7 +72,7 @@ allow:
      reason: "the home page's 'recent jobs' card shows eight with a link to the full list; not a cut"}
   - {path: services/console/admin_flags.py, kind: limit, value: 50, count: 1,
      reason: "the newest 50 flag changes on the flags page, the full history in the audit; not a cut"}
-  - {path: services/console/breakglass.py, kind: limit, value: 50, count: 1,
+  - {path: services/console/breakglass_store.py, kind: limit, value: 50, count: 1,
      reason: "one user's newest 50 grants on their own page; the steward's review list is F-21; not a cut"}
   - {path: services/console/sitestore.py, kind: limit, value: 50, count: 1,
      reason: "one user's newest 50 notices; not a cut"}
@@ -82,8 +82,8 @@ allow:
      reason: "mails sent per drain round; the rest wait for the next round (scale review §5); not a cut"}
   - {path: services/mail_gateway/store.py, kind: limit, value: 50, count: 1,
      reason: "due mails read per round; not a cut"}
-  - {path: services/orchestrator/outbox.py, kind: limit, value: 50, count: 2,
-     reason: "outbox rows per dispatch round, run until idle; not a cut"}
+  - {path: services/console/studies.py, kind: limit, value: 500, count: 1,
+     reason: "NEW-JRN-1: the jobs waiting for approval only (asked by state), up to the orchestrator's own ceiling for one read of /jobs; a study behind 500 other waiting jobs is not offered on the approval list; T-700"}
   - {path: services/adapter/validate/jpcore.py, kind: limit, value: 200, count: 1,
      reason: "the first 200 validator messages for display; the counts are complete; not a cut"}
   - {path: services/matching/cascade/engine.py, kind: limit, value: 24, count: 1,

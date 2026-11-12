@@ -287,7 +287,8 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         import tempfile
 
         from datacore.sources import SheetSource
-        from tb_common.crypto import pid_for_mrn
+
+        from orchestrator import identifiers
 
         svc, rid = get(), _rs(rs)
         key: bytes | None = None
@@ -309,7 +310,7 @@ def router(get: Callable[[], DataService]) -> APIRouter:
             path = Path(tmp) / ("sheet.xlsx" if body.xlsx_b64 else "sheet.csv")
             path.write_bytes(base64.b64decode(body.xlsx_b64) if body.xlsx_b64 else body.csv.encode("utf-8"))
             src = SheetSource(path, dict(body.columns), key_column=body.key_column, mrn_column=body.mrn_column,
-                              pseudonymise=(lambda m: pid_for_mrn(key, m)) if key else None,
+                              pseudonymise=(lambda m: identifiers.pid_with(key, m)) if key else None,
                               name=f"sheet:{body.name}")  # fmt: skip
             try:
                 sync.attach(svc.dc, rid, src, list(body.columns.values()))

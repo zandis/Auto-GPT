@@ -38,6 +38,24 @@
   handler verifies the older assertion. `no_person`: two groups with their reasons. The service does not start
   when a changing route is in no stage or has the wrong dependency. Tests: `tests/unit/test_actor_routes.py`,
   `tests/unit/test_actor_v3.py`, `tests/console/test_actor_v3_box.py`.
+- **A chart number under break-glass, and by a person's own rights** (D-484, T-716; review 2026-11-12 trust F5).
+  `POST /jobs/{job_id}/reveal` is a v3 claim. Under a grant the claim names the grant's id and the account's own
+  role; the orchestrator reads the row (`orchestrator/grants.py`: this person's, open now, for this patient or
+  this job), refuses otherwise (403, `screen.reveal_refused` with `break-glass grant: ...`), and writes the use
+  in `breakglass.uses` when it gives the number. Without a grant it asks the `id.reveal` row with the standing it
+  reads from the delegation log. There is no role `breakglass`. Tests: `tests/console/test_grant_box.py`.
+- **The key that signs people** (D-485, T-717). The console signs with `secrets/services/actor-sign.key`, a
+  random secret mounted into the console alone; the orchestrator verifies with `secrets/services/actor/keys`. The
+  key is not derived from the console's token (which every service the console calls receives): a service with
+  per-service tokens and no signing key signs nobody. Tests: `tests/unit/test_actor_key_apart.py`.
+- **A pseudonym for a chart number** (D-487, T-719; review 2026-11-12 trust F3). `POST /setup/pseudonym` and
+  `POST /registry/{ruleset}` with `mrn` answer with the pseudonym, so they ask `orchestrator/identifiers.py`
+  (`admit`) first: the verified v3 claim of the call for the row `optout.keep` or `request.prepare` (and the
+  route's study), a cap per signed name and hour (`TB_TO_PID_MAX_PER_HOUR`; unset, the value of
+  `TB_REVEAL_MAX_PER_HOUR`), and one `screen.to_pid` event with the pseudonym. A service token alone is refused
+  (403, `actor.refused`). That module is the only one of the orchestrator and the console that imports the hash
+  or the pid map or names their key files. Tests: `tests/console/test_identifiers_box.py`,
+  `tests/unit/test_identifiers_door.py`.
 - **The administrator's retry of a failed nightly job** (D-474, T-746). `POST /jobs/{job_id}/retry` (group
   `job_retry_scheduled`, the console only; the mail gateway and the operator token are refused by the route gate)
   runs a failed job of the box's own scheduler again (every type of `scheduler.plan`). The orchestrator checks the

@@ -390,10 +390,11 @@ def test_a_rerun_killed_between_the_two_renames_puts_the_fhir_store_back_too(
     rerun_dir = cfg.lake_dir / "ndjson-rerun" / N1
     served.rename(rerun_dir)  # the second rename had not happened
     assert _record(rerun_dir)["fhir"] == "done" and not served.exists()
-    fhir.holds, fhir.calls, fhir.full = N1 + " (the re-run)", [], []
+    fhir.holds, fhir.calls, fhir.full, fhir.back = N1 + " (the re-run)", [], [], []
     assert recover_all(cfg) == [N1]
     assert len(_conditions(served)) == 1 and len(_conditions(rerun_dir)) == 2
     assert fhir.calls == [served.name] and fhir.full == [True] and fhir.holds == served.name
+    assert fhir.back == [True]  # asked as a put-back: the ledger lets it over the load that did not end
     assert _record(rerun_dir)["fhir"] == "pending"  # the re-run's publish loads the FHIR store again
 
 

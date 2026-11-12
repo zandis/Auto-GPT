@@ -88,17 +88,24 @@ class Built:
         row = self._db.fetchone("SELECT snapshot, seq, state FROM built WHERE artefact = ?", (artefact,))
         return (Generation(str(row[0]), int(row[1])), str(row[2])) if row else None
 
-    def begin(self, artefact: str, generation: Generation | str) -> Generation:
+    def begin(self, artefact: str, generation: Generation | str, back: bool = False) -> Generation:
         """A build of ``artefact`` from ``generation`` starts. Refused (:class:`OlderGeneration`, nothing written)
-        when the artefact holds a newer generation, whatever its state; the same generation again is a retry."""
+        when the artefact holds a newer generation, whatever its state; the same generation again is a retry.
+
+        ``back``: a put-back. The build of the newer generation did not end (its row is still ``building``) and the
+        store is taken back to the generation that is served (T-723's FHIR put-back after a load that broke, D-489).
+        Allowed only over a build that never finished: a finished newer generation is never gone back from.
+        Only the FHIR store has one (ValueError for any other artefact)."""
         self._check(artefact)
+        if back and artefact != "fhir":
+            raise ValueError("a put-back is the fhir store's alone: no other artefact is taken back")
         gen = generation if isinstance(generation, Generation) else Generation.parse(generation)
         with self._db.transaction() as tx:
             tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"dataops.built:{artefact}",))
-            row = tx.fetchone("SELECT snapshot, seq FROM built WHERE artefact = ?", (artefact,))
+            row = tx.fetchone("SELECT snapshot, seq, state FROM built WHERE artefact = ?", (artefact,))
             if row is not None:
                 holds = Generation(str(row[0]), int(row[1]))
-                if gen < holds:
+                if gen < holds and not (back and str(row[2]) == BUILDING):
                     raise OlderGeneration(artefact, gen, holds)
             tx.execute(
                 "INSERT INTO built (artefact, snapshot, seq, state, started_at, finished_at) VALUES (?,?,?,?,?,NULL) "

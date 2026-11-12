@@ -90,6 +90,9 @@ CREATE TABLE IF NOT EXISTS pending (
   PRIMARY KEY (snapshot, key_id, pid)
 )
 """,
+    # D-595: the chart-number rule the pseudonyms were made with, beside the site key's fingerprint (NULL: a row
+    # from before this version; the first night after it records the rule in force)
+    "ALTER TABLE site_key ADD COLUMN IF NOT EXISTS chartno_rule TEXT",
 )
 
 
@@ -177,24 +180,70 @@ class PidMap:
         stored = self.stored_site_key(site_id)
         if stored is not None and stored != fp:
             return f"its fingerprint {fp} differs from the stored one {stored} (site {site_id})"
+        # D-595: the chart-number rule decides a pseudonym as the key does; another rule than the recorded one
+        # would give every patient a second pseudonym
+        try:
+            rule = str(chartno.site_rule())
+        except chartno.ChartNoError as exc:
+            return f"the chart-number rule cannot be read ({exc})"
+        was = self.stored_chartno_rule(site_id)
+        if was is not None and was != rule:
+            return (
+                f"the chart-number rule ({chartno.ENV}) is {rule}; this box's pseudonyms were made with {was} "
+                f"(site {site_id}): another rule gives every patient another pseudonym"
+            )
         rows = self._db.fetchall(
             "SELECT pid, mrn FROM pid_map WHERE key_id = ? ORDER BY pid LIMIT ?", (self.key_id, probe)
         )
         for pid, blob in rows:
             mrn = aes_decrypt(self.key, bytes(blob), str(pid).encode()).decode()
             if pid_for_mrn(site_key, mrn) != pid:
-                return f"it does not give the pseudonyms the pid map holds (fingerprint {fp})"
+                return (
+                    f"it does not give the pseudonyms the pid map holds (fingerprint {fp}); the key is another "
+                    f"one, or the chart-number rule ({chartno.ENV}, now {rule}) changed"
+                )
         return None
 
     def record_site_key(self, site_id: str, site_key: bytes) -> None:
-        """Store the site key's fingerprint the first time; never replaced (a changed key is refused, not recorded)."""
+        """Store the site key's fingerprint and the chart-number rule in force (D-595) the first time; never
+        replaced (a changed key or rule is refused, not recorded). A row from before D-595 has no rule: it gets
+        the rule in force, and only when the key and rule in hand check out against the stored pseudonyms."""
         now = datetime.now(UTC).isoformat(timespec="seconds")
+        try:
+            rule = str(chartno.site_rule())
+        except chartno.ChartNoError:
+            return  # a rule nobody can read is never recorded; :meth:`site_key_problem` says why the night stops
         with self._db.transaction() as tx:
             tx.execute(
-                "INSERT INTO site_key (site_id, fingerprint, recorded_at) VALUES (?,?,?)"
+                "INSERT INTO site_key (site_id, fingerprint, recorded_at, chartno_rule) VALUES (?,?,?,?)"
                 " ON CONFLICT (site_id) DO NOTHING",
-                (site_id, key_fingerprint(site_key), now),
+                (site_id, key_fingerprint(site_key), now, rule),
             )
+        if (
+            self.stored_chartno_rule(site_id) is None
+            and self.site_key_problem(site_id, site_key) is None
+            and self._every_pseudonym_holds(site_key)
+        ):
+            with self._db.transaction() as tx:
+                tx.execute(
+                    "UPDATE site_key SET chartno_rule = ? WHERE site_id = ? AND chartno_rule IS NULL", (rule, site_id)
+                )
+
+    def _every_pseudonym_holds(self, site_key: bytes) -> bool:
+        """Whether the key and the chart-number rule in force give back EVERY pseudonym this map holds, the staged
+        nights' too. Read once, when a row from before D-595 adopts its rule: the five-row probe of
+        :meth:`site_key_problem` cannot see the one patient whose leading zeros the new rule would drop."""
+        for table in ("pid_map", "pending"):
+            for pid, blob in self._db.fetchall(f"SELECT pid, mrn FROM {table} WHERE key_id = ?", (self.key_id,)):
+                mrn = aes_decrypt(self.key, bytes(blob), str(pid).encode()).decode()
+                if pid_for_mrn(site_key, mrn) != pid:
+                    return False
+        return True
+
+    def stored_chartno_rule(self, site_id: str) -> str | None:
+        """The chart-number rule recorded for ``site_id`` (its canonical text), or None when none is recorded."""
+        row = self._db.fetchone("SELECT chartno_rule FROM site_key WHERE site_id = ?", (site_id,))
+        return str(row[0]) if row is not None and row[0] is not None else None
 
     def stored_site_key(self, site_id: str) -> str | None:
         """The fingerprint stored for ``site_id``, or None."""

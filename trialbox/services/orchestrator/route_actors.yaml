@@ -19,6 +19,7 @@ schema: tb-orchestrator-actors/1
 refuse:
   - lifecycle
   - sponsor
+  - job_reveal            # a chart number: the grant and the delegation log are read by the orchestrator (T-716, D-484)
 
 report:
   - registry
@@ -30,7 +31,6 @@ v2:
   - jobs_start            # the signed role authorises a console job; a mailed job has no person (D-146, D-464)
   - job_cancel
   - job_retry_scheduled
-  - job_reveal
   - notices
   - edc
 
@@ -42,5 +42,7 @@ no_person:
 principals:
   service:console-notify:   # the morning notices bring the participants up to date before they count them
     - study.setup
+  service:console-optout-check:   # T-719: is a running case's subject on the opt-out register? (POST /setup/pseudonym)
+    - optout.keep
   service:console-nightly:  # the nightly REDCap read: the steps it derives name the timer, not a typed name
     - request.prepare

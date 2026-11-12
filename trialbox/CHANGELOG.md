@@ -14,6 +14,18 @@ new heading with the version and date, in the same pull request that sets the ve
   rows and can no longer drop, disable or alter the triggers that make its trail tables append-only. The schema's
   tables are made by the box's admin before the services start (`install.sh`, `trialbox update`, or by hand
   `python3 -m tools.trialbox migrate`); after a restore run the role script, then that command.
+- Chart number to pseudonym (T-719, D-487): the orchestrator gives the pseudonym of a chart number only to a
+  signed-in person with the right (the opt-out register, a registry row typed by chart number), at most
+  `TB_TO_PID_MAX_PER_HOUR` an hour per person (unset: the value of `TB_REVEAL_MAX_PER_HOUR`), and records each one
+  (`screen.to_pid`, with the pseudonym, never the chart number). A service token alone is refused.
+- The key that signs people (T-717, D-485): the console signs the acting person with a key of its own
+  (`deploy/secrets/services/actor-sign.key`), no longer derived from its service token. `install.sh` and
+  `trialbox update` make the file; `trialbox secrets rotate --service actor` rotates it.
+- Break-glass (T-716, D-484): the orchestrator reads the grant itself before it gives a chart number (this person,
+  this patient or job, open now) and writes the use; an investigator's own right is read from the delegation log
+  there too. The orchestrator's database role joins the `breakglass` and `team` schemas: `install.sh` re-runs the
+  role script; after a `trialbox update` run it once by hand (runbook §5, "Database roles after a restore"), or a reveal under a grant
+  or by an investigator is refused with "cannot be read".
 - The audit trail (T-721, D-488): the audit writer marks an event sent by a database role that does not write
   that kind of event, or dated more than `TB_AUDIT_TS_MAX_SKEW_S` (300 s) from when it arrived;
   `python -m tools.audit_verify <audit dir> --foreign` lists the marked events.

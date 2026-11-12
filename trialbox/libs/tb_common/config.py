@@ -360,6 +360,7 @@ DECLARED_FAMILIES: dict[str, str] = {
 
 DECLARED: dict[str, Declared] = {
     "TB_ACTOR_KEYS_FILE": Declared("path", "", "file of keys that sign the console's user assertions (S-09)"),
+    "TB_ACTOR_SIGN_KEY_FILE": Declared("path", "", "the console's own key that signs people (T-717, D-485)"),
     "TB_ADAPTER_LAKE": Declared("str", "http", "adapter CLI: write to the lake over http or in process"),
     "TB_AUDIT_ANCHOR_TARGETS": Declared("str", "", "where the audit chain's head anchor is also written"),
     "TB_AUDIT_ARCHIVE_DIR": Declared("path", "", "host folder of the audit archive (logs archive-audit)"),
@@ -418,6 +419,7 @@ DECLARED: dict[str, Declared] = {
     "TB_CANDIDATE_VIEWS_PER_HOUR": Declared("int", "", "candidate views allowed per user per hour"),
     "TB_CATALOGUE_DIR": Declared("path", "", "folder of the study catalogue"),
     "TB_CHARTNO_RULE": Declared("str", "", "the site's chart-number pattern for the scrubber"),
+    "TB_SSMIX2_ORDER_NUMBERS": Declared("str", "unique", "SS-MIX2 order numbers (D-594): unique, or per_day"),
     "TB_CLOCK_MAX_SKEW_S": Declared("float", "", "largest clock skew the audit accepts, seconds"),
     "TB_CLOUD_OPT_IN": Declared("bool", "", "gateway may use a cloud model (DEV only)"),
     "TB_COMPLETE_DIR": Declared("path", "", "complete-run tool: output folder"),
@@ -825,6 +827,9 @@ DECLARED: dict[str, Declared] = {
     "TB_TLS_MODE": Declared("str", "internal", "console TLS mode (internal or hospital)"),
     "TB_TODAY": Declared("str", "", "pins the clock (test stack)"),
     "TB_TOPOLOGY": Declared("str", "A", "deployment topology (A or B)"),
+    "TB_TO_PID_MAX_PER_HOUR": Declared(
+        "int", "", "pseudonym lookups by chart number per signed name per hour (D-487); unset: TB_REVEAL_MAX_PER_HOUR"
+    ),
     "TB_TRACESTORE": Declared("str", "", "gateway trace store on"),
     "TB_TWPAS_IG": Declared("str", "", "TWPAS implementation guide"),
     "TB_TZ": Declared("str", "", "the site's IANA zone (D-315: no default)"),

@@ -401,6 +401,20 @@ def roles_after_restore(root: Path, script: Path = ROLES_SCRIPT) -> tuple[str, b
                 f"the restored tables are owned by {sorted(owners)}, not trialbox: the premise is gone",
             )
         state = bk.reapply_service_roles(env)["state"]
+        # D-486: in a schema with an owner role the service is a writer and can replace no function whoever owns
+        # it, so the round below cannot tell: ask who owns what the restore put back
+        with psycopg.connect(url, autocommit=True) as con:
+            for schema in owned:
+                for what, query in (
+                    ("function", "SELECT pg_get_userbyid(p.proowner) FROM pg_proc p WHERE p.proname = 'drill_fn' "
+                                 "AND p.pronamespace = %s::regnamespace"),
+                    ("table", "SELECT pg_get_userbyid(c.relowner) FROM pg_class c WHERE c.relname = 'drill_probe' "
+                              "AND c.relnamespace = %s::regnamespace"),
+                ):  # fmt: skip
+                    got = {r[0] for r in con.execute(query, (schema,))}
+                    if got != {f"tbo_{schema}"}:
+                        return (name, False, f"the restored {what} is still trialbox's in {schema}: owned by "
+                                             f"{sorted(got)}, not tbo_{schema}")  # fmt: skip
         opened = 0
         for role, own in sorted(access.items()):
             dsn = url.replace("postgresql://trialbox@", f"postgresql://{role}@", 1)
@@ -408,7 +422,7 @@ def roles_after_restore(root: Path, script: Path = ROLES_SCRIPT) -> tuple[str, b
                 for schema in schemas:
                     if schema in own and schema in owned:  # D-486: a writer, never the owner
                         try:
-                            con.execute(f'INSERT INTO "{schema}".drill_probe VALUES (2)')
+                            con.execute(sql.SQL("INSERT INTO {}.drill_probe VALUES (2)").format(sql.Identifier(schema)))
                         except errors.InsufficientPrivilege as e:
                             return (name, False, f"{role} cannot write its table in {schema}: {str(e).strip()[:160]}")
                         for ddl in (f'ALTER TABLE "{schema}".drill_probe ADD COLUMN IF NOT EXISTS seen INT',

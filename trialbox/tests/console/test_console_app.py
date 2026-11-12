@@ -12,7 +12,7 @@ import re
 import zipfile
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from channels.base import ClassifiedIntent
@@ -90,18 +90,15 @@ MODELS_INFO: dict[str, Any] = {
 
 
 def refused_as_the_orchestrator(call: str, role: str, scope: str, study: str | None) -> str:
-    """T-714 (D-482): why the real route refuses this signed role and study scope, "" when it does not. The rule is
-    the orchestrator's own (``orchestrator.app.id_authority``, ``service_auth.in_scope``, in the order of
+    """T-714 (D-482): why the real export route refuses this signed role and study scope, "" when it does not. The
+    rule is the orchestrator's own (``orchestrator.app.id_authority``, ``service_auth.in_scope``, in the order of
     ``_id_authority``), not a copy; ``tests/console/test_backend_contract.py`` holds the fake's answers against the
     real routes on a box."""
     from orchestrator.app import id_authority
-    from tb_common.authz import BREAK_GLASS_ROLE
     from tb_common.service_auth import in_scope
 
     if not id_authority(role):
         return "role"
-    if call == "export" and role == BREAK_GLASS_ROLE:
-        return "break-glass covers one patient or one job"
     if not in_scope(scope, study):
         return "study scope"
     return ""
@@ -121,7 +118,9 @@ class FakeBackend:
         self.refuse: str | None = None
         self.models_info: dict[str, Any] | None = dict(MODELS_INFO)
         self.revealed: list[tuple[str, str, str]] = []
-        self.signed: list[tuple[str, str, str]] = []  # D-273: (call, role, scope) sent to the orchestrator
+        self.signed: list[tuple[str, str, str]] = []  # (call, role, study or scope) signed to the orchestrator
+        self.grants: list[str] = []  # T-716: the break-glass grant id of each reveal ("" when by own rights)
+        self.clock: Any = lambda: datetime.now(UTC)  # the box fixture gives the console's clock (a grant's 60 minutes)
         self.audit_dir: Path | None = None
         self.ingested = 0
         self.registry: dict[tuple[str, str], RegistryEntry] = {}
@@ -228,18 +227,50 @@ class FakeBackend:
             "criteria": 7,
         }
 
-    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "", purpose: str = "",
-               reason: str = "") -> str | None:  # fmt: skip
-        self.signed.append(("reveal", role, scope))
+    def reveal(self, job_id: str, pid: str, sign: Any, purpose: str = "", reason: str = "") -> str | None:
+        """T-716 (D-484): as the real route. The console's own assertion is read (``actor_v3.verify``), and the
+        orchestrator's own rule functions decide: the dependency's ``check``, the study of the job, the grant row
+        (``orchestrator.grants.verify_grant``) or the delegation log (``log_standing``, ``own_right``); the use of a
+        grant is written as the route writes it."""
+        from orchestrator import actor as route_actor
+        from orchestrator import grants
+        from tb_common import actor_v3
+        from tb_common import service_auth as sa
+
+        path = f"/jobs/{job_id}/reveal"
+        body = {"pid": pid, **({"purpose": purpose} if purpose else {}), **({"reason": reason} if reason else {})}
+        try:
+            claim = actor_v3.verify(sign("POST", path, body).get(actor_v3.HEADER), replay=sa.ReplayGuard())
+        except sa.ActorError as exc:
+            raise Refused(f"the signed-in person is refused: {exc}") from exc
+        self.signed.append(("reveal", claim.role, claim.study))
+        self.grants.append(str(claim.grant.get("id")) if claim.grant else "")
         job = self.jobs.get(job_id)
         if job is None:
             return None  # the route's 404
+        if why := route_actor.check(claim, "id.reveal", None, study_in_handler=True, grant=True):
+            raise Refused(f"the signed-in person is refused: {why}")
+        if claim.target != actor_v3.target_of("POST", path) or claim.body != actor_v3.body_hash(body):
+            raise Refused("the signed-in person is refused: request")
         if job.type not in ("SCREEN", "MICROBATCH") or job.state != "done":
             raise Refused("chart numbers are revealed for finished screening jobs only")
-        if why := refused_as_the_orchestrator("reveal", role, scope, job.ruleset):
+        study = str(job.ruleset or "").upper()
+        if claim.study != study or not study:
+            raise Refused("chart numbers are refused: study scope")
+        now = self.clock()
+        grant = None
+        if claim.grant is not None:
+            try:
+                grant = grants.verify_grant(claim, study=study, pid=pid, job_id=job_id, now=now)
+            except grants.GrantRefused as exc:
+                raise Refused(f"chart numbers are refused: break-glass grant: {exc.why}") from exc
+        elif why := grants.person_right(claim.role, grants.username_of(claim.sub), study, now.date()):
             raise Refused(f"chart numbers are refused: {why}")
-        self.revealed.append((job_id, pid, by))
-        return {"a" * 32: "MRN-000123"}.get(pid)
+        self.revealed.append((job_id, pid, claim.sub))
+        mrn = {"a" * 32: "MRN-000123"}.get(pid)
+        if grant is not None and mrn:
+            grants.record_use(grant, what="reveal", study=study, pid=pid, job_id=job_id, now=now)
+        return mrn
 
     def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str:
         self.notices.append((kind, to, subject, body_md))
@@ -265,7 +296,15 @@ class FakeBackend:
             raise Refused("invalid ruleset id 'BAD'")
         return [e for (rs, _), e in self.registry.items() if rs == ruleset]
 
-    def registry_update(self, ruleset: str, upd: RegistryUpdate) -> RegistryEntry:
+    def registry_update(self, ruleset: str, upd: RegistryUpdate, sign: Any = None) -> RegistryEntry:
+        if (
+            upd.mrn and sign is None
+        ):  # T-719 (D-487): as the orchestrator, no pseudonym by chart number for a bare token
+            raise Refused("the signed-in person is refused: a chart number needs a verified person")
+        if upd.mrn:
+            from tb_contracts import dump
+
+            sign("POST", f"/registry/{ruleset}", dump(upd))  # the console's own check (the matrix, the study)
         if upd.mrn == "nope":
             raise Refused("that does not look like a chart number of this site")
         pid = upd.pid or ("ab" * 16 if upd.mrn == "A1001" else "cd" * 16)
@@ -393,6 +432,11 @@ def box(tmp_path: Path) -> dict[str, Any]:
         "TB_CONSOLE_CONSENT_SAMPLE": str(samples / "GZQO_ICF_v2.md"),
     }
     app = create_app(env, backend=backend, audit=audit, users=users, classify=classify, cascades=cascades)
+
+    def console_clock() -> datetime:  # read at each call: a test may replace the console's clock later
+        return cast(datetime, app.state.helpers.clock())
+
+    backend.clock = console_clock  # one clock for the console and its stand-in orchestrator (a grant's 60 minutes)
     return {"app": app, "backend": backend, "audit": audit, "users": users, "dir": tmp_path}
 
 
@@ -1116,7 +1160,8 @@ def test_screen_job_page_shows_candidates_and_reveals_a_chart_number_once(box: d
     assert r.status_code == 200 and 'data-testid="mrn"' in r.text and "MRN-000123" in r.text
     assert r.text.count('data-testid="reveal"') == 1  # the other row still has its button
     assert box["backend"].revealed == [(jid, "a" * 32, "console:crc")]
-    assert box["backend"].signed == [("reveal", "coordinator", "*")]  # the role and studies travel signed (PV-15)
+    assert box["backend"].signed == [("reveal", "coordinator", "GZQO")]  # the role and the one study, signed (v3)
+    assert box["backend"].grants == [""]  # by the coordinator's own rights: no grant
     assert any(rec.event == "console.reveal_patient" for rec in box["backend"].audit(jid))
     raw = b"".join(p.read_bytes() for p in (box["dir"] / "audit").rglob("*") if p.is_file())
     assert b'"via":"job"' in raw and b"sponsor query on visit dates" in raw  # the written reason is kept

@@ -36,7 +36,7 @@ from pydantic import BaseModel, Field
 from tb_common.authz import permit
 from tb_common.verdict_word import shown_of
 
-from console import demo_guard, s28
+from console import actor, demo_guard, s28
 from console.api_first import before_body
 from console.auth import Session, User
 from console.backend import Problem, Unavailable
@@ -167,6 +167,11 @@ def register(app: FastAPI, h: Helpers) -> None:
     def post(path: str, body: dict[str, Any]) -> Any:
         return s28.call(bk, "POST", path, body)
 
+    def signed_post(sess: Session, path: str, body: dict[str, Any]) -> Any:
+        """T-719 (D-487): a chart or a sheet turns chart numbers into pseudonyms at the orchestrator, which asks
+        for the verified person of the call (`site.setup`, the row `need_change` asked)."""
+        return actor.call(h, sess, "site.setup", None, "POST", path, body)
+
     def q(ws: str, rs: str, **more: str) -> str:
         return urlencode({"ws": ws, "study": rs, **{k: v for k, v in more.items() if v}})
 
@@ -194,7 +199,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             body |= {"name": name[:200], "b64": base64.b64encode(data).decode("ascii")}
         else:
             body |= {"text": text[:60_000]}
-        out = dict(post(f"/setup/{ws}/charts", body))
+        out = dict(signed_post(sess, f"/setup/{ws}/charts", body))
         out.pop("pid", None)  # never the pseudonym back to the caller (the box's own audit event keeps it)
         au.append("console.chart_lookup", actor=h.actor(sess),
                   detail={"for": "chart", "ws": ws, "input": out.get("input"), "role": sess.user.role})  # fmt: skip
@@ -615,7 +620,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             iid = str(form.get("input") or "")
             if iid.isdigit():  # new column roles for a sheet already in
                 roles = {str(k)[5:]: str(v) for k, v in form.items() if str(k).startswith("role:") and v in ROLES}
-                post(f"/setup/{w}/sheets/{iid}/roles", {"roles": roles, "by": h.actor(sess)})
+                signed_post(sess, f"/setup/{w}/sheets/{iid}/roles", {"roles": roles, "by": h.actor(sess)})
             else:
                 up = form.get("file")
                 if up is None or isinstance(up, str) or not getattr(up, "filename", None):
@@ -623,7 +628,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                 demo_guard.guard(request, h.problem)  # T-502: no upload in demo mode
                 data = await up.read(MAX_UPLOAD + 1)
                 kind = "dump" if str(form.get("kind") or "") == "dump" else "sheet"
-                post(
+                signed_post(
+                    sess,
                     f"/setup/{w}/sheets",
                     {
                         "kind": kind,

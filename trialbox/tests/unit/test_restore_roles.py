@@ -107,6 +107,19 @@ def test_the_check_fails_when_the_script_does_not_move_functions(tmp_path: Path)
     assert not ok and "function" in detail
 
 
+def test_the_check_fails_when_an_owned_schemas_function_stays_the_restorers(tmp_path: Path) -> None:
+    """D-486 meets D-573 (lane D's review of T-718's hunk): in a schema with an owner role the service is a writer
+    and can replace no function either way, so the check asks who owns the restored function and table."""
+    _pg()
+    text = BOX.read_text(encoding="utf-8")
+    where = "      WHERE p.pronamespace = sch::regnamespace AND p.proowner <> grp::regrole\n"
+    assert text.count(where) == 1
+    old = tmp_path / "30-service-roles.sh"
+    old.write_text(text.replace(where, where + "        AND sch <> 'edc'\n"), encoding="utf-8")
+    _name, ok, detail = backup_drill.roles_after_restore(tmp_path / "cluster", script=old)
+    assert not ok and "the restored function is still trialbox's" in detail and "edc" in detail
+
+
 # ------------------------------------------------------------------------------------------------ inside the restore
 def test_the_restore_itself_runs_the_command_after_the_trial_database(pg_cluster_url: str, tmp_path: Path) -> None:
     """The real `restore()`: with the command set it runs once and the result says applied; without it the result
