@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Protocol
+from typing import Any, Protocol
 
 from tb_common.http import ServiceClient, ServiceError
 from tb_contracts import (
@@ -123,11 +123,39 @@ class MailHttp:
 
 
 class AdapterHttp:
-    def __init__(self, base_url: str) -> None:
-        self.c = ServiceClient(base_url, "adapter", timeout=7200, retries=0)
+    """The night's ingest on the adapter (T-690, D-472): ``POST /run`` starts it (202 and a run id), then its state
+    is read until it ends. The night is never timed (OD-10; before, 7,200 s around the whole run, no retry): each
+    request is short; the poll's interval and its bound on silence are the declared settings of
+    :mod:`tb_common.jobpoll`."""
+
+    def __init__(self, base_url: str, poll: Any = None) -> None:
+        self.c = ServiceClient(base_url, "adapter", timeout=60, retries=0, idempotent=False)
+        self.poll = poll
 
     def run(self, req: IngestRequest) -> IngestReport:
+        from tb_common.jobpoll import JobLost, Poll
+
         try:
-            return self.c.post("/run", req, IngestReport)
+            started = self.c.post_raw("/run", req).json()
         except ServiceError as exc:
             raise _step_error(exc, "ingest") from exc
+        rid = str(started.get("run") or "")
+
+        def read() -> dict[str, Any]:
+            try:
+                body: dict[str, Any] = self.c.get_json(f"/run/{rid}")
+            except ServiceError as exc:
+                if exc.status == 404:
+                    raise JobLost(f"the adapter no longer knows ingest run {rid} (it restarted)") from None
+                raise
+            return body
+
+        try:
+            st = started if started.get("state") != "running" else (self.poll or Poll()).until_done(read, "ingest")
+        except JobLost as exc:
+            raise StepFailed("ingest", f"The nightly ingest could not be followed to its end: {exc}") from None
+        except ServiceError as exc:
+            raise _step_error(exc, "ingest") from exc
+        if st.get("state") == "done":
+            return IngestReport.model_validate(st.get("report") or {})
+        raise StepFailed("ingest", str(st.get("detail") or f"the ingest ended {st.get('state')}"), f"adapter run {rid}")

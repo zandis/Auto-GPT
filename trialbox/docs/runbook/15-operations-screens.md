@@ -12,7 +12,7 @@ console at `/data/ops`), and the host's runner runs the command this runbook alr
 
 | Button | What the runner runs |
 | --- | --- |
-| Back up now | `trialbox backup` to `TB_BACKUP_TARGETS` (§5; the services pause a few minutes) |
+| Back up now | the nightly's snapshot backup to `TB_BACKUP_TARGETS` (§5, D-455): no service is stopped or paused; refused while the nightly runs |
 | Check the newest backups | `trialbox backup-check` on the newest file of each target, in a trialbox-py container: whole, not cut, the copies equal. The content needs the key: `backup-verify` (§5) |
 | Verify this bundle | `tools/apply_update.sh <bundle> --dry-run` for a bundle copied into `deploy/updates/incoming` |
 | Apply this update | `tools/apply_update.sh <bundle>` (§5: backup first, automatic rollback) |

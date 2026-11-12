@@ -68,6 +68,17 @@ PY_SERVICES = (
     "console",
     "audit-writer",  # D-394: the one writer of the audit chain
 )
+# the backup container's folders and the volume each is read from (D-455: their size sets its time limit)
+BACKUP_VOLUMES = {
+    "lake": "lake-data",
+    "objects": "objects-data",
+    "audit": "audit-data",
+    "rulesets": "rulesets-data",
+    "orchestrator": "orch-data",
+    "mail": "mail-data",
+    "secrets": "tb-secrets",
+    "console": "console-data",
+}
 
 
 class UpdateFailed(RuntimeError):
@@ -1005,8 +1016,9 @@ class ComposeBox(_DockerImages):
                 return []
             return [f"(docker volume ls failed: {str(exc)[:80]}; counted as data)"]
 
-    def _dump(self, db: str, user: str, out: Path) -> None:
-        self.run(self._c("exec", "-T", "db", "pg_dump", "-Fc", "--no-owner", "-U", user, "-d", db), stdout_file=out)
+    def _dump(self, db: str, user: str, out: Path, timeout: float | None = None) -> None:
+        self.run(self._c("exec", "-T", "db", "pg_dump", "-Fc", "--no-owner", "-U", user, "-d", db), stdout_file=out,
+                 timeout=timeout)  # fmt: skip
 
     def _backup_where(self) -> tuple[Path, list[str]]:
         pub = Path(os.environ.get("TB_BACKUP_PUBKEY") or self.deploy / "secrets" / "backup.pub")
@@ -1021,36 +1033,59 @@ class ComposeBox(_DockerImages):
         """The preflight's part of the backup: the key and a target exist (nothing is stopped yet)."""
         return "backup to " + ", ".join(self._backup_where()[1])
 
+    def db_bytes(self, db: str, user: str) -> int | None:
+        """``pg_database_size`` of ``db`` (D-455: a backup step's limit comes from it), or None when not known."""
+        try:
+            from tools.trialbox import backup_schedule as bsch
+
+            out = self.run(self._c("exec", "-T", "db", "psql", "-X", "-At", "-U", user, "-d", db, "-c",
+                                   "SELECT pg_database_size(current_database())"),
+                           timeout=bsch.query_timeout(self.env))  # fmt: skip
+            return int(out.strip())
+        except Exception:  # no answer: no size, so no limit (never a fixed guess)
+            return None
+
+    def running_jobs(self) -> int | None:
+        """How many jobs the orchestrator runs now (D-455), or None when the database cannot be asked."""
+        from tools.trialbox import backup_schedule as bsch
+
+        try:
+            out = self.run(self._c("exec", "-T", "db", "psql", "-X", "-At", "-U", "trialbox", "-d", "trialbox_wf",
+                                   "-c", bsch.RUNNING_JOBS_SQL), timeout=bsch.query_timeout(self.env))  # fmt: skip
+            return int(out.strip())
+        except Exception:  # no answer: not known
+            return None
+
     def backup(self, plan: Plan, rb: Path) -> str:
+        from tools.trialbox import backup_schedule as bsch
+
         pub, targets = self._backup_where()
+        cfg = bsch.config(self.deploy, self.env)
+        sizes = {db: self.db_bytes(db, user) for db, user in (("trialbox_wf", "trialbox"), ("hapi", "hapi"))}
         # a quiet box: the services stop (the database stays up), so the dump, the files and the row counts agree
         self.run(self._c("stop", *PY_SERVICES), timeout=600)
         try:
             for db, user in (("trialbox_wf", "trialbox"), ("hapi", "hapi")):
-                self._dump(db, user, rb / f"{db}.dump")
+                self._dump(db, user, rb / f"{db}.dump", timeout=cfg.timeout(sizes[db]))
+            # D-455: the container reads the dumps and the volumes; without a size for the volumes, no limit
+            vols = bsch.volume_bytes(self.env, None)
+            limit = cfg.timeout(None if vols is None else (bsch.tree_bytes(rb) or 0) + vols)
             if os.environ.get("TB_UPDATE_BACKUP_CMD"):
-                self.run(shlex.split(os.environ["TB_UPDATE_BACKUP_CMD"]), timeout=7200)
+                self.run(shlex.split(os.environ["TB_UPDATE_BACKUP_CMD"]), timeout=limit)
             else:
-                self._backup_container(rb, pub, targets)
+                self._backup_container(rb, pub, targets, timeout=limit)
         except Exception:
             self.run(self._c("start", *PY_SERVICES), timeout=900)
             raise
         return ", ".join(targets)
 
-    def _backup_container(self, rb: Path, pub: Path, targets: list[str], keep: int | None = None) -> None:
+    def _backup_container(self, rb: Path, pub: Path, targets: list[str], keep: int | None = None,
+                          timeout: float | None = None) -> None:  # fmt: skip
         """``trialbox backup`` in a one-off container on trialbox-net with every volume read-only and the dumps just
         taken (``TB_PG_DUMP_DIR``): the image has no pg_dump, the db container has no Python. Passwords travel in
-        the environment (``-e NAME`` without a value), never on the command line."""
-        from_backup = {
-            "lake": "lake-data",
-            "objects": "objects-data",
-            "audit": "audit-data",
-            "rulesets": "rulesets-data",
-            "orchestrator": "orch-data",
-            "mail": "mail-data",
-            "secrets": "tb-secrets",
-            "console": "console-data",
-        }
+        the environment (``-e NAME`` without a value), never on the command line. ``timeout``: from the size it
+        reads (D-455, ``backup_schedule.step_timeout``); None: no limit."""
+        from_backup = BACKUP_VOLUMES
         image = self.env.get("TB_IMAGE") or "trialbox-py:1.0.0"
         site = f"TB_SITE_ID={self.env.get('TB_SITE_ID', '')}"
         argv = ["docker", "run", "--rm", "--network", "trialbox-net", "--user", "0", "-e", "TB_DB_URL",
@@ -1072,7 +1107,7 @@ class ComposeBox(_DockerImages):
             "TB_DB_URL": self.env.get("TB_DB_URL", ""),
             "TB_HAPI_DB_URL": f"postgresql://hapi:{hapi_pw}@db:5432/hapi",
         }
-        self.run(argv, env=env, timeout=7200)
+        self.run(argv, env=env, timeout=timeout)
 
     def resume(self, plan: Plan) -> None:
         """Start the services ``backup`` stopped (a failed backup or rollback point, or a recovery before it)."""

@@ -86,6 +86,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "console.breakglass_notice": ("Break-glass notice sent", "緊急アクセス通知の送信", "寄送緊急存取通知"),
     # exports and downloads
     "console.export": ("Export downloaded", "エクスポートのダウンロード", "下載匯出檔"),
+    "console.first_run": ("First-run set-up completed", "初回セットアップの完了", "完成首次設定"),
     "console.download": ("File downloaded", "ファイルのダウンロード", "下載檔案"),
     "console.data_export": ("Study data exported", "研究データのエクスポート", "匯出研究資料"),
     "console.registry": ("Registry list exported", "レジストリ一覧のエクスポート", "匯出登錄名單"),
@@ -112,6 +113,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "console.testmail": ("Test mail sent", "テストメールの送信", "寄送測試郵件"),
     "job.state": ("Job state changed", "処理状態の変更", "作業狀態變更"),
     "job.requeued": ("Job queued again", "処理の再登録", "作業重新排入"),
+    "job.retried": (
+        "Failed scheduled job run again by the administrator",
+        "失敗した定時処理の管理者による再実行",
+        "管理員重新執行失敗的排程作業",
+    ),
     "scheduler.held": ("Scheduled run held", "予定処理の保留", "保留排程作業"),
     "rerun.checked": ("Re-run checked", "再実行の確認", "檢查重新執行"),
     "microbatch.budget": ("Night budget used", "夜間予算の使用", "使用夜間額度"),
@@ -237,6 +243,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
         "發布院內設定正等待進行中的重建",
     ),
     "setup.publish_deferred": ("Site set-up publishing deferred", "施設設定の公開延期", "延後發布院內設定"),
+    "setup.publish_failed": (
+        "Site set-up publishing failed (the rebuild did not finish)",
+        "施設設定の公開に失敗（再構築が完了せず）",
+        "發布院內設定失敗（重建未完成）",
+    ),
     "setup.remote": (
         "Remote site source changed (service)",
         "遠隔施設ソースの変更（サービス）",
@@ -307,6 +318,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "backup.alert": ("Backup alert", "バックアップの警告", "備份警示"),
     "backup.alert_cleared": ("Backup alert cleared", "バックアップ警告の解除", "解除備份警示"),
     "backup.alert_not_sent": ("Backup alert not sent", "バックアップ警告の未送信", "備份警示未寄出"),
+    "backup.restore_reapply": (
+        "Restore: events after the backup to re-apply",
+        "復元：バックアップ後の操作の再適用が必要",
+        "還原：備份之後的操作需重新套用",
+    ),
     "update.applied": ("Update applied", "更新の適用", "套用更新"),
     "update.downgrade": ("Downgrade", "ダウングレード", "降版"),
     "update.rolled_back": ("Update rolled back", "更新の差し戻し", "更新已還原"),

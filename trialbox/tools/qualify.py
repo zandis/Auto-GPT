@@ -648,8 +648,18 @@ class _Capture(logging.Handler):
             self.buf.write(record.getMessage() + " " + json.dumps(record.__dict__, default=str) + "\n")
 
 
+# no digits, and no M, N, R (a run "MRN" reads as a medical record number)
+_MARKER_LETTERS = "BCDFGHJKLPQTVWXZ"
+
+
+def new_marker() -> str:
+    # letters only: a run of hex digits can look like a phone or ID number and trip the gateway's PHI tripwire (~0.6 %
+    # of runs), which refuses the call and fails the log_marker step for a reason that has nothing to do with the log
+    return "TBQMARK" + "".join(secrets.choice(_MARKER_LETTERS) for _ in range(16))
+
+
 def step_log_marker(ctx: Ctx) -> StepResult:
-    marker = "TBQMARK" + secrets.token_hex(8).upper()
+    marker = new_marker()
     before = {p: _size(p) for p in ctx.opts.server_logs}
     variables = _judge_vars(
         "No active gout flare",
