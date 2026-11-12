@@ -18,13 +18,19 @@ up healthy, and the box rehearsal was green only because it overrode the one set
 
 ## Decision
 
-1. **The embedder is BGE-M3** (`BAAI/bge-m3`, MIT, 1024 dimensions, the revision of the licence register's row
-   `model-bge-m3`). The registry row `e-embed-1` names the repository, the revision, the licence and the origin.
-   **Open, for the owner:** that revision of the publisher's repository holds pickle weights only and no
-   safetensors file, and D-429 refuses pickle weights. Which safetensors folder ships (a publisher revision that
-   has one, or a recorded conversion) is not decided here; the row says so (`provenance.copy: undecided`) and names
-   no manifest. Nothing is trusted on first use: until the manifest is written the install reports the embedder as
-   not pinned and a PRODUCTION embed service refuses to start.
+1. **The embedder is BGE-M3** (`BAAI/bge-m3`, MIT, 1024 dimensions) **at the publisher's last revision that
+   carries `model.safetensors`**, `7b44caba5c06fd6f1ef1d2786261e636c38e4295` (the owner's ruling of 2026-11-12,
+   relayed by the integrator: the publisher's own revision if one exists; a conversion only if none; not another
+   embedder). The publisher removed that file one commit later (`c400e3d6`, "Delete model.safetensors", no reason
+   given) and its main branch (`5617a9f6`, the revision the licence register named before) holds pickle weights
+   only, which D-429 refuses. The file lists of both revisions were read through the publisher's API; nothing was
+   downloaded; every other file of the two revisions is the same. The folder a box holds is that revision without
+   its three pickle files (`pytorch_model.bin`, `colbert_linear.pt`, `sparse_linear.pt`): the dense vectors need
+   none of them (`provenance.copy: publisher-subset`, `left_out`). The registry row and the licence register name
+   the revision. The expected manifest is written from the first hash of the real folder (lane G), and lane G
+   compares the safetensors file's tensors with the current `pytorch_model.bin` once before that, because the
+   publisher gave no reason for removing the file. Nothing is trusted on first use: until the manifest is written
+   the install reports the embedder as not pinned and a PRODUCTION embed service refuses to start.
 2. **An image of its own, `trialbox-embed`.** It is the Python service image plus the `embed` extra of `uv.lock`,
    installed from a second hashed export, `deploy/requirements-embed.lock` (`make lock` writes it, `make lock-check`
    holds it). The other services do not carry the library.
@@ -49,8 +55,11 @@ up healthy, and the box rehearsal was green only because it overrode the one set
 
 - A PRODUCTION box whose `deploy/models/embedder` holds the weights starts its embed service.
 - The bundle gains one image. The release gates scan it like the others.
-- For lane G: hash the real folder once (`pin_model`), write the manifest into the registry row, and measure start
-  time, memory against `TB_MEM_EMBED` and the time to index 5,000 patients' notes.
+- For lane G: fetch `BAAI/bge-m3` at revision `7b44caba5c06fd6f1ef1d2786261e636c38e4295`; leave out
+  `pytorch_model.bin`, `colbert_linear.pt` and `sparse_linear.pt` (and compare the tensors of `model.safetensors`
+  with those of `pytorch_model.bin` once, on the VM, before the pickle file is put aside); put the rest in
+  `deploy/models/embedder`; hash it with `pin_model` and send the manifest for `expected.manifest_sha256`; measure
+  start time, memory against `TB_MEM_EMBED` and the time to index 5,000 patients' notes.
 
 ## Not done here
 

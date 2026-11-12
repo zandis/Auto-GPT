@@ -590,20 +590,24 @@ builds:
     serving: local
     served: {embed: null}
     sha256: null
-    revision: 5617a9f61b028005a4858fdac845db406aefb181
+    revision: 7b44caba5c06fd6f1ef1d2786261e636c38e4295
     repository: BAAI/bge-m3
-    # ENG-003 (D-563; the owner's answer Q3 of D-494): the embedder is BGE-M3 at the register's revision. That
-    # revision of the publisher's repository holds pickle weights only (pytorch_model.bin, colbert_linear.pt,
-    # sparse_linear.pt) and no model.safetensors, and D-429 refuses pickle weights. Which safetensors folder is
-    # shipped (a publisher revision that has one, or a recorded conversion) is the owner's ruling; the manifest is
-    # written then. Until then `pin_model --install` reports the build as not pinned and a PRODUCTION embed
-    # service refuses to start.
-    expected: {manifest_sha256: null, revision: 5617a9f61b028005a4858fdac845db406aefb181}
-    provenance:  # D-392: not decided (see above); `copy` is written with the manifest
-      copy: undecided
+    # ENG-003 (D-563; the owner's answers Q3 of D-494 and of 2026-11-12): the embedder is BGE-M3 at the last revision
+    # of the publisher's own repository that carries model.safetensors (2,271,064,456 bytes). The publisher removed
+    # that file one commit later (c400e3d6, "Delete model.safetensors", no reason given) and has shipped pickle
+    # weights only since (main, 5617a9f6); D-429 refuses pickle weights. The other files of the two revisions are
+    # the same. The folder a box holds is this revision without its three pickle files (pytorch_model.bin,
+    # colbert_linear.pt, sparse_linear.pt: the dense vectors need none of them). The manifest of that folder is
+    # written from its first hash on real files (lane G); until then `pin_model --install` reports the build as not
+    # pinned and a PRODUCTION embed service refuses to start. Nothing is trusted on first use.
+    expected: {manifest_sha256: null, revision: 7b44caba5c06fd6f1ef1d2786261e636c38e4295}
+    provenance:  # D-392
+      copy: publisher-subset
       source: BAAI/bge-m3
-      revision: 5617a9f61b028005a4858fdac845db406aefb181
-      note: the publisher's revision has no safetensors weights; a revision with them or a recorded conversion
+      revision: 7b44caba5c06fd6f1ef1d2786261e636c38e4295
+      left_out: [pytorch_model.bin, colbert_linear.pt, sparse_linear.pt]  # pickle files, refused (D-429)
+      note: the publisher removed model.safetensors after this revision; lane G compares its tensors with the
+        current pytorch_model.bin once, before the manifest is written
     quantisation: none
     context_length: 8192
     family: embedder

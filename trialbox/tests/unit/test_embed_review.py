@@ -131,14 +131,19 @@ def test_the_installs_exit_code_is_the_pairs_unless_the_embedders_folder_is_wron
 
 
 # ------------------------------------------------------------------------------------------------ H1
-def test_the_row_does_not_claim_weights_the_publishers_revision_does_not_hold() -> None:
-    """The publisher's revision holds pickle weights only; D-429 refuses them. Until the owner rules (a revision with
-    safetensors, or a recorded conversion) the row names no manifest and says what is missing."""
+def test_the_row_names_the_publishers_last_revision_with_safetensors_and_leaves_the_pickles_out() -> None:
+    """The publisher's main holds pickle weights only (D-429 refuses them). The owner's ruling of 2026-11-12: the
+    publisher's own revision that carries model.safetensors; no conversion, no other embedder."""
     doc = yaml.safe_load((ROOT / "models" / "registry.yaml").read_text(encoding="utf-8"))
     b = next(x for x in doc["builds"] if x["build_id"] == pin_model.EMBED_BUILD)
-    assert b["expected"]["manifest_sha256"] is None
-    assert b["provenance"]["copy"] == "undecided" and "safetensors" in b["provenance"]["note"]
-    assert "safetensors from the publisher" not in b["model_name"]
+    rev = "7b44caba5c06fd6f1ef1d2786261e636c38e4295"
+    assert b["revision"] == b["expected"]["revision"] == b["provenance"]["revision"] == rev
+    assert b["provenance"]["copy"] == "publisher-subset"
+    assert set(b["provenance"]["left_out"]) == {"pytorch_model.bin", "colbert_linear.pt", "sparse_linear.pt"}
+    assert all(name.endswith(pin_model.REFUSED_SUFFIXES) for name in b["provenance"]["left_out"])
+    assert b["expected"]["manifest_sha256"] is None  # from the first hash of the real folder, never guessed
+    register = (ROOT / "docs" / "licences" / "register.csv").read_text(encoding="utf-8")
+    assert f"revision {rev},BAAI/bge-m3" in register
 
 
 # ------------------------------------------------------------------------------------------------ M6

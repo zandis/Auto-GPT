@@ -16,7 +16,7 @@ from tools.supply_chain import lock
 
 ROOT = Path(__file__).resolve().parents[2]
 EMBED_LOCK = ROOT / "deploy" / "requirements-embed.lock"
-REVISION = "5617a9f61b028005a4858fdac845db406aefb181"
+REVISION = "7b44caba5c06fd6f1ef1d2786261e636c38e4295"
 
 pytestmark = pytest.mark.nodb
 
