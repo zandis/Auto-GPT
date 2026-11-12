@@ -37,9 +37,7 @@ ADMIN = ("POSTGRES_PASSWORD", "POSTGRES_WF_PASSWORD")
 #: who may hold an administrator password, and why. Everything else holds its own role's password only.
 ADMIN_HOLDERS: dict[str, set[str]] = {
     "POSTGRES_PASSWORD": {"db", "fhir-store"},  # the server itself; HAPI's own database `hapi`
-    # the server; `doctor` of the platform compose form is the operator's own one-shot tool (it reads the flags and
-    # the site key record as the host's `trialbox doctor` does) and mounts no patient data
-    "POSTGRES_WF_PASSWORD": {"db", "doctor"},
+    "POSTGRES_WF_PASSWORD": {"db"},  # the server; no tool container holds it (review of #308, H2)
 }
 #: a value shorter than this is not searched for (it would be found by accident inside other values)
 MIN_LEN = 8

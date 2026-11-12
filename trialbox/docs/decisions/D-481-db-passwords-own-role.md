@@ -91,3 +91,20 @@ schema") is true of the role and was not true of the container: every TrialBox s
 ## Dropped (D-311)
 
 No security sign-off or owner review step.
+
+## Review fixes (adversarial review of PR #308, 2026-11-12)
+
+- **H1.** The doctor check passed without judging anything on the path sites use. Not judged is now WARN, and FAIL
+  on a VALIDATION or PRODUCTION box. `deploy/check_host.sh`, which runs the doctor in the box's image, passes
+  `--env-file /app/deploy/.env`; an entry of `COMPOSE_FILE` that is the host's absolute path is read as its part
+  below `deploy/` in the folder given.
+- **H2.** The platform's `doctor` container held the administrator's password and URL although it cannot reach the
+  database. Both are cleared; no tool container is a holder of `POSTGRES_WF_PASSWORD`.
+- **M1.** An empty `TB_ENV=` is PRODUCTION for this check, as everywhere (`tb_common.config.environment_name`).
+- **LOW.** The schema `tuned` (the not-matched reasons) is on the orchestrator's and the console's role lists, both
+  copies of the script; a stale paragraph of `svc_secrets.py` is corrected.
+
+Not taken here (see the pull request): passwords on command lines (`psql -v pw_*=`, the backup's `--dbname`),
+`secrets rotate --service db`, the role script after a restore or an update, the mode of `site/compose.json`, and
+the least length of a value the reach check searches for.
+

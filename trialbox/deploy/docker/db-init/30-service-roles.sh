@@ -23,6 +23,7 @@
 #   against the service that writes it. A service with the schema on its list is a member of `tbw_<schema>`. The
 #   tables of such a schema are made by the install step (`python -m orchestrator.migrate`, as `trialbox`), not by
 #   the service at start. First on the list: `edc`.
+# * `tuned` (tb_common.notmatched: the not-matched reasons) is read and written by the orchestrator and the console.
 # The list is the one place that says which service reaches which schema; tests/unit/test_db_roles.py reads it.
 set -eu
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "${TB_WF_DB:-trialbox_wf}" \
@@ -45,12 +46,12 @@ DECLARE
     "tb_adapter": ["app", "dataops", "derived", "mpi", "omop", "pidmap", "refdata", "sitesetup", "terminology"],
     "tb_orchestrator": ["app", "datacore", "dataops", "derived", "edc", "library", "mail", "mpi", "omop", "optout",
                         "orch", "pidmap", "profile", "recall", "refdata", "site", "sitesetup", "study", "terminology",
-                        "vec", "wf"],
+                        "tuned", "vec", "wf"],
     "tb_mail_gateway": ["app", "mail"],
     "tb_gateway": ["app", "trace"],
     "tb_console": ["app", "auth", "breakglass", "datacore", "dataops", "derived", "feedback", "library", "mpi", "omop",
                    "optout", "orch", "pidmap", "recall", "refdata", "sae", "site", "sitesetup", "study", "team",
-                   "terminology", "wf"]
+                   "terminology", "tuned", "wf"]
   }';
   -- END SERVICE SCHEMAS
   -- BEGIN OWNED SCHEMAS (D-486)

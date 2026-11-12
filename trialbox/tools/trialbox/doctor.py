@@ -868,6 +868,23 @@ def check_clock(inp: DoctorInputs) -> Check:
     return Check("clock", "PASS", f"NTP-synchronised{where}" if st.synced else f"clock checked{where}")
 
 
+def _compose_file(deploy: Path, entry: str) -> Path:
+    """One entry of ``COMPOSE_FILE`` as this process can read it. ``install.sh`` writes the host's absolute paths
+    (``$ROOT/deploy/...``); the doctor may run in the box's image, where the same folder is mounted elsewhere
+    (``check_host.sh``): an absolute path that is not here is read as its part below ``deploy/`` in the deploy
+    folder given."""
+    path = Path(entry)
+    if not path.is_absolute():
+        return deploy / path
+    if path.exists():
+        return path
+    parts = path.parts
+    if "deploy" in parts:
+        below = parts[len(parts) - parts[::-1].index("deploy") :]
+        return deploy.joinpath(*below) if below else path
+    return path
+
+
 def check_db_passwords(inp: DoctorInputs, running: Callable[[str], Mapping[str, Any] | None] | None = None) -> Check:
     """T-712 (D-481; D-378): a service container holds its own database role's password and no other.
 
@@ -876,16 +893,21 @@ def check_db_passwords(inp: DoctorInputs, running: Callable[[str], Mapping[str, 
     file beside ``--env-file``; ``--compose-config`` when given) rendered with the box's values; and the
     environment of the containers that run now. FAIL in VALIDATION and PRODUCTION, WARN elsewhere.
     """
+    from tb_common.config import environment_name
+
     from tools.trialbox import db_secrets as ds
 
     name = "db_passwords"
+    strict = environment_name(inp.env) in ("VALIDATION", "PRODUCTION")  # an empty TB_ENV is PRODUCTION (D-127)
     if inp.deploy is None and inp.compose_config is None:
-        return Check(name, "PASS", "no deploy/.env given (--env-file): the box's database passwords were not judged")
+        # never a pass: nothing was read. A box that may hold real data must be judged
+        return Check(name, "FAIL" if strict else "WARN",
+                     "the box's database passwords were not judged: give --env-file <deploy/.env>")  # fmt: skip
     deploy = inp.deploy or ROOT / "deploy"
     config = inp.compose_config
     if config is None:
-        listed = [Path(f) for f in inp.env.get("COMPOSE_FILE", "").split(":") if f]
-        files = [f if f.is_absolute() else deploy / f for f in listed] or [deploy / "docker-compose.yml"]
+        listed = [f for f in inp.env.get("COMPOSE_FILE", "").split(":") if f]
+        files = [_compose_file(deploy, f) for f in listed] or [deploy / "docker-compose.yml"]
         gone = [str(f) for f in files if not f.exists()]
         if gone:
             return Check(name, "FAIL", f"compose file(s) not found: {', '.join(gone)} (COMPOSE_FILE in deploy/.env)")
@@ -898,7 +920,6 @@ def check_db_passwords(inp: DoctorInputs, running: Callable[[str], Mapping[str, 
         bad += [f"running: {p}" for p in ds.reach_problems(live, secrets)]
     seen = f"{len(live['services'])} running container(s) read" if live is not None else "running containers not read"
     if bad:
-        strict = inp.env.get("TB_ENV", "PRODUCTION").upper() in ("VALIDATION", "PRODUCTION")
         fix = "re-run deploy/install.sh (it makes the missing passwords and starts every container again)"
         return Check(name, "FAIL" if strict else "WARN", f"{'; '.join(bad)}; {fix}")
     return Check(name, "PASS", f"{len(roles)} service roles, each container its own password only; {seen}")
