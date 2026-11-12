@@ -38,11 +38,14 @@ The hospital part is the Japanese main screen on 5,000 synthetic patients, run f
 
 - The template passed to the judge has sha256 `ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4`.
   The weights folder's own has `94899c0f917d93f6fe81c95744d1e8ddab2d21d39228d2e4aec1fb2a25bff413`.
-- The token ids of the running server differ from the folder tokenizer's on the test prompts: 5 of the 20 prompts are
-  listed (1, 3, 5, 7, 9), the first difference is at position 22, and the server's prompt is one token longer. The part
-  compared 2,268 tokens in all.
-- The passed file itself equals the folder tokenizer's output (`passed_equals_folder` is true), so the difference is in
-  what the server was started with (`served_with_it` is false in the report).
+- The passed template file gives token ids identical to the folder's own template on all 20 prompts; only the text
+  hash differs. The failing check is the server's ids against the folder tokenizer's: 5 of the 20 prompts are listed
+  (1, 3, 5, 7, 9), the first difference is at position 22, the server's prompt is one token longer. The part compared
+  2,268 tokens in all.
+- The judge server was started without `--chat-template` (`served_with_it` is false). On prompts with a system turn
+  the server renders one extra token at the end of the system turn. So: the server's rendering differs from the
+  reference tokenizer on system turns. It is not shown that the passed template is wrong. The template texts were not
+  collected.
 - Owner: lanes D and A (HW-005). Evidence: `parts/chat-template.json`, block `chat_template`.
 
 ## G-3: calls in flight, hospital-ja main screen (5,000 patients)
@@ -54,6 +57,8 @@ The hospital part is the Japanese main screen on 5,000 synthetic patients, run f
 | 16 | 1.77 | 1,671 | 512 | 2.46 | 4.46 | 33 | 55 | never |
 | 48 | 1.95 | 1,847 | 485 | 2.60 | 4.68 | 32 | 55 | never |
 
+- **Read the figures with the audit below.** The calls/s above are whole-part numbers, diluted by the canary and
+  stages 15 and 17. SCREEN-only rates are higher.
 - **Wall time.** 16 in flight is 3.4 times faster than 1 (1,744 s to 512 s). 48 adds about 10 % over 16 (1.95 against
   1.77 calls/s). The servers' `max_num_seqs` is 16, so beyond 16 the gateway queues the calls. The estimate assumed a
   speedup of 2 for 4, 16 and 48. That was low (bug M3).
@@ -61,9 +66,9 @@ The hospital part is the Japanese main screen on 5,000 synthetic patients, run f
   note gave 62.6 GiB; the files say 62,592 MiB, which is 61.1 GiB.)
 - **Canary.** 54 cases at every setting: 53 pair-correct, 0 decided wrong.
 - **Breaker.** It never opened at any setting.
-- **Model calls.** 628, 623, 626, 633 over the four settings. No patient was excluded by one model alone
-  (`excluded_by_models` is 0 at every setting). Judge/verifier disagreements: 0, 0, 1 (at 16), 0.
-- **Night window.** For 50,000 patients, 5 studies and 8 hours at 70 % usable, with 0.125 calls per patient and study
+- **Model calls.** 628, 623, 626, 633 over the four settings. The report says no patient was excluded by one model
+  alone (see audit item 8: that count is from the one-patient microbatch). Judge/verifier disagreements: 0, 0, 1 (at 16), 0.
+- **Night window (whole-part figures).** For 50,000 patients, 5 studies and 8 hours at 70 % usable, with 0.125 calls per patient and study
   as measured, the window needs 1.55 calls/s. 16 and 48 in flight meet it (1.77 and 1.95). 4 does not (1.04). The
   reader picks the fastest setting whose candidate list matches the others; as the list differs (F1), it picked 4 and
   printed "below the window". Read this row with F1 in mind. It is an extrapolation: 50,000 patients were not run.
@@ -71,7 +76,7 @@ The hospital part is the Japanese main screen on 5,000 synthetic patients, run f
 ### F1: the listed candidates differ with the calls in flight (lane A)
 
 Main screen, S4 and listed: 54, 54, 55, 55 at 1, 4, 16 and 48 in flight. The tiers differ too (high 3, 3, 4, 3;
-review 51, 51, 51, 52). One judge/verifier disagreement was seen, at 16. Nothing was excluded by one model, and the
+review 51, 51, 51, 52). One judge/verifier disagreement was seen, at 16. The
 canary was the same at every setting. But the list is not reproducible across settings. The report's line "Candidate
 lists of hospital-ja at every setting: identical" is wrong (lane G bug M1: the report hashed a one-patient list of
 another stage, not the screen's list). Evidence: `parts/hospital-ja@c*.json`, block `screen`.
@@ -84,6 +89,60 @@ Stage "12 site set-up and data harmonization" is 22/23 at every setting. The fai
 
 It returned 7 outcomes (ready, needs, not_eligible for six pseudonymous patient ids) where it expected another set.
 The same check failed in the run of 2026-11-11. Evidence: `parts/hospital-ja@c1.json`, stage 12.
+
+## Audit of these numbers (2026-11-12)
+
+An independent audit recomputed the run from the raw files. It corrects the text above as follows.
+
+1. **Throughput.** The reported calls/s (0.40, 1.04, 1.77, 1.95) is arithmetically right but diluted: each part's count
+   includes the canary (108 calls, one at a time, about 205 s) and stages 15 and 17. SCREEN-only is roughly
+   0.38 / 1.3 / 3.5 / 4.4 calls/s at 1 / 4 / 16 / 48 in flight (estimate from the same files; the sample count gives
+   0.39 / 1.36 / 3.7 / 4.0). "Calls" are judge and verifier calls counted separately, not pairs. They match vLLM's
+   request counters exactly (335+293, 336+287, 336+290, 336+297), and the tokens match too. About 98 % of the tokens/s
+   at 4, 16 and 48 are cached prompt tokens; generation tokens/s is 47 / 122 / 207 / 230.
+2. **GPU.** "Mean about 33 %" covers idle time and the canary. Busy samples after the canary: mean 36.9 / 80.8 / 68.5 /
+   67.4 %, max 74 / 93 / 93 / 94 %; in bursts (2 or more calls running) about 81 to 86 %. No GPU headroom is shown (and
+   nvidia-smi utilisation is not a headroom measure). Memory of 62,590 MiB is the weights plus the pre-allocated KV
+   cache (62,576 MiB idle). KV cache use peaked at 7.1 % (judge) and 11.5 % (verifier).
+3. **48 in flight.** Per server, running peaked at 16 and 13, 29 in all. vLLM's waiting was 0 at every setting. The cap
+   is the gateway's 16 slots per endpoint (`services/gateway/load.py`, `SLOTS = 16`). The wait in the gateway is not
+   measured, and p50 and p95 start after a slot is taken, so they exclude it. vLLM e2e means: judge 2.72 / 2.78 / 3.00 /
+   3.16 s, verifier 2.24 / 2.37 / 2.55 / 2.71 s.
+4. **Order.** The settings ran in the order 1, 4, 16, 48 (timestamps). The prefix-cache bias on calls/s is likely 3 % or
+   less (judge cache hits 62.9 % at 1, then about 97.5 %).
+5. **F1.** The per-patient main-screen list was not recorded, so which patient differs cannot be told. At 16 the extra
+   one is high/ready and is the one disagreement; at 48 it is review/needs with no disagreement (they may be different
+   patients). It is not a timeout: failures are 0. The gateway fixes the sampling (temperature 0, top_p 1, a fixed seed),
+   yet outputs vary from run to run (the stage-12 chart reading returned different codes in each repeat).
+6. **G-1.** Corrected above: the passed file is not shown to be wrong; the server's rendering of system turns differs.
+7. **F2** is G1's bug B1, now seen at 5,000 patients, so it is not an effect of the 50,000-patient snapshot. After the
+   confirmations, patient 10000005 should be not_eligible and 10000004 ready. Both stayed needs, because the model's
+   chart reading returned the wrong LOINC for urate (2160-x or 2823-3, not 3084-1) and an undated malignancy at 16 and
+   48 in flight. It is a model-output or expectation issue for lanes A and E. The check's detail is cut at 300
+   characters.
+8. **Report errors (lane G, fix in batch 1).** "Listed", "identical" and "Model exclusions: 0" come from the last
+   captured SCREEN, the one-patient stage-17 microbatch. "Started" and "finished" both show the report rebuild time.
+   "62.9 min" is the sum of the part times. "Languages: ja, zh-TW" is printed though no zh-TW part ran. All four stage-12
+   FAILED bullets print under the c48 block. The gateway audit (`gw-audit`) was not collected, so there is no per-call
+   recomputation and no PHI-refusal count. The "No patient was excluded by one model" statement above rests on the
+   report's count and is therefore not shown by this run.
+9. **What a reader may conclude.**
+   - Calls and tokens agree exactly between the gateway and vLLM; nothing was lost; no breaker opened.
+   - Throughput rises to roughly 4 calls/s in SCREEN; 16 to 48 gains about 1.2 times, because of the gateway's 16 slots.
+   - vLLM never queued, the KV cache stayed at 12 % or less, the GPU was busy 81 to 94 % in bursts: no headroom is shown.
+   - The candidate list is not proven independent of the calls in flight.
+   - G-1: the server's rendering of system turns differs from the reference tokenizer; the passed file is not shown wrong.
+10. **The next run must**
+   - measure SCREEN-only windows (start and end per stage, canary excluded);
+   - randomise the order, repeat 3 or more times, and restart the servers or reset the cache between settings;
+   - record the gateway's slot wait;
+   - persist the main-screen per-patient list and the per-call answers;
+   - collect `gw-audit` and the template texts;
+   - raise the 300-character detail limit;
+   - give 48 a meaning beyond 16 gateway slots, or drop it.
+
+`capacity_inputs.json` and the reader's window verdict use the whole-part figures. They are diluted in the same way
+(the need per patient counts the canary calls too). Use them as a lower bound of the rate and an upper bound of the need.
 
 ## Reader change
 
