@@ -11,6 +11,9 @@
 #   firewall-rules list       tcp:443 open to the tag (TB_REH_OPEN80=1 adds a rule that opens tcp:80: refused)
 #   secrets describe / versions add / versions destroy  the door (T-119): $TB_REH_STATE/secrets/<secret>/<version>,
 #                             the file the VM's gcloud shim reads (secrets made by `mkdir`, as setup-gcp.sh does)
+#   secrets versions list     the versions still there (the driver's "no enabled version" after a collect, A8)
+#   secrets get-iam-policy, storage ls, storage buckets get-iam-policy, config get-value   the pre-flight (A7):
+#                             the deployer and the VM's account granted; a bucket is there once its folder is
 #   storage cp                gs://<bucket>/<path> is $TB_REH_STATE/bucket/<bucket>/<path> (the VM's shim the same)
 #   project-info / regions describe --format=json   quota JSON: $TB_REH_GPU_LIMIT GPUs (default 1), 96 CPUs
 #   auth print-access-token   a fake token (the driver's probe)
@@ -62,6 +65,20 @@ case "$1 $2 $3" in
     printf '[%s{"name": "tb-gpu-door", "network": "projects/rehearsal/global/networks/default", "direction": "INGRESS",
  "allowed": [{"IPProtocol": "tcp", "ports": ["443"]}], "sourceRanges": ["0.0.0.0/0"], "targetTags": ["tb-gpu-door"]}]\n' "$open80" ;;
   "secrets describe "*) [ -d "$S/secrets/$3" ] || { echo "ERROR: NOT_FOUND: secret $3" >&2; exit 1; }; echo "projects/rehearsal/secrets/$3" ;;
+  "config get-value project") echo rehearsal ;;   # the pre-flight (A7): the deployer and the project
+  "config get-value account") echo deployer@rehearsal.iam.gserviceaccount.com ;;
+  "secrets get-iam-policy "*)
+    [ -d "$S/secrets/$3" ] || { echo "ERROR: NOT_FOUND: secret $3" >&2; exit 1; }
+    printf '%s\n' '{"bindings": [{"role": "roles/secretmanager.secretVersionManager",
+  "members": ["serviceAccount:deployer@rehearsal.iam.gserviceaccount.com"]},
+ {"role": "roles/secretmanager.secretAccessor", "members": ["serviceAccount:tb-gpu@rehearsal.iam.gserviceaccount.com"]}]}' ;;
+  "secrets versions list")   # the enabled versions (A8: none should remain once collected)
+    d="$S/secrets/$4"; [ -d "$d" ] || { echo "ERROR: NOT_FOUND: secret $4" >&2; exit 1; }
+    for f in "$d"/*; do [ -f "$f" ] && echo "projects/rehearsal/secrets/$4/versions/$(basename "$f")"; done; true ;;
+  "storage ls "*) [ -d "$(gs "$3")" ] || { echo "ERROR: BucketNotFoundException: 404 $3 bucket does not exist" >&2; exit 1; } ;;
+  "storage buckets get-iam-policy")
+    printf '%s\n' '{"bindings": [{"role": "roles/storage.objectAdmin", "members":
+  ["serviceAccount:deployer@rehearsal.iam.gserviceaccount.com", "serviceAccount:tb-gpu@rehearsal.iam.gserviceaccount.com"]}]}' ;;
   "secrets versions add")
     d="$S/secrets/$4"; [ -d "$d" ] || { echo "ERROR: NOT_FOUND: secret $4" >&2; exit 1; }
     df=""; for a in "$@"; do case "$a" in --data-file=*) df=${a#--data-file=} ;; esac; done

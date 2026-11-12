@@ -27,7 +27,7 @@
 # In every case the door is TLS on 443 with the driver's pinned certificate, the key comes from "Secret Manager" (never
 # the metadata), its version is destroyed once collected, and the serving record is captured (T-119).
 #   served     the judge serves a wrong name: the boot stops before any part with TB-SERVING-FAILED, results say why;
-#   no-upload  nobody uploads: TB-NO-CODE after the (1-minute) wait, power-off after the grace;
+#   no-upload  nobody uploads: TB-NO-CODE after the (1-minute) wait, power-off at once (no grace: A6);
 #   hang       a silent, stuck part (selftest-hang) and no driver: the watchdog powers off after the idle limit
 #              (2 minutes here); --collect then starts the stopped VM results-only and gets what is there (H-04);
 #   busy       a silent part that works for 5 minutes (selftest-busy), idle limit 2 minutes, no driver: the in-run
@@ -129,6 +129,8 @@ fresh_disk() {
 
 # ------------------------------------------------------------------ the driver, exactly as the operator runs it
 export TB_REH_STATE="$S" TB_REH_CONTAINER="$C" CLOUDSDK_CONFIG="$REH/gcloud-config" TB_SA_KEY_FILE=/dev/null
+# the "VM" is this host (127.0.0.1): the driver reaches its door directly though the sandbox sets HTTPS_PROXY (A6)
+export TB_DOOR_DIRECT=1
 # shellcheck source=deploy/gcp/door-tls.sh
 . "$TBROOT/deploy/gcp/door-tls.sh"   # door_make for the no-upload case, which has no driver
 mkdir -p "$CLOUDSDK_CONFIG"
@@ -201,7 +203,7 @@ for case in "${CASES[@]}"; do
       driven run-b 30 --patients 500 --only scenario-gateway,scenario-it-dump || true
       end_case run-b; check run-b "$E" --only scenario-gateway,scenario-it-dump --head "$(git -C "$TBROOT" rev-parse HEAD)" --previous "$prev" ;;
     bucket)  # T-119: TB_BUCKET; the code and the results through the bucket, the door only for heartbeat and progress
-      start_case bucket
+      start_case bucket; mkdir -p "$S/bucket/tb-rehearsal-bucket"   # made once, as setup-gcp.sh TB_BUCKET=... does
       TB_BUCKET=gs://tb-rehearsal-bucket driven bucket 30 --patients 500 --only scenario-it-dump || true
       end_case bucket; check bucket "$E" --only scenario-it-dump --head "$(git -C "$TBROOT" rev-parse HEAD)" ;;
     served)

@@ -45,7 +45,7 @@ end with `REHEARSAL PASSED`; no paid launch without it, and none from a commit i
 | `run-a` | a fresh disk, a bounded run at 500 patients (hospital-ja, public-ja, the gateway probe, emr-fhir, it-dump, MedTxt, TREC), driven with `--no-wait` and repeated `--collect`: setup, the data, both model servers' check, every part reported, the hospital part measured at 16 calls in flight (both `/metrics`, `gpu.csv`, its calls), no 404 or 401 at the servers, the report's HEAD = the commit, power-off once collected |
 | `run-b` | the same disk, a new run: nothing kept from `run-a`, a fresh log |
 | `served` | the judge serves a wrong name: `TB-SERVING-FAILED` before any part, the servers' logs in `results.tgz` |
-| `no-upload` | nobody uploads: `TB-NO-CODE`, power-off after the grace |
+| `no-upload` | nobody uploads: `TB-NO-CODE`, power-off at once (no grace) |
 | `hang` | a stuck, silent part and no driver: the idle watchdog powers off; `--collect` then gets the results from the stopped VM |
 | `busy` | a part silent for 5 minutes but working (idle limit 2): it is never powered off as idle; it finishes; `--collect` gets it |
 | `bucket` | `TB_BUCKET` set: the code and the results go through the bucket (a `gcloud storage` stand-in), not the door |
@@ -62,7 +62,15 @@ is not rehearsed (the stand-ins answer with the deterministic stub, so the canar
 keys, setup, state and timing are, the layer every failure of 2026-11-09 was in.
 
 1. `deploy/gcp/complete-run.sh --estimate --patients 50000` prints the hours and US$ per scenario (`--only TAG,TAG`
-   for a bounded run). `--dry-run` prints every command and starts nothing.
+   for a bounded run). `--dry-run` prints every command and starts nothing. `deploy/gcp/complete-run.sh --preflight
+   [--vms N --zones ...]` (free: read-only gcloud calls, nothing made or started) prints **every** problem of the
+   project at once, each with the exact command that fixes it: the firewall (door mode: tcp:443 open, tcp:80 closed),
+   the Secret Manager API, the secret `tb-gpu-door`, the deployer's `roles/secretmanager.viewer`, each VM and its
+   service account, and with `TB_BUCKET` the bucket, both accounts' objectAdmin on it and no stale objects for the
+   run id (the 2026-11-12 run failed on these one at a time, A7). A launch runs the same checks before any VM starts.
+   **Behind an HTTPS proxy** (`HTTPS_PROXY` set, as in a sandbox) the door cannot be reached: a launch without
+   `TB_BUCKET` refuses at once (A6; that run's VM waited for its code and idled out). Set `TB_BUCKET`, or
+   `TB_DOOR_DIRECT=1` if this machine does reach the VM's address directly.
 2. The run: `export CLOUDSDK_CONFIG=<private folder> TB_SA_KEY_FILE=<key file, in place>`, then
    `deploy/gcp/complete-run.sh --patients 50000 --no-wait` (or `--detach`). Every command of the driver (the launch,
    each `--collect`, `--stop`, each VM's child, `--provision`, `--teardown`) first activates the service account from
@@ -87,7 +95,11 @@ keys, setup, state and timing are, the layer every failure of 2026-11-09 was in.
      and uploads the code through the door: HTTPS on 443, the certificate it made as the only trust root and its
      public key pinned (`--pinnedpubkey`), no proxy; plain HTTP or any other certificate is refused (`git archive`
      of HEAD with `TB_HEAD.json`: local changes are not in the run; the VM refuses an archive with another sha256).
-     Once the results are here the driver destroys the secret version.
+     Once the results are here the driver destroys the secret version: a `--collect` that has every part of the plan
+     (even while the VM still runs its grace, or through the bucket) and `--stop` destroy every version this run
+     made (also one a retried `versions add` left), and each says "no enabled version" or names what remains (the
+     report too, A8). A start that gives up (no door in 30 minutes by the clock, a failed start or upload) stops the
+     VM and destroys its version; without code the VM powers off at once (`TB-NO-CODE`), not after its grace (A6).
 3. On the VM: a systemd hard cap and a watchdog start first; then a pre-flight (docker with the NVIDIA runtime, the
    weights in `/models`, 50 GB free: else `TB-PREFLIGHT-FAILED`); then both model servers, which must be healthy,
    list exactly their served names, answer one chat call and refuse a call without the key, else
@@ -149,9 +161,16 @@ peak) and, for a hospital part, `candidates` (who was listed, with a sha256). Th
 KV cache every 10 s). The report has one table of them and says whether the lists are identical at every setting.
 Limits to know before reading a curve:
 
-* The estimate's screening time is G1's 0.78 calls/s at one call in flight, divided by min(N, 2). The 2 is the
-  declared setting `TB_ESTIMATE_LLM_SPEEDUP` (OD-10): no rate above N = 1 is measured yet, so the estimate, and the
-  cap made from it, is an upper bound for N > 1; G-3's measured rate replaces it (1 = the single-call time at any N).
+* The estimate's screening time is G1's 0.78 calls/s at one call in flight times the gain G-3 measured on 2026-11-12
+  (run 20261112T165042Z-931a0f79, hospital-ja at 5,000: 0.40, 1.04, 1.77, 1.95 calls/s at 1, 4, 16, 48, so 2.6x,
+  4.4x, 4.9x; 8 and 32 interpolated, above 48 held). Only the ratio is taken: G1's 0.78 is over the screening stage's
+  wall time at 50,000 (the part time the estimate scales), G-3's 0.40 over busy seconds at 5,000 on another commit
+  (OD-10, the comment in `tools/complete_run.py`). `TB_ESTIMATE_LLM_SPEEDUP` overrides it with min(N, factor). The hard
+  cap never drops below the run with no gain at all (zh-TW and 50,000 are not measured yet).
+* The report's candidate list per part is the main SCREEN's (the job whose funnel it shows), compared across the
+  settings by pseudonymous id; when they differ the report names each id and its tier at every setting (M1: the
+  2026-11-12 report compared a later stage's one-patient list and called 54, 54, 55, 55 identical). The throughput
+  table also says how many calls the gateway refused, by reason (PHI tripwire, guard, busy ...): "N of M" (M2).
 * The VM starts both servers with `--max-num-seqs 16` and the gateway gives an endpoint 16 slots. A value above 16
   (48) measures the queue in the gateway, not a larger batch; the plan says so. A point beyond 16 sequences needs
   the servers started with more, which this driver does not do.
@@ -190,6 +209,8 @@ compute firewall-rules create tb-gpu-door --network <network> --allow tcp:443 --
 tb-gpu-door`), and any rule that opens tcp:80 to it is deleted (or its tag removed). The driver says which, before
 anything starts.
 
-Optional `TB_BUCKET=gs://<bucket>` moves code and results through a bucket (the VM's service account needs storage
-access; the `bucket` case of the rehearsal); without it they go through the TLS door. A billing budget with a kill switch
+Optional `TB_BUCKET=gs://<bucket>` moves code and results through a bucket (the `bucket` case of the rehearsal);
+without it they go through the TLS door. `TB_BUCKET=gs://<bucket> bash deploy/gcp/setup-gcp.sh <project>` makes the
+bucket and grants objectAdmin to the deployer and the VMs' service account (and the deployer the reading of its
+policy, for the pre-flight); setup-gcp.sh also grants the deployer `roles/secretmanager.viewer` on `tb-gpu-door`. A billing budget with a kill switch
 is the last net; it needs billing permissions this project's service account does not have: the owner sets it.

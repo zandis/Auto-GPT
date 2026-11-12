@@ -16,6 +16,16 @@
 #   deploy/gcp/complete-run.sh --collect <run id> [--follow]   # later, as often as wanted: see below
 #   deploy/gcp/complete-run.sh --stop [--collect <run id> | --vms N --zones ...] [VM] [ZONE]   # stop by hand
 #   deploy/gcp/complete-run.sh --teardown --vms N --zones ...   # delete the clones 2..N and their machine image
+#   deploy/gcp/complete-run.sh --preflight [--vms N --zones ...]   # free: read-only gcloud calls, no VM starts
+#
+# Pre-flight (2026-11-12 run, A6 and A7: it failed in turn on the firewall, the Secret Manager API, the missing secret,
+# the deployer's missing roles/secretmanager.viewer, and a door no proxy can carry). --preflight reads the project with
+# read-only calls only and prints EVERY problem at once, each with the exact command that fixes it (the firewall in
+# door mode, the Secret Manager API, the secret tb-gpu-door, the deployer's and the VMs' access, each VM and its
+# service account, the bucket with TB_BUCKET); a launch runs the same checks before any VM starts and refuses on any
+# problem. Without TB_BUCKET and with HTTPS_PROXY (or https_proxy) set a launch refuses at once: the door is TLS
+# straight to the VM, and a machine whose HTTPS goes through a (TLS-inspecting) proxy cannot reach it, so the VM would
+# wait for its code and idle out. Set TB_BUCKET, or TB_DOOR_DIRECT=1 when this machine does reach the VM directly.
 #
 # The operator's shell may not outlive the run (a 9-hour run, a 2-hour shell: review H-04). The flow that needs no
 # long-lived driver: start with --no-wait (it returns once the code is uploaded), then `--collect <run id>` now and
@@ -66,15 +76,19 @@
 #      `TB_RUN_ID=<run id> complete-run.sh --shard <i>` starts it again; `make rehearse CASES=preempt` rehearses it.
 # The door (T-119, CR-048): HTTPS on 443 only, the VM's self-signed certificate made here per run and its public key
 # pinned (deploy/gcp/door-tls.sh); no port 80. The bearer key and the TLS key go to the VM through Secret Manager
-# (secret tb-gpu-door, one version per VM and run, destroyed once the results are here), never as metadata; a tb-key
-# an older driver left in the metadata is removed. Before the start the driver refuses a VM without a service account
-# and a firewall that opens tcp:80 to it or does not open tcp:443 (read-only, door_firewall_check).
+# (secret tb-gpu-door, one version per VM and run, destroyed once the results are here: a --collect that has every
+# part of the plan, whether the VM still runs or the results came through the bucket, and --stop; A8), never as
+# metadata; a tb-key an older driver left in the metadata is removed. Each collect and stop says "no enabled version"
+# or names the versions that remain (and the report says it too: door-secret.txt). Before the start the driver refuses
+# a VM without a service account and a firewall that opens tcp:80 to it or does not open tcp:443 (read-only,
+# door_firewall_check). A door that does not answer in 30 minutes: the driver stops the VM (it does not wait for the
+# VM's own watchdog), and the VM itself powers off at once with TB-NO-CODE when no code came (A6).
 # Optional TB_BUCKET=gs://<bucket>: code and results go through the bucket (the VM's service account needs storage
 # access); without it they go through the door.
 set -euo pipefail
 ARGS=("$@")
 DRY=0; STOP=0; ESTIMATE=0; WAIT=1; PATIENTS=50000; HOURS=""; COLLECT=""; VMS=1; PARTS=g1; ZONES="${TB_ZONES:-}"
-SHARD=""; PROVISION=0; TEARDOWN=0; FOLLOW=0; DETACH=0; ONLY_TAGS=(); LLMC=""
+SHARD=""; PROVISION=0; TEARDOWN=0; FOLLOW=0; DETACH=0; ONLY_TAGS=(); LLMC=""; PREFLIGHT=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1; shift ;;
@@ -94,7 +108,8 @@ while [ $# -gt 0 ]; do
     --shard) SHARD="$2"; shift 2 ;;
     --provision) PROVISION=1; shift ;;
     --teardown) TEARDOWN=1; shift ;;
-    -h|--help) sed -n 2,73p "$0"; exit 0 ;;
+    --preflight) PREFLIGHT=1; shift ;;
+    -h|--help) sed -n 2,87p "$0"; exit 0 ;;
     *) break ;;
   esac
 done
@@ -135,6 +150,74 @@ unset CLOUDSDK_AUTH_ACCESS_TOKEN
 # TB_SA_KEY_FILE and probes the token before its first gcloud call: an activation left from an earlier command may
 # have lapsed (G1 bug A2); a dead credential fails here, at once, with "credentials expired: re-activate"
 gc_start || exit 5
+vm_name() { if [ "$1" = 1 ]; then echo "$VM"; else echo "$VM-$1"; fi; }
+vm_zone() { echo "$ZONES" | cut -d, -f"$1"; }
+
+door_reach_check() {  # A6: a door no proxy can carry; before any VM starts (a dry run says what a launch would do)
+  local why
+  why="$(cr --door-reach-check 2>&1 >/dev/null)" && return 0
+  if [ "$DRY" = 1 ]; then echo "# a launch would refuse here: $why"; return 0; fi
+  echo "$why" >&2
+  return 2
+}
+
+preflight() {  # A7: $1 a folder, then "name zone" per VM; read-only gcloud calls only; every problem at once
+  local pf=$1 n z; shift
+  if [ "$DRY" = 1 ]; then
+    echo "# the pre-flight (read-only; a launch refuses on any problem, each printed with its fix):"
+    echo "+ gcloud config get-value project; gcloud config get-value account   # local config"
+    echo "+ gcloud secrets describe $DOOR_SECRET --format=json   # the API on, the secret there, the deployer may read it"
+    echo "+ gcloud secrets get-iam-policy $DOOR_SECRET --format=json   # who adds versions, who reads them"
+    for x in "$@"; do echo "+ gcloud compute instances describe ${x% *} --zone ${x#* } --format=json   # its service account"; done
+    if [ -n "$BUCKET" ]; then
+      echo "+ gcloud storage ls $BUCKET; gcloud storage buckets get-iam-policy $BUCKET --format=json   # the bucket; objectAdmin for the deployer and each VM's account"
+      [ -z "${PF_RUN:-}" ] || echo "+ gcloud storage ls $BUCKET/runs/$PF_RUN-s*   # nothing there yet for the new run id"
+    else
+      echo "+ gcloud compute firewall-rules list --format=json   # per VM: tcp:443 open, tcp:80 closed (door_firewall_check)"
+    fi
+    return 0
+  fi
+  rm -rf "$pf"; mkdir -p "$pf"
+  timeout -k 5 "$GC_TIMEOUT_S" gcloud config get-value project > "$pf/project.txt" 2>/dev/null || true
+  timeout -k 5 "$GC_TIMEOUT_S" gcloud config get-value account > "$pf/account.txt" 2>/dev/null || true
+  if [ -n "$BUCKET" ]; then echo bucket; else echo door; fi > "$pf/mode.txt"
+  printf '%s\n' "$@" > "$pf/vms.txt"
+  gc secrets describe "$DOOR_SECRET" --format=json > "$pf/secret.json" 2> "$pf/secret.err" && rm -f "$pf/secret.err"
+  if [ ! -f "$pf/secret.err" ]; then
+    gc secrets get-iam-policy "$DOOR_SECRET" --format=json > "$pf/secret-iam.json" 2> "$pf/secret-iam.err" \
+      && rm -f "$pf/secret-iam.err"
+  fi
+  [ -n "$BUCKET" ] || { gc compute firewall-rules list --format=json > "$pf/firewall.json" 2> "$pf/firewall.err" \
+                          && rm -f "$pf/firewall.err"; }
+  for x in "$@"; do
+    n="${x% *}"; z="${x#* }"
+    gc compute instances describe "$n" --zone "$z" --format=json > "$pf/vm-$n.json" 2> "$pf/vm-$n.err" \
+      && rm -f "$pf/vm-$n.err"
+    if [ -z "$BUCKET" ] && [ -s "$pf/vm-$n.json" ] && [ -s "$pf/firewall.json" ]; then
+      door_firewall_check "$PY" "$pf/vm-$n.json" "$pf/firewall.json" 2> "$pf/firewall-$n.txt" || true
+    fi
+  done
+  if [ -n "$BUCKET" ]; then
+    echo "$BUCKET" > "$pf/bucket.txt"
+    gc storage ls "$BUCKET" > /dev/null 2> "$pf/bucket-ls.err" && rm -f "$pf/bucket-ls.err"
+    gc storage buckets get-iam-policy "$BUCKET" --format=json > "$pf/bucket-iam.json" 2> "$pf/bucket-iam.err" \
+      && rm -f "$pf/bucket-iam.err"
+    if [ -n "${PF_RUN:-}" ]; then  # a launch: nothing may be there yet for its new run id (a stale src or results)
+      echo "$PF_RUN" > "$pf/run-id.txt"
+      gc storage ls "$BUCKET/runs/$PF_RUN-s*" > "$pf/bucket-stale.txt" 2>/dev/null || true
+    fi
+  fi
+  cr --preflight-check "$pf"
+}
+
+if [ "$PREFLIGHT" = 1 ]; then  # A7: free; the VMs 1..N of --vms / --zones (or tb-gpu-sim in asia-east1-a)
+  door_reach_check || true   # said, not refused: --preflight only reports
+  vms=(); for i in $(seq 1 "$VMS"); do vms+=("$(vm_name "$i") $(vm_zone "$i")"); done
+  PFD="$(mktemp -d)"
+  rc=0; preflight "$PFD" "${vms[@]}" || rc=$?
+  rm -rf "$PFD"
+  exit "$rc"
+fi
 
 RUN_ID="${COLLECT:-${TB_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD)}}"
 OUT="${TB_COMPLETE_DIR:-$ROOT/.cache/complete-run/$RUN_ID}"
@@ -151,8 +234,6 @@ plan_get() {  # shard field: one value of plan.json (vm, zone, cap_hours, hours,
   "$PY" -c 'import json,sys; s=json.load(open(sys.argv[1]))["plan"]["shards"][int(sys.argv[2])-1]; v=s[sys.argv[3]]
 print(" ".join(v) if isinstance(v, list) else v)' "$PLAN" "$1" "$2"
 }
-vm_name() { if [ "$1" = 1 ]; then echo "$VM"; else echo "$VM-$1"; fi; }
-vm_zone() { echo "$ZONES" | cut -d, -f"$1"; }
 quota_check() {  # $1 = number of VMs (zones 1..N): read-only quota reads, refuse when N VMs cannot run (review H-05)
   local n=$1 zs q r
   zs="$(echo "$ZONES" | cut -d, -f1-"$n")"
@@ -221,23 +302,70 @@ door_secret_add() {  # this VM's door into Secret Manager: a new version of tb-g
     echo "+ gcloud secrets versions add $DOOR_SECRET --data-file=$SH/door-secret.json --format=value(name)   # the key and the TLS key; never metadata"
     echo 0 > "$SH/door-version"; return 0
   fi
-  local v
+  local v rc=0
   gc secrets describe "$DOOR_SECRET" --format='value(name)' >/dev/null \
     || { echo "no secret $DOOR_SECRET: run deploy/gcp/setup-gcp.sh once (it makes the secret and lets the VM read it)" >&2; return 1; }
-  v="$(gc secrets versions add "$DOOR_SECRET" --data-file="$SH/door-secret.json" --format='value(name)')" || return 1
-  rm -f "$SH/door-secret.json" "$SH/door.key"   # the VM reads its copy from Secret Manager; none stays here
+  # A8: `gc` retries a call that timed out, so one add can leave two enabled versions, only one of them named back.
+  # The enabled versions before and after the add (one shard at a time: the lock) are what this VM made: all of them
+  # go in door-versions and are destroyed with it; door-version is the one the VM reads.
+  exec 9> "$OUT/door.lock"; flock 9
+  door_enabled > "$SH/door-before" || : > "$SH/door-before"
+  v="$(gc secrets versions add "$DOOR_SECRET" --data-file="$SH/door-secret.json" --format='value(name)')" || rc=$?
+  door_enabled | comm -13 "$SH/door-before" - >> "$SH/door-versions" || true
+  flock -u 9; exec 9>&-
+  rm -f "$SH/door-secret.json" "$SH/door.key" "$SH/door-before"   # the VM reads its copy from Secret Manager
   v="${v##*/}"
-  case "$v" in ''|*[!0-9]*) echo "secret $DOOR_SECRET: no version number from gcloud ('$v')" >&2; return 1 ;; esac
+  [ "$rc" = 0 ] || { door_retire; return 1; }
+  case "$v" in ''|*[!0-9]*) echo "secret $DOOR_SECRET: no version number from gcloud ('$v')" >&2; door_retire; return 1 ;; esac
   echo "$v" > "$SH/door-version"
+  echo "$v" >> "$SH/door-versions"
 }
-door_retire() {  # the results are here (or there are none): destroy this VM's door version; the key file goes
+door_enabled() {  # the door secret's enabled version numbers, sorted as text (for comm)
+  gc secrets versions list "$DOOR_SECRET" --filter=state=enabled --format='value(name)' | sed 's#.*/##' \
+    | { grep -E '^[0-9]+$' || true; } | sort
+}
+door_retire() {  # the results are here (or there are none, or the start gave up): destroy every door version this VM
+  # made (door-versions: the one it reads and any a retried add left); the key file goes
   if [ "$DRY" = 1 ]; then echo "+ gcloud secrets versions destroy <version> --secret $DOOR_SECRET --quiet   # once collected"; return 0; fi
-  local v; v="$(cat "$SH/door-version" 2>/dev/null || true)"
-  if [ -n "$v" ] && [ "$v" != 0 ]; then
+  local v
+  for v in $(for f in "$SH/door-version" "$SH/door-versions"; do [ -f "$f" ] && { cat "$f"; echo; }; done | sort -u); do
+    case "$v" in ''|0|*[!0-9]*) continue ;; esac
     gc secrets versions destroy "$v" --secret "$DOOR_SECRET" --quiet >/dev/null \
       || echo "secret $DOOR_SECRET version $v: not destroyed; destroy it by hand" >&2
+  done
+  rm -f "$KEYF" "$SH/door-version" "$SH/door-versions" "$SH/door.key" "$SH/door-secret.json"
+}
+door_versions_left() {  # A8: after a collect or stop, the door secret's enabled versions: none, or which remain
+  local out vs mine="" msg f
+  if [ "$DRY" = 1 ]; then
+    echo "+ gcloud secrets versions list $DOOR_SECRET --filter=state=enabled --format=value(name)   # 'no enabled version', or which remain"
+    return 0
   fi
-  rm -f "$KEYF" "$SH/door-version" "$SH/door.key" "$SH/door-secret.json"
+  for f in "$OUT"/shard-*/door-version "$OUT"/shard-*/door-versions; do [ -f "$f" ] && mine="$mine $(tr "\n" " " < "$f")"; done
+  mine="$(echo "$mine" | tr " " "\n" | grep -E "^[0-9]+$" | sort -un | tr "\n" " " | sed "s/ $//" || true)"; mine="${mine:+ $mine}"
+  if out="$(gc secrets versions list "$DOOR_SECRET" --filter=state=enabled --format='value(name)' 2>/dev/null)"; then
+    vs="$(printf '%s\n' "$out" | sed 's#.*/##' | grep -E '^[0-9]+$' | sort -n | tr '\n' ' ' | sed 's/ $//' || true)"
+    if [ -z "$vs" ]; then msg="door secret $DOOR_SECRET: no enabled version"
+    else msg="door secret $DOOR_SECRET: enabled version(s) $vs remain (this run's not destroyed:${mine:- none}); destroy each with: gcloud secrets versions destroy <version> --secret $DOOR_SECRET --quiet"; fi
+  else
+    msg="door secret $DOOR_SECRET: its versions are not readable here (the deployer needs roles/secretmanager.viewer, setup-gcp.sh); this run's not destroyed:${mine:- none}"
+  fi
+  echo "$msg"
+  [ -d "$OUT" ] && printf '%s\n' "$msg" > "$OUT/door-secret.txt"
+  return 0
+}
+door_retire_all() {  # A8: every part of the plan is in: each VM's door version goes, a VM still running powers off
+  local i
+  for i in $(seq 1 "$VMS"); do
+    SH="$OUT/shard-$i"; KEYF="$SH/tb-key"; VM="$(plan_get "$i" vm)"; ZONE="$(plan_get "$i" zone)"
+    [ -f "$SH/door-version" ] || [ -f "$SH/door-versions" ] || [ -f "$KEYF" ] || continue
+    if [ "$DRY" = 0 ] && [ -f "$KEYF" ] && [ "$(status)" = RUNNING ]; then
+      IP="$(ip)"; door POST collected --max-time 20 >/dev/null 2>&1 || true   # it powers off now, not after its grace
+    fi
+    door_retire
+    echo "VM $i: every part of the run is in: its door version is destroyed"
+    [ "$DRY" = 1 ] || { touch "$SH/results.final"; echo "done" > "$SH/state"; }
+  done
 }
 fetch_results() {  # this VM's results.tgz as it is now, replacing the earlier one only when the download is whole
   if [ -n "$BUCKET" ]; then gc storage cp "$BUCKET/runs/$RUN_ID-s$i/results.tgz" "$SH/results.tgz.new" || return 1
@@ -246,19 +374,28 @@ fetch_results() {  # this VM's results.tgz as it is now, replacing the earlier o
   tar -tzf "$SH/results.tgz.new" >/dev/null 2>&1 || { rm -f "$SH/results.tgz.new"; return 1; }
   mv -f "$SH/results.tgz.new" "$SH/results.tgz"
 }
-wait_door() {
-  for _ in $(seq 1 "${1:-90}"); do door POST heartbeat >/dev/null 2>&1 && return 0; [ "$DRY" = 1 ] && return 0; sleep 20; done
-  return 1
+wait_door() {  # $1 tries of 20 s: a wall-clock bound ($1 x 20 s), whatever each call takes (each one at most 30 s)
+  local end=$((SECONDS + ${1:-90} * 20))
+  while :; do
+    door POST heartbeat --max-time 30 >/dev/null 2>&1 && return 0
+    [ "$DRY" = 1 ] && return 0
+    [ "$SECONDS" -lt "$end" ] || return 1
+    sleep 20
+  done
 }
 collect_start() {  # a stopped VM whose results are on its disk: start it in the results-only mode (review H-04, L-03)
   echo "$VM is TERMINATED and its results are on its disk: a results-only start (no models, no run, cloud cap 20 min)"
+  if [ ! -f "$KEYF" ] || [ ! -f "$SH/door-version" ]; then  # --stop destroyed its door (A8): a new one for this boot
+    if ! door_make "$SH" || ! door_secret_add; then echo "$VM: no door for a results-only start" >&2; return 1; fi
+  fi
   gc compute instances set-scheduling "$VM" --zone "$ZONE" --max-run-duration=20m --instance-termination-action=STOP
   gc compute instances add-metadata "$VM" --zone "$ZONE" --metadata-from-file \
     "startup-script=$ROOT/deploy/gcp/complete-run-vm.sh,tb-door-cert=$SH/door.crt" \
     --metadata "tb-door-secret=$DOOR_SECRET,tb-door-version=$(cat "$SH/door-version"),tb-collect-only=1,tb-max-minutes=15,tb-done-grace=10"
   gc compute instances start "$VM" --zone "$ZONE"
   IP="$(ip)"
-  wait_door 30 || { echo "$VM: the door did not answer in 10 minutes (it powers off by itself)" >&2; return 1; }
+  wait_door 30 || { echo "$VM: the door did not answer in 10 minutes: stopping it, its door destroyed" >&2
+                   stop_vm; door_retire; return 1; }
 }
 
 shard_run() {  # $1 = shard number; VM, ZONE and parts come from plan.json; the cap from what is left (shard_now)
@@ -280,6 +417,7 @@ shard_run() {  # $1 = shard number; VM, ZONE and parts come from plan.json; the 
     echo "VM $i/$VMS $VM ($ZONE): estimate ${EST_H} h (US\$${EST_USD}); hard cap ${CAP_H} h (STOP), at most US\$$("$PY" -c "print(round($CAP_H*$PRICE, 2))"); $WHY_PROV; parts: $TAGS; parts left: ${LEFT:-none}"
     s="$(status)"
     [ "$s" = TERMINATED ] || { echo "$VM is $s, not TERMINATED: stop it first (--stop) or collect its run" >&2; return 3; }
+    door_reach_check || { echo "$VM: not started (see above)" >&2; return 3; }   # A6: a door no proxy can carry
     door_vm_ready || { echo "$VM: not started (see above)" >&2; return 3; }   # its door: Secret Manager, 443 only
     # ------------------------------------------------------------ 1. the cloud-side hard cap, before the start
     # GCE refuses STANDARD on a VM created preemptible unless the flag is cleared with it (G1 2026-11-12: "For
@@ -295,17 +433,30 @@ shard_run() {  # $1 = shard number; VM, ZONE and parts come from plan.json; the 
     rm -f "$SH/results.tgz" "$SH/results.final" "$SH/collect-boot" "$SH/state"
     gc compute instances add-metadata "$VM" --zone "$ZONE" --metadata-from-file \
       "startup-script=$ROOT/deploy/gcp/complete-run-vm.sh,tb-serving-config=$ROOT/tools/serving_config.py,tb-door-cert=$SH/door.crt" \
-      --metadata "tb-door-secret=$DOOR_SECRET,tb-door-version=$(cat "$SH/door-version"),tb-run-id=$RUN_ID-s$i,tb-patients=$PATIENTS,tb-only=$TAGS,tb-llm-concurrency=$(plan_lc),tb-src-sha256=$SRC_SHA,tb-collect-only=0,tb-max-minutes=$((CAP_H * 60 - 5)),tb-idle-minutes=20,tb-done-grace=30${BUCKET:+,tb-bucket=$BUCKET}"
-    gc compute instances start "$VM" --zone "$ZONE"
+      --metadata "tb-door-secret=$DOOR_SECRET,tb-door-version=$(cat "$SH/door-version"),tb-run-id=$RUN_ID-s$i,tb-patients=$PATIENTS,tb-only=$TAGS,tb-llm-concurrency=$(plan_lc),tb-src-sha256=$SRC_SHA,tb-collect-only=0,tb-max-minutes=$((CAP_H * 60 - 5)),tb-idle-minutes=20,tb-done-grace=30${BUCKET:+,tb-bucket=$BUCKET}" \
+      || { echo "$VM: not started: its metadata could not be set" >&2; door_retire; return 3; }
+    # every give-up from here destroys the door versions it made (A8): a failed start, no door, a failed upload
+    gc compute instances start "$VM" --zone "$ZONE" \
+      || { echo "$VM: the start failed: stopping it, its door destroyed" >&2; stop_vm; door_retire
+           echo noresults > "$SH/state"; return 3; }
     echo "started $VM; it stops itself (cap ${CAP_H} h, watchdog). Collect, now and later: $0 --collect $RUN_ID"
     IP="$(ip)"
     if [ -z "$BUCKET" ]; then  # 3. the code through the door (TLS) once it is up (the VM waits 30 minutes for it)
-      wait_door 90 || { echo "$VM: the door did not answer in 30 minutes; it powers off by itself" >&2; return 4; }
-      door PUT upload --data-binary @"$OUT/src.tgz" -H 'Content-Type: application/gzip'
+      # A6: a door that never answers is a paid VM nobody can drive: stop it now, not after its own watchdog
+      wait_door 90 || { echo "$VM: the door did not answer in 30 minutes: stopping it (no code was uploaded)" >&2
+                        stop_vm; door_retire; echo noresults > "$SH/state"; return 4; }
+      door PUT upload --data-binary @"$OUT/src.tgz" -H 'Content-Type: application/gzip' \
+        || { echo "$VM: the code upload failed: stopping it, its door destroyed" >&2; stop_vm; door_retire
+             echo noresults > "$SH/state"; return 4; }
     fi
     [ "$WAIT" = 1 ] || return 0
   else
-    [ -f "$KEYF" ] || { echo "VM $i of run $RUN_ID: results here and its key removed: nothing to collect"; return 0; }
+    # nothing more to come: the results are here, or a results-only boot found none; a door that --stop destroyed
+    # (A8) is made anew by the results-only boot (collect_start)
+    if [ -f "$SH/results.final" ] || [ "$(cat "$SH/state" 2>/dev/null)" = noresults ] \
+       || { [ ! -f "$KEYF" ] && [ ! -f "$SH/door.crt" ]; }; then
+      echo "VM $i of run $RUN_ID: results here (or none to come) and its door gone: nothing to collect"; return 0
+    fi
     IP="$(ip)"
   fi
   # -------------------------------------------------------------- poll: short calls only, nothing held open
@@ -400,12 +551,17 @@ PY
 fi
 
 if [ "$STOP" = 1 ]; then
-  if [ -f "$PLAN" ]; then
-    for i in $(seq 1 "$VMS"); do VM="$(plan_get "$i" vm)"; ZONE="$(plan_get "$i" zone)"; stop_vm; done
+  if [ -f "$PLAN" ]; then  # A8: a stopped VM of this run needs its door no more (a results-only boot makes a new one)
+    for i in $(seq 1 "$VMS"); do
+      VM="$(plan_get "$i" vm)"; ZONE="$(plan_get "$i" zone)"; stop_vm
+      SH="$OUT/shard-$i"; KEYF="$SH/tb-key"
+      if [ -f "$SH/door-version" ] || [ -f "$SH/door-versions" ] || [ -f "$KEYF" ]; then door_retire; fi
+    done
   else
     names=(); for i in $(seq 1 "$VMS"); do names+=("$(vm_name "$i")"); done
     for i in $(seq 1 "$VMS"); do VM="${names[$((i - 1))]}"; ZONE="$(vm_zone "$i")"; stop_vm; done
   fi
+  door_versions_left
   exit 0
 fi
 
@@ -456,7 +612,11 @@ json.dump({"head": g("rev-parse","HEAD"), "subject": g("log","-1","--format=%s")
   fi
   [ -n "$(git status --porcelain)" ] && echo "note: local changes are NOT in the run; it runs HEAD $(git rev-parse --short HEAD)" >&2
   gc_probe
+  door_reach_check || exit 2   # A6: before anything is made or started
   quota_check "$VMS" || exit 4
+  # A7: the same read-only pre-flight as --preflight, before any VM starts: every problem at once, each with its fix
+  vms=(); for i in $(seq 1 "$VMS"); do vms+=("$(plan_get "$i" vm) $(plan_get "$i" zone)"); done
+  PF_RUN="$RUN_ID" preflight "$OUT/preflight" "${vms[@]}" || { echo "not started: fix the problems above (--preflight checks again, free)" >&2; exit 6; }
   for i in $(seq 1 "$VMS"); do  # every VM is there and stopped before any of them starts
     VM_I="$(plan_get "$i" vm)"; Z_I="$(plan_get "$i" zone)"
     if [ "$DRY" = 0 ]; then
@@ -494,6 +654,8 @@ STUB=(--patients "$PATIENTS" --ocr tesseract --run-id "$RUN_ID")   # as on the V
 LC="$(plan_lc 2>/dev/null || true)"; LCR=(); [ -z "$LC" ] || LCR=(--llm-concurrency "$LC")
 if [ "$DRY" = 1 ]; then
   for i in $(seq 1 "$VMS"); do echo "+ tar -xzf $OUT/shard-$i/results.tgz -C $OUT/shard-$i; parts/ and report/shots/ into $OUT"; done
+  echo "# every part of the plan here: each VM's door version is destroyed (and a VM still running powers off)"
+  door_retire; door_versions_left
   [ "$G1" = 1 ] && echo "+ $PY -m tools.complete_run --dir $OUT --resume --only walk backup update scale ${STUB[*]}"
   echo "+ $PY -m tools.complete_run --dir $OUT --report-only --model pair ${STUB[*]} ${LCR[*]} --report-parts $ONLY"
   exit 0
@@ -513,6 +675,13 @@ for i in $(seq 1 "$VMS"); do
 done
 [ -f "$OUT/shard-1/serving_config.rtxpro6000.live.json" ] && cp "$OUT/shard-1/serving_config.rtxpro6000.live.json" "$OUT/"
 [ -z "$missing" ] || echo "no results from VM(s)$missing: their parts are failed rows; --collect $RUN_ID later" >&2
+# A8 (2026-11-12: a version stayed enabled twice, the collect having come while the VM ran or through the bucket):
+# every part of the plan is here, so no VM needs its door any more: destroy each version, a running VM powers off
+parts_left="$(cr --parts-missing "$PLAN" --parts-dir "$OUT/parts" 2>/dev/null || echo "?")"
+if [ -z "$missing" ] && [ -z "$parts_left" ]; then
+  door_retire_all; running=""
+fi
+door_versions_left
 if [ -n "$running" ]; then
   echo "VM(s)$running still running: the report below is of the parts done so far; --collect $RUN_ID again later"
 elif [ "$G1" = 1 ]; then

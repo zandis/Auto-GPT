@@ -43,7 +43,9 @@ from __future__ import annotations
 
 import argparse
 import html
+import itertools
 import json
+import math
 import os
 import platform
 import secrets
@@ -54,7 +56,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -124,6 +126,7 @@ def _one(name: str, checks: list[tuple[str, bool, Any]], seconds: float) -> list
     return [{"name": name, "ok": all(c[1] for c in checks), "seconds": round(seconds, 1), "checks": checks}]
 
 
+DOOR_STATE = "door-secret.txt"  # complete-run.sh: the door's secret versions after a collect or stop (A8)
 HEAD_FILE = "TB_HEAD.json"  # written into the uploaded archive by the driver (git archive --add-file): the VM's HEAD
 
 
@@ -369,7 +372,11 @@ def part_hospital(a: argparse.Namespace) -> dict[str, Any]:
     # the database-feed scenario (db-csv): model calls, and the models' exclusions against the generator's note truth
     summary = json.loads((a.dir / f"synth-{a.patients}" / "summary.json").read_text(encoding="utf-8"))
     truth = scenarios.note_truth([a.dir / f"synth-{a.patients}" / x["dir"] for x in summary["sites"]], fd.KEY)
-    cap: dict[str, Any] = next((c for c in reversed(scenarios.CAPTURED) if c["ruleset"] == e2e_simple.TRIAL), {})
+    # the main SCREEN's own verdicts (its list is the job's), not a later stage's one-patient SCREEN (M1, 2026-11-12)
+    main = main_candidates(box, sj)
+    ours = [c for c in scenarios.CAPTURED if c["ruleset"] == e2e_simple.TRIAL]
+    same = [c for c in ours if run_metrics.candidate_list(c["results"])["sha256"] == main["sha256"]]
+    cap: dict[str, Any] = (same or ours or [{}])[0 if same else -1]
     ex = scenarios.model_exclusions(cap.get("results") or {}, truth)
     stages += _one("db-csv: model exclusions against the generator's note truth", [
         ("no false model exclusion (a note criterion the truth does not block on)", ex["false"] == 0,
@@ -379,8 +386,9 @@ def part_hospital(a: argparse.Namespace) -> dict[str, Any]:
         "chain_seconds": out["chain_seconds"],
         "screen": {k: scr.get(k) for k in ("funnel", "tiers", "listed", "judging")},
         "canary": canary.get("status"),
-        # G-3: who was listed, with a hash: the list must be the same at every TB_SCREEN_LLM_CONCURRENCY
-        "candidates": run_metrics.candidate_list(cap.get("results") or {}),
+        # G-3: who the main SCREEN listed (the job whose funnel is above, from its own candidate_list_*.json), with a
+        # hash: the list must be the same at every TB_SCREEN_LLM_CONCURRENCY
+        "candidates": main,
         "scenario": {
             "title": "Hospital database feed (CGRD-style CSV)",
             "input": f"CGRD-style CSV export of {a.patients:,} synthetic patients (two sites, JP and TW style)",
@@ -400,6 +408,19 @@ def part_hospital(a: argparse.Namespace) -> dict[str, Any]:
     finally:
         srv.stop()
     return {"stages": stages, **extra}
+
+
+def main_candidates(box: Any, job: Any) -> dict[str, Any]:
+    """The candidate list of the part's main SCREEN job (``job``: the one whose funnel and ``listed`` the part
+    reports), from the job's own ``candidate_list_*.json``; ``of`` names the job. Not the last SCREEN captured in the
+    process: a later stage screens one patient (the 2026-11-12 run's lists were of that one, ``count`` 1)."""
+    from tools import e2e_simple, run_metrics
+
+    try:
+        doc = e2e_simple._json_output(box, job, "candidate_list_")
+    except StopIteration:
+        return {"count": 0, "sha256": "", "list": None, "of": getattr(job, "job_id", ""), "why": "no candidate list"}
+    return {**run_metrics.candidate_list_of_rows(doc.get("rows") or []), "of": getattr(job, "job_id", "")}
 
 
 def part_public(a: argparse.Namespace) -> dict[str, Any]:
@@ -832,8 +853,11 @@ def run_part(a: argparse.Namespace) -> int:
     if a.part in MODEL_PARTS:
         res["metrics"] = monitor.stop()
         calls = run_metrics.audit_calls(a.dir / f"gw-audit-{a.part}", began)
+        refused = run_metrics.audit_refusals(a.dir / f"gw-audit-{a.part}", began)
         if calls:
             res["throughput"] = run_metrics.call_stats(calls)
+        if calls or refused:  # M2: "N of M calls refused" (the PHI tripwire, the guard, ...), from the same audit
+            res["refusals"] = run_metrics.refusal_stats(calls, refused)
     if a.model == "pair":
         from tools import scenarios
 
@@ -1137,7 +1161,12 @@ def report(
     rep["llm_concurrency"] = sorted({int(r["llm_concurrency"]) for r in rows
                                      if r.get("llm_concurrency") and r.get("part") in MODEL_PARTS})  # fmt: skip
     rep["throughput"] = run_metrics.curve(rows)
-    rep["candidates_identical"] = run_metrics.lists_identical(rows)
+    rep["candidates_compare"] = run_metrics.lists_compare(rows)
+    rep["candidates_identical"] = {lang: v["identical"] for lang, v in rep["candidates_compare"].items()}
+    # A8: the door's secret after the collect (complete-run.sh writes door-secret.txt): none enabled, or what remains
+    door = Path(a.dir) / DOOR_STATE if getattr(a, "dir", None) else None
+    if door is not None and door.is_file():
+        rep["door_secret"] = door.read_text(encoding="utf-8").strip()
     rep["checks"] = sum(len(st["checks"]) for r in rows for st in r["stages"])
     rep["failed"] = sum(1 for r in rows for st in r["stages"] for c in st["checks"] if not c[1])
     # a part that crashed, did not report or had no data counts one failed check; its own checks never ran (review
@@ -1222,6 +1251,8 @@ def _scenario_sections(rep: dict[str, Any]) -> list[str]:
 
 def _throughput_section(rep: dict[str, Any]) -> list[str]:
     """Review G-3: per part, the calls in flight, calls and tokens per second, call times, the card, the list."""
+    from tools import run_metrics
+
     rows = rep.get("throughput") or []
     if not rows:
         return []
@@ -1237,13 +1268,26 @@ def _throughput_section(rep: dict[str, Any]) -> list[str]:
            "Calls and tokens per second are over the seconds in which a call was in flight (the gateway's audit); the "
            "servers' `/metrics` before and after, `gpu.csv` (every 10 s) and `vllm.csv` are in `parts/<part>/`.", "",
            "| part | in flight | calls | calls/s | tokens/s | p50 s | p95 s | queue s (vLLM) | GPU % mean | "
-           "GPU MiB peak | breaker opened | listed | list sha256 |",
-           "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]  # fmt: skip
-    out += ["| " + " | ".join(cell(r.get(k)) for k in keys) + f" | `{str(r.get('candidates_sha256') or '-')[:12]}` |"
-            for r in rows]  # fmt: skip
-    for lang, same in (rep.get("candidates_identical") or {}).items():
-        verdict = "**identical**." if same else "**DIFFERENT** (the list must not depend on the calls in flight)."
+           "GPU MiB peak | breaker opened | listed | list sha256 | refused (of asked) |",
+           "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]  # fmt: skip
+    out += ["| " + " | ".join(cell(r.get(k)) for k in keys) + f" | `{str(r.get('candidates_sha256') or '-')[:12]}` | "
+            f"{run_metrics.refused_cell(r.get('refused'))} |" for r in rows]  # fmt: skip
+    old = rep.get("candidates_identical") or {}
+    cmp = rep.get("candidates_compare") or {lang: {"identical": v, "differ": [], "why": ""} for lang, v in old.items()}
+    for lang, c in cmp.items():
+        if c["identical"] is None:
+            verdict = f"**not compared**: {c['why']}."
+        elif c["identical"]:
+            verdict = "**identical**."
+        else:
+            verdict = (f"**DIFFERENT** (the list must not depend on the calls in flight): {len(c['differ'])} "
+                       "patient(s) not listed alike (pseudonymous ids; `-`: not listed at that setting).")  # fmt: skip
         out += ["", f"Candidate lists of hospital-{lang} at every setting: {verdict}"]
+        if c.get("differ"):
+            tags = c.get("settings") or list(c["differ"][0]["tiers"])
+            out += ["", "| pid | " + " | ".join(tags) + " |", "| --- |" + " --- |" * len(tags)]
+            out += [f"| `{d['pid']}` | " + " | ".join(d["tiers"].get(t, "-") for t in tags) + " |"
+                    for d in c["differ"][:50]]  # fmt: skip
     return out
 
 
@@ -1283,6 +1327,7 @@ def markdown(rep: dict[str, Any]) -> str:
         "",
         "Screenshots are in the run's `report/shots/` folder (not committed).",
         "",
+        *([f"Door secret after the collect (T-119): {rep['door_secret']}", ""] if rep.get("door_secret") else []),
         "| part | stage | checks | result | seconds | screenshot |",
         "| --- | --- | --- | --- | --- | --- |",
     ]
@@ -1332,15 +1377,22 @@ def price_per_hour(model: str) -> float:
     return ON_DEMAND_PRICE_PER_HOUR if model == "STANDARD" else PRICE_PER_HOUR
 
 
+def cap_hours(rows: list[dict[str, Any]], hours: float) -> int:
+    """The hard cap of one VM that runs ``rows`` (``hours`` estimated): the estimate x 1.3 rounded up, and never below
+    the same rows with no gain from the calls in flight (``floor_seconds``; speedup 1): the measured curve shortens the
+    estimate, never the cap below what the run would take if the gain were not there."""
+    floor = sum(float(r.get("floor_seconds", r["seconds"])) for r in rows) / 3600
+    return math.ceil(max(hours * 1.3, floor))
+
+
 def _priced(e: dict[str, Any], rows: list[dict[str, Any]], hours: float) -> dict[str, Any]:
     """Hours, cap and US$ of one VM that runs ``rows``: spot, or on demand when a hospital part is among them."""
-    import math
 
     model = provisioning([t for r in rows for t in r["tags"]])
     price = price_per_hour(model)
     for r in rows:
         r["usd"] = round(r["hours"] * price, 2)
-    cap = math.ceil(hours * 1.3)
+    cap = cap_hours(rows, hours)
     return {**e, "rows": rows, "hours": round(hours, 2), "usd": round(hours * price, 2), "cap_hours": cap,
             "cap_usd": round(cap * price, 2), "provisioning": model, "price_per_hour": price}  # fmt: skip
 
@@ -1362,37 +1414,69 @@ HOSPITAL_PART_SECONDS = 17960.0
 HOSPITAL_PART_PATIENTS = 50000
 # The same measurement's model time: 6,704 calls in the 8,584 s of the screening stage, one call in flight (G1 ran
 # with TB_SCREEN_LLM_CONCURRENCY unset): 0.78 calls per second. With N calls in flight the screening time is the
-# calls over that rate times min(N, LLM_SPEEDUP); the rest of the part does not change with N.
+# calls over that rate times the gain at N (:func:`llm_speedup`); the rest of the part does not change with N.
 G1_SCREEN_SECONDS = 8584.0
 G1_SCREEN_CALLS = 6704
 G1_CALLS_PER_SECOND = G1_SCREEN_CALLS / G1_SCREEN_SECONDS  # 0.78 at N = 1
-# OD-10, a declared setting with its reason: the most the estimate lets N calls in flight raise the calls per second.
-# No rate at N > 1 is measured yet (review test G-3 measures it), so the estimate must stay an upper bound of the
-# time: it assumes only that two or more calls in flight are served at twice the single-call rate (vLLM batches
-# them on one card), and no more however large N is. TB_ESTIMATE_LLM_SPEEDUP changes it: 1 is the strict bound (the
-# single-call time at every N); G-3's measured calls per second at the chosen N, over 0.78, replaces it.
-LLM_SPEEDUP = 2.0
+# OD-10, measured: review test G-3's curve, run 20261112T165042Z-931a0f79 (commit 931a0f7), hospital-ja at 5,000
+# patients, judge and verifier on one RTX PRO 6000: calls per second (over the seconds a call was in flight, the
+# gateway's audit) at N calls in flight. Source: that run's report.json, "throughput". The estimate takes from it only
+# the GAIN, rate(N) / rate(1) (2.60x at 4, 4.44x at 16, 4.87x at 48), and keeps G1's 0.78 calls/s as the rate at 1:
+# G1's 0.78 is calls over the screening stage's wall seconds at 50,000 patients, measured in the same run as the part
+# time this estimate scales (17,960 s); G-3's 0.40 at 1 is calls over busy seconds at 5,000 patients on another commit,
+# a different quantity, so it is not mixed in. A ratio of two rates of one run cancels what differs between the runs.
+# Between measured points the gain is interpolated linearly in log2(N) (8 and 32 lie between); above 48 it is held at
+# 48's (the curve has flattened: 4.44x at 16, 4.87x at 48), below 1 it is 1. Not yet measured: zh-TW and 50,000
+# patients (G-3 runs them next); a newer curve replaces these numbers. TB_ESTIMATE_LLM_SPEEDUP stays as the owner's
+# override, with its old meaning: the gain is then min(N, that factor) (1 is the strict bound, no gain at any N).
+G3_CALLS_PER_SECOND: dict[int, float] = {1: 0.400, 4: 1.041, 16: 1.774, 48: 1.947}
+G3_RUN = "20261112T165042Z-931a0f79"
+
+
+def measured_gain(n: int) -> float:
+    """G-3's measured gain at ``n`` calls in flight: rate(n) / rate(1) of :data:`G3_CALLS_PER_SECOND`, interpolated
+    linearly in log2(n) between the measured points, held at the last point above it, 1 at or below 1."""
+    pts = sorted(G3_CALLS_PER_SECOND.items())
+    base = G3_CALLS_PER_SECOND[1]
+    if n <= pts[0][0]:
+        return 1.0
+    for (n0, r0), (n1, r1) in itertools.pairwise(pts):
+        if n <= n1:
+            f = (math.log2(n) - math.log2(n0)) / (math.log2(n1) - math.log2(n0))
+            return round((r0 + f * (r1 - r0)) / base, 3)
+    return round(pts[-1][1] / base, 3)
+
+
+def speedup_override() -> float | None:
+    """``TB_ESTIMATE_LLM_SPEEDUP`` (the owner's override of the measured curve), None when not set."""
+    raw = os.environ.get("TB_ESTIMATE_LLM_SPEEDUP", "").strip()
+    if not raw:
+        return None
+    try:
+        factor = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"TB_ESTIMATE_LLM_SPEEDUP must be a number from 1, not {raw!r}") from exc
+    if not math.isfinite(factor) or factor < 1:
+        raise ValueError(f"TB_ESTIMATE_LLM_SPEEDUP must be a number from 1, not {raw!r}")
+    return factor
 
 
 def llm_speedup(n: int) -> float:
-    """What the estimate divides the single-call screening time by at ``n`` calls in flight: ``min(n, the declared
-    factor)`` (:data:`LLM_SPEEDUP`, ``TB_ESTIMATE_LLM_SPEEDUP``), never below 1."""
-    raw = os.environ.get("TB_ESTIMATE_LLM_SPEEDUP", "").strip()
-    try:
-        factor = float(raw) if raw else LLM_SPEEDUP
-    except ValueError as exc:
-        raise ValueError(f"TB_ESTIMATE_LLM_SPEEDUP must be a number from 1, not {raw!r}") from exc
-    if factor < 1:
-        raise ValueError(f"TB_ESTIMATE_LLM_SPEEDUP must be a number from 1, not {raw!r}")
-    return max(1.0, min(float(n), factor))
+    """What the estimate divides the single-call screening time by at ``n`` calls in flight: G-3's measured gain
+    (:func:`measured_gain`), or ``min(n, TB_ESTIMATE_LLM_SPEEDUP)`` when the owner set it; never below 1."""
+    factor = speedup_override()
+    if factor is not None:
+        return max(1.0, min(float(n), factor))
+    return max(1.0, measured_gain(n))
 
 
-def hospital_seconds(patients: int, n: int = 1) -> float:
+def hospital_seconds(patients: int, n: int = 1, gain: bool = True) -> float:
     """A hospital part's wall seconds at ``patients`` with ``n`` model calls in flight: G1's measurement scaled with
     the patients, its screening share (the calls at 0.78 per second) divided by :func:`llm_speedup`. At ``n`` 1 it
-    is the measurement itself; above, an upper bound until G-3 measures the rate."""
+    is the measurement itself."""
     scale = patients / HOSPITAL_PART_PATIENTS
-    return (HOSPITAL_PART_SECONDS - G1_SCREEN_SECONDS) * scale + G1_SCREEN_SECONDS * scale / llm_speedup(n)
+    div = llm_speedup(n) if gain else 1.0
+    return (HOSPITAL_PART_SECONDS - G1_SCREEN_SECONDS) * scale + G1_SCREEN_SECONDS * scale / div
 
 
 # the benches (owner's approval of 2026-11-09; no card measurement yet, so set high): the embedding comparison is two
@@ -1451,6 +1535,10 @@ def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, flo
             many = len(lc) > 1
             rows.append(row(f"db-csv ({lang}{f', {n} in flight' if many else ''})", patients, notes,
                             max(measured, model), (f"hospital-{lang}" + (f"@c{n}" if many else ""),)))  # fmt: skip
+            # the cap's floor: the same part with no gain at all from the calls in flight (the curve is measured at
+            # 5,000 ja only; a cap below the part stops it mid-run, G1 bug A4)
+            no_gain = notes * sec + CANARY_SECONDS + other("hospital", patients, local_patients)
+            rows[-1]["floor_seconds"] = max(hospital_seconds(patients, 1, gain=False), no_gain)
         rows.append(row(f"public ({lang})", 90, 90, PUBLIC_SECONDS, (f"public-{lang}",)))
     for name in scenarios.SCENARIOS if g1 else ():
         t = (f"scenario-{name}",)
@@ -1478,7 +1566,8 @@ def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, flo
         r["hours"] = round(r["seconds"] / 3600, 2)
     hours = sum(r["seconds"] for r in rows) / 3600
     head = {"patients": patients, "seconds_per_note_patient": sec, "parts": list(parts), "llm_concurrency": list(lc),
-            "llm_speedup": [llm_speedup(n) for n in lc], "max_num_seqs": record_max_seqs()}  # fmt: skip
+            "llm_speedup": [llm_speedup(n) for n in lc], "llm_speedup_override": speedup_override(),
+            "max_num_seqs": record_max_seqs()}  # fmt: skip
     return _priced(head, rows, hours)
 
 
@@ -1520,7 +1609,6 @@ def shard_plan(e: dict[str, Any], vms: int) -> dict[str, Any]:
     hospital). Longest part first onto the least-loaded VM (LPT, deterministic). Every VM pays its own start and
     setup; ``prepare`` (the shared synthetic hospital) goes with every shard that has a hospital part, ``install``
     (the serving records) with the first. Each VM has its own hard cap: its estimate x 1.3, rounded up."""
-    import math
 
     fixed = [r for r in e["rows"] if not r["tags"]]
     work = sorted((r for r in e["rows"] if r["tags"]), key=lambda r: (-r["seconds"], r["scenario"]))
@@ -1541,7 +1629,7 @@ def shard_plan(e: dict[str, Any], vms: int) -> dict[str, Any]:
                 tags = ["install", *tags]
         sec = fixed_s + sum(r["seconds"] for r in b)
         h = sec / 3600
-        cap = math.ceil(h * 1.3)
+        cap = cap_hours([*fixed, *b], h)
         model = provisioning(tags)  # D-468: on demand for a VM with a hospital part, spot for the others
         price = price_per_hour(model)
         shards.append({"shard": i + 1, "tags": tags, "rows": [r["scenario"] for r in b], "hours": round(h, 2),
@@ -1649,6 +1737,190 @@ def quota_check(folder: Path, zones: list[str], standard: list[str] | None = Non
     return 0
 
 
+# ---------------------------------------------------------------- free checks before a paid start (2026-11-12: A6, A7)
+def door_reach_problem(env: Mapping[str, str]) -> str:
+    """A6: the door is TLS straight to the VM's address (``door_curl --noproxy '*'``, its own pinned certificate). A
+    machine whose outbound HTTPS goes through a proxy (``HTTPS_PROXY`` set; often a TLS-inspecting one) cannot reach
+    it, and the VM waited for its code and idled out (2026-11-12, about US$3.50). Without ``TB_BUCKET`` and with a
+    proxy set this is the refusal's text; ``TB_DOOR_DIRECT=1`` says this machine does reach the VM directly. "" when
+    the launch may go on. The proxy's address is never printed (it may carry a credential)."""
+    if str(env.get("TB_BUCKET") or "").strip():
+        return ""
+    if not str(env.get("HTTPS_PROXY") or env.get("https_proxy") or "").strip():
+        return ""
+    if str(env.get("TB_DOOR_DIRECT") or "").strip().lower() in ("1", "true", "yes", "on"):
+        return ""
+    return ("door: HTTPS_PROXY is set here, so this machine's outbound HTTPS goes through a proxy, and the door is TLS "
+            "straight to the VM's address (no proxy, the VM's own pinned certificate): the code could not be uploaded "
+            "and the VM would idle out (2026-11-12). Set TB_BUCKET=gs://<bucket> (code and results through the "
+            "bucket; `TB_BUCKET=gs://<bucket> bash deploy/gcp/setup-gcp.sh <project>` makes it and grants "
+            "access), or TB_DOOR_DIRECT=1 if this machine does reach the VM's address directly. Nothing was "
+            "started.")  # fmt: skip
+
+
+def _gcloud_error(text: str) -> str:
+    """What a failed read-only gcloud call says: ``disabled`` (the API is off), ``denied``, ``missing`` or ``other``."""
+    t = text.lower()
+    if "service_disabled" in t or "has not been used in project" in t or "it is disabled" in t:
+        return "disabled"
+    if "permission_denied" in t or "permission denied" in t or "403" in t or "does not have" in t:
+        return "denied"
+    if "not_found" in t or "not found" in t or "404" in t or "bucketnotfound" in t:
+        return "missing"
+    return "other"
+
+
+def _member(account: str) -> str:
+    return ("serviceAccount:" if account.endswith(".gserviceaccount.com") else "user:") + (account or "<deployer>")
+
+
+def _bound(policy: dict[str, Any], member: str, roles: set[str]) -> bool:
+    return any(b.get("role") in roles and member in (b.get("members") or []) for b in policy.get("bindings") or [])
+
+
+def preflight_problems(folder: Path, secret: str = "tb-gpu-door") -> tuple[list[str], list[str]]:
+    """A7: every reason a launch would fail in the cloud, from the read-only gcloud answers the driver saved in
+    ``folder`` (``complete-run.sh --preflight``; the same at the start of a real launch, before any VM starts):
+    ``project.txt``, ``account.txt``, ``mode.txt`` (door or bucket), ``vms.txt`` (``name zone`` lines),
+    ``secret.json|.err``, ``secret-iam.json|.err``, ``vm-<name>.json|.err``, ``firewall.err``,
+    ``firewall-<name>.txt`` (door_firewall_check's refusals), ``bucket.txt``, ``bucket-ls.err``,
+    ``bucket-iam.json|.err``. Returns (problems, each with the exact fix command; checks that could not be confirmed
+    read-only, e.g. a role granted on the project rather than on the resource)."""
+
+    def read(name: str) -> str:
+        p = folder / name
+        return p.read_text(encoding="utf-8", errors="replace").strip() if p.is_file() else ""
+
+    def doc(name: str) -> dict[str, Any] | None:
+        raw = read(name)
+        try:
+            return json.loads(raw) if raw else None
+        except ValueError:
+            return None
+
+    project, account, mode = read("project.txt") or "<project>", read("account.txt"), read("mode.txt") or "door"
+    member = _member(account)
+    bad: list[str] = []
+    notes: list[str] = []
+    setup = f"bash deploy/gcp/setup-gcp.sh {project}"
+    err = read("secret.err")
+    if err:
+        kind = _gcloud_error(err)
+        if kind == "disabled":
+            bad.append(f"Secret Manager API is disabled in {project}: gcloud services enable "
+                       f"secretmanager.googleapis.com --project {project}   (a project owner; or {setup})")  # fmt: skip
+        elif kind == "missing":
+            bad.append(f"no secret {secret}: run deploy/gcp/setup-gcp.sh once ({setup}), or gcloud secrets create "
+                       f"{secret} --replication-policy=automatic --project {project}")  # fmt: skip
+        elif kind == "denied":
+            bad.append(f"the deployer {account or '?'} cannot read secret {secret} (secretmanager.secrets.get): gcloud "
+                       f"secrets add-iam-policy-binding {secret} --member={member} --role=roles/secretmanager.viewer "
+                       f"--project {project}   (a project owner; {setup} grants it)")  # fmt: skip
+        else:
+            bad.append(f"secret {secret}: gcloud secrets describe failed: {err.splitlines()[-1][:200]}")
+    vm_sas: list[str] = []
+    for line in read("vms.txt").splitlines():
+        if not line.split():
+            continue
+        name, zone = [*line.split(), ""][:2]
+        verr = read(f"vm-{name}.err")
+        if verr:
+            kind = _gcloud_error(verr)
+            if kind == "missing":
+                bad.append(f"VM {name} does not exist in {zone}: deploy/gcp/complete-run.sh --provision --vms N "
+                           "--zones ... makes the clones of tb-gpu-sim (tb-gpu-sim itself: RUNBOOK §11)")  # fmt: skip
+            elif kind == "denied":
+                bad.append(f"the deployer cannot describe VM {name}: gcloud projects add-iam-policy-binding {project} "
+                           f"--member={member} --role=roles/compute.instanceAdmin.v1   (or {setup})")  # fmt: skip
+            else:
+                last = verr.splitlines()[-1][:200]
+                bad.append(f"VM {name} ({zone}): gcloud compute instances describe failed: {last}")
+            continue
+        vm = doc(f"vm-{name}.json") or {}
+        sa = ((vm.get("serviceAccounts") or [{}])[0]).get("email", "")
+        if not sa:
+            bad.append(f"VM {name} has no service account (it reads its door from Secret Manager with it): gcloud "
+                       f"compute instances set-service-account {name} --zone {zone} --service-account "
+                       f"<project-number>-compute@developer.gserviceaccount.com --scopes cloud-platform")  # fmt: skip
+        else:
+            vm_sas.append(sa)
+        if mode == "door":
+            fw = read(f"firewall-{name}.txt")
+            bad += [f"VM {name}: {x}" for x in fw.splitlines() if x.strip()]
+    ferr = read("firewall.err")
+    if ferr and mode == "door":
+        bad.append(f"the firewall rules are not readable (the door needs tcp:443 open and tcp:80 closed): gcloud "
+                   f"projects add-iam-policy-binding {project} --member={member} --role=roles/compute.securityAdmin   "
+                   f"(or {setup})")  # fmt: skip
+    pol = doc("secret-iam.json")
+    if pol is not None:
+        sm = "roles/secretmanager."
+        if account and not _bound(pol, member, {sm + "secretVersionManager", sm + "admin"}):
+            notes.append(f"the deployer is not granted on secret {secret} itself to add and destroy its versions "
+                         f"(fine if granted on the project): gcloud secrets add-iam-policy-binding {secret} "
+                         f"--member={member} --role={sm}secretVersionManager --project {project}")  # fmt: skip
+        for sa in sorted(set(vm_sas)):
+            if not _bound(pol, f"serviceAccount:{sa}", {sm + "secretAccessor", sm + "admin"}):
+                notes.append(f"the VMs' service account {sa} is not granted on secret {secret} itself to read it "
+                             f"(fine if granted on the project): gcloud secrets add-iam-policy-binding {secret} "
+                             f"--member=serviceAccount:{sa} --role={sm}secretAccessor --project {project}")  # fmt: skip
+    elif read("secret-iam.err") and not err:
+        notes.append(f"secret {secret}'s policy is not readable by the deployer: who may read and add versions is not "
+                     "checked (roles/secretmanager.viewer on the secret lets the pre-flight read it)")  # fmt: skip
+    if mode == "bucket":
+        bucket = read("bucket.txt") or "gs://<bucket>"
+        berr = read("bucket-ls.err")
+        if berr:
+            kind = _gcloud_error(berr)
+            if kind == "missing":
+                bad.append(f"bucket {bucket} does not exist: TB_BUCKET={bucket} {setup}   (makes it in the run's "
+                           "region and grants objectAdmin to the deployer and the VMs' service account)")  # fmt: skip
+            elif kind == "denied":
+                bad.append(f"the deployer cannot use bucket {bucket}: gcloud storage buckets add-iam-policy-binding "
+                           f"{bucket} --member={member} --role=roles/storage.objectAdmin   (or TB_BUCKET={bucket} "
+                           f"{setup})")  # fmt: skip
+            else:
+                bad.append(f"bucket {bucket}: gcloud storage ls failed: {berr.splitlines()[-1][:200]}")
+        bpol = doc("bucket-iam.json")
+        admin = {"roles/storage.objectAdmin", "roles/storage.admin"}
+        if bpol is not None:  # the bucket's own policy must show both: the code goes up, the results come back
+            for who in sorted({member, *(f"serviceAccount:{s}" for s in vm_sas)}):
+                if not _bound(bpol, who, admin):
+                    bad.append(f"{who} has no objectAdmin on {bucket} (the code goes up and the results come back "
+                               f"through it): gcloud storage buckets add-iam-policy-binding {bucket} --member={who} "
+                               f"--role=roles/storage.objectAdmin   (or TB_BUCKET={bucket} {setup})")  # fmt: skip
+        elif not berr:
+            bad.append(f"{bucket}'s policy is not readable by the deployer, so the VMs' access cannot be checked: "
+                       f"gcloud storage buckets add-iam-policy-binding {bucket} --member={member} "
+                       f"--role=roles/storage.legacyBucketOwner   (or TB_BUCKET={bucket} {setup})")  # fmt: skip
+        stale = [x for x in read("bucket-stale.txt").splitlines() if x.strip()]
+        if stale:
+            run = read("run-id.txt") or "<run id>"
+            bad.append(f"{len(stale)} object(s) already under {bucket}/runs/{run}-s*: a stale run with this new run's "
+                       f"id; remove them: gcloud storage rm -r '{bucket}/runs/{run}-s*'")  # fmt: skip
+    return bad, notes
+
+
+def preflight_check(folder: Path) -> int:
+    """``--preflight-check DIR``: print every problem at once, each with its fix; exit 6 when there is one."""
+    bad, notes = preflight_problems(folder)
+    for n in notes:
+        print(f"preflight: check: {n}")
+    for b in bad:
+        print(f"preflight: PROBLEM: {b}", file=sys.stderr)
+    if bad:
+        print(f"preflight: {len(bad)} problem(s); nothing was started (read-only calls only)", file=sys.stderr)
+        return 6
+    print("preflight: the project is ready for this launch (read-only calls only; nothing was started)")
+    return 0
+
+
+def parts_missing(doc: dict[str, Any], parts: Path) -> list[str]:
+    """A8: the plan's part tags with no result in ``parts`` yet (empty: every part is in, the door may go)."""
+    tags = [t for s in doc["plan"]["shards"] for t in s["tags"]]
+    return [t for t in tags if not (parts / f"{t}.json").is_file()]
+
+
 def print_shards(e: dict[str, Any], p: dict[str, Any]) -> str:
     lines = [f"Split over {p['vms']} VM(s), each one RTX PRO 6000 (g4-standard-48: spot US${PRICE_PER_HOUR}/h, on "
              f"demand US${ON_DEMAND_PRICE_PER_HOUR}/h for a VM with a hospital part, D-468); "
@@ -1674,10 +1946,15 @@ def concurrency_lines(e: dict[str, Any]) -> list[str]:
            + ("; the hospital part runs once per value (hospital-<lang>@c<N>), on one prepared hospital"
               if len(lc) > 1 else "")]  # fmt: skip
     if any(n > 1 for n in lc):
-        factor = max(e.get("llm_speedup") or [1.0])
-        out.append(f"  screening time: G1's {G1_CALLS_PER_SECOND:.2f} calls/s at 1 in flight, divided by min(N, "
-                   f"{factor:g}) (TB_ESTIMATE_LLM_SPEEDUP): an UPPER BOUND for N > 1 (no rate above 1 in flight is "
-                   f"measured yet; it counts on a gain of {factor:g}x and no more)")  # fmt: skip
+        gains = ", ".join(f"{n}: {g:g}x" for n, g in zip(lc, e.get("llm_speedup") or [], strict=False) if n > 1)
+        if e.get("llm_speedup_override"):
+            out.append(f"  screening time: G1's {G1_CALLS_PER_SECOND:.2f} calls/s at 1 in flight, divided by min(N, "
+                       f"{e['llm_speedup_override']:g}) (TB_ESTIMATE_LLM_SPEEDUP, the owner's override of G-3's "
+                       f"measured curve; {gains})")  # fmt: skip
+        else:
+            out.append(f"  screening time: G1's {G1_CALLS_PER_SECOND:.2f} calls/s at 1 in flight, times the gain G-3 "
+                       f"measured at N in flight (run {G3_RUN}, hospital-ja at 5,000; {gains}; between points "
+                       "interpolated, above 48 held at 48's)")  # fmt: skip
     over = [n for n in lc if seqs and n > int(seqs)]
     if over:
         out.append(f"  note: {', '.join(map(str, over))} in flight is above the servers' max_num_seqs ({seqs}) and "
@@ -1780,7 +2057,23 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--report-parts", nargs="*", default=[], help="--report-only: only these parts or tags")
     ap.add_argument("--pending-parts", nargs="*", default=[],
                     help="--report-only: tags whose VM still runs (pending, not 'VM stopped')")  # fmt: skip
+    ap.add_argument("--door-reach-check", action="store_true",
+                    help="exit 2 with the reason when the door cannot be reached from here (A6)")  # fmt: skip
+    ap.add_argument("--preflight-check", type=Path, help="a folder of read-only gcloud answers: every problem (A7)")
+    ap.add_argument("--parts-missing", type=Path, help="a run's plan.json: print its tags with no result in "
+                    "--parts-dir (A8)")  # fmt: skip
     a = ap.parse_args(argv)
+    if a.door_reach_check:
+        why = door_reach_problem(os.environ)
+        if why:
+            print(why, file=sys.stderr)
+        return 2 if why else 0
+    if a.preflight_check:
+        return preflight_check(a.preflight_check)
+    if a.parts_missing:
+        doc = json.loads(a.parts_missing.read_text(encoding="utf-8"))
+        print(" ".join(parts_missing(doc, (a.parts_dir or [a.dir / "parts"])[0])))
+        return 0
     try:
         a.lc = parse_concurrency(a.llm_concurrency)
     except ValueError as exc:

@@ -329,19 +329,76 @@ def call_stats(calls: list[dict[str, Any]]) -> dict[str, Any]:
     return out
 
 
+# ---------------------------------------------------------------- the gateway's refusals
+def audit_refusals(audit_dir: Path, since: datetime | None = None) -> list[dict[str, Any]]:
+    """The calls the gateway refused in ``audit_dir`` at or after ``since`` (``llm.gateway.refuse``: the PHI
+    tripwire, the guard, an unregistered prompt, a busy model ...): ``{"end", "reason", "role"}``. No message text is
+    kept: the reason code and the caller's role only."""
+    out: list[dict[str, Any]] = []
+    for f in sorted(audit_dir.glob("*.jsonl")) if audit_dir.is_dir() else []:
+        for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+            if '"llm.gateway.refuse"' not in line:
+                continue
+            try:
+                rec = json.loads(line)
+                end = datetime.fromisoformat(rec["ts"])
+            except (ValueError, KeyError, TypeError):
+                continue
+            d = rec.get("detail") or {}
+            if rec.get("event") != "llm.gateway.refuse" or (since is not None and end < since):
+                continue
+            out.append({"end": end.timestamp(), "reason": str(d.get("reason") or "?"),
+                        "role": str(d.get("role") or "")})  # fmt: skip
+    return out
+
+
+def refusal_stats(calls: list[dict[str, Any]], refusals: list[dict[str, Any]]) -> dict[str, Any]:
+    """``N of M`` for the throughput table (the integrator's ask; the scale gate saw 5 of 85 judge calls refused on
+    synthetic notes): the calls asked (answered + refused), the refused ones, by reason and by the caller's role."""
+    asked = len(calls) + len(refusals)
+    return {"asked": asked, "refused": len(refusals),
+            "by_reason": dict(sorted(Counter(r["reason"] for r in refusals).items())),
+            "by_role": dict(sorted(Counter(r["role"] or "?" for r in refusals).items()))}  # fmt: skip
+
+
+def refused_cell(s: dict[str, Any] | None) -> str:
+    """``5 of 85 (phi_tripwire 5)``; ``-`` when nothing was measured."""
+    if not s or not s.get("asked"):
+        return "-"
+    why = ", ".join(f"{k} {v}" for k, v in (s.get("by_reason") or {}).items())
+    return f"{s['refused']} of {s['asked']}" + (f" ({why})" if why else "")
+
+
 # ---------------------------------------------------------------- the candidate list
-def candidate_list(results: dict[str, Any]) -> dict[str, Any]:
-    """Who a SCREEN listed (every tier but ``excluded``), sorted, with the sha256 of the list: equal lists at two
-    concurrency settings have equal hashes. ``results``: pid -> the cascade's verdicts (``tier``)."""
-    rows = sorted((str(pid), str(getattr(pv, "tier", ""))) for pid, pv in results.items()
-                  if getattr(pv, "tier", "excluded") != "excluded")  # fmt: skip
+def _listed(pairs: Iterable[tuple[str, str]]) -> dict[str, Any]:
+    rows = sorted((str(pid), str(tier)) for pid, tier in pairs if tier != "excluded")
     digest = hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode()).hexdigest()
     return {"count": len(rows), "sha256": digest, "tiers": dict(sorted(Counter(t for _, t in rows).items())),
             "list": [list(r) for r in rows]}  # fmt: skip
 
 
+def candidate_list(results: dict[str, Any]) -> dict[str, Any]:
+    """Who a SCREEN listed (every tier but ``excluded``), sorted, with the sha256 of the list: equal lists at two
+    concurrency settings have equal hashes. ``results``: pid -> the cascade's verdicts (``tier``)."""
+    return _listed((str(pid), str(getattr(pv, "tier", "excluded"))) for pid, pv in results.items())
+
+
+def candidate_list_of_rows(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    """The same from a SCREEN job's own ``candidate_list_*.json`` (its ``rows``: ``pid`` and ``tier``): the list of
+    the part's main SCREEN, the one whose funnel the report shows (the 2026-11-12 run compared a one-patient list of a
+    later stage's SCREEN instead and called four different lists identical)."""
+    return _listed((str(r.get("pid", "")), str(r.get("tier", "excluded"))) for r in rows)
+
+
+def _main_list(r: dict[str, Any]) -> bool:
+    """The part's candidate list is of the SCREEN whose funnel it reports: its count is the screen's ``listed``."""
+    c, listed = r.get("candidates") or {}, (r.get("screen") or {}).get("listed")
+    return bool(c.get("sha256")) and (listed is None or c.get("count") == listed)
+
+
 def curve(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The report's throughput table: one line per part result that measured calls or a card."""
+    """The report's throughput table: one line per part result that measured calls or a card. ``candidates``: the
+    main SCREEN's ``listed``; its list's hash only when the recorded list is that screen's (else ``None``)."""
     out = []
     for r in rows:
         t, m, c = r.get("throughput") or {}, r.get("metrics") or {}, r.get("candidates") or {}
@@ -349,6 +406,7 @@ def curve(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         gpu = m.get("gpu") or {}
         srv = m.get("servers") or {}
+        listed = (r.get("screen") or {}).get("listed")
         out.append({
             "tag": r.get("tag"), "llm_concurrency": r.get("llm_concurrency"), "calls": t.get("calls", 0),
             "calls_per_second": t.get("calls_per_second"), "tokens_per_second": t.get("tokens_per_second"),
@@ -357,18 +415,48 @@ def curve(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "queue_mean_s": {n: s.get("queue_mean_s") for n, s in srv.items() if s.get("queue_mean_s") is not None},
             "ttft_mean_s": {n: s.get("ttft_mean_s") for n, s in srv.items() if s.get("ttft_mean_s") is not None},
             "breaker_opens": sum((t.get("breaker_opens") or {}).values()) if "breaker_opens" in t else None,
-            "candidates": c.get("count"), "candidates_sha256": c.get("sha256"),
+            "refused": r.get("refusals"),
+            "candidates": listed if listed is not None else c.get("count"),
+            "candidates_sha256": c.get("sha256") if _main_list(r) else None,
         })  # fmt: skip
     return out
 
 
-def lists_identical(rows: list[dict[str, Any]]) -> dict[str, bool]:
-    """Per hospital language with more than one result that has a candidate list: are the lists the same?"""
-    by: dict[str, set[str]] = {}
-    n: Counter[str] = Counter()
+def _lang(r: dict[str, Any]) -> str:
+    return str(r.get("lang") or str(r.get("tag", "")).split("@", 1)[0].removeprefix("hospital-"))
+
+
+def lists_compare(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Per hospital language with more than one result: are the main SCREEN's candidate lists the same at every
+    calls-in-flight setting? ``identical`` True / False, or None (not comparable: a result has no list of its main
+    SCREEN, ``why`` says which). When they differ, ``differ`` names each pseudonymous id that is not listed alike,
+    with its tier at every setting (``-``: not listed there)."""
+    by: dict[str, list[dict[str, Any]]] = {}
     for r in rows:
-        sha = (r.get("candidates") or {}).get("sha256")
-        if r.get("part") == "hospital" and sha:
-            by.setdefault(str(r.get("lang")), set()).add(sha)
-            n[str(r.get("lang"))] += 1
-    return {lang: len(s) == 1 for lang, s in sorted(by.items()) if n[lang] > 1}
+        if r.get("part") == "hospital" and (r.get("candidates") or (r.get("screen") or {}).get("listed") is not None):
+            by.setdefault(_lang(r), []).append(r)
+    out: dict[str, dict[str, Any]] = {}
+    for lang, rs in sorted(by.items()):
+        if len(rs) < 2:
+            continue
+        tags = [str(r.get("tag")) for r in rs]
+        bad = [r for r in rs if not _main_list(r) or not isinstance((r.get("candidates") or {}).get("list"), list)]
+        if bad:
+            why = "; ".join(f"{r.get('tag')}: list of {(r.get('candidates') or {}).get('count', 'no')} "
+                            f"patient(s), its main SCREEN listed {(r.get('screen') or {}).get('listed', '?')}"
+                            for r in bad)  # fmt: skip
+            out[lang] = {"identical": None, "settings": tags, "differ": [],
+                         "why": f"not the main SCREEN's list ({why})"}  # fmt: skip
+            continue
+        tiers = [{str(p): str(t) for p, t in r["candidates"]["list"]} for r in rs]
+        pids = sorted(set().union(*tiers))
+        differ = [{"pid": p, "tiers": {tag: t.get(p, "-") for tag, t in zip(tags, tiers, strict=True)}}
+                  for p in pids if len({t.get(p, "-") for t in tiers}) > 1]  # fmt: skip
+        same = len({r["candidates"]["sha256"] for r in rs}) == 1 and not differ
+        out[lang] = {"identical": same, "settings": tags, "differ": differ, "why": ""}
+    return out
+
+
+def lists_identical(rows: list[dict[str, Any]]) -> dict[str, bool | None]:
+    """Per hospital language with more than one result: are the main SCREEN's lists the same (None: not comparable)?"""
+    return {lang: v["identical"] for lang, v in lists_compare(rows).items()}

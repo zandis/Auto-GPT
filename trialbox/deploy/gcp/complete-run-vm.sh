@@ -26,7 +26,8 @@
 #      tb-idle-minutes (the run touches it while a part works, D-150 / review H-03; the driver over HTTP too); the done
 #      marker older than tb-done-grace (at once once the driver says it collected the results);
 #   3. every failure ends with the done marker and a results.tgz that says why (TB-PREFLIGHT-FAILED,
-#      TB-SERVING-FAILED, TB-NO-CODE, TB-UPLOAD-REJECTED, TB-SETUP-FAILED), so a failed boot costs minutes, not hours.
+#      TB-SERVING-FAILED, TB-NO-CODE, TB-UPLOAD-REJECTED, TB-SETUP-FAILED), so a failed boot costs minutes, not hours
+#      (TB-NO-CODE powers off at once, without the grace: no code, nothing for a driver to wait for; A6).
 # The workload runs here, not on the driver: the code comes from the bucket or an HTTP upload by the driver, the model
 # parts run with --resume inside this run's own directory (a restart of the same run id continues where it stopped),
 # results.tgz is re-packed after every part, and waits in the bucket or at https://<vm>/tb/results.tgz (key needed).
@@ -333,7 +334,17 @@ fi
 WAITM=$(md tb-code-wait-minutes || echo 30)
 echo "TB-WAITING-FOR-CODE (${WAITM} minutes)" | tee -a "$LOG"
 for _ in $(seq 1 $((WAITM * 4))); do [ -f "$TB/incoming/src.tgz" ] && break; sleep 15; done
-[ -f "$TB/incoming/src.tgz" ] || finish "TB-NO-CODE: nothing uploaded in ${WAITM} minutes" no-code
+if [ ! -f "$TB/incoming/src.tgz" ]; then
+  # A6 (2026-11-12: the driver could not reach the door, the VM idled out its grace too, about US$3.50): no code means
+  # no run and no results worth a driver's wait; the log is packed (and in the bucket with TB_BUCKET), then power off
+  # now, not after tb-done-grace. The wait itself is tb-code-wait-minutes (default 30; the driver uploads as soon as
+  # the door answers, minutes after the boot, before this wait begins).
+  echo "TB-NO-CODE: nothing uploaded in ${WAITM} minutes" | tee -a "$LOG"; phase no-code
+  /usr/local/sbin/tb-pack "$RUN" "$BUCKET"
+  touch "$DONE"
+  echo "TB-NO-CODE: no code, so no run: powering off now (results.tgz holds this log)"
+  systemctl poweroff; exit 1
+fi
 mv -f "$TB/incoming/src.tgz" "$TB/src.tgz"   # the next boot waits for its own upload, never this one
 if [ -n "$SRC_SHA" ]; then
   got=$(sha256sum "$TB/src.tgz" | cut -d' ' -f1)

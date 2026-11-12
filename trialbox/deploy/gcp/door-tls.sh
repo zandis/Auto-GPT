@@ -44,8 +44,10 @@ json.dump({"key": open(d + "/tb-key").read().strip(), "tls_key": open(d + "/door
 door_curl() {
   local dir=$1 host=$2 m=$3 p=$4; shift 4
   [ -s "$dir/door.crt" ] && [ -s "$dir/door.pin" ] && [ -s "$dir/tb-key" ] || { echo "door: no door files in $dir" >&2; return 2; }
-  # --noproxy: straight to the VM, as the plain-HTTP door went; an HTTPS proxy that re-signs would fail the pin anyway
-  curl -fsS --max-time 600 --noproxy '*' --proto =https --tlsv1.2 --cacert "$dir/door.crt" \
+  # --noproxy: straight to the VM, as the plain-HTTP door went; an HTTPS proxy that re-signs would fail the pin anyway.
+  # --connect-timeout (DOOR_CONNECT_TIMEOUT_S, 20 s; OD-10: a setting with a reason): a VM that answers connects in
+  # well under a second; a dropped SYN must not hold a poll for curl's own 300 s (the driver's waits are wall-clock)
+  curl -fsS --connect-timeout "${DOOR_CONNECT_TIMEOUT_S:-20}" --max-time 600 --noproxy '*' --proto =https --tlsv1.2 --cacert "$dir/door.crt" \
     --pinnedpubkey "sha256//$(cat "$dir/door.pin")" --resolve "$DOOR_NAME:$DOOR_PORT:$host" \
     -X "$m" -H @<(printf 'Authorization: Bearer %s\n' "$(cat "$dir/tb-key")") "https://$DOOR_NAME:$DOOR_PORT/tb/$p" "$@"
 }

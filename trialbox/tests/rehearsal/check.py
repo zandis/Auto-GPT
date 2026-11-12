@@ -259,7 +259,9 @@ def no_upload_case(a: argparse.Namespace) -> int:
     r.ok("results.tgz: this boot's log only, no earlier run", vm.count("== boot ") == 1 and "rehearsal-run" not in vm)
     check_door(r, e)
     offs = poweroffs(e)
-    r.ok("the VM powered off after the grace (nobody collected)", bool(offs) and "grace" in offs[-1], offs[-1:])
+    # A6: no code, no run: the VM powers off at once, not after tb-done-grace (2026-11-12: about US$3.50 idled away)
+    r.ok("the VM powered off at once after TB-NO-CODE (no grace)", bool(offs) and "TB-NO-CODE" in offs[-1]
+         and "grace" not in offs[-1], offs[-1:])  # fmt: skip
     return r.done()
 
 

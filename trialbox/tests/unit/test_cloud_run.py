@@ -278,7 +278,8 @@ def test_the_driver_refuses_to_start_or_provision_without_quota(tmp_path: Path) 
     (tmp_path / "gc").mkdir()
     env = dict(os.environ, PATH=f"{REH / 'driver-shims'}:{os.environ['PATH']}", TB_REH_STATE=str(state),
                TB_REH_GPU_LIMIT="1", CLOUDSDK_CONFIG=str(tmp_path / "gc"), TB_SA_KEY_FILE="/dev/null",
-               TB_COMPLETE_DIR=str(tmp_path / "out"), PY=str(ROOT / ".venv" / "bin" / "python"))  # fmt: skip
+               TB_COMPLETE_DIR=str(tmp_path / "out"), PY=str(ROOT / ".venv" / "bin" / "python"),
+               TB_DOOR_DIRECT="1")  # fmt: skip
     env.pop("TB_ZONES", None)
     for args in (["--vms", "2", "--zones", "asia-east1-a,us-central1-b"],
                  ["--provision", "--vms", "2", "--zones", "asia-east1-a,us-central1-b"]):  # fmt: skip
