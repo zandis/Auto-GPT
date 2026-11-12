@@ -120,7 +120,7 @@ def test_a_year_far_after_today_is_refused(mapper: Mapper, raw: str, typ: str) -
 def test_a_date_some_years_ahead_still_reads(mapper: Mapper) -> None:
     ahead = date.today().year + LATEST_YEARS_AHEAD  # a booked visit, the end of a long prescription
     assert mapper.convert(f"{ahead}-03-01", "date") == f"{ahead}-03-01"
-    assert mapper.convert(f"{ahead}0301083000", "datetime") == f"{ahead}-03-01T08:30:00+08:00"
+    assert mapper.convert(f"{ahead}1231235900", "datetime") == f"{ahead}-12-31T23:59:00+08:00"
     with pytest.raises(MappingError):
         mapper.convert(f"{ahead + 1}-03-01", "date")
 
