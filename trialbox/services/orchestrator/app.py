@@ -487,6 +487,13 @@ def reveal(job_id: str, req: RevealRequest, request: Request, who: Claim = AS_RE
     if over := _over_cap(o, request, who, REVEALS, REVEALS_SERVICE):
         raise refuse(over, 429, "too many chart numbers revealed in the last hour")
     found = resolve_mrns(Path(o.cfg.env.secrets_dir), [req.pid], o.db.url)
+    if grant is not None and req.pid in found:
+        # the use is written where the chart number is given (F5 c), and before the reveal's own line: a use that
+        # cannot be written is a refusal, so the trail never holds a reveal of a number that was not given
+        try:
+            grants.record_use(grant, what="reveal", study=study, pid=req.pid, job_id=job_id, now=now, url=o.db.url)
+        except Exception as exc:
+            raise refuse("break-glass grant: the use cannot be written") from exc
     o.audit.append(
         "screen.reveal",
         job_id=job_id,
@@ -505,8 +512,6 @@ def reveal(job_id: str, req: RevealRequest, request: Request, who: Claim = AS_RE
     )
     if req.pid not in found:
         raise HTTPException(status_code=404, detail="this pseudonym is not in the box's pid map")
-    if grant is not None:  # the use is written where the chart number is given (F5 c)
-        grants.record_use(grant, what="reveal", study=study, pid=req.pid, job_id=job_id, now=now, url=o.db.url)
     return {"pid": req.pid, "mrn": found[req.pid]}
 
 

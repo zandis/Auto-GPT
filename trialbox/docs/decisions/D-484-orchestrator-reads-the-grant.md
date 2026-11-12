@@ -76,6 +76,16 @@ is told the result.
   the record of a right. T-718 removes it.
 - **Standing on the other routes** (APPROVE, the EDC signature): the orchestrator still asks the matrix with the
   signed standing there (D-483). `log_standing` is ready for them.
+- **The role word and the account are still the console's signed claim** (the review's M1, confirmed on the
+  real box). The orchestrator reads the grant and the log; it does not read the accounts (`auth` is on no edge
+  role's list, CR-037). So for a role whose right the log does not decide (the coordinator), a claim that says
+  `role=coordinator` is believed: a console that signed `console:admin` as a coordinator, or a name that has no
+  account, would get the chart number. Closing it needs the orchestrator to learn the account's role from a
+  source that is not the claim (a read of `auth`, or the role inside the account's own signed sign-in): the
+  owner's ruling was asked on 2026-11-12; until then it is T-717's key separation that bounds who can sign.
+- **The whole-list export** (`GET /registry/{rs}/export.xlsx`) stays on the older assertion: a v2 claim with
+  `role=investigator, scope=*` for a person the log does not name gets the workbook. It moves with the registry's
+  router (T-715 stage b).
 - **The whole-list export, notices, cancel, retry and jobs** stay on the older assertion.
 - **Two clocks.** The grant is open by the orchestrator's clock; the console found it open by its own. On one box
   they are one clock.
