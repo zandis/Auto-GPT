@@ -9,7 +9,7 @@ the fix), guarded by the current rules (``compile_sql.overlay``).
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import UTC, date
 from pathlib import Path
 from typing import Any
 
@@ -604,14 +604,30 @@ def test_an_order_without_an_end_date_or_any_date_is_unknown_not_one_day(lake: L
         assert o.status == "unknown" and not o.hard and o.reason == "order_dates_missing"
 
 
-def test_the_adapter_keeps_an_undated_order() -> None:
+def test_the_adapter_keeps_an_undated_order(tmp_path: Path) -> None:
     """The ingest step no longer deletes an order with no date (it reported it as "dropped")."""
     import inspect
 
+    from adapter import ndjson
+
     from adapter import pipeline
 
-    src = inspect.getsource(pipeline._run_ingest)  # run_ingest wraps _run_ingest (T-615b)
+    # run_ingest wraps _run_ingest (T-615b); since T-692 each resource passes _NightPass as it is written: it counts
+    # an undated order and returns False only for a Patient merged into another (its chart number), never for an order
+    src = inspect.getsource(pipeline._run_ingest) + inspect.getsource(pipeline._NightPass)
     assert "if not _undated_order(r)" not in src and "kept, read as unknown" in src
+    assert "transform=night" in src  # the pass is the snapshot's transform
+    night = pipeline._NightPass(UTC, {}, False, pipeline._Aliases({}, []), {"MedicationRequest": 1}, None, None)
+    assert night(_med("P", 1, ULT, None)) is True and night.undated == 1
+    assert night.missing_counts()["MedicationRequest.authoredOn (no date at all: kept, read as unknown)"] == 1
+    # behaviour: through the spool and the night's pass, the undated order is in the written snapshot
+    sp = ndjson.Spool(tmp_path / "spool")
+    sp.add(_med("P", 1, ULT, None))
+    sp.add(_med("P", 2, ULT, "2026-01-01"))
+    night = pipeline._NightPass(UTC, {}, False, pipeline._Aliases({}, []), sp.counts(), None, None)
+    assert ndjson.write_snapshot(tmp_path / "out", sp, None, transform=night) == {"MedicationRequest": 2}
+    sp.close()
+    assert night.undated == 1
     assert pipeline._undated_order(_med("P", 1, ULT, None)) and not pipeline._undated_order(
         _med("P", 2, ULT, "2026-01-01")
     )

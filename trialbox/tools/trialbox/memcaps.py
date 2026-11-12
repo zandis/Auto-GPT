@@ -288,11 +288,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--lake", type=Path, default=None)
     ap.add_argument("--write", action="store_true", help="write the caps into --env-file")
     ap.add_argument("--measure", action="store_true", help="measure and write deploy/measured/ingest_memory.json")
-    ap.add_argument("--sizes", type=int, nargs=2, default=(500, 2000))
+    ap.add_argument("--sizes", type=int, nargs=2, default=(5000, 10000), help="patients (above INSERT_BATCH notes)")
+    ap.add_argument("--out", type=Path, default=RECORD, help="where --measure writes the record")
     a = ap.parse_args(argv)
     if a.measure:
         doc = measure((a.sizes[0], a.sizes[1]))
-        RECORD.write_text(json.dumps(doc, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+        a.out.write_text(json.dumps(doc, indent=1, sort_keys=True) + "\n", encoding="utf-8")
         print(json.dumps(doc["services"], sort_keys=True))
         return 0
     text = a.env_file.read_text(encoding="utf-8") if a.env_file.is_file() else ""
