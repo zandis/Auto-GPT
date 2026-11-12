@@ -3,7 +3,7 @@
 - **Card:** T-720 (`docs/plan/31-master-plan-v6.1-addendum.md` §3.2, TB-PLAN-06.1; wave T, safety core)
 - **PR:** this branch (`agent/T-720-edc-v1-signatures-frozen`)
 - **Date:** 2026-11-12
-- **Status:** accepted
+- **Status:** accepted (merged)
 - **Builds on:** D-281 (the keyed signature, version 2), D-378 (one database role per service), D-204 (checksummed
   migrations)
 - **Closes:** finding F4 (the EDC part: a version-1 row inserted by a database writer verifies) and proposal TR-9 of
@@ -39,9 +39,9 @@ the orchestrator does, `services/orchestrator/app.py`).
    signed a fresh list holding the forged row with the real key. Any fact kept only in the database is one its owner
    can reset. No box holds a version-1 signature (point 4), so there is nothing to keep, and refusing version 1
    outright has no such hole: nothing a migration or a restart does can make a version-1 row count.
-3. **New rows are version 2.** EDC schema version 4 sets `sig_version DEFAULT 2` and adds the check
-   `signature_v2_only` (`sig_version = 2`, `NOT VALID`: an existing version-1 row stays, covering nothing; every new
-   or changed row must say 2). The check is a guard against mistakes; an owner can drop it, and `intact()` is what
+3. **New rows are version 2.** EDC schema version 5 (after T-302c's version 4, `copy_tick`) sets
+   `sig_version DEFAULT 2` and adds the check `signature_v2_only` (`sig_version = 2`, `NOT VALID`: an existing
+   version-1 row stays, covering nothing; every new or changed row must say 2). The check is a guard against mistakes; an owner can drop it, and `intact()` is what
    holds then.
 4. **No box loses a real signature.** All data on every box is synthetic and no box holds a real signature; the
    boxes with EDC rows made their signatures after D-281 (version 2). If a site ever needs to keep pre-D-281
@@ -69,10 +69,10 @@ the orchestrator does, `services/orchestrator/app.py`).
 ## Evidence
 
 `tests/unit/test_edc_v1_refused.py`: the forgery of the problem with no version and with version 1 (both fail on
-master, pass here); the review's reset sequence (forged version-1 row, schema-version rows deleted after 0, 1, 2 or 3,
+master, pass here); the review's reset sequence (forged version-1 row, schema-version rows deleted after 0, 1, 2, 3 or 4,
 restart) never brings the forged value back from `sendable()` or `signed()`; the default 2 and the check; a
 version-1 row from before the migration covers nothing; the drafts route marks a value changed by a plain update as
 not covered. `tests/console/test_edc_pages_d461.py`: the review page shows such a value as not signed.
 `tests/unit/test_edc_signing_d281.py::test_an_old_unkeyed_signature_is_checked_by_its_own_rule` now asserts that an
 old unkeyed signature covers nothing. `tests/unit/test_db_roles.py`: the console is in no EDC group, and a membership
-an earlier release gave is revoked on the next run. `tests/unit/test_migrations.py` pins EDC version 4.
+an earlier release gave is revoked on the next run. `tests/unit/test_migrations.py` pins EDC version 5.

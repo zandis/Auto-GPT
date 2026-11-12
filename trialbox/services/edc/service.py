@@ -3,8 +3,9 @@
 The orchestrator's ``/studies/{rs}/edc/*`` routes call this; the console only shows the pages and re-authenticates
 the signer. The rules are enforced here even when a page already checked them (defence in depth):
 
-* the switch must be on (sponsor's written acknowledgement and the re-entry result on file) to draft, decide, sign,
-  send or export; it is off by default;
+* the switch must be on (sponsor's written acknowledgement and the re-entry result on file) to send or export; on
+  or ``copy`` (copy-assist, D-434: the re-entry result, no acknowledgement, never a write to the sponsor's EDC) to
+  draft, import, decide and sign; it is off by default;
 * the map must pass :func:`edc.mapping.check` before it is saved;
 * a value without a citation cannot be confirmed; an edit needs a reason and passes the field's own checks;
 * only confirmed, signed values whose content still matches the signature, under a signature row that still verifies
@@ -110,7 +111,7 @@ class EdcService:
         except EdcError as exc:
             self._audit("edc.switch", rs, by, {"on": on, "refused": exc.code})
             raise
-        self._audit("edc.switch", rs, by, {"on": sw.on, "kind": sw.kind, "reference": sw.reference,
+        self._audit("edc.switch", rs, by, {"on": sw.on, "state": sw.state, "kind": sw.kind, "reference": sw.reference,
                                            "ack_date": sw.ack_date, "reentry_pages": sw.reentry_pages,
                                            "reentry_accuracy": sw.reentry_accuracy, "reentry_id": sw.reentry_id,
                                            "role": role})  # fmt: skip
@@ -207,7 +208,7 @@ class EdcService:
 
     # ------------------------------------------------------------------ drafts
     def build(self, rs: str, record: str, pid: str, visit: str, visit_date: str, by: str) -> list[dict[str, Any]]:
-        self.store.require_on(rs)
+        self.store.require_drafting(rs)  # prefill on, or copy-assist (D-434)
         self._not_opted_out(rs, by, "edc.drafts", {pid}, {"record": record})
         try:
             vd = date.fromisoformat(visit_date)
@@ -267,7 +268,7 @@ class EdcService:
         may change (with a reason; D-281, CR-035). Every refusal is audited (SEC-7); the decision's audit line is
         written inside its transaction (SEC-6)."""
         try:
-            self.store.require_on(rs)
+            self.store.require_drafting(rs)
             d = self.store.draft(rs, draft_id)
             if d is None:
                 raise EdcError("edc.no_draft", "no such draft", 404)
@@ -323,7 +324,7 @@ class EdcService:
         screen showed. The audit line is written inside the signature's transaction (D-281, SEC-6): if it cannot be
         written, nothing is signed. Every refusal is audited (SEC-7)."""
         try:
-            self.store.require_on(rs)
+            self.store.require_drafting(rs)
         except EdcError as exc:
             self._audit("edc.sign", rs, signer, {"record": record, "visit": visit, "refused": exc.code})
             raise
@@ -708,7 +709,7 @@ class EdcService:
         sha = hashlib.sha256(data).hexdigest()
         detail: dict[str, Any] = {"file": sha[:16], "bytes": len(data)}
         try:
-            self.store.require_on(rs)
+            self.store.require_drafting(rs)
             items = [mapping.ItemMap.from_dict(i) for i in self.store.map(rs)]
             if not items:
                 raise EdcError("edc.no_map", "save the item map first")

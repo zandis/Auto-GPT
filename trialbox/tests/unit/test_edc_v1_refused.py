@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from edc.store import SIG_VERSION, EdcStore, draft_sha
+from edc import copyassist
+from edc.store import MIGRATIONS, SIG_VERSION, EdcStore, draft_sha
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from orchestrator.edc_api import router as edc_router
@@ -77,16 +78,16 @@ def test_a_version_1_row_is_refused(tmp_path: Path) -> None:
     _never_sent(svc.store, "99")
 
 
-@pytest.mark.parametrize("keep", [0, 1, 2, 3])
+@pytest.mark.parametrize("keep", [0, 1, 2, 3, 4])
 def test_resetting_the_schema_record_does_not_bring_a_version_1_row_back(tmp_path: Path, keep: int) -> None:
-    """The review's reset: the owner forges a version-1 row, forgets the schema versions after ``keep`` and waits
+    """The review's reset: the owner forges a version-1 row, forgets the schema versions after ``keep`` (D-461's is 5) and waits
     for a restart, which re-runs them. Nothing a migration does makes a version-1 row count."""
     svc = _signed(tmp_path)
     _forge(svc.store, "99", version=1)
     svc.store.db.execute("DELETE FROM _schema_version WHERE version > ?", (keep,))
     svc.store.close()
     again = EdcStore(sign_key=k.SIGN_KEY)
-    assert len(again.db.applied()) == 4
+    assert len(again.db.applied()) == len(MIGRATIONS)
     _never_sent(again, "99")
     again.close()
 
@@ -126,5 +127,8 @@ def test_the_review_list_says_signed_only_while_the_signature_covers_the_value(t
     assert after["weight"]["signature_id"] is not None and not after["weight"]["covered"]
     assert "signature" not in after["weight"]
     assert after["urate"]["covered"] and "signature" in after["urate"]
+    sheet = copyassist.sheet(svc, k.STUDY, k.RECORD, "crc")  # T-302c's copy-assist sheet tells the same story
+    on_sheet = {v["item"] for r in sheet["records"] for vis in r["visits"] for f in vis["forms"] for v in f["values"]}
+    assert "weight" not in on_sheet and "urate" in on_sheet
     whole = oc.get(f"/studies/{k.STUDY}/edc/drafts").json()  # without a record: the flag is there too
     assert {d["item"]: d["covered"] for d in whole}["weight"] is False

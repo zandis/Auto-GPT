@@ -2,7 +2,7 @@
 {% block title %}{{ t('log.title') }} · {{ rs }}{% endblock %}
 {% block content %}
 <div class="headrow"><h1>{{ rs }} · {{ t('log.title') }}</h1>
-<span>{% if user.can_request %}<a href="/studies/{{ rs }}/screening-log.xlsx" data-testid="log-xlsx">{{ t('download') }} XLSX</a> · {% endif %}<a href="/studies/{{ rs }}/setup" data-testid="to-setup">{{ t('setup.title') }}</a></span></div>
+<span>{% if user.can_request %}<a href="/studies/{{ rs }}/screening-log.xlsx" data-testid="log-xlsx">{{ t('download') }} XLSX</a> · {% if sponsor_cols %}<a href="/studies/{{ rs }}/screening-log.xlsx?layout=sponsor" data-testid="log-xlsx-sponsor">{{ t('log.xlsx_sponsor') }}</a> · {% endif %}{% endif %}<a href="/studies/{{ rs }}/setup" data-testid="to-setup">{{ t('setup.title') }}</a></span></div>
 <p class="hint">{{ t('log.help') }}</p>
 {% include "_study_ids.html" %}
 {% set q = request.query_params %}

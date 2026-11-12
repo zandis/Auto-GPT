@@ -136,8 +136,9 @@ def test_the_study_team_keeps_its_pages_and_api(box: dict[str, Any]) -> None:  #
     assert api.get("/api/v1/studies/GZQO/patients").status_code == 200
     assert api.get("/api/v1/studies/GZQO/screening-log").status_code == 200
     page = login(box["app"], "crc", PW)[0]
-    for path in ("/jobs", "/audit", "/pilot/registry/GZQO", f"/pilot/jobs/{_done_case(box['backend']).job_id}"):
+    for path in ("/jobs", "/pilot/registry/GZQO", f"/pilot/jobs/{_done_case(box['backend']).job_id}"):
         assert page.get(path).status_code == 200, path
+    assert page.get("/audit").status_code == 403  # T-211c (D-451, ROLE-013): the privacy office's and the steward's
     assert page.get("/admin/redcap").status_code == 403  # S36 is the administrator's
 
 

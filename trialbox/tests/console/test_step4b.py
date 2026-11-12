@@ -185,11 +185,18 @@ def test_audit_trail_is_paged(box: dict[str, Any]) -> None:  # noqa: F811
     """Review F-07: the audit page held 300 events (130 phone screens)."""
     for i in range(120):
         box["audit"].append("console.login", actor=f"console:u{i}")
-    c, _ = login(box["app"], "admin", ADMIN_PW)
+    box["users"].create("dpo", "privacy", ADMIN_PW, "dpo@hospa.test")  # D-451: the privacy office reads the trail
+    c, _ = login(box["app"], "dpo", ADMIN_PW)
     p1 = c.get("/audit").text
-    assert p1.count("<tr>") <= 51 and 'data-testid="audit-older"' in p1
-    p3 = c.get("/audit?page=3").text
-    assert "<tr>" in p3 and 'data-testid="audit-older"' not in p3
+    assert p1.count("<tr data-event=") == 50 and 'data-testid="audit-older"' in p1
+
+    def older(page: str) -> str:  # the next page is a cursor, not a page number (D-451)
+        m = re.search(r'href="([^"]+)" rel="next"', page)
+        assert m
+        return m.group(1).replace("&amp;", "&")
+
+    p3 = c.get(older(c.get(older(p1)).text)).text
+    assert "<tr data-event=" in p3 and 'data-testid="audit-older"' not in p3
 
 
 def test_every_new_key_in_every_language() -> None:

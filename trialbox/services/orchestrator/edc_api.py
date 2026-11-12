@@ -14,6 +14,8 @@ here (``edc.service``).
 * ``POST /studies/{rs}/edc/sign``: the signature of one subject and visit (the console re-authenticated the signer).
 * ``POST /studies/{rs}/edc/import/odm``: a CDISC ODM file (base64) read into open drafts that cite it, proposals a
   person confirms and signs (D-435); refused whole with a named ``odm.*`` reason.
+* ``GET /studies/{rs}/edc/copy?record=&format=``: the copy-assist sheet (D-434), signed values only, audited;
+  ``POST /studies/{rs}/edc/copy/tick``: "copied" ticks (or their undo, with a reason) on values of the sheet.
 * ``POST /studies/{rs}/edc/send/redcap``; ``GET /studies/{rs}/edc/export/odm``;
   ``GET /studies/{rs}/edc/trail/{record}``.
 
@@ -35,6 +37,7 @@ import re
 from collections.abc import Callable
 from typing import Any, TypeVar
 
+from edc import copyassist
 from edc.service import EdcService
 from edc.store import EdcError
 from fastapi import APIRouter, HTTPException, Request
@@ -69,6 +72,7 @@ class SwitchBody(BaseModel):
     reentry_accuracy: float = Field(default=0.0, ge=0.0, le=1.0)
     reason: str = Field(default="", max_length=300)
     by: str | None = Field(default=None, pattern=_USER)
+    copy_assist: bool = False  # D-434: on as copy-assist (no acknowledgement; never a write to the sponsor's EDC)
 
 
 class ReentryBody(BaseModel):
@@ -129,6 +133,14 @@ class SignBody(BaseModel):
 class ImportBody(BaseModel):
     name: str = Field(default="", max_length=120)
     data: str = Field(min_length=1, max_length=8_000_000)  # the file, base64 (TB_EDC_ODM_MAX_BYTES bounds the bytes)
+    by: str | None = Field(default=None, pattern=_USER)
+
+
+class TickBody(BaseModel):
+    record: str = Field(pattern=_REC.pattern)
+    drafts: list[int] = Field(min_length=1, max_length=2000)
+    action: str = Field(default="copied", pattern=r"^(copied|undone)$")
+    reason: str = Field(default="", max_length=300)
     by: str | None = Field(default=None, pattern=_USER)
 
 
@@ -213,7 +225,8 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
         return run(lambda: get().set_switch(_rs(rs), body.on, by=a.name, role=a.role, kind=body.kind,
                                             reference=body.reference, ack_date=body.ack_date,
                                             reentry_pages=body.reentry_pages,
-                                            reentry_accuracy=body.reentry_accuracy, reason=body.reason))  # fmt: skip
+                                            reentry_accuracy=body.reentry_accuracy, reason=body.reason,
+                                            copy=body.copy_assist))  # fmt: skip
 
     @r.post("/studies/{rs}/edc/reentry")
     def reentry(rs: str, body: ReentryBody, request: Request) -> dict[str, Any]:
@@ -295,6 +308,21 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
             msg = {"code": "odm.base64", "message": "the file is base64"}
             raise HTTPException(status_code=400, detail=msg) from exc
         return run(lambda: get().import_odm(_rs(rs), data, a.name, body.name))
+
+    @r.get("/studies/{rs}/edc/copy")
+    def copy_sheet(rs: str, request: Request, record: str | None = None, format: str = "page",
+                   by: str | None = None) -> dict[str, Any]:  # fmt: skip
+        if by is not None and not re.match(_USER, by):
+            raise HTTPException(status_code=400, detail={"code": "edc.by", "message": "who is reading"})
+        a = who(request, "review", by, rs)  # D-434: the sheet is read by those who review and sign
+        rid = _rs(rs)
+        return run(lambda: copyassist.sheet(get(), rid, _rec(record) if record else None, a.name, format))
+
+    @r.post("/studies/{rs}/edc/copy/tick")
+    def copy_tick(rs: str, body: TickBody, request: Request) -> dict[str, Any]:
+        a = who(request, "review", body.by, rs)
+        return run(lambda: copyassist.tick(get(), _rs(rs), body.record.upper(), body.drafts, body.action, a.name,
+                                           body.reason))  # fmt: skip
 
     @r.post("/studies/{rs}/edc/send/redcap")
     def send(rs: str, body: SendBody, request: Request) -> dict[str, Any]:

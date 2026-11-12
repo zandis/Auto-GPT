@@ -416,16 +416,22 @@ ADDED: dict[str, tuple[str, ...]] = {
     "feedback": ("3981b6201cd514508bed945433f3415993494cb24e52809cca7f37fe3801e368",),
     # D-281: edc version 2, the signature's version and key id, and signature_void
     # T-115 (D-368): edc version 3, what each draft was built under and the stored re-entry result
-    # T-720 (D-461): edc version 4, sig_version defaults to 2 and must be 2
+    # T-302c (D-434): edc version 4, the copy-assist ticks
+    # T-720 (D-461): edc version 5, sig_version defaults to 2 and must be 2
     "edc": (
         "660d794773184321ebd80015911a26e65973b24d93fa2415c39b6114a22f561b",
         "7307dbdcdff73f68593da4a33739e1803bcc90079eff738c175f3ad13bd26003",
+        "c5d2472d93df214f26cf8e3bd80d6fc5230e058da95ff5551ea03dbf22d7016c",
         "7e110573b03265c6d4e76d209c98dd467f37b489a30a00f4501be39ee916634f",
     ),
     # T-108c (D-401): mail version 3, the send keys as the outbox and the job type on each intake row
     "mail": ("dc540a482b5619e6226318becb615e79a639ab2be3c2d47154b43029886f8579",),
     # D-399 (T-302a): team version 2, the approved consent-form versions as history rows
-    "team": ("ad5cea87a2f6b2b0210c392f8c698a0c72253a93cbbb6ec74915bf0cefbd076f",),
+    # T-303 (D-436): team version 3, the monitoring-visit records
+    "team": (
+        "ad5cea87a2f6b2b0210c392f8c698a0c72253a93cbbb6ec74915bf0cefbd076f",
+        "e3f9d90d7bb93b34988eed53250d15178b95f8b39de74d715c67a7bae376574f",
+    ),
     # D-280: the break-glass grants, new after the baseline
     # T-309 (D-430): version 2, each use of a grant (the steward's review list)
     "breakglass": (
@@ -434,6 +440,8 @@ ADDED: dict[str, tuple[str, ...]] = {
     ),
     # T-112a (D-427): the data-operations batches, new after the baseline
     "dataops": ("01925afb0e82837617a880fa2d2b32f7efaa6d5e98945e7144f57510d76efbcf",),
+    # T-103 (D-438): orch version 2, the orchestrator's identifier caps as use rows (``id_limits``)
+    "orch": ("444cff97a092dda26501bfa81db70438eae3dda40e545bb86721748c241eba11",),
     # T-310a (D-446): the weekly PI sample of criteria not matched and the site's check, new after the baseline
     "tuned": ("e8565a9e2288df90d120272ab2956fafe4595465ecd7c58c2e2debb35ee934a1",),
     # T-203a (D-439): the vector store, new after the baseline (needs pgvector: the db image)
