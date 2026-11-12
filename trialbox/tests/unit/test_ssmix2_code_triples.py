@@ -34,8 +34,8 @@ def _lab_rows(tmp_path: Path, obx3: str) -> list[dict[str, str]]:
 
 @pytest.mark.parametrize(("obx3", "local", "jlac"), [
     ("3D046000001906202^HbA1c^JC10", "3D046000001906202", "3D046000001906202"),            # as before
-    ("H123^HbA1c^99LAB^3D046000001906202^HbA1c^JC10", "H123", "3D046000001906202"),        # JLAC10 second
-    ("H123^HbA1c^99LAB^3D046000001906202^HbA1c^jc10", "H123", "3D046000001906202"),        # ... whatever its case
+    ("H123^HbA1c^99LAB^3A999000002399901^HbA1c^JC10", "H123", "3A999000002399901"),        # JLAC10 second
+    ("H123^HbA1c^99LAB^3A999000002399901^HbA1c^jc10", "H123", "3A999000002399901"),        # ... whatever its case
     ("3D046000001906202^HbA1c^jlac10", "3D046000001906202", "3D046000001906202"),
     ("H123^HbA1c^99LAB", "H123", ""),                                                     # no JLAC10 at all
     ("3D046000001906202^HbA1c", "3D046000001906202", "3D046000001906202"),                # no system, the shape
@@ -45,7 +45,10 @@ def test_the_jlac10_code_of_a_result_is_read_from_the_triple_that_names_it(
     tmp_path: Path, obx3: str, local: str, jlac: str
 ) -> None:
     (row,) = _lab_rows(tmp_path, obx3)
-    assert (row["local_code"], row["jlac10_code"]) == (local, jlac)  # the look-up key stays the first code
+    assert (row["local_code"], row["jlac10_code"]) == (
+        local,
+        jlac,
+    )  # the key: the first code (a JLAC10 code the table does not know)
 
 
 # ------------------------------------------------------------------------------------------------ drug codes
@@ -98,3 +101,49 @@ def test_icd10_in_a_later_repetition_of_prb3_is_read_and_a_repetition_is_counted
     assert (row["icd10"], row["byomei_code"]) == (icd, byomei)
     assert src.stats["PPR-01:PRB-3 repeated"] == (1 if "~" in prb3 else 0)
     assert not [k for k in src.missed if k.startswith("diagnosis:")]
+
+
+# ------------------------------------------------------------------------------------------------ the review of this card
+def test_a_later_repetition_never_replaces_what_the_first_one_gives(tmp_path: Path) -> None:
+    """A licensed 病名 code of the first repetition is the diagnosis; a later repetition's ICD-10 is read only when
+    the first repetition gives none."""
+    prb3 = "20054174^2型糖尿病^MDCDX2~8830417^関節リウマチ^MDCDX2^M06.9^関節リウマチ^I10"
+    segs = ["PID|1||P0001^^^^PI", "PV1|1|O||||||||||||||||E1", f"PRB|AD|20261001|{prb3}|D1||||||||||A||20260930"]
+    _store(tmp_path, "PPR-01", "D1", segs)
+    src = Ssmix2Source(tmp_path, licensed={"medis": {"20054174": {"target_code": "E11.9"}}})
+    (row,) = [dict(r) for r in src.rows("diagnosis", "PPR-01", None, None)]
+    assert (row["icd10"], row["byomei_code"]) == ("E11.9", "20054174")
+    assert src.stats["PPR-01:PRB-3 repeated"] == 1
+
+
+@pytest.mark.parametrize("prb13", [
+    "0^なし^JHSD0005^1^確定^", "0^なし^JHSD0005^1", "0^なし^JHSD0005~1", "2^x^99LOC^1",
+    "0^なし^JHSD0005^X^疑いあり^99LOC",
+])  # fmt: skip
+def test_a_named_flag_of_no_suspicion_is_not_overruled_by_another_triple(prb13: str) -> None:
+    assert _suspected(_seg(f"PRB|AD|20261001|X^病|D1|||||||||{prb13}")) is False
+
+
+@pytest.mark.parametrize("cwe", ["^^^X1^薬^99XYZ", "^^^X1^薬", "~X1^薬^99XYZ"])
+def test_only_the_very_first_code_of_a_drug_field_is_its_local_code(cwe: str) -> None:
+    assert drug_codes(_seg(f"RXE|1|{cwe}"), 2)["yj"] == ""
+
+
+@pytest.mark.parametrize(("obx3", "local", "jlac", "hosp"), [
+    ("H123^x^99LAB^ 3D046000001906202 ^x^JC10", "3D046000001906202", "3D046000001906202", "H123"),  # blanks
+    ("H123^x^99LAB^garbage^x^JC10", "H123", "", "H123"),               # not a JLAC10 code, whatever it is called
+    ("3D046000001906202^HbA1c^^3A010000002327101^TP^JC10", "3D046000001906202", "3D046000001906202", ""),
+    ("H123^HbA1c^99LAB^3D046000001906202^HbA1c^JC10", "3D046000001906202", "3D046000001906202", "H123"),
+])  # fmt: skip
+def test_a_jlac10_code_of_a_later_triple_has_its_shape_and_is_the_key_when_the_first_code_is_unknown(
+    tmp_path: Path, obx3: str, local: str, jlac: str, hosp: str
+) -> None:
+    """The look-up key is the first code when the table knows it, else the JLAC10 code the table knows: a result
+    whose hospital code is unknown and whose JLAC10 code is known gets its LOINC code and is no missed code."""
+    obx = ["OBX", "1", "NM", obx3, "", "6.0", "%", *[""] * 15]
+    obx[11], obx[14], obx[21] = "F", f"{DAY}090000", "U1"
+    _store(tmp_path, "OML-11", "O1", ["OBR|1|O1", "|".join(obx)])
+    src = Ssmix2Source(tmp_path, licensed={})
+    (row,) = [dict(r) for r in src.rows("lab", "OML-11", None, None)]
+    assert (row["local_code"], row["jlac10_code"], row["hosp_lab_code"]) == (local, jlac, hosp)
+    assert ("lab:H123" in src.missed) is (jlac == "")
