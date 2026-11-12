@@ -69,6 +69,13 @@ _OFFSET_RE = re.compile(r"\d[T ]\d{2}:?\d{2}(?::?\d{2}(?:\.\d+)?)?\s*(?:Z|[+-]\d
 MAPPING_VERSION = "urn:trialbox:mapping-version"  # the meta.tag system of the mapping version (lake.flatten)
 
 
+# the earliest year a feed date may carry. Reason, not a tuning value: no person alive was born before it (the
+# longest verified human life is 122 years) and no hospital system holds an older record of a living patient; a
+# smaller year is a date of another calendar read as western (ROC year 115, an era year), which must be refused.
+EARLIEST_YEAR = 1850
+_COMPACT_DATE_RE = re.compile(r"\d{8}")
+
+
 class MappingError(ValueError):
     pass
 
@@ -267,12 +274,21 @@ class Mapper:
 
     @staticmethod
     def _parse_date(raw: str) -> date:
+        """A western calendar date. Anything else is refused (DIN-001): `strptime` takes a one-digit month, so the
+        compact form on a Republic-of-China date (`1150501`) or a two-digit year (`640715`) used to give the year
+        1150 or 6407 and the night passed. The compact form needs eight digits, and a year before
+        ``EARLIEST_YEAR`` is a date in another calendar, not a patient's."""
         raw = raw.strip()
-        for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"):
-            try:
-                return datetime.strptime(raw[:10] if "-" in raw or "/" in raw else raw[:8], fmt).date()
-            except ValueError:
-                continue
+        sep = "-" in raw or "/" in raw
+        if sep or _COMPACT_DATE_RE.match(raw):
+            for fmt in ("%Y-%m-%d", "%Y/%m/%d") if sep else ("%Y%m%d",):
+                try:
+                    d = datetime.strptime(raw[:10] if sep else raw[:8], fmt).date()
+                except ValueError:
+                    continue
+                if d.year < EARLIEST_YEAR:
+                    raise MappingError(f"date {raw!r} is before {EARLIEST_YEAR}: not a western calendar date")
+                return d
         raise MappingError(f"unparseable date {raw!r}")
 
     def convert(self, value: Any, typ: str | None) -> Any:
