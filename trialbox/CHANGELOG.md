@@ -14,6 +14,10 @@ new heading with the version and date, in the same pull request that sets the ve
   rows and can no longer drop, disable or alter the triggers that make its trail tables append-only. The schema's
   tables are made by the box's admin before the services start (`install.sh`, `trialbox update`, or by hand
   `python3 -m tools.trialbox migrate`); after a restore run the role script, then that command.
+- Database roles (NEW-ARCH-18, D-543): the console's role reaches the patient twin's schema (`profile`), so the
+  twin read works on a box. `trialbox update` does not run the role script: run it once after the update, from the
+  release folder: `docker compose --project-directory deploy exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh`
+  (`deploy/install.sh` runs it). Until then the twin read answers 500.
 - Chart number to pseudonym (T-719, D-487): the orchestrator gives the pseudonym of a chart number only to a
   signed-in person with the right (the opt-out register, a registry row typed by chart number), at most
   `TB_TO_PID_MAX_PER_HOUR` an hour per person (unset: the value of `TB_REVEAL_MAX_PER_HOUR`), and records each one
