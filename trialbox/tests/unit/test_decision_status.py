@@ -52,7 +52,10 @@ def _v(c: Any, verdict: str, *, conf: float | None = None, basis: Any = None, fi
         (_v(EXC, "fail", conf=0.95, basis="single"), PAIR, "unknown"),  # one model (H2)
         (_v(EXC, "fail", conf=0.95, basis="pair", final=False), PAIR, "unknown"),  # stored as not final (H1)
         (_v(EXC, "fail", conf=0.60, basis="pair"), PAIR, "unknown"),  # below the threshold
-        (_v(EXC, "fail", conf=0.95), PAIR, "no"),  # a row stored before the field: by the rest of the rule
+        # review of T-709 (LOW 4): a "not met" that says neither who gave it nor that it was final does not
+        # exclude; one T-707 stored as final (before the basis) does
+        (_v(EXC, "fail", conf=0.95), PAIR, "unknown"),
+        (_v(EXC, "fail", conf=0.95, final=True), PAIR, "no"),
         (_v(EXC, "fail", conf=0.95, final=False), PAIR, "unknown"),
         # a note "met": yes only when sure enough and nothing was left out of what the models read
         (_v(INC, "pass", conf=0.95, basis="pair"), PAIR, "yes"),
