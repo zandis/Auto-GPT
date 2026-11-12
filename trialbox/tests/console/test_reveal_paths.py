@@ -479,13 +479,16 @@ def test_the_orchestrator_asks_the_matrix_row() -> None:
     assert not hasattr(oapp, "ID_ROLES")
 
 
-def test_the_orchestrators_cap_survives_a_restart_and_records_the_purpose(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_orchestrators_cap_survives_a_restart_and_records_the_purpose(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     from orchestrator import app as oapp
     from orchestrator.scenarios import screen
 
+    from tests.service_tokens import per_service_tokens
     from tests.unit.test_service_auth import TOKEN, _fake_box
 
-    monkeypatch.setenv("TB_SERVICE_TOKEN", TOKEN)
+    per_service_tokens(tmp_path, monkeypatch)  # D-464: in PRODUCTION the orchestrator names its caller
     monkeypatch.setenv("TB_ENV", "PRODUCTION")
     monkeypatch.setenv("TB_REVEAL_MAX_PER_HOUR", "1")
     monkeypatch.setattr(oapp, "REVEALS", oapp.RevealLimit())
@@ -508,14 +511,17 @@ def test_the_orchestrators_cap_survives_a_restart_and_records_the_purpose(monkey
     assert client.post("/jobs/J1/reveal", json=bad, headers=sa.resign(h)).status_code == 422
 
 
-def test_a_token_holder_signing_new_names_meets_the_services_total_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_token_holder_signing_new_names_meets_the_services_total_cap(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Review finding 3: the cap per calling service and name, plus a total per calling service."""
     from orchestrator import app as oapp
     from orchestrator.scenarios import screen
 
+    from tests.service_tokens import per_service_tokens
     from tests.unit.test_service_auth import TOKEN, _fake_box
 
-    monkeypatch.setenv("TB_SERVICE_TOKEN", TOKEN)
+    per_service_tokens(tmp_path, monkeypatch)  # D-464: in PRODUCTION the orchestrator names its caller
     monkeypatch.setenv("TB_ENV", "PRODUCTION")
     monkeypatch.setenv("TB_REVEAL_MAX_PER_HOUR", "1")
     monkeypatch.setenv("TB_REVEAL_MAX_PER_HOUR_PER_SERVICE", "2")
@@ -531,15 +537,18 @@ def test_a_token_holder_signing_new_names_meets_the_services_total_cap(monkeypat
     assert events[-1]["kind"] == "screen.reveal_refused" and events[-1]["detail"]["reason"] == "service rate limit"
 
 
-def test_the_whole_registry_export_is_never_given_to_a_break_glass_grant(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_whole_registry_export_is_never_given_to_a_break_glass_grant(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Review finding 3: a grant covers one patient or one job, never the screening log."""
     from types import SimpleNamespace
 
     from orchestrator import app as oapp
 
+    from tests.service_tokens import per_service_tokens
     from tests.unit.test_service_auth import TOKEN, _fake_box
 
-    monkeypatch.setenv("TB_SERVICE_TOKEN", TOKEN)
+    per_service_tokens(tmp_path, monkeypatch)  # D-464: in PRODUCTION the orchestrator names its caller
     monkeypatch.setenv("TB_ENV", "PRODUCTION")
     events: list[dict[str, Any]] = []
     fake = _fake_box(events)

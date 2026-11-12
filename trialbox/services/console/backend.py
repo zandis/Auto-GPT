@@ -24,7 +24,7 @@ from tb_common.config import Config
 from tb_common.crypto import sha256_bytes
 from tb_common.http import ServiceClient, ServiceError
 from tb_common.objstore import ObjectStore
-from tb_common.ruleset import RulesetNotApproved, list_rulesets, load_approved
+from tb_common.ruleset import RulesetNotApproved, list_rulesets, load_approved, seed_working_copy
 from tb_common.service_auth import actor_header
 from tb_contracts import Job, JobCreate, JobFile, RegistryEntry, RegistryPromote, RegistrySummary, RegistryUpdate
 
@@ -255,6 +255,7 @@ class HttpBackend:
         self.adapter = ServiceClient(env.adapter_url, "adapter", timeout=1800, retries=0, idempotent=False)
         self.gateway_url = gateway_url
         self.test_smtp = test_smtp
+        seed_working_copy(env.rulesets_path)  # D-469: a first copy of the shipped rulesets; never the checkout
         self.services = {
             "orchestrator": env.orchestrator_url,
             "mail-gateway": env.mail_gateway_url,
@@ -296,6 +297,21 @@ class HttpBackend:
                     detail = exc.detail
                 raise Refused(detail) from exc
             raise Unavailable(str(exc)) from exc
+
+    def retry_scheduled_job(self, job_id: str, *, reply_to: str, by: str, role: str) -> Job:
+        """T-746 (D-474): ``POST /jobs/{job_id}/retry``. The orchestrator copies the failed scheduler job; the call
+        names the job, the reply mailbox and the signed person and role, never a type or an option."""
+        try:
+            resp = self.orch.post_raw(f"/jobs/{job_id}/retry", {"reply_to": reply_to}, actor_header(by, role=role))
+        except ServiceError as exc:
+            if exc.status in (403, 404, 409, 422):
+                try:
+                    detail = str(json.loads(exc.detail).get("detail"))
+                except (ValueError, AttributeError):
+                    detail = exc.detail
+                raise Refused(detail) from exc
+            raise Unavailable(str(exc)) from exc
+        return Job.model_validate(resp.json())
 
     def cancel_job(self, job_id: str, by: str) -> Job:
         """S26 Cancel (step 4, FR-PLAT-12): the orchestrator's ``POST /jobs/{id}/cancel``; a queued job fails at once,

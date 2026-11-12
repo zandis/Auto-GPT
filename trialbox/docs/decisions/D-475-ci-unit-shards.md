@@ -22,13 +22,15 @@ without a label, a new route without a permit row, a new table without an invent
    (`tools/test_shard.py`; the pytest side is `--shard`, registered in `tests/conftest.py`, applied after every
    other selection). Whole files stay together, so module- and session-scoped fixtures are built once per shard as
    before, and adding or removing a file moves no other file. Only a change of N moves files.
-2. **N = 6, from the measured durations.** The one-runner job spent 35 to 43 minutes in pytest in the runs of
+2. **N = 8, from the measured durations.** The one-runner job spent 35 to 43 minutes in pytest in the runs of
    2026-11-12 (up to 55 on a busy day) and under a minute in set-up (caches warm). Each shard pays the set-up
-   (about 30 s), the collection (about 30 s) and its workers' cluster starts again. By test count the hash puts at
-   most 1.36 times the mean in one shard at N = 6 (1.17 at N = 4, 1.37 at N = 5): at N = 6 the largest shard is
-   about 43 / 6 x 1.36 + 1.5, near 11 minutes, and about 14 on a 55-minute day, under the 15-minute aim; N = 4 or 5
-   would pass 15 on a slow day. More shards would queue for runners: a pull request already starts about 16 jobs.
-   The shards' own times on the pull request are in its PR body; N is the matrix and nothing else.
+   (about 30 s), the collection (about 30 s) and its workers' cluster starts again. The first two rounds on this pull
+   request ran N = 6 (estimated from the test counts: at most 1.36 times the mean per shard): the shards took 4 to
+   16 minutes, because the hash put `test_e2e_simple` (one test, 7.8 minutes) with `test_omop_core`,
+   `test_recall_cert` and `test_feas_demo` in one shard, and `test_rc_demo`, `test_nav_retro` and the two PoC walks
+   (2 to 2.5 minutes each) in another (`--durations=30`, printed by every shard). At N = 8 these heavy files fall in
+   four shards; the shard times of the N = 8 round are in the pull request body. More shards would queue for runners:
+   a pull request already starts about 20 jobs. N is the matrix and nothing else.
 3. **No test drops out silently.** Each shard writes a record (`--shard-record`): pytest's own collection before the
    shard was taken (after `-m`) and the node ids the shard kept. `python -m tools.test_shard check` in the job `unit`
    fails unless all N shards are present, every shard collected the same suite, and every collected test was kept by
@@ -54,5 +56,7 @@ without a label, a new route without a permit row, a new table without an invent
 
 - The hash balances by file, not by duration. If one shard is regularly much slower than the rest, the remedy is a
   larger N or splitting the slow file, not a duration table (a table goes stale and moves files when it is refreshed).
+  Each shard prints its 30 slowest tests. `tests/integration/test_e2e_simple.py` (7.8 minutes, one test) sets the
+  floor of its shard and repeats what the `e2e-simple` job checks; whether the unit run needs it is for its owner.
 - The branch-coverage nightly (`trialbox-nightly-quality.yml`) still runs the whole suite on one runner; it is not on
   the pull-request path.

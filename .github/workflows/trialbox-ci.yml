@@ -224,8 +224,9 @@ jobs:
 
   # T-747 (D-475): the unit suite in parallel shards. Each test file runs in exactly one shard, chosen by a hash of its
   # path (tools/test_shard.py; `make test SHARD=i/N` locally), so module- and session-scoped fixtures stay together
-  # and a new file moves no other. Six shards: the one-runner suite took 35 to 43 minutes of pytest on 2026-11-12 (up
-  # to 55), set-up under a minute; six keep the largest shard near 10 minutes with the hash's spread. Each shard keeps
+  # and a new file moves no other. Eight shards: the one-runner suite took 35 to 43 minutes of pytest on 2026-11-12 (up
+  # to 55), set-up under a minute; at six, two shards took 15 to 16 minutes (the 8-minute test_e2e_simple and three
+  # 2-minute integration files fell together); eight keep each under about 12 (D-475). Each shard keeps
   # its coverage data and the record of what it collected and kept; the job `unit` below checks them all.
   unit-shard:
     name: unit-shard (${{ matrix.shard }}/${{ strategy.job-total }})
@@ -239,7 +240,7 @@ jobs:
     strategy:
       fail-fast: false  # every shard reports, so one push shows every failure
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3

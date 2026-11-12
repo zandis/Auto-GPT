@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from lake.client import LakeHttp
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from tb_common.audit import AuditLog
 from tb_common.audit_writer import open_audit
 from tb_common.authz import BREAK_GLASS_ROLE, permit
@@ -27,6 +27,7 @@ from tb_common.fhir import FhirEvaluator
 from tb_common.http import make_app
 from tb_common.llm import LlmClient
 from tb_common.objstore import from_config
+from tb_common.ruleset import seed_working_copy
 from tb_common.service_auth import (
     ACTOR_HEADER,
     ASSERTION_HEADER,
@@ -39,9 +40,11 @@ from tb_common.service_auth import (
 )
 from tb_contracts import Job, JobCreate, RegistryEntry, RegistryEvent, RegistryPromote, RegistrySummary, RegistryUpdate
 
+from orchestrator.callers import Gate
+from orchestrator.callers import load as load_callers
 from orchestrator.candidates import CandidateRegistry, RegistryError
 from orchestrator.clients import AdapterHttp, CompilerHttp, MailHttp, ParserHttp
-from orchestrator.core import Orchestrator, Rejected, Services
+from orchestrator.core import NotRetryable, Orchestrator, Rejected, Services
 from orchestrator.datacore_api import router as datacore_router
 from orchestrator.db import JobDB
 from orchestrator.edc_api import router as edc_router
@@ -103,6 +106,7 @@ def orch() -> Orchestrator:
             llm=LlmClient.from_config(audit),
             verifier=verifier_client(audit),
         )
+        seed_working_copy(cfg.env.rulesets_path)  # D-469: a first copy of the shipped rulesets; never the checkout
         _orch = Orchestrator(
             cfg,
             JobDB(),  # TB_DB_URL, schema orch
@@ -159,7 +163,10 @@ def _queue() -> dict[str, Any]:
 
 # D-114: every changing call carries the box's service token; D-130 (plan v4 F4): every read too (jobs and their
 # outputs, the registry, studies, the data core), since they are patient level. /healthz stays open.
-app = make_app("orchestrator", checks=[_queue], lifespan=lifespan, protect_reads=True)
+# T-713 (D-464): which verified service reaches which route is one table (route_callers.yaml), enforced right after the
+# token check; a refusal is 403 with a named reason and audited with the verified service.
+CALLER_GATE = Gate(load_callers(), lambda: orch().audit)
+app = make_app("orchestrator", checks=[_queue], lifespan=lifespan, protect_reads=True, route_gate=CALLER_GATE)
 
 
 def _claim(request: Request, fallback: str | None = None) -> Actor:
@@ -324,22 +331,42 @@ def ruleset_detail(ruleset: str) -> dict[str, Any]:
 @app.post("/jobs")
 def create_job(req: JobCreate, request: Request) -> Job:
     """A new job. From the console (D-146, review J-01) the call names the signed-in person and their role in a signed
-    assertion, and the role decides; from the mail gateway (no person named) the sender's mailbox decides."""
+    assertion, and the role decides; from the mail gateway (no person named) the sender's mailbox decides. T-713
+    (D-464): an internal principal (``scheduler``, ``system``) is never accepted from HTTP, and the mail gateway starts
+    only the mail commands."""
+    from tb_common.authz import norm
+
+    caller = getattr(request.state, "tb_caller", None)
+    why = CALLER_GATE.job_start(caller, str(req.type), norm(req.requested_by), req.message_id)
+    if why is not None:
+        raise CALLER_GATE.refuse(caller, "POST /jobs", why)
     role, by = "", ""
     if request.headers.get(ACTOR_HEADER) and request.headers.get(ROLE_HEADER):
         who = _claim(request)
         role, by = who.role, who.name
     try:
-        return orch().create(req, role=role, by=by)
+        job = orch().create(req, role=role, by=by)
     except Rejected as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    # a known job_id answers with the existing job before any check of the request (idempotency): the caller must be
+    # allowed to read it, or a POST would read what GET refuses
+    why = CALLER_GATE.job_read(caller, job.message_id)
+    if why is not None:
+        raise CALLER_GATE.refuse(caller, "POST /jobs", why)
+    return job
 
 
 @app.get("/jobs/{job_id}")
-def get_job(job_id: str) -> Job:
+def get_job(job_id: str, request: Request) -> Job:
     job = orch().db.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="no such job")
+    caller = getattr(request.state, "tb_caller", None)
+    why = CALLER_GATE.job_read(
+        caller, job.message_id
+    )  # T-713 (D-464): the mail gateway reads the jobs that came by mail
+    if why is not None:
+        raise CALLER_GATE.refuse(caller, "GET /jobs/{job_id}", why)
     return job
 
 
@@ -490,6 +517,33 @@ def notice(req: NoticeRequest, request: Request) -> dict[str, Any]:
         detail={"kind": req.kind, "to": req.to, "subject": req.subject, "message_id": res.message_id},
     )
     return {"message_id": res.message_id}
+
+
+class RetryScheduled(BaseModel):
+    """``POST /jobs/{job_id}/retry`` body (T-746, D-474): the administrator's reply mailbox, nothing else. The type,
+    study, options and inputs are the failed job's own; a field that would change them is refused (422)."""
+
+    model_config = ConfigDict(extra="forbid")
+    reply_to: str
+
+
+@app.post("/jobs/{job_id}/retry")
+def retry_scheduled_job(job_id: str, body: RetryScheduled, request: Request) -> Job:
+    """The administrator runs a failed job of the box's own scheduler again (``job.retry_scheduled``, D-474). The
+    signed person and role decide (the console's assertion; the D-464 gate admits the console only); the orchestrator
+    copies the failed job. 403: the role may not; 404: no such job; 409: not failed, not a scheduler job, or a job of
+    the same type and study is queued or running."""
+    if not (request.headers.get(ACTOR_HEADER) and request.headers.get(ROLE_HEADER)):
+        raise HTTPException(status_code=403, detail="a retry names the signed-in administrator and role")
+    who = _claim(request)
+    try:
+        return orch().retry_scheduled(job_id, by=who.name, role=who.role, reply_to=body.reply_to)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="no such job") from exc
+    except Rejected as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except NotRetryable as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.post("/jobs/{job_id}/cancel")
@@ -754,3 +808,6 @@ def registry_export(ruleset: str, request: Request, by: str | None = None) -> Re
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="screening_log_{ruleset.upper()}.xlsx"'},
     )
+
+
+CALLER_GATE.bind(app)  # T-713 (D-464): every route is included above; the gate compiles them once, here
