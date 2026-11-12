@@ -70,9 +70,13 @@ def test_the_delegation_rule_holds_on_the_sibling_pages(box: dict[str, Any]) -> 
     for path in pages:
         assert sub.get(path).status_code == 403, path
     for path in ("/studies/GZQO/excluded", "/studies/GZQO/screening-log", "/studies/GZQO/cohort",
-                 "/pilot/registry/GZQO", "/pilot/registry/GZQO/export.xlsx"):  # fmt: skip
+                 "/pilot/registry/GZQO", "/pilot/registry/GZQO/export.xlsx?reason=contact"):  # fmt: skip
         assert pi.get(path).status_code == 200, path
-    assert sum(1 for e in _events(box, "console.denied") if e["actor"] == "console:drkato") >= len(pages)
+    # one refusal record per page: ``console.denied``, or for the export (a reveal since T-103, D-438) the one
+    # path's ``console.reveal_refused`` (delegation)
+    refusals = _events(box, "console.denied") + _events(box, "console.reveal_refused")
+    assert sum(1 for e in refusals if e["actor"] == "console:drkato") >= len(pages)
+    assert [e["detail"]["refused"] for e in _events(box, "console.reveal_refused")] == ["delegation"]
     # the job page shows the summary to the sub-investigator, not the patient rows
     assert 'data-testid="screen-rows"' not in sub.get(f"/pilot/jobs/{jid}").text
     assert 'data-testid="screen-rows"' in pi.get(f"/pilot/jobs/{jid}").text
@@ -141,7 +145,7 @@ def test_the_job_reveal_follows_the_delegation_log(box: dict[str, Any]) -> None:
 def test_the_registry_export_is_audited_first_and_signed_with_role_and_studies(box: dict[str, Any]) -> None:  # noqa: F811
     _done_screen(box["backend"], _ulid(982))
     crc = _user(box, "crc1", "coordinator", studies="GZQO")
-    assert crc.get("/pilot/registry/GZQO/export.xlsx").status_code == 200
+    assert crc.get("/pilot/registry/GZQO/export.xlsx?reason=contact").status_code == 200
     assert box["backend"].signed == [("export", "coordinator", "GZQO")]
     kinds = [e["detail"]["action"] for e in _events(box, "console.registry")]
     assert kinds == ["export_requested", "export"]
@@ -306,7 +310,9 @@ def test_an_opted_out_patients_chart_number_stays_masked_in_the_job_thread(box: 
     _opt_out(box, _user(box, "crc1", "coordinator"), "ab" * 16)  # the CASE subject's pseudonym
     page = admin.get(f"/pilot/jobs/{job.job_id}").text
     assert "70000054" not in page and "mrn=•••" in page
-    assert len([r for r in box["backend"].audit(job.job_id) if r.event == "console.view_id"]) == 1
+    lines = [r for r in box["backend"].audit(job.job_id)
+             if r.event == "console.reveal_patient" and r.detail.get("via") == "request_line"]  # fmt: skip
+    assert len(lines) == 1  # T-103 (D-438): the one record shape
 
 
 def test_the_lookup_cap_records_before_it_counts(box: dict[str, Any]) -> None:  # noqa: F811

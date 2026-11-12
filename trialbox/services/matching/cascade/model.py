@@ -65,10 +65,16 @@ class PatientTrace:
     sample_stratum: str = ""  # CAS-8 stratum: S2/S2b outcome signature × department
     tier: Tier = "out_of_scope"
     review: dict[str, Any] | None = None  # S5 decision
+    # T-203b (D-449): where S2b's ranking came from when a stored-vector source was given (flag ``vec.s2b``): pairs
+    # ranked from the vector store, pairs that fell back to the on-the-fly path and why, the model of each. None (and
+    # left out of the trace file) when no source was given, so a run with the flag off writes the same bytes as before
+    s2b_source: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["index_date"] = self.index_date.isoformat()
+        if d["s2b_source"] is None:
+            del d["s2b_source"]
         return d
 
 
