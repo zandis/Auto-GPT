@@ -179,10 +179,22 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
   `{TRIAL, COHORT}`. Rehearsal check: "every failed check is about model quality" names these three.
 - **Evidence.** `parts/public-ja.json` of that run. The other failing public-ja checks are model quality on the
   stand-in (the canary fails on the stub, so notes never exclude), and the rehearsal accepts those.
-- **Cause.** Not investigated. The menu regex `<option value="([A-Z0-9-]+)"` now also matches numeric options, and
-  the administrator gets 403 on `/week` and `/audit`. Both may come from master changes merged into this branch, or
-  from the public site's roles.
-- **Status.** Open.
+- **Cause.** All three are the harness, not the product; the product agrees with the role x route matrix.
+  1. `admin /audit`: D-451 (T-211c, ROLE-013) gave the audit browser to the data steward and the privacy office only
+     (`audit.browse` in `authz_matrix.yaml`; the matrix row `GET /audit` has admin `-`, since T-102a, D-366). The
+     check was older than D-451.
+  2. `admin /week`: with one screened trial (PUB-ONC; PUB-CA is a registry cohort) `/week` answers 303 to
+     `/studies/PUB-ONC/week`, which the administrator may not open (D-280: no patient-level row; matrix row
+     `GET /studies/{rs}/week` has admin `-`). The test client followed the redirect and saw that 403. The matrix's `Y`
+     for admin on `GET /week` counts a redirect inside the console as "let in" (its test sends
+     `follow_redirects=False`), so the row means the narrower thing.
+  3. The menu: `/pilot/request` has two study selects (`feas-rs`: trials; `scr-rs`: trials and cohorts) and other
+     selects with options `1` to `5`. The regex read every `<option>` of the page. The study selects list PUB-ONC and
+     PUB-CA only: no other site's study.
+- **Fix.** `tools/public_e2e.py` stage 6: the administrator's `/audit` must be 403 (D-451; the harness has no steward
+  or privacy account); the administrator's `/week` is read without following redirects and must be 200 or a 303 to a
+  `/week` page; the menu check reads only the `<select name="ruleset">` options.
+- **Status.** Fixed in the harness (PR #321). No product finding.
 
 ## C. Fixed: keep them fixed
 

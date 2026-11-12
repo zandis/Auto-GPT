@@ -697,13 +697,23 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     t = time.perf_counter()
     for who, c in (("crc", crc), ("pi", pi), ("admin", admin)):
         for path in ("/home", "/week", "/account", "/help", "/notices/received", "/reports", "/settings/notices"):
+            if who == "admin" and path == "/week":
+                continue
             r = c.get(path)
             s.check(f"{who} {path}", r.status_code == 200, r.status_code)
+    # The role x route matrix's Y for admin on /week counts a redirect inside the console as "let in". With one
+    # screened study /week sends the reader on to /studies/{rs}/week, which the administrator may not open (D-280:
+    # no patient-level row), so the administrator's /week is checked without following that redirect.
+    r = admin.get("/week", follow_redirects=False)
+    s.check("admin /week", r.status_code == 200 or (r.status_code == 303 and "/week" in r.headers.get("location", "")),
+            r.status_code)  # fmt: skip
     # D-120: a public-data site says so (not "synthetic"), lists its own studies only, and names its clinicians
     # from the records
     home = crc.get("/home").text
     s.check("banner says public data", 'data-testid="banner"' in home and "synthetic" not in home.lower(), "")
-    menu = re.findall(r'<option value="([A-Z0-9-]+)"', crc.get("/pilot/request").text)
+    # The study selects only (name="ruleset"): the page has other selects with numeric options
+    selects = re.findall(r'<select[^>]*name="ruleset"[^>]*>(.*?)</select>', crc.get("/pilot/request").text, re.S)
+    menu = [v for sel in selects for v in re.findall(r'<option value="([^"]+)"', sel)]
     s.check("request menu: this site's studies only", bool(menu) and set(menu) <= {TRIAL, COHORT}, menu)
     wk = pi.get(f"/studies/{TRIAL}/week?list=all").text
     s.check("clinician names from the records", "public-data site" in wk and "(synthetic)" not in wk, "")
@@ -720,12 +730,15 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         "/admin?tab=jobs",
         "/admin?tab=sources",
         "/ops/users",
-        "/audit",
         "/jobs",
         *(f"/admin/ops?tab={tab}" for tab in ("overview", "backups", "update", "logs", "secrets", "network")),
     ):
         r = admin.get(path)
         s.check(f"admin {path}", r.status_code == 200, r.status_code)
+    # D-451 (T-211c, ROLE-013): the audit browser is the data steward's and the privacy office's, not the
+    # administrator's
+    r = admin.get("/audit")
+    s.check("admin cannot open /audit", r.status_code == 403, r.status_code)
     r = pi.get("/admin")
     s.check("investigator cannot open admin", r.status_code in (403, 303, 404), r.status_code)
     # D-178 (review J-09): the network sheet from the console, after a confirmation that names the consequence
