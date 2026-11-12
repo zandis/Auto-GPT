@@ -31,6 +31,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/api/v1/studies/{rs}/conflicts` | - | U | - | U | U | - | - | - | - |
 | GET | `/api/v1/studies/{rs}/delegation` | Y | Y | Y | Y | Y | - | - | Y | Y |
 | GET | `/api/v1/studies/{rs}/edc` | - | U | - | U | U | - | - | - | - |
+| GET | `/api/v1/studies/{rs}/edc/copy` | - | U | - | U | U | - | - | - | - |
 | GET | `/api/v1/studies/{rs}/edc/drafts` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/api/v1/studies/{rs}/edc/export/odm` | - | U | - | U | U | - | - | - | - |
 | GET | `/api/v1/studies/{rs}/edc/map` | - | U | - | U | U | - | - | - | - |
@@ -58,7 +59,10 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/api/v1/studies/{rs}/subjects/{record}` | - | U | - | U | U | - | - | - | - |
 | GET | `/api/v1/studies/{rs}/visits` | - | U | - | U | U | - | - | - | - |
 | GET | `/ask` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
-| GET | `/audit` | Y | Y | Y | Y | - | - | - | Y | Y |
+| GET | `/audit` | - | - | - | - | - | - | - | Y | Y |
+| GET | `/audit/patients` | - | - | - | - | - | - | - | Y | Y |
+| GET | `/audit/patients/{pid}` | - | - | - | - | - | - | - | Y | Y |
+| GET | `/audit/patients/{pid}/report.csv` | - | - | - | - | - | - | - | Y | Y |
 | GET | `/auth/oidc/callback` | n | n | n | n | n | n | n | n | n |
 | GET | `/auth/oidc/start` | n | n | n | n | n | n | n | n | n |
 | GET | `/breakglass` | Y | - | Y | Y | - | - | - | Y | - |
@@ -118,6 +122,8 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/studies/{rs}/conflicts` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/deviations` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/edc` | - | Y | - | Y | Y | - | - | - | - |
+| GET | `/studies/{rs}/edc/copy.csv` | - | U | - | U | U | - | - | - | - |
+| GET | `/studies/{rs}/edc/copy/{record}` | - | n | - | n | n | - | - | - | - |
 | GET | `/studies/{rs}/edc/export.odm.xml` | - | U | - | U | U | - | - | - | - |
 | GET | `/studies/{rs}/edc/map` | - | U | - | U | U | - | - | - | - |
 | GET | `/studies/{rs}/edc/review/{record}` | - | n | - | n | n | - | - | - | - |
@@ -164,6 +170,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/admin/ops/{action}` | n | n | n | n | n | n | n | n | n |
 | POST | `/admin/redcap` | Y | - | - | - | - | - | - | - | - |
 | POST | `/admin/redcap/{ref}/test` | Y | - | - | - | - | - | - | - | - |
+| POST | `/api/v1/audit/verify` | - | - | - | - | - | - | - | Y | Y |
 | POST | `/api/v1/data/batches/{bid}/decide` | - | - | - | - | - | - | - | Y | - |
 | POST | `/api/v1/site/charts` | - | Y | - | - | n | - | - | - | - |
 | POST | `/api/v1/site/checks/{cid}` | Y | Y | - | - | n | - | - | - | - |
@@ -173,9 +180,11 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/api/v1/studies/{rs}/aes/{record}/{event}/ack` | - | - | - | n | - | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/candidates/{pid}/referral` | - | - | - | Y | - | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/conflicts/{cid}` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/api/v1/studies/{rs}/edc/copy/{record}/tick` | - | Y | - | Y | Y | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/edc/dictionary` | - | Y | - | Y | Y | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/edc/drafts` | - | Y | - | Y | Y | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/edc/drafts/{draft_id}/decide` | - | Y | - | Y | Y | - | - | - | - |
+| POST | `/api/v1/studies/{rs}/edc/import/odm` | - | Y | - | Y | Y | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/edc/send` | - | U | - | U | U | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/edc/sign` | - | Y | - | Y | Y | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/edc/switch` | Y | - | - | Y | - | - | - | - | - |
@@ -193,6 +202,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/api/v1/studies/{rs}/referrals/{ref_id}/answer` | - | Y | - | Y | Y | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/sources/{name}/sync` | - | n | - | - | n | - | - | - | - |
 | POST | `/api/v1/studies/{rs}/subjects/{record}/step` | - | Y | - | - | Y | - | - | - | - |
+| POST | `/audit/verify` | - | - | - | - | - | - | - | Y | Y |
 | POST | `/breakglass` | Y | - | Y | Y | - | - | - | - | - |
 | POST | `/breakglass/{gid}/end` | Y | - | Y | Y | - | - | - | - | - |
 | POST | `/breakglass/{gid}/review` | - | - | - | - | - | - | - | Y | - |
@@ -236,9 +246,11 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/studies/{rs}/candidates/{pid}/reveal` | Y | Y | Y | Y | Y | - | - | Y | Y |
 | POST | `/studies/{rs}/conflicts/{cid}` | - | Y | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/deviations` | - | n | - | - | n | - | - | - | - |
+| POST | `/studies/{rs}/edc/copy/{record}/tick` | - | n | - | n | n | - | - | - | - |
 | POST | `/studies/{rs}/edc/decide/{draft_id}` | - | n | - | n | n | - | - | - | - |
 | POST | `/studies/{rs}/edc/dictionary` | - | U | - | U | U | - | - | - | - |
 | POST | `/studies/{rs}/edc/drafts` | - | Y | - | Y | Y | - | - | - | - |
+| POST | `/studies/{rs}/edc/import` | - | U | - | U | U | - | - | - | - |
 | POST | `/studies/{rs}/edc/map` | - | U | - | U | U | - | - | - | - |
 | POST | `/studies/{rs}/edc/send` | - | U | - | U | U | - | - | - | - |
 | POST | `/studies/{rs}/edc/sign` | - | Y | - | Y | Y | - | - | - | - |

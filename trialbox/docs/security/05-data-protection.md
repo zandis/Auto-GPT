@@ -3,7 +3,9 @@
 - **Pseudonyms at the door.** The adapter turns each chart number into `HMAC(site key, chart number)`; names and IDs
   live only in the AES-GCM pid map. The lake has no chart number, ID or phone column (`e2e_simple` stage 0).
 - **Log scrubbing.** Logs carry pseudonyms only; the scrubber removes Japanese and Taiwanese IDs, phone numbers and
-  postcodes (`tb_common/logging.py`, D-121).
+  postcodes (`tb_common/logging.py`, D-121), the site's chart numbers (`settings.mrn_regex`, the contract's default
+  when no site configuration is readable) and secrets (a value after a secret's name, bearer tokens, the passwords
+  in a database URL, and every secret value the process holds). It is on in every service from its start (D-450).
 - **Small cells.** Counts under 5 are shown as `<5` in anything that leaves the study team (`tb_common/smallcell.py`).
 - **Routing.** Patient-level files go only to the study's internal list, as 7z AES-256 with the password in a second
   mail; aggregate files may go to `aggregate_to`. Checked before every send (`tb_common/routing.py`).
