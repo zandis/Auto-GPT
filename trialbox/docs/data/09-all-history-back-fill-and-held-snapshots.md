@@ -42,7 +42,11 @@ nightly full load holds the whole night in memory, so the first load runs as a *
   which holds across the lake's worker processes;
 - one rebuild of a snapshot runs at a time (`<lake>/locks/<snapshot>.build.lock`): a second one, from another worker
   or a caller that retried after its HTTP client timed out, is refused at once with "already building" (HTTP 409),
-  and a site publish shows that as a waiting publish (`building: true`);
+  and a site publish shows that as a waiting publish (`building: true`); pruning skips a snapshot that is building;
+- "held" and "already building" are the lake being busy, not a refusal of the data (HTTP 409 with
+  `X-TB-Lake-Busy`): the night ends "lake busy" and is run again; it is not a held night;
+- readers open each snapshot file by a link named after its identity (`db/.open/`), so a query after a rebuild never
+  reads the previous file from a copy another query still has open; a re-run of a job holds its snapshot like the job;
 - the adapter's pruning keeps every held snapshot (`prune_snapshots`);
 - a hold older than 14 days is a job that died and protects nothing.
 

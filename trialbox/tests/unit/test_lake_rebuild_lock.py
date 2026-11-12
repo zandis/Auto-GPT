@@ -7,16 +7,18 @@ uvicorn workers). Synthetic patients only."""
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 from embed_service.embedder import HashEmbedder
@@ -281,7 +283,7 @@ def test_the_site_publish_answers_already_building(tmp_path: Path) -> None:
         def holds(self) -> dict[str, str]:
             return {}
 
-        def rebuild(self, snap: str) -> dict[str, Any]:
+        def rebuild(self, snap: str, allow_empty: bool = False) -> dict[str, Any]:
             self.rebuilds += 1
             raise self.exc
 
@@ -296,14 +298,177 @@ def test_the_site_publish_answers_already_building(tmp_path: Path) -> None:
         assert "setup.publish_building" in logs
     assert not svc_mod._building_refusal(ValueError("x")) and not svc_mod._held_refusal(HttpError())
 
+    class HeaderResp:  # the service's own marker, whatever the text
+        status_code = 409
+        text = "{}"
+        headers: ClassVar[dict[str, str]] = {"X-TB-Lake-Busy": "building"}
 
-def test_pruning_removes_a_gone_snapshots_build_lock_unless_it_builds(tmp_path: Path) -> None:
-    from lake.store import building, drop_build_lock
+    class HeaderError(Exception):
+        response = HeaderResp()
+
+    assert svc_mod._building_refusal(HeaderError())
+    # review 6: the practice site's double click is "building" too, not a crash
+    st = _Store()
+    svc = SiteSetup(st, tmp_path / "setup", Busy(RuntimeError("unused")), None, AuditLog(tmp_path / "audit-p"),  # type: ignore[arg-type]
+                    lambda: datetime(2026, 10, 5, tzinfo=UTC), lambda: date(2026, 10, 5), lambda: b"k" * 32)  # fmt: skip
+    svc._lakes["prac"] = Busy(SnapshotBuilding("lake snapshot 2026-10-05 is already building"))
+    out = svc.publish("prac", "crc")
+    assert out["pending"] and out["building"] and st.pub is None
+    svc._lakes["prac"] = Busy(SnapshotHeld("held by a running job"))
+    with pytest.raises(SnapshotHeld):  # a practice site has no batching: a refusal other than busy stays an error
+        svc.publish("prac", "crc")
+
+
+def test_pruning_leaves_a_snapshot_that_is_building_and_never_deletes_a_build_lock(tmp_path: Path) -> None:
+    """Review 1 and 2: pruning deleted a build lock someone had open (two writers then) and a snapshot a rebuild was
+    building (it came back at the swap). Pruning now takes the build lock without waiting and skips that snapshot."""
+    from adapter.ndjson import snapshot_dir
+    from adapter.pipeline import PASSED, AdapterConfig, prune_snapshots
+    from lake.store import building
 
     lake_dir = tmp_path / "lake"
+    nights = [f"2026-10-{d:02d}" for d in range(1, 6)]
+    for s_ in nights:
+        nd = snapshot_dir(lake_dir, s_)
+        nd.mkdir(parents=True)
+        (nd / PASSED).write_text("{}")
+        (lake_dir / "db").mkdir(exist_ok=True)
+        (lake_dir / "db" / f"{s_}.duckdb").write_bytes(b"")
+    (lake_dir / "CURRENT").write_text(nights[-1])
+    cfg = AdapterConfig(lake_dir=lake_dir, secrets_dir=tmp_path, mapping_path=tmp_path, site_id="T", keep_nightly=2,
+                        keep_month_end_months=0)  # fmt: skip
+    with building(lake_dir, nights[0]):  # a rebuild of the oldest night runs
+        gone = prune_snapshots(cfg, date(2026, 10, 5))
+        assert nights[0] not in gone and set(gone) == set(nights[1:3])
+        assert (lake_dir / "db" / f"{nights[0]}.duckdb").exists() and snapshot_dir(lake_dir, nights[0]).exists()
+    assert prune_snapshots(cfg, date(2026, 10, 5)) == [nights[0]]
+    assert (lake_dir / "locks" / f"{nights[0]}.build.lock").exists()  # never deleted
+
+
+def test_a_reader_after_a_swap_never_gets_the_old_copy(lake_dir: Path) -> None:
+    """Review 7: DuckDB keeps one open copy of a file per path in a process; while a connection to the old file is
+    open, a new connection to the same path after the swap read the OLD bytes. Readers now open a link per file
+    identity."""
+    lake = Lake(lake_dir, TZ)
+    unrelated = lake.connect(NIGHT)  # an unheld console query still open in this worker
+    try:
+        _patients(lake_dir, NIGHT, 5)
+        Lake(lake_dir, TZ).rebuild(NIGHT, HashEmbedder())  # no hold: allowed
+        assert _count(lake, NIGHT) == 5  # a job that pins and holds now reads the new bytes from its first query
+        assert unrelated.execute("SELECT count(*) FROM patient").fetchone() == (3,)  # its own copy, untouched
+    finally:
+        unrelated.close()
+    links = sorted((lake_dir / "db" / ".open").glob(f"*/{NIGHT}.duckdb"))
+    assert len(links) == 1 and links[0].stat().st_ino == lake.db_path(NIGHT).stat().st_ino  # old links removed
+    assert lake.snapshots() == [NIGHT]
+
+
+def test_the_reader_link_falls_back_to_the_file_without_hard_links(
+    lake_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def no_links(*a: Any) -> None:
+        raise PermissionError("no hard links here")
+
+    shutil.rmtree(lake_dir / "db" / ".open", ignore_errors=True)
+    monkeypatch.setattr(os, "link", no_links)
+    db = Lake(lake_dir, TZ).db_path(NIGHT)
+    assert store.reader_path(db) == db and _count(Lake(lake_dir, TZ), NIGHT) == 3
+
+
+def test_verify_flags_a_missing_parquet_folder_and_a_rebuild_sweeps_leftovers(lake_dir: Path) -> None:
+    """Review 9: a swap cut short can leave no Parquet folder; verify() said [] for it."""
+    lake = Lake(lake_dir, TZ)
+    shutil.rmtree(lake_dir / "parquet" / f"snapshot={NIGHT}")
+    assert lake.verify(NIGHT) == [f"parquet/snapshot={NIGHT}: missing or empty"]
+    stage = lake_dir / "parquet" / ".building"
+    (stage / f"snapshot={NIGHT}").mkdir(parents=True)
+    (stage / f"snapshot={NIGHT}" / "half.parquet").write_bytes(b"x")
+    (stage / f"snapshot={NIGHT}.old").mkdir()
+    (lake_dir / "db" / f"{NIGHT}.building").write_bytes(b"half")
+    lake.rebuild(NIGHT, HashEmbedder())
+    assert (
+        lake.verify(NIGHT) == [] and not any(stage.iterdir()) and not (lake_dir / "db" / f"{NIGHT}.building").exists()
+    )
+
+
+def test_the_swap_does_not_hash_under_the_lake_lock(lake_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review 5: every hold, release and prune waited for a second hash of the whole file inside the lock."""
+    inside = {"n": 0, "hashed": 0}
+    real_lock, real_sha = store.lake_lock, store._file_sha
+
+    @contextlib.contextmanager
+    def lock(d: Path) -> Iterator[None]:
+        with real_lock(d):
+            inside["n"] += 1
+            try:
+                yield
+            finally:
+                inside["n"] -= 1
+
+    def sha(p: Path) -> str:
+        if inside["n"] and p.suffix == ".duckdb":
+            inside["hashed"] += 1
+        return real_sha(p)
+
+    monkeypatch.setattr(store, "lake_lock", lock)
+    monkeypatch.setattr(store, "_file_sha", sha)
+    _patients(lake_dir, NIGHT, 4)
+    Lake(lake_dir, TZ).rebuild(NIGHT, HashEmbedder())
+    assert inside["hashed"] == 0 and Lake(lake_dir, TZ).verify(NIGHT) == []
+
+
+def test_a_backup_skips_builds_in_progress_and_reader_links(tmp_path: Path) -> None:
+    """Review 3: the Parquet stage (``parquet/.building/...``, ``snapshot=S.old``) was picked up by a backup."""
+    from tools.trialbox import backup as bk
+
+    lake = tmp_path / "lake"
+    for rel in ("db/2026-10-04.duckdb", "db/2026-10-04.building", "parquet/snapshot=2026-10-04/patient.parquet",
+                "parquet/.building/snapshot=2026-10-04/patient.parquet",
+                "parquet/.building/snapshot=2026-10-04.old/patient.parquet",
+                "db/.open/1-2-3/2026-10-04.duckdb"):  # fmt: skip
+        (lake / rel).parent.mkdir(parents=True, exist_ok=True)
+        (lake / rel).write_bytes(b"x")
+    keep, left = bk.select_files("lake", lake)
+    assert sorted(keep) == ["db/2026-10-04.duckdb", "parquet/snapshot=2026-10-04/patient.parquet"]
+    assert left == {"lake snapshot being built": 3, "lake reader links (the same files as db/)": 1}
+
+
+def test_a_rerun_holds_its_snapshot(lake_dir: Path) -> None:
+    """Review 8: the re-run's lake had no ``hold``, so a publish could rebuild the snapshot under a running re-run."""
+    from lake.client import LakeLocal
+    from orchestrator import rerun
+    from orchestrator.jobs import PinnedLake
+
+    base = LakeLocal(lake_dir, HashEmbedder(), TZ)
+    pinned = PinnedLake(rerun.PinnedLake(base, NIGHT), today=lambda: date(2026, 10, 5), max_age_days=7,
+                        pinned=NIGHT, holder="01JOBX")  # fmt: skip
+    assert pinned.pin() == NIGHT
+    holds = Lake(lake_dir, TZ).holds()
+    assert list(holds.values()) == [NIGHT] and next(iter(holds)).startswith("rerun.01JOBX.")
+    _patients(lake_dir, NIGHT, 5)
+    with pytest.raises(SnapshotHeld):
+        Lake(lake_dir, TZ).rebuild(NIGHT, HashEmbedder())
+    pinned.release()
+    assert Lake(lake_dir, TZ).holds() == {}
+    assert rerun.PinnedLake(object(), NIGHT).release("x") is False
+    rerun.PinnedLake(object(), NIGHT).hold(NIGHT, "x")  # a fake lake without holds: nothing to do
+
+
+def test_the_service_marks_busy_and_the_adapter_reads_it(lake_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review 4: busy (held, or already building) is one class in process and over HTTP, never refused data."""
+    from adapter.pipeline import BUSY, REFUSALS
+    from fastapi.testclient import TestClient
+    from lake import app as lake_app
+    from lake.store import LakeBusy, SnapshotBuilding, building
+
+    lake = Lake(lake_dir, TZ)
+    monkeypatch.setattr(lake_app, "lake", lambda: lake)
+    api = TestClient(lake_app.app)
     with building(lake_dir, NIGHT):
-        drop_build_lock(lake_dir, NIGHT)  # a rebuild of it runs: the file stays
-        assert (lake_dir / "locks" / f"{NIGHT}.build.lock").exists()
-    drop_build_lock(lake_dir, NIGHT)
-    assert not (lake_dir / "locks" / f"{NIGHT}.build.lock").exists()
-    drop_build_lock(lake_dir, NIGHT)  # nothing to drop
+        r = api.post("/rebuild", json={"snapshot": NIGHT})
+    assert r.status_code == 409 and r.headers["X-TB-Lake-Busy"] == "building" and "already building" in r.text
+    lake.hold(NIGHT, "01J")
+    r = api.post("/rebuild", json={"snapshot": NIGHT})
+    assert r.status_code == 409 and r.headers["X-TB-Lake-Busy"] == "held"
+    assert {c.__name__ for c in (LakeBusy, SnapshotHeld, SnapshotBuilding)} == set(BUSY)
+    assert not set(BUSY) & set(REFUSALS)

@@ -409,22 +409,22 @@ class SiteSetup:
             # D-273 (CR-055, DI-5): the audit event goes first; if it cannot be written, nothing is published
             self.audit.append("setup.publish_begin", actor=by, detail={"ws": ws, "snapshot": snap, "digest": dg[:16]})
             lake.put_site(res)
-            if ws == "main":  # the hospital's lake: never rebuilt from a missing or empty feed once it had one (D-271)
-                try:
-                    lake.rebuild(snap)
-                except Exception as exc:
-                    if _building_refusal(exc):
-                        # D-462: another rebuild of the snapshot runs (an earlier publish whose HTTP client timed
-                        # out, another worker): never a second writer; this publish waits and shows "building"
-                        self.audit.append("setup.publish_building", actor=by, detail={"ws": ws, "snapshot": snap})
-                        return _pending(last, 0, 0, building=True)
-                    if not _held_refusal(exc):
-                        raise
-                    # a job pinned the snapshot between the check and the rebuild: the batch waits for it (D-403)
-                    self.audit.append("setup.publish_deferred", actor=by, detail={"ws": ws, "snapshot": snap})
-                    return _pending(last, 0, max(1, self._held_by(lake, snap)))
-            else:  # a practice site holds the site's own inputs only
-                lake.rebuild(snap, allow_empty=True)
+            try:
+                if ws == "main":  # the hospital's lake: never rebuilt from a missing or empty feed once it had one
+                    lake.rebuild(snap)  # (D-271)
+                else:  # a practice site holds the site's own inputs only
+                    lake.rebuild(snap, allow_empty=True)
+            except Exception as exc:
+                if _building_refusal(exc):
+                    # D-462: another rebuild of the snapshot runs (an earlier publish whose HTTP client timed out,
+                    # another worker, a double click): never a second writer; this publish waits, "building"
+                    self.audit.append("setup.publish_building", actor=by, detail={"ws": ws, "snapshot": snap})
+                    return _pending(last, 0, 0, building=True)
+                if ws != "main" or not _held_refusal(exc):
+                    raise
+                # a job pinned the snapshot between the check and the rebuild: the batch waits for it (D-403)
+                self.audit.append("setup.publish_deferred", actor=by, detail={"ws": ws, "snapshot": snap})
+                return _pending(last, 0, max(1, self._held_by(lake, snap)))
             counts = publish.counts(res)
             self.store.set_published(ws, self.stamp(), snap, dg, counts)
             self.audit.append("setup.publish", actor=by, detail={"ws": ws, "snapshot": snap, "counts": counts})
@@ -463,7 +463,10 @@ def _building_refusal(exc: Exception) -> bool:
     if type(exc).__name__ == "SnapshotBuilding":
         return True
     resp = getattr(exc, "response", None)
-    return getattr(resp, "status_code", None) == 409 and "already building" in str(getattr(resp, "text", ""))
+    if getattr(resp, "status_code", None) != 409:
+        return False
+    headers = getattr(resp, "headers", None) or {}
+    return headers.get("X-TB-Lake-Busy") == "building" or "already building" in str(getattr(resp, "text", ""))
 
 
 def _held_refusal(exc: Exception) -> bool:

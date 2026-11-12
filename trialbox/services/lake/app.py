@@ -22,7 +22,7 @@ from tb_contracts import (
 )
 
 from lake.sqlguard import SqlRejected
-from lake.store import Lake, RebuildError
+from lake.store import BUSY_HEADER, Lake, LakeBusy, RebuildError
 
 ARROW_STREAM = "application/vnd.apache.arrow.stream"
 _lake: Lake | None = None
@@ -126,6 +126,8 @@ def get_holds() -> dict[str, Any]:
 def rebuild(req: RebuildRequest) -> RebuildResult:
     try:
         stats = lake().rebuild(req.snapshot.isoformat(), embedder(), Path(req.ndjson_dir) if req.ndjson_dir else None)
+    except LakeBusy as exc:  # D-462: held by a job or already building; nothing written, try again later
+        raise HTTPException(status_code=409, detail=str(exc), headers={BUSY_HEADER: exc.reason}) from exc
     except RebuildError as exc:  # D-271: a missing or empty feed is refused; CURRENT stays
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
