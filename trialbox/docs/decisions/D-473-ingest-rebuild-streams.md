@@ -19,7 +19,9 @@
    bytes as before: sorted by id, the last record of an id winning, a tombstone dropping an id only when the night
    did not send it again, `tombstones.json` as before.
 2. **The night's resources are not held.** `adapter.pipeline` writes every mapped resource to the spool as it is
-   mapped. The unit defaults, presence words, site offset and merged chart numbers are applied to each resource as
+   mapped, and each source table's normalized rows to a file it reads back for each pass (`_TableRows`); the
+   duplicate keys are counted over the keys sorted in runs. Only the data contracts (`TB_DATA_CONTRACTS`, off by
+   default) still read a table's raw rows in memory. The unit defaults, presence words, site offset and merged chart numbers are applied to each resource as
    it is read back for writing; the validation sample, the JP Core sample, the missing-element counts and the unread
    elements are taken from that same stream (`heapq.nsmallest` over the hash, the same resources as the sort of the
    old code). The reports, the snapshot and the samples are the same as before.
@@ -39,6 +41,21 @@
    from a constant in code. A cap the operator set by hand is kept. `trialbox doctor` fails when a cap is below what
    the patient count needs.
 
+## What is still held (bounded by the patient count or by a batch, not by the night)
+
+- Per patient: the patient ids (merged chart numbers), the pid-map pairs and identities, the lake's patient rows
+  (one per pid). Measured: 13.6 KB per patient in the lake, about 0 in the adapter (`ingest_memory.json`).
+- Per batch: `INSERT_BATCH` (4,096) rows per Parquet row group and notes per chunk and embedding batch; a sort run
+  (`TB_INGEST_SORT_MB`); a read chunk of 1 MB in the character-set check.
+- The validation sample: 1 % of each type with at least 3 (T-693 adds the absolute cap, F-06 rest).
+
 ## Open
 
-- Filled in as the card lands.
+- **The OMOP lake source** (`lake.source` = `omop`, not the default) still loads the whole snapshot into lists
+  (`omop_rows`); its streaming is the OMOP load at scale (T-702, F-17).
+- **A legacy character set** (Big5, Shift_JIS) is still decided over the whole file's bytes (`encoding.decode`): the
+  detector weighs every reading of all of it. A UTF-8 export is checked in chunks.
+- **The data contracts** (`TB_DATA_CONTRACTS`) still read a table's raw rows in memory (`governance.check_table`).
+- `load_fhir.sync_snapshot` keeps one hash per resource for the fhir-store ledger (only with `TB_FHIR_BASE_URL`) and
+  the SS-MIX2 reader lists the storage tree each night: not changed here.
+- Proven at small sizes only (N and 4N); the 50,000-patient night under the default caps is T-687's nightly gate.
