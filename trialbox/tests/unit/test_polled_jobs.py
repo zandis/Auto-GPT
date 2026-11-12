@@ -570,3 +570,42 @@ def test_the_minute_tick_follows_a_publish_with_batching_off(monkeypatch: pytest
     orch_app._flush_main(None, object())  # type: ignore[arg-type]
     orch_app._flush_main(Svc())  # the after-job hook; an error is logged, never raised
     assert calls == ["main", "main"]
+
+
+def test_the_publish_over_the_real_lake_service_is_recorded_with_one_rebuild(
+    lake_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F-01 end to end (the shape of T-687's scale gate): the product's ``LakeHttp`` against the lake service, the
+    publish ticking while the rebuild runs: one rebuild started, the publish recorded once it ends."""
+    import time
+
+    from fastapi.testclient import TestClient
+    from lake import app as lake_app
+    from lake.client import LakeHttp
+
+    lake = Lake(lake_dir, TZ)
+    monkeypatch.setattr(lake_app, "lake", lambda: lake)
+    monkeypatch.setattr(lake_app, "embedder", HashEmbedder)
+    starts: list[str] = []
+
+    class Counting(LakeHttp):
+        def start_rebuild(self, snapshot: str, allow_empty: bool = False) -> dict[str, Any]:
+            starts.append(snapshot)
+            return super().start_rebuild(snapshot, allow_empty)
+
+    http = Counting("http://testserver")
+    http.client = TestClient(lake_app.app)
+    inside, go = _paused(monkeypatch)
+    svc, st = _setup(tmp_path, http, Clock())
+    ticks = [svc.flush("main")]
+    assert inside.wait(60)
+    ticks += [svc.flush("main") for _ in range(3)]  # ticks while the build runs: followed, never restarted
+    assert all(t.get("building") for t in ticks) and st.pub is None
+    go.set()
+    for _ in range(600):
+        out = svc.flush("main")
+        if st.pub is not None:
+            break
+        time.sleep(0.05)
+    assert st.pub is not None and st.pub["snapshot"] == NIGHT and not out.get("pending")
+    assert starts == [NIGHT] and lake.rebuild_state(NIGHT)["state"] == "done"
