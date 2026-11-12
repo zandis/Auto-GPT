@@ -38,6 +38,12 @@
   handler verifies the older assertion. `no_person`: two groups with their reasons. The service does not start
   when a changing route is in no stage or has the wrong dependency. Tests: `tests/unit/test_actor_routes.py`,
   `tests/unit/test_actor_v3.py`, `tests/console/test_actor_v3_box.py`.
+- **A chart number under break-glass, and by a person's own rights** (D-484, T-716; review 2026-11-12 trust F5).
+  `POST /jobs/{job_id}/reveal` is a v3 claim. Under a grant the claim names the grant's id and the account's own
+  role; the orchestrator reads the row (`orchestrator/grants.py`: this person's, open now, for this patient or
+  this job), refuses otherwise (403, `screen.reveal_refused` with `break-glass grant: ...`), and writes the use
+  in `breakglass.uses` when it gives the number. Without a grant it asks the `id.reveal` row with the standing it
+  reads from the delegation log. There is no role `breakglass`. Tests: `tests/console/test_grant_box.py`.
 - **The administrator's retry of a failed nightly job** (D-474, T-746). `POST /jobs/{job_id}/retry` (group
   `job_retry_scheduled`, the console only; the mail gateway and the operator token are refused by the route gate)
   runs a failed job of the box's own scheduler again (every type of `scheduler.plan`). The orchestrator checks the

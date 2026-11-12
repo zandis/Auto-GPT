@@ -99,21 +99,30 @@ def _refuse(request: Request, action: str, reason: str, who: str | None, study: 
                                                   "message": f"the signed-in person is refused: {reason}"})  # fmt: skip
 
 
-def check(claim: actor_v3.Claim, action: str, study: str | None, service: bool = False) -> str:
+def check(claim: actor_v3.Claim, action: str, study: str | None, service: bool = False, *,
+          study_in_handler: bool = False, grant: bool = False) -> str:  # fmt: skip
     """Why this claim may not take ``action`` on ``study`` ("" when it may): the claim is for another action or
     another study, or the matrix refuses the signed role with the signed standing. A service principal passes only
-    on a route that admits one, for an action its row of ``route_actors.yaml`` lists."""
+    on a route that admits one, for an action its row of ``route_actors.yaml`` lists.
+
+    ``study_in_handler``: the route's path has no study (a job's route), so the handler compares the claim's study
+    with the record's. ``grant`` (T-716, D-484): the route admits a break-glass grant in place of the action's own
+    row; a claim that names one must hold ``breakglass.open``, and the handler must read the grant row itself
+    (``orchestrator.grants.verify_grant``): the claim's word for it opens nothing."""
     if claim.action != action:
         return "action"
-    if (study or "") != claim.study:
+    if not study_in_handler and (study or "") != claim.study:
         return "study"
     if claim.is_service:
         return "" if service and action in TABLE["principals"].get(claim.sub, frozenset()) else "principal"
+    if claim.grant is not None:
+        return "" if grant and permit(claim.role, "breakglass.open", claim.standing()).allowed else "grant"
     return "" if permit(claim.role, action, claim.standing()).allowed else "right"
 
 
-def require_actor(action: str, *, service: bool = False) -> Any:
-    """The dependency of a changing route: the verified person, allowed ``action`` on the route's study."""
+def require_actor(action: str, *, service: bool = False, study_in_handler: bool = False, grant: bool = False) -> Any:
+    """The dependency of a changing route: the verified person, allowed ``action`` on the route's study (see
+    :func:`check` for the three options)."""
 
     async def dep(request: Request) -> actor_v3.Claim:
         study = _study(request)
@@ -121,7 +130,7 @@ def require_actor(action: str, *, service: bool = False) -> Any:
             claim = actor_v3.verify(request.headers.get(actor_v3.HEADER))
         except ActorError as exc:
             raise _refuse(request, action, str(exc), None, study) from exc
-        why = check(claim, action, study, service)
+        why = check(claim, action, study, service, study_in_handler=study_in_handler, grant=grant)
         if not why and not _same_target(claim.target, request):
             why = "request"
         if not why and claim.body != actor_v3.body_hash(await request.body()):

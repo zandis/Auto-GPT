@@ -70,3 +70,33 @@ class SignedClient(TestClient):
             headers.update(signed(action, study, method, full, body, sub=sub, role=role))
             kw["headers"] = headers
         return super().request(method, url, **kw)
+
+
+def reveal_headers(study: str, job_id: str, body: Any, *, sub: str = "console:crc", role: str = "coordinator",
+                   grant: dict[str, Any] | None = None, standing: Standing | None = None,
+                   **kw: Any) -> dict[str, str]:  # fmt: skip
+    """The assertion of one ``POST /jobs/{job_id}/reveal`` (T-716, D-484): the person, the role, the job's study
+    and, under break-glass, the grant's id."""
+    return signed("id.reveal", study, "POST", f"/jobs/{job_id}/reveal", body, sub=sub, role=role, standing=standing,
+                  grant=grant, **kw)  # fmt: skip
+
+
+def signer(study: str, *, sub: str = "console:crc", role: str = "coordinator", action: str = "id.reveal",
+           grant: dict[str, Any] | None = None, standing: Standing | None = None) -> Any:  # fmt: skip
+    """A ``console.backend.Signer`` for a test that calls a backend's ``reveal`` itself."""
+
+    def sign(method: str, path: str, body: Any) -> dict[str, str]:
+        return signed(action, study, method, path, body, sub=sub, role=role, standing=standing, grant=grant)
+
+    return sign
+
+
+def log_pi(username: str, study: str) -> None:
+    """Name ``username`` the study's PI in the delegation log (the trial database of this test): what an
+    investigator needs before the orchestrator gives them a chart number by their own rights (T-716, D-484)."""
+    from console.teamstore import TeamStore
+
+    team = TeamStore()
+    team.add_entry(study, username=username, name=username, role="pi", tasks=(), start="2026-01-01", end=None,
+                   training_day="2025-06-01", training_ref=None, by="stw-setup", at="2026-01-01T00:00:00+00:00")  # fmt: skip
+    team.close()

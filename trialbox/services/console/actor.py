@@ -23,21 +23,31 @@ NOTIFY = "service:console-notify"  # the morning notices: no session (route_acto
 
 
 def assert_for(
-    h: Any, sess: Any, action: str, rid: str | None, method: str, path: str, body: Any = None
+    h: Any, sess: Any, action: str, rid: str | None, method: str, path: str, body: Any = None, *, grant: Any = None
 ) -> dict[str, str]:
     """The header of one orchestrator call by the signed-in account of ``sess``: ``action`` (a row of the matrix)
     on study ``rid`` (None: the whole box), for exactly ``method path`` with ``body``. Refused (403, audited
     ``console.denied``) when the matrix does not allow it to this account with its standing in the study."""
     user = sess.user
-    if not h.permit(user, action, rid).allowed:
-        h.au.append("console.denied", actor=h.actor(sess), ruleset=rid or None, detail={"action": action})
+    # T-716 (D-484): under a break-glass grant the right is the grant, which the orchestrator reads itself; the
+    # console signs the account's own role and the grant's id, and asks the row of who may hold a grant
+    asked = "breakglass.open" if grant is not None else action
+    if not h.permit(user, asked, rid).allowed:
+        h.au.append("console.denied", actor=h.actor(sess), ruleset=rid or None, detail={"action": asked})
         raise h.problem(403, "forbidden")
     standing = NO_STANDING
     if rid and h.stand is not None and user.sees_study(rid):
         standing = h.stand(user, rid).grant()
     token = actor_v3.mint(sub=h.actor(sess), role=user.role, action=action, method=method, path=path, body=body,
-                          study=rid or "", standing=standing, session=sa.bound_session())  # fmt: skip
+                          study=rid or "", standing=standing, session=sa.bound_session(),
+                          grant=None if grant is None else grant_claim(grant))  # fmt: skip
     return {actor_v3.HEADER: token}
+
+
+def grant_claim(grant: Any) -> dict[str, Any]:
+    """A break-glass grant as the assertion carries it. Only the id decides anything at the orchestrator; the rest
+    is for the record."""
+    return {"id": str(grant.id), "kind": grant.kind, "pid": grant.pid, "job_id": grant.job_id, "end": grant.ends_at}
 
 
 def assert_service(

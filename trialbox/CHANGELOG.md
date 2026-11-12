@@ -10,6 +10,11 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- Break-glass (T-716, D-484): the orchestrator reads the grant itself before it gives a chart number (this person,
+  this patient or job, open now) and writes the use; an investigator's own right is read from the delegation log
+  there too. The orchestrator's database role joins the `breakglass` and `team` schemas: `install.sh` re-runs the
+  role script; after a `trialbox update` run it once by hand (runbook §5, "Database roles after a restore"), or a reveal under a grant
+  or by an investigator is refused with "cannot be read".
 - The audit trail (T-721, D-488): the audit writer marks an event sent by a database role that does not write
   that kind of event, or dated more than `TB_AUDIT_TS_MAX_SKEW_S` (300 s) from when it arrived;
   `python -m tools.audit_verify <audit dir> --foreign` lists the marked events.

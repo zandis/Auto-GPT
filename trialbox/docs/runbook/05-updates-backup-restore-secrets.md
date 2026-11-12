@@ -206,6 +206,14 @@ do not start the services, fix what it names and run the restore again. `deploy/
 every install and upgrade. Run it through the `db` container, as above: the container holds the service roles'
 passwords. Run from the host without the `TB_DB_PW_*` variables, the script clears the service roles' passwords
 and every service is locked out until it runs again with them.
+**After `trialbox update` (D-484, T-716).** The update does not run the role script. Since D-484 the orchestrator
+reads the break-glass grants and the delegation log itself, so its role must be in the `breakglass` and `team`
+schemas. On a box updated to the release with D-484 and not reinstalled, every reveal under a break-glass grant and
+every investigator's reveal is refused, and the audit trail says "the grant store cannot be read" or "the
+delegation log cannot be read" (`screen.reveal_refused`); a coordinator's reveal is not affected. Run the role
+script once after that update, through the `db` container:
+`docker compose --project-directory deploy exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh`. Nothing is
+lost: the refused reveals can be asked again.
 Since D-461 the console is not in the EDC group (`tbs_edc`): the console reaches the EDC only through the
 orchestrator, and the script takes an earlier membership away on its next run.
 The script also gives the audit journal back to its owner and the services their right to write to it (D-394): until

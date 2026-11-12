@@ -112,8 +112,8 @@ are marked "files".
 | `services/console/teamstore.py` | `referrals`, `referral_events` | R-11 |
 | `services/console/teamstore.py` | `candidate_views` | R-12 |
 | `services/console/teamstore.py` | `monitor_visits` | R-30 |
-| `services/console/breakglass.py` | `grants` | R-12 |
-| `services/console/breakglass.py` | `uses` | R-12 |
+| `services/console/breakglass_store.py` | `grants` | R-12 |
+| `services/console/breakglass_store.py` | `uses` | R-12 |
 | `services/orchestrator/db.py` | `id_limits` | R-12 |
 | `services/console/auth.py` | `users` | R-13 |
 | `libs/tb_common/flags.py` | `flag`, `flag_event` | R-14 |

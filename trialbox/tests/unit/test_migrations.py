@@ -316,7 +316,8 @@ def test_require_extensions_names_the_missing_ones(db_url: str) -> None:
 def store_migrations() -> dict[str, list[str]]:
     """Every store's schema versions, as each passes them to ``migrate`` (store name: its schema)."""
     from adapter import licensed, pidmap
-    from console import auth, breakglass, feedback, saerecord, sitestore, teamstore
+    from console import auth, feedback, saerecord, sitestore, teamstore
+    from console import breakglass_store as breakglass  # the store stands apart from its page (T-716)
     from criteria_compiler.library import ddl as library
     from datacore import dataops, lifecycle, sponsor
     from datacore import store as datacore
@@ -475,7 +476,7 @@ PINNED: dict[str, tuple[str, ...]] = {
 #: every file that opens a store and migrates it, covered by :func:`store_migrations` (or not a store of its own)
 STORE_FILES = {
     "libs/tb_common/derived_store.py", "libs/tb_common/flags.py", "libs/tb_common/notmatched.py", "libs/tb_common/optout.py", "libs/tb_common/refdata.py", "services/adapter/licensed.py",
-    "services/adapter/pidmap.py", "services/console/auth.py", "services/console/breakglass.py", "services/console/feedback.py", "services/console/saerecord.py",
+    "services/adapter/pidmap.py", "services/console/auth.py", "services/console/breakglass_store.py", "services/console/feedback.py", "services/console/saerecord.py",
     "services/console/sitestore.py", "services/console/teamstore.py", "services/criteria_compiler/library/repository.py",
     "services/datacore/dataops.py", "services/datacore/store.py", "services/edc/store.py",
     "services/mail_gateway/store.py", "services/omop/schema.py", "services/orchestrator/db.py",
