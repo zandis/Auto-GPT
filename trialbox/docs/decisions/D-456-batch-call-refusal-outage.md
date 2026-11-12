@@ -37,16 +37,21 @@ A screening job at 50,000 patients is hours of model calls. Four things made it 
    `tb_llm.GatewayRefused` now reads). Everything else stays what it was: a schema violation, an answer from the
    wrong build, a prompt that does not fit, a content refusal.
 
-2. **A job's model call waits on a model fault and tries again** (`orchestrator.jobs.GuardedLlm`, every queued job
-   type; the fast lane has no model call). It sleeps the gateway's `Retry-After`, else `OUTAGE_POLL_S` (5 s, the
-   gateway's own value for a busy model), reads the cancel flag before each try, and sends the same call again. The
+2. **A batch model call waits on a model fault and is sent again** (`tb_llm.outage.wait_and_retry`). It sleeps the
+   gateway's `Retry-After`, else 5 s (the gateway's own value for a busy model), and sends the same call again. The
    wait is bounded **per job, not per call**: `TB_LLM_OUTAGE_WAIT_S` (default 1,800 s) is the time one job may spend
-   in outages in total, over all its calls and both models. The reason for the default: a model server that restarts
-   reloads its weights in minutes, and the one-card layout swaps two models; past half an hour a person is needed.
-   `0` restores the old behaviour (no wait). When the allowance is used up the job fails at once with a message that
-   says how long it waited and for which model (`ModelOutage`, a `StepFailed`); it never goes on to write
-   `model_down` for the rest. Each outage is one audit event when it ends (`llm.outage`: which model, the refusal
-   code, seconds waited, resumed or gave up; no patient data).
+   in outages in total, over all its calls and both models (`tb_llm.outage.OutageBudget`). The reason for the
+   default: a model server that restarts reloads its weights in minutes, and the one-card layout swaps two models;
+   past half an hour a person is needed. `0` restores the old behaviour (no wait). When the allowance is used up the
+   job fails at once with a message that says how long it waited and for which model; it never goes on to write
+   `model_down` for the rest. Two callers use it, which are all the batch judge paths there are:
+   - `orchestrator.jobs.GuardedLlm`, every queued job type's model clients (the fast lane has no model call). It
+     reads the cancel flag before each try; the allowance used up is `ModelOutage`, a `StepFailed`. Each outage is
+     one audit event when it ends (`llm.outage`: which model, the refusal code, seconds waited, resumed or gave up;
+     no patient data).
+   - `matching.cascade.judge.GatewayJudge`, the cascade's own judge on `tb_llm` (the tools and the scale gate): one
+     allowance per judge, that is per run; used up, the run stops with `OutageExhausted`.
+   An interactive role never waits: a person is there, and `model_busy` is its answer (D-445).
 
 3. **The breaker counts what is left, and no blip opens it.** A model fault never counts in the SCREEN breaker of
    D-389. The breaker still stops a run whose model answers but not usably (wrong build, schema violations in a

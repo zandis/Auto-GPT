@@ -33,6 +33,8 @@ def _box(mp: pytest.MonkeyPatch, tmp_path: Path, fail_on: str = "") -> tuple[tb_
             raise UpdateFailed(f"{fail_on} failed")
         if stdout_file is not None:
             Path(stdout_file).write_bytes(b"dump")
+        if "orch.jobs" in " ".join(calls[-1]):  # D-455 (M2): no job runs (an unknown count refuses the stop)
+            return "0\n"
         return ""
 
     # the runner makes its ComposeBox itself (the update path's command runner, not the operations runner's)
