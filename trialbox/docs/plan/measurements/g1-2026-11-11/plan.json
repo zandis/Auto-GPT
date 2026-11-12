@@ -1,0 +1,292 @@
+{
+ "patients": 50000,
+ "price_per_hour": 2.74,
+ "seconds_per_note_patient": 6.3,
+ "rows": [
+  {
+   "scenario": "VM start, both models resident",
+   "patients": 0,
+   "model_items": 0,
+   "seconds": 900.0,
+   "tags": [],
+   "hours": 0.25,
+   "usd": 0.69
+  },
+  {
+   "scenario": "VM setup: packages, venv, browser, fonts",
+   "patients": 0,
+   "model_items": 0,
+   "seconds": 900.0,
+   "tags": [],
+   "hours": 0.25,
+   "usd": 0.69
+  },
+  {
+   "scenario": "db-csv (ja)",
+   "patients": 50000,
+   "model_items": 920,
+   "seconds": 7706.0,
+   "tags": [
+    "hospital-ja"
+   ],
+   "hours": 2.14,
+   "usd": 5.86
+  },
+  {
+   "scenario": "public (ja)",
+   "patients": 90,
+   "model_items": 90,
+   "seconds": 1303.0,
+   "tags": [
+    "public-ja"
+   ],
+   "hours": 0.36,
+   "usd": 0.99
+  },
+  {
+   "scenario": "db-csv (zh-TW)",
+   "patients": 50000,
+   "model_items": 920,
+   "seconds": 7706.0,
+   "tags": [
+    "hospital-zh-TW"
+   ],
+   "hours": 2.14,
+   "usd": 5.86
+  },
+  {
+   "scenario": "public (zh-TW)",
+   "patients": 90,
+   "model_items": 90,
+   "seconds": 1303.0,
+   "tags": [
+    "public-zh-TW"
+   ],
+   "hours": 0.36,
+   "usd": 0.99
+  },
+  {
+   "scenario": "emr-ssmix2",
+   "patients": 5000,
+   "model_items": 92,
+   "seconds": 2319.6,
+   "tags": [
+    "scenario-emr-ssmix2"
+   ],
+   "hours": 0.64,
+   "usd": 1.75
+  },
+  {
+   "scenario": "emr-fhir",
+   "patients": 5000,
+   "model_items": 92,
+   "seconds": 1119.6,
+   "tags": [
+    "scenario-emr-fhir"
+   ],
+   "hours": 0.31,
+   "usd": 0.85
+  },
+  {
+   "scenario": "site-excel",
+   "patients": 5000,
+   "model_items": 184,
+   "seconds": 2109.2,
+   "tags": [
+    "scenario-site-excel"
+   ],
+   "hours": 0.59,
+   "usd": 1.62
+  },
+  {
+   "scenario": "chart-paste",
+   "patients": 200,
+   "model_items": 250,
+   "seconds": 2465.0,
+   "tags": [
+    "scenario-chart-paste"
+   ],
+   "hours": 0.68,
+   "usd": 1.86
+  },
+  {
+   "scenario": "chart-files",
+   "patients": 60,
+   "model_items": 75,
+   "seconds": 1027.5,
+   "tags": [
+    "scenario-chart-files"
+   ],
+   "hours": 0.29,
+   "usd": 0.79
+  },
+  {
+   "scenario": "redcap",
+   "patients": 300,
+   "model_items": 6,
+   "seconds": 355.776,
+   "tags": [
+    "scenario-redcap"
+   ],
+   "hours": 0.1,
+   "usd": 0.27
+  },
+  {
+   "scenario": "it-dump",
+   "patients": 2000,
+   "model_items": 0,
+   "seconds": 130.0,
+   "tags": [
+    "scenario-it-dump"
+   ],
+   "hours": 0.04,
+   "usd": 0.11
+  },
+  {
+   "scenario": "registry",
+   "patients": 6,
+   "model_items": 0,
+   "seconds": 8.0,
+   "tags": [
+    "scenario-registry"
+   ],
+   "hours": 0.0,
+   "usd": 0.0
+  },
+  {
+   "scenario": "public-mimic",
+   "patients": 100,
+   "model_items": 0,
+   "seconds": 49.0,
+   "tags": [
+    "scenario-public-mimic"
+   ],
+   "hours": 0.01,
+   "usd": 0.03
+  },
+  {
+   "scenario": "public-medtxt",
+   "patients": 148,
+   "model_items": 148,
+   "seconds": 1371.15,
+   "tags": [
+    "scenario-public-medtxt"
+   ],
+   "hours": 0.38,
+   "usd": 1.04
+  },
+  {
+   "scenario": "public-trec",
+   "patients": 100,
+   "model_items": 3800,
+   "seconds": 1143.0,
+   "tags": [
+    "scenario-public-trec"
+   ],
+   "hours": 0.32,
+   "usd": 0.88
+  },
+  {
+   "scenario": "gateway",
+   "patients": 2,
+   "model_items": 2,
+   "seconds": 2.0,
+   "tags": [
+    "scenario-gateway"
+   ],
+   "hours": 0.0,
+   "usd": 0.0
+  },
+  {
+   "scenario": "bench: embeddings (bge-m3, Qwen3-0.6B)",
+   "patients": 0,
+   "model_items": 0,
+   "seconds": 900.0,
+   "tags": [
+    "embed"
+   ],
+   "hours": 0.25,
+   "usd": 0.69
+  },
+  {
+   "scenario": "bench: profile stand-in (judge)",
+   "patients": 400,
+   "model_items": 400,
+   "seconds": 1200.0,
+   "tags": [
+    "profile"
+   ],
+   "hours": 0.33,
+   "usd": 0.9
+  }
+ ],
+ "hours": 9.45,
+ "usd": 25.89,
+ "cap_hours": 13,
+ "cap_usd": 35.62,
+ "parts": [
+  "g1",
+  "embed",
+  "profile"
+ ],
+ "plan": {
+  "vms": 1,
+  "shards": [
+   {
+    "shard": 1,
+    "tags": [
+     "install",
+     "prepare",
+     "hospital-ja",
+     "hospital-zh-TW",
+     "scenario-chart-paste",
+     "scenario-emr-ssmix2",
+     "scenario-site-excel",
+     "scenario-public-medtxt",
+     "public-ja",
+     "public-zh-TW",
+     "profile",
+     "scenario-public-trec",
+     "scenario-emr-fhir",
+     "scenario-chart-files",
+     "embed",
+     "scenario-redcap",
+     "scenario-it-dump",
+     "scenario-public-mimic",
+     "scenario-registry",
+     "scenario-gateway"
+    ],
+    "rows": [
+     "db-csv (ja)",
+     "db-csv (zh-TW)",
+     "chart-paste",
+     "emr-ssmix2",
+     "site-excel",
+     "public-medtxt",
+     "public (ja)",
+     "public (zh-TW)",
+     "bench: profile stand-in (judge)",
+     "public-trec",
+     "emr-fhir",
+     "chart-files",
+     "bench: embeddings (bge-m3, Qwen3-0.6B)",
+     "redcap",
+     "it-dump",
+     "public-mimic",
+     "registry",
+     "gateway"
+    ],
+    "hours": 9.45,
+    "usd": 25.89,
+    "cap_hours": 13,
+    "cap_usd": 35.62,
+    "vm": "tb-gpu-sim",
+    "zone": "asia-east1-a"
+   }
+  ],
+  "wall_hours": 9.45,
+  "hours": 9.45,
+  "usd": 25.89,
+  "cap_usd": 35.62
+ }
+}
