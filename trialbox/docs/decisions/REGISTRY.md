@@ -264,3 +264,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-449 | reserved | T-689 | held for T-689: what a batch model call does on a refusal or an outage: wait and retry bounded per job, the failure share checked while the job runs, the pair and token budgets (F-04, F-13, F-16; T-698 reads it too) |
 | D-450 | reserved | T-693 | held for T-693: the ingest gate's validation sample: an absolute cap per resource type beside the 1 % (F-06) |
 | D-451 | reserved | T-704 | held for T-704: the night as a chain: order of ingest, weekly jobs, backup and retention; the microbatch allowance and its sharing (F-32, F-33) |
+| D-461 | reserved | T-720 | version-1 EDC signatures accepted only from a list frozen and signed with the EDC key at the migration (empty on every box: no real signatures); `sig_version` defaults to 2 (EDC schema v4); the console leaves `tbs_edc` (file `D-461-edc-v1-signatures-frozen.md`) |
