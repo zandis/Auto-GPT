@@ -184,6 +184,8 @@ class Mapping:
     fhir_profiles: str = ""  # "jp-core": the ingest checks a sample against JP Core (D-137); "tw-core" (T-619a)
     # D-149: the site's declared unit per analyte (LOINC code -> UCUM) for a feed result that arrives without one
     unit_defaults: dict[str, str] = field(default_factory=dict)
+    # NEW-STD-1 (D-586): what a site states once and conditions read as ``{param: name}`` (``icd9cm_before``)
+    params: dict[str, str] = field(default_factory=dict)
     # T-106b: ``<name>@<12 hex>``, the hash of the mapping file and the base it extends (a changed file, a new version)
     version: str = ""
 
@@ -212,6 +214,7 @@ class Mapping:
             site_tables = doc.get("tables") or {}
             merged = {**base, **{k: v for k, v in doc.items() if k != "extends"}}
             merged["systems"] = {**(base.get("systems") or {}), **(doc.get("systems") or {})}
+            merged["params"] = {**(base.get("params") or {}), **(doc.get("params") or {})}
             merged["lookups"] = {**(base.get("lookups") or {}), **(doc.get("lookups") or {})}
             lookup_dirs = {
                 **{n: base_path.parent for n in (base.get("lookups") or {})},
@@ -257,8 +260,40 @@ class Mapping:
             profiles={str(k): str(v or "") for k, v in (doc.get("profiles") or {}).items()},
             fhir_profiles=str(doc.get("fhir_profiles") or ""),
             unit_defaults={str(k): str(v) for k, v in (doc.get("unit_defaults") or {}).items()},
+            params=cls._params(path, doc),
             version=f"{doc.get('name', path.stem)}@{digest.hexdigest()[:12]}",
         )
+
+    @staticmethod
+    def _params(path: Path, doc: dict[str, Any]) -> dict[str, str]:
+        """The mapping's ``params`` (NEW-STD-1, D-586), checked when the mapping loads: each is a day written
+        ``YYYY-MM-DD`` (a bound is compared as text, so ``2016/01/01`` or a blank would move every diagnosis to the
+        wrong edition), and each is read by a condition (a misspelt name would switch its rule off silently)."""
+
+        def used(node: Any) -> set[str]:
+            if isinstance(node, dict):
+                here = {str(v["param"]) for k, v in node.items()
+                        if k in ("date_before", "date_from") and isinstance(v, dict) and "param" in v}  # fmt: skip
+                return here.union(*(used(v) for v in node.values()))
+            if isinstance(node, list):
+                return set().union(*(used(v) for v in node))
+            return set()
+
+        out: dict[str, str] = {}
+        read = used(doc.get("resources") or [])
+        for name, value in (doc.get("params") or {}).items():
+            text = "" if value is None else str(value)
+            try:
+                ok = len(text) == 10 and date.fromisoformat(text).isoformat() == text
+            except ValueError:
+                ok = False
+            if not ok:
+                raise MappingError(f"{path}: params.{name} must be a day written YYYY-MM-DD, not {text!r}")
+            if str(name) not in read:
+                raise MappingError(f"{path}: params.{name} is read by no condition of this mapping "
+                                   f"(known: {', '.join(sorted(read)) or 'none'})")  # fmt: skip
+            out[str(name)] = text
+        return out
 
     def normalize(self, table: str, row: Row) -> Row:
         """Source row → canonical row: ``rename`` local columns, then translate ``values`` codes."""
@@ -491,8 +526,21 @@ class Mapper:
             return None if text is None else base64.b64encode(str(text).encode("utf-8")).decode("ascii")
         raise MappingError(f"unknown value expression {expr!r}")
 
+    def _bound(self, value: Any) -> str | None:
+        """A date bound of a condition: a day, or ``{param: name}`` (NEW-STD-1): the mapping's parameter of that
+        name, None when the mapping sets none."""
+        if isinstance(value, dict):
+            got = self.m.params.get(str(value.get("param")))
+            return str(got) if got else None
+        return str(value)
+
     def cond(self, conds: Any, row: Row) -> bool:
         for c in conds if isinstance(conds, list) else [conds]:
+            if "any" in c:  # NEW-STD-1: one of the lists holds
+                if not any(self.cond(alt, row) for alt in c["any"]):
+                    return False
+                if not {"column", "lookup", "fhir_profiles"} & set(c):
+                    continue  # ``any`` alone; with a column or a look-up beside it both must hold
             if "fhir_profiles" in c:  # T-619a: the profile set of the mapping (tw-core, jp-core), not a column
                 if self.m.fhir_profiles != str(c["fhir_profiles"]):
                     return False
@@ -512,13 +560,18 @@ class Mapper:
             if "not_in" in c and sv in [str(x) for x in c["not_in"]]:
                 return False
             if "date_before" in c or "date_from" in c:  # T-619a: an ISO date bound (a code edition by date)
-                # a value that is there and cannot be read refuses the row (it used to answer "no" to both
-                # bounds, so the element was left out and nothing was counted)
-                day = self._parse_date(sv).isoformat() if sv.strip() else ""
-                if not day or ("date_before" in c and day >= str(c["date_before"])):
-                    return False
-                if "date_from" in c and day < str(c["date_from"]):
-                    return False
+                before = self._bound(c["date_before"]) if "date_before" in c else None
+                since = self._bound(c["date_from"]) if "date_from" in c else None
+                if "date_before" in c and before is None:
+                    return False  # a parameter the mapping does not set: nothing is "before" it
+                if before is not None or since is not None:
+                    # a value that is there and cannot be read refuses the row (it used to answer "no" to both
+                    # bounds, so the element was left out and nothing was counted)
+                    day = self._parse_date(sv).isoformat() if sv.strip() else ""
+                    if not day or (before is not None and day >= before):
+                        return False
+                    if since is not None and day < since:
+                        return False
             if "numeric" in c:
                 try:
                     float(sv)
