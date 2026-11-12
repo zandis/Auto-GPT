@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-218 entries: 85 erase, 26 keep, 107 no patient data. 60 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+219 entries: 86 erase, 26 keep, 107 no patient data. 61 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -55,6 +55,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `orch.candidates` | T-206b | a withdrawn row keeps the pseudonym (consented and enrolled rows are kept, OD-8) | the candidate registry |
 | `orch.feedback` | T-206b | the clear | the PI's feedback on a candidate, by pseudonym |
 | `orch.jobs` | T-206b | the clear | a job's request may name a pseudonym (CASE, a reveal) |
+| `orch.judge_answers` | T-206b | the rows of a job still running when its patient opts out | a model's answers kept while their job is unfinished (a verdict and a quote from a note, no pseudonym column; deleted when the job ends, D-456) |
 | `orch.submissions` | T-206b | the clear | NAV submissions, by pseudonym |
 | `outside:backups` | T-206b | the backups (with T-728) | every backup: the databases, the lake, the FHIR store |
 | `outside:fhir_store` | T-206b | the clear | the FHIR store (HAPI, database hapi): every resource of the patient |

@@ -85,6 +85,21 @@ class LlmPromptTooLong(LlmError):
     ``prompt_too_long`` (before dispatch, or the server's own HTTP 400) is raised as this too."""
 
 
+#: the gateway's refusals that are the model's fault (an outage, a restart, a queue), not the call's (T-689, D-456)
+MODEL_FAULTS = frozenset({"model_busy", "model_unavailable", "model_asleep", "upstream_failed", "upstream_timeout"})
+
+
+class LlmModelFault(LlmError):
+    """The model did not answer, and not because of this request (T-689, D-456): one of :data:`MODEL_FAULTS`, a
+    gateway or model endpoint that cannot be reached, or an HTTP 5xx. The same call may be sent again later.
+    ``reason``: the refusal code, ``unreachable`` or ``http_5xx``; ``retry_after``: the gateway's ``Retry-After``."""
+
+    def __init__(self, message: str, reason: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.retry_after = retry_after
+
+
 @dataclass(frozen=True)
 class Prompt:
     meta: PromptMeta
@@ -368,7 +383,9 @@ class LlmClient:
                 try:  # a dropped connection once more, a timeout never (T-608, D-445)
                     resp = once_more(partial(self.http.post, f"{base}/chat/completions", json=body, headers=headers))
                 except httpx.HTTPError as exc:
-                    raise LlmError(f"LLM endpoint unreachable ({target}): {exc}") from exc
+                    raise LlmModelFault(f"LLM endpoint unreachable ({target}): {exc}", "unreachable") from exc
+                if resp.status_code >= 500:
+                    raise LlmModelFault(f"LLM endpoint error {resp.status_code}: {resp.text[:500]}", "http_5xx")
                 if resp.status_code >= 400:
                     raise LlmError(f"LLM endpoint error {resp.status_code}: {resp.text[:500]}")
                 payload = resp.json()
@@ -455,7 +472,7 @@ class LlmClient:
         self, body: dict[str, Any], prompt: Prompt, job_id: str | None, data_class: str | None
     ) -> dict[str, Any]:
         """Shim path: the gateway picks the build, so ``model`` is dropped; labels go as ``X-TB-*`` headers."""
-        from tb_llm import GatewayError, GatewayRefused
+        from tb_llm import GatewayDown, GatewayError, GatewayRefused
         from tb_llm.client import v1_labels
 
         meta = prompt.meta
@@ -472,7 +489,11 @@ class LlmClient:
                 raise LlmPromptTooLong(f"gateway refused {meta.id}: {exc.reason}") from exc
             if exc.reason == "prompt_unqualified":
                 raise LlmPromptUnqualified(f"gateway refused {meta.id}@{meta.version}: {exc.reason}") from exc
+            if exc.reason in MODEL_FAULTS:  # T-689 (F-04): the caller may wait and send the same call again
+                raise LlmModelFault(f"gateway refused {meta.id}: {exc.reason}", exc.reason, exc.retry_after) from exc
             raise LlmError(f"gateway refused {meta.id}: {exc.reason}") from exc
+        except GatewayDown as exc:
+            raise LlmModelFault(str(exc), "unreachable") from exc
         except GatewayError as exc:
             raise LlmError(str(exc)) from exc
         return payload

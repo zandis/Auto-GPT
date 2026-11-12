@@ -341,6 +341,7 @@ def test_a_budget_that_runs_out_is_counted_and_never_excludes(env: dict[str, Any
     )
     cut = [t for t in res.traces.values() if t.unprocessed]
     assert cut and res.metrics.unprocessed == len(cut) and res.metrics.pairs_judged["S3"] <= 3
+    assert res.metrics.budget_stopped == "pairs"  # T-689 (F-16): the budget that stopped the run, by name
     for t in cut:
         left = [o for o in t.outcomes.values() if o.reason == "unprocessed (budget)"]
         assert left and all(o.status == "unknown" and not o.hard for o in left)
@@ -349,9 +350,10 @@ def test_a_budget_that_runs_out_is_counted_and_never_excludes(env: dict[str, Any
 def test_screen_budget_and_concurrency_settings() -> None:
     from orchestrator.clients import StepFailed
     from orchestrator.i18n import t
-    from orchestrator.scenarios.screen_cascade import SCREEN_MAX_PAIRS, llm_concurrency, max_pairs_of
+    from orchestrator.scenarios.screen_cascade import llm_concurrency, max_pairs_of
 
-    assert max_pairs_of({}) == SCREEN_MAX_PAIRS and max_pairs_of({"max_pairs": "50000"}) == 50000
+    # T-689 (D-456, F-16): no fixed 20,000; with nothing set the budget is the population's own pairs (None)
+    assert max_pairs_of({}, {}) is None and max_pairs_of({"max_pairs": "50000"}) == 50000
     for bad in ("0", "many"):
         with pytest.raises(StepFailed):
             max_pairs_of({"max_pairs": bad})

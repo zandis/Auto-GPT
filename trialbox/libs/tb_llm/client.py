@@ -49,14 +49,31 @@ class GatewayUnexpectedAlias(GatewayError):
         self.call_id = call_id
 
 
-class GatewayRefused(GatewayError):
-    """The gateway refused the call; ``reason`` is its stable refusal code (``no_route``, ``phi_tripwire`` …)."""
+class GatewayDown(GatewayError):
+    """The gateway could not be reached, or answered 5xx without a refusal code: nothing answered (T-689, D-456)."""
 
-    def __init__(self, reason: str, status: int, message: str, call_id: str = "") -> None:
+
+class GatewayRefused(GatewayError):
+    """The gateway refused the call; ``reason`` is its stable refusal code (``no_route``, ``phi_tripwire`` …).
+    ``retry_after``: the seconds of its ``Retry-After`` header, when it sent one (the 503 refusals; T-689)."""
+
+    def __init__(
+        self, reason: str, status: int, message: str, call_id: str = "", retry_after: float | None = None
+    ) -> None:
         super().__init__(f"gateway refused ({status} {reason}): {message}")
         self.reason = reason
         self.status = status
         self.call_id = call_id
+        self.retry_after = retry_after
+
+
+def retry_after_s(value: str | None) -> float | None:
+    """The seconds of a ``Retry-After`` header (the delta form only); None when absent or not a number."""
+    try:
+        s = float((value or "").strip())
+    except ValueError:
+        return None
+    return s if s >= 0 else None
 
 
 @dataclass(frozen=True)
@@ -203,17 +220,22 @@ class GatewayClient:
             # T-608 (D-445): a dropped connection is sent once more (same body: same role, same build), a timeout not
             resp = once_more(lambda: self.http.post(url, json=body, headers=headers))
         except httpx.HTTPError as e:
-            raise GatewayError(f"gateway unreachable: {e}") from e
+            raise GatewayDown(f"gateway unreachable: {e}") from e
         if resp.status_code >= 400:
             try:
                 err = resp.json().get("error") or {}
-            except ValueError:
+            except (ValueError, AttributeError):
                 err = {}
-            if err.get("type") == "tb_refusal":
+            if isinstance(err, dict) and err.get("type") == "tb_refusal":
                 raise GatewayRefused(
-                    str(err.get("code")), resp.status_code, str(err.get("message")), str(err.get("call_id") or "")
+                    str(err.get("code")),
+                    resp.status_code,
+                    str(err.get("message")),
+                    str(err.get("call_id") or ""),
+                    retry_after_s(resp.headers.get("retry-after")),  # T-689 (F-04): it was never read
                 )
-            raise GatewayError(f"gateway error {resp.status_code}: {resp.text[:500]}")
+            kind = GatewayDown if resp.status_code >= 500 else GatewayError
+            raise kind(f"gateway error {resp.status_code}: {resp.text[:500]}")
         payload: dict[str, Any] = resp.json()
         self._check_alias(payload, str(body.get("model") or ""), resp.headers.get("x-tb-fallbacks", ""))
         return payload

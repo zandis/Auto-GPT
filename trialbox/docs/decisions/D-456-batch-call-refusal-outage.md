@@ -75,11 +75,12 @@ A screening job at 50,000 patients is hours of model calls. Four things made it 
    that says so, its hold is released and its kept answers go. `job.requeued` carries the count.
 
 7. **The budgets come from the population.** SCREEN's pair budget is the job option `max_pairs`, else
-   `TB_SCREEN_MAX_PAIRS`, else **the population's own pairs** (scoped patients x note criteria): by default nothing
-   is left unprocessed. The fixed 20,000 is gone. The token budget is no longer a hidden constant: unless a caller
-   sets it, it is the pair budget times the most one pair can reserve (the prompt allowance plus the excerpt budget),
-   so it can never stop a job before the pair budget does. When a budget does stop a job (an operator set one), the
-   report and the job record name which (`budget.stopped_by`: `pairs` or `tokens`) and where it came from.
+   `TB_SCREEN_MAX_PAIRS`, else **none: the population's own pairs** (scoped patients x note criteria), so by default
+   nothing is left unprocessed. The fixed 20,000 is gone. The hidden token budget is gone too: the cascade has a token
+   budget only when a caller sets one (`CascadeConfig.max_tokens`, default none), so nothing stops a job before the
+   pair budget does. When a budget does stop a job (an operator set one), the report and the job record name which
+   (`budget.stopped_by`: `pairs` or `tokens`) and where the pair budget came from (`budget.source`: `set` or
+   `population`).
 
 ## Consequences
 
