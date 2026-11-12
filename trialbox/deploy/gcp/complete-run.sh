@@ -81,7 +81,7 @@ while [ $# -gt 0 ]; do
     --shard) SHARD="$2"; shift 2 ;;
     --provision) PROVISION=1; shift ;;
     --teardown) TEARDOWN=1; shift ;;
-    -h|--help) sed -n 2,54p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,61p "$0"; exit 0 ;;
     *) break ;;
   esac
 done
