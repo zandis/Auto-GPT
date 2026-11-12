@@ -59,8 +59,16 @@ def test_with_the_images_entry_the_report_is_read_and_its_findings_are_gated() -
 
 
 def test_the_entry_does_not_let_through_a_report_that_shows_no_package_at_all() -> None:
-    with pytest.raises(vulns.ReportError, match="no packages of any kind"):
+    with pytest.raises(vulns.ReportError, match="no language packages"):
         vulns.parse_trivy(_report(os_packages=False, binary=False), os_unreadable=True)
+
+
+def test_review_m2_the_entry_needs_language_packages_not_just_any_result() -> None:
+    """A report whose only content is a secret scan or nothing a package scan produced is not a scan of the binary."""
+    data = _report(os_packages=False, binary=False)
+    data["Results"].append({"Target": "x", "Class": "secret", "Packages": [{"Name": "n"}]})
+    with pytest.raises(vulns.ReportError, match="no language packages"):
+        vulns.parse_trivy(data, os_unreadable=True)
 
 
 def test_an_entry_for_an_image_whose_os_packages_are_readable_is_stale() -> None:
@@ -75,6 +83,10 @@ def test_the_entry_names_one_image_repository() -> None:
     assert allow.os_unreadable(f"registry.example/{REF}") is not None  # the same repository in another registry
     assert allow.os_unreadable("caddy:2.11.9-alpine") is None
     assert allow.os_unreadable("authelia/authelia-extra:1") is None
+    # review M1: the entry is one repository, not every repository whose name ends the same way
+    assert allow.os_unreadable("someone/authelia/authelia:1") is None
+    assert allow.os_unreadable("localhost:5000/authelia/authelia:1") is not None
+    assert allow.os_unreadable("mirror.example/someone/authelia/authelia:1") is None
     assert allowlist.Allowlist([], []).os_unreadable(REF) is None
 
 
@@ -85,6 +97,10 @@ def test_the_entry_names_one_image_repository() -> None:
         (_entry(image="authelia/authelia:4.39.28"), "without tag or digest"),
         (_entry(image="*"), "one image repository"),
         (_entry(image="trialbox-py"), "our own images"),
+        (_entry(image="authelia"), "not a third-party image of deploy/images.lock"),  # review M1: `x/authelia` too
+        (_entry(image="hapi"), "not a third-party image of deploy/images.lock"),
+        (_entry(image="someone/else"), "not a third-party image of deploy/images.lock"),
+        (_entry(image="\uff41uthelia/authelia"), "one image repository"),  # a full-width letter
         (_entry(reason="short"), "too short"),
         (_entry(review_by="2025-01-01"), "has passed"),
         (_entry(review_by="2027-11-12"), "days ahead"),

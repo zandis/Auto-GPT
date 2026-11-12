@@ -67,15 +67,15 @@ as before. The shipped list has one entry: `authelia/authelia`, review 2026-12-1
 
 How a box runs it (`deploy/docker-compose.identity.yml`, `deploy/identity/Caddyfile`, the configuration template):
 profile `oidc` only; it listens in plain HTTP/1 on 9091 inside `trialbox-net`, with no published port and no
-`server.tls`; Caddy ends TLS and proxies to it in HTTP/1.1; its one outbound connection is LDAPS to the
-hospital's directory, which the egress rules allow and nothing else. What is in the binary of the pinned image was
+`server.tls`; Caddy ends TLS and proxies to it in HTTP/1.1; the only outbound connection the egress rules allow
+it is LDAPS to the hospital's directory (Authelia's start-up time check, to a public time server, is blocked). What is in the binary of the pinned image was
 read from its symbol table on 2026-11-12.
 
 | Finding | Why it is not reachable on a box |
 | --- | --- |
 | GO-2026-5932, x/crypto | the advisory is for the `openpgp` package; it is not in the binary |
 | CVE-2026-78661, x/net | the flaw is in the HTML parser; only the package's `init` is in the binary, no parser function |
-| CVE-2026-78669, x/net | `golang.org/x/net/http2` is not in the binary (only its `hpack` tables) |
+| CVE-2026-78669, x/net | of this module the binary links only `idna` and the `init` of `html`; there is no `golang.org/x/net/http2` in it |
 | CVE-2026-78669, stdlib | needs a malicious HTTP/2 peer: there is no HTTP/2 server in the binary (fasthttp, HTTP/1.1), and the HTTP/2 client runs only on an outbound HTTPS call, which the box neither configures nor lets out |
 | CVE-2026-78667, stdlib | the flaw is in `net/http` file serving; neither it nor the `net/http` server is in the binary |
 | CVE-2026-97031, stdlib | the flaw is in the TLS server handshake; Authelia accepts no TLS connection on a box |
@@ -93,3 +93,17 @@ only the hospital's own CA over the image's root list, so that no public interme
 root.
 
 The licence budgets: Caddy 148, Authelia 88 (the amd64 counts; the `images` job confirms arm64).
+
+### After the adversarial review (2026-11-12)
+
+- The narrow rule was not narrow enough: `image: authelia` would also have matched `someone/authelia`. An entry
+  must now be, by its full name, a third-party image of `deploy/images.lock`, in ASCII, and it matches that one
+  repository in any registry and no longer path that ends the same way.
+- "Packages of some kind" let a report through whose only content was not a package scan. The report must show
+  language packages (the image's binary).
+- Two of the reasons rest on the site's configuration file and not on the binary: no `server.tls` (CVE-2026-97031)
+  and no outbound HTTPS call (CVE-2026-78669 in the standard library). The TLS server and the HTTP/2 client are
+  in the binary. The reasons say "on the box" and are true for the template; nothing yet refuses a site file that
+  turns either on. Open, not built here: a check of the site's Authelia file.
+- For Caddy the flawed code is live (the `net/http` server with a body limit, the HTML parser). Its entries are
+  the owner's ruling on exposure: reachable on 443 from the hospital's inner network only.

@@ -2050,32 +2050,32 @@ vulnerabilities:  # pip-audit on deploy/requirements.lock was clean on 2026-11-0
   - id: GO-2026-5932
     package: golang-org/x/crypto
     image: caddy
-    reason: Go module inside the upstream Caddy binary, fixed in x/crypto 0.58.1; the advisory is for the openpgp package, which is not in the binary (checked); listener on the hospital's inner network behind the box's egress rules; no fixed upstream Caddy image exists (2.11.9 is the newest, checked 2026-11-12); reviewed at the next Caddy release
+    reason: Go module inside the upstream Caddy binary, fixed in x/crypto 0.58.1; the advisory is for the openpgp package, which is not in the binary (checked); reachable on 443 from the hospital's inner network only (the box is not on the internet); no fixed upstream Caddy image exists (2.11.9 is the newest, checked 2026-11-12); reviewed at the next Caddy release
     review_by: 2026-12-10
     owner: security owner (to assign)
   - id: CVE-2026-78661
     package: golang-org/x/net
     image: caddy
-    reason: Go module inside the upstream Caddy binary, fixed in x/net 0.62.0; listener on the hospital's inner network behind the box's egress rules; no fixed upstream Caddy image exists (2.11.9 is the newest, checked 2026-11-12); reviewed at the next Caddy release
+    reason: Go module inside the upstream Caddy binary, fixed in x/net 0.62.0; reachable on 443 from the hospital's inner network only (the box is not on the internet); no fixed upstream Caddy image exists (2.11.9 is the newest, checked 2026-11-12); reviewed at the next Caddy release
     review_by: 2026-12-10
     owner: security owner (to assign)
   - id: CVE-2026-97054
     package: stdlib
     image: caddy
-    reason: Go standard library 1.27.3 inside the upstream Caddy binary, fixed in 1.27.4; listener on the hospital's inner network behind the box's egress rules; no fixed upstream Caddy image exists (2.11.9 is the newest, checked 2026-11-12); reviewed at the next Caddy release
+    reason: Go standard library 1.27.3 inside the upstream Caddy binary, fixed in 1.27.4; reachable on 443 from the hospital's inner network only (the box is not on the internet); no fixed upstream Caddy image exists (2.11.9 is the newest, checked 2026-11-12); reviewed at the next Caddy release
     review_by: 2026-12-10
     owner: security owner (to assign)
   # Authelia, the hospital-account sign-in (identity overlay, profile oidc; off unless TB_OIDC_ENABLED=1). Same ruling,
   # with the owner's condition for the login front: each entry says why the finding is not reachable in how the box
   # runs Authelia. The facts they rest on (D-574): it listens in plain HTTP/1 on 9091 inside trialbox-net with no
-  # published port and no server.tls; only Caddy and the console reach it; its one outbound connection is LDAPS to
-  # the hospital's directory (egress rules); and the named code is or is not in the binary of the pinned image,
+  # published port and no server.tls; only Caddy and the console reach it; the only outbound connection the egress
+  # rules allow it is LDAPS to the hospital's directory (its start-up time check is blocked); and the named code is or is not in the binary of the pinned image,
   # checked on 2026-11-12. No fixed upstream image exists (4.39.28 is the newest). CVE-2026-111943 (crypto/x509) has
   # NO entry: it cannot be argued unreachable (the LDAPS client verifies certificates) and is with the owner.
   - id: GO-2026-5932
     package: golang-org/x/crypto
     image: authelia/authelia
-    reason: "Not reachable: the advisory is for golang.org/x/crypto/openpgp, and that package is not in the Authelia binary (no openpgp symbol; the binary links bcrypt, chacha20, cryptobyte, hkdf, md4, ocsp only)"
+    reason: "Not reachable: the advisory is for golang.org/x/crypto/openpgp, and that package is not in the Authelia binary (no openpgp symbol; of this module the binary links bcrypt, hkdf, md4 and ocsp only)"
     review_by: 2026-12-10
     owner: security owner (to assign)
   - id: CVE-2026-78661
@@ -2087,13 +2087,13 @@ vulnerabilities:  # pip-audit on deploy/requirements.lock was clean on 2026-11-0
   - id: CVE-2026-78669
     package: golang-org/x/net
     image: authelia/authelia
-    reason: "Not reachable: golang.org/x/net/http2 itself is not in the Authelia binary (only its hpack tables are); no HTTP/2 connection is handled by this module"
+    reason: "Not reachable: of this module the Authelia binary links only idna and the init of html; there is no golang.org/x/net/http2 in it (the hpack tables are the standard library's own copy), so no HTTP/2 connection is handled by this module"
     review_by: 2026-12-10
     owner: security owner (to assign)
   - id: CVE-2026-78669
     package: stdlib
     image: authelia/authelia
-    reason: "Not reachable: needs a malicious HTTP/2 peer. The binary has no HTTP/2 server (fasthttp, HTTP/1.1 only; Caddy speaks HTTP/1.1 to it) and its HTTP/2 client code runs only on an outbound HTTPS call; the box configures none (no Duo, no client key URLs) and egress allows LDAPS to the directory only"
+    reason: "Not reachable: needs a malicious HTTP/2 peer. The binary has no HTTP/2 server (fasthttp, HTTP/1.1 only; Caddy speaks HTTP/1.1 to it) and its HTTP/2 client code runs only on an outbound HTTPS call; the box's configuration template makes none (no Duo, no client key URLs) and egress allows LDAPS to the directory only"
     review_by: 2026-12-10
     owner: security owner (to assign)
   - id: CVE-2026-78667

@@ -205,7 +205,7 @@ def parse_trivy(data: Any, expect_lang: frozenset[str] | None = None, *, os_unre
 
     ``expect_lang`` defaults to what the scanned image must contain (``expected_lang_types`` of its name).
     ``os_unreadable`` (D-574): the allow-list has an ``os_packages_unreadable`` entry for this image. The report
-    may then show no OS packages, must still show packages of some kind, and is refused when it does show OS
+    may then show no OS packages, must still show language packages (its binary), and is refused when it does show OS
     packages (the entry is stale)."""
     if not isinstance(data, dict) or not data.get("ArtifactName"):
         raise ReportError("not a Trivy JSON report (no ArtifactName)")
@@ -219,8 +219,8 @@ def parse_trivy(data: Any, expect_lang: frozenset[str] | None = None, *, os_unre
     has_os = any(c == "os-pkgs" for c, _ in classes)
     if os_unreadable and has_os:
         raise ReportError(f"{artifact}: the report shows OS packages; remove its os_packages_unreadable entry")
-    if os_unreadable and not classes:
-        raise ReportError(f"{artifact}: no packages of any kind in the report; nothing was scanned")
+    if os_unreadable and not any(c == "lang-pkgs" for c, _ in classes):
+        raise ReportError(f"{artifact}: no language packages in the report either; its binary was not scanned")
     if not has_os and not os_unreadable:
         raise ReportError(f"{artifact}: no OS packages in the report (run with --list-all-pkgs)")
     missing = sorted(t for t in expect_lang if ("lang-pkgs", t) not in classes)

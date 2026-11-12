@@ -46,6 +46,8 @@ date (``today()``); there is no override on the command line.
 from __future__ import annotations
 
 import datetime as dt
+import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -62,6 +64,8 @@ _VULN_KEYS = {"id", "package", "reason", "review_by", "owner", "image"}
 _LIC_KEYS = {"package", "class", "chosen", "licence", "reason", "review_by", "owner"}
 _BUDGET_KEYS = {"image", "ecosystem", "max", "reason", "review_by", "owner"}
 _OS_KEYS = {"image", "reason", "review_by", "owner"}
+_REPO_PART = re.compile(r"[a-z0-9]+(?:[._-][a-z0-9]+)*")  # one path component of an image repository, ASCII only
+IMAGES_LOCK = ROOT / "deploy" / "images.lock"
 # in our own images and the lock, an unknown licence in these ecosystems is never budgeted: each needs an entry
 STRICT_ECOSYSTEMS = ("pypi", "npm")
 LOCK_SUBJECT = "requirements.lock"
@@ -122,7 +126,7 @@ class Allowlist:
     def os_unreadable(self, subject: str) -> OsUnreadableEntry | None:
         """The entry that lets the report of ``subject`` (a scanned image reference) show no OS packages."""
         for e in self.os_packages_unreadable:
-            if image_matches(e.image, subject):
+            if same_repository(e.image, subject):
                 return e
         return None
 
@@ -165,6 +169,28 @@ def image_matches(scope: str | None, subject: str | None) -> bool:
         return False
     repo = image_repository(subject)
     return repo == scope or repo.endswith("/" + scope)
+
+
+def same_repository(scope: str, subject: str) -> bool:
+    """Stricter than :func:`image_matches`: ``subject`` is exactly the repository ``scope``, in any registry (a first
+    component with a dot or a port, or ``localhost``; Docker Hub's ``library/`` for a one-word name). A longer path
+    that only ends the same way (``someone/authelia/authelia``) is another repository."""
+    repo = image_repository(subject)
+    head, _, rest = repo.partition("/")
+    if rest and ("." in head or ":" in head or head == "localhost"):
+        repo = rest
+    if "/" not in scope and repo.startswith("library/"):
+        repo = repo[len("library/") :]
+    return repo == scope
+
+
+def third_party_repositories() -> frozenset[str]:
+    """The repositories of the third-party images the project pins (``deploy/images.lock``)."""
+    try:
+        doc = json.loads(IMAGES_LOCK.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return frozenset()
+    return frozenset(image_repository(str(e.get("image", ""))) for e in (doc.get("third_party") or {}).values())
 
 
 def norm(name: str) -> str:
@@ -327,15 +353,14 @@ def parse(data: Any, *, today: dt.date | None) -> tuple[Allowlist, list[str]]:
         errs, when = _common(where, raw, _OS_KEYS, today)
         if not image:
             errs.append(f"{where}: needs an image")
-        elif not all(
-            part and part.replace("-", "").replace("_", "").replace(".", "").isalnum() for part in image.split("/")
-        ):
-            if image != image_repository(image):
-                errs.append(f"{where}: image must be an image repository without tag or digest, got {image!r}")
-            else:
-                errs.append(f"{where}: image must name one image repository, not a pattern, got {image!r}")
+        elif image != image_repository(image):
+            errs.append(f"{where}: image must be an image repository without tag or digest, got {image!r}")
+        elif not all(_REPO_PART.fullmatch(part) for part in image.split("/")):
+            errs.append(f"{where}: image must name one image repository, not a pattern, got {image!r}")
         elif is_own(image):
             errs.append(f"{where}: our own images always show their OS packages; no entry for them")
+        elif image not in third_party_repositories():
+            errs.append(f"{where}: {image!r} is not a third-party image of deploy/images.lock, by its full name")
         if image:
             if image in seen_o:
                 errs.append(f"{where}: duplicate entry")

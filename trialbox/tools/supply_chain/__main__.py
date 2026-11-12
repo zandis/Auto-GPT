@@ -42,7 +42,7 @@ def cmd_allowlist_check(args: argparse.Namespace) -> int:
     allow, errors = _allow(args)
     for e in errors:
         print(f"allowlist-check: {e}", file=sys.stderr)
-    n = len(allow.vulnerabilities) + len(allow.licences)
+    n = len(allow.vulnerabilities) + len(allow.licences) + len(allow.budgets) + len(allow.os_packages_unreadable)
     print(f"allowlist-check: {'FAIL' if errors else 'PASS'} ({n} valid entries)")
     return 1 if errors else 0
 
