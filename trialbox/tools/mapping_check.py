@@ -275,6 +275,7 @@ def check(
     since: str | None = None,
     until: str | None = None,
     chart_pattern: str | None = None,
+    min_patients: int | None = None,
 ) -> dict[str, Any]:
     from adapter.mapping import sharereport
     from adapter.mapping.engine import Mapper, Mapping
@@ -285,9 +286,12 @@ def check(
     src: Any = make_source(source_kind, where)
     if until and source_kind != "cgrd_sql":
         raise SystemExit("--day and --until read a SQL source (--source cgrd_sql)")
+    if until and not since:
+        raise SystemExit("--until needs --since (or give --day)")
     mapper = Mapper(m, b"mapping-check-key-0123456789abcdef", "CHECK")
-    net = sharereport.Net(_scan(), chart_pattern)
+    net = sharereport.Net(_scan(), chart_pattern, min_patients or sharereport.MIN_PATIENTS)
     report: dict[str, Any] = {"mapping": str(mapping_path), "tables": {}, "missing_columns": 0, "invalid": 0}
+    report["rejected"] = 0
     report["source"] = source_kind
     report["window"] = {"since": since, "until": until}
     report["rows_limit"] = rows
@@ -319,8 +323,22 @@ def check(
             report["missing_columns"] += len(need)
             continue
         t: dict[str, Any] = {"source": tspec["source"], "rows_read": len(got), "cut_at_rows_limit": cut}
+        if source_kind == "cgrd_sql":
+            have = src.columns(tspec["source"])
+            low = {c.lower() for c in have}
+            # the night finds a column by its exact name: one that differs in case only is missing for it
+            t["names_differ_in_case_only"] = sorted(c for c in wanted if c.lower() in low and c not in have)
+            report["missing_columns"] += len(t["names_differ_in_case_only"])
+            if local_delta and local_delta.lower() not in low:
+                delta = "the change-time column is not in the table: it was read whole"
         if since or until:
             t["window_on"] = delta or "no change-time column: the table was read whole"
+        pcol = next(iter(sorted(_patient_columns_all(specs))), None) or str(tspec.get("key") or "")
+
+        def who_has(rows_: list[dict[str, Any]], pcol: str = pcol) -> int:
+            """How many patients these rows are of (a table with no patient link: how many keys)."""
+            return len({str(r.get(pcol) or "").strip() for r in rows_})
+
         # the second net learns what identifies somebody in these rows: the whole patient table, and every column
         # the mapping uses as a patient link or an identity
         who = {*_patient_columns_all(specs), *(tspec.get("identity") or {}).values()}
@@ -340,13 +358,13 @@ def check(
         t["absent_optional"] = sorted(optional - need - present)
         report["missing_columns"] += len(missing)
         unmapped: Counter[str] = Counter()
-        outside: Counter[tuple[str, str]] = Counter()  # (column or look-up, value): every one, for the share report
+        outside: dict[tuple[str, str], list[dict[str, Any]]] = {}  # (column or look-up, value) → its rows
         for col, mp in (tspec.get("values") or {}).items():
             for row in got:
                 v = row.get(col)
                 if v not in (None, "") and str(v) not in {str(x) for x in mp.values()}:
                     unmapped[f"{col}={v}"] += 1
-                    outside[(f"values:{col}", str(v))] += 1
+                    outside.setdefault((f"values:{col}", str(v)), []).append(row)
         for spec in specs:
             for expr in spec.elements.values():
                 if isinstance(expr, dict) and "map" in expr and "column" in expr:
@@ -354,19 +372,26 @@ def check(
                         v = row.get(expr["column"])
                         if v not in (None, "") and str(v) not in {str(k) for k in expr["map"]}:
                             unmapped[f"{expr['column']}={v}"] += 1
-                            outside[(f"map:{expr['column']}", str(v))] += 1
+                            outside.setdefault((f"map:{expr['column']}", str(v)), []).append(row)
         if "lab" in m.lookups and table == "lab":
             lk = m.lookups["lab"]
             for row in got:
                 code = row.get(lk.key)
                 if code not in (None, "") and lk.find(code) is None:  # as the night reads it (D-580)
                     unmapped[f"lab {lk.key}={code} (not in lookup)"] += 1
-                    outside[("lookup:lab", str(code))] += 1
+                    outside.setdefault(("lookup:lab", str(code)), []).append(row)
         t["unmapped_codes"] = dict(unmapped.most_common(20))
-        t["outside"] = [[name, value, n] for (name, value), n in sorted(outside.items())]
+        t["outside"] = [[name, value, len(rs), who_has(rs)] for (name, value), rs in sorted(outside.items())]
         args = lab_value_args(m, table)
         if args is not None and args.get("lookup") in m.lookups:
             t["unit_pairs"] = unit_pairs(m, args, got)
+            ucol = args.get("unit_column")
+            for pair in t["unit_pairs"]:  # how many patients have the pair: the share report's small-cell rule
+                pair["patients"] = who_has([
+                    r for r in got
+                    if str(r.get(args["key"]) or "") == pair["code"]
+                    and (str(r.get(ucol) or "").strip() if ucol else "") == pair["row_unit"]
+                ])  # fmt: skip
             t["qualitative_values"] = qualitative_values(m, args, got)
         # D-130 (review F-10): diagnoses without an ICD-10 code and medicines without ATC reach the lake in a code
         # system no ValueSet reads; screening keeps those patients unknown, so the site should know the share now
@@ -379,13 +404,18 @@ def check(
             continue
         resources, rejected = sharereport.map_rows(mapper, table, got)  # a refused row is counted, as at night
         t["rejected"] = dict(sorted(rejected.items()))
+        report["rejected"] += sum(rejected.values())
         res = validator.validate(resources)
         t["resources"] = len(resources)
         t["structural_errors"] = res.messages[:10]
         report["invalid"] += res.errors
         report["tables"][table] = t
+    # a row the mapping refuses is a row the night loses: the check does not pass over it (it used to stop there)
     report["passed"] = (
-        report["missing_columns"] == 0 and report["invalid"] == 0 and not report["unit_default_conflicts"]
+        report["missing_columns"] == 0
+        and report["invalid"] == 0
+        and report["rejected"] == 0
+        and not report["unit_default_conflicts"]
     )
     report["share"] = share(report, mapper, net)
     return report
@@ -410,7 +440,7 @@ def share(report: dict[str, Any], mapper: Any, net: Any) -> dict[str, Any]:
     by the second net. No row value is copied into it."""
     from adapter.mapping import sharereport
 
-    by_code = mapper.unmapped_by_code(net.chart.pattern if net.chart else None)
+    counted = mapper.unmapped_summary()
     out: dict[str, Any] = {
         "report": "share",
         "mapping": Path(report["mapping"]).name,
@@ -420,37 +450,46 @@ def share(report: dict[str, Any], mapper: Any, net: Any) -> dict[str, Any]:
         "passed": report["passed"],
         "missing_columns": report["missing_columns"],
         "invalid_resources": report["invalid"],
+        "rejected_rows": report["rejected"],
+        "min_patients": net.min_patients,
         "unit_default_conflicts": len(report["unit_default_conflicts"]),
         "tables": {},
     }
     for table, t in report["tables"].items():
         s: dict[str, Any] = {k: t[k] for k in SHARED_AS_IS if k in t}
         if "rejected" in t:
-            s["rejected_rows"] = net.counts(t["rejected"], sharereport.scrub_reason)
+            s["rejected_rows"] = dict(t["rejected"])  # reasons in the engine's own words (``scrub_reason``)
         if "structural_errors" in t:
             s["structural_errors"] = len(t["structural_errors"])
-        names: dict[str, dict[str, int]] = {}
-        for name, value, n in t.get("outside") or []:
-            names.setdefault(name, {})[value] = n
-        s["outside_the_map"] = {name: net.counts(codes, net.code) for name, codes in sorted(names.items())}
-        s["unmapped_dropped_or_unknown"] = {
-            name: net.counts(codes, net.code) for name, codes in (by_code.get(table) or {}).items()
-        }
+        if "names_differ_in_case_only" in t:
+            s["names_differ_in_case_only"] = [net.text(c) for c in t["names_differ_in_case_only"]]
+        names: dict[str, list[tuple[Any, int, int]]] = {}
+        for name, value, n, patients in t.get("outside") or []:
+            names.setdefault(name, []).append((value, n, patients))
+        if "outside" in t:
+            s["outside_the_map"] = {name: net.codes(items) for name, items in sorted(names.items())}
+            # dropped or unknown at mapping time (D-580): how many rows and distinct codes, by look-up or column
+            s["unmapped_dropped_or_unknown"] = counted.get(table) or {}
         if "unit_pairs" in t:
             s["unit_pairs"] = [
-                {"code": net.code(p["code"]), "loinc": p["loinc"], "row_unit": net.unit(p["row_unit"]),
+                {"code": net.code(p["code"], p["patients"], known=True), "loinc": p["loinc"],
+                 "row_unit": net.unit(p["row_unit"], p["patients"]),
                  "lookup_unit": p["lookup_unit"], "rows": p["rows"], "read": p["read"],
                  "factor": None if p.get("factor") is None else str(p["factor"])}
                 for p in t["unit_pairs"]
             ]  # fmt: skip
         if "qualitative_values" in t:
             s["qualitative_values"] = [
-                {"code": net.code(q["code"]), "loinc": q["loinc"], "rows": q["rows"], "read": q["read"],
+                {"code": net.code(q["code"], 0, known=True), "loinc": q["loinc"], "rows": q["rows"], "read": q["read"],
                  "raw": net.text(q["raw"]) if "not recognised" not in q["read"] else sharereport.shape(q["raw"])}
                 for q in t["qualitative_values"]
             ]  # fmt: skip
         out["tables"][table] = s
-    out = net.sweep(out)
+    own = {str(k) for k in report["tables"]} | set(SHARED_AS_IS)
+    for t in report["tables"].values():
+        own |= {str(c) for k in ("missing_columns", "absent_optional") for c in t.get(k) or []}
+        own |= {str(c) for c in t.get("date_shapes") or {}} | {str(t.get("source") or "")}
+    out = net.sweep(out, own)
     out["withheld"] = net.withheld
     return dict(out)
 
@@ -467,15 +506,20 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--since", help="read rows changed from this time on (YYYY-MM-DD[ HH:MM:SS])")
     ap.add_argument("--until", help="with --since: and before this time")
     ap.add_argument("--chart-pattern", help="the site's chart number pattern: a code that matches is not written out")
+    ap.add_argument("--min-patients", type=int, help="a code is written to the share report when this many have it (5)")
     ap.add_argument("--columns-only", action="store_true", help="read no row: which mapped columns each table has")
     ap.add_argument("--share", type=Path, help="write the report that may leave the site, and print only that")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
     where = args.path or args.dsn or ""
     if args.dsn_env:
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", args.dsn_env):  # the string itself was given: not echoed
+            raise SystemExit("--dsn-env takes the name of an environment variable, not the connection string")
         where = os.environ.get(args.dsn_env, "")
         if not where:
             raise SystemExit(f"the environment variable {args.dsn_env} is not set")
+    if args.until and not args.since:
+        raise SystemExit("--until needs --since (or give --day)")
     since, until = args.since, args.until
     if args.day:
         day = date.fromisoformat(args.day)
@@ -487,7 +531,7 @@ def main(argv: list[str] | None = None) -> int:
             args.share.write_text(text + "\n", encoding="utf-8")
         print(text)
         return 0 if rep["passed"] else 1
-    rep = check(args.mapping, args.source, where, args.rows, since, until, args.chart_pattern)
+    rep = check(args.mapping, args.source, where, args.rows, since, until, args.chart_pattern, args.min_patients)
     if args.share:
         text = json.dumps(rep["share"], ensure_ascii=False, indent=1)
         args.share.write_text(text + "\n", encoding="utf-8")
@@ -506,6 +550,8 @@ def main(argv: list[str] | None = None) -> int:
                 line += f"  MISSING {', '.join(t['missing_columns'])}"
             elif "resources" in t:
                 line += f"  → {t['resources']} resources, {len(t['structural_errors'])} structural errors"
+                if t.get("rejected"):
+                    line += f", {sum(t['rejected'].values())} rows refused ({'; '.join(sorted(t['rejected']))})"
             if t.get("absent_optional"):
                 line += f"  (optional, not provided: {', '.join(t['absent_optional'])})"
             if t.get("unmapped_codes"):
@@ -527,7 +573,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"UNIT DEFAULT {c}")
         print(
             f"{'PASSED' if rep['passed'] else 'FAILED'}: {rep['missing_columns']} missing columns, "
-            f"{rep['invalid']} invalid resources"
+            f"{rep['invalid']} invalid resources, {rep['rejected']} rows refused"
         )
     return 0 if rep["passed"] else 1
 

@@ -22,20 +22,27 @@ on the command line.
    column names, counts, and for each kind of value only this:
    - **dates**: the *shape* of the text (`9999-99-99`, `9999999`, `民國999年9月9日`), never the value; how many the
      mapping reads, refuses, and finds empty; the database's column type when the driver tells it;
-   - **codes**: a value is written out only when it looks like a code (D-580's rule) and is not the site's chart
-     number pattern; anything else is counted as "(not a code)";
-   - **units**: a unit spelling of at most 20 characters with no run of five digits; anything else "(not a unit)";
+   - **codes**: a value is written out only when it looks like a code (D-580's rule), is not the site's chart
+     number pattern, is not a number of six or more digits, a date or an address, **and at least five patients
+     of the rows read have it** (`--min-patients`). A real code is used for many patients; a chart number, a
+     name or a note that a mis-mapped column put in its place belongs to one. Anything else is counted as
+     "(not a code)" or "(seen for fewer than 5 patients)";
+   - **units**: a spelling the shared unit table reads; another one only when it is at most 20 characters, has no
+     run of five digits and at least five patients have it;
    - **coded result texts**: written out only when the shared table or the site's own answers read them; an
      unread text is given by its shape;
-   - **rows the mapping refuses**: the reason, with every quoted value removed and every other word that holds a
-     digit or a non-ASCII letter replaced by its shape;
+   - **rows the mapping refuses**: the first words of the reason, as long as each is a word the engine itself
+     writes; it ends at the first that is not (the value). Another kind of error is given by its name;
    - **repeated keys**: counts only (keys that repeat, identical copies, copies that differ, copies that differ
      and fall on another day);
    - **structure errors**: a count.
-2. **A second net over the whole file.** Before it is written, every text in the report is compared with the
-   identifying values of the rows that were read (every value of the patient table, and of every column the
-   mapping uses as a patient link or an identity) and run through the repository's own data scan patterns. A hit
-   is replaced by "(withheld)" and counted. The count is in the report.
+2. **A second net.** Every text taken from the source as written (a code, a unit, an answer) is run through the
+   repository's own data scan patterns, and every text of the finished report, apart from the mapping's own
+   names, is compared with the identifying values of the rows that were read (every value of the patient table,
+   and of every column the mapping uses as a patient link or an identity). A hit is replaced by "(withheld)" and
+   counted. The net knows only the rows it read (one day, or up to the row limit): that is why point 1 must hold
+   by itself, and the tests cut the patient table to prove it. Shapes and reasons hold no character of the
+   source except a calendar word beside a digit and punctuation; they are not scanned.
 3. **With `--share`, the terminal shows only what the file holds.** Nothing else is printed, so a pasted terminal
    is as safe as the file.
 4. **The connection string comes from the environment** (`--dsn-env NAME`), never the command line, and is never
@@ -44,7 +51,10 @@ on the command line.
    one window of the table's change-time column (`--day`, or `--since` / `--until`), and at most `--rows` rows a
    table (the report says when the limit cut a table). `--columns-only` reads no row at all: it lists which mapped
    columns each table or view has.
-6. **A refused row no longer stops the check.** It is counted by reason, as the night counts it.
+6. **A refused row no longer stops the check, and the check does not pass over it.** It is counted by reason, as
+   the night counts it, and any refused row makes the result "failed" (before, the first one ended the run).
+7. **What the night would not find is missing.** A column whose name differs from the mapping's in case only is
+   listed and counted as missing: the nightly read matches names exactly.
 
 ## What the owner sends back
 

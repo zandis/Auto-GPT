@@ -68,15 +68,23 @@ class SqlSource:
                 what = ", ".join(names)
         sql = f"SELECT {what} FROM {source_name}"  # identifiers validated above; values are bound
         params: dict[str, str] = {}
-        if delta_column and delta_column.lower() in self._columns(source_name):
-            if since and until:
+        if since and delta_column and delta_column.lower() in self._columns(source_name):
+            if until:
                 sql += f" WHERE {delta_column} >= :since AND {delta_column} < :until"
                 params.update(since=since, until=until)
-            elif since:
+            else:
                 sql += f" WHERE {delta_column} IS NULL OR {delta_column} >= :since"
                 params["since"] = since
         with self.engine.connect() as con:
-            result = con.execution_options(stream_results=True).execute(text(sql), params)
+            try:
+                result = con.execution_options(stream_results=True).execute(text(sql), params)
+            except Exception:
+                if what == "*":
+                    raise
+                # a column named by a word the database reserves: every column is read and the others dropped here
+                con.rollback()
+                sql = sql.replace(f"SELECT {what} FROM", "SELECT * FROM", 1)
+                result = con.execution_options(stream_results=True).execute(text(sql), params)
             cols = list(result.keys())
             for rec in result:
                 row = {c: (None if v is None else str(v)) for c, v in zip(cols, rec, strict=True)}

@@ -8,15 +8,30 @@ withheld on a hit.
 
 from __future__ import annotations
 
+import inspect
 import re
 from collections import Counter
 from collections.abc import Callable, Iterable
 from typing import Any
 
+from tb_common import labvalue
+
+from adapter.mapping import engine
 from adapter.mapping.engine import _CODE_SHAPE, NO_CODE, NOT_A_CODE, Mapper, MappingError, ResourceSpec
 from adapter.sources.base import Row
 
 WITHHELD = "(withheld)"
+UNWORDED = "(a reason the mapping does not word)"
+# Small-cell rule: a code or a unit spelling the tables do not know is written out only when at least this many
+# patients of the rows read have it. A real code is used for many patients; a chart number, a name or a note that
+# a mis-mapped column put in its place belongs to one. Five is the usual smallest cell of a public health table;
+# the site may set another number (``--min-patients``)
+MIN_PATIENTS = 5
+# A value of digits only and this long is taken for a number of a person (a chart number, a phone), never a code
+DIGITS_MAX = 5
+_DATE_LIKE = re.compile(r"\d{2,4}[-/.]\d{1,2}[-/.]\d{1,2}")
+# the words the engine's own messages are made of: a reason is cut at the first word that is not one of them
+_ENGINE_WORDS = frozenset(w.lower() for w in re.findall(r"[A-Za-z_$]+", inspect.getsource(engine)))
 NOT_A_UNIT = "(not a unit)"
 DATE_TYPES = ("date", "datetime", "instant")
 # A shape longer than this is cut: a date is never this long, and a long text put in a date column is a mis-mapped
@@ -31,6 +46,7 @@ INSIDE_MIN = 6
 IDENT_MIN = 3  # a one- or two-character value (a sex code) identifies nobody and is in every table
 # Words of a date that say which calendar it is: kept as written, they are not a patient's
 _DATE_WORDS = (
+    "元年",
     *("民國", "民国", "中華民國", "西元", "令和", "平成", "昭和", "大正", "明治"),
     *("年", "月", "日", "時", "分", "秒", "上午", "下午", "午前", "午後"),
 )
@@ -40,16 +56,24 @@ _QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
 _TOKEN = re.compile(r"\S+")
 
 
+def _beside_digit(s: str, start: int, end: int) -> bool:
+    """A word of the calendar counts as one only beside a digit (``115年``, ``民國115``) or in ``令和元年``: the same
+    letters inside a name or a sentence are letters of somebody."""
+    if (start > 0 and s[start - 1].isdigit()) or (end < len(s) and s[end].isdigit()):
+        return True
+    return s[end : end + 2] == "元年" or (s[start:end] == "元年" and _WORDS.match(s, max(start - 2, 0)) is not None)
+
+
 def shape(text: Any) -> str:
     """``2026-05-12 08:30`` → ``9999-99-99 99:99``: a digit is 9, a letter A, another script 字; the words of a
-    calendar (民國, 令和, 年月日, 上午) and the ``T`` between a date and a time stay."""
+    calendar beside a digit (民國115, 令和8年, 上午8時) and the ``T`` between a date and a time stay."""
     s = "" if text is None else str(text)
     out: list[str] = []
     i = 0
     while i < len(s) and len(out) < SHAPE_MAX:
         m = _WORDS.match(s, i)
         c = s[i]
-        if m:
+        if m and _beside_digit(s, m.start(), m.end()):
             out.append(m.group())
             i = m.end()
             continue
@@ -70,14 +94,14 @@ def shape(text: Any) -> str:
 
 
 def scrub_reason(message: str) -> str:
-    """Why the mapping refused a row, with nothing of the row in it: quoted values out, and every other word
-    that holds a digit or a letter of another script given by its shape."""
-
-    def word(m: re.Match[str]) -> str:
-        w = m.group()
-        return w if w.isascii() and not re.search(r"\d", w) else shape(w)
-
-    return _TOKEN.sub(word, _QUOTED.sub("<value>", message))
+    """Why the mapping refused a row, with nothing of the row in it: the message's first words, as long as each
+    is a word the engine itself writes. It ends at the first that is not (a value, quoted or not)."""
+    kept: list[str] = []
+    for word in message.split():
+        if word.rstrip(":,").lower() not in _ENGINE_WORDS or not word.isascii():
+            break
+        kept.append(word)
+    return " ".join(kept) or UNWORDED
 
 
 def date_columns(specs: Iterable[ResourceSpec]) -> dict[str, str]:
@@ -163,16 +187,24 @@ def map_rows(mapper: Mapper, table: str, rows: list[Row]) -> tuple[list[dict[str
             out.extend(mapper.map_table(table, iter([row])))
         except ValueError as exc:
             rejected[scrub_reason(str(exc))] += 1
+        except Exception as exc:
+            rejected[f"({type(exc).__name__})"] += 1
     return out, rejected
 
 
 class Net:
     """The second net (D-588): a text taken from the source is withheld when it is, or holds, an identifying
-    value of the rows that were read, or when the data scan (``scan``: text → whether it hits) knows its kind."""
+    value of the rows that were read, or when the data scan (``scan``: text → whether it hits) knows its kind.
+    Before the net, the rule by kind: a code or a unit is written out only when it looks like one and the shared
+    tables know it or enough patients have it (:data:`MIN_PATIENTS`)."""
 
-    def __init__(self, scan: Callable[[str], bool], chart_pattern: str | None = None) -> None:
+    def __init__(
+        self, scan: Callable[[str], bool], chart_pattern: str | None = None, min_patients: int = MIN_PATIENTS
+    ) -> None:
         self.scan = scan
         self.chart = re.compile(chart_pattern) if chart_pattern else None
+        self.min_patients = max(1, min_patients)
+        self.few = f"(seen for fewer than {self.min_patients} patients)"
         self.exact: set[str] = set()
         self.inside: set[str] = set()
         self.withheld = 0
@@ -193,57 +225,74 @@ class Net:
         return t in self.exact or any(i in t for i in self.inside)
 
     def text(self, s: Any) -> str:
-        """A text from the source (a column name, a recognised answer), or WITHHELD."""
+        """A text from the source that the rule by kind let through, or WITHHELD."""
         t = "" if s is None else str(s).strip()
         if t and (self.identifying(t) or self.scan(t)):
             self.withheld += 1
             return WITHHELD
         return t
 
-    def code(self, s: Any) -> str:
-        """A code as fed, when it looks like one (D-580) and the net lets it through."""
+    def code(self, s: Any, patients: int, known: bool = False) -> str:
+        """A code as fed, when it looks like one (D-580), is no number of a person, no date and no address, and
+        ``known`` (a look-up has it) or ``patients`` of the rows read have it."""
         t = "" if s is None else str(s).strip()
         if not t:
             return NO_CODE
-        if t in (NO_CODE, NOT_A_CODE):
-            return t
         if not _CODE_SHAPE.fullmatch(t) or (self.chart is not None and self.chart.fullmatch(t)):
             return NOT_A_CODE
+        if (t.isdigit() and len(t) > DIGITS_MAX) or "@" in t or _DATE_LIKE.search(t):
+            return NOT_A_CODE
+        if not known and patients < self.min_patients:
+            return self.few
         return self.text(t)
 
-    def unit(self, s: Any) -> str:
+    def unit(self, s: Any, patients: int) -> str:
+        """A unit spelling: the shared unit table reads it, or it is short, holds no long number and enough
+        patients have it."""
         t = "" if s is None else str(s).strip()
         if not t:
             return ""
-        if len(t) > UNIT_MAX or _DIGIT_RUN.search(t) or len(t.split()) > 2:
+        if len(t) > UNIT_MAX or _DIGIT_RUN.search(t) or len(t.split()) > 2 or "@" in t or _DATE_LIKE.search(t):
             return NOT_A_UNIT
+        if labvalue.ucum(t) is None and patients < self.min_patients:
+            return self.few
         return self.text(t)
 
-    def counts(self, by: dict[Any, int], how: Callable[[Any], str]) -> dict[str, int]:
-        """``{value: rows}`` with every value passed through ``how``; values that become the same word add up."""
+    def codes(self, items: Iterable[tuple[Any, int, int]]) -> dict[str, int]:
+        """``(value, rows, patients)`` → ``{code or the reason it is not written: rows}``, the most rows first."""
         out: Counter[str] = Counter()
-        for k, n in by.items():
-            out[how(k)] += n
+        for value, n, patients in items:
+            out[self.code(value, patients)] += n
         return dict(sorted(out.items(), key=lambda kv: (-kv[1], kv[0])))
 
-    def sweep(self, x: Any) -> Any:
-        """The last pass over a finished report: any text that is or holds an identifying value is withheld,
-        wherever it stands (a key, a value, a list)."""
+    def sweep(self, x: Any, own: frozenset[str] | set[str] = frozenset()) -> Any:
+        """The last pass over a finished report: a text that is or holds an identifying value is withheld wherever
+        it stands (a key, a value, a list). ``own``: the report's and the mapping's own words, which stay. Two
+        keys that become the same word are merged: counts add up, tables merge."""
         if isinstance(x, dict):
             out: dict[Any, Any] = {}
             for k, v in x.items():
-                k2 = self._swept(k) if isinstance(k, str) else k
-                v2 = self.sweep(v)
-                if k2 in out and isinstance(out[k2], int) and isinstance(v2, int):
-                    v2 += out[k2]
-                out[k2] = v2
+                k2 = self._swept(k, own) if isinstance(k, str) else k
+                v2 = self.sweep(v, own)
+                out[k2] = _merged(out[k2], v2) if k2 in out else v2
             return out
         if isinstance(x, list):
-            return [self.sweep(v) for v in x]
-        return self._swept(x) if isinstance(x, str) else x
+            return [self.sweep(v, own) for v in x]
+        return self._swept(x, own) if isinstance(x, str) else x
 
-    def _swept(self, s: str) -> str:
-        if s != WITHHELD and self.identifying(s):
+    def _swept(self, s: str, own: frozenset[str] | set[str]) -> str:
+        if s != WITHHELD and s not in own and self.identifying(s):
             self.withheld += 1
             return WITHHELD
         return s
+
+
+def _merged(a: Any, b: Any) -> Any:
+    if isinstance(a, dict) and isinstance(b, dict):
+        out = dict(a)
+        for k, v in b.items():
+            out[k] = _merged(out[k], v) if k in out else v
+        return out
+    if isinstance(a, int) and isinstance(b, int) and not isinstance(a, bool) and not isinstance(b, bool):
+        return a + b
+    return a
