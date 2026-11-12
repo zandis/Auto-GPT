@@ -106,11 +106,10 @@ class Gate:
         if rep is None:
             return False, "none", "the model self-test (canary) has not run on this box yet"
         if not rep.get("ok"):
-            return (
-                False,
-                "failed",
-                "the last model self-test (canary) failed: " + "; ".join(rep.get("problems") or [])[:200],
-            )
+            # every line, uncut: each failed model's line is bounded where it is made (selftest.ModelReport.why:
+            # TB_CANARY_WHY_CHARS, TB_CANARY_WHY_CASES), so the reason grows with the number of models and no cut
+            # here can drop the second model (it did, at 600 characters; review of 2026-11-12, OD-10)
+            return False, "failed", "the last model self-test (canary) failed: " + "; ".join(rep.get("problems") or [])
         if not rep.get("pair"):
             return False, "single", "the last model self-test checked one model, not the pair"
         age = (time.time() - (at or 0)) / 3600
@@ -150,6 +149,11 @@ GATE = Gate()
 
 def allows_block() -> tuple[bool, str]:
     return GATE.allows_block()
+
+
+def check() -> tuple[bool, str, str]:
+    """:meth:`Gate.check` of this process's gate: (may a note answer exclude, code, why not)."""
+    return GATE.check()
 
 
 def status() -> dict[str, Any]:
@@ -203,7 +207,9 @@ def wake_probe(llm: Any, verifier: Any) -> Callable[[str], str | None] | None:
         try:
             why = check_wake("judge" if endpoint == "serving" else "verifier", client)
         except LlmError as exc:
-            why = f"wake check errored: {str(exc)[:120]}"
+            from orchestrator.selftest import clip
+
+            why = f"wake check errored: {clip(str(exc))}"
         if why:
             GATE.record_wake(endpoint, why)
         return why
@@ -263,6 +269,7 @@ __all__ = [
     "GATE",
     "Gate",
     "allows_block",
+    "check",
     "check_wake",
     "gate_on",
     "run_canary",

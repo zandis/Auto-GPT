@@ -548,8 +548,7 @@ def test_low_b_a_failing_tick_is_audited_and_turns_the_health_line_red(
     assert st["failed"] == [] and st["ok_at"] is not None
     now = datetime.fromisoformat(st["ok_at"])
     assert metrics.check_optout(st, now).level == metrics.OK
-    # an hour later (not ``replace(hour=...)``: that went 23 hours back between 23:00 and midnight, and the test
-    # failed in that hour of the site's day)
+    # one hour later as a timedelta: replace(hour=h + 1) wraps back to the same day at 23:xx
     assert metrics.check_optout(st, now + timedelta(hours=1)).level == metrics.RED  # 60 min > 3 x 5
     assert metrics.check_optout({"every": 0}, now).level == metrics.RED
     monkeypatch.setattr(w, "OptOutRegister", lambda: (_ for _ in ()).throw(RuntimeError("no db")))

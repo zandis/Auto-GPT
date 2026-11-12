@@ -595,6 +595,10 @@ class Judging(BaseModel):
     verifier_model: str | None = None
     note_block: Literal["both_agree", "never"]
     note_block_reason: str | None = None
+    note_block_code: str | None = None
+    """
+    Why a note answer could not exclude, as a code (ok when it could); the mail and the PDF say it in the reader's language.
+    """
     configured_note_block: Literal["both_agree", "never"] | None = None
     may_block: bool
     disagreements: int | None = None
