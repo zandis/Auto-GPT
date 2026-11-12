@@ -216,7 +216,7 @@ def registry_rule(rows: Sequence[tuple[Any, ...]]) -> RegistryState:
 
     **Except an undated refusal** (``undated`` true on a ``rejected`` row): its date is unknown, so no consent can
     be shown to be later. The patient is refused, and is neither consenting nor contactable, whatever else the
-    registry holds (the integrator's ruling on the review of T-708; D-477 records the question for the owner)."""
+    registry holds (D-477: the owner's ruling of 2026-11-12, raised by the review of T-708)."""
     last: dict[str, tuple[str, bool | None]] = {}
     undated_refusal: set[str] = set()
     for pid, status, contact, *rest in rows:

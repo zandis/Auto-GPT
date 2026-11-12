@@ -38,13 +38,13 @@ note-block decision at four places, and "today" in two ways.
 3. **Consent has one rule on every path.** The rule of the registry (the latest statement on or before the run
    date decides; a statement entered in error is none; ties of one day fail closed). The cascade's S0 takes the
    state from the context instead of its own query.
-   **An undated refusal: proposed, not accepted (owner decision).** The registry's rule on master (T-206a)
-   reads an undated statement as the oldest, so a dated consent after it lists the patient; the cascade's S0
-   kept such a patient out. One rule needs one reading. Until the owner decides, the integrator's ruling on the
-   review of this card holds: **an undated refusal keeps the patient out on every path** (a refusal whose date
-   is unknown cannot be shown to be older than a consent): refused, not consenting, not contactable; the
-   opt-out worker therefore copies it to the register and does not lift it. An undated consent stays the
-   oldest statement. The other reading (undated = oldest for a refusal too) would list those patients again.
+   **An undated refusal keeps the patient out on every path** (the owner's ruling of 2026-11-12, as relayed to
+   this lane by the integrator session; the review of this card raised it). The registry's rule on master
+   (T-206a) read an undated statement as the oldest, so a dated consent after it listed the patient; the
+   cascade's S0 kept such a patient out. One rule needs one reading: a refusal whose date is unknown cannot be
+   shown to be older than a consent, so the patient is refused, not consenting and not contactable; the opt-out
+   worker therefore copies the refusal to the register and does not lift it. An undated consent stays the
+   oldest statement.
 3a. **CASE reads the register again before the sheet leaves** (`case.opt_out_at_publish`): the evaluation can
    take hours; a patient who opted out meanwhile gets no sheet. OPPORTUNITY and FEAS publish counts only, read
    the register as of the job's receipt and do not read it again: a count names nobody, and its "as of" is the
