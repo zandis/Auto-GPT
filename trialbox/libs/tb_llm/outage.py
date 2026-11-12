@@ -21,8 +21,11 @@ import threading
 import time
 from collections.abc import Callable, Mapping
 
-#: the gateway's refusals that are the model's fault (an outage, a restart, a queue), not the call's
-MODEL_FAULTS = frozenset({"model_busy", "model_unavailable", "model_asleep", "upstream_failed", "upstream_timeout"})
+#: the gateway's refusals that are the model's fault (an outage, a restart, a queue), not the call's. Not among
+#: them, on purpose (review of T-689): ``upstream_failed``, which is the gateway's configuration fault (a 400 or 404
+#: of the model server: sending it again changes nothing) and its batch read timeout (the server may still be
+#: working on the call: D-445, T-608). ``upstream_down`` is a 5xx or a transport error after the gateway's own retry
+MODEL_FAULTS = frozenset({"model_busy", "model_unavailable", "model_asleep", "upstream_down"})
 WAIT_S = 1800.0
 POLL_S = 5.0  # between two tries when the gateway named no Retry-After: its own value for a busy model
 ENV = "TB_LLM_OUTAGE_WAIT_S"
@@ -65,19 +68,22 @@ class OutageBudget:
     """One job's allowance of seconds spent in model outages, shared by its calls and its model clients.
 
     An outage of a client (``label``) starts at its first model fault and ends at its next answer; its length is
-    charged when it ends, and while it lasts it counts as it grows. ``on_end(label, first refusal code, seconds,
-    "resumed" | "gave_up")`` is called once per outage. Thread-safe (calls run side by side)."""
+    charged when it ends, and while it lasts it counts as it grows. ``on_start(label, first refusal code)`` and
+    ``on_end(label, first refusal code, seconds, "resumed" | "gave_up")`` are each called once per outage.
+    Thread-safe (calls run side by side)."""
 
     def __init__(
         self,
         allowance: float | None = None,
         clock: Callable[[], float] | None = None,
         on_end: Callable[[str, str, float, str], None] | None = None,
+        on_start: Callable[[str, str], None] | None = None,
     ) -> None:
         self.allowance_s = allowance_s() if allowance is None else allowance
         self.spent = 0.0
         self._clock = clock
         self._on_end = on_end
+        self._on_start = on_start
         self._down: dict[str, tuple[float, str]] = {}  # client label -> (since, the first refusal code)
         self._used_up = False
         self._lock = threading.Lock()
@@ -95,10 +101,13 @@ class OutageBudget:
             if self._used_up:  # the calls in flight beside the one that gave up: the same end, no new outage
                 return 0.0
             now = self._now()
+            started = label not in self._down
             self._down.setdefault(label, (now, reason))
             left = self.allowance_s - self.spent - sum(now - since for since, _ in self._down.values())
             self._used_up = left <= 0
-            return left
+        if started and left > 0 and self._on_start is not None:
+            self._on_start(label, reason)  # the wait begins: said now, not only when it ends
+        return left
 
     def _end(self, label: str, outcome: str) -> None:
         with self._lock:

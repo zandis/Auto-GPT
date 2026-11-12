@@ -88,7 +88,8 @@ class LlmPromptTooLong(LlmError):
 
 class LlmModelFault(LlmError):
     """The model did not answer, and not because of this request (T-689, D-456): one of :data:`MODEL_FAULTS`, a
-    gateway or model endpoint that cannot be reached, or an HTTP 5xx. The same call may be sent again later.
+    gateway or model endpoint that cannot be reached (never a timeout), or an HTTP 5xx without a refusal code. The
+    same call may be sent again later.
     ``reason``: the refusal code, ``unreachable`` or ``http_5xx``; ``retry_after``: the gateway's ``Retry-After``."""
 
     def __init__(self, message: str, reason: str, retry_after: float | None = None) -> None:
@@ -379,6 +380,8 @@ class LlmClient:
             else:
                 try:  # a dropped connection once more, a timeout never (T-608, D-445)
                     resp = once_more(partial(self.http.post, f"{base}/chat/completions", json=body, headers=headers))
+                except httpx.TimeoutException as exc:  # never a model fault: the server may still be working on it
+                    raise LlmError(f"LLM endpoint timed out ({target}): {exc}") from exc
                 except httpx.HTTPError as exc:
                     raise LlmModelFault(f"LLM endpoint unreachable ({target}): {exc}", "unreachable") from exc
                 if resp.status_code >= 500:

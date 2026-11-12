@@ -79,7 +79,7 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> Clock:
 
 class Gateway:
     """A tb-gateway stand-in: answers every judge call, except during an outage, where (as the real one does) the
-    first five calls get 502 ``upstream_failed`` and the rest 503 ``model_unavailable`` with ``Retry-After: 30``."""
+    first five calls get 502 ``upstream_down`` and the rest 503 ``model_unavailable`` with ``Retry-After: 30``."""
 
     def __init__(self, clock: Clock, *outages: tuple[int, float]) -> None:
         self.clock = clock
@@ -88,6 +88,8 @@ class Gateway:
         self.answered = 0
         self.refused: list[str] = []
         self._in_outage = 0
+        self.posts = 0
+        self.faulty: dict[int, tuple[str, int]] = {}  # the n-th call -> the refusal it always gets
         self._lock = threading.Lock()
 
     def __call__(self, req: httpx.Request) -> httpx.Response:
@@ -97,14 +99,20 @@ class Gateway:
             return self._post()
 
     def _post(self) -> httpx.Response:
+        self.posts += 1
+        if self.posts in self.faulty:
+            code, status = self.faulty[self.posts]
+            self.refused.append(code)
+            body = {"error": {"type": "tb_refusal", "code": code, "message": "a configuration fault"}}
+            return httpx.Response(status, json=body)
         if self.outages and self.answered == self.outages[0][0]:
             self.down_until = self.clock.now + self.outages.pop(0)[1]
             self._in_outage = 0
         if self.down_until is not None and self.clock.now < self.down_until:
-            code, status = ("upstream_failed", 502) if self._in_outage < 5 else ("model_unavailable", 503)
+            code, status = ("upstream_down", 502) if self._in_outage < 5 else ("model_unavailable", 503)
             self._in_outage += 1
             self.refused.append(code)
-            headers = {"Retry-After": "30"} if status == 503 else {}
+            headers = {"Retry-After": "30" if status == 503 else "5"}
             body = {"error": {"type": "tb_refusal", "code": code, "message": "the model server did not answer"}}
             return httpx.Response(status, json=body, headers=headers)
         self.answered += 1
@@ -208,9 +216,10 @@ def test_an_outage_of_40_s_inside_a_screen_loses_no_pair(make: Any, clock: Clock
     assert seen["reasons"].count("model_down") == 0
     assert seen["judge"].failures == 0 and seen["judge"].calls == PAIRS == gw.answered
     assert 40.0 <= clock.slept <= 40.0 + 30.0  # the outage, and at most one Retry-After more
-    (ev,) = _events(tmp_path, "llm.outage")
+    began, ev = _events(tmp_path, "llm.outage")
+    assert began["detail"]["outcome"] == "waiting" and began["job_id"] == job_id  # said when the wait starts
     assert ev["job_id"] == job_id and ev["detail"]["outcome"] == "resumed" and ev["detail"]["model"] == "judge"
-    assert ev["detail"]["reason"] == "upstream_failed" and ev["detail"]["waited_s"] >= 40.0
+    assert ev["detail"]["reason"] == "upstream_down" and ev["detail"]["waited_s"] >= 40.0
 
 
 def test_a_model_that_stays_down_fails_the_job_after_its_allowance(
@@ -230,7 +239,7 @@ def test_a_model_that_stays_down_fails_the_job_after_its_allowance(
     assert "judge model did not answer" in job.error.message
     assert seen["reasons"].count("model_down") == 0 and len(seen["reasons"]) == 10 == gw.answered
     assert 90.0 <= clock.slept <= 90.0 + 30.0
-    (ev,) = _events(tmp_path, "llm.outage")
+    _, ev = _events(tmp_path, "llm.outage")
     assert ev["detail"]["outcome"] == "gave_up"
 
 
@@ -301,7 +310,9 @@ def test_a_model_fault_is_told_from_a_refusal_of_the_request(clock: Clock) -> No
         ("model_unavailable", 503, {"Retry-After": "30"}, True),
         ("model_busy", 503, {"Retry-After": "5"}, True),
         ("model_asleep", 503, {}, True),
-        ("upstream_failed", 502, {}, True),
+        ("upstream_down", 502, {"Retry-After": "5"}, True),
+        ("upstream_failed", 502, {}, False),  # a configuration fault or a timeout: never sent again
+        ("upstream_timeout", 504, {}, False),
         ("phi_tripwire", 403, {}, False),
         ("no_route", 403, {}, False),
     ):
@@ -359,6 +370,7 @@ class Scripted:
 
     def __init__(self, bad: Any) -> None:
         self.bad = bad
+        self.build = "b1"
         self.calls = 0
         self.kill_at = 0
 
@@ -369,7 +381,9 @@ class Scripted:
         if self.bad(self.calls):
             raise LlmError("answer outside its schema twice")
         data = {"verdict": "unknown", "confidence": 0.5, "quote": None, "quote_date": None}
-        return LlmResult(data, "judge", 4, "judge-a", "local", "in", f"out{self.calls:04d}", 100, 10, 1, "sha", "b1")
+        return LlmResult(
+            data, "judge", 4, "judge-a", "local", "in", f"out{self.calls:04d}", 100, 10, 1, "sha", self.build
+        )
 
 
 class Killed(BaseException):
@@ -425,7 +439,9 @@ def _restart(make: Any, llm: Scripted, seen: dict[str, Any], kill_at: int) -> Or
 
 def test_three_restarts_do_not_start_the_model_work_at_zero(make: Any, tmp_path: Path) -> None:
     """Acceptance 2: the orchestrator dies three times inside one job. Each run asks the model only for the pairs no
-    earlier run had answered; the finished job counts every pair once, and its kept answers are gone."""
+    earlier run had answered, and for one pair more: its first call is asked live, which tells the run which build
+    answers the role now (review of T-689; a kept answer of another build is never replayed). The finished job
+    counts every pair once, and its kept answers are gone."""
     llm = Scripted(lambda n: False)
     seen: dict[str, Any] = {}
     orch = make(llm, screen_of(RESTART_PAIRS, seen))
@@ -436,14 +452,15 @@ def test_three_restarts_do_not_start_the_model_work_at_zero(make: Any, tmp_path:
     assert orch.db.answer_count(job_id) == 10
     live = [10]
     for kept in (10, 20, 30):
-        orch = _restart(make, llm, seen, kill_at=11)
+        orch = _restart(make, llm, seen, kill_at=12)  # the run's first call again, then 10 new answers
         with pytest.raises(Killed) if kept < 30 else contextlib.nullcontext():
             orch.drain()
         live.append(llm.calls - (1 if kept < 30 else 0))
         if kept < 30:
-            assert orch.db.answer_count(job_id) == kept + 10  # nothing kept is asked again
+            assert orch.db.answer_count(job_id) == kept + 10  # nothing kept is asked again, but the first call
             assert seen["judge"].calls == kept + 10  # the run's own counter did not start at 0
-    assert live == [10, 10, 10, 10] and sum(live) == RESTART_PAIRS  # every pair asked exactly once
+    assert live == [10, 11, 11, 11]  # every pair asked once, and one call more per restart
+    assert sum(live) == RESTART_PAIRS + 3
     job = orch.db.get(job_id)
     assert job is not None and job.state == "done", job.error
     assert job.metrics is not None and job.metrics.llm_calls == RESTART_PAIRS
@@ -529,14 +546,18 @@ def test_the_key_names_role_snapshot_prompt_and_variables_and_the_first_answer_s
     assert k != kept.key("judge", inner, "judge", v, None)  # another night's notes: another question
     assert kept.key("judge", inner, "no_such_prompt", v, None) is None  # asked live, not kept
     first, second = inner.chat_json("judge", v), inner.chat_json("judge", v)
-    kept.put(k, first)
-    kept.put(k, second)  # two calls with one key in flight together
-    kept.put(k, {"not": "a result"})
-    got = kept.get(k)
+    kept.put(k, first, "judge")
+    kept.put(k, second, "judge")  # two calls with one key in flight together
+    kept.put(k, {"not": "a result"}, "judge")
+    got = kept.get(k, "judge")
     assert got == first and got != second and kept.replayed == 1
-    assert KeptAnswers(orch.db, "J2", lambda: snap[0], lambda: "").get(k) is None  # never another job's answer
+    other = KeptAnswers(orch.db, "J2", lambda: snap[0], lambda: "")
+    other.put("another", first, "judge")  # the judge has answered in J2's run
+    assert other.get(k, "judge") is None  # never another job's answer
     orch.db.answer_put("J3", "k", '{"written": "by another build"}', "t")
-    assert KeptAnswers(orch.db, "J3", lambda: "", lambda: "").get("k") is None
+    third = KeptAnswers(orch.db, "J3", lambda: "", lambda: "")
+    third.put("another", first, "judge")
+    assert third.get("k", "judge") is None
 
 
 # ------------------------------------------------------------------------------------------- budgets (F-16)
@@ -643,3 +664,158 @@ def test_the_cascades_own_judge_waits_through_an_outage_too(clock: Clock) -> Non
     )
     slept = clock.slept
     assert content.judge(**kw).refused == "phi_tripwire" and clock.slept == slept
+
+
+# ------------------------------------------------------------------------- review fixes (integrator, 2026-11-12)
+def test_a_restart_onto_another_build_replays_nothing_of_the_old_one(make: Any) -> None:
+    """HIGH-1: build b1 answered ten pairs; the orchestrator restarts (an update) and the role is now answered by b2.
+    Nothing b1 said is replayed: the finished list is of one build."""
+    llm = Scripted(lambda n: False)
+    seen: dict[str, Any] = {}
+    orch = make(llm, screen_of(RESTART_PAIRS, seen))
+    job_id = _job(orch)
+    llm.kill_at = 11
+    with pytest.raises(Killed):
+        orch.drain()
+    assert orch.db.answer_count(job_id) == 10
+    llm.build = "b2"
+    orch = _restart(make, llm, seen, kill_at=0)
+    orch.drain()
+    job = orch.db.get(job_id)
+    assert job is not None
+    assert job.state == "done", job.error
+    assert llm.calls == RESTART_PAIRS  # every pair asked of b2: none of b1's answers stands in
+
+
+def test_an_answer_of_an_unknown_build_is_never_replayed(make: Any) -> None:
+    """HIGH-1: a client that cannot say which build answered (a direct endpoint) replays nothing after a restart."""
+    llm = Scripted(lambda n: False)
+    llm.build = ""
+    seen: dict[str, Any] = {}
+    orch = make(llm, screen_of(RESTART_PAIRS, seen))
+    job_id = _job(orch)
+    llm.kill_at = 11
+    with pytest.raises(Killed):
+        orch.drain()
+    orch = _restart(make, llm, seen, kill_at=0)
+    orch.drain()
+    job = orch.db.get(job_id)
+    assert job is not None
+    assert job.state == "done", job.error
+    assert llm.calls == RESTART_PAIRS
+
+
+def test_a_kept_answer_of_an_older_build_is_replaced_by_the_new_build_s(make: Any) -> None:
+    from orchestrator.jobs import KeptAnswers
+
+    orch = make(Scripted(lambda n: False), screen_of(1, {}))
+    inner = Scripted(lambda n: False)
+    v = {"criterion_text": "x", "excerpts": EXCERPT}
+    kept = KeptAnswers(orch.db, "J1", lambda: "2026-10-04", lambda: "t")
+    k = kept.key("judge", inner, "judge", v, None)
+    assert k is not None
+    old = inner.chat_json("judge", v)
+    kept.put(k, old, "judge")
+    again = KeptAnswers(orch.db, "J1", lambda: "2026-10-04", lambda: "t")  # the job runs again
+    assert again.get(k, "judge") is None  # nothing has answered in this run yet: the role's build is unknown
+    inner.build = "b2"
+    new = inner.chat_json("judge", v)
+    again.put(k, new, "judge")
+    assert again.get(k, "judge") == new  # b1's answer is gone
+    assert again.get(k, "verifier") is None  # the verifier has not answered in this run
+
+
+def test_a_configuration_fault_is_one_unknown_and_is_never_sent_again(make: Any, clock: Clock, tmp_path: Path) -> None:
+    """HIGH-2 (a): the gateway's 502 ``upstream_failed`` is its "configuration fault, no other build is tried" (a
+    400 or 404 of the model server) and a batch read timeout. It ends the call as before the card: one unknown,
+    counted, sent once, no wait."""
+    gw = Gateway(clock)
+    gw.faulty = {5: ("upstream_failed", 502)}
+    seen: dict[str, Any] = {}
+    orch = make(gw.client(), screen_of(30, seen))
+    job_id = _job(orch)
+    orch.drain()
+    job = orch.db.get(job_id)
+    assert job is not None and job.state == "done", job.error
+    assert gw.refused == ["upstream_failed"] and clock.slept == 0
+    assert seen["reasons"].count("model_down") == 1 and seen["judge"].failures == 1
+    assert _events(tmp_path, "llm.outage") == []
+
+
+def test_a_timeout_is_never_sent_again(clock: Clock) -> None:
+    """HIGH-2 (b): D-445, T-608: the server may still be working on a call that timed out. Sent once."""
+    from tb_common.llm import LlmModelFault
+    from tb_llm.outage import OutageBudget, wait_and_retry
+
+    sent: list[int] = []
+
+    def slow(req: httpx.Request) -> httpx.Response:
+        if req.method == "GET":
+            return httpx.Response(200, json={"data": []})
+        sent.append(1)
+        raise httpx.ReadTimeout("no answer in time")
+
+    gc = GatewayClient("http://gateway/v1", "orchestrator", http=httpx.Client(transport=httpx.MockTransport(slow)))
+    llm = LlmClient("", "m", service_name="orchestrator", gateway=gc)
+    variables = {"criterion_text": "x", "note_question": "x?", "index_date": "2026-10-05", "excerpts": EXCERPT}
+    with pytest.raises(LlmError) as err:
+        wait_and_retry(
+            lambda: llm.chat_json("judge", variables, job_id="J1"),
+            OutageBudget(1800.0, clock=clock),
+            "judge",
+            jobs._model_fault,
+        )
+    assert not isinstance(err.value, LlmModelFault)
+    assert len(sent) == 1 and clock.slept == 0
+
+
+def test_the_gateway_names_an_outage_apart_from_a_configuration_fault(tmp_path: Path) -> None:
+    """HIGH-2: a server error or a transport error after the gateway's own retry is ``upstream_down`` (502, with
+    ``Retry-After``): the only 502 a batch caller sends again. A 404 stays ``upstream_failed`` without one."""
+    from tests.unit.test_gateway import _judge_body
+    from tests.unit.test_gateway_no_fallback import JudgeDown
+    from tests.unit.test_model_swap import JH, FakeVllm, _gw
+
+    res = _gw(tmp_path / "a", JudgeDown(), None).chat(JH, _judge_body())
+    assert (res.status, res.body["error"]["code"]) == (502, "upstream_down"), res.body
+    assert res.headers.get("Retry-After")
+
+    class JudgeGone(FakeVllm):
+        def handler(self, req: httpx.Request) -> httpx.Response:
+            if req.url.host == "llm-service" and req.url.path.endswith("completions"):
+                return httpx.Response(404, json={"error": "model not found"})
+            return super().handler(req)
+
+    res = _gw(tmp_path / "b", JudgeGone(), None).chat(JH, _judge_body())
+    assert (res.status, res.body["error"]["code"]) == (502, "upstream_failed"), res.body
+    assert "Retry-After" not in res.headers
+
+    class JudgeSlow(FakeVllm):
+        def handler(self, req: httpx.Request) -> httpx.Response:
+            if req.url.host == "llm-service" and req.url.path.endswith("completions"):
+                raise httpx.ReadTimeout("no answer in time")
+            return super().handler(req)
+
+    res = _gw(tmp_path / "c", JudgeSlow(), None).chat(JH, _judge_body())
+    assert res.body["error"]["code"] != "upstream_down" and "Retry-After" not in res.headers, res.body
+
+
+def test_the_wait_is_written_when_it_starts(make: Any, clock: Clock, tmp_path: Path) -> None:
+    """LOW: a job that waits through an outage says so at the start of the wait, not only at its end."""
+    seen_at_wait: list[list[str]] = []
+    gw = Gateway(clock, (4, 40.0))
+    pause = clock.pause
+
+    def watched(seconds: float) -> None:
+        if not seen_at_wait:
+            seen_at_wait.append([e["detail"]["outcome"] for e in _events(tmp_path, "llm.outage")])
+        pause(seconds)
+
+    from tb_llm import outage as outage_mod
+
+    outage_mod.pause = watched  # the clock fixture's monkeypatch restores it
+    orch = make(gw.client(), screen_of(10, {}))
+    _job(orch)
+    orch.drain()
+    assert seen_at_wait == [["waiting"]]
+    assert [e["detail"]["outcome"] for e in _events(tmp_path, "llm.outage")] == ["waiting", "resumed"]

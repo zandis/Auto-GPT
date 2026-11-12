@@ -41,8 +41,9 @@ T-689 (D-456; scale review F-04, F-28, F-31): a job of hours must outlive a mode
 service.
 
 * **wait and retry**: a call that fails because the model did not answer (:class:`tb_common.llm.LlmModelFault`: the
-  gateway's ``model_busy``, ``model_unavailable``, ``model_asleep``, ``upstream_failed``, an endpoint that cannot be
-  reached, a 5xx) is not an answer of ``unknown``. The call sleeps the gateway's ``Retry-After`` and is sent again
+  gateway's ``model_busy``, ``model_unavailable``, ``model_asleep``, ``upstream_down``, an endpoint that cannot be
+  reached, a 5xx without a refusal code; never a timeout and never the gateway's configuration fault
+  ``upstream_failed``) is not an answer of ``unknown``. The call sleeps the gateway's ``Retry-After`` and is sent again
   (:func:`tb_llm.outage.wait_and_retry`), until the job's outage allowance is used up
   (:class:`tb_llm.outage.OutageBudget`: ``TB_LLM_OUTAGE_WAIT_S`` seconds per job over all its calls and both models,
   not per call). Then the job fails at
@@ -50,7 +51,9 @@ service.
   twice the calls in flight, so one blip that fails them all together cannot open it.
 * **kept answers**: every answer a SCREEN or MICROBATCH job's model client gives is kept in ``orch.judge_answers``
   (:class:`KeptAnswers`) while the job is unfinished. After a restart the job runs again from its start and a call
-  with the same role, snapshot, prompt and variables gets the kept answer: no model is asked twice.
+  with the same role, snapshot, prompt and variables gets the kept answer, if the build that gave it is the build
+  that answers that role in this run (the build of the role's latest live answer; unknown: nothing is replayed).
+  So a list is never of two builds of one role, and each run asks at least one call per role live.
 """
 
 from __future__ import annotations
@@ -354,7 +357,13 @@ class KeptAnswers:
     """The answers one job's model clients gave, in ``orch.judge_answers`` (T-689, D-456): written as they arrive,
     read back when the job runs again after a restart. Only :class:`tb_common.llm.LlmResult` answers are kept,
     never an error. The key names the client's role, the job's pinned snapshot, the prompt (id and file sha, so an
-    update that changes the prompt between two starts replays nothing stale) and the variables."""
+    update that changes the prompt between two starts replays nothing stale) and the variables.
+
+    **The build** (review of T-689): a kept answer stands in only when its ``build_sha`` is the build that answers
+    its role in this run, which is the build of the role's latest live answer here. Until a role has answered live
+    in this run, or when the client names no build (a direct endpoint), nothing of that role is replayed. An update
+    that changes the routed build between two starts therefore replays nothing of the old build, and its kept
+    answers are replaced as the new build answers."""
 
     def __init__(self, db: Any, job_id: str, snapshot: Callable[[], str], now: Callable[[], str]) -> None:
         self._db = db
@@ -362,6 +371,7 @@ class KeptAnswers:
         self._snapshot = snapshot
         self._now = now
         self.replayed = 0
+        self._build: dict[str, str] = {}  # role -> the build of its latest live answer in this run
         self._lock = threading.Lock()
 
     def key(self, label: str, inner: Any, prompt_id: str, variables: Any, schema: str | None) -> str | None:
@@ -380,7 +390,11 @@ class KeptAnswers:
             return None
         return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
-    def get(self, key: str) -> LlmResult | None:
+    def get(self, key: str, label: str) -> LlmResult | None:
+        with self._lock:
+            build = self._build.get(label)
+        if not build:  # the role has not answered live in this run, or names no build: asked live
+            return None
         raw = self._db.answer_get(self.job_id, key)
         if raw is None:
             return None
@@ -388,18 +402,29 @@ class KeptAnswers:
             out = LlmResult(**json.loads(raw))
         except (TypeError, ValueError):  # written by another build of the code: asked again
             return None
+        if out.build_sha != build:  # another build of the model said it: asked again
+            return None
         with self._lock:
             self.replayed += 1
         return out
 
-    def put(self, key: str, result: Any) -> None:
+    def put(self, key: str, result: Any, label: str) -> None:
         if not isinstance(result, LlmResult):
             return
+        with self._lock:
+            self._build[label] = result.build_sha
         try:
             raw = json.dumps(dataclasses.asdict(result), ensure_ascii=False)
         except (TypeError, ValueError):
             return
-        self._db.answer_put(self.job_id, key, raw, self._now())
+        other = False  # a kept answer of another build gives way; one of the same build stays (the first)
+        old = self._db.answer_get(self.job_id, key)
+        if old is not None:
+            try:
+                other = json.loads(old).get("build_sha") != result.build_sha
+            except (TypeError, ValueError, AttributeError):
+                other = True
+        self._db.answer_put(self.job_id, key, raw, self._now(), replace=other)
 
 
 class GuardedLlm:
@@ -489,12 +514,12 @@ class GuardedLlm:
             key = self._answers.key(self._label, self.inner, str(args[0]), args[1], schema)
         if key is not None and self._answers is not None:
             self._check_stop()
-            kept = self._answers.get(key)
+            kept = self._answers.get(key, self._label)
             if kept is not None:
                 return kept
         out = self._call(self.inner.chat_json, *args, **kw)
         if key is not None and self._answers is not None:
-            self._answers.put(key, out)
+            self._answers.put(key, out, self._label)
         return out
 
 
@@ -533,7 +558,15 @@ def guarded_services(ctx: Ctx, base: Services) -> Services:
             detail={"model": label, "reason": reason, "waited_s": round(waited, 1), "outcome": outcome},
         )
 
-    outage = OutageBudget(on_end=outage_ended)
+    def outage_started(label: str, reason: str) -> None:
+        # review of T-689: the person who looks at a job that only says "running" finds why in the audit
+        ctx.orch.audit.append(
+            "llm.outage",
+            job_id=job_id,
+            detail={"model": label, "reason": reason, "waited_s": 0.0, "outcome": "waiting"},
+        )
+
+    outage = OutageBudget(on_end=outage_ended, on_start=outage_started)
     answers = None
     if ctx.job.type in REPLAY_JOBS:
         answers = KeptAnswers(

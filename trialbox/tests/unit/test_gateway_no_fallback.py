@@ -47,7 +47,7 @@ def test_the_patient_routes_never_fall_back_to_another_build(tmp_path: Path) -> 
     fake = JudgeDown()
     gw = _gw(tmp_path, fake, None)
     res = gw.chat(JH, _judge_body())
-    assert res.status == 502 and res.body["error"]["code"] == "upstream_failed", res.body
+    assert res.status == 502 and res.body["error"]["code"] == "upstream_down", res.body
     assert not any("llm-verifier" in x for x in fake.log)  # the verifier build was not asked to stand in
     named = gw.chat(JH, {**_judge_body(), "model": "v-verifier"})  # the verifier, asked by name, still answers
     assert named.status == 200 and named.body["tb"]["alias"] == "v-verifier"
@@ -140,7 +140,7 @@ def test_the_consent_draft_never_falls_back_to_the_checking_build(tmp_path: Path
     hdr = H(Role="draft_document", Data_Class="D1", Purpose="documents", Prompt="consent_explain@1",
             Context_Of_Use="consent_explainer_draft")  # fmt: skip
     res = gw.chat(hdr, _consent_body("consent_explain"))
-    assert res.status == 502 and res.body["error"]["code"] == "upstream_failed", res.body
+    assert res.status == 502 and res.body["error"]["code"] == "upstream_down", res.body
     other = gw.chat({**hdr, "X-TB-Context-Of-Use": "protocol_drafting"}, _consent_body("consent_explain"))
     assert other.status == 200 and other.body["tb"]["alias"] == "v-verifier"  # control: other drafts still fall back
 

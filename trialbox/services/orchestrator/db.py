@@ -292,13 +292,21 @@ class JobDB:
         row = self._db.fetchone("SELECT answer FROM judge_answers WHERE job_id = ? AND key = ?", (job_id, key))
         return str(row[0]) if row else None
 
-    def answer_put(self, job_id: str, key: str, answer: str, at: str) -> None:
-        """Keep one answer. The first one stays (two calls with one key in flight together gave the same question)."""
+    def answer_put(self, job_id: str, key: str, answer: str, at: str, replace: bool = False) -> None:
+        """Keep one answer. The first one stays (two calls with one key in flight together gave the same question),
+        unless ``replace``: the kept one is another build's (the caller checked)."""
         with self.tx() as con:
-            con.execute(
-                "INSERT INTO judge_answers (job_id, key, answer, at) VALUES (?,?,?,?) ON CONFLICT DO NOTHING",
-                (job_id, key, answer, at),
-            )
+            if replace:
+                con.execute(
+                    "INSERT INTO judge_answers (job_id, key, answer, at) VALUES (?,?,?,?) ON CONFLICT (job_id, key) "
+                    "DO UPDATE SET answer = EXCLUDED.answer, at = EXCLUDED.at",
+                    (job_id, key, answer, at),
+                )
+            else:
+                con.execute(
+                    "INSERT INTO judge_answers (job_id, key, answer, at) VALUES (?,?,?,?) ON CONFLICT DO NOTHING",
+                    (job_id, key, answer, at),
+                )
 
     def answer_count(self, job_id: str) -> int:
         return int(self._db.fetchval("SELECT count(*) FROM judge_answers WHERE job_id = ?", (job_id,)) or 0)

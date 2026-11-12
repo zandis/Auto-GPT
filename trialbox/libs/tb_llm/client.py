@@ -50,7 +50,8 @@ class GatewayUnexpectedAlias(GatewayError):
 
 
 class GatewayDown(GatewayError):
-    """The gateway could not be reached, or answered 5xx without a refusal code: nothing answered (T-689, D-456)."""
+    """The gateway could not be reached (a refused or dropped connection, never a timeout), or answered 5xx without
+    a refusal code: nothing answered (T-689, D-456)."""
 
 
 class GatewayRefused(GatewayError):
@@ -219,6 +220,9 @@ class GatewayClient:
         try:
             # T-608 (D-445): a dropped connection is sent once more (same body: same role, same build), a timeout not
             resp = once_more(lambda: self.http.post(url, json=body, headers=headers))
+        except httpx.TimeoutException as e:
+            # never GatewayDown (review of T-689): the gateway may still be working on the call (D-445, T-608)
+            raise GatewayError(f"gateway timed out: {e}") from e
         except httpx.HTTPError as e:
             raise GatewayDown(f"gateway unreachable: {e}") from e
         if resp.status_code >= 400:

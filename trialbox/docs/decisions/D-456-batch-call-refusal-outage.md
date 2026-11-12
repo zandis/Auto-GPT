@@ -32,8 +32,13 @@ A screening job at 50,000 patients is hours of model calls. Four things made it 
 
 1. **A model fault is its own error.** `tb_common.llm.LlmModelFault` (an `LlmError`) is raised when the model did not
    answer for a reason that is not the request: the gateway's refusals `model_busy`, `model_unavailable`,
-   `model_asleep`, `upstream_failed` and `upstream_timeout`, a gateway or model endpoint that cannot be reached, and
-   an HTTP 5xx from either. It carries the refusal code and the gateway's `Retry-After` (which
+   `model_asleep` and `upstream_down`, a gateway or model endpoint that cannot be reached (a refused or dropped
+   connection, never a timeout), and an HTTP 5xx without a refusal code from either. **Not** `upstream_failed`
+   (review, 2026-11-12): that code is the gateway's configuration fault (a 400 or 404 of the model server; sending
+   it again changes nothing) and its batch read timeout (the server may still be working on the call: D-445,
+   T-608). The gateway therefore names a server error or transport error that its own retry met again
+   `upstream_down` (502, `Retry-After: 5`); only that 502 is sent again. A configuration fault or a timeout ends as
+   before this decision: one `unknown`, counted. It carries the refusal code and the gateway's `Retry-After` (which
    `tb_llm.GatewayRefused` now reads). Everything else stays what it was: a schema violation, an answer from the
    wrong build, a prompt that does not fit, a content refusal.
 
