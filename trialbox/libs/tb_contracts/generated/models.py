@@ -260,6 +260,19 @@ class CtgovStudy(BaseModel):
     sex: str | None = None
 
 
+class DerivedPin(BaseModel):
+    """
+    One score definition as the investigator approved it (D-442): the catalogue's def_version and the sha256 of its YAML.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    def_version: str = Field(..., pattern="^[a-z0-9_.]+@[0-9]+$")
+    sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+
+
 class DiffRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2967,6 +2980,10 @@ class RulesetManifest(BaseModel):
     prompt_pins: dict[str, PromptPin] | None = None
     """
     the prompts the approved ruleset runs with, by prompt id (D-318): SCREEN runs the pinned version and text until the investigator re-approves; a newer registered version puts the study in approval needed
+    """
+    derived_pins: dict[str, DerivedPin] | None = None
+    """
+    the score definitions the approved ruleset's criteria follow, by engine score (D-442): a definition of another version or text on the box puts the study in approval needed, and until then screening reads those scores as unknown
     """
     source_last_update: str | None = None
 

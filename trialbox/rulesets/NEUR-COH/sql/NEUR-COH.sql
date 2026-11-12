@@ -168,7 +168,7 @@ c_neur_coh_inc_02 AS (
   LEFT JOIN a_neur_coh_inc_02_1_nd ON a_neur_coh_inc_02_1_nd.pid = b.pid AND a_neur_coh_inc_02_1_nd.index_date = b.index_date),
 -- NEUR-COH-INC-03 (inclusion): 登録時の年齢が40歳以上の者。
 c_neur_coh_inc_03 AS (
-  SELECT b.pid, b.index_date, ((date_sub('year', b.birth_date, b.index_date) >= 40)) AS v,
+  SELECT b.pid, b.index_date, (((year(b.index_date) - year(b.birth_date) - CASE WHEN strftime(b.index_date, '%m-%d') < strftime(b.birth_date, '%m-%d') THEN 1 ELSE 0 END) >= 40)) AS v,
          concat_ws(';', NULL) AS ev
   FROM base b
   )

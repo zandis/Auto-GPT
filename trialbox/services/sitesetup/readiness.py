@@ -119,6 +119,26 @@ def _held_item(snapshot: str, detail: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def scores_unverified(svc: SiteSetup) -> dict[str, Any] | None:
+    """D-442: the readiness item when the snapshot the box serves has no finished derive batch (it never ran, or it
+    crashed): the stored scores were not computed for it, and while the stored-score read is on every score
+    criterion reads "needs information". None without a trial database, a feed or a store that can be read."""
+    if not os.environ.get(DB_ENV):
+        return None
+    try:
+        snap = svc.lake("main").snapshot()
+        if not snap:
+            return None
+        from tb_common.derived_store import shared_store
+
+        st = shared_store()
+        if st is None or st.batch(str(snap)) is not None:
+            return None
+    except Exception:
+        return None
+    return {"key": "patients.scores_unverified", "n": 1, "tables": str(snap)}
+
+
 DOCS_SQL = "SELECT count(*) AS n FROM document"
 
 
@@ -161,6 +181,9 @@ def readiness(svc: SiteSetup, ws: str, study: dict[str, Any], records: dict[str,
     held = feed_held(svc, night) if ws == "main" else None
     if held:
         patients.append(held)
+    unverified = scores_unverified(svc) if feed else None  # D-442: the derive batch of the served snapshot
+    if unverified:
+        patients.append(unverified)
     facts = st.facts(ws)
     n_prop = sum(1 for f in facts if f["status"] == "proposed")
     if n_prop:
