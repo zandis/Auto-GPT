@@ -36,5 +36,8 @@ def test_short_notes_are_kept_whole_and_newest_first() -> None:
     a = _note("a", date(2026, 10, 2), "Gout flare.")
     b = _note("b", date(2026, 10, 1), "Uric acid 9.1.")
     c = _note("c", date(2026, 9, 1), "No mention.")
-    out = _Run.excerpts([b, a, c], {"a": {"Gout flare."}, "b": {"Uric acid 9.1."}})
-    assert [(x["did"], x["text"]) for x in out] == [("a", "Gout flare."), ("b", "Uric acid 9.1.")]
+    out, left = _Run.excerpt_set([b, a, c], {"a": {"Gout flare."}, "b": {"Uric acid 9.1."}})
+    # T-710 (D-479): the window's other note is shown too while it fits (before, only the evidence notes were),
+    # so nothing is left out and an answer on this set is an answer on the whole window
+    assert [(x["did"], x["text"]) for x in out] == [("a", "Gout flare."), ("b", "Uric acid 9.1."), ("c", "No mention.")]
+    assert left == 0

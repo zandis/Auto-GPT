@@ -520,14 +520,7 @@ APPLIES = {
 
 # Today's defects, by finding of docs/reviews/2026-11-12-architecture/decision.md. Strict: a case that starts passing
 # fails the suite, and the card that fixed it removes its line. Empty at the end of wave D.
-EXPECTED: dict[tuple[str, str], str] = {
-    ("screen_v1", "ranked_out"): "H4: v1 counts only the five retrieved chunks as left out (evaluate.py _chunks); "
-    "T-710",
-    ("screen_v1", "index_lost"): "H4: a window note the index did not return is not left out; T-710",
-    ("nav", "ranked_out"): "H4: NAV reads through the v1 chunks; T-710",
-    ("nav", "index_lost"): "H4: NAV reads through the v1 chunks; T-710",
-    ("screen_cascade", "lexicon"): "H4 (S2 half): a window note with no lexicon hit is not left out; T-710",
-}  # fmt: skip
+EXPECTED: dict[tuple[str, str], str] = {}
 
 
 def _params(cases: list[tuple[str, str]]) -> list[Any]:

@@ -57,8 +57,8 @@ class KeywordJudge:
     seen: dict[tuple[str, str, str], str] = field(default_factory=dict)
 
     def judge(self, *, role: str, criterion_text: str, excerpts: list[dict[str, Any]], **_: Any) -> Any:
-        from matching.cascade.engine import sentences
         from matching.cascade.judge import JudgeReply
+        from matching.excerpts import sentences
 
         pid = self.pid_of.get(str(excerpts[0].get("did")), "?") if excerpts else "?"
         self.seen[(pid, criterion_text, role)] = _sha([(e.get("did"), e.get("text")) for e in excerpts])
