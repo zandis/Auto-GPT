@@ -626,6 +626,51 @@ def note_block_policy() -> str:
     return v
 
 
+# Why a note answer may not exclude on a run, as a code (the gate's own codes for the canary: Gate.check). The mail and
+# the PDF say it in the reader's language from the code (``screen.judging.why.<code>``); the reason text beside it is
+# the diagnostic, in English, for the log, the candidate list's metadata and the admin.
+NOTE_BLOCK_CODES = (
+    "held",
+    "configured",
+    "no_judge",
+    "no_verifier",
+    "same_model",
+    "wake",
+    "none",
+    "failed",
+    "single",
+    "stale",
+)
+
+
+def note_block_why(judge: NoteJudge | None) -> tuple[bool, str, str, str]:
+    """:func:`effective_note_block` with the reason's code: ``(may_block, effective_policy, reason, code)``; the code
+    is one of :data:`NOTE_BLOCK_CODES`, or ``ok`` when a note answer may exclude."""
+    policy = note_block_policy()
+    if notes_held():  # T-609: before the configured policy, so a run under a hold always says why
+        return False, "never", NOTES_HELD, "held"
+    if policy == "never":
+        return False, "never", "configured: note answers never exclude", "configured"
+    if judge is None:
+        return False, "never", "no note judge on this box", "no_judge"
+    if judge.verifier is None:
+        return False, "never", "no verifier configured: a single model may not exclude", "no_verifier"
+    one = same_model(judge.llm, judge.verifier)  # D-276 (review S-2): two clients are not yet two models
+    if one:
+        return (
+            False,
+            "never",
+            f"the verifier is not a second model ({one}): a single model may not exclude",
+            "same_model",
+        )
+    from orchestrator import canary_gate
+
+    ok, code, why = canary_gate.check()  # D-117: only on a pair that passed its canary (and every wake check since)
+    if not ok:
+        return False, "never", why, code
+    return True, "both_agree", "judge and verifier must both say fail", "ok"
+
+
 def effective_note_block(judge: NoteJudge | None) -> tuple[bool, str, str]:
     """Whether a confident note ``fail`` may exclude a patient on this run (D-95, D-97).
 
@@ -633,24 +678,7 @@ def effective_note_block(judge: NoteJudge | None) -> tuple[bool, str, str]:
     back to ``never`` (a single model may send a patient to review, never out) and says so. The same holds when the
     pair has not passed its canary (:mod:`orchestrator.canary_gate`, D-117). Returns
     ``(may_block, effective_policy, reason)``."""
-    policy = note_block_policy()
-    if notes_held():  # T-609: before the configured policy, so a run under a hold always says why
-        return False, "never", NOTES_HELD
-    if policy == "never":
-        return False, "never", "configured: note answers never exclude"
-    if judge is None:
-        return False, "never", "no note judge on this box"
-    if judge.verifier is None:
-        return False, "never", "no verifier configured: a single model may not exclude"
-    one = same_model(judge.llm, judge.verifier)  # D-276 (review S-2): two clients are not yet two models
-    if one:
-        return False, "never", f"the verifier is not a second model ({one}): a single model may not exclude"
-    from orchestrator.canary_gate import allows_block
-
-    ok, why = allows_block()  # D-117: only on a pair that passed its canary (and every wake check since)
-    if not ok:
-        return False, "never", why
-    return True, "both_agree", "judge and verifier must both say fail"
+    return note_block_why(judge)[:3]
 
 
 def _flagged(v: CriterionVerdict) -> bool:
