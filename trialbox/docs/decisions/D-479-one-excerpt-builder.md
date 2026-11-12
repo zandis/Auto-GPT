@@ -27,8 +27,10 @@ depended on how many others were in the run.
 1. **One builder**, `services/matching/excerpts.py: build(window, evidence, budget)`. `window`: every note of the
    patient inside the criterion's window. `evidence`: what the path's ranking points at (the cascade's lexicon
    hits or top sentences, the v1 retrieval's chunks, nothing for CASE). It shows whole notes, the evidence notes
-   first and then the rest, newest first, until the budget is spent; a note that does not fit whole is clipped
-   around its evidence sentences (as the cascade did) or skipped.
+   first (in the ranking's own order where the path has one: S2b's top sentences, the v1 retrieval) and then the
+   rest, newest first, until the budget is spent. An evidence note longer than half the budget is cut to that
+   half, whole sentences around its evidence (as the cascade did); any other note that does not fit is skipped,
+   never cut into the last few tokens. An empty note is neither shown nor left out.
 2. **"Left out" counts every window note not shown in full**: skipped, or clipped. With a note left out, a "not
    met" is not final (unknown, a person looks) and a "met" is flagged (review), on every path. The ranking decides
    what is read first, never what counts as read.
@@ -39,6 +41,13 @@ depended on how many others were in the run.
    shows as much of the window as the models can hold.
 
 ## Consequences
+
+- **More review on a small context, by design.** Before, a patient whose evidence notes fitted was decided even
+  when other notes of the window were never read. Now any window note not read in full makes a "not met" unknown
+  and flags a "met". On a build with a large context the whole window is usually read and nothing changes; on an
+  8k build, or with models that cannot tell their context (2,500 tokens), a patient with a long window goes to
+  review. This is the excerpts invariant of TB-PLAN-06 §7.4 applied to every path; the review load it costs is
+  what T-734's capacity statement has to show.
 
 - On a 32k build a patient with five long notes is read whole and gets a decided verdict; on an 8k build the same
   patient is read in part and goes to review with the reason, never out.
