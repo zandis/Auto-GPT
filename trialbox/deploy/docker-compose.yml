@@ -338,7 +338,11 @@ services:
                   TB_CONSOLE_DIR: /data/console, TB_AUDIT_DIR: /data/audit, TB_AUDIT_WRITER: db,
                   TB_RULESETS_DIR: /data/rulesets, TB_GATEWAY_URL: "http://gateway:8020/v1",
                   TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_CONSOLE_SECURE_COOKIE: "${TB_CONSOLE_SECURE_COOKIE:-}",
-                  TB_OPS_DIR: /data/ops}  # D-178: the mount below; the host's TB_OPS_DIR in .env is the host path
+                  TB_OPS_DIR: /data/ops,  # D-178: the mount below; the host's TB_OPS_DIR in .env is the host path
+                  # NEW-STD-2 (D-562): the anchor folders are host paths the console does not mount; with the name set
+                  # the audit page's Verify called an intact chain broken ("no signed heads found"). Cleared until the
+                  # console mounts them; the nightly `trialbox audit-sign` and audit_verify.py --heads check them.
+                  TB_AUDIT_ANCHOR_TARGETS: ""}
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - console-data:/data/console

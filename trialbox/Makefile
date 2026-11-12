@@ -361,8 +361,10 @@ logs:
 fixtures:
 	$(PY) tools/make_fixtures.py --out tests/fixtures/synthetic_patients
 
+# ANCHOR=<folder>: also against every signed head kept there (NEW-STD-2, D-562): a removed and recomputed event fails
+ANCHOR ?=
 audit-verify:
-	$(PY) tools/audit_verify.py $${TB_AUDIT_DIR:-data/audit}
+	$(PY) tools/audit_verify.py $${TB_AUDIT_DIR:-data/audit} $(if $(ANCHOR),--heads "$(ANCHOR)",)
 
 bench:
 	$(PY) tools/bench.py
