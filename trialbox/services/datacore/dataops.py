@@ -2,8 +2,8 @@
 states of an ingest night.
 
 **One row per night.** Every ingest run is one ``dataops.batch`` row (source, snapshot, attempt): a re-run of the
-same night is the next attempt, so a held night stays on the list until a steward decides it. The adapter writes the
-row (``record_night``, the one hook in ``adapter.pipeline``) at the end of the run, in the same step as its
+same night is the next attempt, so a held night stays on the list until a steward decides it. The adapter opens the
+row at the start of the run and closes it (``record_night``) at the end, in the same step as its
 ``ingest.done`` / ``ingest.held`` / ``ingest.failed`` audit event.
 
 **States.** ``LANDED -> VALIDATED -> MAPPED -> PSEUDONYMISED -> PUBLISHED`` is the main line. Any state before
@@ -24,8 +24,12 @@ source) and ``counts`` feed the steward's ``/data-ops`` page and ``/api/v1/data/
 ``newest_night`` feeds the readiness page without migrating. The steward check (``permit``) is the page's; this module
 only refuses a decision without a person and a reason.
 
-What is not here yet: the record status and consent tables, the promotion of an accepted night into the lake (the
-console refuses accept until a promoter is wired; see D-443), and a row while a night is running.
+**A row from the start (T-723, D-489).** ``open_night`` writes the row when the run starts (``LANDED``); the running
+night writes its step into the row's detail (``note``); ``record_night`` closes that row. A row left open by a run
+that died is closed ``FAILED`` ("interrupted") when the next run of that night opens its own. The steward's accept
+publishes through the adapter (``adapter.publish``; ``console.dataops_page`` gets its promoter).
+
+What is not here yet: the record status and consent tables.
 """
 
 from __future__ import annotations
@@ -57,7 +61,9 @@ DECISIONS = {"accept": PUBLISHED, "reject": REJECTED}
 EVENT_DECIDE = "dataops.decide"
 EVENT_STEP = "dataops.step"
 # what a batch row keeps from the night's audit detail (tables and counts only, never a row)
-DETAIL_KEYS = ("gate", "incomplete", "orphans", "quarantined", "duplicate_keys", "error", "step", "table")
+DETAIL_KEYS = ("gate", "incomplete", "orphans", "quarantined", "duplicate_keys", "error", "step", "table", "publish")
+NOTE_KEYS = ("step", "publish")  # what a running night writes into its row (T-723): step names and states only
+INTERRUPTED = "interrupted: the run ended without a result; a later run of this night started"
 MAX_PAGE = 200  # T-112b: the most batch rows one page or API call reads
 
 _STATE_LIST = ", ".join(f"'{s}'" for s in STATES)
@@ -236,6 +242,70 @@ class DataOps:
         return self._db.fetchdicts("SELECT * FROM batch_step WHERE batch = ? ORDER BY seq", (batch_id,))
 
     # ------------------------------------------------------------------ writing
+    def open_night(self, audit: Audit, *, source: str, snapshot: str, by: str, at: str) -> Batch:
+        """T-723 (D-489): the night's row, opened when its run starts (``LANDED``, the next attempt), so a running
+        night is on the list. An earlier attempt of this night that is still open (a run that died: not final, not
+        held) is closed ``FAILED`` with the reason "interrupted" in the same transaction: no night shows as running
+        for ever. :meth:`record_night` closes the row with the night's audit event."""
+        with self._db.transaction() as tx:
+            tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"dataops.batch:{source}:{snapshot}",))
+            stale = tx.fetchdicts(
+                "SELECT * FROM batch WHERE source = ? AND snapshot = ? AND state = ANY(?) ORDER BY id FOR UPDATE",
+                (source, snapshot, list(LINE[:-1])),
+            )
+            for srow in stale:
+                old = _batch(srow)
+                rec = audit.append(
+                    EVENT_STEP,
+                    snapshot=snapshot,
+                    actor=by,
+                    detail={"batch": old.id, "source": source, "attempt": old.attempt, "old": old.state,
+                            "new": FAILED, "reason": INTERRUPTED},
+                )  # fmt: skip
+                tx.execute("UPDATE batch SET state = ?, seq = ?, changed_at = ?, changed_by = ? WHERE id = ?",
+                           (FAILED, old.seq + 1, at, by, old.id))  # fmt: skip
+                self._step(tx, old.id, old.seq + 1, old.state, FAILED, by, at, INTERRUPTED, EVENT_STEP, _ref(rec))
+            attempt = int(tx.fetchval("SELECT coalesce(max(attempt), 0) + 1 FROM batch WHERE source = ? AND "
+                                      "snapshot = ?", (source, snapshot), 1))  # fmt: skip
+            new_row = tx.fetchone(
+                "INSERT INTO batch (source, snapshot, attempt, state, seq, started_at, changed_at, changed_by, "
+                "detail) VALUES (?,?,?,?,?,?,?,?,?) RETURNING id",
+                (source, snapshot, attempt, LANDED, 1, at, at, by, json.dumps({"step": "start"})),
+            )
+            assert new_row is not None
+            bid = int(new_row[0])
+            rec = audit.append(
+                EVENT_STEP,
+                snapshot=snapshot,
+                actor=by,
+                detail={"batch": bid, "source": source, "attempt": attempt, "old": "", "new": LANDED, "reason": ""},
+            )
+            self._step(tx, bid, 1, "", LANDED, by, at, "", EVENT_STEP, _ref(rec))
+        got = self.batch(bid)
+        assert got is not None
+        return got
+
+    @staticmethod
+    def _step(tx: Any, batch: int, seq: int, old: str, new: str, who: str, at: str, reason: str, event: str,
+              ref: str) -> None:  # fmt: skip
+        tx.execute(
+            "INSERT INTO batch_step (batch, seq, old, new, who, at, reason, audit_event, audit_ref) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (batch, seq, old, new, who, at, reason, event, ref),
+        )
+
+    def note(self, batch_id: int, **detail: Any) -> None:
+        """Write where a running night is into its row's detail (``step``, ``publish``: names and states only, never
+        a row). The state and the trail do not change. A row that is final is left alone."""
+        with self._db.transaction() as tx:
+            rows = tx.fetchdicts("SELECT * FROM batch WHERE id = ? FOR UPDATE", (batch_id,))
+            if not rows or rows[0]["state"] in FINAL:
+                return
+            cur = json.loads(rows[0]["detail"] or "{}")
+            cur.update({k: v for k, v in detail.items() if k in NOTE_KEYS})
+            tx.execute("UPDATE batch SET detail = ? WHERE id = ?",
+                       (json.dumps(cur, ensure_ascii=False, sort_keys=True), batch_id))  # fmt: skip
+
     def record_night(
         self,
         audit: Audit,
@@ -248,34 +318,45 @@ class DataOps:
         by: str,
         at: str,
         started_at: str = "",
+        batch_id: int | None = None,
         **fields: Any,
     ) -> tuple[Batch, dict[str, Any]]:
-        """The adapter's hook: one batch row for the night, its steps and the night's audit event, in one
-        transaction. Returns the batch and the audit record. The audit event's ``detail`` gains ``batch`` (the row's
-        id and state)."""
+        """The adapter's hook: the night's batch row, its steps and the night's audit event, in one transaction.
+        Returns the batch and the audit record. The audit event's ``detail`` gains ``batch`` (the row's id and
+        state). ``batch_id``: the row :meth:`open_night` opened for this run (T-723, D-489); it is closed along the
+        rest of its path. Without one (or when that row is gone or already final) a row is written whole, as before."""
         path = night_path(passed, held)
         detail = fields.get("detail") or {}
         kept = {k: detail[k] for k in DETAIL_KEYS if isinstance(detail, Mapping) and detail.get(k) is not None}
         with self._db.transaction() as tx:
             tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"dataops.batch:{source}:{snapshot}",))
-            attempt = int(tx.fetchval("SELECT coalesce(max(attempt), 0) + 1 FROM batch WHERE source = ? AND "
-                                      "snapshot = ?", (source, snapshot), 1))  # fmt: skip
-            row = tx.fetchone(
-                "INSERT INTO batch (source, snapshot, attempt, state, seq, started_at, changed_at, changed_by, "
-                "detail) VALUES (?,?,?,?,?,?,?,?,?) RETURNING id",
-                (source, snapshot, attempt, path[-1], len(path), started_at or at, at, by,
-                 json.dumps(kept, ensure_ascii=False, sort_keys=True)),
-            )  # fmt: skip
-            assert row is not None
-            bid = int(row[0])
+            opened = tx.fetchdicts("SELECT * FROM batch WHERE id = ? FOR UPDATE", (batch_id,)) if batch_id else []
+            if opened and opened[0]["state"] == LANDED and int(opened[0]["seq"]) == 1:
+                bid, attempt, first = int(opened[0]["id"]), int(opened[0]["attempt"]), 2
+                tx.execute("UPDATE batch SET state = ?, seq = ?, changed_at = ?, changed_by = ?, detail = ? "
+                           "WHERE id = ?", (path[-1], len(path), at, by,
+                                            json.dumps(kept, ensure_ascii=False, sort_keys=True), bid))  # fmt: skip
+            else:
+                attempt = int(tx.fetchval("SELECT coalesce(max(attempt), 0) + 1 FROM batch WHERE source = ? AND "
+                                          "snapshot = ?", (source, snapshot), 1))  # fmt: skip
+                row = tx.fetchone(
+                    "INSERT INTO batch (source, snapshot, attempt, state, seq, started_at, changed_at, changed_by, "
+                    "detail) VALUES (?,?,?,?,?,?,?,?,?) RETURNING id",
+                    (source, snapshot, attempt, path[-1], len(path), started_at or at, at, by,
+                     json.dumps(kept, ensure_ascii=False, sort_keys=True)),
+                )  # fmt: skip
+                assert row is not None
+                bid, first = int(row[0]), 1
             fields["detail"] = {**detail, "batch": {"id": bid, "attempt": attempt, "state": path[-1]}}
             rec = audit.append(event, snapshot=snapshot, **fields)
             ref = _ref(rec)
-            old = ""
             for seq, new in enumerate(path, start=1):
-                tx.execute("INSERT INTO batch_step (batch, seq, old, new, who, at, reason, audit_event, audit_ref) "
-                           "VALUES (?,?,?,?,?,?,?,?,?)", (bid, seq, old, new, by, at, "", event, ref))  # fmt: skip
-                old = new
+                if seq >= first:
+                    tx.execute(
+                        "INSERT INTO batch_step (batch, seq, old, new, who, at, reason, audit_event, audit_ref) "
+                        "VALUES (?,?,?,?,?,?,?,?,?)",
+                        (bid, seq, path[seq - 2] if seq > 1 else "", new, by, at, "", event, ref),
+                    )
         got = self.batch(bid)
         assert got is not None
         return got, rec

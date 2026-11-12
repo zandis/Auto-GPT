@@ -186,7 +186,10 @@ def test_every_night_has_a_row_and_one_over_the_validation_limit_is_held(tmp_pat
         events = [e for e in _events(tmp_path) if e["event"].startswith("ingest.")]
         assert [e["event"] for e in events] == ["ingest.done", "ingest.held"]
         assert events[1]["detail"]["batch"] == {"id": rows[1].id, "attempt": 1, "state": HELD}
-        assert {s["audit_ref"] for s in ops.steps(rows[1].id)} == {events[1]["hash"]}
+        # T-723 (D-489): the row is opened at the start (its own ``dataops.step`` event) and closed by the night's
+        steps = ops.steps(rows[1].id)
+        assert [(s["new"], s["audit_event"]) for s in steps] == [("LANDED", "dataops.step"), (HELD, "ingest.held")]
+        assert steps[1]["audit_ref"] == events[1]["hash"]
         # a re-run of the held night is the next attempt; the held one stays for the steward
         rep = run_ingest(cfg, "csv", str(tmp_path / "n2"), snapshot="2026-10-02", load_fhir=False, validate=False)
         assert rep.passed

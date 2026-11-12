@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-218 entries: 85 erase, 26 keep, 107 no patient data. 60 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+219 entries: 86 erase, 26 keep, 107 no patient data. 61 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -59,6 +59,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `outside:backups` | T-206b | the backups (with T-728) | every backup: the databases, the lake, the FHIR store |
 | `outside:fhir_store` | T-206b | the clear | the FHIR store (HAPI, database hapi): every resource of the patient |
 | `pidmap.identity` | T-206b | the crypto-shred of the opted-out identity | the encrypted identity of the patient |
+| `pidmap.pending` | T-206b | the staged rows of an opted-out patient (they go with the night: published, or dropped at the next run) | a night's chart numbers and identities, encrypted, until the night is published or dropped (D-489) |
 | `recall.recall_known_positive` | T-206b | the clear | pid_hash: an unsalted hash of the pseudonym, linkable |
 | `recall.recall_observation` | T-206b | the clear | pid_hash: an unsalted hash of the pseudonym, linkable |
 | `site.contact_outcomes` | T-206b | the clear | a contact attempt's outcome, by pseudonym |

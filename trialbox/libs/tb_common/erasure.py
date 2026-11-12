@@ -194,6 +194,10 @@ TABLES: dict[str, Entry] = {
     **_each("terminology", ("concept", "release"), _REFDATA),
     "pidmap.pid_map": _keep("D-441", "the chart number must still be recognised at the door to honour the opt-out"),
     "pidmap.pid_alias": _keep("D-441", "a merged chart's opt-out hides the surviving pseudonym (append-only)"),
+    "pidmap.pending": _owed(
+        "a night's chart numbers and identities, encrypted, until the night is published or dropped (D-489)",
+        "the staged rows of an opted-out patient (they go with the night: published, or dropped at the next run)",
+    ),
     "pidmap.identity": _owed("the encrypted identity of the patient", "the crypto-shred of the opted-out identity"),
     "pidmap.site_key": _none("the site key's fingerprint"),
     "trace.traces": _owed("a model call's redacted body: note excerpts", "the traces of the patient (7 days kept)"),

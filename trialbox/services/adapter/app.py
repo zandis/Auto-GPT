@@ -2,6 +2,8 @@
 
 * ``POST /run`` starts one ingest and answers 202 with its run id; ``GET /run/<id>`` reports its state and, when done,
   the ingest report (the orchestrator's nightly job and the console poll it; T-690, D-472).
+* ``POST /publish`` publishes a held night (the steward's accept; T-723, D-489) as a job; ``GET /publish/<id>``
+  reports its state and its steps.
 * ``POST /$validate`` (D-137): JP Core ``$validate``, offline. Body ``{"resources": [...]}`` checks those resources
   (one resource gives its FHIR ``OperationOutcome``); ``{"snapshot": "YYYY-MM-DD", "per_type": 50}`` checks a sample of
   a written snapshot (the newest when ``snapshot`` is empty). The answer lists every failure in plain words.
@@ -38,6 +40,8 @@ _running = threading.Lock()
 #: T-690 (D-472): the ingest runs of this process by id, the newest last (one ingest at a time; nights are one a day,
 #: so this holds a few small reports; a restart forgets them and a poller then reports the run lost)
 _runs: dict[str, dict[str, Any]] = {}
+#: T-723 (D-489): the publishes of held nights (the steward's accept) of this process by id; as ``_runs``
+_publishes: dict[str, dict[str, Any]] = {}
 
 
 def _spawn(run: Callable[[], None]) -> None:
@@ -107,6 +111,80 @@ def run_state(rid: str) -> dict[str, Any]:
 def latest_run() -> dict[str, Any]:
     """The newest ingest run of this process, or ``{"state": "none"}``."""
     return dict(next(reversed(_runs.values()))) if _runs else {"state": "none"}
+
+
+class PublishBody(BaseModel):
+    snapshot: str
+    source: str = ""
+    attempt: int | None = None
+
+
+@app.post("/publish", status_code=202)
+def publish(body: PublishBody) -> JSONResponse:
+    """T-723 (D-489): the steward's accept. Publishes the held night's folder as it stands, with the same function
+    a night that passed the gate goes through (``adapter.publish``), as a job: 202 and a run id, ``GET
+    /publish/<id>`` follows it (``running``, ``done``, ``busy`` when a job holds the snapshot, ``failed`` with the
+    step). Refused at once, nothing touched: no held night of that date (404), an attempt that is not the newest of
+    its night (409), an ingest or another publish running (409)."""
+    from datacore.dataops import DataOps
+
+    from adapter.publish import NothingToPublish, held_folder, publish_held
+
+    if not _running.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="an ingest or a publish is already running")
+    try:
+        ac = build_config()[0]
+        try:
+            held_folder(ac, body.snapshot)
+        except NothingToPublish as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if body.source and body.attempt is not None:
+            ops = DataOps(ac.db_url or os.environ.get("TB_DB_URL"))
+            try:
+                newest = max((b.attempt for b in ops.batches(source=body.source) if b.snapshot == body.snapshot),
+                             default=body.attempt)  # fmt: skip
+            finally:
+                ops.close()
+            if newest != body.attempt:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"attempt {body.attempt} of night {body.snapshot} is not the newest ({newest}): decide "
+                    "the newest attempt",
+                )
+    except BaseException:
+        _running.release()
+        raise
+    rid = os.urandom(8).hex()
+    state: dict[str, Any] = {"run": rid, "state": "running", "started": _now(), "ended": None, "detail": "",
+                             "snapshot": body.snapshot, "steps": {}}  # fmt: skip
+    _publishes[rid] = state
+
+    def work() -> None:
+        try:
+            out = publish_held(ac, body.snapshot, on_step=lambda _s, steps: state.update(steps=steps))
+            state.update(steps=dict(out.steps), promoted=out.promoted)
+            if out.ok:
+                state.update(state="done")
+            else:
+                state.update(state="busy" if out.lake_busy else "failed", detail="; ".join(out.errors)[:500])
+        except Exception as exc:
+            log.exception("publish %s failed", rid)
+            state.update(state="failed", detail=f"{type(exc).__name__}: {str(exc)[:500]}")
+        finally:
+            state["ended"] = _now()
+            _running.release()
+
+    _spawn(work)
+    return JSONResponse(dict(state), status_code=202, headers={"Location": f"/publish/{rid}"})
+
+
+@app.get("/publish/{rid}")
+def publish_state(rid: str) -> dict[str, Any]:
+    """The state of one publish of this process (404: unknown here, e.g. the adapter restarted)."""
+    st = _publishes.get(rid)
+    if st is None:
+        raise HTTPException(status_code=404, detail="unknown publish (the adapter may have restarted)")
+    return dict(st)
 
 
 class ValidateBody(BaseModel):

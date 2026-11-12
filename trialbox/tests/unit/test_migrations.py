@@ -388,9 +388,11 @@ ADDED: dict[str, tuple[str, ...]] = {
     ),
     # T-612: pidmap version 2, the site key's fingerprint
     # T-659b (D-370): pidmap version 3, the patient index as the append-only pid_alias table
+    # T-723 (D-489): pidmap version 4, a night's chart numbers staged until the night is published (``pending``)
     "pidmap": (
         "b7cf6c229898b30f609be2151ff4422b2a0bc0cd068b0b5150e1d58c07c98ae3",
         "2d6727cad7056592bdcb1c9a2c0f28f419debbc79880f81e6f4346cd59646f08",
+        "9d3348bbf4c423dbdbe7bb199eb50e107304bfabaf16b0b0b04eb59b5d48f8e3",
     ),
     # D-277: datacore version 4 (the study's SAE rule set); sae version 3 (one initial report per party, CR-011)
     # D-364 (T-621): datacore version 5 (schedule versions); site version 4 (the criteria version on each mark)

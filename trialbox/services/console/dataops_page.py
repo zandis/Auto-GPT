@@ -12,9 +12,10 @@ to each other.
 ``console.denied`` event.
 
 **Accept.** ``DataOps.decide`` runs the promotion of the night inside its transaction, so a night is ``PUBLISHED``
-only when its snapshot became the one served. The lake side of that promotion is not built yet (D-443, Open):
-``register`` takes a ``promote`` callable, and without one an accept is refused with a message and the night stays
-held. Reject needs no promotion (``CURRENT`` keeps the previous snapshot, D-149) and works now.
+only when its snapshot became the one served. The promoter is :func:`adapter_promoter` (T-723, D-489): the
+adapter's publish of the held night, the same function a night that passed the gate goes through. ``register``
+takes it as ``promote``; without one (a console with no adapter) an accept is refused with a message and the night
+stays held. Reject needs no promotion (``CURRENT`` keeps the previous snapshot, D-149).
 
 **API.** ``/api/v1/data/sources``, ``/api/v1/data/batches`` (``state``, ``source``, ``limit``, ``before``),
 ``/api/v1/data/batches/{id}`` and ``POST /api/v1/data/batches/{id}/decide`` answer the same functions with the
@@ -65,6 +66,41 @@ Promote = Callable[[Any], None]
 
 class PromoteFailed(RuntimeError):
     """The promotion of an accepted night raised: ``DataOps.decide`` rolled back, the night stays held."""
+
+
+def adapter_promoter(bk: Any, poll: Any = None) -> Promote:
+    """T-723 (D-489): the promoter of an accepted night. It starts the adapter's publish of the held night
+    (``POST /publish``: pid map, OMOP, the FHIR store, the lake, promote last; the same function a night that
+    passed the gate goes through) and follows it to its end (a polled job, never timed: D-472). Anything but
+    ``done`` raises, so ``DataOps.decide`` rolls back and the night stays held; the adapter keeps the step that
+    failed, and a second accept resumes there."""
+
+    def promote(batch: Any) -> None:
+        from tb_common.http import ServiceError
+        from tb_common.jobpoll import JobLost, Poll
+
+        try:
+            started = bk.adapter.post_raw(
+                "/publish", {"snapshot": batch.snapshot, "source": batch.source, "attempt": batch.attempt}
+            ).json()
+        except ServiceError as exc:
+            raise RuntimeError(f"the adapter did not start the publish (HTTP {exc.status})") from exc
+        rid = str(started.get("run") or "")
+
+        def read() -> dict[str, Any]:
+            try:
+                body: dict[str, Any] = bk.adapter.get_json(f"/publish/{rid}")
+            except ServiceError as exc:
+                if exc.status == 404:
+                    raise JobLost(f"the adapter no longer knows publish {rid} (it restarted)") from None
+                raise
+            return body
+
+        st = started if started.get("state") != "running" else (poll or Poll()).until_done(read, "publish")
+        if st.get("state") != "done":
+            raise RuntimeError(f"the publish ended {st.get('state')}: {st.get('steps')}")
+
+    return promote
 
 
 def light(state: str) -> str:
