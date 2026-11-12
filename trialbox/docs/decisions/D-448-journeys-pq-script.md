@@ -3,7 +3,7 @@
 - **Task:** T-315a (`docs/plan/28-master-plan-v6.md` §6.2, part a of T-315)
 - **PR:** this branch (`agent/T-315a-journeys-pq-script`)
 - **Date:** 2026-11-11
-- **Status:** proposed
+- **Status:** accepted
 - **Closes:** WS-12.4 (the journeys part), RSK-64 (the re-run list after Golden Week)
 - **Builds on:** D-311 (no development gates: no signer, no gate record), T-508 (the PoC scripts walked in process,
   `tests/integration/test_poc_scripts.py`), D-425 (T-102c, every page asks `permit`), D-380 (T-102b roles), D-430
@@ -30,8 +30,9 @@
    catalogue in en, ja and zh-TW and must be the language's own text (not the English fallback) and on the page.
 5. **Not on master yet: an expected failure with its card.** Such a step carries `expected_failure: {card, why}`. It
    runs and must fail; when it passes, the walk fails and asks that card to remove the mark. A card named must be a
-   card of the plan. Today: J-STW-04 (the data-operations page, T-112b), J-MON-03 (the monitor page on the real data
-   core, T-303), J-PRV-03 (the opt-out worker clears the lake, T-206a).
+   card of the plan. Today: J-MON-03 (the monitor page on the real data core, T-303) and J-PRV-04 (note chunks
+   erased from the lake, T-206b). J-STW-04 (the steward rejects the held night on `/data-ops`, T-112b; accept waits
+   for a promoter, D-443) and J-PRV-03 (the opt-out worker's tick, T-206a) are passing steps.
 6. **The re-run list after a long break** (RSK-64) is `tests/e2e/journeys/rerun_after_break.yaml`: the journeys a
    site re-runs on the first working day after five or more days away (Golden Week, the Lunar New Year), each with
    its reason. A test holds that it names only existing journeys or steps.
