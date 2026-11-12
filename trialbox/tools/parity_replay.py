@@ -5,7 +5,8 @@ both block a criterion and the deterministic filters decide the ``filter`` crite
 (:func:`tools.trialgpt_compare.filter_first`). Scored from the recorded answers in
 ``eval/trialgpt_compare/results/raw``. Gate: EN <= 5, JA <= 4, zh-TW <= 2 (provisional), never above 8 of 79.
 
-N-12 (TREC CT 2021/22): eligible pairs wrongly dropped under filter-first <= 5 %, gated on the UNADJUSTED figure (D-343):
+N-12 (TREC CT 2021/22): eligible pairs wrongly dropped under filter-first <= 5 %, gated on the UNADJUSTED figure
+(D-343):
 ``1 - (1 - q) ** (llm_share * criteria_per_trial)`` from the measured inputs recorded by ``tools.hospital_sim project``
 (``eval/hospital_sim/results/``). The audit-adjusted figure (that times the audited share of drops that are model
 errors, ``eval/trec_ct/AUDIT.md``) is printed as a labelled note and never sets the status: the label check was by an AI
