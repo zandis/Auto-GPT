@@ -132,6 +132,11 @@ class FakeBackend:
     def list_jobs(self, limit: int = 100, state: str | None = None) -> list[Job]:
         return [j for j in self.jobs.values() if state is None or j.state == state][:limit]
 
+    def waiting_studies(self) -> list[str]:
+        return list(
+            dict.fromkeys(j.ruleset for j in self.jobs.values() if j.state == "awaiting_approval" and j.ruleset)
+        )
+
     def get_job(self, job_id: str) -> Job | None:
         return self.jobs.get(job_id)
 

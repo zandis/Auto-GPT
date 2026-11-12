@@ -123,7 +123,7 @@ def test_a_scoped_coordinator_is_told_why_a_new_study_is_refused(box: dict[str, 
 def test_review_findings_fail_closed_one_page_only_and_a_pi_with_an_account(box: dict[str, Any]) -> None:  # noqa: F811
     """The adversarial review of this card. H1: with the orchestrator down an unknown study must stay unknown.
     O1: a waiting study opens its delegation log, not its whole surface. M1: a PI entry without an account
-    approves nothing, so the task stays. M2: the waiting jobs are asked for by state, not cut from the newest."""
+    approves nothing, so the task stays. M2: the waiting studies are asked as studies, not cut from a listing of jobs."""
     from console.backend import Unavailable
 
     jid = _waiting(box, 975)
@@ -134,7 +134,8 @@ def test_review_findings_fail_closed_one_page_only_and_a_pi_with_an_account(box:
     for path in ("setup", "entry", "forms", "sources", "irb", "candidates"):
         assert crc.get(f"/studies/{NEW}/{path}").status_code == 404, path
         assert stw.get(f"/studies/{NEW}/{path}").status_code in (403, 404), path
-    # M2: asked by state (a listing cut to the newest jobs without the waiting one would lose the study)
+    # M2, then NEW-JRN-1b (D-545): the waiting studies are asked as studies; no listing of jobs is read for it,
+    # so no cut of a listing can lose the study
     seen: list[Any] = []
     real = box["backend"].list_jobs
 
@@ -144,7 +145,8 @@ def test_review_findings_fail_closed_one_page_only_and_a_pi_with_an_account(box:
 
     box["backend"].list_jobs = listing
     log = stw.get(f"/studies/{NEW}/team")
-    assert log.status_code == 200 and "awaiting_approval" in seen
+    assert log.status_code == 200 and "awaiting_approval" not in seen
+    assert box["backend"].waiting_studies() == [NEW]
     # M1: a PI entry that names no account is not a PI who can approve
     r = stw.post(f"/studies/{NEW}/team", data={"csrf": _csrf(log.text), "username": "", "name": "Dr Paper",
                                                "role": "pi", "start": "2026-01-01", "training_day": "2025-06-01"},
@@ -155,10 +157,11 @@ def test_review_findings_fail_closed_one_page_only_and_a_pi_with_an_account(box:
     assert 'data-testid="approve-needs-pi"' in pi.get(f"/pilot/jobs/{jid}/approval").text
     # H1: the orchestrator is down: nothing new opens, and no log entry can be written for an unknown study
 
-    def down(limit: int = 100, state: str | None = None) -> list[Job]:
+    def down(*_a: Any, **_k: Any) -> list[Any]:
         raise Unavailable("orchestrator down")
 
     box["backend"].list_jobs = down
+    box["backend"].waiting_studies = down
     assert stw.get("/studies/NOSUCH9/team").status_code == 404
     assert stw.get(f"/studies/{NEW}/team").status_code == 404
     r = stw.post("/studies/NOSUCH9/team", data={"csrf": _csrf(log.text), "username": "drsato", "role": "pi",

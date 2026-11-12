@@ -128,6 +128,7 @@ Signer = Callable[[str, str, Any], dict[str, str]]
 
 class Backend(Protocol):
     def list_jobs(self, limit: int = 100, state: str | None = None) -> list[Job]: ...
+    def waiting_studies(self) -> list[str]: ...
     def get_job(self, job_id: str) -> Job | None: ...
     def create_job(self, req: JobCreate, by: str = "", role: str = "") -> Job: ...
     def put_input(self, job_id: str, filename: str, data: bytes, content_type: str) -> JobFile: ...
@@ -290,6 +291,15 @@ class HttpBackend:
         except ServiceError as exc:
             raise Unavailable(str(exc)) from exc
         return [Job.model_validate(j) for j in data]
+
+    def waiting_studies(self) -> list[str]:
+        """NEW-JRN-1b (D-545): the studies with a job waiting for approval, as the orchestrator counts them (one
+        row per study; no listing of jobs is read, so none is cut)."""
+        try:
+            data = self.orch.get_json("/jobs/waiting-studies")
+        except ServiceError as exc:
+            raise Unavailable(str(exc)) from exc
+        return [str(s) for s in data]
 
     def get_job(self, job_id: str) -> Job | None:
         try:

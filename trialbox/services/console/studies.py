@@ -29,13 +29,14 @@ STATUS_ORDER = ("new", "pending", "contacted", "screened", "enrolled", "set_asid
 
 # ---------------------------------------------------------------------------------------------- jobs
 def waiting_studies(bk: Any) -> list[str]:
-    """NEW-JRN-1 (JRN-001, D-540): the studies with criteria waiting for approval, in the order their jobs are
-    listed. A new study has no ruleset folder until its first approval; this job is what makes it a study. The
-    orchestrator is asked for the jobs of that state, so a job that waits behind newer ones is still found."""
+    """NEW-JRN-1 (JRN-001, D-540): the studies with criteria waiting for approval, the newest first. A new study
+    has no ruleset folder until its first approval; this job is what makes it a study. NEW-JRN-1b (D-545): the
+    orchestrator names the studies itself; no listing of jobs is read, so a study behind any number of other
+    waiting jobs is still found."""
     seen: list[str] = []
-    for j in bk.list_jobs(limit=500, state="awaiting_approval"):
-        rid = (j.ruleset or "").upper()
-        if j.state == "awaiting_approval" and rid and rid not in seen:
+    for raw in bk.waiting_studies():
+        rid = str(raw or "").upper()
+        if rid and rid not in seen:
             seen.append(rid)
     return seen
 
