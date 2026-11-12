@@ -1094,6 +1094,7 @@ def test_regression_a_ranking_that_cuts_the_decisive_note_never_excludes(
     source = _Ranked("fillers") if flag == "on" else None
     roomy, read = _toe_run(notes, ["T-1"], _Toe(first=True), source)
     assert read.shown["T-1"] == {"a", "b"} and roomy.traces["T-1"].tier == "strong"  # room: nothing is cut
+    assert roomy.traces["T-1"].outcomes["N-INC-01"].status == "pass"  # and the answer is the decisive note's
     monkeypatch.setattr(cascade_engine, "EXCERPT_TOKENS", cascade_engine._tokens(FILLER))  # the filler note alone
     res, judge = _toe_run(notes, ["T-1"], _Toe(first=True), source)
     t = res.traces["T-1"]

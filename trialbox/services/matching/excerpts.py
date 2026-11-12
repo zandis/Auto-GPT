@@ -15,14 +15,15 @@ excluded a patient whose decisive note they never saw (review H4).
 * ``budget``: tokens of notes one judge prompt may hold: the models' context (T-603, ``NoteJudge.excerpt_budget``),
   or :data:`DEFAULT_TOKENS` for a client that cannot tell its context (OD-10: no other fixed budget).
 
-It shows whole notes, the evidence notes first and then the rest of the window, newest first, while they fit. An
+It shows whole notes, the evidence notes first and then the rest of the window, newest first, while they fit.
+A window note with no text is not shown and counts as left out. An
 evidence note longer than half the budget is cut to that half, whole sentences around its evidence, so one long
 note never hides the others (D-142, review A-06); any other note that does not fit is skipped.
 
 **``left_out`` counts every window note not shown in full**: skipped, or clipped. Both models read the one set, so
 with a note left out their agreement on "not met" says nothing about what they did not read: the callers make such
 an answer unknown, and flag a "met" (D-276, T-603; the status function sends both to review, D-478). The shown list
-is newest first, whatever the order the notes were taken in.
+is newest first (within a day in the notes' own order), whatever the order the notes were taken in.
 """
 
 from __future__ import annotations
@@ -109,6 +110,17 @@ def clip(note: Note, evidence: Iterable[str], cap: int, tokens: Callable[[str], 
     return "\n".join(sents[i] for i in sorted(chosen))
 
 
+_DIGITS = re.compile(r"(\d+)")
+
+
+def _order(n: Note) -> tuple[Any, ...]:
+    """Newest day first; within a day by the note's id read naturally (``#9`` before ``#10``: the paragraphs of an
+    uploaded chart keep their order), then by text, so the order never depends on the order the notes came in."""
+    day = n.iso
+    natural = tuple((0, int(p)) if p.isdigit() else (1, p) for p in _DIGITS.split(n.did) if p != "")
+    return (tuple(-ord(ch) for ch in day), natural, n.text)
+
+
 def build(
     window: Sequence[Note],
     evidence: Mapping[str, Collection[str]],
@@ -119,7 +131,7 @@ def build(
     """The excerpts of one judge prompt and how many window notes they leave out (see the module's text).
     ``ranked``: ``evidence`` is in the order of the caller's ranking (best first), and its notes are read in that
     order; else the evidence notes are read newest first."""
-    newest_first = sorted(window, key=lambda n: (n.iso, n.did), reverse=True)
+    newest_first = sorted(window, key=_order)
     first = [n for n in newest_first if n.did in evidence]
     if ranked:
         rank = {did: i for i, did in enumerate(evidence)}
@@ -131,7 +143,10 @@ def build(
     cut: list[str] = []
     for n in order:
         if not n.text.strip():
-            continue  # an empty note holds nothing to read: neither shown nor left out
+            # a note with no text (a scan, an unreadable note) is in the window and the models did not see it:
+            # not shown, and left out (review of T-710: the first version skipped it without counting)
+            cut.append(n.did)
+            continue
         cost = tokens(n.text)
         if cost <= left:
             shown.append((n, n.text))
@@ -148,6 +163,6 @@ def build(
         if part and part_cost <= left:
             shown.append((n, part))
             left -= part_cost
-    shown.sort(key=lambda x: (x[0].iso, x[0].did), reverse=True)
+    shown.sort(key=lambda x: _order(x[0]))
     out = [{"date": n.iso, "note_type": n.type, "text": text, "did": n.did} for n, text in shown]
     return ExcerptSet(out, len(cut), cut)

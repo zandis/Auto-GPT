@@ -30,7 +30,10 @@ depended on how many others were in the run.
    first (in the ranking's own order where the path has one: S2b's top sentences, the v1 retrieval) and then the
    rest, newest first, until the budget is spent. An evidence note longer than half the budget is cut to that
    half, whole sentences around its evidence (as the cascade did); any other note that does not fit is skipped,
-   never cut into the last few tokens. An empty note is neither shown nor left out.
+   never cut into the last few tokens. A window note with no text (a scan, an
+   unreadable note) is not shown and **counts as left out**: it is in the window and the models did not see it
+   (review of this card; the first version skipped it without counting, and a pair's "not met" beside it
+   excluded). The shown notes are newest first, within a day in the notes' own order (`#9` before `#10`).
 2. **"Left out" counts every window note not shown in full**: skipped, or clipped. With a note left out, a "not
    met" is not final (unknown, a person looks) and a "met" is flagged (review), on every path. The ranking decides
    what is read first, never what counts as read.
@@ -39,6 +42,17 @@ depended on how many others were in the run.
    (`EXCERPT_TOKENS`, the size that fits the smallest registered build). No path has a fixed budget of its own.
 4. **One read.** The v1 path's second "full record" read and its 100-candidate limit go: the first read already
    shows as much of the window as the models can hold.
+
+5. **Not built here: NEW-LLM-1 (LLM-001).** A note cut by the builder keeps whole sentences around its evidence,
+   but not the heading above them nor the negation they sit under: clipped, a Japanese family-history list
+   loses `【家族歴】` and a "none of the following" list loses its lead-in (English and Traditional Chinese kept
+   theirs in the review's cases only by the accident of sentence length). The stop-gap holds: every cut note is
+   counted as left out before it is cut, so an answer that would exclude is not final on any path. Keeping the
+   heading and the negation scope in a cut, in en, ja and zh-TW, is **the next card of this lane**; its two
+   failing tests are in `tests/unit/test_excerpts.py` as strict expected failures.
+6. **Not built here: the v1 path stays.** Plan v7.2 removes the v1 path at the end of T-709/T-710. NAV and the
+   MICROBATCH re-check still judge through it (`NoteJudge`), now with the one builder. Removing it is its own
+   card.
 
 ## Consequences
 

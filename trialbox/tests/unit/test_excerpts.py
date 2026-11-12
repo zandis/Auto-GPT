@@ -82,9 +82,43 @@ def test_a_short_note_that_no_longer_fits_is_skipped_never_shredded() -> None:
     assert [e["text"] == note for e in got.shown] == [True, True] and got.left_out == 4
 
 
-def test_an_empty_note_is_neither_shown_nor_left_out() -> None:
+def test_an_empty_note_is_not_shown_and_is_left_out() -> None:
+    """Review of T-710 (MED 1): a window note with no text (a scanned note, an unreadable one) is something in the
+    window the models did not see. It is not shown and it counts as left out, so a "not met" beside it is not
+    final. (The first version skipped it without counting.)"""
     got = build([_n("e", "2026-10-01", "  \n"), _n("a", "2026-09-01", "Gout flare.")], {}, 1000)
-    assert [e["did"] for e in got.shown] == ["a"] and got.left_out == 0
+    assert [e["did"] for e in got.shown] == ["a"] and got.left_out == 1 and got.cut == ["e"]
+
+
+def test_notes_of_one_day_are_shown_in_their_own_order_whatever_the_input_order() -> None:
+    """Review of T-710 (LOW 4, 5): an uploaded chart's paragraphs of one day (#1 .. #11) reach the models in
+    order (a lead-in before its list), not as strings sort (#10 before #9); two notes of one id and day come out
+    in one order whatever order they were given in."""
+    paras = [_n(f"chart#{i}", "2026-10-01", f"Paragraph {i}.") for i in range(1, 12)]
+    older = _n("old#1", "2026-09-01", "Older.")
+    want = [f"chart#{i}" for i in range(1, 12)] + ["old#1"]
+    assert [e["did"] for e in build([older, *paras], {}, 5000).shown] == want
+    assert [e["did"] for e in build([*reversed(paras), older], {}, 5000).shown] == want
+    twins = [_n("d", "2026-10-01", "Beta."), _n("d", "2026-10-01", "Alpha.")]
+    one = [e["text"] for e in build(twins, {}, 5000).shown]
+    assert one == [e["text"] for e in build(twins[::-1], {}, 5000).shown] == ["Alpha.", "Beta."]
+
+
+# NEW-LLM-1 (LLM-001): a clipped note should keep the heading and the negation scope its evidence sits under. Not
+# built by T-710: the stop-gap holds (a clipped note is left out, so an answer that would exclude is not final).
+# These two cases are the failing tests of the next card of this lane.
+@pytest.mark.xfail(strict=True, reason="NEW-LLM-1: a clipped note loses the heading above its evidence")
+def test_a_clipped_note_keeps_the_heading_of_its_evidence() -> None:
+    text = "【既往歴】\n高血圧。\n" + "経過良好。\n" * 400 + "【家族歴】\n肺結核。"
+    got = clip(_n("n", "2026-10-01", text), ["肺結核。"], 300)
+    assert "【家族歴】" in got and "肺結核。" in got
+
+
+@pytest.mark.xfail(strict=True, reason="NEW-LLM-1: a clipped note loses the negation its evidence sits under")
+def test_a_clipped_note_keeps_the_negation_scope_of_its_evidence() -> None:
+    text = "経過良好。\n" * 400 + "以下の既往なし：\n糖尿病\n肺結核"
+    got = clip(_n("n", "2026-10-01", text), ["肺結核"], 300)
+    assert "以下の既往なし：" in got and "肺結核" in got
 
 
 def test_a_note_without_evidence_that_does_not_fit_is_skipped_not_cut() -> None:

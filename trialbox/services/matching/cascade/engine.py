@@ -922,13 +922,13 @@ class _Run:
             if left_out:
                 # T-603 (review LLM-016, CR-004 flag half): the answer that keeps the patient stands, flagged; the
                 # caller marks the patient (PatientTrace.notes_over_budget) and the tier is never "strong"
-                why = f"notes_over_budget: {left_out} evidence note(s) did not fit the excerpts"
+                why = f"notes_over_budget: {left_out} note(s) of the window were not read in full"
                 return Outcome(c.id, "pass", stage, evidence=[*ev, meta], reason=why)
             return Outcome(c.id, "pass", stage, evidence=[*ev, meta], reason=reply.reason[:200])
         if left_out:
             # D-276 (review S-10): the judge and the verifier read the same excerpts. With an evidence note left out
             # by the budget, "not met" is an answer about part of the record: a person looks, nobody is excluded
-            why = f"not judged: {left_out} evidence note(s) did not fit the excerpts, so not met is not final"
+            why = f"not judged: {left_out} note(s) of the window were not read in full, so not met is not final"
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason=why)
         if reply.confidence < self.cfg.confidence_floor:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason="abstained")
