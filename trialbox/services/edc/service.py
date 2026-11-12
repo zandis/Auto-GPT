@@ -427,6 +427,10 @@ class EdcService:
                         why, text = "stale_map", "the item's map row changed since it was signed; not sent"
                     elif lf is None or forms.field_sha(lf) != want:
                         why, text = "dictionary_changed", "the REDCap dictionary entry changed since; not sent"
+                    elif lf.kind == "multi":
+                        # EDC-003: REDCap's flat format has one column per choice (`item___code`); a bare `item`
+                        # column makes it refuse the whole import. Held until the send writes those columns
+                        why, text = "format", "a checkbox item is not sent yet (REDCap takes one column per choice)"
                     elif forms.problem(lf, str(d["final"])) is not None:
                         p = forms.problem(lf, str(d["final"])) or {}
                         why, text = "format", "REDCap would refuse it: " + forms.reason(p, str(d["final"]))
