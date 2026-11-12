@@ -68,6 +68,10 @@ class GatewayJudge:
     prompt_id: str = JUDGE_PROMPT
     calls: int = 0
     refusals: list[str] = field(default_factory=list)
+    # T-689 (D-456, F-04): a call the model did not answer (an outage, a restart, a full queue) waits and is sent
+    # again within this judge's allowance for the run (TB_LLM_OUTAGE_WAIT_S); used up, the run stops
+    # (tb_llm.outage.OutageExhausted) instead of writing the rest as unknown. None: the allowance of the environment
+    outage: Any = None  # tb_llm.outage.OutageBudget
 
     def judge(
         self,
@@ -84,7 +88,16 @@ class GatewayJudge:
     ) -> JudgeReply:
         from tb_common.llm import load_prompt, render
         from tb_contracts import inline_schema, load_schema, null_absent, schema_errors
-        from tb_llm import CallLabels, GatewayRefused, json_schema_format
+        from tb_llm import CallLabels, GatewayDown, GatewayRefused, json_schema_format
+        from tb_llm.outage import MODEL_FAULTS, OutageBudget, wait_and_retry
+
+        if self.outage is None:
+            self.outage = OutageBudget()
+
+        def fault_of(exc: BaseException) -> tuple[str, float | None] | None:
+            if isinstance(exc, GatewayRefused) and exc.reason in MODEL_FAULTS:
+                return exc.reason, exc.retry_after
+            return ("unreachable", None) if isinstance(exc, GatewayDown) else None
 
         p = load_prompt(self.prompt_id)
         prompt = f"{p.meta.id}@{p.meta.version}"
@@ -106,11 +119,16 @@ class GatewayJudge:
         )
         self.calls += 1
         try:
-            res = self.client.chat(
-                render(p, body_vars),
-                labels,
-                response_format=json_schema_format(p.meta.id, inline_schema(p.meta.output_schema)),
-                max_tokens=p.meta.max_tokens,
+            res = wait_and_retry(
+                lambda: self.client.chat(
+                    render(p, body_vars),
+                    labels,
+                    response_format=json_schema_format(p.meta.id, inline_schema(p.meta.output_schema)),
+                    max_tokens=p.meta.max_tokens,
+                ),
+                self.outage,
+                role,
+                fault_of,
             )
         except GatewayRefused as exc:
             self.refusals.append(exc.reason)

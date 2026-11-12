@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -33,6 +34,7 @@ from tb_contracts import CriterionVerdict, Evidence, Opinion
 
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx
+from orchestrator.jobs import llm_concurrency
 from orchestrator.scenarios.evaluate import (
     MAX_JUDGE_FAILURE_SHARE,
     NoteJudge,
@@ -73,8 +75,10 @@ class OrchestratorJudge(NoteJudge):
     Failures count like the v1 judge's (:func:`check_failures`)."""
 
     @classmethod
-    def from_note_judge(cls, nj: NoteJudge) -> OrchestratorJudge:
-        return cls(lake=nj.lake, llm=nj.llm, prompt=nj.prompt, job_id=nj.job_id, verifier=nj.verifier)
+    def from_note_judge(cls, nj: NoteJudge, in_flight: int = 0) -> OrchestratorJudge:
+        return cls(
+            lake=nj.lake, llm=nj.llm, prompt=nj.prompt, job_id=nj.job_id, verifier=nj.verifier, in_flight=in_flight
+        )
 
     def judge(
         self,
@@ -170,6 +174,17 @@ def check_failures(judge: OrchestratorJudge | None) -> None:
 
 
 # --------------------------------------------------------------------------------------------- traces → verdicts
+def _final(o: Outcome, status: str) -> bool | None:
+    """T-707 (D-476): whether a "not met" was allowed to exclude when it was given. A soft fail (a single model's
+    answer, CAS-7) says ``false`` in the stored row, so that no later re-tier reads it as an answer a pair gave; a
+    judged fail that was allowed to exclude says ``true``; a coded answer needs neither."""
+    if status != "fail":
+        return None
+    if not o.hard:
+        return False
+    return True if o.stage in ("S3", "S4") else None
+
+
 def verdict_of(o: Outcome) -> CriterionVerdict:
     """One cascade outcome as the candidate-list verdict: the verified span (document, quote, date), the lake records
     of a coded answer, the judge's confidence and the stage's reason."""
@@ -203,6 +218,7 @@ def verdict_of(o: Outcome) -> CriterionVerdict:
             reason=code_of(o.reason, status, bool(quote)),  # a code, never the engine's or the model's words (D-118)
             opinions=opinions or None,  # both quotes when the two checks disagree (D-120)
         ),
+        final=_final(o, status),
     )
 
 
@@ -309,14 +325,16 @@ class CascadeScreen:
     s2b_sources: dict[str, dict[str, Any]] | None = None
 
 
-# D-142 (review A-07): SCREEN's budget of model calls is explicit (job option ``max_pairs``, else
-# TB_SCREEN_MAX_PAIRS, else this default) and the run says when it ran out; calls run TB_SCREEN_LLM_CONCURRENCY at a
-# time (compose sets it to the serving profile's vLLM --max-num-seqs)
-SCREEN_MAX_PAIRS = 20000
-
-
-def max_pairs_of(opts: dict[str, Any] | None = None) -> int:
-    raw = str((opts or {}).get("max_pairs") or os.environ.get("TB_SCREEN_MAX_PAIRS") or SCREEN_MAX_PAIRS)
+# D-142 (review A-07), T-689 (D-456, review F-16): SCREEN's budget of model calls is the job option ``max_pairs``,
+# else TB_SCREEN_MAX_PAIRS, else none: the population's own pairs (scoped patients x note criteria), so by default
+# nothing is left unprocessed. The fixed 20,000 is gone. The run says when a budget ran out and which. Calls run
+# TB_SCREEN_LLM_CONCURRENCY at a time (compose sets it to the serving profile's vLLM --max-num-seqs)
+def max_pairs_of(opts: dict[str, Any] | None = None, env: Mapping[str, str] | None = None) -> int | None:
+    """The pair budget an operator set (the job's option, else the setting), or None: the population's own pairs."""
+    e = os.environ if env is None else env
+    raw = str((opts or {}).get("max_pairs") or e.get("TB_SCREEN_MAX_PAIRS") or "").strip()
+    if not raw:
+        return None
     try:
         v = int(raw)
     except ValueError as exc:
@@ -324,14 +342,6 @@ def max_pairs_of(opts: dict[str, Any] | None = None) -> int:
     if v < 1:
         raise StepFailed("running", "max_pairs must be at least 1")
     return v
-
-
-def llm_concurrency(env: dict[str, str] | None = None) -> int:
-    e = os.environ if env is None else env
-    try:
-        return max(1, min(64, int(e.get("TB_SCREEN_LLM_CONCURRENCY") or 1)))
-    except ValueError:
-        return 1
 
 
 def held_in_snapshot(ctx: Ctx, pids: list[str], snapshot: str) -> set[str]:
@@ -354,14 +364,16 @@ def screen_with_cascade(
     judging: dict[str, Any],
     confidence_floor: float,
     lookback_months: int,
-    max_pairs: int = SCREEN_MAX_PAIRS,
+    max_pairs: int | None = None,
 ) -> CascadeScreen:
     """Run the cascade over the scoped patients and return their verdict rows, the judging record and the stage log.
 
     The note-block policy in force (D-95/D-97) becomes the cascade's ``note_block``: without a verifier a note
     ``fail`` sends the patient to review and never out. Screening spends its tokens: every zero-hit pair goes to
     the judge (``absence_semantics=False``), nobody is sampled."""
-    judge = OrchestratorJudge.from_note_judge(note_judge) if note_judge is not None else None
+    in_flight = llm_concurrency()
+    # T-689 (D-456, G1-3): the share of unanswered checks is watched while the cascade runs, not only at its end
+    judge = OrchestratorJudge.from_note_judge(note_judge, in_flight) if note_judge is not None else None
     may_block, _policy, _why = effective_note_block(note_judge)
     from embed_service.embedder import HashEmbedder
 
@@ -383,7 +395,7 @@ def screen_with_cascade(
         note_block=may_block,
         absence_semantics=False,
         max_llm_items=max_pairs,
-        llm_concurrency=llm_concurrency(),
+        llm_concurrency=in_flight,
         stored=derive.reader_for(ctx),  # D-442: the stored-row read, as the v1 engine's (None: the flag is off)
     )
     try:
@@ -412,7 +424,15 @@ def screen_with_cascade(
         )
     out = summary(res)
     # D-142 (review A-07): the budget of model calls and whether it ran out, for the report and the job record
-    out["budget"] = {"max_pairs": max_pairs, "unprocessed": res.metrics.unprocessed, "hit": res.metrics.unprocessed > 0}
+    # T-689 (D-456, F-16): with no budget set it is the population's own pairs; which budget stopped the run, by name
+    population_pairs = len(pids) * len(res.note_criteria)
+    out["budget"] = {
+        "max_pairs": max_pairs if max_pairs is not None else population_pairs,
+        "source": "set" if max_pairs is not None else "population",
+        "unprocessed": res.metrics.unprocessed,
+        "hit": res.metrics.unprocessed > 0,
+        "stopped_by": res.metrics.budget_stopped or None,
+    }
     sources = None
     if source is not None:
         sources = {pid: dict(t.s2b_source) for pid, t in sorted(res.traces.items()) if t.s2b_source is not None}
@@ -427,6 +447,8 @@ __all__ = [
     "check_failures",
     "job_vec_s2b",
     "judged",
+    "llm_concurrency",
+    "max_pairs_of",
     "pipeline",
     "s2b_source",
     "screen_with_cascade",

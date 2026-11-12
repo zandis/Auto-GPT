@@ -106,6 +106,7 @@ AMENDMENT = _ir("PI-INC-03", "inclusion", "structured", "Age 70 or older",
                 {"domain": "demographic", "valueset": "NONE", "age": {"min": 70}})  # fmt: skip
 STRUCTURED = {c["id"] for c in CRITERIA if c["class"] == "structured"}
 INCLUSIONS = {c["id"] for c in CRITERIA if c["kind"] == "inclusion"}
+RECHECKED = {c["id"] for c in CRITERIA if c.get("time_sensitive")}  # what the weekly re-check asks again
 VALUESETS = {
     "VS_MALIG": {"resourceType": "ValueSet", "id": "VS_MALIG", "name": "VS_MALIG", "status": "active",
                  "compose": {"include": [{"system": ICD, "concept": [{"code": "C50.9", "display": "breast"}]}]}},
@@ -598,6 +599,13 @@ INTENDED: dict[str, Intended] = {
         "and keeps the stored answers of the rest: compared on the pool's patients.",
         "D-397",
     ),
+    "microbatch.not_final": Intended(
+        "A re-tier never upgrades an answer no pair gave: a 'not met' SCREEN stored under one model is final: false "
+        "and keeps the patient at review, where SCREEN with the pair on the same snapshot may exclude. Only a full "
+        "screen asks the pair. So: review at the one-model SCREEN and excluded at the reference is review here. "
+        "A time-sensitive criterion is asked again by the weekly re-check, so the pair's answer on it excludes.",
+        "D-476 (T-707)",
+    ),
     "microbatch.new": Intended(
         "MICROBATCH screens as new only the patients no run has seen since the last SCREEN: compared on the "
         "patients its record says it screened (it publishes no evidence file for those it excludes).",
@@ -629,8 +637,9 @@ RULES: dict[str, Rule] = {r.path: r for r in [
     # one model on the box (no verifier): NAV against SCREEN on the same box
     Rule("nav.single", "screen.single", "nav", ("nav.lists", "nav.scope")),
     # the week after: MICROBATCH re-tiers what SCREEN stored with one model; SCREEN with the pair is the reference
-    Rule("microbatch.after_single", "screen.pair_disagrees", "screen", ("microbatch.recheck",)),
-    # after an amendment: MICROBATCH on the old pool against SCREEN on the approved version
+    Rule("microbatch.after_single", "screen.pair_disagrees", "screen", ("microbatch.recheck",
+                                                                         "microbatch.not_final")),
+    # after an amendment: MICROBATCH screens the old pool again in full (D-476); SCREEN on the approved version
     Rule("microbatch.amended", "screen.amended", "screen", ("microbatch.recheck",)),
 ]}  # fmt: skip
 
@@ -658,6 +667,10 @@ def expected_status(w: World, rule: Rule, key: str) -> str | None:
     st = ref.status.get(key)
     why = out_of_lists(ref, key)
     if rule.family == "screen":
+        if "microbatch.not_final" in rule.intended and st == "excluded":
+            stored = w.seen["screen.single"].status.get(key)  # the row the re-tier started from
+            asked_again = any(v == "fail" and c in RECHECKED for c, v in ref.verdicts.get(key, {}).items())
+            return "review" if stored == "review" and not asked_again else st
         return st
     if rule.family == "nav":
         if st in ("high", "review") and all(ref.verdicts.get(key, {}).get(c) == "pass" for c in INCLUSIONS):
@@ -697,9 +710,9 @@ class Known:
     why: str
 
 
-H1 = Known("H1", "SCREEN stored one model's 'present' as verdict=fail; the re-tier with the pair allowed excludes it")
+H1 = Known("H1", "the pool row keeps the word of one model's 'present' (verdict=fail, final: false since D-476: it no "
+                 "longer excludes) where the pair's answer is unknown; the verdict carries its basis with T-709")  # fmt: skip
 H2 = Known("H2", "NAV drops a patient on one model's note answer: classify ignores the tier and the note-block")
-H3 = Known("H3", "MICROBATCH re-tiers a pool row of v1.0.0 under v1.1.0 without the new criterion")
 H4 = Known("H4", "the v1 path reads five retrieved chunks; their 'no flare' is final although the flare note was "
                  "never shown (only retrieved chunks that did not fit count as left out)")  # fmt: skip
 M1A = Known("M1", "(a) a 'met' at confidence 0.6: the cascade keeps it as met (strong), evaluate.tier and NAV's "
@@ -745,10 +758,8 @@ KNOWN: dict[tuple[str, str, str], Known] = {
     ("nav.single", "NOCONTACT", "status"): M1B,
     ("nav.single", "REFUSED", "status"): M2,
     ("nav.single", "UNDATED", "status"): M2U,
-    ("microbatch.after_single", "INF", "status"): H1,
     ("microbatch.after_single", "INF", "verdicts"): H1,
     ("microbatch.after_single", "LOWCONF", "status"): M1A,
-    **{("microbatch.amended", k, "status"): H3 for k in ("ELIG", "SILENT", "PERMIT", "LOWCONF", "CUT", "DEEP")},
 }
 
 
