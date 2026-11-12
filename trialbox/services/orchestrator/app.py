@@ -480,9 +480,9 @@ def reveal(job_id: str, req: RevealRequest, request: Request, who: Claim = AS_RE
     if req.pid not in listed_pids(o, job):
         raise refuse("not on this job's list", says="this patient is not on this job's list")
     # D-273 (PV-4): never the chart number of a patient on the opt-out register now, whatever the job's age
-    from tb_common.optout import opted_out
+    from orchestrator.decision_context import register_now
 
-    if req.pid in opted_out():
+    if req.pid in register_now():
         raise refuse("opted out", says="this patient opted out")
     if over := _over_cap(o, request, who, REVEALS, REVEALS_SERVICE):
         raise refuse(over, 429, "too many chart numbers revealed in the last hour")

@@ -40,12 +40,12 @@ DECLARE
     "tb_adapter": ["app", "dataops", "derived", "mpi", "omop", "pidmap", "refdata", "sitesetup", "terminology"],
     "tb_orchestrator": ["app", "breakglass", "datacore", "dataops", "derived", "edc", "library", "mail", "mpi",
                         "omop", "optout", "orch", "pidmap", "profile", "recall", "refdata", "site", "sitesetup",
-                        "study", "team", "terminology", "tuned", "vec", "wf"],
+                        "study", "team", "terminology", "tuned", "vec"],
     "tb_mail_gateway": ["app", "mail"],
     "tb_gateway": ["app", "trace"],
     "tb_console": ["app", "auth", "breakglass", "datacore", "dataops", "derived", "feedback", "library", "mpi", "omop",
                    "optout", "orch", "pidmap", "recall", "refdata", "sae", "site", "sitesetup", "study", "team",
-                   "terminology", "tuned", "wf"]
+                   "terminology", "tuned"]
   }';
   -- END SERVICE SCHEMAS
   svc text;
@@ -73,6 +73,18 @@ BEGIN
                      CASE obj.relkind WHEN 'v' THEN 'VIEW' WHEN 'm' THEN 'MATERIALIZED VIEW' WHEN 'S' THEN 'SEQUENCE'
                                       WHEN 'f' THEN 'FOREIGN TABLE' ELSE 'TABLE' END,
                      sch, obj.relname, grp);
+    END LOOP;
+    -- D-573: functions, procedures and aggregates too (a restore makes them trialbox's, as it does the tables);
+    -- what an extension owns stays the extension's
+    FOR obj IN
+      SELECT p.oid::regprocedure::text AS sig, p.prokind FROM pg_proc p
+      WHERE p.pronamespace = sch::regnamespace AND p.proowner <> grp::regrole
+        AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid
+                                                    AND d.deptype = 'e')
+    LOOP
+      EXECUTE format('ALTER %s %s OWNER TO %I',
+                     CASE obj.prokind WHEN 'p' THEN 'PROCEDURE' WHEN 'a' THEN 'AGGREGATE' ELSE 'FUNCTION' END,
+                     obj.sig, grp);
     END LOOP;
   END LOOP;
   FOR svc IN SELECT jsonb_object_keys(access) LOOP

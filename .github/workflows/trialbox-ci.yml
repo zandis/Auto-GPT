@@ -10,6 +10,7 @@ name: TrialBox CI
 # The `changes` job decides instead; a job it skips reports "skipped", which satisfies a required check.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]  # D-564: marking ready starts the full tier
   push:
     branches: [master]
   workflow_dispatch:
@@ -18,7 +19,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: trialbox-ci-${{ github.ref }}
+  # one run per pull request (D-564): a new push cancels the old run of the same pull request
+  group: trialbox-ci-${{ github.event.pull_request.number || github.ref }}
   # a running push to master is never cancelled; a push run still waiting in the group is replaced by a newer push
   # (GitHub keeps one pending run per concurrency group), so master is checked at its newest commit
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -37,6 +39,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       trialbox: ${{ steps.diff.outputs.trialbox }}
+      # D-564: 'true' when the full tier runs: not on a draft pull request, except a merge train (train/*)
+      full: ${{ steps.tier.outputs.full }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -51,6 +55,22 @@ jobs:
           else
             echo "trialbox=false" >> "$GITHUB_OUTPUT"
           fi
+      # D-564: the tiers. Fast (every push): changes, lint, types, docs, contracts, data-scan, shell, trace,
+      # cross-card. Full (a pull request that is not a draft, a branch train/*, master, a run by hand): unit-shard,
+      # unit, property, goldens, e2e-simple, demo-boot, security, standards, images. tests/unit/test_ci_tiers.py
+      # holds the two lists; a new job is put in one.
+      - id: tier
+        working-directory: .
+        env:
+          EVENT: ${{ github.event_name }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          full=true
+          if [ "$EVENT" = pull_request ] && [ "$DRAFT" = true ]; then
+            case "$HEAD_REF" in train/*) ;; *) full=false ;; esac
+          fi
+          echo "full=$full" >> "$GITHUB_OUTPUT"
 
   lint:
     runs-on: ubuntu-latest
@@ -108,6 +128,8 @@ jobs:
         run: .venv/bin/python -m tools.decisions_index --check
       - name: licence register (every shipped data file has a row; no SNOMED CT; model licence rows; T-617b, D-342)
         run: PYTHONPATH=libs:services:. .venv/bin/python -m tools.licence_register --check
+      - name: limits lint (every timeout over 60 s and every LIMIT literal in services/ has a reason; OD-10, T-687, D-471)
+        run: PYTHONPATH=libs:services:. .venv/bin/python -m tools.limits_lint
 
   contracts:
     runs-on: ubuntu-latest
@@ -152,7 +174,7 @@ jobs:
   standards:
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.trialbox == 'true'
+    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
     timeout-minutes: 45
     env:
       TB_ENV: DEV
@@ -232,8 +254,12 @@ jobs:
     name: unit-shard (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
     needs: changes
-    if: needs.changes.outputs.trialbox == 'true'
-    timeout-minutes: 30  # each xdist worker starts its own throwaway cluster; the whole suite took 35 to 55 minutes on one runner
+    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
+    # D-564, from the shards' own times (142 green shard jobs of the 40 runs before 2026-11-12 14:00 UTC): the slowest
+    # shard (3/6) has a median of 24.8 minutes and reached 29.6; a slow runner took up to 1.5 times a shard's median
+    # (6/6: 18.6 against 12.4). 24.8 x 1.5 = 37.2, rounded up to the next five. At 30 a shard that had passed its
+    # tests was cancelled while it kept its record (#307). Measure again when the split or the suite changes.
+    timeout-minutes: 40
     # no service container: the tests start throwaway clusters from the runner's own PostgreSQL (tools/pglocal.py),
     # so pg_dump/pg_restore and the server are one version, as on a developer machine (a postgres:16 service with the
     # runner's newer client tools failed the backup tests on transaction_timeout)
@@ -296,7 +322,7 @@ jobs:
   unit:
     runs-on: ubuntu-latest
     needs: [changes, unit-shard]
-    if: ${{ !cancelled() && needs.changes.outputs.trialbox == 'true' }}
+    if: ${{ !cancelled() && needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true' }}
     timeout-minutes: 15
     steps:
       - name: Every shard passed
@@ -364,7 +390,7 @@ jobs:
   property:
     runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing
     needs: changes
-    if: needs.changes.outputs.trialbox == 'true'
+    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -391,13 +417,66 @@ jobs:
           TB_DATA_DIR: ${{ runner.temp }}/tb-data
         run: make property
 
+  # T-711 (D-480, plan §7.5): the `differential` gate. The three-engine boundary table: synthetic patients on the
+  # edges of criteria of the shipped rulesets (the birthday and 29 February, both ends of a window, the day boundary
+  # in the site's zone, units, impossible values, derived scores) through the Python reference, the generated SQL on
+  # an in-process lake and CQL on the local engine; `make differential`. A disagreement of any two fails, and so
+  # does a missing CQL engine. The unit job runs the reference-against-SQL half (no JDK).
+  differential:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 25
+    env:
+      TB_CQL_LOCAL_LIB: ${{ github.workspace }}/trialbox/.cache/cql-local/lib
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78  # v6.2.0
+        with:
+          distribution: temurin
+          java-version-file: trialbox/.java-version
+          cache: maven
+          cache-dependency-path: |
+            trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
+            trialbox/tools/cql_local/pom.xml
+      - run: make venv
+      # the local CQL engine's jars: the cache of the standards job (same paths, same key; restore only, that job
+      # fills it), else Maven
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            trialbox/.cache/cql-local
+            trialbox/.cache/fhir
+          key: tb-standards-${{ hashFiles('trialbox/tools/cql_local/pom.xml', 'trialbox/tools/jpcore_rules.py') }}
+      - name: Local CQL engine (Maven, three tries)
+        env:
+          PYTHONPATH: libs:services:.
+        run: |
+          if ls "$TB_CQL_LOCAL_LIB"/cqf-fhir-cql-*.jar >/dev/null 2>&1; then echo "cached"; exit 0; fi
+          for i in 1 2 3; do .venv/bin/python -m tools.cql_eval --fetch && exit 0; sleep $((i * 10)); done
+          exit 1
+      - name: The boundary table through the Python reference, SQL and CQL
+        run: make differential DIFFERENTIAL_ARGS="--json $RUNNER_TEMP/differential.json"
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: differential
+          path: ${{ runner.temp }}/differential.json
+          if-no-files-found: ignore
+
   # T-202 (D-384): e2e-simple and goldens run once per lake source. The legacy run keeps the job's plain name (the
   # required check of branch protection); the OMOP run is "<job> (omop)". Neither may fail (fail-fast off).
   e2e-simple:
     name: ${{ matrix.lake_source == 'legacy' && 'e2e-simple' || 'e2e-simple (omop)' }}
     runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
     needs: changes
-    if: needs.changes.outputs.trialbox == 'true'
+    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -443,7 +522,7 @@ jobs:
     name: ${{ matrix.lake_source == 'legacy' && 'goldens' || 'goldens (omop)' }}
     runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
     needs: changes
-    if: needs.changes.outputs.trialbox == 'true'
+    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -490,7 +569,7 @@ jobs:
   security:
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.trialbox == 'true'
+    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -527,10 +606,30 @@ jobs:
           docker run --rm -v "$RUNNER_TEMP/Caddyfile:/etc/caddy/Caddyfile:ro" "$pin" \
             caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
 
-  images:
+  # NEW-WIN-1 (D-600): the Windows installer's PowerShell is parsed, held to Windows PowerShell 5.1 syntax and
+  # unit-tested with Pester on the Linux runner's PowerShell 7 (no Windows runner). Every Windows command is behind
+  # a seam; what only Windows can show is the P-0 rehearsal (docs/handover/P-0-windows-rehearsal.md).
+  powershell:
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Parse, analyse and unit-test deploy/windows (Pester)
+        shell: pwsh
+        run: |
+          foreach ($m in @(@{ Name = "Pester"; MinimumVersion = "5.3.0" }, @{ Name = "PSScriptAnalyzer"; MinimumVersion = "1.21.0" })) {
+            if (-not (Get-Module -ListAvailable -Name $m.Name | Where-Object { $_.Version -ge [version]$m.MinimumVersion })) {
+              Install-Module @m -Scope CurrentUser -Force -SkipPublisherCheck
+            }
+          }
+          ./tests/windows/run-pester.ps1
+
+  images:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
     timeout-minutes: 15
     # D-206: gating since 2026-11-10; the first findings were triaged as inline ignores with a reason in each Dockerfile
     steps:
@@ -550,7 +649,7 @@ jobs:
   demo-boot:
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.trialbox == 'true'
+    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0

@@ -16,17 +16,20 @@ import json
 from datetime import date, timedelta
 from typing import Any
 
+from matching import decision
 from tb_common.ruleset import Ruleset
 from tb_common.subject import job_subject
-from tb_contracts import CriterionVerdict, JobOutput, MissingItem, NavLists, NavRow, dump
+from tb_common.verdict_word import shown_of
+from tb_contracts import JobOutput, MissingItem, NavLists, NavRow, dump
 
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome
+from orchestrator.decision_context import decision_of
 from orchestrator.reports import docx_draft, nav_xlsx
 from orchestrator.reports.common import ReportMeta
 from orchestrator.scenarios import facts as factmod
 from orchestrator.scenarios import twpas
-from orchestrator.scenarios.evaluate import PatientVerdicts, check_judge, evaluate_patients, is_note_answer
+from orchestrator.scenarios.evaluate import PatientVerdicts, check_judge, evaluate_patients
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen import (
     judge_for,
@@ -57,15 +60,6 @@ FROM claim WHERE list_contains(CAST($1 AS VARCHAR[]), pid) {product} GROUP BY pi
 """
 
 
-def _ok(v: CriterionVerdict, by: dict[str, Any], t: float) -> str:
-    """yes / no / unknown from the eligibility-perspective verdict (weak note answers count as unknown)."""
-    c = by[v.id]
-    conf = v.evidence.confidence if v.evidence and v.evidence.confidence is not None else 1.0
-    if v.verdict in ("unknown", "pending_human") or (is_note_answer(c, v) and conf < t):
-        return "unknown"
-    return "yes" if v.verdict == "pass" else "no"
-
-
 def classify(
     rs: Ruleset,
     pv: PatientVerdicts,
@@ -75,11 +69,17 @@ def classify(
     lead_days: int,
     lookback_days: int,
     t: float,
+    note_block: bool = False,
 ) -> tuple[str | None, list[MissingItem]]:
+    """Which NAV sheet a patient is on, and what is still to confirm. Each criterion's answer (yes / no / unknown)
+    is the one status function's (:func:`matching.decision.answer_of`, T-709, D-478) under the run's policy
+    (``t``, ``note_block``): one model's "not met", a weak answer or one with notes left out is unknown, a row to
+    confirm, never a reason to drop the patient (review H2, M1d)."""
     by = rs.by_id()
+    policy = decision.Policy(t, note_block)
     status: dict[str, list[tuple[str, str]]] = {"inclusion": [], "exclusion": [], "renewal": [], "documentation": []}
     for v in pv.verdicts:
-        status[by[v.id].kind].append((v.id, _ok(v, by, t)))
+        status[by[v.id].kind].append((v.id, decision.answer_of(by[v.id], v, policy)))
     missing = [
         MissingItem(
             item=by[cid].label or by[cid].text[:40],
@@ -113,19 +113,11 @@ def classify(
 def _without_opted_out(ctx: Ctx, scoped: list[Any]) -> list[Any]:
     """D-441: NAV's lists leave out a patient on the opt-out register (D-147), as SCREEN and MICROBATCH do; the
     hospital registry's refusals reach the register through the opt-out worker. Read as the register stood when
-    the job was received (a re-run stays byte-identical, D-82); audited by count only."""
-    from tb_common.optout import opted_out
-
-    gone = opted_out(as_of=ctx.job.received_at.isoformat())
-    kept = [r for r in scoped if r["pid"] not in gone]
-    if len(kept) != len(scoped):
-        ctx.orch.audit.append(
-            "nav.opt_out_removed",
-            job_id=ctx.job.job_id,
-            ruleset=ctx.job.ruleset,
-            detail={"removed": len(scoped) - len(kept), "register": "optout"},
-        )
-    return kept
+    the job was received (a re-run stays byte-identical, D-82); audited by count only. D-477: and a patient whose
+    latest consent statement refuses research use or denies contact, without waiting for the worker's next tick
+    (the rule of the cascade's S0)."""
+    gone = decision_of(ctx).off_lists([r["pid"] for r in scoped], "nav.opt_out_removed")
+    return [r for r in scoped if r["pid"] not in gone]
 
 
 def run(ctx: Ctx) -> Outcome:
@@ -170,6 +162,7 @@ def run(ctx: Ctx) -> Outcome:
     }
     judge = judge_for(ctx, rs)
     t = threshold(ctx, rs)
+    note_block = decision_of(ctx).note_block(judge).may_block
     engine = structured_engine(ctx, snapshot)
     results = evaluate_patients(
         rs,
@@ -180,6 +173,7 @@ def run(ctx: Ctx) -> Outcome:
         t,
         all_candidates=True,
         kinds=("inclusion", "exclusion", "renewal", "documentation"),
+        note_block=note_block,
     )
     check_judge(judge)
     if judge is not None:
@@ -193,8 +187,9 @@ def run(ctx: Ctx) -> Outcome:
     for r in scoped:
         cl = claims.get(r["pid"], {})
         name, missing = classify(
-            rs, results[r["pid"]], cl.get("active_end"), cl.get("last_application"), run_date, lead, lookback, t
-        )
+            rs, results[r["pid"]], cl.get("active_end"), cl.get("last_application"), run_date, lead, lookback, t,
+            note_block,
+        )  # fmt: skip
         if name is None:
             continue
         row = NavRow.model_validate(
@@ -217,7 +212,7 @@ def run(ctx: Ctx) -> Outcome:
     gone = opted_out_now(ctx, [r.pid for d in lists.values() for rows in d.values() for r in rows], "publish")
     if gone:
         lists = {d: {k: [r for r in v if r.pid not in gone] for k, v in sets.items()} for d, sets in lists.items()}
-    meta = report_meta(ctx, rs, snapshot, run_date, judging_info(judge))
+    meta = report_meta(ctx, rs, snapshot, run_date, judging_info(judge, ctx))
     all_rows = [row for d in lists.values() for name in ("likely_eligible", "renewal_due") for row in d[name]]
     mrns = pid_names(ctx, [r.pid for d in lists.values() for rows in d.values() for r in rows])
     names = practitioner_names(ctx)
@@ -331,7 +326,8 @@ def _draft(
     excl = [
         (
             by[v.id].label or by[v.id].text[:30],
-            {"pass": "無", "fail": "有", "unknown": "[待補]", "pending_human": "[待補]"}[v.verdict],
+            # D-478: one model's "present" is not written as present in a draft: it is left to fill in
+            {"pass": "無", "fail": "有", "unknown": "[待補]", "pending_human": "[待補]"}[shown_of(v)[0]],
         )
         for v in row.criteria
         if by[v.id].kind == "exclusion"

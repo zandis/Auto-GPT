@@ -1213,6 +1213,10 @@ class RebuildRequest(BaseModel):
     )
     snapshot: date_aliased
     ndjson_dir: str | None = None
+    promote: bool = True
+    """
+    false: build and judge the night, do not make it CURRENT yet (T-723, D-489: the publish promotes last, POST /promote)
+    """
 
 
 class RebuildResult(BaseModel):
@@ -1589,7 +1593,7 @@ class FeedCompleteness(BaseModel):
     """
     optional_tables: list[str] = []
     """
-    mapping tables that may be absent or empty on a night although the last good night had rows
+    mapping tables that may be absent or empty: on a night although the last good night had rows, and on the first night, when every other table of the mapping must be there with rows
     """
 
 
@@ -2205,6 +2209,14 @@ class ValidationSummary(BaseModel):
     error_pct: float
     validator: str
     messages: list[str] | None = None
+    sample_cap: int | None = None
+    """
+    T-693 (D-457): the most resources of one type the sample took; null: no cap
+    """
+    capped: dict[str, Any] | None = None
+    """
+    T-693 (D-457): the resource types the cap cut, with the number of their resources
+    """
 
 
 class Window(BaseModel):
@@ -2343,6 +2355,10 @@ class CriterionVerdict(BaseModel):
     id: str
     verdict: Literal["pass", "fail", "unknown", "pending_human"]
     evidence: Evidence | None = None
+    basis: Literal["coded", "pair", "single", "person"] | None = None
+    """
+    T-709 (D-478): what the answer rests on. coded: the patient's coded records; pair: two different models agreed; single: one model (or two clients of one model); person: a person decides or decided. Absent on an answer nobody gave (unknown) and on rows stored before the field.
+    """
     final: bool | None = None
     """
     T-707 (D-476): on a note answer that says not met. false: given while a note answer was not allowed to exclude (one model, no second model that agreed, a shut canary gate); it never excludes the patient, on this run or at a later re-tier. true: it was allowed to exclude. Absent on every other verdict; a stored note fail without it is from before the field and never excludes.
@@ -2998,7 +3014,7 @@ class RulesetManifest(BaseModel):
 
 class CandidateList(BaseModel):
     """
-    SPEC 3.6 candidate_list (tag phi). Schema version 1.3.0 (1.1.0: optional evidence.opinions, D-120; 1.2.0: optional evidence.coded, D-362; 1.3.0: optional criterion_verdict.final, D-476).
+    SPEC 3.6 candidate_list (tag phi). Schema version 1.4.0 (1.1.0: optional evidence.opinions, D-120; 1.2.0: optional evidence.coded, D-362; 1.3.0: optional criterion_verdict.final, D-476; 1.4.0: optional criterion_verdict.basis, D-478).
     """
 
     model_config = ConfigDict(

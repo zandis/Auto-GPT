@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from lake.client import LakeAPI
 from tb_common.audit import AuditLog, mask_detail
@@ -55,6 +55,9 @@ from orchestrator import i18n
 from orchestrator.clients import AdapterAPI, CompilerAPI, MailAPI, ParserAPI, StepFailed
 from orchestrator.db import TERMINAL, JobDB
 from orchestrator.jobs import guarded_services, max_restarts, pinned_services, release_hold
+
+if TYPE_CHECKING:
+    from orchestrator.decision_context import DecisionContext
 
 log = logging.getLogger("orchestrator")
 SYSTEM_SENDERS = ("scheduler", "system")
@@ -122,6 +125,17 @@ class Ctx:
         self.orch = orch
         self._job = job
         self._services: Services | None = None
+        self._decision: DecisionContext | None = None
+
+    @property
+    def decision(self) -> DecisionContext:
+        """What this job reads to decide (T-708, D-477): the pinned snapshot, the opt-out register, consent, the
+        ruleset and its pins, the note-block decision and the run date. One per job, beside the pinned lake."""
+        if self._decision is None:
+            from orchestrator.decision_context import DecisionContext
+
+            self._decision = DecisionContext(self)
+        return self._decision
 
     @property
     def job(self) -> Job:
@@ -225,6 +239,9 @@ class Ctx:
 
     def copy_object(self, key: str, filename: str, tag: str, recipients: list[str]) -> JobOutput:
         return self.publish(filename, self.store.get(key), tag, recipients)
+
+
+INGEST_ONLY = ("INGEST",)  # the job types the first worker takes when there are two or more (T-704, D-458)
 
 
 class Orchestrator:
@@ -642,8 +659,11 @@ class Orchestrator:
             self._notify.shutdown(wait=True)
 
     def _worker(self) -> None:
+        # T-704 (D-458; scale review F-33): with two or more workers the first is the ingest's: long jobs on every
+        # other worker never make the night's ingest wait
+        only = INGEST_ONLY if self.n_workers > 1 and threading.current_thread().name == "worker-0" else ()
         while not self._stop.is_set():
-            jid = self.db.claim()
+            jid = self.db.claim(only)
             if jid is None:
                 with self._wake:
                     self._wake.wait(timeout=2.0)

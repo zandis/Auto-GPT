@@ -175,20 +175,25 @@ def test_a_build_with_no_licence_file_is_refused_and_the_text_must_be_the_checke
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """T-617b: `qualify` refuses a weight folder with no licence file; a licence file that is not the text the
-    register row checked is refused too; the register's own text passes."""
+    register row checked is refused too; the register's own text passes. HW-004 (D-565): the judge's source has no
+    licence file, so its register row is checked and its folder is not."""
     builds = q.profile_builds("rtxpro6000")
     for role in ("judge", "verifier"):
         (tmp_path / role).mkdir()
     dirs = {"judge": tmp_path / "judge", "verifier": tmp_path / "verifier"}
     ctx = _ctx(_opts(profile="rtxpro6000", stub=False, model_dirs=dirs), tmp_path, builds)
     r = q.step_licence(ctx)
-    assert r.status == "failed" and r.reason.count("no licence file in the weight folder") == 2
+    assert r.status == "failed" and r.reason.count("no licence file in the weight folder") == 1
+    assert r.reason.startswith(f"{builds['verifier'].build_id}: no licence file in the weight folder")
+    assert r.detail["judge"]["file"] == q.NONE_IN_SOURCE_FILE
 
     (dirs["judge"] / "LICENSE").write_text("Apache License 2.0 text\n", encoding="utf-8")
     (dirs["verifier"] / "LICENSE").write_text("some other text\n", encoding="utf-8")
     r = q.step_licence(ctx)
     assert r.status == "failed" and "not the text checked in register row model-qwen3.5-9b-awq-4bit" in r.reason
-    assert "gemma" not in r.reason  # the Gemma row records no text hash: any licence file is accepted
+    # the judge's source has no licence file (D-565): its folder is not read by this step; a file put there is
+    # the pin's to refuse (the manifest is every visible file)
+    assert "gemma" not in r.reason
 
     sha = hashlib.sha256(b"some other text\n").hexdigest()
     rows = [
@@ -214,12 +219,109 @@ def test_a_weight_folder_without_a_licence_file_fails(tmp_path: Path, monkeypatc
     builds = q.profile_builds("rtxpro6000")  # both licences verified against docs/licences/register.csv
     (tmp_path / "j").mkdir()
     (tmp_path / "v").mkdir()
-    (tmp_path / "v" / "LICENSE").write_text("licence text\n", encoding="utf-8")
     dirs = {"judge": tmp_path / "j", "verifier": tmp_path / "v"}
     ctx = _ctx(_opts(profile="rtxpro6000", stub=False, model_dirs=dirs), tmp_path, builds)
     r = q.step_licence(ctx)
-    assert r.status == "failed" and r.reason.startswith(f"{builds['judge'].build_id}: no licence file in the weight")
-    assert r.detail["verifier"]["file"] == "LICENSE" and r.detail["judge"]["file"] is None
+    # the verifier's registry row names a licence file ({path, sha256}): a folder without one fails, as before
+    assert builds["verifier"].licence_file["path"] == "LICENSE"
+    assert r.status == "failed" and r.reason == f"{builds['verifier'].build_id}: no licence file in the weight folder"
+    assert r.detail["verifier"]["file"] is None
+    (tmp_path / "v" / "LICENSE").write_text("licence text\n", encoding="utf-8")
+    monkeypatch.setattr(licence_register, "load", lambda: [replace(x, raw={**x.raw, "text_sha256": ""}) for x in ROWS])
+    r = q.step_licence(ctx)
+    assert r.status == "passed" and r.detail["verifier"]["file"] == "LICENSE"
+
+
+ROWS = licence_register.load()
+
+
+def _judge_ctx(tmp_path: Path, with_dirs: bool = True) -> tuple[Any, dict[str, q.Build]]:
+    """The rtxpro6000 pair with the verifier's licence file in place: what is left is the judge's."""
+    builds = q.profile_builds("rtxpro6000")
+    root = tmp_path / "models"
+    dirs = {"judge": root / "gemma-folder", "verifier": root / "qwen-folder"}
+    for d in dirs.values():
+        d.mkdir(parents=True)
+    (dirs["verifier"] / "LICENSE").write_text("licence text\n", encoding="utf-8")
+    opts = _opts(profile="rtxpro6000", stub=False, model_dirs=dirs if with_dirs else {"verifier": dirs["verifier"]})
+    return _ctx(opts, tmp_path, builds), builds
+
+
+def _rows(**judge: str) -> list[Any]:
+    """The register without the verifier's text hash (its file here is a test's), the judge's row changed."""
+    out = []
+    for x in ROWS:
+        raw = {**x.raw, "text_sha256": ""} if x.id == "model-qwen3.5-9b-awq-4bit" else dict(x.raw)
+        if x.id == "model-gemma-4-26b-a4b-nvfp4":
+            raw.update(judge)
+        out.append(replace(x, raw=raw))
+    return out
+
+
+def test_hw004_a_source_with_no_licence_file_is_checked_against_its_register_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The judge's source repository holds no licence file and its expected manifest is every visible file of that
+    source: a licence file put into the folder breaks the pin. The step reads the register row, not the folder."""
+    monkeypatch.setattr(licence_register, "load", _rows)
+    ctx, builds = _judge_ctx(tmp_path)
+    assert builds["judge"].licence_file == "none-in-source"
+    r = q.step_licence(ctx)
+    assert r.status == "passed", r.reason
+    assert r.detail["judge"] == {
+        "name": builds["judge"].licence["name"], "verified": True, "register": "model-gemma-4-26b-a4b-nvfp4",
+        "file": "none in source (register row)", "text": None,
+    }  # fmt: skip
+    ctx, _ = _judge_ctx(tmp_path / "second", with_dirs=False)
+    r = q.step_licence(ctx)  # and no weight folder is needed to check this build's licence
+    assert r.status == "passed", r.reason
+
+
+@pytest.mark.parametrize(
+    ("change", "said"),
+    [
+        ({"version": "revision 0000000000000000000000000000000000000000"}, "does not name the build's revision"),
+        ({"evidence": "read on the publisher's page"}, "names no source URL"),
+        ({"status": "pending"}, "not cleared"),
+    ],
+)
+def test_hw004_the_register_row_must_be_cleared_and_name_the_revision_and_a_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change: dict[str, str], said: str
+) -> None:
+    rows = _rows(**change)
+    if "status" in change:
+        rows = [replace(x, status="pending") if x.id == "model-gemma-4-26b-a4b-nvfp4" else x for x in rows]
+    monkeypatch.setattr(licence_register, "load", lambda: rows)
+    ctx, builds = _judge_ctx(tmp_path)
+    r = q.step_licence(ctx)
+    assert r.status == "failed" and said in r.reason and builds["judge"].build_id in r.reason, r.reason
+
+
+def test_hw004_the_licence_text_rides_beside_the_weight_folder_and_must_be_the_checked_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Beside the folder, outside the manifest, as the chat template: <models root>/licences/<folder>/LICENSE."""
+    ctx, _ = _judge_ctx(tmp_path)
+    beside = tmp_path / "models" / "licences" / "gemma-folder"
+    beside.mkdir(parents=True)
+    (beside / "LICENSE").write_text("Apache License 2.0 text\n", encoding="utf-8")
+    sha = hashlib.sha256(b"Apache License 2.0 text\n").hexdigest()
+    monkeypatch.setattr(licence_register, "load", _rows)  # the committed row holds no text hash: recorded
+    r = q.step_licence(ctx)
+    assert r.status == "passed", r.reason
+    assert r.detail["judge"]["text"] == "licences/gemma-folder/LICENSE" and r.detail["judge"]["text_sha256"] == sha
+    assert not (tmp_path / "models" / "gemma-folder" / "LICENSE").exists()  # the weight folder stays as published
+    monkeypatch.setattr(licence_register, "load", lambda: _rows(text_sha256=sha))
+    assert q.step_licence(ctx).status == "passed"
+    monkeypatch.setattr(licence_register, "load", lambda: _rows(text_sha256="0" * 64))
+    r = q.step_licence(ctx)
+    assert r.status == "failed" and "is not the text checked in register row model-gemma-4-26b-a4b-nvfp4" in r.reason
+
+
+def test_hw004_the_register_and_the_decision_no_longer_send_the_text_into_the_weight_folder() -> None:
+    row = next(x for x in ROWS if x.id == "model-gemma-4-26b-a4b-nvfp4")
+    assert "in the weight folder" not in row.raw["evidence"] and "beside the weight folder" in row.raw["evidence"]
+    assert row.raw["version"].endswith(str(q.profile_builds("rtxpro6000")["judge"].revision))
 
 
 @pytest.mark.parametrize("context", [8192, 16384, 32768])
@@ -375,3 +477,80 @@ def test_the_trialbox_command_writes_a_stub_record(
     assert rc == 0 and out["status"] == "passed"
     doc = json.loads(Path(out["record"]).read_text(encoding="utf-8"))
     assert set(doc["steps"]) == {"pin", "serving_record"} and q.schema_problems(doc) == []
+
+
+# ------------------------------------------------------------------------- HW-004: the review of PR #355
+@pytest.mark.parametrize(
+    "version",
+    [
+        "NOT a19cfe00be84568a6867111c9a68c9c44fdcffe6; revision 1111111111111111111111111111111111111111",
+        "revision a19cfe00be84568a6867111c9a68c9c44fdcffe6ff",
+        "revision a19cfe0",
+    ],
+)
+def test_hw004_review_the_row_names_exactly_one_full_revision_and_it_is_the_builds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, version: str
+) -> None:
+    """MED-1: the revision was looked for as a substring of the row's version."""
+    monkeypatch.setattr(licence_register, "load", lambda: _rows(version=version))
+    ctx, _ = _judge_ctx(tmp_path)
+    r = q.step_licence(ctx)
+    assert r.status == "failed" and "does not name the build's revision" in r.reason
+
+
+def test_hw004_review_a_short_build_revision_never_matches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(licence_register, "load", _rows)
+    ctx, builds = _judge_ctx(tmp_path)
+    builds["judge"].revision = "a"
+    assert "does not name the build's revision" in q.step_licence(ctx).reason
+
+
+def test_hw004_review_an_empty_text_beside_the_folder_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MED-2: with no text hash in the row, an empty file was recorded as the licence text."""
+    monkeypatch.setattr(licence_register, "load", _rows)
+    ctx, _ = _judge_ctx(tmp_path)
+    beside = tmp_path / "models" / "licences" / "gemma-folder"
+    beside.mkdir(parents=True)
+    (beside / "LICENSE").write_text(" \n", encoding="utf-8")
+    r = q.step_licence(ctx)
+    assert r.status == "failed" and "the licence text beside the weight folder is empty" in r.reason
+
+
+def test_hw004_review_the_folder_is_resolved_and_a_cache_snapshot_has_no_beside(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """LOW: a link to the weight folder used the link's name. MED-3: beside a Hugging Face cache snapshot is the
+    `snapshots` folder, where a `licences` folder would be read as a snapshot (tools/serving_config.py)."""
+    monkeypatch.setattr(licence_register, "load", _rows)
+    ctx, _ = _judge_ctx(tmp_path)
+    beside = tmp_path / "models" / "licences" / "gemma-folder"
+    beside.mkdir(parents=True)
+    (beside / "LICENSE").write_text("Apache License 2.0 text\n", encoding="utf-8")
+    link = tmp_path / "link"
+    link.symlink_to(tmp_path / "models" / "gemma-folder")
+    ctx.opts.model_dirs["judge"] = link
+    r = q.step_licence(ctx)
+    assert r.status == "passed" and r.detail["judge"]["text"] == "licences/gemma-folder/LICENSE"
+
+    snap = tmp_path / "hub" / "models--x--y" / "snapshots" / "a19c"
+    snap.mkdir(parents=True)
+    (snap.parent / "licences" / "a19c").mkdir(parents=True)
+    (snap.parent / "licences" / "a19c" / "LICENSE").write_text("text\n", encoding="utf-8")
+    ctx.opts.model_dirs["judge"] = snap
+    r = q.step_licence(ctx)
+    assert r.status == "passed" and r.detail["judge"]["text"] is None  # not looked for there
+
+
+def test_hw004_review_the_detail_always_has_the_text_key_and_the_pages_say_where_the_text_goes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rows = [x for x in _rows() if x.id != "model-gemma-4-26b-a4b-nvfp4"]
+    monkeypatch.setattr(licence_register, "load", lambda: rows)
+    ctx, _ = _judge_ctx(tmp_path)
+    r = q.step_licence(ctx)
+    assert r.status == "failed" and r.detail["judge"]["text"] is None
+    page = (q.ROOT / "docs" / "runbook" / "11-qualify.md").read_text(encoding="utf-8")
+    assert "licences/<folder>/LICENSE" in page and "none-in-source" in page
+    assert "licences/<weight folder" in (q.__doc__ or "")

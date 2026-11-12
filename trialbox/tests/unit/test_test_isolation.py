@@ -81,7 +81,29 @@ def test_a_test_root_of_its_own_is_accepted() -> None:
 
 def test_branch_slug_is_one_short_path_segment() -> None:
     slug = pglocal.branch_slug()
-    assert slug and len(slug) <= 40 and re.fullmatch(r"[A-Za-z0-9._-]+", slug)
+    assert slug and len(slug) <= pglocal.SLUG_MAX and re.fullmatch(r"[A-Za-z0-9._-]+", slug)
+
+
+def test_the_slug_has_one_limit_and_a_long_branch_name_keeps_its_own_root() -> None:
+    """D-572: the tool cut at 60 and this file asserted 40, so the cross-card list failed on a developer's machine
+    for a branch name of 41 to 60 characters. One constant; a longer name keeps its start and a hash of the whole,
+    so two branches with the same first 40 characters do not share a test root."""
+    assert pglocal.SLUG_MAX == 40
+    assert pglocal.slug_of("agent/T-003-x") == "agent-T-003-x"  # as before
+    exact = "agent/" + "x" * 34
+    assert len(exact) == 40 and pglocal.slug_of(exact) == "agent-" + "x" * 34  # at the limit: unchanged
+    a = pglocal.slug_of("agent/OPS-004-real-installer-rehearsal-and-the-nightly-job-a")
+    b = pglocal.slug_of("agent/OPS-004-real-installer-rehearsal-and-the-nightly-job-b")
+    for slug in (a, b):
+        assert len(slug) <= pglocal.SLUG_MAX and re.fullmatch(r"[A-Za-z0-9._-]+", slug)
+        assert slug.startswith("agent-OPS-004-real-installer-r")
+    assert a != b and pglocal.slug_of("agent/OPS-004-real-installer-rehearsal-and-the-nightly-job-a") == a
+    assert pglocal.slug_of("") == "detached" and pglocal.slug_of("///") == "detached"
+    # a socket path under the default scratch folder stays inside the kernel's limit with the longest slug
+    path = f"/var/tmp/trialbox-65534/tb-tests-{'s' * pglocal.SLUG_MAX}/pg-gw99/run/.s.PGSQL.5432"
+    assert len(path) <= pglocal.SOCK_MAX < len(path.replace("s" * pglocal.SLUG_MAX, "s" * 60))  # 60 did not fit
+    text = Path(pglocal.__file__).read_text(encoding="utf-8")
+    assert "[:60]" not in text and "[:40]" not in text  # the number lives in the constant
 
 
 def test_random_order_and_the_shared_cache_are_off(pytestconfig: pytest.Config) -> None:
