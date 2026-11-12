@@ -54,7 +54,7 @@ from tb_contracts import (
 from orchestrator import i18n
 from orchestrator.clients import AdapterAPI, CompilerAPI, MailAPI, ParserAPI, StepFailed
 from orchestrator.db import TERMINAL, JobDB
-from orchestrator.jobs import guarded_services, pinned_services, release_hold
+from orchestrator.jobs import guarded_services, max_restarts, pinned_services, release_hold
 
 log = logging.getLogger("orchestrator")
 SYSTEM_SENDERS = ("scheduler", "system")
@@ -432,6 +432,7 @@ class Orchestrator:
         if job.state in ("received", "awaiting_approval"):  # not in a worker: fail now
             job = self.set_state(job, "failed", error=JobError(step="cancelled", message=f"Cancelled by {norm(by)}."))
             self._release_waiting(job)
+            self.db.answers_drop(job_id)
         return job
 
     def _release_waiting(self, job: Job) -> None:
@@ -498,6 +499,7 @@ class Orchestrator:
             job = self.set_state(job, "failed", error=err)
             self._failed_mail(job)
         if job.state in TERMINAL:
+            self.db.answers_drop(job_id)  # T-689 (D-456): the kept answers go with the job's end, in any state
             self._end_hold(ctx, job)
         return job
 
@@ -593,12 +595,38 @@ class Orchestrator:
 
     # ------------------------------------------------------------------ worker pool
     def start(self) -> None:
-        for jid in self.db.interrupted():  # restart recovery: re-run from the beginning (scenarios are idempotent)
+        self.db.answers_sweep()  # T-689 (D-456): kept answers live only as long as their job is unfinished
+        limit = max_restarts()
+        for jid in self.db.interrupted():  # restart recovery: run again from the start (scenarios are idempotent)
             job = self.db.get(jid)
-            if job is not None:
-                self.audit.append("job.requeued", job_id=jid, detail={"state": job.state})
-                self.set_state(job, "received")
-                self.db.enqueue(jid)
+            if job is None:
+                continue
+            # T-689 (D-456, review F-28): the restart is counted; the answers the job's models already gave are
+            # kept and replayed (orchestrator.jobs.KeptAnswers), so the run does not start its model work at zero
+            n = self.db.count_restart(jid)
+            kept = self.db.answer_count(jid)
+            if n > limit:
+                self.audit.append("job.requeued", job_id=jid, detail={"state": job.state, "restarts": n, "gave_up": 1})
+                job = self.set_state(
+                    job,
+                    "failed",
+                    error=JobError(
+                        step=job.state,
+                        message=f"This job was interrupted by a restart of the box {n} times and was not started "
+                        f"again (the limit is TB_JOB_MAX_RESTARTS = {limit}): the job itself may be what stops the "
+                        f"box. Nothing was sent. Check the box's memory and logs (RUNBOOK §4), then send the "
+                        f"request again.",
+                    ),
+                )
+                self._failed_mail(job)
+                self._release_waiting(job)
+                self.db.answers_drop(jid)
+                continue
+            self.audit.append(
+                "job.requeued", job_id=jid, detail={"state": job.state, "restarts": n, "kept_answers": kept}
+            )
+            self.set_state(job, "received")
+            self.db.enqueue(jid)
         for i in range(self.n_workers):
             t = threading.Thread(target=self._worker, name=f"worker-{i}", daemon=True)
             t.start()
