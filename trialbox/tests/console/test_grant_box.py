@@ -155,8 +155,8 @@ def test_a_store_that_cannot_be_read_gives_nothing(site: dict[str, Any], monkeyp
 
 
 def test_a_use_that_cannot_be_written_gives_no_number_and_no_reveal_line(
-    site: dict[str, Any],
-    monkeypatch: pytest.MonkeyPatch,  # noqa: F811
+    site: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Review M3: `screen.reveal` (found: true) was written before the grant's use. With the use-write failing the
     route answered 500, the console's client tried again, and the trail held two reveals of a number never given.
