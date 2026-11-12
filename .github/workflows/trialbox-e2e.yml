@@ -118,8 +118,6 @@ jobs:
       TB_SCALE_OUTAGE_S: "40"
       TB_SCALE_RESTART_AFTER: "900"
       TB_SCALE_RESTART_GAP_S: "30"
-      TB_SCALE_OUT: ${{ runner.temp }}/scale
-      TB_DATA_DIR: ${{ runner.temp }}/tb-data
       TB_HL7_VALIDATOR_JAR: ${{ github.workspace }}/trialbox/.cache/jvm/validator_cli.jar  # as `make jvm-deps` leaves it
       TB_FHIR_PACKAGE_HOME: ${{ github.workspace }}/trialbox/.cache/jvm/fhir-home
     steps:
@@ -152,6 +150,9 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
           df -h "$RUNNER_TEMP"
       - name: The scale gate at 50,000 patients (known failures are XFAIL with their card; a pass of one is red)
+        env:
+          TB_SCALE_OUT: ${{ runner.temp }}/scale
+          TB_DATA_DIR: ${{ runner.temp }}/tb-data
         run: |
           rc=0
           TB_ENV=DEV PYTHONPATH=libs:services:. .venv/bin/python -m pytest -q -n 0 -m perf -rxXs \
