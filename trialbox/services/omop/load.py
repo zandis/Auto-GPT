@@ -433,11 +433,17 @@ class _Builder:
         }
         if c["recorded"] != c["onset"]:
             out.extra["recorded"] = _iso(c["recorded"])
-        system = c["system"]
-        self._code(
-            out, "condition_source_value", system, c["code"], self._display(r.get("code"), c["code"]), "Condition"
-        )
-        out.row["_std"] = (system, c["code"])
+        system, code = c["system"], c["code"]
+        own = _own_coding(r.get("code"), code)
+        if own is not None:
+            # D-597: a mapped diagnosis (D-593). The source value and its concept are the hospital's own code; the
+            # standard concept is found through the mapped code, which the lake reads (kept in ``extra``, as the
+            # lake built from the feed reads the first coding)
+            self._code(out, "condition_source_value", own[0], own[1], self._display(r.get("code"), own[1]), "Condition")
+            out.extra["code"], out.extra["system"] = code, system
+        else:
+            self._code(out, "condition_source_value", system, code, self._display(r.get("code"), code), "Condition")
+        out.row["_std"] = (system, code)
         self._text(out, "condition_status_source_value", c["status"], "status")
         if c["eid"] is not None:
             out.refs["visit_occurrence_id"] = ("visit", c["eid"])
@@ -967,6 +973,17 @@ def _to_observation(r: Rec) -> None:
     if r.row:
         raise OmopError(f"{r.rtype} {r.srcid}: no OBSERVATION column for {sorted(r.row)}")
     r.row, r.table = row, "observation"
+
+
+def _own_coding(cc: dict[str, Any] | None, read: str | None) -> tuple[str | None, str] | None:
+    """``(system, code)`` of the hospital's own coding when the code the flattener read (``read``, the first
+    coding) is one a map gave (``userSelected: false``, D-593); None when the first coding is the hospital's own
+    or there is no other."""
+    codings = [c for c in (cc or {}).get("coding") or [] if c.get("code")]
+    if not codings or codings[0].get("code") != read or codings[0].get("userSelected") is not False:
+        return None
+    own = next((c for c in codings[1:] if c.get("userSelected") is not False), None)
+    return (own.get("system"), str(own["code"])) if own is not None else None
 
 
 def _concepts(r: Rec, concepts: Concepts) -> None:
