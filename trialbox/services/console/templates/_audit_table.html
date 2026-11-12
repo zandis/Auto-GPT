@@ -1,6 +1,7 @@
+{# T-211c (D-451): every event with its label in the page language; the code stays beside it (data-event). #}
 <div class="scroll" tabindex="0"><table data-testid="audit">
 <thead><tr><th scope="col">{{ t('col.time') }}</th><th scope="col">{{ t('col.event') }}</th><th scope="col">{{ t('col.actor') }}</th><th scope="col">{{ t('col.job') }}</th><th scope="col">{{ t('col.detail') }}</th><th scope="col">{{ t('col.hash') }}</th></tr></thead>
-<tbody>{% for r in rows %}<tr><td class="mono nowrap">{{ r.ts|local(19) }}</td><td class="mono">{{ r.event }}</td><td class="mono nowrap">{{ (r.actor or '–')|replace('console:', '') }}</td>
+<tbody>{% for r in rows %}<tr data-event="{{ r.event }}"><td class="mono nowrap">{{ r.ts|local(19) }}</td><td>{{ t_or('audit.ev.' + r.event, r.event) }} <span class="mono hint">{{ r.event }}</span></td><td class="mono nowrap">{{ (r.actor or '–')|replace('console:', '') }}</td>
 <td class="mono nowrap">{% if pilot and r.job_id %}<a href="/pilot/jobs/{{ r.job_id }}">{{ r.job_id[-8:] }}</a>{% else %}{{ (r.job_id or '–')[-8:] }}{% endif %}</td>
-<td data-src="audit">{% for k, v in r.detail.items() %}<span class="kv">{{ k }}={{ v|mask_ids }}</span> {% endfor %}</td><td class="mono nowrap" title="{{ r.hash }}">{{ (r.hash or '')[:8] }}</td></tr>{% endfor %}</tbody>
+<td data-src="audit">{% if r.ruleset %}<span class="kv">{{ t_or('audit.k.study', 'study') }}={{ r.ruleset }}</span> {% endif %}{% for k, v in r.detail.items() %}<span class="kv">{{ t_or('audit.k.' + k, k) }}={{ v|mask_ids }}</span> {% endfor %}</td><td class="mono nowrap" title="{{ r.hash }}">{{ (r.hash or '')[:8] }}</td></tr>{% endfor %}</tbody>
 </table></div>

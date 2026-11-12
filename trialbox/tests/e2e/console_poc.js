@@ -81,8 +81,9 @@ async function web(page, args, out) {
   await page.goto(args.base + "/jobs", { waitUntil: "load" });
   check((await page.locator(`tr[data-job='${out.job}']`).count()) === 1, "job in the job list");
   await shot(page, args, "03-jobs.png");
-  await page.goto(args.base + "/audit", { waitUntil: "load" });
-  check((await page.locator("[data-testid=audit]").innerText()).includes("console.request"), "audit shows console.request");
+  // T-211c (D-451): the site's audit trail is the privacy office's and the steward's; the job page keeps its own events
+  await page.goto(url, { waitUntil: "load" });
+  check((await page.locator("[data-testid=audit]").innerText()).includes("console.request"), "job audit shows console.request");
 }
 
 async function thread(page, args, out) {
