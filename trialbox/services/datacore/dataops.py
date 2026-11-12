@@ -63,7 +63,18 @@ DECISIONS = {"accept": PUBLISHED, "reject": REJECTED}
 EVENT_DECIDE = "dataops.decide"
 EVENT_STEP = "dataops.step"
 # what a batch row keeps from the night's audit detail (tables and counts only, never a row)
-DETAIL_KEYS = ("gate", "incomplete", "orphans", "quarantined", "duplicate_keys", "unmapped", "error", "step", "table", "publish")
+DETAIL_KEYS = (
+    "gate",
+    "incomplete",
+    "orphans",
+    "quarantined",
+    "duplicate_keys",
+    "unmapped",
+    "error",
+    "step",
+    "table",
+    "publish",
+)
 NOTE_KEYS = ("step", "publish")  # what a running night writes into its row (T-723): step names and states only
 INTERRUPTED = "interrupted: the run ended without a result; a later run of this night started"
 #: T-723 review (HIGH-2): a held night whose accept was recorded and whose publish has started. It stays HELD in the
