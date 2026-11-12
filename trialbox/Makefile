@@ -18,7 +18,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked test-random test-random-locked test-pure test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
+.PHONY: security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
 	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle supply-chain release-version release-tag
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
@@ -130,6 +130,15 @@ test-locked:
 	rm -rf "$(TB_TEST_ROOT)/tmp"; PYTHONPATH=libs:services:. $(PY) -m tools.pglocal stop-idle "$(TB_TEST_ROOT)/pglocal"; \
 	if [ $$rc = 0 ]; then rm -rf "$(TB_TEST_ROOT)/pytest"; fi; exit $$rc
 
+# the property gate (TB-PLAN-06 §7.5, T-737): the safety properties over their enumerated domains, the hypothesis
+# properties of the unit tests (named *_property; they skip with a reason when hypothesis is not installed, and say so
+# below), and tests/property/ when the folder exists. The example counts are the ones the tests set themselves.
+PROPERTY_TESTS = tests/unit/test_safety_properties.py tests/unit/test_dates.py tests/unit/test_encoding.py tests/unit/test_labvalue.py \
+	$(wildcard tests/property)
+property: venv-check
+	@PYTHONPATH=libs:services:. $(PY) -c "import hypothesis" 2>/dev/null || echo "property: WARNING hypothesis is not installed: its tests skip (T-737, D-463)" >&2
+	TB_ENV=DEV TB_TZ=Asia/Taipei PYTHONPATH=libs:services:. $(PY) -m pytest -q -n 0 -rs -k "property or test_safety_properties" $(PROPERTY_TESTS)
+
 # the pure tests alone (ENG-028, T-653): the tests marked nodb (tests/conftest.py PURE_MODULES), with no PostgreSQL
 # at all: TB_PG_BIN points nowhere and TB_TEST_DB_URL is unset, so a test that needs a database fails at once
 test-pure: venv-check
@@ -164,6 +173,7 @@ ci: venv-check
 	@mkdir -p "$(TB_TEST_ROOT)"
 	set -o pipefail; $(MAKE) test 2>&1 | tee "$(CI_LOG)"
 	$(PY) -m tools.data_scan --log "$(CI_LOG)"
+	$(MAKE) property
 	$(MAKE) e2e-simple
 	$(MAKE) goldens-check
 	$(MAKE) data-scan

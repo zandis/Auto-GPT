@@ -81,13 +81,15 @@ also checks that `/invocations` and `/tokenize` refuse a call without the key.
 **The model key** (D-177, D-437). `trialbox secrets init` (run by the installer) writes the key to
 `deploy/secrets/model/llm.key` (0600), taking the `TB_LLM_API_KEY` that `install.sh` or an older box put in
 `deploy/.env`. The secrets overlay gives the file to the gateway and model-guard only, as a compose secret
-(`TB_LLM_API_KEY_FILE`), and clears `TB_LLM_API_KEY` in every container. Compose still gives the vLLM servers the copy
-in `deploy/.env` as `VLLM_API_KEY`; `trialbox secrets` keeps that copy equal to the file. Only the gateway sends the
+(`TB_LLM_API_KEY_FILE`), and clears `TB_LLM_API_KEY` in every container. The vLLM servers read their own env file
+`deploy/secrets/model/vllm.env` (`VLLM_API_KEY`), which `trialbox secrets` writes with the key file (D-450); the copy
+in `deploy/.env` reaches no container under the overlay and is kept equal to the file. Only the gateway sends the
 key (`models/routing.yaml`, endpoints `serving` and `verifier`). After the stack starts, the installer runs `trialbox doctor
 --serving` on the model network and stops when a server is down, refuses the key, does not serve a pinned name, or
 answers without the key in PRODUCTION. An update (`trialbox update`) makes the key on a GPU box that has none and runs
-the same check after the restart; a FAIL rolls the update back; on a box with per-service tokens it also makes the key
-file from `deploy/.env` when it is missing. To change the key: `trialbox secrets rotate --service model` (the old key
+the same check after the restart (reading the key file); a FAIL rolls the update back; on a GPU box or one with
+per-service tokens it also makes the key file and `vllm.env` from `deploy/.env` when they are missing. The rehearsal's
+`missing-key` drill empties the key file, not `deploy/.env`, because that is what the gateway reads. To change the key: `trialbox secrets rotate --service model` (the old key
 is refused from then on). Do not change the key in `deploy/.env` by hand: the gateway and model-guard read the file.
 
 **The box form** (T-729, D-466; developer note: the owner's set-up page is T-735's). A box (a GPU workstation or a

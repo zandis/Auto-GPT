@@ -12,6 +12,10 @@ Layout under ``<lake_dir>``::
     FEED                                     the lake has held a hospital feed: an empty rebuild is refused (D-271)
     db/<snapshot>.duckdb.siteonly            the snapshot was built from the site's own inputs only (D-271)
     holds/<holder>.json                      a running job reads this snapshot: never rebuilt or pruned (T-305b)
+    .rebuild.lock                            ``flock``: hold, release, pruning and a rebuild's start and swap (D-462)
+    locks/<snapshot>.build.lock              ``flock`` held by the one rebuild of the snapshot that runs (D-462)
+    db/<snapshot>.building, parquet/.building/snapshot=<snapshot>/   a build in progress, swapped in when done
+    db/.open/<inode>-<mtime>-<size>/<snapshot>.duckdb   a hard link per file identity that readers open (D-462)
 
 Dataflow review P0 (D-149): the embeddings live only in ``embed_cache.duckdb`` and are read by chunk sha at query
 time; a snapshot file holds the chunk text, its tokens for BM25 and its sha. Before, every snapshot carried its own
@@ -24,6 +28,7 @@ with a plain message (WS-03.1), instead of failing later on a missing column.
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import hashlib
 import json
 import logging
@@ -32,6 +37,7 @@ import re
 import shutil
 import threading
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -102,9 +108,33 @@ class RebuildError(RuntimeError):
     feed in the store of record); the previous ``CURRENT`` stays."""
 
 
-class SnapshotHeld(RebuildError):
+#: the lake service's 409 for :class:`LakeBusy` carries this header (``held`` or ``building``), D-462
+BUSY_HEADER = "X-TB-Lake-Busy"
+
+
+class LakeBusy(RebuildError):
+    """The snapshot cannot be rebuilt now, through no fault of its data (D-462): a running job holds it, or another
+    rebuild of it runs. Nothing is written; the caller tries again later (the site publish waits, the adapter's night
+    ends "lake busy" and is run again). Never a refusal of the night's data. The service answers 409 with the header
+    ``X-TB-Lake-Busy`` (``held`` or ``building``)."""
+
+    reason = "busy"
+
+
+class SnapshotHeld(LakeBusy):
     """A rebuild of a snapshot that a running job holds (T-305b, D-403, FR-REP-02): the job reads it to its end, so
-    its bytes may not change under it. Nothing is written; the publish waits for the job (``sitesetup`` batches it)."""
+    its bytes may not change under it. Nothing is written; the publish waits for the job (``sitesetup`` batches it).
+    Checked when the rebuild starts and again, under the lake lock, at the swap (D-462): a hold taken during the
+    build makes the build be discarded, the held bytes stay."""
+
+    reason = "held"
+
+
+class SnapshotBuilding(LakeBusy):
+    """Another rebuild of the same snapshot is running (D-462): never two writers of ``<snapshot>.building``. Nothing
+    is written; the caller shows "already building" (the site publish waits, T-690 polls)."""
+
+    reason = "building"
 
 
 #: a hold older than this is a job that died without releasing it; it no longer protects its snapshot (D-403)
@@ -114,6 +144,103 @@ _HOLDER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 
 def _holds_dir(lake_dir: Path) -> Path:
     return lake_dir / "holds"
+
+
+@contextlib.contextmanager
+def lake_lock(lake_dir: Path) -> Iterator[None]:
+    """The lake's one lock (D-462): an exclusive ``flock`` on ``<lake_dir>/.rebuild.lock``, so it holds across the
+    lake's worker processes, the adapter and the tools sharing the folder; a killed holder releases it. ``hold``,
+    ``release``, the adapter's pruning and a rebuild's start and swap take it, each for a short step only."""
+    lake_dir.mkdir(parents=True, exist_ok=True)
+    with (lake_dir / ".rebuild.lock").open("a") as fh:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
+@contextlib.contextmanager
+def building(lake_dir: Path, snapshot: str) -> Iterator[None]:
+    """The one rebuild of ``snapshot`` that runs (D-462): an exclusive ``flock`` on ``locks/<snapshot>.build.lock``
+    held for the whole build and taken without waiting; a second rebuild of the snapshot gets
+    :class:`SnapshotBuilding`. The file is never deleted: a deleted file would let a second holder in (the pruning
+    takes this lock too, without waiting, and leaves a snapshot that is building alone)."""
+    locks = lake_dir / "locks"
+    locks.mkdir(parents=True, exist_ok=True)
+    with (locks / f"{snapshot}.build.lock").open("a") as fh:
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise SnapshotBuilding(
+                f"lake snapshot {snapshot} is already building (another rebuild of it runs); nothing built, "
+                "CURRENT unchanged"
+            ) from None
+        try:
+            yield
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
+def _open_dir(lake_dir: Path) -> Path:
+    return lake_dir / "db" / ".open"
+
+
+def reader_path(db: Path) -> Path:
+    """The path a reader opens for the snapshot file ``db`` (D-462): a hard link named after the file's identity.
+
+    DuckDB keeps one open copy of a file per path in a process; while any connection to it is open, a new connection
+    to the same path after the file was replaced still reads the old bytes. A link per identity gives replaced bytes a
+    new path, so a reader that comes after a swap never gets the old copy. The link keeps the snapshot's name (the
+    database name inside DuckDB). A file system without hard links falls back to ``db`` itself."""
+    for _ in range(3):  # the file can be replaced between the stat and the link: then look again
+        st = db.stat()
+        link = _open_dir(db.parent.parent) / f"{st.st_ino}-{st.st_mtime_ns}-{st.st_size}" / db.name
+        try:
+            if link.stat().st_ino == st.st_ino:
+                return link
+        except FileNotFoundError:
+            pass
+        try:
+            link.parent.mkdir(parents=True, exist_ok=True)
+            tmp = link.with_name(f".{db.name}.{os.getpid()}.{threading.get_ident()}")
+            tmp.unlink(missing_ok=True)
+            os.link(db, tmp)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:  # no hard links here: the old behaviour
+            log.warning("lake: no reader link for %s (%s); readers open the file itself", db.name, exc)
+            return db
+        if tmp.stat().st_ino != st.st_ino:
+            tmp.unlink(missing_ok=True)
+            continue
+        tmp.replace(link)
+        return link
+    return db
+
+
+def drop_reader_links(lake_dir: Path, snapshot: str) -> int:
+    """Remove the reader links of ``snapshot`` that no longer name its file (after a swap, or every one after a prune;
+    call under :func:`lake_lock`). An open reader keeps its own copy; the old bytes are freed when it closes."""
+    db = lake_dir / "db" / f"{snapshot}.duckdb"
+    try:
+        keep = db.stat().st_ino
+    except FileNotFoundError:
+        keep = -1
+    n = 0
+    for link in _open_dir(lake_dir).glob(f"*/{snapshot}.duckdb"):
+        with contextlib.suppress(FileNotFoundError):
+            if link.stat().st_ino != keep:
+                link.unlink()
+                n += 1
+                with contextlib.suppress(OSError):
+                    link.parent.rmdir()
+    return n
+
+
+def _is_held(lake_dir: Path, snapshot: str) -> bool:
+    """A built snapshot a running job holds (call under :func:`lake_lock`)."""
+    return (lake_dir / "db" / f"{snapshot}.duckdb").exists() and snapshot in held_snapshots(lake_dir).values()
 
 
 def held_snapshots(lake_dir: Path, now: float | None = None) -> dict[str, str]:
@@ -245,9 +372,10 @@ def _file_sha(path: Path) -> str:
     return h.hexdigest()
 
 
-def write_sidecar(path: Path) -> str:
-    """``<file>.sha256`` in the ``sha256sum`` format, written atomically; returns the hash."""
-    digest = _file_sha(path)
+def write_sidecar(path: Path, digest: str | None = None) -> str:
+    """``<file>.sha256`` in the ``sha256sum`` format, written atomically; returns the hash (``digest`` when the caller
+    hashed the same bytes already)."""
+    digest = digest or _file_sha(path)
     side = path.with_name(path.name + ".sha256")
     tmp = side.with_name(side.name + ".tmp")
     tmp.write_text(f"{digest}  {path.name}\n", encoding="utf-8")
@@ -379,20 +507,22 @@ class Lake:
         (:class:`SnapshotHeld`) nor pruned meanwhile. Holding again refreshes the hold's time."""
         if not _HOLDER.match(holder):
             raise ValueError(f"lake hold: {holder!r} is not a job id")
-        self.db_path(snapshot)
-        d = _holds_dir(self.dir)
-        d.mkdir(parents=True, exist_ok=True)
-        tmp = d / f".{holder}.tmp"
-        tmp.write_text(json.dumps({"snapshot": snapshot, "holder": holder, "at": time.time()}), encoding="utf-8")
-        tmp.replace(d / f"{holder}.json")
+        with lake_lock(self.dir):  # D-462: never between a rebuild's last hold check and its swap
+            self.db_path(snapshot)
+            d = _holds_dir(self.dir)
+            d.mkdir(parents=True, exist_ok=True)
+            tmp = d / f".{holder}.tmp"
+            tmp.write_text(json.dumps({"snapshot": snapshot, "holder": holder, "at": time.time()}), encoding="utf-8")
+            tmp.replace(d / f"{holder}.json")
 
     def release(self, holder: str) -> bool:
         """End ``holder``'s hold; False when it held nothing."""
         if not _HOLDER.match(holder):
             return False
         p = _holds_dir(self.dir) / f"{holder}.json"
-        existed = p.exists()
-        p.unlink(missing_ok=True)
+        with lake_lock(self.dir):
+            existed = p.exists()
+            p.unlink(missing_ok=True)
         return existed
 
     def holds(self) -> dict[str, str]:
@@ -424,6 +554,8 @@ class Lake:
         snap = path.stem
         problems = [p for p in [check_sidecar(path)] if p]
         pdir = self.dir / "parquet" / f"snapshot={snap}"
+        if not any(pdir.glob("*.parquet")):  # D-462: a swap cut short leaves no folder; that is not "all match"
+            problems.append(f"parquet/snapshot={snap}: missing or empty")
         for f in sorted(pdir.glob("*.parquet")):
             if (why := check_sidecar(f)) is not None:
                 problems.append(why)
@@ -507,14 +639,33 @@ class Lake:
 
         Once the lake has held a hospital feed (``fed``), a missing NDJSON folder, or one without a single record, is
         refused (``RebuildError``) before anything is written, unless ``allow_empty``. A lake that never had a feed
-        (the practice site, a box before its first night) is built from the site's own inputs alone."""
+        (the practice site, a box before its first night) is built from the site's own inputs alone.
+
+        D-462: one rebuild of a snapshot at a time (:class:`SnapshotBuilding`); the build is written beside the served
+        files and swapped in under :func:`lake_lock` after the holds are read again: a snapshot a job came to hold
+        during the build is refused there (:class:`SnapshotHeld`) and its bytes stay as the job pinned them."""
+        with building(self.dir, snapshot):
+            return self._rebuild(snapshot, embedder, ndjson_dir, promote, allow_empty)
+
+    def _rebuild(
+        self, snapshot: str, embedder: Embedder, ndjson_dir: Path | None, promote: bool, allow_empty: bool
+    ) -> RebuildStats:
         t0 = time.perf_counter()
+        db_path = self.dir / "db" / f"{snapshot}.duckdb"
+        tmp = db_path.with_suffix(".building")
+        stage = self.dir / "parquet" / ".building" / f"snapshot={snapshot}"  # D-462: beside the served Parquet
+        old = stage.with_name(f"snapshot={snapshot}.old")
+        # leftovers of a rebuild of this snapshot that was killed (this one holds its build lock: nobody else writes)
+        tmp.unlink(missing_ok=True)
+        shutil.rmtree(stage, ignore_errors=True)
+        shutil.rmtree(old, ignore_errors=True)
         # T-305b (D-403, FR-REP-02): a built snapshot a running job holds is never rebuilt under it
-        if (self.dir / "db" / f"{snapshot}.duckdb").exists() and snapshot in held_snapshots(self.dir).values():
-            raise SnapshotHeld(
-                f"lake snapshot {snapshot} is being read by a running job; it is not rebuilt until the job ends "
-                "(nothing built, CURRENT unchanged)"
-            )
+        with lake_lock(self.dir):
+            if _is_held(self.dir, snapshot):
+                raise SnapshotHeld(
+                    f"lake snapshot {snapshot} is being read by a running job; it is not rebuilt until the job ends "
+                    "(nothing built, CURRENT unchanged)"
+                )
         cur = self.current()
         if promote and cur is not None and snapshot < cur:
             log.warning("lake snapshot %s is older than CURRENT %s: built, not promoted (DATA-007)", snapshot, cur)
@@ -534,12 +685,59 @@ class Lake:
             )
         if promote and not allow_empty:  # only a snapshot that replaces CURRENT is compared with it
             self._check_drop(snapshot, have)
-        siteonly = self.dir / "db" / f"{snapshot}.duckdb.siteonly"
-        if have:
-            (self.dir / "FEED").write_text(snapshot + "\n", encoding="utf-8")
-            siteonly.unlink(missing_ok=True)
-        else:
-            siteonly.write_text("built from the site's own inputs only\n", encoding="utf-8")
+        try:
+            counts, n_chunks, new = self._build(snapshot, embedder, src, by_type, stage, tmp)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            shutil.rmtree(stage, ignore_errors=True)
+            raise
+        digest = _file_sha(tmp)
+        with lake_lock(self.dir):  # D-462: the swap; no hold can land between this check and the rename
+            if _is_held(self.dir, snapshot):
+                tmp.unlink(missing_ok=True)
+                shutil.rmtree(stage, ignore_errors=True)
+                raise SnapshotHeld(
+                    f"lake snapshot {snapshot} came to be read by a running job while it was rebuilt; the new build "
+                    "is discarded and the snapshot is not rebuilt until the job ends (CURRENT unchanged)"
+                )
+            pdir = self.dir / "parquet" / f"snapshot={snapshot}"
+            if pdir.exists():
+                pdir.rename(old)
+            stage.rename(pdir)
+            shutil.rmtree(old, ignore_errors=True)
+            tmp.replace(db_path)
+            write_sidecar(db_path, digest)  # hashed before the lock: holds and releases never wait for a hash
+            drop_reader_links(self.dir, snapshot)
+            rec = self.dir / "db" / f"{snapshot}.duckdb.source"  # pruned with the snapshot (``<snap>.duckdb*``)
+            if src.is_dir() and src.resolve() != (self.dir / "ndjson" / snapshot).resolve():
+                rec.write_text(str(src.resolve()) + "\n", encoding="utf-8")
+            else:
+                rec.unlink(missing_ok=True)
+            siteonly = self.dir / "db" / f"{snapshot}.duckdb.siteonly"
+            if have:
+                (self.dir / "FEED").write_text(snapshot + "\n", encoding="utf-8")
+                siteonly.unlink(missing_ok=True)
+            else:
+                siteonly.write_text("built from the site's own inputs only\n", encoding="utf-8")
+            cur = self.current()  # another night may have been promoted during the build (DATA-007)
+            if promote and cur is not None and snapshot < cur:
+                log.warning("lake snapshot %s is older than CURRENT %s: built, not promoted (DATA-007)", snapshot, cur)
+                promote = False
+            if promote:
+                self.promote(snapshot)
+        return RebuildStats(snapshot, counts, n_chunks, new, round(time.perf_counter() - t0, 2), promote)
+
+    def _build(
+        self,
+        snapshot: str,
+        embedder: Embedder,
+        src: Path,
+        by_type: dict[str, list[dict[str, Any]]],
+        pdir: Path,
+        tmp: Path,
+    ) -> tuple[dict[str, int], int, int]:
+        """The build itself, into ``pdir`` (the staging Parquet folder) and ``tmp`` (``<snapshot>.building``): nothing
+        a reader sees is touched here."""
         # D-135: the site's own inputs (sheets, dumps, charts; ``put_site``) join every snapshot built here
         site: dict[str, list[dict[str, Any]]] = {}
         for f in sorted((self.dir / "site").glob("*.ndjson")):
@@ -550,7 +748,6 @@ class Lake:
         by_type.clear()  # the flat rows replace the resources; free them before the embedding pass
         site.clear()
         counts = {name: len(rows[name]) for name in SCHEMAS}
-        pdir = self.dir / "parquet" / f"snapshot={snapshot}"
         pdir.mkdir(parents=True, exist_ok=True)
         for name, cols in SCHEMAS.items():
             schema = pa.schema([(c, _ARROW[t]) for c, t in cols])
@@ -577,8 +774,6 @@ class Lake:
                     }
                 )
         new = self._embed(chunk_rows, embedder)
-        db_path = self.dir / "db" / f"{snapshot}.duckdb"
-        tmp = db_path.with_suffix(".building")
         tmp.unlink(missing_ok=True)
         con = duckdb.connect(str(tmp))
         try:
@@ -620,18 +815,7 @@ class Lake:
             con.close()
         for f in sorted(pdir.glob("*.parquet")):
             write_sidecar(f)
-        digest = _file_sha(tmp)
-        tmp.replace(db_path)
-        if write_sidecar(db_path) != digest:  # the rename is atomic; this guards a disk that lies
-            raise RuntimeError(f"lake snapshot {snapshot}: the file changed while it was being written")
-        rec = self.dir / "db" / f"{snapshot}.duckdb.source"  # pruned with the snapshot (``<snap>.duckdb*``)
-        if src.is_dir() and src.resolve() != (self.dir / "ndjson" / snapshot).resolve():
-            rec.write_text(str(src.resolve()) + "\n", encoding="utf-8")
-        else:
-            rec.unlink(missing_ok=True)
-        if promote:
-            self.promote(snapshot)
-        return RebuildStats(snapshot, counts, len(chunk_rows), new, round(time.perf_counter() - t0, 2), promote)
+        return counts, len(chunk_rows), new
 
     def _cache(self, read_only: bool) -> duckdb.DuckDBPyConnection:
         """A connection to the vector store; another process holding the write lock is waited for (up to 30 s)."""
@@ -727,7 +911,14 @@ class Lake:
         # DuckDB shares one database instance per file inside a process: a concurrent connection finds the
         # instance already hardened (FTS loaded, external access off, configuration locked) and must not re-set it.
         with _CONNECT_LOCK:
-            con = duckdb.connect(str(self.db_path(snapshot)), read_only=True)
+            for attempt in range(3):
+                path = reader_path(self.db_path(snapshot))  # D-462: replaced bytes are never a cached copy
+                try:
+                    con = duckdb.connect(str(path), read_only=True)
+                    break
+                except duckdb.IOException:
+                    if path.exists() or attempt == 2:  # a link removed by a swap meanwhile: look again
+                        raise
             row = con.execute("SELECT current_setting('lock_configuration')").fetchone()
             if not (row and row[0]):
                 con.execute(f"LOAD '{fts_extension_path()}'")

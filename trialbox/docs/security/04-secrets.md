@@ -3,7 +3,8 @@
 | Secret | Where | Protection |
 | --- | --- | --- |
 | service tokens, operator token | `deploy/secrets/services/` | 0600, one per service, mounted into that service only; rotated with `trialbox secrets rotate` |
-| database, mail and cloud passwords | `deploy/.env` | 0600, root; cleared in the containers that do not need them |
+| database, mail and cloud passwords, KEK passphrase or KMS token | `deploy/.env` | 0600, root; cleared in the containers that do not need them; `tests/unit/test_compose_secret_reach.py` renders every compose file set and fails when one reaches a service off its list (D-450) |
+| model key | `deploy/secrets/model/llm.key` (gateway, model-guard: a compose secret) and `vllm.env` (the vLLM servers' env file) | 0600; rotated with `trialbox secrets rotate --service model` (D-437, D-450) |
 | `site_hmac.key` (pseudonyms), `pid_map.key` (AES-GCM key of the pid map) | volume `tb-secrets` | 0600 until sealed; at install `deploy/hardening/seal_keys.sh` wraps them under the KEK (`<name>.wrapped`, D-347), see below |
 | backup public key | `deploy/secrets/backup.pub` | the private key is on a USB stick with hospital IT, never on the box |
 | vendor update key | `deploy/keys/vendor_ed25519.pub` | public key only |

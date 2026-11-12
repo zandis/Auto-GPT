@@ -4,7 +4,7 @@
   COHORT's ``n_contactable``; an opt-out the office typed is never lifted by the feed.
 * One tick clears every store it knows: the candidate pool, open candidates (withdrawn; consented and enrolled
   kept, OD-8), OMOP (tombstoned with the reason ``opted out``, kept out of later loads, back only after a lift and a
-  new load). A failing store does not hold up the others; a later card adds a store with ``register_store``.
+  new load). A failing store does not hold up the others; the stores are the erasure registry's clears (T-727).
 * After an opt-out (typed, or the registry's refusal) and one tick, no screening path lists the patient: SCREEN and
   MICROBATCH (``drop_opted_out``), NAV, CASE.
 """
@@ -63,6 +63,9 @@ class Jobs:
         gone = {k for k in self.pool if k[1] in pids}
         self.pool -= gone
         return len(gone)
+
+    def pool_count(self, pids: list[str]) -> int:
+        return sum(1 for k in self.pool if k[1] in pids)
 
     def candidate_summaries(self) -> list[dict[str, Any]]:
         return [{"ruleset": rs} for rs, _ in self.cands]
@@ -151,31 +154,72 @@ def test_one_tick_clears_the_pool_and_withdraws_open_candidates(db_url: str) -> 
     reg.close()
 
 
+def _broken(pids: frozenset[str], env: Any) -> dict[str, int]:
+    raise RuntimeError("store down")
+
+
+def _later(pids: frozenset[str], env: Any) -> dict[str, int]:
+    return {"cleared": len(pids)}
+
+
+def _nothing_left(pids: frozenset[str], env: Any) -> dict[str, int]:
+    return {"x.t": 0}
+
+
+def _one_left(pids: frozenset[str], env: Any) -> dict[str, int]:
+    return {"x.t": 1}
+
+
+def _with_clears(monkeypatch: pytest.MonkeyPatch, *extra: Any) -> None:
+    """The registry's clears plus ``extra`` (T-727: the worker runs what the erasure registry names)."""
+    from tb_common import erasure
+
+    real = erasure.clears
+    monkeypatch.setattr(erasure, "clears", lambda: sorted([*real(), *extra], key=lambda c: c.name))
+
+
 def test_a_failing_store_does_not_stop_the_others_and_a_store_can_be_added(
     db_url: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from datacore import optout_worker as w
+    from tb_common.erasure import Clear
 
-    seen: list[frozenset[str]] = []
-
-    def broken(pids: frozenset[str], env: Any) -> dict[str, int]:
-        raise RuntimeError("store down")
-
-    def later(pids: frozenset[str], env: Any) -> dict[str, int]:
-        seen.append(pids)
-        return {"cleared": len(pids)}
-
-    monkeypatch.setattr(w, "STORES", dict(w.STORES))
-    w.register_store(w.Store("aaa_broken", broken))
-    w.register_store(w.Store("vectors", later, "T-206b"))
+    me = "tests.unit.test_optout_worker"
+    _with_clears(monkeypatch, Clear("aaa_broken", f"{me}:_broken", f"{me}:_nothing_left", ""),
+                 Clear("vectors", f"{me}:_later", f"{me}:_nothing_left", "T-206b"))  # fmt: skip
     reg = OptOutRegister()
     reg.add(A, "paper", "", "console:office1", T0)
     jobs = Jobs()
     out = w.run_once(_env(reg, jobs=jobs, lake=Lake(None)))
     assert out["failed"] == ["aaa_broken"] and out["registry"] is None
-    assert out["stores"]["vectors"] == {"cleared": 1} and seen == [frozenset({A})]
+    assert out["stores"]["vectors"] == {"cleared": 1}  # the opted-out patient reached the added store
     assert ("GZQO", A) not in jobs.pool  # the stores after the broken one still ran
+    assert out["stores"]["vec"] == {"skipped": 1} and out["stores"]["profile"] == {"skipped": 1}  # no store here
     reg.close()
+
+
+def test_a_store_that_still_holds_the_patient_after_its_clear_fails_the_tick(
+    db_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T-727: every clear is read back; a row left is never reported as erased: it is named in ``failed``, audited
+    (counts only) and the health line turns red."""
+    from datacore import optout_worker as w
+    from tb_common import metrics
+    from tb_common.erasure import Clear
+
+    me = "tests.unit.test_optout_worker"
+    _with_clears(monkeypatch, Clear("leaky", f"{me}:_later", f"{me}:_one_left", ""))
+    monkeypatch.setattr(w, "OptOutRegister", OptOutRegister)
+    OptOutRegister().add(A, "paper", "", "console:office1", T0)
+    audit = Audit()
+    orch = SimpleNamespace(cfg=SimpleNamespace(env=SimpleNamespace(tz="Asia/Taipei")), audit=audit,
+                           services=SimpleNamespace(lake=None), db=Jobs())  # fmt: skip
+    monkeypatch.setattr(w, "STATUS", {"every": 5, "started": NOW.isoformat(), "ok_at": None, "failed": []})
+    out = w.tick(orch)
+    assert out is not None and out["failed"] == ["leaky"] and out["left"] == {"leaky": {"x.t": 1}}
+    assert ("optout.worker_failed", {"actor": w.ACTOR, "detail": {"failed": ["leaky"]}}) in audit.events
+    assert A not in repr(audit.events)
+    assert metrics.check_optout(w.status(), NOW).level == metrics.RED
 
 
 def test_the_registry_failing_still_clears_by_the_register(db_url: str) -> None:

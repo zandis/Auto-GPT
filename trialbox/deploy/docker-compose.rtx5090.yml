@@ -47,13 +47,16 @@ x-vllm-5090: &vllm5090
     options: {max-size: "${TB_LOG_MAX_SIZE:-100m}", max-file: "${TB_LOG_MAX_FILE:-10}"}  # D-389
   profiles: [gpu]
   image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34}
+  # D-177 / D-450: VLLM_API_KEY from the vLLM servers' own env file (`trialbox secrets` writes it with
+  # secrets/model/llm.key); vLLM checks it on /v1 only, model-guard on every call. Never from deploy/.env. A box
+  # without the file runs the server open behind model-guard, and doctor --serving (install, update) FAILs it.
+  env_file: [{path: ./secrets/model/vllm.env, required: false}]
   environment:
     HF_HUB_OFFLINE: "1"
     VLLM_NO_USAGE_STATS: "1"
     VLLM_LOGGING_LEVEL: WARNING   # no request or prompt lines in the log at any vLLM version (T-605, LLM-042)
     VLLM_SERVER_DEV_MODE: "1"   # /sleep, /wake_up, /is_sleeping (and /collective_rpc ...): model-guard passes only
                                 # the first three, with the key (TB_GUARD_ADMIN=1 below), D-177
-    VLLM_API_KEY: "${TB_LLM_API_KEY:-}"   # D-177: vLLM checks it on /v1 only; model-guard checks every call
   volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
   ipc: host
   restart: unless-stopped

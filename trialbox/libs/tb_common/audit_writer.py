@@ -357,7 +357,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     d = sub.add_parser("drain", help="copy the audit journal into the chain (the audit-writer service)")
     d.add_argument("--once", action="store_true", help="stop when the journal is empty")
     a = p.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    from tb_common.logging import setup_logging
+
+    setup_logging("audit-writer")  # T-212d (D-450): JSON lines with every scrubber rule on
     url = os.environ.get("TB_DB_URL") or ""
     if not url:
         print("audit_writer: TB_DB_URL is not set", file=sys.stderr)

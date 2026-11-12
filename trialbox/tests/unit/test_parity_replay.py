@@ -15,4 +15,11 @@ def test_replay_reproduces_the_recorded_numbers() -> None:
     assert {lang: got[lang]["lost"] for lang in ("en", "ja", "zh-TW")} == {"en": 4, "ja": 2, "zh-TW": 1}
     assert all(got[lang]["status"] == "pass" for lang in ("en", "ja", "zh-TW"))
     assert {r["lang"]: r["lost"] for r in proxy["langs"]} == {"en": 1, "ja": 2, "zh-TW": 1}
-    assert res["n12"]["status"] == "pass" and abs(res["n12"]["projected_true_loss"] - 0.0357) < 0.0005
+    # D-343: N-12 gates on the unadjusted figure (10.7 % on the API pair, 9.4 % on the deployed files): a fail. The
+    # audit-adjusted 3.6 % is a labelled note and never sets the status.
+    n12 = res["n12"]
+    assert n12["status"] == "fail" and n12["basis"] == "unadjusted"
+    assert abs(n12["unadjusted_loss"] - 0.1071) < 0.0005 and n12["unadjusted_loss"] > n12["gate"]
+    assert abs(n12["note_audit_adjusted"]["projected_true_loss"] - 0.0357) < 0.0005
+    assert "not a gate" in n12["note_audit_adjusted"]["label"] and "status" not in n12["note_audit_adjusted"]
+    assert "N-12 TREC CT unadjusted loss" in pr.table(res) and "gate <= 5%: FAIL" in pr.table(res)

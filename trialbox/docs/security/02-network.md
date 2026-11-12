@@ -26,6 +26,22 @@ The perimeter is checked (D-388): in PRODUCTION on topology A the gateway does n
 resolves the names again every minute while it runs and refuses every call while one is off the box.
 `trialbox doctor` prints each endpoint's addresses (check `perimeter_addresses`).
 
+**Outbound calls a person or a document can steer (D-450).** The REDCap URL an administrator types, the OIDC
+provider's discovery document and the endpoints it names, ClinicalTrials.gov (live mode) and the NHI endpoint go
+through one guard (`tb_common.http.guarded_client`). It resolves the name when the connection is made and connects
+to exactly the address it checked (the name stays in the Host header and the TLS server name), on every redirect
+hop: a metadata address (169.254.169.254 and the other clouds'), link-local, unspecified or multicast is refused
+always; loopback, the box's networks, the LAN and carrier NAT only when the destination is declared (the calling
+service's rows of the table above, or the operator's own OIDC issuer); an IPv4 address written as one number, in
+hexadecimal or octal is refused; `http://` only in DEV and TEST; no proxy variable is used.
+
+**Service to service (D-114, D-450).** Calls between the box's own services carry a per-service token (D-128, D-138),
+the callee accepts only its own callers, the gateway routes on the verified caller (D-437), the console names a user
+to the orchestrator only by a signed assertion with a nonce (T-109b), and every container sits on internal networks
+with no route out. There is no mutual TLS between them: on one host the traffic never leaves the kernel's bridges.
+mTLS is added when a call between services crosses a physical network: the two-device form (T-214, the Spark link
+is WireGuard or mTLS), a platform without network policy enforcement, or a service moved off the box.
+
 Only the console is published, on `127.0.0.1:8090`. For the hospital LAN the identity overlay
 (`deploy/docker-compose.identity.yml`, D-193) puts Caddy on 443 in front of it and stops publishing 8090: TLS 1.2 or
 1.3 with Caddy's internal CA (its root installed on the staff PCs) or the hospital's certificate (`TB_TLS_MODE`,

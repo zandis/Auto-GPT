@@ -108,18 +108,28 @@ class NotSubmitted(StepFailed):
     """The bundle provably did not reach NHI (no connection, or refused with 4xx): the reservation is released."""
 
 
-def post_bundle(base_url: str, bundle_bytes: bytes, timeout: float = 120.0) -> dict[str, Any]:
-    """POST the Bundle to the NHI endpoint; returns the ClaimResponse (direct or inside a response Bundle)."""
+#: the connection under the SSRF guard for every NHI call (None: the network). A test sets a mock transport here and
+#: a resolver in ``tb_common.http.resolve_now``; the guard still checks the address before the transport is reached
+NHI_TRANSPORT: Any = None
+
+
+def post_bundle(base_url: str, bundle_bytes: bytes, timeout: float = 120.0, transport: Any = None) -> dict[str, Any]:
+    """POST the Bundle to the NHI endpoint; returns the ClaimResponse (direct or inside a response Bundle).
+    ``transport``: the connection under the SSRF guard (a test's mock; default the network)."""
     import httpx
+    from tb_common.http import EgressRefused, guarded_client
 
     url = base_url.rstrip("/") + "/Claim/$submit"
     try:
-        resp = httpx.post(
-            url,
-            content=bundle_bytes,
-            headers={"Content-Type": "application/fhir+json", "Accept": "application/fhir+json"},
-            timeout=timeout,
-        )
+        # T-212d (D-450): the SSRF guard
+        with guarded_client("orchestrator", timeout=timeout, inner=transport or NHI_TRANSPORT) as http:
+            resp = http.post(
+                url,
+                content=bundle_bytes,
+                headers={"Content-Type": "application/fhir+json", "Accept": "application/fhir+json"},
+            )
+    except EgressRefused as exc:  # refused before any connection: nothing left the box
+        raise NotSubmitted("running", f"the NHI address is not allowed ({exc.reason}); nothing was submitted.") from exc
     except (httpx.ConnectError, httpx.ConnectTimeout) as exc:  # no connection: the bundle never left the box
         raise NotSubmitted(
             "running", f"NHI endpoint unreachable ({type(exc).__name__}); nothing was submitted."

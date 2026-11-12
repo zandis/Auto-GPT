@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{# Copy-assist (T-302c, D-434): one subject's signed values, per visit and form in the sponsor's form order, to type
+   into the sponsor's EDC by hand; a "copied" tick per value or per form. Never an unsigned value. #}
+{% block title %}{{ t('copy.title') }} · {{ rs }} · {{ record }}{% endblock %}
+{% set q = request.query_params %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('copy.title') }} · <span class="mono">{{ record }}</span></h1></div>
+{% include "_edc_nav.html" %}
+<p class="hint">{{ t('copy.help') }}</p>
+{% if err %}{% include "_edc_err.html" %}{% endif %}
+{% if q.get('done') in ('copied', 'undone') %}<p class="ok" role="status" data-testid="copy-done">{{ t('copy.done.' + q.get('done')) }}</p>{% endif %}
+{% if sheet %}
+{% if sheet.state == 'copy' %}<p class="pill" data-testid="copy-state">{{ t('copy.state.copy') }}</p>{% endif %}
+<p class="exports"><a class="button secondary" href="/studies/{{ rs }}/edc/copy.csv?record={{ record }}" data-testid="copy-csv">{{ t('copy.csv') }}</a></p>
+{% if not visits %}<p class="empty" data-testid="copy-empty">{{ t('copy.empty') }}</p>{% endif %}
+{% for vis in visits %}
+<section class="card" data-testid="copy-visit-{{ vis.visit }}" id="v-{{ vis.visit }}">
+<h2><span class="mono">{{ vis.visit }}</span> · {{ vis.visit_date }}</h2>
+{% if vis.waiting %}<p class="warn" data-testid="copy-waiting-{{ vis.visit }}">{{ t('copy.waiting', n=vis.waiting) }}{% if may_review %} <a href="/studies/{{ rs }}/edc/review/{{ record }}?visit={{ vis.visit }}">{{ t('edc.review.open') }}</a>{% endif %}</p>{% endif %}
+{% for form in vis.forms %}{% set fid = 'f-' ~ vis.visit ~ '-' ~ form.form %}
+<h3 id="{{ fid }}" data-testid="copy-form-{{ vis.visit }}-{{ form.form }}">{{ t('copy.form') }}: <span class="mono">{{ form.form }}</span>{% if form.copied %} <span class="pill" data-testid="copy-form-done-{{ vis.visit }}-{{ form.form }}">{{ t('copy.all_copied') }}</span>{% endif %}</h3>
+<div class="scroll" tabindex="0"><table class="candidates copyassist">
+<thead><tr><th>{{ t('edc.col.item') }}</th><th>{{ t('edc.col.value') }}</th><th>{{ t('copy.col.source') }}</th><th>{{ t('copy.col.signed') }}</th><th>{{ t('copy.col.copied') }}</th></tr></thead>
+<tbody>{% for v in form['values'] %}<tr data-testid="copy-row-{{ v.item }}" id="d{{ v.id }}">
+<td>{{ v.label }}{% if v.given %} <span class="hint">({{ t('copy.as_written') }})</span>{% endif %}<br><span class="hint mono">{{ v.item }}</span></td>
+<td><output id="cv{{ v.id }}" class="bigvalue" data-testid="copy-value-{{ v.item }}">{{ v.value }}</output>{% if v.word %} <span data-testid="copy-word-{{ v.item }}">{{ v.word }}</span>{% endif %}
+<button type="button" class="small secondary" data-copy="cv{{ v.id }}" data-done="{{ t('copy.copied_to_clipboard') }}" hidden>{{ t('copy.copy_button') }}</button></td>
+<td data-testid="copy-source-{{ v.item }}">{{ v.source or '–' }}</td>
+<td>{{ v.signed_by }}<br><span class="hint">{{ v.signed_at|local }}</span></td>
+<td>{% if v.copied %}<span class="pill" data-testid="copy-ticked-{{ v.item }}">{{ t('copy.ticked', by=v.copied.by, at=v.copied.at|local) }}</span>
+{% if may_tick %}<details><summary class="hint">{{ t('copy.undo') }}</summary><form method="post" action="/studies/{{ rs }}/edc/copy/{{ record }}/tick" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="draft" value="{{ v.id }}"><input type="hidden" name="action" value="undone"><input type="hidden" name="anchor" value="d{{ v.id }}"><label for="r{{ v.id }}">{{ t('copy.undo_reason') }}</label><input id="r{{ v.id }}" name="reason" maxlength="300" required><button type="submit" class="small secondary" data-testid="copy-undo-{{ v.item }}">{{ t('copy.undo') }}</button></form></details>{% endif %}
+{% elif may_tick %}<form method="post" action="/studies/{{ rs }}/edc/copy/{{ record }}/tick" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="draft" value="{{ v.id }}"><input type="hidden" name="action" value="copied"><input type="hidden" name="anchor" value="d{{ v.id }}"><button type="submit" class="small" data-testid="copy-tick-{{ v.item }}">{{ t('copy.tick') }}</button></form>
+{% else %}–{% endif %}
+{% if v.earlier %}<p class="hint" data-testid="copy-earlier-{{ v.item }}">{{ t('copy.earlier', n=v.earlier|length) }}</p>{% endif %}</td>
+</tr>{% endfor %}</tbody></table></div>
+{% if may_tick and not form.copied %}<form method="post" action="/studies/{{ rs }}/edc/copy/{{ record }}/tick" class="inline" data-testid="copy-tick-form-{{ vis.visit }}-{{ form.form }}"><input type="hidden" name="csrf" value="{{ csrf }}">{% for v in form['values'] %}{% if not v.copied %}<input type="hidden" name="draft" value="{{ v.id }}">{% endif %}{% endfor %}<input type="hidden" name="action" value="copied"><input type="hidden" name="anchor" value="{{ fid }}"><button type="submit" class="secondary">{{ t('copy.tick_form') }}</button></form>{% endif %}
+{% endfor %}
+</section>
+{% endfor %}
+{% endif %}
+{% endblock %}
