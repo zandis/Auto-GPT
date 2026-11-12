@@ -133,3 +133,13 @@ def test_the_developers_page_names_the_tiers_and_the_train() -> None:
         assert word in page, word
     for job in sorted(FAST | FULL):
         assert f"`{job}`" in page, job
+
+
+def test_the_shards_limit_is_the_measured_one() -> None:
+    """D-564: 1.5 times the slowest shard's median (24.8 minutes), rounded up to the next five; at 30 a shard that
+    had passed was cancelled while it kept its record."""
+    text = CI.read_text(encoding="utf-8")
+    job = _wf(CI)["jobs"]["unit-shard"]
+    assert job["timeout-minutes"] == 40
+    block = text[: text.index("    timeout-minutes: 40\n")].rsplit("unit-shard:", 1)[1]
+    assert "24.8" in block and "1.5" in block  # the derivation stays beside the number (OD-10)

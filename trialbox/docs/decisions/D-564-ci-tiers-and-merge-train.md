@@ -33,6 +33,12 @@ Most of those jobs answer a question that only matters at the moment of merging.
    merged with a merge commit (not squash), so the card pull requests show as merged. A red train names the
    failing tests; the card that owns them is dropped and the train rebuilt.
 6. `tests/unit/test_ci_tiers.py` pins which job is in which tier: a new job must be put in one.
+7. **The shards' time limit is measured, not chosen.** Over the 142 green shard jobs of the 40 runs before
+   2026-11-12 14:00 UTC the slowest shard (3 of 6) had a median of 24.8 minutes and reached 29.6; a slow runner took
+   up to 1.5 times a shard's median. The limit is 24.8 x 1.5 = 37.2, rounded up to the next five: 40 minutes (it
+   was 30, and a shard that had passed its tests was cancelled while it kept its record). The split is uneven
+   (medians from 8.9 to 24.8 minutes): balancing it is a later card; the number is measured again when the split
+   or the suite changes.
 
 ## Consequences
 
