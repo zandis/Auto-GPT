@@ -95,19 +95,16 @@ CREATE TABLE IF NOT EXISTS reentry_record (id BIGINT GENERATED ALWAYS AS IDENTIT
 ALTER TABLE switch ADD COLUMN IF NOT EXISTS reentry_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE switch_event ADD COLUMN IF NOT EXISTS reentry_id BIGINT NOT NULL DEFAULT 0
 """
-# T-720 (D-461): a row inserted without a version is checked by the keyed rule; version-1 rows are accepted only from
-# the list frozen and signed with the key right after this version runs (``EdcStore._freeze_v1``)
+# T-720 (D-461): version 1 (the unkeyed hash) is refused; a row inserted without a version is checked by the keyed
+# rule, and a new row must say version 2 (NOT VALID: an existing version-1 row stays, covering nothing)
 SCHEMA_V4 = """
 ALTER TABLE signature ALTER COLUMN sig_version SET DEFAULT 2;
-CREATE TABLE IF NOT EXISTS sig_v1_frozen (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, entries TEXT NOT NULL,
-  key_id TEXT NOT NULL, mac TEXT NOT NULL, at TEXT NOT NULL)
+ALTER TABLE signature DROP CONSTRAINT IF EXISTS signature_v2_only;
+ALTER TABLE signature ADD CONSTRAINT signature_v2_only CHECK (sig_version = 2) NOT VALID
 """
 MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4)
-#: the schema version whose run freezes the version-1 list (D-461): written by the start that applied it, never later
-FROZEN_AT = 4
 #: tables that only ever grow (D-281): a trigger refuses UPDATE, DELETE and TRUNCATE on each
-APPEND_ONLY = ("decision", "signature", "signature_void", "sent", "switch_event", "map_event", "reentry_record",
-               "sig_v1_frozen")  # fmt: skip
+APPEND_ONLY = ("decision", "signature", "signature_void", "sent", "switch_event", "map_event", "reentry_record")
 REENTRY_SOURCES = ("admin", "pq")  # who wrote the record: an administrator with the filed report, or the PQ tooling
 SIG_VERSION = 2
 METHODS = ("password", "password+totp", "oidc+mfa")  # how the signer re-authenticated (D-279; T-205: at the directory)
@@ -236,18 +233,6 @@ def signature_sha(key: bytes, s: Mapping[str, Any], shas: Mapping[int, str]) -> 
     return hmac.new(key, b"trialbox edc signature v2\x00" + msg, hashlib.sha256).hexdigest()
 
 
-def _legacy_sha(shas: Mapping[int, str]) -> str:
-    """Version 1 (before D-281): an unkeyed hash over the value hashes only. Never made; checked only for a row on
-    the frozen list (D-461)."""
-    return hashlib.sha256(json.dumps(sorted((int(k), str(v)) for k, v in shas.items())).encode()).hexdigest()
-
-
-def frozen_mac(key: bytes, entries: list[list[Any]]) -> str:
-    """The MAC over the frozen version-1 list (D-461): ``[[signature id, content_sha], ...]`` in id order."""
-    msg = json.dumps([[int(i), str(c)] for i, c in entries], ensure_ascii=False).encode("utf-8")
-    return hmac.new(key, b"trialbox edc v1 frozen list\x00" + msg, hashlib.sha256).hexdigest()
-
-
 def _cit(raw: Any) -> dict[str, Any] | None:
     if raw in (None, ""):
         return None
@@ -261,51 +246,8 @@ class EdcStore:
             raise EdcError("edc.sign_key", "the signature key is shorter than 16 bytes", 500)
         self.key_id = key_fingerprint(self._key)[:16]
         self._db = Database.connect(url or os.environ.get(ENV), "edc")
-        before = len(self._db.applied())
-        legacy = self._v1_rows() if before < FROZEN_AT else []  # read before the migration: nothing added later
         self._db.migrate(list(MIGRATIONS))
         self._append_only()
-        if before < FROZEN_AT:
-            self._freeze_v1(legacy)
-        self._v1_listed = self._load_v1()
-
-    def _v1_rows(self) -> list[list[Any]]:
-        """``[[id, content_sha], ...]`` of the version-1 signature rows there now (none on a new store)."""
-        with self._db.transaction() as tx:
-            cols = {str(r[0]) for r in tx.fetchall(
-                "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() "
-                "AND table_name = 'signature'")}  # fmt: skip
-            if not cols:
-                return []
-            where = "WHERE sig_version = 1" if "sig_version" in cols else ""
-            return [[int(r[0]), str(r[1])] for r in tx.fetchall(
-                f"SELECT id, content_sha FROM signature {where} ORDER BY id")]  # fmt: skip
-
-    def _freeze_v1(self, entries: list[list[Any]]) -> None:
-        """D-461: the attestation of the version-1 rows, written once, by the start that applied the version that
-        made its table, and only while the table is empty (two services starting together write one row)."""
-        from datetime import UTC, datetime
-
-        with self._db.transaction() as tx:
-            tx.execute("SELECT pg_advisory_xact_lock(hashtext(current_schema() || '.edc_v1_frozen'))")
-            if int(tx.fetchval("SELECT count(*) FROM sig_v1_frozen")):
-                return
-            tx.execute("INSERT INTO sig_v1_frozen (entries, key_id, mac, at) VALUES (?,?,?,?)",
-                       (json.dumps(entries), self.key_id, frozen_mac(self._key, entries),
-                        datetime.now(UTC).isoformat(timespec="seconds")))  # fmt: skip
-
-    def _load_v1(self) -> frozenset[tuple[int, str]]:
-        """The frozen list: the first row of ``sig_v1_frozen`` when its MAC verifies with this key, else nothing."""
-        rows = self._all("SELECT entries, mac FROM sig_v1_frozen ORDER BY id LIMIT 1")
-        if not rows:
-            return frozenset()
-        try:
-            pairs = [(int(i), str(c)) for i, c in json.loads(rows[0]["entries"])]
-        except (TypeError, ValueError):
-            return frozenset()
-        if not hmac.compare_digest(str(rows[0]["mac"]), frozen_mac(self._key, [list(e) for e in pairs])):
-            return frozenset()
-        return frozenset(pairs)
 
     def _append_only(self) -> None:
         """A trigger on each trail table refuses UPDATE, DELETE and TRUNCATE (D-281, CR-036). Made here, not in a
@@ -728,25 +670,17 @@ class EdcStore:
         return sig
 
     def intact(self, s: Mapping[str, Any]) -> bool:
-        """The signature row is what was signed: its ``content_sha`` is re-made from the row (D-281, CR-036). A
-        version-1 row (the old unkeyed rule) counts only when its id and ``content_sha`` are on the frozen list
-        signed with the key at the migration (D-461): a row inserted later by a writer without the key does not."""
+        """The signature row is what was signed: its ``content_sha`` is re-made from the row with the key (D-281,
+        CR-036). Only version 2 counts (D-461): the unkeyed version 1 needs no key to re-make, so a version-1 row
+        covers nothing and its values wait for a new signature."""
         try:
             shas = {int(k): str(v) for k, v in json.loads(s["drafts"]).items()}
-            version = int(s.get("sig_version") or 1)
+            version = int(s.get("sig_version") or 0)
         except (TypeError, ValueError, AttributeError):
             return False
-        if version == SIG_VERSION:
-            want = signature_sha(self._key, s, shas)
-        elif version == 1:
-            try:
-                listed = (int(s["id"]), str(s["content_sha"])) in self._v1_listed
-            except (KeyError, TypeError, ValueError):
-                listed = False
-            want = _legacy_sha(shas) if listed else ""
-        else:
-            want = ""
-        return bool(want) and hmac.compare_digest(str(s["content_sha"]), want)
+        if version != SIG_VERSION:
+            return False
+        return hmac.compare_digest(str(s["content_sha"]), signature_sha(self._key, s, shas))
 
     def _covered(self, d: Mapping[str, Any], sigs: Mapping[int, Mapping[str, Any]]) -> bool:
         """The value is still exactly what its signature row says was signed, and that row is itself intact."""
@@ -758,6 +692,12 @@ class EdcStore:
         except (TypeError, ValueError, AttributeError):
             return False
         return listed.get(int(d["id"])) == d["signed_sha"] and self.intact(s)
+
+    def covered_ids(self, study: str, rows: list[dict[str, Any]]) -> set[int]:
+        """The ids of ``rows`` (drafts of ``study``) whose value is still covered by an intact signature: what the
+        review page may show as signed (D-461)."""
+        sigs = {int(s["id"]): s for s in self.signatures(study)}
+        return {int(d["id"]) for d in rows if d.get("signature_id") is not None and self._covered(d, sigs)}
 
     def signature(self, sid: int) -> dict[str, Any] | None:
         rows = self._all("SELECT * FROM signature WHERE id = ?", (sid,))

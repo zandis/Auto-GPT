@@ -13,7 +13,7 @@ from xml.etree import ElementTree as ET
 import httpx
 import pytest
 from edc import odm
-from edc.store import APPEND_ONLY, KEY_ENV, KEY_FILE, SIG_VERSION, EdcError, EdcStore, _legacy_sha, sign_key_of
+from edc.store import APPEND_ONLY, KEY_ENV, KEY_FILE, SIG_VERSION, EdcError, EdcStore, sign_key_of
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from rc_bridge.client import RedcapClient
@@ -132,15 +132,17 @@ def test_a_rewritten_signature_row_stops_send_and_export(tmp_path: Path) -> None
 
 
 def test_an_old_unkeyed_signature_is_checked_by_its_own_rule(tmp_path: Path) -> None:
-    """D-461: the old row is one that existed before the migration (on the frozen list); a version-1 row made after
-    it is the forgery of ``test_edc_v1_frozen.py``."""
+    """D-461 replaces D-281's "version 1 is checked by its own rule": the unkeyed hash needs no key to re-make, so an
+    old (version-1) signature covers nothing, even one that existed before the migration; its values need signing
+    again. An unknown version never passes either."""
     store, old = k.store_with_old_signature()
     shas = {int(i): str(v) for i, v in json.loads(old["drafts"]).items()}
-    assert old["sig_version"] == 1 and old["content_sha"] == _legacy_sha(shas)
-    assert store.intact(old)
-    assert not store.intact({**old, "drafts": json.dumps({"1": "0" * 64})})
-    assert not store.intact({**old, "sig_version": 7})  # an unknown version never passes
+    assert old["sig_version"] == 1 and old["content_sha"] == k.old_unkeyed_sha(shas)
+    assert not store.intact(old)
+    assert not store.intact({**old, "sig_version": 7})
     store.close()
+    svc, _, sig = _signed(tmp_path)
+    assert svc.store.intact(sig) and not svc.store.intact({**sig, "sig_version": 7})
 
 
 @pytest.mark.parametrize("table", ["signature", "decision", "sent", "signature_void", "switch_event", "map_event"])

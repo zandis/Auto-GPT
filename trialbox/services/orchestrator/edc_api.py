@@ -248,11 +248,15 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
         if visit is not None and not _VISIT.match(visit):
             raise HTTPException(status_code=400, detail={"code": "edc.visit", "message": "not a visit name"})
         rid = _rs(rs)
-        rows = get().store.drafts(rid, _rec(record) if record else None, visit or None)
-        if record:  # the signature beside each signed value: who, as what, when, and its meaning (E-12)
-            sigs = {int(s["id"]): s for s in get().store.signatures(rid, _rec(record))}
+        store = get().store
+        rows = store.drafts(rid, _rec(record) if record else None, visit or None)
+        covered = store.covered_ids(rid, rows)  # D-461: "signed" only while an intact signature covers the value
+        for d in rows:
+            d["covered"] = int(d["id"]) in covered
+        if record:  # the signature beside each covered value: who, as what, when, and its meaning (E-12)
+            sigs = {int(s["id"]): s for s in store.signatures(rid, _rec(record))}
             for d in rows:
-                s = sigs.get(int(d["signature_id"])) if d.get("signature_id") is not None else None
+                s = sigs.get(int(d["signature_id"])) if d["covered"] else None
                 if s is not None:
                     d["signature"] = {k: s[k] for k in ("printed_name", "role", "at", "meaning", "meaning_text",
                                                         "lang", "method")}  # fmt: skip
