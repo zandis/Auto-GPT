@@ -51,3 +51,4 @@ value | * | +81-3-1234-5678 | the placeholder Tokyo landline with the country co
 value | * | +81 90 1234 5678 | the placeholder Japanese mobile with the country code (JP log scrubber tests)
 value | * | 0466-12-3456 | a placeholder Japanese landline with a four-digit area code (JP log scrubber tests)
 value | tw_phone | 063922676 | a numeric article id inside a news URL cited in spec/archive (not a phone)
+value | tw_phone | 0494577805 | a synthetic hospital patient's hashed id (10 hex digits, all numeric) in the G1 measurements of 2026-11-11, not a phone
