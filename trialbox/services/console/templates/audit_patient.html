@@ -7,8 +7,8 @@
 <section class="card">
 <form method="get" action="/audit/patients/{{ f.pid }}" class="inline">
 <label for="r-kind">{{ t('audit.filter.kind') }}</label> <select id="r-kind" name="kind"><option value="">{{ t('audit.filter.all') }}</option>{% for k in kinds %}<option value="{{ k }}"{% if k == f.kind %} selected{% endif %}>{{ t('audit.kind.' + k) }}</option>{% endfor %}</select>
-<label for="r-since">{{ t('audit.filter.since') }}</label> <input id="r-since" name="since" type="date" value="{{ f.since }}"> <span class="hint datefmt">{{ t(\'date.fmt\') }}</span>
-<label for="r-until">{{ t('audit.filter.until') }}</label> <input id="r-until" name="until" type="date" value="{{ f.until }}"> <span class="hint datefmt">{{ t(\'date.fmt\') }}</span>
+<label for="r-since">{{ t('audit.filter.since') }}</label> <input id="r-since" name="since" type="date" value="{{ f.since }}"> <span class="hint datefmt">{{ t('date.fmt') }}</span>
+<label for="r-until">{{ t('audit.filter.until') }}</label> <input id="r-until" name="until" type="date" value="{{ f.until }}"> <span class="hint datefmt">{{ t('date.fmt') }}</span>
 <button type="submit">{{ t('audit.filter.go') }}</button>
 </form>
 <p><a class="button" href="/audit/patients/{{ f.pid }}/report.csv{{ '?' + rq if rq else '' }}" data-testid="audit-report-csv" download>{{ t('audit.report.csv') }}</a></p>
