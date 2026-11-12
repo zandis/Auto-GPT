@@ -80,14 +80,15 @@ def sb(box: dict[str, Any], tmp_path: Path) -> Iterator[dict[str, Any]]:  # noqa
             lambda: bool(state["real"]),
         )
     )
-    oc = SignedClient(api)
+    oc = SignedClient(api)  # the test's own calls (seeding)
+    coc = SignedClient(api, strict=True)  # the console's calls: it signs them itself (review M3)
     calls: list[tuple[str, str]] = []
 
     def study_api(method: str, path: str, body: dict[str, Any] | None = None,
                   headers: dict[str, str] | None = None) -> Any:  # fmt: skip
         calls.append((method, path))
         kw: dict[str, Any] = {"headers": headers} if headers else {}  # T-715: the signed person goes with the call
-        r = oc.request(method, path, json=body, **kw) if body is not None else oc.request(method, path, **kw)
+        r = coc.request(method, path, json=body, **kw) if body is not None else coc.request(method, path, **kw)
         if r.status_code >= 400:
             raise problem_of(r.status_code, r.text)
         return r.json()

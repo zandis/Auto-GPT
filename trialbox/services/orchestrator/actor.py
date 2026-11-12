@@ -17,6 +17,7 @@ is ``async`` only to read the body's bytes, which FastAPI keeps for the handler'
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from collections import Counter
 from collections.abc import Callable
@@ -34,11 +35,14 @@ log = logging.getLogger("orchestrator")
 TABLE_PATH = Path(__file__).with_name("route_actors.yaml")
 SCHEMA = "tb-orchestrator-actors/1"
 STAGES = ("refuse", "report", "v2", "no_person")
-PERSON_FIELDS = frozenset({"by", "signer", "approved_by"})  # request fields that name a person
+# request fields that name a person (a `refuse` route has none, at any depth of its body model)
+PERSON_FIELDS = frozenset({"by", "signer", "approved_by", "confirmed_by", "actor", "user", "username"})
+#: the actor of a record the orchestrator derives during a call that no verified person made (stage `report`)
+UNVERIFIED = "unverified"
 #: changing calls that reached a `report` route without a valid v3 assertion: (route, reason) -> count
 UNSIGNED: Counter[tuple[str, str]] = Counter()
 _lock = threading.Lock()
-_logged: set[str] = set()
+_logged: set[tuple[str, str]] = set()
 _audit: Callable[[], Any] | None = None
 
 
@@ -112,7 +116,7 @@ def require_actor(action: str, *, service: bool = False) -> Any:
     """The dependency of a changing route: the verified person, allowed ``action`` on the route's study."""
 
     async def dep(request: Request) -> actor_v3.Claim:
-        study = str(request.path_params.get("rs") or "").strip().upper() or None
+        study = _study(request)
         try:
             claim = actor_v3.verify(request.headers.get(actor_v3.HEADER))
         except ActorError as exc:
@@ -132,6 +136,27 @@ def require_actor(action: str, *, service: bool = False) -> Any:
     return Depends(dep)
 
 
+def _study(request: Request) -> str | None:
+    return str(request.path_params.get("rs") or "").strip().upper() or None
+
+
+def _count(request: Request, reason: str) -> None:
+    """One more changing call of a `report` route without a verified person. The count is in ``UNSIGNED``; the
+    first of each route and reason in this process is logged and written to the audit trail (``actor.unsigned``),
+    so that a box shows which of its routes still take a typed name."""
+    key = _template(request)
+    with _lock:
+        UNSIGNED[(key, reason)] += 1
+        first = (key, reason) not in _logged
+        _logged.add((key, reason))
+    if first:
+        caller = getattr(request.state, "tb_caller", None) or ""
+        log.warning("actor.unsigned", extra={"route": key, "reason": reason, "caller": caller})
+        if _audit is not None:
+            _audit().append("actor.unsigned", ruleset=_study(request),
+                            detail={"route": key, "reason": reason, "caller": caller})  # fmt: skip
+
+
 async def _report(request: Request) -> None:
     if request.method.upper() in SAFE_METHODS:
         return
@@ -146,19 +171,25 @@ async def _report(request: Request) -> None:
                 reason = "request"
             elif claim.body != actor_v3.body_hash(await request.body()):
                 reason = "body"
-            else:
+            else:  # the route's own action is not known in this stage: the claim's study, and its own right
+                reason = check(claim, claim.action, _study(request), True)
+            if not reason:
                 request.state.tb_actor = claim
         except ActorError as exc:
             reason = str(exc)
     if reason:
-        key = _template(request)
-        with _lock:
-            UNSIGNED[(key, reason)] += 1
-            first = key not in _logged
-            _logged.add(key)
-        if first:  # once per route and process: the count is in UNSIGNED
-            caller = getattr(request.state, "tb_caller", None) or ""
-            log.warning("actor.unsigned", extra={"route": key, "reason": reason, "caller": caller})
+        _count(request, reason)
+
+
+def person_of(request: Request, action: str, *, service: bool = False) -> str:
+    """Who a `report` route may name in a record it derives itself (a participant's step from a saved form): the
+    verified person of this call when its claim is for ``action`` on the route's study and the matrix allows it,
+    else ``UNVERIFIED``. Never the body's ``by``: a derived lifecycle record names a verified person or nobody."""
+    claim = getattr(request.state, "tb_actor", None)
+    if claim is not None and not check(claim, action, _study(request), service):
+        return str(claim.sub)
+    _count(request, "derived record: no verified person")
+    return UNVERIFIED
 
 
 _report.tb_actor_stage = "report"  # type: ignore[attr-defined]
@@ -182,16 +213,36 @@ def _calls(dependant: Any) -> list[Any]:
     return out
 
 
+def _field_names(model: Any, seen: set[int]) -> set[str]:
+    """The field names of a request model, at any depth (a model in a field, in a list or in a mapping)."""
+    fields = getattr(model, "model_fields", None)
+    if not isinstance(fields, dict):
+        out: set[str] = set()
+        for arg in getattr(model, "__args__", ()) or ():
+            out |= _field_names(arg, seen)
+        return out
+    if id(model) in seen:
+        return set()
+    seen.add(id(model))
+    names = set(fields)
+    for f in fields.values():
+        names |= _field_names(getattr(f, "annotation", None), seen)
+    return names
+
+
 def _person_fields(route: Any) -> tuple[str, ...]:
-    """The request fields of a route that name a person: in its body model, or a query parameter."""
+    """The request fields of a route that name a person: in its body model (at any depth), or a query parameter.
+    ``*`` stands for a body that is a free mapping (``dict``): it could carry any name."""
     names: set[str] = set()
     dependant = getattr(route, "dependant", None)
     for group in ("query_params", "body_params"):
         for f in getattr(dependant, group, []) or []:
             names.add(str(getattr(f, "name", "")))
             model = getattr(getattr(f, "field_info", None), "annotation", None)
-            names |= set(getattr(model, "model_fields", {}) or {})
-    return tuple(sorted(names & PERSON_FIELDS))
+            names |= _field_names(model, set())
+            if group == "body_params" and (model is dict or getattr(model, "__origin__", None) is dict):
+                names.add("*")
+    return tuple(sorted(names & (PERSON_FIELDS | {"*"})))
 
 
 def walk(app: Any) -> list[tuple[str, str, str, str, tuple[str, ...]]]:
@@ -246,6 +297,9 @@ def route_problems(app: Any, group_of: Callable[[str], str | None], table: dict[
                 bad.append(f"{key}: require_actor names {action!r}, which is not a row of the matrix")
             if person:
                 bad.append(f"{key}: the request still names a person ({', '.join(person)})")
+            params = re.findall(r"/studies/\{([^}:]+)", path)
+            if params and params[0] != "rs":  # the dependency reads the study from `{rs}`
+                bad.append(f"{key}: the study of the path is {{{params[0]}}}; require_actor reads {{rs}}")
         elif changing and want == "refuse":
             bad.append(f"{key}: a changing route of a refuse group without require_actor")
         elif changing and want == "report" and stage != "report":

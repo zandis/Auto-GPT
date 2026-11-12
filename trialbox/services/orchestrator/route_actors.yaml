@@ -42,3 +42,5 @@ no_person:
 principals:
   service:console-notify:   # the morning notices bring the participants up to date before they count them
     - study.setup
+  service:console-nightly:  # the nightly REDCap read: the steps it derives name the timer, not a typed name
+    - request.prepare

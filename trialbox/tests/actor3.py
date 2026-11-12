@@ -5,7 +5,8 @@ A route with ``require_actor`` takes no person from the body, so a test that pos
 route's own declared action, the study of the path, this request and this body. The person is ``sub`` (or, for the
 older tests that still write ``"by"`` in a body, that name, taken out of the body), with a role the matrix allows
 the action. The route verifies everything as it does on a box: the client signs, it does not switch anything off.
-A call that already carries an assertion (the console's own) goes through untouched.
+A call that already carries an assertion (the console's own) goes through untouched; with ``strict=True`` the
+client signs nothing, and an unsigned call is refused by the route as on a box.
 """
 
 from __future__ import annotations
@@ -34,8 +35,13 @@ def signed(action: str, study: str, method: str, path: str, body: Any = None, *,
 
 
 class SignedClient(TestClient):
-    def __init__(self, app: Any, *args: Any, sub: str = "console:crc", role: str = "", **kw: Any) -> None:
+    def __init__(self, app: Any, *args: Any, sub: str = "console:crc", role: str = "", strict: bool = False,
+                 **kw: Any) -> None:  # fmt: skip
+        """``strict``: sign nothing (review M3). The client a console under test calls the orchestrator through is
+        strict, so a console call site that does not sign fails as it would on a box; a test that seeds through
+        the same client says ``signing()`` for those calls."""
         super().__init__(app, *args, **kw)
+        self.strict = strict
         from orchestrator.actor import walk
 
         self.sub, self.role = sub, role
@@ -50,7 +56,7 @@ class SignedClient(TestClient):
         full = str(url)
         path = full.split("?", 1)[0]
         hit = next(((a, i) for m, rx, a, i in self._actions if m == method.upper() and rx.match(path)), None)
-        if hit is not None and actor_v3.HEADER not in headers:
+        if hit is not None and actor_v3.HEADER not in headers and not self.strict:
             action, at = hit
             sub = self.sub
             body = kw.get("json")

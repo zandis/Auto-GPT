@@ -100,6 +100,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "console.refused": ("Request refused", "依頼の拒否", "拒絕請求"),
     "console.rate_limited": ("Refused: too many in an hour", "拒否：1時間の上限超過", "拒絕：超過每小時上限"),
     "actor.refused": ("Caller refused by a service", "サービスによる呼出元の拒否", "服務拒絕呼叫者"),
+    "actor.unsigned": (
+        "Call without a verified person (counted)",
+        "確認済みの操作者のない呼出し(計数)",
+        "無已驗證操作者的呼叫(計數)",
+    ),
     # requests and jobs
     "console.request": ("Request sent", "依頼の送信", "送出請求"),
     "console.command": ("Command run", "コマンドの実行", "執行指令"),
