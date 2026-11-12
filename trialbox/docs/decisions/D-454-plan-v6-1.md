@@ -3,7 +3,7 @@
 - **Task:** none (the plan itself; `docs/plan/31-master-plan-v6.1-addendum.md`, TB-PLAN-06.1)
 - **PR:** this branch (`plan/v6.1-addendum`)
 - **Date:** 2026-11-12
-- **Status:** proposed; in force when the owner approves the addendum
+- **Status:** accepted; approved by the owner on 2026-11-12
 - **Builds on:** D-311 (no development gates), TB-PLAN-06 (`docs/plan/28-master-plan-v6.md`)
 
 ## Decision

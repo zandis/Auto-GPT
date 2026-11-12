@@ -5,9 +5,9 @@
 | Document ID | TB-PLAN-06.1 |
 | Date | 2026-11-12 |
 | Owner | Changfu Kuo (Aimedics) |
-| Status | **Draft for the owner's approval.** It amends `28-master-plan-v6.md` (TB-PLAN-06). Where the two differ, this file wins. §0 of TB-PLAN-06 (D-311, no development gates) is unchanged and still wins over everything. |
+| Status | **Approved by the owner on 2026-11-12.** It amends `28-master-plan-v6.md` (TB-PLAN-06). Where the two differ, this file wins. §0 of TB-PLAN-06 (D-311, no development gates) is unchanged and still wins over everything. |
 | Decision | D-454 (`docs/decisions/D-454-plan-v6-1.md`) |
-| Basis | The audit of master of 2026-11-11 (PR #257); the adversarial reviews of the cards merged or built on 2026-11-11 and 11-12 (PRs #259, #262, #263, #264, #275); three cross-module reviews of 2026-11-12 (decision path, identity and trust, the night and data lifecycle); the scale review of another session (PR #279, `docs/reviews/2026-11-11-scale-timeouts.md` when merged); the owner's decisions of 2026-11-12 (§1). |
+| Basis | The audit of master of 2026-11-11 (PR #257); the adversarial reviews of the cards merged or built on 2026-11-11 and 11-12 (PRs #259, #262, #263, #264, #275); three cross-module reviews of 2026-11-12 (decision path, identity and trust, the night and data lifecycle); the scale review of another session (PR #279, `docs/reviews/2026-11-11-scale-timeouts.md`); the owner's decisions of 2026-11-12 (§1). |
 | Code read | `origin/master` at `90e451eb` |
 
 How to read it. §1 is what the owner decided on 2026-11-12. §2 is what the reviews found and why it is structure,
@@ -53,8 +53,9 @@ signed heads are sound; no job is claimed twice.
 ## 3. New cards
 
 Rules of TB-PLAN-06 §6.1 apply. Sizes: S ≤ 1 day, M 2 to 4 days, L 1 to 2 weeks of one session. Decision numbers are
-taken at start from `REGISTRY.md` (next free at writing: D-455). The scale review named D-448 to D-451 for its own
-decisions; those numbers are used (T-315a, T-203b, T-212d, T-211c), so its cards take new ones at start.
+taken at start from `REGISTRY.md` (next free at writing: D-459). The scale review named D-448 to D-451 for its own
+decisions; those numbers were already used (T-315a, T-203b, T-212d, T-211c), so its four reservations are D-455
+(T-691), D-456 (T-689, T-698), D-457 (T-693) and D-458 (T-704).
 
 ### 3.1 Wave D: one decision path (closes S1)
 
@@ -97,7 +98,8 @@ decisions; those numbers are used (T-315a, T-203b, T-212d, T-211c), so its cards
 
 ### 3.4 Wave C: capacity (closes S5; the cards of PR #279, adopted)
 
-T-687 to T-704 (T-699 is taken) are adopted as written in the scale review, with these changes.
+T-687 to T-704 (T-699 is taken) are adopted as written in the scale review and in TB-PLAN-06 §6.2.10, with these
+changes.
 
 | Id | What | Change in this plan |
 | --- | --- | --- |
@@ -224,15 +226,14 @@ Workers: at most three or four at a time (the owner's allowance), one card each.
 
 ## 8. For the owner
 
-1. Approve this addendum, or say what to change.
+1. ~~Approve this addendum.~~ Approved 2026-11-12.
 2. T-736: may the box owner (the data steward) see patient-level data on the box, and who reviews the owner's own
    use of identifiers? Today the steward has no patient view and the requirement URS-STW-08 says the steward reads
    profiles.
 3. The PoC gates: drop them from the plan, or keep them for a later date once a box with a GPU exists.
 4. The zh-TW wording of the `ae_serious_why` label (it contains 判定, which the wording rule forbids).
 5. NAV is a care-side list (NHI approvals); it now follows the opt-out register. Keep, or narrow.
-6. PR #279 (the scale review and two fixes) belongs to another session: merge it as it is, so that §3.4 has its source
-   on master.
+6. ~~Merge PR #279.~~ Merged 2026-11-12 on the owner's word; its decision numbers renumbered (§3).
 7. A secret scan of the git history has not been run (the scanner could not be fetched in the build session).
 
 ## 9. Change history
@@ -240,3 +241,4 @@ Workers: at most three or four at a time (the owner's allowance), one card each.
 | Date | Change |
 | --- | --- |
 | 2026-11-12 | First draft: OD-10 to OD-16; root causes S1 to S5; cards T-705 to T-739; the cards of PR #279 adopted. |
+| 2026-11-12 | Approved by the owner. PR #279 merged; its four decision reservations renumbered D-455 to D-458. |

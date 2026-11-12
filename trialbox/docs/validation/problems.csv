@@ -8,3 +8,43 @@ PRB-006,The SOUP list is only an SBOM,ENG-008 (deep review 2026-11-10),medium,B,
 PRB-007,JVM jars FHIR packages and fonts are fetched without a pinned hash,ENG-013 (deep review 2026-11-10),medium,B,open,,,the validator jar is pinned; cql-to-elm transitive jars FHIR packages and fonts are not
 PRB-008,Ruff ignores S608 S105 S106 for the whole tree and every S rule under tools/,ENG-011 (deep review 2026-11-10),low,A,open,,,bandit now gates the same classes at medium severity; turning the ruff rules back on needs per-line reasons in many files
 PRB-009,No secret scan of the git history,ENG-010 (deep review 2026-11-10),low,A,open,,,CI scans the tracked tree on every run; a one-off history scan is not done
+PRB-010,The cloud run's hard cap comes from an estimate that is low for the hospital part,G1-1 (TB-REV scale-timeouts 2026-11-11),high,A,open,,,card T-688; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-011,A cloud-run part restarts from zero after a cap stop or a pre-emption,G1-2 (TB-REV scale-timeouts 2026-11-11),high,A,open,,,card T-689; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-012,The share of unanswered note checks is tested only after the whole screening job,G1-3 (TB-REV scale-timeouts 2026-11-11),medium,B,open,,,card T-689; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-013,The cloud run's heartbeat does not see work done in a container,G1-4 (TB-REV scale-timeouts 2026-11-11),medium,A,open,,,card T-688; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-014,Site-publish times a full lake rebuild against 330 s and starts it again every minute,F-01 (TB-REV scale-timeouts 2026-11-11),high,A,open,,,card T-690; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-015,The nightly backup pauses every service for the whole dump with 7200 s per step,F-02 (TB-REV scale-timeouts 2026-11-11),high,A,open,,,card T-691; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-016,The console's Backup stops the Python services and never starts them,F-03 (TB-REV scale-timeouts 2026-11-11),high,A,fixed,#279,tests/unit/test_ops_backup_resumes.py::test_a_console_backup_starts_the_services_it_stopped,the runner resumes the services; the stop under a running job stays for T-691
+PRB-017,A model outage of seconds turns the rest of a screening job into unknown,F-04 (TB-REV scale-timeouts 2026-11-11),high,B,open,,,card T-689; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-018,The night's ingest and the lake rebuild hold the whole hospital in memory,F-05 (TB-REV scale-timeouts 2026-11-11),high,A,open,,,card T-692; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-019,The HL7 validation sample is one command line and fails past about 65000 files,F-06 (TB-REV scale-timeouts 2026-11-11),high,A,fixed,#279,tests/unit/test_validator_large_sample.py::test_a_sample_larger_than_one_command_line_is_validated_in_batches,one java run per 5000 files; an absolute cap on the sample stays for T-693 (D-457)
+PRB-020,The cascade reads every surviving patient's notes in one query into a 4 GB process,F-07 (TB-REV scale-timeouts 2026-11-11),high,B,open,,,card T-694; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-021,The ingest chain is timed against 7200 s and the console's Ingest against 1800 s,F-08 (TB-REV scale-timeouts 2026-11-11),high,A,open,,,card T-690; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-022,The update path stops services under a running job and cannot finish inside its own limits,F-09 (TB-REV scale-timeouts 2026-11-11),high,A,open,,,card T-695; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-023,No service has a stop grace period,F-10 (TB-REV scale-timeouts 2026-11-11),high,A,open,,,card T-695; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-024,The cascade's excerpt budget is 2500 tokens whatever the model's context,F-11 (TB-REV scale-timeouts 2026-11-11),high,B,open,,,card T-696; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-025,The audit writer reads the whole day file for every event inside 256 MB,F-12 (TB-REV scale-timeouts 2026-11-11),high,B,open,,,card T-697; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-026,The gateway's limits count queueing as failure,F-13 (TB-REV scale-timeouts 2026-11-11),high,A,open,,,card T-698; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-027,The console looks for a study's latest job in the newest 500 jobs of the box,F-14 (TB-REV scale-timeouts 2026-11-11),high,A,open,,,card T-700; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-028,Embedding for the lake runs on the CPU with one try per batch,F-15 (TB-REV scale-timeouts 2026-11-11),high,A,open,,,card T-701; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-029,The model budget of 20000 pairs and a hidden 10 M tokens is under a hospital-wide screen,F-16 (TB-REV scale-timeouts 2026-11-11),high,B,open,,,card T-689; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-030,The OMOP load is a whole-store diff in memory in one transaction,F-17 (TB-REV scale-timeouts 2026-11-11),high,A,open,,,card T-702; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-031,The screening-log export degrades silently when the orchestrator is slow,F-18 (TB-REV scale-timeouts 2026-11-11),high,A,open,,,card T-700; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-032,PostgreSQL runs on its defaults,F-19 (TB-REV scale-timeouts 2026-11-11),high,A,open,,,card T-703; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-033,The not-matched page reads the whole excluded list on each view,F-20 (TB-REV scale-timeouts 2026-11-11),medium,A,open,,,card T-700; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-034,The break-glass review list is the newest 200 grants,F-21 (TB-REV scale-timeouts 2026-11-11),medium,A,open,,,card T-700; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-035,Audit-derived displays read a fixed count of newest events,F-22 (TB-REV scale-timeouts 2026-11-11),medium,A,open,,,card T-700; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-036,S2b runs the CI hash embedder single-threaded with a fixed top 5,F-23 (TB-REV scale-timeouts 2026-11-11),medium,B,open,,,card T-696; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-037,The boot and update wait of 900 s equals the verifier's start period,F-24 (TB-REV scale-timeouts 2026-11-11),medium,A,open,,,card T-695; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-038,Kubernetes backup and restore jobs are capped at 6 h,F-25 (TB-REV scale-timeouts 2026-11-11),medium,A,open,,,card T-691; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-039,Backup retention and space are sized for small databases,F-26 (TB-REV scale-timeouts 2026-11-11),medium,A,open,,,card T-691; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-040,The equivalence gate evaluates the whole lake; the twin build hides its failure,F-27 (TB-REV scale-timeouts 2026-11-11),medium,B,open,,,card T-694; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-041,A restart runs every interrupted job again from zero without a count,F-28 (TB-REV scale-timeouts 2026-11-11),high,A,open,,,card T-689; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-042,Every lake query has 300 s and feasibility is one query; coded values vanish silently,F-29 (TB-REV scale-timeouts 2026-11-11),high,B,open,,,card T-694; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-043,On the one-card swap layout another job or the canary takes the model away,F-30 (TB-REV scale-timeouts 2026-11-11),high,A,open,,,card T-698; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-044,Five failures in a row fail a screening job while calls run 4 to 16 at a time,F-31 (TB-REV scale-timeouts 2026-11-11),medium,A,open,,,card T-689; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-045,The microbatch night allowance is not enforced under concurrency and starves later studies,F-32 (TB-REV scale-timeouts 2026-11-11),medium,A,open,,,card T-704; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-046,Fixed cron times and four workers stand in for a night window,F-33 (TB-REV scale-timeouts 2026-11-11),medium,A,open,,,card T-704; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-047,Retention deletes the files a microbatch reads after 365 days,F-34 (TB-REV scale-timeouts 2026-11-11),medium,A,open,,,card T-704; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-048,The death check takes at most 20000 patients,F-35 (TB-REV scale-timeouts 2026-11-11),medium,A,open,,,card T-700; docs/reviews/2026-11-11-scale-timeouts.md
+PRB-049,A whole screen's verdicts are held in memory under a 4 GB cap,F-36 (TB-REV scale-timeouts 2026-11-11),medium,B,open,,,card T-694; docs/reviews/2026-11-11-scale-timeouts.md
