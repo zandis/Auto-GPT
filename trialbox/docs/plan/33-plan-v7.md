@@ -4,7 +4,7 @@
 | --- | --- |
 | Document ID | TB-PLAN-07 |
 | Date | 2026-11-12 |
-| Version | 7.2 (2026-11-12): v7.1 (the owner's nine answers, D-494) reviewed by the integrator session against `master` and the open pull requests; corrections listed in section 9 |
+| Version | 7.3 (2026-11-12): build or reuse (section 3.4, D-495). Before it 7.2: v7.1 (the owner's nine answers, D-494) reviewed by the integrator session against `master` and the open pull requests; corrections listed in section 9 |
 | Owner | Changfu Kuo (Aimedics) |
 | Status | **The working plan since 2026-11-12** (the owner, after the split of section 5 was put to him: "go on to work as your plan"). It replaces the task lists and the order of work of `28-master-plan-v6.md` (TB-PLAN-06) and `31-master-plan-v6.1-addendum.md` (TB-PLAN-06.1) . The owner decisions OD-10 to OD-21 and D-311 are unchanged and win over this file. The nine questions of section 2 were answered by the owner on 2026-11-12 (`docs/decisions/D-494-plan-v7-owner-answers-windows-box.md`). |
 | Basis | The deep review of 2026-11-12, `docs/reviews/2026-11-12-deep-review/` (TB-DR2-00 to TB-DR2-13), on `master` at `514ae9b`. Finding ids below (PLAN-, ARCH-, ENG-, JRN-, UX-, LLM-, PERF-, DIN-, LIFE-, EDC-, STD-, OPS-, HW-) are that review's. |
@@ -235,6 +235,54 @@ open pull request lands when it is green; it does not wait for its wave.
 | 9. Profile and research | 2027-08-09 to 2027-09-03 | T-203c, T-311a, T-311b, T-312, T-313, T-314, T-316a, T-316c; the patient twin's new layers |
 | 10. Outside the hospital | 2027-09-06 to 2027-10-01 | T-732 (use from outside as a site setting), T-733 (the phone app); the opportunity feed and hub, T-741 to T-745 |
 | 11. Other hardware forms and tools | 2027-10-04 to 2027-10-29 | The bare Ubuntu box (`box-prepare.sh`, the Linux media, LUKS unlock: HW-010, OPS-005, OPS-006); DGX Spark (GB10); RTX 5090; two-device; shared quota; Kubernetes. Each goes back into the per-PR CI when it has a measured serving record on its own hardware. The model bake-off tools and the evaluation corpora |
+
+### 3.4 Build or reuse (v7.3, D-495)
+
+The review `docs/reviews/2026-11-12-build-vs-reuse.md` asked, for every mechanism, whether an open project does it.
+The owner's rule of 2026-11-12: what is built and verified stays, unless an open project is clearly better; a card
+not yet started uses an open project where that fulfils the plan. This section is what that rule changes. It adds
+no dependency by itself: each adoption below starts with a "reuse proposal" in its card's pull request (the
+project, its licence, its pinned version, what the release gates say about it), and the card's body carries a
+line "Reuse check: ...".
+
+**Adopted for cards not yet built.** The card keeps its id, wave and lane; its content changes.
+
+| Card (wave) | Uses | What stays ours |
+| --- | --- | --- |
+| The incremental backup cards (wave 3; PERF-010, PERF-011, ENG-011) | restic for the lake files; pgBackRest, already in the database image, for the database. A spike of 1 to 2 days in wave 2 at the dense profile decides | the rules of `tools/trialbox/backup.py`: what a backup keeps, the opt-out and erasure rules, the drill |
+| NEW-WIN-8 (wave 2) | the Windows key store (DPAPI) and BitLocker; `age` with a second recipient for the recovery copy (OPS-001) | `tb_common/kek.py`; no new cipher |
+| NEW-EDC-1 (wave 2) | recorded answers (cassettes) of the real test instance of NEW-EDC-0; PyCap as a second client in R1 to R9, in the test image only | the bridge and its client; `rc_sim` gets no new rule and goes after go-live |
+| UX-004, the upload's text decoder (wave 4) | charset-normalizer for Shift_JIS and Big5 | the refusal rule |
+| NEW-LLM-3, NEW-LLM-4 (wave 2) | a Japanese and a Chinese tokeniser with part-of-speech tags inside the tripwire; Presidio only as a yardstick in `tools/phi_synth_eval.py`. Measured on the first day of the card, before any new pattern | the tripwire and its recognisers |
+
+**Checked and kept ours.** The embedding server: lane D ran the published server against ours on 2026-11-12 (D-577,
+`docs/reviews/2026-11-12-tei-parity.md`). The vectors agree; the image fails the release gates as shipped, the SBOM
+tool sees none of its code, and masking, the PRODUCTION pin and the service token would stay in our service. Ours
+stays for the run of 2026-12-11 and for go-live. The other "keep ours" verdicts of the review stand as written
+there (gateway, audit chain, authorization, registries, opt-out and erasure, synthetic hospital, supply-chain tools).
+
+**Beside the product, not in it.** WhiteRabbit, Rabbit-in-a-Hat and Usagi for the mapping work of T-731;
+DataQualityDashboard and Achilles on the acceptance box for the first real night; Inspect where a model comparison
+is wanted before wave 11; detect-secrets over a generated support bundle and a memory limit on the ingest tests
+(wave 1, one day, lane D).
+
+**No longer grown before go-live** (added to section 3.2's list): `omop/dqd.py` gets no new check; `rc_sim` no new
+rule; the trace store and the model registry no new feature; no mapping editor of our own.
+
+**Dated after go-live** (added to section 3.3): a PostgreSQL job library in place of the home-made queue, and
+DuckLake for the lake's snapshots, are read in wave 6 before any card that grows either; Authlib for the OIDC
+client and signed update metadata by a standard in wave 11; gettext catalogues when an outside translator joins.
+
+**Third-party images in the bundle.** On 2026-11-12 lane D found that the release gates' image list left out the
+identity overlay: Caddy and Authelia had never been gated. The list is fixed in OPS-004b (#381). Both images fail
+at their newest published versions; the owner's ruling is dated, reviewed allow-list entries scoped to each pinned
+image, a licence budget for each, and for Authelia one narrow rule for its unreadable package list, each entry
+saying why the finding cannot be reached as the box runs the image. Review date **2026-12-10**; if upstream is
+silent then, the image is built by us. The owner gives this yes in lane D's session, which applies it.
+
+**What this saves.** The review's own estimate, not a measurement: 6 to 10 session-days in waves 2 to 4 (the backup
+design, half of NEW-EDC-1, parts of NEW-WIN-8 and NEW-LLM-3/4) and 8 to 15 after go-live. The dates of section 4 do
+not move; NEW-PLAN-5 restates the count at the end of wave 0.
 
 ## 4. The merged critical path
 
@@ -496,5 +544,6 @@ owner has seen the estimate and said yes. Lane G changes no product code.
 | Date | Change |
 | --- | --- |
 | 2026-11-12 | First draft from the deep review of 2026-11-12. |
+| 2026-11-12 | **v7.3.** Build or reuse (D-495): section 3.4. Five cards not yet built use open projects (backup, the Windows key store, REDCap cassettes and a second client, the text decoder, a tokeniser in the tripwire); the embedding server was tested and ours is kept (D-577); four home-made pieces stop growing; the third-party images of the identity overlay enter the release gates with a review date of 2026-12-10. No date of section 4 moves. |
 | 2026-11-12 | **v7.2.** The integrator session's review against `master` and the open pull requests. Steps 3 and 4 end 2026-12-04, with wave 1 (v7.1 had 11-27 against a wave that ends 12-04). Wave 2 runs to 2026-12-31 (v7.1 left the nine working days after 12-18 in no wave though section 1 counts them). About 20 cards scheduled for waves 1 to 3 already have built pull requests (four more are claims with no code: T-710, T-719, T-718, T-206b): the waves now say land, review and fix, not build; three frozen cards that were built land when green. From the fact check against `master`: the NEW-LIFE ids of waves 1 and 3 were swapped; `box-install.sh` is reused with a WSL2 switch, not unchanged; the backup runs from cron; the egress table is unproven under WSL2 and joins NEW-WIN-4; NEW-WIN-3 reads the installed memory on the Windows side; `erase_hidden` has no route; `StepStore`'s deletion keeps `db_pg`'s backend; the counts of section 1 are dated. T-689 is #309 on kept answers; `StepStore` is deleted. Lane G (the cloud-run session) and its files are named; NEW-PERF-1 and every test of section 7.1 are lane G's; lane D builds the box pieces the product-on-GPU run needs first. `services/orchestrator/scenarios` goes to lane A, `tools/scale_gate.py` and `tests/perf` to lane B, `.github/workflows` to lane D. Branch protection and the Actions spending limit are the owner's. The shared files and the review rule are written into section 5. Section 8 gains lines 8 and 9. |
 | 2026-11-12 | **v7.1.** The owner answered Q1 to Q9 (D-494). The site machine is a Windows workstation that staff also use; TrialBox runs in WSL2 with Docker Engine inside it (sections 2.2, 2.3; cards NEW-WIN-1 to NEW-WIN-9; lane W). `deploy/windows` is kept. The REDCap API send is live at go-live, on our own test instance (section 2.4; NEW-EDC-0; EDC-001 to EDC-008 in waves 2 to 4). T-731 starts in wave 0. Every frozen item has a dated wave after go-live (section 3.3, waves 6 to 11). Section 4: step 2 to 2026-11-27, step 11 to 2027-02-19, new steps 2a, 8a, 10a, 10b, 11a. Section 7.2: P-0 and P-10 to P-15. Go-live dates and the order of 2026-12-18 unchanged. |
