@@ -1,0 +1,17 @@
+# The prepared box's first boot at the site (T-729, D-466): shows the first-run wizard's address and one-time code on
+# the box's screen (and /etc/issue.d), waits for the owner to finish the wizard, then applies the answers. Enabled
+# only by `deploy/box-install.sh --prepare`; runs while the box is still a prepared one (deploy/site/box/prepared).
+[Unit]
+Description=TrialBox first run: the owner's set-up wizard
+After=trialbox.service network-online.target
+Wants=network-online.target
+ConditionPathExists=@TB_ROOT@/deploy/site/box/prepared
+
+[Service]
+Type=oneshot
+ExecStart=@TB_ROOT@/deploy/box-install.sh --firstrun
+StandardOutput=journal+console
+TimeoutStartSec=infinity
+
+[Install]
+WantedBy=multi-user.target
