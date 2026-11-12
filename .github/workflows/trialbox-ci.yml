@@ -553,6 +553,26 @@ jobs:
           docker run --rm -v "$RUNNER_TEMP/Caddyfile:/etc/caddy/Caddyfile:ro" "$pin" \
             caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
 
+  # NEW-WIN-1 (D-600): the Windows installer's PowerShell is parsed, held to Windows PowerShell 5.1 syntax and
+  # unit-tested with Pester on the Linux runner's PowerShell 7 (no Windows runner). Every Windows command is behind
+  # a seam; what only Windows can show is the P-0 rehearsal (docs/handover/P-0-windows-rehearsal.md).
+  powershell:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Parse, analyse and unit-test deploy/windows (Pester)
+        shell: pwsh
+        run: |
+          foreach ($m in @(@{ Name = "Pester"; MinimumVersion = "5.3.0" }, @{ Name = "PSScriptAnalyzer"; MinimumVersion = "1.21.0" })) {
+            if (-not (Get-Module -ListAvailable -Name $m.Name | Where-Object { $_.Version -ge [version]$m.MinimumVersion })) {
+              Install-Module @m -Scope CurrentUser -Force -SkipPublisherCheck
+            }
+          }
+          ./tests/windows/run-pester.ps1
+
   images:
     runs-on: ubuntu-latest
     needs: changes
