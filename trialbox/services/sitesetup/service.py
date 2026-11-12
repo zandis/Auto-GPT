@@ -204,7 +204,8 @@ class SiteSetup:
         chart_no = messy.half_width(chart_no or "").strip()
         if not chart_no:
             raise SetupError("SETUP-KEY", "give the patient's chart number: it is turned into a code at once")
-        if self.mrn_regex and not re.match(self.mrn_regex, chart_no):
+        # NEW-DIN-3c (D-546): the pattern is asked of the number as the site writes it, as it is then hashed
+        if self.mrn_regex and not re.match(self.mrn_regex, chartno.normalise(None, chart_no)):
             raise SetupError("SETUP-KEY", "this is not a chart number of this hospital")
         try:
             ct = charts.chart_text("pasted.txt" if pasted else name, data, self.ocr)

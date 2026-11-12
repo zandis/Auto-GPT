@@ -17,6 +17,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from tb_common import chartno
 from tb_common.audit import AuditLog
 from tb_common.deterministic import normalize_ooxml
 from tb_contracts import RegistryEntry, RegistryEvent, RegistryPromote, RegistrySummary, RegistryUpdate
@@ -59,7 +60,9 @@ class CandidateRegistry:
             return upd.pid
         if not upd.mrn:
             raise RegistryError("a chart number (mrn) or a pseudonym (pid) is needed")
-        if self.mrn_regex and not re.match(self.mrn_regex, upd.mrn):
+        # NEW-DIN-3c (D-546): the pattern is asked of the number written the site's way (the rule pads `123456` to
+        # `00123456` before it is hashed), not of the number as typed
+        if self.mrn_regex and not re.match(self.mrn_regex, chartno.normalise(None, upd.mrn)):
             raise RegistryError("that does not look like a chart number of this site")
         # imported here, not at the top: the console imports this module for two constants and must not load the
         # door, its route dependency and their audit events with it (T-721's table of who writes what)
