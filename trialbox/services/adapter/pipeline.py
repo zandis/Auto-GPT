@@ -59,6 +59,10 @@ class AdapterConfig:
     table_max_drop_pct: float = 10.0
     required_tables: tuple[str, ...] = ()
     optional_tables: tuple[str, ...] = ()
+    # NEW-DIN-8 (D-583): on the first night every table the mapping declares must be there with rows, unless it is
+    # in ``optional_tables``. The product's entry (``adapter.cli``) always sets it; a tool or a test that builds a
+    # night from a partial feed of its own making leaves it off
+    first_night_all_tables: bool = False
     source_encoding: str | None = None  # T-615b: settings.data_source.encoding, the csv reader's first candidate
     # T-659b (D-370): the folder of data contracts (adapter/governance.py); None: no contract checks
     contracts_dir: Path | None = None
@@ -1164,12 +1168,23 @@ def completeness_check(
     before: dict[str, int] = {str(k): int(v) for k, v in (base.get("reference") or {}).items()}
     problems: list[str] = []
     optional = set(cfg.optional_tables)
+    # NEW-DIN-8 (D-583): the first night has no last good night to compare with, and it becomes the baseline of
+    # every later one. So on it every table the mapping declares must be there with rows, unless the site lists
+    # the table as optional. A table missing on go-live night would otherwise never be asked for again.
+    first = cfg.first_night_all_tables and full and last_good is None
     for t in sorted(set(tables) | set(cfg.required_tables)):
         now = tables.get(t)
         rows = int(now["rows"]) if now else 0
         present = now["present"] if now else None
         if t in cfg.required_tables and (present is False or (full and rows == 0) or now is None):
             problems.append(f"{t}: required table {'missing' if present is False or now is None else 'empty'}")
+            continue
+        if first and t not in optional and (present is False or rows == 0):
+            problems.append(
+                f"{t}: table {'missing' if present is False else 'empty'} on the first night (every table of the "
+                "mapping is required then; a table this site does not have goes under "
+                "feed_completeness.optional_tables)"
+            )
             continue
         old = before.get(t, 0)
         if not old or t in optional:

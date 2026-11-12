@@ -1585,7 +1585,7 @@ class FeedCompleteness(BaseModel):
     """
     optional_tables: list[str] = []
     """
-    mapping tables that may be absent or empty on a night although the last good night had rows
+    mapping tables that may be absent or empty: on a night although the last good night had rows, and on the first night, when every other table of the mapping must be there with rows
     """
 
 
