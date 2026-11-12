@@ -354,6 +354,12 @@ class JobDB:
             con.execute("DELETE FROM pool WHERE pid = ANY(?)", (list(pids),))
         return int(n or 0)
 
+    def pool_count(self, pids: list[str]) -> int:
+        """T-727: the pool rows of these patients in every study (the opt-out worker's read-back)."""
+        if not pids:
+            return 0
+        return int(self._db.fetchval("SELECT count(*) FROM pool WHERE pid = ANY(?)", (list(pids),)) or 0)
+
     def pool_rulesets(self) -> list[str]:
         return [str(r[0]) for r in self._db.fetchall("SELECT DISTINCT ruleset FROM pool ORDER BY 1")]
 
