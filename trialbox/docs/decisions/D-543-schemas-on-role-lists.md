@@ -39,7 +39,8 @@ console, and nothing stopped the next store from being forgotten.
 - For a service other than the console and the orchestrator the test follows its own package's imports wherever
   they stand, and in another package only the imports at module level: an import inside a function of another
   package runs only if the service calls that function, which the text cannot tell. One pair the rule still
-  reaches and the service never opens is named with its reason (`LOADED_NOT_OPENED`: the lake and `derived`).
+  reaches and the service never opens is named with its reason (`LOADED_NOT_OPENED`: the lake loads the
+  matching cascade's module for type names, and with it `derived`, `optout` and `pidmap`).
 - `mpi` stays on three lists; taking a retired schema off an installed volume is not done here.
 
 ## What the adversarial review changed
@@ -47,7 +48,9 @@ console, and nothing stopped the next store from being forgotten.
 One review by a fresh reviewer; verdict: merge with two small fixes; no HIGH.
 
 - **M1, the test checked almost nothing for five of the seven roles** (own folder only: taking `vec` or `omop`
-  off the lake's list passed). Now every service's import closure is read, with the rule above.
+  off the lake's list passed). Now every service's import closure is read, with the rule above, the console
+  and the orchestrator included (on the train the console's every-import closure reached the orchestrator's
+  own stores through `orchestrator.candidates`, as T-721's table test found).
 - **M2, the changelog gave no command** and an updated box stays at 500 until the script runs. The command is
   in the line; the limit is stated above.
 - **M3, shapes of a store the scan missed** (a call at module level or in an `async` function, the schema as a

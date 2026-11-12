@@ -22,7 +22,6 @@ ROOT = Path(__file__).resolve().parents[2]
 ROLE_OF = {"console": "tb_console", "orchestrator": "tb_orchestrator", "mail_gateway": "tb_mail_gateway",
            "gateway": "tb_gateway", "lake": "tb_lake", "adapter": "tb_adapter",
            "criteria_compiler": "tb_criteria_compiler"}  # fmt: skip
-HOSTS = ("console", "orchestrator")  # their processes host the shared stores: every import they name is followed
 #: a helper that opens the schema its caller names: (module, parameter) -> what the scan reads instead
 DYNAMIC = {
     ("console.storedb", "schema"): "open_db(url, <schema>, ...): every call of it is read (a literal second argument)",
@@ -35,10 +34,14 @@ BACKEND_SCHEMAS = {"recall"}
 
 
 #: a store's module that a service loads and never opens: (service, schema) -> why. Read once, by a person.
+_LAKE_CASCADE = (
+    "lake.client loads vec.s2b for two names, and vec.s2b loads the matching cascade for its S2b types; the cascade's "
+    "engine imports {what}. The lake never runs the cascade: the orchestrator does, and passes it the rows."
+)
 LOADED_NOT_OPENED = {
-    ("lake", "derived"): "lake.client loads vec.s2b, which loads the matching cascade for its S2b types; the cascade "
-    "module imports tb_common.derived_store for three type names (STORED, Batch, Latest). The lake asks no stored "
-    "derived row: the orchestrator passes them to the cascade.",
+    ("lake", "derived"): _LAKE_CASCADE.format(what="tb_common.derived_store for three type names"),
+    ("lake", "optout"): _LAKE_CASCADE.format(what="tb_common.optout (the opt-out filter of a screening run)"),
+    ("lake", "pidmap"): _LAKE_CASCADE.format(what="tb_common.optout, which reads the pid map's aliases"),
 }
 #: on a list and opened by no code: why it is still listed
 LISTED_ONLY = {
@@ -154,17 +157,18 @@ def _imports(f: Path, nested: bool = True) -> set[str]:
 
 
 def _closure(service: str) -> set[str]:
-    """Every module the service's process can run. A host (the console, the orchestrator): every import, wherever
-    it stands. Any other service: its own package's imports wherever they stand, and in another package only the
-    imports at module level (those run when the module is loaded; an import inside a function of another package
-    runs only if the service calls that function, which a reading of the text cannot know: the adapter imports
-    one helper of the orchestrator and would otherwise be held to the orchestrator's whole list)."""
+    """Every module the service's process can run: its own package's imports wherever they stand, and in another
+    package only the imports at module level (those run when the module is loaded; an import inside a function of
+    another package runs only if the service calls that function, which a reading of the text cannot know). The
+    same rule as the table test of who writes which audit family (``test_audit_roles``): the console imports
+    ``orchestrator.candidates`` for two constants and would otherwise be held to everything the orchestrator's
+    own functions import."""
     seen: set[str] = set()
     todo = {m for m in MODS if m == service or m.startswith(service + ".")}
     while todo:
         m = todo.pop()
         seen.add(m)
-        own = service in HOSTS or m == service or m.startswith(service + ".")
+        own = m == service or m.startswith(service + ".")
         todo |= _imports(MODS[m], nested=own) - seen
     return seen
 
