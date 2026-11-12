@@ -33,7 +33,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `lake:ndjson-rerun` | T-206b | kept snapshots (3 nightly + 36 month-ends): rebuild without the patient, or a tombstone list read | a re-run of a promoted night until it passes the gate (D-271) |
 | `lake:parquet` | T-206b | kept snapshots (3 nightly + 36 month-ends): rebuild without the patient, or a tombstone list read | the Parquet copy of each snapshot |
 | `lake:site` | T-206b | the clear | facts the site set-up published, as NDJSON, by pseudonym |
-| `lake:tmp` | T-206b | the clear | the rebuild's scratch files (removed after a build; a crash may leave them) |
+| `lake:tmp` | T-206b | the clear | the rebuild's and the night's ingest scratch files (removed after each; a crash may leave them) |
 | `mail.send_keys` | T-206b | the clear | the outbox's send request while queued (attachments by key, recipients) |
 | `objects:attachments` | T-206b | the clear | files mailed or uploaded to a job (consent forms, review sheets, case requests) |
 | `objects:outputs` | T-206b | the clear | job outputs: candidate and excluded lists, micro-batch pids (365 days) |
