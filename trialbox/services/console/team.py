@@ -670,16 +670,20 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             raise refused(TeamError("a CRO account is on the log only as a monitor"))
         if role == "monitor" and (acct is None or not monitor_account(acct)):
             raise refused(TeamError("a monitor grant names a CRO account of this study"))
-        if role == "monitor" and not str(form.get("end") or "").strip():
-            raise refused(TeamError("a monitor grant ends with the visit: give the end date"))
-        if role == "monitor" and not str(form.get("training_ref") or "").strip():
-            raise refused(TeamError("a monitor grant names the monitoring visit"))
+        # DEMO-JA: the visit id has its own field ("visit"; the training-certificate field is still read for it)
+        ref = str(form.get("visit") or "").strip() if role == "monitor" else ""
+        ref = ref or str(form.get("training_ref") or "").strip()
+        if role == "monitor":
+            missing = [w for w, ok in (("the last day", str(form.get("end") or "").strip()), ("the visit id", ref))
+                       if not ok]  # fmt: skip
+            if missing:  # say which field is empty (the rehearsal's refusal named none)
+                raise refused(TeamError(f"a monitor grant needs {' and '.join(missing)} of the monitoring visit"))
         tasks = [] if role == "monitor" else form.getlist("tasks")
         try:
             eid = team.add_entry(rid, username=username, name=str(form.get("name") or "").strip() or (username or ""),
                                  role=role, tasks=tasks, start=str(form.get("start") or ""),
                                  end=str(form.get("end") or ""), training_day=str(form.get("training_day") or ""),
-                                 training_ref=str(form.get("training_ref") or ""), by=sess.user.username,
+                                 training_ref=ref, by=sess.user.username,
                                  at=now())  # fmt: skip
         except TeamError as exc:
             raise refused(exc) from exc

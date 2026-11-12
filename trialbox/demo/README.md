@@ -41,11 +41,17 @@ Give each tester their own accounts and keep their work across restarts:
         {"username": "owner", "role": "admin", "language": "en", "password_env": "TB_DEMO_OWNER_PASSWORD"}
       ]}
 
-  `role` is the console role (admin, coordinator, investigator, viewer, cro); `language` (ja, zh-TW, en) is where the
+  `role` is the console role (admin, coordinator, investigator, viewer, cro, steward, privacy); `language` (ja, zh-TW, en) is where the
   account lands after sign-in (`/lang` still changes it); `expires` ends the account and its log entries;
   `delegation` adds the account to a study's delegation log: `pi` (all tasks; one PI per study), `sub_pi` with only
   the ticked tasks (screen, approach, refer, enter_data), `crc` or `other`. The account sees only the studies it is
-  logged on (or the `studies` list). A sub-investigator without the `approach` tick gets 403 on Approach, and only the
+  logged on (or the `studies` list). A `steward` (data steward) or `privacy` (privacy office) account is site-wide:
+  no `delegation` and no `studies`. They are the roles that open the audit browser (`/audit`; admin gets 403) and the
+  opt-out register. As on the real box, the steward names each study's PI (D-380), so a file with a steward must name
+  a PI for every study its entries log, else the demo refuses the file. Example rows:
+  `{"username": "tester1.steward", "role": "steward", "language": "ja", "expires": "2027-01-31"}`,
+  `{"username": "tester1.privacy", "role": "privacy", "language": "ja", "expires": "2027-01-31"}`.
+  A sub-investigator without the `approach` tick gets 403 on Approach, and only the
   logged PI approves criteria. The file holds no passwords: each account gets a random one, or the value of the
   environment variable its `password_env` names.
 * **Second factor and first sign-in.** With an accounts file TOTP is on (`TB_CONSOLE_MFA=totp`). Each new account

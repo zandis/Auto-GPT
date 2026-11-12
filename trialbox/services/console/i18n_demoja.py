@@ -95,6 +95,10 @@ _SRC_ZH = {
 }
 
 EN: dict[str, str] = {
+    # the delegation log's add form: the monitoring visit has its own field (it shared the training certificate's)
+    "team.log.training_cert": "Training certificate",
+    "team.log.visit": "Monitoring visit id",
+    "team.log.visit.help": "A monitor grant only: the id of the monitoring visit (with its last day above).",
     # the account page once two-step sign-in is on (the "comes with the installation" line was shown after enrolment)
     "account.totp_on": "Two-step sign-in is on: every sign-in asks for a code from your authenticator app.",
     # the IRB sentence's English original under its translation (D-395: the wording the record is checked against)
@@ -113,6 +117,10 @@ EN: dict[str, str] = {
 }
 
 JA: dict[str, str] = {
+    # the delegation log's add form: the monitoring visit has its own field (it shared the training certificate's)
+    "team.log.training_cert": "研修修了証",
+    "team.log.visit": "モニタリング訪問の ID",
+    "team.log.visit.help": "モニターの許可のときだけ：モニタリング訪問の ID（最終日は上の欄）。",
     "account.totp_on": "2段階認証はオンです。サインインのたびに認証アプリのコードを入力します。",
     "irbt.sentence_en": "英語の原文：",
     "dataops.event.ingest.done": "夜間取り込み完了",
@@ -127,6 +135,10 @@ JA: dict[str, str] = {
 }
 
 ZH: dict[str, str] = {
+    # the delegation log's add form: the monitoring visit has its own field (it shared the training certificate's)
+    "team.log.training_cert": "訓練證明",
+    "team.log.visit": "監測訪視編號",
+    "team.log.visit.help": "僅限監測員授權：監測訪視的編號（最後一天填於上方）。",
     "account.totp_on": "兩步驟登入已開啟：每次登入都需輸入驗證器應用程式的代碼。",
     "irbt.sentence_en": "英文原文：",
     "dataops.event.ingest.done": "夜間匯入完成",

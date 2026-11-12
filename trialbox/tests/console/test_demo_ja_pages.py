@@ -103,3 +103,26 @@ def test_the_data_operations_trail_names_the_event_and_the_adapter_in_japanese(b
     assert ">ingest.held<" not in trail and ">adapter<" not in trail
     assert 'title="ingest.held"' in trail  # the audit event's code stays on the cell for the auditor
     assert "取り込み処理" in c.get("/data-ops").text
+
+
+def test_a_monitor_grant_says_which_field_is_missing_and_has_a_visit_field(box: dict[str, Any]) -> None:  # noqa: F811
+    from tests.console.test_console_app import name_pi
+
+    _user(box, "mon9", "cro", affiliation="cro", studies="GZQO")
+    _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")
+    pi, csrf = login(box["app"], "drsato", PW)
+    pi.post("/lang", data={"csrf": csrf, "lang": "ja", "back": "/"})
+    form = pi.get("/studies/GZQO/team").text
+    assert 'data-testid="add-visit"' in form and "モニタリング訪問の ID" in form
+    assert "研修修了証（モニターの場合" not in form  # the training-certificate field is labelled for what it is
+    grant = {"csrf": csrf, "username": "mon9", "role": "monitor", "start": "2026-01-01"}
+    both = pi.post("/studies/GZQO/team", data=grant)
+    assert both.status_code == 400 and "最終日と ID が必要です" in both.text and "この依頼は実行できませんでした" not in both.text
+    no_end = pi.post("/studies/GZQO/team", data={**grant, "visit": "MV-7"})
+    assert no_end.status_code == 400 and "最終日が必要です" in no_end.text
+    no_visit = pi.post("/studies/GZQO/team", data={**grant, "end": "2099-12-31"})
+    assert no_visit.status_code == 400 and "ID が必要です" in no_visit.text
+    ok = pi.post("/studies/GZQO/team", data={**grant, "end": "2099-12-31", "visit": "MV-7"}, follow_redirects=False)
+    assert ok.status_code == 303
+    assert "MV-7" in pi.get("/studies/GZQO/team").text  # the visit id is on the log entry
