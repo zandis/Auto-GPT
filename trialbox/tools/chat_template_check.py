@@ -151,6 +151,8 @@ def passed_template(record: dict[str, Any], models_roots: list[Path], cache: Pat
         url = HF_URL.format(source=tpl["source"], revision=tpl["revision"], name=Path(str(tpl["file"])).name)
         dest = cache / "chat_template.passed.jinja"
         try:
+            if not url.startswith("https://"):
+                raise ValueError(f"not an https source: {url}")
             with urllib.request.urlopen(url, timeout=30) as r:  # https, the registry row's own source
                 data = r.read()
             cache.mkdir(parents=True, exist_ok=True)
