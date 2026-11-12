@@ -1,0 +1,50 @@
+{
+ "stages": [
+  {
+   "name": "install: tier and serving record",
+   "ok": true,
+   "seconds": 0.0,
+   "checks": [
+    [
+     "the vendor serving record measures rtxpro6000 on its own card",
+     true,
+     ""
+    ],
+    [
+     "the this run serving record measures rtxpro6000 on its own card",
+     true,
+     ""
+    ],
+    [
+     "tier large installs on this card from a measured record",
+     true,
+     "serving_config.rtxpro6000.json"
+    ],
+    [
+     "tier small is refused on this card",
+     true,
+     "tier small is one RTX 5090 (32 GB), but this machine's card is 'NVIDIA RTX PRO 6000 Blackwell Server Edition' (rtxpro600"
+    ]
+   ],
+   "shot": "install.png",
+   "shot_ok": true,
+   "shot_status": 200,
+   "shot_lang": null
+  }
+ ],
+ "card": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+ "run": {
+  "id": "20261111T183639Z-986d91c9-s1",
+  "head": "986d91c91352748b1e37775d6446b5405c7b1b19",
+  "subject": "Orchestrator drain: a finished job is progress however long it took (G1 2026-11-11 failed on a 2.6 h job)",
+  "dirty": false,
+  "host": {
+   "machine": "x86_64",
+   "cpus": 48,
+   "python": "3.12.3",
+   "node": "tb-gpu-sim.asia-east1-a.c.trialbox-demo.internal"
+  },
+  "weight_pins": "synthetic"
+ },
+ "wall_seconds": 0.0
+}
