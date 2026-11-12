@@ -32,6 +32,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from console import s28
+from console.api_first import before_body, page_twin
 from console.auth import Session
 from console.backend import Problem, Unavailable
 from console.data_pages import err_of
@@ -573,7 +574,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         except (Problem, Unavailable) as exc:
             return refused(sess, exc)
 
+    def first_enter(sess: Session, request: Request) -> None:
+        """T-657 (D-444): the actions' own first checks, run before the body is read (console.api_first)."""
+        study_or_404(sess, request.path_params["rs"])
+        need_enter(sess, request.url.path)
+
     @app.post("/api/v1/studies/{rs}/subjects/{record}/step", response_model=None)
+    @before_body(first_enter)
     def api_step(request: Request, rs: str, record: str, body: ApiStep) -> Any:
         sess = api_session(request)
         try:
@@ -583,6 +590,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             return refused(sess, exc)
 
     @app.post("/api/v1/studies/{rs}/aes/{record}/{event}/ack", response_model=None)
+    @page_twin("/studies/{rs}/subjects/{record}/aes/{event}/ack")
     def api_sae_ack(request: Request, rs: str, record: str, event: str) -> Any:
         sess = api_session(request)
         try:
@@ -610,6 +618,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             return refused(sess, exc)
 
     @app.put("/api/v1/studies/{rs}/schedule", response_model=None)
+    @before_body(first_enter)
     def api_schedule_put(request: Request, rs: str, body: ApiSchedule) -> Any:
         sess = api_session(request)
         try:
