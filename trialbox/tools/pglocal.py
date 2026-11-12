@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import os
 import re
 import shutil
@@ -32,6 +33,13 @@ from pathlib import Path
 
 DB = "trialbox_wf"
 SOCK_MAX = 100  # sun_path holds 108 bytes on Linux and 104 on macOS
+# D-572: the one limit for a branch's slug in a test root (tests/unit/test_test_isolation.py reads it). A worker's
+# socket is <scratch>/tb-tests-<slug>/pg-gw<n>/run/.s.PGSQL.5432. With the default scratch folder and a five-digit
+# uid (/var/tmp/trialbox-65534, 23 bytes), "/tb-tests-" (10), a two-digit worker's "/pg-gw99/run" (12) and the
+# socket's name (14) that is 59 bytes beside the slug: 40 keeps the path inside SOCK_MAX, so the cluster's socket
+# stays in the branch's own root; a longer slug sends it to the short-socket fallback.
+SLUG_MAX = 40
+SLUG_HASH = 8  # hex characters of the whole name's sha256 that a cut slug ends with
 
 
 def bindir() -> Path:
@@ -259,6 +267,17 @@ def scratch_root() -> Path:
     return Path(os.path.abspath(env)) if env else Path(f"/var/tmp/trialbox-{os.getuid()}")  # no ".." left in it
 
 
+def slug_of(name: str) -> str:
+    """A branch name as one path segment of at most :data:`SLUG_MAX` characters (``agent/T-003-x`` ->
+    ``agent-T-003-x``). A longer name keeps its start and ends with a short hash of the whole name, so two branches
+    that share their first characters do not share a test root."""
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-.") or "detached"
+    if len(slug) <= SLUG_MAX:
+        return slug
+    digest = hashlib.sha256(name.encode()).hexdigest()[:SLUG_HASH]
+    return f"{slug[: SLUG_MAX - SLUG_HASH - 1].rstrip('-.')}-{digest}"
+
+
 def branch_slug(repo: Path | None = None) -> str:
     """The checkout's branch as one short path segment (``agent/T-003-x`` -> ``agent-T-003-x``); a detached HEAD
     (CI, a review worktree) is ``detached-<short sha>``, so two detached checkouts do not share a root."""
@@ -268,7 +287,7 @@ def branch_slug(repo: Path | None = None) -> str:
     if name in ("", "HEAD"):
         sha = _run(["git", "-C", str(where), "rev-parse", "--short=10", "HEAD"]).stdout.strip()
         name = f"detached-{sha}" if sha else "detached"
-    return (re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-.") or "detached")[:60]
+    return slug_of(name)
 
 
 SYSTEM_DIRS = ("/bin", "/boot", "/dev", "/etc", "/lib", "/lib64", "/opt", "/proc", "/root", "/run", "/sbin", "/srv",

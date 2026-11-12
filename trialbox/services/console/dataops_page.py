@@ -12,9 +12,10 @@ to each other.
 ``console.denied`` event.
 
 **Accept.** ``DataOps.decide`` runs the promotion of the night inside its transaction, so a night is ``PUBLISHED``
-only when its snapshot became the one served. The lake side of that promotion is not built yet (D-443, Open):
-``register`` takes a ``promote`` callable, and without one an accept is refused with a message and the night stays
-held. Reject needs no promotion (``CURRENT`` keeps the previous snapshot, D-149) and works now.
+only when its snapshot became the one served. The promoter is :func:`adapter_promoter` (T-723, D-489): the
+adapter's publish of the held night, the same function a night that passed the gate goes through. ``register``
+takes it as ``promote``; without one (a console with no adapter) an accept is refused with a message and the night
+stays held. Reject needs no promotion (``CURRENT`` keeps the previous snapshot, D-149).
 
 **API.** ``/api/v1/data/sources``, ``/api/v1/data/batches`` (``state``, ``source``, ``limit``, ``before``),
 ``/api/v1/data/batches/{id}`` and ``POST /api/v1/data/batches/{id}/decide`` answer the same functions with the
@@ -58,13 +59,66 @@ PAGE = 50
 # the light of a source from its newest night: held or stopped is red, a steward's reject (the box serves the night
 # before) and a night still on the line are amber, a published night is green
 LIGHT = {"PUBLISHED": "green", "HELD": "red", "FAILED": "red", "REJECTED": "amber"}
-ERRORS = ("reason", "decision", "state", "promote")
+ERRORS = ("reason", "decision", "state", "promote", "publishing")
 
 Promote = Callable[[Any], None]
 
 
 class PromoteFailed(RuntimeError):
-    """The promotion of an accepted night raised: ``DataOps.decide`` rolled back, the night stays held."""
+    """The publish of an accepted night did not end "done". ``nothing_served``: it ended and the night is not
+    served (an ordinary held night again); otherwise its end is not known (the accept stays recorded)."""
+
+    nothing_served = False
+    #: the adapter refused to start the publish (409: an ingest or a publish runs, or the attempt is not the newest
+    #: of its night): this accept started nothing and learned nothing about an earlier one
+    not_started = False
+
+
+def adapter_promoter(bk: Any, poll: Any = None) -> Promote:
+    """T-723 (D-489): the promoter of an accepted night. It starts the adapter's publish of the held night
+    (``POST /publish``: pid map, OMOP, the FHIR store, the lake, promote last; the same function a night that
+    passed the gate goes through) and follows it to its end (a polled job, never timed: D-472). Anything but
+    ``done`` raises and the night stays held; the adapter keeps the step that failed, and a second accept resumes
+    there. A publish that ended without serving the night raises with ``nothing_served`` (the night can still be
+    rejected); one whose end could not be read (the adapter restarted, the job was lost) raises without it: the
+    accept stays recorded, and a second accept is answered "done" by the adapter if the night was published."""
+
+    def promote(batch: Any) -> None:
+        from tb_common.http import ServiceError
+        from tb_common.jobpoll import JobLost, Poll
+
+        try:
+            started = bk.adapter.post_raw(
+                "/publish", {"snapshot": batch.snapshot, "source": batch.source, "attempt": batch.attempt}
+            ).json()
+        except ServiceError as exc:
+            # second review (H4): refused at once. 404: no held night of that date on the box and none published,
+            # so nothing is served from it. 409: nothing was started by this accept
+            if exc.status in (404, 409):
+                err = PromoteFailed(f"the adapter did not start the publish (HTTP {exc.status})")
+                err.nothing_served, err.not_started = exc.status == 404, exc.status == 409
+                raise err from exc
+            raise RuntimeError(f"the adapter did not start the publish (HTTP {exc.status})") from exc
+        rid = str(started.get("run") or "")
+
+        def read() -> dict[str, Any]:
+            try:
+                body: dict[str, Any] = bk.adapter.get_json(f"/publish/{rid}")
+            except ServiceError as exc:
+                if exc.status == 404:
+                    raise JobLost(f"the adapter no longer knows publish {rid} (it restarted)") from None
+                raise
+            return body
+
+        st = started if started.get("state") != "running" else (poll or Poll()).until_done(read, "publish")
+        if st.get("state") != "done":
+            err = PromoteFailed(f"the publish ended {st.get('state')}: {st.get('steps')}")
+            # ``promoted`` is what the lake serves, read by the adapter at the publish's end; without it (a
+            # publish that raised before it could be read) the end is not known
+            err.nothing_served = st.get("promoted") is False
+            raise err
+
+    return promote
 
 
 def light(state: str) -> str:
@@ -137,7 +191,10 @@ def register(app: FastAPI, h: Helpers, promote: Promote | None = None) -> None:
                 promote(b)
             except Exception as e:
                 log.warning("promotion of batch %s failed (%s)", bid, type(e).__name__)
-                raise PromoteFailed(type(e).__name__) from e
+                err = PromoteFailed(type(e).__name__)
+                err.nothing_served = bool(getattr(e, "nothing_served", False))
+                err.not_started = bool(getattr(e, "not_started", False))
+                raise err from e
 
         ops = store()
         hook = run if promote is not None else None
@@ -208,8 +265,9 @@ def register(app: FastAPI, h: Helpers, promote: Promote | None = None) -> None:
                 raise h.problem(404, "notfound") from e
             code = {"not_held": "state", "step": "state", "by": "reason"}.get(e.why, e.why)
             return RedirectResponse(f"/data-ops?err={code if code in ERRORS else 'state'}", status_code=303)
-        except PromoteFailed:  # the night stays held (DataOps.decide's transaction)
-            return RedirectResponse("/data-ops?err=promote", status_code=303)
+        except PromoteFailed as e:  # the night stays held; its accept stays recorded unless nothing is served
+            return RedirectResponse(f"/data-ops?err={'promote' if e.nothing_served else 'publishing'}",
+                                    status_code=303)  # fmt: skip
         return RedirectResponse(f"/data-ops?done={decision}", status_code=303)
 
     # ------------------------------------------------------------------ /api/v1 (the same functions)
@@ -263,6 +321,10 @@ def register(app: FastAPI, h: Helpers, promote: Promote | None = None) -> None:
             raise h.problem(status, "request.refused", code=f"DATAOPS-{e.why.upper()}", reason=e.message,
                             fields="") from e  # fmt: skip
         except PromoteFailed as e:  # the night stays held
-            raise h.problem(409, "request.refused", code="DATAOPS-PROMOTE", reason="the promotion failed; the "
-                            "night stays held", fields="") from e  # fmt: skip
+            why = (
+                "the publish failed and nothing is served; the night stays held"
+                if e.nothing_served
+                else "the end of the publish is not known; the accept is recorded: accept again to record its end"
+            )
+            raise h.problem(409, "request.refused", code="DATAOPS-PROMOTE", reason=why, fields="") from e
         return {"batch": b.as_dict()}

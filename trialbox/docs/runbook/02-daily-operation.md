@@ -3,10 +3,11 @@
 | When | What | Where to look |
 | --- | --- | --- |
 | 00:20 | `trialbox logs daily` (cron on the host): collect yesterday's service logs, prune, archive the audit | `/var/log/trialbox-retention.log` |
+| after it | `trialbox audit-sign` (the same cron line; D-562): checks the audit chain against every earlier signed head, then signs where the chain stands and writes the signed head, write-once, to every folder of `TB_AUDIT_ANCHOR_TARGETS` (a folder off the box, such as the hospital's share). A chain that does not agree is not signed again: the log says so, and `tools/audit_verify.py <audit folder> --heads <anchor folder>` shows where. `trialbox doctor` (check `audit_heads`) FAILs in PRODUCTION when no folder is set, the audit key is missing or the newest signed head is older than `TB_AUDIT_HEAD_MAX_AGE_H` (36 hours), or when the last night was refused. A box installed before D-562 gets the cron line and the audit key when `deploy/install.sh` (or `sh deploy/hardening/seal_keys.sh --secrets <the secrets volume>`) runs again | `/var/log/trialbox-retention.log`; `deploy/logs/audit-sign.json`; event `audit.head_signed` |
 | 02:00 | INGEST: adapter to FHIR store and lake, 1 % validator sample, snapshot pruning | job list, `ingest_report.json` |
 | 03:00 | REDCap read-back (console timer) | the study's Sources page |
 | before the night's model jobs | the pair canary (54 questions); model jobs start only when it passes | `selftest.passed` in the audit |
-| 05:00 | RETENTION: attachments 90 days, outputs 365 days, mail logs by country | `retention_<date>.json` |
+| 05:00 | RETENTION: attachments 90 days, outputs 365 days, mail logs by country. The lists an open study's next micro-batch reads are kept whatever their age (`kept_for_open_studies`; D-458) | `retention_<date>.json` |
 | 07:00, 07:30 | morning mail N1 (coordinator) and N2 (investigator), console timers | Notices received |
 | Mon 03:00, 03:30 | MICROBATCH and NAV per ruleset | mail |
 | Mon 06:00 | the weekly PI sample of ten "criteria not matched" patients per study (orchestrator, `schedule.not_matched_sample`; D-446) | `notmatched.sample` in the audit |
