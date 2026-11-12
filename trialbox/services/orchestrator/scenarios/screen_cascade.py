@@ -244,6 +244,7 @@ def verdicts_of(
     under the run's ``policy``, not a mapping of the cascade's own label: a "met" below the confidence threshold is
     a person's check here as on every other path (review M1a)."""
     vs: list[CriterionVerdict] = []
+    judged_rows: list[CriterionVerdict] = []  # the criteria the cascade has an outcome for: what the status reads
     for c in rs.active():
         if c.kind not in ("inclusion", "exclusion"):
             continue
@@ -256,10 +257,13 @@ def verdicts_of(
             )
             continue
         vs.append(verdict_of(o, pair))
+        judged_rows.append(vs[-1])
     if not t.in_scope and t.scope_reason == NOT_AT_INDEX:
         # no base row: never "excluded" with the engine's words; a person looks (D-142, review B-02)
         return not_in_snapshot(rs, t.pid, reason=Reason.CHECK_DATES if dated else Reason.NOT_IN_SNAPSHOT)
-    st = decision.status_of(rs.by_id(), vs, policy or DEFAULT_POLICY)
+    # a criterion with no outcome (the cascade stopped at a hard fail before it) is listed as "not evaluated" and,
+    # as before, does not count: the status is the one function's over the outcomes the cascade has
+    st = decision.status_of(rs.by_id(), judged_rows, policy or DEFAULT_POLICY)
     tier, actions, unknown = st.tier, list(st.actions), st.n_unknown
     if tier == "excluded" and TIER.get(t.tier, "review") != "excluded":
         tier = "review"  # the engine did not exclude: the rows never exclude on their own (cannot happen by CAS-7)
