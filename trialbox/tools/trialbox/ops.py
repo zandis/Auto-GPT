@@ -341,9 +341,18 @@ class OpsRunner:
         pub = self.box.public_key()
         if not pub.is_file():
             raise OpsFailed("no backup key yet: trialbox backup-keygen with hospital IT (RUNBOOK §5)")
+        if self.box.kind == "compose" and args.get("mode") == "running":
+            return self._backup_running()
         if self.box.kind == "compose":
             from tools.trialbox.update import ComposeBox
 
+            # a request without ``mode`` was queued by an older console, which confirmed a stop: it keeps the quiet
+            # box, but never stops the services under a running job (D-455, F-03): the person asks again
+            jobs = ComposeBox(self.box.deploy).running_jobs()
+            if jobs != 0:  # D-455 (M2): a count that could not be taken is a refusal too, never a stop
+                what = "the jobs could not be counted" if jobs is None else f"{jobs} job(s) running or queued"
+                raise OpsFailed(f"not run: {what}, and this backup would stop the services under them; ask again on "
+                                "the console (its Back up now keeps the services running)")  # fmt: skip
             work = self.box.deploy / "updates"
             work.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory(prefix="ops-backup-", dir=work) as tmp:
@@ -360,6 +369,23 @@ class OpsRunner:
         keep = int(self.box.env.get("TB_BACKUP_KEEP") or 14)
         written = bkp.backup(targets, pub, env=self.box.env, dirs=bkp.layout(self.box.env), keep=keep)
         return f"backup written: {written[0].name} to {len(written)} targets", [str(p) for p in written]
+
+    def _backup_running(self) -> tuple[str, list[str]]:
+        """The console's "Back up now" on a site box (D-455): the nightly's snapshot backup, under its lock and
+        recorded like it (``backup-last.json``, ``backup.done``), with nothing paused or stopped and no pgBackRest."""
+        from tools.trialbox import backup_schedule as bsch
+
+        try:
+            _cfg, _ops, res = bsch.run_backup(self.box.deploy, quiesce="off", with_pgbackrest=False, wait=False)
+        except bsch.BackupBusy as exc:
+            raise OpsFailed(f"not run: {exc} (the nightly backup is running)") from exc
+        if not res["ok"]:
+            raise OpsFailed("; ".join(res["errors"])[:280])
+        f = res["file"]
+        lim = (res.get("point_in_time") or {}).get("limits") or {}
+        lines = [c["path"] for c in f["copies"]]
+        lines += [f"step limit {k}: {'none (size unknown)' if v is None else f'{v:.0f} s'}" for k, v in lim.items()]
+        return f"backup written: {f['name']} to {len(f['copies'])} targets; no service was stopped", lines
 
     def _image(self) -> str:
         return self.box.env.get("TB_IMAGE") or "trialbox-py:1.0.0"

@@ -308,6 +308,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "backup.alert": ("Backup alert", "バックアップの警告", "備份警示"),
     "backup.alert_cleared": ("Backup alert cleared", "バックアップ警告の解除", "解除備份警示"),
     "backup.alert_not_sent": ("Backup alert not sent", "バックアップ警告の未送信", "備份警示未寄出"),
+    "backup.restore_reapply": (
+        "Restore: events after the backup to re-apply",
+        "復元：バックアップ後の操作の再適用が必要",
+        "還原：備份之後的操作需重新套用",
+    ),
     "update.applied": ("Update applied", "更新の適用", "套用更新"),
     "update.downgrade": ("Downgrade", "ダウングレード", "降版"),
     "update.rolled_back": ("Update rolled back", "更新の差し戻し", "更新已還原"),

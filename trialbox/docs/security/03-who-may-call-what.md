@@ -13,6 +13,18 @@
   shared token) is refused. The one-GPU swap (`/v1/serving/activate`, `release`) is for the `serving_control`
   services only (orchestrator, operator). Refusals are `caller_unverified`, audited with the verified service.
   Tests: `tests/unit/test_gateway_verified_caller.py`.
+- **The orchestrator's routes per calling service** (D-464, T-713; review 2026-11-12 trust F2, F7, F12).
+  `services/orchestrator/route_callers.yaml` puts every route of the orchestrator in one group and says which verified
+  service reaches which groups; the token middleware enforces it before routing (`orchestrator/callers.py`). The
+  console reaches the groups it calls; the mail gateway only `POST /jobs` for the mail commands as mailed jobs and
+  `GET /jobs/{job_id}` for a job that came in by mail (also through `POST /jobs` with a known id); the operator's host token reads jobs and models; the adapter,
+  lake, compiler, doc-parser, gateway and embed service reach nothing. `requested_by: scheduler` (or `system`) is
+  refused over HTTP from every caller: the scheduler starts its jobs in process. The old shared token reaches the
+  orchestrator only in DEV and TEST. Refusals are 403 `route_not_allowed`, `caller_unverified` or
+  `internal_principal` (header `X-TB-Refusal`), audited as `service.route_refused` with the verified service. The
+  table decides which service, not which person: the body `by` of the study, data, lifecycle, set-up and sponsor
+  routes is T-715's. Tests: `tests/unit/test_orchestrator_callers.py` (the route walk; a new route fails it until it
+  is placed).
 - **The signed-in user between services** (D-143, review S-09). The console signs the user it names
   (`X-TB-Actor-Assertion`: actor, console session, two-minute expiry, HMAC with a key derived from the console's
   token); the orchestrator verifies it with the key in `deploy/secrets/services/actor/keys`, which only the
