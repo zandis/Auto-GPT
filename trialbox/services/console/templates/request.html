@@ -24,7 +24,7 @@
 {% else %}
 <li><a href="/jobs">{{ t('nav.jobs') }}</a> · {{ t('request.viewer.jobs') }}</li>
 <li><a href="/pilot/registry">{{ t('nav.registry') }}</a> · {{ t('request.viewer.registry') }}</li>
-<li><a href="/audit">{{ t('nav.audit') }}</a> · {{ t('request.viewer.audit') }}</li>
+{% if permit(user.role, 'audit.browse') %}<li><a href="/audit">{{ t('nav.audit') }}</a> · {{ t('request.viewer.audit') }}</li>{% endif %}
 {% endif %}</ul>
 </section>
 {% else %}

@@ -8,8 +8,8 @@
   role's rights. Every action records who did it (the audit trail and the rows' ``by``).
 * **Monitor grant** (D-380, FIT-002 grant half): the PI or the steward gives a CRO account a ``monitor`` entry of the
   log for the visit dates, with the monitoring-visit id. Under it the account reads the study's *enrolled* subjects
-  only (``/studies/{rs}/monitor/{record}``), read-only; a candidate, a screen failure or another study is refused;
-  each view is audited with the visit id.
+  only, read-only; a candidate, a screen failure or another study is refused; each view is audited with the visit
+  id. The monitor's pages are ``console.sdv_page`` (D-436).
 * **Candidates** (``/studies/{rs}/candidates``): every candidate the study's screening run found, whoever the treating
   doctor is. A candidate's page opens only with a purpose, is logged with the study and the purpose, and is
   rate-limited per person (``TB_CANDIDATE_VIEWS_PER_HOUR``, default 60). On it the PI and delegated sub-PIs see the
@@ -46,14 +46,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
-from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from datacore.lifecycle import reconsent_due
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
-from tb_common.authz import STUDY_TASKS, conditional, monitor_may_see, permit
+from tb_common.authz import STUDY_TASKS, conditional, permit
 from tb_common.authz import Standing as Grant
 from tb_common.config import environment_name
 from tb_common.optout import SOURCES, OptOutError, OptOutRegister
@@ -91,7 +90,6 @@ _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _PID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 _CHART = re.compile(r"^[A-Za-z0-9-]{1,40}$")
 _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")  # a screening number (record id), as on the lifecycle pages
-MONITOR_HIDDEN = frozenset({"pid"})  # a monitor reads the subject by its screening number, never the pseudonym
 CHECK_DAYS = 30  # the copy is compared with the office's signed log every month
 IRB_REASON_MIN = 10  # D-380 (ROLE-015): the written reason for a change to a study's IRB record
 LIFT_REASON_MIN = 10  # D-380 (ROLE-005): the written reason for lifting an opt-out
@@ -383,24 +381,6 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         ctx["purpose"] = purpose
         return rid, ctx
 
-    def reveal_candidate(sess: Session, path: str, rs: str, pid: str, purpose: str, reason: str,
-                         note: str = "") -> dict[str, Any]:  # fmt: skip
-        """The chart number of one candidate through D-143's reveal (``h.apply_reveal``): identifier authority for
-        the study and, for an investigator, the delegation log's "screen"; the D-143 reason; the audit record on both
-        sides and the orchestrator's per-person cap. The candidate page adds only the view's purpose to the record."""
-        rid = study_or_404(sess, rs)
-        need_irb_text(sess, rid, path)
-        if purpose not in VIEW_PURPOSES:
-            raise h.problem(400, "candidate.purpose")
-        if h.apply_reveal is None:
-            raise deny(sess, path)
-        _ctx, mrn = h.apply_reveal(sess, path, rid, pid, reason, via="candidates", purpose=purpose, note=note)
-        team.record_view(rid, pid, purpose, "reveal", sess.user.username, now())
-        ctx = candidate_ctx(sess, rid, pid)
-        ctx["mrn"] = mrn
-        ctx["purpose"] = purpose
-        return ctx
-
     @app.get("/studies/{rs}/candidates")
     def candidates(request: Request, rs: str, page: int = 1, show: str = "") -> Response:
         sess = h.need(request)
@@ -436,9 +416,15 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         sess = h.need(request)
         form = await request.form()
         need_csrf(sess, form)
-        ctx = reveal_candidate(sess, request.url.path, rs, pid, str(form.get("purpose") or ""),
-                               str(form.get("reason") or ""), str(form.get("note") or "")[:200])  # fmt: skip
-        return h.page(request, "team_candidate.html", sess, **ctx)
+        rid = study_or_404(sess, rs)
+        need_irb_text(sess, rid, request.url.path)
+        purpose = str(form.get("purpose") or "")
+        if purpose not in VIEW_PURPOSES:
+            raise h.problem(400, "candidate.purpose")
+        got = h.reveal.identifier(sess, rid, pid, purpose, str(form.get("reason") or ""), via="candidates",
+                                  note=str(form.get("note") or "")[:200], path=request.url.path)  # fmt: skip
+        return h.page(request, "team_candidate.html", sess,
+                      **{**candidate_ctx(sess, rid, pid), "mrn": got.mrn, "purpose": purpose})  # fmt: skip
 
     # ------------------------------------------------------------------ referral
     def request_referral(sess: Session, path: str, rs: str, pid: str, body: ApiReferral) -> tuple[str, int, str]:
@@ -582,19 +568,17 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     @app.post("/studies/{rs}/referrals/{ref_id}/print")
     async def referral_print_reveal(request: Request, rs: str, ref_id: int) -> Response:
         """The same page with the chart number, through the one reveal path (a reason, the audit record on both
-        sides and the per-person cap); the reveal is recorded as a candidate view for the referral."""
+        sides and the per-person cap, whose use row is the referral's candidate-view record; T-103, D-438)."""
         sess = h.need(request)
         form = await request.form()
         need_csrf(sess, form)
+        h.reveal.guard(sess, rs.strip().upper(), request.url.path, "referral", str(form.get("reason") or ""),
+                       "referral")  # fmt: skip
         rid, ref = ref_or_404(sess, request.url.path, rs, ref_id)
         need_irb_text(sess, rid, request.url.path)
-        if h.apply_reveal is None:
-            raise deny(sess, request.url.path)
-        _ctx, mrn = h.apply_reveal(sess, request.url.path, rid, ref.pid, str(form.get("reason") or ""),
-                                   via="candidates", purpose="referral",
-                                   note=str(form.get("note") or "")[:200])  # fmt: skip
-        team.record_view(rid, ref.pid, "referral", "reveal", sess.user.username, now())
-        return print_page(request, sess, rid, ref, str(form.get("lang") or ""), mrn)
+        got = h.reveal.identifier(sess, rid, ref.pid, "referral", str(form.get("reason") or ""), via="referral",
+                                  note=str(form.get("note") or "")[:200], path=request.url.path)  # fmt: skip
+        return print_page(request, sess, rid, ref, str(form.get("lang") or ""), got.mrn)
 
     @app.get("/studies/{rs}/referrals")
     def referrals(request: Request, rs: str) -> Response:
@@ -801,52 +785,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         rid, _ = save_irb(sess, request.url.path, rs, body)
         return RedirectResponse(f"/studies/{rid}/irb?done=1", status_code=303)
 
-    # ------------------------------------------------------------------ monitor grant (D-380, FIT-002 grant half)
-    def monitor_grant(sess: Session, path: str, rid: str) -> Standing:
-        """The account's monitor grant in the study today (``monitor.read``), or a refusal (audited)."""
-        s = stand(sess.user, rid)
-        if s.monitor is None or not permit(sess.user.role, "monitor.read", s.grant()):
-            raise deny(sess, path)
-        return s
-
-    def monitor_subject(sess: Session, path: str, rs: str, record: str) -> tuple[str, Standing, dict[str, Any]]:
-        """One subject for the monitor: read-only, enrolled subjects only (``tb_common.authz.monitor_may_see``). A
-        candidate, a screen failure or a consented person who never enrolled is refused and the refusal audited;
-        each view is audited with the monitoring-visit id the grant names."""
-        rid = study_or_404(sess, rs)
-        s = monitor_grant(sess, path, rid)
-        rec = record.strip()[:64]
-        if not _REC.match(rec):
-            raise h.problem(404, "notfound")
-        try:
-            one = dict(s28.call(bk, "GET", f"/studies/{rid}/subjects/{quote(rec)}?today={today().isoformat()}"))
-        except Problem as exc:
-            if exc.status == 404:
-                raise h.problem(404, "notfound") from exc
-            raise h.problem(409, "request.refused", reason="the data core refused the subject") from exc
-        except Unavailable as exc:
-            raise h.problem(503, "request.refused", reason="the data core did not answer") from exc
-        visit = s.monitor.training_ref if s.monitor else ""
-        if not monitor_may_see(one):
-            au.append("console.denied", ruleset=rid, actor=h.actor(sess),
-                      detail={"action": path[:80], "why": "not_enrolled", "visit": visit or ""})  # fmt: skip
-            raise h.problem(403, "forbidden")
-        au.append("console.monitor_view", ruleset=rid, actor=h.actor(sess),
-                  detail={"record": rec, "visit": visit or "", "state": str(one.get("state") or "")})  # fmt: skip
-        shown = {k: v for k, v in one.items() if k not in MONITOR_HIDDEN}
-        return rid, s, shown
-
-    @app.get("/studies/{rs}/monitor/{record}")
-    def monitor_page(request: Request, rs: str, record: str) -> Response:
-        sess = h.need(request)
-        rid, s, one = monitor_subject(sess, request.url.path, rs, record)
-        return h.page(request, "team_monitor.html", sess, rs=rid, record=record[:64], one=one, grant=s.monitor)
-
-    @app.get("/api/v1/studies/{rs}/monitor/{record}")
-    def api_monitor(request: Request, rs: str, record: str) -> dict[str, Any]:
-        sess = api(request)
-        rid, s, one = monitor_subject(sess, request.url.path, rs, record)
-        return {"study": rid, "visit": s.monitor.training_ref if s.monitor else None, "subject": one}
+    # the monitor's pages (reads under a monitor grant, the visit record) are ``console.sdv_page`` (D-436)
 
     # ------------------------------------------------------------------ approved ICF versions, re-consent (D-399)
     def icf_json(v: IcfVersion) -> dict[str, Any]:
