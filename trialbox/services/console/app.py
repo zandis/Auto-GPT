@@ -1134,6 +1134,12 @@ def create_app(
     )
     app.state.helpers = helpers  # console.notify (CLI) reads the same helpers
     register_home(app, helpers)
+    assert helpers.api_session is not None
+    audit_page.register_api(  # T-211c (D-451): the verify button's /api/v1 twin (T-657)
+        app,
+        audit_page.Hooks(need=need, page=page, problem=_Problem, csrf_ok=csrf_ok, actor=actor, au=au),
+        helpers.api_session,
+    )
     approval.register(app, helpers, submit)  # S20 (D-108): the investigator approves, on one page
     screening_log.register(app, helpers)
     notify.register(app, helpers)

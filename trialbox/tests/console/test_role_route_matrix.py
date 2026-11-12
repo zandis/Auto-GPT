@@ -206,6 +206,7 @@ ROUTE_ACTIONS: dict[tuple[str, str], str] = {
     ("GET", "/audit/patients/{pid}"): "audit.browse",
     ("GET", "/audit/patients/{pid}/report.csv"): "audit.browse",
     ("POST", "/audit/verify"): "audit.browse",
+    ("POST", "/api/v1/audit/verify"): "audit.browse",
     # T-310a (D-446): the weekly PI sample of criteria not matched and the site's check, page and /api/v1 alike
     ("GET", "/studies/{rs}/not-matched/sample"): "notmatched.sample",
     ("POST", "/studies/{rs}/not-matched/sample/{pid}"): "notmatched.sample",
@@ -224,7 +225,7 @@ SAME_ANSWER: tuple[tuple[tuple[str, str], ...], ...] = (
      ("GET", "/api/v1/studies/{rs}/screening-log")),
     (("GET", "/reports/research-office"), ("GET", "/reports/research-office.xlsx")),
     (("GET", "/audit"), ("GET", "/audit/patients/{pid}"), ("GET", "/audit/patients/{pid}/report.csv"),
-     ("POST", "/audit/verify")),
+     ("POST", "/audit/verify"), ("POST", "/api/v1/audit/verify")),
     (("GET", "/studies/{rs}/not-matched/sample"), ("GET", "/api/v1/studies/{rs}/not-matched/sample")),  # T-310a
     (("POST", "/studies/{rs}/not-matched/sample/{pid}"), ("POST", "/api/v1/studies/{rs}/not-matched/sample/{pid}")),
     (("GET", "/studies/{rs}/not-matched/check"), ("GET", "/api/v1/studies/{rs}/not-matched/check")),

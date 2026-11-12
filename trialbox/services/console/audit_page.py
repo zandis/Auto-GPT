@@ -474,3 +474,25 @@ def register(app: FastAPI, h: Hooks) -> None:
         rows = shown_to(sess, rows)
         return h.page(request, "audit.html", sess, records=rows, f=Filter(), next_before=nxt, kinds=tuple(KINDS),
                       events=i18n_audit.event_names(), bad_pid=False, first=True, verified=result)  # fmt: skip
+
+
+def register_api(app: FastAPI, h: Hooks, api_session: Callable[[Request], Session]) -> None:
+    """``POST /api/v1/audit/verify``, the twin of the page's "Verify the chain" (FIT-019, T-657): the session and
+    ``audit.browse`` before the body (``api_first``), the same check, the same ``console.audit_verify`` event. Only in
+    the pilot workspace, where the bearer sign-in exists."""
+    from console.api_first import before_body
+
+    def may(sess: Session, request: Request) -> None:
+        if not permit(sess.user.role, BROWSE):
+            h.au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            raise h.problem(403, "forbidden")
+
+    @app.post("/api/v1/audit/verify")
+    @before_body(may)
+    def api_audit_verify(request: Request) -> dict[str, Any]:
+        sess = api_session(request)
+        may(sess, request)
+        result = verify_now(Path(h.au.directory))
+        done = {"ok": result["ok"], "lines": result["lines"], "anchors": len(result["anchors"])}
+        h.au.append("console.audit_verify", actor=h.actor(sess), detail=done)
+        return result

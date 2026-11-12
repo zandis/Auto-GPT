@@ -321,3 +321,22 @@ def test_every_label_in_three_languages() -> None:
     assert set(audit_page.SHOWN) <= set(i18n_audit.KEYS)
     assert i18n_audit.event_label("ja", "console.login") == "ログイン"
     assert i18n_audit.event_label("ja", "x.unknown") == "x.unknown"
+
+
+def test_the_verify_api_twin_answers_the_same_and_is_guarded(box: dict[str, Any]) -> None:  # noqa: F811
+    """FIT-019 (T-657): the verify button's /api/v1 twin, the session and the row before the body."""
+    from fastapi.testclient import TestClient
+
+    _seed(box)
+    _user(box, "dpo", "privacy")
+    _user(box, "crc5", "coordinator")
+
+    def api(name: str) -> TestClient:
+        tok, _ = box["users"].new_session(box["users"].get(name), via="api")
+        return TestClient(box["app"], headers={"Authorization": f"Bearer {tok}"})
+
+    assert TestClient(box["app"]).post("/api/v1/audit/verify", json={}).status_code == 401
+    assert api("crc5").post("/api/v1/audit/verify", json={}).status_code == 403
+    r = api("dpo").post("/api/v1/audit/verify", json={})
+    assert r.status_code == 200 and r.json()["ok"] is True and r.json()["lines"] > 5
+    assert _events(box, "console.audit_verify")[-1]["actor"] == "console:dpo"
