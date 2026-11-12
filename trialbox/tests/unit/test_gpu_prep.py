@@ -61,10 +61,12 @@ def test_every_part_runs_on_exactly_one_vm(vms: int) -> None:
     assert abs(p["usd"] - p["hours"] * cr.PRICE_PER_HOUR) < 0.05
 
 
-def test_four_vms_finish_the_50000_run_in_about_three_hours() -> None:
+def test_four_vms_finish_the_50000_run_in_one_hospital_part() -> None:
     one = cr.shard_plan(cr.estimate(50000), 1)
     four = cr.shard_plan(cr.estimate(50000), 4)
-    assert one["wall_hours"] > 8 and four["wall_hours"] <= 3.0
+    # a hospital part is 5.0 h at 50,000 (G1, measured; bug A4): four VMs take one hospital part and their start
+    hospital = cr.HOSPITAL_PART_SECONDS / 3600 + cr.BOOT_HOURS + cr.SETUP_HOURS
+    assert one["wall_hours"] > 2 * hospital - 1 and abs(four["wall_hours"] - hospital) < 0.05
     assert {s["shard"] for s in four["shards"] if any(t.startswith("hospital-") for t in s["tags"])} == {1, 2}
     text = cr.print_shards(cr.estimate(50000), four)
     assert "wall about" in text and "VM-hours" in text
@@ -245,7 +247,9 @@ def test_each_vm_is_capped_before_it_starts_and_runs_only_its_parts(tmp_path: Pa
 
 def test_one_vm_is_the_d141_run(tmp_path: Path) -> None:
     out = _dry(tmp_path, "--patients", "50000")
-    assert "set-scheduling tb-gpu-sim --zone asia-east1-a --max-run-duration=12h" in out
+    assert (
+        "set-scheduling tb-gpu-sim --zone asia-east1-a --max-run-duration=19h" in out
+    )  # 14.56 h x 1.3 (G1 bug A4: was 12h)
     assert "[vm" not in out and "tb-gpu-sim-2" not in out
 
 

@@ -1138,6 +1138,14 @@ S3_SHARE = 92 / 5000  # GZQO patients reaching the note stage S3 (5,000-patient 
 PUBLIC_SECONDS = 1303.0  # public_e2e with the pair on the PRO 6000, 2026-11-08 (VALIDATION §3)
 SECONDS_PER_CHECK = 0.3  # one criterion check by one model (2,030 checks in about 10 minutes, VALIDATION §3)
 SCREEN_PARTS = ("emr-ssmix2", "emr-fhir", "site-excel", "redcap")
+# A hospital part (db-csv), measured end to end on the RTX PRO 6000 with the pair (G1, run 20261111T183639Z-986d91c9,
+# commit 986d91c): hospital-ja's wall_seconds 17,960 at 50,000 patients, of which the screening stage 8,584 s; the
+# rest is prepare's lake at 50,000 and the other 19 stages. Source: docs/plan/measurements/g1-2026-11-11/
+# hospital-ja.json (wall_seconds; stage "15 delegation, candidates and referral"). The old estimate counted only the
+# screening (2.14 h) and made the hard cap stop an --only run mid-part (G1 bug A4). OD-10: scaled with the patients
+# the part reads; a newer measurement replaces these two numbers.
+HOSPITAL_PART_SECONDS = 17960.0
+HOSPITAL_PART_PATIENTS = 50000
 # the benches (owner's approval of 2026-11-09; no card measurement yet, so set high): the embedding comparison is two
 # small models over about 7,000 notes plus the weights' download; the profile stand-in samples ``--profile-patients``
 # at 2 s each on the card's batch (16 sequences) plus a sequential latency sample and its synthetic hospital
@@ -1154,7 +1162,9 @@ STUB_SECONDS = {"hospital": 161.0, "emr-ssmix2": 144.0, "emr-fhir": 24.0, "site-
 def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, float] | None = None,
              local_patients: int = 5000, parts: tuple[str, ...] = ("g1",),
              profile_patients: int = 400) -> dict[str, Any]:  # fmt: skip
-    """Hours on the card per scenario and in all, and US$ at ``PRICE_PER_HOUR``. Model time: note-stage patients
+    """Hours on the card per scenario and in all, and US$ at ``PRICE_PER_HOUR``. A hospital part: the G1
+    measurement (:data:`HOSPITAL_PART_SECONDS` at :data:`HOSPITAL_PART_PATIENTS`) scaled with ``patients``, never
+    below its model time. Model time: note-stage patients
     times the measured 6.3 s per patient on the RTX PRO 6000 (VALIDATION §3; a chart read counts as one), criterion
     checks at 0.3 s each, the canary once per box with the pair. Other time: the part's stub time on the local run,
     scaled with its patients. The walk, backup, update and scale run after the VM has stopped: no card time.
@@ -1182,8 +1192,11 @@ def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, flo
     g1 = "g1" in parts
     for lang in langs if g1 else ():
         notes = S3_SHARE * patients
-        rows.append(row(f"db-csv ({lang})", patients, notes, notes * sec + CANARY_SECONDS +
-                        other("hospital", patients, local_patients), (f"hospital-{lang}",)))  # fmt: skip
+        # the G1 measurement scaled with the patients (G1 bug A4); never below the model time of the old sum, which
+        # is most of a small hospital (the canary, the stub time)
+        measured = HOSPITAL_PART_SECONDS * patients / HOSPITAL_PART_PATIENTS
+        model = notes * sec + CANARY_SECONDS + other("hospital", patients, local_patients)
+        rows.append(row(f"db-csv ({lang})", patients, notes, max(measured, model), (f"hospital-{lang}",)))
         rows.append(row(f"public ({lang})", 90, 90, PUBLIC_SECONDS, (f"public-{lang}",)))
     for name in scenarios.SCENARIOS if g1 else ():
         t = (f"scenario-{name}",)
