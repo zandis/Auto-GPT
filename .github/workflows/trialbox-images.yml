@@ -7,8 +7,8 @@
 #               image of that platform.
 #   multiarch:  for a release tag or a manual run, `make images-multiarch` into a registry on the runner, then the
 #               gates on each platform of the pushed manifests, by digest: the images a site pulls.
-# Runs on pull requests that change what goes into an image, on release tags, weekly (new advisories arrive without a
-# code change) and by hand. A release is made only from a passing record: `make release-bundle` runs the gates and
+# Runs for a merge train and on master when what goes into an image changed, on release tags, weekly (new advisories
+# arrive without a code change) and by hand; not on a card's pull request (D-578). A release is made only from a passing record: `make release-bundle` runs the gates and
 # tools/make_bundle.sh --gates refuses an image that is not in it.
 # The vulnerability gate blocks for every image a bundle can carry (T-110b, D-340, ENG-007): ours and the third-party
 # HAPI FHIR and vLLM images, whose open findings are dated per-image entries of the allow-list. `--vuln-mode report`
@@ -36,7 +36,22 @@ on:
       - "trialbox/tests/integration/test_embed_production_start.py"
       - ".github/workflows/trialbox-images.yml"
   push:
+    branches: [master]
     tags: ["trialbox-v*"]
+    paths:  # the same list: master is scanned when what goes into an image changed (a tag is scanned always)
+      - "trialbox/uv.lock"
+      - "trialbox/pyproject.toml"
+      - "trialbox/deploy/**"
+      - "trialbox/demo/**"
+      - "trialbox/Makefile"
+      - "trialbox/tools/supply_chain/**"
+      - "trialbox/tools/make_bundle.sh"
+      - "trialbox/services/embed_service/**"
+      - "trialbox/tools/pin_model.py"
+      - "trialbox/tools/tiny_embedder.py"
+      - "trialbox/models/registry.yaml"
+      - "trialbox/tests/integration/test_embed_production_start.py"
+      - ".github/workflows/trialbox-images.yml"
   schedule:
     - cron: "41 4 * * 1"
   workflow_dispatch:
@@ -50,16 +65,14 @@ concurrency:
 
 jobs:
   images:
-    # D-564: full tier: not on a draft pull request, except a merge train
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false || startsWith(github.head_ref, 'train/')
+    # D-578: for a merge train, on master, for a release tag, weekly and by hand; not for a card's pull request (129
+    # runs and about 2,900 billed minutes on 2026-11-12). A card that changes an image says so and goes on a train.
+    if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'train/')
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - runner: ubuntu-24.04
-            platform: linux/amd64
-          - runner: ubuntu-24.04-arm
-            platform: linux/arm64
+        # the arm64 leg for a train, master and a release tag; the weekly run and a run by hand scan amd64
+        include: ${{ fromJSON((github.event_name == 'pull_request' || github.event_name == 'push') && '[{"runner":"ubuntu-24.04","platform":"linux/amd64"},{"runner":"ubuntu-24.04-arm","platform":"linux/arm64"}]' || '[{"runner":"ubuntu-24.04","platform":"linux/amd64"}]') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     defaults:
@@ -150,7 +163,8 @@ jobs:
           retention-days: 90
 
   multiarch:
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    # a release tag or a run by hand; a push to master (D-578) is not a release
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     services:

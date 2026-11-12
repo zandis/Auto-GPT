@@ -15,7 +15,7 @@ WORKFLOW = ROOT.parent / ".github" / "workflows" / "trialbox-ci.yml"
 
 def _shell_steps() -> list[str]:
     doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    return [str(s.get("run") or "") for s in doc["jobs"]["shell"]["steps"] if s.get("name") == "shellcheck"]
+    return [str(s.get("run") or "") for s in doc["jobs"]["checks"]["steps"] if s.get("name") == "shellcheck"]
 
 
 def test_ci_shell_job_gates_on_warnings() -> None:

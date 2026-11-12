@@ -63,8 +63,20 @@ A push starts one of two tiers. `tests/unit/test_ci_tiers.py` holds the lists; a
 
 | Tier | Runs | Jobs |
 | --- | --- | --- |
-| fast tier | on every push to a pull request, draft or not | `changes`, `lint`, `types`, `docs`, `contracts`, `data-scan`, `shell`, `trace`, `cross-card` (and `lock` of the supply-chain workflow) |
-| full tier | when the pull request is not a draft (marking it ready for review starts it), on a branch named `train/*`, on a push to `master`, and by hand | `unit-shard`, `unit`, `property`, `goldens`, `e2e-simple`, `demo-boot`, `security`, `standards`, `images` (and the image gates) |
+| fast tier | on every push to a pull request, draft or not | `changes`, `checks`, `data-scan`, `cross-card` (and `lock` of the supply-chain workflow) |
+| full tier | when the pull request is not a draft (marking it ready for review starts it), on a branch named `train/*`, on a push to `master`, and by hand | `unit-shard`, `unit`, `property`, `goldens`, `e2e-simple`, `demo-boot`, `security`, `standards`, `images` |
+
+Three rules keep the billed runner minutes down (D-578):
+
+* `checks` is one job with a step for each short check: ruff, actionlint, mypy, doclint, decision numbers, licence
+  register, limits lint, generated contracts, shipped rulesets, traceability, shellcheck, the PoC host scripts.
+  Every step runs even when an earlier one failed; the log names each.
+* The image gates (`trialbox-images.yml`) run for a merge train, on `master` when what goes into an image changed,
+  for a release tag, weekly and by hand. They do not run on a card's pull request: a card that changes an image
+  says so, and the integrator puts it on a train early. The arm64 leg runs for a train, `master` and a release tag.
+* A push to `master` whose tree a merged train already proved runs the fast tier only
+  (`tools/ci_proved_tree.py`: the merge commit's tree equals the train head's, and that head's `unit` passed). The
+  nightly run keeps the whole suite on `master`.
 
 * A card's pull request stays a draft while it is built. It needs the fast tier green on its head, its targeted
   tests and, where the plan asks, its adversarial review. On a draft the check `unit` shows as skipped, never as
@@ -92,7 +104,7 @@ A push starts one of two tiers. `tests/unit/test_ci_tiers.py` holds the lists; a
 OD-10 (TB-PLAN-06.1): every time limit, memory cap and count in the product is derived from the hardware, the model's
 measured speed or the size of the data, or it is a declared setting with a reason. Two checks hold it (T-687, D-471):
 
-* **The limits lint** (`python -m tools.limits_lint`, CI job `docs`). A new `timeout=` over 60 s or a new `LIMIT n` /
+* **The limits lint** (`python -m tools.limits_lint`, CI job `checks`). A new `timeout=` over 60 s or a new `LIMIT n` /
   `limit=n` literal in `services/` fails until it has a line in `tools/limits_allow.yaml` whose reason names its
   scale-review finding (`F-nn`), the card that removes it, or why it is not a cut. A card that removes a limit removes
   its line in the same pull request (a stale line fails too). `--list` prints what it finds.
