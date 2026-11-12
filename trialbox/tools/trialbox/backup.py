@@ -589,17 +589,65 @@ def select_files(name: str, root: Path) -> tuple[list[str], dict[str, int]]:
 READ_TRIES = 3
 
 
+def _append_only(arcname: str) -> bool:
+    """The audit chain's day files (``audit/<day>.jsonl``): only ever appended to, one whole line per write
+    (``tb_common.audit``); a repair that cuts one back is the one exception, and is seen as a file that shrank."""
+    return arcname.startswith("dirs/audit/") and arcname.endswith(".jsonl")
+
+
+def _line_end(fh: IO[bytes], size: int) -> int:
+    """The length of the longest prefix of the first ``size`` bytes of ``fh`` that ends with a line end (0: none)."""
+    pos = size
+    while pos > 0:
+        start = max(0, pos - 65536)
+        fh.seek(start)
+        at = fh.read(pos - start).rfind(b"\n")
+        if at >= 0:
+            return start + at + 1
+        pos = start
+    return 0
+
+
+def _starts_with(path: Path, n: int, sha: Any) -> bool:
+    """Whether the first ``n`` bytes of ``path`` now are the bytes that hashed to ``sha`` (read again: only for an
+    append-only file that changed while it was read)."""
+    h, left = hashlib.sha256(), n
+    try:
+        with path.open("rb") as fh:
+            while left > 0:
+                b = fh.read(min(left, 1 << 20))
+                if not b:
+                    return False
+                h.update(b)
+                left -= len(b)
+    except OSError:
+        return False
+    return bool(h.digest() == sha.digest())
+
+
 def _add(tar: tarfile.TarFile, path: Path, arcname: str) -> tuple[str, int]:
     """Add one file; return the sha256 and size of exactly the bytes that went into the tar (one read per try).
 
     The box is running: a file whose size or modification time changed while it was read (a DuckDB file rewritten
-    in place at the same size, a log appended to) is added again, and the later copy is the one a restore extracts
+    in place at the same size, a list rewritten) is added again, and the later copy is the one a restore extracts
     and the manifest names; after ``READ_TRIES`` the backup fails. A file that shrank under the read cannot be taken
-    back out of the stream: the backup fails at once."""
+    back out of the stream: the backup fails at once.
+
+    **An append-only file** (:func:`_append_only`: the audit chain, which every model call of a night's jobs
+    appends to) is taken as it stood when the read began, up to its last whole line: if it only grew meanwhile (the
+    same file, and what was read is still its beginning, checked by reading that much again), the bytes read are a
+    whole earlier state and the copy is kept. Without this a busy
+    night made every backup fail ("kept changing"), which is the product being too strict, not the box being
+    unsafe. The lines appended later are in the next backup, and a restore lists what the box wrote after the
+    backup (``events_to_reapply``)."""
+    grows = _append_only(arcname)
     for _ in range(READ_TRIES):
         with path.open("rb") as fh:
             before = os.fstat(fh.fileno())
             info = tar.gettarinfo(arcname=arcname, fileobj=fh)
+            if grows:  # never a line that is being written
+                info.size = _line_end(fh, before.st_size)
+                fh.seek(0)
             hr = _HashReader(fh)
             try:
                 tar.addfile(info, hr)
@@ -611,6 +659,8 @@ def _add(tar: tarfile.TarFile, path: Path, arcname: str) -> tuple[str, int]:
             return hr.sha.hexdigest(), hr.n
         if (after.st_size, after.st_mtime_ns, after.st_ino) == (before.st_size, before.st_mtime_ns, before.st_ino):
             return hr.sha.hexdigest(), hr.n
+        if grows and after.st_ino == before.st_ino and after.st_size >= hr.n and _starts_with(path, hr.n, hr.sha):
+            return hr.sha.hexdigest(), hr.n  # appended to while it was read: what was read is still its beginning
     raise BackupError(f"{arcname} kept changing while it was backed up ({READ_TRIES} reads); run the backup again")
 
 
