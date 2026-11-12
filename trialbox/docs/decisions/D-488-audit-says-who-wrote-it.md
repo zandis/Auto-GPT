@@ -59,6 +59,19 @@ not the audit browser.
   library call the scan does not see, could be marked though it is honest: the mark asks for a look, it does not
   refuse.
 
+- **The host's tools speak with the orchestrator's role** (the review's H1). `trialbox backup`, `update`, the
+  watchdog, the operations runner and `deploy/install.sh` send their events from inside the orchestrator's
+  container, so the journal records `tb_orchestrator`. Its row holds their three families (`backup`, `ops`,
+  `update`) and the one exact event `console.ops`; a test scans the tools for the events they send that way. A
+  host tool with a role of its own would narrow this; it is not built.
+- **One malformed journal row stops the drain** (as on master before this card): a row whose time is not a
+  time, or whose fields are not what the chain takes, raises in `Drain.step`, and a restart reads the same row
+  again. Events wait in the journal and none is lost, but a service role can hold the trail back. To be written
+  as received with a `malformed` mark: its own card.
+- **The check is by family.** The console and the orchestrator hold the family `audit` for the lines the shared
+  library writes through them, so either can send any `audit.*` name unmarked.
+- **`demo_guard.acked()` reads a `demo.ack` line whatever its mark** (demo mode only).
+
 ## Consequences
 
 - An event sent by a role that does not write its family, or dated away from when it arrived, is visible in the

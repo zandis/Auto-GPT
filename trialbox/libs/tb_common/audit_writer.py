@@ -294,7 +294,7 @@ EDGE_EXTRA: dict[str, dict[str, str]] = {
 }
 ROLE_EVENTS: dict[str, frozenset[str]] = {
     "tb_console": frozenset({*_CONSOLE, *_SHARED}),
-    "tb_orchestrator": frozenset({*_ORCH, *_SHARED, *_HOST_TOOLS, "dataops"})  # it imports datacore.dataops,
+    "tb_orchestrator": frozenset({*_ORCH, *_SHARED, *_HOST_TOOLS, "dataops"}),  # it imports datacore.dataops
     "tb_mail_gateway": frozenset({"mail"}),
     "tb_gateway": frozenset({"llm"}),
     "tb_lake": frozenset({"lake"}),
