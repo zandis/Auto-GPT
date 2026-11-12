@@ -72,6 +72,7 @@ sast:
   - {path: tools/trialbox/update.py, rule: B108, count: 4, reason: "paths inside the service containers during an update"}
   # B310: urlopen with a URL that could be file:// in principle
   - {path: tools/catalogue_verify.py, rule: B310, count: 1, reason: "fixed https registry URLs; build-side tool"}
+  - {path: tools/chat_template_check.py, rule: B310, count: 1, reason: "the registry row's own https source at its pinned revision (scheme checked first); cloud-run tool, not in the box"}
   - {path: tools/fetch_fhir_packages.py, rule: B310, count: 1, reason: "fixed https package URLs; build-side tool (hash pinning is ENG-013)"}
   - {path: tools/fetch_fonts.py, rule: B310, count: 1, reason: "fixed https font URLs; build-side tool (hash pinning is ENG-013)"}
   - {path: tools/fetch_open_data.py, rule: B310, count: 1, reason: "fixed https public-data URLs; build-side tool"}
@@ -111,3 +112,7 @@ sast:
     rule: B615
     count: 2
     reason: "hand-run benchmark of a named embedding model; not in the product or any image"
+  - path: tools/chat_template_check.py
+    rule: B615
+    count: 1
+    reason: "local_files_only=True: reads the weights folder already on the VM, never downloads; runs in the model server's image on the cloud VM"
