@@ -363,6 +363,13 @@ def roles_after_restore(root: Path, script: Path = ROLES_SCRIPT) -> tuple[str, b
         TB_DB_ROLES_CMD=f"sh {shlex.quote(str(script))}",
     )
     try:
+        # this round is about roles. Where the server has pgvector, the throwaway cluster's database holds the
+        # extension, made by the superuser (pglocal.ensure), and the restore runs as `trialbox`, which is not one
+        # here: it could not put the extension back ("must be superuser"). Extensions have their own check (D-204).
+        with psycopg.connect(
+            url.replace("postgresql://trialbox@", "postgresql://postgres@", 1), autocommit=True
+        ) as con:
+            con.execute("DROP EXTENSION IF EXISTS vector CASCADE")
         bk.reapply_service_roles(env)  # the box before the restore: the roles are there, as install.sh leaves them
         for schema in schemas:
             with Database.connect(url, schema) as db:  # as the store's group, as a migration makes them
