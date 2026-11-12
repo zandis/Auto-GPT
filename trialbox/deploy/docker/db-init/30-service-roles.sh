@@ -105,7 +105,23 @@ BEGIN
       EXECUTE format('REVOKE ALL ON SCHEMA %I FROM PUBLIC', sch);
       EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I, %I', sch, wr, rd);
       EXECUTE format('GRANT SELECT ON ALL TABLES IN SCHEMA %I TO %I, %I', sch, wr, rd);
-      EXECUTE format('GRANT INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO %I', sch, wr);
+      -- a table with an append-only trigger (the migrate step made it a trail) takes INSERT only, and the version
+      -- table no write: a rerun of this script must not give the writer back what that step took
+      FOR obj IN
+        SELECT c.relname AS name,
+               EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid = c.oid AND NOT t.tgisinternal
+                       AND t.tgname = c.relname || '_append_only') AS trail
+        FROM pg_class c WHERE c.relnamespace = sch::regnamespace AND c.relkind IN ('r', 'p')
+      LOOP
+        IF obj.name = '_schema_version' THEN
+          EXECUTE format('REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON %I.%I FROM %I', sch, obj.name, wr);
+        ELSIF obj.trail THEN
+          EXECUTE format('GRANT INSERT ON %I.%I TO %I', sch, obj.name, wr);
+          EXECUTE format('REVOKE UPDATE, DELETE, TRUNCATE ON %I.%I FROM %I', sch, obj.name, wr);
+        ELSE
+          EXECUTE format('GRANT INSERT, UPDATE, DELETE ON %I.%I TO %I', sch, obj.name, wr);
+        END IF;
+      END LOOP;
       EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA %I TO %I', sch, wr);
       -- what the migrate step makes later (as the owner) gets the same rights; the step narrows a trail table
       EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT SELECT ON TABLES TO %I, %I',
@@ -139,6 +155,12 @@ BEGIN
         AND (NOT ((access -> svc) ? substr(r.rolname, 5)) OR substr(r.rolname, 5) = ANY(owned))
     LOOP
       EXECUTE format('REVOKE %I FROM %I', grp, svc);
+      -- D-486: a session the service opened as a member of the old group of an owned schema still works as that
+      -- group (SET ROLE), which has lost the schema: end it, so the service reconnects with the writer's role
+      IF substr(grp, 5) = ANY(owned) THEN
+        PERFORM pg_terminate_backend(a.pid) FROM pg_stat_activity a
+          WHERE a.usename = svc AND a.pid <> pg_backend_pid();
+      END IF;
     END LOOP;
     -- D-486: and a writer's or reader's role of a schema that left the service's list
     FOR grp IN

@@ -57,3 +57,16 @@ def test_install_runs_the_step_after_the_roles_and_before_the_services() -> None
     assert roles < step < stack
     line = text[text.rindex("\n", 0, text.rindex("TB_DB_URL=", 0, step)) : step]
     assert "run --rm --no-deps -T -e TB_DB_URL \\" in line  # the name only: the value is in the environment
+
+
+def test_the_update_sets_the_roles_before_it_migrates(tmp_path: Path) -> None:
+    """Review H1: `trialbox update` ran the migrate step but never the role script, so a box updated in place kept
+    the schema under the old group, with the service as its owner, and nothing said so."""
+    box, calls = _box(tmp_path, f"COMPOSE_PROFILES=stub\nTB_DB_URL={URL}\n")
+    box.restart(up.Plan("b1", "", "", [], tmp_path / "stage"))
+    roles = next(i for i, (argv, _e) in enumerate(calls) if argv[-1].endswith("30-service-roles.sh"))
+    step = next(i for i, (argv, _e) in enumerate(calls) if "orchestrator.migrate" in argv)
+    assert roles < step
+    argv, env = calls[roles]
+    assert argv[-4:] == ["exec", "-T", "db", "/docker-entrypoint-initdb.d/30-service-roles.sh"]
+    assert env == {} and not any(WORD in a for a in argv)  # the script reads the passwords inside the container

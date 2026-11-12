@@ -199,7 +199,8 @@ Since D-486 (T-718) the EDC schema belongs to an owner role of its own (`tbo_edc
 append-only triggers included. Its tables are made by the box's admin, not by the orchestrator at start:
 `deploy/install.sh` and `trialbox update` do it, and after a restore run it once after the role script:
 `python3 -m tools.trialbox migrate`. An orchestrator that finds the schema behind its release, or a trail table
-without its trigger, does not start and says to run this.
+without its trigger, does not start and says to run this. The role script ends the open database sessions of a
+service it moves out of an older group (once, at the update that brings D-486); the service reconnects by itself.
 The script also gives the audit journal back to its owner and the services their right to write to it (D-394): until
 it runs, a restored box refuses actions that must be audited. When the database is older than the audit chain (an
 update rollback), the `audit-writer` service writes an `audit.journal_resync` event and goes on; `docker compose logs

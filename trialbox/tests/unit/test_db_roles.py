@@ -373,3 +373,66 @@ def test_t718_the_install_step_knows_every_owned_schema_and_adopts_what_a_restor
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             con.execute(f"TRUNCATE edc.{TRAIL}")
     EdcStore(dsn, EDC_KEY).close()
+
+
+# ------------------------------------------------------------------ T-718: the adversarial review's findings
+def test_t718_review_a_rerun_of_the_role_script_does_not_give_the_writer_back_the_trail(
+    edc_made: tuple[Path, str],
+) -> None:
+    """Review M2: the script granted INSERT, UPDATE, DELETE on every table at each run, so a run after the migrate
+    step (every install and update) gave the writer back what the step had taken."""
+    root = edc_made[0]
+    _run_script(root)
+
+    def has(table: str, right: str) -> str:
+        return _superuser(root, f"SELECT has_table_privilege('tb_orchestrator', 'edc.{table}', '{right}')", pglocal.DB)
+
+    assert [has(TRAIL, r) for r in ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE")] == ["t", "t", "f", "f", "f"]
+    assert [has("_schema_version", r) for r in ("SELECT", "INSERT", "UPDATE", "DELETE")] == ["t", "f", "f", "f"]
+    assert [has("switch", r) for r in ("INSERT", "UPDATE", "DELETE")] == ["t", "t", "t"]  # no trail: as before
+
+
+def test_t718_review_a_service_taken_out_of_the_old_group_loses_its_open_sessions(
+    edc_made: tuple[Path, str],
+) -> None:
+    """Review H1: on a box made before this card the orchestrator is a member of `tbs_edc` and works as it
+    (`SET ROLE`). When the script moves it to the writer's role, a session opened before keeps `tbs_edc` and every
+    statement fails until someone restarts the service. The script ends those sessions; the service reconnects."""
+    import psycopg
+
+    root, url = edc_made
+    _superuser(root, "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tbs_edc') THEN "
+                     "CREATE ROLE tbs_edc NOLOGIN; END IF; END $$; GRANT tbs_edc TO tb_orchestrator")  # fmt: skip
+    old = psycopg.connect(_as(url, "tb_orchestrator"), autocommit=True)
+    try:
+        old.execute("SET ROLE tbs_edc")
+        _run_script(root)
+        with pytest.raises(psycopg.OperationalError):
+            old.execute("SELECT 1")
+    finally:
+        old.close()
+    assert _superuser(root, "SELECT pg_has_role('tb_orchestrator', 'tbs_edc', 'MEMBER')") == "f"
+    with psycopg.connect(_as(url, "tb_orchestrator"), autocommit=True) as con:  # the service's next connection
+        assert con.execute("SELECT count(*) >= 0 FROM edc.switch_event").fetchone() == (True,)
+        # a session that was not in the old group is left alone by a rerun
+        _run_script(root)
+        assert con.execute("SELECT 1").fetchone() == (1,)
+
+
+def test_t718_review_a_service_does_not_make_a_missing_owned_schema(edc_made: tuple[Path, str]) -> None:
+    """Review M1: with the schema gone (a restore that died between its drop and its load) the service made it,
+    and so owned it and its triggers. A schema that has an owner role in the cluster is the install step's."""
+    from edc.store import EdcStore
+    from tb_common.db import DatabaseError
+
+    root, url = edc_made
+    _superuser(root, "DROP SCHEMA edc CASCADE", pglocal.DB)
+    try:
+        with pytest.raises(DatabaseError, match="trialbox migrate"):
+            EdcStore(_as(url, "tb_orchestrator"), EDC_KEY)
+        assert _superuser(root, "SELECT count(*) FROM pg_namespace WHERE nspname = 'edc'", pglocal.DB) == "0"
+    finally:  # as the runbook says after a restore: the role script, then the migrate step
+        _run_script(root)
+        EdcStore(url, EDC_KEY).close()
+    assert _superuser(root, "SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = 'edc'",
+                      pglocal.DB) == "tbo_edc"  # fmt: skip

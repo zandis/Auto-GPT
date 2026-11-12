@@ -112,6 +112,14 @@ class MigrationOrderError(MigrationError):
 #: D-378: the group role that owns a store's schema on the box is ``tbs_<schema>``; a service role that is a member
 #: works in the schema as the group (see ``deploy/docker/db-init/30-service-roles.sh``)
 GROUP_PREFIX = "tbs_"
+
+
+class _NotOurs(Exception):
+    """A missing schema that has an owner role this session is not a member of (D-486)."""
+
+
+# the owner role of a schema exists in this cluster and the session's user is not a member of it
+_NOT_OWNER_SQL = "SELECT 1 FROM pg_roles WHERE rolname = %s AND NOT pg_has_role(session_user, oid, 'MEMBER')"
 _GROUP_SQL = (
     "SELECT 1 FROM pg_namespace n JOIN pg_roles r ON r.oid = n.nspowner "
     "WHERE n.nspname = %s AND r.rolname = %s AND pg_has_role(current_user, r.oid, 'MEMBER')"
@@ -306,6 +314,10 @@ class Database:
             raise DatabaseError(f"cannot reach the trial database: {type(e).__name__}") from e
         try:
             if con.execute("SELECT 1 FROM pg_namespace WHERE nspname = %s", (schema,)).fetchone() is None:
+                # D-486: a schema with an owner role in this cluster is made by that owner (the install step), never
+                # by a service: a service that made it would own its tables and their triggers
+                if con.execute(_NOT_OWNER_SQL, ((OWNER_PREFIX + schema)[:63],)).fetchone() is not None:
+                    raise _NotOurs(schema)
                 con.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
             con.execute(f'SET search_path TO "{schema}"')
             # D-378: a schema owned by its group role (tbs_<schema>, deploy/docker/db-init/30-service-roles.sh) is
@@ -318,6 +330,12 @@ class Database:
             owner = (OWNER_PREFIX + schema)[:63]
             if con.execute(_GROUP_SQL, (schema, owner)).fetchone() is not None:
                 con.execute(f'SET ROLE "{owner}"')
+        except _NotOurs as e:
+            con.close()
+            raise DatabaseError(
+                f"the schema {e} is missing and is not this role's to make: run `trialbox migrate` "
+                "(after a restore: the role script first)"
+            ) from None
         except Exception as e:
             con.close()
             raise DatabaseError(f"cannot use the trial database: {type(e).__name__}") from e

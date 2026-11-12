@@ -45,8 +45,7 @@ One schema at a time, as the card says. This decision sets the mechanism and app
 4. **The orchestrator checks, it does not make.** `EdcStore` on a schema it does not own verifies that every
    trail trigger exists and is enabled, and does not start without one.
 
-Where the roles are not set (DEV, TEST, the in-process demo, a box updated without a new run of the role script,
-the Kubernetes platform, whose services still sign in as `trialbox`) nothing changes: the caller owns the schema
+Where the roles are not set (DEV, TEST, the in-process demo, the Kubernetes platform, whose services still sign in as `trialbox`) nothing changes: the caller owns the schema
 or is a member of its owner, and migrates it at start as before.
 
 ## What a service role can no longer do in `edc`
@@ -54,6 +53,20 @@ or is a member of its owner, and migrates it at start as before.
 `DROP TRIGGER`, `ALTER TABLE ... DISABLE TRIGGER`, `ALTER TABLE`, `DROP TABLE`, `TRUNCATE`, `UPDATE` or `DELETE` on
 a trail table, replace or drop the trigger's function, create a table, drop the schema, or take the owner's role.
 `tests/unit/test_db_roles.py` runs each as `tb_orchestrator` on a real cluster made by the real script.
+
+## What the adversarial review changed (2026-11-12)
+
+- **`trialbox update` runs the role script before the migrate step** (`ComposeBox.set_roles`), as `install.sh`
+  does. Before, a box updated in place kept `edc` under the old group with the orchestrator as its owner, and
+  nothing said so.
+- **The script ends the sessions of a service it takes out of the old group of an owned schema.** Such a session
+  still works as that group (`SET ROLE`), which has lost the schema; without this every EDC statement of a
+  running orchestrator failed until someone restarted it. It happens once, at the change-over.
+- **A rerun of the script does not widen the writer's rights.** A table with an append-only trigger takes INSERT
+  only and the version table no write, at every run; before, each run gave back what the migrate step had taken.
+- **A service does not make a missing owned schema.** When `tbo_<schema>` exists in the cluster and the session
+  is not a member, a missing schema is an error that names `trialbox migrate`; before, the service made the
+  schema and so owned its tables and triggers (reachable when a restore died between its drop and its load).
 
 ## Not done
 
@@ -74,3 +87,12 @@ a trail table, replace or drop the trigger's function, create a table, drop the 
 - **The Kubernetes platform**: its services still sign in as `trialbox`, so they are owners of everything; the
   roles are made there but protect nothing until the platform has per-service roles.
 - `GRANT CREATE ON DATABASE` to the service roles (a re-run's scratch schema) stays.
+- **The admin's URL is in a one-off container of the orchestrator's image** while the migrate step runs
+  (`docker compose run -e TB_DB_URL`): that container is on the orchestrator's networks and mounts its volumes.
+  D-481's rule (no service container holds the admin's password) holds for the running services; the step is the
+  one exception, for its length. A tool container on `trialbox-net` only, as the backup uses, would close it.
+- **Two migrate steps at once, or one with the role script**, can fail with "tuple concurrently updated" and
+  exit 1; a rerun succeeds and nothing is left half-done. The step takes no lock of its own.
+- **Erasure.** No code deletes EDC rows today. `edc.draft` is owed to erasure (T-206b) and is no trail table: the
+  writer keeps DELETE on it. The trail tables are kept under OD-8.
+

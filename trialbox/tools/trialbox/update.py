@@ -1205,6 +1205,15 @@ class ComposeBox(_DockerImages):
                 raise UpdateFailed(str(e)) from e
         return made
 
+    def set_roles(self) -> None:
+        """T-718 (D-486, the review's H1): the role script before the migrate step, as `install.sh` runs it. A box
+        updated in place otherwise keeps a schema under its old group, with the service as its owner. The script
+        is idempotent and reads the passwords from the database container's own environment."""
+        if not self.env.get("TB_DB_URL", ""):  # as migrate_owned: a box that never ran install.sh's database step
+            return
+        self.run(self._c("exec", "-T", "db", "/docker-entrypoint-initdb.d/30-service-roles.sh"),
+                 timeout=int(os.environ.get("TB_INSTALL_UP_TIMEOUT", "900")))  # fmt: skip
+
     def migrate_owned(self) -> None:
         """T-718 (D-486): the schemas no service owns are made by the box's admin before the services start, in a
         one-off orchestrator container of the new image (``python -m orchestrator.migrate``). The admin's URL
@@ -1221,6 +1230,7 @@ class ComposeBox(_DockerImages):
         # the schemas with an owner role (D-486) first, as the admin
         self.resolve_pins()
         self.ensure_model_key()
+        self.set_roles()
         self.migrate_owned()
         t = os.environ.get("TB_INSTALL_UP_TIMEOUT", "900")
         pull = os.environ.get("TB_INSTALL_PULL") or "never"  # as install.sh: every image from a bundle (D-176)
