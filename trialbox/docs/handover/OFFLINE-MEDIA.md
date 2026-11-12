@@ -1,7 +1,8 @@
 # Offline media layout (D-125, D-138)
 
 The Windows workstation never reaches the internet, at install or after (D-125). Everything comes on one USB disk
-or a hospital file share mapped to a drive letter, made by Aimedics from a signed release. The box owner starts
+(or the same folder copied to a local drive; a mapped network drive is not used: a window that runs as
+administrator does not see another sign-in's mapped drives), made by Aimedics from a signed release. The box owner starts
 `Install-TrialBox.cmd`; `windows/box-install.ps1` reads this layout (NEW-WIN-1, D-600). It checks every file it
 uses against `SHA256SUMS` before it changes anything, and stops when one is missing, unlisted or damaged.
 

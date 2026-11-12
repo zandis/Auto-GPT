@@ -54,6 +54,10 @@ def test_the_launcher_has_windows_line_ends_and_the_scripts_are_ascii() -> None:
     cmd = (WIN / "Install-TrialBox.cmd").read_bytes()
     assert b"\r\n" in cmd and b"\n" not in cmd.replace(b"\r\n", b"")
     assert PS1.read_bytes().isascii() and cmd.isascii()
+    # review M4: the media's path reaches PowerShell through a variable, never inside a quoted command text
+    text = cmd.decode()
+    assert 'set "TB_INSTALL_PS1=%~dp0windows\\box-install.ps1"' in text and "$env:TB_INSTALL_PS1" in text
+    assert text.count("%~dp0") == 1 and "if errorlevel 1 pause" in text
 
 
 def test_the_linux_installer_still_ends_with_the_line_the_done_mark_waits_for() -> None:
@@ -79,26 +83,27 @@ class Box:
         self.stub(self.smi, f"echo '{CARD}'")
         self.stub("dpkg-query", 'cat "$TB_FAKE/dpkg-status" 2>/dev/null || true')
         self.stub("dpkg", "exit 0")
-        self.stub("nvidia-ctk", "exit 0")
+        self.stub("nvidia-ctk", 'echo "runc nvidia" > "$TB_FAKE/runtimes"')  # configuring adds the runtime
         self.stub("systemctl", "exit 0")
         self.stub("ldd", "printf '\\tlibc.so.6 => %s (0x1)\\n\\tlibnvidia-ml.so.1 => /usr/lib/wsl/lib/libnvidia-ml.so.1 (0x2)\\n\\t%s (0x3)\\n' \"$TB_FAKE/lib/libc.so.6\" \"$TB_FAKE/lib/ld.so\"")  # fmt: skip
         (tmp / "lib").mkdir()
         (tmp / "lib/libc.so.6").write_text("libc")
         (tmp / "lib/ld.so").write_text("loader")
-        self.docker(image=False, runtimes="io.containerd.runc.v2 nvidia runc", run_rc=0)
+        (tmp / "runtimes").write_text("runc\n")
+        self.docker(image=False, run_rc=0)
 
     def stub(self, name: str | Path, body: str) -> None:
         p = name if isinstance(name, Path) else self.bin / name
         p.write_text(f'#!/bin/bash\necho "$(basename "$0") $*" >> "$TB_FAKE/calls.log"\n{body}\n')
         p.chmod(0o755)
 
-    def docker(self, *, image: bool, runtimes: str, run_rc: int) -> None:
+    def docker(self, *, image: bool, run_rc: int) -> None:
         self.stub(
             "docker",
             f"""case "$1 $2" in
   "image inspect") exit {0 if image else 1} ;;
   "import -") cat > "$TB_FAKE/probe.tar" ;;
-  "info --format") echo '{runtimes}' ;;
+  "info --format") cat "$TB_FAKE/runtimes" ;;
   "version --format") echo 27.3.1 ;;
 esac
 case "$1" in run) if [ {run_rc} = 0 ]; then echo '{CARD}'; else echo 'could not select device driver "" with capabilities: [[gpu]]'; exit {run_rc}; fi ;; esac""",
@@ -114,6 +119,8 @@ case "$1" in run) if [ {run_rc} = 0 ]; then echo '{CARD}'; else echo 'could not 
             "TB_WSL_ROOT": str(self.root),
             "TB_WSL_SMI": str(self.smi),
             "TB_WSL_NO_ROOT": "1",
+            "TB_WSL_LIBDIR": str(self.tmp / "libdir"),
+            "TB_WSL_SYS": str(self.tmp / "sys"),
         }
         return subprocess.run(
             ["bash", str(SH), *args], capture_output=True, text=True, env=env, check=False, timeout=60
@@ -156,6 +163,15 @@ def test_pid1_names_the_first_process(box: Box) -> None:
         ("ii  nvidia-driver-570\nii  docker-ce\n", "nvidia-driver-570"),
         ("ii  libnvidia-compute-570\n", "libnvidia-compute-570"),
         ("rc  nvidia-driver-570\nun  nvidia-dkms-570\n", ""),  # removed packages are not a driver
+        # review M3: half-installed states and the driver's other package names
+        ("iU  nvidia-driver-570\n", "nvidia-driver-570"),
+        ("iF  nvidia-driver-570\n", "nvidia-driver-570"),
+        ("ii  linux-modules-nvidia-570-6.8.0-48-generic\n", "linux-modules-nvidia-570"),
+        ("ii  nvidia-open\n", "nvidia-open"),
+        ("ii  libnvidia-decode-570\n", "libnvidia-decode-570"),
+        ("ii  nvidia-modprobe\n", "nvidia-modprobe"),
+        ("ii  nvidia-firmware-570-570.1\n", "nvidia-firmware-570"),
+        ("ii  nvidia-container-toolkit-base\nii  libnvidia-container-tools\nii  nvidia-container-runtime\n", ""),
     ],
 )
 def test_a_linux_nvidia_driver_is_refused_and_the_toolkit_is_not_one(box: Box, status: str, refused: str) -> None:
@@ -170,6 +186,19 @@ def test_a_linux_nvidia_driver_is_refused_and_the_toolkit_is_not_one(box: Box, s
 def test_a_loaded_linux_kernel_driver_is_refused(box: Box) -> None:
     (box.proc / "driver/nvidia").mkdir(parents=True)
     (box.proc / "driver/nvidia/version").write_text("NVRM version: 570\n")
+    out = box.run("no-linux-driver")
+    assert out.returncode == 1 and "kernel driver" in out.stderr
+
+
+def test_a_driver_installed_without_packages_is_refused(box: Box) -> None:
+    """Review M3: the .run installer leaves no package; its library and its kernel module are looked for."""
+    lib = box.tmp / "libdir"
+    lib.mkdir()
+    (lib / "libnvidia-ml.so.1").write_text("driver")
+    out = box.run("no-linux-driver")
+    assert out.returncode == 1 and "libnvidia-ml.so.1" in out.stderr
+    (lib / "libnvidia-ml.so.1").unlink()
+    (box.tmp / "sys/module/nvidia").mkdir(parents=True)
     out = box.run("no-linux-driver")
     assert out.returncode == 1 and "kernel driver" in out.stderr
 
@@ -201,9 +230,21 @@ def test_packages_fail_when_docker_does_not_list_the_nvidia_runtime(box: Box) ->
     debs = box.tmp / "debs"
     debs.mkdir()
     (debs / "docker-ce_27.3.1_amd64.deb").write_text("deb")
-    box.docker(image=False, runtimes="runc", run_rc=0)
+    box.stub("nvidia-ctk", "exit 0")  # configured, and Docker still does not list it
     out = box.run("packages", str(debs))
     assert out.returncode == 1 and "nvidia runtime" in out.stderr
+
+
+def test_a_second_run_of_packages_does_not_restart_docker_under_a_live_stack(box: Box) -> None:
+    """Review M1: the step runs again on every start of the installer; the stack may be up by then."""
+    debs = box.tmp / "debs"
+    debs.mkdir()
+    (debs / "docker-ce_27.3.1_amd64.deb").write_text("deb")
+    assert box.run("packages", str(debs)).returncode == 0
+    assert box.log().count("systemctl restart docker") == 1
+    again = box.run("packages", str(debs))
+    assert again.returncode == 0 and "not restarted" in again.stdout
+    assert box.log().count("systemctl restart docker") == 1 and box.log().count("nvidia-ctk runtime configure") == 1
 
 
 def test_gpu_builds_a_probe_without_the_drivers_libraries_and_prints_the_card(box: Box) -> None:
@@ -217,7 +258,7 @@ def test_gpu_builds_a_probe_without_the_drivers_libraries_and_prints_the_card(bo
 
 
 def test_gpu_fails_when_no_container_sees_the_card(box: Box) -> None:
-    box.docker(image=True, runtimes="nvidia", run_rc=125)
+    box.docker(image=True, run_rc=125)
     out = box.run("gpu")
     assert out.returncode == 1 and "no container sees the card" in out.stderr and "capabilities" in out.stderr
 
@@ -250,6 +291,21 @@ def test_the_host_tree_is_unpacked_once_and_never_over_another_folder(box: Box) 
     again = box.run("host-tree", str(tar), str(pub))
     assert again.returncode == 0 and "kept" in again.stdout
     assert (box.root / "deploy/settings.yaml").read_text() == "the site's own file\n"
+
+
+def test_an_interrupted_unpack_is_taken_up_and_never_passes_for_a_host_tree(box: Box) -> None:
+    """Review L2: the tree is unpacked beside the folder and moved into place whole."""
+    tar, pub = _host_tar(box.tmp)
+    part = Path(str(box.root) + ".unpacking")
+    (part / "deploy").mkdir(parents=True)  # an earlier run died here: no box-install.sh yet
+    assert not box.root.exists()
+    out = box.run("host-tree", str(tar), str(pub))
+    assert out.returncode == 0 and (box.root / "deploy/box-install.sh").is_file() and not part.exists(), out.stderr
+    bad = box.tmp / "bad.tar"
+    bad.write_text("not a tar")
+    other = Box(box.tmp / "second")
+    assert other.run("host-tree", str(bad), str(pub)).returncode == 1
+    assert not other.root.exists()
 
 
 def test_a_folder_that_is_not_a_host_tree_is_not_replaced(box: Box) -> None:
