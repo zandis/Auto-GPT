@@ -250,15 +250,16 @@ def run(ctx: Ctx) -> Outcome:
     by_id = rs.by_id()
     for p in pool:
         old = {v["id"]: CriterionVerdict.model_validate(v) for v in p["verdicts"]}
-        if p.get("tier") != "excluded":
-            # D-476 item 3 (review H1): a row that was not excluded holds no note fail that was allowed to exclude
-            # (it would be excluded). A row stored before the field existed says so here, and keeps saying it.
-            old = {
-                k: v.model_copy(update={"final": False})
-                if v.verdict == "fail" and v.final is None and k in by_id and is_note_answer(by_id[k], v)
-                else v
-                for k, v in old.items()
-            }
+        # D-476 item 3 (review H1): a note fail that says nothing about itself was stored before the field
+        # existed. Whether a pair gave it cannot be known from the row (its tier does not say: a coded criterion,
+        # or the old F-01 defect, may have excluded it), so it never excludes from here on, and the row says so.
+        # A fail written since carries final: true (it was allowed to exclude) or final: false.
+        old = {
+            k: v.model_copy(update={"final": False})
+            if v.verdict == "fail" and v.final is None and k in by_id and is_note_answer(by_id[k], v)
+            else v
+            for k, v in old.items()
+        }
         new = dict(old)
         changed: list[str] = []
         for v in fresh[p["pid"]].verdicts if p["pid"] in fresh else []:

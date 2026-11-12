@@ -553,11 +553,13 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
 
 
 def not_final(c: CriterionIR, v: CriterionVerdict, note_block: bool) -> CriterionVerdict:
-    """T-707 (D-476): a note fail of a run on which a note answer may not exclude is marked ``final: false``, so the
-    stored row says it and a later re-tier (MICROBATCH) can never read it as a pair's answer."""
-    if note_block or v.verdict != "fail" or not is_note_answer(c, v):
+    """T-707 (D-476): a note fail says whether it was allowed to exclude when it was given: ``final: false`` on a
+    run on which a note answer may not exclude, so a later re-tier (MICROBATCH) can never read it as a pair's
+    answer; ``final: true`` otherwise. A stored note fail with neither is from before the field and never
+    excludes."""
+    if v.verdict != "fail" or not is_note_answer(c, v):
         return v
-    return v.model_copy(update={"final": False})
+    return v.model_copy(update={"final": bool(note_block)})
 
 
 def human_verdict(c: CriterionIR) -> CriterionVerdict:

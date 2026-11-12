@@ -23,17 +23,29 @@ version of that run. MICROBATCH re-tiers the stored verdicts every week. Two def
 
 ## Decision
 
-1. **A verdict says when it may not exclude.** `criterion_verdict` of `candidate_list` gains the optional field
+1. **A verdict says whether it may exclude.** `criterion_verdict` of `candidate_list` gains the optional field
    `final` (schema 1.3.0). `final: false` means: this answer was given when a note answer was not allowed to
-   exclude, and it never excludes later, whatever the policy of a later run. The field is absent on every other
-   verdict, so stored lists and goldens are unchanged. T-709 adds the answer's basis beside it and moves the rule
-   into the one status function.
-2. **Both pipelines write it.** The cascade writes `final: false` on a soft fail (`Outcome.hard` false); the v1
-   evaluator writes it on a note fail of a run whose note-block decision is "no". `tier` treats a note fail with
-   `final: false` as a reason for review, never as an exclusion.
-3. **Rows stored before this decision.** A pool row whose stored tier is not `excluded` and that holds a note
-   fail without the field was, by the tier rule of its run, not allowed to exclude on that answer (it would be
-   `excluded` otherwise). MICROBATCH reads such a stored note fail as `final: false`.
+   exclude, and it never excludes later, whatever the policy of a later run. `final: true` means: given by a run
+   whose pair was allowed to exclude. The field is absent on every verdict that is not a note "not met", so the
+   other stored lists are unchanged. **This card stores only that one bit. The basis in full (which models
+   answered, on what text) is T-709 (D-478)**, which adds `basis` beside it and moves the rule into the one
+   status function.
+2. **Both pipelines write it.** The cascade writes `final: false` on a soft fail (`Outcome.hard` false) and
+   `final: true` on a hard fail of a note stage; the v1 evaluator writes the run's note-block decision on every
+   note fail. `tier` treats a note fail with `final: false` as a reason for review, never as an exclusion.
+3. **Rows stored before this decision.** A stored note fail without the field says nothing about who gave it.
+   MICROBATCH reads **every** such fail as `final: false`, whatever the stored tier of its row. (The first
+   version of this card did so only on rows whose tier was not `excluded`, reasoning that the row would be
+   excluded otherwise. The review of the card showed the hole: a row excluded on a coded, time-sensitive
+   criterion can hold one model's note fail beside it; when the coded exclusion clears at a re-check, the note
+   fail alone kept the patient out. Unit test
+   `test_an_old_excluded_row_whose_coded_exclusion_clears_is_not_excluded_on_one_models_note`.) The cost is the
+   safe direction: an old row that a pair did exclude on a note is listed for review once, until a run judges
+   the criterion again.
+3a. **Promotion to the registry reads the version too.** `CandidateRegistry.promote` skips a pool row whose
+   stored version is not the version in force (the audit event `registry.promote` counts them as
+   `other_version`): a row MICROBATCH has not yet screened again is not promoted on criteria it was never
+   evaluated on. With no approved version in force nothing is promoted.
 4. **A pool row of another criteria version is screened again, not re-tiered.** MICROBATCH compares each row's
    stored version with the version in force. A row of another version is screened in full with the study's
    screening pipeline (the same call as a new patient), after the re-checks and before the new patients, inside
