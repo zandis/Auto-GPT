@@ -33,8 +33,8 @@ micro-batch that follows every ingest then ran a second time for the same study 
    self-test as before; a night whose self-test failed passes over them, says so in the audit, and still runs
    retention.
 3. **One run per study and generation.** Every job the chain starts carries the night it belongs to in its record
-   (`options.night`: the generation the ingest published, else its date; `options.step`). Before the chain starts
-   a job it looks for one of that type, study and night; it never starts a second. On the weekly day the
+   (`options.night`: the generation the ingest published, else its date; `options.step`) and an id made from its
+   type, study and night; it never starts a second. On the weekly day the
    micro-batch is the weekly one (it covers the new in-scope patients and those booked in the window); on other
    nights the one that follows the ingest (D-397): never both.
 4. **A weekly step that missed its day runs at the next night that passes.** A step is due when no run of it for
@@ -47,6 +47,33 @@ micro-batch that follows every ingest then ran a second time for the same study 
    the orchestrator and the chain goes on from the first step that is not finished.
 6. **An ingest asked for by hand** is followed by its micro-batch as before (D-397) and starts no weekly step: a
    person asked for an ingest, not for the night.
+
+## The adversarial review (2026-11-12) and what changed
+
+1. **The administrator's retry of the timer's failed ingest is the night** (D-474: it copies the failed job's
+   options and names the administrator). Before, the retry passed and nothing followed it.
+2. **A step carries its plan** (`options.plan`: the studies it was started for, in every job of the step). A step
+   that was started in part (the process died between two of its jobs) is completed from the plan before the chain
+   goes on. Before, the step counted as started and the missing study was not screened that night.
+3. **One run per study and night is the job store's key.** A chain job's id is made from its type, study and night
+   (`night.chain_job_id`); `Orchestrator.create` answers the existing job for an id it knows. The lock of one
+   process is no longer what holds two starts apart.
+4. **A step that was passed over stays passed once a later step of the night has a job.** The model steps are
+   never started after retention: not by a self-test that passes after a restart, not by a study opened in the
+   morning. What a night passed over is made up by the next night that passes (item 4 of the decision).
+5. **A newer night waits while a job of an earlier night's chain has not ended**: two micro-batches of one study
+   never run beside each other. The earlier night's steps that had not started are not run (said in the log); the
+   newer night covers them, and a weekly step among them is made up by it.
+6. **The chain reads every job that matches**, by the job's own night and step (`JobDB.scheduler_jobs`), not the
+   newest 200 of a type or the newest 20 ingests (OD-10: no fixed count).
+7. **A weekly job the timers made before this card** (no `options.step`) counts as the week's run, by the site's
+   date it was made on: a box updated mid-week does not run the weekly steps twice.
+
+Not changed: `advance` holds its lock while the night's self-test runs (once a night; the self-test's own length);
+a failed chain job counts as the step's run and the chain goes on past it without an audit line of its own (the
+job's own failure is audited and mailed); a held night that a steward accepts later (T-723) is not followed by the
+chain: the accept does not reach the orchestrator, and the week's steps are made up by the next night that passes.
+That is a card of its own.
 
 ## Consequences
 
