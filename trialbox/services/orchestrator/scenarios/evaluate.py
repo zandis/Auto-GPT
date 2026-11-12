@@ -28,6 +28,7 @@ from guard.injection import planted_in
 from lake.client import LakeAPI
 from matching.coverage import Coverage
 from matching.proposed import Proposed
+from matching.stored_scores import apply_rows
 from tb_common.fhir import FhirEvaluator
 from tb_common.labunit import reason_of as derived_reason
 from tb_common.llm import LlmClient, LlmError, LlmPromptTooLong
@@ -109,12 +110,17 @@ class SqlEngine:
     lake: LakeAPI
     snapshot: str | None = None
     name: str = "sql"
+    # D-442: the stored derived rows (``tb_common.derived_store.stored_read``: given only while the flag
+    # ``derived.stored_read`` is on). Given, :func:`matching.stored_scores.apply_rows` runs on the SQL's rows, as on
+    # the cascade's: a decided score answer stands only on its stored row of the snapshot's batch
+    stored: Any = None
 
     def evaluate(self, rs: Ruleset, pids: list[str], index_date: date, ids: list[str]) -> dict[str, PatientEvaluation]:
         if not pids:
             return {}
         t = self.lake.query(safe_sql(rs), [[index_date.isoformat()], list(pids)], self.snapshot).to_pylist()
         crit = [c for c in rs.active() if c.id in set(ids)]
+        apply_rows(t, crit, self.stored, self.snapshot, getattr(rs.manifest, "derived_pins", None))
         cov = Coverage.for_criteria(self.lake, crit, pids, self.snapshot, rs.valuesets)
         prop = Proposed.for_criteria(self.lake, crit, pids, self.snapshot, rs.valuesets)
         out: dict[str, PatientEvaluation] = {}
@@ -145,13 +151,15 @@ class SqlEngine:
         return out
 
 
-def engine_from_env(name: str, fhir: FhirEvaluator | None, lake: LakeAPI, snapshot: str | None) -> StructuredEngine:
+def engine_from_env(
+    name: str, fhir: FhirEvaluator | None, lake: LakeAPI, snapshot: str | None, stored: Any = None
+) -> StructuredEngine:
     """The runtime engine: SQL on the lake, always (owner decision 3, 2026-11-08; review F-05). CQL is kept for the
     compile-time equivalence gate (``criteria_compiler.equivalence``) and the bench, never to screen a patient, so a
     weekly list can no longer change with the engine a job type happened to use."""
     if (name or "sql").strip().lower() != "sql":
         raise ValueError(f"TB_SCREEN_ENGINE={name!r}: SQL is the only runtime engine (CQL is compile-time only)")
-    return SqlEngine(lake, snapshot)
+    return SqlEngine(lake, snapshot, stored=stored)
 
 
 # --------------------------------------------------------------------------------------------- note criteria

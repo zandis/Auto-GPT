@@ -50,7 +50,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             models = None
         canary = (models or {}).get("canary") if isinstance(models, dict) else None
         worker = (models or {}).get("optout_worker") if isinstance(models, dict) else None  # D-441
-        return metrics.evaluate((st or {}).get("health"), canary, now, optout=worker)
+        derive = (models or {}).get("derive_batch") if isinstance(models, dict) else None  # D-442
+        return metrics.evaluate((st or {}).get("health"), canary, now, optout=worker, derive=derive)
 
     h.health = health
 

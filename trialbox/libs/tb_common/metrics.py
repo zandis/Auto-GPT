@@ -181,6 +181,26 @@ def check_optout(worker: Mapping[str, Any], now: datetime) -> Check:
     return Check("optout_worker", OK, f"opt-out worker ticked {age:.0f} min ago", age)
 
 
+def check_derive(info: Mapping[str, Any]) -> Check:
+    """D-442, from the orchestrator's ``/models`` ``derive_batch`` (``orchestrator.derive.status``): ``flag`` (the
+    stored-score read on or off), ``current`` (the snapshot the lake serves), ``last`` (the newest derive batch:
+    ``snapshot``, ``finished_at``, ``failed``). Red only while the flag is on: then a snapshot without a finished
+    batch sends every score criterion to "needs information"."""
+    bad = RED if info.get("flag") == "on" else WARN
+    last = info.get("last") or None
+    current = info.get("current")
+    if last is None:
+        return Check("derive_batch", bad, "no derive batch has run: the stored scores are not computed")
+    if not last.get("finished_at"):
+        return Check("derive_batch", bad, f"the derive batch of {last.get('snapshot')} did not finish")
+    if current and last.get("snapshot") != current:
+        return Check("derive_batch", bad, f"the served snapshot {current} has no derive batch yet")
+    if int(last.get("failed") or 0):
+        return Check("derive_batch", WARN, f"the derive batch of {last.get('snapshot')} failed for {last['failed']} "
+                     "patient(s): their scores read as unknown")  # fmt: skip
+    return Check("derive_batch", OK, f"derive batch of {last.get('snapshot')} finished")
+
+
 def check_backup(backup: Mapping[str, Any] | None, th: Thresholds) -> Check:
     """From ``tools.trialbox.backup_schedule.status`` (T-117b): its level, age and first problem."""
     if not backup:
@@ -244,6 +264,7 @@ def evaluate(
     now: datetime,
     th: Thresholds | None = None,
     optout: Mapping[str, Any] | None = None,
+    derive: Mapping[str, Any] | None = None,
 ) -> Health:
     """The health at ``now`` from the host facts (:func:`host_facts`), the orchestrator's canary status and, when it
     reports one, its opt-out worker (:func:`check_optout`)."""
@@ -252,6 +273,8 @@ def evaluate(
     checks = [check_canary(canary), check_backup(f.get("backup"), th), check_verified(f.get("verified"), now, th)]
     if optout is not None:
         checks.append(check_optout(optout, now))
+    if derive is not None:  # D-442: the derive batch of the served snapshot
+        checks.append(check_derive(derive))
     checks += check_disks(f.get("disks") or [], th)
     checks.append(check_cert(f.get("cert"), now, th))
     seen = _when(f.get("at"))
