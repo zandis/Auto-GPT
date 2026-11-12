@@ -42,6 +42,20 @@ the log: the installer can be started again later and goes on from the step that
 | 15 | Finish the set-up in the browser | The window ends with "TrialBox is ready" and then "The install is finished" or the note about FAIL lines of the host check | The host check's FAIL and WARN lines (BitLocker, the boot task and the update policy are expected until NEW-WIN-2 and NEW-WIN-8) |
 | 16 | Double-click `Install-TrialBox.cmd` again | "TrialBox is already installed on this machine by this installer. Nothing was changed." | The window's text |
 
+**Smaller observations during Part 1** (from the adversarial review of #362; each is a behaviour the installer
+assumes). Write them down as you go; none needs an extra run.
+
+| # | Look at | The installer assumes | Record |
+| --- | --- | --- | --- |
+| 16a | Step 1 on a PC with no network | The WSL package's Microsoft signature reads "Valid" offline | A "not signed by Microsoft" stop here means the check needs the network: record it |
+| 16b | Step 5 before the WSL package is installed (the log's first lines of the step) | The Windows-supplied `wsl.exe --version` fails at once, without asking for a key press | Whether the window waited for a key |
+| 16c | A media folder whose path has a space (for example `E:\TrialBox media\TRIALBOX-1.0`) | The launcher and every WSL2 step take the path as one piece | Use such a path if you can; record where it broke if it did |
+| 16d | Before line 1, as a **standard** account: try to make the folder `C:\ProgramData\TrialBox`. Then run the installer as the administrator | If the standard account could make it and put a file in it: the installer stops with "already exists and belongs to another account". If the folder was empty or absent: it goes on, and afterwards the standard account cannot open it | Which of the two happened |
+| 16e | After line 15, as a standard account: `wsl --list` and `wsl --shutdown` | The owner's `TrialBox` is not listed, and the console still answers after the standard account's `wsl --shutdown` (plan section 2.3 rule 5) | Both outputs; whether the console went down |
+| 16f | At line 7, if the PC has a second account: sign in with **that** account first after the restart | Nothing starts for that account; signing in as the owner afterwards continues the install | What happened |
+| 16g | Start `Install-TrialBox.cmd` and answer **No** to the Windows prompt | The first window stays open with a message and "Press any key" | The text |
+| 16h | Unplug the media before signing in at line 7 (a USB disk only) | The window says to connect the media and to start again; after plugging it in, also under another drive letter, a new start continues | The window's text; the two drive letters |
+
 **Interruptions** (after line 16, on the same PC, only if time allows; each is one restart of the installer):
 
 | # | Do | Expect |
@@ -66,6 +80,8 @@ Read these during Part 1; they need no extra run.
 - Line 2 "no": the launcher or the execution policy; fix in `Install-TrialBox.cmd`.
 - Line 19 "no": a folder that a standard account could write to was taken with its contents; D-600 point 4 does
   not hold on Windows as written. This blocks NEW-WIN-8.
+- Line 16d or 16e "no": a standard account can reach the installer's folder or stop the box; this blocks NEW-WIN-8
+  and goes to NEW-WIN-6.
 - Line 5 "no": the folder permissions of D-600 point 4 are not what the installer set; a standard desktop account
   could read the virtual disk. This blocks NEW-WIN-8.
 - Line 7 "no": the continuation after the restart needs another form (for example a start-up shortcut that asks
