@@ -36,6 +36,11 @@ even when the override is edited by hand. ``champion`` is reached only through `
 writes the build's ``qualification`` reference (record id, record sha256, the weights the record qualified) after
 ``tools.qualify.check_record`` accepts the record. In PRODUCTION a champion without a reference that qualifies
 PRODUCTION for exactly the pinned weights is refused (``champion_unqualified``), whatever the override's status says.
+
+**No build without a context** (LLM-007, D-568). The gateway refuses a prompt over the build's ``context_length`` and
+the callers size their reads from it; with no value both are off. In PRODUCTION a build served by a local model
+server (``serving: vllm``) whose context is unknown is refused (``context_unknown``). A row that cannot name it (the
+shared-quota pair: the partition is measured at the site) gets it in the site pin from ``pin_model --install``.
 """
 
 from __future__ import annotations
@@ -80,7 +85,7 @@ QUALIFICATION_FIELDS = frozenset(
 )
 # the refusal codes of :meth:`Registry.resolve`, most specific first: the code of a refused alias is the first that
 # any of its builds gave
-REFUSAL_ORDER = ("champion_unqualified", "weights_unexpected", "build_unpinned")
+REFUSAL_ORDER = ("champion_unqualified", "weights_unexpected", "context_unknown", "build_unpinned")
 HOSTED = "hosted"
 PROVIDER_PIN_FIELDS = (
     "endpoint",
@@ -146,6 +151,11 @@ class Build:
     def expected_revision(self) -> str | None:
         v = self.expected.get("revision")
         return str(v) if v else None
+
+    def context_unknown(self) -> bool:
+        """LLM-007 (D-568): a build on a local model server with no ``context_length``: the gateway cannot size a
+        prompt for it. The stub has no limit to exceed; a hosted provider's limit is not this box's setting."""
+        return self.serving == "vllm" and not self.context_length
 
     def unexpected_weights(self) -> str:
         """Why the pin is not the release's weights (empty: it is, or nothing is expected or pinned)."""
@@ -252,6 +262,12 @@ class Registry:
                 reasons.append(
                     f"{b.build_id}: champion without a qualification record for these weights "
                     "(run trialbox eval qualify, then pin_model --promote) [champion_unqualified]"
+                )
+                continue
+            if env == Environment.PRODUCTION and b.context_unknown():
+                reasons.append(
+                    f"{b.build_id}: no context_length: set the length the server runs with (JUDGE_MAX_LEN, "
+                    "VERIFIER_MAX_LEN) in deploy/.env and run pin_model --install again [context_unknown]"
                 )
                 continue
             served = b.served.get(endpoint)

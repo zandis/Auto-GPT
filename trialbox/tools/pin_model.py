@@ -309,6 +309,49 @@ def set_served(build_id: str, endpoint: str, served_name: str, out: Path = DEFAU
     _write_override(out, doc)
 
 
+# LLM-007 (D-568): the variable that holds the length a profile's server is started with (compose passes it to
+# --max-model-len), by the endpoint the build is served on
+CONTEXT_VARS = {"serving": "JUDGE_MAX_LEN", "verifier": "VERIFIER_MAX_LEN"}
+CONTEXT_UNMEASURED = ("", "unmeasured")  # deploy/platform/overlays/*/serving.env before the partition is measured
+
+
+def set_context(build_id: str, context: int, out: Path = DEFAULT_OVERRIDE, registry_path: Path | None = None) -> None:
+    """Write ``context_length`` into the pin of a build already pinned in ``out`` (a registry row that names none)."""
+    from registry.registry import Registry, apply_override
+
+    committed, _ = _committed(registry_path)
+    doc = load_override(out)
+    entry = doc["builds"].get(build_id)
+    if not entry:
+        raise PinError(f"{build_id} is not pinned in {out}")
+    if isinstance(context, bool) or not isinstance(context, int) or context <= 0:
+        raise PinError(f"{build_id}: a context is a whole number above zero, not {context!r}")
+    entry["context_length"] = context
+    Registry(apply_override(committed, doc))  # validates the merged registry; raises before writing
+    _write_override(out, doc)
+
+
+def install_context(
+    build_id: str, endpoint: str, row: dict[str, Any], out: Path, env: dict[str, str], registry_path: Path | None
+) -> tuple[bool, str]:
+    """The context of a pinned build whose registry row names none, from the profile's variable (LLM-007): (ok, a
+    note for the build's line). A row that names its context, and a pin that already holds one, need nothing."""
+    if row.get("context_length") or (load_override(out)["builds"].get(build_id) or {}).get("context_length"):
+        return True, ""
+    var = CONTEXT_VARS.get(endpoint, "")
+    raw = (env.get(var) or "").strip()
+    if not (raw.isascii() and raw.isdigit() and int(raw) > 0):
+        # not measured yet (unset, or the platform's placeholder): said, and the pair's result stays; a value that
+        # is set and is not a length is a mistake in deploy/.env: not ok
+        return raw in CONTEXT_UNMEASURED, (
+            f"; no context: the registry names none for this build and {var or 'its length'} is {raw!r} (the length "
+            "the server runs with, a whole number): the weights are pinned, but the model routes nothing in "
+            "PRODUCTION until the value is set in deploy/.env and --install is run again"
+        )
+    set_context(build_id, int(raw), out, registry_path)
+    return True, f"; context {int(raw)} ({var})"
+
+
 def add_template(build_id: str, path: Path, out: Path = DEFAULT_OVERRIDE, registry_path: Path | None = None) -> None:
     """Record the chat template in the pin of a build pinned without one (a box pinned before T-674)."""
     from registry.registry import Registry, apply_override
@@ -476,6 +519,8 @@ def install_pins(
                     lines.append(f"{build}: {exc}")
                     continue
                 note = f"; chat template {tpl_path.name} added to the pin"
+            ctx_ok, ctx_note = install_context(build, endpoint, known.get(build) or {}, out, e, registry_path)
+            ok, note = ok and ctx_ok, note + ctx_note
             was = ((have.get(build) or {}).get("served") or {}).get(endpoint)
             if was != name:
                 set_served(build, endpoint, name, out)
@@ -503,10 +548,13 @@ def install_pins(
             ok = False
             lines.append(f"{build}: {exc}")
             continue
+        ctx_ok, ctx_note = install_context(build, endpoint, known.get(build) or {}, out, e, registry_path)
+        ok = ok and ctx_ok
         lines.append(
             f"{build}: pinned {m.sha256[:12]} ({m.files} files) as candidate on {endpoint}; "
             "champion after trialbox eval qualify and --promote"
             + (f"; chat template {tpl['source']} at {tpl['revision']}" if tpl else "")
+            + ctx_note
         )
     return ok, lines
 

@@ -22,8 +22,11 @@ answers 400, the judge counts failures, and over 10 % failures stops the job.
 1. **`pin_model --install` writes the context into the site pin** for a build whose registry row has none: the
    value the server is started with, `JUDGE_MAX_LEN` for the build on `serving` and `VERIFIER_MAX_LEN` for the
    build on `verifier` (the same variables compose passes to `--max-model-len`). A build already pinned without a
-   context gets it added. With no value, or one that is not a whole number above zero, the install says so and its
-   result is not ok; the weights' pin itself is kept.
+   context gets it added. A value that is not measured yet (unset, empty, or the platform's placeholder
+   `unmeasured`) is said in the build's line and the install's result stays the pair's: the platform's pin job
+   must not fail before the partition is measured. A value that is set and is not a whole number above zero is a
+   mistake in `deploy/.env`: the install's result is not ok. In both cases the weights' pin is kept and rule 3
+   holds the build back.
 2. **A row that names a context keeps it.** The variables are not read for it: the registry's value is the one the
    pair was measured with, and the gateway's start check already refuses a server whose `max_model_len` is below it.
 3. **In PRODUCTION `Registry.resolve` refuses a build served by a local model server (`serving: vllm`) whose
