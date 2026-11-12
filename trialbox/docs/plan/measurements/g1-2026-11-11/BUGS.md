@@ -63,7 +63,7 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
   1. Run the two hospital parts on an on-demand VM (about 3x the price for those hours, no pre-emption), or
   2. Make the hospital part resumable by stage: keep the stage results and the screened job and skip finished stages.
   3. Either way, the cap must be re-computed for a resumed shard (see A4).
-- **Status.** Open. This is review finding G1-2 in PR #279.
+- **Status.** Fixed in #301 (D-468: an on-demand VM for a shard that holds a hospital part).
 
 ### A4. The estimate for a hospital part is far too low (Medium; makes the hard cap unsafe)
 
