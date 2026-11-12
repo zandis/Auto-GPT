@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from adapter.mapping.engine import Lookup, Mapper, Mapping
+from adapter.mapping.engine import CODE_MAX, Lookup, Mapper, Mapping
 from adapter.ndjson import snapshot_dir
 from adapter.pipeline import COMPLETENESS, AdapterConfig, run_ingest
 from datacore.dataops import DataOps
@@ -28,7 +28,7 @@ CRE = "2160-0"
 
 
 def _lab(code: str, n: int = 1) -> dict[str, str]:
-    return {"lab_no": f"L{n}", "mrn": "10000002", "local_code": code, "item_name": "x", "result_value": "1.1",
+    return {"lab_no": f"L{n}", "mrn": "P1", "local_code": code, "item_name": "x", "result_value": "1.1",
             "unit": "mg/dL", "sample_datetime": "2026-05-30 10:30:00"}  # fmt: skip
 
 
@@ -68,7 +68,7 @@ def test_the_mapper_counts_every_row_dropped_for_an_unknown_code(mapping: Mappin
     assert len(out) == 1
     assert dict(mapper.unmapped) == {("lab", "lab", "GLU-AC"): 3, ("lab", "lab", "ZZZ"): 1, ("lab", "lab", ""): 1}
     assert mapper.unmapped_summary() == {"lab": {"lab": {"rows": 5, "codes": 3}}}
-    assert mapper.unmapped_by_code() == {"lab": {"lab": {"GLU-AC": 3, "": 1, "ZZZ": 1}}}
+    assert mapper.unmapped_by_code() == {"lab": {"lab": {"GLU-AC": 3, "(no code)": 1, "ZZZ": 1}}}
 
 
 # ------------------------------------------------------------------------------------------------- the whole night
@@ -145,3 +145,61 @@ def test_mapping_check_reads_the_look_up_as_the_night_does(tmp_path: Path) -> No
     rep = check(MAPPING, "csv", str(feed), 5000)
     lab = rep["tables"]["lab"]
     assert [k for k in lab["unmapped_codes"] if "not in lookup" in k] == ["lab local_code=GLU-AC (not in lookup)"]
+
+
+# ---------------------------------------------------------------- the adversarial review of PR #345 (2026-11-12)
+@pytest.mark.parametrize(("fed", "key"), [("㎎", "MG"), ("①", "1"), ("Ⅳ", "IV"), ("ß", "SS"), ("ﬁ", "FI"),
+                                          ("µg", "μg"), ("ｶﾞ", "ガ"), ("C R E", "CRE"), ("1.0", "1")])  # fmt: skip
+def test_folding_is_blanks_width_and_case_and_nothing_else(fed: str, key: str) -> None:
+    """M1: Unicode NFKC and full case folding made ``㎎`` the code ``MG`` and ``ß`` the code ``SS``: another sign is
+    another code, and a result must never be stored under another analyte."""
+    lk = Lookup("t", "k", {key: {"k": key, "v": "x"}})
+    assert lk.find(fed) is None
+    assert lk.find(f" {key.lower()} ") == {"k": key, "v": "x"}
+
+
+def test_a_look_up_saved_with_a_byte_order_mark_reads(tmp_path: Path) -> None:
+    (tmp_path / "t.csv").write_bytes("k,v\nCRE,1\n".encode("utf-8-sig"))
+    assert (Lookup.load("t", tmp_path / "t.csv", "k").find("cre") or {}).get("v") == "1"
+
+
+def test_only_what_looks_like_a_code_is_written_out(mapping: Mapping) -> None:
+    """H1: a mis-mapped column can put a chart number or a name where the code belongs. It is counted, never
+    written into the night's reports."""
+    mapper = Mapper(mapping, b"k" * 32, "s")
+    chart = "1" + "0" * 6 + "2"  # eight digits, as the site's chart numbers are
+    fed = [f"{chart} 王小明", "王小明", chart, "see note: repeat in 2 weeks", "X" * (CODE_MAX + 1), "GLU-AC",
+           "X" * CODE_MAX, "ｇｌｕ", "\u3000", ""]  # fmt: skip
+    list(mapper.map_table("lab", iter([_lab(c, i) for i, c in enumerate(fed)])))
+    assert mapper.unmapped_by_code(r"^\d{8}$") == {"lab": {"lab": {
+        "(not a code)": 6, "(no code)": 2, "GLU-AC": 1, "X" * CODE_MAX: 1}}}  # fmt: skip
+    assert mapper.unmapped_by_code() == {"lab": {"lab": {
+        "(not a code)": 5, "(no code)": 2, chart: 1, "GLU-AC": 1, "X" * CODE_MAX: 1}}}  # fmt: skip
+    assert mapper.unmapped_summary() == {"lab": {"lab": {"rows": 10, "codes": 9}}}
+
+
+def test_the_night_writes_no_chart_number_or_name_into_its_reports(tmp_path: Path, pg_cluster_url: str) -> None:
+    feed = tmp_path / "feed"
+    shutil.copytree(SITE_A, feed, ignore=shutil.ignore_patterns("*.json"))
+    with (feed / "lab.csv").open(encoding="utf-8-sig", newline="") as fh:
+        rows = list(csv.DictReader(fh))
+    for i, r in enumerate(rows[:40]):  # the code column carries the chart number and a name
+        r["local_code"] = f"{r['mrn']} 王小明{i}" if i % 2 else r["mrn"]
+    with (feed / "lab.csv").open("w", encoding="utf-8", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=list(rows[0]))
+        w.writeheader()
+        w.writerows(rows)
+    sec = tmp_path / "secrets"
+    sec.mkdir()
+    (sec / "site_hmac.key").write_bytes(b"k" * 32)
+    sep = "&" if "?" in pg_cluster_url else "?"
+    cfg = AdapterConfig(lake_dir=tmp_path / "lake", secrets_dir=sec, mapping_path=MAPPING, site_id="T",
+                        audit_dir=tmp_path / "audit", rebuild=_Rebuild(tmp_path / "lake"), mrn_regex=r"^\d{8}$",
+                        db_url=f"{pg_cluster_url}{sep}tb_prefix=unmappedpii{os.getpid()}_")  # fmt: skip
+    run_ingest(cfg, "csv", str(feed), snapshot="2026-11-01", load_fhir=False, validate=False)
+    out = snapshot_dir(cfg.lake_dir, "2026-11-01")
+    assert json.loads((out / "unmapped_codes.json").read_text(encoding="utf-8")) == {
+        "lab": {"lab": {"(not a code)": 40}}
+    }
+    said = (out / COMPLETENESS).read_text(encoding="utf-8") + json.dumps(_events(tmp_path), ensure_ascii=False)
+    assert "王小明" not in said and not any(r["mrn"] in said for r in rows[:40])

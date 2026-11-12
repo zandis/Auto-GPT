@@ -648,7 +648,7 @@ def _run_ingest(
         # NEW-DIN-6 (D-580): rows dropped for a code the look-up does not know, per table (codes and counts only)
         for table, by_lookup in mapper.unmapped_summary().items():
             tables[table]["unmapped"] = by_lookup
-        unmapped_codes = mapper.unmapped_by_code()
+        unmapped_codes = mapper.unmapped_by_code(cfg.mrn_regex)  # codes only: never a chart number or a name
     at.update(step="snapshot", table=None)
     unit_defaults = mapping.unit_defaults if source_kind != "fhir_bulk" else _bulk_unit_defaults(cfg.mapping_path)
     counts = spool.counts()
@@ -722,7 +722,7 @@ def _run_ingest(
             json.dumps(unmapped_codes, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
         )
         for table, by_lookup in sorted(unmapped_codes.items()):
-            log.warning("%s: %d rows dropped for %d codes no look-up knows (%s)", table,
+            log.warning("%s: %d rows dropped: %d values have no look-up row with a code (%s)", table,
                         sum(sum(c.values()) for c in by_lookup.values()), sum(len(c) for c in by_lookup.values()),
                         UNMAPPED_CODES)  # fmt: skip
     else:  # an earlier attempt of this night may have left one

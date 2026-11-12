@@ -46,7 +46,6 @@ import hashlib
 import hmac
 import json
 import re
-import unicodedata
 from collections import Counter
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -91,9 +90,23 @@ def resource_id(site_key: bytes, rtype: str, value: str) -> str:
     return hmac.new(site_key, f"{rtype}|{value}".encode(), hashlib.sha256).hexdigest()[:32]
 
 
+# full-width ASCII (U+FF01 to U+FF5E) and the ideographic space, to their half-width forms: what a Taiwanese or
+# Japanese system writes for the same code. Not Unicode NFKC: that also turns ``㎎`` into ``mg``, ``①`` into ``1``
+# and ``Ⅳ`` into ``IV``, which are other signs, not another width of the same code.
+_HALF_WIDTH = {**{c: c - 0xFEE0 for c in range(0xFF01, 0xFF5F)}, 0x3000: 0x20}
+# what a code looks like when it is written into a report (D-580): printable ASCII with no blank inside, and no
+# longer than this. Reason for the length: the longest code a look-up of this product is keyed by is JLAC10 (17
+# characters); a site's own prefix or suffix fits in the rest. A longer value, or one with a blank or a letter of
+# another script, is text someone typed into the code column and is counted, never written out.
+CODE_MAX = 40
+_CODE_SHAPE = re.compile(rf"[!-~]{{1,{CODE_MAX}}}")
+NO_CODE, NOT_A_CODE = "(no code)", "(not a code)"
+
+
 def fold_key(key: object) -> str:
-    """A look-up key as a person reads it (D-580): no blanks around it, full-width made half-width, case folded."""
-    return unicodedata.normalize("NFKC", "" if key is None else str(key)).strip().casefold()
+    """A look-up key as a person reads it (D-580): no blanks around it, full-width letters and digits made
+    half-width, lower case."""
+    return ("" if key is None else str(key)).translate(_HALF_WIDTH).strip().lower()
 
 
 @dataclass
@@ -105,7 +118,7 @@ class Lookup:
 
     @classmethod
     def load(cls, name: str, path: Path, key: str) -> Lookup:
-        with path.open(encoding="utf-8", newline="") as fh:
+        with path.open(encoding="utf-8-sig", newline="") as fh:  # a look-up saved with a byte order mark reads too
             rows = {r[key]: r for r in csv.DictReader(fh)}
         return cls(name, key, rows)
 
@@ -642,19 +655,35 @@ class Mapper:
                 if seen is not None:
                     seen.add(at)
 
-    def unmapped_by_code(self) -> dict[str, dict[str, dict[str, int]]]:
-        """``{table: {look-up: {code: rows}}}``, the largest count first: every code, none cut (OD-10)."""
+    def unmapped_by_code(self, chart_pattern: str | None = None) -> dict[str, dict[str, dict[str, int]]]:
+        """``{table: {look-up: {code: rows}}}``, the largest count first: every code, none cut (OD-10). Only what
+        looks like a code is written out (``_CODE_SHAPE``, and not the site's chart-number pattern): a value with a
+        blank, a name or a number of a patient that a mis-mapped column put where the code belongs is counted under
+        ``NOT_A_CODE``, an empty one under ``NO_CODE``. Nothing identifying reaches a report."""
+        chart = re.compile(chart_pattern) if chart_pattern else None
+        counts: Counter[tuple[str, str, str]] = Counter()
+        for (table, name, code), n in self.unmapped.items():
+            if not code:
+                code = NO_CODE
+            elif not _CODE_SHAPE.fullmatch(code) or (chart is not None and chart.fullmatch(code)):
+                code = NOT_A_CODE
+            counts[(table, name, code)] += n
         out: dict[str, dict[str, dict[str, int]]] = {}
-        for (table, name, code), n in sorted(self.unmapped.items(), key=lambda kv: (kv[0][:2], -kv[1], kv[0][2])):
+        for (table, name, code), n in sorted(counts.items(), key=lambda kv: (kv[0][:2], -kv[1], kv[0][2])):
             out.setdefault(table, {}).setdefault(name, {})[code] = n
         return out
 
     def unmapped_summary(self) -> dict[str, dict[str, dict[str, int]]]:
-        """``{table: {look-up: {"rows": dropped rows, "codes": distinct codes}}}`` for the night's report."""
-        return {
-            table: {name: {"rows": sum(codes.values()), "codes": len(codes)} for name, codes in by.items()}
-            for table, by in self.unmapped_by_code().items()
-        }
+        """``{table: {look-up: {"rows": dropped rows, "codes": distinct values}}}`` for the night's report."""
+        rows: Counter[tuple[str, str]] = Counter()
+        codes: Counter[tuple[str, str]] = Counter()
+        for (table, name, _code), n in self.unmapped.items():
+            rows[(table, name)] += n
+            codes[(table, name)] += 1
+        out: dict[str, dict[str, dict[str, int]]] = {}
+        for table, name in sorted(rows):
+            out.setdefault(table, {})[name] = {"rows": rows[(table, name)], "codes": codes[(table, name)]}
+        return out
 
     def row_hash(self, row: Row) -> str:
         """The source row's fingerprint: an HMAC under the site key of its canonical JSON (24 hex)."""
