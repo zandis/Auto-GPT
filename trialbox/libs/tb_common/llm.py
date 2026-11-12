@@ -45,6 +45,7 @@ from jinja2 import Environment, StrictUndefined
 from tb_contracts import PromptMeta, inline_schema, load_schema, null_absent, schema_errors
 from tb_contracts.schema import schema_error_codes
 from tb_llm.budget import MIN_ANSWER_TOKENS, answer_room, estimate_messages, retry_max_tokens, text_budget
+from tb_llm.outage import MODEL_FAULTS
 from tb_llm.timeouts import caller_timeout, once_more
 
 from tb_common.audit import AuditLog
@@ -83,10 +84,6 @@ class LlmPromptUnqualified(LlmError):
 class LlmPromptTooLong(LlmError):
     """The prompt does not fit the model's context with room for an answer (T-603): not sent. The gateway's refusal
     ``prompt_too_long`` (before dispatch, or the server's own HTTP 400) is raised as this too."""
-
-
-#: the gateway's refusals that are the model's fault (an outage, a restart, a queue), not the call's (T-689, D-456)
-MODEL_FAULTS = frozenset({"model_busy", "model_unavailable", "model_asleep", "upstream_failed", "upstream_timeout"})
 
 
 class LlmModelFault(LlmError):

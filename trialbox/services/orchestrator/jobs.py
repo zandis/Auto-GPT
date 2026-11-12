@@ -42,9 +42,10 @@ service.
 
 * **wait and retry**: a call that fails because the model did not answer (:class:`tb_common.llm.LlmModelFault`: the
   gateway's ``model_busy``, ``model_unavailable``, ``model_asleep``, ``upstream_failed``, an endpoint that cannot be
-  reached, a 5xx) is not an answer of ``unknown``. The call sleeps the gateway's ``Retry-After`` (else
-  :data:`OUTAGE_POLL_S`) and is sent again, until the job's outage allowance is used up (:class:`OutageBudget`:
-  ``TB_LLM_OUTAGE_WAIT_S`` seconds per job over all its calls and both models, not per call). Then the job fails at
+  reached, a 5xx) is not an answer of ``unknown``. The call sleeps the gateway's ``Retry-After`` and is sent again
+  (:func:`tb_llm.outage.wait_and_retry`), until the job's outage allowance is used up
+  (:class:`tb_llm.outage.OutageBudget`: ``TB_LLM_OUTAGE_WAIT_S`` seconds per job over all its calls and both models,
+  not per call). Then the job fails at
   once (:class:`ModelOutage`). A model fault never counts in the breaker, and the breaker's threshold is at least
   twice the calls in flight, so one blip that fails them all together cannot open it.
 * **kept answers**: every answer a SCREEN or MICROBATCH job's model client gives is kept in ``orch.judge_answers``
@@ -76,6 +77,8 @@ from tb_common.llm import (
     LlmResult,
     load_prompt,
 )
+from tb_llm.outage import ENV as OUTAGE_ENV
+from tb_llm.outage import OutageBudget, OutageExhausted, wait_and_retry
 
 from orchestrator.clients import StepFailed
 
@@ -335,82 +338,16 @@ def max_restarts(env: Mapping[str, str] | None = None) -> int:
 
 
 # ------------------------------------------------------------------------- outages and kept answers (T-689, D-456)
-# seconds one job may spend waiting for a model that does not answer, over all its calls (TB_LLM_OUTAGE_WAIT_S). The
-# reason for the default: a model server that restarts reloads its weights in minutes and the one-card layout swaps
-# two models; past half an hour a person is needed. 0: no wait (a fault is a failure at once, as before T-689)
-OUTAGE_WAIT_S = 1800.0
-OUTAGE_POLL_S = 5.0  # between two tries when the gateway named no Retry-After: its own value for a busy model
 REPLAY_JOBS = frozenset({"SCREEN", "MICROBATCH"})
 
 
-def outage_wait_s(env: Mapping[str, str] | None = None) -> float:
-    e = os.environ if env is None else env
-    raw = (e.get("TB_LLM_OUTAGE_WAIT_S") or "").strip()
-    try:
-        return max(0.0, float(raw)) if raw else OUTAGE_WAIT_S
-    except ValueError as exc:
-        raise ValueError("TB_LLM_OUTAGE_WAIT_S must be a number of seconds") from exc
-
-
-def pause(seconds: float) -> None:
-    """The wait between two tries (a test replaces it)."""
-    time.sleep(seconds)
-
-
 class ModelOutage(StepFailed):
-    """The model stayed down for longer than the job's outage allowance: the job stops, nothing is written as
-    ``unknown`` for the pairs it did not reach."""
+    """The model stayed down for longer than the job's outage allowance (:mod:`tb_llm.outage`): the job stops,
+    nothing is written as ``unknown`` for the pairs it did not reach."""
 
 
-class OutageBudget:
-    """One job's allowance of seconds spent in model outages, shared by its calls and both model clients.
-
-    An outage of a client starts at its first model fault and ends at its next answer; its length is charged when it
-    ends, and while it lasts it counts as it grows. Thread-safe (the cascade calls side by side)."""
-
-    def __init__(
-        self,
-        allowance_s: float,
-        clock: Callable[[], float] | None = None,
-        on_end: Callable[[str, str, float, str], None] | None = None,
-    ) -> None:
-        self.allowance_s = allowance_s
-        self.spent = 0.0
-        self._clock = clock
-        self._on_end = on_end
-        self._down: dict[str, tuple[float, str]] = {}  # client label -> (since, the first refusal code)
-        self._used_up = False
-        self._lock = threading.Lock()
-
-    def _now(self) -> float:
-        return self._clock() if self._clock is not None else monotonic()
-
-    def fault(self, label: str, reason: str) -> float:
-        """A call of ``label`` met a model fault; returns the seconds of allowance left (0 or less: used up)."""
-        with self._lock:
-            if self._used_up:  # the calls in flight beside the one that gave up: the same end, no new outage
-                return 0.0
-            now = self._now()
-            self._down.setdefault(label, (now, reason))
-            left = self.allowance_s - self.spent - sum(now - since for since, _ in self._down.values())
-            self._used_up = left <= 0
-            return left
-
-    def _end(self, label: str, outcome: str) -> None:
-        with self._lock:
-            hit = self._down.pop(label, None)
-            if hit is None:
-                return
-            waited = max(0.0, self._now() - hit[0])
-            self.spent += waited
-        if self._on_end is not None:
-            self._on_end(label, hit[1], waited, outcome)
-
-    def answered(self, label: str) -> None:
-        self._end(label, "resumed")
-
-    def gave_up(self, label: str) -> None:
-        self._end(label, "gave_up")
+def _model_fault(exc: BaseException) -> tuple[str, float | None] | None:
+    return (exc.reason, exc.retry_after) if isinstance(exc, LlmModelFault) else None
 
 
 class KeptAnswers:
@@ -496,33 +433,19 @@ class GuardedLlm:
 
     def _call(self, fn: Callable[..., Any], *args: Any, **kw: Any) -> Any:
         """``fn``, sent again after a wait while the model does not answer and the job's allowance lasts."""
-        waits = self._outage if self._outage is not None and self._outage.allowance_s > 0 else None
-        while True:
-            try:
-                out = self._once(fn, waits is not None, *args, **kw)
-            except LlmModelFault as exc:
-                if waits is None:
-                    raise
-                left = waits.fault(self._label, exc.reason)
-                if left <= 0:
-                    waits.gave_up(self._label)
-                    raise ModelOutage(
-                        "running",
-                        f"The {self._label} model did not answer ({exc.reason}) and this job has waited "
-                        f"{round(waits.spent)} s for it, its whole allowance (TB_LLM_OUTAGE_WAIT_S = "
-                        f"{round(waits.allowance_s)} s), so the job stopped. Nothing was sent. Check the model "
-                        f"service (RUNBOOK §4) and send the request again when the model is back.",
-                    ) from exc
-                delay = min(left, exc.retry_after if exc.retry_after else OUTAGE_POLL_S)
-                while delay > 0:  # in short steps, so a cancel is seen while the job waits
-                    self._check_stop()
-                    step = min(delay, OUTAGE_POLL_S)
-                    pause(step)
-                    delay -= step
-                continue
-            if waits is not None:
-                waits.answered(self._label)
-            return out
+        waiting = self._outage is not None and self._outage.waits
+        try:
+            return wait_and_retry(
+                lambda: self._once(fn, waiting, *args, **kw), self._outage, self._label, _model_fault, self._check_stop
+            )
+        except OutageExhausted as exc:
+            raise ModelOutage(
+                "running",
+                f"The {exc.label} model did not answer ({exc.reason}) and this job has waited "
+                f"{round(exc.spent_s)} s for it, its whole allowance ({OUTAGE_ENV} = {round(exc.allowance_s)} s), so "
+                f"the job stopped. Nothing was sent. Check the model service (RUNBOOK §4) and send the request again "
+                f"when the model is back.",
+            ) from exc
 
     def _once(self, fn: Callable[..., Any], waiting: bool, *args: Any, **kw: Any) -> Any:
         self._check_stop()
@@ -610,7 +533,7 @@ def guarded_services(ctx: Ctx, base: Services) -> Services:
             detail={"model": label, "reason": reason, "waited_s": round(waited, 1), "outcome": outcome},
         )
 
-    outage = OutageBudget(outage_wait_s(), on_end=outage_ended)
+    outage = OutageBudget(on_end=outage_ended)
     answers = None
     if ctx.job.type in REPLAY_JOBS:
         answers = KeptAnswers(

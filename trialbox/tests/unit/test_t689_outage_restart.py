@@ -32,6 +32,11 @@ from tb_common.objstore import FsStore
 from tb_contracts import JobCreate, SendRequest, SendResult
 from tb_llm import GatewayClient
 
+try:
+    from tb_llm import outage
+except ImportError:  # the code before T-689
+    outage = None  # type: ignore[assignment]
+
 ROOT = Path(__file__).resolve().parents[2]
 EXCERPT = [{"date": "2026-10-01", "note_type": "progress", "text": "No history of stroke.", "did": "d1"}]
 
@@ -46,7 +51,7 @@ class FakeMail:
 
 
 class Clock:
-    """The test's time: ``jobs.pause`` moves it, the gateway stand-in reads it."""
+    """The test's time: the wait between two tries moves it, the gateway stand-in reads it."""
 
     def __init__(self) -> None:
         self.now = 1000.0
@@ -65,8 +70,10 @@ class Clock:
 @pytest.fixture
 def clock(monkeypatch: pytest.MonkeyPatch) -> Clock:
     c = Clock()
-    monkeypatch.setattr(jobs, "pause", c.pause, raising=False)
     monkeypatch.setattr(jobs, "monotonic", c)
+    if outage is not None:  # unchanged code has no wait: the tests then fail on what they assert
+        monkeypatch.setattr(outage, "pause", c.pause)
+        monkeypatch.setattr(outage, "monotonic", c)
     return c
 
 
@@ -254,18 +261,17 @@ def test_no_wait_when_the_allowance_is_zero(make: Any, clock: Clock, monkeypatch
     assert clock.slept == 0 and seen["reasons"].count("model_down") == 16
 
 
-def test_cancel_is_seen_while_the_job_waits(make: Any, clock: Clock) -> None:
+def test_cancel_is_seen_while_the_job_waits(make: Any, clock: Clock, monkeypatch: pytest.MonkeyPatch) -> None:
     gw = Gateway(clock, (2, 10_000.0))
     seen: dict[str, Any] = {}
     orch = make(gw.client(), screen_of(20, seen))
     job_id = _job(orch)
-    pause = jobs.pause
 
     def pause_then_cancel(seconds: float) -> None:
-        pause(seconds)
+        clock.pause(seconds)
         orch.cancel(job_id, "admin@hospa.test")
 
-    jobs.pause = pause_then_cancel  # the clock fixture restores it
+    monkeypatch.setattr(outage, "pause", pause_then_cancel)
     orch.drain()
     job = orch.db.get(job_id)
     assert job is not None and job.state == "failed" and job.error is not None and job.error.step == "cancelled"
@@ -581,7 +587,8 @@ def test_sixteen_calls_in_flight_wait_through_one_outage_together(clock: Clock) 
     """Two at once, and more: the calls in flight share the job's one allowance and one outage; each is answered."""
     from concurrent.futures import ThreadPoolExecutor
 
-    from orchestrator.jobs import GuardedLlm, OutageBudget
+    from orchestrator.jobs import GuardedLlm
+    from tb_llm.outage import OutageBudget
 
     gw = Gateway(clock, (40, 40.0))
     ended: list[tuple[str, str, float, str]] = []
@@ -592,3 +599,45 @@ def test_sixteen_calls_in_flight_wait_through_one_outage_together(clock: Clock) 
         got = list(ex.map(lambda i: llm.chat_json("judge", {**variables, "criterion_text": f"c{i}"}), range(200)))
     assert len(got) == 200 == gw.answered and gw.refused
     assert all(e[3] == "resumed" for e in ended) and 0 < budget.spent <= 40.0 + 30.0
+
+
+def test_the_cascades_own_judge_waits_through_an_outage_too(clock: Clock) -> None:
+    """The judge the scale gate runs (``matching.cascade.judge.GatewayJudge`` straight on ``tb_llm``): its check
+    ``screen.outage_no_unknown`` counts the refusals this judge records. None is recorded for an outage it outlives."""
+    from matching.cascade.judge import GatewayJudge
+    from tb_llm.outage import OutageBudget, OutageExhausted
+
+    kw: dict[str, Any] = {
+        "role": "judge",
+        "criterion_text": "x",
+        "note_question": "stroke?",
+        "index_date": date(2026, 10, 5),
+        "excerpts": EXCERPT,
+        "study_id": "S-1",
+        "data_class": "D0",
+        "step_id": "s",
+        "purpose": "screening",
+    }
+
+    def judge_on(gw: Gateway, allowance: float | None = None) -> GatewayJudge:
+        gc = GatewayClient("http://gateway/v1", "orchestrator", http=httpx.Client(transport=httpx.MockTransport(gw)))
+        return GatewayJudge(gc, outage=None if allowance is None else OutageBudget(allowance))
+
+    gw = Gateway(clock, (14, 5.0))  # the gate's own case: 5 s of 502 lost 60 of 74 judge calls
+    judge = judge_on(gw)
+    replies = [judge.judge(**kw) for _ in range(74)]
+    assert gw.refused and judge.refusals == [] and all(r.refused is None for r in replies)
+    assert judge.calls == 74 == gw.answered
+    down = judge_on(Gateway(clock, (3, 10_000.0)), allowance=60.0)
+    with pytest.raises(OutageExhausted):
+        for _ in range(10):
+            down.judge(**kw)
+    assert down.refusals == []  # the run stops; nothing is written as refused for the pairs it did not reach
+    content = judge_on(Gateway(clock))  # a refusal of the request is still its answer, at once
+    content.client.http = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda req: httpx.Response(403, json={"error": {"type": "tb_refusal", "code": "phi_tripwire"}})
+        )
+    )
+    slept = clock.slept
+    assert content.judge(**kw).refused == "phi_tripwire" and clock.slept == slept
