@@ -184,7 +184,7 @@ _ICD10_SYS = ("I10", "ICD10")  # the HL7 table 0396 name and the spelling vendor
 
 def _alt(seg: hl7.Segment, n: int, systems: tuple[str, ...]) -> str:
     """The alternate code (components 4-6) of a CWE field when its coding system is one of ``systems``."""
-    return seg.comp(n, 4) if seg.comp(n, 6) in systems else ""
+    return seg.comp(n, 4) if seg.comp(n, 6).strip().upper() in systems else ""
 
 
 def drug_codes(seg: hl7.Segment, n: int) -> dict[str, str]:
@@ -542,8 +542,11 @@ class Ssmix2Source:
             code = prb.comp(3, 1)
             # NEW-DIN-5 (DIN-005): the ICD-10 code is in whichever triple names ICD-10. The standard puts the 病名
             # code first and ICD-10 second; a vendor that sends ICD-10 first used to get a diagnosis with no code
-            first = code if prb.comp(3, 3).strip().upper() in _ICD10_SYS else ""
-            icd = who_icd10(first or _alt(prb, 3, _ICD10_SYS)) or ("" if first else self._icd(code))
+            named = prb.comp(3, 3).strip().upper() in _ICD10_SYS  # the first triple says it is ICD-10
+            first = who_icd10(code) if named else ""
+            if not _WHO_SHAPE.match(first):
+                first = ""  # called ICD-10 and not one: never passed on, and it does not hide a good second triple
+            icd = first or who_icd10(_alt(prb, 3, _ICD10_SYS)) or ("" if named else self._icd(code))
             if not icd:
                 self.missed[f"diagnosis:{code}"] += 1
             yield {
@@ -551,7 +554,7 @@ class Ssmix2Source:
                 "enc_no": enc,
                 "mrn": sf.patient,
                 **self._icd_columns(icd),
-                "byomei_code": "" if first else code,
+                "byomei_code": "" if named else code,
                 "byomei_name": prb.comp(3, 2),
                 "diag_date": hl7.ts(prb.field(16)) or "",
                 "recorded_date": hl7.ts(prb.field(2)) or hl7.ts(prb.field(7)) or "",

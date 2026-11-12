@@ -61,3 +61,20 @@ def test_the_condition_carries_the_code(tmp_path: Path) -> None:
     m = Mapping.load(JP_MAPPING)
     (res,) = Mapper(m, b"k" * 32, "s").map_table("diagnosis", iter([m.normalize("diagnosis", row)]))
     assert "M06.9" in {c.get("code") for c in res["code"]["coding"]}
+
+
+@pytest.mark.parametrize(("prb3", "icd"), [
+    ("ZZZ^n^I10^E11.9^n^I10", "E11.9"),      # a first triple that is no ICD-10 code does not hide a good second one
+    ("E11.9^n^i10", "E11.9"), ("E11.9^n^ I10 ", "E11.9"),  # the system's name in another case or with blanks
+    ("ZB01^n^MDCDX2^E11.9^n^i10", "E11.9"),  # ... in the second triple too
+])  # fmt: skip
+def test_the_review_cases_that_must_read_a_code(tmp_path: Path, prb3: str, icd: str) -> None:
+    (row,), _ = _rows(tmp_path, prb3)
+    assert row["icd10"] == icd
+
+
+@pytest.mark.parametrize("prb3", ["ZZZ^n^I10", "E11.9&X^n^I10", "E1190X^n^I10", "^n^I10"])
+def test_what_is_called_icd10_and_is_not_one_gives_no_code_and_is_counted(tmp_path: Path, prb3: str) -> None:
+    (row,), src = _rows(tmp_path, prb3)
+    assert row["icd10"] == "" and row["byomei_code"] == ""  # never passed on as a code of either kind
+    assert sum(n for k, n in src.missed.items() if k.startswith("diagnosis:")) == 1
