@@ -339,7 +339,7 @@ def roles_after_restore(root: Path, script: Path = ROLES_SCRIPT) -> tuple[str, b
     back, and then every service role opens each store on its list as the store's group (alters the table,
     replaces the function) and reads no store off its list."""
     import psycopg
-    from psycopg import errors
+    from psycopg import errors, sql
     from tb_common.db import Database
 
     from tools import pglocal
@@ -408,7 +408,7 @@ def roles_after_restore(root: Path, script: Path = ROLES_SCRIPT) -> tuple[str, b
                         opened += 1
                     else:
                         try:
-                            con.execute(f'SELECT count(*) FROM "{schema}".drill_probe')
+                            con.execute(sql.SQL("SELECT count(*) FROM {}.drill_probe").format(sql.Identifier(schema)))
                         except errors.InsufficientPrivilege:
                             continue
                         return (name, False, f"{role} reads {schema}, which is not on its list")
