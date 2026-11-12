@@ -5,7 +5,10 @@ cloud run failed and the local stub is not.
 * ``--served-model-name``: a request whose ``model`` is not the served name is **404** (vLLM's NotFoundError), the
   failure of the cloud run of 2026-11-09 that the local stub (it echoes any name) could not show;
 * the response echoes the served name in ``model`` (the gateway's served-model echo check);
-* /health answers 200 only after ``--load-seconds`` (a real vLLM loads weights for minutes).
+* /health answers 200 only after ``--load-seconds`` (a real vLLM loads weights for minutes);
+* ``GET /metrics`` (Prometheus text, vLLM's names: tokens, requests, time to first token, queue, KV cache) and
+  ``POST /tokenize`` answer without the key, as vLLM's do: the run scrapes the first around every part and the
+  ``chat-template`` part asks the second (review tests G-3 and G-1). Neither is logged as a call.
 
 The answers come from the repository's deterministic stub (``llm_stub.app``) through an in-process ASGI transport, so
 only the server surface is vLLM's; a call without the stub's ``X-TB-Prompt-Id`` (the VM's pre-flight chat call) gets a
@@ -39,7 +42,10 @@ from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.responses import JSONResponse, Response  # noqa: E402
 from llm_stub.app import app as stub  # noqa: E402
 
+from tools.vllm_standin import metrics_text, tokenize  # noqa: E402  (the box rehearsal's stand-in: one format)
+
 KEY = Path(a.key_file).read_text(encoding="utf-8").strip()
+SEEN = {"requests": 0, "prompt_tokens": 0, "generation_tokens": 0}
 READY_AT = time.time() + a.load_seconds
 app = FastAPI()
 stub_client = httpx.AsyncClient(transport=httpx.ASGITransport(app=stub), base_url="http://stub", timeout=120.0)
@@ -104,8 +110,26 @@ async def chat(request: Request) -> Response:
         return Response(content=up.content, status_code=up.status_code, media_type="application/json")
     payload = up.json()
     payload["model"] = a.served  # vLLM echoes --served-model-name
+    usage = payload.get("usage") or {}
+    SEEN["requests"] += 1
+    SEEN["prompt_tokens"] += int(usage.get("prompt_tokens") or 0)
+    SEEN["generation_tokens"] += int(usage.get("completion_tokens") or 0)
     log(200, "/v1/chat/completions", model)
     return JSONResponse(payload)
+
+
+@app.get("/metrics")
+def metrics() -> Response:
+    return Response(content=metrics_text(a.served, **SEEN), media_type="text/plain")
+
+
+@app.post("/tokenize")
+async def tokenize_route(request: Request) -> Response:
+    try:
+        body = json.loads(await request.body() or b"{}")
+    except ValueError:
+        body = {}
+    return JSONResponse(tokenize(body if isinstance(body, dict) else {}))
 
 
 @app.api_route("/{rest:path}", methods=["GET", "POST", "PUT", "DELETE"])

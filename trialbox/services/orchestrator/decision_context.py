@@ -59,8 +59,9 @@ class NoteBlock:
 
 def register_now() -> frozenset[str]:
     """The opt-out register as it stands now (with merged charts), for code outside a job: a route, a timer, an
-    export. Raises when the register does not answer (D-127: fail closed)."""
-    return _optout.opted_out()
+    export. Raises when the register does not answer (D-127: fail closed). Code of another service calls
+    ``tb_common.optout.register_now``, the same read."""
+    return _optout.register_now()
 
 
 def note_block_of(judge: NoteJudge | None, ctx: Any = None) -> NoteBlock:
