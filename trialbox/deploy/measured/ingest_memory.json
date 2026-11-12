@@ -1,0 +1,27 @@
+{
+ "format": "tb-ingest-memory/1",
+ "how": "python -m tools.trialbox.memcaps --measure: peak RSS of one process, synthetic patients (10 results and one note each), the streamed spool and merge (adapter) and the legacy rebuild (lake), sort run 4 MB, DuckDB limit 256MB",
+ "measured_at": "2026-11-12T05:50:56+00:00",
+ "services": {
+  "adapter": {
+   "fixed_mb": 20.0,
+   "peak_mb": {
+    "10000": 20.2,
+    "5000": 20.1
+   },
+   "per_patient_kb": 0.013
+  },
+  "lake": {
+   "fixed_mb": 477.4,
+   "peak_mb": {
+    "10000": 609.8,
+    "5000": 543.6
+   },
+   "per_patient_kb": 13.566
+  }
+ },
+ "sizes": [
+  5000,
+  10000
+ ]
+}
