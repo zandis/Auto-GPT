@@ -15,7 +15,6 @@ row read twice is merged by its key, a row skipped is a correction lost.
 from __future__ import annotations
 
 import csv
-import io
 import logging
 import shutil
 from collections.abc import Iterator, Sequence
@@ -70,29 +69,38 @@ class CsvSource:
         self._quarantined[source_name] = f"{path.name} quarantined: {why}; {where}"
         log.warning("csv source: %s", self._quarantined[source_name])
 
-    def _read(self, path: Path, source_name: str) -> list[Row] | None:
+    def _codec(self, path: Path, source_name: str) -> str | None:
+        """T-692 (D-473): the file's character set, and a first pass that parses it whole without keeping a row, so a
+        file that is not a readable CSV is quarantined before any of its rows is given (as when it was read whole)."""
         try:
-            text, codec = encoding.decode(path.read_bytes(), self.candidates)
+            codec = encoding.file_codec(path, self.candidates)
         except encoding.EncodingRefused as exc:
             self._quarantine(path, source_name, str(exc))
             return None
         try:
-            rows = [dict(r) for r in csv.DictReader(io.StringIO(text, newline=""))]
+            with path.open(encoding=codec, newline="") as fh:
+                for _ in csv.reader(fh):
+                    pass
         except csv.Error as exc:
             self._quarantine(path, source_name, f"not a readable CSV ({exc})")
             return None
         self.encodings[source_name] = codec
-        return rows
+        return codec
 
     def rows(self, table: str, source_name: str, delta_column: str | None, since: str | None) -> Iterator[Row]:
+        """The table's rows one at a time, read from the file as they are asked for (T-692: never the whole table)."""
         path = self.directory / f"{source_name}.csv"
         if not path.exists():
             return
-        rows = self._read(path, source_name)
-        if rows is None:
+        codec = self._codec(path, source_name)
+        if codec is None:
             return
-        col = delta_column if since and delta_column and rows and delta_column in rows[0] else None
-        for row in rows:
-            if col is not None and str(row.get(col) or "").strip() and not after(row.get(col), since):
-                continue
-            yield row
+        with path.open(encoding=codec, newline="") as fh:
+            reader = csv.DictReader(fh)
+            fields = reader.fieldnames or []
+            col = delta_column if since and delta_column and delta_column in fields else None
+            for raw in reader:
+                row = dict(raw)
+                if col is not None and str(row.get(col) or "").strip() and not after(row.get(col), since):
+                    continue
+                yield row
