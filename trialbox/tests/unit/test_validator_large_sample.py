@@ -1,7 +1,7 @@
 """The HL7 validator takes a sample of any size (review 2026-11-11-scale-timeouts, F-06).
 
 The night's sample is 1 % of the load, so it grows with the hospital; the validator got every sampled file as one
-command-line argument of one ``java`` process. Past about 65,000 Observation files the kernel refuses the command (``Argument list
+command-line argument of one ``java`` process. Past about 65,000 Observation files (with the usual 8 MiB stack limit) the kernel refuses the command (``Argument list
 too long``), the pipeline reports "validation failed to run" and the night is held: a site of 50,000 patients with 130
 or more resources each could never publish its first load. The file index was also written and read as five digits,
 so results from file 100,000 on were dropped. ``java`` is a small stand-in that answers one outcome per file it was
@@ -10,7 +10,6 @@ given; the wrapper under test is the real one.
 
 from __future__ import annotations
 
-import os
 import stat
 from pathlib import Path
 
@@ -42,8 +41,10 @@ def _validator(tmp_path: Path) -> tuple[Hl7Validator, Path]:
 
 def test_a_sample_larger_than_one_command_line_is_validated_in_batches(tmp_path: Path) -> None:
     v, calls = _validator(tmp_path)
-    n = 100_000  # x 32 bytes per argument (the name and its pointer): over the kernel's 2 MiB limit in one command
-    assert n * (len("r00000-Observation.json") + 1 + 8) > os.sysconf("SC_ARG_MAX")
+    # 100,000 names of 32 bytes (the name and its pointer) are 3.2 MB: over the limit of one command where the
+    # stack limit is the usual 8 MiB (2 MiB of arguments). The limit is the machine's, so the test does not assert
+    # it; it asserts that no run got more than BATCH files, which holds on any machine
+    n = 100_000
     res = v.validate([{"resourceType": "Observation", "id": "o"}] * n)
     assert res.sampled == n
     assert res.errors == 2

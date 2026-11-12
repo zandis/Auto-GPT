@@ -206,8 +206,8 @@ memory caps are adapter 6 GB, lake 8 GB, orchestrator 4 GB, console 2 GB, databa
 
 - **Where:** `services/adapter/validate/validator.py` (`validate`: every sampled file an argument of one `java`,
   `timeout=1800`); the sample is 1 % of the load (`services/adapter/pipeline.py:48`, `:649`; `backfill.py:509`).
-- **At 50k:** 50,000 x 500 resources = 25 M, a sample of 250,000 files. The kernel refuses a command over 2 MiB,
-  about 65,000 names: `OSError: Argument list too long` (reproduced at 100,000 files). The pipeline catches it as
+- **At 50k:** 50,000 x 500 resources = 25 M, a sample of 250,000 files. The kernel refuses a command over 2 MiB
+  (a quarter of the usual 8 MiB stack limit; 4 MiB on the CI runner), about 65,000 names: `OSError: Argument list too long` (reproduced at 100,000 files). The pipeline catches it as
   "validation failed to run" and **holds the night**: the first load could never be published.
 - **At 500k:** a sample of 2.5 M files.
 - **Test:** `tests/unit/test_validator_large_sample.py`; fails before the fix with the `OSError`.
