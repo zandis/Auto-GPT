@@ -264,6 +264,17 @@ class JobDB:
         )
         return [str(r[0]) for r in rows]
 
+    def unfinished(self, type_: str, ruleset: str | None) -> list[str]:
+        """The jobs of ``type_`` for ``ruleset`` (none: the box-wide jobs, INGEST and RETENTION) that are queued or
+        running, oldest first (T-746, D-474: a retry waits for them)."""
+        terminal = ",".join("?" for _ in TERMINAL)
+        rows = self._db.fetchall(
+            f"SELECT job_id FROM jobs WHERE type = ? AND coalesce(ruleset, '') = ? AND state NOT IN ({terminal}) "
+            "ORDER BY received_at, seq",
+            (type_, ruleset or "", *TERMINAL),
+        )
+        return [str(r[0]) for r in rows]
+
     def count_since(self, requested_by: str, since_iso: str, type_: str | None = None) -> int:
         """Jobs ``requested_by`` started since ``since_iso``; of one type only when ``type_`` is given (D-146)."""
         if type_ is None:

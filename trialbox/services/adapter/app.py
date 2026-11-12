@@ -1,6 +1,7 @@
 """adapter API.
 
-* ``POST /run`` runs one ingest (called by the orchestrator's 02:00 job).
+* ``POST /run`` starts one ingest and answers 202 with its run id; ``GET /run/<id>`` reports its state and, when done,
+  the ingest report (the orchestrator's nightly job and the console poll it; T-690, D-472).
 * ``POST /$validate`` (D-137): JP Core ``$validate``, offline. Body ``{"resources": [...]}`` checks those resources
   (one resource gives its FHIR ``OperationOutcome``); ``{"snapshot": "YYYY-MM-DD", "per_type": 50}`` checks a sample of
   a written snapshot (the newest when ``snapshot`` is empty). The answer lists every failure in plain words.
@@ -14,46 +15,98 @@ from __future__ import annotations
 
 import base64
 import binascii
+import logging
 import os
 import threading
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from tb_common.http import make_app
-from tb_contracts import IngestReport, IngestRequest
+from tb_contracts import IngestRequest, dump
 
 from adapter.cli import build_config
 from adapter.pipeline import SiteKeyError, run_ingest
 
+log = logging.getLogger("adapter")
 app = make_app("adapter")
 _running = threading.Lock()
+#: T-690 (D-472): the ingest runs of this process by id, the newest last (one ingest at a time; nights are one a day,
+#: so this holds a few small reports; a restart forgets them and a poller then reports the run lost)
+_runs: dict[str, dict[str, Any]] = {}
 
 
-@app.post("/run")
-def run(req: IngestRequest) -> IngestReport:
+def _spawn(run: Callable[[], None]) -> None:
+    threading.Thread(target=run, name="adapter-ingest", daemon=True).start()
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+@app.post("/run", status_code=202)
+def run(req: IngestRequest) -> JSONResponse:
+    """T-690 (D-472): start one ingest and answer 202 with its run id; ``GET /run/<id>`` follows it (``running``,
+    ``done`` with the ingest report, ``refused`` when the site key is missing or changed, ``failed``). The night is
+    never timed by the caller (OD-10). A second start while one runs is 409."""
     if not _running.acquire(blocking=False):
-        raise HTTPException(status_code=409, detail="an ingest is already running")
+        busy = next((r["run"] for r in reversed(_runs.values()) if r["state"] == "running"), "")
+        raise HTTPException(status_code=409, detail="an ingest is already running", headers={"X-TB-Run": busy})
     try:
         ac, default_kind, default_path = build_config()
         path = req.path or default_path
         if req.source != default_kind and not req.path:
             raise HTTPException(status_code=400, detail="path required when overriding the source type")
-        return run_ingest(
-            ac,
-            req.source,
-            path or os.environ.get("TB_SOURCE_PATH", ""),
-            since=req.since,
-            snapshot=req.snapshot.isoformat() if req.snapshot else None,
-            load_fhir=req.load_fhir,
-            rebuild_lake=req.rebuild_lake,
-            validate=req.validate_,
-        )
-    except SiteKeyError as exc:  # T-612: refused before anything was read or written
-        raise HTTPException(status_code=409, detail=f"night refused: {exc}") from None
-    finally:
+    except BaseException:
         _running.release()
+        raise
+    rid = os.urandom(8).hex()
+    state: dict[str, Any] = {"run": rid, "state": "running", "started": _now(), "ended": None, "detail": ""}
+    _runs[rid] = state
+
+    def work() -> None:
+        try:
+            report = run_ingest(
+                ac,
+                req.source,
+                path or os.environ.get("TB_SOURCE_PATH", ""),
+                since=req.since,
+                snapshot=req.snapshot.isoformat() if req.snapshot else None,
+                load_fhir=req.load_fhir,
+                rebuild_lake=req.rebuild_lake,
+                validate=req.validate_,
+            )
+            state.update(state="done", report=dump(report))
+        except SiteKeyError as exc:  # T-612: refused before anything was read or written
+            state.update(state="refused", detail=f"night refused: {exc}")
+        except Exception as exc:
+            log.exception("ingest run %s failed", rid)
+            state.update(state="failed", detail=f"{type(exc).__name__}: {str(exc)[:500]}")
+        finally:
+            state["ended"] = _now()
+            _running.release()
+
+    _spawn(work)
+    return JSONResponse(dict(state), status_code=202, headers={"Location": f"/run/{rid}"})
+
+
+@app.get("/run/{rid}")
+def run_state(rid: str) -> dict[str, Any]:
+    """The state of one ingest run of this process (404: unknown here, e.g. the adapter restarted)."""
+    st = _runs.get(rid)
+    if st is None:
+        raise HTTPException(status_code=404, detail="unknown run (the adapter may have restarted)")
+    return dict(st)
+
+
+@app.get("/run")
+def latest_run() -> dict[str, Any]:
+    """The newest ingest run of this process, or ``{"state": "none"}``."""
+    return dict(next(reversed(_runs.values()))) if _runs else {"state": "none"}
 
 
 class ValidateBody(BaseModel):

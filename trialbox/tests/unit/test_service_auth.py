@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -12,7 +13,9 @@ from fastapi.testclient import TestClient
 from tb_common import service_auth as sa
 from tb_common.http import ServiceClient
 
-TOKEN = "test-service-token-0123456789"
+from tests.service_tokens import per_service_tokens, token_of
+
+TOKEN = token_of("console")
 
 
 @pytest.fixture
@@ -32,7 +35,11 @@ def test_changing_calls_need_the_token(client: TestClient, monkeypatch: pytest.M
     assert r.status_code == 403
     for path in ("/jobs", "/notices", "/jobs/J1/cancel", "/registry/X", "/studies"):
         assert client.post(path, json={}).status_code == 401, path
-    # with the token the call reaches the route (an unknown route answers 404, not 401/403)
+    # the token passes the token layer; in PRODUCTION the old shared token names no service, so the route gate of
+    # D-464 answers (403 caller_unverified), not the token layer (401)
+    r = client.post("/no-such-route", json={}, headers={sa.TOKEN_HEADER: TOKEN})
+    assert r.status_code == 403 and r.headers["X-TB-Refusal"] == "caller_unverified"
+    monkeypatch.setenv("TB_ENV", "TEST")  # on a TEST box the call reaches the router: an unknown route is 404
     assert client.post("/no-such-route", json={}, headers={sa.TOKEN_HEADER: TOKEN}).status_code == 404
 
 
@@ -59,6 +66,9 @@ def test_reads_need_the_token_too(client: TestClient, monkeypatch: pytest.Monkey
         assert client.get(path).status_code == 401, path
         assert client.get(path, headers={sa.TOKEN_HEADER: "wrong"}).status_code == 403, path
     assert client.head("/jobs").status_code == 401
+    r = client.get("/no-such-route", headers={sa.TOKEN_HEADER: TOKEN})  # past the token layer: D-464's gate answers
+    assert r.status_code == 403 and r.headers["X-TB-Refusal"] == "caller_unverified"
+    monkeypatch.setenv("TB_ENV", "TEST")
     assert client.get("/no-such-route", headers={sa.TOKEN_HEADER: TOKEN}).status_code == 404  # reached the router
 
 
@@ -113,13 +123,13 @@ def _fake_box(events: list[dict[str, Any]]) -> SimpleNamespace:
 
 
 def test_reveal_only_for_a_patient_on_the_jobs_list_and_at_a_bounded_rate(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Security review 2026-11-08 F-03: reveal used to resolve any pseudonym in the hospital through any job."""
     from orchestrator import app as oapp
     from orchestrator.scenarios import screen
 
-    monkeypatch.setenv("TB_SERVICE_TOKEN", TOKEN)
+    per_service_tokens(tmp_path, monkeypatch)  # D-464: in PRODUCTION the orchestrator names its caller
     monkeypatch.setenv("TB_ENV", "PRODUCTION")
     monkeypatch.setenv("TB_REVEAL_MAX_PER_HOUR", "2")
     monkeypatch.setattr(oapp, "REVEALS", oapp.RevealLimit())
@@ -138,11 +148,13 @@ def test_reveal_only_for_a_patient_on_the_jobs_list_and_at_a_bounded_rate(
     assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=other).status_code == 200
 
 
-def test_reveal_audits_the_header_actor_not_the_body(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_reveal_audits_the_header_actor_not_the_body(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     from orchestrator import app as oapp
     from orchestrator.scenarios import screen
 
-    monkeypatch.setenv("TB_SERVICE_TOKEN", TOKEN)
+    per_service_tokens(tmp_path, monkeypatch)  # D-464: in PRODUCTION the orchestrator names its caller
     monkeypatch.setenv("TB_ENV", "PRODUCTION")
     events: list[dict[str, Any]] = []
     fake = _fake_box(events)
@@ -175,7 +187,7 @@ def test_service_client_sends_the_token_to_every_trialbox_service(monkeypatch: p
 
 
 def test_a_token_holder_cannot_name_a_user_or_reset_the_cap_and_exports_are_audited(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Review 2026-11-09 S-09 (D-143): an unsigned X-TB-Actor is refused and audited; the reveal cap is per verified
     person; the screening-log export with chart numbers needs a signed user, is audited with the file's sha256 and
@@ -183,7 +195,7 @@ def test_a_token_holder_cannot_name_a_user_or_reset_the_cap_and_exports_are_audi
     from orchestrator import app as oapp
     from orchestrator.scenarios import screen
 
-    monkeypatch.setenv("TB_SERVICE_TOKEN", TOKEN)
+    per_service_tokens(tmp_path, monkeypatch)  # D-464: in PRODUCTION the orchestrator names its caller
     monkeypatch.setenv("TB_ENV", "PRODUCTION")
     monkeypatch.setenv("TB_REVEAL_MAX_PER_HOUR", "1")
     monkeypatch.setenv("TB_EXPORT_MAX_PER_HOUR", "1")

@@ -73,6 +73,7 @@ from matching.cascade.s2b_semantic import (
 )
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
 from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS, Proposed
+from matching.stored_scores import apply_rows
 
 PATIENT_CLASS = "D3"  # every cascade output is patient level (§7.1)
 # no row of the compiled SQL's base for a scoped patient: not in this snapshot, or deceased / not yet born at every
@@ -126,6 +127,8 @@ class CascadeConfig:
     sample_per_stratum: int | None = None  # CAS-8: ≤ 200 in feasibility runs; None screens everyone
     seed: int = 20261025
     snapshot: str | None = None
+    # D-442: the stored derived rows (``tb_common.derived_store.stored_read``, None while the flag is off)
+    stored: Any = None
     # D-103 (SCREEN runs the cascade): the population is given by the caller instead of POP_SQL (the practitioner /
     # appointment scope of a screening run); a note ``fail`` is soft (review, never exclusion) when ``note_block`` is
     # False (D-95/D-97 single-model fallback); zero-hit pairs below the S2b threshold go to the judge instead of
@@ -431,6 +434,8 @@ class _Run:
             raise CascadeError(f"ruleset {self.rs.id} has no compiled structured criteria")
         # D-275: SQL approved before the unit / sex / order-date rules runs guarded by them (unknown on a difference)
         table = self.lake.query(safe_sql(self.rs), [[d.isoformat() for d in idx], scope], self.cfg.snapshot).to_pylist()
+        # D-442: the stored-row read, the same function as the v1 engine's (only while the flag is on: cfg.stored)
+        apply_rows(table, applied, self.cfg.stored, self.cfg.snapshot, getattr(self.rs.manifest, "derived_pins", None))
         self.coverage = Coverage.for_criteria(self.lake, applied, scope, self.cfg.snapshot, self.rs.valuesets)
         self.proposed = Proposed.for_criteria(self.lake, applied, scope, self.cfg.snapshot, self.rs.valuesets)
         by_pid: dict[str, list[dict[str, Any]]] = {}

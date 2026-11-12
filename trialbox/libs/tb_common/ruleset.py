@@ -13,6 +13,7 @@ Layout::
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
@@ -23,6 +24,10 @@ import yaml
 from tb_contracts import CriterionIR, RulesetManifest
 
 from tb_common.fhir import library_name
+
+# D-469: the rulesets that ship with the product. The checkout's (image's) folder is the seed and nothing the product
+# runs ever writes to it; the working copy is ``Env.rulesets_path`` (under ``TB_DATA_DIR``).
+SEED_RULESETS = Path(__file__).resolve().parents[2] / "rulesets"
 
 
 class RulesetNotApproved(RuntimeError):
@@ -198,6 +203,7 @@ def approval_state(
     *,
     terminology_release: str | None = None,
     prompt_drift: list[dict[str, Any]] | None = None,
+    derived_drift: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Whether an approved ruleset still stands as the investigator approved it (D-318, URS-PI-06).
 
@@ -205,18 +211,28 @@ def approval_state(
     (``tb_llm.prompt_registry.pin_drift``), or when the box's terminology release (``terminology_release``, None when
     it cannot be read) is not the one it was compiled against (D-301). A prompt change leaves SCREEN on the pinned
     prompt until the re-approval; a terminology change refuses the run until it is recompiled and re-approved, because
-    the box holds only its current release. ``reasons`` lists each cause for the page."""
+    the box holds only its current release. D-442: ``approval_needed`` too when a score definition it pins
+    (``derived_pins``) is computed on this box under another version or text (:func:`tb_common.scores.pin_drift`);
+    until the re-approval screening reads those scores as unknown. ``reasons`` lists each cause for the page."""
     if manifest.status != "approved":
         return {"state": "draft", "reasons": []}
     if prompt_drift is None:
         from tb_llm.prompt_registry import pin_drift
 
         prompt_drift = pin_drift(manifest)
+    if derived_drift is None:
+        from tb_common.scores import pin_drift as derived_pin_drift
+
+        derived_drift = derived_pin_drift(getattr(manifest, "derived_pins", None))
     reasons: list[dict[str, Any]] = [{"kind": "prompt", **d} for d in prompt_drift]
+    reasons += [{"kind": "derived", **d} for d in derived_drift]
     pinned = manifest.terminology_release
     if pinned and terminology_release and pinned != terminology_release:
         reasons.append({"kind": "terminology", "pinned": pinned, "active": terminology_release, "state": "newer"})
-    return {"state": "approval_needed" if reasons else "approved", "reasons": reasons}
+    # D-442: approved before score definitions were pinned: a changed definition cannot ask for approval until the
+    # next approval writes the pins (never back-filled; the page says so)
+    unpinned = not getattr(manifest, "derived_pins", None)
+    return {"state": "approval_needed" if reasons else "approved", "reasons": reasons, "derived_unpinned": unpinned}
 
 
 def _has_tag(repo_dir: Path, tag: str) -> bool:
@@ -228,3 +244,17 @@ def _has_tag(repo_dir: Path, tag: str) -> bool:
 
 def list_rulesets(rulesets_dir: Path) -> list[str]:
     return sorted(p.parent.name for p in rulesets_dir.glob("*/manifest.yaml"))
+
+
+def seed_working_copy(dest: Path, seed: Path = SEED_RULESETS) -> bool:
+    """Give a service that only reads rulesets a first copy of the shipped ones when its folder holds none (a new
+    box, a development run). Never touches a folder that already holds a ruleset (a box that compiled its own keeps
+    them), never writes ``seed``, and does nothing when ``dest`` cannot be written (a read-only mount: the criteria
+    compiler seeds that folder). True when it copied."""
+    if dest.resolve() == seed.resolve() or list_rulesets(dest) or not seed.is_dir():
+        return False
+    try:
+        shutil.copytree(seed, dest, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".*", "*.tmp", "__pycache__"))
+    except OSError:
+        return False
+    return True

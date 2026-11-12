@@ -103,6 +103,12 @@ def population_id(rs: Ruleset) -> str:
 
 def items_at(ctx: Ctx, rs: Ruleset, index: date, snapshot: str | None = None) -> list[Item]:
     rows = ctx.services.lake.query(safe_sql(rs), [[index.isoformat()], None], snapshot).to_pylist()
+    from matching.stored_scores import apply_rows
+
+    from orchestrator import derive
+
+    # D-442: the stored-row read while the flag is on, the same function as every screening path
+    apply_rows(rows, rs.active(), derive.reader_for(ctx), snapshot, getattr(rs.manifest, "derived_pins", None))
     pop = population_id(rs)
     gone = decision_of(ctx).uncounted()  # D-477 (OD-8, CR-026): the register and the registry's refusals
     p_rows = [r for r in rows if r.get(f"C_{pop}") is True and r["pid"] not in gone]

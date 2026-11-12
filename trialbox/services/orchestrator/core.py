@@ -81,6 +81,10 @@ class Rejected(RuntimeError):
     """Job creation refused (permission / rate limit)."""
 
 
+class NotRetryable(RuntimeError):
+    """A retry refused for the job's own state (D-474): not failed, not a scheduler job, or one already unfinished."""
+
+
 @dataclass
 class Delivery:
     to: list[str]
@@ -303,8 +307,15 @@ class Orchestrator:
             since = (self._now() - timedelta(days=1)).isoformat()
             if limit is not None and self.db.count_since(sender, since, jtype) >= limit:
                 raise Rejected(f"rate limit reached ({limit} {jtype} jobs per sender per day)")
-        ts = self._now()
         who = {"by": by, "role": role} if role else {}  # D-146: the console account behind the request, when known
+        return self._admit(req, sender, who, notify)
+
+    def _admit(
+        self, req: JobCreate, sender: str, who: dict[str, str], notify: bool, parent_job_id: str | None = None
+    ) -> Job:
+        """Store, audit and queue (or run, for the fast lane) a job already authorised by the caller."""
+        jtype = req.type
+        ts = self._now()
         job = Job(
             job_id=req.job_id or new_ulid(),
             type=req.type,
@@ -317,6 +328,7 @@ class Orchestrator:
             comment=req.comment,
             message_id=req.message_id,
             in_reply_to=req.in_reply_to,
+            parent_job_id=parent_job_id,
             inputs=list(req.inputs or []),
             outputs=[],
             metrics=JobMetrics(),
@@ -341,6 +353,67 @@ class Orchestrator:
                 self._received_mail(job)
         with self._wake:
             self._wake.notify()
+        return job
+
+    # ------------------------------------------------------------------ the administrator's retry (T-746, D-474)
+    def scheduled_root(self, job: Job) -> Job | None:
+        """The scheduler job ``job`` runs again: ``job`` itself when the box's scheduler started it (a type of
+        ``scheduler.plan``, ``requested_by: scheduler``), the start of its ``parent_job_id`` chain when it is a retry
+        of one (every link of the same type and study); None otherwise."""
+        from orchestrator.scheduler import scheduled_types
+
+        if job.type not in scheduled_types():
+            return None
+        seen: set[str] = set()
+        cur: Job | None = job
+        while cur is not None and cur.job_id not in seen:
+            seen.add(cur.job_id)
+            if (cur.type, cur.ruleset) != (job.type, job.ruleset):
+                return None
+            if norm(cur.requested_by) == "scheduler" and not cur.parent_job_id:
+                return cur
+            cur = self.db.get(cur.parent_job_id) if cur.parent_job_id else None
+        return None
+
+    def retry_scheduled(self, job_id: str, *, by: str, role: str, reply_to: str) -> Job:
+        """Run a failed scheduler job again (``job.retry_scheduled``, D-474): the new job copies the failed job's type,
+        study, options, comment and inputs (nothing chosen by the caller), names ``reply_to`` (the administrator's
+        mailbox) and the failed job (``parent_job_id``). KeyError: no such job; Rejected: the role may not;
+        :class:`NotRetryable`: not failed, not a scheduler job, or one of its type and study is not finished."""
+        from tb_common.authz import permit
+
+        if not permit(role, "job.retry_scheduled").allowed:
+            raise Rejected(f"the {role or 'unnamed'} role may not retry a scheduled job")
+        failed = self.db.get(job_id)
+        if failed is None:
+            raise KeyError(job_id)
+        if failed.state != "failed":
+            raise NotRetryable(f"job {job_id} has not failed")
+        if self.scheduled_root(failed) is None:
+            raise NotRetryable(f"job {job_id} was not started by the box's scheduler")
+        sender = norm(reply_to)
+        if not sender or sender in SYSTEM_SENDERS or "@" not in sender:
+            raise Rejected("a retry names the administrator's mailbox (console.cli set-mailbox)")
+        busy = self.db.unfinished(failed.type, failed.ruleset)
+        if busy:
+            raise NotRetryable(f"a {failed.type} job of the same study is already queued or running ({busy[0]})")
+        req = JobCreate(
+            type=failed.type,
+            ruleset=failed.ruleset,
+            options=dict(failed.options or {}) or None,
+            comment=failed.comment,
+            requested_by=sender,
+            inputs=list(failed.inputs or []) or None,
+        )
+        job = self._admit(req, sender, {"by": by, "role": role, "retry_of": failed.job_id}, notify=True,
+                          parent_job_id=failed.job_id)  # fmt: skip
+        self.audit.append(
+            "job.retried",
+            job_id=job.job_id,
+            ruleset=job.ruleset,
+            actor=by or sender,
+            detail={"from": failed.job_id, "type": job.type, "by": by, "role": role},
+        )
         return job
 
     def _fast(self, job: Job) -> Job:
