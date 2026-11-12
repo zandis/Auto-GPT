@@ -64,6 +64,25 @@ def keep(nodeids: Iterable[str], shard: Shard) -> list[str]:
     return [n for n in nodeids if shard_of(file_of(n), shard.count) == shard.index]
 
 
+# Test files with one test of two minutes or more in CI (`--durations=30` of the unit shards, 2026-11-12). Their tests
+# start first in their shard: xdist hands tests out in collection order, and a nine-minute test that starts eight
+# minutes in decides the shard's time. Only the order changes, never which shard a file is in; a file that is gone or
+# got fast is harmless here. The nightly random-order run holds every test to any order (D-201).
+LONG_FIRST: tuple[str, ...] = (
+    "tests/integration/test_e2e_simple.py",  # 465 to 545 s
+    "tests/integration/test_rc_demo.py",  # 150 s
+    "tests/unit/test_recall_ledger.py",  # 145 s
+    "tests/integration/test_nav_retro.py",  # 140 s
+    "tests/integration/test_poc_scripts.py",  # 2 x 100 s
+)
+
+
+def long_first(nodeids: Sequence[str]) -> list[int]:
+    """The run order (indexes into ``nodeids``): the tests of LONG_FIRST files first, each group in its own order."""
+    rank = {f: i for i, f in enumerate(LONG_FIRST)}
+    return sorted(range(len(nodeids)), key=lambda i: rank.get(file_of(nodeids[i]), len(rank)))
+
+
 @dataclass(frozen=True)
 class Record:
     """What one shard collected (pytest's collection before the shard was taken) and what it kept."""
@@ -120,8 +139,9 @@ def check(records: Sequence[Record]) -> list[str]:
 
 class ShardPlugin:
     """The pytest side (registered by tests/conftest.py for ``--shard``): runs after every other selection hook, keeps
-    this shard's files, reports the rest as deselected and, on the first xdist worker (or without xdist), writes the
-    record. Every xdist worker collects the same suite, so every worker keeps the same tests."""
+    this shard's files (the LONG_FIRST ones first), reports the rest as deselected and, on the first xdist worker (or
+    without xdist), writes the record. Every xdist worker collects the same suite, so every worker keeps the same
+    tests."""
 
     def __init__(self, shard: Shard, record_path: str | None) -> None:
         self.shard, self.record_path = shard, record_path
@@ -131,6 +151,7 @@ class ShardPlugin:
         collected = [i.nodeid for i in items]
         mine = set(keep(collected, self.shard))
         kept = [i for i in items if i.nodeid in mine]
+        kept = [kept[j] for j in long_first([i.nodeid for i in kept])]
         dropped = [i for i in items if i.nodeid not in mine]
         items[:] = kept
         if dropped:

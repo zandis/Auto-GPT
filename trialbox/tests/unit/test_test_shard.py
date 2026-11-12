@@ -71,6 +71,16 @@ def test_the_tests_of_one_file_stay_together() -> None:
     assert len(shards) == 1
 
 
+def test_the_long_tests_start_first_and_nothing_else_moves() -> None:
+    ids = ["tests/unit/test_a.py::t1", "tests/integration/test_rc_demo.py::t", "tests/unit/test_a.py::t2",
+           "tests/integration/test_e2e_simple.py::t", "tests/unit/test_b.py::t"]  # fmt: skip
+    order = [ids[i] for i in test_shard.long_first(ids)]
+    assert order == [ids[3], ids[1], ids[0], ids[2], ids[4]]
+    assert sorted(test_shard.long_first(ids)) == list(range(len(ids)))
+    for f in test_shard.LONG_FIRST:
+        assert (ROOT / f).is_file(), f"{f}: gone; take it out of LONG_FIRST"
+
+
 # ---------------------------------------------------------------------------------------------- the union check
 def _records(ids: list[str], n: int) -> list[Record]:
     return [Record(i, n, tuple(ids), tuple(test_shard.keep(ids, Shard(i, n)))) for i in range(1, n + 1)]
