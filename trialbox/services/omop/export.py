@@ -122,12 +122,17 @@ def export_rows(db: Database, as_of: datetime | None = None) -> dict[str, list[R
 
 def _keep_withheld_out(tx: Any) -> None:
     """T-728 (D-493; lifecycle review F-9): the wind-back gave a patient who opted out after ``as_of`` their records
-    back (the opt-out is a tombstone with its before-images kept). Every patient withheld now (``tb_withheld``) is
+    back (the opt-out is a tombstone with its before-images kept). Every patient withheld now (``tb_withheld`` and
+    the opt-out register) is
     tombstoned again in the wound-back store, by the opt-out worker's own code, whatever the order of the later
     events was; the consent statements stay. Inside the caller's transaction, which is rolled back."""
+    from tb_common.optout import opted_out
+
     from omop.load import withhold_persons
 
-    pids = [str(r[0]) for r in tx.fetchall("SELECT pid FROM tb_withheld")]
+    # review L1: ``tb_withheld`` is the opt-out worker's copy and lags the register by a tick; the register itself
+    # is read too (empty when no trial database is configured; a register that does not answer raises)
+    pids = sorted({str(r[0]) for r in tx.fetchall("SELECT pid FROM tb_withheld")} | set(opted_out()))
     if pids:
         withhold_persons(tx, pids, "as-of export")
 

@@ -186,17 +186,25 @@ def _audit_events(audit: Path, name: str) -> list[dict[str, Any]]:
     return [r for r in rows if r.get("event") == name]
 
 
-def test_a_restore_reports_and_audits_the_opt_outs_typed_after_the_backup(tmp_path: Path, db_url: str) -> None:
-    """Case 2 of the row (F-8): two opt-outs and a lift are typed after the backup. The restore says so before it
-    empties the register, by count, action and source and never by who; it is in the audit; it is not complete."""
-    from tb_common.optout import REGISTRY_ACTOR, OptOutRegister
-
+def _keys(tmp_path: Path) -> tuple[Path, Path, Path]:
     from tools.trialbox import backup as bk
-    from tools.trialbox.__main__ import main as cli
 
-    reg, _jobs, dirs = _box(db_url, tmp_path)
     priv, pub = tmp_path / "it.key", tmp_path / "box.pub"
     bk.keygen(priv, pub)
+    return priv, pub, tmp_path / "kept"
+
+
+def test_a_restore_keeps_the_opt_outs_recorded_after_the_backup(tmp_path: Path, db_url: str) -> None:
+    """Case 2 of the row (F-8; review M1): two opt-outs and a lift are recorded after the backup. The restore puts
+    the two opt-outs back into the restored register, so the next ingest and micro-batch (which read
+    ``tb_common.optout.opted_out``) still leave those patients out. The lift stays reverted (the patient stays
+    withheld) and the restore says so. Counts only, in the answer and in the audit; a re-run adds nothing twice."""
+    from tb_common.optout import REGISTRY_ACTOR, OptOutRegister, opted_out
+
+    from tools.trialbox import backup as bk
+
+    reg, _jobs, dirs = _box(db_url, tmp_path)
+    priv, pub, keep = _keys(tmp_path)
     env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
     f = bk.backup([tmp_path / "nas"], pub, env=env, dirs=dirs)[0]
     time.sleep(1.1)  # the register's times and the snapshot's are a second apart at least
@@ -205,27 +213,134 @@ def test_a_restore_reports_and_audits_the_opt_outs_typed_after_the_backup(tmp_pa
     reg.add("P-LATER-2", "emr", "", REGISTRY_ACTOR, (now + timedelta(seconds=1)).isoformat())
     reg.lift("P-BEFORE", "", "steward:b", (now + timedelta(seconds=2)).isoformat())
     assert reg.active() == {"P-LATER-1", "P-LATER-2"}
-    out = bk.restore(f, priv, env=env, dirs=dirs, no_copy=True)
+    out = bk.restore(f, priv, env=env, dirs=dirs, public_key=pub, keep_to=keep)
     lost = out["optouts_after_backup"]
+    assert lost["state"] == "counted" and lost["readable"] is True
     assert lost["events"] == 3 and lost["by_action"] == {"opt_out": 2, "lift": 1}
     assert lost["by_source"] == {"office": 1, "emr": 1}  # of the opt-outs
-    # the registry's own come back at the worker's next tick; what a person typed must be entered again
     assert (lost["from_registry"], lost["typed"]) == (1, 2)
-    assert lost["first_at"] <= lost["last_at"] and lost["readable"] is True
-    assert out["complete"] is False
+    assert (lost["kept"], lost["not_kept"], lost["lifts_reverted"]) == (2, 0, 1)
+    assert lost["first_at"] <= lost["last_at"]
+    assert out["complete"] is False  # the lift a steward typed is not in the restored register
     for secret in ("P-LATER", "P-BEFORE", "office:a", "steward:b", "phoned"):
         assert secret not in json.dumps(out), secret
-    assert OptOutRegister(db_url).active() == {"P-BEFORE"}  # the register is the backup's again
+    after = OptOutRegister(db_url)
+    assert after.active() == {"P-BEFORE", "P-LATER-1", "P-LATER-2"}  # nobody who said no is back
+    assert {"P-LATER-1", "P-LATER-2"} <= opted_out(db_url)  # what the ingest and the micro-batch read
+    kept = [e for e in after.events("P-LATER-1")]
+    assert len(kept) == 1 and kept[0].by == "office:a" and kept[0].note == "phoned"  # the event as it was typed
     (ev,) = _audit_events(dirs["audit"], "backup.restored")
     assert ev["detail"]["optouts_after_backup"] == lost
     assert "P-LATER" not in json.dumps(ev)
-    # a second restore of the same backup has nothing later to lose and says so
-    again = bk.restore(f, priv, env=env, dirs=dirs, no_copy=True)
-    assert again["optouts_after_backup"]["events"] == 0 and again["complete"] is True
-    # the command line prints the count and exits "not complete"
-    OptOutRegister(db_url).add("P-LATER-3", "office", "", "office:a", datetime.now(UTC).isoformat())
-    rc = cli(["restore", str(f), "--key", str(priv), "--yes", "--no-copy", "--dir", f"audit={dirs['audit']}"])
-    assert rc == 4
+    # run again (the first run stopped later, or IT repeats it): the same count, nothing twice
+    again = bk.restore(f, priv, env=env, dirs=dirs, public_key=pub, keep_to=keep)
+    assert again["optouts_after_backup"]["kept"] == 2
+    assert len(OptOutRegister(db_url).events("P-LATER-1")) == 1
+    assert OptOutRegister(db_url).active() == {"P-BEFORE", "P-LATER-1", "P-LATER-2"}
+
+
+def test_a_restore_that_kept_every_later_opt_out_is_complete(
+    tmp_path: Path, db_url: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from tb_common.optout import OptOutRegister
+
+    from tools.trialbox import backup as bk
+    from tools.trialbox.__main__ import main as cli
+
+    reg, _jobs, dirs = _box(db_url, tmp_path)
+    priv, pub, keep = _keys(tmp_path)
+    f = bk.backup([tmp_path / "nas"], pub, env={"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}, dirs=dirs)[0]
+    time.sleep(1.1)
+    reg.add("P-LATER-1", "office", "", "office:a", datetime.now(UTC).isoformat())
+    rc = cli(["restore", str(f), "--key", str(priv), "--yes", "--public", str(pub), "--keep-to", str(keep),
+              "--dir", f"audit={dirs['audit']}"])  # fmt: skip
+    err = capsys.readouterr().err
+    assert rc == 0, err
+    assert "1 opt-out(s) recorded after the backup" in err and "P-LATER" not in err
+    assert OptOutRegister(db_url).active() == {"P-BEFORE", "P-LATER-1"}
+
+
+def test_no_copy_is_refused_when_a_person_typed_an_opt_out_after_the_backup(tmp_path: Path, db_url: str) -> None:
+    """Review M3: without a copy the live register is the only electronic record of them."""
+    from tb_common.optout import OptOutRegister
+
+    from tools.trialbox import backup as bk
+
+    reg, _jobs, dirs = _box(db_url, tmp_path)
+    priv, pub, _keep = _keys(tmp_path)
+    env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
+    f = bk.backup([tmp_path / "nas"], pub, env=env, dirs=dirs)[0]
+    time.sleep(1.1)
+    reg.add("P-LATER-1", "office", "", "office:a", datetime.now(UTC).isoformat())
+    with pytest.raises(bk.BackupError, match="--no-copy"):
+        bk.restore(f, priv, env=env, dirs=dirs, no_copy=True)
+    assert OptOutRegister(db_url).active() == {"P-BEFORE", "P-LATER-1"}  # nothing was replaced
+
+
+def test_a_restore_that_fails_still_keeps_and_audits_the_later_opt_outs(
+    tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review H2: the count was read from the live register and was in no failure record; the second run then read
+    a register that was already the backup's and said "none, complete"."""
+    from tb_common.optout import OptOutRegister
+
+    from tools.trialbox import backup as bk
+
+    reg, _jobs, dirs = _box(db_url, tmp_path)
+    priv, pub, keep = _keys(tmp_path)
+    env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
+    f = bk.backup([tmp_path / "nas"], pub, env=env, dirs=dirs)[0]
+    time.sleep(1.1)
+    reg.add("P-LATER-1", "office", "", "office:a", datetime.now(UTC).isoformat())
+
+    def broken(*a: Any, **kw: Any) -> Any:
+        raise RuntimeError("the queue could not be changed")
+
+    monkeypatch.setattr(bk, "fail_running_jobs", broken)
+    with pytest.raises(bk.BackupError, match="1 opt-out"):
+        bk.restore(f, priv, env=env, dirs=dirs, public_key=pub, keep_to=keep)
+    (ev,) = _audit_events(dirs["audit"], "backup.restore_failed")
+    assert ev["detail"]["optouts_after_backup"]["events"] == 1 and "P-LATER" not in json.dumps(ev)
+    assert OptOutRegister(db_url).active() == {"P-BEFORE", "P-LATER-1"}  # kept although the restore stopped
+    monkeypatch.undo()
+    again = bk.restore(f, priv, env=env, dirs=dirs, public_key=pub, keep_to=keep)  # the second run
+    assert again["optouts_after_backup"]["events"] == 1 and again["optouts_after_backup"]["kept"] == 1
+
+
+def test_the_command_says_the_opt_outs_before_it_stops_for_the_reference_data(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Review H2: exit 3 (a reference-data pack is missing) came before the opt-out lines."""
+    from tools.trialbox import backup as bk
+    from tools.trialbox.__main__ import main as cli
+
+    lost = {"readable": False, "events": None, "state": "unknown", "why": bk.NO_REGISTER, "since": "2026-11-01T00:00"}
+    out = {"warnings": [], "refdata": {"missing": ["vocab"], "reloaded": []}, "optouts_after_backup": lost,
+           "jobs_failed": [], "to_reapply": [], "reapply_since": "", "complete": False}  # fmt: skip
+    monkeypatch.setattr(bk, "restore", lambda *a, **kw: out)
+    rc = cli(["restore", str(tmp_path / "x.tbk"), "--key", str(tmp_path / "k"), "--yes"])
+    err = capsys.readouterr().err
+    assert rc == 3 and "are unknown" in err and "check the office's records" in err
+
+
+def test_events_written_to_the_audit_after_its_backup_copy_are_listed(tmp_path: Path, db_url: str) -> None:
+    """Review M2: the live audit folder is set aside and the restored copy read, so an erasure, a break-glass or a
+    signature after the backup was in neither list and the restore said "complete"."""
+    from tb_common.audit import AuditLog
+
+    from tools.trialbox import backup as bk
+
+    _reg, _jobs, dirs = _box(db_url, tmp_path)
+    AuditLog(dirs["audit"]).append("job.created", actor="x")  # the folder holds a chain at the backup
+    priv, pub, keep = _keys(tmp_path)
+    env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
+    f = bk.backup([tmp_path / "nas"], pub, env=env, dirs=dirs)[0]
+    time.sleep(1.1)
+    AuditLog(dirs["audit"]).append("edc.erase_hidden", actor="steward:b", detail={"pid": "P-GONE"})
+    out = bk.restore(f, priv, env=env, dirs=dirs, public_key=pub, keep_to=keep)
+    assert [e["event"] for e in out["to_reapply"]] == ["edc.erase_hidden"]
+    assert "pre-restore-" in out["to_reapply"][0]["where"] and "P-GONE" not in json.dumps(out)
+    assert out["complete"] is False
 
 
 def test_a_restore_fails_the_jobs_that_were_running_at_the_backup(tmp_path: Path, db_url: str) -> None:
@@ -262,11 +377,15 @@ def test_a_restore_fails_the_jobs_that_were_running_at_the_backup(tmp_path: Path
     assert sorted(j["job_id"] for j in again["jobs_failed"]) == [J_RUNNING, J_REPORTING]
 
 
-def test_a_register_that_cannot_be_read_is_not_reported_as_zero(tmp_path: Path, db_url: str) -> None:
-    """A box whose database holds no register (a first install, a damaged box): "not readable", never "none"."""
+def test_a_box_without_a_register_says_the_later_opt_outs_are_unknown(
+    tmp_path: Path, db_url: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Review H1: a restore onto a new machine (or a box that never held a register) cannot know what the old box
+    recorded after the backup. It says "unknown", never "none", and it is not complete."""
     from tb_common.db import Database
 
     from tools.trialbox import backup as bk
+    from tools.trialbox.__main__ import main as cli
 
     db = Database.connect(db_url, "site")
     db.migrate(["CREATE TABLE marks (n BIGINT PRIMARY KEY)"])
@@ -277,5 +396,46 @@ def test_a_register_that_cannot_be_read_is_not_reported_as_zero(tmp_path: Path, 
     env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
     f = bk.backup([tmp_path / "nas"], pub, env=env, dirs=dirs)[0]
     out = bk.restore(f, priv, env=env, dirs=dirs, no_copy=True)
-    assert out["optouts_after_backup"] == {"readable": False, "events": None, "why": "the box holds no register"}
-    assert out["jobs_failed"] == [] and out["complete"] is True  # nothing was there to lose
+    lost = out["optouts_after_backup"]
+    assert (lost["readable"], lost["events"], lost["state"]) == (False, None, "unknown")
+    assert lost["why"] == "the box holds no register"
+    assert out["jobs_failed"] == [] and out["complete"] is False
+    rc = cli(["restore", str(f), "--key", str(priv), "--yes", "--no-copy", "--dir", f"audit={dirs['audit']}"])
+    err = capsys.readouterr().err
+    assert rc == 4 and "are unknown: check the office's records since then" in err
+
+
+def test_a_backup_without_the_trial_database_loses_no_opt_out() -> None:
+    """Review L4: the register is not replaced, so nothing is lost and nothing is said."""
+    from tools.trialbox import backup as bk
+
+    assert bk.optouts_ok({"readable": True, "events": 0, "state": "not_replaced"}) is True
+    assert bk.optouts_ok({"readable": False, "events": None, "state": "unknown"}) is False
+    assert bk.optouts_ok({"readable": False, "events": None, "state": "unreadable"}) is False
+    counted = {"readable": True, "events": 2, "state": "counted", "kept": 2, "not_kept": 0, "lifts_reverted": 0}
+    assert bk.optouts_ok(counted) is True
+    assert (
+        bk.optouts_ok({**counted, "not_kept": 1}) is False and bk.optouts_ok({**counted, "lifts_reverted": 1}) is False
+    )
+
+
+def test_an_as_of_export_reads_the_register_too_not_only_the_worker_s_copy(
+    store: Any, db_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review L1: ``tb_withheld`` is the opt-out worker's copy and lags the register by a tick. An opt-out the
+    worker has not applied yet is honoured by the as-of export all the same."""
+    from omop.export import export_rows
+    from omop.load import load_batch
+    from tb_common.db import ENV
+    from tb_common.optout import OptOutRegister
+
+    out, stays = "P-OUT-0001", "P-STAYS-01"  # the register takes pseudonyms of 8 characters or more
+    load_batch(store, "feed", "2026-10-04", _batch([out, stays]), tz=TZ)
+    t1 = _tick()
+    OptOutRegister(db_url).add(out, "office", "", "office:a", datetime.now(UTC).isoformat())  # no worker tick yet
+    assert store.fetchval("SELECT count(*) FROM tb_withheld") == 0
+    monkeypatch.setenv(ENV, db_url)
+    rows = export_rows(store, as_of=t1)
+    assert _rows_of(rows, out) == {}
+    assert _rows_of(rows, stays) == {"patient": 1, "encounter": 1, "condition": 1}
+    assert store.fetchval("SELECT count(*) FROM tb_withheld") == 0  # the export wrote nothing
