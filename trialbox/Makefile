@@ -18,7 +18,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
+.PHONY: differential security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
 	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle supply-chain release-version release-tag
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
@@ -138,6 +138,12 @@ PROPERTY_TESTS = tests/unit/test_safety_properties.py tests/unit/test_dates.py t
 property: venv-check
 	@PYTHONPATH=libs:services:. $(PY) -c "import hypothesis" 2>/dev/null || echo "property: WARNING hypothesis is not installed: its tests skip (T-737, D-463)" >&2
 	TB_ENV=DEV TB_TZ=Asia/Taipei PYTHONPATH=libs:services:. $(PY) -m pytest -q -n 0 -rs -k "property or test_safety_properties" $(PROPERTY_TESTS)
+
+# the `differential` gate of plan §7.5 (T-711, D-480): the boundary table (ages on the birthday and 29 February,
+# window ends, the day boundary, units, impossible values, derived scores) through the Python reference, the generated
+# SQL and CQL; exit 1 on a disagreement. Needs a JDK and the local CQL engine (python -m tools.cql_eval --fetch).
+differential: venv-check
+	TB_ENV=DEV TB_TZ=Asia/Taipei PYTHONPATH=libs:services:. $(PY) -m tools.boundary_check $(DIFFERENTIAL_ARGS)
 
 # the pure tests alone (ENG-028, T-653): the tests marked nodb (tests/conftest.py PURE_MODULES), with no PostgreSQL
 # at all: TB_PG_BIN points nowhere and TB_TEST_DB_URL is unset, so a test that needs a database fails at once

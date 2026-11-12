@@ -32,6 +32,27 @@ across the three; derived scores in CQL.
 4. **A disagreement found is not hidden.** A case on which the engines part today is listed by name with its
    finding and fails the job when it starts to agree (the line is then removed), as the tables of T-705 and T-706.
 
+## What the first run found (2026-11-12)
+
+73 cases over GZQO, RA-BIO, RA-JAK and AD-MAB. The three engines agree on 70. Three cases part, for two reasons;
+both are in the tool's `KNOWN` list by name and are findings for a card of their own:
+
+- **B-1 (CQL).** `TB_Common."Swap"` is `Combine(Split(s, a), b)`; the engine's `Split` drops the empty piece
+  before a leading separator, so a unit code that starts with the micro sign (`µmol/L`, `µg/mL`) loses it and is
+  not recognised: CQL gives no value where the reference and SQL convert. SQL is the engine that screens, so no
+  patient is decided wrongly; the equivalence gate at approval would report it for a site whose feed writes such
+  codes.
+- **B-2 (SQL, the engine that screens).** `tb_common.derived.DOMAIN` declares no range for height and weight, so
+  the generated SQL divides by a recorded height of 0: DuckDB gives infinity and "BMI >= 27" is answered **met** on
+  an impossible value. CQL gives no value. The shipped rulesets use BMI as an inclusion only (the patient is listed,
+  not excluded); a BMI exclusion would exclude on it. The fix is a declared range in `DOMAIN` and every ruleset's
+  SQL, CQL and ELM compiled and approved again.
+- **Fixed here (the reference).** `tb_common.derived.compute("bmi", ...)` raised `ZeroDivisionError` on a height
+  of 0 although no input may make it raise; it now gives no value (`derived_unit:height`), as CQL does.
+
+Ages (the birthday, 29 February in a common and a leap year), both ends of every window, the day boundary in the
+site's zone and each score on both sides of its threshold agree across the three.
+
 ## Consequences
 
 - No product code changes unless a disagreement is a defect small enough to fix here; otherwise it is a finding
