@@ -104,6 +104,22 @@ CSP = (
     f"default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'sha256-{_JS_HASH}'; "
     "object-src 'none'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'"
 )
+# DEMO-JA: feas_compute.population_label's words, read back to show them in the page language
+_POPULATION = re.compile(r"(hospital|departments ([\w,-]+)): patients with ≥1 encounter in the last (\d+) months")
+
+
+def population_words(lang: str, value: object) -> str:
+    """DEMO-JA: the FEAS report's population (``feas_compute.population_label``, English in the report file) in the
+    page language; any other text as it is."""
+    text = str(value or "")
+    m = _POPULATION.fullmatch(text)
+    if m is None:
+        return text or "–"
+    if m.group(1) == "hospital":
+        return translate(lang, "feas.pop.hospital", months=m.group(3))
+    return translate(lang, "feas.pop.departments", departments=m.group(2), months=m.group(3))
+
+
 _ASCII_WORDS = re.compile(r"[\x00-\x7F]+")
 
 
@@ -667,6 +683,7 @@ def create_app(
         base = {
             "t": t,
             "t_or": t_or,
+            "population": lambda value: population_words(lang, value),
             "lang": lang,
             "langs": LANGS,
             "sess": sess,

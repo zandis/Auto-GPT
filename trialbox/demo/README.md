@@ -58,9 +58,18 @@ Give each tester their own accounts and keep their work across restarts:
   only once: adding an entry and restarting adds that account; editing an existing entry changes nothing.
 * `TB_CONSOLE_MFA`, `TB_CONSOLE_IDLE_MINUTES`, `TB_CONSOLE_SESSION_HOURS`, `TB_CONSOLE_TOTP_KEY_FILE`,
   `TB_CONSOLE_TOTP_ISSUER` and `TB_CONSOLE_SECURE_COOKIE` are read from the container's environment.
-* **`TB_DEMO_DAY`** (`--day`, T-513, D-329): `today` by default. The demo day is the real day in the site's time zone
-  (on a weekend, the Friday before). The synthetic dates are moved to it, and after the seed the pages follow the
-  real clock, also after a `TB_DEMO_KEEP` restart. `data` keeps the data's own day (2026-11-02).
+* **`TB_DEMO_DAY`** (`--day`, T-513, D-329, D-584): `today` by default. The demo day is the real day in the site's
+  time zone. The seed plays on the Tuesday before the last Wednesday on or before it, because the seed ends with the
+  next Tuesday's data screened on the Wednesday (the screening cadence): so no data date, run or mark a viewer sees is
+  after the demo day, and the data shown is 1 to 7 days old (booked visits can be later: they are appointments). The
+  synthetic dates are moved to that seed day, and after the seed the pages follow the real clock, also after a
+  `TB_DEMO_KEEP` restart. `data` keeps the data's own day (2026-11-02); a date `YYYY-MM-DD` seeds on that day.
+* **`TB_DEMO_SITE_LANG`** (DEMO-JA): the language of the synthetic hospital's records and notes. Unset (the default)
+  the hospital has a Japanese and a Taiwanese campus (notes in Japanese, Traditional Chinese and English, some
+  Taiwanese notes with a 民國 date). `ja` seeds two Japanese-style campuses (notes in Japanese and English, 和暦 dates
+  where a note uses them); `zh-TW` two Taiwanese-style ones. Same size and studies; it is read at the first seed (a
+  `TB_DEMO_KEEP` restart keeps the hospital it seeded). For a Japanese showing use `TB_DEMO_SITE_LANG=ja` with
+  `TB_DEMO_LANG=ja`.
 
 ## Run it anywhere with Docker
 

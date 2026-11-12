@@ -105,6 +105,7 @@ def prescreen_rows(marks: list[Any], numbers: dict[str, str], seen: dict[str, tu
             "referral": refs.get(m.pid),
             "status": e.status if e else "",
             "reason": (e.reason if e else "") or "",
+            "reason_rc": _rc_note((e.reason if e else "") or ""),  # DEMO-JA: in the reader's language, as above
         }
         mine.append(row)
         rows.append(row)

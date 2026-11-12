@@ -74,6 +74,39 @@ SCENARIOS: dict[str, dict[str, Any]] = {
 }
 
 
+# D-309: the label the investigator gives, on the approval page, a criterion that has no shipped label in the page
+# language. It is the shipped rulesets' own label (``rulesets/<id>/labels.yaml``, or the IR's ``label`` in the
+# protocol's language) of the criterion it stands for: a reworded criterion stands for itself, the exclusion added
+# to each trial (``extra``, another trial within 30 days) for GZQO-EXC-14, which says the same. Never a placeholder.
+ADDED_LIKE = ("GZQO", "GZQO-EXC-14")
+
+
+def shipped_label(ruleset: str, cid: str, lang: str) -> str:
+    """The short label the shipped ruleset ``ruleset`` gives criterion ``cid`` in ``lang``; empty when it has none."""
+    import json
+
+    import yaml
+    from console import ruleset_labels
+
+    tr = (ruleset_labels.shipped(ruleset).get(cid) or {}).get(lang)
+    if isinstance(tr, dict) and str(tr.get("label") or "").strip():
+        return " ".join(str(tr["label"]).split())
+    base = ROOT / "rulesets" / ruleset
+    ir, manifest = base / "ir" / f"{cid}.json", base / "manifest.yaml"
+    protocol = (yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}) if manifest.is_file() else {}
+    if ir.is_file() and protocol.get("language") == lang:  # the IR's own label is in the protocol's language
+        return " ".join(str(json.loads(ir.read_text(encoding="utf-8")).get("label") or "").split())
+    return ""
+
+
+def given_label(ruleset: str, cid: str, lang: str) -> str:
+    """What the demo's investigator types as the site's label of ``cid`` (D-120, D-309); see :data:`ADDED_LIKE`."""
+    own = shipped_label(ruleset, cid, lang)
+    if own or (ROOT / "rulesets" / ruleset / "ir" / f"{cid}.json").is_file():
+        return own or cid  # a shipped criterion: only its own label
+    return shipped_label(*ADDED_LIKE, lang) or cid
+
+
 # T-513 (UX-003): which day the demo plays. Unset or "data": the synthetic data's own day (tests, drills, the complete
 # run). "today": the real day in the site's time zone; the hospital's dates are moved to it, and once the seed is done
 # the console and the box follow the real clock (tools.demo sets it). YYYY-MM-DD: that day, with the dates moved.
@@ -81,9 +114,18 @@ DAY_ENV = "TB_DEMO_DAY"
 
 
 def seed_day(today: date) -> date:
-    """The day the seed plays for a demo started on ``today``: today, or on a Saturday or Sunday the Friday before
-    (the coordinator's digest goes out on working days only, so a weekend seed would have no morning mail)."""
-    return today - timedelta(days=max(0, today.weekday() - 4))
+    """The day the seed plays for a demo started on ``today`` (D-584): the Tuesday before the last Wednesday on or
+    before ``today``. The seed ends with the screening cadence (e2e stage 17), which ingests the data of the Tuesday
+    after the seed day and screens it on the Wednesday; seeding on that Tuesday's eve keeps the data date, that
+    Wednesday's run and every mark on or before ``today``, never after it (a Friday seed showed "data as of" the next
+    Tuesday). A Tuesday is a working day, so the coordinator's morning digest still goes out."""
+    wednesday = today - timedelta(days=(today.weekday() - 2) % 7)
+    return wednesday - timedelta(days=1)
+
+
+def cadence_night(day: date) -> date:
+    """The Wednesday the screening cadence (e2e stage 17) plays after a seed on ``day``: the next Wednesday."""
+    return day + timedelta(days=(2 - day.weekday()) % 7 or 7)
 
 
 def demo_day(
@@ -287,7 +329,7 @@ def run(work: Path, password: str, lang: str = "ja", trial: str = TRIAL, day: da
             ok(
                 pi.post(
                     f"/pilot/jobs/{job.job_id}/approval/label",
-                    data={"csrf": fd._csrf(page.text), "crit": cid, "text": f"{cid} label"},
+                    data={"csrf": fd._csrf(page.text), "crit": cid, "text": given_label(rs, cid, lang)},
                 ),
                 f"label {cid}",
             )

@@ -1275,3 +1275,12 @@ from console.i18n_polish import ZH as _POL_ZH  # noqa: E402
 EN.update(_POL_EN)
 JA.update(_POL_JA)
 ZH.update(_POL_ZH)
+
+# DEMO-JA: the demo as a Japanese viewer sees it (TOTP on, IRB sentence original, data operations, population, sources)
+from console.i18n_demoja import EN as _DJ_EN  # noqa: E402
+from console.i18n_demoja import JA as _DJ_JA  # noqa: E402
+from console.i18n_demoja import ZH as _DJ_ZH  # noqa: E402
+
+EN.update(_DJ_EN)
+JA.update(_DJ_JA)
+ZH.update(_DJ_ZH)

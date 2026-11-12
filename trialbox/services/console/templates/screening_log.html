@@ -38,7 +38,7 @@
 <td>{% if p.later %}{{ t('pre.later.' + p.later) }}{% else %}–{% endif %}</td>
 <td class="mono">{{ p.no or '–' }}</td>
 <td>{% if p.referral %}{{ t('team.route.' + p.referral.route) }} · {{ t('team.state.' + p.referral.state) }}{% if p.referral.reason %} ({{ t('team.decline.' + p.referral.reason) }}){% endif %}{% else %}–{% endif %}</td>
-<td>{% if p.status %}{{ t('registry.status.' + p.status) }}{% if p.reason %} · <span class="hint">{{ p.reason }}</span>{% endif %}{% else %}–{% endif %}</td>
+<td>{% if p.status %}{{ t('registry.status.' + p.status) }}{% if p.reason_rc %} · <span class="hint">{{ t('log.from_redcap', r=p.reason_rc[0]) }}{% if p.reason_rc[1] %} ({{ p.reason_rc[1] }}){% endif %}</span>{% elif p.reason %} · <span class="hint">{{ p.reason }}</span>{% endif %}{% else %}–{% endif %}</td>
 </tr>{% endfor %}</tbody></table></div>{% endif %}
 </section>
 {% endblock %}
