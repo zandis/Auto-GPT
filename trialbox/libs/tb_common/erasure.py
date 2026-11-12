@@ -164,6 +164,11 @@ TABLES: dict[str, Entry] = {
         "the events of a patient never consented (OD-8 keeps the rest)",
     ),
     "orch.feedback": _owed("the PI's feedback on a candidate, by pseudonym"),
+    "orch.judge_answers": _keep(
+        "D-456",
+        "a model's answers (a verdict and a quote; no pseudonym column) kept only while their job is unfinished: "
+        "deleted when the job ends in any state, and at the orchestrator's start for jobs finished or gone",
+    ),
     "orch.jobs": _owed("a job's request may name a pseudonym (CASE, a reveal)"),
     "orch.submissions": _owed("NAV submissions, by pseudonym"),
     "orch.cohort_tables": _none("aggregate counts per quarter and criterion"),
