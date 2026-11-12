@@ -300,6 +300,43 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "update.applied": ("Update applied", "更新の適用", "套用更新"),
     "update.downgrade": ("Downgrade", "ダウングレード", "降版"),
     "update.rolled_back": ("Update rolled back", "更新の差し戻し", "更新已還原"),
+    "case.opt_out_refused": (
+        "Case run refused: the patient opted out",
+        "症例処理の拒否：利用拒否の患者",
+        "個案作業遭拒：病人已拒絕研究使用",
+    ),
+    "nav.opt_out_removed": (
+        "Opted-out patient left out of a navigation list",
+        "利用拒否の患者をナビゲーション一覧から外す",
+        "將拒絕研究使用之病人移出導引名單",
+    ),
+    "optout.worker": ("Opt-out worker run", "利用拒否処理の実行", "執行拒絕研究使用處理"),
+    "optout.worker_failed": ("Opt-out worker failed", "利用拒否処理の失敗", "拒絕研究使用處理失敗"),
+    "notmatched.held": (
+        "Weekly sample of criteria not matched held",
+        "条件に合致しない患者の週次抽出の保留",
+        "保留未符合條件病人之每週抽樣",
+    ),
+    "notmatched.sample": (
+        "Weekly sample of criteria not matched read",
+        "条件に合致しない患者の週次抽出の閲覧",
+        "讀取未符合條件病人之每週抽樣",
+    ),
+    "console.notmatched_answer": (
+        "Answer on the weekly sample recorded",
+        "週次抽出への回答の記録",
+        "記錄每週抽樣之回覆",
+    ),
+    "console.notmatched_check": (
+        "Site check of the weekly sample recorded",
+        "週次抽出の施設確認の記録",
+        "記錄每週抽樣之院內確認",
+    ),
+    "screen.opt_out_at_publish": (
+        "Opted-out patient left out when the list was published",
+        "一覧公開時に利用拒否の患者を外す",
+        "名單發布時移出拒絕研究使用之病人",
+    ),
     "ops.watchdog.unhealthy": ("Service found unhealthy", "サービスの不調検出", "偵測到服務異常狀態"),
     "ops.watchdog.restart": ("Service restarted", "サービスの再起動", "重新啟動服務"),
     "ops.watchdog.restart_failed": ("Service restart failed", "サービス再起動の失敗", "重新啟動服務失敗"),
