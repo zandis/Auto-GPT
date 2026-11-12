@@ -38,9 +38,21 @@
     "nct_id": {"type": "string"},
     "terminology_release": {"type": "string", "pattern": "^TR-[0-9a-f]{12}$", "description": "the terminology release the ruleset was compiled against (D-301): a run against another release is refused until it is recompiled"},
     "prompt_pins": {"type": "object", "additionalProperties": {"$ref": "#/$defs/prompt_pin"}, "description": "the prompts the approved ruleset runs with, by prompt id (D-318): SCREEN runs the pinned version and text until the investigator re-approves; a newer registered version puts the study in approval needed"},
+    "derived_pins": {"type": "object", "additionalProperties": {"$ref": "#/$defs/derived_pin"}, "description": "the score definitions the approved ruleset's criteria follow, by engine score (D-442): a definition of another version or text on the box puts the study in approval needed, and until then screening reads those scores as unknown"},
     "source_last_update": {"type": "string"}
   },
   "$defs": {
+    "derived_pin": {
+      "title": "DerivedPin",
+      "description": "One score definition as the investigator approved it (D-442): the catalogue's def_version and the sha256 of its YAML.",
+      "type": "object",
+      "required": ["def_version", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "def_version": {"type": "string", "pattern": "^[a-z0-9_.]+@[0-9]+$"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
     "prompt_pin": {
       "title": "PromptPin",
       "description": "One prompt as the investigator approved it (D-318): the registry's version, text sha256 and output schema sha256.",
