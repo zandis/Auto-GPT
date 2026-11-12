@@ -34,7 +34,10 @@ Exit 1 means `failed`; the record's `failed_steps` and each step's `reason` say 
 - Promote each build of the pair (D-358): `python -m tools.pin_model --promote <build> --record <record>`. It refuses
   a record that does not qualify PRODUCTION or that qualified other weights than the pinned ones. Then restart the
   gateway in PRODUCTION. Before the promotion a PRODUCTION gateway refuses the pair with `champion_unqualified` (or
-  `no_eligible_build` for a candidate); run the qualification with the box's gateway in TEST (its calls are D0).
+  `no_eligible_build` for a candidate). A build on a local model server whose context is unknown is refused with
+  `context_unknown` (LLM-007, D-568): the registry row names it, or `pin_model --install` writes the server's
+  length (`JUDGE_MAX_LEN`, `VERIFIER_MAX_LEN`) into the pin, or by hand `pin_model --build <build> --model-dir
+  <folder> --context N`; run the qualification with the box's gateway in TEST (its calls are D0).
 - Commit the record with the pull request that pins the pair.
 - A failed record is evidence too: keep it, fix the cause, run again.
 

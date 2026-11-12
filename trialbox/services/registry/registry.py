@@ -212,6 +212,9 @@ class Registry:
                 raise ValueError(f"registry: duplicate build_id {b.build_id}")
             if b.alias not in self.aliases:
                 raise ValueError(f"registry: build {b.build_id} names unknown alias {b.alias}")
+            ctx = b.context_length  # LLM-007 (D-568): the gateway sizes prompts from it; an override may set it
+            if ctx is not None and (isinstance(ctx, bool) or not isinstance(ctx, int) or ctx <= 0):
+                raise ValueError(f"registry: build {b.build_id} context_length {ctx!r} is not a whole number above 0")
             if b.sha256 is not None and not _SHA.match(b.sha256):
                 raise ValueError(f"registry: build {b.build_id} sha256 is not a lowercase hex SHA-256")
             _check_provider_pin(b)
@@ -266,8 +269,9 @@ class Registry:
                 continue
             if env == Environment.PRODUCTION and b.context_unknown():
                 reasons.append(
-                    f"{b.build_id}: no context_length: set the length the server runs with (JUDGE_MAX_LEN, "
-                    "VERIFIER_MAX_LEN) in deploy/.env and run pin_model --install again [context_unknown]"
+                    f"{b.build_id}: no context_length: give pin_model --install the length the server runs "
+                    "with (JUDGE_MAX_LEN, VERIFIER_MAX_LEN in its environment), or write it by hand with "
+                    f"pin_model --build {b.build_id} --model-dir <folder> --context N [context_unknown]"
                 )
                 continue
             served = b.served.get(endpoint)
