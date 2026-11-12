@@ -433,12 +433,19 @@ PROFILE_PAIRS: dict[str, list[tuple[str, str, str, str, str, str]]] = {
 }  # fmt: skip
 
 
+# ENG-003 (D-563): the embedder every profile's box runs (compose mounts deploy/models/embedder into the embed
+# service): build, endpoint, model dir variable and default, served-name variable and default
+EMBED_PIN = (EMBED_BUILD, "embed", "EMBED_MODEL_DIR", "embedder", "EMBED_MODEL", EMBED_BUILD)
+
+
 def install_pins(
     gpu: str,
     models_root: Path,
     out: Path = DEFAULT_OVERRIDE,
     env: dict[str, str] | None = None,
     registry_path: Path | None = None,
+    *,
+    with_embedder: bool = False,
 ) -> tuple[bool, list[str]]:
     """Pin the profile's deployed pair at install (D-142, review R-01): the sha256 of the site's own weights, which
     must be the release's expected manifest (T-012b: a folder of other files is refused and nothing is pinned), the
@@ -452,6 +459,8 @@ def install_pins(
     pairs = PROFILE_PAIRS.get(gpu)
     if pairs is None:
         return False, [f"no deployed pair for GPU profile {gpu!r}"]
+    if with_embedder:  # ENG-003 (D-563): the installer pins the embedder with the pair, on every profile
+        pairs = [*pairs, EMBED_PIN]
     have = (load_override(out).get("builds") or {}) if out.exists() else {}
     known = _committed(registry_path)[1]
     ok, lines = True, []
@@ -503,10 +512,14 @@ def install_pins(
             ok = False
             lines.append(f"{build}: {exc}")
             continue
+        after = (
+            "the embed service loads these weights and no others (D-429)"
+            if build == EMBED_BUILD
+            else "champion after trialbox eval qualify and --promote"
+        )
         lines.append(
             f"{build}: pinned {m.sha256[:12]} ({m.files} files) as candidate on {endpoint}; "
-            "champion after trialbox eval qualify and --promote"
-            + (f"; chat template {tpl['source']} at {tpl['revision']}" if tpl else "")
+            f"{after}" + (f"; chat template {tpl['source']} at {tpl['revision']}" if tpl else "")
         )
     return ok, lines
 
@@ -646,7 +659,8 @@ def main(argv: list[str] | None = None) -> int:
         import os
 
         try:
-            good, lines = install_pins(args.install, args.models_root, args.out, dict(os.environ))
+            good, lines = install_pins(args.install, args.models_root, args.out, dict(os.environ),
+                                       with_embedder=True)  # fmt: skip
         except PinError as exc:
             print(f"pin_model: {exc}", file=sys.stderr)
             return 2

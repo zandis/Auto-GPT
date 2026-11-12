@@ -154,7 +154,9 @@ services:
   embed-service:
     <<: *py
     mem_limit: ${TB_MEM_EMBED:-4g}
-    image: ${TB_EMBED_IMAGE:-trialbox-py:1.0.0}
+    # ENG-003 (D-563): the embedder's own image (trialbox-py plus the hashed `embed` extra, CPU wheels); the
+    # other services do not carry the library
+    image: ${TB_EMBED_IMAGE:-trialbox-embed:1.0.0}
     command: ["uvicorn", "embed_service.app:app", "--host", "0.0.0.0", "--port", "8014"]
     # T-607 (D-429): in PRODUCTION the service loads only the weights pinned for e-embed-1 in the site override
     environment: {PORT: "8014", TB_SERVICE_NAME: embed-service, TB_EMBED_MODEL_PATH: /models/embedder,

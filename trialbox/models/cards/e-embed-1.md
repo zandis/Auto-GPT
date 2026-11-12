@@ -5,15 +5,17 @@ Generated from `models/registry.yaml` by `python -m registry.cards --write`. Do 
 | Field | Value |
 | --- | --- |
 | Alias | `e-embed` |
-| Model | the embedder (1024 dimensions, safetensors from the publisher; chosen in G1) |
+| Model | BGE-M3 (dense vectors, 1024 dimensions, safetensors from the publisher) |
 | Status | candidate |
 | Serving | local |
 | Weights SHA-256 | not yet pinned (null) |
-| Revision | not yet pinned |
+| Revision | 5617a9f61b028005a4858fdac845db406aefb181 |
 | Quantisation | none |
-| Context length | to record at qualification |
-| Licence | set with the chosen embedder (D-429) (SPDX: n/a; verified: no) |
-| Origin | set with the chosen embedder (D-429) (to record); non-PRC: no |
+| Context length | 8192 |
+| Licence | MIT (SPDX: MIT; verified: yes) |
+| Origin | Beijing Academy of Artificial Intelligence (BAAI) (CN); non-PRC: no |
+| Source | `BAAI/bge-m3` at 5617a9f61b028005a4858fdac845db406aefb181 (publisher) |
+| Licence file | to record at download |
 
 ## Contexts of use
 

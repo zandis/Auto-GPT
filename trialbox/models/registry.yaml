@@ -590,15 +590,22 @@ builds:
     serving: local
     served: {embed: null}
     sha256: null
-    revision: null
-    repository: null
-    expected: {manifest_sha256: null, revision: null}  # from the G1 record (T-004): D-429 "Remains"
+    revision: 5617a9f61b028005a4858fdac845db406aefb181
+    repository: BAAI/bge-m3
+    # ENG-003 (D-563; the owner's answer Q3 of D-494): the embedder is BGE-M3 at the register's revision. The weight
+    # manifest is written from the first hash of the real folder (the product-on-GPU run, lane G): until then
+    # `pin_model --install` reports the build as not pinned and a PRODUCTION embed service refuses to start (D-429).
+    expected: {manifest_sha256: null, revision: 5617a9f61b028005a4858fdac845db406aefb181}
+    provenance:  # D-392: used as its publisher made it (safetensors; no pickle file, no code from the folder)
+      copy: publisher
+      source: BAAI/bge-m3
+      revision: 5617a9f61b028005a4858fdac845db406aefb181
     quantisation: none
-    context_length: null
+    context_length: 8192
     family: embedder
-    model_name: the embedder (1024 dimensions, safetensors from the publisher; chosen in G1)
-    licence: {name: set with the chosen embedder (D-429), spdx: null, verified: false}
-    origin: {developer: set with the chosen embedder (D-429), country: to record, non_prc: null}
+    model_name: BGE-M3 (dense vectors, 1024 dimensions, safetensors from the publisher)
+    licence: {name: MIT, spdx: MIT, verified: true, register: model-bge-m3}
+    origin: {developer: Beijing Academy of Artificial Intelligence (BAAI), country: CN, non_prc: false}
 
   # ---------------------------------------------------------------- hosted bake-off builds (S1-14, DEV / D0 only)
   # A hosted build is one dated provider version of a model served by a third party (OpenRouter). It has no weights
