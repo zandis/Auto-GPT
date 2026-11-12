@@ -298,6 +298,21 @@ class HttpBackend:
                 raise Refused(detail) from exc
             raise Unavailable(str(exc)) from exc
 
+    def retry_scheduled_job(self, job_id: str, *, reply_to: str, by: str, role: str) -> Job:
+        """T-746 (D-474): ``POST /jobs/{job_id}/retry``. The orchestrator copies the failed scheduler job; the call
+        names the job, the reply mailbox and the signed person and role, never a type or an option."""
+        try:
+            resp = self.orch.post_raw(f"/jobs/{job_id}/retry", {"reply_to": reply_to}, actor_header(by, role=role))
+        except ServiceError as exc:
+            if exc.status in (403, 404, 409, 422):
+                try:
+                    detail = str(json.loads(exc.detail).get("detail"))
+                except (ValueError, AttributeError):
+                    detail = exc.detail
+                raise Refused(detail) from exc
+            raise Unavailable(str(exc)) from exc
+        return Job.model_validate(resp.json())
+
     def cancel_job(self, job_id: str, by: str) -> Job:
         """S26 Cancel (step 4, FR-PLAT-12): the orchestrator's ``POST /jobs/{id}/cancel``; a queued job fails at once,
         a running one stops at its next step."""
