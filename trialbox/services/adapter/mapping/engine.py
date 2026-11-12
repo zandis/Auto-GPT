@@ -156,6 +156,7 @@ class Mapping:
             site_tables = doc.get("tables") or {}
             merged = {**base, **{k: v for k, v in doc.items() if k != "extends"}}
             merged["systems"] = {**(base.get("systems") or {}), **(doc.get("systems") or {})}
+            merged["params"] = {**(base.get("params") or {}), **(doc.get("params") or {})}
             merged["lookups"] = {**(base.get("lookups") or {}), **(doc.get("lookups") or {})}
             lookup_dirs = {
                 **{n: base_path.parent for n in (base.get("lookups") or {})},
@@ -201,9 +202,40 @@ class Mapping:
             profiles={str(k): str(v or "") for k, v in (doc.get("profiles") or {}).items()},
             fhir_profiles=str(doc.get("fhir_profiles") or ""),
             unit_defaults={str(k): str(v) for k, v in (doc.get("unit_defaults") or {}).items()},
-            params={str(k): str(v) for k, v in (doc.get("params") or {}).items()},
+            params=cls._params(path, doc),
             version=f"{doc.get('name', path.stem)}@{digest.hexdigest()[:12]}",
         )
+
+    @staticmethod
+    def _params(path: Path, doc: dict[str, Any]) -> dict[str, str]:
+        """The mapping's ``params`` (NEW-STD-1, D-586), checked when the mapping loads: each is a day written
+        ``YYYY-MM-DD`` (a bound is compared as text, so ``2016/01/01`` or a blank would move every diagnosis to the
+        wrong edition), and each is read by a condition (a misspelt name would switch its rule off silently)."""
+
+        def used(node: Any) -> set[str]:
+            if isinstance(node, dict):
+                here = {str(v["param"]) for k, v in node.items()
+                        if k in ("date_before", "date_from") and isinstance(v, dict) and "param" in v}  # fmt: skip
+                return here.union(*(used(v) for v in node.values()))
+            if isinstance(node, list):
+                return set().union(*(used(v) for v in node))
+            return set()
+
+        out: dict[str, str] = {}
+        read = used(doc.get("resources") or [])
+        for name, value in (doc.get("params") or {}).items():
+            text = "" if value is None else str(value)
+            try:
+                ok = len(text) == 10 and date.fromisoformat(text).isoformat() == text
+            except ValueError:
+                ok = False
+            if not ok:
+                raise MappingError(f"{path}: params.{name} must be a day written YYYY-MM-DD, not {text!r}")
+            if str(name) not in read:
+                raise MappingError(f"{path}: params.{name} is read by no condition of this mapping "
+                                   f"(known: {', '.join(sorted(read)) or 'none'})")  # fmt: skip
+            out[str(name)] = text
+        return out
 
     def normalize(self, table: str, row: Row) -> Row:
         """Source row → canonical row: ``rename`` local columns, then translate ``values`` codes."""
@@ -408,7 +440,8 @@ class Mapper:
             if "any" in c:  # NEW-STD-1: one of the lists holds
                 if not any(self.cond(alt, row) for alt in c["any"]):
                     return False
-                continue
+                if not {"column", "lookup", "fhir_profiles"} & set(c):
+                    continue  # ``any`` alone; with a column or a look-up beside it both must hold
             if "fhir_profiles" in c:  # T-619a: the profile set of the mapping (tw-core, jp-core), not a column
                 if self.m.fhir_profiles != str(c["fhir_profiles"]):
                     return False

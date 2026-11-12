@@ -16,10 +16,12 @@ version: 1
 name: SITE_his
 extends: ../tw_core/demo_his.yaml
 tz: Asia/Taipei
-# NEW-STD-1 (D-586): Taiwan's NHI coded diagnoses in ICD-9-CM until 2015-12-31. A diagnosis dated before this day
-# carries the ICD-9-CM code system, never ICD-10-CM. A site whose export has a column that says the edition renames
-# it to `diag_code_system` (values icd9cm / icd10cm): the row's own word wins over the date. Remove the line only
-# for a site whose every diagnosis is ICD-10-CM.
+# NEW-STD-1 (D-586): Taiwan's NHI coded diagnoses in ICD-9-CM until 2015-12-31. A diagnosis keyed before this day
+# (`recorded_date`; the day of the diagnosis when the row has no keyed day) carries the ICD-9-CM code system, never
+# ICD-10-CM. A site whose export has a column that says the edition renames it to `diag_code_system` and translates
+# its words to icd9cm / icd10cm under `values:`; the row's own word wins over the dates. The day is written
+# YYYY-MM-DD. After setting or changing it, run one full load (a delta night re-reads changed rows only). Remove
+# the line only for a site whose every diagnosis is ICD-10-CM.
 params: {icd9cm_before: "2016-01-01"}
 tables:
   patient:
