@@ -1,4 +1,4 @@
-# D-589 The demo seeds on the Tuesday before the last Wednesday, so no date it shows is after the demo day
+# D-496 The demo seeds on the Tuesday before the last Wednesday, so no date it shows is after the demo day
 
 - **Task:** DEMO-JA (the demo as a Japanese viewer sees it; rehearsal of 2026-11-12)
 - **PR:** this branch (`agent/DEMO-JA-demo-ja-polish`)

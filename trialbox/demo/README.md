@@ -65,7 +65,7 @@ Give each tester their own accounts and keep their work across restarts:
   only once: adding an entry and restarting adds that account; editing an existing entry changes nothing.
 * `TB_CONSOLE_MFA`, `TB_CONSOLE_IDLE_MINUTES`, `TB_CONSOLE_SESSION_HOURS`, `TB_CONSOLE_TOTP_KEY_FILE`,
   `TB_CONSOLE_TOTP_ISSUER` and `TB_CONSOLE_SECURE_COOKIE` are read from the container's environment.
-* **`TB_DEMO_DAY`** (`--day`, T-513, D-329, D-589): `today` by default. The demo day is the real day in the site's
+* **`TB_DEMO_DAY`** (`--day`, T-513, D-329, D-496): `today` by default. The demo day is the real day in the site's
   time zone. The seed plays on the Tuesday before the last Wednesday on or before it, because the seed ends with the
   next Tuesday's data screened on the Wednesday (the screening cadence): so no data date, run or mark a viewer sees is
   after the demo day, and the data shown is 1 to 7 days old (booked visits can be later: they are appointments). The

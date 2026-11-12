@@ -1390,7 +1390,7 @@ def _stage17(work: Path, res: dict[str, Any], pi: Any, box: Any) -> Stage:
     new_mrn = next(f"{n:08d}" for n in range(39990624, 39999999) if f"{n:08d}" not in set(mrns))
     new_pid = pid_for_mrn(key, new_mrn)
     day = orch.today()
-    wed = ld.cadence_night(day)  # the demo seeds so that this is on or before the demo day (D-589)
+    wed = ld.cadence_night(day)  # the demo seeds so that this is on or before the demo day (D-496)
     tue, fri = wed - timedelta(days=1), wed + timedelta(days=2)
     if ld.is_live():  # a demo on the real day: Tuesday's data and Wednesday's run are not after today
         from datetime import UTC, datetime
@@ -1399,7 +1399,7 @@ def _stage17(work: Path, res: dict[str, Any], pi: Any, box: Any) -> Stage:
         from tb_common.config import site_zone
 
         real = local_today(datetime.now(UTC), site_zone(ld.site_tz_of(box)))
-        s.check("the demo's cadence night is not after today (D-589)", wed <= real, (wed, real))
+        s.check("the demo's cadence night is not after today (D-496)", wed <= real, (wed, real))
     s.check("the new patient is not in the lake before Tuesday's ingest",
             not orch.services.lake.query("SELECT pid FROM patient WHERE pid = $1", [new_pid]).to_pylist())  # fmt: skip
     tuesday = work / "hospital-tuesday"
