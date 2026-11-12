@@ -13,6 +13,9 @@ new heading with the version and date, in the same pull request that sets the ve
 - The audit trail (T-721, D-488): the audit writer marks an event sent by a database role that does not write
   that kind of event, or dated more than `TB_AUDIT_TS_MAX_SKEW_S` (300 s) from when it arrived;
   `python -m tools.audit_verify <audit dir> --foreign` lists the marked events.
+- A new study's first approval (NEW-JRN-1, D-540): the data steward can open the delegation log of a study whose
+  criteria wait for approval and name its PI; the steward's pages show that task, and the approval page says
+  when no PI is named. An account limited to its studies is told why a request for another study is refused.
 - Database passwords (T-712, D-481): every service clears the other roles' and the administrators' passwords in
   the base compose file, so no stack can be started with them; `trialbox doctor` has the check `db_passwords`
   (the box's `.env`, its compose files and its running containers).

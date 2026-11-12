@@ -247,6 +247,31 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return user.can_approve and stand(user, rid).pi
 
     h.may_approve, h.stand = may_approve, stand  # T-512, T-102c: h.permit and h.may_run read the standing
+
+    def pi_missing(user: User) -> list[str]:
+        """NEW-JRN-1 (D-540): the studies this account sees whose criteria wait for approval while the delegation
+        log names no PI: nobody can approve them until the steward names one (D-380)."""
+        try:
+            waiting = st.waiting_studies(bk)
+        except Exception:  # the orchestrator is down: no task shown, the pages say so themselves
+            return []
+        return [rid for rid in waiting if user.sees_study(rid) and not names_pi(rid)]
+
+    def names_pi(rid: str) -> bool:
+        """The log names a PI who can act: an entry with an account (an entry without one approves nothing)."""
+        pi = team.pi_of(rid, today())
+        return pi is not None and bool(pi.username)
+
+    def log_or_404(sess: Session, rs: str) -> str:
+        """The delegation log's own door (D-540): a known study, or one whose first criteria wait for approval."""
+        rid = rs.strip().upper()
+        if not _RS.match(rid) or not sess.user.sees_study(rid) or not st.log_study(bk, rid):
+            if _RS.match(rid):
+                au.append("console.denied", actor=h.actor(sess), detail={"action": f"study {rid}"})
+            raise h.problem(404, "notfound")
+        return rid
+
+    h.pi_missing = pi_missing
     h.team_due = lambda rid: check_due(team, rid, today(), site_zone(bk))
 
     def deny(sess: Session, path: str) -> Exception:
@@ -634,7 +659,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     @app.get("/studies/{rs}/team")
     def team_page(request: Request, rs: str) -> Response:
         sess = h.need(request)
-        rid = study_or_404(sess, rs)
+        rid = log_or_404(sess, rs)
         if sess.user.aggregate_only:
             raise deny(sess, request.url.path)
         s = stand(sess.user, rid)
@@ -645,14 +670,14 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
                       due=check_due(team, rid, today(), site_zone(bk)), history=team.history(rid)[-30:], today=today(),
                       can_edit=bool(writable), can_tick=permit(sess.user.role, "delegation.keep", s.grant()).allowed,
                       can_check=permit(sess.user.role, "delegation.check", s.grant()).allowed,
-                      results=CHECK_RESULTS, has_pi=team.pi_of(rid, today()) is not None)  # fmt: skip
+                      results=CHECK_RESULTS, has_pi=names_pi(rid))  # fmt: skip
 
     @app.post("/studies/{rs}/team")
     async def team_add(request: Request, rs: str) -> Response:
         sess = h.need(request)
         form = await request.form()
         need_csrf(sess, form)
-        rid = study_or_404(sess, rs)
+        rid = log_or_404(sess, rs)
         s = stand(sess.user, rid)
         role = str(form.get("role") or "")
         writable = log_roles_for(sess, s)

@@ -474,8 +474,19 @@ def _stage12(res: dict[str, Any], crc: Any, pi: Any, lang: str, box: Any) -> Sta
     waiting = box.orch.db.find(ruleset=SITE_RS, state="awaiting_approval", limit=5)
     s.check("the protocol's criteria are drafted and wait for the investigator", bool(waiting) and
             state("trial") == "amber", [j.state for j in box.orch.db.find(ruleset=SITE_RS, limit=5)])  # fmt: skip
-    # D-380 (ROLE-008): the new study's PI entry, written from the signed log as the steward would
-    fd.seed_pi(studies=(SITE_RS,))
+    # NEW-JRN-1 (D-540; D-380, ROLE-008): the steward names the new study's PI on its delegation log, through
+    # the page. The study has no ruleset folder yet: the criteria waiting for approval make it a study.
+    stw_pw = secrets.token_urlsafe(18)
+    res["app"].state.helpers.users.create("stw-setup", "steward", stw_pw, "stw-setup@hospa.test")
+    stw = ld.sign_in(res["app"], "stw-setup", stw_pw, lang)
+    log = stw.get(f"/studies/{SITE_RS}/team")
+    s.check("the steward opens the new study's delegation log before its first approval", log.status_code == 200,
+            log.status_code)  # fmt: skip
+    if log.status_code == 200:
+        r = stw.post(f"/studies/{SITE_RS}/team", data={"csrf": fd._csrf(log.text), "username": "pi", "role": "pi",
+                                                       "start": "2026-01-01", "training_day": "2025-06-01"},
+                     follow_redirects=False)  # fmt: skip
+        s.check("the steward names the study's PI from the signed log", r.status_code == 303, r.status_code)
     if waiting:
         page = pi.get(f"/pilot/jobs/{waiting[0].job_id}/approval")
         # D-309: a pasted protocol ships no labels in the page language; the investigator gives each one first

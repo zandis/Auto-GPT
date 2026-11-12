@@ -637,6 +637,14 @@ def create_app(
             return str(chosen)
         return pick_language(request.headers.get("accept-language"))
 
+    def _pi_tasks(sess: Session | None) -> list[str]:
+        """NEW-JRN-1 (D-540): for the account that names a study's PI (the steward), the studies whose criteria
+        wait for approval with no PI on the delegation log. Shown on every page of that account."""
+        hp = getattr(app.state, "helpers", None)
+        if sess is None or hp is None or hp.pi_missing is None or not permit(sess.user.role, "delegation.name_pi"):
+            return []
+        return list(hp.pi_missing(sess.user))
+
     def page(request: Request, name: str, sess: Session | None, status: int = 200, **ctx: Any) -> HTMLResponse:
         lang = lang_of(request, sess)
 
@@ -676,6 +684,7 @@ def create_app(
             "settings": settings,
             "pilot": settings.pilot,
             "path": request.url.path,
+            "pi_tasks": _pi_tasks(sess),
             "k": settings.small_cell,
             "cell": lambda v: cell(v, settings.small_cell),
             "state": state,
@@ -740,7 +749,9 @@ def create_app(
             raise _Problem(400, "request.refused", reason=str(exc)) from exc
         if req.ruleset and not sess.user.sees_study(req.ruleset):  # D-104: a scoped account requests its studies only
             au.append("console.denied", actor=actor(sess), detail={"action": f"request {req.ruleset}"})
-            raise _Problem(404, "notfound")
+            # NEW-JRN-1 (D-540): said as a refusal of the request, not as "this page does not exist". The answer is
+            # the same whether the study exists or not, so it tells a scoped account nothing about other studies.
+            raise _Problem(403, "request.scope", studies=", ".join(sorted(sess.user.studies)))
         au.append(
             "console.request",
             job_id=job_id,

@@ -48,6 +48,10 @@
   </div>
 </header>
 <main id="main">
+{% if pi_tasks %}<section class="card attention" data-testid="task-name-pi">
+<p>{{ t('pi.task.lead') }}</p>
+<ul>{% for prs in pi_tasks %}<li><a href="/studies/{{ prs }}/team" data-testid="task-name-pi-{{ prs }}">{{ t('pi.task.item', rs=prs) }}</a></li>{% endfor %}</ul>
+</section>{% endif %}
 {% block content %}{% endblock %}
 </main>
 <footer>{{ t('footer', env=settings.environment, dc=settings.data_class) }}
