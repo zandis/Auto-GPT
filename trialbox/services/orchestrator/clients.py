@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from typing import Any, Protocol
 
 from tb_common.http import ServiceClient, ServiceError
@@ -137,30 +138,34 @@ class AdapterHttp:
         self.poll = poll
 
     def _running(self, refused: ServiceError) -> dict[str, Any]:
-        """NEW-PERF-2 (PERF-008, ARCH-002): the adapter refused the start because an ingest is running (409). That
-        is the night this job asked for, started before the orchestrator restarted (or by another caller): the job
-        follows it to its end and takes its report, instead of failing beside a night that is published. Returns
-        the state of the run to follow (the adapter's newest run). Anything else is the step failure it was: another
-        refusal, an adapter that cannot be asked, or one that knows no run (it restarted in between)."""
-        if refused.status != 409:
+        """NEW-PERF-2 (PERF-008, ARCH-002): the adapter refused the start because an ingest is running (409) and
+        names that run (``X-TB-Run``). The job follows it to its end and takes its report, instead of failing
+        beside a night that is published. Returns the state to poll from. Anything else is the step failure it
+        was: another refusal, or a 409 that names no run (the adapter was still starting the run that holds it).
+        The run the 409 names, never "the adapter's newest run": that can be last night's, ended (review F2)."""
+        rid = refused.headers.get("x-tb-run", "").strip() if refused.status == 409 else ""
+        if not rid:
             raise _step_error(refused, "ingest") from refused
-        try:
-            latest: dict[str, Any] = self.c.get_json("/run")
-        except ServiceError:
-            raise _step_error(refused, "ingest") from refused
-        if not isinstance(latest, dict) or not latest.get("run") or latest.get("state") in (None, "none"):
-            raise _step_error(refused, "ingest") from refused
-        log.warning("an ingest is already running on the adapter (run %s): this job follows it", latest["run"])
-        return latest
+        log.warning("an ingest is already running on the adapter (run %s): this job follows it", rid)
+        return {"run": rid, "state": "running"}  # read by the poll, which bears silence up to its declared bound
 
     def run(self, req: IngestRequest) -> IngestReport:
+        return self.run_followed(req, None)
+
+    def run_followed(self, req: IngestRequest, on_run: Callable[[str, bool], None] | None) -> IngestReport:
+        """:meth:`run`, telling the caller which adapter run the job is on as soon as it is known
+        (``on_run(run id, followed)``: ``followed`` when the run was already running and this call did not start
+        it), so that the job can write it into its record before the run ends."""
         from tb_common.jobpoll import JobLost, Poll
 
+        followed = False
         try:
             started = self.c.post_raw("/run", req).json()
         except ServiceError as exc:
-            started = self._running(exc)
+            started, followed = self._running(exc), True
         rid = str(started.get("run") or "")
+        if on_run is not None and rid:
+            on_run(rid, followed)
 
         def read() -> dict[str, Any]:
             try:

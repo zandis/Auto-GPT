@@ -18,13 +18,21 @@ ran a second ingest of the served night (PERF-008, ARCH-002; both run in the rev
 
 ## Decision
 
-1. **A 409 from `POST /run` means "the night is running": the job follows it.** `AdapterHttp.run` asks the adapter
-   for its newest run (`GET /run`) and reads that run to its end as if it had started it: the run's report is the
-   job's report, the run's failure the job's failure.
-2. **Nothing to follow is the failure it was.** Another refusal (400, 5xx), an adapter that cannot be asked, or
-   one that knows no run (it restarted between the two requests) fails the step with the adapter's own words.
-3. **Whose run it is does not matter.** The run that is followed may have been started by the job before the
-   restart, by the console, or by a person: one ingest runs at a time, and its end is what the box serves next.
+1. **A 409 from `POST /run` that names the running run means "the night is running": the job follows it.**
+   `AdapterHttp.run` reads the run the 409 names (`X-TB-Run`, D-472; `ServiceError` now carries the refusal's
+   headers) to its end as if it had started it: the run's report is the job's report, the run's failure the job's
+   failure. The read is the poll's, which bears silence up to its declared bound.
+2. **Never "the adapter's newest run".** The adapter holds its lock before it registers the new run, so its newest
+   registered run can be last night's, ended. A 409 that names no run is the failure it was: the administrator's
+   retry starts or follows.
+3. **The job writes the adapter run it is on into its record** (`options.adapter_run`) as soon as it is known. A
+   job that follows the run it started itself before a restart goes on as if nothing happened.
+4. **The steps that follow an ingest run once per adapter run** (the derive batch, the screening that follows, the
+   twin build, the report's publication): in the first job that is on the run. A second job that follows the same
+   run (an administrator's retry beside the timer's job; two jobs queued again together) ends with the run's
+   result and says that the steps run in the other job.
+5. **A job whose own request did not run does not end "done".** A job that asked for a back-fill (`since`) and
+   followed a run that is not its own fails when the run has ended, with words that say its request was not run.
 
 ## Consequences
 
@@ -36,5 +44,8 @@ ran a second ingest of the served night (PERF-008, ARCH-002; both run in the rev
 
 ## Not decided here
 
-- The 409 carries the run's id in `X-TB-Run` (D-472); the client asks `GET /run` instead because the service
-  error does not carry headers. One request more, the same run.
+- **An orchestrator restart that outlasts the ingest:** the job queued again finds no run in progress, starts a
+  new one and ingests the served night a second time (the re-run rules of D-271 and D-489 apply). Knowing that the
+  night is already done needs the night's state where a restarted process reads it: the data-operations row.
+- A job without `since` that follows a run another caller started with another source or snapshot ends with that
+  run's report (which names the real snapshot).
