@@ -543,6 +543,16 @@ def note_verdict(c: CriterionIR, r: NoteResult) -> CriterionVerdict:
     )
 
 
+def not_final(c: CriterionIR, v: CriterionVerdict, note_block: bool) -> CriterionVerdict:
+    """T-707 (D-476): a note fail says whether it was allowed to exclude when it was given: ``final: false`` on a
+    run on which a note answer may not exclude, so a later re-tier (MICROBATCH) can never read it as a pair's
+    answer; ``final: true`` otherwise. A stored note fail with neither is from before the field and never
+    excludes."""
+    if v.verdict != "fail" or not is_note_answer(c, v):
+        return v
+    return v.model_copy(update={"final": bool(note_block)})
+
+
 def human_verdict(c: CriterionIR) -> CriterionVerdict:
     return CriterionVerdict(
         id=c.id, verdict="pending_human", evidence=Evidence(resource_refs=[], reason=Reason.HUMAN.value)
@@ -656,7 +666,8 @@ def tier(
 
     ``note_block`` is required and comes from :func:`effective_note_block` of the run's judge: the configured policy
     alone is not enough (no verifier, one model twice, the canary gate). MICROBATCH once re-tiered with the policy
-    alone and a single model could exclude (D-276, review F-01)."""
+    alone and a single model could exclude (D-276, review F-01). A note fail stored with ``final: false`` was given
+    on a run that could not exclude on it: it stays a reason for review at every later re-tier (T-707, D-476)."""
     by_id = rs.by_id()
     actions: list[str] = []
     unknown = 0
@@ -666,8 +677,8 @@ def tier(
         c = by_id[v.id]
         conf = v.evidence.confidence if v.evidence and v.evidence.confidence is not None else 1.0
         if v.verdict == "fail":
-            if is_note_answer(c, v) and (conf < threshold or not note_block):
-                weak = True
+            if is_note_answer(c, v) and (conf < threshold or not note_block or v.final is False):
+                weak = True  # D-476: an answer stored as not final never excludes, whatever today's policy
             else:
                 failed = True
         elif v.verdict == "unknown":
@@ -757,7 +768,7 @@ def evaluate_patients(
             elif c.class_ in JUDGED:
                 r = note_res.get((p, c.id))
                 vs.append(
-                    note_verdict(c, r)
+                    not_final(c, note_verdict(c, r), note_block)
                     if r is not None
                     else CriterionVerdict(
                         id=c.id,
