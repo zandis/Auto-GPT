@@ -136,6 +136,17 @@ class LakeHttp:
         got = resp.json().get("generation")
         return str(got) if got else None
 
+    def site_in_sync(self, snapshot: str | None = None) -> bool | None:
+        """T-724: whether the generation the date names was built with the site's inputs the lake holds now (None:
+        not known). See :meth:`lake.store.Lake.site_in_sync`."""
+        snap = snapshot or self.snapshot()
+        if not snap:
+            return None
+        resp = self.client.get(f"{self.base}/generations/{snap}")
+        resp.raise_for_status()
+        got = resp.json().get("site_in_sync")
+        return None if got is None else bool(got)
+
     def release(self, holder: str) -> bool:
         resp = self.client.delete(f"{self.base}/holds/{holder}")
         resp.raise_for_status()
@@ -197,6 +208,9 @@ class LakeLocal:
 
     def generation(self, snapshot: str | None = None) -> str | None:
         return self.lake.generation(snapshot) if (snapshot or self.lake.current()) else None
+
+    def site_in_sync(self, snapshot: str | None = None) -> bool | None:
+        return self.lake.site_in_sync(snapshot)
 
     def release(self, holder: str) -> bool:
         return self.lake.release(holder)

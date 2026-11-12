@@ -302,3 +302,54 @@ def test_pruning_a_date_takes_its_generations_and_a_held_generation_keeps_its_da
     lake.release("01LONGJOB")
     assert "2026-10-01" in prune_snapshots(cfg, date(2026, 10, 5))
     assert not any(p.name.startswith("2026-10-01") for p in (lake_dir / "db" / "gen").iterdir())
+
+
+# ----------------------------------------------------- handed over by T-723 (D-489; the integrator's ruling, MED-3)
+def test_a_generation_says_whether_it_holds_the_sites_inputs_of_now(tmp_path: Path) -> None:
+    """Acceptance item (b), the lake's half: a generation's record keeps the hash of the site's inputs it was built
+    with, and the lake says whether the served generation holds the inputs it stores now."""
+    lake_dir = tmp_path / "lake"
+    _night(lake_dir, NIGHT, 3)
+    lake = Lake(lake_dir, TZ)
+    assert lake.generations(NIGHT)[-1]["site"] == "" and lake.site_in_sync() is True  # no site inputs, none built in
+    lake.put_site(SITE)
+    assert lake.site_in_sync() is False  # the facts are on the lake, the served generation was built before them
+    lake.rebuild(NIGHT, HashEmbedder())
+    assert lake.site_in_sync() is True and lake.generations(NIGHT)[-1]["site"]
+    assert LakeLocal(lake_dir, HashEmbedder(), TZ).site_in_sync() is True
+    assert Lake(tmp_path / "empty", TZ).site_in_sync() is None  # no snapshot: not known
+
+
+def test_a_night_promoted_over_a_site_publish_is_published_again_not_skipped_as_unchanged(tmp_path: Path) -> None:
+    """Acceptance item (b) (D-462's guess, verified): a night was built before the site publish's ``put_site`` and
+    promoted after it. The publish is recorded with its digest, so the next call said "unchanged" for ever while
+    the served night held none of the site's facts. Now the site publish asks the lake and publishes again."""
+    from datetime import UTC, datetime
+
+    from sitesetup.service import SiteSetup
+    from tb_common.audit import AuditLog
+
+    from tests.unit.test_snapshot_holds import _fact, _Store
+
+    later = "2026-10-05"
+    lake_dir = tmp_path / "lake"
+    _night(lake_dir, NIGHT, 3)
+    lake = LakeLocal(lake_dir, HashEmbedder(), TZ)
+    store = _Store()
+    store.facts_.append(_fact(1))
+    svc = SiteSetup(store, tmp_path / "setup", lake, None, AuditLog(tmp_path / "audit"),  # type: ignore[arg-type]
+                    lambda: datetime(2026, 10, 5, 1, 0, tzinfo=UTC), lambda: date(2026, 10, 5), lambda: b"k" * 32)  # fmt: skip
+    first = svc.publish("main", "crc")
+    assert first["unchanged"] is False and first["snapshot"] == NIGHT and lake.site_in_sync() is True
+    assert svc.publish("main", "crc")["unchanged"] is True  # nothing changed: nothing rebuilt
+    built = len(lake.lake.generations(NIGHT))
+    # the adapter's next night: built from a lake that did not hold the site's facts yet, promoted now
+    site = lake_dir / "site"
+    site.rename(lake_dir / "site.not-yet")
+    _night(lake_dir, later, 3)
+    (lake_dir / "site.not-yet").rename(site)
+    assert lake.snapshot() == later and lake.site_in_sync() is False
+    out = svc.publish("main", "crc")
+    assert out["unchanged"] is False and out["snapshot"] == later  # published again, onto the served night
+    assert lake.site_in_sync() is True and len(lake.lake.generations(NIGHT)) == built
+    assert svc.publish("main", "crc")["unchanged"] is True

@@ -210,7 +210,12 @@ def get_generations(snapshot: str) -> dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="a snapshot is a date (YYYY-MM-DD)") from exc
     try:
-        return {"snapshot": snap, "generation": lake().generation(snap), "generations": lake().generations(snap)}
+        return {
+            "snapshot": snap,
+            "generation": lake().generation(snap),
+            "generations": lake().generations(snap),
+            "site_in_sync": lake().site_in_sync(snap),  # the served generation holds the site's inputs of now
+        }
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

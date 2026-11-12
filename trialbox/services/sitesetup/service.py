@@ -414,7 +414,13 @@ class SiteSetup:
             last = self.store.published(ws)
             if rec is not None and rec.get("state") == "failed" and rec.get("digest") == dg and not force:
                 return _failed(last, rec)
-            if not force and last is not None and last["digest"] == dg and lake.snapshot():
+            # T-724 (D-490; D-462's guess, handed over by T-723): the facts are the last publish's, but is the served
+            # night built with them? A night built before that publish's ``put_site`` and promoted after it serves a
+            # lake without them, and "unchanged" would skip them for ever. The lake says whether the generation it
+            # serves holds the site's inputs of now; "no" publishes again, "not known" (a lake without generations)
+            # keeps the old answer
+            same = not force and last is not None and last["digest"] == dg and lake.snapshot()
+            if same and last is not None and _site_in_sync(lake) is not False:
                 return {"snapshot": last["snapshot"], "unchanged": True, "counts": last["counts"]}
             if ws == "main" and last is None and not any(res.values()):
                 # F-01 (T-690): a fresh box with no site facts has nothing to publish; no rebuild of the hospital
@@ -567,6 +573,17 @@ def _failed(last: dict[str, Any] | None, rec: dict[str, Any]) -> dict[str, Any]:
         "detail": str(rec.get("detail") or ""),
         "counts": last["counts"] if last else {},
     }
+
+
+def _site_in_sync(lake: Any) -> bool | None:
+    ask = getattr(lake, "site_in_sync", None)
+    if ask is None:
+        return None
+    try:
+        got = ask()
+    except Exception:  # the lake does not answer now: the old answer, asked again at the next call
+        return None
+    return None if got is None else bool(got)
 
 
 def _building_refusal(exc: Exception) -> bool:

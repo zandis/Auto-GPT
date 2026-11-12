@@ -47,6 +47,26 @@ bytes had since changed, so a re-run could not be told from a changed lake (F-5)
 6. **Over HTTP** the generation travels as the header `X-TB-Lake-Generation` beside the request's date, so the
    request contracts are unchanged; `POST /holds` takes `pin` and answers the generation.
 
+## Handed over by T-723 (D-489): three acceptance items of this card
+
+By the integrator's ruling of 2026-11-12 (review of T-723, MED-3) the three things D-472 and D-462 had left to
+T-723 are this card's, written here so they do not fall between the two:
+
+- **(a) The site publish's record of a publish in progress** (`sitesetup/main/publishing.json`, D-472: "T-723
+  replaces it with its own row and keeps the rule: follow, do not restart"). **Not built.** The record stays as it
+  is; the rule holds. A data-operations row for a site publish needs the site set-up service to write the
+  `dataops` schema, which it does not reach today; see the pull request's "Not done".
+- **(b) A newer night promoted over a site publish's facts** (D-462's guess: the site publish's `unchanged` branch
+  compares the facts' digest, not what the served night was built with). **Verified and fixed.** A generation's
+  record keeps the hash of the site's own inputs it was built with (`site`); the lake says whether the generation
+  it serves holds the inputs it stores now (`Lake.site_in_sync`, in `GET /generations/<date>`); the site publish
+  asks before it answers "unchanged" and publishes again when the answer is no. "Not known" (a date built before
+  generations) keeps the old answer.
+- **(c) A named "busy" state of the night's record** (D-462). The night's record names it since T-723 (the step
+  state `busy` in `publish.json` and in the data-operations row's `detail.publish`), and with generations a job
+  that pins a generation no longer makes the lake busy at all. **Not built:** a row state of its own (the row of a
+  busy night is FAILED with that detail); it needs a change of the `batch` table's check and a migration.
+
 ## Consequences
 
 - A job's reads are the same bytes from its first query to its last whatever is published meanwhile, without the

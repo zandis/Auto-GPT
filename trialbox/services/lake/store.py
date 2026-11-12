@@ -338,6 +338,17 @@ def split_generation(name: str) -> tuple[str, int | None]:
     return (m["snap"], int(m["seq"])) if m else (name, None)
 
 
+def site_digest(lake_dir: Path) -> str:
+    """A hash of the site's own inputs as the lake holds them (``site/*.ndjson``: names and bytes); ``""`` when it
+    holds none. A generation's record keeps the hash it was built with (T-724: the site publish reads it to know
+    whether the served generation holds its facts)."""
+    h, n = hashlib.sha256(), 0
+    for f in sorted((lake_dir / "site").glob("*.ndjson")):
+        h.update(f.name.encode() + b"\0" + f.read_bytes() + b"\0")
+        n += 1
+    return h.hexdigest() if n else ""
+
+
 def generation_records(lake_dir: Path, snapshot: str) -> list[dict[str, Any]]:
     """The generations of ``snapshot`` that exist (file and record), oldest first."""
     out: list[dict[str, Any]] = []
@@ -632,6 +643,23 @@ class Lake:
         ``cause``, ``sha256`` (the lake's hash) and ``built_at``."""
         return generation_records(self.dir, snapshot)
 
+    def site_in_sync(self, snapshot: str | None = None) -> bool | None:
+        """Whether the generation the date ``snapshot`` (default ``CURRENT``) names was built with the site's own
+        inputs the lake holds now (T-724; D-462's guess, verified: a night built before a site publish's
+        ``put_site`` and promoted after it serves a lake without those facts). None: not known (no snapshot, a date
+        built before generations, or a generation adopted from one)."""
+        snap = snapshot or self.current()
+        if not snap:
+            return None
+        try:
+            gen = self.generation(snap)
+        except FileNotFoundError:
+            return None
+        rec = next((r for r in generation_records(self.dir, snap) if r.get("generation") == gen), None)
+        if rec is None or "site" not in rec:
+            return None
+        return bool(rec["site"] == site_digest(self.dir))
+
     def generation(self, snapshot: str | None = None) -> str | None:
         """The generation the date ``snapshot`` (default ``CURRENT``) names now, or None for a date built before
         generations (it gets one at its next rebuild, or when a job pins it)."""
@@ -660,7 +688,9 @@ class Lake:
             return None
         return self._write_generation(snapshot, alias, digest or _file_sha(alias), "adopted", link_from_alias=True)
 
-    def _write_generation(self, snapshot: str, built: Path, digest: str, cause: str, link_from_alias: bool) -> str:
+    def _write_generation(
+        self, snapshot: str, built: Path, digest: str, cause: str, link_from_alias: bool, site: str | None = None
+    ) -> str:
         """Give ``built`` its place as the next generation of ``snapshot`` and write its record (call under
         :func:`lake_lock`). ``link_from_alias``: ``built`` is the date's own file (an adopted date): the generation
         is a link to it. Else ``built`` is a finished build: it is moved in. Returns the generation's name."""
@@ -684,6 +714,8 @@ class Lake:
             "sha256": digest,
             "built_at": datetime.now(UTC).isoformat(timespec="seconds"),
         }
+        if site is not None:  # the site's inputs this generation was built with (None: not known, an adopted date)
+            rec["site"] = site
         tmp = gdir / f".{gen}.json.tmp"
         tmp.write_text(json.dumps(rec, sort_keys=True) + "\n", encoding="utf-8")
         tmp.replace(gdir / f"{gen}.json")
@@ -982,6 +1014,9 @@ class Lake:
             )
         if promote and not allow_empty:  # only a snapshot that replaces CURRENT is compared with it
             self._check_drop(snapshot, have)
+        # read before the build reads the inputs: a change in between leaves the record on the older hash, which
+        # reads as "not in sync" and is published again (the safe side)
+        site_sha = site_digest(self.dir)
         try:
             counts, n_chunks, new = self._build(snapshot, embedder, src, by_type, stage, tmp)
         except BaseException:
@@ -1007,7 +1042,12 @@ class Lake:
             # it had; the leftover is swept by the next rebuild
             first = not any(gen_dir(self.dir).glob(f"{snapshot}.g*.json"))
             gen = self._write_generation(
-                snapshot, tmp, digest, cause or ("night" if first and not db_path.exists() else "republish"), False
+                snapshot,
+                tmp,
+                digest,
+                cause or ("night" if first and not db_path.exists() else "republish"),
+                False,
+                site=site_sha,
             )
             self._point_alias(snapshot, gen)
             write_sidecar(db_path, digest)  # hashed before the lock: holds and releases never wait for a hash
