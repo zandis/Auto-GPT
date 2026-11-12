@@ -176,6 +176,49 @@ def test_the_installed_gateway_reaches_both_servers_by_their_served_names(tmp_pa
     assert all(m["answered"] == m["cases"] for m in rep["models"]), rep["problems"]
 
 
+def test_the_run_box_calls_its_gateway_as_the_orchestrator(
+    tmp_path: Path, no_data_class: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The G1 rehearsal, case run-a (2026-11-12): ``scenarios.world`` builds the box's console client
+    (``role_demo.orch_client``), which gives the process the console's service token and a token registry (D-464). The
+    run's model clients sent that token, so the installed gateway knew the caller as the console, which may not call
+    as ``orchestrator`` (D-437): every judge, verifier and chart-reading call was refused ``caller_unverified``. The
+    box now has a token per service, as ``trialbox secrets init`` makes them, and the model calls carry the
+    orchestrator's. The console's token still cannot make the orchestrator's claim."""
+    from orchestrator import app as oapp
+    from tb_common import service_auth as sa
+
+    from tools.role_demo import orch_client
+
+    monkeypatch.setenv("TB_ENV", "DEV")  # as deploy/gcp/complete-run-vm.sh starts the run
+    for var in ("TB_SERVICE_TOKEN", "TB_SERVICE_TOKEN_FILE", sa.REGISTRY_ENV, sa.ACTOR_KEYS_ENV):
+        monkeypatch.delenv(var, raising=False)
+    env = scenarios.installed_env(tmp_path / "audit", JUDGE_URL, VERIFIER_URL)
+    vllm = _Vllm()
+    judge, verifier = _client(env, vllm), _client(env, vllm, "v-verifier")  # scenarios.world: the models first,
+    orch_client(oapp.app)  # then the console's client to the orchestrator
+    reg = sa.registry()
+    assert reg is not None and reg.identify(sa.service_token()) == "console"
+    assert judge.chat_json("judge", JUDGE_VARS, job_id="t").data
+    assert judge.chat_json("chart_facts", {"text": "診断：痛風", "language": "ja", "language_name": "Japanese"},
+                           job_id="t").data  # fmt: skip
+    assert verifier.chat_json("judge", JUDGE_VARS, job_id="t").data
+    rep = run_selftest(judge, verifier, cases=load_cases()[:2])
+    assert all(m["answered"] == m["cases"] for m in rep["models"]), rep["problems"]
+    audit = [
+        json.loads(line)
+        for p in sorted((tmp_path / "audit").glob("*.jsonl"))
+        for line in p.read_text(encoding="utf-8").splitlines()
+    ]
+    calls = [r for r in audit if r.get("event") == "llm.gateway.call"]
+    assert calls and {r["detail"]["service"] for r in calls} == {"orchestrator"}
+    assert not [r for r in audit if r.get("event") == "llm.gateway.refuse"]
+    # the check is not weaker: the same client with the console's token (the process token) is refused
+    judge.gateway.http.event_hooks = {"request": [], "response": []}
+    with pytest.raises(LlmError, match="caller_unverified"):
+        judge.chat_json("judge", JUDGE_VARS, job_id="t")
+
+
 def test_a_pin_with_a_name_the_server_does_not_serve_is_a_named_404(tmp_path: Path, no_data_class: None) -> None:
     """The first run's state, replayed: the pins name what the card does not serve. The refusal now says which name
     was sent, and the canary names the model and the error instead of an empty name."""
