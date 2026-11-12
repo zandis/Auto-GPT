@@ -55,3 +55,21 @@ real release bundle.
 
 Until both are settled the third test of `test_gate_image_list.py` fails and the `images` job fails on these two
 images. That is the state of the gates, shown; nothing was skipped or waived to hide it.
+
+### The Caddy entries as ruled, for the owner to add to `deploy/supply-chain-allowlist.yaml`
+
+Under `vulnerabilities:`, three entries, each with `image: caddy`, `review_by: 2026-12-10` (or the next Caddy
+release, whichever is first) and `owner: security owner (to assign)`:
+
+| id | package | reason |
+| --- | --- | --- |
+| GO-2026-5932 | `golang-org/x/crypto` | Go module inside the upstream Caddy binary, fixed in x/crypto 0.58.1 |
+| CVE-2026-78661 | `golang-org/x/net` | Go module inside the upstream Caddy binary, fixed in x/net 0.62.0 |
+| CVE-2026-97054 | `stdlib` | Go standard library 1.27.3 inside the upstream Caddy binary, fixed in 1.27.4 |
+
+Each reason ends with: listener on the hospital's inner network behind the box's egress rules; no fixed upstream
+Caddy image exists (2.11.9 is the newest, checked 2026-11-12).
+
+Under `budgets:`, one entry: `image: caddy`, `ecosystem: "*"`, `max: 148`, `review_by: 2027-02-01`, reason:
+official Caddy image unmodified (Apache-2.0 project); the Go modules of its binary carry no licence data for Syft.
+The count is the amd64 image's; the arm64 count is confirmed by the `images` job.
