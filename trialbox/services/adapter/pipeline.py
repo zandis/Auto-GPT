@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from tb_common import chartno, feedguard, labvalue
+from tb_common import chartno, feedguard, labvalue, refdata
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
@@ -567,7 +567,12 @@ def _run_ingest(
             check_delta(mapping, source_kind)
             at["step"] = "read"
         # T-106b (DATA-010): every resource carries its source row, mapping version and the night it was ingested
-        mapper = Mapper(mapping, key, cfg.site_id, ingest_instant(snap, mapping.tz))
+        # D-593 (lane E's hunk): the mapper may ask the box's reference data (ICD-9-CM to ICD-10-CM, D-592);
+        # no pack loaded or no database answers nothing, and nothing is mapped
+        mapper = Mapper(
+            mapping, key, cfg.site_id, ingest_instant(snap, mapping.tz),
+            concept_map=lambda system, code: refdata.map_targets_or_none(system, code, cfg.db_url),
+        )  # fmt: skip
         fhir_profiles = mapping.fhir_profiles
         source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)
         for res in mapper.static_resources():
