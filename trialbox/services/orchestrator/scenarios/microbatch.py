@@ -24,6 +24,12 @@ the summary and the audit (``microbatch.budget``) say how many (never a silent c
 job's first run (option ``night_left``), as is the baseline (option ``seen_from``), so a resumed job and a re-run
 make the same list.
 
+**Version and basis** (T-707, D-476): a pool row stored under another criteria version is never re-tiered. It is
+screened again in full (after the re-checks, before the new patients, inside the night budget) and its pool row is
+replaced; a row the run does not reach keeps its stored version and is listed as ``review`` with every criterion
+"not evaluated". A stored note answer that was not allowed to exclude when it was given (``final: false``, or a
+note fail of a row whose stored tier is not ``excluded``) never excludes at the re-tier.
+
 ``incident=0`` turns the new-patient screen off (a re-check only). Every run also stores ``candidate_list_*.json``
 (phi, the whole pool and the new candidates) for the console's week page, as SCREEN does. The job pins one lake
 snapshot (T-305a, D-383) through ``ctx.services.lake``.
@@ -35,6 +41,7 @@ import json
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import suppress
 from tb_contracts import CandidateList, CandidateRow, CriterionVerdict, Judging, ScreenRunScope, TierSummary, dump
@@ -43,7 +50,15 @@ from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_stamp
 from orchestrator.reports import screen_summary_pdf
 from orchestrator.reports.candidate_xlsx import Change
-from orchestrator.scenarios.evaluate import PatientVerdicts, effective_note_block, row, sort_key, tier
+from orchestrator.scenarios.evaluate import (
+    PatientVerdicts,
+    effective_note_block,
+    is_note_answer,
+    not_in_snapshot,
+    row,
+    sort_key,
+    tier,
+)
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen import (
     Scoped,
@@ -207,10 +222,19 @@ def run(ctx: Ctx) -> Outcome:
     pool_pids = {p["pid"] for p in pool}
     kept = {s.pid for s in drop_opted_out(ctx, every)}  # D-147: the opt-out register applies to every list
     pool = [p for p in pool if p["pid"] in kept]
+    # T-707 (D-476, review H3): a row stored under another criteria version was never evaluated on this one. It is
+    # screened again below, not re-tiered (a row without a version is a test stand-in: the column is NOT NULL)
+    stale = [p for p in pool if p.get("version") not in (None, rs.version)]
+    stale_pids = {p["pid"] for p in stale}
+    pool = [p for p in pool if p["pid"] not in stale_pids]
     week = {s.pid: s for s in every if s.pid in kept and s.pid in appts}
     ts = {c.id for c in rs.active() if c.time_sensitive and c.kind in ("inclusion", "exclusion")}
     # the re-check: the nearest visits first, within the night budget (the after-ingest run re-checks nobody)
-    due = sorted(week.values(), key=lambda s: (s.next_appointment or "", s.pid)) if ts and not on_ingest else []
+    due = (
+        sorted((s for s in week.values() if s.pid not in stale_pids), key=lambda s: (s.next_appointment or "", s.pid))
+        if ts and not on_ingest
+        else []
+    )
     recheck = due if left is None else due[:left]
     fresh = evaluate_scope(ctx, rs, run_date, snapshot, recheck, only=ts, all_candidates=True) if recheck else {}
     t = threshold(ctx, rs)
@@ -221,8 +245,18 @@ def run(ctx: Ctx) -> Outcome:
     changes: list[Change] = []
     stamp = job_stamp(ctx)  # evaluation time = the job's receipt: same inputs → same bytes (D-82)
     rechecked = {s.pid for s in recheck}
+    by_id = rs.by_id()
     for p in pool:
         old = {v["id"]: CriterionVerdict.model_validate(v) for v in p["verdicts"]}
+        if p.get("tier") != "excluded":
+            # D-476 item 3 (review H1): a row that was not excluded holds no note fail that was allowed to exclude
+            # (it would be excluded). A row stored before the field existed says so here, and keeps saying it.
+            old = {
+                k: v.model_copy(update={"final": False})
+                if v.verdict == "fail" and v.final is None and k in by_id and is_note_answer(by_id[k], v)
+                else v
+                for k, v in old.items()
+            }
         new = dict(old)
         changed: list[str] = []
         for v in fresh[p["pid"]].verdicts if p["pid"] in fresh else []:
@@ -259,9 +293,53 @@ def run(ctx: Ctx) -> Outcome:
     if not on_ingest:  # the week's rows, re-checked or not; a row the budget left out keeps its last evaluation
         persist_pool(ctx, rs, [r for r in week_rows if not ts or r.pid in rechecked])
     used = len(recheck)
+    judging: dict[str, Any] | None = judging_info(judge_for(ctx, rs)) if recheck else None
+
+    # ---------------------------------------------------------------- rows of another criteria version (T-707)
+    by_pid = {s.pid: s for s in every}
+    stored = {p["pid"]: p for p in stale}
+
+    def _visit(pid: str) -> Scoped:
+        """The visit in the window, else the stored visit beyond it (as a re-tiered row keeps it)."""
+        if pid in week:
+            return by_pid[pid]
+        p = stored[pid]
+        nxt = _aware(p.get("next_appointment"))
+        keep = str(p["next_appointment"]) if nxt is not None and nxt.date() > horizon else None
+        return Scoped(pid, keep, p.get("practitioner_id"), p.get("department"))
+
+    behind = sorted(
+        (_visit(p["pid"]) for p in stale), key=lambda s: (s.next_appointment is None, s.next_appointment or "", s.pid)
+    )
+    again: list[Scoped] = []
+    if behind and not on_ingest:  # the after-ingest run re-checks nobody: the weekly run screens them again
+        again = behind if left is None else behind[: max(0, left - used)]
+    version_rows: list[CandidateRow] = []
+    cascade_runs: list[Any] = []  # the full screens of this job, for the one S2b source file (D-449)
+    if again:
+        vrun = run_screen(ctx, rs, run_date, snapshot, given=again)
+        cascade_runs.append(vrun)
+        version_rows = [r.model_copy(update={"changed": [v.id for v in r.criteria]}) for r in vrun.rows]
+        persist_pool(ctx, rs, version_rows)  # whatever the tier: the row of the old version is replaced
+        judging = vrun.judging
+        used += len(again)
+    done_again = {s.pid for s in again}
+    waiting_rows: list[CandidateRow] = []
+    for s in behind:
+        if s.pid in done_again:
+            continue
+        p = stored[s.pid]
+        pv = not_in_snapshot(rs, s.pid, reason=Reason.NOT_EVALUATED)  # every criterion unknown: a person looks
+        pv.actions.append(
+            f"Not yet evaluated against version {rs.version} of the criteria (last evaluated against version "
+            f"{p['version']}): screened again on the next weekly run."
+        )
+        waiting_rows.append(
+            row(pv, s.next_appointment, s.practitioner_id, s.department, str(p.get("last_eval") or stamp))
+        )  # not written to the pool: the row keeps its stored version until it is screened again
+    week_rows += [r for r in [*version_rows, *waiting_rows] if r.pid in week]
 
     # ---------------------------------------------------------------- new in-scope patients (D-397)
-    judging: dict[str, Any] | None = judging_info(judge_for(ctx, rs)) if recheck else None
     new_rows: list[CandidateRow] = []
     screened: list[str] = []
     carried = 0
@@ -297,10 +375,15 @@ def run(ctx: Ctx) -> Outcome:
                 r.model_copy(update={"changed": [v.id for v in r.criteria]}) for r in srun.rows if r.tier in LISTED
             ]
             persist_pool(ctx, rs, new_rows)
+            cascade_runs.append(srun)
             record = {"ruleset": rs.id, "run_date": run_date.isoformat(), "pids": sorted(earlier | set(screened))}
             body = json.dumps(record, ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
             ctx.publish(f"{NEW_DOC}{rs.id}_v{rs.version}.json", body, "phi", [])  # the console and the next run only
-            publish_s2b_source(ctx, srun)  # T-203b (D-449): only when the flag vec.s2b was on
+    have = [r for r in cascade_runs if getattr(r, "s2b_sources", None) is not None]
+    if have:  # T-203b (D-449): only when the flag vec.s2b was on; one file for the job's screens
+        if len(have) > 1:
+            have[-1].s2b_sources = {p: v for r in have for p, v in r.s2b_sources.items()}
+        publish_s2b_source(ctx, have[-1])
     ctx.metrics(patients_scoped=used + len(screened))
     over = len(due) - len(recheck)
     ctx.orch.audit.append(
@@ -311,8 +394,10 @@ def run(ctx: Ctx) -> Outcome:
             "trigger": "ingest" if on_ingest else "weekly",
             "budget": night_budget(ctx),
             "left": left,
-            "rechecked": used,
+            "rechecked": len(recheck),
             "recheck_carried": over,
+            "version_rescreened": len(again),
+            "version_carried": len(waiting_rows),
             "new_screened": len(screened),
             "new_carried": carried,
         },
@@ -321,7 +406,7 @@ def run(ctx: Ctx) -> Outcome:
     # ---------------------------------------------------------------- outputs
     ctx.state("reporting")
     meta = report_meta(ctx, rs, snapshot, run_date, judging)
-    everyone = sorted([*pool_rows, *new_rows], key=sort_key)
+    everyone = sorted([*pool_rows, *version_rows, *waiting_rows, *new_rows], key=sort_key)
     listed = [r for r in everyone if r.tier in LISTED]
     cl = CandidateList(
         ruleset=rs.id,
@@ -352,6 +437,12 @@ def run(ctx: Ctx) -> Outcome:
             f"Verdict changes: {suppress(len(changes), cell)}; new patients screened: "
             f"{suppress(len(screened), cell)}; new patients added to the pool: {suppress(len(new_rows), cell)}.",
         ]
+    if behind:
+        lines.append(
+            f"Criteria version {rs.version}: {suppress(len(again), cell)} pool patients last evaluated against an "
+            f"earlier version were screened again; {suppress(len(waiting_rows), cell)} wait for the next weekly run "
+            "and are listed for review."
+        )
     if left is not None and (over or carried):
         lines.append(
             f"Night budget reached ({night_budget(ctx)} patients a night): {suppress(over, cell)} re-checks and "

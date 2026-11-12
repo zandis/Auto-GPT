@@ -529,8 +529,6 @@ EXPECTED: dict[tuple[str, str], str] = {
     ("nav", "single"): "H2: NAV's classify ignores the run's note-block, so one model's answer excludes; T-709",
     ("case", "single"): "H2: CASE prints one model's 'not met' as not met (decision.md answer 4); T-709",
     ("screen_cascade", "lexicon"): "H4 (S2 half): a window note with no lexicon hit is not left out; T-710",
-    ("microbatch", "retier_after_single"): "H1: one model's stored soft fail becomes an exclusion at the re-tier; "
-    "T-707",
 }  # fmt: skip
 
 
