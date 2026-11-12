@@ -262,6 +262,10 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
     && command -v docker >/dev/null 2>&1 && docker image inspect "${TB_IMAGE:-trialbox-py:1.0.0}" >/dev/null 2>&1; then
   # a site host has no pydantic (found by the box rehearsal, D-176): the doctor runs in the box's own image
   set -- ; [ -f "$ROOT_DIR/deploy/settings.yaml" ] && set -- --settings /app/deploy/settings.yaml
+  # T-712 (D-481): the doctor reads the box's own file and compose files (the database passwords check); the
+  # deploy folder is mounted below, so the file is there when it is the box's deploy/.env
+  [ "$(cd "$(dirname "$ENV_FILE")" && pwd)" = "$(cd "$ROOT_DIR/deploy" && pwd)" ] \
+    && [ "$(basename "$ENV_FILE")" = .env ] && set -- "$@" --env-file /app/deploy/.env
   # the host's zone for doctor's site_tz check (D-315): the container's /etc is the image's, not the host's
   HOST_TZ="$(timedatectl show -p Timezone --value 2>/dev/null || cat /etc/timezone 2>/dev/null \
     || readlink /etc/localtime 2>/dev/null | sed 's|.*zoneinfo/||')"
