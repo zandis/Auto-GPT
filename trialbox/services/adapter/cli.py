@@ -153,6 +153,7 @@ def build_config() -> tuple[AdapterConfig, str, str]:
         table_max_drop_pct=float(fc.max_table_drop_pct) if fc else 10.0,
         required_tables=tuple(fc.required_tables) if fc else (),
         optional_tables=tuple(fc.optional_tables) if fc else (),
+        first_night_all_tables=True,  # NEW-DIN-8 (D-583): no setting turns it off; optional_tables is the knob
         source_encoding=ds.encoding,  # T-615b
         mrn_regex=cfg.settings.mrn_regex,  # T-629 (FIT-U09)
         contracts_dir=contracts_dir(os.environ.get("TB_DATA_CONTRACTS")),  # T-659b

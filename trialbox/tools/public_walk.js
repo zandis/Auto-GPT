@@ -1,5 +1,5 @@
 // Browser walk of every screen on the public-data console (tools/public_e2e.py --serve): 5 roles x 3 languages x
-// desktop and phone. Node Playwright with the preinstalled Chromium; never runs `playwright install`.
+// desktop and phone, and the steward on the audit trail. Node Playwright with the preinstalled Chromium; never runs `playwright install`.
 //
 //   node tools/public_walk.js '{"base": "...", "password": "...", "walk": "<dir>/walk.json", "shots": "<dir>"}'
 //   TB_SHOT_PASSWORD=... node tools/public_walk.js '{"base": "...", "walk": ...}'   # the password off the command line
@@ -113,17 +113,21 @@ const PAGES = {
     "/admin/ops",
   ],
   admin: [...OPS, "/admin?tab=health", "/admin/notice", "/admin?tab=jobs", "/admin?tab=sources", "/admin/redcap", "/ops/users", "/audit", "/jobs", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/codes?${SQ}`, `/site/help?${SQ}`],
+  // T-211c (D-451, ROLE-013): the audit trail is the steward's (public_e2e stage 6 makes the account), not the administrator's
+  stw: ["/audit"],
   viewer: ["/reports", "/reports/research-office", "/admin/ops", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`, `/pilot/jobs/${W.feas_job}`, ...AGG_ONLY_FORBIDDEN, `/studies/${T}/candidates`, `/studies/${T}/referrals`],
   cra: ["/reports", "/reports/research-office", "/admin/ops", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`, ...AGG_ONLY_FORBIDDEN, `/studies/${T}/candidates`, `/studies/${T}/referrals`],
 };
 // pages a role must not open: a 403 page (in the chosen language), never a 500
 const FORBIDDEN = {
+  admin: ["/audit"],
   pi: ["/admin?tab=health", "/site/opt-outs", "/admin/ops"],
   crc: ["/admin?tab=health", "/admin/notice", "/admin/ops"],
   viewer: ["/admin/ops", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`, ...AGG_ONLY_FORBIDDEN, `/studies/${T}/candidates`, `/studies/${T}/referrals`],
   cra: ["/admin/ops", `/studies/${T}/week?list=all`, "/admin?tab=health", "/notices/received", "/settings/notices", "/reports/research-office", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`, ...AGG_ONLY_FORBIDDEN, `/studies/${T}/candidates`, `/studies/${T}/referrals`],
 };
-const ROLES = ["admin", "crc", "pi", "viewer", "cra"];
+const ROLES = ["admin", "crc", "pi", "viewer", "cra", "stw"];
+const OWN_ONLY = new Set(["stw"]);
 const LANGS = [
   { lang: "en", locale: "en-US" },
   { lang: "ja", locale: "ja-JP" },
@@ -603,7 +607,8 @@ async function tasks(browser) {
           try {
             await signIn(page, user, L);
             const forb = new Set(FORBIDDEN[user] || []);
-            for (const p of [...PAGES.common, ...(PAGES[user] || [])]) {
+            // the steward opens the audit trail only: the role's other pages are not part of this walk
+            for (const p of OWN_ONLY.has(user) ? PAGES[user] : [...PAGES.common, ...(PAGES[user] || [])]) {
               await visit(page, tag, p, p === "/no-such-page" || p.includes("/NOPE-") ? 404 : forb.has(p) ? 403 : 200);
             }
           } catch (e) {

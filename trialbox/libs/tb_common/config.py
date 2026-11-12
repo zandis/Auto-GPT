@@ -364,6 +364,7 @@ DECLARED: dict[str, Declared] = {
     "TB_AUDIT_ANCHOR_TARGETS": Declared("str", "", "where the audit chain's head anchor is also written"),
     "TB_AUDIT_ARCHIVE_DIR": Declared("path", "", "host folder of the audit archive (logs archive-audit)"),
     "TB_AUDIT_DIR": Declared("path", "/data/audit", "the audit chain's folder"),
+    "TB_AUDIT_HEAD_MAX_AGE_H": Declared("float", "36", "doctor: the newest signed audit head may be this old (D-562)"),
     "TB_AUDIT_HOST_DIR": Declared("path", "", "host path of the audit volume (logs archive-audit)"),
     "TB_AUDIT_MIN_FREE_MB": Declared("int", "64", "audit refuses to write below this free space"),
     "TB_AUDIT_WRITER": Declared("str", "file", "db: send audit events to the journal (D-394); file: write the chain"),
@@ -405,6 +406,12 @@ DECLARED: dict[str, Declared] = {
     "TB_CANARY_GATE": Declared("bool", "", "note answers gated on a passed canary"),
     "TB_CANARY_MAX_AGE_H": Declared("float", "", "hours a passed canary stays valid"),
     "TB_CANARY_RESULT": Declared("str", "", "platform check: path of the canary result"),
+    "TB_CANARY_WHY_CASES": Declared(
+        "int", "2", "wrong cases named in a failed canary's line, read on one screen line (the report keeps ten)"
+    ),
+    "TB_CANARY_WHY_CHARS": Declared(
+        "int", "120", "characters of a call error kept in a failed canary's line (the gateway's log has it whole)"
+    ),
     "TB_CANDIDATE_VIEWS_PER_HOUR": Declared("int", "", "candidate views allowed per user per hour"),
     "TB_CATALOGUE_DIR": Declared("path", "", "folder of the study catalogue"),
     "TB_CHARTNO_RULE": Declared("str", "", "the site's chart-number pattern for the scrubber"),
@@ -559,6 +566,7 @@ DECLARED: dict[str, Declared] = {
         "3",
         "orchestrator: restarts an interrupted job survives; the job may be what stops the box (D-456)",
     ),
+    "TB_KEK_HOST_DIR": Declared("path", "/run/trialbox", "host folder of the unsealed KEK, mounted read-only (D-347)"),
     "TB_KEK_FILE": Declared("path", "", "the key-encryption key file"),
     "TB_KEK_NEW_PASSPHRASE": Declared("str", "", "keys tool: new KEK passphrase (secret)"),
     "TB_KEK_PASSPHRASE": Declared("str", "", "KEK passphrase (secret)"),
@@ -731,6 +739,18 @@ DECLARED: dict[str, Declared] = {
     "TB_SAE_OFFICE_MAILBOX": Declared("str", "", "SAE: office mailbox"),
     "TB_SAE_REPORT_DAYS": Declared("int", "", "SAE: report days"),
     "TB_SAE_RULES": Declared("str", "", "SAE: rules file"),
+    "TB_SCALE_CAP_BYTES": Declared("int", "", "scale gate: the cap a part runs under, handed to its process (T-687)"),
+    "TB_SCALE_ENFORCE": Declared("str", "", "scale gate: cgroup or measure (empty: the best this host has; T-687)"),
+    "TB_SCALE_LAKE_TIMEOUT_S": Declared(
+        "float", "", "scale gate: the lake client's limit (empty: the product's; T-687)"
+    ),
+    "TB_SCALE_LATENCY_S": Declared("float", "0", "scale gate: the model stand-in's seconds per call (T-687)"),
+    "TB_SCALE_OUTAGE_AFTER": Declared("int", "0", "scale gate: the call from which the stand-in answers 502 (T-687)"),
+    "TB_SCALE_OUTAGE_S": Declared("float", "0", "scale gate: seconds of the stand-in's outage (T-687)"),
+    "TB_SCALE_PATIENTS": Declared("int", "300", "scale gate: synthetic patients (the nightly job: 50000; T-687)"),
+    "TB_SCALE_RESTART_AFTER": Declared("int", "0", "scale gate: the call after which the stand-in restarts (T-687)"),
+    "TB_SCALE_RESTART_GAP_S": Declared("float", "0", "scale gate: seconds the stand-in is down at its restart (T-687)"),
+    "TB_SCALE_VALIDATE": Declared("bool", "1", "scale gate: the HL7 validator in the night (T-687)"),
     "TB_SCHEDULER": Declared("bool", "1", "orchestrator: run the scheduler"),
     "TB_SCHEMAS_DIR": Declared("path", "", "JSON schema folder"),
     "TB_SCRATCH": Declared("str", "", "scratch folder (tools, tests)"),
@@ -773,7 +793,15 @@ DECLARED: dict[str, Declared] = {
     "TB_STANDIN_LOAD_DELAY": Declared("float", "0", "model stand-in: load delay"),
     "TB_STEP_ID": Declared("str", "", "step id a gateway call names"),
     "TB_STUB_CONTEXT": Declared("int", "", "model stub: context size"),
+    "TB_STUB_LATENCY_S": Declared(
+        "float", "", "model stub: seconds per answer (the scale gate's slow stand-in, T-687)"
+    ),
     "TB_STUB_MODELS": Declared("str", "", "model stub: models served"),
+    "TB_STUB_OUTAGE_AFTER": Declared(
+        "int", "", "model stub: the call after which the stand-in's outage starts (T-687)"
+    ),
+    "TB_STUB_OUTAGE_S": Declared("float", "", "model stub: seconds of 502 answers in the stand-in's outage (T-687)"),
+    "TB_STUB_OUTAGE_STATUS": Declared("int", "502", "model stub: the HTTP status of the stand-in's outage (T-687)"),
     "TB_SWAP_HOLD_S": Declared("float", "", "gateway swap: hold time"),
     "TB_SWAP_WAKE_TIMEOUT_S": Declared("float", "", "gateway swap: wake timeout"),
     "TB_TERMINOLOGY_SOURCE": Declared("str", "", "compiler: terminology source"),

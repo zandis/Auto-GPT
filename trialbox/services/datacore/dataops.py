@@ -38,6 +38,8 @@ from typing import Any, Protocol
 
 from tb_common.db import ENV, Database, DatabaseError
 
+from datacore import pgfunc
+
 LANDED, VALIDATED, MAPPED, PSEUDONYMISED, PUBLISHED = "LANDED", "VALIDATED", "MAPPED", "PSEUDONYMISED", "PUBLISHED"
 HELD, FAILED, REJECTED = "HELD", "FAILED", "REJECTED"
 LINE = (LANDED, VALIDATED, MAPPED, PSEUDONYMISED, PUBLISHED)
@@ -57,7 +59,7 @@ DECISIONS = {"accept": PUBLISHED, "reject": REJECTED}
 EVENT_DECIDE = "dataops.decide"
 EVENT_STEP = "dataops.step"
 # what a batch row keeps from the night's audit detail (tables and counts only, never a row)
-DETAIL_KEYS = ("gate", "incomplete", "orphans", "quarantined", "duplicate_keys", "error", "step", "table")
+DETAIL_KEYS = ("gate", "incomplete", "orphans", "quarantined", "duplicate_keys", "unmapped", "error", "step", "table")
 MAX_PAGE = 200  # T-112b: the most batch rows one page or API call reads
 
 _STATE_LIST = ", ".join(f"'{s}'" for s in STATES)
@@ -177,15 +179,7 @@ class DataOps:
         self._db = Database.connect(url or os.environ.get(ENV), "dataops")
         self._db.migrate([SCHEMA])
         with self._db.transaction() as tx:
-            tx.execute("SELECT pg_advisory_xact_lock(hashtext(current_schema() || '.dataops_triggers'))")
-            for fn in _FUNCTIONS:
-                tx.execute(fn)
-            have = {str(r[0]) for r in tx.fetchall(
-                "SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON "
-                "n.oid = c.relnamespace WHERE n.nspname = current_schema() AND NOT t.tgisinternal")}  # fmt: skip
-            for name, ddl in _TRIGGERS.items():
-                if name not in have:
-                    tx.execute(ddl)
+            pgfunc.ensure(tx, "dataops_triggers", _FUNCTIONS, _TRIGGERS)
 
     @property
     def db(self) -> Database:
