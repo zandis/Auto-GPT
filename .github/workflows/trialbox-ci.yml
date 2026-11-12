@@ -270,7 +270,7 @@ jobs:
           # T-651 (ENG-029): line coverage of the run under sys.monitoring, which costs next to nothing; branches are
           # measured nightly (trialbox-nightly-quality.yml). No report here: `unit` combines the shards' data.
           COVERAGE_CORE: sysmon
-          PYTEST_ADDOPTS: --cov --cov-report=
+          PYTEST_ADDOPTS: --cov --cov-report= --durations=30  # the 30 slowest tests of the shard, to watch the balance
         run: |
           mkdir -p "$RUNNER_TEMP/shard"
           make test PYTEST_N=auto SHARD=${{ matrix.shard }}/${{ strategy.job-total }} SHARD_RECORD="$RUNNER_TEMP/shard/shard.json" 2>&1 | tee "$RUNNER_TEMP/unit.log"
