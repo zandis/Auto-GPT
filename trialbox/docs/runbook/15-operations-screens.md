@@ -19,9 +19,12 @@ console at `/data/ops`), and the host's runner runs the command this runbook alr
 | Collect yesterday's logs | `trialbox logs collect` |
 | Write the network sheet again | `tools/network_sheet.py` into the folder's network part |
 
-**Turn the runner on once** (as root): a systemd timer that runs `python3 -m tools.trialbox ops run` every minute
-(it needs only the host's `python3`). `install.sh` installs `trialbox-ops.service` and `trialbox-ops.timer` from
-`deploy/systemd` (D-377) and leaves them off: `systemctl enable --now trialbox-ops.timer`. The
+**The runner** is a systemd timer that runs `python3 -m tools.trialbox ops run` every minute (it needs only the
+host's `python3`). `install.sh` installs `trialbox-ops.service` and `trialbox-ops.timer` from `deploy/systemd`
+(D-377) and enables and starts the timer (NEW-OPS-8, D-561). The runner also writes the host's health facts: when
+they are missing or more than an hour old the health line is red, and `trialbox doctor` fails its `ops_runner`
+check in PRODUCTION. On a box installed before D-561, run the installer again or, as root,
+`systemctl enable --now trialbox-ops.timer`. The
 first run makes the folder (requests writable by the console's user, uid 10001). The page warns when the runner has
 not answered for 15 minutes. A request cut off by a restart shows as interrupted and is not run again; a request
 that waited more than 60 minutes (the runner was off) is not run: ask again. `python3 -m tools.trialbox ops status` prints what the page shows. Manual rollback after

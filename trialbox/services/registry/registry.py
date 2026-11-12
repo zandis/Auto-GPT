@@ -36,6 +36,11 @@ even when the override is edited by hand. ``champion`` is reached only through `
 writes the build's ``qualification`` reference (record id, record sha256, the weights the record qualified) after
 ``tools.qualify.check_record`` accepts the record. In PRODUCTION a champion without a reference that qualifies
 PRODUCTION for exactly the pinned weights is refused (``champion_unqualified``), whatever the override's status says.
+
+**No build without a context** (LLM-007, D-568). The gateway refuses a prompt over the build's ``context_length`` and
+the callers size their reads from it; with no value both are off. In PRODUCTION a build served by a local model
+server (``serving: vllm``) whose context is unknown is refused (``context_unknown``). A row that cannot name it (the
+shared-quota pair: the partition is measured at the site) gets it in the site pin from ``pin_model --install``.
 """
 
 from __future__ import annotations
@@ -80,7 +85,7 @@ QUALIFICATION_FIELDS = frozenset(
 )
 # the refusal codes of :meth:`Registry.resolve`, most specific first: the code of a refused alias is the first that
 # any of its builds gave
-REFUSAL_ORDER = ("champion_unqualified", "weights_unexpected", "build_unpinned")
+REFUSAL_ORDER = ("champion_unqualified", "weights_unexpected", "context_unknown", "build_unpinned")
 HOSTED = "hosted"
 PROVIDER_PIN_FIELDS = (
     "endpoint",
@@ -147,6 +152,11 @@ class Build:
         v = self.expected.get("revision")
         return str(v) if v else None
 
+    def context_unknown(self) -> bool:
+        """LLM-007 (D-568): a build on a local model server with no ``context_length``: the gateway cannot size a
+        prompt for it. The stub has no limit to exceed; a hosted provider's limit is not this box's setting."""
+        return self.serving == "vllm" and not self.context_length
+
     def unexpected_weights(self) -> str:
         """Why the pin is not the release's weights (empty: it is, or nothing is expected or pinned)."""
         if not self.pinned or self.serving == HOSTED:
@@ -202,6 +212,9 @@ class Registry:
                 raise ValueError(f"registry: duplicate build_id {b.build_id}")
             if b.alias not in self.aliases:
                 raise ValueError(f"registry: build {b.build_id} names unknown alias {b.alias}")
+            ctx = b.context_length  # LLM-007 (D-568): the gateway sizes prompts from it; an override may set it
+            if ctx is not None and (isinstance(ctx, bool) or not isinstance(ctx, int) or ctx <= 0):
+                raise ValueError(f"registry: build {b.build_id} context_length {ctx!r} is not a whole number above 0")
             if b.sha256 is not None and not _SHA.match(b.sha256):
                 raise ValueError(f"registry: build {b.build_id} sha256 is not a lowercase hex SHA-256")
             _check_provider_pin(b)
@@ -252,6 +265,13 @@ class Registry:
                 reasons.append(
                     f"{b.build_id}: champion without a qualification record for these weights "
                     "(run trialbox eval qualify, then pin_model --promote) [champion_unqualified]"
+                )
+                continue
+            if env == Environment.PRODUCTION and b.context_unknown():
+                reasons.append(
+                    f"{b.build_id}: no context_length: give pin_model --install the length the server runs "
+                    "with (JUDGE_MAX_LEN, VERIFIER_MAX_LEN in its environment), or write it by hand with "
+                    f"pin_model --build {b.build_id} --model-dir <folder> --context N [context_unknown]"
                 )
                 continue
             served = b.served.get(endpoint)

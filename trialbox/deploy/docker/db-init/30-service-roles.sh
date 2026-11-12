@@ -17,7 +17,15 @@
 # * D-394 (T-211b): the audit journal (schema `audit`) and its roles, at the end; see tb_common/audit_writer.py.
 # * D-465 (T-727): the orchestrator runs the opt-out worker, which erases the twin (`profile`, which it also builds)
 #   and the vector store (`vec`, the lake's); so both are on its list.
+# * D-486 (T-718): a schema on the `owned` list has three roles instead of the one group. `tbo_<schema>` owns it and
+#   everything in it; its one member is `trialbox`. `tbw_<schema>` reads and writes its tables, `tbr_<schema>` reads
+#   them; neither can create, alter or drop anything there, so a trigger that makes a table append-only holds
+#   against the service that writes it. A service with the schema on its list is a member of `tbw_<schema>`. The
+#   tables of such a schema are made by the install step (`python -m orchestrator.migrate`, as `trialbox`), not by
+#   the service at start. First on the list: `edc`.
 # * `tuned` (tb_common.notmatched: the not-matched reasons) is read and written by the orchestrator and the console.
+# * D-543 (NEW-ARCH-18): `profile` (the patient twin, built by the orchestrator) is on the console's list too: the
+#   console reads it for `GET /api/v1/studies/{rs}/patients/{pid}/twin` (it could not open the store on a box).
 # The list is the one place that says which service reaches which schema; tests/unit/test_db_roles.py reads it.
 set -eu
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "${TB_WF_DB:-trialbox_wf}" \
@@ -38,23 +46,28 @@ DECLARE
     "tb_lake": ["app", "omop", "refdata", "terminology", "vec"],
     "tb_criteria_compiler": ["app", "derived", "library", "omop", "refdata", "terminology"],
     "tb_adapter": ["app", "dataops", "derived", "mpi", "omop", "pidmap", "refdata", "sitesetup", "terminology"],
-    "tb_orchestrator": ["app", "datacore", "dataops", "derived", "edc", "library", "mail", "mpi", "omop", "optout",
-                        "orch", "pidmap", "profile", "recall", "refdata", "site", "sitesetup", "study", "terminology",
-                        "tuned", "vec", "wf"],
+    "tb_orchestrator": ["app", "breakglass", "datacore", "dataops", "derived", "edc", "library", "mail", "mpi",
+                        "omop", "optout", "orch", "pidmap", "profile", "recall", "refdata", "site", "sitesetup",
+                        "study", "team", "terminology", "tuned", "vec"],
     "tb_mail_gateway": ["app", "mail"],
     "tb_gateway": ["app", "trace"],
     "tb_console": ["app", "auth", "breakglass", "datacore", "dataops", "derived", "feedback", "library", "mpi", "omop",
-                   "optout", "orch", "pidmap", "recall", "refdata", "sae", "site", "sitesetup", "study", "team",
-                   "terminology", "tuned", "wf"]
+                   "optout", "orch", "pidmap", "profile", "recall", "refdata", "sae", "site", "sitesetup", "study",
+                   "team", "terminology", "tuned"]
   }';
   -- END SERVICE SCHEMAS
+  -- BEGIN OWNED SCHEMAS (D-486)
+  owned CONSTANT text[] := ARRAY['edc'];
+  -- END OWNED SCHEMAS
+  wr text;
+  rd text;
   svc text;
   sch text;
   grp text;
   obj record;
 BEGIN
   FOR sch IN SELECT DISTINCT jsonb_array_elements_text(v) FROM jsonb_each(access) AS e(k, v) ORDER BY 1 LOOP
-    grp := 'tbs_' || sch;
+    grp := CASE WHEN sch = ANY(owned) THEN 'tbo_' ELSE 'tbs_' END || sch;
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = grp) THEN
       EXECUTE format('CREATE ROLE %I NOLOGIN', grp);
     END IF;
@@ -74,6 +87,63 @@ BEGIN
                                       WHEN 'f' THEN 'FOREIGN TABLE' ELSE 'TABLE' END,
                      sch, obj.relname, grp);
     END LOOP;
+    -- D-573: functions, procedures and aggregates too (a restore makes them trialbox's, as it does the tables);
+    -- what an extension owns stays the extension's
+    FOR obj IN
+      SELECT p.oid::regprocedure::text AS sig, p.prokind FROM pg_proc p
+      WHERE p.pronamespace = sch::regnamespace AND p.proowner <> grp::regrole
+        AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid
+                                                    AND d.deptype = 'e')
+    LOOP
+      EXECUTE format('ALTER %s %s OWNER TO %I',
+                     CASE obj.prokind WHEN 'p' THEN 'PROCEDURE' WHEN 'a' THEN 'AGGREGATE' ELSE 'FUNCTION' END,
+                     obj.sig, grp);
+    END LOOP;
+    IF sch = ANY(owned) THEN
+      -- D-486: its functions are the owner's already (the loop above): a writer cannot replace a trigger's body
+      wr := 'tbw_' || sch;
+      rd := 'tbr_' || sch;
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = wr) THEN
+        EXECUTE format('CREATE ROLE %I NOLOGIN', wr);
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = rd) THEN
+        EXECUTE format('CREATE ROLE %I NOLOGIN', rd);
+      END IF;
+      EXECUTE format('GRANT %I, %I TO trialbox', wr, rd);
+      EXECUTE format('REVOKE ALL ON SCHEMA %I FROM PUBLIC', sch);
+      EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I, %I', sch, wr, rd);
+      EXECUTE format('GRANT SELECT ON ALL TABLES IN SCHEMA %I TO %I, %I', sch, wr, rd);
+      -- a table with an append-only trigger (the migrate step made it a trail) takes INSERT only, and the version
+      -- table no write: a rerun of this script must not give the writer back what that step took
+      FOR obj IN
+        SELECT c.relname AS name,
+               EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid = c.oid AND NOT t.tgisinternal
+                       AND t.tgname = c.relname || '_append_only') AS trail
+        FROM pg_class c WHERE c.relnamespace = sch::regnamespace AND c.relkind IN ('r', 'p')
+      LOOP
+        IF obj.name = '_schema_version' THEN
+          EXECUTE format('REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON %I.%I FROM %I', sch, obj.name, wr);
+        ELSIF obj.trail THEN
+          EXECUTE format('GRANT INSERT ON %I.%I TO %I', sch, obj.name, wr);
+          EXECUTE format('REVOKE UPDATE, DELETE, TRUNCATE ON %I.%I FROM %I', sch, obj.name, wr);
+        ELSE
+          EXECUTE format('GRANT INSERT, UPDATE, DELETE ON %I.%I TO %I', sch, obj.name, wr);
+        END IF;
+      END LOOP;
+      EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA %I TO %I', sch, wr);
+      -- what the migrate step makes later (as the owner) gets the same rights; the step narrows a trail table
+      EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT SELECT ON TABLES TO %I, %I',
+                     grp, sch, wr, rd);
+      EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT INSERT, UPDATE, DELETE ON TABLES TO %I',
+                     grp, sch, wr);
+      EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT USAGE, SELECT ON SEQUENCES TO %I',
+                     grp, sch, wr);
+      -- the owner has exactly one member, the host tools' admin: no service can become it
+      FOR obj IN SELECT pg_get_userbyid(member) AS who, pg_get_userbyid(grantor) AS by FROM pg_auth_members
+                 WHERE roleid = grp::regrole AND member <> 'trialbox'::regrole LOOP
+        EXECUTE format('REVOKE %I FROM %I GRANTED BY %I', grp, obj.who, obj.by);
+      END LOOP;
+    END IF;
   END LOOP;
   FOR svc IN SELECT jsonb_object_keys(access) LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = svc) THEN
@@ -84,12 +154,26 @@ BEGIN
     -- CREATE: a service may make a new schema of its own (a rerun's scratch schema); it reads no other
     EXECUTE format('GRANT CONNECT, TEMPORARY, CREATE ON DATABASE %I TO %I', current_database(), svc);
     FOR sch IN SELECT jsonb_array_elements_text(access -> svc) LOOP
-      EXECUTE format('GRANT %I TO %I', 'tbs_' || sch, svc);
+      EXECUTE format('GRANT %I TO %I', CASE WHEN sch = ANY(owned) THEN 'tbw_' ELSE 'tbs_' END || sch, svc);
     END LOOP;
     -- a schema taken off a service's list is taken from the role on the next run
     FOR grp IN
       SELECT r.rolname FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.roleid
       WHERE m.member = svc::regrole AND r.rolname LIKE 'tbs\_%'
+        AND (NOT ((access -> svc) ? substr(r.rolname, 5)) OR substr(r.rolname, 5) = ANY(owned))
+    LOOP
+      EXECUTE format('REVOKE %I FROM %I', grp, svc);
+      -- D-486: a session the service opened as a member of the old group of an owned schema still works as that
+      -- group (SET ROLE), which has lost the schema: end it, so the service reconnects with the writer's role
+      IF substr(grp, 5) = ANY(owned) THEN
+        PERFORM pg_terminate_backend(a.pid) FROM pg_stat_activity a
+          WHERE a.usename = svc AND a.pid <> pg_backend_pid();
+      END IF;
+    END LOOP;
+    -- D-486: and a writer's or reader's role of a schema that left the service's list
+    FOR grp IN
+      SELECT r.rolname FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.roleid
+      WHERE m.member = svc::regrole AND (r.rolname LIKE 'tbw\_%' OR r.rolname LIKE 'tbr\_%')
         AND NOT ((access -> svc) ? substr(r.rolname, 5))
     LOOP
       EXECUTE format('REVOKE %I FROM %I', grp, svc);

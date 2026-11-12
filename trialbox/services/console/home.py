@@ -122,6 +122,8 @@ class Helpers:
     may_approve: Callable[..., bool] | None = None
     stand: Callable[..., Any] | None = None  # console.team.standing for one account and study (T-512)
     team_due: Callable[[str], bool] | None = None
+    # set by console.team (NEW-JRN-1, D-540): the studies waiting for approval whose log names no PI yet
+    pi_missing: Callable[..., list[str]] | None = None
     reveal: Any = None  # set by register(): console.reveal.Reveal, the one reveal path (T-103, D-438)
     chart_lookup: Callable[[Session, str], None] | None = None  # set by console.team: the lookup cap (D-273)
     pid_match_per_hour: int = 0  # set by console.team (NEW-JRN-2): the match note's limit per person and hour
@@ -138,6 +140,8 @@ class Helpers:
     # set by console.breakglass (D-280, T-309): the account's open grant covering one patient or one job, else None;
     # each call that finds one is one audited use. None in bare test apps (no grant, so no access)
     breakglass: Callable[..., Any] | None = None
+    breakglass_find: Callable[..., Any] | None = None  # T-716 (D-484): the open grant, found and not used
+    breakglass_note: Callable[..., Any] | None = None  # the audit event of a use the orchestrator recorded
     # T-310a (D-446): set by register(): the latest run's not-matched list and its rows as the page shows them; set by
     # console.notmatched_pages: the weekly sample, the site's check and the send-back to the PI list. None in bare
     # test apps (the list is open and nothing comes back)
@@ -147,8 +151,10 @@ class Helpers:
 
     def gone(self) -> set[str]:
         """D-273 (PV-4): the pseudonyms on the opt-out register now. Every patient-level reader (lists, the excluded
-        list, the job page, the registry) leaves them out; who opted out is itself private, so callers show counts."""
-        return set(self.optout.active()) if self.optout is not None else set()
+        list, the job page, the registry) leaves them out; who opted out is itself private, so callers show counts.
+        The one register read of the console's pages (D-477, review M3): with the surviving pseudonym of a merged
+        chart, as the jobs read it."""
+        return set(self.optout.effective()) if self.optout is not None else set()  # D-477 (M3): merged charts too
 
     def delegated(self, sess: Session, rid: str, path: str, tasks: tuple[str, ...] = ("screen",)) -> None:
         """D-273 (PV-3): D-147's delegation rule on every page that shows one study's patients, not only the week,
@@ -337,7 +343,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         cl, sent_back = h.not_matched.back_to_list(rs, cl) if h.not_matched is not None else (cl, {})
         removed: list[str] = []
         if cl is not None and h.optout is not None:  # D-147: an opted-out patient is on no list, page or mail
-            out = h.optout.active()
+            out = h.gone()
             removed = [str(r.get("pid")) for r in cl.get("rows") or [] if str(r.get("pid")) in out]
             if removed:
                 cl = {**cl, "rows": [r for r in cl.get("rows") or [] if str(r.get("pid")) not in out]}
@@ -1492,7 +1498,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def api_screening_log(request: Request, rs: str) -> list[dict[str, Any]]:
         sess = api_session(request)
         rid = rows_or_403(sess, rs, request.url.path)
-        gone = h.optout.active() if h.optout is not None else set()  # D-147: never an opted-out patient
+        gone = h.gone()  # D-147: never an opted-out patient
         refs = h.team.latest_referrals(rid) if h.team is not None else {}
         return [
             {"pid": a, "screening_no": b, "at": c, "referral_route": refs[a].route if a in refs else "",

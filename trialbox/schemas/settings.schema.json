@@ -184,7 +184,7 @@
             "type": "string"
           },
           "default": [],
-          "description": "mapping tables that may be absent or empty on a night although the last good night had rows"
+          "description": "mapping tables that may be absent or empty: on a night although the last good night had rows, and on the first night, when every other table of the mapping must be there with rows"
         }
       }
     },

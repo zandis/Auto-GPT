@@ -56,10 +56,12 @@ from typing import Any
 
 from lake.flatten import (
     DEMOGRAPHIC,
+    EARLIEST_YEAR,
     NOT_PRESENT,
     PROVENANCE_COLS,
     SUSPECTED,
     Flattener,
+    NotWesternYear,
     basis_of,
     verification_of,
     void,
@@ -253,7 +255,7 @@ class _Builder:
     paths: dates in the hospital zone, censored values, the suspected flag), so the two lakes cannot drift."""
 
     def __init__(self, tz: str, kind: str, stats: dict[str, int]) -> None:
-        self.fl = Flattener(tz)
+        self.fl = Flattener(tz, earliest_year=EARLIEST_YEAR)  # NEW-B-2 (D-521): no year of another calendar
         self.kind = kind
         self.stats = stats
 
@@ -619,7 +621,22 @@ def load_batch(
         for line, r in enumerate(by_type[rtype], start=1):
             prov = {k: _iso(v) for k, v in b.fl.provenance(r).items() if v is not None}
             from_note = note_source(r)
-            for rec in b.build(rtype, r, line, responses):
+            try:
+                built = b.build(rtype, r, line, responses)
+            except NotWesternYear as exc:
+                # NEW-B-2 (D-521): one date of another calendar refuses the batch whole, before anything is
+                # written (a feed that writes one date so writes all of them so). The refusal is kept (D-271)
+                why = f"{rtype} line {line}: {exc}"
+                with db.transaction() as tx:
+                    tx.execute(
+                        "INSERT INTO tb_load (source_kind, batch, seconds, counts) VALUES (?, ?, 0, ?::jsonb)",
+                        (f"{kind}-refused", batch, json.dumps({"refused": why})),
+                    )
+                raise OmopError(
+                    f"{why}: refused, nothing loaded (the lake keeps its CURRENT snapshot). Correct the feed's "
+                    "dates to the western calendar and run the night again"
+                ) from None
+            for rec in built:
                 rec.extra.update(prov)  # DATA-010: kept with the record, outside its content sha
                 if from_note and rec.part == 0:  # T-202: a fact read from a chart, for NOTE_NLP
                     rec.extra["from_note"], rec.extra["from_note_term"] = from_note

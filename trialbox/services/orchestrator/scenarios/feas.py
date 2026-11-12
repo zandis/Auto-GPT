@@ -10,6 +10,7 @@ from tb_contracts import Settings, dump
 
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_language
+from orchestrator.decision_context import decision_of
 from orchestrator.i18n import population_line, t
 from orchestrator.reports import feasibility_pdf, feasibility_xlsx
 from orchestrator.reports.common import ReportMeta, fmt_count
@@ -79,6 +80,8 @@ def run(ctx: Ctx) -> Outcome:
             rate_source=cal.source,
             concentration=cal.concentration,
             capacity_per_month=capacity(settings, screen_scope.practitioners if screen_scope else None),
+            # D-477 (OD-8, CR-026): a count leaves out the opt-out register and the registry's refusals
+            exclude_pids=decision_of(ctx).uncounted(),
         )
         result, raw = compute(ctx.services.lake, rs, params)
     except FeasError as exc:

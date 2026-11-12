@@ -83,6 +83,11 @@ def _issued(b: dict[str, Any]) -> list[list[str]]:
         ({"password_env": "lower-case"}, "environment variable name"),
         ({"role": "cro", "delegation": []}, "names its studies"),
         ({"affiliation": "smo", "delegation": []}, "names its studies"),
+        (
+            {"role": "steward", "delegation": [{"study": "GZQO", "role": "crc"}]},
+            "site-wide",
+        ),  # DEMO-JA: a steward writes the log, it is not on it
+        ({"role": "privacy", "delegation": [], "studies": ["GZQO"]}, "site-wide"),
     ],
 )
 def test_the_accounts_file_is_checked(change: dict[str, Any], message: str) -> None:
@@ -208,3 +213,25 @@ def test_served_console_takes_identity_settings_from_the_environment(tmp_path: P
     assert env["TB_CONSOLE_SECURE_COOKIE"] == "1" and "TB_DEMO_PASSWORD" not in env
     assert "TB_CONSOLE_MFA" not in demo.console_env(tmp_path, {}, accounts=False)  # the built-in demo: as before
     assert demo.console_env(tmp_path, {"TB_CONSOLE_MFA": "off"}, accounts=True)["TB_CONSOLE_MFA"] == "off"
+
+
+def test_the_file_makes_a_steward_and_a_privacy_officer_who_open_the_audit_browser(box: dict[str, Any]) -> None:  # noqa: F811
+    """DEMO-JA: /audit needs the steward or the privacy office; the accounts file can make both (site-wide, no log
+    entry). Nobody acts as PI until a PI is named on the log (D-380): the seed writes that entry, as the steward would."""
+    rows = [*FILE["accounts"], {"username": "tester1.stw", "role": "steward", "language": "ja", "expires": "2027-01-31"},
+            {"username": "tester1.dpo", "role": "privacy", "language": "ja"}]  # fmt: skip
+    got = demo.parse_accounts({"accounts": rows})
+    assert [(a.role, a.scope) for a in got][-2:] == [("steward", ""), ("privacy", "")]
+    done = demo.seed_accounts(box["users"], TeamStore(), got, today=date(2026, 10, 25), now="2026-10-25T00:00:00+00:00",
+                              totp=False, issued=box["dir"] / demo.ISSUED, environ={},
+                              known_studies={"GZQO", "GOUT-COH"}, audit=box["audit"])  # fmt: skip
+    assert "tester1.stw" in done["created"] and "tester1.dpo" in done["created"]
+    pw = {r[1]: r[3] for r in _issued(box) if r[2] == "password"}
+    for name, role in (("tester1.stw", "steward"), ("tester1.dpo", "privacy")):
+        u = box["users"].get(name)
+        assert u is not None and u.role == role
+        box["users"].set_password(name, NEW_PW, must_change=False)
+        assert pw[name]
+        c = _sign_in(box["app"], name)
+        assert c.get("/audit").status_code == 200, name
+    assert not any(e.username in ("tester1.stw", "tester1.dpo") for e in TeamStore().entries("GZQO"))

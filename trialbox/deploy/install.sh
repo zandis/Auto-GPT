@@ -78,6 +78,18 @@ say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
 die() { printf 'install: %s\n' "$*" >&2; exit 1; }
 rand() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "${1:-32}"; }
 IMAGE_PY="${TB_IMAGE:-trialbox-py:1.0.0}"
+# OPS-004 (D-570): after an install from a bundle the shipped files under deploy/ are links into ../current
+# (tools/host_tree.py). A container that gets deploy/ alone sees them dangle (found by the box rehearsal: the measured
+# record, the image lock, the compose files). Every container started on deploy/ also gets the release tree where
+# those links point: /current beside a mount at /d, /app/current beside one at /app/deploy. A checkout has no
+# release tree and gets nothing.
+tree_args() {
+  TREE_D=(); TREE_APP=()
+  if [ -d "$ROOT/current" ]; then
+    local tree; tree="$(readlink -f "$ROOT/current")"
+    TREE_D=(-v "$tree:/current:ro"); TREE_APP=(-v "$tree:/app/current:ro")
+  fi
+}
 PUBKEY="${TB_VENDOR_PUBKEY:-$ROOT/deploy/keys/vendor_ed25519.pub}"
 
 if [ "$CHECK" = 1 ]; then exec sh "$ROOT/deploy/check_host.sh" "$@"; fi
@@ -211,11 +223,13 @@ fi
 if [ ! -f deploy/settings.yaml ]; then
   if [ -n "$ANSWERS" ]; then
     [ -f "$ANSWERS" ] || die "no such answers file: $ANSWERS"
-    docker run --rm -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" "${MAPPING_MOUNT[@]}" -v "$(cd "$(dirname "$ANSWERS")" && pwd)/$(basename "$ANSWERS"):/in/answers.yaml:ro" \
+    tree_args
+    docker run --rm -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" ${TREE_D[@]+"${TREE_D[@]}"} "${MAPPING_MOUNT[@]}" -v "$(cd "$(dirname "$ANSWERS")" && pwd)/$(basename "$ANSWERS"):/in/answers.yaml:ro" \
       --user "$(id -u):$(id -g)" "$IMAGE_PY" python -m tools.settings_wizard --answers /in/answers.yaml --out /out/settings.yaml --env-out /out/.env
   else
     [ -t 0 ] || die "no deploy/settings.yaml and no terminal for the questions: pass --answers site.yaml (RUNBOOK §1 step 3)"
-    docker run --rm -it -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" "${MAPPING_MOUNT[@]}" --user "$(id -u):$(id -g)" "$IMAGE_PY" \
+    tree_args
+    docker run --rm -it -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" ${TREE_D[@]+"${TREE_D[@]}"} "${MAPPING_MOUNT[@]}" --user "$(id -u):$(id -g)" "$IMAGE_PY" \
       python -m tools.settings_wizard --out /out/settings.yaml --env-out /out/.env
   fi
 else
@@ -255,7 +269,8 @@ if [ "$FRESH" = 1 ] || grep -q '^TB_SERVICE_TOKEN=change-me' deploy/.env; then s
 if command -v python3 >/dev/null; then
   python3 -m tools.trialbox secrets init --deploy "$ROOT/deploy" | sed 's/^/    /'
 else
-  docker run --rm --user 0 -v "$ROOT/deploy:/d" "$IMAGE_PY" python -m tools.trialbox secrets init --deploy /d | sed 's/^/    /'
+  tree_args
+  docker run --rm --user 0 -v "$ROOT/deploy:/d" ${TREE_D[@]+"${TREE_D[@]}"} "$IMAGE_PY" python -m tools.trialbox secrets init --deploy /d | sed 's/^/    /'
 fi
 # D-126: the host tools reach the one trial database as `trialbox`; each service has its own role (D-378)
 WF_PW="$(sed -n 's/^POSTGRES_WF_PASSWORD=//p' deploy/.env | tail -1)"
@@ -329,13 +344,15 @@ if [ "$MODE" = gpu ]; then
     val="$(sed -n "s/^$v=//p" deploy/.env | tail -1)"; [ -z "$val" ] || export "$v=$val"
   done
   say "pinning the $GPU model pair from deploy/models (tools/pin_model.py --install)"
-  docker run --rm -v "$ROOT/deploy:/d" -e JUDGE_MODEL_DIR -e JUDGE_MODEL -e JUDGE_CHAT_TEMPLATE -e VERIFIER_MODEL_DIR -e VERIFIER_MODEL "$IMAGE_PY" \
+  tree_args
+  docker run --rm -v "$ROOT/deploy:/d" ${TREE_D[@]+"${TREE_D[@]}"} -e JUDGE_MODEL_DIR -e JUDGE_MODEL -e JUDGE_CHAT_TEMPLATE -e VERIFIER_MODEL_DIR -e VERIFIER_MODEL "$IMAGE_PY" \
     python -m tools.pin_model --install "$GPU" --models-root /d/models --out /d/site/registry.site.yaml \
     || echo "install: warning: a model of the $GPU pair is not pinned (see above): it routes nothing until its weights are in deploy/models and install runs again (RUNBOOK §8)" >&2
   if ls deploy/site/registry.site.yaml >/dev/null 2>&1; then
     # SEC-64: every pinned build's weights must still hash to its pin, or the box does not start on them
     say "checking the pinned model weights (tools/pin_model.py --verify-all)"
-    docker run --rm -v "$ROOT/deploy:/d:ro" "$IMAGE_PY" \
+    tree_args
+    docker run --rm -v "$ROOT/deploy:/d:ro" ${TREE_D[@]+"${TREE_D[@]}"} "$IMAGE_PY" \
       python -m tools.pin_model --verify-all /d/models --out /d/site/registry.site.yaml \
       || die "model weights do not match their pins (see above): restore the pinned files or re-pin with tools/pin_model.py (RUNBOOK §8)"
   else
@@ -353,7 +370,8 @@ case "$MODE:$GPU" in gpu:rtxpro6000|gpu:gb10|gpu:rtx5090)
     [ -f "$f" ] && { REC="$f"; break; }
   done
   if [ -n "$REC" ]; then
-    docker run --rm -v "$ROOT/deploy:/d:ro" "$IMAGE_PY" python -m tools.serving_config measured "$GPU" "/d/${REC#deploy/}" \
+    tree_args
+    docker run --rm -v "$ROOT/deploy:/d:ro" ${TREE_D[@]+"${TREE_D[@]}"} "$IMAGE_PY" python -m tools.serving_config measured "$GPU" "/d/${REC#deploy/}" \
       || die "$REC is not a measurement of the $GPU profile on its own card (see above)"
     echo "    $GPU profile measured: $REC"
   elif [ -z "$TIER" ] && [ "${TB_ACCEPT_UNMEASURED_GPU:-0}" = 1 ]; then
@@ -440,6 +458,14 @@ if [ "$PULL" = never ]; then
   [ -z "$MISSING" ] || die "images not on this box:$MISSING. They come only from the bundle; nothing is pulled (TB_INSTALL_PULL=missing on a site with its own mirror)"
   echo "    every image of the stack is on this box (nothing is pulled)"
 fi
+# D-620: this release's host-side steps before its stack starts (tools/trialbox/prestart.py), the same command an
+# update runs: a step a release adds there is run by a fresh install too. The steps are safe to run again.
+if command -v python3 >/dev/null; then
+  python3 -m tools.trialbox pre-start --deploy "$ROOT/deploy" 2>&1 | sed 's/^/    /' \
+    || die "a start-up step of this release failed (pre-start above)"
+else
+  echo "    note: no python3 on this host: the release's start-up steps (tools.trialbox pre-start) were not run" >&2
+fi
 # T-612 (DATA-004): the site keys are made here and nowhere else. A key already in the secrets volume is kept; the
 # ingest refuses a night whose key is missing or is not the one the box's pseudonyms were made with
 say "site keys (made once, never replaced)"
@@ -461,6 +487,11 @@ fi
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
 "${COMPOSE[@]}" up -d --pull "$PULL" --wait db && "${COMPOSE[@]}" exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh \
   || die "the database roles could not be set (docker compose logs db)"
+# D-486 (T-718): the schemas no service owns (edc) are made now, by the box's admin, before the services start; the
+# admin's URL goes in the environment, not on the command line
+TB_DB_URL="postgresql://trialbox:${WF_PW}@db:5432/trialbox_wf" "${COMPOSE[@]}" run --rm --no-deps -T -e TB_DB_URL \
+  orchestrator python -m orchestrator.migrate | sed 's/^/    /' \
+  || die "the schemas of the trial database could not be made (python -m orchestrator.migrate)"
 "${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-900}" \
   || { "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }
 if [ "$MODE" = gpu ]; then
@@ -468,7 +499,8 @@ if [ "$MODE" = gpu ]; then
   # gateway would get 404 or 401 on every call and the box would screen nothing (doctor check "serving")
   say "model servers: pinned served names and key (trialbox doctor --serving)"
   set +e
-  docker run --rm --network trialbox-model-net --env-file deploy/.env -v "$ROOT/deploy:/app/deploy:ro" \
+  tree_args
+  docker run --rm --network trialbox-model-net --env-file deploy/.env -v "$ROOT/deploy:/app/deploy:ro" ${TREE_APP[@]+"${TREE_APP[@]}"} \
     -e TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key --user "$(id -u):$(id -g)" "$IMAGE_PY" python -m tools.trialbox doctor --serving | sed 's/^/    /'
   rc="${PIPESTATUS[0]}"
   set -e
@@ -502,13 +534,14 @@ if [ "${TB_SYSTEMD:-1}" != 0 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system
     done
     systemctl daemon-reload
     # trialbox-weights.timer (T-677, D-393): the weights against their pins before the night's runs
+    # trialbox-ops.timer (NEW-OPS-8, D-561): the runner that writes the host's health facts every minute and runs
+    # the Operations page's requests; without it the health line is red (OPS-009)
     systemctl enable trialbox-egress.service trialbox.service trialbox-egress-refresh.timer trialbox-watchdog.timer \
-      trialbox-egress-watch.service trialbox-weights.timer >/dev/null 2>&1 \
+      trialbox-egress-watch.service trialbox-weights.timer trialbox-ops.timer >/dev/null 2>&1 \
       || die "the systemd units could not be enabled (systemctl status trialbox-egress trialbox)"
     systemctl start trialbox-egress.service trialbox-egress-refresh.timer trialbox-watchdog.timer trialbox-weights.timer \
-      trialbox-egress-watch.service >/dev/null 2>&1 || true
-    echo "    enabled: trialbox-egress, trialbox, trialbox-egress-refresh.timer, trialbox-watchdog.timer, trialbox-weights.timer, trialbox-egress-watch"
-    echo "    (trialbox-ops.timer is installed, not enabled: RUNBOOK §15)"
+      trialbox-egress-watch.service trialbox-ops.timer >/dev/null 2>&1 || true
+    echo "    enabled: trialbox-egress, trialbox, trialbox-egress-refresh.timer, trialbox-watchdog.timer, trialbox-weights.timer, trialbox-egress-watch, trialbox-ops.timer"
   else
     echo "install: warning: systemd units not enabled: the egress rules were not applied (no state file for a boot)" >&2
   fi
@@ -517,9 +550,11 @@ CRON_DIR="${TB_CRON_DIR:-/etc/cron.d}"   # T-632: both cron files, or no finishe
 CAN_CRON=0; { [ "$(id -u)" = 0 ] || [ -n "${TB_CRON_DIR:-}" ]; } && [ -d "$CRON_DIR" ] && command -v python3 >/dev/null && CAN_CRON=1
 if [ "$CAN_CRON" = 1 ]; then
   # D-138: every night collect yesterday's service logs, prune by settings.retention, copy the audit to its archive
-  printf '%s\n' "SHELL=/bin/sh" "20 0 * * * root cd $ROOT && python3 -m tools.trialbox logs daily >> /var/log/trialbox-retention.log 2>&1" \
+  # NEW-STD-2 (D-562): then the night's signed head of the audit chain into TB_AUDIT_ANCHOR_TARGETS, whatever the
+  # first command returned; `trialbox doctor` (audit_heads) FAILs when no folder is set or the newest head is old
+  printf '%s\n' "SHELL=/bin/sh" "20 0 * * * root cd $ROOT && { python3 -m tools.trialbox logs daily; python3 -m tools.trialbox audit-sign; } >> /var/log/trialbox-retention.log 2>&1" \
     > "$CRON_DIR/trialbox-retention" && chmod 644 "$CRON_DIR/trialbox-retention"
-  echo "    log retention: $CRON_DIR/trialbox-retention (00:20 daily)"
+  echo "    log retention and the signed audit head: $CRON_DIR/trialbox-retention (00:20 daily)"
 elif [ "$TB_ENV_SITE" = PRODUCTION ]; then
   die "the cron files cannot be installed (needs root, /etc/cron.d and python3): run the installer as root"
 fi
@@ -533,8 +568,53 @@ if [ -n "${OVR:-}" ]; then  # the override is outside deploy/: mount it where th
   SHEET_MOUNT=(-v "$OVR:/app/deploy/compose-override.yml:ro"); SHEET_FILES="${SHEET_FILES//$OVR/deploy/compose-override.yml}"
 fi
 FAILS=()   # T-632: a FAIL here does not stop the install half-way; the install ends with exit 1 and the list
+# HW-003 (D-569): the shipped qualification record. The pair was pinned as candidate, and PRODUCTION routes a
+# champion only. When a record in deploy/qualification/<profile>/ qualified exactly these weights, this model
+# server image and this chat template, the pair is promoted; the promotion is kept only when the canary passes on
+# this box through the gateway. Until then it waits (deploy/site/shipped-promotion.pending.json): an install that
+# is interrupted here runs the canary the next time, and a failed canary puts the pair back to candidate.
+if [ "$MODE" = gpu ] && [ -f deploy/site/registry.site.yaml ]; then
+  say "model pair: the shipped qualification record (tools/pin_model.py --promote-shipped)"
+  # on a box installed from a bundle these two are links into ../current (tools/host_tree.py): resolved here,
+  # because a link out of the mounted folder dangles inside the container
+  QUAL_DIR="$(readlink -f deploy/qualification 2>/dev/null || true)"; [ -d "$QUAL_DIR" ] || QUAL_DIR="$ROOT/deploy/site"
+  LOCK_FILE="$(readlink -f deploy/images.lock 2>/dev/null || true)"
+  pin_tool() {
+    docker run --rm -v "$ROOT/deploy/site:/d/site" -v "$QUAL_DIR:/q:ro" ${LOCK_FILE:+-v "$LOCK_FILE:/images.lock:ro"} "$IMAGE_PY" \
+      python -m tools.pin_model "$@" --out /d/site/registry.site.yaml 2>&1 | sed 's/^/    /'
+    return "${PIPESTATUS[0]}"
+  }
+  set +e
+  pin_tool --promote-shipped "$GPU" --records /q --images-lock /images.lock
+  rc=$?
+  if [ "$rc" = 0 ]; then
+    canary=1  # anything that keeps the canary from running counts as a canary that did not pass
+    if "${COMPOSE[@]}" restart gateway >/dev/null 2>&1 && "${COMPOSE[@]}" up -d --wait gateway >/dev/null 2>&1; then
+      say "model pair: the canary on this box (trialbox selftest)"
+      if command -v python3 >/dev/null; then
+        python3 -m tools.trialbox selftest 2>&1 | sed 's/^/    /'
+        canary="${PIPESTATUS[0]}"
+      fi
+    fi
+    if [ "$canary" = 0 ]; then
+      pin_tool --confirm-shipped "$GPU"
+      # the orchestrator ran its start canary while the pair was candidate: started again, its own canary gate
+      # opens on the promoted pair (until then note answers send a patient to review and never exclude)
+      "${COMPOSE[@]}" restart orchestrator >/dev/null 2>&1 \
+        || FAILS+=("the orchestrator did not restart after the model pair was promoted: docker compose --project-directory deploy restart orchestrator")
+    elif pin_tool --demote-pair "$GPU" && "${COMPOSE[@]}" restart gateway >/dev/null 2>&1; then
+      FAILS+=("the model pair was promoted on its shipped record but the canary on this box did not pass (above): it is back to candidate and routes nothing; check the card, the driver and the model servers' logs, then re-run (RUNBOOK §11)")
+    else
+      FAILS+=("the model pair was promoted on its shipped record, the canary on this box did not pass (above), and the pair could NOT be put back: run python3 -m tools.pin_model --demote-pair $GPU, then restart the gateway, before anything is screened (RUNBOOK §11)")
+    fi
+  elif [ "$rc" != 4 ]; then  # 4: champion before this install and nothing waits for a canary; left as it is
+    FAILS+=("the model pair is not qualified on this box (above): no record in deploy/qualification/$GPU matches its weights, model server image and chat template; it routes nothing in PRODUCTION until the release ships one or the pair is qualified here (RUNBOOK §11)")
+  fi
+  set -e
+fi
 # T-632 (OPS-014): every overlay renders; an error is shown, never hidden
-if SHEET_OUT="$(docker run --rm -v "$ROOT/deploy:/app/deploy" ${SHEET_MOUNT[@]+"${SHEET_MOUNT[@]}"} --user "$(id -u):$(id -g)" "$IMAGE_PY" \
+tree_args
+if SHEET_OUT="$(docker run --rm -v "$ROOT/deploy:/app/deploy" ${TREE_APP[@]+"${TREE_APP[@]}"} ${SHEET_MOUNT[@]+"${SHEET_MOUNT[@]}"} --user "$(id -u):$(id -g)" "$IMAGE_PY" \
      python -m tools.network_sheet --files "$SHEET_FILES" --env deploy/.env --out deploy/site/network-sheet 2>&1)"; then
   echo "    network sheet: deploy/site/network-sheet.{en,ja,zh-TW}.{md,html}"
 else
@@ -551,7 +631,14 @@ if [ "$CAN_CRON" = 1 ]; then
   python3 -m tools.trialbox backup-install --deploy deploy ${TB_CRON_DIR:+--cron-dir "$TB_CRON_DIR"} 2>&1 | sed 's/^/    /'
   rc="${PIPESTATUS[0]}"
   set -e
-  [ "$rc" = 0 ] || die "the backup schedule is not installed (above): set TB_BACKUP_ALERT_CMD or TB_BACKUP_MAILTO in deploy/.env (RUNBOOK §5), then re-run"
+  if [ "$rc" != 0 ] && [ "${TB_BOX:-0}" != 1 ]; then
+    die "the backup schedule is not installed (above): set TB_BACKUP_ALERT_CMD or TB_BACKUP_MAILTO in deploy/.env (RUNBOOK §5), then re-run"
+  elif [ "$rc" != 0 ]; then
+    # OPS-003 (D-566): a box has no alert route yet (no mail relay on a fresh host). A stop here is a stop before
+    # the wizard; a FAIL line leaves the stack running, and box-install.sh goes on to the first-run code and
+    # installs the schedule again after the owner's answers
+    FAILS+=("the backup schedule is not installed yet (above): box-install.sh installs it again after the first-run set-up; if it is still missing then: python3 -m tools.trialbox backup-install --deploy deploy (RUNBOOK §5)")
+  fi
 else
   echo "install: warning: the backup cron is not installed (needs root, /etc/cron.d and python3): python3 -m tools.trialbox backup-install --deploy deploy (RUNBOOK §5)" >&2
 fi
@@ -607,6 +694,18 @@ esac
 echo "    add coordinators and viewers on the console's Users page, or: docker compose exec console python -m console.cli add-user"
 fi
 
+# NEW-STD-2 (D-562): the first signed head of the audit chain, when the site named an anchor folder: the night's own
+# command, once, so the box does not wait for 00:20 for its first head. Not a stop: a line of the install's report
+if [ -n "$(envget TB_AUDIT_ANCHOR_TARGETS)" ] && [ "$(id -u)" = 0 ]; then
+  say "audit chain: the first signed head"
+  if SIGN_OUT="$(python3 -m tools.trialbox audit-sign 2>&1)"; then
+    echo "$SIGN_OUT" | sed 's/^/    /'
+  else
+    echo "$SIGN_OUT" | tail -5 | sed 's/^/    /' >&2
+    FAILS+=("the first signed audit head was not made (python3 -m tools.trialbox audit-sign, above; RUNBOOK §2)")
+  fi
+fi
+
 # ------------------------------------------------------------------------------------------------ 6. check
 say "host check"
 HOST_ARGS=(); [ "$MODE" = gpu ] && HOST_ARGS=(--gpu "$GPU")
@@ -614,7 +713,8 @@ sh "$ROOT/deploy/check_host.sh" ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} || FAILS+=("th
 # T-632 (D-382): the judge, named from the configuration: its role, the registry's label for the build this profile
 # serves, and the site's pin (tools/pin_model.py --name-judge); a stub box has none
 if [ "$MODE" = gpu ]; then
-  JUDGE="$(docker run --rm -v "$ROOT/deploy:/d:ro" "$IMAGE_PY" python -m tools.pin_model --name-judge "$GPU" --out /d/site/registry.site.yaml 2>&1)" \
+  tree_args
+  JUDGE="$(docker run --rm -v "$ROOT/deploy:/d:ro" ${TREE_D[@]+"${TREE_D[@]}"} "$IMAGE_PY" python -m tools.pin_model --name-judge "$GPU" --out /d/site/registry.site.yaml 2>&1)" \
     || FAILS+=("the judge could not be named: $JUDGE")
 else
   JUDGE="judge: none (stub mode: structured criteria only; note criteria wait for a GPU)"

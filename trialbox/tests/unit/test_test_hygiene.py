@@ -117,13 +117,15 @@ def test_the_nightly_runs_on_a_schedule_and_by_hand_with_every_job() -> None:
     wf = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     on = wf.get("on") or wf.get(True)  # YAML 1.1 reads the key `on` as True
     assert on["schedule"] and "workflow_dispatch" in on
-    assert {"random-order", "perf-5k"} <= set(wf["jobs"]["nightly"]["strategy"]["matrix"]["run"])
+    assert "perf-5k" in wf["jobs"]["nightly"]["strategy"]["matrix"]["run"]
+    random = wf["jobs"]["random-order"]  # ENG-002 (D-560): a job of its own, one per shard (test_nightly_green.py)
+    assert any("make test-random" in str(s.get("run", "")) for s in random["steps"])
     runs = "\n".join(str(s.get("run", "")) for s in wf["jobs"]["compose"]["steps"])
     for step in ("make images", "make up-test", "make test-compose", "make walk", "make poc", "test_console_poc.py"):
         assert step in runs, step
     assert "TB_STRICT_SKIPS=1" in runs and "TB_STRICT_SKIPS=1" in _target_body("test-compose")
     nightly = "\n".join(str(s.get("run", "")) for s in wf["jobs"]["nightly"]["steps"])
-    assert "make bench-gate" in nightly and "make test-random" in nightly
+    assert "make bench-gate" in nightly
 
 
 def _target_body(name: str) -> str:

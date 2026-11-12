@@ -124,7 +124,8 @@
   later start the backup after the night's jobs instead of at 04:45; the wait then rarely runs.
 - **A steward's acknowledgement hold after a restore (M3):** the list, the report, the audit event and the CLI's
   exit 4 are built; a hold that keeps screening off until a steward acknowledges the list (and `doctor` showing it)
-  needs a place to record the acknowledgement; no existing mechanism fits.
+  needs a place to record the acknowledgement; no existing mechanism fits. **Built since: D-522** (NEW-B-3; the
+  audited flag `screening.after_restore`).
 
 - **T-726** makes the backup a step of the night (after the ingest and the jobs) instead of a 04:45 clock time.
 - **The platform (k8s) jobs** keep `activeDeadlineSeconds: 21600` (`deploy/platform/base/day2.yaml`) and

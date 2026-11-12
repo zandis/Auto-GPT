@@ -254,6 +254,7 @@ def _doc(**judge: Any) -> dict[str, Any]:
         "alias": "j-workhorse",
         "status": "champion",
         "serving": "vllm",
+        "context_length": 32768,  # LLM-007 (D-568): PRODUCTION routes no local build without one
         "served": {"serving": "j-test"},
         "sha256": sha,
         "licence": {"name": "test"},

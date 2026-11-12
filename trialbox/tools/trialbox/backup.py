@@ -401,6 +401,44 @@ def restore_db(src: DbSource, dump_file: Path, env: Mapping[str, str]) -> None:
         raise BackupError(f"pg_restore of {src.name} failed: {r.stderr.decode(errors='replace').strip()[-400:]}")
 
 
+ROLES_CMD = "TB_DB_ROLES_CMD"
+ROLES_NOT_NEEDED = "not-needed"  # the value of TB_DB_ROLES_CMD where every service signs in as trialbox
+ROLES_ON_A_BOX = "docker compose --project-directory deploy exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh"
+
+
+def reapply_service_roles(env: Mapping[str, str]) -> dict[str, str]:
+    """D-573: after ``pg_restore --no-owner`` every restored schema, table and function is the restoring role's
+    (``trialbox``); a service works as its schema's group, which then owns nothing. The service-roles script
+    (D-378) gives them back; the restore runs it through ``TB_DB_ROLES_CMD``. ``{"state": "applied"}``, or
+    ``not_configured`` with the line to run; a command that fails is a :class:`BackupError` with its output."""
+    if (env.get(ROLES_CMD) or "").strip() == ROLES_NOT_NEEDED:  # the platform: its services sign in as trialbox
+        return {"state": "not_needed"}
+    cmd = _cmd(env, ROLES_CMD, "")
+    if not cmd:
+        return {"state": "not_configured", "run": ROLES_ON_A_BOX}
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, env={**os.environ, **dict(env)}, check=False)
+    except OSError as e:
+        raise BackupError(f"the service roles were not put back after the restore: {' '.join(cmd)}: {e}") from e
+    if r.returncode != 0:
+        raise BackupError(
+            "the service roles were not put back after the restore (exit "
+            f"{r.returncode}): {(r.stderr or r.stdout).strip()[-400:]}; the databases are restored and the services "
+            "cannot work in them: do not start the services; fix what the output names and run this restore again"
+        )
+    return {"state": "applied"}
+
+
+def roles_ok(roles: Mapping[str, str], env: Mapping[str, str]) -> bool:
+    """Is the restore complete as far as the service roles go? Not when the command was not set on a box that
+    runs for real (PRODUCTION, VALIDATION; an unset TB_ENV is PRODUCTION)."""
+    if roles.get("state") != "not_configured":
+        return True
+    from tb_common.config import environment_name
+
+    return environment_name(env) not in ("PRODUCTION", "VALIDATION")
+
+
 def _drop_schemas(src: DbSource) -> None:
     """Drop the source's schemas in one transaction: those of its ``tb_prefix``, or, for a whole database, every
     schema but the system ones (``public`` is made again, empty, for the dump's objects)."""
@@ -1266,6 +1304,63 @@ def fail_running_jobs(src: DbSource, when: datetime, made: str) -> list[dict[str
     return sorted(({"job_id": str(j), "type": str(t), "step": str(st)} for j, t, st in rows), key=lambda r: r["job_id"])
 
 
+HOLD_FLAG = "screening.after_restore"  # tb_common.flags: the hold a restore that is not complete leaves (D-522)
+
+
+def _hold_flags(env: Mapping[str, str], audit_dir: Path | None) -> Any:
+    from tb_common.audit import AuditLog
+    from tb_common.flags import Flags
+
+    log = None
+    if audit_dir is not None:
+        log = AuditLog(Path(audit_dir), tz=env["TB_TZ"]) if env.get("TB_TZ") else AuditLog(Path(audit_dir))
+    return Flags(url=env.get("TB_DB_URL"), audit=log)
+
+
+def hold_standing(env: Mapping[str, str]) -> bool:
+    """Whether the box is held now (read before the trial database is replaced). A hold that cannot be read is
+    taken as standing: the restore then leaves the box held, and a person releases it."""
+    try:
+        return bool(_hold_flags(env, None).row(HOLD_FLAG) == "held")
+    except LookupError:  # no trial database configured: nothing was held
+        return False
+    except Exception:
+        return True
+
+
+def hold_screening(env: Mapping[str, str], audit_dir: Path | None, reason: str) -> str:
+    """NEW-B-3 (D-522): hold the box's list jobs (the audited flag ``screening.after_restore``, set to ``held``)
+    until the restore ends complete or a person releases the hold with a reason. Returns ``held``, or ``NOT set:
+    <why>`` when the flag could not be written (no audit directory: a flag change must be audited; a database
+    error). Never raises: the restore's own report says what happened. ``reason`` holds counts and times only."""
+    if audit_dir is None:
+        return "NOT set: no audit directory in the layout (or TB_AUDIT_DIR); a hold must be audited"
+    try:
+        flags = _hold_flags(env, audit_dir)
+        if flags.row(HOLD_FLAG) != "held":  # held already (the backup was taken under a hold): it stays
+            try:
+                flags.set(HOLD_FLAG, "held", actor=env.get("TB_RESTORE_ACTOR") or "trialbox restore", reason=reason)
+            except ValueError:
+                if flags.row(HOLD_FLAG) != "held":  # not "already held" (set by another writer meanwhile)
+                    raise
+        return "held"
+    except Exception as exc:
+        return f"NOT set: {type(exc).__name__}"
+
+
+def release_own_hold(env: Mapping[str, str], audit_dir: Path | None, reason: str) -> str:
+    """The restore ended complete and the hold is its own (none stood before it, no earlier restore's set-aside
+    copy is on the box): the restore takes it off again. Returns ``released``, or ``held`` when it could not (the
+    box then stays held, which is the safe side)."""
+    try:
+        _hold_flags(env, audit_dir).set(
+            HOLD_FLAG, "released", actor=env.get("TB_RESTORE_ACTOR") or "trialbox restore", reason=reason
+        )
+        return "released"
+    except Exception:
+        return "held"
+
+
 def _audit(dirs: Mapping[str, Path], env: Mapping[str, str], event: str, sha: str, detail: dict[str, Any]) -> str:
     """Append ``event`` to the box's audit log (the ``audit`` directory, else ``TB_AUDIT_DIR``); returns where, or
     why not."""
@@ -1407,8 +1502,21 @@ def restore(
             kept_done = True
 
         wf_restored = False
+        roles: dict[str, str] = {"state": "not_restored"}  # D-573: no trial database in this backup, nothing to move
         jobs_failed: list[dict[str, str]] = []
         checked = {}
+        # NEW-B-3 (D-522, review H1): what stands before the trial database is replaced. A hold that stands, or an
+        # earlier restore's set-aside audit chain on the box (its events may not be re-applied yet, and this run
+        # will not see them), is never taken off by this restore: only a person releases it
+        hold_dir = targets.get("audit") or (Path(env["TB_AUDIT_DIR"]) if env.get("TB_AUDIT_DIR") else None)
+        carried = hold_standing(env) or bool(
+            hold_dir is not None and list(Path(hold_dir).parent.glob(f"{Path(hold_dir).name}.pre-restore-*"))
+        )
+        hold = "not needed"
+        hold_reason = (
+            f"restore of the backup of {manifest['created_at']}: held until the restore ends complete or a person "
+            "releases it (audit: backup.restored, backup.restore_reapply)"
+        )
         try:
             for name, want in manifest["databases"].items():
                 restore_db(srcs[name], work / "db" / f"{name}.dump", env)
@@ -1435,6 +1543,11 @@ def restore(
                     warnings.append(msg + " (this backup counted its rows on a running box: check those tables)")
                 checked[name] = sum(r[0] for r in got.values())
             if "trialbox_wf" in manifest["databases"]:  # T-728 (D-493, F-11): after the rows were checked
+                # NEW-B-3 (D-522, review H1, M1): held from here on, before anything else can stop the restore
+                # or a folder is set aside (the flag is a row of the restored database, so it is written after
+                # the rows were compared with the backup's). Taken off at the end only when the restore is
+                # complete and nothing was carried
+                hold = hold_screening(env, hold_dir, hold_reason)
                 try:
                     jobs_failed = fail_running_jobs(srcs["trialbox_wf"], when, manifest["created_at"])
                 except Exception as e:  # the queue could not be changed: the restore says so and stops
@@ -1449,10 +1562,16 @@ def restore(
                         f"the opt-outs recorded after the backup could not be put back ({type(e).__name__}); do "
                         "not start the services: those patients would be listed again"
                     ) from e
+                # D-573: the stores go back to their services' roles. After the running jobs were failed and the
+                # opt-outs kept (both are rows, written as trialbox): a failure here leaves neither undone. Not
+                # set: said in the result and by the command, see roles_ok
+                roles = reapply_service_roles(env)
         except BackupError as e:
             if wf_restored:  # the live register is gone: a second run could not read them any more (review H2)
                 with contextlib.suppress(Exception):
                     keep()
+                if hold != "held":  # NEW-B-3: the database is replaced and the restore stops: the box is held
+                    hold = hold_screening(env, hold_dir, hold_reason)
             with contextlib.suppress(Exception):
                 _audit(targets, env, "backup.restore_failed", sha, {**base, "error": str(e)[-300:]})
             back = f"; the box before it is kept in {copy}: trialbox restore {copy} puts it back" if copy else ""
@@ -1513,16 +1632,28 @@ def restore(
             if HOST in targets and HOST in manifest["dirs"]
             else ("in the backup; not restored (--dir host=<folder> writes it)" if HOST in manifest["dirs"] else "none")
         )
+        # D-573 (lane D): a restore whose service roles were not put back is not complete either (the hold stays)
+        complete = not reapply and optouts_ok(lost) and roles_ok(roles, env)
+        # NEW-B-3 (D-522; D-455's open item): a restore that is not complete leaves the box's list jobs held until
+        # a person releases the hold. The restore takes its own hold off only when it is complete and nothing was
+        # carried (a hold that stood before, an earlier restore's set-aside chain)
+        if hold == "held" and complete and not carried:
+            hold = release_own_hold(
+                env,
+                audit_dir,
+                f"the restore of the backup of {manifest['created_at']} is complete: nothing to re-apply",
+            )
         audited = _audit(targets, env, "backup.restored", sha, {
             **base, "rows": checked, "dirs": sorted(manifest["dirs"]), "refdata_missing": refdata["missing"],
-            "warnings": len(warnings), "optouts_after_backup": lost, "jobs_failed": len(jobs_failed)})  # fmt: skip
+            "warnings": len(warnings), "optouts_after_backup": lost, "jobs_failed": len(jobs_failed),
+            "hold": hold, "to_reapply": len(reapply), "service_roles": roles["state"]})  # fmt: skip
     return {"ok": not refdata["missing"], "site": manifest["site"], "created_at": manifest["created_at"],
             "layout": manifest.get("layout", 1), "rows": checked, "dirs": sorted(manifest["dirs"]),
             "refdata": refdata, "warnings": warnings, "kept_copy": str(copy) if copy else None, "copy": copy_note,
             "host": host, "lake_check": lake,
             "to_reapply": reapply, "reapply_since": since.isoformat(timespec="milliseconds"),
-            "optouts_after_backup": lost, "jobs_failed": jobs_failed,
-            "complete": not reapply and optouts_ok(lost), "audit": audited}  # fmt: skip
+            "optouts_after_backup": lost, "jobs_failed": jobs_failed, "service_roles": roles,
+            "complete": complete, "hold": hold, "audit": audited}  # fmt: skip
 
 
 _safe = _sched.safe

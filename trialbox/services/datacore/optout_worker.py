@@ -204,6 +204,28 @@ def verify_vec(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
         }
 
 
+def clear_pending(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    """T-723 (D-489): the pid map's staging (a held night's chart numbers and identities, not yet in the map). The
+    opted-out patient's staged rows are deleted; a later night stages them again if the opt-out is lifted."""
+    url = _schema_url(env, "pidmap", "pending")
+    if url is None:
+        return {"skipped": 1}
+    from tb_common.db import Database
+
+    with Database.connect(url, "pidmap") as db:
+        return {"staged": int(db.execute("DELETE FROM pending WHERE pid = ANY(?)", (sorted(pids),)))}
+
+
+def verify_pending(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    url = _schema_url(env, "pidmap", "pending")
+    if url is None or not pids:
+        return {}
+    from tb_common.db import Database
+
+    with Database.connect(url, "pidmap") as db:
+        return {"pidmap.pending": int(db.fetchval("SELECT count(*) FROM pending WHERE pid = ANY(?)", (sorted(pids),)))}
+
+
 def clear_profile(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
     url = _schema_url(env, "profile", "tb_patient_profile")
     if url is None:
