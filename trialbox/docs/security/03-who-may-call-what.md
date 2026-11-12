@@ -16,8 +16,8 @@
 - **The orchestrator's routes per calling service** (D-464, T-713; review 2026-11-12 trust F2, F7, F12).
   `services/orchestrator/route_callers.yaml` puts every route of the orchestrator in one group and says which verified
   service reaches which groups; the token middleware enforces it before routing (`orchestrator/callers.py`). The
-  console reaches the groups it calls; the mail gateway only `POST /jobs` for the mail commands and
-  `GET /jobs/{job_id}` for a job that came in by mail; the operator's host token reads jobs and models; the adapter,
+  console reaches the groups it calls; the mail gateway only `POST /jobs` for the mail commands as mailed jobs and
+  `GET /jobs/{job_id}` for a job that came in by mail (also through `POST /jobs` with a known id); the operator's host token reads jobs and models; the adapter,
   lake, compiler, doc-parser, gateway and embed service reach nothing. `requested_by: scheduler` (or `system`) is
   refused over HTTP from every caller: the scheduler starts its jobs in process. The old shared token reaches the
   orchestrator only in DEV and TEST. Refusals are 403 `route_not_allowed`, `caller_unverified` or

@@ -12,6 +12,7 @@ from typing import Any
 
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
+from tb_common.authz import role_allowed
 from tb_contracts import Job, JobCreate
 
 from console import about, command
@@ -381,6 +382,9 @@ def register(app: FastAPI, h: Helpers) -> None:
                 flt=flt,
                 terminal=TERMINAL,
                 can_cancel=callable(getattr(bk, "cancel_job", None)),
+                # T-713 (D-464): a retry runs under the administrator's role; a type the role may not start (the box's
+                # own INGEST, RETENTION, CALIBRATION) runs again on its schedule
+                can_retry={j.type for j in sel if role_allowed(sess.user.role, j.type)},
             )
         else:
             ctx.update(sources=sources_rows())
@@ -455,6 +459,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess, job = job_for_admin(request, job_id, csrf)
         if job.state != "failed":
             raise h.problem(409, "admin.jobs.not_retryable")
+        if not role_allowed(sess.user.role, job.type):  # T-713 (D-464): the box's own timers run again on schedule
+            raise h.problem(409, "admin.jobs.on_schedule")
         if confirm != "yes":
             return h.page(request, "admin_confirm.html", sess, job=job, action="retry")
         requested_by = job.requested_by

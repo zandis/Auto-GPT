@@ -258,14 +258,26 @@ def test_admin_tabs_cancel_and_retry(b4: dict[str, Any]) -> None:
     assert crc.post(f"/admin/jobs/{failed.job_id}/retry", data={"csrf": crc_csrf, "confirm": "yes"}).status_code == 403
 
 
-def test_admin_retry_of_a_scheduler_job_names_the_administrator(b4: dict[str, Any]) -> None:
-    """T-713 (D-464): the orchestrator refuses ``requested_by: scheduler`` over HTTP, so a retry of a failed nightly
-    job names the administrator's mailbox and runs under the administrator's role."""
+def _scheduler_types() -> list[str]:
+    from types import SimpleNamespace
+
+    from orchestrator.scheduler import plan
+
+    return [t for t, _ in plan(SimpleNamespace(schedule=None))]  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("jtype", _scheduler_types())
+def test_admin_retry_of_a_scheduler_job(b4: dict[str, Any], jtype: str) -> None:
+    """T-713 (D-464): the orchestrator refuses ``requested_by: scheduler`` over HTTP, so a retry names the
+    administrator's mailbox and runs under the administrator's role. A type the role may not start (the box's own
+    INGEST, RETENTION, CALIBRATION) shows no retry and is refused with "runs again at its next scheduled time"."""
+    from tb_common.authz import role_allowed
+
     bk = b4["backend"]
     nightly = bk.add_job(
         Job(
             job_id=_ulid(703),
-            type="MICROBATCH",
+            type=jtype,  # type: ignore[arg-type]
             ruleset="GZQO",
             requested_by="scheduler",
             received_at=_T,
@@ -276,10 +288,25 @@ def test_admin_retry_of_a_scheduler_job_names_the_administrator(b4: dict[str, An
         )
     )
     c, csrf = login(b4["app"])
+    page = c.get("/admin", params={"tab": "jobs"}).text
+    n = len(bk.created)
     r = c.post(f"/admin/jobs/{nightly.job_id}/retry", data={"csrf": csrf, "confirm": "yes"}, follow_redirects=False)
-    assert r.status_code == 303
-    req = bk.created[-1]
-    assert req.type == "MICROBATCH" and req.requested_by not in ("scheduler", "system") and "@" in req.requested_by
+    if role_allowed("admin", jtype):
+        assert f'data-testid="retry-{nightly.job_id}"' in page
+        assert r.status_code == 303
+        req = bk.created[-1]
+        assert req.type == jtype and req.requested_by not in ("scheduler", "system") and "@" in req.requested_by
+    else:
+        assert f'data-testid="retry-{nightly.job_id}"' not in page
+        assert f'data-testid="on-schedule-{nightly.job_id}"' in page
+        assert r.status_code == 409 and len(bk.created) == n
+
+
+def test_the_scheduler_types_split_as_the_card_says() -> None:
+    from tb_common.authz import role_allowed
+
+    types = _scheduler_types()
+    assert {t for t in types if not role_allowed("admin", t)} == {"INGEST", "RETENTION", "CALIBRATION"}
 
 
 def test_admin_data_sources_from_ingest_records(b4: dict[str, Any]) -> None:

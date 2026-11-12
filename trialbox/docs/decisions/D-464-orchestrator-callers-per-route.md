@@ -20,16 +20,21 @@
    reaches no route, and it holds the internal principal names (`scheduler`, `system`).
 2. **Enforced in one place.** `make_app` takes a `route_gate`, called by the token middleware right after the token
    is verified, before routing. The orchestrator's gate (`orchestrator.callers`) resolves the request to its route
-   template in FastAPI's own order and refuses a route outside the caller's groups: HTTP 403 with a named reason
-   (`route_not_allowed`, `caller_unverified`) and one audit event `service.route_refused` carrying the verified
-   service, the method, the route template and the reason.
+   template in FastAPI's own order (the routes are compiled once, after the last router is included) and refuses a
+   route outside the caller's groups: HTTP 403 with a named reason (`route_not_allowed`, `caller_unverified`) and one
+   audit event `service.route_refused` carrying the verified service, the route template and the reason (never the
+   raw path: it holds record keys). A request no compiled route matches is never allowed for a named caller outside
+   DEV and TEST (a route added later or under a mount is refused there).
 3. **The mail gateway's jobs.** It may start only the mail commands (`job_types` in its row, the commands of
-   `tb_common.subject.COMMANDS`), and read only a job that came in by mail (one with a `message_id`); anything else is
+   `tb_common.subject.COMMANDS`), only as mailed jobs (a `message_id`), and read only a job that came in by mail (one
+   with a `message_id`), also when `POST /jobs` answers with an existing job for a known `job_id`; anything else is
    `route_not_allowed` with the same audit event.
 4. **Internal principals never come over HTTP.** `POST /jobs` with `requested_by` naming an internal principal
    (`scheduler`, `system`) is refused 403 (`internal_principal`) and audited, from every caller and in every
    environment; the scheduler creates its jobs in process. The console's "retry a failed job" names the
-   administrator's mailbox for a scheduler job, so the retry is authorised by the administrator's role.
+   administrator's mailbox for a scheduler job, so the retry is authorised by the administrator's role. The box's own
+   timer jobs the administrator's role may not start (INGEST, RETENTION, CALIBRATION) show no retry and are refused
+   with "runs again at its next scheduled time": giving the role these rights is a matrix decision, not this card's.
 5. **No identity, no route, outside DEV and TEST.** The old shared token (`legacy`, with a registry or the
    shared-token rule without one) reaches the orchestrator only where `TB_ENV` is DEV or TEST, as D-437 did for the
    gateway; elsewhere it is `caller_unverified`. A call with no token at all passes the gate only where the token

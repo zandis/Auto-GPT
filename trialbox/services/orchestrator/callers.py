@@ -183,22 +183,22 @@ class Gate:
         self.table = table
         self._audit = audit
         self._env = env
-        self._compiled: dict[int, tuple[int, list[tuple[str, str, re.Pattern[str]]]]] = {}
+        self._compiled: list[tuple[str, str, re.Pattern[str]]] | None = None
 
     # ---------------------------------------------------------------------------------------------- routes
-    def _routes(self, app: Any) -> list[tuple[str, str, re.Pattern[str]]]:
-        n = len(app.router.routes)
-        hit = self._compiled.get(id(app))
-        if hit is None or hit[0] != n:
-            hit = (n, [(m, t, compile_path(t)[0]) for m, t in route_templates(app)])
-            self._compiled[id(app)] = hit
-        return hit[1]
+    def bind(self, app: Any) -> None:
+        """Compile the app's routes once, after the last router is included (the end of ``orchestrator.app``). A
+        route added later, or under a mount, does not resolve and is refused for a named caller outside DEV and
+        TEST."""
+        self._compiled = [(m, t, compile_path(t)[0]) for m, t in route_templates(app)]
 
-    def resolve(self, app: Any, method: str, path: str) -> str | None:
-        """The route key (``METHOD /template``) FastAPI will run for this request; None when no route matches (FastAPI
-        then answers 404 or 405 itself)."""
+    def resolve(self, method: str, path: str) -> str | None:
+        """The route key (``METHOD /template``) FastAPI will run for this request; None when no bound route
+        matches."""
+        if self._compiled is None:
+            raise RuntimeError("the route gate is not bound to its app (Gate.bind)")
         m = "GET" if method.upper() == "HEAD" else method.upper()
-        for rm, template, rx in self._routes(app):
+        for rm, template, rx in self._compiled:
             if rm == m and rx.match(path):
                 return f"{m} {template}"
         return None
@@ -225,24 +225,36 @@ class Gate:
         method = request.method.upper()
         if method == "OPTIONS":
             return None
-        key = self.resolve(request.app, method, request.url.path)
+        key = self.resolve(method, request.url.path)
         if key is None:
-            return None
-        why = self.decide(caller, key)
+            # no declared route: FastAPI's 404/405 only where nobody can be named anyway (an open box) or on a
+            # synthetic DEV/TEST box; a named caller elsewhere is refused, so no-match is never "allowed"
+            if caller is None or self._env() in OPEN_ENVS:
+                return None
+            why: tuple[str, str] | None = (NOT_ALLOWED, f"service {caller} may not call an undeclared route")
+            key = f"{method} ?"
+        else:
+            why = self.decide(caller, key)
         if why is None:
             return None
-        self.record(caller, key, why[0], request.url.path)
+        self.record(caller, key, why[0])
         return JSONResponse({"detail": f"{why[0]}: {why[1]}"}, status_code=403, headers={REFUSAL_HEADER: why[0]})
 
     # ---------------------------------------------------------------------------------------------- jobs
-    def job_start(self, caller: str | None, job_type: str, requested_by: str) -> tuple[str, str] | None:
+    def job_start(
+        self, caller: str | None, job_type: str, requested_by: str, message_id: str | None = None
+    ) -> tuple[str, str] | None:
         """The rules of ``POST /jobs`` beyond the route: no internal principal from HTTP, from any caller (F7); the mail
-        gateway starts only its mail commands."""
+        gateway starts only its mail commands, and only as a mailed job (a ``message_id``), so every job it starts is
+        one it may read. The job ``POST /jobs`` answers with (a new one, or an existing one for a known ``job_id``)
+        passes :meth:`job_read` too."""
         if requested_by in self.table.principals:
             return INTERNAL, f"{requested_by!r} is an internal principal; it starts jobs in process only"
         row = self.table.services.get(caller or "")
         if row is not None and row.job_types is not None and job_type not in row.job_types:
             return NOT_ALLOWED, f"service {caller} may not start {job_type}"
+        if row is not None and row.own_jobs == "mail" and not (message_id or "").strip():
+            return NOT_ALLOWED, f"service {caller} starts only jobs that came in by mail (a message_id)"
         return None
 
     def job_read(self, caller: str | None, message_id: str | None) -> tuple[str, str] | None:
@@ -253,16 +265,16 @@ class Gate:
             return NOT_ALLOWED, f"service {caller} may read only the jobs that came in by mail"
         return None
 
-    def refuse(self, caller: str | None, key: str, why: tuple[str, str], path: str) -> HTTPException:
+    def refuse(self, caller: str | None, key: str, why: tuple[str, str]) -> HTTPException:
         """A handler's refusal under this table: audited like the gate's, raised by the caller."""
-        self.record(caller, key, why[0], path)
+        self.record(caller, key, why[0])
         return HTTPException(status_code=403, detail=f"{why[0]}: {why[1]}", headers={REFUSAL_HEADER: why[0]})
 
-    def record(self, caller: str | None, key: str, reason: str, path: str) -> None:
-        """One audit event per refusal, with the verified service. A failed audit is logged; the call stays refused."""
+    def record(self, caller: str | None, key: str, reason: str) -> None:
+        """One audit event per refusal, with the verified service and the route template (never the raw path: it
+        holds record keys and is the caller's to choose). A failed audit is logged; the call stays refused."""
         try:
             self._audit().append(EVENT, actor=f"service:{caller or '-'}",
-                                 detail={"service": caller or "", "route": key, "path": path[:120],
-                                         "reason": reason})  # fmt: skip
+                                 detail={"service": caller or "", "route": key, "reason": reason})  # fmt: skip
         except Exception:
             log.exception("refusal not audited: %s %s %s", caller, key, reason)

@@ -32,6 +32,9 @@ def _job(message_id: str | None = None, job_type: str = "SCREEN") -> Job:
 
 def _fake(events: list[dict[str, Any]], state: dict[str, Any]) -> SimpleNamespace:
     def create(req: Any, role: str = "", by: str = "") -> Job:
+        known: Job | None = state.get("job")
+        if req.job_id and known is not None and known.job_id == req.job_id:
+            return known  # Orchestrator.create: idempotent on a pre-allocated id, before any check
         state["created"].append(req)
         return _job(req.message_id, str(req.type))
 
@@ -97,10 +100,10 @@ def test_every_route_is_in_exactly_one_group_and_the_table_names_no_ghost() -> N
 
 
 def test_every_route_resolves_to_its_own_template() -> None:
-    from orchestrator.app import CALLER_GATE, app
+    from orchestrator.app import CALLER_GATE
 
     for method, template in _routes():
-        assert CALLER_GATE.resolve(app, method, _concrete(template)) == f"{method} {template}"
+        assert CALLER_GATE.resolve(method, _concrete(template)) == f"{method} {template}"
 
 
 def test_every_identity_has_a_row_and_the_rows_are_what_the_card_says() -> None:
@@ -149,8 +152,8 @@ def test_the_route_walk_with_every_service_token(box: Any) -> None:
                 assert r.headers.get("X-TB-Refusal") == "route_not_allowed", (name, key)
                 ev = events[n]
                 assert ev["kind"] == "service.route_refused" and ev["actor"] == f"service:{name}"
-                assert ev["detail"] == {"service": name, "route": key, "path": _concrete(template)[:120],
-                                        "reason": "route_not_allowed"}  # fmt: skip
+                # the route template, never the raw path (it holds record keys; LOW-2 of the review)
+                assert ev["detail"] == {"service": name, "route": key, "reason": "route_not_allowed"}
             else:  # CALLERS refuses it first
                 assert "may not call orchestrator" in r.text, (name, key)
     assert walked > 800
@@ -202,8 +205,8 @@ def test_an_internal_principal_is_refused_on_an_open_dev_box_too(monkeypatch: py
     monkeypatch.setattr(oapp, "orch", lambda: _fake(events, state))
     client = TestClient(oapp.app)
     r = client.post("/jobs", json={"type": "FEAS", "ruleset": "GZQO", "requested_by": "scheduler"})
-    assert r.status_code == 403 and events[-1]["detail"] == {"service": "", "route": "POST /jobs", "path": "/jobs",
-                                                             "reason": "internal_principal"}  # fmt: skip
+    assert r.status_code == 403
+    assert events[-1]["detail"] == {"service": "", "route": "POST /jobs", "reason": "internal_principal"}
     assert (
         client.post("/jobs", json={"type": "FEAS", "ruleset": "GZQO", "requested_by": "crc@x.test"}).status_code == 200
     )
@@ -253,12 +256,48 @@ def test_a_refusal_stays_a_refusal_when_the_audit_fails(box: Any, monkeypatch: p
     assert client.get("/registry", headers={sa.TOKEN_HEADER: _token("mail-gateway")}).status_code == 403
 
 
-def test_options_and_unknown_paths_pass_the_gate_to_fastapi(box: Any) -> None:
+def test_no_match_is_never_allowed_for_a_named_caller(box: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """LOW-1 of the review: a path no bound route matches (unknown, or a route added after the gate compiled the app)
+    is refused for a named caller outside DEV and TEST; OPTIONS passes; on a TEST box FastAPI's 404 stands."""
+    from fastapi.responses import PlainTextResponse
+    from orchestrator import app as oapp
+
     client, events, _ = box
+    h = {sa.TOKEN_HEADER: _token("console")}
+    r = client.get("/no-such-route", headers=h)
+    assert r.status_code == 403 and r.headers["X-TB-Refusal"] == "route_not_allowed"
+    assert events[-1]["detail"] == {"service": "console", "route": "GET ?", "reason": "route_not_allowed"}
+    late = PlainTextResponse("late")
+    oapp.app.router.add_route("/t713-late", lambda _r: late, methods=["GET"])
+    try:
+        assert client.get("/t713-late", headers=h).status_code == 403  # added after bind: not in the table, refused
+        n = len(events)
+        assert client.options("/registry", headers=h).status_code != 403
+        assert len(events) == n
+        monkeypatch.setenv("TB_ENV", "TEST")
+        assert client.get("/no-such-route", headers=h).status_code == 404
+    finally:
+        oapp.app.router.routes[:] = [r for r in oapp.app.router.routes if getattr(r, "path", "") != "/t713-late"]
+
+
+def test_the_mail_gateway_cannot_read_a_job_through_post_with_its_id(box: Any) -> None:
+    """MED-1 of the review: POST /jobs with a known job_id answers with the existing job before any check of the
+    request; the mail gateway must not read a console job that way, nor start a job that is not a mailed one."""
+    client, events, state = box
     h = {sa.TOKEN_HEADER: _token("mail-gateway")}
-    assert client.get("/no-such-route", headers=h).status_code == 404
-    assert client.options("/registry", headers=h).status_code != 403
-    assert not events
+    state["job"] = _job(None, "COHORT")  # a console job
+    body = {"type": "SCREEN", "ruleset": "GZQO", "requested_by": "x@evil.test", "job_id": ULID}
+    r = client.post("/jobs", json=body, headers=h)  # no message_id
+    assert r.status_code == 403 and r.headers["X-TB-Refusal"] == "route_not_allowed" and "COHORT" not in r.text
+    r = client.post("/jobs", json={**body, "message_id": "<forged@evil.test>"}, headers=h)
+    assert r.status_code == 403 and r.headers["X-TB-Refusal"] == "route_not_allowed" and "COHORT" not in r.text
+    assert events[-1]["detail"] == {"service": "mail-gateway", "route": "POST /jobs", "reason": "route_not_allowed"}
+    state["job"] = _job("<m1@hospa.test>")  # its own pre-allocated id (a retry after an outage) still answers
+    r = client.post("/jobs", json={**body, "message_id": "<m1@hospa.test>"}, headers=h)
+    assert r.status_code == 200 and r.json()["message_id"] == "<m1@hospa.test>"
+    state["job"] = _job(None, "COHORT")
+    r = client.post("/jobs", json=body, headers={sa.TOKEN_HEADER: _token("console")})
+    assert r.status_code == 200 and r.json()["type"] == "COHORT"  # the console may read it
 
 
 @pytest.mark.parametrize(

@@ -335,17 +335,23 @@ def create_job(req: JobCreate, request: Request) -> Job:
     from tb_common.authz import norm
 
     caller = getattr(request.state, "tb_caller", None)
-    why = CALLER_GATE.job_start(caller, str(req.type), norm(req.requested_by))
+    why = CALLER_GATE.job_start(caller, str(req.type), norm(req.requested_by), req.message_id)
     if why is not None:
-        raise CALLER_GATE.refuse(caller, "POST /jobs", why, request.url.path)
+        raise CALLER_GATE.refuse(caller, "POST /jobs", why)
     role, by = "", ""
     if request.headers.get(ACTOR_HEADER) and request.headers.get(ROLE_HEADER):
         who = _claim(request)
         role, by = who.role, who.name
     try:
-        return orch().create(req, role=role, by=by)
+        job = orch().create(req, role=role, by=by)
     except Rejected as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    # a known job_id answers with the existing job before any check of the request (idempotency): the caller must be
+    # allowed to read it, or a POST would read what GET refuses
+    why = CALLER_GATE.job_read(caller, job.message_id)
+    if why is not None:
+        raise CALLER_GATE.refuse(caller, "POST /jobs", why)
+    return job
 
 
 @app.get("/jobs/{job_id}")
@@ -358,7 +364,7 @@ def get_job(job_id: str, request: Request) -> Job:
         caller, job.message_id
     )  # T-713 (D-464): the mail gateway reads the jobs that came by mail
     if why is not None:
-        raise CALLER_GATE.refuse(caller, "GET /jobs/{job_id}", why, request.url.path)
+        raise CALLER_GATE.refuse(caller, "GET /jobs/{job_id}", why)
     return job
 
 
@@ -773,3 +779,6 @@ def registry_export(ruleset: str, request: Request, by: str | None = None) -> Re
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="screening_log_{ruleset.upper()}.xlsx"'},
     )
+
+
+CALLER_GATE.bind(app)  # T-713 (D-464): every route is included above; the gate compiles them once, here
