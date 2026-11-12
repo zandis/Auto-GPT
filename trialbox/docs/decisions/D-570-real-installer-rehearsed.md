@@ -25,10 +25,15 @@ said nothing: the rehearsal had rotted while the product moved.
    with no bundle, and the failure showed three steps later as "no such bundle".
 3. **The release record matches a saved image on either Docker image store.** The gates name an image by Docker's
    image id: the config digest on the classic store, the index digest on the containerd store. A `docker save`
-   archive holding one image is known by its config digest and by the digests of its `index.json`; the gate record
-   may name either, and the image's SBOM is found under either. An image the gates did not pass is refused as
-   before.
-4. **Every container `install.sh` starts on `deploy/` also gets the release tree.** After an install from a bundle
+   archive holding exactly one image is known by its config digest and by each digest of its `index.json` whose
+   blob in the archive leads to that config (the blob's bytes hash to its name; an index names a manifest, the
+   manifest names the config). The gate record may name either, and the image's SBOM is found under either.
+   `index.json` is text, so a digest written into it by hand, a digest whose blob is missing, and the digest of
+   another image name nothing. An untagged second image counts as a second image: the archive is then known by
+   its config digest only, and the build's "one image per archive" refuses it. An image the gates did not pass is
+   refused as before.
+4. **Every container `install.sh` starts on `deploy/`, and the doctor of `check_host.sh` it ends with, also
+   gets the release tree.** After an install from a bundle
    the shipped files under `deploy/` are links into `../current` (`tools/host_tree.py`). Mounted alone, `deploy/`
    shows them dangling: the installer stopped at the measured record (`/d/measured/...: No such file`), and the
    image lock and the compose files had the same shape. The tree is mounted where the links point.
@@ -53,7 +58,13 @@ between it and "TrialBox is running", and neither is a small fix:
   has to look at what compose will run with the override applied, or the rehearsal's bundle has to be made from
   the same file set as the install.
 
-Until both are done the rehearsal is not in the nightly workflow: a nightly job that is red every night hides the
+**The same mount shape elsewhere, not fixed here** (read, not run): `tools/trialbox/update.py` (the update's
+`doctor --serving` and `--weights`), `tools/trialbox/ops.py` (the console's network sheet), `deploy/check_weights.sh`,
+`deploy/box-install.sh` and `tools/rehearse_box/box.sh`. Each starts a container on `deploy/` alone; on a box
+installed from a bundle the shipped files it reads there are links. They go with OPS-004b, where the rehearsal
+will reach them.
+
+Until both stops are done the rehearsal is not in the nightly workflow: a nightly job that is red every night hides the
 next real stop.
 
 ## Consequences

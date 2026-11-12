@@ -131,7 +131,7 @@ media() (  # a subshell: set -e stops the step, not the run
   local imgs=(trialbox-py:1.0.0 trialbox-jvm:1.0.0 trialbox-postgres:16-1) args=() i
   # compose renders nothing without an env file, and since D-315 nothing without TB_TZ: the rehearsal site's zone
   mkdir -p "$W/vendor/cfg"
-  printf 'TB_TZ=%s\n' "$(sed -n 's/^tz: *//p' tools/rehearse_box/site_answers.yaml)" > "$W/vendor/cfg/.env"
+  printf 'TB_TZ=%s\n' "$(sed -n "s/^tz: *['\"]\{0,1\}\([A-Za-z0-9_+\/-]*\).*/\1/p" tools/rehearse_box/site_answers.yaml | head -1)" > "$W/vendor/cfg/.env"
   grep -q '^TB_TZ=.' "$W/vendor/cfg/.env" || { echo "site_answers.yaml names no tz"; return 1; }
   while IFS= read -r i; do case "$i" in trialbox-*) ;; *) imgs+=("$i") ;; esac; done \
     < <(docker compose --project-directory "$W/vendor/cfg" -f deploy/docker-compose.yml config --images | sort -u)

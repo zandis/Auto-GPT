@@ -19,6 +19,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -367,7 +368,7 @@ def render(record: dict[str, Any]) -> str:
 
 
 def bundle_problems(
-    record: Any, images: dict[str, str] | dict[str, tuple[str, ...]], *, now: dt.datetime | None = None
+    record: Any, images: Mapping[str, str | tuple[str, ...]], *, now: dt.datetime | None = None
 ) -> list[str]:
     """Images (ref -> local image id, or every digest that names the image) a bundle may not carry under this
     record (passing, and at most ``vulns.MAX_DB_AGE_DAYS`` old: a newer advisory may have arrived since)."""

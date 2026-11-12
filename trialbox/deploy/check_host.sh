@@ -284,10 +284,15 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
     [ -d "$anchor" ] && AUDIT_MOUNTS="$AUDIT_MOUNTS -v $anchor:$anchor:ro"
   done
   IFS="$OLD_IFS"
+  # OPS-004 (D-570): after an install from a bundle the shipped files under deploy/ are links into ../current
+  # (tools/host_tree.py); the doctor read deploy/egress.py and the compose files through them and found nothing.
+  # The release tree is mounted where the links point, as install.sh does (tree_args)
+  TREE_MOUNT=""
+  [ -d "$ROOT_DIR/current" ] && TREE_MOUNT="$(readlink -f "$ROOT_DIR/current"):/app/current:ro"
   # $AUDIT_MOUNTS is a list of words by design (the folders' paths hold no space on a box)
   # shellcheck disable=SC2086
   if docker run --rm --network none --env-file "$ENV_FILE" -e TB_HOST_TZ="$HOST_TZ" -v "$ROOT_DIR/deploy:/app/deploy:ro" \
-      ${KEK_MOUNT:+-v "$KEK_MOUNT"} $AUDIT_MOUNTS --user 0:0 \
+      ${TREE_MOUNT:+-v "$TREE_MOUNT"} ${KEK_MOUNT:+-v "$KEK_MOUNT"} $AUDIT_MOUNTS --user 0:0 \
       "${TB_IMAGE:-trialbox-py:1.0.0}" python -m tools.trialbox doctor "$@"; then
     pass "trialbox doctor"
   else

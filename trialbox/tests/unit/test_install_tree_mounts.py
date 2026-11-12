@@ -5,7 +5,6 @@ deploy/ also gets the release tree where those links point."""
 
 from __future__ import annotations
 
-import re
 import subprocess
 from pathlib import Path
 
@@ -49,11 +48,29 @@ def test_a_checkout_has_no_release_tree_and_gets_no_mount(tmp_path: Path) -> Non
 
 def test_every_container_the_installer_starts_on_deploy_gets_the_tree() -> None:
     lines = INSTALL.splitlines()
-    runs = [i for i, ln in enumerate(lines) if "docker run" in ln and '"$ROOT/deploy:' in ln]
-    assert len(runs) >= 7
+    runs = [i for i, ln in enumerate(lines) if '"$ROOT/deploy:' in ln and "tree_args() {" not in ln]
+    assert len(runs) >= 9
     for i in runs:
+        assert "docker run" in lines[i], f"install.sh:{i + 1}: the mount is not on the command's first line"
         at = "/app/deploy" in lines[i]
         want = '${TREE_APP[@]+"${TREE_APP[@]}"}' if at else '${TREE_D[@]+"${TREE_D[@]}"}'
         assert want in lines[i], f"install.sh:{i + 1}: {lines[i].strip()[:90]}"
-        before = "\n".join(lines[max(0, i - 12) : i])
-        assert re.search(r"^\s*tree_args\b", before, re.M) or "tree_args;" in lines[i], f"install.sh:{i + 1}"
+        assert lines[i - 1].strip() == "tree_args", f"install.sh:{i + 1}: tree_args is not the line before"
+
+
+def test_the_host_checks_doctor_gets_the_tree_too(tmp_path: Path) -> None:
+    """The review of #363: install.sh ends with check_host.sh, whose doctor container had the same dangling
+    links (deploy/egress.py, the compose files)."""
+    text = (ROOT / "deploy" / "check_host.sh").read_text(encoding="utf-8")
+    start = text.index('  TREE_MOUNT=""')
+    block = text[start : text.index("\n", text.index("[ -d", start)) + 1]
+    release = tmp_path / "releases" / "r1"
+    release.mkdir(parents=True)
+    (tmp_path / "current").symlink_to("releases/r1")
+    script = f'set -eu\nROOT_DIR="{tmp_path}"\n{block}\nprintf "%s\\n" "$TREE_MOUNT"\n'
+    out = subprocess.run(["sh", "-c", script], capture_output=True, text=True, check=True).stdout.strip()
+    assert out == f"{release}:/app/current:ro"
+    script = f'set -eu\nROOT_DIR="{tmp_path}/none"\n{block}\nprintf "[%s]\\n" "$TREE_MOUNT"\n'
+    assert subprocess.run(["sh", "-c", script], capture_output=True, text=True, check=False).stdout.strip() == "[]"
+    run = text[text.index("if docker run --rm --network none --env-file") :]
+    assert '${TREE_MOUNT:+-v "$TREE_MOUNT"}' in run[: run.index("python -m tools.trialbox doctor")]
