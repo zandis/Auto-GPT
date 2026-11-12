@@ -365,6 +365,8 @@ def screen_with_cascade(
     may_block, _policy, _why = effective_note_block(note_judge)
     from embed_service.embedder import HashEmbedder
 
+    from orchestrator import derive
+
     source = s2b_source(ctx.services.lake, snapshot, job_vec_s2b(ctx))  # once per job (D-449)
     cfg = CascadeConfig(
         study_id=rs.id,
@@ -382,6 +384,7 @@ def screen_with_cascade(
         absence_semantics=False,
         max_llm_items=max_pairs,
         llm_concurrency=in_flight,
+        stored=derive.reader_for(ctx),  # D-442: the stored-row read, as the v1 engine's (None: the flag is off)
     )
     try:
         res = two_phase(  # one GPU for both models (TB_MODEL_SWAP=sleep): judge pass, verifier pass, merge

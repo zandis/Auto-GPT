@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
+  "head": "e3ac1779aac2e0f5e13be8d94578e15142dc6697",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
+  "reason": "D-442 (T-207): no eGFR under 18 (catalogue egfr_ckd_epi_2021 and egfr_jsn_2009: age < 18, do not compute); an eGFR criterion of a patient under 18 at the index date is unknown with derived_adult_only instead of met or not met",
   "ref_date": "2026-11-01",
   "ruleset": "AD-MAB",
   "ruleset_version": "1.0.0",
@@ -55,7 +55,7 @@
   "ssmix2-jp": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "b14484e23fb494bf5a89313ce244a021969ce19954495b91a3ad46acc481b62a",
+   "outcomes_sha": "bcd12f717963f47ac20b0278aa7e286dbd7dc70b7cfbc66e78a2fbdfa33e6d8e",
    "patients": 400,
    "structured_criteria": [
     "AD-MAB-INC-01",
@@ -76,9 +76,9 @@
      "unknown": 0
     },
     "AD-MAB-EXC-04": {
-     "met": 47,
-     "not_met": 156,
-     "unknown": 197
+     "met": 46,
+     "not_met": 152,
+     "unknown": 202
     },
     "AD-MAB-INC-01": {
      "met": 212,
@@ -95,7 +95,7 @@
   "synthetic-jp-a": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "301ad04fec639f0a144af1af14391cc72525af1b33dfa300bf8bec562614fb7a",
+   "outcomes_sha": "347448e89b028202af7e65940744afb8867c376c61bb78394911cb4ada55e1cb",
    "patients": 2500,
    "structured_criteria": [
     "AD-MAB-INC-01",
@@ -116,9 +116,9 @@
      "unknown": 0
     },
     "AD-MAB-EXC-04": {
-     "met": 320,
-     "not_met": 932,
-     "unknown": 1248
+     "met": 310,
+     "not_met": 899,
+     "unknown": 1291
     },
     "AD-MAB-INC-01": {
      "met": 1319,
@@ -135,7 +135,7 @@
   "synthetic-jp-a-deletes": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "d8701433fc346bf193986b70faa72e4ef68e05c484bb78fbc975c12cda2c0207",
+   "outcomes_sha": "3d9964e4bbf6b64a0d414339dc1baf1a128ee94d76df4824ab1e9b3fe3000cec",
    "patients": 2500,
    "structured_criteria": [
     "AD-MAB-INC-01",
@@ -156,9 +156,9 @@
      "unknown": 0
     },
     "AD-MAB-EXC-04": {
-     "met": 311,
-     "not_met": 835,
-     "unknown": 1354
+     "met": 302,
+     "not_met": 803,
+     "unknown": 1395
     },
     "AD-MAB-INC-01": {
      "met": 1330,
@@ -175,7 +175,7 @@
   "synthetic-tw-a": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "55098f7e2c65b99f906c90662c7370e110607f0b2906b5a0fad365a9f61d4570",
+   "outcomes_sha": "209a5ed18a8dae5e0e7109883c1bb324dea6171e36199cea0abdfb1e1bca61cb",
    "patients": 2500,
    "structured_criteria": [
     "AD-MAB-INC-01",
@@ -196,9 +196,9 @@
      "unknown": 0
     },
     "AD-MAB-EXC-04": {
-     "met": 335,
-     "not_met": 921,
-     "unknown": 1244
+     "met": 325,
+     "not_met": 885,
+     "unknown": 1290
     },
     "AD-MAB-INC-01": {
      "met": 1291,

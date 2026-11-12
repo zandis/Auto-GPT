@@ -239,7 +239,18 @@ def ingest_site(src: Path, lake_dir: Path, secrets_dir: Path, snapshot: str, sit
         # the pid map's trial database: TB_DB_URL, or the run's schemas in a local throwaway one (as make_box)
         db_url=pglocal.for_work(lake_dir.parent),
     )
-    return run_ingest(cfg, "csv", str(src), snapshot=snapshot, load_fhir=False, validate=False)
+    report = run_ingest(cfg, "csv", str(src), snapshot=snapshot, load_fhir=False, validate=False)
+    if report.passed:  # D-442: the derive batch of the new snapshot, as the INGEST job runs it after a passed ingest
+        from lake.client import LakeLocal
+        from orchestrator import derive
+        from tb_common.derived_store import mapping_version_of, run_batch
+
+        st = derive.store(cfg.db_url)
+        if st is not None:
+            lake = LakeLocal(lake_dir, HashEmbedder())
+            run_batch(st, lake, mapping_version=mapping_version_of(lake, report.snapshot.isoformat()),
+                      snapshot=report.snapshot.isoformat())  # fmt: skip
+    return report
 
 
 def unzip_phi(box: Box, mail: Sent) -> dict[str, bytes]:

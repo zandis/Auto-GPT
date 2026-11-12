@@ -264,6 +264,10 @@ TABLES: dict[str, Entry] = {
     "derived.score_row": _owed("a derived score of a pseudonym"),
     "derived.conflict": _owed("a documented-versus-derived conflict of a pseudonym"),
     "derived.input_link": _owed("the source rows each derived score was computed from"),
+    "derived.batch_run": _owed(
+        "one row per nightly derive batch; failed_pids lists the pseudonyms whose recompute failed",
+        "the pseudonym in failed_pids",
+    ),
     "derived.definition": _none("score definitions"),
     **_each("dataops", ("batch", "batch_step"), _none("ingest batches and their steps: counts")),
     "tuned.tuned_patients": _owed("the weekly PI sample of patients not matched, by pseudonym"),

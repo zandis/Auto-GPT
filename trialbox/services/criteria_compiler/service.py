@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
@@ -48,7 +48,7 @@ from criteria_compiler.equivalence.gate import run_gate, unproven
 from criteria_compiler.ir_extract.postprocess import KIND_CODE, postprocess
 from criteria_compiler.repo import RulesetRepo
 from criteria_compiler.review import draft_zip, json_bytes, review_html, review_xlsx
-from criteria_compiler.semantics import FILTERED, CompileError, class_split, compiled
+from criteria_compiler.semantics import FILTERED, CompileError, atoms, class_split, compiled
 from criteria_compiler.terminology.mapper import Concept, Terminology, ValueSets
 
 log = logging.getLogger("criteria-compiler")
@@ -62,9 +62,11 @@ class CompileFailed(RuntimeError):
         self.step = step
 
 
-def approval_pins(manifest: RulesetManifest) -> dict[str, Any]:
+def approval_pins(manifest: RulesetManifest, criteria: Sequence[CriterionIR] = ()) -> dict[str, Any]:
     """The prompts an approval pins (D-318): the registry's current version of the judge prompt with its text and
-    schema shas, and ``models.judge_prompt`` naming that version, so SCREEN runs what the investigator approved."""
+    schema shas, and ``models.judge_prompt`` naming that version, so SCREEN runs what the investigator approved.
+    D-442: and ``derived_pins``, the score definitions the active criteria follow (:func:`tb_common.scores.pins`)."""
+    from tb_common.scores import pins as derived_pins
     from tb_llm.prompt_registry import PromptRegistryError, default_registry
 
     models = dump(manifest.models) if manifest.models else {}
@@ -73,7 +75,11 @@ def approval_pins(manifest: RulesetManifest) -> dict[str, Any]:
         pins = default_registry().pins({pid: None})
     except PromptRegistryError as exc:
         raise CompileFailed("approve", f"the judge prompt cannot be pinned ({exc.reason}): {exc}") from exc
-    return {"models": {**models, "judge_prompt": f"{pid}_v{pins[pid]['version']}"}, "prompt_pins": pins}
+    out: dict[str, Any] = {"models": {**models, "judge_prompt": f"{pid}_v{pins[pid]['version']}"}, "prompt_pins": pins}
+    dpins = derived_pins(a.derived for c in compiled(list(criteria)) for a in atoms(c.logic) if a.derived)
+    if dpins:
+        out["derived_pins"] = dpins
+    return out
 
 
 def amendment_record(req: ApproveRequest, today: date) -> dict[str, Any]:
@@ -443,6 +449,7 @@ class Compiler:
         m.pop("review", None)
         m.pop("equivalence", None)
         m.pop("prompt_pins", None)  # pinned again at approval (D-318)
+        m.pop("derived_pins", None)  # pinned again at approval (D-442)
         for k in ("effective_from", "irb_reference", "irb_approved_on"):  # each version's own record (D-364)
             m.pop(k, None)
         return RulesetManifest.model_validate(m)
@@ -813,7 +820,7 @@ class Compiler:
         manifest = RulesetManifest.model_validate(
             {
                 **dump(manifest),
-                **approval_pins(manifest),
+                **approval_pins(manifest, updated),
                 **amendment_record(req, now.date()),
                 "status": "approved",
                 "review": {

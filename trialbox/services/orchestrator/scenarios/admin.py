@@ -83,8 +83,11 @@ def ingest(ctx: Ctx) -> Outcome:
     ctx.publish(f"ingest_report_{report.snapshot}.json", body, "aggregate", [])
     if not report.passed:
         raise StepFailed("ingest", "The nightly ingest finished with errors: " + "; ".join((report.errors or [])[:5]))
+    from orchestrator import derive
     from orchestrator.scheduler import after_ingest
 
+    # D-442: the stored derived rows of the new snapshot before anything screens it
+    derive.after_ingest(getattr(ctx, "orch", None), str(report.snapshot))
     # D-397: the new patients booked in each study's window are screened now, not next week
     after_ingest(ctx.orch, timed=opts.get("timer") == "1")
     twins_after_ingest(ctx, report.snapshot)
