@@ -160,7 +160,13 @@ def delete_refs(base_url: str, refs: list[str], timeout: float = 600) -> int:
 
 
 def sync_snapshot(
-    base_url: str, directory: Path, ledger: Path, previous: Path | None = None, workers: int = 4, full: bool = False
+    base_url: str,
+    directory: Path,
+    ledger: Path,
+    previous: Path | None = None,
+    workers: int = 4,
+    full: bool = False,
+    back: bool = False,
 ) -> tuple[int, int]:
     """Make fhir-store hold exactly the snapshot: PUT what is new or changed (everything with ``full``), then DELETE
     ids loaded earlier that the snapshot no longer has. Without a ledger yet (first run after an upgrade) the previous
@@ -168,7 +174,9 @@ def sync_snapshot(
     # T-725 (D-491, review F-4): the load is the build of "fhir" from this night. A night older than the one the
     # store holds is not loaded (a late re-run of an earlier night made the store hold the older night before);
     # the store keeps the newer one and this step reports nothing loaded
-    built = _begin_night(directory.name)
+    # ``back``: a put-back to the served night after a load of a newer night that did not end (D-489); the ledger
+    # lets it through only over a build that never finished
+    built = _begin_night(directory.name, back)
     if built is _OLDER:
         return 0, 0
     current = snapshot_hashes(directory)
@@ -200,7 +208,7 @@ _OLDER = object()
 _NIGHT = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
-def _begin_night(name: str) -> Any:
+def _begin_night(name: str, back: bool = False) -> Any:
     """Record the start of the FHIR store's load of the night ``name`` in the generation ledger; ``_OLDER`` when
     the store holds a newer night (the load is then skipped), None when there is no ledger to ask (a folder that
     is not a night, no trial database: the load goes on as before). A ledger that is there and cannot be read
@@ -214,7 +222,7 @@ def _begin_night(name: str) -> Any:
         from datacore.generations import Built
 
         with Built() as ledger:
-            return ledger.begin("fhir", name)
+            return ledger.begin("fhir", name, back=back)
     except OlderGeneration as exc:
         log.warning("fhir-store not loaded: %s", exc)
         return _OLDER

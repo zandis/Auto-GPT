@@ -216,16 +216,16 @@ def test_nav_and_the_weekly_sample_are_held_too(db_url: str, tmp_path: Path, mon
     assert "restored from a backup" not in str(not_the_hold.value)
     asked: list[int] = []
 
-    def register() -> set[str]:
+    def first_step(environ: Any) -> bool:  # the draw's first step after the hold (its own gate)
         asked.append(1)
         raise RuntimeError("the test stops the draw here")
 
-    monkeypatch.setattr(notmatched_sample, "opted_out", register)
+    monkeypatch.setattr(notmatched_sample, "gate_on", first_step)
     assert notmatched_sample.weekly(SimpleNamespace()) == {} and asked == []  # held: not even begun
     flags.Flags(url=db_url, audit=AuditLog(tmp_path / "audit")).set(FLAG, "released", actor="console:admin",
                                                                     reason="re-applied")  # fmt: skip
     notmatched_sample.weekly(SimpleNamespace())
-    assert asked == [1]  # released: the draw goes on to the register
+    assert asked == [1]  # released: the draw goes on
 
 
 def test_doctor_shows_the_hold(db_url: str, tmp_path: Path) -> None:
