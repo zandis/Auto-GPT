@@ -108,6 +108,11 @@ class NotSubmitted(StepFailed):
     """The bundle provably did not reach NHI (no connection, or refused with 4xx): the reservation is released."""
 
 
+#: the connection under the SSRF guard for every NHI call (None: the network). A test sets a mock transport here and
+#: a resolver in ``tb_common.http.resolve_now``; the guard still checks the address before the transport is reached
+NHI_TRANSPORT: Any = None
+
+
 def post_bundle(base_url: str, bundle_bytes: bytes, timeout: float = 120.0, transport: Any = None) -> dict[str, Any]:
     """POST the Bundle to the NHI endpoint; returns the ClaimResponse (direct or inside a response Bundle).
     ``transport``: the connection under the SSRF guard (a test's mock; default the network)."""
@@ -116,7 +121,8 @@ def post_bundle(base_url: str, bundle_bytes: bytes, timeout: float = 120.0, tran
 
     url = base_url.rstrip("/") + "/Claim/$submit"
     try:
-        with guarded_client("orchestrator", timeout=timeout, inner=transport) as http:  # T-212d (D-450): the SSRF guard
+        # T-212d (D-450): the SSRF guard
+        with guarded_client("orchestrator", timeout=timeout, inner=transport or NHI_TRANSPORT) as http:
             resp = http.post(
                 url,
                 content=bundle_bytes,
