@@ -95,9 +95,18 @@ CREATE TABLE IF NOT EXISTS reentry_record (id BIGINT GENERATED ALWAYS AS IDENTIT
 ALTER TABLE switch ADD COLUMN IF NOT EXISTS reentry_id BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE switch_event ADD COLUMN IF NOT EXISTS reentry_id BIGINT NOT NULL DEFAULT 0
 """
-MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3)
+# T-302c (D-434): copy-assist, a person's "copied" tick on a signed value (or its undo, with a reason), bound to the
+# hash of the value as it was signed
+SCHEMA_V4 = """
+CREATE TABLE IF NOT EXISTS copy_tick (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, study TEXT NOT NULL,
+  record TEXT NOT NULL, visit TEXT NOT NULL, item TEXT NOT NULL, draft_id BIGINT NOT NULL, signed_sha TEXT NOT NULL,
+  action TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', by_user TEXT NOT NULL, at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS copy_tick_rec ON copy_tick (study, record)
+"""
+MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4)
 #: tables that only ever grow (D-281): a trigger refuses UPDATE, DELETE and TRUNCATE on each
-APPEND_ONLY = ("decision", "signature", "signature_void", "sent", "switch_event", "map_event", "reentry_record")
+APPEND_ONLY = ("decision", "signature", "signature_void", "sent", "switch_event", "map_event", "reentry_record",
+               "copy_tick")  # fmt: skip
 REENTRY_SOURCES = ("admin", "pq")  # who wrote the record: an administrator with the filed report, or the PQ tooling
 SIG_VERSION = 2
 METHODS = ("password", "password+totp", "oidc+mfa")  # how the signer re-authenticated (D-279; T-205: at the directory)
@@ -110,6 +119,8 @@ ACTIONS = ("confirm", "edit", "reject")
 ACK_KINDS = ("sponsor_letter", "iit_pi_sponsor")
 REENTRY_PAGES = 30  # WS-16.4: 30 real CRF pages double-entered blind against the drafts
 REENTRY_ACCURACY = 0.98  # post-confirmation field accuracy before prefill is enabled for the study
+TICKS = ("copied", "undone")  # copy-assist (D-434): a value typed into the sponsor's EDC by hand, or that tick undone
+STATES = ("off", "on", "copy")  # D-434: ``copy`` drafts, reviews and signs, but never writes to the sponsor's EDC
 MEANINGS = ("transcribed",)  # the one meaning of a CRC's signature in v1 (D-160)
 
 
@@ -136,7 +147,13 @@ class Switch:
 
     @property
     def on(self) -> bool:
+        """Prefill to the sponsor's EDC (the REDCap send, its preview, the ODM export): acknowledgement on file."""
         return self.state == "on"
+
+    @property
+    def drafting(self) -> bool:
+        """Drafts, the ODM import, review and signatures: prefill on, or copy-assist (D-434)."""
+        return self.state in ("on", "copy")
 
     def as_dict(self) -> dict[str, Any]:
         return {"study": self.study, "state": self.state, "kind": self.kind, "reference": self.reference,
@@ -312,12 +329,15 @@ class EdcStore:
 
     def set_switch(self, study: str, on: bool, *, kind: str = "", reference: str = "", ack_date: str = "",
                    reentry_pages: int = 0, reentry_accuracy: float = 0.0, reason: str = "", by: str, role: str,
-                   at: str, today: date, typed_reentry: bool = False) -> Switch:  # fmt: skip
+                   at: str, today: date, typed_reentry: bool = False, copy: bool = False) -> Switch:  # fmt: skip
         """Turn prefill on (every condition checked here) or off (always allowed). Kept in ``switch_event``.
 
         The re-entry result is the newest stored record (E-14), never the numbers typed with the switch, and the
         person who recorded it is not the one who turns the switch on. ``typed_reentry`` (the caller's DEV or TEST
-        box with no record yet) lets the typed numbers stand, as before T-115; the switch then says reentry_id 0."""
+        box with no record yet) lets the typed numbers stand, as before T-115; the switch then says reentry_id 0.
+
+        ``copy`` (with ``on``, D-434): copy-assist. The re-entry result is needed as for prefill; the sponsor's
+        acknowledgement is not, because nothing is written to the sponsor's EDC (the send and the export refuse)."""
         reentry_id = 0
         if on:
             rec = self.reentry(study)
@@ -329,7 +349,10 @@ class EdcStore:
                 reentry_pages, reentry_accuracy = int(rec["pages"]), float(rec["accuracy"])
             elif not typed_reentry:
                 raise EdcError("edc.reentry_record", "no blind re-entry result is on record for this study")
-        if on:
+        if on and copy:  # no acknowledgement is needed; one already on record stays there, as with off
+            cur0 = self.switch(study)
+            kind, reference, ack_date = cur0.kind, cur0.reference, cur0.ack_date
+        elif on:
             if kind not in ACK_KINDS:
                 raise EdcError("edc.ack_kind", "say how the sponsor acknowledged (letter, or the PI is the sponsor)")
             if not reference.strip():
@@ -340,10 +363,10 @@ class EdcStore:
                 raise EdcError("edc.ack_date", "the acknowledgement's date is needed") from exc
             if ack > today:
                 raise EdcError("edc.ack_date", "the acknowledgement's date is in the future")
-            if reentry_pages < REENTRY_PAGES or reentry_accuracy < REENTRY_ACCURACY:
-                raise EdcError("edc.reentry", f"the blind re-entry needs at least {REENTRY_PAGES} pages at "
-                                              f"{REENTRY_ACCURACY:.0%} or better")  # fmt: skip
-        state = "on" if on else "off"
+        if on and (reentry_pages < REENTRY_PAGES or reentry_accuracy < REENTRY_ACCURACY):
+            raise EdcError("edc.reentry", f"the blind re-entry needs at least {REENTRY_PAGES} pages at "
+                                          f"{REENTRY_ACCURACY:.0%} or better")  # fmt: skip
+        state = ("copy" if copy else "on") if on else "off"
         cur = self.switch(study)
         if not on:  # off keeps the acknowledgement on record; only the state changes
             kind, reference, ack_date = cur.kind, cur.reference, cur.ack_date
@@ -369,6 +392,11 @@ class EdcStore:
     def require_on(self, study: str) -> None:
         if not self.switch(study).on:
             raise EdcError("edc.off", "prefill is off for this study (no sponsor acknowledgement on file)")
+
+    def require_drafting(self, study: str) -> None:
+        """Prefill on or copy-assist (D-434): drafts, the ODM import, review and signatures."""
+        if not self.switch(study).drafting:
+            raise EdcError("edc.off", "prefill and copy-assist are off for this study")
 
     # ------------------------------------------------------------------ the map and the target
     def put_map(self, study: str, items: list[dict[str, Any]], by: str, at: str) -> list[int]:
@@ -750,6 +778,36 @@ class EdcStore:
                          "target = 'redcap' AND result IN ('sent', 'already_there') ORDER BY id DESC LIMIT 1",
                          (study, record, visit, item))  # fmt: skip
         return str(rows[0]["value"]) if rows else None
+
+    # ------------------------------------------------------------------ copy-assist (D-434)
+    def add_ticks(self, study: str, values: list[dict[str, Any]], action: str, *, reason: str = "", by: str, at: str,
+                  before_commit: Callable[[list[int]], None] | None = None) -> list[int]:  # fmt: skip
+        """One ``copy_tick`` row per value (each a signed draft row, as :meth:`signed` gives it), bound to the hash
+        of the value as signed. ``undone`` needs a reason. ``before_commit`` runs inside the transaction: when the
+        audit line cannot be written, nothing is ticked."""
+        if action not in TICKS:
+            raise EdcError("edc.tick_action", "a tick is copied or undone", 400)
+        if action == "undone" and not reason.strip():
+            raise EdcError("edc.reason", "say why the tick is undone", 400)
+        if not values:
+            raise EdcError("edc.tick_none", "no value to tick", 400)
+        ids: list[int] = []
+        with self._db.transaction() as tx:
+            for d in values:
+                ids.append(int(tx.fetchval(
+                    "INSERT INTO copy_tick (study, record, visit, item, draft_id, signed_sha, action, reason, by_user, "
+                    "at) VALUES (?,?,?,?,?,?,?,?,?,?) RETURNING id",
+                    (study, d["record"], d["visit"], d["item"], int(d["id"]), str(d["signed_sha"]), action,
+                     reason.strip()[:300], by, at))))  # fmt: skip
+            if before_commit is not None:
+                before_commit(ids)
+        return ids
+
+    def ticks(self, study: str, record: str | None = None) -> list[dict[str, Any]]:
+        """Every copy tick of the study (or one subject), oldest first."""
+        if record is None:
+            return self._all("SELECT * FROM copy_tick WHERE study = ? ORDER BY id", (study,))
+        return self._all("SELECT * FROM copy_tick WHERE study = ? AND record = ? ORDER BY id", (study, record))
 
     # ------------------------------------------------------------------ the per-record trail
     def trail(self, study: str, record: str) -> dict[str, Any]:

@@ -1134,6 +1134,9 @@ def create_app(
     sdv_page.register(app, helpers)  # T-303 (D-436): the monitor's SDV pages, after team (it reads the standing)
     admin_flags.register(app, helpers)  # /ops/flags and the flags' first-start seed (T-008, D-207)
     edc_pages.register(app, helpers)  # EDC prefill: switch, map, review, e-signature, send, ODM (D-160)
+    from console import copy_assist_page
+
+    copy_assist_page.register(app, helpers)  # T-302c (D-434): copy-assist, its CSV and /api/v1
     demo_guard.register(app, helpers)  # T-502 (D-328): demo mode's refusals, banner and acknowledgement
     feedback.register(app, helpers)  # T-510 (D-331): the feedback control of every page and its CSV export
     from console import items_page
