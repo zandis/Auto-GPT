@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
 import re
 import shutil
 from collections import Counter
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -25,10 +26,10 @@ from tb_contracts.landing import Severity
 from adapter import governance
 from adapter.instants import to_site_offset
 from adapter.mapping.engine import Mapper, Mapping, resource_id
-from adapter.ndjson import is_deleted_flag, list_snapshots, snapshot_dir, tombstone_count, write_snapshot
+from adapter.ndjson import Spool, is_deleted_flag, list_snapshots, snapshot_dir, tombstone_count, write_snapshot
 from adapter.pidmap import PidMap
 from adapter.sources.base import CHANGE_COLUMNS, Row, Source, has_table, quarantine_reason
-from adapter.validate.validator import Hl7Validator, StructuralValidator, missing_required, sample
+from adapter.validate.validator import Hl7Validator, Sampler, StructuralValidator, missing_required
 
 log = logging.getLogger("adapter")
 Resource = dict[str, Any]
@@ -286,19 +287,20 @@ CHART_COLUMNS = ("mrn",)  # the canonical chart-number column of every table (ma
 
 
 def chart_column_refused(
-    mapping: Mapping, table: str, tspec: dict[str, Any], rows: list[Row], mrn_regex: str | None
+    mapping: Mapping, table: str, tspec: dict[str, Any], rows: Iterable[Row], mrn_regex: str | None
 ) -> str | None:
     """FIT-U09 (T-629, D-415): why this table's chart-number column is refused, naming the column as the export
     writes it, or None. The patient table's key and every table's ``mrn`` are checked: a column that Excel turned
     into numbers (``tb_common.chartno.column_refusal``) would give some patients a second pseudonym, so the whole
     table is set aside and the night is held; nothing is guessed back."""
-    if not rows:
+    first = next(iter(rows), None)  # re-readable: a list or the table's rows on disk (T-692)
+    if first is None:
         return None
     cols = list(CHART_COLUMNS)
     if table == "patient" and tspec.get("key") and tspec["key"] not in cols:
         cols.insert(0, str(tspec["key"]))
     for col in cols:
-        if col not in rows[0]:
+        if col not in first:
             continue
         why = chartno.column_refusal((str(r.get(col) or "") for r in rows), mrn_regex)
         if why:
@@ -310,6 +312,90 @@ def chart_column_refused(
             return (f"chart-number column {local!r} refused ({why}): it {what}; the leading zeros are lost. Export "
                     "the column as text and run the night again")  # fmt: skip
     return None
+
+
+def _kept(rows: Iterable[Row], into: list[Row]) -> Iterator[Row]:
+    """``rows`` as they pass, each also kept in ``into`` (the data contracts read the raw rows)."""
+    for r in rows:
+        into.append(r)
+        yield r
+
+
+def _duplicates(keys: Iterable[str], work: Path) -> int:
+    """How many keys repeat an earlier one (``len(keys) - len(set(keys))``), counted over the keys sorted in runs on
+    disk (T-692): a table's keys are never held."""
+    from adapter.ndjson import _sorted, sort_run_bytes
+
+    n = 0
+    prev: str | None = None
+    try:
+        for k, _, _ in _sorted(((k, i, "") for i, k in enumerate(keys)), sort_run_bytes(), work):
+            n += k == prev
+            prev = k
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    return n
+
+
+class _TableRows:
+    """One source table's normalized rows on disk, read again for each pass (T-692, D-473): the table is never held.
+
+    A row that a JSON line does not give back exactly (a key that is not text, a value that is neither text nor
+    empty: a CSV row with more cells than its header) keeps the table in memory instead, as before. ``where`` gives
+    a view: only the rows at the ``keep`` positions (the data contracts' accepted rows), and with ``live`` only the
+    rows that are not marked deleted in that column."""
+
+    def __init__(self, path: Path, held: list[Row] | None, keep: set[int] | None, live: str | None) -> None:
+        self.path, self.held, self.keep, self.live = path, held, keep, live
+        self._n: int | None = None
+
+    @classmethod
+    def write(cls, path: Path, rows: Iterable[Row]) -> _TableRows:
+        held: list[Row] | None = None
+        with path.open("w", encoding="utf-8") as fh:
+            for r in rows:
+                if held is None and all(type(k) is str and (v is None or type(v) is str) for k, v in r.items()):
+                    fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+                    continue
+                if held is None:
+                    fh.flush()
+                    held = list(cls(path, None, None, None))
+                held.append(r)
+        if held is not None:
+            path.unlink(missing_ok=True)
+        return cls(path, held, None, None)
+
+    def where(self, keep: set[int] | None = None, live: str | None = None) -> _TableRows:
+        if keep is not None and self.keep is not None:
+            raise ValueError("one row filter by position per table")
+        return _TableRows(self.path, self.held, keep if keep is not None else self.keep, live or self.live)
+
+    def _all(self) -> Iterator[Row]:
+        if self.held is not None:
+            yield from self.held
+            return
+        if not self.path.exists():
+            return
+        with self.path.open(encoding="utf-8") as fh:
+            for line in fh:
+                yield json.loads(line)
+
+    def __iter__(self) -> Iterator[Row]:
+        col = self.live
+        for i, r in enumerate(self._all()):
+            if self.keep is not None and i not in self.keep:
+                continue
+            if col is not None and col in r and is_deleted_flag(r[col]):
+                continue
+            yield r
+
+    def __len__(self) -> int:
+        if self._n is None:
+            self._n = sum(1 for _ in self)
+        return self._n
+
+    def discard(self) -> None:
+        self.path.unlink(missing_ok=True)
 
 
 def check_delta(mapping: Mapping, source_kind: str) -> None:
@@ -344,18 +430,20 @@ def run_ingest(
     The event holds no message text: a parser's message can quote a cell."""
     at: dict[str, str | None] = {"step": "start", "table": None}
     try:
-        return _run_ingest(
-            cfg,
-            source_kind,
-            source_path,
-            at,
-            since=since,
-            snapshot=snapshot,
-            load_fhir=load_fhir,
-            rebuild_lake=rebuild_lake,
-            validate=validate,
-            validator=validator,
-        )
+        with contextlib.ExitStack() as cleanup:  # T-692: the night's spool goes, whatever happens
+            return _run_ingest(
+                cfg,
+                source_kind,
+                source_path,
+                at,
+                since=since,
+                snapshot=snapshot,
+                load_fhir=load_fhir,
+                rebuild_lake=rebuild_lake,
+                validate=validate,
+                validator=validator,
+                cleanup=cleanup,
+            )
     except SiteKeyError:  # T-612 audits its own refusal (with the reason); one event per night
         raise
     except Exception as exc:
@@ -396,6 +484,7 @@ def _run_ingest(
     rebuild_lake: bool,
     validate: bool,
     validator: Hl7Validator | StructuralValidator | None,
+    cleanup: contextlib.ExitStack,
 ) -> IngestReport:
     zone = ZoneInfo(cfg.tz)
     started = datetime.now(zone)
@@ -415,7 +504,16 @@ def _run_ingest(
             )
         raise
     errors: list[str] = []
-    by_type: dict[str, list[Resource]] = {}
+    # T-692 (D-473): every mapped resource goes to disk as it is made; the night is never held in memory. The spool
+    # is scratch on the lake volume (``lake:tmp``), removed when the night ends
+    spool = cleanup.enter_context(contextlib.closing(Spool(cfg.lake_dir / "tmp" / f"ingest-{snap}")))
+    patient_ids: list[str] = []  # in the order sent: the merged chart numbers drop by id alone
+
+    def to_spool(r: Resource) -> None:
+        spool.add(r)
+        if r["resourceType"] == "Patient":
+            patient_ids.append(str(r.get("id")))
+
     patient_pairs: list[tuple[str, str]] = []
     identities: list[tuple[str, dict[str, str]]] = []
     fhir_profiles = ""
@@ -445,7 +543,7 @@ def _run_ingest(
         bulk = FhirBulkSource(Path(source_path))
         inputs += [p for p in Path(source_path).iterdir() if p.is_file()]
         for r in pseudonymise_bulk(bulk.resources(), key):
-            by_type.setdefault(r["resourceType"], []).append(r)
+            to_spool(r)
         for rtype, rid in bulk.deleted():
             if rtype != "Patient":  # removing a person is the opt-out path's job, never a feed delta's
                 tombstones.setdefault(rtype, set()).add(bulk_id(key, rtype, rid))
@@ -460,7 +558,7 @@ def _run_ingest(
         fhir_profiles = mapping.fhir_profiles
         source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)
         for res in mapper.static_resources():
-            by_type.setdefault(res["resourceType"], []).append(res)
+            to_spool(res)
         for table, tspec in mapping.tables.items():
             at["table"] = table
             src, src_name = source, tspec["source"]
@@ -474,8 +572,13 @@ def _run_ingest(
                 else:
                     src = make_source("cgrd_sql", where)
             delta = mapping.source_column(table, tspec.get("delta"))
-            raw = list(src.rows(table, src_name, delta, since))
-            rows = [mapping.normalize(table, r) for r in raw]
+            # T-692 (D-473): the table's rows go to disk as they are read and are read back for each pass; only the
+            # data contracts (off unless TB_DATA_CONTRACTS) still need the raw rows in memory
+            raw: list[Row] = []
+            got = src.rows(table, src_name, delta, since)
+            if contracts is not None:
+                got = _kept(got, raw)
+            rows = _TableRows.write(spool.root / f".rows-{table}", (mapping.normalize(table, r) for r in got))
             if isinstance(where_dir := getattr(src, "directory", None), Path):
                 inputs.append(where_dir / f"{src_name}.csv")
             why = quarantine_reason(src, src_name)
@@ -483,11 +586,10 @@ def _run_ingest(
                 quarantined[table] = why
                 errors.append(f"{table}: {why}")
             kcol = tspec.get("key")
-            keys = [str(r.get(kcol)) for r in rows] if kcol else []
             tables[table] = {  # T-611 (DATA-017: a duplicate source key is counted; the last row wins)
                 "present": has_table(src, src_name),
                 "rows": len(rows),
-                "duplicate_keys": len(keys) - len(set(keys)),
+                "duplicate_keys": _duplicates((str(r.get(kcol)) for r in rows), spool.root / ".keys") if kcol else 0,
             }
             if contracts is not None:  # T-659b: the contract's row checks; a failing row is set aside, never mapped
                 chk = governance.check_table(
@@ -502,18 +604,19 @@ def _run_ingest(
                 checks.append(chk)
                 if chk.validation.quarantined:
                     keep = {id(r) for r in chk.accepted}
-                    rows = [n for r, n in zip(raw, rows, strict=True) if id(r) in keep]
+                    rows = rows.where(keep={i for i, r in enumerate(raw) if id(r) in keep})
+            del raw
             refused = chart_column_refused(mapping, table, tspec, rows, cfg.mrn_regex)
             if refused:  # FIT-U09 (T-629, D-415): the table is set aside whole and the night is held
                 quarantined[table] = refused
                 errors.append(f"{table}: {refused}")
-                rows = []
+                rows = rows.where(keep=set())
             # a row marked deleted (``deleted`` column, or the table's ``deleted:`` column) is a tombstone, never a
             # record; a source that keeps deletes apart (SS-MIX2 flag 0) gives them through ``deleted_rows``
             dcol = str(tspec.get("deleted") or "deleted")
             dead = [r for r in rows if dcol in r and is_deleted_flag(r[dcol])]
             if dead:
-                rows = [r for r in rows if not (dcol in r and is_deleted_flag(r[dcol]))]
+                rows = rows.where(live=dcol)
             deleted_rows = getattr(src, "deleted_rows", None)
             if deleted_rows is not None:
                 dead += [mapping.normalize(table, r) for r in deleted_rows(table, src_name, delta, since)]
@@ -537,7 +640,7 @@ def _run_ingest(
                     rejected[re.sub(r"'[^']*'|\"[^\"]*\"", "<value>", str(exc))] += 1
                     continue
                 for res in mapped:
-                    by_type.setdefault(res["resourceType"], []).append(res)
+                    to_spool(res)
             if rejected:
                 n_bad = sum(rejected.values())
                 tables[table]["rejected"] = dict(sorted(rejected.items()))
@@ -545,25 +648,10 @@ def _run_ingest(
                 log.warning("%s: %d of %d rows rejected: %s", table, n_bad, len(rows), why)
                 if n_bad * 100 > REJECT_MAX_PCT * len(rows):
                     errors.append(f"{table}: {n_bad} of {len(rows)} rows rejected (over {REJECT_MAX_PCT:g} %): {why}")
+            rows.discard()
     at.update(step="snapshot", table=None)
     unit_defaults = mapping.unit_defaults if source_kind != "fhir_bulk" else _bulk_unit_defaults(cfg.mapping_path)
-    defaulted = apply_unit_defaults(by_type.get("Observation", []), unit_defaults)
-    # D-418: the mapped sources read presence words in the mapping step; a FHIR feed has none, so here
-    presence_read = apply_presence_words(by_type.get("Observation", [])) if source_kind == "fhir_bulk" else 0
-    # T-619a (STD-070): an instant stated in another offset is written in the site's, so SQL and CQL read one date
-    shifted = to_site_offset((r for items in by_type.values() for r in items), zone)
-    # D-275 (review S-9): an order with no authoredOn and no validity start is kept. It was dropped here, so a
-    # patient whose only order had no date failed "on the drug" with no trace; the compiled SQL and CQL place an
-    # undated order in no window and leave the criterion unknown (a person checks)
-    undated = [r for r in by_type.get("MedicationRequest", []) if _undated_order(r)]
-    counts = {t: len(v) for t, v in sorted(by_type.items())}
-    missing: Counter[str] = Counter()
-    if undated:
-        missing["MedicationRequest.authoredOn (no date at all: kept, read as unknown)"] = len(undated)
-    for rtype, items in by_type.items():
-        for r in items:
-            for p in missing_required(r):
-                missing[f"{rtype}.{p}"] += 1
+    counts = spool.counts()
     crep: Any = None
     if contracts is not None:
         crep = governance.contract_report(cfg.site_id, snap, checks, datetime.now(zone))
@@ -581,7 +669,7 @@ def _run_ingest(
         ]
         if bad:
             errors.append(f"data contracts: {'; '.join(bad)}")
-    aliased = 0
+    aliases: dict[str, str] = {}
     if patient_pairs:
         pm = cfg.pidmap()
         try:
@@ -592,9 +680,18 @@ def _run_ingest(
             if still_held is not None:
                 pm.discard(still_held | {snap})
             pm.stage(snap, patient_pairs, identities or [])
-            aliased = apply_aliases(by_type, pm.aliases())  # T-659b: a merged chart number's records, one pid
+            aliases = pm.aliases()  # T-659b: a merged chart number's records, one pid (applied as they are written)
         finally:
             pm.close()
+    night = _NightPass(
+        zone,
+        unit_defaults,
+        source_kind == "fhir_bulk",
+        _Aliases(aliases, patient_ids),
+        counts,
+        cfg.sample_fraction if validate else None,
+        cfg.profile_sample_per_type if validate and fhir_profiles == "jp-core" else None,
+    )
     # NDJSON snapshot (delta runs merge over the previous snapshot and drop what the source deleted)
     final_dir = out_dir = snapshot_dir(cfg.lake_dir, snap)
     # D-271: a re-run of a promoted night is written beside it and moved in only when it passes; a held re-run never
@@ -617,8 +714,15 @@ def _run_ingest(
         prior_record: str | None = (out_dir / PUBLISH_RECORD).read_text(encoding="utf-8")
     except OSError:
         prior_record = None
-    full_counts = write_snapshot(out_dir, by_type, base, tombstones)
+    full_counts = write_snapshot(out_dir, spool, base, tombstones, transform=night)
     (out_dir / PUBLISH_RECORD).unlink(missing_ok=True)
+    defaulted, presence_read, shifted, aliased = (
+        night.defaulted,
+        night.presence_read,
+        night.shifted,
+        night.aliases.moved,
+    )
+    missing = night.missing_counts()
     tombstoned = tombstone_count(out_dir)
     overrides: list[str] = []
     # T-611: the completeness gate. A missing or emptied table, a table that shrank past the band, or a patient who
@@ -665,7 +769,7 @@ def _run_ingest(
     vsum = ValidationSummary(sampled=0, errors=0, error_pct=0.0, validator="skipped", messages=[])
     if validate:
         chosen = validator or Hl7Validator.from_env() or StructuralValidator()
-        picked = sample((r for items in by_type.values() for r in items), cfg.sample_fraction)
+        picked = night.sample.result() if night.sample is not None else []
         try:
             vres = chosen.validate(picked)
             vsum = ValidationSummary(
@@ -680,7 +784,7 @@ def _run_ingest(
     psum: ValidationSummary | None = None
     if validate and fhir_profiles == "jp-core":
         try:
-            psum = jp_core_check(cfg, by_type, out_dir)
+            psum = jp_core_check(cfg, night.jp_sample.result() if night.jp_sample is not None else [], out_dir)
         except Exception as exc:
             errors.append(f"JP Core validation failed to run: {exc}")
     if source is not None and hasattr(source, "stats"):
@@ -728,8 +832,6 @@ def _run_ingest(
         omop_load, fhir_loaded, fhir_deleted, lake_result = pub.omop, pub.fhir_loaded, pub.fhir_deleted, pub.lake
     at["step"] = "report"
     passed = not errors
-    from lake.flatten import unread_elements  # the inbound FHIR contract (T-616), the lake's own reading
-
     report = IngestReport(
         snapshot=date.fromisoformat(snap),
         source=source_kind,
@@ -748,7 +850,7 @@ def _run_ingest(
         tombstoned=tombstoned,
         held=held,
         omop=omop_load,
-        fhir_unread=unread_elements(by_type),  # T-616: the inbound contract, what each resource carries unread
+        fhir_unread=night.unread.result(),  # T-616: the inbound contract, what each resource carries unread
     )
     body = json.dumps(dump(report), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
     (out_dir / "ingest_report.json").write_bytes(body)
@@ -924,53 +1026,135 @@ def apply_aliases(by_type: dict[str, list[Resource]], aliases: dict[str, str]) -
     moved."""
     if not aliases:
         return 0
-    moved = 0
-    patients = by_type.get("Patient", [])
-    present = {str(p.get("id")) for p in patients}
-    kept: list[Resource] = []
-    for p in patients:
-        new = aliases.get(str(p.get("id")))
-        if new is None:
-            kept.append(p)
-            continue
-        moved += 1
-        if new in present:
-            continue
-        p["id"] = new
-        for ident in p.get("identifier") or []:
-            if isinstance(ident, dict) and str(ident.get("value")) in aliases:
-                ident["value"] = new
-        present.add(new)
-        kept.append(p)
+    one = _Aliases(aliases, [str(p.get("id")) for p in by_type.get("Patient", [])])
     if "Patient" in by_type:
-        by_type["Patient"] = kept
-
-    def walk(node: Any) -> Any:
-        if isinstance(node, dict):
-            for k, v in node.items():
-                if k == "reference" and isinstance(v, str) and (m := _REFERENCE.match(v)) and m.group(1) in aliases:
-                    node[k] = f"Patient/{aliases[m.group(1)]}"
-                else:
-                    walk(v)
-        elif isinstance(node, list):
-            for x in node:
-                walk(x)
-        return node
-
+        by_type["Patient"] = [p for p in by_type["Patient"] if one(p)]
     for rtype, items in by_type.items():
         if rtype != "Patient":
             for r in items:
-                walk(r)
-    return moved
+                one(r)
+    return one.moved
 
 
-def jp_core_check(cfg: AdapterConfig, by_type: dict[str, list[Resource]], out_dir: Path) -> ValidationSummary:
-    """D-137: check ``profile_sample_per_type`` resources of each type against JP Core; write every outcome to
-    ``jp_core_validation.json`` beside the snapshot; return the summary for the ingest report. Nothing is dropped."""
+class _Aliases:
+    """:func:`apply_aliases` one resource at a time, in the order the night sent them (T-692). ``patient_ids`` are the
+    ids of every Patient of the night, in that order; ``__call__`` returns False for a Patient to leave out."""
+
+    def __init__(self, aliases: dict[str, str], patient_ids: list[str]) -> None:
+        self.aliases = aliases
+        self.present = set(patient_ids) if aliases else set()
+        self.moved = 0
+        self.dropped = 0
+        if aliases:  # how many Patients will be left out, known before the first is written (the sample's size)
+            seen = set(patient_ids)
+            for pid in patient_ids:
+                new = aliases.get(pid)
+                if new is not None:
+                    if new in seen:
+                        self.dropped += 1
+                    else:
+                        seen.add(new)
+
+    def __call__(self, r: Resource) -> bool:
+        if not self.aliases:
+            return True
+        if r.get("resourceType") != "Patient":
+            self._walk(r)
+            return True
+        new = self.aliases.get(str(r.get("id")))
+        if new is None:
+            return True
+        self.moved += 1
+        if new in self.present:
+            return False
+        r["id"] = new
+        for ident in r.get("identifier") or []:
+            if isinstance(ident, dict) and str(ident.get("value")) in self.aliases:
+                ident["value"] = new
+        self.present.add(new)
+        return True
+
+    def _walk(self, node: Any) -> None:
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if (
+                    k == "reference"
+                    and isinstance(v, str)
+                    and (m := _REFERENCE.match(v))
+                    and m.group(1) in self.aliases
+                ):
+                    node[k] = f"Patient/{self.aliases[m.group(1)]}"
+                else:
+                    self._walk(v)
+        elif isinstance(node, list):
+            for x in node:
+                self._walk(x)
+
+
+class _NightPass:
+    """T-692 (D-473): what the night did to each resource and counted over all of them, done once per resource as
+    :func:`adapter.ndjson.write_snapshot` reads the spool back, in the order it was sent: the site's unit defaults
+    (D-149), the presence words of a FHIR feed (D-418), the site's offset (T-619a), the missing-element counts and
+    undated orders (D-275), the merged chart numbers (T-659b), the validation and JP Core samples and the unread
+    elements (T-616). The same results as the passes over the whole night in memory it replaces."""
+
+    def __init__(
+        self,
+        zone: Any,
+        unit_defaults: dict[str, str],
+        presence: bool,
+        aliases: _Aliases,
+        counts: dict[str, int],
+        fraction: float | None,
+        per_type: int | None,
+    ) -> None:
+        from lake.flatten import Unread  # the inbound FHIR contract (T-616), the lake's own reading
+
+        self.zone, self.unit_defaults, self.presence, self.aliases = zone, unit_defaults, presence, aliases
+        self.defaulted = self.presence_read = self.shifted = self.undated = 0
+        self.missing: Counter[str] = Counter()
+        self.unread = Unread()
+        kept = {**counts, "Patient": counts.get("Patient", 0) - aliases.dropped}
+        self.sample = (
+            Sampler("trialbox", lambda t: max(3, round(kept.get(t, 0) * fraction))) if fraction is not None else None
+        )
+        self.jp_sample = Sampler("jp-core", lambda _t: per_type) if per_type is not None else None
+
+    def __call__(self, r: Resource) -> bool:
+        rtype = r["resourceType"]
+        if rtype == "Observation":
+            self.defaulted += apply_unit_defaults([r], self.unit_defaults)
+            if self.presence:
+                self.presence_read += apply_presence_words([r])
+        self.shifted += to_site_offset((r,), self.zone)
+        if rtype == "MedicationRequest" and _undated_order(r):
+            self.undated += 1
+        for p in missing_required(r):
+            self.missing[f"{rtype}.{p}"] += 1
+        if not self.aliases(r):
+            return False
+        if self.sample is not None:
+            self.sample.add(r)
+        if self.jp_sample is not None:
+            self.jp_sample.add(r)
+        self.unread.add(r)
+        return True
+
+    def missing_counts(self) -> Counter[str]:
+        out: Counter[str] = Counter()
+        if self.undated:
+            out["MedicationRequest.authoredOn (no date at all: kept, read as unknown)"] = self.undated
+        out.update(self.missing)
+        return out
+
+
+def jp_core_check(cfg: AdapterConfig, picked: list[Resource], out_dir: Path) -> ValidationSummary:
+    """D-137: check the ``profile_sample_per_type`` resources of each type the night picked (``sample_per_type``, taken
+    as the night is written: T-692) against JP Core; write every outcome to ``jp_core_validation.json`` beside the
+    snapshot; return the summary for the ingest report. Nothing is dropped."""
     from adapter import licensed
-    from adapter.validate.jpcore import JpCoreValidator, sample_per_type
+    from adapter.validate.jpcore import JpCoreValidator
 
-    picked = sample_per_type((r for items in by_type.values() for r in items), cfg.profile_sample_per_type)
     rep = JpCoreValidator(licensed.tables(cfg.db_url)).validate(picked)
     (out_dir / "jp_core_validation.json").write_text(
         json.dumps(rep.as_json(), ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8"

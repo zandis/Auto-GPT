@@ -375,7 +375,9 @@ LAKE: dict[str, Entry] = {
     "lake:embed_cache.duckdb": _owed("vectors of note chunks by text hash, never pruned", "pruning by the patient"),
     "lake:fhir_ledger": _owed("the FHIR sync ledger: resource ids and hashes per patient"),
     "lake:backfill": _owed("the back-fill's working copy of a year's extract"),
-    "lake:tmp": _owed("the rebuild's scratch files (removed after a build; a crash may leave them)"),
+    "lake:tmp": _owed(
+        "the rebuild's and the night's ingest scratch files (removed after each; a crash may leave them)"
+    ),
     "lake:holds": _none("a job's hold on a snapshot: job id and date"),
     "lake:CURRENT": _none("the name of the served snapshot"),
     "lake:CURRENT.tmp": _none("the served snapshot's name while it is replaced"),
