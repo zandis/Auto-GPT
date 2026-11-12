@@ -74,6 +74,12 @@ def test_cr037_the_edge_services_reach_no_account_signature_or_pseudonym_store()
     assert "trace" not in ACCESS["tb_console"] and "mail" not in ACCESS["tb_console"]
 
 
+def test_d461_only_the_orchestrator_reaches_the_edc_schema() -> None:
+    """T-720: the console never opens ``EdcStore``; an owner of ``edc`` could insert a signature row or drop the
+    trail triggers (trust review F4)."""
+    assert [role for role, schemas in ACCESS.items() if "edc" in schemas] == ["tb_orchestrator"]
+
+
 def test_compose_gives_each_service_its_own_role_and_the_db_every_password() -> None:
     raw = COMPOSE.read_text(encoding="utf-8")
     services = yaml.safe_load(raw)["services"]
@@ -189,6 +195,16 @@ def test_a_service_role_reads_its_own_schemas_and_no_other(roles_cluster: tuple[
             == f"tbs_{own}"  # fmt: skip
     with pytest.raises(psycopg.OperationalError, match="permission denied"):  # the FHIR store's database is closed
         psycopg.connect(dsn.replace(f"/{pglocal.DB}", "/hapi"), autocommit=True).close()
+
+
+def test_d461_a_console_in_the_edc_group_from_an_earlier_release_leaves_it(roles_cluster: tuple[Path, str]) -> None:
+    root = roles_cluster[0]
+    member = "SELECT pg_has_role('tb_console', 'tbs_edc', 'MEMBER')"
+    _superuser(root, "GRANT tbs_edc TO tb_console")  # as the script before D-461 left it
+    assert _superuser(root, member) == "t"
+    _run_script(root)
+    assert _superuser(root, member) == "f"
+    assert _superuser(root, "SELECT pg_has_role('tb_orchestrator', 'tbs_edc', 'MEMBER')") == "t"
 
 
 def test_nobody_but_the_superuser_creates_a_database_and_passwords_come_from_the_environment(

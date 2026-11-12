@@ -39,3 +39,14 @@ def test_the_screening_log_in_the_sponsors_columns(lb: dict[str, Any]) -> None: 
     assert {x[1] for x in got[1:]} == {"Pre-screened"}
     assert all(len(x) == 2 for x in got)  # the pseudonym and every column the sponsor did not name stay out
     assert "pre-screen log" not in load_workbook(io.BytesIO(r.content)).sheetnames
+
+
+def test_the_log_page_links_the_sponsors_columns_once_a_layout_is_saved(lb: dict[str, Any]) -> None:  # noqa: F811
+    """T-302c: the screening-log page links the XLSX in the sponsor's columns, only when a layout names them."""
+    lb["oc"].app.include_router(sponsor_router(lambda: SimpleNamespace(dc=lb["dc"])))
+    crc, _ = login(lb["app"], "crc", PW)
+    page = crc.get("/studies/GZQO/screening-log").text
+    assert 'data-testid="log-xlsx"' in page and 'data-testid="log-xlsx-sponsor"' not in page
+    sp.Layouts(lb["dc"]).put("GZQO", LAYOUT, "crc", "2026-11-08T09:00:00+08:00")
+    page = crc.get("/studies/GZQO/screening-log").text
+    assert 'href="/studies/GZQO/screening-log.xlsx?layout=sponsor"' in page

@@ -18,7 +18,6 @@ adds ``console.*`` events to the shared audit chain before it acts.
 from __future__ import annotations
 
 import base64
-import dataclasses
 import hashlib
 import io
 import ipaddress
@@ -35,7 +34,7 @@ from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import urlencode
 
-from fastapi import FastAPI, File, Form, Query, Request, Response, UploadFile
+from fastapi import FastAPI, File, Form, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -66,7 +65,7 @@ from console.auth import (
     random_password,
     scope_values,
 )
-from console.backend import AuditRecord, Backend, MailItem, Refused, RulesetInfo, Unavailable
+from console.backend import Backend, MailItem, Refused, RulesetInfo, Unavailable
 from console.cascade import CascadeRuns
 from console.i18n import CATALOGUES, LANGS, pick_language, translate
 from console.identity import (
@@ -87,7 +86,6 @@ HERE = Path(__file__).resolve().parent
 COOKIE = "tb_console"
 LOGIN_COOKIE = "tb_console_login"
 LANG_COOKIE = "tb_console_lang"  # D-133: the language picked on the sign-in page (a preference, not a secret)
-AUDIT_PAGE, AUDIT_PAGES = 50, 20  # D-133: the audit trail page by page (the newest 1,000 events)
 TERMINAL = frozenset({"done", "failed", "cancelled"})
 DOC_EXT = (".pdf", ".docx", ".txt", ".md")
 MAX_UPLOAD = 50 * 1024 * 1024
@@ -280,22 +278,6 @@ def role_description(role: str, lang: str) -> str:
     return "; ".join(translate(lang, "roles.cond", what=p) if seen[k] else p for k, p in zip(seen, parts, strict=True))
 
 
-_PSEUDONYM = re.compile(r"\b[0-9a-f]{32}\b")
-_PID_KEYS = frozenset({"pid", "pids"})
-
-
-def hide_pids(records: list[AuditRecord]) -> list[AuditRecord]:
-    """D-380 (CR-023): the audit trail for a reader without ``audit.ids`` (the administrator): every pseudonym in an
-    event's detail is hidden, the event itself stays."""
-
-    def one(k: str, v: Any) -> Any:
-        if k in _PID_KEYS:
-            return "•••"
-        return _PSEUDONYM.sub("•••", v) if isinstance(v, str) else v
-
-    return [dataclasses.replace(r, detail={k: one(k, v) for k, v in dict(r.detail or {}).items()}) for r in records]
-
-
 # D-272 (CR-016): one rule for the job line, the pages and the audit's stored form (``tb_common.audit``): ``mask_ids``
 # turns ``CASE GZQO mrn=70000054`` into ``CASE GZQO mrn=•••`` and masks the same keys in a printed mapping
 _HIDDEN_OPTIONS = ID_KEYS
@@ -424,6 +406,9 @@ def create_app(
     classify: Classifier | None = None,
     cascades: CascadeRuns | None = None,
 ) -> FastAPI:
+    from tb_common.logging import setup_logging
+
+    setup_logging("console")  # T-212d (D-450, PV-10): every scrubber rule on, as in every other service
     settings = ConsoleSettings.from_env(_env_map(env))
     if backend is None or audit is None:
         backend, audit = _default_backend(settings)
@@ -951,20 +936,6 @@ def create_app(
         running = any(j.state not in TERMINAL and j.state != "awaiting_approval" for j in items)
         return page(request, "jobs.html", sess, jobs=items, refresh=running)
 
-    @app.get("/audit", response_class=HTMLResponse)
-    def audit_view(
-        request: Request, page_no: Annotated[int, Query(alias="page", ge=1, le=AUDIT_PAGES)] = 1
-    ) -> Response:
-        """The audit trail, newest first, AUDIT_PAGE events per page (D-133, review F-07: one page used to hold 300
-        events, 130 phone screens)."""
-        sess = need(request)
-        recs = bk.audit(None, AUDIT_PAGE * page_no + 1)
-        more = len(recs) > AUDIT_PAGE * page_no
-        rows = recs[AUDIT_PAGE * (page_no - 1) : AUDIT_PAGE * page_no]
-        if not permit(sess.user.role, "audit.ids"):  # D-380 (CR-023): the administrator sees no pseudonym here
-            rows = hide_pids(list(rows))
-        return page(request, "audit.html", sess, records=rows, page_no=page_no, more=more and page_no < AUDIT_PAGES)
-
     # D-133 (review F-02): a new or reset one-time password never travels in a URL (history, proxy and access logs,
     # a forwarded link). It is kept here, in memory, for the session that made it, and shown once by the next page.
     # Never written to a log, the audit trail or a database; a restart forgets it (reset the password again).
@@ -1096,6 +1067,13 @@ def create_app(
             raise _Problem(400, "request.refused", reason=str(exc)) from exc
         raise _Problem(400, "request.refused", reason="unknown action")
 
+    from console import audit_page
+
+    # T-211c (D-451): /audit, the privacy office's and the steward's audit browser, with or without the workspace
+    audit_page.register(
+        app, audit_page.Hooks(need=need, page=page, problem=_Problem, csrf_ok=csrf_ok, actor=actor, au=au)
+    )
+
     # ------------------------------------------------------------------ pilot workspace
     if not settings.pilot:
         return app
@@ -1139,6 +1117,12 @@ def create_app(
     )
     app.state.helpers = helpers  # console.notify (CLI) reads the same helpers
     register_home(app, helpers)
+    assert helpers.api_session is not None
+    audit_page.register_api(  # T-211c (D-451): the verify button's /api/v1 twin (T-657)
+        app,
+        audit_page.Hooks(need=need, page=page, problem=_Problem, csrf_ok=csrf_ok, actor=actor, au=au),
+        helpers.api_session,
+    )
     approval.register(app, helpers, submit)  # S20 (D-108): the investigator approves, on one page
     screening_log.register(app, helpers)
     notify.register(app, helpers)
@@ -1153,6 +1137,9 @@ def create_app(
     sdv_page.register(app, helpers)  # T-303 (D-436): the monitor's SDV pages, after team (it reads the standing)
     admin_flags.register(app, helpers)  # /ops/flags and the flags' first-start seed (T-008, D-207)
     edc_pages.register(app, helpers)  # EDC prefill: switch, map, review, e-signature, send, ODM (D-160)
+    from console import copy_assist_page
+
+    copy_assist_page.register(app, helpers)  # T-302c (D-434): copy-assist, its CSV and /api/v1
     demo_guard.register(app, helpers)  # T-502 (D-328): demo mode's refusals, banner and acknowledgement
     feedback.register(app, helpers)  # T-510 (D-331): the feedback control of every page and its CSV export
     from console import items_page
