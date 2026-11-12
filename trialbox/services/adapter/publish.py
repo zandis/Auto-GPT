@@ -368,9 +368,10 @@ def publish_night(
             except BaseException:  # the process is dying mid-step: leave the served folder as it was
                 put_back()
                 raise
-            if _current(cfg.lake_dir) != snap:  # built, not promoted: a newer night came to be served meanwhile
+            now_served = _current(cfg.lake_dir)
+            if now_served is not None and now_served > snap:  # built, not promoted: a newer night is served now
                 put_back()
-                stale(_current(cfg.lake_dir), "lake")
+                stale(now_served, "lake")
                 fhir_back()
                 return out
             note("lake", DONE)
