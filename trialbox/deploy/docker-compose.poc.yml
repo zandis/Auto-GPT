@@ -6,6 +6,10 @@
 # (docs/RUNBOOK.md §9) and set TB_CONSOLE_SECURE_COOKIE=1. The pilot workspace refuses to start unless TB_ENV is DEV or
 # TEST and TB_DATA_CLASS is D0 (services/console/app.py).
 services:
+  embed-service:
+    # ENG-003 (D-563): the hash embedder of a synthetic stack needs no library: the service image, not trialbox-embed
+    image: ${TB_EMBED_IMAGE:-trialbox-py:1.0.0}
+    build: {context: .., dockerfile: deploy/docker/python.Dockerfile}
   console:
     image: ${TB_IMAGE:-trialbox-py:1.0.0}
     command: ["uvicorn", "--factory", "console.app:create_app", "--host", "0.0.0.0", "--port", "8090",

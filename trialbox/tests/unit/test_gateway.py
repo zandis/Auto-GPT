@@ -94,6 +94,7 @@ def _pinned_registry(*, served: str = "j-test", sha: str | None = PIN, status: s
                 "alias": "j-workhorse",
                 "status": status,
                 "serving": "vllm",
+                "context_length": 32768,  # LLM-007 (D-568): PRODUCTION routes no local build without one
                 "served": {"serving": served},
                 "sha256": sha,
                 "licence": {"name": "test"},
@@ -105,6 +106,7 @@ def _pinned_registry(*, served: str = "j-test", sha: str | None = PIN, status: s
                 "alias": "v-verifier",
                 "status": "champion",
                 "serving": "vllm",
+                "context_length": 32768,  # LLM-007 (D-568): PRODUCTION routes no local build without one
                 "served": {"verifier": "v-test"},  # V has its own endpoint (routing.yaml)
                 "sha256": "cd" * 32,
                 "licence": {"name": "test"},

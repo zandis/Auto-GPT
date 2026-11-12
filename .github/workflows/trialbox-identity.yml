@@ -22,7 +22,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: trialbox-identity-${{ github.ref }}
+  group: trialbox-identity-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

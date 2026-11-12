@@ -55,6 +55,7 @@ def _registry(tmp_path: Path, expected: str | None) -> Path:
     for b in doc["builds"]:
         if b["build_id"] == emb.EMBED_BUILD:
             b["expected"] = {"manifest_sha256": expected, "revision": "0" * 40 if expected else None}
+    tmp_path.mkdir(parents=True, exist_ok=True)
     out = tmp_path / "registry.yaml"
     out.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
     return out
@@ -163,9 +164,14 @@ def test_the_service_digest_is_pin_models_digest(tmp_path: Path) -> None:
     assert emb.manifest_sha256(folder) == pin_model.weight_manifest(folder).sha256
 
 
-def test_pin_model_succeeds_on_the_embedder_and_verifies_it(tmp_path: Path) -> None:
+def test_pin_model_succeeds_on_the_embedder_and_verifies_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from registry import registry as reg_mod
+
     folder = _weights(tmp_path / "embedder")
     override = _pin(tmp_path, folder)
+    # verify-all reads the release's registry: here the one that expects the stand-in (the committed row names the
+    # real folder's manifest since ENG-003's follow-up)
+    monkeypatch.setattr(reg_mod, "DEFAULT_PATH", tmp_path / "registry.yaml")
     entry = yaml.safe_load(override.read_text(encoding="utf-8"))["builds"][pin_model.EMBED_BUILD]
     assert entry["served"] == {"embed": pin_model.EMBED_BUILD} and entry["weights"]["trust"] == "expected"
     assert (override.parent / "manifests" / f"{pin_model.EMBED_BUILD}.sha256").is_file()
@@ -176,8 +182,12 @@ def test_pin_model_succeeds_on_the_embedder_and_verifies_it(tmp_path: Path) -> N
 def test_pin_model_refuses_an_unexpected_or_gguf_embedder(tmp_path: Path) -> None:
     folder = _weights(tmp_path / "embedder")
     out = tmp_path / "site" / "registry.site.yaml"
-    # the committed row has no expected weights yet (G1): no trust on first use
+    # a row with no expected weights (as the committed one was until the real folder was hashed): no trust on
+    # first use; the committed row refuses a folder of other files
     with pytest.raises(pin_model.PinError, match="no trust on first use"):
+        pin_model.pin(pin_model.EMBED_BUILD, folder, served_name="e", endpoint="embed", out=out,
+                      registry_path=_registry(tmp_path / "unnamed", None))  # fmt: skip
+    with pytest.raises(pin_model.PinError, match="differs from the expected e131f3203849"):
         pin_model.pin(pin_model.EMBED_BUILD, folder, served_name="e", endpoint="embed", out=out)
     gguf = tmp_path / "gguf"
     gguf.mkdir()

@@ -2,6 +2,8 @@
 
 * ``POST /run`` starts one ingest and answers 202 with its run id; ``GET /run/<id>`` reports its state and, when done,
   the ingest report (the orchestrator's nightly job and the console poll it; T-690, D-472).
+* ``POST /publish`` publishes a held night (the steward's accept; T-723, D-489) as a job; ``GET /publish/<id>``
+  reports its state and its steps.
 * ``POST /$validate`` (D-137): JP Core ``$validate``, offline. Body ``{"resources": [...]}`` checks those resources
   (one resource gives its FHIR ``OperationOutcome``); ``{"snapshot": "YYYY-MM-DD", "per_type": 50}`` checks a sample of
   a written snapshot (the newest when ``snapshot`` is empty). The answer lists every failure in plain words.
@@ -15,6 +17,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import contextlib
 import logging
 import os
 import threading
@@ -35,9 +38,14 @@ from adapter.pipeline import SiteKeyError, run_ingest
 log = logging.getLogger("adapter")
 app = make_app("adapter")
 _running = threading.Lock()
+#: T-723 review: set while a steward's accept publishes a held night. A nightly run that arrives then waits for it
+#: (its job says ``waiting``) and is not refused: an accept must never make the night's ingest fail
+_accepting = threading.Event()
 #: T-690 (D-472): the ingest runs of this process by id, the newest last (one ingest at a time; nights are one a day,
 #: so this holds a few small reports; a restart forgets them and a poller then reports the run lost)
 _runs: dict[str, dict[str, Any]] = {}
+#: T-723 (D-489): the publishes of held nights (the steward's accept) of this process by id; as ``_runs``
+_publishes: dict[str, dict[str, Any]] = {}
 
 
 def _spawn(run: Callable[[], None]) -> None:
@@ -52,23 +60,33 @@ def _now() -> str:
 def run(req: IngestRequest) -> JSONResponse:
     """T-690 (D-472): start one ingest and answer 202 with its run id; ``GET /run/<id>`` follows it (``running``,
     ``done`` with the ingest report, ``refused`` when the site key is missing or changed, ``failed``). The night is
-    never timed by the caller (OD-10). A second start while one runs is 409."""
+    never timed by the caller (OD-10). A second start while an ingest runs is 409. While a steward's accept
+    publishes a held night (T-723) the run is taken and waits for it: its state is ``running`` with the detail
+    "waiting for a publish", and it starts when the publish ends."""
+    waits = False
     if not _running.acquire(blocking=False):
-        busy = next((r["run"] for r in reversed(_runs.values()) if r["state"] == "running"), "")
-        raise HTTPException(status_code=409, detail="an ingest is already running", headers={"X-TB-Run": busy})
+        if not _accepting.is_set():
+            busy = next((r["run"] for r in reversed(_runs.values()) if r["state"] == "running"), "")
+            raise HTTPException(status_code=409, detail="an ingest is already running", headers={"X-TB-Run": busy})
+        waits = True
     try:
         ac, default_kind, default_path = build_config()
         path = req.path or default_path
         if req.source != default_kind and not req.path:
             raise HTTPException(status_code=400, detail="path required when overriding the source type")
     except BaseException:
-        _running.release()
+        if not waits:
+            _running.release()
         raise
     rid = os.urandom(8).hex()
-    state: dict[str, Any] = {"run": rid, "state": "running", "started": _now(), "ended": None, "detail": ""}
+    state: dict[str, Any] = {"run": rid, "state": "running", "started": _now(), "ended": None,
+                             "detail": "waiting for a publish to end" if waits else ""}  # fmt: skip
     _runs[rid] = state
 
     def work() -> None:
+        if waits:  # behind the accept, however long it takes (never timed: OD-10)
+            _running.acquire()
+            state["detail"] = ""
         try:
             report = run_ingest(
                 ac,
@@ -107,6 +125,99 @@ def run_state(rid: str) -> dict[str, Any]:
 def latest_run() -> dict[str, Any]:
     """The newest ingest run of this process, or ``{"state": "none"}``."""
     return dict(next(reversed(_runs.values()))) if _runs else {"state": "none"}
+
+
+class PublishBody(BaseModel):
+    snapshot: str
+    source: str = ""
+    attempt: int | None = None
+
+
+@app.post("/publish", status_code=202)
+def publish(body: PublishBody) -> JSONResponse:
+    """T-723 (D-489): the steward's accept. Publishes the held night's folder as it stands, with the same function
+    a night that passed the gate goes through (``adapter.publish``), as a job: 202 and a run id, ``GET
+    /publish/<id>`` follows it (``running``, ``done``, ``busy`` when a job holds the snapshot, ``stale`` when a
+    newer night is already served, ``failed`` with the step). ``done`` means the night is served (``promoted``).
+    A night that was published already (its folder says it passed and every step of its record ended) is answered
+    ``done`` at once: an accept whose end the console lost is recorded by accepting again (review HIGH-2).
+    Refused at once, nothing touched: no held night of that date (404), an attempt that is not the newest of its
+    night (409), an ingest or another publish running (409)."""
+    from datacore.dataops import DataOps
+
+    from adapter.publish import NothingToPublish, held_folder, publish_held, published
+
+    if not _running.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="an ingest or a publish is already running")
+    _accepting.set()  # second review (L1): from here a night's run waits, also while the accept is still checked
+    try:
+        ac = build_config()[0]
+        try:
+            held_folder(ac, body.snapshot)
+        except NothingToPublish as exc:
+            if published(ac, body.snapshot):
+                _accepting.clear()
+                _running.release()
+                rid = os.urandom(8).hex()
+                _publishes[rid] = {"run": rid, "state": "done", "started": _now(), "ended": _now(), "detail":
+                                   "published already", "snapshot": body.snapshot, "steps": {},
+                                   "promoted": True}  # fmt: skip
+                return JSONResponse(dict(_publishes[rid]), status_code=202, headers={"Location": f"/publish/{rid}"})
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if body.source and body.attempt is not None:
+            ops = DataOps(ac.db_url or os.environ.get("TB_DB_URL"))
+            try:
+                newest = max((b.attempt for b in ops.batches(source=body.source) if b.snapshot == body.snapshot),
+                             default=body.attempt)  # fmt: skip
+            finally:
+                ops.close()
+            if newest != body.attempt:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"attempt {body.attempt} of night {body.snapshot} is not the newest ({newest}): decide "
+                    "the newest attempt",
+                )
+    except BaseException:
+        _accepting.clear()
+        _running.release()
+        raise
+    rid = os.urandom(8).hex()
+    state: dict[str, Any] = {"run": rid, "state": "running", "started": _now(), "ended": None, "detail": "",
+                             "snapshot": body.snapshot, "steps": {}}  # fmt: skip
+    _publishes[rid] = state
+
+    def work() -> None:
+        try:
+            out = publish_held(ac, body.snapshot, on_step=lambda _s, steps: state.update(steps=steps))
+            state.update(steps=dict(out.steps), promoted=out.promoted)
+            if out.ok and out.promoted:  # review HIGH-1: "done" is a night that is served, nothing less
+                state.update(state="done")
+            else:
+                ended = "busy" if out.lake_busy else "stale" if out.stale else "failed"
+                state.update(state=ended, detail="; ".join(out.errors)[:500])
+        except Exception as exc:
+            log.exception("publish %s failed", rid)
+            state.update(state="failed", detail=f"{type(exc).__name__}: {str(exc)[:500]}")
+            # second review (H1): what the lake serves is read, also when the publish raised. Unreadable: it stays
+            # unset, and the console keeps the accept recorded
+            with contextlib.suppress(OSError):
+                state["promoted"] = (ac.lake_dir / "CURRENT").read_text(encoding="utf-8").strip() == body.snapshot
+        finally:
+            state["ended"] = _now()
+            _accepting.clear()
+            _running.release()
+
+    _spawn(work)
+    return JSONResponse(dict(state), status_code=202, headers={"Location": f"/publish/{rid}"})
+
+
+@app.get("/publish/{rid}")
+def publish_state(rid: str) -> dict[str, Any]:
+    """The state of one publish of this process (404: unknown here, e.g. the adapter restarted)."""
+    st = _publishes.get(rid)
+    if st is None:
+        raise HTTPException(status_code=404, detail="unknown publish (the adapter may have restarted)")
+    return dict(st)
 
 
 class ValidateBody(BaseModel):

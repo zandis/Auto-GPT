@@ -39,6 +39,9 @@ practitioners:
   P23456: {name: "Dr. B (synthetic)", department: RHEU, email: "rheu-dr@hospa.test", capacity_per_month: 3, license: "DEMO-MD-0002"}
   P34567: {name: "Dr. C (synthetic)", department: META, capacity_per_month: 2, license: "DEMO-MD-0003"}
   P78901: {name: "Dr. G (synthetic)", department: ONC, email: "onc-dr@hospa.test", license: "DEMO-MD-0007"}
+# NEW-DIN-8 (D-583): on the first night every table of the site's mapping must be there with rows. A table this
+# site has no extract for (for example claim, registry) is listed here once, at set-up.
+feed_completeness: {optional_tables: []}
 retention: {attachments_days: 90, outputs_days: 365, logs_days: 365, mail_log_days: 2555, nightly_snapshots: 3, month_end_snapshots_months: 36, pool_months_after_ruleset: 24, audit_years: 10}
 calibration_defaults: {reach_rate: 0.6, accept_rate: 0.35}
 # org_id must exist in the TWPAS organization-identifier code system; the synthetic site uses the IG's example code.

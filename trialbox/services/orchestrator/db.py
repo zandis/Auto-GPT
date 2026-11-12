@@ -175,6 +175,14 @@ class JobDB:
         with self._db.transaction() as tx:
             yield tx
 
+    @contextmanager
+    def locked(self, name: str) -> Iterator[None]:
+        """Hold the lock ``name`` to the end of the block: one holder at a time over every process of the box (an
+        advisory lock of one transaction, so a holder that dies releases it). T-704 (D-458): the night's allowance."""
+        with self.tx() as tx:
+            tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (name,))
+            yield
+
     # ------------------------------------------------------------------ identifier caps (T-103, D-438)
     def take_limit(self, kind: str, who: str, at_ms: int, window_ms: int, limit: int) -> bool:
         """One capped use of ``kind`` by ``who``: in one transaction, serialised per kind and person, count the uses
@@ -300,10 +308,23 @@ class JobDB:
         )
         return Job.model_validate_json(row[0]) if row else None
 
-    def claim(self) -> str | None:
+    def with_option(self, type_: str, key: str, value: str) -> list[Job]:
+        """Every job of ``type_`` whose options carry ``key`` = ``value``, oldest first (NEW-PERF-2: the INGEST
+        jobs that are on one adapter run)."""
+        rows = self._db.fetchall(
+            "SELECT data FROM jobs WHERE type = ? AND (data::jsonb)->'options'->>? = ? ORDER BY received_at, seq",
+            (type_, key, value),
+        )
+        return [Job.model_validate_json(r[0]) for r in rows]
+
+    def claim(self, only: tuple[str, ...] = ()) -> str | None:
+        """Take the oldest queued job; ``only``: of these types (T-704, D-458: the worker kept for the ingest)."""
+        types = " AND type = ANY(?)" if only else ""
         with self.tx() as con:
             row = con.fetchone(
-                "SELECT job_id FROM jobs WHERE queued = 1 ORDER BY received_at, job_id LIMIT 1 FOR UPDATE SKIP LOCKED"
+                f"SELECT job_id FROM jobs WHERE queued = 1{types} ORDER BY received_at, job_id LIMIT 1 "
+                "FOR UPDATE SKIP LOCKED",
+                (list(only),) if only else (),
             )
             if row is None:
                 return None

@@ -226,6 +226,8 @@ def sigir_docs() -> list[Derived]:
 def medtxt_docs() -> list[Derived]:
     from tools import medtxt_eval
 
+    if not (medtxt_eval.CACHE / "Test collection").is_dir():  # ENG-002: fetched at run time, never committed
+        raise SystemExit(f"the MedTxt corpus is not in {medtxt_eval.CACHE}: fetch it once with `make public-data`")
     _items, notes = medtxt_eval.dataset()
     out = []
     for doc, sents in notes["ja"].items():

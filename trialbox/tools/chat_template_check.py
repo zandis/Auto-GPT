@@ -105,7 +105,7 @@ def compare(server: Sequence[list[int] | None], folder: list[list[int]],
 
 # ---------------------------------------------------------------- the tokenizer side (in the model server's image)
 def hf_side(model: str, prompts_file: Path, out: Path, template: Path | None) -> int:
-    import transformers  # type: ignore[import-not-found]  # in the model server's image, not in the box's venv
+    import transformers  # type: ignore[import-not-found,unused-ignore]  # the model server's image has it
     from transformers import AutoTokenizer
 
     tok = AutoTokenizer.from_pretrained(model, local_files_only=True)
