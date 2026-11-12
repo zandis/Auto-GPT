@@ -518,12 +518,14 @@ def run_screen(
     run_date: date,
     snapshot: str,
     select: Callable[[list[Scoped]], list[Scoped]] | None = None,
+    given: list[Scoped] | None = None,
 ) -> ScreenRun:
     """``select`` (MICROBATCH, D-397): picks the patients to evaluate from the scope (the new ones, within the night
-    budget); SCREEN evaluates the whole scope."""
+    budget); SCREEN evaluates the whole scope. ``given`` (MICROBATCH, T-707, D-476): exactly these patients, with no
+    scope query (pool rows of another criteria version, screened again in full); the register still applies."""
     opts = ctx.job.options or {}
     sc = rs.manifest.scopes.screen if rs.manifest.scopes and rs.manifest.scopes.screen else None
-    practitioners = practitioners_of(ctx, rs)
+    practitioners = practitioners_of(ctx, rs) if given is None else []
     try:
         window = int(opts.get("window") or (sc.appointment_window_days if sc and sc.appointment_window_days else 180))
     except ValueError as exc:
@@ -531,12 +533,16 @@ def run_screen(
     depts = [d.strip().upper() for d in opts["dept"].split(",")] if opts.get("dept") else []
     recent = int(sc.recent_encounter_months if sc and sc.recent_encounter_months else 12)
     # D-147: the research office's opt-out register applies to every screening run (and MICROBATCH's incident run)
-    scoped = drop_opted_out(ctx, scope_patients(ctx, practitioners, run_date, window, recent, depts, snapshot))
+    if given is not None:
+        scoped = drop_opted_out(ctx, list(given))
+    else:
+        scoped = drop_opted_out(ctx, scope_patients(ctx, practitioners, run_date, window, recent, depts, snapshot))
     if select is not None:
         scoped = select(scoped)
     ctx.metrics(patients_scoped=len(scoped))
     judge = judge_for(ctx, rs)
-    if select is not None and not scoped:  # nobody to evaluate: no model call, no audit of an empty run
+    chosen = select is not None or given is not None
+    if chosen and not scoped:  # nobody to evaluate: no model call, no audit of an empty run
         return ScreenRun(
             rs, run_date, snapshot, [], {}, [], list(practitioners or []), depts, window, judge, judging_info(judge),
             whole_hospital=practitioners is None,
