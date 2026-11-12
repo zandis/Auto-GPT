@@ -171,6 +171,9 @@ def test_every_language_has_every_string_and_no_forbidden_word(lang: str) -> Non
     for key, text in cat.items():
         assert CATALOGUES[lang][key] == text
         assert not check(text), (key, text)
+        if lang != "en":  # D-133 glossary (tests/console/test_step4b.py): one hospital word per concept
+            for word in ("サインイン", "ジョブ", "(?<!コント)ロール", "(?<!信)箱", "装置", "工作(?![簿日天])", "權杖"):
+                assert not re.search(word, text), (key, word)
 
 
 def test_the_pages_render_in_each_language(tmp_path: Path) -> None:
