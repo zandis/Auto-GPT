@@ -60,7 +60,9 @@ micro-batch that follows every ingest then ran a second time for the same study 
    process is no longer what holds two starts apart.
 4. **A step that was passed over stays passed once a later step of the night has a job.** The model steps are
    never started after retention: not by a self-test that passes after a restart, not by a study opened in the
-   morning. What a night passed over is made up by the next night that passes (item 4 of the decision).
+   morning. What a night passed over is made up by the next night that passes (item 4 of the decision). **The
+   owner's ruling of 2026-11-12:** night-only; a later event the same day does not start the weekly micro-batch
+   or NAV in the daytime.
 5. **A newer night waits while a job of an earlier night's chain has not ended**: two micro-batches of one study
    never run beside each other. The earlier night's steps that had not started are not run (said in the log); the
    newer night covers them, and a weekly step among them is made up by it.
