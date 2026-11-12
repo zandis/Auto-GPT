@@ -30,7 +30,7 @@ import json
 import logging
 import os
 import time
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -116,27 +116,48 @@ def record_source(lake_dir: Path | None, snapshot: str, source: str, origin: str
 
 
 def lake_rows(
-    feed: Resources,
-    site: Resources,
+    feed: Mapping[str, Iterable[dict[str, Any]]],
+    site: Mapping[str, Iterable[dict[str, Any]]],
     *,
     tz: str,
     snapshot: str,
     source: str | None = None,
     lake_dir: Path | None = None,
     deleted: dict[str, list[str]] | None = None,
+    stream: bool = False,
 ) -> Rows:
     """The lake rows of one snapshot: ``feed`` is the snapshot's NDJSON by type, ``site`` the site's inputs;
     ``lake_dir`` names the lake, whose OMOP store is its own (``omop.schema.schema_for``); ``deleted`` the ids the
-    source deleted in this snapshot (its ``tombstones.json``), for the OMOP tombstone's reason (T-305b)."""
+    source deleted in this snapshot (its ``tombstones.json``), for the OMOP tombstone's reason (T-305b).
+
+    T-692 (D-473): with ``stream`` the values of ``feed`` and ``site`` may be re-readable streams (readers of NDJSON
+    files) and the legacy rows come back as re-readable streams (:meth:`Flattener.stream`), one table at a time; the
+    ``omop`` path still loads the whole snapshot (scale review F-17, card T-702)."""
     if source is None:
         source, origin = rebuild_source()  # read once, when the rebuild starts (D-207)
         record_source(lake_dir, snapshot, source, origin)
+    if source == "legacy" and stream:
+        both = {k: _Joined(feed.get(k, ()), site.get(k, ())) for k in [*feed, *(k for k in site if k not in feed)]}
+        return Flattener(tz).stream(both)  # type: ignore[return-value]
     if source == "legacy":
         merged: Resources = {k: list(v) for k, v in feed.items()}
         for k, v in site.items():  # D-135: the site's own inputs join every snapshot (after the hospital's)
             merged.setdefault(k, []).extend(v)
         return Flattener(tz).flatten(merged)
-    return omop_rows(feed, site, tz=tz, snapshot=snapshot, lake_dir=lake_dir, deleted=deleted)
+    feed_l: Resources = {k: list(v) for k, v in feed.items()}
+    site_l: Resources = {k: list(v) for k, v in site.items()}
+    return omop_rows(feed_l, site_l, tz=tz, snapshot=snapshot, lake_dir=lake_dir, deleted=deleted)
+
+
+class _Joined:
+    """The hospital's records of a type and then the site's own (D-135), read again each time it is iterated."""
+
+    def __init__(self, first: Iterable[dict[str, Any]], then: Iterable[dict[str, Any]]) -> None:
+        self.first, self.then = first, then
+
+    def __iter__(self) -> Iterator[dict[str, Any]]:
+        yield from self.first
+        yield from self.then
 
 
 def omop_rows(
