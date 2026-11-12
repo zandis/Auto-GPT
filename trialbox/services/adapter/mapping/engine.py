@@ -407,8 +407,9 @@ class Mapping:
                 # D-596: a factor of 0 turns every result of its analyte into 0, a wrong result, not a missing one
                 text = str(row.get("factor") or "1").strip()
                 try:
-                    good = Decimal(text).is_finite() and Decimal(text) > 0
-                except ArithmeticError:
+                    # as a float too: 1e-400 is above zero as written and 0.0 in every result; 1e400 is infinite
+                    good = Decimal(text).is_finite() and math.isfinite(float(text)) and float(text) > 0
+                except (ArithmeticError, ValueError):
                     good = False
                 if not good:
                     code = row.get(lk.key)

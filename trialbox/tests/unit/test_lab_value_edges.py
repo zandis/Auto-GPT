@@ -67,7 +67,7 @@ def _site(tmp_path: Path, factor: str) -> Path:
     return tmp_path / "m.yaml"
 
 
-@pytest.mark.parametrize("factor", ["0", "0.0", "-1", "-0.1", "nan", "inf", "ten", "-inf"])
+@pytest.mark.parametrize("factor", ["0", "0.0", "-1", "-0.1", "nan", "inf", "ten", "-inf", "1e-400", "1e400", " "])
 def test_a_factor_that_is_not_a_number_above_zero_stops_the_mapping_from_loading(tmp_path: Path, factor: str) -> None:
     with pytest.raises(MappingError, match=r"look-up lab.*ZERO.*factor"):
         Mapping.load(_site(tmp_path, factor))
@@ -78,3 +78,23 @@ def test_a_factor_above_zero_and_an_empty_one_read_as_before(tmp_path: Path, fac
     m = Mapper(Mapping.load(_site(tmp_path, factor)), b"k" * 32, "s")
     (res,) = m.map_table("lab", iter([_lab("ZERO", "5", "")]))
     assert res["valueQuantity"]["value"] == want
+
+
+def test_a_range_stated_in_the_look_up_does_not_change_the_outcome_either(tmp_path: Path) -> None:
+    with LOOKUP.open(encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    alt = next(r for r in rows if r["local_code"] == "ALT")
+    fields = [*rows[0].keys(), "plausible_low", "plausible_high"]
+    rows.append({**alt, "local_code": "ALTB", "plausible_low": "0", "plausible_high": "1000"})
+    with (tmp_path / LOOKUP.name).open("w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fields)
+        w.writeheader()
+        for r in rows:
+            w.writerow({k: r.get(k, "") for k in fields})
+    (tmp_path / "m.yaml").write_text(BASE.read_text(encoding="utf-8"), encoding="utf-8")
+    m = Mapper(Mapping.load(tmp_path / "m.yaml"), b"k" * 32, "s")
+    for unit in ("U/L", ""):
+        with pytest.raises(ArithmeticError):
+            list(m.map_table("lab", iter([_lab("ALTB", "9" * 30, unit)])))
+    (far,) = m.map_table("lab", iter([_lab("ALTB", "5000", "")]))
+    assert far["dataAbsentReason"]["text"] == labvalue.NO_UNIT_IMPLAUSIBLE

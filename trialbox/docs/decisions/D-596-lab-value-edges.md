@@ -27,4 +27,8 @@
    D-527's test, and the test stands.
 2. **A look-up factor is a finite number above zero**, checked when the mapping loads (the night, the back-fill
    and the mapping check): a factor of 0 or below stops the mapping from loading, naming the look-up and the row.
-   An empty factor is 1, as before.
+   An empty factor is 1, as before; a cell that holds only blanks is refused (the night's own factor check, D-527,
+   already refused it). The factor must also be above zero as the number results are computed with: `1e-400`
+   is 0 in every result and is refused.
+3. "Thirty digits" is an example. What the arithmetic cannot compute depends on the factor: with a factor of 1
+   or 10 a 28-digit value already fails; the rule is the arithmetic's, not a digit count.
