@@ -2998,7 +2998,7 @@ class RulesetManifest(BaseModel):
 
 class CandidateList(BaseModel):
     """
-    SPEC 3.6 candidate_list (tag phi). Schema version 1.3.0 (1.1.0: optional evidence.opinions, D-120; 1.2.0: optional evidence.coded, D-362; 1.3.0: optional criterion_verdict.final, D-476; 1.4.0: optional criterion_verdict.basis, D-478).
+    SPEC 3.6 candidate_list (tag phi). Schema version 1.4.0 (1.1.0: optional evidence.opinions, D-120; 1.2.0: optional evidence.coded, D-362; 1.3.0: optional criterion_verdict.final, D-476; 1.4.0: optional criterion_verdict.basis, D-478).
     """
 
     model_config = ConfigDict(

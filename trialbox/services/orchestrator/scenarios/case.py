@@ -43,6 +43,7 @@ from tb_common.reasons import Reason
 from tb_common.routing import is_internal
 from tb_common.ruleset import Ruleset
 from tb_common.subject import job_subject
+from tb_common.verdict_word import held_back
 from tb_contracts import CriterionIR, CriterionVerdict, Evidence, ParseRequest, PatientEvaluation
 
 from orchestrator.clients import StepFailed
@@ -293,9 +294,10 @@ def evaluate_case(
         ev = v.evidence or Evidence(resource_refs=[])
         shown, why = v.verdict, ev.reason
         if v.verdict == "fail" and decision.answer_of(c, v, policy) == "unknown":
-            single = v.basis == "single" or v.final is False
             shown = "unknown"
-            why = Reason.SINGLE_MODEL.value if single else Reason.LOW_CONFIDENCE.value
+            # one model's answer, an answer given while notes could not exclude (its own reason: a pair may have
+            # agreed, review of T-709 LOW 6), else a weak one
+            why = held_back(v) or Reason.LOW_CONFIDENCE.value
             v = v.model_copy(update={"verdict": "unknown"})  # the hint below reads the answer as shown
         rows.append(
             {

@@ -30,6 +30,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from tb_common.verdict_word import held_back
+
 Answer = Literal["yes", "no", "unknown"]
 Basis = Literal["coded", "pair", "single", "person"]
 #: the reason code of a note answer that the notes did not fit (T-603): flagged, a person looks
@@ -101,12 +103,12 @@ def answer_of(criterion: Any, verdict: Any, policy: Policy) -> Answer:
     sure = _confidence(verdict) >= policy.threshold
     if v == "pass":
         return "yes" if sure and not _flagged(verdict) else "unknown"
-    may_exclude = (
-        policy.note_block
-        and sure
-        and getattr(verdict, "final", None) is not False
-        and basis in (None, "pair")  # None: a row stored before the field (D-476 rule 3)
-    )
+    # a "not met" excludes only when it says who gave it and that it was allowed to (review of T-709, LOW 4): a
+    # pair's answer, or an answer stored by T-707 (before the basis) as final. A fail that says neither is read as
+    # not final, as the schema promises for a stored row; ``held_back`` is the one test for the rest.
+    final = getattr(verdict, "final", None)
+    stated = basis == "pair" or (basis is None and final is True)
+    may_exclude = policy.note_block and sure and stated and held_back(verdict) is None
     return "no" if may_exclude else "unknown"
 
 

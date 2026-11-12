@@ -40,6 +40,29 @@ answer dropped a patient with no review row.
 4. **The policy is an argument** (`Policy`: the threshold, whether notes may exclude; from the decision context).
    T-216's "unknown with a reason" rule for counts becomes one more field of it, not a second rule.
 
+5. **What reads a verdict afterwards asks one function too** (review of this card, 2026-11-12).
+   `libs/tb_common/verdict_word.py: shown_of(verdict)` gives the word a page, a sheet or a count shows for a
+   stored or published verdict, with no criterion and no run policy at hand: a "not met" that one model gave
+   (`basis: single`) or that was given while notes could not exclude (`final: false`) is `unknown` with its
+   reason (`single_model`, `not_final`), never "not met". `held_back` is the one test; `answer_of` uses it. The
+   console's fit line, weekly card and "why" answer, the candidate and NAV workbooks, the NAV draft, the
+   "excluded patients and why" document and the feasibility attrition read through it. A test
+   (`tests/unit/test_verdict_word.py`) fails when code outside the rule compares a verdict with "fail" or indexes
+   a map by a verdict's word; its two lists name every place that may, with the reason.
+6. **A "not met" that says neither who gave it nor that it was final does not exclude.** `answer_of` needs
+   `basis: pair`, or `final: true` on a row T-707 stored before the basis. The defaults of a caller that names
+   no policy (`nav.classify`, the cascade's `DEFAULT_POLICY`) are "notes may not exclude".
+7. **The hand-off from D-476 is narrowed.** D-476 handed this card "which models answered, on what text". This
+   card records the four-value basis per verdict. Which pair (the two build ids), the prompt and the snapshot
+   stay per list (`judging`), so a pool row re-tiered week after week cannot name the pair behind a stored
+   `basis: pair`. Recording them per row (the build ids and the prompt hash that T-689's kept answers already
+   key on) is **not done here and has no card yet**: it belongs with the generations of T-724 or a card of its
+   own; the integrator assigns it.
+8. **Stated, not changed:** a `mixed` criterion's verdict with no confidence counts as the records' answer and
+   excludes whatever the note policy. It is reachable only through the cascade's certified zero-hit (S2), which
+   screening does not run (`absence_semantics=False`). Stored lists and reports written before this card are
+   left as written and are not flagged; pool rows are derived again at the next re-tier.
+
 ## Consequences
 
 - The cascade no longer lists a patient as `high` on a "met" below the confidence threshold: `review`, as v1 did.

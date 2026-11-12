@@ -241,9 +241,9 @@ def verdict_of(o: Outcome, pair: bool = False) -> CriterionVerdict:
     )
 
 
-#: the policy of a caller that names none (a tool, a test): the cascade's default floor; notes may exclude, and each
-#: verdict's own ``final`` and ``basis`` still hold a single model back
-DEFAULT_POLICY = decision.Policy(threshold=0.75, note_block=True)
+#: the policy of a caller that names none (a tool, a test): the cascade's default floor, and notes may **not**
+#: exclude (review of T-709, LOW 7: the safe default; a run states its policy)
+DEFAULT_POLICY = decision.Policy(threshold=0.75, note_block=False)
 
 
 def verdicts_of(
