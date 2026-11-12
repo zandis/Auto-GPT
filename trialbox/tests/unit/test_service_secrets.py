@@ -237,7 +237,8 @@ def test_the_compose_overlay_gives_each_service_only_its_own_token() -> None:
         if name in ("audit-writer", "llm-stub"):  # D-394: the drain serves no HTTP and calls no service; D-450:
             # the stub stands in for vLLM (no box token): no token, no key, no password
             env = svc["environment"]
-            assert "secrets" not in svc and env["TB_SERVICE_TOKEN"] == "" and env["POSTGRES_PASSWORD"] == ""
+            assert "secrets" not in svc and env["TB_SERVICE_TOKEN"] == ""
+            assert base[name]["environment"]["POSTGRES_PASSWORD"] == ""  # T-712 (D-481): cleared in the base file
             assert env["IMAP_PASS"] == env["CLOUD_LLM_API_KEY"] == env["TB_LLM_API_KEY"] == ""
             continue
         model_key = [{"source": "model_key", "target": "tb_llm_key"}] if name == "gateway" else []  # D-437
@@ -245,10 +246,12 @@ def test_the_compose_overlay_gives_each_service_only_its_own_token() -> None:
         assert over["secrets"][f"token_{name}"] == {"file": f"./secrets/services/{name}.token"}
         env = svc["environment"]
         assert env["TB_SERVICE_TOKEN"] == "" and env["TB_SERVICE_TOKEN_FILE"] == "/run/secrets/tb_service_token"
-        assert env["POSTGRES_PASSWORD"] == "" and env["POSTGRES_WF_PASSWORD"] == ""
+        base_env = base[name]["environment"]  # T-712 (D-481): the database passwords are cleared in the base file
+        assert base_env["POSTGRES_PASSWORD"] == "" and base_env["POSTGRES_WF_PASSWORD"] == ""
+        assert "POSTGRES_PASSWORD" not in env  # one place, so the two files cannot drift
         assert (env.get("IMAP_PASS") == "") == (name != "mail-gateway")  # mail passwords: the mail gateway only
         assert (env.get("CLOUD_LLM_API_KEY") == "") == (name != "gateway")  # the cloud key: the gateway only
-    assert over["services"]["doc-parser"]["environment"]["TB_DB_URL"] == ""
+    assert base["doc-parser"]["environment"]["TB_DB_URL"] == base["embed-service"]["environment"]["TB_DB_URL"] == ""
 
 
 def test_the_caller_table_covers_every_call_between_services_in_the_code() -> None:

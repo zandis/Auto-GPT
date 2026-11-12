@@ -247,7 +247,8 @@ def test_each_vm_is_capped_before_it_starts_and_runs_only_its_parts(tmp_path: Pa
 
 
 def test_one_vm_is_the_d141_run(tmp_path: Path) -> None:
-    out = _dry(tmp_path, "--patients", "50000")
+    # one call in flight, as G1 measured the hospital parts (not given: the record's 16, test_g3_throughput_curve)
+    out = _dry(tmp_path, "--patients", "50000", "--llm-concurrency", "1")
     assert (
         "set-scheduling tb-gpu-sim --zone asia-east1-a --max-run-duration=19h" in out
     )  # 14.56 h x 1.3 (G1 bug A4: was 12h)

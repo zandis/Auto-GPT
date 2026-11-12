@@ -1,6 +1,8 @@
 #!/bin/bash
 # Rehearsal shim: one RTX PRO 6000, 62574 of 97887 MiB used (the live record of the cloud run of 2026-11-09).
 case "$*" in
+  *--query-gpu=timestamp,utilization.gpu*)   # tools/run_metrics.py: the card every 10 s while a part runs (G-3)
+    echo "$(date -u '+%Y/%m/%d %H:%M:%S.000'), 87, 62574, 97887, 61, 412.50" ;;
   *--query-gpu=memory.used,memory.total*) echo "62574, 97887" ;;
   *--query-gpu=name,memory.total,memory.used,driver_version*)   # tools/serving_config.py capture (T-119)
     echo "NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887, 62574, 580.95.05" ;;

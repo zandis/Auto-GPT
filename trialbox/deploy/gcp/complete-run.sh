@@ -7,11 +7,12 @@
 #   export TB_SA_KEY_FILE=<the service account key file>   # every command activates from it (its path, to gcloud)
 #   gcloud config set project trialbox-demo                # once, in that config
 #   deploy/gcp/complete-run.sh --estimate [--patients 50000] [--vms N] [--parts g1,embed,profile] [--only TAG,TAG]
+#                              [--llm-concurrency N[,N...]]
 #   deploy/gcp/complete-run.sh --dry-run [--vms N] [--zones z1,z2] [--parts ...] [--only TAG,TAG] [VM] [ZONE]
 #   deploy/gcp/complete-run.sh --provision --vms N --zones z1,z2,...   # once: the clones tb-gpu-sim-2..N (they
 #                                                                      # boot, power off at once, keep their disks)
 #   deploy/gcp/complete-run.sh [--patients 50000] [--vms N] [--zones ...] [--parts ...] [--only TAG,TAG] [--hours H]
-#                              [--no-wait | --detach]
+#                              [--llm-concurrency N[,N...]] [--no-wait | --detach]
 #   deploy/gcp/complete-run.sh --collect <run id> [--follow]   # later, as often as wanted: see below
 #   deploy/gcp/complete-run.sh --stop [--collect <run id> | --vms N --zones ...] [VM] [ZONE]   # stop by hand
 #   deploy/gcp/complete-run.sh --teardown --vms N --zones ...   # delete the clones 2..N and their machine image
@@ -26,6 +27,15 @@
 #
 # --only TAG,TAG: a bounded run of some parts (complete_run tags, e.g. hospital-ja,scenario-gateway): the estimate, the
 # cap and the plan hold only those parts (and prepare for a hospital part, install when named); no stub parts.
+# `chat-template` is the review's test G-1 (tools/chat_template_check.py), in a run only when --only names it.
+#
+# --llm-concurrency N[,N...]: the model calls SCREEN keeps in flight (TB_SCREEN_LLM_CONCURRENCY) in every part of the
+# run. Not given: the serving record's max_num_seqs (deploy/measured), as an installed box runs; the plan prints it.
+# A list (1,4,16,48) is the review's test G-3: the hospital part runs once per value, as its own part
+# hospital-<lang>@c<N>, on one prepared hospital, so one VM run makes the whole curve. Every model part records its
+# calls and tokens per second, p50 / p95 call time, the servers' /metrics before and after and the card every 10 s
+# (parts/<part>/gpu.csv). The estimate's screening time is G1's 0.78 calls/s at N = 1, divided by min(N, 2)
+# (TB_ESTIMATE_LLM_SPEEDUP): an upper bound for N > 1 until G-3 has measured it.
 #
 # Parallel (D-148): --vms N splits the run into N shards of whole parts (complete_run --only tags; longest first onto
 # the least-loaded VM, tools/complete_run.py shard_plan): no part is split, so the merged report is the single-VM
@@ -64,7 +74,7 @@
 set -euo pipefail
 ARGS=("$@")
 DRY=0; STOP=0; ESTIMATE=0; WAIT=1; PATIENTS=50000; HOURS=""; COLLECT=""; VMS=1; PARTS=g1; ZONES="${TB_ZONES:-}"
-SHARD=""; PROVISION=0; TEARDOWN=0; FOLLOW=0; DETACH=0; ONLY_TAGS=()
+SHARD=""; PROVISION=0; TEARDOWN=0; FOLLOW=0; DETACH=0; ONLY_TAGS=(); LLMC=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1; shift ;;
@@ -80,10 +90,11 @@ while [ $# -gt 0 ]; do
     --parts) PARTS="$2"; shift 2 ;;
     --zones) ZONES="$2"; shift 2 ;;
     --only) IFS=, read -r -a ONLY_TAGS <<< "$2"; shift 2 ;;
+    --llm-concurrency) LLMC="$2"; shift 2 ;;
     --shard) SHARD="$2"; shift 2 ;;
     --provision) PROVISION=1; shift ;;
     --teardown) TEARDOWN=1; shift ;;
-    -h|--help) sed -n 2,61p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,73p "$0"; exit 0 ;;
     *) break ;;
   esac
 done
@@ -105,6 +116,10 @@ export GC_DRY="$DRY"
 cd "$ROOT"
 cr() { env PYTHONPATH=libs:services:. "$PY" -m tools.complete_run "$@"; }
 ONLY_ARGS=(); [ "${#ONLY_TAGS[@]}" = 0 ] || ONLY_ARGS=(--only "${ONLY_TAGS[@]}")
+[ -z "$LLMC" ] || ONLY_ARGS+=(--llm-concurrency "$LLMC")   # the estimate and the plan: the calls in flight (G-3)
+plan_lc() {  # the plan's calls in flight, space separated (a metadata value holds no comma): "16" or "1 4 16 48"
+  "$PY" -c 'import json,sys; print(" ".join(str(n) for n in json.load(open(sys.argv[1])).get("llm_concurrency") or []))' "$PLAN"
+}
 
 if [ "$ESTIMATE" = 1 ]; then
   cr --estimate --patients "$PATIENTS" --vms "$VMS" --parts "$PARTS" "${ONLY_ARGS[@]}" \
@@ -167,7 +182,7 @@ stop_vm() {
   local s; s="$(status)"
   echo "VM $VM status: $s"
   # back to spot (D-468: a run puts a VM with a hospital part on demand; a VM started by hand later must not pay 3x)
-  gc compute instances set-scheduling "$VM" --zone "$ZONE" --provisioning-model=SPOT --instance-termination-action=STOP || true
+  gc compute instances set-scheduling "$VM" --zone "$ZONE" --preemptible --provisioning-model=SPOT --instance-termination-action=STOP || true
   gc compute instances add-metadata "$VM" --zone "$ZONE" --metadata-from-file startup-script="$ROOT/deploy/gcp/gpu-sim-startup.sh" || true
   gc compute instances remove-metadata "$VM" --zone "$ZONE" --keys tb-key,tb-door-version >/dev/null 2>&1 || true
 }
@@ -263,7 +278,10 @@ shard_run() {  # $1 = shard number; VM, ZONE and parts come from plan.json; the 
     [ "$s" = TERMINATED ] || { echo "$VM is $s, not TERMINATED: stop it first (--stop) or collect its run" >&2; return 3; }
     door_vm_ready || { echo "$VM: not started (see above)" >&2; return 3; }   # its door: Secret Manager, 443 only
     # ------------------------------------------------------------ 1. the cloud-side hard cap, before the start
-    gc compute instances set-scheduling "$VM" --zone "$ZONE" --max-run-duration="${CAP_H}h" --instance-termination-action=STOP --provisioning-model="$PROV"
+    # GCE refuses STANDARD on a VM created preemptible unless the flag is cleared with it (G1 2026-11-12: "For
+    # preemptible, only allowed provisioning_model value is SPOT"), and SPOT goes back with --preemptible
+    if [ "$PROV" = STANDARD ]; then PREEMPT=--no-preemptible; else PREEMPT=--preemptible; fi
+    gc compute instances set-scheduling "$VM" --zone "$ZONE" --max-run-duration="${CAP_H}h" --instance-termination-action=STOP "$PREEMPT" --provisioning-model="$PROV"
     [ "$DRY" = 1 ] || gc compute instances describe "$VM" --zone "$ZONE" \
       --format='value(scheduling.provisioningModel,scheduling.maxRunDuration.seconds,scheduling.instanceTerminationAction)'
     # ------------------------------------------------------------ the door (Secret Manager, TLS), the metadata, the start
@@ -273,7 +291,7 @@ shard_run() {  # $1 = shard number; VM, ZONE and parts come from plan.json; the 
     rm -f "$SH/results.tgz" "$SH/results.final" "$SH/collect-boot" "$SH/state"
     gc compute instances add-metadata "$VM" --zone "$ZONE" --metadata-from-file \
       "startup-script=$ROOT/deploy/gcp/complete-run-vm.sh,tb-serving-config=$ROOT/tools/serving_config.py,tb-door-cert=$SH/door.crt" \
-      --metadata "tb-door-secret=$DOOR_SECRET,tb-door-version=$(cat "$SH/door-version"),tb-run-id=$RUN_ID-s$i,tb-patients=$PATIENTS,tb-only=$TAGS,tb-src-sha256=$SRC_SHA,tb-collect-only=0,tb-max-minutes=$((CAP_H * 60 - 5)),tb-idle-minutes=20,tb-done-grace=30${BUCKET:+,tb-bucket=$BUCKET}"
+      --metadata "tb-door-secret=$DOOR_SECRET,tb-door-version=$(cat "$SH/door-version"),tb-run-id=$RUN_ID-s$i,tb-patients=$PATIENTS,tb-only=$TAGS,tb-llm-concurrency=$(plan_lc),tb-src-sha256=$SRC_SHA,tb-collect-only=0,tb-max-minutes=$((CAP_H * 60 - 5)),tb-idle-minutes=20,tb-done-grace=30${BUCKET:+,tb-bucket=$BUCKET}"
     gc compute instances start "$VM" --zone "$ZONE"
     echo "started $VM; it stops itself (cap ${CAP_H} h, watchdog). Collect, now and later: $0 --collect $RUN_ID"
     IP="$(ip)"
@@ -371,6 +389,9 @@ for s in p["shards"]:
           f"{s['cap_usd']:>8.2f}  {s.get('provisioning', 'SPOT'):<9} {s.get('price_per_hour', 2.74):>6}  {' '.join(s['tags'])}")
 print(f"total {p['hours']:.2f} VM-hours, US${p['usd']:.2f}; wall about {p['wall_hours']:.2f} h; at most "
       f"US${p['cap_usd']:.2f} if every VM ran to its cap")
+sys.path[:0] = ["."]
+from tools.complete_run import concurrency_lines
+print("\n".join(concurrency_lines(e)))
 PY
 fi
 
@@ -465,10 +486,12 @@ ONLY="$("$PY" -c 'import json,sys; e=json.load(open(sys.argv[1])); t=[x for s in
 g1 = "g1" in e["parts"] and not e.get("only"); print(" ".join(t + (["walk", "backup", "update", "scale"] if g1 else [])))' "$PLAN" 2>/dev/null || echo "")"
 G1=0; case ",$PARTS," in *,g1,*) [ "${#ONLY_TAGS[@]}" = 0 ] && G1=1 ;; esac
 STUB=(--patients "$PATIENTS" --ocr tesseract --run-id "$RUN_ID")   # as on the VM (review M-02)
+# the report's plan has the hospital part once per value of the run's --llm-concurrency list (G-3), as the VM's had
+LC="$(plan_lc 2>/dev/null || true)"; LCR=(); [ -z "$LC" ] || LCR=(--llm-concurrency "$LC")
 if [ "$DRY" = 1 ]; then
   for i in $(seq 1 "$VMS"); do echo "+ tar -xzf $OUT/shard-$i/results.tgz -C $OUT/shard-$i; parts/ and report/shots/ into $OUT"; done
   [ "$G1" = 1 ] && echo "+ $PY -m tools.complete_run --dir $OUT --resume --only walk backup update scale ${STUB[*]}"
-  echo "+ $PY -m tools.complete_run --dir $OUT --report-only --model pair ${STUB[*]} --report-parts $ONLY"
+  echo "+ $PY -m tools.complete_run --dir $OUT --report-only --model pair ${STUB[*]} ${LCR[*]} --report-parts $ONLY"
   exit 0
 fi
 missing=""; running=""
@@ -478,6 +501,8 @@ for i in $(seq 1 "$VMS"); do
   [ "$(cat "$SH/state" 2>/dev/null)" = running ] && running="$running $i"
   if [ -s "$SH/results.tgz" ] && rm -rf "$SH/parts" "$SH/report" && tar -xzf "$SH/results.tgz" -C "$SH"; then
     cp -p "$SH"/parts/*.json "$OUT/parts/" 2>/dev/null || true
+    # each model part's measurements (G-3): the servers' /metrics before and after, gpu.csv, vllm.csv
+    for d in "$SH"/parts/*/; do if [ -d "$d" ]; then cp -pr "$d" "$OUT/parts/"; fi; done
     cp -pr "$SH"/report/shots/. "$OUT/report/shots/" 2>/dev/null || true
     for b in bench-embed bench-profile; do [ -d "$SH/$b" ] && cp -pr "$SH/$b" "$OUT/"; done
   else missing="$missing $i"; fi
@@ -501,6 +526,6 @@ fi
 [ "${#PENDING[@]}" = 0 ] || PENDING=(--pending-parts "${PENDING[@]}")
 # shellcheck disable=SC2086  # ONLY is a list of tags
 env TB_ENV=DEV PYTHONPATH=libs:services:. "$PY" -m tools.complete_run --dir "$OUT" --report-only --model pair \
-  "${STUB[@]}" "${LIVE[@]}" ${TB_PLANNED_FROM:+--planned-from "$TB_PLANNED_FROM"} "${PENDING[@]}" --report-parts $ONLY || true
+  "${STUB[@]}" "${LCR[@]}" "${LIVE[@]}" ${TB_PLANNED_FROM:+--planned-from "$TB_PLANNED_FROM"} "${PENDING[@]}" --report-parts $ONLY || true
 echo "report: $OUT/report/report.md"
 for i in $(seq 1 "$VMS"); do VM="$(plan_get "$i" vm)"; ZONE="$(plan_get "$i" zone)"; echo "VM $VM status: $(status)"; done

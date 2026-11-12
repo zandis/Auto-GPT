@@ -43,6 +43,25 @@ x-py: &py
     retries: 10
     start_period: 20s
 
+# T-712 (D-481; D-378): a service holds its own database role's password and no other. deploy/.env reaches every
+# TrialBox service through env_file and holds every role's password and the two administrators'; each service
+# clears them here, in the base file, so that no stack can be started without the clears, and receives its own
+# only inside its TB_DB_URL. A service that opens no database also clears TB_DB_URL (deploy/.env carries the host
+# tools' administrator URL). tests/unit/test_compose_db_passwords.py merges every compose file set of the tree
+# and fails on a foreign password; `trialbox doctor` (db_passwords) runs the same check on a box. A new service
+# role adds its line here, in the db service below and in deploy/install.sh.
+x-no-db-passwords: &nodb
+  POSTGRES_PASSWORD: ""
+  POSTGRES_WF_PASSWORD: ""
+  TB_DB_PW_LAKE: ""
+  TB_DB_PW_CRITERIA_COMPILER: ""
+  TB_DB_PW_ADAPTER: ""
+  TB_DB_PW_ORCHESTRATOR: ""
+  TB_DB_PW_MAIL_GATEWAY: ""
+  TB_DB_PW_GATEWAY: ""
+  TB_DB_PW_CONSOLE: ""
+  TB_DB_PW_AUDIT_WRITER: ""
+
 services:
   db:
     # One PostgreSQL server for the box (TB-PLAN-03 step 6, D-121): database `hapi` for the FHIR store and
@@ -142,7 +161,7 @@ services:
     <<: *py
     mem_limit: ${TB_MEM_LAKE:-8g}   # DuckDB takes 40 % of this per worker (lake.store.memory_limit)
     command: ["uvicorn", "lake.app:app", "--host", "0.0.0.0", "--port", "8013", "--workers", "2"]
-    environment: {PORT: "8013", TB_SERVICE_NAME: lake,
+    environment: {<<: *nodb, PORT: "8013", TB_SERVICE_NAME: lake,
                   TB_DB_URL: "postgresql://tb_lake:${TB_DB_PW_LAKE:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
                   TB_LAKE_DIR: /data/lake, TB_LAKE_EMBEDDER: http,
                   TB_LAKE_MEMORY_LIMIT: "${TB_LAKE_MEMORY_LIMIT:-}", TB_LAKE_MAX_TEMP: "${TB_LAKE_MAX_TEMP:-}",
@@ -162,7 +181,7 @@ services:
       dockerfile: deploy/docker/embed.Dockerfile
     command: ["uvicorn", "embed_service.app:app", "--host", "0.0.0.0", "--port", "8014"]
     # T-607 (D-429): in PRODUCTION the service loads only the weights pinned for e-embed-1 in the site override
-    environment: {PORT: "8014", TB_SERVICE_NAME: embed-service, TB_EMBED_MODEL_PATH: /models/embedder,
+    environment: {<<: *nodb, PORT: "8014", TB_SERVICE_NAME: embed-service, TB_DB_URL: "", TB_EMBED_MODEL_PATH: /models/embedder,
                   TB_REGISTRY_OVERRIDE: /etc/trialbox/site/registry.site.yaml}
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
@@ -174,7 +193,7 @@ services:
     mem_limit: ${TB_MEM_DOCPARSER:-2g}
     image: ${TB_DOCPARSER_IMAGE:-trialbox-py:1.0.0}
     command: ["uvicorn", "doc_parser.app:app", "--host", "0.0.0.0", "--port", "8011"]
-    environment: {PORT: "8011", TB_SERVICE_NAME: doc-parser, TB_GATEWAY_URL: "http://gateway:8020/v1",
+    environment: {<<: *nodb, PORT: "8011", TB_SERVICE_NAME: doc-parser, TB_DB_URL: "", TB_GATEWAY_URL: "http://gateway:8020/v1",
                   TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_DATA_CLASS: "${TB_DATA_CLASS:-}"}
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
@@ -186,7 +205,7 @@ services:
     mem_limit: ${TB_MEM_COMPILER:-3g}
     pids_limit: 1024   # JVM threads
     command: ["uvicorn", "criteria_compiler.app:app", "--host", "0.0.0.0", "--port", "8012"]
-    environment: {PORT: "8012", TB_SERVICE_NAME: criteria-compiler,
+    environment: {<<: *nodb, PORT: "8012", TB_SERVICE_NAME: criteria-compiler,
                   TB_DB_URL: "postgresql://tb_criteria_compiler:${TB_DB_PW_CRITERIA_COMPILER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
                   TB_RULESETS_DIR: /data/rulesets, TB_AUDIT_DIR: /data/audit, TB_AUDIT_WRITER: db,
                   TB_CTGOV_MODE: "${TB_CTGOV_MODE:-offline}", TB_GATEWAY_URL: "http://gateway:8020/v1",
@@ -207,7 +226,7 @@ services:
     mem_limit: ${TB_MEM_ADAPTER:-6g}   # the validator's heap (TB_VALIDATOR_XMX, 3g) plus the service
     pids_limit: 1024   # JVM threads
     command: ["uvicorn", "adapter.app:app", "--host", "0.0.0.0", "--port", "8016"]
-    environment: {PORT: "8016", TB_SERVICE_NAME: adapter,
+    environment: {<<: *nodb, PORT: "8016", TB_SERVICE_NAME: adapter,
                   TB_DB_URL: "postgresql://tb_adapter:${TB_DB_PW_ADAPTER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
                   TB_LAKE_DIR: /data/lake, TB_ADAPTER_LAKE: http,
                   TB_AUDIT_DIR: /data/audit, TB_AUDIT_WRITER: db, TB_SECRETS_DIR: /run/secrets/trialbox,
@@ -232,7 +251,7 @@ services:
     mem_limit: ${TB_MEM_AUDIT_WRITER:-256m}
     pids_limit: 64
     command: ["python", "-m", "tb_common.audit_writer", "drain"]
-    environment: {TB_SERVICE_NAME: audit-writer,
+    environment: {<<: *nodb, TB_SERVICE_NAME: audit-writer,
                   TB_DB_URL: "postgresql://tb_audit_writer:${TB_DB_PW_AUDIT_WRITER:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
                   TB_AUDIT_DIR: /data/audit}
     volumes:
@@ -250,7 +269,7 @@ services:
     mem_limit: ${TB_MEM_ORCH:-4g}
     pids_limit: 1024   # JVM threads
     command: ["uvicorn", "orchestrator.app:app", "--host", "0.0.0.0", "--port", "8010"]
-    environment: {PORT: "8010", TB_SERVICE_NAME: orchestrator,
+    environment: {<<: *nodb, PORT: "8010", TB_SERVICE_NAME: orchestrator,
                   TB_DB_URL: "postgresql://tb_orchestrator:${TB_DB_PW_ORCHESTRATOR:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
                   TB_AUDIT_DIR: /data/audit, TB_AUDIT_WRITER: db, TB_RULESETS_DIR: /data/rulesets,
                   TB_ORCH_DIR: /data/orchestrator, TB_SECRETS_DIR: /run/secrets/trialbox,
@@ -275,7 +294,7 @@ services:
     <<: *py
     mem_limit: ${TB_MEM_MAIL:-1g}
     command: ["uvicorn", "mail_gateway.app:app", "--host", "0.0.0.0", "--port", "8015"]
-    environment: {PORT: "8015", TB_SERVICE_NAME: mail-gateway,
+    environment: {<<: *nodb, PORT: "8015", TB_SERVICE_NAME: mail-gateway,
                   TB_DB_URL: "postgresql://tb_mail_gateway:${TB_DB_PW_MAIL_GATEWAY:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
                   TB_AUDIT_DIR: /data/audit, TB_AUDIT_WRITER: db, TB_MAIL_DIR: /data/mail}
     networks: [trialbox-net, egress-net]   # only service allowed to reach IMAP/SMTP (network.sh)
@@ -293,7 +312,7 @@ services:
     <<: *py
     mem_limit: ${TB_MEM_GATEWAY:-2g}
     command: ["uvicorn", "--factory", "gateway.app:create_app", "--host", "0.0.0.0", "--port", "8020"]
-    environment: {PORT: "8020", TB_SERVICE_NAME: gateway,
+    environment: {<<: *nodb, PORT: "8020", TB_SERVICE_NAME: gateway,
                   TB_DB_URL: "postgresql://tb_gateway:${TB_DB_PW_GATEWAY:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
                   TB_ENV: "${TB_ENV:-PRODUCTION}", TB_TOPOLOGY: "${TB_TOPOLOGY:-A}",
                   TB_PROFILE: "${TB_PROFILE:-P-GB10}", TB_CLOUD_OPT_IN: "${TB_CLOUD_OPT_IN:-}", TB_AUDIT_DIR: /data/audit,
@@ -319,7 +338,7 @@ services:
     mem_limit: ${TB_MEM_CONSOLE:-2g}
     command: ["uvicorn", "--factory", "console.app:create_app", "--host", "0.0.0.0", "--port", "8090",
               "--proxy-headers", "--forwarded-allow-ips", "${TB_CONSOLE_FORWARDED_ALLOW_IPS:-127.0.0.1}"]
-    environment: {PORT: "8090", TB_SERVICE_NAME: console,
+    environment: {<<: *nodb, PORT: "8090", TB_SERVICE_NAME: console,
                   TB_DB_URL: "postgresql://tb_console:${TB_DB_PW_CONSOLE:-${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}}@db:5432/trialbox_wf",
                   TB_CONSOLE_DIR: /data/console, TB_AUDIT_DIR: /data/audit, TB_AUDIT_WRITER: db,
                   TB_RULESETS_DIR: /data/rulesets, TB_GATEWAY_URL: "http://gateway:8020/v1",
@@ -354,7 +373,7 @@ services:
     profiles: [stub]
     mem_limit: 1g
     command: ["uvicorn", "llm_stub.app:app", "--host", "0.0.0.0", "--port", "8000"]
-    environment: {PORT: "8000", TB_SERVICE_NAME: llm-stub, TB_DB_URL: ""}  # opens no database (D-378)
+    environment: {<<: *nodb, PORT: "8000", TB_SERVICE_NAME: llm-stub, TB_DB_URL: ""}  # opens no database (D-378)
     networks:
       model-net:
         aliases: [llm-service, llm-verifier]  # stands in for both serving endpoints (routing.yaml)

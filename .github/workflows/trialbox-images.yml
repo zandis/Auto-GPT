@@ -78,6 +78,14 @@ jobs:
           cache: maven
           cache-dependency-path: trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
 
+      # the registry scan of the largest third-party image unpacks it on the runner's disk; a hosted runner is left
+      # with too little after the builds (the scan then dies with no message). Toolchains this job never uses go.
+      - name: Free runner disk
+        working-directory: /
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - name: Python environment and pinned scanners
         run: make venv scanners
 
@@ -107,6 +115,11 @@ jobs:
       # scan error, a missing or empty report, an image not named by its scan.
       - name: Release gates (Trivy offline, SBOMs, licences, record)
         run: make release-gates SC_PLATFORM=${{ matrix.platform }} RELEASE_GATES_ARGS="--vuln-mode report"
+
+      - name: Disk after the gates
+        if: always()
+        working-directory: /
+        run: df -h /
 
       - name: Findings in the job summary
         if: always()
@@ -158,6 +171,14 @@ jobs:
         with:
           driver-opts: network=host
 
+      # the registry scan of the largest third-party image unpacks it on the runner's disk; a hosted runner is left
+      # with too little after the builds (the scan then dies with no message). Toolchains this job never uses go.
+      - name: Free runner disk
+        working-directory: /
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - name: Python environment and pinned scanners
         run: make venv scanners
 
@@ -172,6 +193,11 @@ jobs:
           make release-gates SC_DIR=build/supply-chain-multiarch RELEASE_GATES_ARGS="--insecure --vuln-mode report"
           SC_IMAGES="registry:localhost:5000/trialbox-py:1.0.0=linux/amd64 registry:localhost:5000/trialbox-py:1.0.0=linux/arm64
           registry:localhost:5000/trialbox-jvm:1.0.0=linux/amd64 registry:localhost:5000/trialbox-jvm:1.0.0=linux/arm64"
+
+      - name: Disk after the gates
+        if: always()
+        working-directory: /
+        run: df -h /
 
       - name: Findings in the job summary
         if: always()

@@ -1161,3 +1161,17 @@ def test_uv_floor_is_the_advisory_fix() -> None:
     assert not lock.uv_too_old("0.13.4")
     assert not lock.uv_too_old("1.0.0")
     assert lock.uv_too_old("?")
+
+
+def test_a_syft_that_dies_without_a_word_still_says_how(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A scan killed by a full disk leaves no message; the error names the exit code and the likely cause."""
+    import subprocess
+
+    def dead(cmd: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", dead)
+    with pytest.raises(sbom.SbomError) as err:
+        sbom.run_syft("registry:example/image@sha256:00", tmp_path / "out.json", {})
+    assert "exit 1" in str(err.value)
+    assert "full disk" in str(err.value)
