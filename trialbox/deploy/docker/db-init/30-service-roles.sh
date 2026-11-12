@@ -15,6 +15,8 @@
 # * Nobody but its owner connects to `hapi` (the FHIR store); only `trialbox` and the roles here connect to
 #   `trialbox_wf`.
 # * D-394 (T-211b): the audit journal (schema `audit`) and its roles, at the end; see tb_common/audit_writer.py.
+# * D-465 (T-727): the orchestrator runs the opt-out worker, which erases the twin (`profile`, which it also builds)
+#   and the vector store (`vec`, the lake's); so both are on its list.
 # The list is the one place that says which service reaches which schema; tests/unit/test_db_roles.py reads it.
 set -eu
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "${TB_WF_DB:-trialbox_wf}" \
@@ -35,7 +37,8 @@ DECLARE
     "tb_criteria_compiler": ["app", "derived", "library", "omop", "refdata", "terminology"],
     "tb_adapter": ["app", "dataops", "derived", "mpi", "omop", "pidmap", "refdata", "sitesetup", "terminology"],
     "tb_orchestrator": ["app", "datacore", "dataops", "derived", "edc", "library", "mail", "mpi", "omop", "optout",
-                        "orch", "pidmap", "recall", "refdata", "site", "sitesetup", "study", "terminology", "wf"],
+                        "orch", "pidmap", "profile", "recall", "refdata", "site", "sitesetup", "study", "terminology",
+                        "vec", "wf"],
     "tb_mail_gateway": ["app", "mail"],
     "tb_gateway": ["app", "trace"],
     "tb_console": ["app", "auth", "breakglass", "datacore", "dataops", "derived", "edc", "feedback", "library", "mpi",

@@ -84,7 +84,7 @@ R-01 and R-02 also hold the training evidence of `qms-lite.md` §3 (first sign-i
 | O-10 | Aggregate cohort tables and the public trial cache | aggregate counts and a public registry cache | `outputs_days` |
 | O-11 | Embedding cache of the lake | vectors keyed by a text hash; rebuilt from R-25 | kept |
 | O-12 | Schema versions | how a database is migrated | kept |
-| O-13 | Vector store of note chunks (schema `vec`, D-439): each masked chunk of a note with its offsets, and one vector per chunk text and embedding model | derived from the notes of R-25 after the PHI pass, rebuilt from them; never exported | kept while the note is in R-25; a patient's erasure (T-206b) calls `VecStore.delete_patient`, which removes their chunks and every vector no other chunk uses |
+| O-13 | Vector store of note chunks (schema `vec`, D-439): each masked chunk of a note with its offsets, and one vector per chunk text and embedding model | derived from the notes of R-25 after the PHI pass, rebuilt from them; never exported | kept while the note is in R-25; the opt-out worker calls `VecStore.delete_patient` on each tick (T-727, D-465), which removes the patient's chunks and every vector no other chunk uses |
 
 ## 4. Store map
 
@@ -153,6 +153,11 @@ are marked "files".
 | `services/lake/store.py` | `cache` | O-11 |
 | `libs/tb_common/db.py` | `_schema_version` | O-12 |
 | `services/vec/store.py` | `embedding`, `note_chunk` | O-13 |
+
+**Erasure.** What an opt-out does to each table, lake folder, object prefix and outside store (erased by a named
+clear and read back, kept with its decision, owed by a card, or no patient data) is the generated
+[`erasure-registry.md`](erasure-registry.md), from `libs/tb_common/erasure.py` (T-727, D-465); a table with a row
+here and no obligation there fails `tests/unit/test_erasure_registry.py`.
 
 The standard OMOP CDM tables (`services/omop/ddl/OMOPCDM_postgresql_5.4_ddl.sql`) are R-25 as a whole. The trace
 store's `access_log` is an access record of O-03's own data, kept with it.
