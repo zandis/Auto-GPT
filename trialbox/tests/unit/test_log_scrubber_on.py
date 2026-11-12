@@ -70,7 +70,7 @@ def test_model_guard_request_lines_are_scrubbed(capsys: pytest.CaptureFixture[st
         + ".".join(("eyJhbGciOiJSUzI1NiJ9", "e30", "c2lnbmF0dXJl")),  # built: not a literal token
         "X-TB-Service-Token: q8Zr0xKpL2",
         '{"client_secret": "s3cr3t-value"}',
-        "postgresql://tb_lake:pw-0123456@db:5432/trialbox_wf",
+        "postgresql://tb_lake:" + "pw-0123456@db:5432/trialbox_wf",  # built: not a literal credential
         "token=abcdef123456&x=1",
     ],
 )
