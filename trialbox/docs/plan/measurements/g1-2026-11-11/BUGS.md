@@ -166,6 +166,23 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
   Without a gateway client, the box pins what its own `TB_ENV` serves, as before. Test:
   `test_the_harness_box_pins_what_its_production_gateway_serves`, which pinned `judge_v5` before the fix.
 - **Status.** Fixed in #321.
+- **Proof.** The rehearsal of the fix (run-a, 2026-11-12) gets 47/49. No part crashes, and hospital-ja and
+  public-ja run SCREEN through the gateway. The two remaining failures are B6 and a commit made while the run was
+  going.
+
+### B6. With the pair, public-ja's "6 other screens" fails three console checks (Blocker for run-a)
+
+- **Symptom.** Found in the B5 rehearsal (run-a, 2026-11-12, merged with master). public-ja was reached for the first
+  time because B5 had crashed it before. Its stage "6 other screens" fails three checks: `admin /week` → 403,
+  `admin /audit` → 403, and "request menu: this site's studies only" lists
+  `['PUB-ONC', 'PUB-CA', 'PUB-ONC', '1', '2', '3', '4', '5']`. The check (`tools/public_e2e.py`, stage 6) wants only
+  `{TRIAL, COHORT}`. Rehearsal check: "every failed check is about model quality" names these three.
+- **Evidence.** `parts/public-ja.json` of that run. The other failing public-ja checks are model quality on the
+  stand-in (the canary fails on the stub, so notes never exclude), and the rehearsal accepts those.
+- **Cause.** Not investigated. The menu regex `<option value="([A-Z0-9-]+)"` now also matches numeric options, and
+  the administrator gets 403 on `/week` and `/audit`. Both may come from master changes merged into this branch, or
+  from the public site's roles.
+- **Status.** Open.
 
 ## C. Fixed: keep them fixed
 
