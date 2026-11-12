@@ -57,6 +57,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import yaml
+from tb_common import dates as tb_dates
 from tb_common import labvalue
 from tb_common.crypto import pid_for_mrn
 
@@ -86,6 +87,102 @@ LATEST_YEARS_AHEAD = 10
 _COMPACT_FORMS = {8: "%Y%m%d", 12: "%Y%m%d%H%M", 14: "%Y%m%d%H%M%S"}
 _DIGIT_RUN_RE = re.compile(r"\d+")
 _FRACTION_RE = re.compile(r"\.\d+")
+# NEW-DIN-1 (D-589): the calendars a site may declare for a date column (``tables.<t>.dates: {col: roc}``)
+CALENDARS = ("western", "roc", "era")
+DATE_TYPES = ("date", "datetime", "instant")
+_NOT_CALENDAR = "\x00not-a-date-of:"  # what ``normalize`` leaves for the date readers to refuse, with the value
+_CLOCK = r"(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?"
+# Digits only: YYYMMDD, alone or with hhmm or hhmmss. A two-digit year (YYMMDD, 6, 10 or 12 digits) is not read:
+# the same digits are a western date (260512, 201208151000), and a declared column must never read one as ROC
+_ROC_COMPACT_LENGTHS = (7, 11, 13)
+# written with separators: the year has three digits (049/03/12), or fewer only when 民國 stands before it
+_ROC_WRITTEN = re.compile(
+    rf"(?:(?:民國|民国|中華民國)\s*(\d{{1,3}})|(\d{{3}}))\s*[年./\-]\s*(\d{{1,2}})\s*[月./\-]\s*(\d{{1,2}})\s*日?{_CLOCK}"
+)
+_MIDNIGHT = re.compile(r"[ T]00:00(?::00(?:\.0+)?)?$")
+_ERA_WRITTEN = re.compile(rf"(.*?){_CLOCK}")
+# a western date-time with a time of day, the seconds' fraction allowed (DIN-014)
+_WESTERN_CLOCK = re.compile(r"(\d{4}[-/]\d{1,2}[-/]\d{1,2}) +(\d{1,2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?")
+
+
+def _clock(h: str | None, mi: str | None, sec: str | None) -> str | None:
+    """`` hh:mm:ss`` of a time the clock has, "" for no time, None for one it does not have (24:00, a minute 60)."""
+    if h is None or mi is None:
+        return ""
+    hh, mm, ss = int(h), int(mi), int(sec or 0)
+    return f" {hh:02d}:{mm:02d}:{ss:02d}" if hh < 24 and mm < 60 and ss < 60 else None
+
+
+def to_western(raw: str, calendar: str) -> str | None:
+    """A date (or date and time) written in ``calendar`` as ``YYYY-MM-DD[ hh:mm:ss]``; None when ``raw`` is not a
+    date of that calendar (D-589). Nothing is guessed: a western date in a ``roc`` column is None."""
+    text = raw.strip()
+    day: date | None = None
+    clock: str | None = ""
+    if calendar == "roc":
+        if text.isascii() and text.isdigit():
+            if len(text) not in _ROC_COMPACT_LENGTHS:
+                return None
+            d, t = text[:7], text[7:]
+            if int(d[:-4]) < 1:
+                return None
+            day = tb_dates.minguo_date(int(d[:-4]), int(d[-4:-2]), int(d[-2:]))
+            clock = _clock(t[:2], t[2:4], t[4:6] or None) if t else ""
+        elif (m := _ROC_WRITTEN.fullmatch(text)) and int(m.group(1) or m.group(2)) >= 1:
+            day = tb_dates.minguo_date(int(m.group(1) or m.group(2)), int(m.group(3)), int(m.group(4)))
+            clock = _clock(m.group(5), m.group(6), m.group(7))
+    elif calendar == "era":
+        m = _ERA_WRITTEN.fullmatch(text)
+        cell = tb_dates.CELL_ERA.match(m.group(1).strip()) if m else None
+        if m and cell:
+            got, inside = tb_dates.era_date(cell.group(1), cell.group(2), int(cell.group(3)), int(cell.group(4)))
+            day = got if inside else None
+            clock = _clock(m.group(2), m.group(3), m.group(4))
+    if day is None or clock is None:
+        return None
+    return day.isoformat() + clock
+
+
+def declared_and_unread(value: Any) -> tuple[str, str] | None:
+    """``(calendar, the value as fed)`` when ``normalize`` could not read ``value`` in its declared calendar. A
+    source value that only imitates the marker names no calendar of ours and is an ordinary value."""
+    if isinstance(value, str) and value.startswith(_NOT_CALENDAR):
+        calendar, _, raw = value[len(_NOT_CALENDAR) :].partition("\x00")
+        if calendar in CALENDARS:
+            return calendar, raw
+    return None
+
+
+def _refuse_declared(raw: Any) -> None:
+    """``normalize`` could not read a value in its column's declared calendar: the row is refused here, where
+    every refused row is counted."""
+    unread = declared_and_unread(raw)
+    if unread:
+        raise MappingError(f"not a {unread[0]} calendar date {unread[1]!r}")
+
+
+def _date_columns(resources: list[ResourceSpec], table: str) -> frozenset[str]:
+    """The canonical columns the resources of ``table`` read as a date (an element's ``type``, a period's ends, a
+    date bound of a condition)."""
+    out: set[str] = set()
+
+    def walk(x: Any) -> None:
+        if isinstance(x, dict):
+            if x.get("type") in DATE_TYPES or x.get("builder") == "period" or "add_minutes" in x:
+                out.update(x[k] for k in ("column", "start", "end") if isinstance(x.get(k), str))
+            if ("date_before" in x or "date_from" in x) and isinstance(x.get("column"), str):
+                out.add(x["column"])
+            for v in x.values():
+                walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v)
+
+    for r in resources:
+        if r.table == table:
+            walk(r.elements)
+            walk(r.where)
+    return frozenset(out)
 
 
 class MappingError(ValueError):
@@ -189,6 +286,10 @@ class Mapping:
     params: dict[str, str] = field(default_factory=dict)
     # NEW-DIN-9 (D-590): the site's own unit spellings, each the UCUM code it stands for (``萬/μL: 10*4/uL``)
     unit_spellings: dict[str, str] = field(default_factory=dict)
+    # NEW-DIN-1 (D-589): per table, the date columns, the calendar a site declared for some; the placeholder dates
+    date_columns: dict[str, frozenset[str]] = field(default_factory=dict)
+    calendars: dict[str, dict[str, str]] = field(default_factory=dict)
+    empty_dates: frozenset[str] = frozenset()
     # T-106b: ``<name>@<12 hex>``, the hash of the mapping file and the base it extends (a changed file, a new version)
     version: str = ""
 
@@ -303,8 +404,31 @@ class Mapping:
                     cls._plausible_of(row)
                 except MappingError as exc:
                     raise MappingError(f"{path}: look-up {name}: {exc}") from exc
+        date_columns = {t: _date_columns(resources, t) for t in (doc.get("tables") or {})}
+        calendars: dict[str, dict[str, str]] = {}
+        for word in ("dates", "date", "calendars"):  # a declaration in the wrong place would be ignored without a word
+            if word in doc:
+                raise MappingError(f"{path}: {word} belongs on a table (tables.<table>.dates), not at the top")
+        for t, tspec in (doc.get("tables") or {}).items():
+            for word in ("date", "calendars", "calendar", "empty_dates"):
+                if word in (tspec or {}):
+                    raise MappingError(f"{path}: {t}.{word}: a table declares `dates`; `empty_dates` is at the top")
+            if not isinstance((tspec or {}).get("dates") or {}, dict):
+                raise MappingError(f"{path}: {t}.dates is a map of date column to calendar ({', '.join(CALENDARS)})")
+            for col, cal in ((tspec or {}).get("dates") or {}).items():
+                if cal not in CALENDARS:
+                    raise MappingError(f"{path}: {t}.dates.{col}: the calendar is one of {', '.join(CALENDARS)}")
+                if col not in date_columns[t]:
+                    raise MappingError(f"{path}: {t}.dates.{col}: not a date column of a resource of {t}")
+                calendars.setdefault(t, {})[str(col)] = str(cal)
+        empty = doc.get("empty_dates", [])
+        if not isinstance(empty, list) or not all(isinstance(x, str) and x.strip() for x in empty):
+            raise MappingError(f"{path}: empty_dates is a list of placeholder dates as the source writes them")
         return cls(
             unit_spellings=cls._unit_spellings(path, doc.get("unit_spellings")),
+            date_columns=date_columns,
+            calendars=calendars,
+            empty_dates=frozenset(x.strip() for x in empty),
             name=doc.get("name", path.stem),
             tz=_zone(path, doc.get("tz")),
             systems=doc.get("systems") or {},
@@ -365,6 +489,18 @@ class Mapping:
                 out[col] = table_codes[str(v)]
             elif str(v).strip() in table_codes:  # D-587: blanks around a site's code are not part of it
                 out[col] = table_codes[str(v).strip()]
+        calendars = self.calendars.get(table) or {}
+        if calendars or self.empty_dates:  # D-589: a declared placeholder is empty; a declared calendar made western
+            for col in self.date_columns.get(table, ()):
+                text = "" if out.get(col) is None else str(out[col]).strip()
+                if not text:
+                    continue
+                if text in self.empty_dates or _MIDNIGHT.sub("", text) in self.empty_dates:
+                    out[col] = ""  # the placeholder, also when a date-time column adds its midnight
+                elif calendars.get(col, "western") != "western":
+                    western = to_western(text, calendars[col])
+                    # not raised here: the row is refused where refused rows are counted (the date readers)
+                    out[col] = western if western is not None else f"{_NOT_CALENDAR}{calendars[col]}\x00{text}"
         return out
 
     def source_column(self, table: str, canonical: str | None) -> str | None:
@@ -427,6 +563,7 @@ class Mapper:
         """A source date-time. One that states its offset keeps it (the same instant, the same offset: T-616,
         STD-015); a naive one is in the mapping's ``tz``; a date alone is its midnight in ``tz``. A value that is
         not a western calendar date-time is refused on every form (DIN-001)."""
+        _refuse_declared(raw)
         try:
             return self._read_dt(raw)
         except DateRangeError:
@@ -449,6 +586,14 @@ class Mapper:
             except ValueError:
                 continue
             return self._western(got, raw).replace(tzinfo=self.m.tz)
+        timed = _WESTERN_CLOCK.fullmatch(text)
+        if timed:  # DIN-014: a fraction of a second keeps the time; 24:00 or a minute 60 is no time (it was midnight)
+            clock = _clock(timed.group(2), timed.group(3), timed.group(4))
+            if clock is None:
+                raise ValueError(f"no such time of day in {raw!r}")
+            at = self._western(datetime.strptime(timed.group(1).replace("/", "-"), "%Y-%m-%d"), raw)
+            hh, mm, ss = (int(x) for x in clock.split(":"))
+            return at.replace(hour=hh, minute=mm, second=ss, tzinfo=self.m.tz)
         d = self._parse_date(raw)
         return datetime(d.year, d.month, d.day, tzinfo=self.m.tz)
 
@@ -488,6 +633,7 @@ class Mapper:
         compact form on a Republic-of-China date (`1150501`) or a two-digit year (`640715`) used to give the year
         1150 or 6407 and the night passed. The compact form needs 8 digits (or the 12 or 14 of a date-time), and a
         year outside ``EARLIEST_YEAR`` to ``LATEST_YEARS_AHEAD`` years from now is not a patient's date."""
+        _refuse_declared(raw)
         text = raw.strip()
         compact = cls._compact(text.replace("T", " "), raw)
         if compact is not None:
@@ -865,6 +1011,8 @@ class Mapper:
                     continue
 
     def map_row(self, rs: ResourceSpec, row: Row) -> Resource | None:
+        for v in row.values():  # D-589: an unread date of a declared calendar refuses the row, whoever reads it
+            _refuse_declared(v)
         if rs.where and not self.cond(rs.where, row):
             self._count_unmapped(rs, row)
             return None
