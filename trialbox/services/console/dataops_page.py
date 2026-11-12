@@ -41,6 +41,7 @@ from tb_common.config import site_tz
 from tb_common.db import DatabaseError
 
 from console import i18n_dataops
+from console.api_first import page_twin
 from console.auth import Session
 from console.home import Helpers
 from console.i18n import CATALOGUES
@@ -241,6 +242,7 @@ def register(app: FastAPI, h: Helpers, promote: Promote | None = None) -> None:
         return {"batch": b.as_dict(), "steps": read(lambda: ops.steps(bid))}
 
     @app.post("/api/v1/data/batches/{bid}/decide")
+    @page_twin("/data-ops/batches/{bid}/decide")  # T-657 (D-444): the page's twin (FIT-019)
     async def api_decide(request: Request, bid: int) -> dict[str, Any]:
         sess = api_guard(request, DECIDE)  # the session and the right first; the body only then
         try:
