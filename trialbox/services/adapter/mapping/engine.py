@@ -275,6 +275,7 @@ class Mapper:
         # NEW-DIN-6 (D-580): rows a resource's ``where`` dropped because the look-up has no row for their code,
         # by (source table, look-up, code as fed without its blanks): codes and counts, never a row
         self.unmapped: Counter[tuple[str, str, str]] = Counter()
+        self._row_seen: set[tuple[str, str]] | None = None  # the row :meth:`map_table` is mapping, else None
 
     # ------------------------------------------------------------------ scalar conversion
     def _parse_dt(self, raw: str) -> datetime:
@@ -400,9 +401,12 @@ class Mapper:
             raw = row.get(expr["column"])
             if "map" in expr:
                 key = "" if raw is None else str(raw)
-                if key.strip() and key not in expr["map"] and "unmapped" in expr:
+                if key not in expr["map"]:
+                    key = key.strip()  # a padded code is the same code (D-580)
+                if key and key not in expr["map"] and "unmapped" in expr:
                     # D-275: a code the map does not know is not the empty default (a cancelled order must never
-                    # become "active" because the map lacks the word)
+                    # become "active" because the map lacks the word). NEW-DIN-7 (D-587): and it is counted
+                    self._note_unmapped(rs.table, f"column:{expr['column']}", key)
                     raw = expr["unmapped"]
                 else:
                     raw = expr["map"].get(key, expr.get("default"))
@@ -448,6 +452,11 @@ class Mapper:
             if "equals" in c and sv != str(c["equals"]):
                 return False
             if "in" in c and sv not in [str(x) for x in c["in"]]:
+                return False
+            # NEW-DIN-7 (D-587): ``known``: blank, or one of the codes; ``unknown_to``: a code that is none of them
+            if "known" in c and sv.strip() and sv.strip() not in [str(x) for x in c["known"]]:
+                return False
+            if "unknown_to" in c and (not sv.strip() or sv.strip() in [str(x) for x in c["unknown_to"]]):
                 return False
             if "not_in" in c and sv in [str(x) for x in c["not_in"]]:
                 return False
@@ -620,9 +629,9 @@ class Mapper:
                 except (KeyError, TypeError, ValueError):
                     continue
 
-    def map_row(self, rs: ResourceSpec, row: Row, seen: set[tuple[str, str]] | None = None) -> Resource | None:
+    def map_row(self, rs: ResourceSpec, row: Row) -> Resource | None:
         if rs.where and not self.cond(rs.where, row):
-            self._count_unmapped(rs, row, seen)
+            self._count_unmapped(rs, row)
             return None
         res: Resource = {"resourceType": rs.type, "id": self.row_id(rs, row)}
         if rs.profile:
@@ -640,20 +649,30 @@ class Mapper:
         pruned: Resource = self.prune(res)
         return pruned
 
-    def _count_unmapped(self, rs: ResourceSpec, row: Row, seen: set[tuple[str, str]] | None = None) -> None:
-        """Count the row a ``where`` dropped when the reason is a code its look-up does not know (D-580): a
-        ``{lookup: ..., not_empty: true}`` condition whose look-up gives nothing for the row's key. ``seen`` (one
-        set per source row) keeps it to one count per row and look-up when a table makes several resources."""
+    def _note_unmapped(self, table: str, name: str, code: str) -> None:
+        """One dropped or unknown code, once per source row and name (``self._row_seen`` is the row's set while
+        :meth:`map_table` maps it; a caller of :meth:`map_row` alone counts every call)."""
+        at = (name, code)
+        if self._row_seen is None or at not in self._row_seen:
+            self.unmapped[(table, *at)] += 1
+            if self._row_seen is not None:
+                self._row_seen.add(at)
+
+    def _count_unmapped(self, rs: ResourceSpec, row: Row) -> None:
+        """Count the row a ``where`` dropped when the reason is a code nobody knows: a ``{lookup: ..., not_empty:
+        true}`` condition whose look-up gives nothing for the row's key (D-580), or a ``{column: ..., known:
+        [...]}`` condition whose column holds another code (NEW-DIN-7, D-587)."""
         for c in rs.where if isinstance(rs.where, list) else [rs.where]:
-            spec = c.get("lookup") if isinstance(c, dict) else None
-            if not spec or not c.get("not_empty") or self.lookup(spec, row) not in (None, ""):
+            if not isinstance(c, dict):
                 continue
-            code = row.get(spec["key"])
-            at = (str(spec["name"]), "" if code is None else str(code).strip())
-            if seen is None or at not in seen:
-                self.unmapped[(rs.table, *at)] += 1
-                if seen is not None:
-                    seen.add(at)
+            spec = c.get("lookup")
+            if spec and c.get("not_empty") and self.lookup(spec, row) in (None, ""):
+                code = row.get(spec["key"])
+                self._note_unmapped(rs.table, str(spec["name"]), "" if code is None else str(code).strip())
+            elif "known" in c and "column" in c:
+                code = str(row.get(c["column"]) or "").strip()
+                if code and code not in [str(x) for x in c["known"]]:
+                    self._note_unmapped(rs.table, f"column:{c['column']}", code)
 
     def unmapped_by_code(self, chart_pattern: str | None = None) -> dict[str, dict[str, dict[str, int]]]:
         """``{table: {look-up: {code: rows}}}``, the largest count first: every code, none cut (OD-10). Only what
@@ -692,12 +711,15 @@ class Mapper:
 
     def map_table(self, table: str, rows: Iterator[Row]) -> Iterator[Resource]:
         specs = [r for r in self.m.resources if r.table == table]
-        for row in rows:
-            seen: set[tuple[str, str]] = set()
-            for rs in specs:
-                res = self.map_row(rs, row, seen)
-                if res is not None:
-                    yield res
+        try:
+            for row in rows:
+                self._row_seen = set()
+                for rs in specs:
+                    res = self.map_row(rs, row)
+                    if res is not None:
+                        yield res
+        finally:
+            self._row_seen = None
 
     def static_resources(self) -> list[Resource]:
         out: list[Resource] = []
