@@ -12,8 +12,8 @@
 
 How to read it. §1 is what the owner decided on 2026-11-12. §2 is what the reviews found and why it is structure,
 not a list of bugs. §3 is the new cards. §4 is what changes in the cards of TB-PLAN-06. §5 is the test strategy
-delta. §6 is the order of work. §7 is the state of the plan and what the dates now rest on. §8 is what is still the
-owner's to decide.
+delta. §6 is the order of work. §7 is the state of the plan and what the dates now rest on. §8 is the owner's
+decisions on the open items.
 
 ## 1. Owner decisions of 2026-11-12
 
@@ -124,14 +124,14 @@ changes.
 | **T-733** | **The phone app**, notices first: counts, tasks and reminders with no patient details; more only at the level T-732 allows. A decision first on its form (installable web app or native). | a notice reaches the test device and holds no identifier (data scan) | M | T-732 |
 | **T-734** | **The capacity statement.** From the measured throughput of the box's hardware and model pair (G1, T-667, T-637): how many patients and studies a night this box can carry. The box shows it, refuses or schedules what does not fit and says so. The hardware note for the Spark against a GPU workstation is written from the same numbers. | the statement for the measured run is within 15 % of the run; a request over capacity is answered with an estimate, not a cut list | M | G1's report, T-687 |
 | **T-735** | **Documents for the owner.** The RUNBOOK becomes the owner's handbook (set-up, a normal day, when something is wrong); IT gets one page (the address, the data connection, the firewall line); the shared-host and IT-managed procedures move to an "other install forms" part. | every page names its reader; an owner can follow the set-up page in the rehearsal | M | T-729 |
-| **T-736** | **Duties on a box** (OD-12): the owner is steward and, by default, administrator; a trial PI is a user. Decide and build: what the owner may see of patient data (today the steward has no patient view and the administrator none, D-280, D-380), and who reviews the owner's own use of identifiers. | a decision record; the role matrix and the wizard follow it | M | owner (§8) |
+| **T-736** | **Duties on a box** (OD-12, OD-17): the owner is steward and, by default, administrator; a trial PI is a user. The owner reads patient-level data as any reader does (pseudonymous by default, a chart number with a recorded reason); a second person named at set-up gets a monthly list of the owner's identifier use, or the box keeps it for every audit export. | the role matrix and the wizard follow OD-17; the owner cannot mark their own use reviewed | M | T-729 |
 
 ### 3.6 Smaller cards from the audit
 
 | Id | Goal | Size |
 | --- | --- | --- |
 | **T-737** | The N-12 gate reported on the unadjusted figure in `tools/parity_replay.py`, its JSON and its test (T-649b's acceptance); `hypothesis` in the test lock so the property tests run (T-650's acceptance); the `property` job of §7.5 in CI. | S |
-| **T-738** | The forbidden-word check covers `forms.csv`; the zh-TW label of `ae_serious_why` reworded (owner's wording, §8). | S |
+| **T-738** | The forbidden-word check covers `forms.csv`; the zh-TW label of `ae_serious_why` reworded as OD-19, after a native reader confirms. | S |
 | **T-739** | The access design before a session reaches the owner's B200 (named in §0.4 and §4 of TB-PLAN-06 as T-630, which has no card row). | S |
 
 ## 4. Changes to the cards of TB-PLAN-06
@@ -218,23 +218,24 @@ Workers: at most three or four at a time (the owner's allowance), one card each.
   excerpt budget is fixed (T-710). Its accuracy numbers are a first reading. The pair is measured again after T-706,
   T-709 and T-710, and the hardware note (T-667, T-734) is written from that run.
 - **The PoC gates** (GP-0 tag by Fri 2026-11-27, GP-1, the sessions of 12-08 to 12-11) are still in TB-PLAN-06, while
-  the owner set the PoC aside on 2026-11-11 because it needs a GPU. They are on hold until the owner says (§8).
+  the owner set the PoC aside on 2026-11-11 because it needs a GPU. Their dates are dropped (OD-18): one PoC with real
+  models on a box, dated once the decision and trust lanes have landed.
 - **G3 (Fri 2027-02-26, feature complete).** At the pace of 2026-11-11 (13 merges in a day, which used a week's
   allowance) 94 cards are about 8 to 10 working weeks at a sustainable 2 to 3 merges a day. That is the whole time to
   G3 with no float. The capacity and box waves are what a real site needs; the dates of the two go-lives rest on them
   more than on the remaining feature cards.
 
-## 8. For the owner
+## 8. Owner decisions on the open items (2026-11-12)
 
-1. ~~Approve this addendum.~~ Approved 2026-11-12.
-2. T-736: may the box owner (the data steward) see patient-level data on the box, and who reviews the owner's own
-   use of identifiers? Today the steward has no patient view and the requirement URS-STW-08 says the steward reads
-   profiles.
-3. The PoC gates: drop them from the plan, or keep them for a later date once a box with a GPU exists.
-4. The zh-TW wording of the `ae_serious_why` label (it contains 判定, which the wording rule forbids).
-5. NAV is a care-side list (NHI approvals); it now follows the opt-out register. Keep, or narrow.
-6. ~~Merge PR #279.~~ Merged 2026-11-12 on the owner's word; its decision numbers renumbered (§3).
-7. A secret scan of the git history has not been run (the scanner could not be fetched in the build session).
+| Id | Item | Decision |
+| --- | --- | --- |
+| OD-17 | What the box owner (data steward) may see, and who reviews the owner (T-736) | The owner sees patient-level data through the same door as every reader: pseudonymous records by default, a chart number only with a recorded reason. A second person named at set-up (a co-investigator or the hospital's research office) receives a monthly list of the owner's identifier use; where a site names nobody, the box keeps the list and includes it in every audit export. The owner never reviews their own use. This replaces "the steward has no patient view" of D-380 for a box. |
+| OD-18 | The PoC gates of TB-PLAN-06 (GP-0 of 2026-11-27, GP-1, the sessions of 12-08 to 12-11) | The dates are dropped. One PoC, with real models (the former GP-2), on a box, after the decision and trust lanes of §6 have landed. It is dated then. |
+| OD-19 | The zh-TW label of `ae_serious_why` | 「列為嚴重的原因」, to be confirmed by a native reader (Dr Wenn or a coordinator) when T-738 is built. |
+| OD-20 | NAV and the opt-out register | NAV follows the register, as built in D-441. |
+| OD-21 | Secrets | The owner runs a secret scan of the git history and rotates the keys named in the handover of 2026-11-11, whatever the scan finds. Not a build card. |
+
+Settled earlier the same day: the addendum is approved; PR #279 is merged, with its decision numbers renumbered (§3).
 
 ## 9. Change history
 
@@ -242,3 +243,4 @@ Workers: at most three or four at a time (the owner's allowance), one card each.
 | --- | --- |
 | 2026-11-12 | First draft: OD-10 to OD-16; root causes S1 to S5; cards T-705 to T-739; the cards of PR #279 adopted. |
 | 2026-11-12 | Approved by the owner. PR #279 merged; its four decision reservations renumbered D-455 to D-458. |
+| 2026-11-12 | The owner's decisions OD-17 to OD-21 on the open items (§8). |
