@@ -1205,10 +1205,26 @@ class ComposeBox(_DockerImages):
                 raise UpdateFailed(str(e)) from e
         return made
 
-    def restart(self, plan: Plan) -> None:
-        # new images: the containers are recreated and every service runs its migrations at start (tb_common.db)
+    def pre_start(self) -> None:
+        """The host-side steps before the stack starts, run by the release whose tree is now in force
+        (``tools/trialbox/prestart.py``): this process is the installed, older release's, and a step the new release
+        added is not in it. The command runs in the install folder, where ``tools/`` is the new tree since
+        ``apply_host``. A tree without the command (a downgrade to a release from before it; a box with no host
+        tree) gets the two steps every such release ran, here."""
+        root = self.deploy.parent
+        if (root / "tools" / "trialbox" / "prestart.py").is_file():
+            python = sys.executable or "python3"
+            argv = ["sh", "-c", 'cd "$1" && shift && exec "$@"', "tb-pre-start", str(root),
+                    python, "-m", "tools.trialbox", "pre-start", "--deploy", str(self.deploy)]  # fmt: skip
+            self.run(argv, timeout=3600)
+            self.env = _env_file(self.deploy / ".env")  # a step may have written a setting the checks read
+            return
         self.resolve_pins()
         self.ensure_model_key()
+
+    def restart(self, plan: Plan) -> None:
+        # new images: the containers are recreated and every service runs its migrations at start (tb_common.db)
+        self.pre_start()
         t = os.environ.get("TB_INSTALL_UP_TIMEOUT", "900")
         pull = os.environ.get("TB_INSTALL_PULL") or "never"  # as install.sh: every image from a bundle (D-176)
         if pull not in ("never", "missing"):

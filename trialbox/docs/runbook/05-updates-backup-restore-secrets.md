@@ -21,6 +21,14 @@ and what is filed: `docs/validation/change-control.md` §4 (D-344).
    data puts images, models, databases and rulesets back, restarts, checks and writes `update.rolled_back`; exit 1. If
    the backup or the rollback point fails, the stopped services are started again and nothing else changed.
 
+**Each release runs its own start-up steps.** The updater that runs is the installed release's. After it has put
+the new release's files in place, step 4 runs the new release's `python3 -m tools.trialbox pre-start` before it
+starts the stack: what the new stack needs on the host first (a secret file a new service reads, the image pins) is
+made by the release that needs it. A release that adds such a step adds it to `tools/trialbox/prestart.py`. The
+release installed before this command existed cannot run it, so a bundle that adds a step names a release that has
+the command as its `min_installed_version`; the verifier then refuses the bundle on an older box before anything
+changes, and the box takes the release in between first.
+
 **Model weights against their pins** (T-677, D-393). On a GPU box the update's check step runs
 `trialbox doctor --weights` first: every pinned build's weights in the models folder must still hash to their pin.
 A difference writes `deploy/site/weights_changed.json`, the gateway refuses every model call (`weights_changed`) and

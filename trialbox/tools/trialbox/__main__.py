@@ -157,6 +157,8 @@ def main(argv: list[str] | None = None) -> int:
     u.add_argument("--target", choices=["compose", "demo"], default=os.environ.get("TB_UPDATE_TARGET", "compose"))
     u.add_argument("--deploy", type=Path, default=deploy)
     u.add_argument("--no-backup", action="store_true", help="skip the D-126 backup (audited; not for a real box)")
+    ps = sub.add_parser("pre-start", help="this release's host-side steps before its stack starts (an update runs it)")
+    ps.add_argument("--deploy", type=Path, default=deploy)
     op = sub.add_parser("ops", help="the console's operations requests: run them, write the status (D-178)")
     op.add_argument("action", choices=["run", "status", "metrics-token"])
     op.add_argument("--deploy", type=Path, default=deploy)
@@ -225,6 +227,10 @@ def main(argv: list[str] | None = None) -> int:
         from tools.trialbox import logs as tb_logs
 
         return tb_logs.main_action(a.action, a.deploy, a.day)
+    if a.cmd == "pre-start":
+        from tools.trialbox import prestart
+
+        return prestart.main(a.deploy)
     if a.cmd == "update":
         from tools.trialbox import update as tb_update
 
