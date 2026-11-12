@@ -43,6 +43,14 @@ Exit 1 means `failed`; the record's `failed_steps` and each step's `reason` say 
   length (`JUDGE_MAX_LEN`, `VERIFIER_MAX_LEN`) into the pin, or by hand `pin_model --build <build> --model-dir
   <folder> --context N`; run the qualification with the box's gateway in TEST (its calls are D0).
 - Commit the record with the pull request that pins the pair.
+- **A record for a site (HW-003, D-569).** Copy a record taken with real weights on the vendor's card into
+  `deploy/qualification/<profile>/` in the release. On a box the install then promotes the pinned pair when the
+  record qualified exactly its weights, the model server image of `deploy/images.lock` and the judge's chat
+  template (`python -m tools.pin_model --promote-shipped <profile>`), restarts the gateway and runs the canary
+  (`python3 -m tools.trialbox selftest`). A passed canary is confirmed (`--confirm-shipped <profile>`) and the
+  orchestrator is restarted; a failed one puts the pair back to `candidate` (`--demote-pair <profile>`) and the
+  install ends with a FAIL line. An interrupted install runs the canary again the next time. Without a matching record the install ends
+  with a FAIL line that says which difference it found, and this section is the way forward on the box.
 - A failed record is evidence too: keep it, fix the cause, run again.
 
 ## In CI and on a laptop

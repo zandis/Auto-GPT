@@ -2,8 +2,9 @@
 # e2e_simple (SRS FR-OPS-11, D-111) included, is trialbox-ci.yml. Here, each on its own runner, every night and on
 # demand: public_e2e on the public-data site, the backup and restore drill (TB-PLAN-04 step 2, D-126) and the update
 # drill (TB-PLAN-04 step 8, D-138: signed bundles, a failed migration and an unhealthy release roll back), the
-# unit suite in random order with the network off (D-201, review §5.2 (3), T-658, T-653: an order dependence or a
-# network call shows here, not on a pull request), the performance gate on the stub at 5,000 patients (ENG-030,
+# unit suite in random order with the network off, in the gate's shards (D-201, review §5.2 (3), T-658, T-653,
+# ENG-002: an order dependence or a network call shows here, not on a pull request), the performance gate on the
+# stub at 5,000 patients (ENG-030,
 # T-653: a phase more than 20 % slower than tools/bench_baseline.json fails), and the compose job (ENG-017, T-653):
 # the images built, `make up-test`, every integration and e2e test (HAPI CQL, the equivalence gate against HAPI, mail
 # through GreenMail and Mailpit, the role walk), the browser walk of the public console, then `make poc` and the
@@ -41,7 +42,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        run: [public-e2e, backup-drill, update-drill, random-order, perf-5k]
+        run: [public-e2e, backup-drill, update-drill, perf-5k]
     name: ${{ matrix.run }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -70,6 +71,15 @@ jobs:
       # D-126: tools/pglocal.py starts a throwaway cluster from the server binaries (installed here only if missing)
       - name: PostgreSQL server binaries
         run: tools/ci_postgres.sh  # the one major of deploy/images.lock, pg_config --version checked (D-371)
+      # ENG-002 (D-560): the public-data site reads the MedTxt corpus (public, CC BY 4.0), which git does not carry
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        if: matrix.run == 'public-e2e'
+        with:
+          path: trialbox/.cache/medtxt
+          key: tb-medtxt-${{ hashFiles('trialbox/tools/medtxt_eval.py') }}
+      - name: The public corpus (MedTxt), fetched once
+        if: matrix.run == 'public-e2e'
+        run: make public-data
       - name: public_e2e (stub model, the public-data site)
         if: matrix.run == 'public-e2e'
         run: TB_ENV=DEV PYTHONPATH=libs:services:. .venv/bin/python -m tools.public_e2e --dir "$RUNNER_TEMP/public" --lang en
@@ -79,13 +89,6 @@ jobs:
       - name: Update drill
         if: matrix.run == 'update-drill'
         run: TB_ENV=DEV PYTHONPATH=libs:services:. .venv/bin/python -m tools.update_drill --dir "$RUNNER_TEMP/update"
-      # the seed is in the log's header ("Using --randomly-seed=..."): `make test-random RANDOM_SEED=<n>` repeats it.
-      # No network: a connect to anything but the loopback or a Unix socket fails the test (pytest-socket).
-      - name: The unit suite in random order, network off
-        if: matrix.run == 'random-order'
-        env:
-          TB_DATA_DIR: ${{ runner.temp }}/tb-data  # the services' default /data is not writable for the runner user
-        run: make test-random PYTEST_N=auto
       - name: Performance gate (the stub at 5,000 patients against tools/bench_baseline.json)
         if: matrix.run == 'perf-5k'
         run: |
@@ -100,6 +103,52 @@ jobs:
           name: bench-gate
           path: ${{ runner.temp }}/bench-gate
           if-no-files-found: ignore
+
+  # ENG-002 (D-560): the unit suite in random order with the network off (D-201, T-653), in the shards of the
+  # pull-request gate's `unit-shard` (D-475: each test file in exactly one shard; tests/unit/test_nightly_green.py
+  # holds the two lists and limits equal). On one runner the run was cancelled at 87 % by its limit on 2026-11-11 and
+  # never named its one failure; a shard ends inside the limit the gate's shards have, with the test's name.
+  random-order:
+    name: random-order (${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40  # = unit-shard of trialbox-ci.yml (D-564: 1.5 times its slowest shard's median)
+    strategy:
+      fail-fast: false  # every shard reports: one night shows every order dependence
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78  # v6.2.0
+        with:
+          distribution: temurin
+          java-version-file: trialbox/.java-version
+          cache: maven
+          cache-dependency-path: trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
+      - name: Python environment
+        run: make venv
+      # CQL translator jars, FHIR packages and fonts: fetched once, then cached on the script/pom hash
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            trialbox/.cache/jvm
+            trialbox/.cache/fonts
+          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/tools/jvm-deps.sha256', 'trialbox/tools/fhir-packages.sha256', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
+      - name: JVM dependencies and fonts
+        run: make jvm-deps fonts
+      # D-126: tools/pglocal.py starts a throwaway cluster from the server binaries (installed here only if missing)
+      - name: PostgreSQL server binaries
+        run: tools/ci_postgres.sh  # the one major of deploy/images.lock, pg_config --version checked (D-371)
+      # the seed is in the log's header ("Using --randomly-seed=..."): `make test-random RANDOM_SEED=<n>` repeats it.
+      # No network: a connect to anything but the loopback or a Unix socket fails the test (pytest-socket).
+      - name: The unit suite in random order, network off
+        env:
+          TB_DATA_DIR: ${{ runner.temp }}/tb-data  # the services' default /data is not writable for the runner user
+        run: make test-random PYTEST_N=auto SHARD=${{ matrix.shard }}/${{ strategy.job-total }}
 
   # T-687 (D-471): the scale gate. Never on a pull request (no 50,000-patient run there; the gate's own logic is tested
   # at 200 patients in the unit job, tests/unit/test_scale_gate_logic.py). The caps are read from deploy/docker-compose.yml

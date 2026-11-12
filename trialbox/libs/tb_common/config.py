@@ -707,6 +707,12 @@ DECLARED: dict[str, Declared] = {
     "TB_RC_SIM_PORT": Declared("int", "8790", "REDCap simulator: port"),
     "TB_RC_SIM_VERSION": Declared("str", "16.0.10", "REDCap simulator: version shown"),
     "TB_REDCAP_READ_AT": Declared("str", "03:00", "console: REDCap read time"),
+    "TB_REDCAP_TEST_DAY": Declared("str", "", "REDCap test instance (D-584): the day a run takes as today"),
+    "TB_REDCAP_TEST_PORT": Declared("int", "8791", "REDCap test instance (D-584): its loopback port"),
+    # the longest call is R8's single import of 1,000 records on a developer's machine; the run records its time
+    "TB_REDCAP_TEST_TIMEOUT_S": Declared("float", "120", "REDCap test instance (D-584): seconds one API call may take"),
+    # default deploy/site/redcap/redcap.zip (an ignored folder); never committed, bundled or downloaded
+    "TB_REDCAP_ZIP": Declared("str", "", "REDCap test instance (D-584): path of the zip the owner supplies"),
     "TB_REFDATA_DIR": Declared("path", "", "reference data folder"),
     "TB_REGISTRY_OVERRIDE": Declared("str", "", "model registry override"),
     "TB_REGISTRY_PATH": Declared("path", "", "model registry file"),
