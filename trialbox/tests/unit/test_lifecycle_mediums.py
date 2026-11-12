@@ -27,9 +27,10 @@ from datacore.export import odm
 from datacore.lifecycle import Lifecycle, LifeError, Visit
 from datacore.store import DataCore
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 from orchestrator.lifecycle_api import router as life_router
 from tb_common.audit import AuditLog
+
+from tests.actor3 import SignedClient
 
 AT = "2026-11-08T09:00:00+09:00"
 RS = "GZQO"
@@ -203,7 +204,7 @@ def test_the_api_for_the_contact_rule_and_possible_deviations(life: Lifecycle, t
     host = _Host(life.dc, audit)
     api = FastAPI()
     api.include_router(life_router(lambda: host))
-    c = TestClient(api)
+    c = SignedClient(api)
     assert c.get(f"/studies/{RS}/contact-rule").json()["max_attempts"] == 3
     r = c.put(f"/studies/{RS}/contact-rule", json={"max_attempts": 4, "min_days": 2, "by": "console:crc"})
     assert r.status_code == 200 and r.json()["max_attempts"] == 4

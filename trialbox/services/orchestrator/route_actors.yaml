@@ -1,0 +1,48 @@
+# Where the acting PERSON of each changing route of the orchestrator comes from (T-715, D-483).
+#
+# route_callers.yaml (D-464) says which SERVICE may call a route. This table says how the route learns the person,
+# per route group of that file, for the group's changing routes (every method but GET, HEAD and OPTIONS). Every
+# group with a changing route is in exactly one stage; tests/unit/test_actor_routes.py walks the app and fails on a
+# changing route whose group is in no stage, whose dependency is not its stage's, or (stage `refuse`) whose request
+# model has a field that names a person.
+#
+#   refuse     the route has `require_actor(<action>)`: a verified v3 assertion for this action, this study, this
+#              request and this body, and the matrix asked again. No field of the body names a person.
+#   report     the route has `report_actor`: a call without a valid v3 assertion is counted and logged
+#              (orchestrator.actor.UNSIGNED) and let through; the person is still the body's `by`. This list only
+#              shrinks: a router leaves it for `refuse` when the console signs its calls.
+#   v2         the handler verifies the older signed assertion itself (a name, a session, a role, a study list;
+#              D-143, D-146, D-273); to be moved to v3 with their own cards' checks (T-716: the grant).
+#   no_person  no person acts; each with its reason.
+schema: tb-orchestrator-actors/1
+
+refuse:
+  - lifecycle
+  - sponsor
+  - job_reveal            # a chart number: the grant and the delegation log are read by the orchestrator (T-716, D-484)
+
+report:
+  - registry
+  - study
+  - datacore
+  - setup
+
+v2:
+  - jobs_start            # the signed role authorises a console job; a mailed job has no person (D-146, D-464)
+  - job_cancel
+  - job_retry_scheduled
+  - notices
+  - edc
+
+no_person:
+  models_canary: the pair canary of the box; it changes no record and names nobody
+  patients: a read sent as POST (pseudonyms in the body); nothing changes
+
+# service principals: a console timer has no session. Each may take only the actions listed, on routes that say so.
+principals:
+  service:console-notify:   # the morning notices bring the participants up to date before they count them
+    - study.setup
+  service:console-optout-check:   # T-719: is a running case's subject on the opt-out register? (POST /setup/pseudonym)
+    - optout.keep
+  service:console-nightly:  # the nightly REDCap read: the steps it derives name the timer, not a typed name
+    - request.prepare

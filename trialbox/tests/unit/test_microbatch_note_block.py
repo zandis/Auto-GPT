@@ -80,7 +80,10 @@ def _weekly_tier(monkeypatch: pytest.MonkeyPatch, llm: Any, verifier: Any) -> st
         ),
         services=SimpleNamespace(
             lake=SimpleNamespace(
-                snapshot=lambda: "2026-10-05", query=lambda *a, **kw: SimpleNamespace(to_pylist=lambda: [appt])
+                snapshot=lambda: "2026-10-05",
+                query=lambda sql, *a, **kw: SimpleNamespace(  # no consent statement (D-477); the visit otherwise
+                    to_pylist=lambda: [] if "consent" in sql else [appt]
+                ),
             ),
             llm=llm,
             verifier=verifier,
@@ -97,6 +100,9 @@ def _weekly_tier(monkeypatch: pytest.MonkeyPatch, llm: Any, verifier: Any) -> st
 def _policy(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TB_NOTE_BLOCK", "both_agree")  # the default
     monkeypatch.setenv("TB_CANARY_GATE", "off")
+    # NEW-B-3 (D-522): a list run asks first whether the box is held after a restore, and a hold that cannot be
+    # read is a hold. These are pure tests (no database to read it from): the box here was not restored
+    monkeypatch.setattr("orchestrator.scheduler.restore_held", lambda url=None: False)
     monkeypatch.delenv("TB_SCREEN_JUDGE", raising=False)
 
 

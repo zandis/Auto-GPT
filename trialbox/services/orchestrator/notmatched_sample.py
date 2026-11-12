@@ -8,8 +8,8 @@ for the study's PI and stores them in schema ``tuned`` (:mod:`tb_common.notmatch
 * **The run's own snapshot.** The draw reads the run's stored list (``excluded_*.json``), which the run made from the
   snapshot it pinned (T-305a, D-383), and records that snapshot. It never asks the lake: a night published since the
   run does not change what was sampled.
-* **Opted-out patients** (``tb_common.optout.opted_out``) are never drawn. A register that cannot be read stops the
-  whole draw (logged), never a sample with someone who said no.
+* **Opted-out patients** (``orchestrator.decision_context.register_now``) are never drawn. A register that cannot
+  be read stops the whole draw (logged), never a sample with someone who said no.
 * **Held studies.** Where the list waits for the site's check (``TB_NOT_MATCHED_GATE``), a study whose check has not
   passed is skipped and the skip audited (``notmatched.held``).
 * One sample per study and week: a second call (or the console drawing first on a page view) keeps the first one.
@@ -26,7 +26,8 @@ from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any
 
 from tb_common.notmatched import NotMatchedStore, gate_on, iso_week, sample_week
-from tb_common.optout import opted_out
+
+from orchestrator.decision_context import register_now
 
 if TYPE_CHECKING:
     from tb_contracts import Job
@@ -60,9 +61,16 @@ def weekly(orch: Any, today: date | None = None, store: NotMatchedStore | None =
     from tb_common.timeutil import today as site_today
 
     environ = env if env is not None else dict(os.environ)
+    from orchestrator.scheduler import restore_held
+
+    if (
+        restore_held()
+    ):  # NEW-B-3 (D-522): the sample filters by the opt-out register, which a restore may not have whole
+        log.warning("not-matched sample not drawn: the box is held after a restore")
+        return {}
     try:
         gated = gate_on(environ)
-        gone = opted_out()  # raises when the register does not answer: no sample rather than one with an opt-out
+        gone = register_now()  # raises when the register does not answer: no sample rather than one with an opt-out
     except Exception as exc:
         log.error("not-matched sample not drawn: %s", exc)
         return {}

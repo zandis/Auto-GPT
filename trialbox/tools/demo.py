@@ -76,7 +76,8 @@ ISSUED = "issued-credentials.txt"  # new passwords and enrolment codes for the o
 RC_SIM = "rc-sim.json"  # the REDCap simulator's projects, kept across a --keep restart
 OPINIONS = ROOT / "demo" / "fixtures" / "opinions"  # T-515: recorded first and second checks (the G1 slot is here)
 LANGS = ("ja", "zh-TW", "en")
-ROLES = ("admin", "coordinator", "investigator", "viewer", "cro")
+ROLES = ("admin", "coordinator", "investigator", "viewer", "cro", "steward", "privacy")  # console.auth.ROLES
+SITE_ROLES = ("steward", "privacy")  # DEMO-JA: site-wide (the audit browser, the opt-out register); never on a log
 LOG_ROLES = ("pi", "sub_pi", "crc", "other")  # console.teamstore.LOG_ROLES
 TASKS = ("screen", "approach", "refer", "enter_data")  # tb_common.authz.STUDY_TASKS
 PASSTHROUGH = (
@@ -175,6 +176,8 @@ def parse_accounts(data: Any) -> list[Account]:
         studies = tuple(str(s).strip().upper() for s in row.get("studies") or [])
         if any(not _STUDY_OK.fullmatch(s) for s in studies):
             raise AccountsError(f"{where}: studies are study ids")
+        if role in SITE_ROLES and (log or studies):
+            raise AccountsError(f"{where}: a {role} account is site-wide: no delegation entries or studies")
         affiliation = str(row.get("affiliation") or "hospital")
         if (role == "cro" or affiliation in ("smo", "cro")) and not studies and not log:
             raise AccountsError(f"{where}: a CRO or SMO account names its studies (D-380)")

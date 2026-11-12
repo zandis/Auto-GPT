@@ -3,7 +3,9 @@
 A site mapping maps **its** tables and columns onto these names with `rename`, and onto these codes with `values`.
 After that, the shared resource definitions (`tw_core/demo_his.yaml`, inherited with `extends`) do the rest; no
 code changes are needed. Columns marked † are optional (leave them unmapped if the HIS does not have them). Dates
-are `YYYY-MM-DD`, date-times `YYYY-MM-DD HH:MM[:SS]` in the site time zone.
+are `YYYY-MM-DD`, date-times `YYYY-MM-DD HH:MM[:SS]` in the site time zone. A column the source writes in
+the Republic-of-China calendar or a Japanese era is declared in the site mapping (`tables.<table>.dates: {<column>:
+roc}`; `era`), and the source's placeholder dates in `empty_dates` (D-589); nothing is detected from the values.
 
 | table | key | columns | canonical codes (`values`) |
 | --- | --- | --- | --- |

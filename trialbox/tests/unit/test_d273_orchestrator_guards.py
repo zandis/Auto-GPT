@@ -4,7 +4,7 @@ refuse a NAV job and never reveal a patient on the opt-out register. Synthetic p
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from tb_common import optout as optout_mod
 from tb_common import service_auth as sa
 
+from tests.actor3 import log_pi, reveal_headers
 from tests.service_tokens import per_service_tokens, token_of
 from tests.unit.test_service_auth import limits_store
 
@@ -27,6 +28,7 @@ def _box(events: list[dict[str, Any]], job_type: str = "SCREEN") -> SimpleNamesp
     return SimpleNamespace(
         db=SimpleNamespace(get=lambda _id: job, url=None, take_limit=limits_store().take_limit),
         _now=lambda: datetime.now(UTC),
+        today=lambda: date(2026, 11, 12),  # the site's day, for the delegation log (T-716)
         cfg=SimpleNamespace(
             env=SimpleNamespace(secrets_dir="/nonexistent"),
             settings=SimpleNamespace(site=SimpleNamespace(id="S1")),
@@ -58,49 +60,58 @@ def _h(role: str = "coordinator", scope: str = "*", name: str = "crc1") -> dict[
     return {sa.TOKEN_HEADER: TOKEN, **sa.actor_header(name, "s1", role=role, scope=scope)}
 
 
+def _reveal(client: TestClient, pid: str = "PID-00000001", role: str = "coordinator", study: str = "RS",
+            name: str = "crc1", **kw: Any) -> Any:  # fmt: skip
+    """``POST /jobs/J1/reveal`` as a signed person (T-716, D-484: a v3 assertion for this request)."""
+    body = {"pid": pid}
+    headers = {sa.TOKEN_HEADER: TOKEN, **reveal_headers(study, "J1", body, sub=f"console:{name}", role=role, **kw)}
+    return client.post("/jobs/J1/reveal", json=body, headers=headers)
+
+
 def test_reveal_checks_the_signed_role_and_study(box: Any) -> None:
     client, events, _ = box
-    body = {"pid": "PID-00000001"}
-    for role, scope, why in (
-        ("viewer", "*", "role"),
-        ("cro", "RS", "role"),
-        ("", "*", "role"),  # a verified assertion must name the role
-        ("coordinator", "OTHER", "study scope"),
-        ("investigator", "", "study scope"),  # and the studies
-        ("admin", "*", "role"),  # D-280 (OD-5): the administrator only under break-glass, signed as such
-    ):
-        r = client.post("/jobs/J1/reveal", json=body, headers=_h(role, scope))
-        assert r.status_code == 403, (role, scope)
-        assert events[-1]["kind"] == "screen.reveal_refused" and events[-1]["detail"]["reason"] == why
+    # a role the matrix gives no identifiers: refused by the dependency, before the job is looked at
+    for role in ("viewer", "cro", "admin", "steward", "breakglass"):  # D-280: never the administrator's own role;
+        r = _reveal(client, role=role)  # T-716: and there is no role "breakglass" any more
+        assert r.status_code == 403 and r.json()["detail"]["reason"] == "right", role
+        assert events[-1]["kind"] == "actor.refused" and events[-1]["detail"]["action"] == "id.reveal"
+    # the study of the claim is the job's study, or nothing is given
+    for study in ("OTHER", ""):
+        r = _reveal(client, study=study)
+        assert r.status_code == 403, study
+        assert events[-1]["kind"] == "screen.reveal_refused" and events[-1]["detail"]["reason"] == "study scope"
+    # an investigator the study's delegation log does not name: the orchestrator reads the log itself
+    r = _reveal(client, role="investigator", name="drsato")
+    assert r.status_code == 403 and events[-1]["detail"]["reason"] == "delegation"
     assert not any(e["kind"] == "screen.reveal" for e in events)
-    for role, scope in (("coordinator", "*"), ("investigator", "OTHER,RS"), ("breakglass", "*")):
-        r = client.post("/jobs/J1/reveal", json=body, headers=_h(role, scope))
-        assert r.status_code == 200 and r.json()["mrn"] == "MRN-1", (role, scope)
+    log_pi("drsato", "RS")
+    assert _reveal(client, role="investigator", name="drsato").json()["mrn"] == "MRN-1"
+    assert _reveal(client).json()["mrn"] == "MRN-1"  # the coordinator's row needs no log
 
 
 def test_a_scope_that_is_not_signed_does_not_count(box: Any) -> None:
+    """The older assertion, on the route that still takes it (the whole-list export)."""
     client, events, _ = box
     h = _h("coordinator", "OTHER")
-    h[sa.SCOPE_HEADER] = "RS"  # widened after signing
-    r = client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=h)
+    h[sa.SCOPE_HEADER] = "GZQO"  # widened after signing
+    r = client.get("/registry/GZQO/export.xlsx", headers=h)
     assert r.status_code == 403 and events[-1]["kind"] == "actor.refused"
 
 
 def test_reveal_refuses_a_nav_job(box: Any) -> None:
     client, _, state = box
     state["type"] = "NAV"
-    r = client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=_h())
-    assert r.status_code == 409
+    assert _reveal(client).status_code == 409
 
 
 def test_reveal_refuses_an_opted_out_patient(box: Any) -> None:
     """PV-4: a patient who opted out after the job ran is still on its list; the chart number is not given."""
     client, events, state = box
     state["gone"] = frozenset({"PID-00000001"})
-    r = client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=_h())
+    r = _reveal(client)
     assert r.status_code == 403 and events[-1]["detail"]["reason"] == "opted out"
     assert not any(e["kind"] == "screen.reveal" for e in events)
-    assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000002"}, headers=_h()).status_code == 200
+    assert _reveal(client, pid="PID-00000002").status_code == 200
 
 
 def test_registry_export_checks_the_signed_role_and_study(box: Any) -> None:

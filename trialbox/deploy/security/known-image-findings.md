@@ -8,7 +8,8 @@ mode is left only for the two test-only mail servers of `deploy/docker-compose.t
 (`tools/make_bundle.sh` takes the box's compose file only, OPS-017; and it refuses any image with a report-mode finding).
 The open findings of the HAPI FHIR and vLLM images are no longer waved through as a class: each one is a dated entry of
 `deploy/supply-chain-allowlist.yaml`, scoped to that image (`image:`), with `review_by: 2026-12-10`. A new finding in
-either image fails the gate; on 2026-12-10 the entries lapse and the gate fails until each image has moved or each entry
+either image fails the gate (one exception, D-622: one dated entry accepts every finding of the kernel headers package
+`linux-libc-dev` in the pinned vLLM image); on 2026-12-10 the entries lapse and the gate fails until each image has moved or each entry
 is reviewed again. The postgres row moved to our own `trialbox-postgres` image (T-104, built on `postgres:16-trixie`),
 which the gates now scan and block on; its base's findings are dated entries the same way. The licence gate, `make lock-check`, `make allowlist-check` and `make pip-audit`
 block as before. The list of images in report mode is `VULN_REPORT_ONLY` in `tools/supply_chain/release.py`; a test
@@ -20,7 +21,7 @@ Owner of every row: security owner (to assign). Target date of every row: 2026-1
 | --- | --- | --- | --- | --- | --- |
 | axllent/mailpit | amd64, arm64 | 1 | golang.org/x/crypto v0.58.0 (GO-2026-5932) in the Mailpit binary; seen by the image gates of PR #150 on 2026-11-11 | report (test only, never in a bundle) | move to the next Mailpit release built with the fixed x/crypto (digest-pinned in `deploy/images.lock`) |
 | greenmail/standalone | amd64, arm64 | 16 each | jackson-databind, jackson-core, openssl/libssl3, apt, gpgv | report (test only, never in a bundle) | move to a patched GreenMail tag (digest-pinned) |
-| vllm/vllm-openai | amd64, arm64 | 29 each | pyasn1, openssl/libssl3t64, certifi, msgpack, urllib3, setuptools, gnupg, apt, brotli, uv | block; 29 dated per-image entries | move to a patched vLLM release tag (digest-pinned) |
+| vllm/vllm-openai | amd64, arm64 | 29 each | pyasn1, openssl/libssl3t64, certifi, msgpack, urllib3, setuptools, gnupg, apt, brotli, uv | block; 29 dated per-image entries, and since D-622 one dated entry for every finding of its kernel headers package `linux-libc-dev` (build-time files; the owner's ruling of 2026-11-12) | move to a patched vLLM release tag (digest-pinned); our own image without the headers after go-live |
 | trialbox-postgres (base postgres:16-trixie) | amd64, arm64 | 29 each | Go stdlib 1.24.6 and golang.org/x/sys in gosu, zlib1g | block; 29 dated per-image entries | move the base digest (deploy/images.lock and db.Dockerfile together) |
 | hapiproject/hapi | amd64, arm64 | 23 each | libexpat1, zlib1g, jackson-core, jackson-databind, guava, spring-webmvc, ca-certificates | block; 23 dated per-image entries | move to a patched HAPI FHIR tag (digest-pinned) |
 

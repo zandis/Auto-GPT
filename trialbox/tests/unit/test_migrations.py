@@ -276,7 +276,8 @@ def test_migrate_dir_missing_directory(tmp_path: Path) -> None:
 
 
 def test_the_workflow_backend_has_the_same_api(db_url: str, tmp_path: Path) -> None:
-    from orchestrator.db_pg import MIGRATIONS, PostgresBackend
+    from orchestrator.db_pg import PostgresBackend
+    from orchestrator.recall.ledger import LEDGER_SCHEMA, MIGRATIONS
 
     (tmp_path / "001_a.sql").write_text("CREATE TABLE a (id INT)")
     be = PostgresBackend(db_url, "mig_be")
@@ -284,15 +285,15 @@ def test_the_workflow_backend_has_the_same_api(db_url: str, tmp_path: Path) -> N
         assert be.migrate_dir(tmp_path) == 1
         assert [r.script_name for r in be.applied()] == ["001_a.sql"]
         with pytest.raises(MigrationChanged, match="mig_be"):
-            be.migrate(MIGRATIONS)  # the wf schema's version 1 is not this directory's
+            be.migrate(MIGRATIONS)  # the recall ledger's version 1 is not this directory's
     finally:
         be.close()
-    wf = PostgresBackend(db_url)
+    led = PostgresBackend(db_url, LEDGER_SCHEMA)  # NEW-ARCH-2 (D-524): schema wf is gone; the ledger's stands in
     try:
-        wf.migrate(MIGRATIONS)
-        assert [r.sha256 for r in wf.applied()] == [script_sha256(s) for s in MIGRATIONS]
+        led.migrate(MIGRATIONS)
+        assert [r.sha256 for r in led.applied()] == [script_sha256(s) for s in MIGRATIONS]
     finally:
-        wf.close()
+        led.close()
 
 
 def test_extensions_reports_what_is_installed(db_url: str) -> None:
@@ -315,7 +316,8 @@ def test_require_extensions_names_the_missing_ones(db_url: str) -> None:
 def store_migrations() -> dict[str, list[str]]:
     """Every store's schema versions, as each passes them to ``migrate`` (store name: its schema)."""
     from adapter import licensed, pidmap
-    from console import auth, breakglass, feedback, saerecord, sitestore, teamstore
+    from console import auth, feedback, saerecord, sitestore, teamstore
+    from console import breakglass_store as breakglass  # the store stands apart from its page (T-716)
     from criteria_compiler.library import ddl as library
     from datacore import dataops, lifecycle, sponsor
     from datacore import store as datacore
@@ -323,7 +325,7 @@ def store_migrations() -> dict[str, list[str]]:
     from mail_gateway import store as mail
     from omop import schema as omop
     from orchestrator import db as orch
-    from orchestrator import db_pg, studystore
+    from orchestrator import studystore
     from orchestrator.recall import ledger
     from patient_profile import twin
     from sitesetup import store as sitesetup
@@ -334,7 +336,6 @@ def store_migrations() -> dict[str, list[str]]:
     return {
         "refdata": list(refdata.MIGRATIONS),
         "optout": list(optout.MIGRATIONS),
-        "wf": list(db_pg.MIGRATIONS),
         "recall": list(ledger.MIGRATIONS),
         "study": list(studystore.MIGRATIONS),
         "orch": list(orch.MIGRATIONS),
@@ -355,7 +356,7 @@ def store_migrations() -> dict[str, list[str]]:
         "sae": list(saerecord.MIGRATIONS),
         "app": list(flags.MIGRATIONS),
         "derived": list(derived_store.MIGRATIONS),
-        "dataops": [dataops.SCHEMA],
+        "dataops": list(dataops.MIGRATIONS),
         "tuned": list(notmatched.MIGRATIONS),
         "vec": list(vec.MIGRATIONS),
         "profile": list(twin.MIGRATIONS),
@@ -393,6 +394,7 @@ ADDED: dict[str, tuple[str, ...]] = {
         "b7cf6c229898b30f609be2151ff4422b2a0bc0cd068b0b5150e1d58c07c98ae3",
         "2d6727cad7056592bdcb1c9a2c0f28f419debbc79880f81e6f4346cd59646f08",
         "9d3348bbf4c423dbdbe7bb199eb50e107304bfabaf16b0b0b04eb59b5d48f8e3",
+        "411b2c02652903b18652e7797ec3169f3e10e8e55f7fdf9e07bc394a6c079f25",  # D-595: site_key.chartno_rule
     ),
     # D-277: datacore version 4 (the study's SAE rule set); sae version 3 (one initial report per party, CR-011)
     # D-364 (T-621): datacore version 5 (schedule versions); site version 4 (the criteria version on each mark)
@@ -443,7 +445,11 @@ ADDED: dict[str, tuple[str, ...]] = {
         "a109d4561de2163aa76c7efdb78674bc128bd1d8ce65f968aaabd6e63b9bdb99",
     ),
     # T-112a (D-427): the data-operations batches, new after the baseline
-    "dataops": ("01925afb0e82837617a880fa2d2b32f7efaa6d5e98945e7144f57510d76efbcf",),
+    # T-725 (D-491): dataops version 2, which generation each derived artefact is built from (``built``)
+    "dataops": (
+        "01925afb0e82837617a880fa2d2b32f7efaa6d5e98945e7144f57510d76efbcf",
+        "684ba94dca3b1a27f4dc387083319f161caf1f69b705fda4754fcf7f5b97c59a",
+    ),
     # T-103 (D-438): orch version 2, the orchestrator's identifier caps as use rows (``id_limits``)
     # T-689 (D-456): orch version 3, a job's restart count (``jobs.attempts``) and its kept model answers
     # (``judge_answers``)
@@ -471,11 +477,11 @@ PINNED: dict[str, tuple[str, ...]] = {
 #: every file that opens a store and migrates it, covered by :func:`store_migrations` (or not a store of its own)
 STORE_FILES = {
     "libs/tb_common/derived_store.py", "libs/tb_common/flags.py", "libs/tb_common/notmatched.py", "libs/tb_common/optout.py", "libs/tb_common/refdata.py", "services/adapter/licensed.py",
-    "services/adapter/pidmap.py", "services/console/auth.py", "services/console/breakglass.py", "services/console/feedback.py", "services/console/saerecord.py",
+    "services/adapter/pidmap.py", "services/console/auth.py", "services/console/breakglass_store.py", "services/console/feedback.py", "services/console/saerecord.py",
     "services/console/sitestore.py", "services/console/teamstore.py", "services/criteria_compiler/library/repository.py",
     "services/datacore/dataops.py", "services/datacore/store.py", "services/edc/store.py",
     "services/mail_gateway/store.py", "services/omop/schema.py", "services/orchestrator/db.py",
-    "services/orchestrator/db_pg.py", "services/orchestrator/outbox.py", "services/orchestrator/recall/ledger.py",
+    "services/orchestrator/recall/ledger.py",
     "services/orchestrator/studystore.py", "services/patient_profile/twin.py", "services/sitesetup/store.py",
     "services/tracestore/store.py", "services/vec/store.py",
 }  # fmt: skip
@@ -484,6 +490,7 @@ STORE_FILES = {
 NOT_STORES = {
     "libs/tb_common/db.py",
     "services/console/storedb.py",
+    "services/orchestrator/db_pg.py",  # NEW-ARCH-2 (D-524): the backend only; its schema ``wf`` is removed
     "tools/trialbox/update.py",
     "tools/backup_drill.py",
 }

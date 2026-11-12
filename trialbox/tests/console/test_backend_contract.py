@@ -17,6 +17,7 @@ from console.backend import HttpBackend, Refused
 from tb_common.authz import BREAK_GLASS_ROLE, MATRIX_ROLES
 from tb_contracts import JobCreate
 
+from tests.actor3 import log_pi, signer
 from tests.console.test_console_app import FakeBackend, _done_screen, _ulid
 from tests.orch_box import STUDY, OrchBox
 
@@ -25,6 +26,7 @@ SCOPES = ("*", STUDY, f"OTHER,{STUDY}", "OTHER", "")
 JOB_TYPES = ("FEAS", "SCREEN", "MICROBATCH", "NAV", "CASE", "COHORT", "CONSENT", "INGEST", "RETENTION")
 #: what the fake does not model, and where the real behaviour is tested
 NOT_MODELLED = {
+    "a break-glass grant row (the fake reads the real store; tested on the box)": "test_grant_box.py",
     "a patient the job did not list (403)": "test_orch_box.py::test_the_orchestrator_refuses_what_the_console_did_not_check",
     "a patient who opted out since (403)": "test_orch_box.py::test_the_orchestrator_refuses_what_the_console_did_not_check",
     "the hourly caps per person and per service (429)": "tests/unit/test_d273_orchestrator_guards.py",
@@ -40,7 +42,7 @@ def _answer(call: Any) -> str:
         got = call()
     except Refused as exc:
         text = str(exc)
-        for why in ("role may not run", "break-glass covers one patient or one job", "study scope", "role"):
+        for why in ("role may not run", "break-glass grant", "study scope", "delegation", "right", "role"):
             if why in text:
                 return f"refused: {why}"
         return f"refused: {text[:80]}"
@@ -51,28 +53,33 @@ def test_reveal_and_export_answer_as_the_real_routes(orch_box: OrchBox) -> None:
     real, fake = orch_box.backend(), FakeBackend()
     real_job, real_pid = orch_box.screen(), orch_box.listed()[0]
     fake_job, fake_pid = _done_screen(fake, _ulid(714)), "a" * 32
+    log_pi("named", STUDY)  # the delegation log both sides read (one trial database): its PI, and nobody else
     differ: list[str] = []
     seen: set[str] = set()
-    for n, (role, scope) in enumerate((r, s) for r in SIGNED_ROLES for s in SCOPES):
-        who = f"console:p{n}"  # a person per case: the per-person cap is not what is compared
-        pairs = {
-            "reveal": (
-                partial(real.reveal, real_job.job_id, real_pid, who, role=role, scope=scope),
-                partial(fake.reveal, fake_job.job_id, fake_pid, who, role=role, scope=scope),
-            ),
-            "export": (
-                partial(real.registry_export, STUDY, who, role=role, scope=scope),
-                partial(fake.registry_export, STUDY, who, role=role, scope=scope),
-            ),
-        }
-        for call, (on_real, on_fake) in pairs.items():
-            a, b = _answer(on_real), _answer(on_fake)
-            seen.add(a)
-            if a != b:
-                differ.append(f"{call} role={role!r} scope={scope!r}: real {a}, fake {b}")
+    n = 0
+    # the reveal (T-716, D-484): a v3 claim; the role, the one study, the person the log names or does not
+    for role in (r for r in SIGNED_ROLES if r):  # a claim cannot be minted without a role
+        for study in (STUDY, "OTHER", ""):
+            for person in ("named", "other"):
+                n += 1
+                sign = partial(signer, study, sub=f"console:{person}", role=role)  # a person per case: not the cap
+                a = _answer(partial(real.reveal, real_job.job_id, real_pid, sign()))
+                b = _answer(partial(fake.reveal, fake_job.job_id, fake_pid, sign()))
+                seen.add(a)
+                if a != b:
+                    differ.append(f"reveal role={role!r} study={study!r} {person}: real {a}, fake {b}")
+    # the whole-list export: the older assertion (a role and a study list)
+    for role, scope in ((r, s) for r in SIGNED_ROLES for s in SCOPES):
+        n += 1
+        who = f"console:p{n}"
+        a = _answer(partial(real.registry_export, STUDY, who, role=role, scope=scope))
+        b = _answer(partial(fake.registry_export, STUDY, who, role=role, scope=scope))
+        seen.add(a)
+        if a != b:
+            differ.append(f"export role={role!r} scope={scope!r}: real {a}, fake {b}")
     assert differ == []
     # the table reaches every answer, so an agreement is not an agreement on refusals only
-    assert seen == {"ok", "refused: role", "refused: study scope", "refused: break-glass covers one patient or one job"}
+    assert seen == {"ok", "refused: right", "refused: role", "refused: study scope", "refused: delegation"}
 
 
 def test_a_signed_job_is_answered_as_the_real_route(orch_box: OrchBox) -> None:
@@ -98,11 +105,13 @@ def test_the_fake_cannot_be_asked_without_a_role_or_scope() -> None:
     fake = FakeBackend()
     job = _done_screen(fake, _ulid(715))
     with pytest.raises(Refused, match="study scope"):
-        fake.reveal(job.job_id, "a" * 32, "console:crc", role="coordinator")
-    with pytest.raises(Refused, match="role"):
-        fake.reveal(job.job_id, "a" * 32, "console:crc", scope="*")
+        fake.reveal(job.job_id, "a" * 32, signer(""))  # the study dropped from the claim
+    with pytest.raises(Refused, match="right"):
+        fake.reveal(job.job_id, "a" * 32, signer("GZQO", role="viewer"))
+    with pytest.raises(Refused, match="request"):
+        fake.reveal(job.job_id, "a" * 32, lambda m, p, b: signer("GZQO")(m, p, {"pid": "b" * 32}))  # another body
     with pytest.raises(Refused, match="study scope"):
         fake.registry_export("GZQO", "console:crc", role="coordinator")
-    assert fake.revealed == [] and len(fake.signed) == 3
-    assert fake.reveal(job.job_id, "a" * 32, "console:crc", role="coordinator", scope="GZQO") == "MRN-000123"
-    assert len(NOT_MODELLED) == 6
+    assert fake.revealed == [] and len(fake.signed) == 4
+    assert fake.reveal(job.job_id, "a" * 32, signer("GZQO")) == "MRN-000123"
+    assert len(NOT_MODELLED) == 7

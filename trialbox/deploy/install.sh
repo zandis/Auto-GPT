@@ -458,6 +458,14 @@ if [ "$PULL" = never ]; then
   [ -z "$MISSING" ] || die "images not on this box:$MISSING. They come only from the bundle; nothing is pulled (TB_INSTALL_PULL=missing on a site with its own mirror)"
   echo "    every image of the stack is on this box (nothing is pulled)"
 fi
+# D-620: this release's host-side steps before its stack starts (tools/trialbox/prestart.py), the same command an
+# update runs: a step a release adds there is run by a fresh install too. The steps are safe to run again.
+if command -v python3 >/dev/null; then
+  python3 -m tools.trialbox pre-start --deploy "$ROOT/deploy" 2>&1 | sed 's/^/    /' \
+    || die "a start-up step of this release failed (pre-start above)"
+else
+  echo "    note: no python3 on this host: the release's start-up steps (tools.trialbox pre-start) were not run" >&2
+fi
 # T-612 (DATA-004): the site keys are made here and nowhere else. A key already in the secrets volume is kept; the
 # ingest refuses a night whose key is missing or is not the one the box's pseudonyms were made with
 say "site keys (made once, never replaced)"
@@ -479,6 +487,11 @@ fi
 # D-378: the services' database roles, on a new volume (db-init made them) and an older one alike (idempotent)
 "${COMPOSE[@]}" up -d --pull "$PULL" --wait db && "${COMPOSE[@]}" exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh \
   || die "the database roles could not be set (docker compose logs db)"
+# D-486 (T-718): the schemas no service owns (edc) are made now, by the box's admin, before the services start; the
+# admin's URL goes in the environment, not on the command line
+TB_DB_URL="postgresql://trialbox:${WF_PW}@db:5432/trialbox_wf" "${COMPOSE[@]}" run --rm --no-deps -T -e TB_DB_URL \
+  orchestrator python -m orchestrator.migrate | sed 's/^/    /' \
+  || die "the schemas of the trial database could not be made (python -m orchestrator.migrate)"
 "${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-900}" \
   || { "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }
 if [ "$MODE" = gpu ]; then

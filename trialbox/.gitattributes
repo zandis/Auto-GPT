@@ -51,3 +51,4 @@ services/datacore/builtin/forms.csv -tb-data
 services/sitesetup/dx_names.csv -tb-data
 # the hand-curated zh-TW clinical synonyms of the name matcher (D-172): terms and their English canonical names, no patient
 libs/tb_common/refdata_src/*.csv -tb-data
+*.cmd text eol=crlf
