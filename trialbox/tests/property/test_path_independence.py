@@ -896,14 +896,14 @@ def test_an_opted_out_patient_is_in_no_published_bytes(world: World, path: str) 
 
 
 # ------------------------------------------------------------------------------------------------ outside the box
-@pytest.mark.xfail(strict=True, reason="M3: the console's pages read OptOutRegister.active(), which leaves out the "
-                   "surviving chart of a merge; the jobs read opted_out() with the survivors")  # fmt: skip
 def test_the_console_reads_the_register_as_the_jobs_do(tmp_path: Path) -> None:
     """The console's list is the stored candidate list filtered by the register (``console/home.py`` week bundle,
-    ``screening_log.py``): the console process is not driven here (it needs the console app and a session), but the
-    read it makes is ``h.optout.active()``. A chart number that opted out and was then merged into another chart:
-    the jobs keep the surviving patient off every list, the console's read must too."""
+    ``screening_log.py``, the team and EDC pages): the console process is not driven here (it needs the console app
+    and a session), but the read it makes is ``Helpers.gone()``. A chart number that opted out and was then merged
+    into another chart: the jobs keep the surviving patient off every list, and so does the console's read. Before
+    T-708 (D-477, review M3) the pages read ``OptOutRegister.active()``, which leaves the survivor out."""
     from adapter.pidmap import PidMap
+    from console.home import Helpers
     from tb_common.optout import OptOutRegister, opted_out
 
     pm = PidMap(tmp_path / "pid_map.key")
@@ -912,9 +912,16 @@ def test_the_console_reads_the_register_as_the_jobs_do(tmp_path: Path) -> None:
     reg = OptOutRegister()
     reg.add(old, "paper", "synthetic opt-out", "crc1@hospa.test", "2026-10-01T09:00:00+08:00")
     assert survivor in opted_out()  # the jobs' read (control)
-    console = reg.active()  # the console's read (home.py week_bundle, screening_log.py)
+    assert survivor not in reg.active()  # the read the pages made before: the survivor was shown
+    blank: Any = None
+    h = Helpers(need=blank, page=blank, problem=blank, csrf_ok=blank, actor=blank, bk=blank, au=blank, store=blank,
+                users=blank, optout=reg)  # fmt: skip
+    console = h.gone()  # the one register read of the console's pages
     reg.close()
-    assert survivor in console
+    assert survivor in console and old in console
+    pages = Path(__file__).resolve().parents[2] / "services" / "console"
+    stray = [p.name for p in sorted(pages.glob("*.py")) if "optout.active()" in p.read_text(encoding="utf-8")]
+    assert not stray, f"a console page reads the register without merged charts: {stray}"
 
 
 @pytest.mark.xfail(strict=True, reason="M5: FULL_RECORD_MAX_CANDIDATES: with more candidates in the run than the "
