@@ -258,7 +258,12 @@ def chartno_rule(answer: Any, mrn_regex: str, errors: list[str], warnings: list[
     except ValueError as exc:  # ChartNoError, and a width that is a digit but not an ASCII number
         errors.append(f"chartno_rule {text!r} is not a rule: {exc}")
         return "asis"
-    if rule.kind != "asis":
+    if rule.kind != "asis" and not mrn_regex.strip():
+        warnings.append(
+            f"chartno_rule {rule} was taken with no MRN pattern to check it against: answer mrn_regex with the "
+            "hospital's chart-number pattern"
+        )
+    elif rule.kind != "asis":
         try:
             pat = re.compile(mrn_regex)
         except re.error:
@@ -321,11 +326,14 @@ def build(
             errors.append(f"{who!r} is not an e-mail address")
         elif not any(who.lower().endswith("@" + d.lower()) or who.lower().endswith("." + d.lower()) for d in domains):
             warnings.append(f"{who} is outside the internal domains: it will never receive patient lists")
+    # no pattern is the empty string, which every reader takes as "no pattern" (the scrubber, the candidate
+    # registry, the adapter's column check); it was the text "None", which they took for a pattern (D-579)
+    mrn_regex = "" if get("mrn_regex") is None else str(get("mrn_regex")).strip()
     try:
-        re.compile(str(get("mrn_regex")))
+        re.compile(mrn_regex)
     except re.error as exc:
         errors.append(f"mrn_regex does not compile: {exc}")
-    chart_rule = chartno_rule(a.get("chartno_rule"), str(get("mrn_regex")), errors, warnings)
+    chart_rule = chartno_rule(a.get("chartno_rule"), mrn_regex, errors, warnings)
     depts = _map(get("departments"))
     prac = _practitioners(get("practitioners"))
     for pid, p in prac.items():
@@ -444,7 +452,7 @@ def build(
         "require_spf_dkim": True,
         "rate_limit_per_sender_per_day": 20,
         "data_source": data_source,
-        "mrn_regex": str(get("mrn_regex")),
+        "mrn_regex": mrn_regex,
         "profiles": {"tw_core": "1.0.0", "twpas_version": "1.2.5"},
         "models": {
             "judge": "qwen3.5-35b-a3b-q4",

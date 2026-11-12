@@ -66,3 +66,18 @@ bare error (now a refusal).
 That review found that a rule set on a box which has loaded patients changes their pseudonyms and makes the pid
 map report a wrong site key. Item 5 is the answer in the installer's tools. This card is stacked on #389 and
 lands with it and with lane C's page.
+
+## After the review of the first-run page (#406, lane C; 2026-11-12)
+
+- **On a box every rule but `asis` was refused.** The box's plan carried no MRN pattern, and the wizard turned
+  "no pattern" into the text `None` and checked the rule against it. The owner would pick "digits, 8", the
+  accounts would be made, and the install would fail. Now the plan passes the pattern that goes with the rule
+  (`digits:8` is `^\d{8}$`, `hex:8` is `^[0-9A-F]{8}$`; a rule without a width, `asis` and no answer give no
+  pattern), and a rule with no pattern to check against is taken with a warning.
+- **`settings.mrn_regex` was the text `None` on every box**, since before this card: the candidate registry
+  refused every chart number that does not start with "None" and the scrubber masked the word. No pattern is now
+  the empty string, which every reader (the scrubber, the candidate registry, the adapter's column check, site
+  set-up) takes as "no pattern".
+- **"Holds no patient" also reads the pid map's `pending` table**: a first night that is staged and not yet
+  promoted counts.
+

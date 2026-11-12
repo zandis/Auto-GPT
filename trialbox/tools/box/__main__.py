@@ -33,7 +33,9 @@ from tools.box.plan import DEPLOY, Hardware, PlanError, detect, plan, provisiona
 # made by the install (or the wizard's first write) and never replaced by an apply: the database and services hold them
 KEEP = frozenset({"POSTGRES_PASSWORD", "IMAP_PASS", "SMTP_PASS", "TB_SERVICE_TOKEN", "CLOUD_LLM_API_KEY"})
 CHARTNO_RULE = "TB_CHARTNO_RULE"
-PID_MAP = "pidmap.pid_map"  # services/adapter/pidmap.py: one row per patient the box has loaded
+# services/adapter/pidmap.py: one row per patient the box has loaded, and the chart numbers of a night that is
+# staged and not yet promoted
+PID_TABLES = ("pidmap.pid_map", "pidmap.pending")
 
 
 def _compose_psql(deploy: Path) -> list[str]:
@@ -51,9 +53,11 @@ def pid_map_rows(deploy: Path, run: Callable[[list[str]], str] = _run) -> int | 
     does not exist yet (no ingest ever ran); None when the database cannot be asked."""
     psql = _compose_psql(deploy)
     try:
-        if run([*psql, f"SELECT to_regclass('{PID_MAP}') IS NOT NULL"]).strip() != "t":
-            return 0
-        return int(run([*psql, f"SELECT count(*) FROM {PID_MAP}"]).strip())
+        total = 0
+        for table in PID_TABLES:  # fixed names, never a caller's text
+            if run([*psql, f"SELECT to_regclass('{table}') IS NOT NULL"]).strip() == "t":
+                total += int(run([*psql, f"SELECT count(*) FROM {table}"]).strip())  # nosec B608
+        return total
     except (OSError, ValueError, subprocess.SubprocessError):
         return None
 
