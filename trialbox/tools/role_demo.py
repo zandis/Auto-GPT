@@ -103,10 +103,11 @@ class InprocBackend:
         self.cfg = box.orch.cfg  # the site time zone for user-facing times (console.timefmt)
 
     # jobs
-    def list_jobs(self, limit: int = 100) -> list[Any]:
+    def list_jobs(self, limit: int = 100, state: str | None = None) -> list[Any]:
         from tb_contracts import Job
 
-        return [Job.model_validate(j) for j in self.c.get(f"/jobs?limit={limit}").json()]
+        q = f"/jobs?limit={limit}" + (f"&state={state}" if state else "")
+        return [Job.model_validate(j) for j in self.c.get(q).json()]
 
     def get_job(self, job_id: str) -> Any:
         from tb_contracts import Job

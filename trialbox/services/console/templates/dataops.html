@@ -41,7 +41,7 @@
 <div class="scroll" tabindex="0"><table>
 <thead><tr><th scope="col">{{ t('dataops.col.source') }}</th><th scope="col">{{ t('dataops.col.snapshot') }}</th><th scope="col">{{ t('dataops.col.attempt') }}</th><th scope="col">{{ t('dataops.col.state') }}</th><th scope="col">{{ t('dataops.col.changed') }}</th><th scope="col">{{ t('dataops.col.gate') }}</th></tr></thead>
 <tbody>{% for b in rows %}<tr data-testid="batch" data-batch="{{ b.id }}" data-state="{{ b.state }}">
-<td class="mono">{{ b.source }}</td><td><a href="/data-ops/batches/{{ b.id }}">{{ b.snapshot }}</a></td><td class="num">{{ b.attempt }}</td><td>{{ t('dataops.state.' + b.state) }}</td><td>{{ b.changed_at|local }} · {{ b.changed_by|who }}</td><td>{{ tables(b) }}</td>
+<td class="mono">{{ b.source }}</td><td><a href="/data-ops/batches/{{ b.id }}">{{ b.snapshot }}</a></td><td class="num">{{ b.attempt }}</td><td>{{ t('dataops.state.' + b.state) }}</td><td>{{ b.changed_at|local }} · {{ t_or('who.' + (b.changed_by|who), b.changed_by|who) }}</td><td>{{ tables(b) }}</td>
 </tr>{% endfor %}</tbody></table></div>
 {% if next_before %}<p><a href="/data-ops?state={{ state|urlencode }}&amp;source={{ source|urlencode }}&amp;before={{ next_before }}" data-testid="dataops-more">{{ t('dataops.more') }}</a></p>{% endif %}
 {% endif %}

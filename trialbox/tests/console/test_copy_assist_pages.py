@@ -160,6 +160,8 @@ class _Gone:
     def active(self) -> set[str]:
         return self.pids
 
+    effective = active  # D-477: the pages read the register with merged charts
+
 
 def test_an_opted_out_patient_is_not_shown(eb: dict[str, Any]) -> None:  # noqa: F811
     _copy_on(eb)

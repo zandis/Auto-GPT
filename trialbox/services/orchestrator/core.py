@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from lake.client import LakeAPI
 from tb_common.audit import AuditLog, mask_detail
@@ -55,6 +55,9 @@ from orchestrator import i18n
 from orchestrator.clients import AdapterAPI, CompilerAPI, MailAPI, ParserAPI, StepFailed
 from orchestrator.db import TERMINAL, JobDB
 from orchestrator.jobs import guarded_services, max_restarts, pinned_services, release_hold
+
+if TYPE_CHECKING:
+    from orchestrator.decision_context import DecisionContext
 
 log = logging.getLogger("orchestrator")
 SYSTEM_SENDERS = ("scheduler", "system")
@@ -122,6 +125,17 @@ class Ctx:
         self.orch = orch
         self._job = job
         self._services: Services | None = None
+        self._decision: DecisionContext | None = None
+
+    @property
+    def decision(self) -> DecisionContext:
+        """What this job reads to decide (T-708, D-477): the pinned snapshot, the opt-out register, consent, the
+        ruleset and its pins, the note-block decision and the run date. One per job, beside the pinned lake."""
+        if self._decision is None:
+            from orchestrator.decision_context import DecisionContext
+
+            self._decision = DecisionContext(self)
+        return self._decision
 
     @property
     def job(self) -> Job:

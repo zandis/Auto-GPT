@@ -367,6 +367,9 @@ DECLARED: dict[str, Declared] = {
     "TB_AUDIT_HEAD_MAX_AGE_H": Declared("float", "36", "doctor: the newest signed audit head may be this old (D-562)"),
     "TB_AUDIT_HOST_DIR": Declared("path", "", "host path of the audit volume (logs archive-audit)"),
     "TB_AUDIT_MIN_FREE_MB": Declared("int", "64", "audit refuses to write below this free space"),
+    "TB_AUDIT_TS_MAX_SKEW_S": Declared(
+        "float", "300", "seconds an event's own time may differ from the journal's; a slow transaction (D-488)"
+    ),
     "TB_AUDIT_WRITER": Declared("str", "file", "db: send audit events to the journal (D-394); file: write the chain"),
     "TB_AUDIT_WRITER_ALIVE": Declared("path", "", "the audit drain's heartbeat file (default in the temp folder)"),
     "TB_AUTH_HOSTNAME": Declared("str", "", "compose: the identity provider's DNS name (network sheet, T-632)"),
@@ -474,6 +477,7 @@ DECLARED: dict[str, Declared] = {
     "TB_DEMO_OPINIONS": Declared("str", "", "demo: recorded first and second checks"),
     "TB_DEMO_PASSWORD": Declared("str", "", "demo: account password (synthetic)"),
     "TB_DEMO_RUN": Declared("str", "/etc/trialbox-demo/run.sh", "demo: start script"),
+    "TB_DEMO_SITE_LANG": Declared("str", "", "demo: hospital records and notes in ja or zh-TW (unset: both campuses)"),
     "TB_DEMO_WAIT_S": Declared("float", "900", "demo: seconds to wait for health"),
     "TB_DIRECTORY_URL": Declared("str", "", "platform check: directory URL"),
     "TB_DOCKER": Declared("str", "docker", "the docker command"),
@@ -587,6 +591,7 @@ DECLARED: dict[str, Declared] = {
     "TB_LINK_PORT": Declared("int", "", "two-device link: this device's port"),
     "TB_LINK_ROLE": Declared("str", "", "two-device link: this device's role"),
     "TB_LLM_API_KEY": Declared("str", "", "gateway: key of the model admin endpoints (secret)"),
+    "TB_LLM_STUB_NOTE_LANGS": Declared("str", "", "stub model: note languages it reads besides zh-TW (ja; demo only)"),
     "TB_LLM_API_KEY_FILE": Declared(
         "path", "", "gateway, model-guard: the model key file (compose secret, D-437), read before TB_LLM_API_KEY"
     ),
@@ -828,6 +833,9 @@ DECLARED: dict[str, Declared] = {
     "TB_UPDATE_DRILL_DIR": Declared("path", "", "update drill: work folder"),
     "TB_UPDATE_INCOMING": Declared("str", "", "update: incoming bundle folder"),
     "TB_UPDATE_TARGET": Declared("str", "compose", "update: compose or demo"),
+    "TB_VALIDATION_SAMPLE_CAP": Declared(
+        "int", "", "ingest gate: most resources of one type validated (unset: from the limit; 0: no cap; D-457)"
+    ),
     "TB_VALIDATOR_IGS": Declared("str", "tw.gov.mohw.twcore#1.0.0", "FHIR validator: guides loaded"),
     "TB_VALIDATOR_XMX": Declared("str", "4g", "FHIR validator: Java heap"),
     "TB_VAULT_DIR": Declared("path", "", "testbench: vault folder"),

@@ -222,6 +222,11 @@ def bind_session(session: str) -> None:
     _SESSION.set(_SID.sub("", session)[:32])
 
 
+def bound_session() -> str:
+    """The console session of the current request ("" outside one)."""
+    return _SESSION.get()
+
+
 def actor_key(token: str) -> bytes:
     """The key that signs actor assertions, derived from the signing service's own token (never the token itself)."""
     return hmac.new(token.encode("utf-8"), ACTOR_LABEL, hashlib.sha256).digest()
@@ -316,6 +321,10 @@ def resign(headers: dict[str, str]) -> dict[str, str]:
     sends a call again (a retry after a 5xx or a dropped connection) needs a new one, as the first may have been
     used. Headers without an assertion, or on a service without a token, come back unchanged."""
     old = headers.get(ASSERTION_HEADER)
+    if old and old.startswith("v3."):  # T-715 (D-483): the claim is the whole message; a new nonce, signed again
+        from tb_common import actor_v3
+
+        return {**headers, ASSERTION_HEADER: actor_v3.remint(old)}
     if not old or ACTOR_HEADER not in headers:
         return headers
     parts = old.split(".")

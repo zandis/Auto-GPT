@@ -67,7 +67,26 @@ def twins_after_ingest(ctx: Ctx, snapshot: object) -> None:
     except Exception as exc:  # an orchestrator without its job store or lake (a test's stand-in): nothing to build
         log.warning("twin build after the ingest skipped (%s)", type(exc).__name__)
         return
-    build_twins(orch_db, lake, str(snapshot), datetime.now(UTC).isoformat(timespec="seconds"))
+    # T-725 (D-491, review F-4): the build of "twin" from this night's generation; an older night is refused and
+    # the newer twins stay (a late re-run of an earlier night superseded them before)
+    from datacore.generations import generation_of, guarded
+
+    night = str(snapshot)
+
+    def build() -> object:
+        # review of T-725 (H2): the build never raises and answers None when it could not run; a build that did
+        # not run, or that failed for a patient, is not a finished build (the ledger keeps "building")
+        rep = build_twins(orch_db, lake, night, datetime.now(UTC).isoformat(timespec="seconds"))
+        if rep is None:
+            raise RuntimeError("the twin build did not run")
+        if rep.failed:
+            raise RuntimeError(f"the twin build failed for {len(rep.failed)} patient(s)")
+        return rep
+
+    try:
+        guarded("twin", generation_of(lake, night), build)
+    except Exception as exc:  # neither the ledger's failure nor the build's fails the ingest
+        log.warning("twin build after the ingest is not finished (%s: %s)", type(exc).__name__, exc)
 
 
 def ingest(ctx: Ctx) -> Outcome:

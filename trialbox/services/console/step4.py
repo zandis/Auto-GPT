@@ -173,6 +173,11 @@ def register(app: FastAPI, h: Helpers) -> None:
         return h.page(request, "cmd.html", sess, q=q, act=act, hits=None, studies=studies, back=_safe_back(back))
 
     # ------------------------------------------------------------------ S22 My account
+    def _totp_on(username: str) -> bool:
+        """DEMO-JA: the account signs in with a second factor, so "two-step sign-in comes later" is not shown."""
+        ident = getattr(h, "identity", None)
+        return bool(ident is not None and ident.settings.totp_required and not h.users.is_sso(username))
+
     @app.get("/account")
     def account(request: Request, saved: str = "") -> Response:
         sess = h.need(request)
@@ -192,6 +197,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             saved=saved == "1",
             error="",
             must_change=h.users.must_change(u.username),  # D-279: someone else set this password
+            totp_on=_totp_on(u.username),
         )
 
     @app.post("/account/password")
@@ -236,6 +242,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             saved=False,
             error=error,
             must_change=h.users.must_change(u.username),
+            totp_on=_totp_on(u.username),
         )
 
     # ------------------------------------------------------------------ S29 Help panel

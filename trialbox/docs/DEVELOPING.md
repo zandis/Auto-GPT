@@ -63,7 +63,7 @@ A push starts one of two tiers. `tests/unit/test_ci_tiers.py` holds the lists; a
 
 | Tier | Runs | Jobs |
 | --- | --- | --- |
-| fast tier | on every push to a pull request, draft or not | `changes`, `checks`, `data-scan`, `cross-card` (and `lock` of the supply-chain workflow) |
+| fast tier | on every push to a pull request, draft or not | `changes`, `checks`, `data-scan`, `cross-card`, `powershell`, `differential` (and `lock` of the supply-chain workflow) |
 | full tier | when the pull request is not a draft (marking it ready for review starts it), on a branch named `train/*`, on a push to `master`, and by hand | `unit-shard`, `unit`, `property`, `goldens`, `e2e-simple`, `demo-boot`, `security`, `standards`, `images` |
 
 Three rules keep the billed runner minutes down (D-578):

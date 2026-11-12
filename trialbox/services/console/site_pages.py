@@ -25,6 +25,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import re
+from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from typing import Any
 from urllib.parse import quote, urlencode
@@ -33,6 +34,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from tb_common.authz import permit
+from tb_common.verdict_word import shown_of
 
 from console import demo_guard, s28
 from console.api_first import before_body
@@ -338,14 +340,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                 labels = {}
             for r in (bundle.get("cl") or {}).get("rows") or []:
                 if r.get("pid") == pid:
-                    return [
-                        {
-                            "label": labels.get(v.get("id"), v.get("id")),
-                            "verdict": v.get("verdict"),
-                            "reason": (v.get("evidence") or {}).get("reason") or "",
-                        }
-                        for v in r.get("criteria") or []
-                    ]
+                    return trail_rows(r.get("criteria") or [], labels)
         if not site_wide(sess.user):  # D-179: the site-wide patient check is not a study-scoped account's
             return None
         try:
@@ -884,6 +879,23 @@ def register(app: FastAPI, h: Helpers) -> None:
 
 def _args(m: dict[str, Any]) -> dict[str, Any]:
     return {k: m[k] for k in ("n", "rows", "pct", "of", "tables") if k in m}
+
+
+def trail_rows(criteria: Sequence[Mapping[str, Any]], labels: Mapping[str, str]) -> list[dict[str, Any]]:
+    """One patient's verdicts as the "why" answer reads them: the label, the word a person reads and its reason.
+    D-478 (review of T-709): a "not met" that was not allowed to exclude (one model's, or given while notes could
+    not exclude) is an open point with that reason, never "not matched"."""
+    out = []
+    for v in criteria:
+        word, why = shown_of(v)
+        out.append(
+            {
+                "label": labels.get(str(v.get("id")), str(v.get("id"))),
+                "verdict": word,
+                "reason": why or (v.get("evidence") or {}).get("reason") or "",
+            }
+        )
+    return out
 
 
 def t_reason(lang: str, code: str) -> str:

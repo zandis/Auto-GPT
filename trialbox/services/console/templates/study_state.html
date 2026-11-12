@@ -14,7 +14,7 @@
 <section class="card" id="irb-text" data-testid="irb-text" data-enables="{{ 'yes' if irbt.enables else 'no' }}">
 <h2>{{ t('irbt.legend') }}</h2>
 <p>{{ t('irbt.help') }}</p>
-<blockquote data-testid="irbt-sentence"><p><b>{{ t('irbt.sentence') }}</b></p>{% if lang != 'en' %}<p class="hint" lang="en">{{ sentence_en }}</p>{% endif %}</blockquote>
+<blockquote data-testid="irbt-sentence"><p><b>{{ t('irbt.sentence') }}</b></p>{% if lang != 'en' %}<p class="hint">{{ t('irbt.sentence_en') }} <span lang="en">{{ sentence_en }}</span></p>{% endif %}</blockquote>
 {% if irbt.enables %}<p class="ok" data-testid="irbt-on">{{ t('irbt.on', ref=irbt.approval_ref, by=irbt.by|replace('console:', ''), at=irbt.at|local) }}</p>
 {% elif irbt.by %}<p class="warn" data-testid="irbt-withdrawn">{{ t('irbt.withdrawn', by=irbt.by|replace('console:', ''), at=irbt.at|local) }}{% if irbt.note %} · {{ irbt.note }}{% endif %}</p>
 {% else %}<p class="warn" data-testid="irbt-none">{{ t('irbt.none') }}</p>{% endif %}
@@ -93,7 +93,7 @@
 <section class="card" id="irb-text" data-testid="irb-text" data-enables="{{ 'yes' if irbt.enables else 'no' }}">
 <h2>{{ t('irbt.legend') }}</h2>
 <p>{{ t('irbt.help') }}</p>
-<blockquote data-testid="irbt-sentence"><p><b>{{ t('irbt.sentence') }}</b></p>{% if lang != 'en' %}<p class="hint" lang="en">{{ sentence_en }}</p>{% endif %}</blockquote>
+<blockquote data-testid="irbt-sentence"><p><b>{{ t('irbt.sentence') }}</b></p>{% if lang != 'en' %}<p class="hint">{{ t('irbt.sentence_en') }} <span lang="en">{{ sentence_en }}</span></p>{% endif %}</blockquote>
 {% if irbt.enables %}<p class="ok" data-testid="irbt-on">{{ t('irbt.on', ref=irbt.approval_ref, by=irbt.by|replace('console:', ''), at=irbt.at|local) }}</p>
 {% elif irbt.by %}<p class="warn" data-testid="irbt-withdrawn">{{ t('irbt.withdrawn', by=irbt.by|replace('console:', ''), at=irbt.at|local) }}{% if irbt.note %} · {{ irbt.note }}{% endif %}</p>
 {% else %}<p class="warn" data-testid="irbt-none">{{ t('irbt.none') }}</p>{% endif %}

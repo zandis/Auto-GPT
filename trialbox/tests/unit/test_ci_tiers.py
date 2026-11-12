@@ -18,7 +18,7 @@ WORKFLOWS = ROOT.parent / ".github" / "workflows"
 CI = WORKFLOWS / "trialbox-ci.yml"
 
 #: the fast tier: on every push to a pull request, draft or not
-FAST = {"changes", "checks", "data-scan", "cross-card"}
+FAST = {"changes", "checks", "data-scan", "cross-card", "powershell", "differential"}
 #: D-578: the short checks that were a job each (a runner and a billed minute each) are steps of `checks`
 FOLDED = {
     "ruff": ["ruff check .", "ruff format --check ."],

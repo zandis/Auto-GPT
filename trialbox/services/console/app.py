@@ -50,6 +50,7 @@ from tb_common.flowledger import level_of_tag, record_export
 from tb_common.reasons import label as reason_label
 from tb_common.service_auth import bind_session
 from tb_common.ulid import new_ulid
+from tb_common.verdict_word import shown_of
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
 from console import api_first, demo_guard, feedback, firstrun, i18n_roles
@@ -104,6 +105,22 @@ CSP = (
     f"default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'sha256-{_JS_HASH}'; "
     "object-src 'none'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'"
 )
+# DEMO-JA: feas_compute.population_label's words, read back to show them in the page language
+_POPULATION = re.compile(r"(hospital|departments ([\w,-]+)): patients with ≥1 encounter in the last (\d+) months")
+
+
+def population_words(lang: str, value: object) -> str:
+    """DEMO-JA: the FEAS report's population (``feas_compute.population_label``, English in the report file) in the
+    page language; any other text as it is."""
+    text = str(value or "")
+    m = _POPULATION.fullmatch(text)
+    if m is None:
+        return text or "–"
+    if m.group(1) == "hospital":
+        return translate(lang, "feas.pop.hospital", months=m.group(3))
+    return translate(lang, "feas.pop.departments", departments=m.group(2), months=m.group(3))
+
+
 _ASCII_WORDS = re.compile(r"[\x00-\x7F]+")
 
 
@@ -636,6 +653,14 @@ def create_app(
             return str(chosen)
         return pick_language(request.headers.get("accept-language"))
 
+    def _pi_tasks(sess: Session | None) -> list[str]:
+        """NEW-JRN-1 (D-540): for the account that names a study's PI (the steward), the studies whose criteria
+        wait for approval with no PI on the delegation log. Shown on every page of that account."""
+        hp = getattr(app.state, "helpers", None)
+        if sess is None or hp is None or hp.pi_missing is None or not permit(sess.user.role, "delegation.name_pi"):
+            return []
+        return list(hp.pi_missing(sess.user))
+
     def page(request: Request, name: str, sess: Session | None, status: int = 200, **ctx: Any) -> HTMLResponse:
         lang = lang_of(request, sess)
 
@@ -667,6 +692,7 @@ def create_app(
         base = {
             "t": t,
             "t_or": t_or,
+            "population": lambda value: population_words(lang, value),
             "lang": lang,
             "langs": LANGS,
             "sess": sess,
@@ -675,6 +701,7 @@ def create_app(
             "settings": settings,
             "pilot": settings.pilot,
             "path": request.url.path,
+            "pi_tasks": _pi_tasks(sess),
             "k": settings.small_cell,
             "cell": lambda v: cell(v, settings.small_cell),
             "state": state,
@@ -739,7 +766,9 @@ def create_app(
             raise _Problem(400, "request.refused", reason=str(exc)) from exc
         if req.ruleset and not sess.user.sees_study(req.ruleset):  # D-104: a scoped account requests its studies only
             au.append("console.denied", actor=actor(sess), detail={"action": f"request {req.ruleset}"})
-            raise _Problem(404, "notfound")
+            # NEW-JRN-1 (D-540): said as a refusal of the request, not as "this page does not exist". The answer is
+            # the same whether the study exists or not, so it tells a scoped account nothing about other studies.
+            raise _Problem(403, "request.scope", studies=", ".join(sorted(sess.user.studies)))
         au.append(
             "console.request",
             job_id=job_id,
@@ -1468,8 +1497,10 @@ def create_app(
                     if str(r.get("pid", "")) in gone:
                         card["removed"] += 1
                         continue
-                    unknown = [v["id"] for v in r.get("criteria") or [] if v.get("verdict") == "unknown"]
-                    failing = [v["id"] for v in r.get("criteria") or [] if v.get("verdict") == "fail"]
+                    # D-478: the words a person reads (one model's "not met" is an open point, not a failing one)
+                    words = {v["id"]: shown_of(v)[0] for v in r.get("criteria") or []}
+                    unknown = [i for i, w in words.items() if w == "unknown"]
+                    failing = [i for i, w in words.items() if w == "fail"]
                     quotes = [
                         {
                             "id": v["id"],

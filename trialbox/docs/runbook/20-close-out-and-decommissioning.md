@@ -37,6 +37,7 @@ nothing writes (`systemctl stop trialbox`, or scale the deployment to zero on a 
 python tools/audit_verify.py /data/audit --json                   # the chain is whole and ends at HEAD.json
 python tools/audit_verify.py /data/audit --sign-head --to ANCHOR  # a signed head, written once, off the box
 python tools/audit_verify.py /data/audit --heads ANCHOR           # the chain matches every signed head
+python tools/audit_verify.py /data/audit --foreign                # no event came from a role that does not write it (D-488)
 ```
 
 Write down the head (sequence and hash) on the close-out record. From here the chain does not change: a later

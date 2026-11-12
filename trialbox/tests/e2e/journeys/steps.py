@@ -466,3 +466,73 @@ def _prv_lake(s: Site, st: dict[str, Any]) -> None:
     lake = s.box.orch.services.lake
     n = lake.query("SELECT count(*) AS n FROM document_chunk WHERE pid = ?", [s.state["opted_out"]]).to_pylist()
     assert n[0]["n"] == 0, n
+
+
+# ------------------------------------------------------------ NEW-JRN-1 (D-540): a new study to its first list
+NEW_RS = "GOUT-NEW"  # a study the box has no ruleset folder for; its criteria are GZQO's, pasted under a new id
+
+
+@step("J-ADM-05")
+def _adm_new_study(s: Site, st: dict[str, Any]) -> None:
+    it = user("it")
+    assert all(r.id != NEW_RS for r in s.h.bk.rulesets())
+    form = s.get(it, "/pilot/protocol")
+    r = s.post(it, "/pilot/protocol", {"ruleset": NEW_RS, "criteria": cd.criteria_text("GZQO")}, form.text)
+    assert r.status_code == 200 and r.url.path.startswith("/pilot/jobs/"), (r.status_code, js.text(r.text)[-300:])
+    job = r.url.path.rsplit("/", 1)[-1]
+    s.state["new_job"] = job
+    page = s.get(it, f"/pilot/jobs/{job}/approval")
+    assert page.status_code == 200 and 'data-testid="approve-needs-pi"' in page.text, js.text(page.text)[-300:]
+    # the PI's and the coordinator's accounts are limited to their studies (D-104): the new one is added to them
+    for key in ("pi", "crc"):
+        name = user(key)
+        s.get(name, f"/pilot/jobs/{job}/approval", 404)
+        acct = next(u for u in s.h.users.users() if u.username == name)
+        users = s.get(it, "/ops/users")
+        r = s.post(it, "/ops/users", {"action": "scope", "username": name, "affiliation": acct.affiliation,
+                                      "studies": ",".join([*acct.studies, NEW_RS]), "expires": acct.expires or ""},
+                   users.text, follow_redirects=False)  # fmt: skip
+        assert r.status_code == 303, (name, r.status_code, js.text(r.text)[-300:])
+    page = s.get(user("pi"), f"/pilot/jobs/{job}/approval")
+    assert 'data-testid="approve-needs-pi"' in page.text and 'data-testid="approve"' not in page.text
+
+
+@step("J-STW-05")
+def _stw_names_the_pi(s: Site, st: dict[str, Any]) -> None:
+    stw = user("stw")
+    home = s.get(stw, "/breakglass")
+    assert f'data-testid="task-name-pi-{NEW_RS}"' in home.text, js.text(home.text)[:300]
+    log = s.get(stw, f"/studies/{NEW_RS}/team")
+    assert log.status_code == 200, log.status_code
+    r = s.post(stw, f"/studies/{NEW_RS}/team", {"username": user("pi"), "role": "pi", "start": "2026-01-01",
+                                               "training_day": "2025-06-01"}, log.text, follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303, (r.status_code, js.text(r.text)[-300:])
+    assert f'data-testid="task-name-pi-{NEW_RS}"' not in s.get(stw, "/breakglass").text
+
+
+@step("J-PI-08")
+def _pi_first_approval(s: Site, st: dict[str, Any]) -> None:
+    name, job = user("pi"), s.state["new_job"]
+    page = s.get(name, f"/pilot/jobs/{job}/approval")
+    assert 'data-testid="approve-needs-pi"' not in page.text
+    for cid in re.findall(r'data-testid="open-([A-Z0-9-]+)"', page.text):  # every amber line opened
+        page = s.get(name, f"/pilot/jobs/{job}/approval?open={cid}")
+    for cid in re.findall(r'data-testid="label-missing-([A-Z0-9-]+)"', page.text):  # the site's label (D-309)
+        r = s.post(name, f"/pilot/jobs/{job}/approval/label", {"crit": cid, "text": f"{cid} label"}, page.text)
+        assert r.status_code == 200, js.text(r.text)[-300:]
+        page = s.get(name, f"/pilot/jobs/{job}/approval")
+    r = s.post(name, f"/pilot/jobs/{job}/approve", {"confirm": "yes"}, page.text)
+    assert r.status_code == 200 and f"APPROVE {NEW_RS} v1.0.0 done" in js.text(r.text), js.text(r.text)[:300]
+    assert {x.id: x for x in s.h.bk.rulesets()}[NEW_RS].status == "approved"
+
+
+@step("J-CRC-08")
+def _crc_first_list(s: Site, st: dict[str, Any]) -> None:
+    crc = user("crc")
+    setup = s.get(crc, f"/studies/{NEW_RS}/setup")  # the new study's set-up page opens for its coordinator
+    r = s.post(crc, f"/studies/{NEW_RS}/setup/scope", {"mode": "hospital"}, setup.text)
+    assert r.status_code == 200 and 'data-testid="who-now"' in r.text, (r.status_code, js.text(r.text)[-300:])
+    res = cd.screen({"crc": s.c[user("crc")], "box": s.box, "h": s.h}, NEW_RS)
+    assert res["job"].ruleset_version == "1.0.0", res["job"].ruleset_version
+    page = s.c[user("crc")].get(f"/studies/{NEW_RS}/week")
+    assert page.status_code == 200, page.status_code

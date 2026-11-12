@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from tb_common.deterministic import normalize_ooxml
 from tb_common.ruleset import Ruleset
+from tb_common.verdict_word import shown_of
 from tb_contracts import CandidateRow
 
 from orchestrator.reports.common import ReportMeta
@@ -70,7 +71,7 @@ def render(
             practitioners.get(r.practitioner_id or "", r.practitioner_id or ""),
             r.department or "",
         ]
-        values += [SHOWN[by_id[c.id].verdict] if c.id in by_id else "" for c in crit]
+        values += [SHOWN[shown_of(by_id[c.id])[0]] if c.id in by_id else "" for c in crit]
         values += [
             r.n_unknown or 0,
             "; ".join(r.actions or []),

@@ -49,17 +49,10 @@ from tb_contracts import CandidateList, CandidateRow, CriterionVerdict, Judging,
 
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_stamp
+from orchestrator.decision_context import decision_of
 from orchestrator.reports import screen_summary_pdf
 from orchestrator.reports.candidate_xlsx import Change
-from orchestrator.scenarios.evaluate import (
-    PatientVerdicts,
-    effective_note_block,
-    is_note_answer,
-    not_in_snapshot,
-    row,
-    sort_key,
-    tier,
-)
+from orchestrator.scenarios.evaluate import PatientVerdicts, is_note_answer, not_in_snapshot, row, sort_key, tier
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen import (
     Scoped,
@@ -268,6 +261,8 @@ def run(ctx: Ctx) -> Outcome:
         )
     pool_pids = {p["pid"] for p in pool}
     kept = {s.pid for s in drop_opted_out(ctx, every)}  # D-147: the opt-out register applies to every list
+    # D-477: and the consent rule of SCREEN (a refusal or a contact denial since the row was stored)
+    kept -= decision_of(ctx).consent_off_lists(kept, "screen.opt_out_removed", where="pool")
     pool = [p for p in pool if p["pid"] in kept]
     # T-707 (D-476, review H3): a row stored under another criteria version was never evaluated on this one. It is
     # screened again below, not re-tiered (a row without a version is a test stand-in: the column is NOT NULL)
@@ -287,7 +282,7 @@ def run(ctx: Ctx) -> Outcome:
     t = threshold(ctx, rs)
     # the same note-block decision as SCREEN: no verifier, one model twice or a shut canary gate never exclude
     # on a note answer (D-276, review F-01; before, the re-tier below used the configured policy alone)
-    may_block = effective_note_block(judge_for(ctx, rs))[0]
+    may_block = decision_of(ctx).note_block(judge_for(ctx, rs)).may_block
     pool_rows: list[CandidateRow] = []
     changes: list[Change] = []
     stamp = job_stamp(ctx)  # evaluation time = the job's receipt: same inputs → same bytes (D-82)
@@ -341,7 +336,7 @@ def run(ctx: Ctx) -> Outcome:
     if not on_ingest:  # the week's rows, re-checked or not; a row the budget left out keeps its last evaluation
         persist_pool(ctx, rs, [r for r in week_rows if not ts or r.pid in rechecked])
     used = len(recheck)
-    judging: dict[str, Any] | None = judging_info(judge_for(ctx, rs)) if recheck else None
+    judging: dict[str, Any] | None = judging_info(judge_for(ctx, rs), ctx) if recheck else None
 
     # ---------------------------------------------------------------- rows of another criteria version (T-707)
     by_pid = {s.pid: s for s in every}
