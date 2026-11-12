@@ -32,9 +32,11 @@ from urllib.parse import quote
 from datacore.lifecycle import live_steps
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, Field
 from tb_common.authz import monitor_may_see
 
 from console import s28
+from console.api_first import before_body
 from console.auth import Session
 from console.backend import Problem, Unavailable
 from console.home import Helpers
@@ -50,6 +52,14 @@ ITEM_KEYS = ("id", "visit", "visit_date", "item", "form", "cdash", "fate", "deci
 CITE_KEYS = ("kind", "table", "row", "snapshot", "day", "text", "quote", "name", "sha256", "path")
 SIG_KEYS = ("printed_name", "role", "meaning", "at", "method")
 DECIDED = ("confirmed", "edited")
+
+
+class ApiVisit(BaseModel):
+    """The monitoring-visit record through ``/api/v1`` (the CRA and the visit id come from the session's grant)."""
+
+    visit_day: str = Field(default="", max_length=10)
+    subjects: list[str] = Field(default_factory=list, max_length=500)
+    findings: str = Field(default="", max_length=FINDINGS_MAX + 1)
 
 
 def _cite(raw: Any) -> dict[str, str] | None:
@@ -280,19 +290,17 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid, g, subs, visits = overview(sess, request.url.path, rs)
         return {"study": rid, "visit": g.training_ref if g else None, "subjects": subs, "visits": visits}
 
-    @app.post("/api/v1/studies/{rs}/monitor/visits")
-    async def api_visit(request: Request, rs: str) -> dict[str, Any]:
-        sess = api(request)  # the session and the right first; the body only then
-        rid = study_or_404(sess, rs)
+    def first_visit(sess: Session, request: Request) -> None:
+        """T-657 (D-444): the session and the ``monitor.visit`` row, before the body is read."""
+        rid = study_or_404(sess, request.path_params["rs"])
         if not h.permit(sess.user, "monitor.visit", rid).allowed:
             raise deny(sess, request.url.path, rid)
-        try:
-            body = json.loads(await request.body() or b"{}")
-        except ValueError:
-            body = None
-        if not isinstance(body, dict):
-            raise h.problem(400, "request.refused", reason="a JSON object")
-        rid, v = record_visit(sess, request.url.path, rs, body)
+
+    @app.post("/api/v1/studies/{rs}/monitor/visits")
+    @before_body(first_visit)
+    def api_visit(request: Request, rs: str, body: ApiVisit) -> dict[str, Any]:
+        sess = api(request)
+        rid, v = record_visit(sess, request.url.path, rs, body.model_dump())
         return {"study": rid, "visit": v}
 
     @app.get("/api/v1/studies/{rs}/monitor/{record}")

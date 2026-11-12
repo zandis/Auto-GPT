@@ -222,7 +222,7 @@ def test_the_visit_record_on_the_page_and_the_api(sb: dict[str, Any]) -> None:
     r = api.post("/api/v1/studies/GZQO/monitor/visits", json={"visit_day": "2026-11-10", "subjects": [NO],
                                                               "findings": ""})  # fmt: skip
     assert r.status_code == 200 and r.json()["visit"]["cra"] == "mon1" and r.json()["visit"]["visit"] == VISIT
-    assert api.post("/api/v1/studies/GZQO/monitor/visits", json=[1]).status_code == 400
+    assert api.post("/api/v1/studies/GZQO/monitor/visits", json=[1]).status_code == 422  # after the guard (D-444)
     got = api.get("/api/v1/studies/GZQO/monitor").json()
     assert [v["visit_day"] for v in got["visits"]] == ["2026-11-10", "2026-11-09"]
     assert [s["record"] for s in got["subjects"]] == [NO] and "pid" not in got["subjects"][0]
