@@ -20,23 +20,34 @@ The same holds for every `where`: a height taken out of a vitals row, a lab row 
 
 ## Decision
 
-1. **On a delta night, what a row of the feed gave before and does not give tonight is removed.** For every row
-   that mapped, each `(type, id)` the row can give (`Mapper.tombstones`: the mapping's own ids, `where` not
-   evaluated, never a Patient) that is not among the records the row gave tonight is a tombstone.
-2. **A record sent in the same run wins over its tombstone** (`write_snapshot`, unchanged): two resources of one
-   table that share an id and differ by their `where`, or a later row with the same key, are not removed.
-3. **A full night is unchanged**: it has no night before to merge with, and no tombstone is written.
-4. **A rejected row removes nothing** (STD-025, D-527): the box could not read it, so it does not know what the
+1. **On a delta night, what a row of the feed gave before and does not give tonight leaves the snapshot.** For
+   every row that mapped, each `(type, id)` the row can give (`Mapper.tombstones`: the mapping's own ids, `where`
+   not evaluated, never a Patient) that is not among the records the row gave tonight is left out
+   (`write_snapshot(left_out=...)`).
+2. **The last row of a key decides** (DATA-017). A later row of the same run that gives the record again keeps it;
+   a later row that does not give it removes the record an earlier row of the run gave.
+3. **It is not a tombstone.** The source did not delete the row. The ids are not written to `tombstones.json`, the
+   night's `tombstoned` count does not include them, and the OMOP record event says "left the feed", not "deleted
+   at the source". The night logs how many records left, per record type.
+4. **A full night is unchanged**: it has no night before to merge with.
+5. **A rejected row removes nothing** (STD-025, D-527): the box could not read it, so it does not know what the
    row gives; the record of the night before stays and the row is counted.
 
 ## Consequences
 
-- `tombstones.json` and the night's `tombstoned` count now include records removed this way; the completeness
-  gate already reads them as "removed on purpose".
-- The rule is per row of the feed. A record whose id two **tables** share (one table makes it, another table's
-  resource with a `where` has the same type and id) would be removed when the second table's row does not pass and
-  the first table's row is not in tonight's delta. No shipped mapping does that (checked: `tw_core`, `jp_core`,
-  `mimic`); `Mapper.tombstones` has had the same reach for deleted rows since P0-1.
+- The record goes everywhere the snapshot goes: the lake is built from the snapshot, the FHIR store deletes what
+  the snapshot no longer has, OMOP tombstones what left its batch.
+- The night's drop limit (feedguard) sees these removals: a night in which most bookings turn unknown is held
+  ("removes Appointment: 200 of 200"), where before the records stayed, stale, and nothing was said.
+- **Bound (OD-10):** the set of ids kept in memory during a delta night is at most (resources of the table that
+  have a `where`) x (rows read tonight), each a 32-character id; it is linear in the night's rows, as the
+  tombstone set is. Rows that never pass a `where` (a vitals row with no height) add an id every night that
+  matches nothing.
+- The rule is per row of the feed. A record whose id several rows or tables share (an `id` from a column that is
+  not the row's key, or a second table's resource with the same type and id) is removed when tonight's row does
+  not give it and the row that does is not in tonight's delta. No shipped mapping does that (checked by loading
+  `tw_core/demo_his`, `jp_core/ssmix2_site` and the rehearsal sites: every resource with a `where` is keyed by its
+  row); `Mapper.tombstones` has had the same reach for deleted rows since P0-1.
 - A person is never removed this way (the opt-out path's job).
 
 ## Not decided here

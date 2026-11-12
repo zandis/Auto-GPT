@@ -532,6 +532,7 @@ def _run_ingest(
     fhir_profiles = ""
     source: Source | None = None
     tombstones: dict[str, set[str]] = {}  # type -> ids deleted at the source (dataflow review P0-1)
+    left_out: dict[str, set[str]] = {}  # D-528: type -> ids a row of a delta night no longer gives
     tables: dict[str, dict[str, Any]] = {}  # T-611: per source table, present / rows / duplicate keys
     unmapped_codes: dict[str, dict[str, dict[str, int]]] = {}  # NEW-DIN-6: table -> look-up -> code -> rows
     quarantined: dict[str, str] = {}  # T-615b: table -> why its file was quarantined
@@ -666,11 +667,15 @@ def _run_ingest(
                     # over it. A row the mapping now leaves out (a ``where`` it no longer passes: a booking whose
                     # status became a code the map does not know) wrote nothing and removed nothing, so its
                     # record of the night before stayed as it was. What the row gave before and does not give
-                    # tonight is removed; a record sent in this run wins over its tombstone (write_snapshot)
+                    # tonight is removed, a record an earlier row of this run gave included. Not a tombstone: the
+                    # source did not delete it, so it is not in tombstones.json (OMOP says "left the feed")
                     made = {(str(res.get("resourceType")), str(res.get("id"))) for res in mapped}
+                    for rtype, rid in made:  # the last row of a key decides (DATA-017): given again, it stays
+                        if rtype in left_out:
+                            left_out[rtype].discard(rid)
                     for rtype, rid in mapper.tombstones(table, iter([row])):
                         if (rtype, rid) not in made:
-                            tombstones.setdefault(rtype, set()).add(rid)
+                            left_out.setdefault(rtype, set()).add(rid)
             if rejected:
                 n_bad = sum(rejected.values())
                 tables[table]["rejected"] = dict(sorted(rejected.items()))
@@ -757,7 +762,10 @@ def _run_ingest(
         prior_record: str | None = (out_dir / PUBLISH_RECORD).read_text(encoding="utf-8")
     except OSError:
         prior_record = None
-    full_counts = write_snapshot(out_dir, spool, base, tombstones, transform=night)
+    removed: dict[str, int] = {}
+    full_counts = write_snapshot(out_dir, spool, base, tombstones, transform=night, left_out=left_out, removed=removed)
+    if removed:  # D-528: counts per record type only
+        log.info("records the feed's rows no longer give were removed: %s", dict(sorted(removed.items())))
     (out_dir / PUBLISH_RECORD).unlink(missing_ok=True)
     defaulted, presence_read, shifted, aliased = (
         night.defaulted,

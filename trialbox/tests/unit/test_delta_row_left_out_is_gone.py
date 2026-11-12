@@ -7,13 +7,14 @@ the row and nothing was removed, so the lake went on showing the booking as ``bo
 from __future__ import annotations
 
 import csv
-import json
+import logging
 from pathlib import Path
 
-from adapter.ndjson import read_type, snapshot_dir
+import pytest
+from adapter.ndjson import TOMBSTONES, read_type, snapshot_dir
 from adapter.pipeline import run_ingest
 
-from tests.unit.test_dataflow_lake_p0 import TOMBSTONES, _cfg, _Lakes
+from tests.unit.test_dataflow_lake_p0 import _cfg, _Lakes
 
 APPT = ["appt_no", "mrn", "staff_id", "dept_code", "appt_datetime", "duration_min", "status"]
 VITAL = ["vital_no", "enc_no", "mrn", "measure_datetime", "height_cm", "weight_kg", "updated_at"]
@@ -37,7 +38,9 @@ def _status(lake_dir: Path, snap: str) -> dict[str, str]:
     return {r["id"]: r["status"] for r in read_type(snapshot_dir(lake_dir, snap), "Appointment")}
 
 
-def test_a_booking_whose_status_became_unknown_is_not_shown_as_booked_after_a_delta_night(tmp_path: Path) -> None:
+def test_a_booking_whose_status_became_unknown_is_not_shown_as_booked_after_a_delta_night(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     lakes = _Lakes(tmp_path / "lake")
     cfg = _cfg(tmp_path, lakes)
     _write(tmp_path / "full", "appointment", APPT, [_appt("A1", "B"), _appt("A2", "B")])
@@ -46,13 +49,15 @@ def test_a_booking_whose_status_became_unknown_is_not_shown_as_booked_after_a_de
     assert sorted(first.values()) == ["booked", "booked"]
     # the next night: A1's status is a code the map does not know; A2 is cancelled
     _write(tmp_path / "delta", "appointment", APPT, [_appt("A1", "Z"), _appt("A2", "C")])
-    rep = run_ingest(cfg, "csv", str(tmp_path / "delta"), since="2026-10-01", snapshot="2026-10-02",
-                     load_fhir=False, validate=False)  # fmt: skip
+    with caplog.at_level(logging.INFO):
+        rep = run_ingest(cfg, "csv", str(tmp_path / "delta"), since="2026-10-01", snapshot="2026-10-02",
+                         load_fhir=False, validate=False)  # fmt: skip
     second = _status(cfg.lake_dir, "2026-10-02")
     assert sorted(second.values()) == ["cancelled"], second  # A1 is gone, never "booked" from the night before
-    assert rep.tombstoned == 1
-    gone = json.loads((snapshot_dir(cfg.lake_dir, "2026-10-02") / TOMBSTONES).read_text())["Appointment"]
-    assert len(gone) == 1 and gone[0] in first and gone[0] not in second
+    # the source did not delete it: it is not a tombstone, and OMOP will say "left the feed", not "deleted at the
+    # source" (review MED-1)
+    assert rep.tombstoned == 0 and not (snapshot_dir(cfg.lake_dir, "2026-10-02") / TOMBSTONES).exists()
+    assert "records the feed's rows no longer give were removed: {'Appointment': 1}" in caplog.text
 
 
 def test_a_row_that_still_maps_keeps_its_record_and_a_full_night_writes_no_tombstone(tmp_path: Path) -> None:
@@ -84,4 +89,36 @@ def test_a_measurement_taken_out_of_a_row_is_gone_and_the_rows_other_record_stay
     _write(tmp_path / "delta", "vital", VITAL, [vital("", "61")])
     rep = run_ingest(cfg, "csv", str(tmp_path / "delta"), since="2026-10-01", snapshot="2026-10-02",
                      load_fhir=False, validate=False)  # fmt: skip
-    assert values("2026-10-02") == [61] and rep.tombstoned == 1
+    assert values("2026-10-02") == [61] and rep.tombstoned == 0
+
+
+def test_a_rejected_row_removes_nothing_and_a_first_delta_night_has_nothing_to_remove(tmp_path: Path) -> None:
+    """D-528, point 4: a row the box cannot read keeps the record of the night before (it is counted). And a delta
+    night with no night before it (``since`` on an empty lake) removes nothing and writes no tombstone file."""
+    cfg = _cfg(tmp_path)
+    _write(tmp_path / "first", "appointment", APPT, [_appt("A0", "Z")])
+    rep = run_ingest(cfg, "csv", str(tmp_path / "first"), since="2026-09-30", snapshot="2026-10-01",
+                     load_fhir=False, validate=False)  # fmt: skip
+    assert rep.tombstoned == 0 and not (snapshot_dir(cfg.lake_dir, "2026-10-01") / TOMBSTONES).exists()
+    rows = [_appt(f"A{n}", "B") for n in range(1, 201)]
+    _write(tmp_path / "full", "appointment", APPT, rows)
+    run_ingest(cfg, "csv", str(tmp_path / "full"), snapshot="2026-10-02", load_fhir=False, validate=False)
+    bad = dict(_appt("A1", "C"), appt_datetime="not a time")  # one row of 200 the mapping cannot read
+    _write(tmp_path / "delta", "appointment", APPT, [bad, *rows[1:]])
+    rep = run_ingest(cfg, "csv", str(tmp_path / "delta"), since="2026-10-02", snapshot="2026-10-03",
+                     load_fhir=False, validate=False)  # fmt: skip
+    assert rep.passed and not rep.held
+    assert sorted(_status(cfg.lake_dir, "2026-10-03").values()) == ["booked"] * 200  # A1 stays as it was
+
+
+def test_the_last_of_two_rows_with_one_key_decides(tmp_path: Path) -> None:
+    """Review LOW-2 (DATA-017: the last row wins): a booking sent twice in one night, first booked, then with a
+    status the map does not know, is not shown as booked; the other order keeps it."""
+    cfg = _cfg(tmp_path)
+    _write(tmp_path / "full", "appointment", APPT, [_appt("A1", "B"), _appt("A2", "B")])
+    run_ingest(cfg, "csv", str(tmp_path / "full"), snapshot="2026-10-01", load_fhir=False, validate=False)
+    _write(tmp_path / "delta", "appointment", APPT,
+           [_appt("A1", "A"), _appt("A1", "Z"), _appt("A2", "Z"), _appt("A2", "A")])  # fmt: skip
+    run_ingest(cfg, "csv", str(tmp_path / "delta"), since="2026-10-01", snapshot="2026-10-02",
+               load_fhir=False, validate=False)  # fmt: skip
+    assert sorted(_status(cfg.lake_dir, "2026-10-02").values()) == ["arrived"]  # A2 only
