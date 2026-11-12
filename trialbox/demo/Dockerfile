@@ -19,8 +19,9 @@ ARG PG_MAJOR=16
 # postgresql-<PG_MAJOR> from PGDG (D-371: one major for the db image, the demo and CI; tests/unit/test_pg_major.py),
 # with the PGDG key that Debian's postgresql-common ships; the build stops on another pg_config --version. The release
 # gates scan the built image (D-186); upgrade: Debian security fixes
+# D-575: mode=0444: apt fetches as _apt, and a build secret is root-only by default (as deploy/docker/db.Dockerfile)
 # hadolint ignore=DL3008
-RUN --mount=type=secret,id=extra_ca,required=false \
+RUN --mount=type=secret,id=extra_ca,required=false,mode=0444 \
     set -eux; if [ -s /run/secrets/extra_ca ]; then echo 'Acquire::https::CAInfo "/run/secrets/extra_ca";' > /etc/apt/apt.conf.d/99-extra-ca; fi; \
     apt-get update; apt-get upgrade -y --no-install-recommends; \
     apt-get install -y --no-install-recommends postgresql-common; /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y; \

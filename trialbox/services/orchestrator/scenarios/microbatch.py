@@ -17,7 +17,8 @@ study's last SCREEN: not in the pool, not on that SCREEN's excluded list, not in
 ``new_screened_*.json`` (the record of who the micro-batch screened; cumulative, phi, never mailed). Nearest
 appointment first.
 
-**Night budget** (``TB_MICROBATCH_NIGHT_BUDGET``, patients; 0 = no limit): the micro-batch jobs of one night, every
+**Night budget** (``TB_MICROBATCH_NIGHT_BUDGET``, patients; 0 = no limit; reserved in the database, an equal share
+per waiting study: T-704, D-458): the micro-batch jobs of one night, every
 study together, evaluate at most that many patients (pool re-checks and new patients). The job takes what the
 night's earlier micro-batch jobs left, re-checks first, then new patients; the rest carry over to the next run, and
 the summary and the audit (``microbatch.budget``) say how many (never a silent cap). The allowance is fixed on the
@@ -108,26 +109,87 @@ def night_budget(ctx: Ctx) -> int:
     return int(getattr(ctx.cfg.env, "microbatch_night_budget", DEFAULT_NIGHT_BUDGET))
 
 
+TERMINAL = ("done", "failed")
+
+
+def _reserved(job: Any) -> int | None:
+    """What a night's micro-batch holds of the allowance: what it used once it has ended, else what it reserved;
+    None while it has not asked yet."""
+    if job.state in TERMINAL:
+        return int(job.metrics.patients_scoped) if job.metrics is not None else 0
+    raw = (job.options or {}).get("night_reserved")
+    return int(raw) if raw is not None else None
+
+
+def reserve(ctx: Ctx, budget: int) -> int:
+    """T-704 (D-458; scale review F-32): this job's part of the night's allowance, reserved in the database.
+
+    Under a lock of the night (an advisory lock, so jobs that start at the same moment take their turn): the
+    allowance less what the night's other micro-batches have reserved or used, shared equally among those that have
+    not asked yet, this job included. The reservation is written into the job's record before the lock is released,
+    so the reservations of a night never add up to more than the allowance, and the order of the studies no longer
+    decides who gets anything."""
+    day = ctx.today()
+    me = ctx.job.job_id
+    with ctx.orch.db.locked(f"microbatch.allowance:{day.isoformat()}"):
+        taken = waiting = 0
+        for j in ctx.orch.db.find(type_="MICROBATCH", limit=1000):
+            if j.job_id == me or not (j.run_date == day or (j.run_date is None and j.state == "received")):
+                continue  # another night's
+            got = _reserved(j)
+            if got is None:
+                waiting += 1
+            else:
+                taken += got
+        left = max(0, budget - taken)
+        share = min(left, -(-left // (waiting + 1)))  # an equal part of what is left, rounded up
+        _set_option(ctx, "night_reserved", str(share))
+    return share
+
+
+def night_done(ctx: Ctx, used: int) -> None:
+    """The job has evaluated ``used`` patients: its reservation becomes that, and the rest of its share is there
+    for the night's later micro-batches (a finished job is counted by what it used in any case)."""
+    if (ctx.job.options or {}).get("night_reserved") is not None:
+        _set_option(ctx, "night_reserved", str(used))
+
+
 def night_left(ctx: Ctx) -> int | None:
-    """How many patients this job may evaluate: the night budget less what the night's other micro-batch jobs (same
-    run date, every study) evaluated. Fixed on the first run (option ``night_left``; -1 = no limit). None: no
-    limit."""
+    """How many patients this job may evaluate: its reserved share of the night budget (:func:`reserve`). Fixed on
+    the first run (option ``night_left``; -1 = no limit), so a resumed job and a re-run read the same number.
+    None: no limit."""
     fixed = (ctx.job.options or {}).get("night_left")
     if fixed is None:
         budget = night_budget(ctx)
-        left = -1
-        if budget > 0:
-            day = ctx.today()
-            used = sum(
-                j.metrics.patients_scoped
-                for j in ctx.orch.db.find(type_="MICROBATCH", limit=1000)
-                if j.job_id != ctx.job.job_id and j.run_date == day and j.metrics is not None
-            )
-            left = max(0, budget - used)
+        left = reserve(ctx, budget) if budget > 0 else -1
         fixed = str(left)
         _set_option(ctx, "night_left", fixed)
     value = int(fixed)
     return None if value < 0 else value
+
+
+def study_sources(db: Any, ruleset: str, but_job: str = "") -> list[str]:
+    """The stored lists a micro-batch of ``ruleset`` reads to know whom the study has seen since its last SCREEN:
+    that SCREEN's candidate and excluded lists, and the latest micro-batch record after it (object keys). One
+    function for the micro-batch (:func:`seen_sources`) and for retention, which keeps these for an open study
+    whatever their age (T-704, D-458; scale review F-34)."""
+    keys: list[str] = []
+    screens = db.find(type_="SCREEN", ruleset=ruleset, state="done", limit=1)
+    if screens:
+        last = screens[0]
+        keys += [
+            o.minio_key
+            for o in last.outputs or []
+            if o.filename.startswith(("excluded_", "candidate_list_")) and o.filename.endswith(".json")
+        ]
+        for j in db.find(type_="MICROBATCH", ruleset=ruleset, state="done", limit=100):
+            if j.job_id == but_job or j.received_at <= last.received_at:
+                continue
+            doc = next((o for o in j.outputs or [] if o.filename.startswith(NEW_DOC)), None)
+            if doc is not None:
+                keys.append(doc.minio_key)
+                break  # newest first, and each record holds the ones before it
+    return keys
 
 
 def seen_sources(ctx: Ctx, rs: Ruleset) -> list[str]:
@@ -136,22 +198,7 @@ def seen_sources(ctx: Ctx, rs: Ruleset) -> list[str]:
     resumed job and a re-run read the same ones."""
     fixed = (ctx.job.options or {}).get("seen_from")
     if fixed is None:
-        keys: list[str] = []
-        screens = ctx.orch.db.find(type_="SCREEN", ruleset=rs.id, state="done", limit=1)
-        if screens:
-            last = screens[0]
-            keys += [
-                o.minio_key
-                for o in last.outputs or []
-                if o.filename.startswith(("excluded_", "candidate_list_")) and o.filename.endswith(".json")
-            ]
-            for j in ctx.orch.db.find(type_="MICROBATCH", ruleset=rs.id, state="done", limit=100):
-                if j.job_id == ctx.job.job_id or j.received_at <= last.received_at:
-                    continue
-                doc = next((o for o in j.outputs or [] if o.filename.startswith(NEW_DOC)), None)
-                if doc is not None:
-                    keys.append(doc.minio_key)
-                    break  # newest first, and each record holds the ones before it
+        keys = study_sources(ctx.orch.db, rs.id, ctx.job.job_id)
         fixed = ",".join(keys)
         _set_option(ctx, "seen_from", fixed)
     return [k for k in fixed.split(",") if k]
@@ -386,6 +433,7 @@ def run(ctx: Ctx) -> Outcome:
             have[-1].s2b_sources = {p: v for r in have for p, v in r.s2b_sources.items()}
         publish_s2b_source(ctx, have[-1])
     ctx.metrics(patients_scoped=used + len(screened))
+    night_done(ctx, used + len(screened))  # T-704 (D-458): what this job did not use is the next one's
     over = len(due) - len(recheck)
     ctx.orch.audit.append(
         "microbatch.budget",

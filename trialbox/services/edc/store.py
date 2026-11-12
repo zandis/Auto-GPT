@@ -36,6 +36,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from datacore import pgfunc
 from tb_common.config import environment_name
 from tb_common.crypto import key_fingerprint
 from tb_common.db import ENV, Database
@@ -270,21 +271,17 @@ class EdcStore:
         """A trigger on each trail table refuses UPDATE, DELETE and TRUNCATE (D-281, CR-036). Made here, not in a
         migration, because a plpgsql body holds ``;`` (``Database.migrate`` splits on it); idempotent, one maker at a
         time. It holds against any role but a table owner who drops it: the database roles are SEC-4's."""
-        with self._db.transaction() as tx:
-            tx.execute("SELECT pg_advisory_xact_lock(hashtext(current_schema() || '.edc_append_only'))")
-            tx.execute("CREATE OR REPLACE FUNCTION edc_append_only() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
-                       "RAISE EXCEPTION USING MESSAGE = 'edc.' || TG_TABLE_NAME || ' is append-only', "
-                       "ERRCODE = 'insufficient_privilege'; END $$")  # fmt: skip
-            have = {str(r[0]) for r in tx.fetchall(
-                "SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON "
-                "n.oid = c.relnamespace WHERE n.nspname = current_schema() AND NOT t.tgisinternal")}  # fmt: skip
-            for table in APPEND_ONLY:
-                if f"{table}_append_only" not in have:
-                    tx.execute(f"CREATE TRIGGER {table}_append_only BEFORE UPDATE OR DELETE ON {table} "
-                               "FOR EACH ROW EXECUTE FUNCTION edc_append_only()")  # fmt: skip
-                if f"{table}_no_truncate" not in have:
-                    tx.execute(f"CREATE TRIGGER {table}_no_truncate BEFORE TRUNCATE ON {table} "
-                               "FOR EACH STATEMENT EXECUTE FUNCTION edc_append_only()")  # fmt: skip
+        fn = ("CREATE OR REPLACE FUNCTION edc_append_only() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
+              "RAISE EXCEPTION USING MESSAGE = 'edc.' || TG_TABLE_NAME || ' is append-only', "
+              "ERRCODE = 'insufficient_privilege'; END $$")  # fmt: skip
+        triggers = {
+            **{f"{t}_append_only": f"CREATE TRIGGER {t}_append_only BEFORE UPDATE OR DELETE ON {t} "
+               "FOR EACH ROW EXECUTE FUNCTION edc_append_only()" for t in APPEND_ONLY},
+            **{f"{t}_no_truncate": f"CREATE TRIGGER {t}_no_truncate BEFORE TRUNCATE ON {t} "
+               "FOR EACH STATEMENT EXECUTE FUNCTION edc_append_only()" for t in APPEND_ONLY},
+        }  # fmt: skip
+        with self._db.transaction() as tx:  # EDC-009 (D-582): made only when absent, so a restored box opens
+            pgfunc.ensure(tx, "edc_append_only", (fn,), triggers)
 
     @property
     def db(self) -> Database:
