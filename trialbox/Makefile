@@ -18,7 +18,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
+.PHONY: cross-card security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
 	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle supply-chain release-version release-tag
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
@@ -33,6 +33,12 @@ TB_MIN_FREE_GB ?= 20
 TB_ROOT_BUDGET_GB ?= 10
 # pytest-xdist (D-201): one worker per core; PYTEST_N=0 runs serially
 PYTEST_N ?= auto
+# T-747 (D-475): SHARD=i/N runs only shard i of N of the suite (each test file in one shard, by a hash of its path;
+# tools/test_shard.py), as CI's unit-shard jobs do; SHARD_RECORD=<file> also writes what the shard collected and kept
+# (`python -m tools.test_shard check` over all N records proves every test ran in exactly one shard)
+SHARD ?=
+SHARD_RECORD ?=
+SHARD_ARGS = $(if $(SHARD),--shard $(SHARD),) $(if $(SHARD_RECORD),--shard-record "$(SHARD_RECORD)",)
 UV_SYNC := uv sync --frozen --group test --extra dev --python 3.12
 
 # .venv is exactly uv.lock (the test plugins included): `uv sync` removes whatever was installed by hand, and a uv
@@ -126,9 +132,32 @@ test-random-locked:
 test-locked:
 	@rm -rf "$(TB_TEST_ROOT)/tmp" && mkdir -p "$(TB_TEST_ROOT)/tmp"
 	TMPDIR="$(TB_TEST_ROOT)/tmp" $(PY) -m pytest -q -n $(PYTEST_N) --basetemp "$(TB_TEST_ROOT)/pytest" \
-		-m "not integration and not e2e and not llm and not perf"; rc=$$?; \
+		-m "not integration and not e2e and not llm and not perf" $(SHARD_ARGS) $(TESTS); rc=$$?; \
 	rm -rf "$(TB_TEST_ROOT)/tmp"; PYTHONPATH=libs:services:. $(PY) -m tools.pglocal stop-idle "$(TB_TEST_ROOT)/pglocal"; \
 	if [ $$rc = 0 ]; then rm -rf "$(TB_TEST_ROOT)/pytest"; fi; exit $$rc
+
+# the cross-card tests (T-747, D-475; CI job `cross-card`): the tests that fail only when two cards meet (an audit
+# event without a label, a route without a permit row or a role label, a table without an inventory row or a migration
+# hash, a setting not declared, a schema without its data class, a decision number twice, a forbidden word, a direct
+# model call, a test that leaks state). CI runs them first, in minutes, with no coverage; the unit shards run them too.
+CROSS_CARD_TESTS = \
+	tests/console/test_audit_browser.py::test_every_event_the_code_writes_has_a_label \
+	tests/unit/test_erasure_registry.py \
+	tests/console/test_t102b_roles.py \
+	tests/console/test_role_route_matrix.py \
+	tests/unit/test_record_inventory.py \
+	tests/unit/test_migrations.py \
+	tests/unit/test_authz_matrix.py \
+	tests/unit/test_config_declared.py \
+	tests/unit/test_dataclass.py \
+	tests/unit/test_decisions_index.py \
+	tests/unit/test_wording.py \
+	tests/unit/test_no_direct_model_calls.py \
+	tests/unit/test_test_isolation.py
+cross-card: venv-check
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	@flock -n -E 75 "$(TB_TEST_ROOT)/.lock" $(MAKE) --no-print-directory test-locked TESTS="$(CROSS_CARD_TESTS)"; rc=$$?; \
+	if [ $$rc = 75 ]; then echo "cross-card: $(TB_TEST_ROOT) is in use by another run: give this run its own TB_TEST_ROOT" >&2; fi; exit $$rc
 
 # the property gate (TB-PLAN-06 §7.5, T-737): the safety properties over their enumerated domains, the hypothesis
 # properties of the unit tests (named *_property; they skip with a reason when hypothesis is not installed, and say so
