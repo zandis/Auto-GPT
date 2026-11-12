@@ -682,6 +682,7 @@ DECLARED: dict[str, Declared] = {
     "TB_ROUTING_PATH": Declared("path", "", "gateway: routing file"),
     "TB_RULESETS_DIR": Declared("path", "/data/rulesets", "rulesets folder"),
     "TB_RUN_ID": Declared("str", "", "complete-run tool: run id"),
+    "TB_PROVISIONING": Declared("str", "", "complete-run tool: SPOT or STANDARD for every VM (unset: D-468)"),
     "TB_SAE_FOLLOWUP_DAYS": Declared("int", "", "SAE: follow-up days"),
     "TB_SAE_OFFICE_MAILBOX": Declared("str", "", "SAE: office mailbox"),
     "TB_SAE_REPORT_DAYS": Declared("int", "", "SAE: report days"),
