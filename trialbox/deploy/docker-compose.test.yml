@@ -64,6 +64,10 @@ services:
       - lake-data:/data/lake
       - audit-data:/data/audit
       - ../.cache/test-secrets:/run/secrets/trialbox
+  embed-service:
+    # ENG-002 (D-560): a synthetic stack says so. The base file leaves TB_ENV unset here, which is PRODUCTION, where
+    # the stub embedder is refused (D-429): `make up-test` stopped on it for two nights
+    environment: {TB_ENV: "${TB_ENV:-TEST}"}
   doc-parser:
     environment: {TB_DATA_CLASS: "${TB_DATA_CLASS:-D0}"}
     networks: [trialbox-net, host-net]
