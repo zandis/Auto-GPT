@@ -364,6 +364,10 @@ def test_lake_http_polls_a_rebuild_to_its_end(lake_dir: Path, monkeypatch: pytes
 
 
 def _lake_transport(clock: Clock, seconds: float, calls: list[str]) -> httpx.MockTransport:
+    return httpx.MockTransport(_lake_handler(clock, seconds, calls))
+
+
+def _lake_handler(clock: Clock, seconds: float, calls: list[str]) -> Callable[[httpx.Request], httpx.Response]:
     started: dict[str, float] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -378,7 +382,7 @@ def _lake_transport(clock: Clock, seconds: float, calls: list[str]) -> httpx.Moc
         res = {"snapshot": snap, "tables": {"patient": 2}, "chunks": 0, "embedded_new": 0, "seconds": seconds}
         return httpx.Response(200, json={"job": "j1", "snapshot": snap, "state": "done", "result": res})
 
-    return httpx.MockTransport(handler)
+    return handler
 
 
 def test_a_rebuild_of_7300_s_does_not_fail_the_night(tmp_path: Path) -> None:
@@ -617,7 +621,7 @@ def test_the_adapters_lake_step_starts_and_follows_on_one_seam(monkeypatch: pyte
     from adapter.cli import HttpLakeStep, http_rebuild
 
     clock, calls = Clock(), list[str]()
-    handler = _lake_transport(clock, 7300, calls).handler  # type: ignore[attr-defined]
+    handler = _lake_handler(clock, 7300, calls)
 
     def call(method: str) -> Callable[..., httpx.Response]:
         def send(url: str, **k: Any) -> httpx.Response:
