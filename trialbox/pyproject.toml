@@ -149,7 +149,7 @@ warn_unused_ignores = true
 [[tool.mypy.overrides]]
 module = [
   "docxtpl.*", "docx.*", "py7zr.*", "apscheduler.*", "sqlglot.*", "duckdb.*",
-  "pyarrow.*", "matplotlib.*", "fhir.*", "docling.*", "sentence_transformers.*", "torch", "torch.*", "transformers", "transformers.*", "pypdf.*",
+  "pyarrow.*", "matplotlib.*", "fhir.*", "docling.*", "sentence_transformers.*", "pypdf.*",
   "uvicorn.*", "numpy.*", "duckdb_extension_fts.*", "paddleocr.*", "fontTools.*", "markdown.*",
 ]
 ignore_missing_imports = true

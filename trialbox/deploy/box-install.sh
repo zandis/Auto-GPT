@@ -46,6 +46,10 @@ IMAGE_PY="${TB_IMAGE:-trialbox-py:1.0.0}"
 FR="${TB_FIRSTRUN_HOST_DIR:-/run/trialbox-firstrun}"
 BOX="$ROOT/deploy/site/box"
 ISSUE="${TB_ISSUE_DIR:-/etc/issue.d}/trialbox-firstrun.issue"
+# BOX-WSL2 (D-571): under WSL2 (the Windows form, plan v7.2 section 2.3) no screen shows /etc/issue.d, and Windows
+# keeps the clock and the time zone. The kernel's release says so; TB_BOX_WSL2=0|1 sets it for a test.
+WSL2=0; case "$(uname -r)" in *[Mm]icrosoft*) WSL2=1 ;; esac
+case "${TB_BOX_WSL2:-}" in "") ;; 0|1) WSL2="$TB_BOX_WSL2" ;; *) die "TB_BOX_WSL2 is 0 or 1, not '$TB_BOX_WSL2'" ;; esac
 export PYTHONPATH="$ROOT/libs:$ROOT"
 [ "${TB_BOX_NO_ROOT:-0}" = 1 ] || [ "$(id -u)" = 0 ] || die "run it as root (sudo deploy/box-install.sh ...)"
 command -v python3 >/dev/null || die "python3 is missing on this machine (Ubuntu 24.04 has it)"
@@ -119,17 +123,21 @@ HOST="$(json_get "$BOX/answers.json" tls_hostname)"
 show_code() {
   CODE="$(python3 -m tools.box code --firstrun "$FR")"
   chown 10001:10001 "$FR/code.json" 2>/dev/null || true
-  mkdir -p "$(dirname "$ISSUE")"
-  printf '\n  TrialBox set-up:  https://%s/login/first-run\n  One-time code:    %s\n\n' "$HOST" "$CODE" > "$ISSUE"
+  local text
+  text="$(printf '\n  TrialBox set-up:  https://%s/login/first-run\n  One-time code:    %s\n' "$HOST" "$CODE")"
+  if [ "$WSL2" = 0 ]; then  # the box's own screen; under WSL2 the Windows installer's window shows this output
+    mkdir -p "$(dirname "$ISSUE")"
+    printf '%s\n\n' "$text" > "$ISSUE"
+  fi
   say "open https://$HOST/login/first-run on a computer of the team (or this box) and type the code"
-  cat "$ISSUE"
+  printf '%s\n\n' "$text"
 }
 show_code
 while [ ! -f "$FR/answers.json" ]; do
   [ -f "$FR/code.json" ] || { echo "    the code was voided (five wrong codes): a new one"; show_code; }
   sleep "${TB_BOX_POLL_S:-5}"
 done
-rm -f "$ISSUE"
+[ "$WSL2" = 1 ] || rm -f "$ISSUE"
 
 # ------------------------------------------------------------------------------------------------ 6. apply
 say "applying the owner's answers"
@@ -149,7 +157,9 @@ if [ -n "${TB_BOX_PY:-}" ]; then APPLY=(--firstrun "$FR" --hardware "$BOX/hardwa
 else APPLY=(--firstrun /fr --hardware /d/site/box/hardware.json --deploy /d); fi  # the image's mounts (box_py)
 box_py apply "${APPLY[@]}" || die "the owner's answers could not be applied (above)"
 HOST="$(json_get "$BOX/answers.json" tls_hostname)"  # the box's name the owner chose
-if [ "$(id -u)" = 0 ] && [ -z "${TB_BOX_PY:-}" ] && command -v timedatectl >/dev/null; then
+if [ "$WSL2" = 1 ]; then
+  echo "    the host's time zone is not set here: Windows keeps the clock and the time zone (the site's zone $TZ_NEW is in the settings)"
+elif [ "$(id -u)" = 0 ] && [ -z "${TB_BOX_PY:-}" ] && command -v timedatectl >/dev/null; then
   timedatectl set-timezone "$TZ_NEW" || echo "box-install: warning: the host's time zone is not $TZ_NEW" >&2
 fi
 chown "$(id -u):10001" deploy/settings.yaml 2>/dev/null && chmod 640 deploy/settings.yaml

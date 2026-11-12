@@ -27,9 +27,15 @@ def vocabulary() -> list[str]:
 
 def build(out: Path) -> Path:
     """Write the folder; needs the ``embed`` extra (the trialbox-embed image has it)."""
-    import torch
+    # in the embed image only, not in the box's venv; no blanket rule in pyproject: another tool's own ignore for
+    # the same library would then be reported as unused
+    import torch  # type: ignore[import-not-found,unused-ignore]
     from sentence_transformers import SentenceTransformer, models
-    from transformers import BertConfig, BertModel, BertTokenizerFast
+    from transformers import (  # type: ignore[import-not-found,unused-ignore]
+        BertConfig,
+        BertModel,
+        BertTokenizerFast,
+    )
 
     torch.manual_seed(0)  # the same folder every time, so its manifest is stable within one build of the image
     with tempfile.TemporaryDirectory() as raw:
