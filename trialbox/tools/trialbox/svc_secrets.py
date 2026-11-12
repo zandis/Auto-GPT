@@ -33,9 +33,11 @@ differs is refused (D-445). ``rotate --service model`` writes a new key and recr
 model-guard and the gateway in one command: the old key is refused from then on.
 
 The database passwords (``POSTGRES_PASSWORD`` for HAPI, ``POSTGRES_WF_PASSWORD``, ``TB_DB_PW_<SERVICE>`` and
-``TB_DB_URL`` for the trial database) stay in ``deploy/.env`` (0600, root), which compose reads; the overlay clears
-them, the mail passwords, the cloud-model keys, the KEK passphrase and the host tools' keys in every container that
-does not need them (D-450; ``tests/unit/test_compose_secret_reach.py``).
+``TB_DB_URL`` for the trial database) stay in ``deploy/.env`` (0600, root), which compose reads. The base compose
+file clears every database password in every service but its own role's (T-712, D-481;
+``tests/unit/test_compose_db_passwords.py``); the overlay clears the mail passwords, the cloud-model keys, the KEK
+passphrase and the host tools' keys in every container that does not need them (D-450;
+``tests/unit/test_compose_secret_reach.py``).
 
 **Migration.** A box installed before step 8 has one shared ``TB_SERVICE_TOKEN`` in ``deploy/.env``. ``init`` keeps
 it working: its hash goes into ``tokens.json`` as ``legacy`` (accepted from any caller, with a warning in the

@@ -593,17 +593,65 @@ def select_files(name: str, root: Path) -> tuple[list[str], dict[str, int]]:
 READ_TRIES = 3
 
 
+def _append_only(arcname: str) -> bool:
+    """The audit chain's day files (``audit/<day>.jsonl``): only ever appended to, one whole line per write
+    (``tb_common.audit``); a repair that cuts one back is the one exception, and is seen as a file that shrank."""
+    return arcname.startswith("dirs/audit/") and arcname.endswith(".jsonl")
+
+
+def _line_end(fh: IO[bytes], size: int) -> int:
+    """The length of the longest prefix of the first ``size`` bytes of ``fh`` that ends with a line end (0: none)."""
+    pos = size
+    while pos > 0:
+        start = max(0, pos - 65536)
+        fh.seek(start)
+        at = fh.read(pos - start).rfind(b"\n")
+        if at >= 0:
+            return start + at + 1
+        pos = start
+    return 0
+
+
+def _starts_with(path: Path, n: int, sha: Any) -> bool:
+    """Whether the first ``n`` bytes of ``path`` now are the bytes that hashed to ``sha`` (read again: only for an
+    append-only file that changed while it was read)."""
+    h, left = hashlib.sha256(), n
+    try:
+        with path.open("rb") as fh:
+            while left > 0:
+                b = fh.read(min(left, 1 << 20))
+                if not b:
+                    return False
+                h.update(b)
+                left -= len(b)
+    except OSError:
+        return False
+    return bool(h.digest() == sha.digest())
+
+
 def _add(tar: tarfile.TarFile, path: Path, arcname: str) -> tuple[str, int]:
     """Add one file; return the sha256 and size of exactly the bytes that went into the tar (one read per try).
 
     The box is running: a file whose size or modification time changed while it was read (a DuckDB file rewritten
-    in place at the same size, a log appended to) is added again, and the later copy is the one a restore extracts
+    in place at the same size, a list rewritten) is added again, and the later copy is the one a restore extracts
     and the manifest names; after ``READ_TRIES`` the backup fails. A file that shrank under the read cannot be taken
-    back out of the stream: the backup fails at once."""
+    back out of the stream: the backup fails at once.
+
+    **An append-only file** (:func:`_append_only`: the audit chain, which every model call of a night's jobs
+    appends to) is taken as it stood when the read began, up to its last whole line: if it only grew meanwhile (the
+    same file, and what was read is still its beginning, checked by reading that much again), the bytes read are a
+    whole earlier state and the copy is kept. Without this a busy
+    night made every backup fail ("kept changing"), which is the product being too strict, not the box being
+    unsafe. The lines appended later are in the next backup, and a restore lists what the box wrote after the
+    backup (``events_to_reapply``)."""
+    grows = _append_only(arcname)
     for _ in range(READ_TRIES):
         with path.open("rb") as fh:
             before = os.fstat(fh.fileno())
             info = tar.gettarinfo(arcname=arcname, fileobj=fh)
+            if grows:  # never a line that is being written
+                info.size = _line_end(fh, before.st_size)
+                fh.seek(0)
             hr = _HashReader(fh)
             try:
                 tar.addfile(info, hr)
@@ -615,6 +663,8 @@ def _add(tar: tarfile.TarFile, path: Path, arcname: str) -> tuple[str, int]:
             return hr.sha.hexdigest(), hr.n
         if (after.st_size, after.st_mtime_ns, after.st_ino) == (before.st_size, before.st_mtime_ns, before.st_ino):
             return hr.sha.hexdigest(), hr.n
+        if grows and after.st_ino == before.st_ino and after.st_size >= hr.n and _starts_with(path, hr.n, hr.sha):
+            return hr.sha.hexdigest(), hr.n  # appended to while it was read: what was read is still its beginning
     raise BackupError(f"{arcname} kept changing while it was backed up ({READ_TRIES} reads); run the backup again")
 
 
@@ -1073,6 +1123,153 @@ def events_to_reapply(audit_dir: Path | None, since: datetime) -> list[dict[str,
     return sorted(out, key=lambda e: str(e["ts"]))
 
 
+NO_REGISTER = "the box holds no register"
+RESTORE_STEP_MESSAGE = (
+    "This job was running when the backup of {made} was taken, and the box was restored from that backup: it was "
+    "interrupted by a restore and is not run again. If it had finished before the restore its results were sent "
+    "then; otherwise send the request again."
+)
+
+
+KEPT_BY_RESTORE = frozenset({"console.opt_out", "optout.worker"})  # audit events whose effect the restore keeps
+OptOutRow = tuple[str, str, str | None, str | None, str, str]  # pid, action, source, note, by, at
+
+
+def read_register(src: DbSource) -> tuple[str, list[OptOutRow]]:
+    """Every event of the box's opt-out register: ``("", rows)``, or ``(why, [])`` when there is none
+    (:data:`NO_REGISTER`) or it cannot be read. The rows stay in this process: never printed, never audited."""
+    import psycopg
+    from psycopg import sql
+    from tb_common.optout import SCHEMA as OPTOUT
+
+    table = sql.Identifier(f"{src.prefix}{OPTOUT}", "optout_events")
+    try:
+        with psycopg.connect(src.dsn, autocommit=True) as con:
+            there = con.execute("SELECT to_regclass(%s)", (table.as_string(con),)).fetchone()
+            if there is None or there[0] is None:
+                return NO_REGISTER, []
+            rows = con.execute(
+                sql.SQL("SELECT pid, action, source, note, by, at FROM {} ORDER BY at, id").format(table)
+            ).fetchall()
+    except psycopg.Error as exc:
+        return f"the register could not be read ({type(exc).__name__})", []
+    return "", [(str(p), str(a), s, n, str(by), str(at)) for p, a, s, n, by, at in rows]
+
+
+def count_optouts(rows: Sequence[OptOutRow], since: datetime) -> dict[str, Any]:
+    """Counts only of ``rows``: the events, by action, the opt-outs by source, how many the registry's worker
+    wrote and how many a person typed, the first and the last time. Never a pseudonym, a note or who typed it."""
+    from tb_common.optout import REGISTRY_ACTOR
+
+    later = sorted(
+        (at, action, str(source or "other"), by) for _, action, source, _, by, raw in rows
+        if (at := _parse_ts(raw)) is not None
+    )  # fmt: skip
+    by_action: dict[str, int] = {}
+    by_source: dict[str, int] = {}
+    for _, action, source, _by in later:
+        by_action[action] = by_action.get(action, 0) + 1
+        if action == "opt_out":
+            by_source[source] = by_source.get(source, 0) + 1
+    registry = sum(1 for _, _, _, by in later if by == REGISTRY_ACTOR)
+    return {
+        "readable": True,
+        "events": len(later),
+        "since": since.isoformat(timespec="milliseconds"),
+        "by_action": by_action,
+        "by_source": by_source,
+        "from_registry": registry,
+        "typed": len(later) - registry,
+        "first_at": later[0][0].isoformat(timespec="seconds") if later else None,
+        "last_at": later[-1][0].isoformat(timespec="seconds") if later else None,
+    }
+
+
+def optouts_after(src: DbSource, since: datetime) -> dict[str, Any]:
+    """T-728 (D-493; lifecycle review F-8): what the box's opt-out register holds after ``since``, read before a
+    restore replaces it, as :func:`count_optouts` counts it. A register that cannot be read is ``readable: False``
+    with the reason, never a count of zero."""
+    why, rows = read_register(src)
+    if why:
+        return {"readable": False, "events": None, "why": why}
+    return count_optouts([r for r in rows if (at := _parse_ts(r[5])) is not None and at > since], since)
+
+
+def keep_optouts(src: DbSource, live: Sequence[OptOutRow]) -> tuple[list[OptOutRow], int]:
+    """T-728 review (M1): put back what the restore took out of the register. ``live``: the register's events as
+    they were before the restore. Returns the events the restored register did not hold (so: recorded after the
+    backup, whatever their clock time: no time is compared) and how many of them were put back.
+
+    Every such **opt-out** is written into the restored register as it was (pseudonym, source, note, who, when).
+    A lift is not: a patient whose opt-out was lifted after the backup stays withheld until a person lifts it
+    again (the restore fails closed). Run again, it finds them there and adds nothing. One transaction."""
+    import psycopg
+    from psycopg import sql
+    from tb_common.optout import SCHEMA as OPTOUT
+
+    table = sql.Identifier(f"{src.prefix}{OPTOUT}", "optout_events")
+    with psycopg.connect(src.dsn) as con:
+        there = con.execute("SELECT to_regclass(%s)", (table.as_string(con),)).fetchone()
+        if there is None or there[0] is None:
+            return list(live), 0  # the backup holds no register: nothing can be put back
+        con.execute(sql.SQL("LOCK TABLE {} IN SHARE ROW EXCLUSIVE MODE").format(table))
+        held = {
+            (str(p), str(a), str(by), str(at))
+            for p, a, by, at in con.execute(sql.SQL("SELECT pid, action, by, at FROM {}").format(table)).fetchall()
+        }
+        gone = [r for r in live if (r[0], r[1], r[4], r[5]) not in held]
+        back = [r for r in gone if r[1] == "opt_out"]
+        insert = sql.SQL("INSERT INTO {} (pid, action, source, note, by, at) VALUES (%s,%s,%s,%s,%s,%s)").format(table)
+        for row in back:
+            con.execute(insert, row)
+        con.commit()
+    return gone, len(back)
+
+
+def optouts_ok(lost: Mapping[str, Any]) -> bool:
+    """Whether the restore left the opt-outs whole: the register was not replaced, or every event it held after the
+    backup was read, every opt-out among them put back, and no lift a person typed was reverted."""
+    state = lost.get("state")
+    if state == "not_replaced":
+        return True
+    return state == "counted" and not lost.get("not_kept") and not lost.get("lifts_reverted")
+
+
+def fail_running_jobs(src: DbSource, when: datetime, made: str) -> list[dict[str, str]]:
+    """T-728 (D-493; lifecycle review F-11): the restored queue holds the jobs that were running at the backup as
+    running, and the orchestrator's restart recovery would run them again. Each is set to ``failed`` with the step it
+    was in and a message; a job that was queued and had not started, or waits for an approval, is left alone.
+    Returns the jobs failed (id, type, step). One statement: all of them or none."""
+    import psycopg
+    from orchestrator.db import SCHEMA_NAME as ORCH
+    from psycopg import sql
+
+    table = sql.Identifier(f"{src.prefix}{ORCH}", "jobs")
+    ts = when.isoformat(timespec="seconds")
+    fail = sql.SQL(
+        "WITH was AS (SELECT job_id, state FROM {t} WHERE queued = 0 AND state NOT IN "
+        "('done','failed','awaiting_approval') FOR UPDATE) UPDATE {t} j SET state = 'failed', "
+        "updated_at = %s::text, data = (j.data::jsonb || jsonb_build_object('state', 'failed', "
+        "'updated_at', %s::text, 'error', jsonb_build_object('step', was.state, 'message', %s::text)))::text "
+        "FROM was WHERE j.job_id = was.job_id RETURNING j.job_id, j.type, was.state"
+    ).format(t=table)
+    with psycopg.connect(src.dsn) as con:
+        there = con.execute("SELECT to_regclass(%s)", (table.as_string(con),)).fetchone()
+        if there is None or there[0] is None:
+            return []
+        rows = con.execute(fail, (ts, ts, RESTORE_STEP_MESSAGE.format(made=made))).fetchall()
+        answers = sql.Identifier(f"{src.prefix}{ORCH}", "judge_answers")
+        kept = con.execute("SELECT to_regclass(%s)", (answers.as_string(con),)).fetchone()
+        if kept is not None and kept[0] is not None:
+            # T-689 (D-456) keeps a running job's model answers (note quotes) to replay them: a failed job has no
+            # use for them, and they must not wait in a restored box for the orchestrator's next start
+            con.execute(sql.SQL(
+                "DELETE FROM {a} a WHERE NOT EXISTS (SELECT 1 FROM {t} j WHERE j.job_id = a.job_id AND "
+                "j.state NOT IN ('done','failed'))").format(a=answers, t=table))  # fmt: skip
+        con.commit()
+    return sorted(({"job_id": str(j), "type": str(t), "step": str(st)} for j, t, st in rows), key=lambda r: r["job_id"])
+
+
 def _audit(dirs: Mapping[str, Path], env: Mapping[str, str], event: str, sha: str, detail: dict[str, Any]) -> str:
     """Append ``event`` to the box's audit log (the ``audit`` directory, else ``TB_AUDIT_DIR``); returns where, or
     why not."""
@@ -1110,6 +1307,13 @@ def restore(
     failure names the kept copy. The restore is audited (``backup.restored``, or ``backup.restore_failed``) in the
     restored audit log. The ``host`` part (deploy/.env, settings) is written only where ``dirs`` names it.
 
+    T-728 (D-493): before the trial database is emptied the box's opt-out register is read. After the rows are
+    checked, the opt-outs it held that the restored register does not are put back (:func:`keep_optouts`) and the
+    jobs that were running at the backup are failed, not left for the orchestrator to run again (``jobs_failed``;
+    :func:`fail_running_jobs`). ``optouts_after_backup`` says, in counts only, what was found, kept and not kept;
+    a box with no register to read (a new machine) says ``unknown``, and the restore is then not ``complete``
+    (:func:`optouts_ok`). ``--no-copy`` is refused while the register holds events a person typed after the backup.
+
     ``ok`` is False (and ``refdata.missing`` names them) while a pack could not be loaded again. Rows that differ from
     the manifest fail the restore when the backup counted them in its own snapshot; a backup that counted them on a
     live box (layout 1, or the update path's dumps) gives a warning instead."""
@@ -1142,9 +1346,42 @@ def restore(
         if max_age_days is not None and age_d > max_age_days:
             raise BackupError(f"this backup is {age_d:.0f} days old (limit {max_age_days:.0f}): add --older-ok to "
                               "restore it anyway; every change since then is lost")  # fmt: skip
+        # T-728 (D-493, F-8): what the register holds that the backup does not, read before anything is replaced
+        # and before the copy is decided (review M3). ``live``: its events, kept in this process only
+        holds = _box_holds_data([srcs[n] for n in manifest["databases"]], targets)
+        wf_at = snapshot_time(manifest)[0]
+        live: list[OptOutRow] = []
+        if "trialbox_wf" not in manifest["databases"]:
+            lost: dict[str, Any] = {
+                "readable": True,
+                "events": 0,
+                "state": "not_replaced",
+                "why": "the backup holds no trial database: the register is not replaced",
+            }
+        else:
+            wf_at = _parse_ts(manifest["databases"]["trialbox_wf"].get("snapshot_at")) or wf_at
+            why, live = read_register(srcs["trialbox_wf"])
+            if why == NO_REGISTER or not holds or other_site:
+                # review H1: a new machine, or a box that never held a register: what the old box recorded after
+                # the backup is not here to be read. "Unknown", never "none"
+                live = []
+                lost = {"readable": False, "events": None, "state": "unknown", "why": NO_REGISTER,
+                        "since": wf_at.isoformat(timespec="milliseconds")}  # fmt: skip
+            elif why:
+                lost = {"readable": False, "events": None, "state": "unreadable", "why": why}
+            else:  # by the clock for now; the exact answer once the restored register can be compared
+                lost = {**count_optouts([r for r in live if (at := _parse_ts(r[5])) is not None and at > wf_at],
+                                        wf_at), "state": "counted"}  # fmt: skip
         copy: Path | None = None
         copy_note = "the box held no data"
-        if _box_holds_data([srcs[n] for n in manifest["databases"]], targets):
+        if holds:
+            if no_copy and (lost["state"] == "unreadable" or lost.get("typed")):
+                # review M3: without a copy the live register is the only electronic record of them
+                raise BackupError(
+                    "the opt-out register of this box "
+                    + (f"holds {lost['typed']} event(s) a person typed after the backup's snapshot"
+                       if lost.get("typed") else f"could not be read ({lost.get('why')})")
+                    + ": --no-copy is refused, keep the copy (--public, --keep-to)")  # fmt: skip
             if no_copy:
                 copy_note = "the box held data and no copy was kept (--no-copy)"
             elif public_key is None or keep_to is None or not Path(public_key).is_file():
@@ -1153,12 +1390,33 @@ def restore(
             else:
                 copy = keep_copy(env, targets, Path(public_key), Path(keep_to), when)
                 copy_note = f"kept in {copy}"
-        base = {"file": file.name, "site": manifest["site"], "created_at": manifest["created_at"],
-                "kept_copy": str(copy) if copy else None, "copy": copy_note}  # fmt: skip
+        base: dict[str, Any] = {
+            "file": file.name, "site": manifest["site"], "created_at": manifest["created_at"],
+            "kept_copy": str(copy) if copy else None, "copy": copy_note,
+            "optouts_after_backup": lost}  # review H2: in the failure record too  # fmt: skip
+        kept_done = False
+
+        def keep() -> None:
+            """Put the later opt-outs back and replace the count by the exact one (review M1). Once."""
+            nonlocal lost, kept_done
+            if kept_done or lost["state"] != "counted":
+                return
+            from tb_common.optout import REGISTRY_ACTOR
+
+            gone, back = keep_optouts(srcs["trialbox_wf"], live)
+            opt_outs = sum(1 for r in gone if r[1] == "opt_out")
+            lost = {**count_optouts(gone, wf_at), "state": "counted", "kept": back, "not_kept": opt_outs - back,
+                    "lifts_reverted": sum(1 for r in gone if r[1] == "lift" and r[4] != REGISTRY_ACTOR)}  # fmt: skip
+            base["optouts_after_backup"] = lost
+            kept_done = True
+
+        wf_restored = False
+        jobs_failed: list[dict[str, str]] = []
         checked = {}
         try:
             for name, want in manifest["databases"].items():
                 restore_db(srcs[name], work / "db" / f"{name}.dump", env)
+                wf_restored = wf_restored or name == "trialbox_wf"
                 for t in _sched.BULK_REFDATA:
                     f = work / "db" / f"{name}.site.{t}.copy"
                     if f.is_file() and want.get("refdata_schema") and f.stat().st_size:
@@ -1180,11 +1438,33 @@ def restore(
                         raise BackupError(msg)
                     warnings.append(msg + " (this backup counted its rows on a running box: check those tables)")
                 checked[name] = sum(r[0] for r in got.values())
+            if "trialbox_wf" in manifest["databases"]:  # T-728 (D-493, F-11): after the rows were checked
+                try:
+                    jobs_failed = fail_running_jobs(srcs["trialbox_wf"], when, manifest["created_at"])
+                except Exception as e:  # the queue could not be changed: the restore says so and stops
+                    raise BackupError(
+                        f"the jobs that were running at the backup could not be failed ({type(e).__name__}); do not "
+                        "start the services: they would run those jobs again"
+                    ) from e
+                try:  # review M1: after the rows were checked against the manifest, like the jobs
+                    keep()
+                except Exception as e:
+                    raise BackupError(
+                        f"the opt-outs recorded after the backup could not be put back ({type(e).__name__}); do "
+                        "not start the services: those patients would be listed again"
+                    ) from e
         except BackupError as e:
+            if wf_restored:  # the live register is gone: a second run could not read them any more (review H2)
+                with contextlib.suppress(Exception):
+                    keep()
             with contextlib.suppress(Exception):
                 _audit(targets, env, "backup.restore_failed", sha, {**base, "error": str(e)[-300:]})
             back = f"; the box before it is kept in {copy}: trialbox restore {copy} puts it back" if copy else ""
-            raise BackupError(f"{e}{back}") from e
+            said = ""
+            if lost.get("events"):
+                said = (f"; {lost['events']} opt-out event(s) were recorded on this box after the backup's snapshot"
+                        + (f", {lost['kept']} opt-out(s) of them were put back" if kept_done else ""))  # fmt: skip
+            raise BackupError(f"{e}{said}{back}") from e
         lake: dict[str, Any] = {"snapshots": 0, "problems": [], "unsigned": 0, "checked": False}
         if (work / "dirs" / "lake").is_dir():  # D-455 (H1): the lake's own check, before any folder moves
             lake = {**lake_check(work / "dirs" / "lake"), "checked": True}
@@ -1194,6 +1474,7 @@ def restore(
                     _audit(targets, env, "backup.restore_failed", sha, {**base, "error": msg[-300:]})
                 back = f"; the box before it is kept in {copy}: trialbox restore {copy} puts it back" if copy else ""
                 raise BackupError(f"{msg} (the databases are restored already){back}")
+        asides: dict[str, Path] = {}
         for dname in manifest["dirs"]:
             if dname == HOST and HOST not in targets:
                 continue
@@ -1203,6 +1484,7 @@ def restore(
                 while aside.exists():  # a second restore within the same second: never over the first one's data
                     aside, n = dest.with_name(f"{dest.name}.pre-restore-{stamp}-{n}"), n + 1
                 dest.rename(aside)
+                asides[dname] = aside
             dest.mkdir(parents=True, exist_ok=True)
             src = work / "dirs" / dname
             if src.exists():
@@ -1210,6 +1492,18 @@ def restore(
         since, since_from = snapshot_time(manifest)
         audit_dir = targets.get("audit") or (Path(env["TB_AUDIT_DIR"]) if env.get("TB_AUDIT_DIR") else None)
         reapply = events_to_reapply(audit_dir, since)  # D-455 (M3): read from the restored chain, before our events
+        if "audit" in asides:
+            # review M2 (a gap of T-691): the chain the box wrote after the backup's copy of it is in the folder set
+            # aside, not in the restored one. Its events are listed too (an erasure, a break-glass, a signature)
+            seen = {(e["ts"], e["event"]) for e in reapply}
+            for ev in events_to_reapply(asides["audit"], since):
+                if (ev["ts"], ev["event"]) not in seen:
+                    reapply.append({**ev, "where": f"{asides['audit'].name}/{ev['where']}"})
+            reapply.sort(key=lambda r: str(r["ts"]))
+        if lost["state"] == "counted" and kept_done and not lost["not_kept"]:
+            # the register's own events were compared row by row and every opt-out put back: nothing to re-apply
+            # for them (a lift a person typed is counted apart, ``lifts_reverted``)
+            reapply = [r for r in reapply if r["event"] not in KEPT_BY_RESTORE]
         if reapply:
             _audit(targets, env, "backup.restore_reapply", sha, {
                 **base, "since": since.isoformat(timespec="milliseconds"), "since_from": since_from,
@@ -1225,13 +1519,14 @@ def restore(
         )
         audited = _audit(targets, env, "backup.restored", sha, {
             **base, "rows": checked, "dirs": sorted(manifest["dirs"]), "refdata_missing": refdata["missing"],
-            "warnings": len(warnings)})  # fmt: skip
+            "warnings": len(warnings), "optouts_after_backup": lost, "jobs_failed": len(jobs_failed)})  # fmt: skip
     return {"ok": not refdata["missing"], "site": manifest["site"], "created_at": manifest["created_at"],
             "layout": manifest.get("layout", 1), "rows": checked, "dirs": sorted(manifest["dirs"]),
             "refdata": refdata, "warnings": warnings, "kept_copy": str(copy) if copy else None, "copy": copy_note,
             "host": host, "lake_check": lake,
-            "to_reapply": reapply, "reapply_since": since.isoformat(timespec="milliseconds"), "complete": not reapply,
-            "audit": audited}  # fmt: skip
+            "to_reapply": reapply, "reapply_since": since.isoformat(timespec="milliseconds"),
+            "optouts_after_backup": lost, "jobs_failed": jobs_failed,
+            "complete": not reapply and optouts_ok(lost), "audit": audited}  # fmt: skip
 
 
 _safe = _sched.safe

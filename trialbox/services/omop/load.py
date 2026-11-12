@@ -48,7 +48,7 @@ import json
 import logging
 import time
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
@@ -1491,61 +1491,69 @@ def withhold(db: Database, pids: Iterable[str], actor: str = "optout-worker") ->
         rep.withheld = len(new)
         if not want:
             return rep
-        persons = [
-            int(r[0])
-            for r in tx.fetchall(
-                "SELECT omop_id FROM tb_id_map WHERE id_kind = 'person' AND source_id = ANY(?)", (want,)
-            )
-        ]
-        if not persons:
-            return rep
-        live = tx.fetchall(
-            "SELECT record_key, cdm_table, record_id, status, content_sha FROM tb_record WHERE status <> 'tombstoned' "
-            "AND (person_id = ANY(?) OR (cdm_table = 'person' AND record_id = ANY(?))) "
-            "AND coalesce(cdm_table, '') <> ALL(?)",
-            (persons, persons, list(KEEP_WITHHELD)),
-        )
-        if not live:
-            return rep
-        keys = [int(r[0]) for r in live]
-        rec_before: dict[int, str] = dict(
-            tx.fetchall("SELECT record_key, row_to_json(r)::text FROM tb_record r WHERE record_key = ANY(?)", (keys,))
-        )
-        by_table: dict[str, list[int]] = defaultdict(list)
-        for _, table, rid, _, _ in live:
-            if table in ID_COL and rid is not None:
-                by_table[str(table)].append(int(rid))
-        if by_table.get("note"):
-            tx.execute("DELETE FROM note_nlp WHERE note_id = ANY(?)", (by_table["note"],))
-        if by_table.get("measurement"):
-            m = by_table["measurement"]
-            tx.execute("DELETE FROM fact_relationship WHERE fact_id_1 = ANY(?) OR fact_id_2 = ANY(?)", (m, m))
-        before = _drop_rows(tx, by_table)
-        tx.execute("DELETE FROM observation_period WHERE person_id = ANY(?)", (persons,))
-        tx.execute("DELETE FROM death WHERE person_id = ANY(?)", (persons,))
-        tx.execute("DELETE FROM person WHERE person_id = ANY(?)", (persons,))
-        tx.execute(
-            "UPDATE tb_record SET status = 'tombstoned', tombstoned_at = now(), changed_at = now() "
-            "WHERE record_key = ANY(?)",
-            (keys,),
-        )
-        tx.copy_rows(
-            "tb_record_event",
-            EVENT_COLS,
-            [
-                (
-                    int(k),
-                    "tombstone",
-                    st,
-                    "tombstoned",
-                    sha,
-                    before.get((str(t), int(rid))) if t in ID_COL and rid is not None else None,
-                    rec_before.get(int(k)),
-                    actor,
-                    OPTED_OUT,
-                )
-                for k, t, rid, st, sha in live
-            ],
-        )
-        rep.tombstoned = len(live)
+        rep.tombstoned = withhold_persons(tx, want, actor)
     return rep
+
+
+def withhold_persons(tx: Any, pids: Sequence[str], actor: str) -> int:
+    """Tombstone every live record of the patients ``pids`` with the reason ``opted out`` (before-images kept), in
+    the caller's transaction; the consent statements stay (:data:`KEEP_WITHHELD`). Returns the records tombstoned.
+    The opt-out worker's :func:`withhold` and the export as of a time (T-728, D-493: a patient withheld now is
+    never brought back by a wind-back) both end here."""
+    persons = [
+        int(r[0])
+        for r in tx.fetchall(
+            "SELECT omop_id FROM tb_id_map WHERE id_kind = 'person' AND source_id = ANY(?)", (list(pids),)
+        )
+    ]
+    if not persons:
+        return 0
+    live = tx.fetchall(
+        "SELECT record_key, cdm_table, record_id, status, content_sha FROM tb_record WHERE status <> 'tombstoned' "
+        "AND (person_id = ANY(?) OR (cdm_table = 'person' AND record_id = ANY(?))) "
+        "AND coalesce(cdm_table, '') <> ALL(?)",
+        (persons, persons, list(KEEP_WITHHELD)),
+    )
+    if not live:
+        return 0
+    keys = [int(r[0]) for r in live]
+    rec_before: dict[int, str] = dict(
+        tx.fetchall("SELECT record_key, row_to_json(r)::text FROM tb_record r WHERE record_key = ANY(?)", (keys,))
+    )
+    by_table: dict[str, list[int]] = defaultdict(list)
+    for _, table, rid, _, _ in live:
+        if table in ID_COL and rid is not None:
+            by_table[str(table)].append(int(rid))
+    if by_table.get("note"):
+        tx.execute("DELETE FROM note_nlp WHERE note_id = ANY(?)", (by_table["note"],))
+    if by_table.get("measurement"):
+        m = by_table["measurement"]
+        tx.execute("DELETE FROM fact_relationship WHERE fact_id_1 = ANY(?) OR fact_id_2 = ANY(?)", (m, m))
+    before = _drop_rows(tx, by_table)
+    tx.execute("DELETE FROM observation_period WHERE person_id = ANY(?)", (persons,))
+    tx.execute("DELETE FROM death WHERE person_id = ANY(?)", (persons,))
+    tx.execute("DELETE FROM person WHERE person_id = ANY(?)", (persons,))
+    tx.execute(
+        "UPDATE tb_record SET status = 'tombstoned', tombstoned_at = now(), changed_at = now() "
+        "WHERE record_key = ANY(?)",
+        (keys,),
+    )
+    tx.copy_rows(
+        "tb_record_event",
+        EVENT_COLS,
+        [
+            (
+                int(k),
+                "tombstone",
+                st,
+                "tombstoned",
+                sha,
+                before.get((str(t), int(rid))) if t in ID_COL and rid is not None else None,
+                rec_before.get(int(k)),
+                actor,
+                OPTED_OUT,
+            )
+            for k, t, rid, st, sha in live
+        ],
+    )
+    return len(live)
