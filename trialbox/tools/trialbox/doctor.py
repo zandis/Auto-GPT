@@ -886,6 +886,8 @@ def check_memory_caps(inp: DoctorInputs) -> Check:
     lake = inp.ingest_lake or (Path(inp.env["TB_LAKE_DIR"]) if inp.env.get("TB_LAKE_DIR") else None)
     status, detail = memcaps.check(inp.env, lake, record, compose)
     return Check("memory_caps", "FAIL" if status == "FAIL" else "WARN" if status == "WARN" else "PASS", detail)
+
+
 def _compose_file(deploy: Path, entry: str) -> Path:
     """One entry of ``COMPOSE_FILE`` as this process can read it. ``install.sh`` writes the host's absolute paths
     (``$ROOT/deploy/...``); the doctor may run in the box's image, where the same folder is mounted elsewhere
