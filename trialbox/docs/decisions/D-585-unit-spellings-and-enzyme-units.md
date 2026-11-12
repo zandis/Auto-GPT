@@ -25,16 +25,18 @@ criterion.
    new unit, `10*2/uL` (`×10^2/μL`, used for white cells in Japan): it agrees with itself only; it is not
    converted to another count unit here.
 3. **`IU/L` and `U/L` are one unit for enzyme activity, and only there.** For the analytes in
-   `labvalue.ENZYME_ACTIVITY` (LOINC codes of catalytic activity per volume: AST, ALT, ALP, LDH, CK, γ-GT,
-   amylase, lipase) the international unit of enzyme activity is the enzyme unit by definition (1 IU = 1 U = 1 µmol
+   `labvalue.ENZYME_ACTIVITY` (seven LOINC codes of catalytic activity per volume, each confirmed in
+   `catalogue/codes_checked.csv`: AST, ALT, ALP, LDH, CK, γ-GT, lipase; a code is added with its catalogue row) the international unit of enzyme activity is the enzyme unit by definition (1 IU = 1 U = 1 µmol
    of substrate a minute). For every other analyte they stay apart, as D-215 has it (an IU of insulin or of a
    vitamin is not an enzyme unit).
 4. **`G/L` is not added.** In a blood count it is giga per litre; in an upper-case export it is grams per litre.
-   The reader cannot tell them apart, so it stays a mismatch (no value) and the site declares it per analyte in
-   its look-up (`source_unit`).
+   The reader cannot tell them apart, so it is read as before: as an upper-case export's `g/L`. Against a count
+   look-up that is a mismatch (no value); a site that prints `G/L` for a count declares it per analyte in its
+   look-up (`source_unit`).
 5. **Nothing changes in the engines.** The compiled SQL and CQL of every ruleset stay byte for byte as they are: no
    spelling is added to the table the engines' scale conversions read. A CSV, SQL or SS-MIX2 row is stored in the
-   look-up's unit once the reader has agreed, so the engines never see these spellings from a mapped feed.
+   look-up's unit once the reader has agreed, and that unit is written as its UCUM code even when the look-up
+   itself was typed in a lab's spelling, so the engines never see these spellings from a mapped feed.
 
 ## Not in this card
 

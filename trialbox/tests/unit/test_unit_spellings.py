@@ -113,3 +113,26 @@ def test_nothing_changes_in_the_table_the_engines_read() -> None:
     assert labunit.key("×10^3/μL") not in labunit.FAMILIES and labunit.key("千/μL") not in labunit.FAMILIES
     assert len(labunit.FAMILIES) == 43
     assert labunit.convert(100, "IU/L", "U/L", "http://loinc.org", ALT) is None  # the engines' own rule: lane A's
+
+
+# ---------------------------------------------------------------- the adversarial review of PR #357 (2026-11-12)
+@pytest.mark.parametrize(("typed", "code"), [("×10^3/μL", "10*3/uL"), ("千/μL", "10*3/uL"), ("秒", "s"),
+                                             ("mm/時", "mm/h"), ("mL/分/1.73m2", "mL/min/{1.73_m2}"),
+                                             ("×10^2/μL", "10*2/uL"), ("mg/dl", "mg/dL"), ("mg/dL", "mg/dL")])  # fmt: skip
+def test_a_look_up_typed_in_a_labs_spelling_stores_the_unit_as_its_code(typed: str, code: str) -> None:
+    """MED-1: the look-up's own text was stored as the unit, so a row that agreed with ``×10^3/μL`` was stored in a
+    unit the engines cannot read, silently. The stored unit is the UCUM code."""
+    m = Mapping.load(MAPPING)
+    m.lookups["lab"].rows["CRE"] = {**m.lookups["lab"].rows["CRE"], "ucum": typed, "source_unit": ""}
+    (obs,) = Mapper(m, b"k" * 32, "s").map_table("lab", iter([_lab("CRE", "52", typed)]))
+    q = obs["valueQuantity"]
+    assert (q["value"], q["unit"], q["code"]) == (52, code, code)
+    if code in labunit.UCUM:
+        assert labunit.convert(52, q["code"], code) == 52  # the engines read what was stored
+
+
+def test_the_enzyme_codes_are_the_ones_the_catalogue_confirms() -> None:
+    text = (ROOT / "catalogue/codes_checked.csv").read_text(encoding="utf-8")
+    for code in labvalue.ENZYME_ACTIVITY:
+        row = next(line for line in text.splitlines() if code in line.split(","))
+        assert "Enzymatic activity/volume" in row, code

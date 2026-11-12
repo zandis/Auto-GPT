@@ -17,6 +17,8 @@ unit**: the same UCUM code or one of its usual spellings (:data:`UCUM`: ``mg/dl`
 * a different unit, even one a factor away (a CRP in ``mg/L`` against an ``mg/dL`` lookup is *not* divided by 10:
   the lookup may be wrong, the row may be wrong, and the site's lab team says which once, D-149);
 * a unit :data:`UCUM` lacks, on either side (never converted, never assumed equal);
+* ``IU/L`` against ``U/L``, except for the analytes of catalytic activity (:data:`ENZYME_ACTIVITY`, D-585), where
+  the two are one unit by definition;
 * a row unit when the lookup declares none.
 
 No value is unknown to the screening engines, never a failed comparison (D-130): a unit mismatch can hold a patient for
@@ -90,12 +92,12 @@ FEED_SPELLINGS: dict[str, tuple[str, ...]] = {
     "10*2/uL": ("10^2/uL", "10^2/µL", "x10^2/uL", "x10^2/µL"),
     "/uL": ("個/uL", "個/µL"),
 }
-# analytes measured as catalytic activity per volume (LOINC): AST, ALT, ALP, LDH (two methods), CK, γ-GT, amylase,
-# lipase. For these, and only these, the international unit is the enzyme unit by definition (1 IU = 1 U = 1 µmol of
-# substrate a minute), so ``IU/L`` on a row and ``U/L`` in the look-up are one unit. An IU of insulin or of a
-# vitamin is not an enzyme unit: every other analyte keeps them apart (D-215).
-ENZYME_ACTIVITY = frozenset({"1920-8", "1742-6", "6768-6", "2532-0", "14804-9", "2157-6", "2324-2", "1798-8",
-                             "3040-3"})  # fmt: skip
+# analytes measured as catalytic activity per volume in serum or plasma (LOINC): AST, ALT, ALP, LDH, CK, γ-GT and
+# lipase, each confirmed as "[Enzymatic activity/volume]" in ``catalogue/codes_checked.csv``. A code is added here
+# with its catalogue row, never from memory. For these, and only these, the international unit is the enzyme unit
+# by definition (1 IU = 1 U = 1 µmol of substrate a minute), so ``IU/L`` on a row and ``U/L`` in the look-up are
+# one unit. An IU of insulin or of a vitamin is not an enzyme unit: every other analyte keeps them apart (D-215).
+ENZYME_ACTIVITY = frozenset({"1920-8", "1742-6", "6768-6", "2532-0", "2157-6", "2324-2", "3040-3"})
 _ENZYME_UNIT = {"[IU]/L": "U/L", "[IU]/mL": "U/mL", "m[IU]/mL": "mU/mL"}
 
 

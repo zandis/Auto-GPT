@@ -490,7 +490,9 @@ class Mapper:
                 return {"valueString": str(raw)}
         factor = Decimal(lk.get("factor") or "1")
         val = num * factor
-        unit = lk.get("ucum") or ""
+        # NEW-STD-4 (D-585): the unit is stored as its UCUM code, never as the spelling the look-up was typed in
+        # (``×10^3/μL``): the engines read the code, not the spellings of the feed
+        unit = labvalue.ucum(lk.get("ucum")) or lk.get("ucum") or ""
         q: dict[str, Any] = {"value": float(val) if val % 1 else int(val), "unit": unit}
         if comparator:
             q["comparator"] = comparator
