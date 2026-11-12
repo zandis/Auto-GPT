@@ -11,8 +11,9 @@ runs, and records the latency of both phases and the ratio of their 95th percent
         --out noisy-neighbour.json
 
 The neighbour's load is the platform team's: a command that starts it (``--neighbour``; kept running, or one that
-returns once the load is scheduled) and, optionally, one that stops it. The key of the model servers comes from
-``TB_LLM_API_KEY`` (sent as a bearer token, never written). The verdict is PASS when no request failed and the loaded
+returns once the load is scheduled) and, optionally, one that stops it. The key of the model servers comes from the
+file ``TB_LLM_API_KEY_FILE`` names (``deploy/secrets/model/llm.key``, D-437, D-450), else ``TB_LLM_API_KEY`` (sent as a
+bearer token, never written). The verdict is PASS when no request failed and the loaded
 95th percentile is at most ``--max-ratio`` times the idle one (default 1.5); the record is evidence for IQ and for
 the drill after every platform patch (RUNBOOK §17). It needs a real shared GPU host: until one exists its record is
 "not run". Standard library only.
@@ -141,6 +142,19 @@ def command_neighbour(start: str, stop: str | None) -> Callable[[], Callable[[],
     return begin
 
 
+def model_key(env: Mapping[str, str]) -> str:
+    """The model servers' key: the file ``TB_LLM_API_KEY_FILE`` names first (T-212d, D-450), else the variable."""
+    path = (env.get("TB_LLM_API_KEY_FILE") or "").strip()
+    if path:
+        try:
+            got = Path(path).read_text(encoding="utf-8").strip()
+        except OSError:
+            got = ""
+        if got:
+            return got
+    return (env.get("TB_LLM_API_KEY") or "").strip()
+
+
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None) -> int:
     env = os.environ if env is None else env
     ap = argparse.ArgumentParser(prog="python -m tools.trialbox.noisy_neighbour", description=__doc__.split("\n\n")[0])
@@ -153,7 +167,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     ap.add_argument("--max-ratio", type=float, default=1.5)
     ap.add_argument("--out", help="where the record is written (JSON); else printed")
     a = ap.parse_args(argv)
-    call = http_caller(a.url, a.model, env.get("TB_LLM_API_KEY", ""))
+    call = http_caller(a.url, a.model, model_key(env))
     try:
         res = measure(call, a.requests, command_neighbour(a.neighbour, a.neighbour_stop), warmup=a.warmup,
                       max_ratio=a.max_ratio)  # fmt: skip

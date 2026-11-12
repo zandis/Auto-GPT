@@ -406,6 +406,9 @@ def create_app(
     classify: Classifier | None = None,
     cascades: CascadeRuns | None = None,
 ) -> FastAPI:
+    from tb_common.logging import setup_logging
+
+    setup_logging("console")  # T-212d (D-450, PV-10): every scrubber rule on, as in every other service
     settings = ConsoleSettings.from_env(_env_map(env))
     if backend is None or audit is None:
         backend, audit = _default_backend(settings)
