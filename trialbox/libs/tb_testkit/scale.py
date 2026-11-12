@@ -2,8 +2,8 @@
 and the ledger of today's known failures.
 
 None of this imports a service: the gate's driver (``tools/scale_gate.py``) puts the product's own code in each
-process. These parts are tested on every pull request (``tests/unit/test_scale_gate.py``); the 50,000-patient run is
-the nightly job's (``trialbox-e2e.yml`` job ``scale-50k``).
+process. These parts are tested on every pull request (``tests/unit/test_scale_gate_logic.py``); the 50,000-patient
+run is the nightly job's (``trialbox-e2e.yml`` job ``scale-50k``).
 
 **The caps** come from ``deploy/docker-compose.yml`` (:func:`compose_caps`), never from a copied number: the
 ``mem_limit`` of each service, ``${TB_MEM_X:-6g}`` read as compose reads it (the environment, else the default).

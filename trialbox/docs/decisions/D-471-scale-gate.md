@@ -16,7 +16,7 @@
    `tests/perf/test_scale_gate.py` at `TB_SCALE_PATIENTS=50000`: the night's ingest, the lake rebuild through the
    site publish, the screen and the nightly backup, each in its own process with the memory cap of the compose
    service that runs it in production. Pull requests have no Docker and no pgvector; they run the same gate at a
-   small size (`tests/unit/test_scale_gate.py`), so the gate's own logic is tested on every pull request.
+   small size (`tests/unit/test_scale_gate_logic.py`), so the gate's own logic is tested on every pull request.
 2. **The caps are read from `deploy/docker-compose.yml`**, never copied: `mem_limit` of `adapter` (ingest), `lake`
    (rebuild and every lake query), `orchestrator` (screen) and `db`, with a `TB_MEM_*` override from the environment
    as compose would read it.

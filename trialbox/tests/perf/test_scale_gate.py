@@ -6,7 +6,7 @@ check: a check of :data:`tools.scale_gate.EXPECTED` that applies at this size is
 findings and card (it shows as XFAIL; a pass fails the job until the card removes its line); a check that a failed
 part left without input is skipped with the part that blocked it. The report is ``$TB_SCALE_OUT/scale_gate.md``.
 
-Marker ``perf``: not in the unit run (the gate's own logic is in ``tests/unit/test_scale_gate.py``).
+Marker ``perf``: not in the unit run (the gate's own logic is in ``tests/unit/test_scale_gate_logic.py``).
 
     TB_SCALE_PATIENTS=50000 TB_SCALE_ENFORCE=cgroup TB_SCALE_LATENCY_S=2 TB_SCALE_OUTAGE_AFTER=300 \\
       TB_SCALE_OUTAGE_S=40 TB_SCALE_RESTART_AFTER=900 pytest tests/perf/test_scale_gate.py -m perf

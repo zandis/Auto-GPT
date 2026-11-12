@@ -102,7 +102,7 @@ jobs:
           if-no-files-found: ignore
 
   # T-687 (D-471): the scale gate. Never on a pull request (no 50,000-patient run there; the gate's own logic is tested
-  # at 200 patients in the unit job, tests/unit/test_scale_gate.py). The caps are read from deploy/docker-compose.yml
+  # at 200 patients in the unit job, tests/unit/test_scale_gate_logic.py). The caps are read from deploy/docker-compose.yml
   # and enforced by a cgroup per part (`sudo systemd-run --scope -p MemoryMax=<cap> -p MemorySwapMax=0`, what Docker's
   # mem_limit is); the gate refuses to run without one (TB_SCALE_ENFORCE=cgroup). The stand-in: 2 s per call, 502 for
   # 40 s from call 300, one restart (30 s down) after call 900 (the cascade made 1,362 calls at 50,000 in

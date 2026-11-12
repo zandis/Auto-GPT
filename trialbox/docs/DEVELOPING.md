@@ -69,7 +69,7 @@ measured speed or the size of the data, or it is a declared setting with a reaso
   XFAIL and keep the job green; the card that fixes one removes its line, because a pass of a listed check fails the
   job. A small run on this machine: `TB_ENV=DEV TB_TZ=Asia/Taipei PYTHONPATH=libs:services:. .venv/bin/python -m
   tools.scale_gate --patients 300` (no cgroup here: the memory is measured and a part over its cap is killed). The
-  gate's own logic runs on every pull request at 200 patients (`tests/unit/test_scale_gate.py`).
+  gate's own logic runs on every pull request at 200 patients (`tests/unit/test_scale_gate_logic.py`).
 
 ## Operations drills
 

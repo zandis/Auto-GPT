@@ -21,7 +21,7 @@ code, split as the containers split it:
    PostgreSQL; ``ps``, ``pause`` and the backup container are recorded.
 
 Each check is listed in :data:`CHECKS`; today's failures are strict expected failures by finding and card
-(:data:`EXPECTED`): ``tests/perf/test_scale_gate.py`` (nightly, 50,000) and ``tests/unit/test_scale_gate.py``
+(:data:`EXPECTED`): ``tests/perf/test_scale_gate.py`` (nightly, 50,000) and ``tests/unit/test_scale_gate_logic.py``
 (every pull request, a small size). Remove a line of :data:`EXPECTED` in the card that fixes it.
 
     TB_ENV=DEV PYTHONPATH=libs:services:. python -m tools.scale_gate --patients 300 --out build/scale
