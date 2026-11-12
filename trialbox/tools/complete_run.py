@@ -64,7 +64,7 @@ for p in (ROOT, ROOT / "libs", ROOT / "services"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-from tools import pin_model  # noqa: E402  (after the path setup, as the parts import it)
+from tools import g_probes, pin_model  # noqa: E402  (after the path setup, as the parts import them)
 
 LANGS = ("ja", "zh-TW")
 JUDGE, VERIFIER = pin_model.JUDGE_SERVED, pin_model.VERIFIER_SERVED  # the vLLM served names (D-124)
@@ -656,10 +656,12 @@ PARTS = {
     "profile": part_profile,
     "selftest": part_selftest,
     "chat-template": _chat_template,
+    **g_probes.PARTS,
 }
-NO_CONSOLE = ("prepare", "install", "backup", "update", "scale", "embed", "profile", "selftest", "chat-template")
+NO_CONSOLE = ("prepare", "install", "backup", "update", "scale", "embed", "profile", "selftest", "chat-template",
+              *g_probes.PARTS)  # fmt: skip
 # on the card; walk, backup, update, scale: stub
-MODEL_PARTS = ("hospital", "public", "scenario", "embed", "profile", "chat-template")
+MODEL_PARTS = ("hospital", "public", "scenario", "embed", "profile", "chat-template", *g_probes.PARTS)
 G1_CHECK = "chat-template"  # review test G-1 (tools.chat_template_check): in a run only when --only names it
 BENCH_PARTS = ("embed", "profile")  # in a run only when --only names them (not part of the complete run, G1)
 STUB_PARTS = ("walk", "backup", "update", "scale")  # run on the driver after the VM has stopped
@@ -862,6 +864,7 @@ def plan(a: argparse.Namespace) -> list[tuple[str, str, str]]:
 
     out = [("prepare", "", ""), ("install", "", "")]
     out += [(G1_CHECK, "", "")] if G1_CHECK in (a.only or []) else []  # G-1 before the parts that depend on it
+    out += [(p, "", "") for p in g_probes.PARTS if p in (a.only or [])]  # G-4, G-5, G-7, G-8: only when named
     # several --llm-concurrency values: the hospital part once per value, as hospital-<lang>@c<N> (G-3's curve);
     # each repeat reads the same prepared hospital
     lc = concurrency_of(a)
@@ -1295,6 +1298,7 @@ def markdown(rep: dict[str, Any]) -> str:
             lines.append(f"| {r['tag']} | {st['name']} | {n - len(bad)}/{n} | {result} | {st['seconds']} | {shot} |")
     lines += _scenario_sections(rep)
     lines += _throughput_section(rep)
+    lines += g_probes.report_lines(rep)
     lines += ["", "## Part times", "", "| part | wall seconds |", "| --- | --- |"]
     lines += [f"| {r['tag']} | {r['seconds_total']} |" for r in rep["parts"]]
     fails = [(r["tag"], st["name"], c) for r in rep["parts"] for st in r["stages"] for c in st["checks"] if not c[1]]
@@ -1491,7 +1495,7 @@ def restrict(e: dict[str, Any], only: list[str]) -> dict[str, Any]:
     selftests = [f"selftest-{s}" for s in SELFTESTS if f"selftest-{s}" in only]  # the rehearsal's (tests/rehearsal)
     tags = {t for r in e["rows"] for t in r["tags"]}
     # a hospital part named without its concurrency (hospital-ja) is every repeat of it (hospital-ja@c1, @c4 ...)
-    known = tags | {base_tag(t) for t in tags} | {"install", "prepare", G1_CHECK, *selftests}
+    known = tags | {base_tag(t) for t in tags} | {"install", "prepare", G1_CHECK, *selftests, *g_probes.PARTS}
     unknown = sorted(set(only) - known)
     if unknown:
         raise ValueError(f"--only: no such part in the plan: {' '.join(unknown)}")
@@ -1500,6 +1504,7 @@ def restrict(e: dict[str, Any], only: list[str]) -> dict[str, Any]:
     fixed = [r for r in rows if not r["tags"]]
     extra = [{"scenario": t, "patients": 0, "model_items": 0, "seconds": 600.0, "tags": [t], "hours": 0.17}
              for t in selftests]  # fmt: skip
+    extra += g_probes.estimate_rows(only, int(e.get("max_num_seqs") or 1))  # G-4, G-5, G-7, G-8 when named
     if G1_CHECK in only:  # review test G-1 (tools.chat_template_check), before the parts that depend on it
         from tools.chat_template_check import N_PROMPTS, SECONDS
 

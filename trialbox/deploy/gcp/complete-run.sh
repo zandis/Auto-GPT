@@ -27,7 +27,7 @@
 #
 # --only TAG,TAG: a bounded run of some parts (complete_run tags, e.g. hospital-ja,scenario-gateway): the estimate, the
 # cap and the plan hold only those parts (and prepare for a hospital part, install when named); no stub parts.
-# `chat-template` is the review's test G-1 (tools/chat_template_check.py), in a run only when --only names it.
+# `chat-template` is the review's test G-1 (tools/chat_template_check.py), in a run only when --only names it; so are `g4-decoding`, `g5-tokens`, `g7-clipped`, `g8-protocols` (G-4, G-5, G-7, G-8: tools/g_probes.py).
 #
 # --llm-concurrency N[,N...]: the model calls SCREEN keeps in flight (TB_SCREEN_LLM_CONCURRENCY) in every part of the
 # run. Not given: the serving record's max_num_seqs (deploy/measured), as an installed box runs; the plan prints it.

@@ -510,6 +510,12 @@ DECLARED: dict[str, Declared] = {
     "TB_FHIR_WORKERS": Declared("int", "8", "compiler: parallel FHIR evaluations"),
     "TB_FIRSTRUN_DIR": Declared("path", "", "console: the box's first-run folder (tmpfs; T-729, D-466)"),
     "TB_FONTS_DIR": Declared("path", "", "report fonts folder"),
+    # master has no real RA or early-AD protocol; the owner puts two public ones here before a G-8 launch
+    "TB_G8_PROTOCOLS_DIR": Declared(
+        "path",
+        "tests/fixtures/public_protocols",
+        "complete-run part g8-protocols (review G-8): public protocols folder",
+    ),
     "TB_GATEWAY_BREAKER_FAILURES": Declared("int", "5", "gateway: failures in a row that open an endpoint's breaker"),
     "TB_GATEWAY_BREAKER_OPEN_S": Declared("float", "30", "gateway: seconds a breaker stays open before one try"),
     "TB_GATEWAY_CALL_BUDGET_S": Declared("float", "210", "gateway: seconds one call may take, retry and fallbacks in"),
