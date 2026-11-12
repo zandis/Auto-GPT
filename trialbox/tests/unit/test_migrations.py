@@ -394,6 +394,7 @@ ADDED: dict[str, tuple[str, ...]] = {
         "b7cf6c229898b30f609be2151ff4422b2a0bc0cd068b0b5150e1d58c07c98ae3",
         "2d6727cad7056592bdcb1c9a2c0f28f419debbc79880f81e6f4346cd59646f08",
         "9d3348bbf4c423dbdbe7bb199eb50e107304bfabaf16b0b0b04eb59b5d48f8e3",
+        "411b2c02652903b18652e7797ec3169f3e10e8e55f7fdf9e07bc394a6c079f25",  # D-595: site_key.chartno_rule
     ),
     # D-277: datacore version 4 (the study's SAE rule set); sae version 3 (one initial report per party, CR-011)
     # D-364 (T-621): datacore version 5 (schedule versions); site version 4 (the criteria version on each mark)
