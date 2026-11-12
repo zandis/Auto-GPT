@@ -29,6 +29,7 @@ writes one too, with its code. The decision and the signature write theirs insid
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 from collections.abc import Callable
@@ -287,6 +288,12 @@ class EdcService:
 
         now: dict[str, str] | None = None
         try:
+            # EDC-010 (D-581): the reason and the citation's words go into the trail and the ODM file
+            texts = [("reason", reason), *((f"citation {k}", str(v)) for k, v in (citation or {}).items())]
+            for what, text in texts:
+                if forms.XML_ILLEGAL.search(text):
+                    raise EdcError("edc.chars", f"the {what} holds a character that cannot be stored (a control "
+                                   "character from pasted text)", 400)  # fmt: skip
             if action in ("confirm", "edit"):
                 now = self._built(rs, str(d["item"]))
             if action == "confirm":  # a draft is confirmed only under the map row and dictionary entry of now (E-16)
@@ -338,6 +345,11 @@ class EdcService:
                                                  "content_sha": s["content_sha"]})  # fmt: skip
 
         try:
+            # EDC-010 (D-581): the name and the meaning's words are under the signature and go into the ODM file
+            for what, text in (("printed name", printed_name), ("meaning", meaning_text), ("role", role)):
+                if forms.XML_ILLEGAL.search(text):
+                    raise EdcError("edc.chars", f"the {what} holds a character that cannot be stored (a control "
+                                   "character from pasted text)", 400)  # fmt: skip
             return self.store.sign(rs, record, visit or BASE_EVENT, signer=signer, printed_name=printed_name,
                                    role=role, meaning=meaning, meaning_text=meaning_text, lang=lang,
                                    at=self.stamp(), seen=seen, method=method, before_commit=audited)  # fmt: skip
@@ -683,6 +695,36 @@ class EdcService:
             self._audit("edc.export", rs, by, {"format": "odm", "refused": "edc.odm_gap", "items": lost})
             err = EdcError("edc.odm_gap", "signed values whose item left the map or the dictionary: " + ", ".join(lost))
             err.problems = [{"item": i, "code": "not_in_map"} for i in lost]  # type: ignore[attr-defined]
+            raise err
+        sigs_now = {int(s["id"]): s for s in self.store.signatures(rs)}
+        used = {int(d["signature_id"]) for d in values if d.get("signature_id") is not None}
+
+        def texts(v: Any) -> list[str]:
+            if isinstance(v, dict):
+                return [t for x in v.values() for t in texts(x)]
+            if isinstance(v, str) and v[:1] in "{[":  # a citation is stored as JSON text
+                try:
+                    return texts(json.loads(v))
+                except ValueError:
+                    return [v]
+            return [] if v is None else [str(v)]
+
+        def unfit(row: dict[str, Any], names: tuple[str, ...]) -> bool:
+            return any(forms.XML_ILLEGAL.search(t) for n in names for t in texts(row.get(n)))
+
+        # every text of a signed row that the file carries: the value, its reason, its citation, its keys and who
+        # decided; and the signature's own words. Nothing under a signature is ever rewritten to make it fit
+        chars = sorted(
+            {str(d["item"]) for d in values
+             if unfit(d, ("final", "reason", "final_citation", "citation", "record", "visit", "decided_by"))}
+            | {f"signature {i}" for i in sorted(used)
+               if i in sigs_now and unfit(sigs_now[i], ("signer", "printed_name", "role", "meaning", "meaning_text"))}
+        )  # fmt: skip
+        if chars:  # EDC-010 (D-581): a row from before the rule; never written broken, never altered
+            self._audit("edc.export", rs, by, {"format": "odm", "refused": "edc.odm_chars", "items": chars})
+            err = EdcError("edc.odm_chars", "signed values that hold a character an XML file cannot carry: "
+                           + ", ".join(chars))  # fmt: skip
+            err.problems = [{"item": i, "code": "chars"} for i in chars]  # type: ignore[attr-defined]
             raise err
         sigs = {int(s["id"]): s for s in self.store.signatures(rs)}
         text = odm.build(rs, self.dc.fields(rs), self.store.map(rs), values, sigs, meaning_text, self.stamp())
