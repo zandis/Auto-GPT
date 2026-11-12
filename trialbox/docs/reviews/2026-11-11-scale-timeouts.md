@@ -1,5 +1,8 @@
 # Fixed limits that break at production scale: review after the G1 drain failure
 
+> Note of 2026-11-12 (TB-PLAN-06.1): the decision numbers this review names were taken by other cards before it
+> merged. Read D-448 as D-455 (T-691), D-449 as D-456 (T-689, T-698), D-450 as D-457 (T-693) and D-451 as D-458 (T-704).
+
 Date: 2026-11-11. Owner: Changfu. Scope: `trialbox/` on `master` at `a1d13cb`, and the run path of branch
 `g1/rehearsed-2026-11-11` at `986d91c9`. Review by code reading; two findings were fixed on this branch with a test
 that failed first (F-03, F-06). Nothing was run on GCP. Synthetic data only.

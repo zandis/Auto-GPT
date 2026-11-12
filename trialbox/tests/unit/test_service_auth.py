@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
@@ -80,6 +81,22 @@ def test_token_from_file(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None
     assert sa.check("POST", TOKEN, "PRODUCTION") is None
 
 
+_LIMITS: dict[str, Any] = {}
+
+
+def limits_store() -> Any:
+    """T-103 (D-438): the orchestrator's identifier caps live in its store (``orch.id_limits``); a fake box keeps them
+    in this test's own database, one store per test database."""
+    import os
+
+    from orchestrator.db import JobDB
+
+    url = os.environ["TB_DB_URL"]
+    if url not in _LIMITS:
+        _LIMITS[url] = JobDB()
+    return _LIMITS[url]
+
+
 def _fake_box(events: list[dict[str, Any]]) -> SimpleNamespace:
     import json as _json
 
@@ -87,7 +104,8 @@ def _fake_box(events: list[dict[str, Any]]) -> SimpleNamespace:
     job = SimpleNamespace(type="SCREEN", state="done", ruleset="RS", outputs=[out])
     lists = {out.minio_key: _json.dumps({"rows": [{"pid": "PID-00000001"}, {"pid": "PID-00000002"}]}).encode()}
     return SimpleNamespace(
-        db=SimpleNamespace(get=lambda _id: job, url=None),
+        db=SimpleNamespace(get=lambda _id: job, url=None, take_limit=limits_store().take_limit),
+        _now=lambda: datetime.now(UTC),
         cfg=SimpleNamespace(env=SimpleNamespace(secrets_dir="/nonexistent")),
         audit=SimpleNamespace(append=lambda kind, **kw: events.append({"kind": kind, **kw})),
         store=SimpleNamespace(get=lambda key: lists[key]),

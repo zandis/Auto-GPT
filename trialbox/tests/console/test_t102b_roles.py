@@ -73,7 +73,7 @@ def test_the_administrator_sees_no_patient_row(box: dict[str, Any]) -> None:  # 
     assert r.status_code == 303
     admin, _ = login(box["app"])
     assert admin.get(f"/studies/GZQO/candidates/{A}").status_code == 403  # its refusal is audited with the path
-    assert A in crc.get("/audit").text  # a patient-level reader sees it: the probe below is not empty by accident
+    assert A in stw.get("/audit").text  # the steward's audit browser (D-451) shows it: the probe below is not empty
     api = _api(box, "admin")
     opened = 0
     for method, path in _routes(box["app"]):
@@ -263,11 +263,15 @@ def _fake_core(monkeypatch: pytest.MonkeyPatch) -> None:
     real = s28.call
 
     def call(bk: Any, method: str, path: str, body: Any = None, headers: Any = None) -> Any:
+        if method == "GET" and path.startswith("/studies/GZQO/edc/"):  # no EDC value yet (the SDV page reads them)
+            return [] if "/edc/drafts" in path else {"drafts": [], "decisions": [], "signatures": []}
         m = re.match(r"^/studies/GZQO/subjects/([^?/]+)\?", path)
         if method == "GET" and m:
             if m.group(1) not in SUBJECTS:
                 raise Problem(404, "notfound", "no such subject")
-            return dict(SUBJECTS[m.group(1)])
+            # the data core's real reply shape (orchestrator.lifecycle_api.get_subject): the subject is nested (D-436)
+            return {"study": "GZQO", "today": "2026-11-11", "subject": dict(SUBJECTS[m.group(1)]), "steps": [],
+                    "visits": [], "aes": [], "deviations": []}  # fmt: skip
         return real(bk, method, path, body, headers)
 
     monkeypatch.setattr(s28, "call", call)

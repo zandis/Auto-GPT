@@ -101,7 +101,7 @@ def test_the_plugin_set_is_pinned_in_the_lock() -> None:
 
     group = tomllib.loads((ROOT / "pyproject.toml").read_text())["dependency-groups"]["test"]
     names = {re.split(r"==", g)[0] for g in group}
-    assert names == {"pytest", "pytest-timeout", "pytest-cov", "pytest-xdist"}
+    assert names == {"pytest", "pytest-timeout", "pytest-cov", "pytest-xdist", "hypothesis"}
     assert all("==" in g for g in group)
     lock = (ROOT / "uv.lock").read_text()
     assert 'name = "pytest-randomly"' not in lock

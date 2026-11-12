@@ -111,6 +111,11 @@ datasets:
     data_class: D0
     kind: synthetic
     licence: generated synthetic hospital (tools/synth_hospital) and the public site and MIMIC-IV demo (see public_site and mimic_iv_fhir_demo; only counts reach the report); the report is TrialBox's own
+  vec_parity:
+    path: eval/vec_parity (tools/vec_parity.py, D-449; S2b counts per ruleset with the flag vec.s2b off and on, no patient row)
+    data_class: D0
+    kind: synthetic
+    licence: generated synthetic hospital (tools/synth_hospital); the report is TrialBox's own
   parity:
     path: eval/parity (offline model-gate replay of recorded SIGIR/TREC answers and serving-configuration records, D-111)
     data_class: D0
