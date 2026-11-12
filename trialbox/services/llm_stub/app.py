@@ -20,9 +20,10 @@ is a measured token count.
 
 **The slow model stand-in (T-687, D-471).** The scale gate needs a model that is slow and fails the way a real server
 does, over real HTTP: ``TB_STUB_LATENCY_S`` (seconds) delays every answer; ``TB_STUB_OUTAGE_AFTER`` (a call count)
-and ``TB_STUB_OUTAGE_S`` (seconds) make every chat call answer 502 for that many seconds once the n-th call has
-arrived (a vLLM restart behind a proxy). ``/v1/models`` keeps answering, as a proxy in front of a restarting server
-does. A restart of the stand-in is the test killing and starting this process (``tb_testkit.scale.SlowModel``).
+and ``TB_STUB_OUTAGE_S`` (seconds) make every chat call answer 502 (or ``TB_STUB_OUTAGE_STATUS``) for that many
+seconds once the n-th call has arrived (a vLLM restart behind a proxy). ``/v1/models`` keeps answering, as a proxy
+in front of a restarting server does. A restart of the stand-in is the test killing and starting this process
+(``tb_testkit.scale.SlowModel``).
 Unset, the stub answers at once, as before.
 """
 
@@ -102,6 +103,13 @@ def _float(raw: str | None) -> float | None:
 OUTAGE = _Outage()
 
 
+def _outage_status() -> int:
+    """The status of the outage's answers: 502 (a restarting server behind a proxy), or ``TB_STUB_OUTAGE_STATUS``
+    (an HTTP error status) so a test can play an outage the callers do not wait through (T-687)."""
+    raw = (os.environ.get("TB_STUB_OUTAGE_STATUS") or "").strip()
+    return int(raw) if raw.isdigit() and 400 <= int(raw) <= 599 else 502
+
+
 CONTEXT_PERSONAS = {"stub-ctx-8k": 8192, "stub-ctx-16k": 16384, "stub-ctx-32k": 32768}
 
 
@@ -133,8 +141,9 @@ async def completions(request: Request) -> Any:
     if latency:  # the slow stand-in (T-687): a model that takes seconds per call
         await asyncio.sleep(latency)
     if OUTAGE.tick():
+        status = _outage_status()
         return JSONResponse(
-            {"object": "error", "message": "stub outage: upstream unavailable", "code": 502}, status_code=502
+            {"object": "error", "message": "stub outage: upstream unavailable", "code": status}, status_code=status
         )
     model = str(body.get("model") or served_models()[0])  # no name: the first served one (review F-08)
     if model not in served_models():

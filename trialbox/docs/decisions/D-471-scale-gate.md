@@ -35,19 +35,18 @@
    for that many seconds). The gate restarts the stub process once in the middle of the screen. The nightly values
    (2 s per call, a 40 s outage) are the row's; the gateway, its breaker and its budgets in between are the real
    ones over real HTTP.
-5. **Today's failures are strict expected failures by finding id and card** (`EXPECTED` in the test, like D-460):
-   F-04 (T-689). F-01, F-02 and F-05 were listed until T-690 (D-472), T-691 (D-455) and T-692 (D-473) fixed them; on
-   their merge the gate passed those checks at 200 and 2,000 patients and their lines were removed. The pull-request
-   tests still show the gate catches each shape: a publish that loses its job, a backup with
-   `TB_BACKUP_QUIESCE=pause`, a night and a lake over a too-small cap. A check whose fault never happened (no outage
-   reached the stand-in) is blocked, never a pass. F-04, which the gate reproduced here at 200 and 2,000
-   patients (a 1 s and a 5 s outage lost 2 of 5 and 60 of 74 judge calls: the gateway tries a refused call once at
-   once, then its breaker answers for the model). Only the model's faults count (`model_unavailable`,
-   `upstream_failed`, `model_busy`, `model_asleep`); a content refusal is reported beside them. The job is green while
-   exactly those fail; a check that starts to pass
-   fails the job until its line is removed, in the card that fixes it. A size-bound entry applies from its size (the
-   memory and time findings from 50,000 patients); below it the check must pass. A check whose input a failed phase
-   did not produce is "blocked" and names that phase: never a silent pass.
+5. **Known failures are strict expected failures by finding id and card** (`EXPECTED` in `tools/scale_gate.py`, like
+   D-460). The list started with F-01 (T-690), F-02 (T-691), F-05 (T-692) and F-04 (T-689); the gate reproduced F-04
+   here (a 1 s and a 5 s outage lost 2 of 5 and 60 of 74 judge calls: the gateway tried a refused call once, then
+   its breaker answered for the model). Each card's merge made its checks pass at 200 and 2,000 patients and its line
+   was removed: the list is empty since T-689 (D-456). The pull-request tests still show the gate catches each shape:
+   a publish that loses its job, a backup with `TB_BACKUP_QUIESCE=pause`, a night and a lake over a too-small cap,
+   and an outage the product does not wait through (the stand-in's `TB_STUB_OUTAGE_STATUS=400`). Only the model's
+   faults count as lost calls: the product's own list (`tb_llm.outage.MODEL_FAULTS`, with `upstream_down`) and
+   `upstream_failed`; a content refusal is reported beside them. A check whose fault never happened (no outage
+   reached the stand-in) is blocked, never a pass. A line that starts to pass fails the job until it is removed, in
+   the card that fixes it. A size-bound entry applies from its size; below it the check must pass. A check whose
+   input a failed phase did not produce is "blocked" and names that phase: never a silent pass.
 6. **The limits lint** (`tools/limits_lint.py`, PR CI job `docs`): every `timeout=` literal over 60 s and every
    `LIMIT n` / `limit=n` literal in `services/` must have a line in `tools/limits_allow.yaml` with a reason that
    names its finding (F-nn) or the card that removes it, or why it is not a cut (OD-10). A new literal fails; a line
@@ -61,12 +60,10 @@
   validator) and 2,000 patients in `measure` mode (with T-692: adapter peak 0.09 GiB and lake 0.94 GiB at 2,000). If the
   first run shows another failure with a finding of the review (F-07, F-29, F-36 at 50,000), its line is added to
   `EXPECTED` with its card.
-- When F-04 is fixed and the screen no longer loses calls, the stand-in's restart after call 900 is reached; until then
-  `screen.model_faults_seen` is blocked by the lost calls.
 - The lint reads literals only: a named constant (`UPSTREAM_READ_S = 180` in `libs/tb_llm`, F-13) or a limit outside
   `services/` is not listed. Widening it is a follow-up.
 
 - The FHIR store (HAPI) is not loaded in the gate (it needs Docker): the backup's database is the run's PostgreSQL,
   not a 20 to 50 GB box database. F-02 fails on the pause itself, which does not depend on the size.
 - The screen runs the cascade with the real gateway, not an orchestrator job: the failure share checked during the
-  job and the restart of the orchestrator (F-04, F-28, T-689) are T-689's acceptance tests.
+  job and the restart of the orchestrator (F-28, T-689) are T-689's acceptance tests.

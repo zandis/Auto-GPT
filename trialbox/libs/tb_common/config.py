@@ -787,6 +787,7 @@ DECLARED: dict[str, Declared] = {
         "int", "", "model stub: the call after which the stand-in's outage starts (T-687)"
     ),
     "TB_STUB_OUTAGE_S": Declared("float", "", "model stub: seconds of 502 answers in the stand-in's outage (T-687)"),
+    "TB_STUB_OUTAGE_STATUS": Declared("int", "502", "model stub: the HTTP status of the stand-in's outage (T-687)"),
     "TB_SWAP_HOLD_S": Declared("float", "", "gateway swap: hold time"),
     "TB_SWAP_WAKE_TIMEOUT_S": Declared("float", "", "gateway swap: wake timeout"),
     "TB_TERMINOLOGY_SOURCE": Declared("str", "", "compiler: terminology source"),

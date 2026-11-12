@@ -10,7 +10,7 @@
 # console POC test. The compose job allows no skip (TB_STRICT_SKIPS=1) and keeps its junit files and walk result.
 # The scale gate (T-687, D-471; plan v6.1 §5 item 4): the night of a 50,000-patient synthetic hospital, each part under
 # the memory cap of its compose service (a cgroup made with systemd-run), with the slow model stand-in; today's
-# failures (F-04) are strict expected failures by card, so the job is green while exactly they fail.
+# failures are strict expected failures by card (EXPECTED in tools/scale_gate.py; empty since T-689).
 # workflow_dispatch runs the same jobs by hand; the first scheduled run after a change to this file is its proof.
 name: TrialBox nightly
 

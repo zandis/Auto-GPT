@@ -165,10 +165,14 @@ def test_the_ledger_names_a_finding_and_a_card_for_each_known_failure() -> None:
     assert set(sg.EXPECTED) <= set(sg.CHECKS)
     for cid, e in sg.EXPECTED.items():
         assert e.findings and all(f.startswith("F-") for f in e.findings) and e.card.startswith("T-"), cid
-    # G1 BUGS.md B2's three blockers: F-01 (T-690) and F-02 (T-691) are fixed on master and pass the gate (their lines
-    # are gone), and so is F-05 (T-692, streaming ingest and rebuild); F-04 (T-689) is open and the gate reproduces it
+    # G1 BUGS.md B2's three blockers F-01 (T-690), F-02 (T-691), F-05 (T-692), and F-04 (T-689): fixed on master, they
+    # pass the gate and their lines are gone; the gate's tests below still catch each shape
     found = {f for e in sg.EXPECTED.values() for f in e.findings}
-    assert found >= {"F-04"} and not found & {"F-01", "F-02", "F-05"}
+    assert not found & {"F-01", "F-02", "F-04", "F-05"}
+    # the faults the gate counts include the product's own list (T-689: the batch roles wait through these)
+    from tb_llm.outage import MODEL_FAULTS
+
+    assert MODEL_FAULTS <= sg.FAULT_REFUSALS and "upstream_down" in sg.FAULT_REFUSALS
 
 
 # ------------------------------------------------------------------------------------------------ the gate, small
@@ -191,7 +195,7 @@ def _params(tmp_path: Path, **kw: Any) -> sg.Params:
 
 def test_the_gate_at_200_patients(tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Every part runs; under 50,000 the size-bound checks pass, the publish (T-690) and the backup without a pause
-    (T-691) pass, and F-04's lost calls are reported as known-open with its card; the gate is green."""
+    (T-691) pass, and the screen waits through the outage and the restart (T-689): no judge call lost, green."""
     monkeypatch.setenv("TB_DB_URL", db_url)
     rep = sg.run(_params(tmp_path))
     rows = {r["check"]: r for r in rep.rows()}
@@ -202,15 +206,16 @@ def test_the_gate_at_200_patients(tmp_path: Path, db_url: str, monkeypatch: pyte
         "publish.recorded_once",
         "screen.ends_under_cap",
         "screen.model_faults_seen",
+        "screen.outage_no_unknown",
         "backup.ends",
         "backup.no_pause",
     ):
         assert rows[cid]["state"] == scale.PASS, rows[cid]
-    out = rows["screen.outage_no_unknown"]
-    assert out["state"] == scale.KNOWN and out["expected"] == "F-04 (T-689)", out
-    assert rep.ok()
+    assert (
+        rep.ok() and rep.numbers["screen"]["stand_in_outage_answers"] > 0
+    )  # the outage happened and was waited through
     md = (tmp_path / "gate" / "scale_gate.md").read_text(encoding="utf-8")
-    assert "known-open | F-04 (T-689)" in md and "enforcement: measure" in md and "Gate: green" in md
+    assert "enforcement: measure" in md and "Gate: green" in md
     assert rep.numbers["publish"]["rebuilds_started"] == 1 and rep.numbers["screen"]["stand_in_restarts"] == 1
 
 
@@ -268,6 +273,19 @@ def test_a_lake_over_its_cap_fails_the_rebuild(tmp_path: Path, db_url: str, monk
     for cid in ("screen.ends_under_cap", "screen.outage_no_unknown"):
         assert rows[cid]["state"] == scale.BLOCKED and rows[cid]["blocked_by"] == "rebuild", rows[cid]
     assert not rep.ok()
+
+
+def test_the_gate_catches_a_screen_that_loses_calls_in_an_outage(
+    tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F-04's shape after T-689: an outage the product does not wait through. The stand-in answers its outage with 400
+    (a configuration fault to the gateway, ``upstream_failed``: not sent again), so the screen loses those calls and
+    the gate says FAIL (no EXPECTED line covers it any more)."""
+    monkeypatch.setenv("TB_DB_URL", db_url)
+    rep = sg.run(_params(tmp_path, outage_status=400, restart_after=0))
+    row = next(r for r in rep.rows() if r["check"] == "screen.outage_no_unknown")
+    assert row["state"] == scale.FAIL and "lost to the model's faults" in row["detail"], row
+    assert rep.numbers["screen"]["stand_in_outage_answers"] > 0 and not rep.ok()
 
 
 # ------------------------------------------------------------------------------------------------ the nightly job

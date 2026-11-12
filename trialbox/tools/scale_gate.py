@@ -48,6 +48,7 @@ for _p in ("libs", "services", "."):
     if str(ROOT / _p) not in sys.path:
         sys.path.insert(0, str(ROOT / _p))
 
+from tb_llm.outage import MODEL_FAULTS  # noqa: E402
 from tb_testkit.scale import (  # noqa: E402
     Check,
     Enforcer,
@@ -69,8 +70,10 @@ SNAPSHOT = "2026-10-04"  # the night before it: the snapshot the night writes
 TRIAL = "GZQO"  # the ruleset of hospital_sim and the bench gate
 SITE_KEY = b"trialbox-scale-gate-site-key-0123456789"
 FULL = 50_000  # the size of the plan's reference site (SPEC §11.3, review §3): the nightly job's size
-# the gateway's refusals that are the model's faults (an outage, a restart, a stall), not the call's content
-FAULT_REFUSALS = frozenset({"model_asleep", "model_busy", "model_unavailable", "upstream_failed"})
+# the gateway's refusals that are the model's faults (an outage, a restart, a queue), not the call's content: the
+# product's own list (T-689, D-456: ``upstream_down`` is the gateway's 5xx or transport error after its own retry), and
+# ``upstream_failed``, which before T-689 was how a 502 outage was answered (a call lost to it is lost to the model)
+FAULT_REFUSALS = frozenset({*MODEL_FAULTS, "upstream_failed"})
 # the compose service whose cap each part runs under (deploy/docker-compose.yml)
 SERVICE = {"ingest": "adapter", "rebuild": "lake", "screen": "orchestrator", "backup": "db", "generate": "-"}
 
@@ -88,14 +91,9 @@ CHECKS = {
 # Today's failures: strict expected failures (D-460). A check here must fail from ``from_patients`` up, and passes
 # below it. The card that fixes one removes its line; until then a pass turns the gate red ("FIXED").
 EXPECTED: dict[str, Expected] = {
-    # F-04: when T-689 (#309) lands, the gateway answers the stand-in's 502 outage with its new code `upstream_down`:
-    # add it to FAULT_REFUSALS (the model's faults) and remove this line if the screen then loses no call
-    "screen.outage_no_unknown": Expected(
-        ("F-04",),
-        "T-689",
-        0,
-        "a refused call is tried once at once and then lost as unknown; reproduced at 200 patients with a 1 s outage",
-    ),
+    # empty since T-689 (D-456): F-01 (T-690), F-02 (T-691), F-05 (T-692) and F-04 (T-689) were listed until their
+    # cards merged; each then passed at 200 and 2,000 patients and its line was removed. A new known failure goes here
+    # with its finding and card.
 }
 
 
@@ -110,6 +108,7 @@ class Params:
     outage_s: float = 0.0  # for this many seconds
     restart_after: int = 0  # the call count after which the stand-in is restarted once (0: never)
     restart_gap_s: float = 0.0  # how long it is down
+    outage_status: int = 502  # the status of the outage's answers (a test plays one the product does not wait through)
     lake_timeout_s: float | None = None  # None: the product's LakeHttp default (the limit F-01 is about)
     publish_poll_s: float = 5.0
     backup_quiesce: str = ""  # "" : the box's default (D-455: off); "pause": D-274's pause, to show the gate sees it
@@ -597,7 +596,7 @@ def _publish(p: Params, rep: Report, url: str, alive: Any, token: str) -> bool:
 def _screen(
     p: Params, rep: Report, enf: Enforcer, work: Path, logs: Path, lake_url: str, lake_alive: Any, token: str
 ) -> None:
-    model = SlowModel(work / "stub", p.latency_s, p.outage_after, p.outage_s, p.restart_gap_s)
+    model = SlowModel(work / "stub", p.latency_s, p.outage_after, p.outage_s, p.restart_gap_s, p.outage_status)
     model.start()
     done = threading.Event()
     watcher = model.restart_after(p.restart_after, done) if p.restart_after else None
@@ -631,7 +630,7 @@ def _screen(
     rep.numbers["screen"] = {
         **got,
         "stand_in_calls": model.calls(),
-        "stand_in_502": model.refused(),
+        "stand_in_outage_answers": model.refused(),
         "stand_in_restarts": model.restarts,
     }
     why = _over(sc)
@@ -671,7 +670,8 @@ def _screen(
         )
     want_outage, want_restart = p.outage_s > 0, p.restart_after > 0
     seen = (not want_outage or model.refused() > 0) and (not want_restart or model.restarts == 1)
-    detail = f"{model.refused()} answers of 502, {model.restarts} restart(s) in {model.calls()} calls"
+    faults = f"{model.refused()} outage answers ({model.outage_status}), {model.restarts} restart(s)"
+    detail = f"{faults} in {model.calls()} calls"
     if not seen and lost:  # the job lost its calls (the breaker answers for the model): the later fault is not met
         rep.check("screen.model_faults_seen", None, detail, blocked_by="screen.outage_no_unknown")
     else:

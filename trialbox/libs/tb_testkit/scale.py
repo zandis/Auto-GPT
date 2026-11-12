@@ -320,6 +320,9 @@ class SlowModel:
     outage_after: int = 0
     outage_s: float = 0.0
     restart_gap_s: float = 0.0
+    outage_status: int = (
+        502  # 502: what a restarting server behind a proxy answers; another to play a fault callers lose
+    )
     port: int = field(default_factory=free_port)
     proc: subprocess.Popen[bytes] | None = None
     restarts: int = 0
@@ -334,6 +337,7 @@ class SlowModel:
         e["TB_STUB_LATENCY_S"] = str(self.latency_s) if self.latency_s else ""
         e["TB_STUB_OUTAGE_AFTER"] = str(self.outage_after) if self.outage_s else ""
         e["TB_STUB_OUTAGE_S"] = str(self.outage_s) if self.outage_s else ""
+        e["TB_STUB_OUTAGE_STATUS"] = str(self.outage_status)
         return e
 
     def start(self, outage: bool = True) -> None:
@@ -394,8 +398,8 @@ class SlowModel:
         return len(self._requests())
 
     def refused(self) -> int:
-        """Chat calls it answered with 502 (the outage)."""
-        return sum(1 for s in self._requests() if s == 502)
+        """Chat calls it answered with the outage's status."""
+        return sum(1 for s in self._requests() if s == self.outage_status)
 
     def restart_after(self, calls: int, done: threading.Event) -> threading.Thread:
         """A thread that restarts the stand-in once it has seen ``calls`` calls (unless ``done`` is set first)."""
