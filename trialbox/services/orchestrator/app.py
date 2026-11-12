@@ -27,6 +27,7 @@ from tb_common.fhir import FhirEvaluator
 from tb_common.http import make_app
 from tb_common.llm import LlmClient
 from tb_common.objstore import from_config
+from tb_common.ruleset import seed_working_copy
 from tb_common.service_auth import (
     ACTOR_HEADER,
     ASSERTION_HEADER,
@@ -105,6 +106,7 @@ def orch() -> Orchestrator:
             llm=LlmClient.from_config(audit),
             verifier=verifier_client(audit),
         )
+        seed_working_copy(cfg.env.rulesets_path)  # D-469: a first copy of the shipped rulesets; never the checkout
         _orch = Orchestrator(
             cfg,
             JobDB(),  # TB_DB_URL, schema orch

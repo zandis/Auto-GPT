@@ -86,6 +86,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "console.breakglass_notice": ("Break-glass notice sent", "緊急アクセス通知の送信", "寄送緊急存取通知"),
     # exports and downloads
     "console.export": ("Export downloaded", "エクスポートのダウンロード", "下載匯出檔"),
+    "console.first_run": ("First-run set-up completed", "初回セットアップの完了", "完成首次設定"),
     "console.download": ("File downloaded", "ファイルのダウンロード", "下載檔案"),
     "console.data_export": ("Study data exported", "研究データのエクスポート", "匯出研究資料"),
     "console.registry": ("Registry list exported", "レジストリ一覧のエクスポート", "匯出登錄名單"),
@@ -122,6 +123,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "microbatch.budget": ("Night budget used", "夜間予算の使用", "使用夜間額度"),
     "notice.sent": ("Notice sent", "通知の送信", "寄送通知"),
     "cohort.trials": ("Cohort's studies listed", "コホートの研究一覧", "列出族群之研究"),
+    "opportunity.feed": ("Trial-opportunity feed built", "治験機会フィードを作成", "建立臨床試驗機會摘要"),
     "feas.profile_skipped": ("Feasibility profile skipped", "実施可能性プロファイルの省略", "略過可行性剖析"),
     "screen.evaluated": ("Screening evaluated", "スクリーニングの評価", "完成篩選評估"),
     "screen.opt_out_removed": (
@@ -311,6 +313,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "backup.alert": ("Backup alert", "バックアップの警告", "備份警示"),
     "backup.alert_cleared": ("Backup alert cleared", "バックアップ警告の解除", "解除備份警示"),
     "backup.alert_not_sent": ("Backup alert not sent", "バックアップ警告の未送信", "備份警示未寄出"),
+    "backup.restore_reapply": (
+        "Restore: events after the backup to re-apply",
+        "復元：バックアップ後の操作の再適用が必要",
+        "還原：備份之後的操作需重新套用",
+    ),
     "update.applied": ("Update applied", "更新の適用", "套用更新"),
     "update.downgrade": ("Downgrade", "ダウングレード", "降版"),
     "update.rolled_back": ("Update rolled back", "更新の差し戻し", "更新已還原"),
