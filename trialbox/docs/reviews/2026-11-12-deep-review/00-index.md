@@ -20,7 +20,7 @@ and a PoC / go-live flag. Ids restart at 001 per file; findings of the review of
 | `01-plan-vs-build.md` | Plan against the build; what to drop | PLAN | read; card-by-card check of 237 cards; `tests/property` run | 18 | 5 | 2 | 7 | 3 | 1 |
 | `02-architecture.md` | Architecture and best practice | ARCH | **run** (restart and role experiments over real HTTP and PostgreSQL) | 21 | 0 | 0 | 7 | 10 | 4 |
 | `03-code-quality-se.md` | Code quality and software engineering | ENG | **run** (3,570 unit tests reached, lint, property) | 20 | 1 | 3 | 5 | 6 | 5 |
-| `04-user-journeys.md` | User journeys, role by role | JRN | **run** (`e2e-simple`, the console in a browser) | in progress | | | | | |
+| `04-user-journeys.md` | User journeys, role by role | JRN | **run** (`e2e-simple` passed in 499 s, 224 checks; the console walked in a browser as ten identities) | 25 | 1 | 1 | 7 | 11 | 5 |
 | `05-ui-ux.md` | UI/UX; ja, zh-TW, en | UX | **run** (355 page loads, 3 roles × 3 languages × 2 widths) | 23 | 0 | 0 | 6 | 11 | 6 |
 | `06-llm.md` | LLM use, serving and platform | LLM | **run** (stub, gateway, tripwire, budget; no GPU) | 19 | 2 | 0 | 5 | 11 | 1 |
 | `07-performance-scale-robustness.md` | Performance, scale, robustness | PERF | **run** (up to 8,000 synthetic patients; restart and backup experiments) | 36 | 2 | 4 | 17 | 10 | 3 |
@@ -30,7 +30,7 @@ and a PoC / go-live flag. Ids restart at 001 per file; findings of the review of
 | `11-standards.md` | Standards | STD | **run** (17 standards test files, checkers, probes) | 21 | 0 | 0 | 6 | 10 | 5 |
 | `12-maintenance-operations.md` | Maintenance and operations | OPS | read, small runs (`bash -n` on 48 scripts; key, bundle, health runs) | 22 | 1 | 2 | 9 | 7 | 3 |
 | `13-final-build-hardware-install.md` | Final build, hardware, tuning, installation | HW | read, dry runs, memory arithmetic from the two measurement files | 20 | 3 | 0 | 9 | 6 | 2 |
-| **All** | | | | 267 + JRN | 15 | 16 | 97 | 105 | 34 |
+| **All** | | | | **292** | **16** | **17** | **104** | **116** | **39** |
 
 The same defect seen from two areas keeps both ids and is counted in both files; section 4 lists the pairs.
 
@@ -89,7 +89,8 @@ The same defect seen from two areas keeps both ids and is counted in both files;
 | 15 | **STD-001, STD-004, DIN-006, DIN-009.** ICD-9-CM years tagged ICD-10-CM; `IU/L` and `×10^3/µL` unread; unmapped codes dropped with no count. | High | by runs | wave 0 and 1, lane E | Go-live TW / JP |
 | 16 | **LLM-002, LLM-003.** Note retrieval works only for the demo vocabulary (32 English words; a hash embedder in SCREEN); the PHI tripwire refuses 12 of 20 ordinary zh-TW criteria. | High | by runs | NEW-LLM-2, -3 (wave 2) | PoC |
 | 17 | **STD-002, LIFE-010.** Signed audit heads are never made on a box: truncation plus a rewritten head verifies PASS. | High | by a run | NEW-STD-2 (wave 0) | Go-live both |
-| 18 | **PLAN-003, PLAN-004, PLAN-005.** The scope does not fit; the hardware form is undecided and unordered; the CGRD data path is a 43-line reader. | Blocker | `01-…` §4, §6 | plan v7 §2 (Q1, Q2, Q7, Q8), §4 | Go-live both |
+| 18 | **JRN-001, JRN-002.** A new study cannot get its first approval in the console (PI approve is 403; the steward's team page is 404 until approved; tests seed the PI in the database). The opt-out register accepts the 8-character pseudonym every screen shows, says "removed", and the patient stays on the list. | Blocker / Critical | by a browser walk; `tools/e2e_simple.py:478`, `console/team.py:961-966` | NEW-JRN-1, NEW-JRN-2 (wave 0) | PoC |
+| 19 | **PLAN-003, PLAN-004, PLAN-005.** The scope does not fit; the hardware form is undecided and unordered; the CGRD data path is a 43-line reader. | Blocker | `01-…` §4, §6 | plan v7 §2 (Q1, Q2, Q7, Q8), §4 | Go-live both |
 
 ## 4. The same root seen from several areas
 
@@ -101,7 +102,10 @@ The same defect seen from two areas keeps both ids and is counted in both files;
 | Restart and the night's state | ARCH-001, ARCH-002, ARCH-003, PERF-008, PERF-009 |
 | Signed heads never scheduled | STD-002, LIFE-010 |
 | One lake source; HAPI on the box | PLAN-008, STD-006, STD-010, ARCH-015 |
-| Opt-out across identities | DIN-002, DIN-003, ENG-004, LIFE-005, PLAN-006 |
+| Opt-out across identities | DIN-002, DIN-003, ENG-004, JRN-002, LIFE-005, PLAN-006 |
+| Study close is one unchecked click | LIFE-006, JRN-004 |
+| The demo is dated after today | UX-006, JRN-010 |
+| Tests write the database where a person would use a screen | JRN-001, ARCH-006, ARCH-021 |
 | Units and their spellings | STD-004, DIN-009 |
 | Encodings at upload | UX-004, EDC (dictionary), DIN |
 | The installer | OPS-003, OPS-004, HW-012, UX-011 |

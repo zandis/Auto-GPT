@@ -37,7 +37,8 @@ and get a `T-` number when started; where a `NEW-` id here and the area file dif
    (ENG-001, ENG-002).
 8. REDCap write-back has never met a real REDCap, and the simulator accepts what REDCap refuses (EDC-001); on a
    repeating instrument it writes into a person's own instance (EDC-002).
-9. A new box is seeded with eight rulesets already approved and scheduled (LIFE-001).
+9. A new box is seeded with eight rulesets already approved and scheduled (LIFE-001), while a new study made by a
+   person cannot get its first approval in the console at all (JRN-001).
 10. Much is sound and stays: the unit suite (3,541 of 3,570 reached tests pass; failures are this machine's missing
     jars), the unit conversion fix, the pair's "unknown on any fault" rule, the audit hash chain, accessibility and
     the three language catalogues.
@@ -140,6 +141,8 @@ A card merges only after its own unit job is green (v6.1 §5.6 stays).
 | A | NEW-LIFE-1: no pre-approved ruleset on a VALIDATION or PRODUCTION box (LIFE-001) | S |
 | B | NEW-PERF-2 / NEW-ARCH-1: on 409 the orchestrator follows the running ingest (PERF-008, ARCH-002) | S |
 | B | NEW-PERF-3: a built-but-not-promoted night is not "passed"; a snapshot dated after today is refused (PERF-009) | S |
+| C | NEW-JRN-1: a new study gets its first approval in the console; the journeys never write the database directly (JRN-001) | S |
+| C | NEW-JRN-2: the opt-out register takes a chart number or the whole pseudonym, never a prefix, and says when nobody matched (JRN-002, DIN-003) | S |
 | C | ENG-004: the console reads `optout.effective()` (merged charts); with T-708 | S |
 | C | NEW-ARCH-18: every store's schema is on its service's role list, with an enumerating test (ARCH-021) | S |
 | D | NEW-OPS-8: `trialbox-ops.timer` enabled; stale health facts turn red (OPS-009). NEW-STD-2: signed audit heads on a timer and in `doctor` (STD-002, LIFE-010) | S, S |
@@ -192,7 +195,7 @@ A card merges only after its own unit job is green (v6.1 §5.6 stays).
 | --- | --- | --- |
 | B | T-694 batches; T-702, T-703, T-695; the 500,000-patient night as an incremental night with a stated capacity, refused with an estimate when it does not fit (HW-007, OD-10) | L, L, S, M |
 | C | Lifecycle repairs: the screening log keeps numbered rows on opt-out (LIFE-005); a study closes only when empty (LIFE-006); the SAE clock is off until the study's rule set is confirmed, mail at entry and daily (LIFE-007, LIFE-008); retention hold by study state (LIFE-009, T-305c); reason for change and append-only trails (LIFE-011) | S, S, M, S, M |
-| C | Journeys and UI: the findings of `04-user-journeys.md`; the mark bar on the desktop (UX-001); session expiry keeps the note (UX-007); per-user language; week-list latency after a box measurement (UX-010) | S to M each |
+| C | Journeys: the PI may start a request from the page (JRN-003); the EDC item map saves at the dictionary's size (JRN-005); the privacy office reaches the one-patient report (JRN-006); a consent date after today is refused (JRN-007); the monitor's page is linked and shows built-in forms (JRN-008); the journey set covers approval, SAE, visits, close, EDC sign and the monitor visit (NEW-JRN-20). UI: the mark bar on the desktop (UX-001); session expiry keeps the note (UX-007); per-user language; week-list latency after a box measurement (UX-010) | S to M each |
 | E | Outputs: PDF glyph fallback (UX-002); localised, printable workbooks (UX-003); a BOM on every CSV; one decoder for every text upload with Shift_JIS and Big5 cases (UX-004) | M, M, S, S |
 | E | EDC in copy mode: source-changed flag (EDC-004); the human's correction read back (EDC-005); retire a removed item (EDC-006); era and ROC dates in prefill | M, M, S, S |
 | D | T-317 guides in ja and zh-TW served from Help; acceptance gains capacity and power-cycle criteria | M, S |
