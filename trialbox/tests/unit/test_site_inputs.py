@@ -84,6 +84,34 @@ def test_the_adapter_ingests_from_the_mounted_feed_with_a_mapping_not_in_the_ima
     assert report["passed"] and report["counts"].get("Patient", 0) > 0, report["counts"]
 
 
+def test_the_adapter_tells_a_busy_lake_from_a_refusal_over_http(
+    site: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T-722 (D-462): the lake service's 409 with ``X-TB-Lake-Busy`` is ``LakeBusy`` (retried, as in process); a 409
+    without it stays a refusal of the data (``RebuildRefused``, a held night)."""
+    import httpx
+    from adapter import cli
+    from adapter.pipeline import RebuildRefused
+    from lake.store import LakeBusy
+
+    answer: dict[str, Any] = {}
+
+    def post(url: str, **k: Any) -> httpx.Response:
+        return httpx.Response(409, json={"detail": answer["detail"]}, headers=answer["headers"],
+                              request=httpx.Request("POST", url))  # fmt: skip
+
+    monkeypatch.setenv("TB_ADAPTER_LAKE", "http")
+    monkeypatch.setattr(httpx, "post", post)
+    ac, _, _ = cli.build_config()
+    assert ac.rebuild is not None
+    answer.update(detail="lake snapshot 2026-10-04 is already building", headers={"X-TB-Lake-Busy": "building"})
+    with pytest.raises(LakeBusy, match="already building"):
+        ac.rebuild("2026-10-04", site["tmp"])
+    answer.update(detail="would tombstone person: 600 of 600", headers={})
+    with pytest.raises(RebuildRefused, match="600 of 600"):
+        ac.rebuild("2026-10-04", site["tmp"])
+
+
 def test_a_missing_site_mapping_is_a_configuration_error(site: dict[str, Path]) -> None:
     from adapter import cli
     from tb_common.config import ConfigError

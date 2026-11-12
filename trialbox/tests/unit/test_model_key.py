@@ -30,13 +30,18 @@ def _load(name: str) -> dict[str, Any]:
     return doc
 
 
+VLLM_ENV = {"path": "./secrets/model/vllm.env", "required": False}
+
+
 def test_every_vllm_server_gets_the_key() -> None:
+    """T-212d (D-450): from its own env file (deploy/secrets/model/vllm.env), never from deploy/.env."""
     seen = 0
     for name in VLLM_FILES:
         for svc, body in (_load(name).get("services") or {}).items():
             if svc in ("llm-service", "llm-verifier") and "command" in body:
                 env = body.get("environment") or {}
-                assert env.get("VLLM_API_KEY") == "${TB_LLM_API_KEY:-}", f"{name} {svc}"
+                assert "VLLM_API_KEY" not in env and "TB_LLM_API_KEY" not in str(env), f"{name} {svc}"
+                assert VLLM_ENV in (body.get("env_file") or []), f"{name} {svc}"
                 seen += 1
     assert seen == 9  # base llm-service; gb10, rtx5090, rtxpro6000, shared-quota (D-409): the pair each
 
@@ -77,7 +82,9 @@ def _rendered(tmp_path: Path, profile_file: str | None) -> dict[str, Any]:
         pytest.skip("docker compose is not installed")
     for f in DEPLOY.glob("docker-compose*.yml"):
         shutil.copy(f, tmp_path / f.name)
-    (tmp_path / ".env").write_text("TB_LLM_API_KEY=key-0123456789\nCLOUD_LLM_API_KEY=c\nPOSTGRES_PASSWORD=p\n")
+    (tmp_path / ".env").write_text("TB_LLM_API_KEY=dotenv-copy-0123\nCLOUD_LLM_API_KEY=c\nPOSTGRES_PASSWORD=p\n")
+    (tmp_path / "secrets" / "model").mkdir(parents=True)
+    (tmp_path / "secrets" / "model" / "vllm.env").write_text("VLLM_API_KEY=key-0123456789\n")  # D-450
     argv = ["docker", "compose", "-f", "docker-compose.yml", "-f", "docker-compose.secrets.yml"]
     argv += ["-f", profile_file] if profile_file else []
     argv += ["--profile", "gpu", "config", "--format", "json"]
@@ -90,8 +97,8 @@ def _rendered(tmp_path: Path, profile_file: str | None) -> dict[str, Any]:
                                      "docker-compose.rtxpro6000.yml"])  # fmt: skip
 def test_rendered_config_only_the_gateway_and_the_guard_hold_the_key(tmp_path: Path, profile: str | None) -> None:
     svcs = _rendered(tmp_path, profile)["services"]
-    holders = {n for n, s in svcs.items() if (s.get("environment") or {}).get("TB_LLM_API_KEY") == "key-0123456789"}
-    assert holders == set()  # D-437: the gateway and the guard read the compose secret, not the environment
+    holders = {n for n, s in svcs.items() if "dotenv-copy-0123" in json.dumps(s.get("environment") or {})}
+    assert holders == set()  # D-437, D-450: no container gets deploy/.env's copy, the vLLM servers included
     files = {n for n, s in svcs.items() if any(x.get("source") == "model_key" for x in s.get("secrets") or [])}
     assert files == {"gateway", "model-guard"}
     on_model_net = {n for n, s in svcs.items() if "model-net" in (s.get("networks") or {})}

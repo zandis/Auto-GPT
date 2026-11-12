@@ -35,6 +35,22 @@ class PinnedLake:
     def __init__(self, lake: Any, snapshot: str | None) -> None:
         self.lake = lake
         self.pinned = snapshot
+        self._tag = secrets.token_hex(4)
+
+    def _holder(self, holder: str) -> str:
+        """The re-run's own hold name: never the original job's, and one per re-run (two re-runs of a job at once)."""
+        return f"rerun.{holder}.{self._tag}"
+
+    def hold(self, snapshot: str, holder: str) -> None:
+        """D-462: a re-run holds its snapshot like the job did (``jobs.PinnedLake`` asks for it), so a publish cannot
+        rebuild it under the re-run. A lake without holds (a test's fake) holds nothing."""
+        hold = getattr(self.lake, "hold", None)
+        if hold is not None:
+            hold(snapshot, self._holder(holder))
+
+    def release(self, holder: str) -> bool:
+        release = getattr(self.lake, "release", None)
+        return bool(release(self._holder(holder))) if release is not None else False
 
     def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> Any:
         return self.lake.query(sql, params, snapshot or self.pinned)

@@ -159,31 +159,35 @@ def test_simulated_claim_response() -> None:
 
 
 def test_post_bundle_variants(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tb_common import http as tbh
+
     replies: list[httpx.Response] = []
 
-    def fake_post(url: str, **_: Any) -> httpx.Response:
-        assert url == "https://nhi.invalid/Claim/$submit"
+    def fake_post(request: httpx.Request) -> httpx.Response:
+        # T-212d (D-450): the call goes through the SSRF guard, to the address it checked, with the name as Host
+        assert request.method == "POST" and request.url.path == "/Claim/$submit"
+        assert request.headers["host"] == "nhi.invalid" and request.url.host == "93.184.216.34"
         return replies.pop(0)
 
-    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr(tbh, "resolve_now", lambda host, port: ["93.184.216.34"])
+    mock = httpx.MockTransport(fake_post)
     cr = {"resourceType": "ClaimResponse", "outcome": "complete"}
     replies.append(httpx.Response(200, json=cr))
-    assert submit.post_bundle("https://nhi.invalid/", b"{}")["outcome"] == "complete"
+    assert submit.post_bundle("https://nhi.invalid/", b"{}", transport=mock)["outcome"] == "complete"
     replies.append(httpx.Response(200, json={"resourceType": "Bundle", "entry": [{"resource": cr}]}))
-    assert submit.post_bundle("https://nhi.invalid", b"{}")["outcome"] == "complete"
+    assert submit.post_bundle("https://nhi.invalid", b"{}", transport=mock)["outcome"] == "complete"
     replies.append(httpx.Response(503, text="down"))
     with pytest.raises(StepFailed, match="HTTP 503"):
-        submit.post_bundle("https://nhi.invalid", b"{}")
+        submit.post_bundle("https://nhi.invalid", b"{}", transport=mock)
     replies.append(httpx.Response(200, json={"resourceType": "OperationOutcome"}))
     with pytest.raises(StepFailed, match="not a ClaimResponse"):
-        submit.post_bundle("https://nhi.invalid", b"{}")
+        submit.post_bundle("https://nhi.invalid", b"{}", transport=mock)
 
-    def unreachable(url: str, **_: Any) -> httpx.Response:
+    def unreachable(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("no route")
 
-    monkeypatch.setattr(httpx, "post", unreachable)
     with pytest.raises(StepFailed, match="nothing was submitted"):
-        submit.post_bundle("https://nhi.invalid", b"{}")
+        submit.post_bundle("https://nhi.invalid", b"{}", transport=httpx.MockTransport(unreachable))
 
 
 def test_submissions_table(tmp_path: Path) -> None:

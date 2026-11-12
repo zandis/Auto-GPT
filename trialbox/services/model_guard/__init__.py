@@ -15,7 +15,8 @@ Everything else is 404 and is never forwarded. A call without the key, or with a
 chosen by the request's host name (``TB_GUARD_ROUTES="llm-service=llm-service-vllm:8000,..."``); an unknown host is
 404. The guard refuses to start without a key: the file ``TB_LLM_API_KEY_FILE`` names (a compose secret,
 ``deploy/secrets/model/llm.key``, D-437) or else ``TB_LLM_API_KEY``. ``trialbox secrets rotate --service model``
-writes a new key and recreates the guard, so the old key is refused from then on. Standard library only.
+writes a new key and recreates the guard, so the old key is refused from then on. Standard library only, except
+that each request line goes through the services' log scrubber (``tb_common.logging``, in the image; T-212d, D-450).
 """
 
 from __future__ import annotations
@@ -28,6 +29,22 @@ import sys
 from collections.abc import Mapping
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
+
+try:  # T-212d (D-450): the request line through the services' scrubber (chart numbers, secrets in a query)
+    from tb_common.logging import redact as _redact
+    from tb_common.logging import register_secret as _register_secret
+    from tb_common.logging import site_rule_on as _site_rule_on
+except ImportError:  # pragma: no cover - the image always has tb_common
+
+    def _redact(text: str) -> str:
+        return text
+
+    def _register_secret(value: str) -> None:
+        return None
+
+    def _site_rule_on() -> str:
+        return ""
+
 
 MAX_BODY = 16 * 1024 * 1024
 KEYED: dict[str, set[str]] = {
@@ -88,7 +105,7 @@ def make_handler(g: Guard) -> type[BaseHTTPRequestHandler]:
         server_version = "trialbox-model-guard"
 
         def log_message(self, format: str, *args: Any) -> None:  # one line per call, never a header or a body
-            sys.stderr.write("model-guard %s\n" % (format % args))
+            sys.stderr.write(f"model-guard {_redact(format % args)}\n")
 
         def _reply(self, status: int, payload: dict[str, Any]) -> None:
             data = json.dumps(payload).encode()
@@ -173,12 +190,19 @@ def build(env: Mapping[str, str] | None = None) -> Guard:
     )
 
 
+def scrub_setup(key: str) -> None:
+    """The request lines through the services' scrubber (T-212d, D-450): the key and the site's chart numbers."""
+    _register_secret(key)
+    _site_rule_on()
+
+
 def main(argv: list[str] | None = None) -> int:
     try:
         g = build()
     except ValueError as exc:
         print(f"model_guard: {exc}", file=sys.stderr)
         return 2
+    scrub_setup(g.key)
     port = int(os.environ.get("PORT") or 8000)
     srv = ThreadingHTTPServer(("0.0.0.0", port), make_handler(g))
     srv.daemon_threads = True

@@ -468,6 +468,26 @@ def test_a_lake_from_before_the_marker_counts_as_fed(tmp_path: Path) -> None:
     assert not site_only.fed() and site_only.current() == "2026-10-05"
 
 
+def test_a_busy_lake_is_retried_not_a_held_night(tmp_path: Path) -> None:
+    """T-722 (D-462), review 4: a lake that is busy (a job holds the snapshot, or another rebuild of it runs) wrote
+    nothing and refused no data: the night ends "lake busy", is not held and gets no held.json; the same in process
+    and over HTTP (409 with ``X-TB-Lake-Busy``)."""
+    from lake.store import LakeBusy, SnapshotBuilding, SnapshotHeld
+
+    for exc in (SnapshotBuilding("lake snapshot 2026-10-01 is already building"), SnapshotHeld("running job"),
+                LakeBusy("the lake is busy with snapshot 2026-10-01")):  # fmt: skip
+
+        def busy(snap: str, nd: Path, exc: Exception = exc) -> RebuildResult:
+            raise exc
+
+        cfg = _cfg(tmp_path)
+        cfg.rebuild = busy
+        _csv(tmp_path / "n1", [_row("D1", "2026-09-01")])
+        rep = run_ingest(cfg, "csv", str(tmp_path / "n1"), snapshot="2026-10-01", load_fhir=False, validate=False)
+        assert not rep.held and not rep.passed and any(e.startswith("lake busy") for e in rep.errors or [])
+        assert not (snapshot_dir(cfg.lake_dir, "2026-10-01") / "held.json").exists()
+
+
 def test_a_refusal_by_the_lake_holds_the_night_with_its_reason(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Review M2: a refusal reaches the ingest report with the lake's reason and holds the night; the lake service
     answers 409 with the detail for an OMOP refusal too (no bare 500)."""
