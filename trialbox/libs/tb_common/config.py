@@ -538,6 +538,9 @@ DECLARED: dict[str, Declared] = {
     "TB_HOST_ROOT": Declared("path", "", "host scripts: fake host root for the tests only, empty on the box (D-408)"),
     "TB_HOST_TZ": Declared("str", "", "doctor: the host's zone to compare"),
     "TB_IMAGE": Declared("str", "trialbox-py:1.0.0", "the Python services' image"),
+    "TB_INGEST_SORT_MB": Declared(
+        "int", "", "ingest: MB of NDJSON lines one sort run of the merge holds (unset: a sixteenth of the cap; D-473)"
+    ),
     "TB_INSTALL_PULL": Declared("str", "never", "install: image pull policy"),
     "TB_INSTALL_UP_TIMEOUT": Declared("int", "900", "install: seconds to wait for health"),
     "TB_IRB_TEXT_GATE": Declared(
@@ -732,6 +735,9 @@ DECLARED: dict[str, Declared] = {
     "TB_SETTINGS": Declared("str", "", "settings.yaml path"),
     "TB_SETTINGS_FILE": Declared("path", "settings.yaml", "backup schedule: settings.yaml path"),
     "TB_SITE_ID": Declared("str", "", "the site id"),
+    "TB_SITE_PATIENTS": Declared(
+        "int", "", "install: the hospital's patients, sizing the memory caps before the first night (D-473)"
+    ),
     "TB_SITE_PUBLISH_BATCH_SECONDS": Declared(
         "int", "0", "site decisions on main wait this long and publish as one batch (0: at once; D-403)"
     ),

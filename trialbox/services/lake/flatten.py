@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import base64
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -354,22 +354,52 @@ ALWAYS_READ = frozenset({"resourceType", "id"})
 def unread_elements(by_type: dict[str, list[Resource]]) -> dict[str, dict[str, int]]:
     """Per resource type, how many resources carry each top-level element the flattener does not read (:data:`READ`);
     a resource type the box does not read at all is counted whole under ``*``. Element names only, never values."""
-    out: dict[str, dict[str, int]] = {}
-    for rtype, items in sorted(by_type.items()):
-        if not items:
-            continue
+    acc = Unread()
+    for items in by_type.values():
+        for r in items:
+            acc.add(r)
+    return acc.result()
+
+
+class Unread:
+    """:func:`unread_elements` counted one resource at a time (T-692: the ingest no longer holds the night)."""
+
+    def __init__(self) -> None:
+        self._n: dict[str, int] = {}
+        self._counts: dict[str, dict[str, int]] = {}
+
+    def add(self, r: Resource) -> None:
+        rtype = str(r.get("resourceType"))
+        self._n[rtype] = self._n.get(rtype, 0) + 1
         known = READ.get(rtype)
         if known is None:
-            out[rtype] = {"*": len(items)}
-            continue
-        counts: dict[str, int] = {}
-        for r in items:
-            for k in r:
-                if k not in known and k not in ALWAYS_READ:
-                    counts[k] = counts.get(k, 0) + 1
-        if counts:
-            out[rtype] = dict(sorted(counts.items()))
-    return out
+            return
+        counts = self._counts.setdefault(rtype, {})
+        for k in r:
+            if k not in known and k not in ALWAYS_READ:
+                counts[k] = counts.get(k, 0) + 1
+
+    def result(self) -> dict[str, dict[str, int]]:
+        out: dict[str, dict[str, int]] = {}
+        for rtype in sorted(self._n):
+            if rtype not in READ:
+                out[rtype] = {"*": self._n[rtype]}
+            elif self._counts.get(rtype):
+                out[rtype] = dict(sorted(self._counts[rtype].items()))
+        return out
+
+
+CODED_TYPES = ("Condition", "MedicationRequest", "MedicationStatement", "Observation")
+
+
+class _Again:
+    """An iterable that starts over each time it is iterated (one table of :meth:`Flattener.stream`)."""
+
+    def __init__(self, make: Callable[[], Iterator[Row]]) -> None:
+        self.make = make
+
+    def __iter__(self) -> Iterator[Row]:
+        return self.make()
 
 
 class Flattener:
@@ -631,26 +661,33 @@ class Flattener:
 
     def claims(self, claims: Iterable[Resource], responses: Iterable[Resource]) -> list[Row]:
         resp_by_req = {_ref_id(cr.get("request")): cr for cr in responses}
-        rows = []
-        for c in claims:
-            item = (c.get("item") or [{}])[0]
-            product, _ = self.coding(item.get("productOrService"))
-            cr = resp_by_req.get(c["id"]) or {}
-            period = cr.get("preAuthPeriod") or {}
-            rows.append(
-                {
-                    "kid": c["id"],
-                    "pid": _ref_id(c.get("patient")),
-                    "created": self.d(c.get("created")),
-                    "product": product,
-                    "outcome": cr.get("disposition") or cr.get("outcome"),
-                    "approval_start": self.d(period.get("start")),
-                    "approval_end": self.d(period.get("end")),
-                }
-            )
-        return rows
+        return [self._claim(c, resp_by_req) for c in claims]
+
+    def _claim(self, c: Resource, resp_by_req: dict[str | None, Resource]) -> Row:
+        item = (c.get("item") or [{}])[0]
+        product, _ = self.coding(item.get("productOrService"))
+        cr = resp_by_req.get(c["id"]) or {}
+        period = cr.get("preAuthPeriod") or {}
+        return {
+            "kid": c["id"],
+            "pid": _ref_id(c.get("patient")),
+            "created": self.d(c.get("created")),
+            "product": product,
+            "outcome": cr.get("disposition") or cr.get("outcome"),
+            "approval_start": self.d(period.get("start")),
+            "approval_end": self.d(period.get("end")),
+        }
 
     def flatten(self, by_type: dict[str, list[Resource]]) -> dict[str, list[Row]]:
+        return {name: list(rows) for name, rows in self.stream(by_type).items()}
+
+    def stream(self, by_type: Mapping[str, Iterable[Resource]]) -> dict[str, Iterable[Row]]:
+        """The lake tables of ``by_type`` as re-readable streams (T-692, D-473): each table reads its resource types
+        again when it is iterated, so a rebuild that writes one table at a time holds one row group, not the night.
+        ``by_type``'s values must be re-iterable (lists, or readers of NDJSON files). Rows and order are those of
+        :meth:`flatten`: per table the types in the order below, the resources in their order. The ``Medication``
+        resources (read through a reference), the ``ClaimResponse`` resources (joined to their claim) and the patient
+        rows (one per pid, :func:`merge_patients`) are held; they are a small part of a night."""
         m = {
             "Patient": ("patient", self.patient),
             "Practitioner": ("practitioner", self.practitioner),
@@ -664,14 +701,18 @@ class Flattener:
             "DocumentReference": ("document", self.document),
             "Consent": ("consent", self.consent),
         }
-        by_type = {t: [r for r in rs if not void(t, r)] for t, rs in by_type.items()}  # D-275 (S-4)
-        self.medications = {str(m["id"]): m for m in by_type.get("Medication", []) if m.get("id")}
-        out: dict[str, list[Row]] = {name: [] for name in SCHEMAS}
-        facts: list[Row] = []
-        coded: dict[str, list[Resource]] = {}
-        for rtype in ("Condition", "MedicationRequest", "MedicationStatement", "Observation"):
-            keep = []
-            for r in by_type.get(rtype, []):
+
+        def live(rtype: str) -> Iterator[Resource]:  # D-275 (S-4): a void record is no record
+            return (r for r in by_type.get(rtype, ()) if not void(rtype, r))
+
+        def demographic(rtype: str, r: Resource) -> bool:
+            return rtype == "Observation" and any(
+                c.get("system") == DEMOGRAPHIC for c in (r.get("code") or {}).get("coding") or []
+            )
+
+        def screened(rtype: str) -> Iterator[tuple[Resource, str | None, bool]]:
+            """(resource, basis, suspected) of a coded type; a refuted record left out of both."""
+            for r in live(rtype):
                 b = basis_of(r)
                 if rtype == "Condition":
                     vs = verification_of(r)
@@ -680,31 +721,50 @@ class Flattener:
                     if vs in SUSPECTED and b != "proposed":
                         # D-142: a suspected diagnosis (疑い) is listed, never coded: it can only send a patient to
                         # "needs information" (matching.proposed), never count as met or exclude
-                        facts.append({**self.site_fact(rtype, r, "suspected"), **self.provenance(r)})
+                        yield r, b, True
                         continue
-                demographic = rtype == "Observation" and any(
-                    c.get("system") == DEMOGRAPHIC for c in (r.get("code") or {}).get("coding") or []
-                )
-                if b is not None or demographic:
-                    facts.append({**self.site_fact(rtype, r, b or "coded"), **self.provenance(r)})
-                if b != "proposed" and not demographic:  # a proposed fact never reaches a coded table
-                    keep.append(r)
-            coded[rtype] = keep
-        for rtype, (table, fn) in m.items():  # a table two types fill (medication): the first type's rows first
-            out[table] = [
-                *(out[table] if table == "medication" and rtype == "MedicationStatement" else []),
-                *({**fn(r), **self.provenance(r)} for r in coded.get(rtype, by_type.get(rtype, []))),
-            ]
-        out["patient"] = merge_patients(out["patient"])
-        out["observation"] = [
-            {**row, **self.provenance(r)} for r in coded["Observation"] for row in self.observations(r)
-        ]
-        out["site_fact"] = facts
-        claims = by_type.get("Claim", [])
-        out["claim"] = [
-            {**row, **self.provenance(c)}
-            for row, c in zip(self.claims(claims, by_type.get("ClaimResponse", [])), claims, strict=True)
-        ]
+                yield r, b, False
+
+        def facts() -> Iterator[Row]:
+            for rtype in CODED_TYPES:
+                for r, b, suspected in screened(rtype):
+                    if suspected:
+                        yield {**self.site_fact(rtype, r, "suspected"), **self.provenance(r)}
+                    elif b is not None or demographic(rtype, r):
+                        yield {**self.site_fact(rtype, r, b or "coded"), **self.provenance(r)}
+
+        def coded(rtype: str) -> Iterator[Resource]:
+            for r, b, suspected in screened(rtype):
+                if not suspected and b != "proposed" and not demographic(rtype, r):  # a proposed fact: never coded
+                    yield r
+
+        def table(rtypes: tuple[str, ...]) -> Iterator[Row]:  # a table two types fill (medication): the first first
+            for rtype in rtypes:
+                fn = m[rtype][1]
+                for r in coded(rtype) if rtype in CODED_TYPES else live(rtype):
+                    yield {**fn(r), **self.provenance(r)}
+
+        def observations() -> Iterator[Row]:
+            for r in coded("Observation"):
+                for row in self.observations(r):
+                    yield {**row, **self.provenance(r)}
+
+        def claims() -> Iterator[Row]:
+            resp_by_req = {_ref_id(cr.get("request")): cr for cr in live("ClaimResponse")}
+            for c in live("Claim"):
+                yield {**self._claim(c, resp_by_req), **self.provenance(c)}
+
+        self.medications = {str(md["id"]): md for md in live("Medication") if md.get("id")}
+        out: dict[str, Iterable[Row]] = {name: () for name in SCHEMAS}
+        tables: dict[str, tuple[str, ...]] = {}
+        for rtype, (name, _) in m.items():
+            tables[name] = (*tables.get(name, ()), rtype)
+        for name, rtypes in tables.items():
+            out[name] = _Again(lambda rtypes=rtypes: table(rtypes))  # type: ignore[misc]
+        out["patient"] = _Again(lambda: iter(merge_patients(list(table(("Patient",))))))
+        out["observation"] = _Again(observations)
+        out["site_fact"] = _Again(facts)
+        out["claim"] = _Again(claims)
         return out
 
     def site_fact(self, rtype: str, r: Resource, basis: str) -> Row:

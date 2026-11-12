@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-218 entries: 85 erase, 26 keep, 107 no patient data. 60 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+219 entries: 86 erase, 26 keep, 107 no patient data. 61 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -20,6 +20,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 
 | Store | Card | What is owed | Why it holds patient data |
 | --- | --- | --- | --- |
+| `derived.batch_run` | T-206b | the pseudonym in failed_pids | one row per nightly derive batch; failed_pids lists the pseudonyms whose recompute failed |
 | `derived.conflict` | T-206b | the clear | a documented-versus-derived conflict of a pseudonym |
 | `derived.input_link` | T-206b | the clear | the source rows each derived score was computed from |
 | `derived.score_row` | T-206b | the clear | a derived score of a pseudonym |
@@ -32,7 +33,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `lake:ndjson-rerun` | T-206b | kept snapshots (3 nightly + 36 month-ends): rebuild without the patient, or a tombstone list read | a re-run of a promoted night until it passes the gate (D-271) |
 | `lake:parquet` | T-206b | kept snapshots (3 nightly + 36 month-ends): rebuild without the patient, or a tombstone list read | the Parquet copy of each snapshot |
 | `lake:site` | T-206b | the clear | facts the site set-up published, as NDJSON, by pseudonym |
-| `lake:tmp` | T-206b | the clear | the rebuild's scratch files (removed after a build; a crash may leave them) |
+| `lake:tmp` | T-206b | the clear | the rebuild's and the night's ingest scratch files (removed after each; a crash may leave them) |
 | `mail.send_keys` | T-206b | the clear | the outbox's send request while queued (attachments by key, recipients) |
 | `objects:attachments` | T-206b | the clear | files mailed or uploaded to a job (consent forms, review sheets, case requests) |
 | `objects:outputs` | T-206b | the clear | job outputs: candidate and excluded lists, micro-batch pids (365 days) |
