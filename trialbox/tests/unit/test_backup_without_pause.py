@@ -665,3 +665,90 @@ def test_a_reused_pid_does_not_keep_the_flag_and_paused_services_are_printed(tmp
     docker = InspectDocker([_doc("orchestrator", paused=True)])
     wd.Watchdog(deploy, run=docker, audit=lambda e: None, out=said.append).tick()
     assert any("paused orchestrator" in s for s in said)
+
+
+# ------------------------------------------------------------------------------------------------ R1: the wait
+class JobsBox(SizedBox):
+    """The box whose job count follows ``counts`` (one value per question; the last one stays); None: unknown."""
+
+    def __init__(self, counts: list[int | None]) -> None:
+        super().__init__(db_bytes=GB, step_s={})
+        self.counts = counts
+        self.asked_at: list[str] = []
+
+    def __call__(self, argv: list[str], **kw: Any) -> str:  # type: ignore[override]
+        line = " ".join(argv)
+        if argv[-1] == bs.JOBS_LIST_SQL:
+            return "J-17|SCREEN\nJ-18|MICROBATCH\n"
+        if "orch.jobs" in line:
+            self.calls.append(list(argv))
+            n = self.counts.pop(0) if len(self.counts) > 1 else self.counts[0]
+            if n is None:
+                raise RuntimeError("psql: could not connect")
+            return f"{n}\n"
+        return super().__call__(argv, **kw)
+
+
+def _waiting_ops(deploy: Path, box: JobsBox) -> tuple[bs.ComposeOps, list[float]]:
+    ops = bs.ComposeOps(deploy, box)
+    t = [0.0]
+    ops.clock = lambda: t[0]
+
+    def sleep(s: float) -> None:
+        t[0] += s
+
+    ops.sleep = sleep
+    return ops, t
+
+
+def test_the_nightly_waits_while_a_job_runs_then_goes_on_when_it_ends(tmp_path: Path) -> None:
+    """The owner's ruling on R1: the backup waits while a job runs (queued ones count) before its snapshot."""
+    deploy = _deploy(tmp_path)
+    box = JobsBox([2, 1, 1, 0])
+    ops, t = _waiting_ops(deploy, box)
+    cfg = _cfg(tmp_path, deploy=deploy, targets=[tmp_path / "nas"], job_wait_s=6 * HOUR)
+    events: list[tuple[str, dict[str, Any]]] = []
+    res = bs.nightly(cfg, ops.make_backup(cfg), lambda e, d: events.append((e, d)), now=T0, classify=_offbox({"nas"}))
+    assert res["ok"], res["errors"]
+    assert t[0] == 3 * bs.JOB_POLL_S and res["point_in_time"]["waited_s"] == 3 * bs.JOB_POLL_S
+    assert "beside_jobs" not in res["point_in_time"] and events[0][1]["beside_jobs"] is None
+    i_last_count = max(i for i, c in enumerate(box.calls) if "orch.jobs" in " ".join(c))
+    i_snap = next(i for i, c in enumerate(box.calls) if "psql -X -q" in " ".join(c))
+    assert i_last_count < i_snap  # the snapshot came after the last job ended
+
+
+def test_at_the_bound_the_snapshot_is_taken_beside_the_job_and_recorded(tmp_path: Path) -> None:
+    deploy = _deploy(tmp_path)
+    box = JobsBox([2])
+    ops, t = _waiting_ops(deploy, box)
+    cfg = _cfg(tmp_path, deploy=deploy, targets=[tmp_path / "nas"], job_wait_s=600.0)
+    events: list[tuple[str, dict[str, Any]]] = []
+    res = bs.nightly(cfg, ops.make_backup(cfg), lambda e, d: events.append((e, d)), now=T0, classify=_offbox({"nas"}))
+    assert res["ok"], res["errors"]  # never skipped: the snapshot is consistent on its own
+    assert t[0] == 600.0
+    beside = res["point_in_time"]["beside_jobs"]
+    assert beside == {"count": 2, "jobs": [{"job_id": "J-17", "type": "SCREEN"}, {"job_id": "J-18", "type": "MICROBATCH"}],
+                      "waited_s": 600.0, "bound_s": 600.0}  # fmt: skip
+    assert json.loads(cfg.last_file.read_text())["point_in_time"]["beside_jobs"]["count"] == 2
+    assert events[0][0] == "backup.done" and events[0][1]["beside_jobs"]["jobs"][0]["job_id"] == "J-17"
+
+
+def test_an_unknown_job_count_waits_like_a_running_job(tmp_path: Path) -> None:
+    deploy = _deploy(tmp_path)
+    box = JobsBox([None, None, 0])
+    ops, t = _waiting_ops(deploy, box)
+    cfg = _cfg(tmp_path, deploy=deploy, targets=[tmp_path / "nas"], job_wait_s=6 * HOUR)
+    res = bs.nightly(cfg, ops.make_backup(cfg), lambda e, d: None, now=T0, classify=_offbox({"nas"}))
+    assert res["ok"] and t[0] == 2 * bs.JOB_POLL_S and "beside_jobs" not in res["point_in_time"]
+    box2 = JobsBox([None])
+    ops2, t2 = _waiting_ops(deploy, box2)
+    cfg2 = _cfg(tmp_path, deploy=deploy, targets=[tmp_path / "nas2"], job_wait_s=300.0)  # a new target: a new file
+    res2 = bs.nightly(cfg2, ops2.make_backup(cfg2), lambda e, d: None, now=T0, classify=_offbox({"nas2"}))
+    assert res2["ok"] and t2[0] == 300.0 and res2["point_in_time"]["beside_jobs"]["count"] is None
+
+
+def test_the_wait_bound_is_declared_from_the_schedule() -> None:
+    assert bs.JOB_WAIT_S == 6 * HOUR  # (36 h age alert - 24 h cron interval) / 2
+    assert bs.config(Path("/x"), {}, process_env=False).job_wait_s == 6 * HOUR
+    assert bs.config(Path("/x"), {"TB_BACKUP_JOB_WAIT_S": "0"}, process_env=False).job_wait_s == 0
+    assert bs.config(Path("/x"), {"TB_BACKUP_JOB_WAIT_S": "-1"}, process_env=False).setting_errors

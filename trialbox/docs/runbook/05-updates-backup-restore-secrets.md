@@ -79,7 +79,9 @@ you may push to the hospital's git server.
    `backup-keygen`). In PRODUCTION it refuses without an **alert route**: `TB_BACKUP_ALERT_CMD` (a command that
    reads the message on stdin), or `TB_BACKUP_MAILTO` on a host with a mail transfer agent. The cron runs
    `backup-nightly` at 04:45 (move it after the night's jobs) and `backup-status --quiet` every hour. A run checks
-   free space first and never runs twice at once. **Nothing is paused** (D-455): each database is copied as one
+   free space first and never runs twice at once. It first **waits while a job runs or is queued**, at most
+   `TB_BACKUP_JOB_WAIT_S` (6 h: half the 12 h between the 24 h cron and the 36 h age alert), then goes on anyway
+   and records the jobs it ran beside (`beside_jobs`, ids and types). **Nothing is paused** (D-455): each database is copied as one
    snapshot (`trialbox_wf`, then `hapi`) and the files are read after both; `backup-last.json` records the window
    (`point_in_time`: each snapshot's time, `files_done_at`, the step limits). Rows written after a database's snapshot
    are not in the backup. `TB_BACKUP_QUIESCE=pause` pauses every service but `db` for one instant of databases and

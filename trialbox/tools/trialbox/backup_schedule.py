@@ -55,6 +55,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -79,6 +80,15 @@ STEP_START_S = 900.0  # the part of a step that does not grow with the data: a c
 KEEP_SHARE = 0.5  # the part of a target this box's backups may fill (the rest: other users, the next night's file)
 # D-455: jobs that are running or queued to run (not done, failed or waiting for an approval; orchestrator/db.py)
 RUNNING_JOBS_SQL = "SELECT count(*) FROM orch.jobs WHERE state NOT IN ('done', 'failed', 'awaiting_approval')"
+# D-455 (R1, the owner's ruling of 2026-11-12): the backup waits while a job runs, at most TB_BACKUP_JOB_WAIT_S, then
+# takes the snapshot anyway (it is consistent on its own) and records the jobs it ran beside. The default is the
+# night's own schedule: the age alert is MAX_AGE_HOURS (36) after the last good backup and the cron runs every 24 h,
+# so a night's backup may end at most 12 h after its 04:45 start and still keep the box green; half of that (6 h) is
+# the wait, the other half the backup itself (1 to 5 h for 200 to 500 GB at 500,000 patients, review F-02).
+JOB_WAIT_S = (MAX_AGE_HOURS - 24) / 2 * 3600
+JOB_POLL_S = 60.0  # how often the job count is asked while the backup waits (a poll, not a limit)
+JOBS_LIST_SQL = ("SELECT job_id || '|' || type FROM orch.jobs WHERE state NOT IN ('done', 'failed', "
+                 "'awaiting_approval') ORDER BY received_at")  # fmt: skip
 QUERY_TIMEOUT_S = 60.0  # a catalogue query (a size, a count), not work sized by the data: TB_BACKUP_QUERY_TIMEOUT_S
 
 
@@ -450,6 +460,8 @@ class Config:
     min_mbps: float = MIN_MBPS  # D-455: TB_BACKUP_MIN_MBPS
     step_start_s: float = STEP_START_S  # D-455: TB_BACKUP_STEP_START_S
     quiesce: str = "off"  # D-455: TB_BACKUP_QUIESCE, off (the snapshot alone) or pause
+    # D-455 (R1): TB_BACKUP_JOB_WAIT_S as config() reads it (default JOB_WAIT_S); a Config built in code waits 0 s
+    job_wait_s: float = 0.0
     setting_errors: list[str] = field(default_factory=list)  # D-455: a bad setting fails the run with a record
 
     def timeout(self, nbytes: int | None) -> float | None:
@@ -487,7 +499,8 @@ def _unquote(v: str) -> str:
     return v[1:-1] if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'" else v
 
 
-def _num(e: Mapping[str, str], key: str, default: float, errors: list[str], hi: float | None = None) -> float:
+def _num(e: Mapping[str, str], key: str, default: float, errors: list[str], hi: float | None = None,
+         zero: bool = False) -> float:  # fmt: skip
     """A positive number setting (D-455): a value that is not a number, not above 0 or above ``hi`` is reported in
     ``errors`` (the run then fails with a record) and the default is used meanwhile."""
     raw = (e.get(key) or "").strip()
@@ -498,8 +511,9 @@ def _num(e: Mapping[str, str], key: str, default: float, errors: list[str], hi: 
     except ValueError:
         errors.append(f"{key}={raw!r} is not a number (deploy/.env)")
         return default
-    if not v > 0 or (hi is not None and v > hi):
-        errors.append(f"{key}={raw!r} must be above 0{f' and at most {hi:g}' if hi is not None else ''} (deploy/.env)")
+    if not (v >= 0 if zero else v > 0) or (hi is not None and v > hi):
+        low = "0 or more" if zero else "above 0"
+        errors.append(f"{key}={raw!r} must be {low}{f' and at most {hi:g}' if hi is not None else ''} (deploy/.env)")
         return default
     return v
 
@@ -530,6 +544,7 @@ def config(deploy: Path, env: Mapping[str, str], process_env: bool = True) -> Co
         min_mbps=_num(e, "TB_BACKUP_MIN_MBPS", MIN_MBPS, errors),
         step_start_s=_num(e, "TB_BACKUP_STEP_START_S", STEP_START_S, errors),
         quiesce="pause" if (e.get("TB_BACKUP_QUIESCE") or "off").lower() == "pause" else "off",
+        job_wait_s=_num(e, "TB_BACKUP_JOB_WAIT_S", JOB_WAIT_S, errors, zero=True),
         setting_errors=errors,
     )
 
@@ -628,6 +643,7 @@ def nightly(
     detail = {"file": (res["file"] or {}).get("name"), "bytes": (res["file"] or {}).get("bytes"),
               "sha256": (res["file"] or {}).get("sha256"), "targets": len(kinds),
               "offbox_targets": sum(k.offbox for k in kinds), "pgbackrest": res.get("pgbackrest"),
+              "beside_jobs": (res.get("point_in_time") or {}).get("beside_jobs"),
               "errors": errors}  # fmt: skip
     audit("backup.done" if res["ok"] else "backup.failed", detail)
     return res
@@ -775,6 +791,30 @@ class ComposeOps:
         self.deploy = deploy
         self.box = update.ComposeBox(deploy, run or update.run_cmd)
         self.env = self.box.env
+        self.clock: Callable[[], float] = time.monotonic  # D-455 (R1): the wait for running jobs (tests replace both)
+        self.sleep: Callable[[float], None] = time.sleep
+
+    def running_job_list(self) -> list[dict[str, str]] | None:
+        """The jobs running or queued (id and type only; never a patient), or None when they cannot be listed."""
+        try:
+            argv = self.box._c("exec", "-T", "db", "psql", "-X", "-At", "-U", "trialbox", "-d", "trialbox_wf", "-c",
+                               JOBS_LIST_SQL)  # fmt: skip
+            out = self.box.run(argv, timeout=query_timeout(self.env))
+        except Exception:
+            return None
+        return [dict(zip(("job_id", "type"), [*ln.split("|", 1), ""][:2], strict=True))
+                for ln in out.splitlines() if ln.strip()]  # fmt: skip
+
+    def wait_for_jobs(self, bound_s: float) -> tuple[int | None, float]:
+        """Wait while a job runs or is queued (an unknown count counts as running), at most ``bound_s`` (D-455, R1).
+        Returns the count when the wait ended (0: none left) and the seconds waited."""
+        start = self.clock()
+        while True:
+            n = self.running_jobs()
+            waited = self.clock() - start
+            if n == 0 or waited >= bound_s:
+                return n, round(waited, 1)
+            self.sleep(min(JOB_POLL_S, bound_s - waited))
 
     def sweep(self) -> None:
         """What a killed run left: dump folders under deploy/ and the spool in the db container."""
@@ -860,13 +900,17 @@ class ComposeOps:
                 taken.append(f"volume {vol}: not readable")
         return taken
 
-    def make_backup(self, cfg: Config, quiesce: str | None = None) -> Callable[[list[Path]], list[Path]]:
+    def make_backup(
+        self, cfg: Config, quiesce: str | None = None, wait: bool = True
+    ) -> Callable[[list[Path]], list[Path]]:
         """The nightly step (D-455). Each database is one snapshot (``trialbox_wf``, then ``hapi``), then the backup
         container reads every volume; nothing is paused and ``point_in_time`` records the window (each snapshot's
         time, the end of the file reads). ``quiesce`` (default ``cfg.quiesce``, ``TB_BACKUP_QUIESCE``) ``pause``
         keeps D-274's pause of the services that write (all but ``db``) from the first snapshot to the end of the
         container, unpaused whatever happens, under the watchdog's maintenance flag, and never while a job runs.
-        Every step's time limit comes from the bytes it reads (:func:`step_timeout`); ``limits`` records them."""
+        Every step's time limit comes from the bytes it reads (:func:`step_timeout`); ``limits`` records them.
+        ``wait`` (the nightly; not the console's "Back up now", which a person asked for now): first wait while a job
+        runs, at most ``cfg.job_wait_s`` (R1), then go on; ``beside_jobs`` records the jobs it ran beside."""
         from tools.trialbox import watchdog
 
         mode = quiesce or cfg.quiesce
@@ -881,6 +925,12 @@ class ComposeOps:
             run.point_in_time = pit  # type: ignore[attr-defined]
             with contextlib.ExitStack() as stack:
                 try:
+                    if wait:  # D-455 (R1): the backup waits for a running job, at most TB_BACKUP_JOB_WAIT_S
+                        left, waited = self.wait_for_jobs(cfg.job_wait_s)
+                        pit["waited_s"] = waited
+                        if left != 0:
+                            pit["beside_jobs"] = {"count": left, "jobs": self.running_job_list() if left else None,
+                                                  "waited_s": waited, "bound_s": cfg.job_wait_s}  # fmt: skip
                     # every size first: a pause is only taken when every step under it has a limit (D-455, M4)
                     sizes = {
                         db: self.db_bytes(db, user) for db, user in (("trialbox_wf", "trialbox"), ("hapi", "hapi"))
@@ -1127,8 +1177,8 @@ class BackupBusy(RuntimeError):
     """Another backup run holds ``deploy/site/backup.lock``."""
 
 
-def run_backup(deploy: Path, ops: ComposeOps | None = None, quiesce: str | None = None,
-               with_pgbackrest: bool = True) -> tuple[Config, ComposeOps, dict[str, Any]]:  # fmt: skip
+def run_backup(deploy: Path, ops: ComposeOps | None = None, quiesce: str | None = None, with_pgbackrest: bool = True,
+               wait: bool = True) -> tuple[Config, ComposeOps, dict[str, Any]]:  # fmt: skip
     """One backup run under ``backup.lock``: the nightly's, and the console's "Back up now" (D-455: ``quiesce``
     ``off``, no pgBackRest). Raises :class:`BackupBusy` when another run holds the lock."""
     from tools.trialbox import update
@@ -1140,7 +1190,7 @@ def run_backup(deploy: Path, ops: ComposeOps | None = None, quiesce: str | None 
         ops.sweep()
         cfg = config(deploy, update._env_file(deploy / ".env"))
         pgb = ops.pgbackrest if cfg.archive_on and with_pgbackrest else None
-        return cfg, ops, nightly(cfg, ops.make_backup(cfg, quiesce), ops.audit, pgb)
+        return cfg, ops, nightly(cfg, ops.make_backup(cfg, quiesce, wait), ops.audit, pgb)
 
 
 def main_nightly(deploy: Path) -> int:

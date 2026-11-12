@@ -376,7 +376,7 @@ class OpsRunner:
         from tools.trialbox import backup_schedule as bsch
 
         try:
-            _cfg, _ops, res = bsch.run_backup(self.box.deploy, quiesce="off", with_pgbackrest=False)
+            _cfg, _ops, res = bsch.run_backup(self.box.deploy, quiesce="off", with_pgbackrest=False, wait=False)
         except bsch.BackupBusy as exc:
             raise OpsFailed(f"not run: {exc} (the nightly backup is running)") from exc
         if not res["ok"]:

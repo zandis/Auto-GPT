@@ -32,9 +32,16 @@
    with two changes: the pause is never taken while a job runs (the backup asks the orchestrator's job table first;
    a running job means the snapshot-only backup, and the record names the job count and says so), and while the
    services are paused the backup holds the **maintenance flag** (6.) so the watchdog never restarts them.
-   The row asked that "the backup waits for a running job". It does not wait: a job can run for a day at 500,000
-   patients and a wait would need a limit OD-10 does not allow. The snapshot alone is consistent, so a backup under
-   a running job needs no wait.
+   **The backup waits for a running job (R1, the owner's ruling of 2026-11-12).** Before its snapshot the nightly
+   asks the orchestrator's job table every minute and waits while a job runs or is queued (a count that cannot be
+   taken counts as running), at most `TB_BACKUP_JOB_WAIT_S`. When the bound passes the backup is **not** skipped:
+   it takes the snapshot anyway (it is consistent on its own) and records `beside_jobs` (count, each job's id and
+   type, never a patient; the seconds waited and the bound) in `backup-last.json` and in the `backup.done` /
+   `backup.failed` audit detail. The bound is a declared setting (OD-10) whose default comes from the night's own
+   schedule: the age alert fires 36 h after the last good backup and the cron starts a backup every 24 h, so a
+   night's backup may end at most 12 h after its 04:45 start and keep the box green; half of that, **6 h
+   (21,600 s)**, is the wait, and the other half is left for the backup itself (1 to 5 h for 200 to 500 GB at
+   500,000 patients, review F-02). The console's "Back up now" does not wait (a person asked for it now).
 2. **Step limits come from the size of the data (OD-10).** Every backup step that used a fixed 7,200 s (the
    snapshot, the copy out of the db container, the backup container, the update path's backup command) or 4 h
    (pgBackRest) now gets `TB_BACKUP_STEP_START_S + bytes / TB_BACKUP_MIN_MBPS` seconds, where `bytes` is measured
@@ -113,10 +120,8 @@
 
 ## Open (not built here)
 
-- **For the owner (R1): "the backup waits for a running job" was not built.** A job can run for a day at 500,000
-  patients; a wait needs a limit OD-10 does not allow, and the snapshot alone is consistent, so the backup runs
-  beside the job instead. In pause mode a running or queued job means no pause. If the owner wants the night's
-  backup after the jobs, T-726 (the night as a chain) is where it goes.
+- **R1 is decided and built** (the owner, 2026-11-12): the bounded wait of item 1. T-726 (the night as a chain) may
+  later start the backup after the night's jobs instead of at 04:45; the wait then rarely runs.
 - **A steward's acknowledgement hold after a restore (M3):** the list, the report, the audit event and the CLI's
   exit 4 are built; a hold that keeps screening off until a steward acknowledges the list (and `doctor` showing it)
   needs a place to record the acknowledgement; no existing mechanism fits.

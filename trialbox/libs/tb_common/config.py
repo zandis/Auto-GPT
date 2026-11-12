@@ -370,6 +370,11 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_BACKUP_ALERT_CMD": Declared("str", "", "command run when the newest good backup is too old"),
     "TB_BACKUP_DIRS": Declared("str", "", "extra host folders put in a backup"),
+    "TB_BACKUP_JOB_WAIT_S": Declared(
+        "float",
+        "21600",
+        "backup waits this long for jobs, then goes on anyway: half of (36 h alert - 24 h cron), D-455",
+    ),
     "TB_BACKUP_KEEP": Declared("int", "14", "backups kept per target"),
     "TB_BACKUP_KEEP_SHARE": Declared(
         "float", "0.5", "part of a target's capacity this box's backups may fill; the rest is for others (D-455)"
