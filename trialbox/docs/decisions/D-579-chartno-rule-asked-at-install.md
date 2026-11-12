@@ -28,15 +28,18 @@ patient, and an opt-out or a fact filed under one spelling does not meet the rec
 3. **No answer is `asis`**, the rule every box ran on, with a warning that names the question. A rule is never
    read from the MRN pattern.
 4. **On the box**, `tools/box/plan.py` passes `chartno_rule` from the owner's first-run answers when they have the
-   field (the page that asks is lane C's). `tools.box apply` never replaces a rule the box already runs on: a
-   value other than `asis` in `deploy/.env` stays.
+   field (the page that asks is lane C's).
+5. **The rule changes only while the box holds no patient.** No rule and `asis` are the same rule. `tools.box
+   apply` asks the box's database for the rows of the pid map before it writes anything: with rows, or when the
+   database cannot be asked, a different rule is refused. The settings wizard cannot ask the database and writes
+   the whole `.env`, so on a box that already has an `.env` it refuses any rule but the one the box runs on.
 
 ## Consequences
 
 - Nothing changes on a box until someone answers the question: no answer writes `asis`.
-- **Not built:** a guard that refuses a first rule on a box that already holds pseudonyms (`asis` gives way to a
-  first answer, which is right at set-up and wrong after the first ingest), and a tool that moves a box from one
-  rule to another. The runbook says to set it at install.
+- **Not built:** a tool that moves a box from one rule to another (it would have to re-key the pid map). And one
+  gap: the wizard on a box whose `.env` was removed while its data volumes were kept sees a fresh box. The adapter
+  could record the rule beside the site key's fingerprint and refuse another; that is lane E's file.
 - An existing site box is not asked: `install.sh` runs the wizard only when there is no `settings.yaml`, and an
   update never runs it. It stays on `asis`.
 - The two answer files in the repository answer the question: the rehearsal `digits:8`, site C `asis`.
@@ -57,3 +60,9 @@ three ways that makes two patients one, and the derivation is gone:
 Also from the review: the answer check accepted rules on patterns of several widths (now refused); the box's apply
 would have set a hand-set rule back to `asis` (now kept); a width that is a digit but not an ASCII number raised a
 bare error (now a refusal).
+
+## After the review of the normaliser's fix (#389, lane E; 2026-11-12)
+
+That review found that a rule set on a box which has loaded patients changes their pseudonyms and makes the pid
+map report a wrong site key. Item 5 is the answer in the installer's tools. This card is stacked on #389 and
+lands with it and with lane C's page.

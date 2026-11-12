@@ -116,21 +116,88 @@ def test_review_l1_a_width_that_is_not_an_ascii_number_is_refused_not_a_crash() 
         _build(chartno_rule="digits:\u00b2")
 
 
-def test_review_m1_an_apply_on_the_box_never_replaces_a_rule_that_is_set(tmp_path: Path) -> None:
-    """The box's apply merges the wizard's .env into the box's. A rule a box already runs on (set by hand or by an
-    earlier answer) is kept: changing it changes pseudonyms. The provisional `asis` gives way to a first answer."""
-    from tools.box.__main__ import merge_env
-
+def _env(tmp_path: Path, text: str) -> Path:
     env = tmp_path / ".env"
-    env.write_text("TB_TZ=Asia/Taipei\nTB_CHARTNO_RULE=digits:8\n", encoding="utf-8")
-    assert "TB_CHARTNO_RULE" not in merge_env(env, {"TB_CHARTNO_RULE": "asis", "TB_TZ": "Asia/Taipei"})
-    assert "TB_CHARTNO_RULE=digits:8" in env.read_text(encoding="utf-8")
-    assert "TB_CHARTNO_RULE" not in merge_env(env, {"TB_CHARTNO_RULE": "hex:8"})
-    assert "TB_CHARTNO_RULE=digits:8" in env.read_text(encoding="utf-8")
-    env.write_text("TB_CHARTNO_RULE=asis\n", encoding="utf-8")
-    assert merge_env(env, {"TB_CHARTNO_RULE": "digits:8"}) == ["TB_CHARTNO_RULE"]  # the first answer after the plan
-    env.write_text("TB_TZ=Asia/Taipei\n", encoding="utf-8")
-    assert merge_env(env, {"TB_CHARTNO_RULE": "asis"}) == ["TB_CHARTNO_RULE"]  # absent: written
+    env.write_text(text, encoding="utf-8")
+    return env
+
+
+@pytest.mark.parametrize(
+    ("present", "new", "rows", "ok"),
+    [
+        ("TB_CHARTNO_RULE=asis\n", "digits:8", 0, True),  # the first answer after the plan, before any patient
+        ("TB_TZ=Asia/Taipei\n", "digits:8", 0, True),  # a box from before the setting, still empty
+        ("TB_CHARTNO_RULE=digits:8\n", "hex:8", 0, True),  # a wrong first answer put right before the first night
+        ("TB_CHARTNO_RULE=digits:8\n", "digits:8", None, True),  # no change: the database is not asked
+        ("TB_TZ=Asia/Taipei\n", "asis", None, True),  # no rule and asis are the same rule
+        ("TB_CHARTNO_RULE=asis\n", "digits:8", 3, False),  # patients are loaded: their pseudonyms would change
+        ("TB_CHARTNO_RULE=digits:8\n", "asis", 3, False),
+        ("TB_CHARTNO_RULE=asis\n", "digits:8", None, False),  # the database cannot be asked: not changed
+    ],
+)
+def test_lane_e_review_the_box_changes_the_rule_only_while_the_pid_map_is_empty(
+    tmp_path: Path, present: str, new: str, rows: int | None, ok: bool
+) -> None:
+    """From the review of the normaliser's fix (#389): a rule set on a box that has loaded patients changes their
+    pseudonyms, and the pid map then reports a wrong site key. The box's apply asks the database first."""
+    from tools.box.__main__ import chartno_change
+    from tools.box.plan import PlanError
+
+    asked: list[int] = []
+
+    def count() -> int | None:
+        asked.append(1)
+        return rows
+
+    env = _env(tmp_path, present)
+    if ok:
+        chartno_change(env, new, count)
+        assert bool(asked) == (rows is not None)
+    else:
+        with pytest.raises(PlanError, match="TB_CHARTNO_RULE"):
+            chartno_change(env, new, count)
+
+
+def test_the_rows_are_asked_of_the_boxs_database_and_a_box_that_never_ingested_has_none(tmp_path: Path) -> None:
+    from tools.box.__main__ import pid_map_rows
+
+    calls: list[list[str]] = []
+
+    def run(answers: list[str]) -> Any:
+        def _run(argv: list[str]) -> str:
+            calls.append(argv)
+            return answers[len(calls) - 1]
+
+        return _run
+
+    assert pid_map_rows(tmp_path, run(["f\n"])) == 0  # no pid map table yet: no patients
+    assert len(calls) == 1 and "to_regclass('pidmap.pid_map')" in calls[0][-1]
+    assert calls[0][:2] == ["docker", "compose"] and "trialbox_wf" in calls[0]
+    calls.clear()
+    assert pid_map_rows(tmp_path, run(["t\n", "42\n"])) == 42
+    calls.clear()
+
+    def down(_argv: list[str]) -> str:
+        raise OSError("no docker")
+
+    assert pid_map_rows(tmp_path, down) is None
+
+
+def test_the_wizard_does_not_write_another_rule_over_a_box_that_is_installed(tmp_path: Path) -> None:
+    """The wizard writes the whole .env and cannot ask the database. A box that has an .env keeps its rule: the
+    same rule is written again, another is refused. A fresh box (no .env) takes the answer."""
+    settings, env, _ = settings_wizard.build(
+        _answers(chartno_rule="digits:8", mrn_regex=r"^\d{8}$"), [REHEARSAL / "mapping"]
+    )
+    out = tmp_path / "settings.yaml"
+    settings_wizard.write(settings, env, out, tmp_path / ".env")  # fresh
+    assert "TB_CHARTNO_RULE=digits:8" in (tmp_path / ".env").read_text(encoding="utf-8")
+    settings_wizard.write(settings, env, out, tmp_path / ".env")  # the same rule again
+    for present in ("TB_CHARTNO_RULE=asis\n", "TB_TZ=Asia/Taipei\n", "TB_CHARTNO_RULE=hex:8\n"):
+        (tmp_path / ".env").write_text(present, encoding="utf-8")
+        with pytest.raises(settings_wizard.WizardError, match="TB_CHARTNO_RULE"):
+            settings_wizard.write(settings, env, out, tmp_path / ".env")
+        assert (tmp_path / ".env").read_text(encoding="utf-8") == present  # nothing was written
 
 
 def test_the_rule_reaches_every_service_that_hashes_a_chart_number() -> None:

@@ -18,7 +18,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shlex
+import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from tb_common import firstrun
@@ -29,7 +33,52 @@ from tools.box.plan import DEPLOY, Hardware, PlanError, detect, plan, provisiona
 # made by the install (or the wizard's first write) and never replaced by an apply: the database and services hold them
 KEEP = frozenset({"POSTGRES_PASSWORD", "IMAP_PASS", "SMTP_PASS", "TB_SERVICE_TOKEN", "CLOUD_LLM_API_KEY"})
 CHARTNO_RULE = "TB_CHARTNO_RULE"
-CHARTNO_UNSET = ("", "asis")  # the plan's provisional value: the first answer may replace it
+PID_MAP = "pidmap.pid_map"  # services/adapter/pidmap.py: one row per patient the box has loaded
+
+
+def _compose_psql(deploy: Path) -> list[str]:
+    default = f"docker compose --project-directory {shlex.quote(str(deploy))}"
+    compose = shlex.split(os.environ.get("TB_COMPOSE") or default)
+    return [*compose, "exec", "-T", "db", "psql", "-U", "trialbox", "-d", "trialbox_wf", "-tAc"]
+
+
+def _run(argv: list[str]) -> str:
+    return subprocess.run(argv, check=True, capture_output=True, text=True, timeout=60).stdout
+
+
+def pid_map_rows(deploy: Path, run: Callable[[list[str]], str] = _run) -> int | None:
+    """How many patients the box has loaded (rows of the pid map), asked of the box's database; 0 when the table
+    does not exist yet (no ingest ever ran); None when the database cannot be asked."""
+    psql = _compose_psql(deploy)
+    try:
+        if run([*psql, f"SELECT to_regclass('{PID_MAP}') IS NOT NULL"]).strip() != "t":
+            return 0
+        return int(run([*psql, f"SELECT count(*) FROM {PID_MAP}"]).strip())
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def chartno_change(env_file: Path, new: str, rows: Callable[[], int | None]) -> None:
+    """D-579: the chart-number rule changes only while the pid map is empty. A rule set on a box that has loaded
+    patients gives their chart numbers other pseudonyms (and the pid map then reports a wrong site key). No rule
+    and ``asis`` are the same rule. Raises :class:`PlanError`; says nothing when the rule stays as it is."""
+    lines = env_file.read_text(encoding="utf-8").splitlines() if env_file.exists() else []
+    have = [ln.split("=", 1)[1].strip() for ln in lines if ln.startswith(f"{CHARTNO_RULE}=")]
+    present, wanted = (have[-1] if have and have[-1] else "asis"), (new.strip() or "asis")
+    if present == wanted:
+        return
+    n = rows()
+    if n is None:
+        raise PlanError(
+            f"{CHARTNO_RULE} is {present} and the answers say {wanted}: the database could not be asked whether "
+            "patients are loaded, so the rule is not changed (start the box and apply again)"
+        )
+    if n:
+        raise PlanError(
+            f"{CHARTNO_RULE} is {present} and the answers say {wanted}: the box holds {n} patients under {present}, "
+            "and another rule would give their chart numbers other pseudonyms. The rule is set before the first "
+            "night only"
+        )
 
 
 def merge_env(env_file: Path, new: dict[str, str]) -> list[str]:
@@ -41,8 +90,6 @@ def merge_env(env_file: Path, new: dict[str, str]) -> list[str]:
     for k, v in new.items():
         if k in KEEP and k in have:
             continue
-        if k == CHARTNO_RULE and k in have and lines[have[k]].split("=", 1)[1].strip() not in CHARTNO_UNSET:
-            continue  # D-579: a rule the box runs on is never replaced: it would change pseudonyms
         line = f"{k}={v}"
         if k in have:
             if lines[have[k]] != line:
@@ -69,6 +116,7 @@ def apply(folder: Path, hw: Hardware, deploy: Path) -> list[str]:
     p = plan(answers, hw, deploy)
     write(p, deploy, deploy / "site" / "box" / "answers.json")
     settings, env, warnings = settings_wizard.build(p.wizard_answers, [deploy / "site" / "mapping"])
+    chartno_change(deploy / ".env", env.get(CHARTNO_RULE, ""), lambda: pid_map_rows(deploy))  # before any write
     with tempfile.TemporaryDirectory() as tmp:
         settings_wizard.write(settings, env, deploy / "settings.yaml", Path(tmp) / ".env")
     merge_env(deploy / ".env", env)

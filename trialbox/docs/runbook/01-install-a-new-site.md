@@ -42,8 +42,8 @@ is to be taken exactly as written. The wizard writes it to `deploy/.env` as `TB_
 writes a chart number that way before it becomes a pseudonym, so `123456` from a sheet that dropped the zeros and
 `00123456` are one patient. The wizard refuses a rule the MRN pattern does not fit (the pattern must say one fixed
 width, with both anchors). With no answer it keeps `asis` and warns; it never reads a rule from the pattern. Set
-it at install: changing it later changes the pseudonym of every chart number that is not already written the new
-way.
+it at install: once the box has loaded patients the tools refuse another rule, because it would change the
+pseudonym of every chart number that is not already written the new way.
 
 **What the site brings** (D-382). A folder with the answers file and the site's mapping beside it:
 `site.yaml` and `mapping/tw_core/<site>.yaml` (with its lab lookup). The installer copies `mapping/` into

@@ -555,6 +555,18 @@ def env_extra(raw: Any, errors: list[str]) -> dict[str, str]:
 def write(settings: dict[str, Any], env: dict[str, str], out: Path, env_out: Path | None) -> None:
     from tb_common.config import load_settings
 
+    # D-579: a box that is installed (it has an .env) keeps its chart-number rule. The wizard writes the whole
+    # file and cannot ask the database whether patients are loaded; another rule would change their pseudonyms
+    if env_out is not None and env_out.exists():
+        have = [ln.split("=", 1)[1].strip() for ln in env_out.read_text(encoding="utf-8").splitlines()
+                if ln.startswith("TB_CHARTNO_RULE=")]  # fmt: skip
+        present, wanted = (have[-1] if have and have[-1] else "asis"), env.get("TB_CHARTNO_RULE") or "asis"
+        if present != wanted:
+            raise WizardError(
+                f"{env_out} already runs on TB_CHARTNO_RULE={present} and the answers say {wanted}: another "
+                "rule gives the chart numbers of loaded patients other pseudonyms. Answer chartno_rule: "
+                f"{present}, or set the rule on a box that has loaded no patient"
+            )
     out.parent.mkdir(parents=True, exist_ok=True)
     header = (
         f"# TrialBox settings.yaml for {settings['site']['id']} — written by tools/settings_wizard.py.\n"
