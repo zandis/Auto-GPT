@@ -24,6 +24,10 @@
 #   tables of such a schema are made by the install step (`python -m orchestrator.migrate`, as `trialbox`), not by
 #   the service at start. First on the list: `edc`.
 # * `tuned` (tb_common.notmatched: the not-matched reasons) is read and written by the orchestrator and the console.
+# * D-541 (NEW-TRUST-1): the FHIR store signs in as `tb_fhir_store`, a role of its own (no superuser, no CREATEDB,
+#   no CREATEROLE) that owns the database `hapi` and what is in it and reaches nothing else. Before, it signed in
+#   as the cluster's superuser. Its password is read by psql from the environment (\getenv), not given on the
+#   command line. On a box installed before D-541 the second part below moves what HAPI made as the superuser.
 # The list is the one place that says which service reaches which schema; tests/unit/test_db_roles.py reads it.
 set -eu
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "${TB_WF_DB:-trialbox_wf}" \
@@ -35,7 +39,23 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "${TB_WF_DB:-trialb
   -v pw_gateway="${TB_DB_PW_GATEWAY:-}" \
   -v pw_console="${TB_DB_PW_CONSOLE:-}" \
   -v pw_audit_writer="${TB_DB_PW_AUDIT_WRITER:-}" <<'SQL'
+\set pw_fhir_store ''
+\getenv pw_fhir_store TB_DB_PW_FHIR_STORE
 ALTER ROLE trialbox NOCREATEDB;
+-- BEGIN FHIR STORE ROLE (D-541)
+DO $fhir$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tb_fhir_store') THEN
+    CREATE ROLE tb_fhir_store LOGIN;
+  END IF;
+  ALTER ROLE tb_fhir_store NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+  IF EXISTS (SELECT 1 FROM pg_database WHERE datname = 'hapi') THEN
+    ALTER DATABASE hapi OWNER TO tb_fhir_store;
+  END IF;
+END
+$fhir$;
+ALTER ROLE tb_fhir_store PASSWORD :'pw_fhir_store';
+-- END FHIR STORE ROLE
 DO $roles$
 DECLARE
   -- BEGIN SERVICE SCHEMAS (D-378)
@@ -262,3 +282,34 @@ GRANT SELECT ON audit.journal TO tb_audit_writer, trialbox;
 -- END AUDIT WRITER
 ALTER ROLE tb_audit_writer PASSWORD :'pw_audit_writer';
 SQL
+# D-541: inside `hapi`, what HAPI made while it signed in as the superuser becomes the FHIR store's own (tables with
+# their indexes, sequences, views, the schema `public`, large objects). Idempotent; a new box has nothing to move.
+if psql -tA --username "$POSTGRES_USER" --dbname postgres -c "SELECT 1 FROM pg_database WHERE datname = 'hapi'" | grep -q 1; then
+  psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname hapi <<'SQL'
+DO $own$
+DECLARE
+  obj record;
+  kinds CONSTANT jsonb := '{"r": "TABLE", "p": "TABLE", "v": "VIEW", "m": "MATERIALIZED VIEW", "S": "SEQUENCE", "f": "FOREIGN TABLE"}';
+BEGIN
+  ALTER SCHEMA public OWNER TO tb_fhir_store;
+  GRANT ALL ON SCHEMA public TO tb_fhir_store;
+  FOR obj IN
+    SELECT n.nspname AS sch, c.relname AS name, c.relkind::text AS kind
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast') AND n.nspname NOT LIKE 'pg\_temp%'
+      AND c.relowner <> 'tb_fhir_store'::regrole
+      AND (c.relkind IN ('r', 'p', 'v', 'm', 'f') OR (c.relkind = 'S' AND NOT EXISTS (
+            SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid
+              AND d.deptype IN ('a', 'i'))))
+      AND NOT EXISTS (SELECT 1 FROM pg_depend e WHERE e.classid = 'pg_class'::regclass AND e.objid = c.oid
+                        AND e.deptype = 'e')
+  LOOP
+    EXECUTE format('ALTER %s %I.%I OWNER TO tb_fhir_store', kinds ->> obj.kind, obj.sch, obj.name);
+  END LOOP;
+  FOR obj IN SELECT oid FROM pg_largeobject_metadata WHERE lomowner <> 'tb_fhir_store'::regrole LOOP
+    EXECUTE format('ALTER LARGE OBJECT %s OWNER TO tb_fhir_store', obj.oid);
+  END LOOP;
+END
+$own$;
+SQL
+fi

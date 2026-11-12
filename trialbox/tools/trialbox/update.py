@@ -81,6 +81,9 @@ BACKUP_VOLUMES = {
 }
 
 
+FHIR_PW = "TB_DB_PW_FHIR_STORE"  # D-541: the FHIR store's own database role
+
+
 class UpdateFailed(RuntimeError):
     pass
 
@@ -1211,8 +1214,19 @@ class ComposeBox(_DockerImages):
         is idempotent and reads the passwords from the database container's own environment."""
         if not self.env.get("TB_DB_URL", ""):  # as migrate_owned: a box that never ran install.sh's database step
             return
-        self.run(self._c("exec", "-T", "db", "/docker-entrypoint-initdb.d/30-service-roles.sh"),
-                 timeout=int(os.environ.get("TB_INSTALL_UP_TIMEOUT", "900")))  # fmt: skip
+        # D-541 (NEW-TRUST-1): a box installed before the FHIR store had a role of its own has no password for it.
+        # The file first, the role after: a run that stops in between is repeated with the same value. The running
+        # database container was started without the variable, so it is handed over by name for this one command
+        # (the value in the environment, never on the command line).
+        from tools.trialbox import svc_secrets
+
+        fhir = self.env.get(FHIR_PW, "")
+        if not fhir or fhir.startswith("change-me"):  # none yet, or the example file's placeholder
+            fhir = secrets.token_urlsafe(32)
+            svc_secrets._set_env(self.deploy / ".env", {FHIR_PW: fhir})
+            self.env[FHIR_PW] = fhir
+        self.run(self._c("exec", "-T", "-e", FHIR_PW, "db", "/docker-entrypoint-initdb.d/30-service-roles.sh"),
+                 env={FHIR_PW: fhir}, timeout=int(os.environ.get("TB_INSTALL_UP_TIMEOUT", "900")))  # fmt: skip
 
     def migrate_owned(self) -> None:
         """T-718 (D-486): the schemas no service owns are made by the box's admin before the services start, in a

@@ -68,5 +68,40 @@ def test_the_update_sets_the_roles_before_it_migrates(tmp_path: Path) -> None:
     step = next(i for i, (argv, _e) in enumerate(calls) if "orchestrator.migrate" in argv)
     assert roles < step
     argv, env = calls[roles]
-    assert argv[-4:] == ["exec", "-T", "db", "/docker-entrypoint-initdb.d/30-service-roles.sh"]
-    assert env == {} and not any(WORD in a for a in argv)  # the script reads the passwords inside the container
+    # D-541: the one variable the running database container was started without is handed over by name
+    assert argv[-6:] == ["exec", "-T", "-e", "TB_DB_PW_FHIR_STORE", "db",
+                         "/docker-entrypoint-initdb.d/30-service-roles.sh"]  # fmt: skip
+    assert set(env) == {"TB_DB_PW_FHIR_STORE"} and not any(WORD in a for a in argv)
+    assert not any(env["TB_DB_PW_FHIR_STORE"] in a for a in argv)  # the value is never an argument
+
+
+def test_the_update_gives_the_fhir_store_a_password_before_it_sets_the_roles(tmp_path: Path) -> None:
+    """NEW-TRUST-1 (D-541): a box installed before this card has no `TB_DB_PW_FHIR_STORE`. The update writes one
+    to `deploy/.env` first (0600, never printed, never an argument), then runs the role script, which sets it; a
+    second run keeps the value (resumable: the file first, the role after)."""
+    box, calls = _box(tmp_path, f"COMPOSE_PROFILES=stub\nTB_DB_URL={URL}\nPOSTGRES_PASSWORD=synthetic-admin-000\n")
+    env_file = tmp_path / "deploy" / ".env"
+    box.restart(up.Plan("b1", "", "", [], tmp_path / "stage"))
+    made = [ln.split("=", 1)[1] for ln in env_file.read_text().splitlines() if ln.startswith("TB_DB_PW_FHIR_STORE=")]
+    assert len(made) == 1 and len(made[0]) >= 32 and made[0] != "synthetic-admin-000"
+    assert oct(env_file.stat().st_mode & 0o777) == "0o600"
+    assert not any(made[0] in a for argv, _e in calls for a in argv)
+    holders = [argv for argv, e in calls if made[0] in e.values()]
+    assert len(holders) == 1 and holders[0][-1].endswith("30-service-roles.sh")  # the role script's call only
+    roles = next(i for i, (argv, _e) in enumerate(calls) if argv[-1].endswith("30-service-roles.sh"))
+    start = next(i for i, (argv, _e) in enumerate(calls) if "up" in argv)
+    assert roles < start
+    box2, _ = _box_again(tmp_path)
+    box2.restart(up.Plan("b1", "", "", [], tmp_path / "stage"))
+    again = [ln.split("=", 1)[1] for ln in env_file.read_text().splitlines() if ln.startswith("TB_DB_PW_FHIR_STORE=")]
+    assert again == made
+
+
+def _box_again(tmp_path: Path) -> tuple[up.ComposeBox, list[tuple[list[str], dict[str, str]]]]:
+    calls: list[tuple[list[str], dict[str, str]]] = []
+
+    def run(argv: Sequence[str], env: dict[str, str] | None = None, **_: Any) -> str:
+        calls.append((list(argv), dict(env or {})))
+        return ""
+
+    return up.ComposeBox(tmp_path / "deploy", run=run), calls

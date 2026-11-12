@@ -94,6 +94,7 @@ if [ ! -f deploy/.env ]; then
   WF_PW="$(rand 32)"
   sed -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(rand 32)/" \
       -e "s/^POSTGRES_WF_PASSWORD=.*/POSTGRES_WF_PASSWORD=$WF_PW/" \
+      -e "s/^TB_DB_PW_FHIR_STORE=.*/TB_DB_PW_FHIR_STORE=$(rand 32)/" \
       -e "s|^TB_DB_URL=.*|TB_DB_URL=postgresql://trialbox:$WF_PW@db:5432/trialbox_wf|" \
       -e "s/^TB_SERVICE_TOKEN=.*/TB_SERVICE_TOKEN=$(rand 32)/" .env.example > deploy/.env
   chmod 600 deploy/.env

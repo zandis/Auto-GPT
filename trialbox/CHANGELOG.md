@@ -10,6 +10,10 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- The FHIR store's database sign-in (NEW-TRUST-1, D-541): the FHIR store no longer holds the database
+  superuser's password. It signs in as `tb_fhir_store`, which owns the database `hapi` only, with
+  `TB_DB_PW_FHIR_STORE`. `install.sh` and `trialbox update` make the password and move the existing tables; a
+  stack started by hand from an older `deploy/.env` needs the variable and one run of the role script.
 - Database roles (T-718, D-486): the EDC schema has an owner role no service can become; the orchestrator writes its
   rows and can no longer drop, disable or alter the triggers that make its trail tables append-only. The schema's
   tables are made by the box's admin before the services start (`install.sh`, `trialbox update`, or by hand

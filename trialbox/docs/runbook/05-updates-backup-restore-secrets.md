@@ -205,6 +205,9 @@ The script also gives the audit journal back to its owner and the services their
 it runs, a restored box refuses actions that must be audited. When the database is older than the audit chain (an
 update rollback), the `audit-writer` service writes an `audit.journal_resync` event and goes on; `docker compose logs
 audit-writer` says what it found.
+Since D-541 the FHIR store signs in as its own role (`tb_fhir_store`, the owner of the database `hapi` only), never as
+the server's superuser. A restore loads `hapi` as the superuser, so the same script, run after the restore, gives the
+tables back to that role.
 
 
 ## Secrets (D-128, D-138): the one place to rotate them
