@@ -17,10 +17,11 @@ machine and passed in CI, where the checkout is detached and the slug is short.
 
 ## Decision
 
-1. **One constant, `pglocal.SLUG_MAX = 40`, with its reason beside it.** A PostgreSQL socket path may be at most
-   107 bytes (the kernel's limit for a Unix socket address). Under the default scratch folder the path is
-   `/var/tmp/trialbox-<uid>/tb-tests-<slug>/pg-gw<n>/run/.s.PGSQL.<port>`: about 64 bytes beside the slug with a
-   five-digit uid, a two-digit worker and a five-digit port. 40 leaves the rest; 60 does not.
+1. **One constant, `pglocal.SLUG_MAX = 40`, with its reason beside it.** The tool keeps a socket path inside
+   `SOCK_MAX` (100 bytes: the kernel's field holds 108 on Linux, 104 on macOS). Under the default scratch folder a
+   worker's socket is `/var/tmp/trialbox-<uid>/tb-tests-<slug>/pg-gw<n>/run/.s.PGSQL.5432`: 59 bytes beside the
+   slug with a five-digit uid and a two-digit worker. 40 keeps the socket in the branch's own root; with 60 the
+   path is over the limit and the tool falls back to a short socket folder outside it.
 2. **A longer name keeps its start and gains a short hash of the whole name**, so two branches that share their
    first 40 characters do not share a test root. A name of 40 characters or fewer is unchanged.
 3. The test reads the constant; it holds no number of its own.
@@ -28,4 +29,4 @@ machine and passed in CI, where the checkout is detached and the slug is short.
 ## Consequences
 
 - A branch with a long name gets a test root named after its start and eight hex characters.
-- No setting: the limit follows from the kernel's and from the layout of the root.
+- No setting: the limit follows from the tool's socket limit and from the layout of the root.
