@@ -333,11 +333,21 @@ def service_access(script: Path = ROLES_SCRIPT) -> dict[str, list[str]]:
     return data
 
 
+def owned_schemas(script: Path = ROLES_SCRIPT) -> list[str]:
+    """The roles script's list of schemas with an owner, a writer and a reader role (D-486); empty before it."""
+    text = script.read_text(encoding="utf-8")
+    if "-- BEGIN OWNED SCHEMAS (D-486)" not in text:
+        return []
+    block = text.split("-- BEGIN OWNED SCHEMAS (D-486)", 1)[1].split("-- END OWNED SCHEMAS", 1)[0]
+    return re.findall(r"'(\w+)'", block.split("ARRAY[", 1)[1])
+
+
 def roles_after_restore(root: Path, script: Path = ROLES_SCRIPT) -> tuple[str, bool, str]:
     """D-573: on a throwaway cluster of its own, with the real roles script: every store gets a table and a
     function, the trial database is dumped and restored as the box does it, the restore's own step puts the roles
     back, and then every service role opens each store on its list as the store's group (alters the table,
-    replaces the function) and reads no store off its list."""
+    replaces the function) and reads no store off its list. D-486: in a schema with an owner role the service is a
+    writer: it writes a row, and can neither alter the table nor replace the function."""
     import psycopg
     from psycopg import errors, sql
     from tb_common.db import Database
@@ -347,6 +357,7 @@ def roles_after_restore(root: Path, script: Path = ROLES_SCRIPT) -> tuple[str, b
 
     name = "restore: every service opens its stores as its own role afterwards (D-573)"
     access = service_access(script)
+    owned = owned_schemas(script)
     schemas = sorted({s for v in access.values() for s in v})
     root.mkdir(parents=True, exist_ok=True)
     root.chmod(0o755)
@@ -395,7 +406,21 @@ def roles_after_restore(root: Path, script: Path = ROLES_SCRIPT) -> tuple[str, b
             dsn = url.replace("postgresql://trialbox@", f"postgresql://{role}@", 1)
             with psycopg.connect(dsn, autocommit=True) as con:
                 for schema in schemas:
-                    if schema in own:
+                    if schema in own and schema in owned:  # D-486: a writer, never the owner
+                        try:
+                            con.execute(f'INSERT INTO "{schema}".drill_probe VALUES (2)')
+                        except errors.InsufficientPrivilege as e:
+                            return (name, False, f"{role} cannot write its table in {schema}: {str(e).strip()[:160]}")
+                        for ddl in (f'ALTER TABLE "{schema}".drill_probe ADD COLUMN IF NOT EXISTS seen INT',
+                                    f'CREATE OR REPLACE FUNCTION "{schema}".drill_fn() RETURNS INT LANGUAGE sql '
+                                    "AS 'SELECT 2'"):  # fmt: skip
+                            try:
+                                con.execute(ddl)
+                            except errors.InsufficientPrivilege:
+                                continue
+                            return (name, False, f"{role} changed what the owner of {schema} made: {ddl[:40]}")
+                        opened += 1
+                    elif schema in own:
                         try:
                             con.execute(f'SET ROLE "tbs_{schema}"')
                             con.execute(f'ALTER TABLE "{schema}".drill_probe ADD COLUMN IF NOT EXISTS seen INT')
