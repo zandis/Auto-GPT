@@ -6,23 +6,20 @@
   every stored score as unknown (:mod:`matching.stored_scores`), so a failed batch can only send patients to "needs
   information", never decide one. A failure is logged and audited (``derive.failed``) and never turns the passed
   ingest into a failed one.
-* :func:`store`: the trial database's derived store for the screening read, or None without a trial database (a
-  bare DEV stack and the bench read the SQL alone).
+* :func:`reader`: the store every screening path reads, or None while the flag ``derived.stored_read`` is off (the
+  default) or without a trial database.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-import threading
 from typing import Any
 
 from tb_common.db import ENV
-from tb_common.derived_store import DerivedStore, mapping_version_of, run_batch
+from tb_common.derived_store import FLAG, DerivedStore, mapping_version_of, run_batch, shared_store, stored_read
 
 log = logging.getLogger("orchestrator.derive")
-_lock = threading.Lock()
-_stores: dict[str, DerivedStore] = {}
 
 
 def url_of(orch: Any) -> str | None:
@@ -32,20 +29,14 @@ def url_of(orch: Any) -> str | None:
 
 
 def store(url: str | None = None) -> DerivedStore | None:
-    """One derived store per trial database URL for the process (``TB_DB_URL`` when None); None without one."""
-    url = url or os.environ.get(ENV)
-    if not url:
-        return None
-    with _lock:
-        st = _stores.get(url)
-        if st is not None:
-            try:  # a store whose connection or schema went away (a restarted database) is opened again
-                st.batch("")
-            except Exception:
-                st = None
-        if st is None:
-            st = _stores[url] = DerivedStore(url)
-        return st
+    """The derive batch's store: one per trial database URL for the process (``TB_DB_URL`` when None)."""
+    return shared_store(url)
+
+
+def reader(orch: Any) -> DerivedStore | None:
+    """The store every screening path reads (D-442), from the job runner's own trial database; None while the flag
+    ``derived.stored_read`` is off (the default). Read once when a job starts."""
+    return stored_read(url_of(orch))
 
 
 def after_ingest(orch: Any, snapshot: str) -> dict[str, Any] | None:
@@ -69,4 +60,25 @@ def after_ingest(orch: Any, snapshot: str) -> dict[str, Any] | None:
             orch.audit.append("derive.failed", detail={"snapshot": snapshot, "error": type(exc).__name__})
         except Exception as aexc:  # the audit must not take the job down
             log.warning("derive.failed not audited: %s", aexc)
+        return None
+
+
+def status(orch: Any) -> dict[str, Any] | None:
+    """For ``/models`` and the health line (``tb_common.metrics.check_derive``): the flag, the snapshot the lake
+    serves and the newest derive batch; None without a trial database or when it cannot be read."""
+    from tb_common.flags import read
+
+    url = url_of(orch) or os.environ.get(ENV)
+    if not url:
+        return None
+    try:
+        st = shared_store(url)
+        last = st.last_batch() if st is not None else None
+        try:
+            current = orch.services.lake.snapshot()
+        except Exception:
+            current = None
+        return {"flag": read(FLAG, url) or "off", "current": current, "last": last}
+    except Exception as exc:  # the health line then has no derive check; the page says nothing wrong
+        log.warning("derive status not read: %s", type(exc).__name__)
         return None

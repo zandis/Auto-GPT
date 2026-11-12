@@ -28,7 +28,7 @@ from guard.injection import planted_in
 from lake.client import LakeAPI
 from matching.coverage import Coverage
 from matching.proposed import Proposed
-from matching.stored_scores import StoredScores
+from matching.stored_scores import apply_rows
 from tb_common.fhir import FhirEvaluator
 from tb_common.labunit import reason_of as derived_reason
 from tb_common.llm import LlmClient, LlmError, LlmPromptTooLong
@@ -110,9 +110,9 @@ class SqlEngine:
     lake: LakeAPI
     snapshot: str | None = None
     name: str = "sql"
-    # D-442: the stored derived rows (``tb_common.derived_store.DerivedStore``). Given, a decided answer on a stored
-    # score stands only on its stored row of this snapshot (:mod:`matching.stored_scores`); screening gives it
-    # (:func:`engine_from_env` with the trial database), the goldens and the bench read the SQL alone
+    # D-442: the stored derived rows (``tb_common.derived_store.stored_read``: given only while the flag
+    # ``derived.stored_read`` is on). Given, :func:`matching.stored_scores.apply_rows` runs on the SQL's rows, as on
+    # the cascade's: a decided score answer stands only on its stored row of the snapshot's batch
     stored: Any = None
 
     def evaluate(self, rs: Ruleset, pids: list[str], index_date: date, ids: list[str]) -> dict[str, PatientEvaluation]:
@@ -120,15 +120,9 @@ class SqlEngine:
             return {}
         t = self.lake.query(safe_sql(rs), [[index_date.isoformat()], list(pids)], self.snapshot).to_pylist()
         crit = [c for c in rs.active() if c.id in set(ids)]
+        apply_rows(t, crit, self.stored, self.snapshot, getattr(rs.manifest, "derived_pins", None))
         cov = Coverage.for_criteria(self.lake, crit, pids, self.snapshot, rs.valuesets)
         prop = Proposed.for_criteria(self.lake, crit, pids, self.snapshot, rs.valuesets)
-        held = (
-            StoredScores.for_criteria(
-                self.stored, crit, pids, self.snapshot, index_date, getattr(rs.manifest, "derived_pins", None)
-            )
-            if self.stored is not None
-            else None
-        )
         out: dict[str, PatientEvaluation] = {}
         for row in t:
             res = {k[2:]: row[k] for k in row if k.startswith("C_") and k[2:] in ids}
@@ -151,10 +145,6 @@ class SqlEngine:
                 fids = prop.refs(c, str(row["pid"]), index_date, res.get(c.id))
                 if fids:  # a suspected diagnosis (疑い, D-142) the same way, with its own reason
                     res[c.id], ev[c.id], reasons[c.id] = None, fids, prop.reason(str(row["pid"]), fids)
-                # D-442: a decided answer on a stored score stands only on its stored row; else "needs information"
-                why = held.check(c, str(row["pid"]), res.get(c.id), ev.get(c.id, [])) if held is not None else None
-                if why is not None:
-                    res[c.id], reasons[c.id] = None, why
             out[row["pid"]] = PatientEvaluation(
                 pid=row["pid"], index_date=index_date, engine="sql", results=res, evidence=ev, reasons=reasons or None
             )

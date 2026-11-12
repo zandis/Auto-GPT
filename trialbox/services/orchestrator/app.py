@@ -227,6 +227,7 @@ def models() -> dict[str, Any]:
     from datacore.optout_worker import status as optout_status
 
     from orchestrator import canary_gate
+    from orchestrator.derive import status as derive_status
     from orchestrator.scenarios.screen_cascade import pipeline
 
     canary_gate.GATE.configure(o.data_dir)
@@ -238,6 +239,7 @@ def models() -> dict[str, Any]:
         **judging_info(judge),
         "canary": canary_gate.status(),
         "optout_worker": optout_status(),  # D-441: the health line turns red on a stale or failed tick
+        "derive_batch": derive_status(o),  # D-442: the derive batch of the served snapshot
     }
 
 

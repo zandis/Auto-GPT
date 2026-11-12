@@ -68,25 +68,38 @@ snapshot, every patient, before the follow-up micro-batch screens (`orchestrator
 over a named snapshot is recorded in `batch_run` (snapshot, mapping version, the definitions it ran under, counts and
 the patients that failed) and audited (`derive.batch`; a failed batch `derive.failed`, which never fails the ingest).
 
-**Screening reads the stored rows** (D-442). The SQL still computes a score from the same rows (the engines agree),
-and the stored row of record must stand behind every decided answer on CDAI, SDAI, DAS28 and eGFR. When it does not,
-the answer is "needs information", never a new decided answer:
+**Screening reads the stored rows, behind a flag** (D-442). The audited flag `derived.stored_read` (`/ops/flags`,
+default `off`) decides for every path alike. Off, no path reads the store. It stays off until the age rule, the
+pinned reads and the missing-batch warnings are proven on a real run. On, SCREEN (cascade and v1), MICROBATCH (new
+patients and the re-check), NAV, CASE and COHORT all pass the approved SQL's rows through one function
+(`matching.stored_scores.apply_rows`): the SQL still computes the score, and the stored row of the snapshot's batch
+must stand behind every decided answer on CDAI, SDAI, DAS28 and eGFR. When it does not, the answer is "needs
+information", never a new decided answer:
 
 | What is found | Reason |
 | --- | --- |
-| no finished batch of the snapshot being screened, a batch under other definitions, or a batch that failed for the patient | `derived_not_stored` |
-| no current row in the window, a row of another definition than the ruleset pinned, a row of another visit than the engine's | `derived_not_stored` |
-| a row with no value | its own reason (`derived_unit`, `derived_adult_only`, ...) |
+| no finished batch of the snapshot, a batch under other definitions than pinned, or a batch that failed for the patient | `derived_not_stored` |
+| no row in the window, a row of another definition, a row of another visit than the engine's | `derived_not_stored` |
+| a row computed under 18 at the creatinine's date for a patient who is 18 at the index date (one age rule) | `derived_not_stored` |
+| a row with no value | its own reason (`derived_unit`, ...) |
 | an open derived-vs-documented conflict | `derived_vs_documented` |
-| the comparison gives another answer on the stored value (the documented value a person kept, else the computed one) | `derived_vs_documented` or `derived_not_stored` |
+| the criterion's logic, in three values with the stored score values, cannot give the SQL's answer | `derived_vs_documented` (a kept documented value) or `derived_not_stored` |
 
-BMI, BASDAI and ASDAS have no stored rows; the SQL alone decides them, as before. Without a trial database (a bare
-DEV stack) screening reads the SQL alone; the goldens are the SQL alone.
+The rows are read as they stood when the snapshot's first batch finished, so a re-run of a job reads what the job
+read; a conflict opened or resolved later is read from the next snapshot on. A snapshot whose batch has not
+finished is named on the readiness page, on the health line (`derive_batch`) and in the header of a screening list
+that reads stored scores. BMI, BASDAI and ASDAS have no stored rows. FEAS counts read the SQL alone. Without a trial
+database screening reads the SQL alone; the goldens are the SQL alone.
+
+**One age.** The SQL, the CQL and the Python reference count complete years at the index date the same way: the day
+before the birthday is still the younger age, so a 29 February birth turns 18 on 1 March of a common year.
 
 **Rulesets pin the definitions** (D-442). An approval writes `derived_pins` in the manifest: for every score the
 criteria use, the definition version and sha256 (`egfr` pins CKD-EPI 2021; `das28` pins both variants). A definition
 of another version or text on the box puts the study in "approval needed" (`tb_common.ruleset.approval_state`, the
-approval page names the score), and until the investigator approves again its criteria read "needs information".
+approval page names the score), and while the flag is on its criteria read "needs information" until the
+investigator approves again. A study approved before D-442 pins nothing until its next approval (the approval page
+says so); the committed rulesets are not back-filled.
 
 Not yet: the console has no page for derived conflicts; the stored rows are not written to the OMOP `measurement`
 table with `FACT_RELATIONSHIP`; FEAS counts still read the SQL alone; DAS28, BASDAI, ASDAS and MELD 3.0 still need

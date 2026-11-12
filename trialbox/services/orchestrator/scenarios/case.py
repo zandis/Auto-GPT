@@ -257,7 +257,10 @@ def evaluate_case(
     evals: dict[str, PatientEvaluation] = {}
     if subj.in_lake and subj.pid:
         ids = [c.id for c in active if c.class_ in FILTERED]
-        engine = engine_from_env("sql", None, ctx.services.lake, subj.snapshot)  # the lake snapshot, deterministic
+        from orchestrator import derive
+
+        # the lake snapshot, deterministic; the stored-row read while the flag is on (D-442), as on every path
+        engine = engine_from_env("sql", None, ctx.services.lake, subj.snapshot, derive.reader(ctx.orch))
         evals = engine.evaluate(rs, [subj.pid], index_date, ids) if ids else {}
     judge = judge_for(ctx, rs)
     cj = ChartJudge(judge, excerpts) if judge is not None else None

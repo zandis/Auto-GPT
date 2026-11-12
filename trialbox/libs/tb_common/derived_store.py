@@ -35,6 +35,7 @@ import hashlib
 import json
 import logging
 import os
+import threading
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
@@ -140,16 +141,30 @@ class Latest:
 
 @dataclass(frozen=True)
 class Batch:
-    """D-442: the newest finished derive batch of a snapshot: its definitions and the patients it failed."""
+    """D-442: the first finished derive batch of a snapshot: its definitions, when it finished and the patients it
+    failed. Screening reads the stored rows as they stood when it finished (:meth:`DerivedStore.latest_many`
+    ``as_of``), so a re-run of a job reads what the job read."""
 
     run_id: int
     snapshot: str
     defs: dict[str, str]
     failed_pids: frozenset[str]
+    finished_at: str = ""
 
     def current(self) -> bool:
         """Whether the batch ran under the definitions this box computes now (:func:`current_defs`)."""
         return self.defs == current_defs()
+
+    def holds(self, pins: Mapping[str, Any] | None) -> bool:
+        """Whether the batch ran under the definitions a ruleset pinned (each pinned version with its sha); with no
+        pins (approved before D-442), under the definitions this box computes now."""
+        if not pins:
+            return self.current()
+        for raw in pins.values():
+            pin = scores.pin_fields(raw)
+            if self.defs.get(str(pin.get("def_version"))) != pin.get("sha256"):
+                return False
+        return True
 
 
 def current_defs() -> dict[str, str]:
@@ -499,29 +514,44 @@ class DerivedStore:
         lo = on - timedelta(days=window_days if window_days is not None else derived.DEFAULT_WINDOW_DAYS[score])
         return self.latest_many([pid], score, lo, on)[pid]
 
-    def latest_many(self, pids: Sequence[str], score: str, lo: date | None, hi: date) -> dict[str, Latest]:
-        """:meth:`latest` for many patients at once (D-442, the screening read): per patient the newest current row
+    def latest_many(
+        self, pids: Sequence[str], score: str, lo: date | None, hi: date, as_of: str | None = None
+    ) -> dict[str, Latest]:
+        """:meth:`latest` for many patients at once (D-442, the screening read): per patient the newest row
         anchored between ``lo`` (None: no lower bound) and ``hi``, newest anchor date first, then the larger anchor
-        row id. Every patient asked for is in the answer."""
+        row id. ``as_of`` (a batch's ``finished_at``): the rows and conflicts as they stood then, so the same job
+        reads the same rows on a re-run; None: the current rows and conflicts. Every patient asked for is in the
+        answer."""
         out = {p: Latest(None, f"{derived.MISSING}:{derived.COMPONENTS[score][0]}") for p in pids}
         if not pids:
             return out
+        valid = (
+            "superseded_at IS NULL"
+            if as_of is None
+            else "computed_at <= ? AND (superseded_at IS NULL OR superseded_at > ?)"
+        )
         rows = self._db.fetchall(
             "SELECT DISTINCT ON (pid) pid, id, value, reason, anchor_date, def_version, inputs, anchor_oid, def_sha "
-            "FROM score_row WHERE pid = ANY(?) AND score = ? AND superseded_at IS NULL AND anchor_date <= ? "
+            f"FROM score_row WHERE pid = ANY(?) AND score = ? AND {valid} AND anchor_date <= ? "
             "AND (CAST(? AS DATE) IS NULL OR anchor_date >= ?) "
             "ORDER BY pid, anchor_date DESC, anchor_oid DESC, id DESC",
-            (list(pids), score, hi, lo, lo),
+            (list(pids), score, *(() if as_of is None else (as_of, as_of)), hi, lo, lo),
         )
         held: dict[int, list[tuple[Any, Any]]] = {}
         with_value = [int(r[1]) for r in rows if r[2] is not None]
         if with_value:
-            for row_id, resolution, documented in self._db.fetchall(
-                "SELECT row_id, resolution, documented_value FROM conflict WHERE row_id = ANY(?) AND (resolution IS "
-                "NULL OR resolution = 'keep_documented') ORDER BY id DESC",
+            for row_id, resolution, resolved_at, opened_at, documented in self._db.fetchall(
+                "SELECT row_id, resolution, resolved_at, opened_at, documented_value FROM conflict "
+                "WHERE row_id = ANY(?) ORDER BY id DESC",
                 (with_value,),
             ):
-                held.setdefault(int(row_id), []).append((resolution, documented))
+                if as_of is not None:
+                    if opened_at > as_of:
+                        continue  # opened after the batch: not what the batch's readers saw
+                    if resolution is not None and (resolved_at or "") > as_of:
+                        resolution = None  # resolved later: it was open then
+                if resolution is None or resolution == "keep_documented":
+                    held.setdefault(int(row_id), []).append((resolution, documented))
         for pid, row_id, value, reason, anchor_date, def_version, inputs, anchor_oid, def_sha in rows:
             base = {"row_id": int(row_id), "anchor_date": anchor_date, "def_version": def_version,
                     "inputs": json.loads(inputs), "anchor_oid": anchor_oid, "def_sha": def_sha}  # fmt: skip
@@ -553,16 +583,60 @@ class DerivedStore:
         )
 
     def batch(self, snapshot: str) -> Batch | None:
-        """The newest finished derive batch of ``snapshot``, or None when none finished (the rows are not this
-        snapshot's: screening reads every stored score as unknown)."""
+        """The first finished derive batch of ``snapshot`` (a later batch of the same snapshot never changes what
+        its readers read), or None when none finished: screening then reads every stored score as unknown."""
         r = self._db.fetchone(
-            "SELECT id, defs, failed_pids FROM batch_run WHERE snapshot = ? AND finished_at IS NOT NULL "
-            "ORDER BY id DESC LIMIT 1",
+            "SELECT id, defs, failed_pids, finished_at FROM batch_run WHERE snapshot = ? AND finished_at IS NOT NULL "
+            "ORDER BY id LIMIT 1",
             (snapshot,),
         )
         if r is None:
             return None
-        return Batch(int(r[0]), snapshot, dict(json.loads(r[1])), frozenset(json.loads(r[2] or "[]")))
+        return Batch(int(r[0]), snapshot, dict(json.loads(r[1])), frozenset(json.loads(r[2] or "[]")), str(r[3]))
+
+    def last_batch(self) -> dict[str, Any] | None:
+        """The newest derive batch, finished or not (readiness and health, D-442): snapshot, started, finished
+        (None: it never finished), failed count."""
+        got = self._db.fetchdicts(
+            "SELECT snapshot, started_at, finished_at, patients, failed FROM batch_run ORDER BY id DESC LIMIT 1", ()
+        )
+        return got[0] if got else None
+
+
+# ---------------------------------------------------------------------------------------------- the stores
+FLAG = "derived.stored_read"
+_lock = threading.Lock()
+_stores: dict[str, DerivedStore] = {}
+
+
+def shared_store(url: str | None = None) -> DerivedStore | None:
+    """One derived store per trial database URL for the process (``TB_DB_URL`` when None); None without one. A
+    store whose connection or schema went away (a restarted database) is opened again."""
+    url = url or os.environ.get(ENV)
+    if not url:
+        return None
+    with _lock:
+        st = _stores.get(url)
+        if st is not None:
+            try:
+                st.batch("")
+            except Exception:
+                st = None
+        if st is None:
+            st = _stores[url] = DerivedStore(url)
+        return st
+
+
+def stored_read(url: str | None = None) -> DerivedStore | None:
+    """D-442: the store every screening path reads, or None. The audited flag ``derived.stored_read`` decides, for
+    every path alike: off (the default) no path reads the store; on, each path reads it. A caller reads it once when
+    its work starts and keeps it for the whole job."""
+    from tb_common.flags import read
+
+    url = url or os.environ.get(ENV)
+    if not url or read(FLAG, url) != "on":
+        return None
+    return shared_store(url)
 
 
 # ---------------------------------------------------------------------------------------------- the nightly batch

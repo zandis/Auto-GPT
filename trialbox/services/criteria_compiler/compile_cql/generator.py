@@ -391,9 +391,9 @@ class CqlGenerator:
             case "bmi":
                 value = f"TB.BMI({latest['weight']}, {latest['height']})"
             case "egfr" | "egfr_ckd_epi":
-                value = f"TB.EGFR2021({latest['creatinine']}, AgeInYearsAt(IndexDate), TB.IsFemale(Patient))"
+                value = f"TB.EGFR2021({latest['creatinine']}, TB.AgeAt(Patient, IndexDate), TB.IsFemale(Patient))"
             case "egfr_jsn":
-                value = f"TB.EGFRJSN({latest['creatinine']}, AgeInYearsAt(IndexDate), TB.IsFemale(Patient))"
+                value = f"TB.EGFRJSN({latest['creatinine']}, TB.AgeAt(Patient, IndexDate), TB.IsFemale(Patient))"
             case "das28":
                 has_esr = f"{q(f'L_{p}_esr')} is not null"
                 value = (
@@ -467,9 +467,9 @@ class CqlGenerator:
         conds = []
         if atom.age is not None:
             if atom.age.min is not None:
-                conds.append(f"AgeInYearsAt(IndexDate) >= {fmt_num(atom.age.min)}")
+                conds.append(f"TB.AgeAt(Patient, IndexDate) >= {fmt_num(atom.age.min)}")
             if atom.age.max is not None:
-                conds.append(f"AgeInYearsAt(IndexDate) <= {fmt_num(atom.age.max)}")
+                conds.append(f"TB.AgeAt(Patient, IndexDate) <= {fmt_num(atom.age.max)}")
         if atom.sex is not None:
             # D-275 (review S-5), as the SQL: other / unknown is null, not "not female"
             conds.append(

@@ -31,6 +31,16 @@ define function "LatestValue"(obs List<FHIR.Observation>):
 define function "IsFemale"(P FHIR.Patient):
   if P.gender.value in { 'male', 'female' } then P.gender.value = 'female' else null
 
+/* D-442: complete years at asOf, as the Python reference and the SQL count them: the day before the birthday is
+   still the younger age, so a 29 February birth turns 18 on 1 March of a common year (the engine's AgeInYearsAt
+   gave 18 on 28 February) */
+define function "AgeAt"(P FHIR.Patient, asOf System.Date):
+  if P.birthDate.value is null or asOf is null then null
+  else (year from asOf) - (year from P.birthDate.value)
+    - (if (month from asOf) < (month from P.birthDate.value)
+          or ((month from asOf) = (month from P.birthDate.value) and (day from asOf) < (day from P.birthDate.value))
+       then 1 else 0)
+
 define function "BMI"(weightKg System.Decimal, heightCm System.Decimal):
   weightKg / Power(heightCm / 100.0, 2.0)
 

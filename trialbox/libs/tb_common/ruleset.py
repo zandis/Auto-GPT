@@ -224,7 +224,10 @@ def approval_state(
     pinned = manifest.terminology_release
     if pinned and terminology_release and pinned != terminology_release:
         reasons.append({"kind": "terminology", "pinned": pinned, "active": terminology_release, "state": "newer"})
-    return {"state": "approval_needed" if reasons else "approved", "reasons": reasons}
+    # D-442: approved before score definitions were pinned: a changed definition cannot ask for approval until the
+    # next approval writes the pins (never back-filled; the page says so)
+    unpinned = not getattr(manifest, "derived_pins", None)
+    return {"state": "approval_needed" if reasons else "approved", "reasons": reasons, "derived_unpinned": unpinned}
 
 
 def _has_tag(repo_dir: Path, tag: str) -> bool:

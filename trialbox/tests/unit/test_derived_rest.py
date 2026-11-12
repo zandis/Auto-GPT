@@ -6,6 +6,7 @@ Synthetic patients only. Each test that needs the trial database has its own sch
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -199,22 +200,38 @@ def test_screening_reads_the_stored_rows(db_url: str, tmp_path: Path) -> None:
     assert {p: e.results[CID] for p, e in after.items()} == {p: e.results[CID] for p, e in plain.items()}
     child = st.rows("E-CHILD", "egfr_ckd_epi")
     assert child[0]["value"] is None and child[0]["reason"] == "derived_adult_only:age"  # stored under 18: no value
-    # a documented eGFR far from the computed one: the conflict is open, the score reads as unknown
     adult = st.rows("E-ADULT", "egfr_ckd_epi")[0]
+    assert adult["value"] == pytest.approx(59.3, abs=0.05)
+    # a documented eGFR far from the computed one, after the batch: this snapshot's readers read the rows as the batch
+    # left them (a re-run of the job reads the same), the next snapshot's batch carries the open conflict
+    time.sleep(1.1)  # the store's times are to the second
     assert st.check_documented([Documented("E-ADULT", "egfr_ckd_epi", 30.0, ON, "doc-1", "signed")]) == 1
-    open_ = SqlEngine(lk, SNAP, stored=st).evaluate(rs, pids, IDX, [CID])
+    again = SqlEngine(lk, SNAP, stored=st).evaluate(rs, pids, IDX, [CID])
+    assert again["E-ADULT"].results[CID] is True  # D-442 item 3: pinned to the batch's finish
+    nxt = _next_snapshot(tmp_path, st, lk, "2026-11-10")
+    open_ = SqlEngine(lk, nxt, stored=st).evaluate(rs, pids, IDX, [CID])
     assert open_["E-ADULT"].results[CID] is None and open_["E-ADULT"].reasons == {CID: VS_DOCUMENTED}
     assert open_["E-LOW"].results[CID] is False  # another patient is not touched
-    # a person kept the documented 30: under 45 it no longer supports "at least 45": needs information
+    # a person kept the documented 30: under 45 it no longer supports "at least 45" (from the next batch on)
     (conflict,) = st.conflicts("E-ADULT")
     st.resolve(int(conflict["id"]), "keep_documented", "steward-1")
-    kept = SqlEngine(lk, SNAP, stored=st).evaluate(rs, pids, IDX, [CID])
+    third = _next_snapshot(tmp_path, st, lk, "2026-11-11")
+    kept = SqlEngine(lk, third, stored=st).evaluate(rs, pids, IDX, [CID])
     assert kept["E-ADULT"].results[CID] is None and kept["E-ADULT"].reasons == {CID: VS_DOCUMENTED}
-    assert adult["value"] == pytest.approx(59.3, abs=0.05)
+    assert SqlEngine(lk, nxt, stored=st).evaluate(rs, pids, IDX, [CID])["E-ADULT"].reasons == {CID: VS_DOCUMENTED}
     # a ruleset pinned to another definition text reads the rows as not its own
     other = _ruleset(crit, {"egfr_ckd_epi": {"def_version": "neph.egfr_ckd_epi_2021@1", "sha256": "0" * 64}})
     pinned = SqlEngine(lk, SNAP, stored=st).evaluate(other, pids, IDX, [CID])
     assert pinned["E-LOW"].results[CID] is None and pinned["E-LOW"].reasons == {CID: NOT_STORED}
+
+
+def _next_snapshot(tmp_path: Path, st: DerivedStore, lk: LakeLocal, snap: str) -> str:
+    """The same data as the next night: rebuilt as ``snap`` and its derive batch run, a second after the last change."""
+    time.sleep(1.1)
+    Lake(tmp_path / "lake", "Asia/Taipei").rebuild(snap, HashEmbedder(), tmp_path / "nd")
+    run_batch(st, lk, mapping_version="m@1", snapshot=snap)
+    time.sleep(1.1)
+    return snap
 
 
 def test_a_batch_over_some_patients_or_no_snapshot_is_not_recorded(db_url: str, tmp_path: Path) -> None:
@@ -245,7 +262,9 @@ class FakeStore:
     def batch(self, snapshot: str) -> Batch | None:
         return Batch(1, snapshot, current_defs(), self._failed)
 
-    def latest_many(self, pids: list[str], score: str, lo: date | None, hi: date) -> dict[str, Latest]:
+    def latest_many(
+        self, pids: list[str], score: str, lo: date | None, hi: date, as_of: str | None = None
+    ) -> dict[str, Latest]:
         return {p: self._rows.get(score, {}).get(p, Latest(None, "derived_missing_input:x")) for p in pids}
 
 
@@ -327,3 +346,233 @@ def test_the_batch_runs_after_the_ingest(db_url: str, tmp_path: Path, monkeypatc
 def test_the_ingest_scenario_calls_the_batch_before_the_follow_up() -> None:
     src = (ROOT / "services" / "orchestrator" / "scenarios" / "admin.py").read_text(encoding="utf-8")
     assert src.index("derive.after_ingest(") < src.index("after_ingest(ctx.orch")
+
+
+# ------------------------------------------------------------------------------------------------ review round 2
+# D-442 ruling: the stored-row read is behind one audited flag (off by default) and applies on every path alike
+def _flag(db_url: str, tmp_path: Path, value: str) -> None:
+    from tb_common import flags as fl
+    from tb_common.audit import AuditLog
+
+    f = fl.Flags(url=db_url, audit=AuditLog(tmp_path / "flag-audit"))
+    if f.get(fl_name := "derived.stored_read", "off") != value:
+        f.set(fl_name, value, actor="test:admin", reason="D-442 test")
+    fl.clear_cache()
+
+
+class DbOrch(FakeOrch):
+    def __init__(self, lake: Any, url: str) -> None:
+        super().__init__(lake)
+        self.db = type("D", (), {"url": url})()
+
+
+def test_the_flag_decides_whether_any_path_reads_the_store(db_url: str, tmp_path: Path) -> None:
+    from orchestrator import derive
+    from tb_common.derived_store import stored_read
+
+    orch = DbOrch(None, db_url)
+    assert stored_read(db_url) is None and derive.reader(orch) is None  # off by default: no path reads
+    _flag(db_url, tmp_path, "on")
+    assert stored_read(db_url) is not None and derive.reader(orch) is stored_read(db_url)
+    _flag(db_url, tmp_path, "off")
+    assert derive.reader(orch) is None
+
+
+def test_every_path_reads_the_store_through_the_one_reader() -> None:
+    src = {p: (ROOT / "services" / p).read_text(encoding="utf-8") for p in (
+        "orchestrator/scenarios/screen.py", "orchestrator/scenarios/screen_cascade.py",
+        "orchestrator/scenarios/case.py", "orchestrator/scenarios/cohort.py")}  # fmt: skip
+    for p, text in src.items():
+        assert "derive.reader(ctx.orch)" in text, p
+    eng = (ROOT / "services" / "matching" / "cascade" / "engine.py").read_text(encoding="utf-8")
+    ev = (ROOT / "services" / "orchestrator" / "scenarios" / "evaluate.py").read_text(encoding="utf-8")
+    assert "apply_rows(table, applied, self.cfg.stored" in eng and "apply_rows(t, crit, self.stored" in ev
+
+
+def _paths(lk: LakeLocal, rs: Ruleset, store: Any, snap: str, pids: list[str], idx: date) -> dict[str, dict[str, Any]]:
+    """The answer of each path for every patient: the v1 engine (SCREEN v1, NAV, MICROBATCH re-check, CASE), the
+    cascade's S1 (SCREEN, new-patient MICROBATCH) and the cohort's rows (COHORT)."""
+    from criteria_compiler.compile_sql.overlay import safe_sql
+    from matching.cascade.engine import CascadeConfig, run_cascade
+    from matching.stored_scores import apply_rows
+    from orchestrator.scenarios.evaluate import structured_verdict
+    from orchestrator.scenarios.screen_cascade import verdicts_of
+
+    crit = rs.criteria[0]
+    v1 = SqlEngine(lk, snap, stored=store).evaluate(rs, pids, idx, [crit.id])
+    cfg = CascadeConfig(study_id=rs.id, run_date=idx, lookback_months=36, index_mode="single", purpose="screening",
+                        step_id="t", snapshot=snap, population=pids, note_block=False, absence_semantics=False,
+                        stored=store)  # fmt: skip
+    cas = run_cascade(lk, rs, cfg, judge=None, embedder=HashEmbedder(), reviewer=None)
+    rows = lk.query(safe_sql(rs), [[idx.isoformat()], pids], snap).to_pylist()
+    apply_rows(rows, rs.active(), store, snap, rs.manifest.derived_pins)
+    out: dict[str, dict[str, Any]] = {"v1": {}, "cascade": {}, "cohort": {}}
+    for p in pids:
+        sv = structured_verdict(crit, v1[p])
+        out["v1"][p] = (sv.verdict, sv.evidence.reason if sv.evidence else None)
+        cv = next(v for v in verdicts_of(rs, cas.traces[p]).verdicts if v.id == crit.id)
+        out["cascade"][p] = (cv.verdict, cv.evidence.reason if cv.evidence else None)
+        out["cohort"][p] = next(r[f"C_{crit.id}"] for r in rows if r["pid"] == p)
+    return out
+
+
+def _same(out: dict[str, dict[str, Any]]) -> None:
+    for p, (verdict, reason) in out["v1"].items():
+        cv, cr = out["cascade"][p]
+        assert cv == verdict and (verdict != "unknown" or cr == reason), (p, out["cascade"][p], verdict, reason)
+        want = {"pass": True, "fail": False}.get(verdict)  # an inclusion: met, not met, unknown
+        assert out["cohort"][p] is want, (p, out["cohort"][p], verdict)
+
+
+def test_every_path_gives_the_same_answer_with_the_flag_off_and_on(db_url: str, tmp_path: Path) -> None:
+    lk = _lake(tmp_path)
+    st = DerivedStore(db_url)
+    rs = _ruleset(_egfr_crit("egfr"), scores.pins(["egfr"]))
+    pids = list(PATIENTS)
+    off = _paths(lk, rs, None, SNAP, pids, IDX)  # the flag off: no path reads the store
+    _same(off)
+    assert off["v1"]["E-ADULT"][0] == "pass" and off["v1"]["E-LOW"][0] == "fail"
+    on_before = _paths(lk, rs, st, SNAP, pids, IDX)  # on, no batch yet: every decided score answer unknown
+    _same(on_before)
+    assert on_before["v1"]["E-ADULT"] == ("unknown", NOT_STORED) and on_before["v1"]["E-LOW"][0] == "unknown"
+    run_batch(st, lk, mapping_version="m@1", snapshot=SNAP)
+    on_after = _paths(lk, rs, st, SNAP, pids, IDX)
+    _same(on_after)
+    assert on_after["v1"] == off["v1"]  # the batch stands behind every answer
+
+
+# item 2: one age rule, the index date's
+def test_a_row_computed_under_18_never_says_adult_only_for_an_adult_at_the_index_date(
+    db_url: str, tmp_path: Path
+) -> None:
+    nd = tmp_path / "nd"
+    nd.mkdir()
+    system, code = d.CODES["creatinine"]
+    pat = {"resourceType": "Patient", "id": "A-18", "birthDate": "2008-06-01", "gender": "female"}
+    obs = {"resourceType": "Observation", "id": "A-18-cr", "status": "final", "subject": {"reference": "Patient/A-18"},
+           "code": {"coding": [{"system": system, "code": code}]}, "effectiveDateTime": "2026-05-15T09:00:00+08:00",
+           "valueQuantity": {"value": 0.8, "unit": "mg/dL", "code": "mg/dL"}}  # fmt: skip
+    (nd / "Patient.ndjson").write_text(json.dumps(pat) + "\n")
+    (nd / "Observation.ndjson").write_text(json.dumps(obs) + "\n")
+    Lake(tmp_path / "lake", "Asia/Taipei").rebuild(SNAP, HashEmbedder(), nd)
+    lk = LakeLocal(tmp_path / "lake", HashEmbedder(), "Asia/Taipei")
+    st = DerivedStore(db_url)
+    run_batch(st, lk, mapping_version="m@1", snapshot=SNAP)
+    assert st.rows("A-18", "egfr_ckd_epi")[0]["reason"] == "derived_adult_only:age"  # 17 at the creatinine
+    rs = _ruleset(_egfr_crit("egfr"), scores.pins(["egfr"]))
+    assert SqlEngine(lk, SNAP).evaluate(rs, ["A-18"], IDX, [CID])["A-18"].results[CID] is True  # 18 at the index
+    got = SqlEngine(lk, SNAP, stored=st).evaluate(rs, ["A-18"], IDX, [CID])["A-18"]
+    assert got.results[CID] is None and got.reasons == {CID: NOT_STORED}  # never derived_adult_only
+
+
+# item 7: a criterion of several atoms is checked in three values
+def test_a_combined_criterion_flags_only_a_contradiction() -> None:
+    lt30 = _egfr_crit("egfr", 30).logic.model_copy(update={"value": {"op": "<", "num": 30}})
+    dialysis = {"domain": "procedure", "quantifier": "any", "valueset": "VS_DIAL",
+                "window": {"anchor": "index", "from_days": -365, "to_days": 0}}  # fmt: skip
+    either = CriterionIR.model_validate({"id": "DER-EXC-01", "ruleset": "DER", "kind": "exclusion", "class": "structured",
+                                         "text": "eGFR < 30 or dialysis",
+                                         "logic": {"op": "or", "args": [lt30.model_dump(exclude_none=True), dialysis]}})  # fmt: skip
+    neither = CriterionIR.model_validate({"id": "DER-INC-09", "ruleset": "DER", "kind": "inclusion", "class": "structured",
+                                          "text": "not eGFR < 30",
+                                          "logic": {"op": "not", "args": [lt30.model_dump(exclude_none=True)]}})  # fmt: skip
+    rows = {"egfr_ckd_epi": {"LOW": _row("egfr_ckd_epi", 20.0)}}
+    held = StoredScores.for_criteria(FakeStore(rows), [either, neither], ["LOW", "NOCR"], SNAP, IDX)
+    assert held.check(either, "NOCR", True, ["proc-1|2026-10-01"]) is None  # dialysis decides; no creatinine needed
+    assert held.check(either, "NOCR", False, []) == NOT_STORED  # "neither" needs the score: no row
+    assert held.check(neither, "LOW", True, ["o-1|2026-10-06"]) == NOT_STORED  # stored 20 < 30: a contradiction
+    assert held.check(neither, "LOW", False, ["o-1|2026-10-06"]) is None
+
+
+# item 3: a re-run reads what the job read
+def test_reads_are_pinned_to_the_batch(db_url: str, tmp_path: Path) -> None:
+    lk = _lake(tmp_path)
+    st = DerivedStore(db_url)
+    run_batch(st, lk, mapping_version="m@1", snapshot=SNAP)
+    b = st.batch(SNAP)
+    assert b is not None and b.finished_at
+    first = st.latest_many(["E-ADULT"], "egfr_ckd_epi", None, IDX, b.finished_at)["E-ADULT"]
+    time.sleep(1.1)
+    later = {"creatinine": [d.Obs(1.1, "mg/dL", ON, "E-ADULT-cr"), d.Obs(3.0, "mg/dL", ON, "E-ADULT-cr2")]}
+    st.recompute("E-ADULT", later, mapping_version="m@2", birth=date(1971, 1, 1), female=True)  # rows superseded
+    st.check_documented([Documented("E-ADULT", "egfr_ckd_epi", 90.0, ON, "doc-9", "signed")])
+    again = st.latest_many(["E-ADULT"], "egfr_ckd_epi", None, IDX, b.finished_at)["E-ADULT"]
+    assert (again.value, again.row_id, again.reason) == (first.value, first.row_id, first.reason)
+    now = st.latest_many(["E-ADULT"], "egfr_ckd_epi", None, IDX)["E-ADULT"]
+    assert now.row_id != first.row_id  # the live read moved: only the pinned one is the job's
+    run_batch(st, lk, mapping_version="m@1", snapshot=SNAP)  # a second batch of the snapshot changes nothing read
+    assert st.batch(SNAP) == b
+
+
+# item 4: a missing or failed batch is seen
+def test_a_missing_or_crashed_batch_is_seen(db_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from matching.stored_scores import unverified
+    from sitesetup.readiness import scores_unverified
+    from tb_common.metrics import OK, RED, WARN, check_derive
+
+    lk = _lake(tmp_path)
+    st = DerivedStore(db_url)
+    crit = [_egfr_crit("egfr")]
+    assert unverified(crit, st, SNAP) and not unverified(crit, None, SNAP)  # the flag off: no line
+    assert not unverified([_egfr_crit("bmi")], st, SNAP)  # no stored score read
+    assert check_derive({"flag": "on", "current": SNAP, "last": None}).level == RED
+    assert check_derive({"flag": "off", "current": SNAP, "last": None}).level == WARN
+    crashed = {"snapshot": SNAP, "finished_at": None, "failed": None}
+    assert check_derive({"flag": "on", "current": SNAP, "last": crashed}).level == RED
+    old = {"snapshot": "2026-11-08", "finished_at": "x", "failed": 0}
+    assert "has no derive batch" in check_derive({"flag": "on", "current": SNAP, "last": old}).text
+    monkeypatch.setenv("TB_DB_URL", db_url)
+
+    class Svc:
+        def lake(self, ws: str) -> Any:
+            return lk
+
+    st.begin_batch(SNAP, "m@1")  # started, never finished (a crash)
+    assert st.last_batch()["finished_at"] is None  # type: ignore[index]
+    item = scores_unverified(Svc())  # type: ignore[arg-type]
+    assert item is not None and item["key"] == "patients.scores_unverified" and item["tables"] == SNAP
+    run_batch(st, lk, mapping_version="m@1", snapshot=SNAP)
+    assert scores_unverified(Svc()) is None and not unverified(crit, st, SNAP)  # type: ignore[arg-type]
+    good = {"flag": "on", "current": SNAP, "last": st.last_batch()}
+    assert check_derive(good).level == OK
+
+
+# item 5: a 29 February birth, the three engines on 28 February and 1 March
+@pytest.mark.parametrize(("day", "adult"), [(date(2026, 2, 28), False), (date(2026, 3, 1), True)])
+def test_a_leap_day_birth_has_one_age_in_the_three_engines(tmp_path: Path, day: date, adult: bool) -> None:
+    nd = tmp_path / "nd"
+    nd.mkdir()
+    system, code = d.CODES["creatinine"]
+    pat = {"resourceType": "Patient", "id": "LEAP", "birthDate": "2008-02-29", "gender": "female"}
+    obs = {"resourceType": "Observation", "id": "LEAP-cr", "status": "final", "subject": {"reference": "Patient/LEAP"},
+           "code": {"coding": [{"system": system, "code": code}]}, "effectiveDateTime": "2026-02-20T09:00:00+08:00",
+           "valueQuantity": {"value": 0.8, "unit": "mg/dL", "code": "mg/dL"}}  # fmt: skip
+    (nd / "Patient.ndjson").write_text(json.dumps(pat) + "\n")
+    (nd / "Observation.ndjson").write_text(json.dumps(obs) + "\n")
+    Lake(tmp_path / "lake", "Asia/Taipei").rebuild("2026-03-02", HashEmbedder(), nd)
+    lk = LakeLocal(tmp_path / "lake", HashEmbedder(), "Asia/Taipei")
+    crit = _egfr_crit("egfr")
+    rs = _ruleset(crit)
+    assert (d.age_at(date(2008, 2, 29), day) >= 18) is adult  # Python
+    got = SqlEngine(lk, "2026-03-02").evaluate(rs, ["LEAP"], day, [CID])["LEAP"]  # SQL
+    assert (got.results[CID] is not None) is adult and (adult or got.reasons == {CID: "derived_adult_only"})
+    from criteria_compiler.compile_cql.generator import CqlGenerator
+    from criteria_compiler.compile_cql.translator import Translator, available, fhirhelpers_source
+    from tb_common.fhir import FhirEvaluator, library_resource
+
+    from tools import cql_eval
+
+    if not (available() and cql_eval.available()):
+        pytest.skip("CQL translator or local CQL engine not available (python -m tools.cql_eval --fetch)")
+    gen = CqlGenerator("DER", "1.0.0", ValueSets("DER", _vs(), Terminology()))
+    cql = gen.render([crit])
+    tr = Translator().translate({"FHIRHelpers": fhirhelpers_source(), "TB_Common": render_common(), gen.library: cql})
+    head = next(x for x in cql.splitlines() if x.startswith("library "))
+    version = head.split(" version ")[1].strip().strip("'")
+    libs = [library_resource("TB_Common", "1.0.0", render_common(), tr.elm.get("TB_Common")),
+            library_resource(gen.library, version, cql, tr.elm.get(gen.library))]  # fmt: skip
+    lines = [json.dumps(pat), json.dumps(obs), *(json.dumps(v) for v in _vs().values()), *map(json.dumps, libs)]
+    exprs = CqlGenerator.expression_names([crit])
+    (body,) = cql_eval.run(lines, gen.library, version, day, exprs, ["LEAP"])
+    cql_got = FhirEvaluator.parse("LEAP", day, body, exprs).results.get(CID)
+    assert (cql_got is not None) is adult  # CQL

@@ -198,8 +198,11 @@ UNIT = "derived_unit"
 # every engine (catalogue egfr_ckd_epi_2021.yaml and egfr_jsn_2009.yaml: "age < 18: do not compute")
 ADULT_ONLY = "derived_adult_only"
 EGFR_MIN_AGE = 18
-# every reason prefix a derived score gives, in the order :func:`reason_of` prefers them
-PREFIXES = (UNIT, ADULT_ONLY, MISSING)
+# D-442, the stored-row read (flag ``derived.stored_read``): a decided score answer the stored rows do not support
+NOT_STORED = "derived_not_stored"
+VS_DOCUMENTED = "derived_vs_documented"
+# every reason prefix a derived score gives (the first in a criterion's evidence is its reason)
+PREFIXES = (UNIT, ADULT_ONLY, MISSING, NOT_STORED, VS_DOCUMENTED)
 
 
 def norm_unit(unit: str | None) -> str:
