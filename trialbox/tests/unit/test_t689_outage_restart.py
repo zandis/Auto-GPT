@@ -81,10 +81,15 @@ class Gateway:
         self.answered = 0
         self.refused: list[str] = []
         self._in_outage = 0
+        self._lock = threading.Lock()
 
     def __call__(self, req: httpx.Request) -> httpx.Response:
         if req.method == "GET":  # /v1/models: no context recorded
             return httpx.Response(200, json={"data": []})
+        with self._lock:
+            return self._post()
+
+    def _post(self) -> httpx.Response:
         if self.outages and self.answered == self.outages[0][0]:
             self.down_until = self.clock.now + self.outages.pop(0)[1]
             self._in_outage = 0
@@ -570,3 +575,20 @@ def test_screen_budget_defaults_to_the_population() -> None:
     assert max_pairs_of({}, {}) is None  # no fixed 20,000: the population's own pairs
     assert max_pairs_of({}, {"TB_SCREEN_MAX_PAIRS": "700"}) == 700
     assert max_pairs_of({"max_pairs": "50000"}, {"TB_SCREEN_MAX_PAIRS": "700"}) == 50000
+
+
+def test_sixteen_calls_in_flight_wait_through_one_outage_together(clock: Clock) -> None:
+    """Two at once, and more: the calls in flight share the job's one allowance and one outage; each is answered."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from orchestrator.jobs import GuardedLlm, OutageBudget
+
+    gw = Gateway(clock, (40, 40.0))
+    ended: list[tuple[str, str, float, str]] = []
+    budget = OutageBudget(1800.0, on_end=lambda *a: ended.append(a))
+    llm = GuardedLlm(gw.client(), lambda: False, None, "judge", budget)
+    variables = {"criterion_text": "x", "note_question": "x?", "index_date": "2026-10-05", "excerpts": EXCERPT}
+    with ThreadPoolExecutor(max_workers=16) as ex:
+        got = list(ex.map(lambda i: llm.chat_json("judge", {**variables, "criterion_text": f"c{i}"}), range(200)))
+    assert len(got) == 200 == gw.answered and gw.refused
+    assert all(e[3] == "resumed" for e in ended) and 0 < budget.spent <= 40.0 + 30.0
