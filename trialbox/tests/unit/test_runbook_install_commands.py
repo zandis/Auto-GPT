@@ -273,6 +273,26 @@ def run_systemctl_enable(tmp: Path) -> None:
         assert "@TB_ROOT@" not in filled
 
 
+def run_memcaps_measure(tmp: Path) -> None:
+    """The measurement at two small sizes into a temporary record (the shipped one is measured at 5,000 and
+    10,000 patients, minutes of work): it gives a fixed part and a part per patient for both services."""
+    out = _run([sys.executable, "-m", "tools.trialbox.memcaps", "--measure", "--sizes", "20", "40",
+                "--out", str(tmp / "rec.json")])  # fmt: skip
+    assert out.returncode == 0, out.stderr
+    rec = json.loads((tmp / "rec.json").read_text(encoding="utf-8"))
+    assert set(rec["services"]) == {"adapter", "lake"} and all(v["fixed_mb"] > 0 for v in rec["services"].values())
+
+
+def run_memcaps_write(tmp: Path) -> None:
+    """Sizing the caps again in a deploy folder whose .env names the hospital's size."""
+    (tmp / "deploy").mkdir()
+    (tmp / "deploy/.env").write_text("TB_ENV=DEV\nTB_SITE_PATIENTS=50000\n", encoding="utf-8")
+    out = _run([sys.executable, "-m", "tools.trialbox.memcaps", "--env-file", "deploy/.env", "--write"], cwd=tmp)
+    assert out.returncode == 0 and "50000 patients" in out.stdout, out.stderr
+    env = (tmp / "deploy/.env").read_text(encoding="utf-8")
+    assert "TB_MEM_ADAPTER=" in env and "TB_MEM_LAKE=" in env
+
+
 # command (as §1 writes it, a regular expression) -> its runner
 RUNNERS: list[tuple[str, Callable[[Path], None]]] = [
     (r"tools/serving_config\.py measured", run_serving_measured),
@@ -302,6 +322,8 @@ RUNNERS: list[tuple[str, Callable[[Path], None]]] = [
     (r"docker compose exec adapter python -m adapter\.cli run", run_first_ingest),
     (r"deploy/check_host\.sh \[--gb10\]", run_check_host),
     (r"systemctl enable trialbox-.*", run_systemctl_enable),
+    (r"python -m tools\.trialbox\.memcaps --measure", run_memcaps_measure),
+    (r"python -m tools\.trialbox\.memcaps --env-file deploy/\.env --write", run_memcaps_write),
 ]
 
 
