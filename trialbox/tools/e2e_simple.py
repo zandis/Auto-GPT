@@ -454,8 +454,10 @@ def _stage12(res: dict[str, Any], crc: Any, pi: Any, lang: str, box: Any) -> Sta
         r = crc.post("/site/charts", data={"csrf": csrf(), "ws": SITE_WS, "study": SITE_RS, "chart_no": no,
                                             "text": text})  # fmt: skip
     facts = orch_api("GET", f"/setup/{SITE_WS}/facts?status=proposed")
+    # D-470: the evidence names each fact (pseudonym prefix, domain, code, day), so a real-model run shows what it read
     s.check("two pasted charts: facts proposed, each beside its quote", len(facts) >= 7 and all(f["quote"] for f in
-            facts) and 'data-testid="chart-saved"' in r.text, len(facts))  # fmt: skip
+            facts) and 'data-testid="chart-saved"' in r.text,
+            (len(facts), [(f["pid"][:8], f["domain"], f["code"], f["day"]) for f in facts]))  # fmt: skip
     page = crc.get(f"/site?{q}").text
     s.check("charts alone: the box says feasibility needs a bulk source",
             'data-testid="miss-bulk"' in page and 'data-testid="feas-needs-bulk"' in page)  # fmt: skip
