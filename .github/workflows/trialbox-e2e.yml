@@ -8,6 +8,9 @@
 # the images built, `make up-test`, every integration and e2e test (HAPI CQL, the equivalence gate against HAPI, mail
 # through GreenMail and Mailpit, the role walk), the browser walk of the public console, then `make poc` and the
 # console POC test. The compose job allows no skip (TB_STRICT_SKIPS=1) and keeps its junit files and walk result.
+# The scale gate (T-687, D-471; plan v6.1 §5 item 4): the night of a 50,000-patient synthetic hospital, each part under
+# the memory cap of its compose service (a cgroup made with systemd-run), with the slow model stand-in; today's
+# failures (F-01, F-02, F-04, F-05) are strict expected failures by card, so the job is green while exactly they fail.
 # workflow_dispatch runs the same jobs by hand; the first scheduled run after a change to this file is its proof.
 name: TrialBox nightly
 
@@ -96,6 +99,74 @@ jobs:
         with:
           name: bench-gate
           path: ${{ runner.temp }}/bench-gate
+          if-no-files-found: ignore
+
+  # T-687 (D-471): the scale gate. Never on a pull request (no 50,000-patient run there; the gate's own logic is tested
+  # at 200 patients in the unit job, tests/unit/test_scale_gate.py). The caps are read from deploy/docker-compose.yml
+  # and enforced by a cgroup per part (`sudo systemd-run --scope -p MemoryMax=<cap> -p MemorySwapMax=0`, what Docker's
+  # mem_limit is); the gate refuses to run without one (TB_SCALE_ENFORCE=cgroup). The stand-in: 2 s per call, 502 for
+  # 40 s from call 300, one restart (30 s down) after call 900 (the cascade made 1,362 calls at 50,000 in
+  # eval/hospital_sim/results/scale.json). The report is the job summary and an artifact.
+  scale-50k:
+    runs-on: ubuntu-24.04  # 4 cores, 16 GB, systemd and cgroup v2, password-less sudo; PostgreSQL 16 for pglocal
+    timeout-minutes: 340  # under GitHub's 360-minute job limit: the night is measured, not budgeted; a hang ends here
+    env:
+      TB_SCALE_PATIENTS: "50000"
+      TB_SCALE_ENFORCE: cgroup
+      TB_SCALE_LATENCY_S: "2"
+      TB_SCALE_OUTAGE_AFTER: "300"
+      TB_SCALE_OUTAGE_S: "40"
+      TB_SCALE_RESTART_AFTER: "900"
+      TB_SCALE_RESTART_GAP_S: "30"
+      TB_SCALE_OUT: ${{ runner.temp }}/scale
+      TB_DATA_DIR: ${{ runner.temp }}/tb-data
+      TB_HL7_VALIDATOR_JAR: ${{ github.workspace }}/trialbox/.cache/jvm/validator_cli.jar  # as `make jvm-deps` leaves it
+      TB_FHIR_PACKAGE_HOME: ${{ github.workspace }}/trialbox/.cache/jvm/fhir-home
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78  # v6.2.0
+        with:
+          distribution: temurin
+          java-version-file: trialbox/.java-version
+          cache: maven
+          cache-dependency-path: trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
+      - name: Python environment
+        run: make venv
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            trialbox/.cache/jvm
+            trialbox/.cache/fonts
+          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/tools/jvm-deps.sha256', 'trialbox/tools/fhir-packages.sha256', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
+      - name: JVM dependencies (the HL7 validator of the night runs inside the adapter's cap)
+        run: make jvm-deps
+      - name: PostgreSQL server binaries
+        run: tools/ci_postgres.sh  # the one major of deploy/images.lock, pg_config --version checked (D-371)
+      - name: Disk for a 50,000-patient site, its snapshot and its lake
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h "$RUNNER_TEMP"
+      - name: The scale gate at 50,000 patients (known failures are XFAIL with their card; a pass of one is red)
+        run: |
+          rc=0
+          TB_ENV=DEV PYTHONPATH=libs:services:. .venv/bin/python -m pytest -q -n 0 -m perf -rxXs \
+            tests/perf/test_scale_gate.py || rc=$?
+          cat "$TB_SCALE_OUT/scale_gate.md" >> "$GITHUB_STEP_SUMMARY" || true
+          exit "$rc"
+      - name: Keep the report and the logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: scale-gate
+          path: |
+            ${{ runner.temp }}/scale/scale_gate.md
+            ${{ runner.temp }}/scale/scale_gate.json
+            ${{ runner.temp }}/scale/logs
           if-no-files-found: ignore
 
   # ENG-017 (T-653): the tests that need the compose stack, a browser or both. One runner with Docker: the images are

@@ -17,14 +17,24 @@ context is accepted by a server that enforces it.
 callers' budgets (:mod:`tb_llm.budget`: a CJK character about one token, Latin about four characters per token) and
 says so (``usage.estimated: true``); the gateway's call record carries ``tokens_estimated``. No figure from a stub run
 is a measured token count.
+
+**The slow model stand-in (T-687, D-471).** The scale gate needs a model that is slow and fails the way a real server
+does, over real HTTP: ``TB_STUB_LATENCY_S`` (seconds) delays every answer; ``TB_STUB_OUTAGE_AFTER`` (a call count)
+and ``TB_STUB_OUTAGE_S`` (seconds) make every chat call answer 502 for that many seconds once the n-th call has
+arrived (a vLLM restart behind a proxy). ``/v1/models`` keeps answering, as a proxy in front of a restarting server
+does. A restart of the stand-in is the test killing and starting this process (``tb_testkit.scale.SlowModel``).
+Unset, the stub answers at once, as before.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
+import threading
 import time
+from collections.abc import Mapping
 from typing import Any
 
 from fastapi import HTTPException, Request
@@ -60,6 +70,38 @@ def served_models() -> list[str]:
     return [*names, *(p for p in PERSONAS if p not in names)]
 
 
+class _Outage:
+    """The stand-in's call count and outage window (T-687): process state, so a restart starts it again."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.calls = 0
+        self.until: float | None = None
+
+    def tick(self, environ: Mapping[str, str] | None = None) -> bool:
+        """Count one chat call; True while the outage lasts."""
+        environ = os.environ if environ is None else environ
+        after = _float(environ.get("TB_STUB_OUTAGE_AFTER"))
+        length = _float(environ.get("TB_STUB_OUTAGE_S"))
+        now = time.monotonic()
+        with self.lock:
+            self.calls += 1
+            if after is not None and length and self.until is None and self.calls >= after:
+                self.until = now + length
+            return self.until is not None and now < self.until
+
+
+def _float(raw: str | None) -> float | None:
+    try:
+        v = float(raw) if raw not in (None, "") else None
+    except ValueError:
+        return None
+    return v if v is not None and v >= 0 else None
+
+
+OUTAGE = _Outage()
+
+
 CONTEXT_PERSONAS = {"stub-ctx-8k": 8192, "stub-ctx-16k": 16384, "stub-ctx-32k": 32768}
 
 
@@ -87,6 +129,13 @@ def models() -> dict[str, Any]:
 @app.post("/v1/chat/completions")
 async def completions(request: Request) -> Any:
     body = await request.json()
+    latency = _float(os.environ.get("TB_STUB_LATENCY_S"))
+    if latency:  # the slow stand-in (T-687): a model that takes seconds per call
+        await asyncio.sleep(latency)
+    if OUTAGE.tick():
+        return JSONResponse(
+            {"object": "error", "message": "stub outage: upstream unavailable", "code": 502}, status_code=502
+        )
     model = str(body.get("model") or served_models()[0])  # no name: the first served one (review F-08)
     if model not in served_models():
         return JSONResponse(

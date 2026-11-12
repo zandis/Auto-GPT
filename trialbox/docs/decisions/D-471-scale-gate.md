@@ -25,7 +25,9 @@
    reproduces that; `ulimit -v` / `setrlimit(RLIMIT_AS)` limit virtual address space, which DuckDB, Arrow and the
    JVM reserve far beyond what they touch, so they would fail on reservations, not on use. The GitHub runner has
    systemd, cgroup v2 and password-less `sudo`; the job sets `TB_SCALE_ENFORCE=cgroup` and the gate fails if the
-   cgroup cannot be made. Where there is none (a developer container, the pull-request run), the gate measures the
+   cgroup cannot be made. The lake's DuckDB sizes itself from the cgroup root, which in a container is the container's
+   cap: the gate hands the cap to that function (`lake.store._cgroup_memory_max`), and the adapter gets the validator
+   heap of its compose environment (`TB_VALIDATOR_XMX`). Where there is none (a developer container, the pull-request run), the gate measures the
    peak resident memory of the whole process tree and fails a phase that went over its cap (mode `measure`); the
    report names the mode.
 4. **The slow model stand-in is the existing stub** (`services/llm_stub`), extended with `TB_STUB_LATENCY_S`
@@ -34,7 +36,11 @@
    (2 s per call, a 40 s outage) are the row's; the gateway, its breaker and its budgets in between are the real
    ones over real HTTP.
 5. **Today's failures are strict expected failures by finding id and card** (`EXPECTED` in the test, like D-460):
-   F-01 (T-690), F-02 (T-691), F-05 (T-692). The job is green while exactly those fail; a check that starts to pass
+   F-01 (T-690), F-02 (T-691), F-05 (T-692), and F-04 (T-689), which the gate reproduced here at 200 and 2,000
+   patients (a 1 s and a 5 s outage lost 2 of 5 and 60 of 74 judge calls: the gateway tries a refused call once at
+   once, then its breaker answers for the model). Only the model's faults count (`model_unavailable`,
+   `upstream_failed`, `model_busy`, `model_asleep`); a content refusal is reported beside them. The job is green while
+   exactly those fail; a check that starts to pass
    fails the job until its line is removed, in the card that fixes it. A size-bound entry applies from its size (the
    memory and time findings from 50,000 patients); below it the check must pass. A check whose input a failed phase
    did not produce is "blocked" and names that phase: never a silent pass.
@@ -44,6 +50,17 @@
    whose literal is gone fails too, so the list only shrinks.
 
 ## Open
+
+- Not run at 50,000 on the build machine (4 shared cores): the first scheduled run of `scale-50k` is the proof. The
+  harness was run at 200, 300 (with the HL7 validator) and 2,000 patients in `measure` mode. At 50,000 the night is
+  expected to be killed at the adapter's cap (F-05); the back-fill path then feeds the rebuild, which is expected to be
+  killed at the lake's cap (F-05) and so to fail the publish (F-01); the screen is then blocked by the rebuild. If the
+  first run shows another failure with a finding of the review (F-07, F-29, F-36 at 50,000), its line is added to
+  `EXPECTED` with its card.
+- When F-04 is fixed and the screen no longer loses calls, the stand-in's restart after call 900 is reached; until then
+  `screen.model_faults_seen` is blocked by the lost calls.
+- The lint reads literals only: a named constant (`UPSTREAM_READ_S = 180` in `libs/tb_llm`, F-13) or a limit outside
+  `services/` is not listed. Widening it is a follow-up.
 
 - The FHIR store (HAPI) is not loaded in the gate (it needs Docker): the backup's database is the run's PostgreSQL,
   not a 20 to 50 GB box database. F-02 fails on the pause itself, which does not depend on the size.
