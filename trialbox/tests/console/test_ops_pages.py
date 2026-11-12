@@ -112,7 +112,7 @@ def test_backup_asks_first_then_runs_is_audited_and_checked(ob: dict[str, Any]) 
     assert page.status_code == 200 and 'data-testid="ops-backup-age"' in page.text
     assert "no backup yet" in page.text  # red: nothing yet
     r = c.post("/admin/ops/backup", data={"csrf": csrf})  # no confirmation: the sheet, nothing done
-    assert 'data-testid="confirm-text"' in r.text and "services pause" in r.text
+    assert 'data-testid="confirm-text"' in r.text and "services keep running" in r.text  # D-455: nothing stops
     assert 'href="/admin/ops?tab=backups" data-testid="confirm-no"' in r.text
     assert not list((ob["dir"] / "nas").glob("*")) if (ob["dir"] / "nas").exists() else True
     assert not _events(ob["audit"], "console.ops")

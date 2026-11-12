@@ -2,7 +2,7 @@
 {% block title %}{{ t('nav.overview') }}{% endblock %}
 {% block content %}
 <h1>{{ t('nav.overview') }}</h1>
-{% if notice == 'ingested' %}<p class="ok" role="status">{{ t('overview.ingest') }} ✓</p>{% endif %}
+{% if notice == 'ingested' %}<p class="ok" role="status">{{ t('admin.notice.ingested') }}</p>{% endif %}
 <div class="grid">
 <section class="card">
 <h2>{{ t('overview.health') }}</h2>
