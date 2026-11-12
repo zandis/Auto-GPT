@@ -164,10 +164,10 @@ TABLES: dict[str, Entry] = {
         "the events of a patient never consented (OD-8 keeps the rest)",
     ),
     "orch.feedback": _owed("the PI's feedback on a candidate, by pseudonym"),
-    "orch.judge_answers": _owed(
-        "a model's answers kept while their job is unfinished (a verdict and a quote from a note, no pseudonym column; "
-        "deleted when the job ends, D-456)",
-        "the rows of a job still running when its patient opts out",
+    "orch.judge_answers": _keep(
+        "D-456",
+        "a model's answers (a verdict and a quote; no pseudonym column) kept only while their job is unfinished: "
+        "deleted when the job ends in any state, and at the orchestrator's start for jobs finished or gone",
     ),
     "orch.jobs": _owed("a job's request may name a pseudonym (CASE, a reveal)"),
     "orch.submissions": _owed("NAV submissions, by pseudonym"),

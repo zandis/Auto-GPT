@@ -70,9 +70,10 @@ A screening job at 50,000 patients is hours of model calls. Four things made it 
    (`llm_calls` does not start at 0). Only answers are kept, never failures. The rows hold what the model answered
    (a verdict and a quote from a note: D3) and no pseudonym column; they exist only while the job is unfinished: they
    are deleted when the job ends in any state, and the rows of jobs that are finished or gone are deleted when the
-   orchestrator starts. The registry entry is `erase`, owed by T-206b for the one case left: a patient who opts out
-   while a job that judged them is still running (the job ends within its own run, hours at most). T-724 adds the
-   lake generation to the key; until then the pinned snapshot date is the nearest thing.
+   orchestrator starts. The erasure registry entry is `keep`, by this decision: the rows carry no pseudonym, so
+   no clear can find a patient in them, and they outlive nothing: a job that is running when its patient opts out
+   keeps its answers until it ends (hours at most), and the opt-out is read again when its list is published.
+   T-724 adds the lake generation to the key; until then the pinned snapshot date is the nearest thing.
 
 6. **A restart is counted.** `orch.jobs.attempts` counts how often the orchestrator found the job interrupted at its
    start. `TB_JOB_MAX_RESTARTS` (default 3) is how many restarts one job may survive: the restart may be the job's own
