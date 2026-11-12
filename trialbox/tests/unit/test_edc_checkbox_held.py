@@ -53,7 +53,7 @@ def test_a_checkbox_item_is_held_and_the_other_values_are_sent(kit: None, tmp_pa
             imported.append([dict(r) for r in rows])
             return real(rows, *a, **kw)
 
-        c.import_records = import_records
+        c.import_records = import_records  # type: ignore[method-assign]
         return c
 
     svc.client = spying
