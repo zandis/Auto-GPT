@@ -4,7 +4,7 @@
   image of Hugging Face Text Embeddings Inference replace `services/embed_service/embedder.py` and the torch lock?)
 - **PR:** this branch (`agent/TEI-parity-note`)
 - **Date:** 2026-11-12
-- **Status:** proposed (the owner decides; this record holds lane D's verdict and what it rests on)
+- **Status:** accepted (the owner's yes to "keep ours" came through the integrator on 2026-11-12)
 - **Builds on:** D-429 (the embedder: safetensors from the publisher, pinned, never the stub in PRODUCTION), D-563
   (the embed image and its second hashed lock), D-337 (every text is masked before it is embedded)
 
