@@ -60,6 +60,7 @@ from adapter.pipeline import (
     _undated_order,
     apply_aliases,
     apply_unit_defaults,
+    check_lookup_factors,
     check_site_key,
     ingest_instant,
     make_source,
@@ -227,6 +228,7 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
         else:
             mapping = Mapping.load(cfg.mapping_path)
             unit_defaults = mapping.unit_defaults
+            check_lookup_factors(mapping)  # D-527
             mapper = Mapper(
                 mapping, key, cfg.site_id, ingest_instant(snap, mapping.tz),
                 concept_map=lambda system, code: refdata.map_targets_or_none(system, code, cfg.db_url),  # D-593
@@ -269,7 +271,7 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
                             pairs, idents = [], []
                     try:
                         mapped = list(mapper.map_table(table, iter([row])))
-                    except ValueError:
+                    except (ValueError, ArithmeticError):  # D-527: as the night does
                         bad["rejected"] += 1
                         continue
                     for res in mapped:

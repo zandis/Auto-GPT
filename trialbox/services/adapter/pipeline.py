@@ -12,6 +12,7 @@ from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -569,6 +570,7 @@ def _run_ingest(
         # T-106b (DATA-010): every resource carries its source row, mapping version and the night it was ingested
         # D-593 (lane E's hunk): the mapper may ask the box's reference data (ICD-9-CM to ICD-10-CM, D-592);
         # no pack loaded or no database answers nothing, and nothing is mapped
+        check_lookup_factors(mapping)  # D-527: a factor typed wrongly ends the night here, not row by row
         mapper = Mapper(
             mapping, key, cfg.site_id, ingest_instant(snap, mapping.tz),
             concept_map=lambda system, code: refdata.map_targets_or_none(system, code, cfg.db_url),
@@ -657,7 +659,9 @@ def _run_ingest(
             for row in rows:
                 try:
                     mapped = list(mapper.map_table(table, iter([row])))
-                except ValueError as exc:
+                except (ValueError, ArithmeticError) as exc:
+                    # NEW-B-6 (D-527): a number the mapper reads and cannot compute with (thirty digits:
+                    # decimal.InvalidOperation) is a row it cannot read, as a ValueError is; it ended the night before
                     rejected[reject_key(exc)] += 1
                     continue
                 for res in mapped:
@@ -1235,13 +1239,31 @@ def reject_key(exc: BaseException) -> str:
     first value**, never a feed value. The message is cut at its first quote mark (the mapper writes a value with
     ``repr``; everything from there on is ``<value>``, so a value that holds quote marks of both kinds cannot end
     the cut early and leave a fragment), and a run of digits before it is ``<n>`` (a number written without quote
-    marks). The key goes into ``completeness.json``, the night's error, the audit and the log."""
+    marks). An ``ArithmeticError`` has one fixed sentence (D-527). The key goes into ``completeness.json``, the
+    night's error, the audit and the log."""
+    if isinstance(exc, ArithmeticError):  # D-527: decimal's message is a list of signal classes, not a sentence
+        return f"{type(exc).__name__}: a number the mapping cannot compute"
     text = str(exc)
     head = re.split("['\"\u2018\u2019\u201c\u201d`]", text, maxsplit=1)[0]
     cut = len(head) < len(text)
     head = re.sub(r"[0-9]+(?:[.,:/-][0-9]+)*", "<n>", head).strip()
     said = f"{head} <value>".strip() if cut else head
     return f"{type(exc).__name__}: {said}" if said else type(exc).__name__
+
+
+def check_lookup_factors(mapping: Any) -> None:
+    """Every ``factor`` of every look-up row is a finite number (empty: 1), or the load ends before its first row
+    (D-527, review). The mapper parses the factor per row; with a row's ``ArithmeticError`` now a rejected row, a
+    factor typed wrongly would reject every row of its code each night under a key that blames the feed."""
+    for name, lookup in mapping.lookups.items():
+        for code, row in lookup.rows.items():
+            text = str(row.get("factor") or "1").strip()
+            try:
+                ok = Decimal(text).is_finite()
+            except ArithmeticError:
+                ok = False
+            if not ok:
+                raise ValueError(f"look-up {name}, row {code!r}: the factor {text!r} is not a number")
 
 
 REJECT_MAX_PCT = 1.0  # STD-025: a table whose rejected rows pass this share of its rows holds the night (T-615a)
