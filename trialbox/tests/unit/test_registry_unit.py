@@ -3,8 +3,8 @@ export with in-box chart numbers, and the audit records. No orchestrator run nee
 
 from __future__ import annotations
 
-import json
 import io
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -150,7 +150,7 @@ def test_registry_api_routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         _now=lambda: datetime.now(UTC),
         audit=reg.audit,
         rulesets_dir=tmp_path / "rulesets",  # no approved version here: nothing is in force (D-476)
-        today=lambda: NOW.date(),
+        today=NOW.date,
         cfg=SimpleNamespace(
             env=SimpleNamespace(secrets_dir=str(reg.secrets_dir)),
             settings=SimpleNamespace(mrn_regex=r"^\d{8}$", site=SimpleNamespace(tz="Asia/Taipei", id="DEMO-A")),
