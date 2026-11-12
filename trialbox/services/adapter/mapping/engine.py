@@ -404,6 +404,17 @@ class Mapping:
                     cls._plausible_of(row)
                 except MappingError as exc:
                     raise MappingError(f"{path}: look-up {name}: {exc}") from exc
+                # D-596: a factor of 0 turns every result of its analyte into 0, a wrong result, not a missing one
+                text = str(row.get("factor") or "1").strip()
+                try:
+                    good = Decimal(text).is_finite() and Decimal(text) > 0
+                except ArithmeticError:
+                    good = False
+                if not good:
+                    code = row.get(lk.key)
+                    raise MappingError(
+                        f"{path}: look-up {name}, row {code!r}: the factor {text!r} must be a number above 0"
+                    )
         date_columns = {t: _date_columns(resources, t) for t in (doc.get("tables") or {})}
         calendars: dict[str, dict[str, str]] = {}
         for word in ("dates", "date", "calendars"):  # a declaration in the wrong place would be ignored without a word
@@ -917,6 +928,10 @@ class Mapper:
                 return {"valueString": str(raw)}
         factor = Decimal(lk.get("factor") or "1")
         val = num * factor
+        # D-596: the arithmetic comes before the plausibility check, so a number the mapping cannot compute (thirty
+        # digits) has one outcome with and without a unit: the ``ArithmeticError`` that makes it a rejected row
+        # (D-527). Without a unit it used to be called implausible and kept
+        number: float | int = float(val) if val % 1 else int(val)
         # D-590 (DIN-017): a value that came with no unit is read in the look-up's unit (D-149) only when it can be
         # a value in that unit: else it stays text (unknown to the engines) and is counted
         column = args.get("unit_column")
@@ -935,7 +950,7 @@ class Mapper:
         # NEW-STD-4 (D-585): the unit is stored as its UCUM code, never as the spelling the look-up was typed in
         # (``×10^3/μL``): the engines read the code, not the spellings of the feed
         unit = labvalue.ucum(lk.get("ucum")) or lk.get("ucum") or ""
-        q: dict[str, Any] = {"value": float(val) if val % 1 else int(val), "unit": unit}
+        q: dict[str, Any] = {"value": number, "unit": unit}
         if comparator:
             q["comparator"] = comparator
         if unit:

@@ -1,4 +1,4 @@
-# D-596 A lab number the box cannot hold has no value, with or without a unit; a look-up factor is above zero
+# D-596 A lab number the mapping cannot compute is a rejected row with or without a unit; a look-up factor is above zero
 
 - **Task:** two findings in lane E's folder from lane B's review of #398 (NEW-B-6, D-527), passed by the integrator
   on 2026-11-12
@@ -19,10 +19,12 @@
 
 ## Decision
 
-1. **A number the box cannot hold is a result with no value**: when the value times the factor cannot be written
-   as a number (more digits than the arithmetic keeps, or not finite), the result is kept with no `value[x]`, its
-   text in a note, the reason `unknown_value`, and it is counted per analyte under `value_unreadable` (D-580's
-   counter). The same with and without a unit. The row is not rejected: the result exists, its number does not.
+1. **A number the mapping cannot compute is a rejected row, with or without a unit.** D-527 decided the outcome
+   for a row whose arithmetic fails (rejected, counted under one fixed reason, the night goes on), and its test
+   pins it for a result that states its unit. The same value without a unit took another road: the plausibility
+   check of D-590 came first and kept it as a result with no value. The arithmetic now comes first, so both are
+   the rejected row of D-527. The first version of this card made both "kept with no value"; that contradicted
+   D-527's test, and the test stands.
 2. **A look-up factor is a finite number above zero**, checked when the mapping loads (the night, the back-fill
    and the mapping check): a factor of 0 or below stops the mapping from loading, naming the look-up and the row.
    An empty factor is 1, as before.
