@@ -194,7 +194,9 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
 - **Fix.** `tools/public_e2e.py` stage 6: the administrator's `/audit` must be 403 (D-451; the harness has no steward
   or privacy account); the administrator's `/week` is read without following redirects and must be 200 or a 303 to a
   `/week` page; the menu check reads only the `<select name="ruleset">` options.
-- **Status.** Fixed in the harness (PR #321). No product finding.
+- **Status.** Fixed in the harness (PR #321). No product finding. Proof on 999576bf (2026-11-12): `rehearse.sh run-a` PASSED 49/49
+  (the five failing checks are model quality on the stand-in), then `make rehearse` PASSED all eight cases: run-a
+  49/49, run-b 46/46, bucket 48/48, served 12/12, no-upload 10/10, hang 11/11, busy 12/12, preempt 15/15.
 
 ## C. Fixed: keep them fixed
 
