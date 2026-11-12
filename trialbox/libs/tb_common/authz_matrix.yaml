@@ -19,7 +19,8 @@
 # * ``permit`` is pure: no audit, no I/O. The caller audits.
 #
 # Sources: D-93, D-101, D-104, D-108, D-143, D-146, D-147, D-160, D-162, D-178, D-191, D-280 (OD-5), D-349 (T-512),
-# D-380 (T-102b), D-386 (T-622), D-395 (T-310b), D-425 (T-102c), D-440 (T-204), D-443 (T-112b).
+# D-380 (T-102b), D-386 (T-622), D-395 (T-310b), D-425 (T-102c), D-434 (T-302c), D-436 (T-303), D-440 (T-204),
+# D-443 (T-112b), D-451 (T-211c).
 # D-280: the administrator (the IT operator) has no patient-level row; one patient or one job only through
 # break-glass (``console.breakglass``, the ``breakglass.*`` rows). D-380: the data steward and the privacy office
 # keep the opt-out register and the staff directory, and nobody else; the steward writes a study's first PI entry;
@@ -374,8 +375,26 @@ actions:
     cro: false
     steward: false
     privacy: false
+  edc.copy:
+    what: read the copy-assist sheet of signed values and its CSV file (D-434)
+    admin: false
+    coordinator: [task:enter_data]
+    investigator: [task:enter_data]
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
+  edc.copy_tick:
+    what: tick signed values as copied into the sponsor's EDC, or undo a tick with a reason (D-434)
+    admin: false
+    coordinator: [task:enter_data]
+    investigator: [task:enter_data]
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
   edc.switch_on:
-    what: turn prefill on (the PI holds the sponsor's acknowledgement)
+    what: turn prefill on (the PI holds the sponsor's acknowledgement), or copy-assist (D-434)
     admin: false
     coordinator: false
     investigator: [pi]
@@ -658,11 +677,29 @@ actions:
     cro: [monitor]
     steward: false
     privacy: false
+  monitor.visit:
+    what: record a monitoring visit (date, subjects verified, findings) under a monitor grant (D-436)
+    admin: false
+    coordinator: false
+    investigator: false
+    viewer: false
+    cro: [monitor]
+    steward: false
+    privacy: false
   audit.ids:
     what: see pseudonyms in the audit trail (others see them hidden)
     admin: false
     coordinator: true
     investigator: true
+    viewer: false
+    cro: false
+    steward: true
+    privacy: true
+  audit.browse:
+    what: read the site's audit trail by filter, one patient's report and its file, and verify the chain (/audit; T-211c, D-451, ROLE-013)
+    admin: false
+    coordinator: false
+    investigator: false
     viewer: false
     cro: false
     steward: true

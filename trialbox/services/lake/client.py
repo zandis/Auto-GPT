@@ -66,6 +66,21 @@ class LakeHttp:
         hits: list[dict[str, Any]] = resp.json()["hits"]
         return hits
 
+    def vec_s2b(self, pid: str, dids: list[str], query: str, snapshot: str | None = None) -> dict[str, Any]:
+        """T-203b (D-449): S2b's ranking from the vector store on the lake service. Any failure to get an answer is
+        the fallback answer (the cascade then ranks on the fly and records it), never an error of the run."""
+        from vec.s2b import UNAVAILABLE, fallback
+
+        body = {"pid": pid, "dids": dids, "query": query, "snapshot": snapshot}
+        try:
+            resp = self.client.post(f"{self.base}/vec/s2b", json=body)
+        except httpx.HTTPError:
+            return fallback(UNAVAILABLE)
+        if resp.status_code != 200:
+            return fallback(f"{UNAVAILABLE} (lake {resp.status_code})")
+        out: dict[str, Any] = resp.json()
+        return out
+
     def put_site(self, resources: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
         """D-135: replace the site's own inputs on the lake service (the next rebuild joins them)."""
         resp = self.client.post(f"{self.base}/site", json={"resources": resources})
@@ -102,11 +117,22 @@ class LakeHttp:
 class LakeLocal:
     """In-process lake (tests, single-host tools)."""
 
-    def __init__(self, lake_dir: Path, embedder: Embedder, tz: str | None = None) -> None:
+    def __init__(
+        self,
+        lake_dir: Path,
+        embedder: Embedder,
+        tz: str | None = None,
+        vec_store: Any = None,
+        mrn_regex: str | None = None,
+    ) -> None:
         from lake.store import Lake
 
-        self.lake = Lake(lake_dir, tz)
+        self.lake = Lake(lake_dir, tz, mrn_regex)
         self.embedder = embedder
+        self.vec_store = vec_store  # T-203b: a vec.store.VecStore (or a fake) for S2b behind the flag vec.s2b
+
+    def vec_s2b(self, pid: str, dids: list[str], query: str, snapshot: str | None = None) -> dict[str, Any]:
+        return self.lake.vec_s2b(pid, dids, query, self.embedder, self.vec_store, snapshot)
 
     def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> pa.Table:
         return self.lake.query(sql, params, snapshot)

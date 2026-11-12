@@ -416,14 +416,20 @@ ADDED: dict[str, tuple[str, ...]] = {
     "feedback": ("3981b6201cd514508bed945433f3415993494cb24e52809cca7f37fe3801e368",),
     # D-281: edc version 2, the signature's version and key id, and signature_void
     # T-115 (D-368): edc version 3, what each draft was built under and the stored re-entry result
+    # T-302c (D-434): edc version 4, the copy-assist ticks
     "edc": (
         "660d794773184321ebd80015911a26e65973b24d93fa2415c39b6114a22f561b",
         "7307dbdcdff73f68593da4a33739e1803bcc90079eff738c175f3ad13bd26003",
+        "c5d2472d93df214f26cf8e3bd80d6fc5230e058da95ff5551ea03dbf22d7016c",
     ),
     # T-108c (D-401): mail version 3, the send keys as the outbox and the job type on each intake row
     "mail": ("dc540a482b5619e6226318becb615e79a639ab2be3c2d47154b43029886f8579",),
     # D-399 (T-302a): team version 2, the approved consent-form versions as history rows
-    "team": ("ad5cea87a2f6b2b0210c392f8c698a0c72253a93cbbb6ec74915bf0cefbd076f",),
+    # T-303 (D-436): team version 3, the monitoring-visit records
+    "team": (
+        "ad5cea87a2f6b2b0210c392f8c698a0c72253a93cbbb6ec74915bf0cefbd076f",
+        "e3f9d90d7bb93b34988eed53250d15178b95f8b39de74d715c67a7bae376574f",
+    ),
     # D-280: the break-glass grants, new after the baseline
     # T-309 (D-430): version 2, each use of a grant (the steward's review list)
     "breakglass": (
