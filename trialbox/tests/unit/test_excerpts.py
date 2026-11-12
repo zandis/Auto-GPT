@@ -62,6 +62,31 @@ def test_a_note_that_does_not_fit_is_cut_around_its_evidence_and_counts_as_left_
     assert all(s in long for s in by["n"].split("\n"))  # whole sentences of the note: a quote is found in it
 
 
+def test_a_ranking_orders_the_reading_of_its_notes_best_first() -> None:
+    """``ranked``: the note the ranking puts first is read first, even when it is the older one."""
+    long = FILLER * 40
+    window = [_n("new", "2026-10-01", long), _n("old", "2026-08-01", long)]
+    budget = note_tokens(long) + 5  # room for one
+    by_rank = build(window, {"old": ["x"], "new": ["y"]}, budget, ranked=True)
+    assert [e["did"] for e in by_rank.shown] == ["old"] and by_rank.cut == ["new"]
+    by_date = build(window, {"old": ["x"], "new": ["y"]}, budget)
+    assert [e["did"] for e in by_date.shown] == ["new"] and by_date.cut == ["old"]
+
+
+def test_a_short_note_that_no_longer_fits_is_skipped_never_shredded() -> None:
+    """Only an evidence note longer than half the budget is cut, to that half; the others are whole or absent."""
+    note = FILLER * 20
+    one = note_tokens(note)
+    window = [_n(f"n{i}", f"2026-09-{i:02d}", note) for i in range(1, 7)]
+    got = build(window, {n.did: [FILLER.strip()] for n in window}, 2 * one + one // 2)
+    assert [e["text"] == note for e in got.shown] == [True, True] and got.left_out == 4
+
+
+def test_an_empty_note_is_neither_shown_nor_left_out() -> None:
+    got = build([_n("e", "2026-10-01", "  \n"), _n("a", "2026-09-01", "Gout flare.")], {}, 1000)
+    assert [e["did"] for e in got.shown] == ["a"] and got.left_out == 0
+
+
 def test_a_note_without_evidence_that_does_not_fit_is_skipped_not_cut() -> None:
     got = build([_n("n", "2026-10-01", FILLER * 400)], {}, 300)
     assert got.shown == [] and got.left_out == 1
@@ -78,7 +103,7 @@ def test_a_retrieved_chunk_is_evidence_for_the_sentences_it_holds() -> None:
 
 def test_clip_and_sentences_are_the_cascades_own() -> None:
     assert sentences("痛風発作。再診予定！\nUric acid 9.1? ok") == ["痛風発作。", "再診予定！", "Uric acid 9.1?", "ok"]
-    assert cascade_engine.sentences is sentences
+    assert cascade_engine.sentences is sentences  # type: ignore[attr-defined]  # one splitter
     note = _n("n", "2026-10-01", "First.\nSecond.\nThird.")
     assert clip(note, ["Third."], 10_000) == "First.\nSecond.\nThird."
     assert clip(note, ["Third."], note_tokens("Third.") + 2) == "Third."  # the evidence sentence first

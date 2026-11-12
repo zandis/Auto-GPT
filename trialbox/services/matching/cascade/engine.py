@@ -72,7 +72,7 @@ from matching.cascade.s2b_semantic import (
     screen,
 )
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
-from matching.excerpts import sentences as sentences  # the name callers of before T-710 import from here
+from matching.excerpts import sentences
 from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS, Proposed
 from matching.stored_scores import apply_rows
 
@@ -603,16 +603,18 @@ class _Run:
 
     @staticmethod
     def excerpt_set(
-        notes: list[_Note], keep: Mapping[str, Collection[str]], budget: int | None = None
+        notes: list[_Note], keep: Mapping[str, Collection[str]], budget: int | None = None, ranked: bool = False
     ) -> tuple[list[dict[str, Any]], int]:
         """:meth:`excerpts`, and how many of the window's notes are not shown in full: the one excerpt builder
         (:func:`matching.excerpts.build`, T-710, D-479). ``notes``: every note of the criterion's window; ``keep``:
         the evidence sentences per note (lexicon hits at S2, the top sentences at S2b): read first, and what a cut
         note is cut around. Both models read this one set, so with any window note left out their agreement on
         "not met" is not final (D-276, review S-10; :meth:`_map`). ``budget``: the models' context
-        (:meth:`budget_of`); :data:`EXCERPT_TOKENS` when not given."""
+        (:meth:`budget_of`); :data:`EXCERPT_TOKENS` when not given. ``ranked``: ``keep`` is in the ranking's order
+        (S2b's top sentences, best first)."""
         window = [excerpt_builder.Note(n.did, n.d, n.type, n.text, n.sents) for n in notes]
-        got = excerpt_builder.build(window, keep, EXCERPT_TOKENS if budget is None else budget, tokens=_tokens)
+        size = EXCERPT_TOKENS if budget is None else budget
+        got = excerpt_builder.build(window, keep, size, tokens=_tokens, ranked=ranked)
         return got.shown, got.left_out
 
     def budget_of(self, c: CriterionIR, index_date: date) -> int:
@@ -750,7 +752,7 @@ class _Run:
                 sset = sorted({sentence_hash(sents[i][1]) for i in top})
                 # T-710 (D-479): every window note is offered to the builder and each one not shown in full counts as
                 # left out, on either ranking (the rule PR #275 added here for S2b alone, D-449)
-                shown, left = self.excerpt_set(win, keep, self.budget_of(c, t.index_date))
+                shown, left = self.excerpt_set(win, keep, self.budget_of(c, t.index_date), ranked=True)
                 routes.append(_Route(pid, cid, shown, _set_hash(sset), "S2b", best - thr.value, left_out=left))
                 continue
             self.metrics.pairs_s2b_below += 1

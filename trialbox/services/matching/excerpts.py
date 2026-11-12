@@ -10,13 +10,14 @@ excluded a patient whose decisive note they never saw (review H4).
 
 * ``window``: **every** note of the patient inside the criterion's window (the caller's query, not a ranking);
 * ``evidence``: what the caller's ranking points at, per note: the cascade's lexicon-hit or top sentences, the v1
-  retrieval's chunks; empty for CASE. It decides what is read **first**, never what counts as read;
+  retrieval's chunks; empty for CASE. It decides what is read **first** (in the ranking's own order when the caller
+  has one), never what counts as read;
 * ``budget``: tokens of notes one judge prompt may hold: the models' context (T-603, ``NoteJudge.excerpt_budget``),
   or :data:`DEFAULT_TOKENS` for a client that cannot tell its context (OD-10: no other fixed budget).
 
-It shows whole notes, the evidence notes first and then the rest of the window, newest first, while they fit. A note
-that does not fit whole is clipped to whole sentences around its evidence (an evidence note, at most half the
-budget, so one long note never hides the others: D-142, review A-06) or skipped.
+It shows whole notes, the evidence notes first and then the rest of the window, newest first, while they fit. An
+evidence note longer than half the budget is cut to that half, whole sentences around its evidence, so one long
+note never hides the others (D-142, review A-06); any other note that does not fit is skipped.
 
 **``left_out`` counts every window note not shown in full**: skipped, or clipped. Both models read the one set, so
 with a note left out their agreement on "not met" says nothing about what they did not read: the callers make such
@@ -113,24 +114,36 @@ def build(
     evidence: Mapping[str, Collection[str]],
     budget: int,
     tokens: Callable[[str], int] = note_tokens,
+    ranked: bool = False,
 ) -> ExcerptSet:
-    """The excerpts of one judge prompt and how many window notes they leave out (see the module's text)."""
+    """The excerpts of one judge prompt and how many window notes they leave out (see the module's text).
+    ``ranked``: ``evidence`` is in the order of the caller's ranking (best first), and its notes are read in that
+    order; else the evidence notes are read newest first."""
     newest_first = sorted(window, key=lambda n: (n.iso, n.did), reverse=True)
-    order = [n for n in newest_first if n.did in evidence] + [n for n in newest_first if n.did not in evidence]
+    first = [n for n in newest_first if n.did in evidence]
+    if ranked:
+        rank = {did: i for i, did in enumerate(evidence)}
+        first.sort(key=lambda n: rank[n.did])
+    order = first + [n for n in newest_first if n.did not in evidence]
     cap = max(1, budget // 2)
     left = budget
     shown: list[tuple[Note, str]] = []
     cut: list[str] = []
     for n in order:
+        if not n.text.strip():
+            continue  # an empty note holds nothing to read: neither shown nor left out
         cost = tokens(n.text)
         if cost <= left:
             shown.append((n, n.text))
             left -= cost
             continue
         cut.append(n.did)  # not shown in full: left out, whatever is shown of it below
-        if n.did not in evidence or left <= 0:
+        # a cut is worth showing only for an evidence note longer than half the budget, at that half, while half
+        # the budget is still free (as the cascade cut before T-710); a shorter note that no longer fits is skipped,
+        # never shredded into the last few tokens
+        if n.did not in evidence or cost <= cap or cap > left:
             continue
-        part = clip(n, evidence[n.did], min(cap, left), tokens)
+        part = clip(n, evidence[n.did], cap, tokens)
         part_cost = tokens(part)
         if part and part_cost <= left:
             shown.append((n, part))

@@ -323,7 +323,7 @@ class NoteJudge:
                     evidence.setdefault(str(h["did"]), []).append(str(h.get("text") or ""))
         room = self.excerpt_budget(c, index_date)
         budget = room if room is not None else excerpt_builder.DEFAULT_TOKENS
-        return excerpt_builder.build(notes, evidence, budget, tokens=_tokens)
+        return excerpt_builder.build(notes, evidence, budget, tokens=_tokens, ranked=True)  # the retrieval's order
 
     def full_record(self, pid: str, c: CriterionIR, index_date: date) -> list[dict[str, Any]]:
         return self._record(pid, c, index_date)[0]

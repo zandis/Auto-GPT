@@ -10,8 +10,9 @@ from __future__ import annotations
 
 from datetime import date
 
-from matching.cascade.engine import EXCERPT_TOKENS, _Note, _Run, sentences
+from matching.cascade.engine import EXCERPT_TOKENS, _Note, _Run
 from matching.cascade.judge import expected_tokens
+from matching.excerpts import sentences
 
 
 def _note(did: str, d: date, text: str) -> _Note:
