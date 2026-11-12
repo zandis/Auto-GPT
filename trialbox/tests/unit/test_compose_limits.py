@@ -33,6 +33,8 @@ STACKS: list[tuple[tuple[str, ...], tuple[str, ...]]] = [
     ((BASE, "docker-compose.secrets.yml", "docker-compose.rtxpro6000.yml"), ("gpu",)),
     ((BASE, "docker-compose.secrets.yml", "docker-compose.identity.yml"), ("stub", "oidc")),
     ((BASE, "docker-compose.secrets.yml", "docker-compose.monitoring.yml"), ("stub",)),  # T-209a (D-379)
+    ((BASE, "docker-compose.secrets.yml", "docker-compose.identity.yml", "docker-compose.box.yml"),
+     ("stub",)),  # T-729 (D-466): the box's first-run folder
     ((BASE, "docker-compose.secrets.yml", "docker-compose.identity.yml", "docker-compose.acceptance.yml"),
      ("stub", "oidc")),  # T-213a (D-410)
     ((BASE, "docker-compose.secrets.yml", "docker-compose.shared-quota.yml", "platform/docker-compose.platform.yml"),
