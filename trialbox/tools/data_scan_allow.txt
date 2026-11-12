@@ -52,3 +52,4 @@ value | * | +81 90 1234 5678 | the placeholder Japanese mobile with the country 
 value | * | 0466-12-3456 | a placeholder Japanese landline with a four-digit area code (JP log scrubber tests)
 value | tw_phone | 063922676 | a numeric article id inside a news URL cited in spec/archive (not a phone)
 value | tw_phone | 0494577805 | a synthetic hospital patient's hashed id (10 hex digits, all numeric) in the G1 measurements of 2026-11-11, not a phone
+path | data_file | docs/plan/measurements/g1-2026-11-12/parts/* | the GPU and vLLM sample tables of the paid run of 2026-11-12 (timestamps, utilization, memory, queue gauges): machine readings of a synthetic-data run, no patient or site data

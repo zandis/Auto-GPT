@@ -286,3 +286,22 @@ def test_the_command_line_as_documented(tmp_path: Path) -> None:
     assert done.returncode == 0, done.stderr
     assert done.stdout.startswith("FAILED: 2 passed, 1 failed, 0 pending, 17 missing; 1 defect(s)")
     assert (tmp_path / "README.md").exists() and (tmp_path / "capacity_inputs.json").exists()
+
+
+def test_the_screen_decides_the_candidate_comparison_not_the_candidates_block(tmp_path: Path) -> None:
+    """Bug M1: a part's `candidates` block can hold one patient from another stage, the same at every setting, while
+    the screen listed a different number at each. The comparison reads the screen's funnel, tiers and listed."""
+    src = tmp_path / "src"
+    shutil.copytree(FIXTURES / "complete", src)
+    for n, listed in ((1, 54), (4, 54), (16, 55), (48, 55)):
+        f = src / "parts" / f"hospital-ja@c{n}.json"
+        doc = json.loads(f.read_text("utf-8"))
+        doc["candidates"] = {"count": 1, "sha256": "a" * 64, "list": [["syn0001", "high"]]}
+        doc["screen"].update(funnel=[["S0", 3022], ["S4", listed]], tiers={"review": listed}, listed=listed)
+        f.write_text(json.dumps(doc), "utf-8")
+    code, readme, _, cap = run(src, tmp_path / "out", *WINDOW)
+    assert code == 0
+    lists = cap["g3"]["ja"]["candidate_lists"]
+    assert lists["status"] == "DIFFERENT"
+    assert lists["reference_settings"] == [1, 4] and [d["candidates"] for d in lists["differing"]] == [55, 55]
+    assert "**FAIL: the candidate list at 16 in flight differs from the list at 1, 4.**" in readme

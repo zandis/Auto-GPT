@@ -29,6 +29,7 @@ patients, studies and night hours come from the arguments or from the plan's ``w
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -232,6 +233,21 @@ def part_patients(res: dict[str, Any], run: dict[str, Any]) -> int | None:
     return None
 
 
+def screen_candidates(res: dict[str, Any]) -> dict[str, Any] | None:
+    """The listed candidates of the main screen: ``screen.funnel`` (S4), ``screen.tiers`` and ``screen.listed``.
+
+    The part's ``candidates`` block can hold the list of another stage (the 2026-11-12 run: one patient, the same at
+    every setting, while the screen listed 54 to 55), so a screen with a funnel and tiers is the source of the
+    comparison. It has counts, not ids: the fingerprint covers funnel, tiers and listed, and ``only_here`` and
+    ``not_here`` are not known (lane G bug M1)."""
+    screen = res.get("screen") or {}
+    funnel, tiers, listed = screen.get("funnel"), screen.get("tiers"), screen.get("listed")
+    if not (isinstance(funnel, list) and isinstance(tiers, dict) and isinstance(listed, int)):
+        return None
+    blob = json.dumps({"funnel": funnel, "tiers": tiers, "listed": listed}, sort_keys=True)
+    return {"count": listed, "sha256": hashlib.sha256(blob.encode()).hexdigest(), "list": None}
+
+
 def setting_row(tag: str, row: dict[str, Any], run: dict[str, Any]) -> dict[str, Any]:
     m = re.fullmatch(r"hospital-(.+?)(?:@c(\d+))?", tag)
     assert m is not None  # the caller filters on the prefix
@@ -241,6 +257,7 @@ def setting_row(tag: str, row: dict[str, Any], run: dict[str, Any]) -> dict[str,
     if res is None or row["status"] in (PENDING, MISSING):
         return out
     t, metrics, cand = res.get("throughput") or {}, res.get("metrics") or {}, res.get("candidates") or {}
+    cand = screen_candidates(res) or cand
     gpu = metrics.get("gpu") or {}
     patients = part_patients(res, run)
     wall, busy = res.get("wall_seconds"), t.get("busy_seconds")
