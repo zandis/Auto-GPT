@@ -21,7 +21,7 @@
 
 ## Open
 
-- **`hypothesis` is not yet in `pyproject.toml` / `uv.lock`.** The repository's lock is made with uv 0.13.7
-  (`tools/supply_chain/lock.py UV_VERSION`); this machine has uv 0.11.32, and the lock is not regenerated with another
-  version. Until it is, five property tests skip. The `property` job installs nothing extra and says so when
-  they skip; it must be re-run with the lock change (add `hypothesis` to the `test` group, `make lock`).
+- None for the lock: `hypothesis` 6.170.15 is in the `test` group and in `uv.lock`, made with uv 0.13.7
+  (`make lock`; `lock-check` and `allowlist-check` pass). The five property tests of `test_dates`, `test_encoding`
+  and `test_labvalue` run and pass.
+- The `property` job does not yet fail on a skipped property test; it should, now that nothing has to skip.
