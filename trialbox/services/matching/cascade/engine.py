@@ -112,11 +112,14 @@ class CascadeConfig:
     notes_class: str = "D0"  # class label of note text sent to the gateway (eval/DATASETS.yaml for D0 datasets)
     purpose: str = "feasibility"
     step_id: str = ""
-    max_llm_items: int = 2000  # CAS-4 defaults
+    # CAS-4: the budget of S3 pairs. None: no budget (T-689, D-456: SCREEN's default is the population's own pairs)
+    max_llm_items: int | None = 2000
     # model calls in flight at once (S3, S4): the serving profile's sequences (vLLM --max-num-seqs); 1 = one by one.
     # Each patient's criteria stay in order (CAS-3 stops at a hard fail); patients run side by side (D-142, A-07)
     llm_concurrency: int = 1
-    max_tokens: int = 10_000_000
+    # a token budget beside the pair budget, only when a caller sets one. It was a hidden 10,000,000 that stopped a
+    # job before its pair budget and under that budget's name (T-689, D-456; scale review F-16)
+    max_tokens: int | None = None
     zero_hit_allowed: frozenset[str] = frozenset()  # CAS-13 certified criteria, read from the registry
     semantics: Semantics | None = None  # None: from the IR version (CAS-19)
     exclusion_power: Mapping[str, float] = field(default_factory=dict)  # canonical hash -> pooled not_met share
@@ -977,10 +980,13 @@ class _Run:
             for i, r in enumerate(pending):
                 cost = expected_tokens(r.excerpts)
                 with self._lock:  # reserve the call's share of the budget before asking
-                    over = self.items + 1 > self.cfg.max_llm_items or self.tokens + cost > self.cfg.max_tokens
+                    stopped = budget_stop(self.cfg, self.items, self.tokens, cost)
+                    over = bool(stopped)
                     if not over:
                         self.items += 1
                         self.tokens += cost
+                    elif not self.metrics.budget_stopped:
+                        self.metrics.budget_stopped = stopped  # the budget that ran out first, by name (F-16)
                 if over:
                     t.unprocessed = True  # CAS-4: never silently truncated; SAFE-13: never an exclusion
                     for rest in pending[i:]:
@@ -1146,6 +1152,15 @@ class _Run:
         )
         self.metrics.n_after["S5"] = len(final)
         return queue, final
+
+
+def budget_stop(cfg: CascadeConfig, items: int, tokens: int, cost: int) -> str:
+    """Which budget one more pair of ``cost`` tokens would pass: ``pairs``, ``tokens`` or "" (it fits)."""
+    if cfg.max_llm_items is not None and items + 1 > cfg.max_llm_items:
+        return "pairs"
+    if cfg.max_tokens is not None and tokens + cost > cfg.max_tokens:
+        return "tokens"
+    return ""
 
 
 def _tokens(text: str) -> int:

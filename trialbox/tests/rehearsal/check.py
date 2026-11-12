@@ -129,6 +129,29 @@ def check_record(r: Result, res: dict[str, bytes]) -> None:
     r.ok("serving record: no API key in it", "api-key" not in json.dumps(rec), "")
 
 
+def check_measured(r: Result, rep: dict[str, Any], res: dict[str, bytes], vm: str) -> None:
+    """Review test G-3's plumbing (2026-11-12): the calls in flight reach the parts (not given: the serving record's
+    max_num_seqs, 16) and a hospital part is measured: both servers' ``/metrics``, the card every 10 s, its calls."""
+    hosp = next((p for p in rep.get("parts") or [] if p["tag"].startswith("hospital-") and not p.get("state")), None)
+    if hosp is None:
+        return
+    tag = hosp["tag"]
+    r.ok("vm.log: the run says its model calls in flight (the record's max_num_seqs)",
+         "model calls in flight (TB_SCREEN_LLM_CONCURRENCY): 16" in vm)  # fmt: skip
+    r.ok(f"{tag}: ran with 16 calls in flight", hosp.get("llm_concurrency") == 16, hosp.get("llm_concurrency"))
+    m = hosp.get("metrics") or {}
+    scraped = {s: bool(((m.get("servers") or {}).get(s) or {}).get("scraped")) for s in ("judge", "verifier")}
+    r.ok(f"{tag}: both servers' /metrics scraped before and after", all(scraped.values()), scraped)
+    r.ok(f"{tag}: the card sampled (gpu.csv)", int((m.get("gpu") or {}).get("samples") or 0) >= 2, m.get("gpu"))
+    r.ok(f"results.tgz has parts/{tag}/gpu.csv and the servers' metrics",
+         {f"parts/{tag}/gpu.csv", f"parts/{tag}/vllm-judge-after.prom"} <= set(res),
+         sorted(k for k in res if k.startswith(f"parts/{tag}/")))  # fmt: skip
+    t = hosp.get("throughput") or {}
+    r.ok(f"{tag}: calls per second from the gateway's audit", int(t.get("calls") or 0) + int(t.get("cached") or 0) > 0,
+         {k: t.get(k) for k in ("calls", "cached", "calls_per_second", "p95_s")})  # fmt: skip
+    r.ok(f"{tag}: the candidate list has a hash", bool((hosp.get("candidates") or {}).get("sha256")))
+
+
 def report_of(e: Path) -> dict[str, Any]:
     p = e / "out" / "report" / "report.json"
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
@@ -192,6 +215,7 @@ def run_case(a: argparse.Namespace) -> int:
         "synthetic weight pins" in str(rep.get("path")),
         rep.get("path"),
     )
+    check_measured(r, rep, res, vm)
     bad = failing(rep)
     other = [b for b in bad if not any(re.search(t, b[0]) and re.search(c, b[2]) for t, c in MODEL_QUALITY)]
     r.ok("every failed check is about model quality (the stub's answers)", not other, other[:8])

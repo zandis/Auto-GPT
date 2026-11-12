@@ -96,7 +96,9 @@ def export_rows(db: Database, as_of: datetime | None = None) -> dict[str, list[R
     lock (a load waits for it, never the other way round): every record changed after ``as_of`` gets its before-image
     back (``tb_record_event.record_before`` and ``before``), a record first loaded after it is set aside, conflicts
     opened, resolved or withdrawn after it read as they did then, and the merged person rows are derived again from
-    the records of that time. Nothing is written. The clinical content (which records, their values, status, basis
+    the records of that time. A patient who is opted out now is never brought back: after the wind-back their
+    records are tombstoned again, the consent statements excepted (T-728, D-493). Nothing is written. The clinical
+    content (which records, their values, status, basis
     and conflicts) is the content of that time; an unchanged record's row provenance and file position are those of
     the last load that carried it (a new night alone is no event, D-384). An instant before a change whose record
     before-image was never kept (an event written before migration 6) is refused, never guessed."""
@@ -110,11 +112,29 @@ def export_rows(db: Database, as_of: datetime | None = None) -> dict[str, list[R
         with db.transaction() as tx:
             tx.execute("SELECT pg_advisory_xact_lock(hashtext('trialbox-omop-load'))")
             _wind_back(tx, as_of)
+            _keep_withheld_out(tx)
             out = _export(tx)
             raise _Discard
     except _Discard:
         pass
     return out
+
+
+def _keep_withheld_out(tx: Any) -> None:
+    """T-728 (D-493; lifecycle review F-9): the wind-back gave a patient who opted out after ``as_of`` their records
+    back (the opt-out is a tombstone with its before-images kept). Every patient withheld now (``tb_withheld`` and
+    the opt-out register) is
+    tombstoned again in the wound-back store, by the opt-out worker's own code, whatever the order of the later
+    events was; the consent statements stay. Inside the caller's transaction, which is rolled back."""
+    from tb_common.optout import register_now  # the one door outside a job (T-708, D-477)
+
+    from omop.load import withhold_persons
+
+    # review L1: ``tb_withheld`` is the opt-out worker's copy and lags the register by a tick; the register itself
+    # is read too (empty when no trial database is configured; a register that does not answer raises)
+    pids = sorted({str(r[0]) for r in tx.fetchall("SELECT pid FROM tb_withheld")} | set(register_now()))
+    if pids:
+        withhold_persons(tx, pids, "as-of export")
 
 
 def _wind_back(tx: Any, at: datetime) -> None:
