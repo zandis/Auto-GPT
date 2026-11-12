@@ -6,13 +6,15 @@ A train's pull request runs the full tier on its head. When the train is merged 
 nothing the train lacked, the merge commit's tree is the train head's tree, byte for byte: the full tier of the push
 to master would test the same files again. This says "true" only when all of these hold:
 
-* the pushed commit has exactly two parents, and its tree equals the second parent's tree;
-* the second parent is the head of a merged pull request whose branch is ``train/*``;
-* every ``unit`` check run GitHub Actions recorded for that head passed.
+* the pushed commit has exactly two parents, its tree equals the second parent's tree, and the first parent (master
+  before the merge) is an ancestor of the second: the train's own run tested the train merged into that master;
+* the second parent is the head of a merged pull request into master, from this repository, whose branch is
+  ``train/*``;
+* GitHub Actions recorded a run of every full-tier job (:data:`FULL_TIER`) on that head, and every one passed: a
+  proved push skips all of them, so all of them must have been green.
 
 Anything else says "false", and so does any error (no ``gh``, no answer, a shallow checkout): the full tier runs.
-Standard library only: the ``changes`` job runs it before any environment exists. The nightly run keeps the whole
-suite on master whatever this says.
+Standard library only: the ``changes`` job runs it before any environment exists.
 """
 
 from __future__ import annotations
@@ -23,35 +25,62 @@ import subprocess
 import sys
 from typing import Any
 
-UNIT = "unit"  # the aggregate job of the unit shards: skipped shards are not a pass (D-564)
+#: every job a proved push skips (the full tier of trialbox-ci.yml; tests/unit/test_ci_tiers.py holds the two equal)
+FULL_TIER = ("unit-shard", "unit", "property", "goldens", "e2e-simple", "demo-boot", "security", "standards", "images")
 APP = "github-actions"
 TRAIN_PREFIX = "train/"
+BASE = "master"
+PAGE = 100
+MAX_PAGES = 10  # 1,000 check runs on one commit: more than that and the answer is "false"
+
+
+def _job(name: str) -> str:
+    """``goldens (omop)`` -> ``goldens``: the leg of a matrix counts for its job."""
+    return name.split(" (", 1)[0]
 
 
 def proved(
-    head_tree: str, parents: list[str], train_tree: str, pulls: list[dict[str, Any]], runs: list[dict[str, Any]]
+    head_tree: str,
+    parents: list[str],
+    train_tree: str,
+    master_in_train: bool,
+    repo: str,
+    pulls: list[dict[str, Any]],
+    runs: list[dict[str, Any]],
 ) -> tuple[bool, str]:
     """The rule on plain data: (proved, why)."""
     if len(parents) != 2:
         return False, f"not a merge of two ({len(parents)} parent(s))"
     if not head_tree or head_tree != train_tree:
         return False, "tree differs from the merged head's tree"
+    if not master_in_train:
+        # the train's run tested the train merged into master as it was then; equal trees after a revert on master
+        # are a tree no run tested
+        return False, "master had commits the train did not hold"
     train = parents[1]
-    refs = [
-        str((p.get("head") or {}).get("ref"))
-        for p in pulls
-        if p.get("merged_at")
-        and str((p.get("head") or {}).get("ref", "")).startswith(TRAIN_PREFIX)
-        and (p.get("head") or {}).get("sha") == train
-    ]
+    refs = []
+    for p in pulls:
+        head, base = p.get("head") or {}, p.get("base") or {}
+        if (
+            p.get("merged_at")
+            and str(head.get("ref", "")).startswith(TRAIN_PREFIX)
+            and head.get("sha") == train
+            and base.get("ref") == BASE
+            and (head.get("repo") or {}).get("full_name") == repo
+        ):
+            refs.append(str(head.get("ref")))
     if not refs:
-        return False, "no merged train pull request has this head"
-    units = [r for r in runs if r.get("name") == UNIT and (r.get("app") or {}).get("slug") == APP]
-    if not units:
-        return False, "no unit check on the train's head"
-    bad = sorted({str(r.get("conclusion")) for r in units if r.get("conclusion") != "success"})
-    if bad:
-        return False, f"unit was {', '.join(bad)} on the train's head"
+        return False, "no merged train pull request into master has this head"
+    ours = [r for r in runs if (r.get("app") or {}).get("slug") == APP]
+    for job in ("unit", *[j for j in FULL_TIER if j != "unit"]):
+        of_job = [r for r in ours if _job(str(r.get("name", ""))) == job]
+        if job == "unit":
+            of_job = [r for r in of_job if r.get("name") == "unit"]  # the aggregate itself, not a shard
+        if not of_job:
+            return False, f"no {job} check on the train's head"
+        bad = sorted({str(r.get("conclusion")) for r in of_job if r.get("conclusion") != "success"})
+        if bad:
+            return False, f"{job} was {', '.join(bad)} on the train's head"
     return True, f"proved by {refs[0]}"
 
 
@@ -64,21 +93,31 @@ def _api(path: str) -> Any:
     return json.loads(out)
 
 
+def _check_runs(repo: str, sha: str) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for page in range(1, MAX_PAGES + 1):
+        got = list(_api(f"repos/{repo}/commits/{sha}/check-runs?per_page={PAGE}&page={page}").get("check_runs") or [])
+        out += got
+        if len(got) < PAGE:
+            return out
+    raise ValueError("too many check runs")
+
+
 def main() -> int:
     try:
         parents = _git("rev-list", "--parents", "-n", "1", "HEAD").split()[1:]
         head_tree = _git("rev-parse", "HEAD^{tree}")
+        repo = os.environ["GITHUB_REPOSITORY"]
         if len(parents) != 2:
-            ok, why = proved(head_tree, parents, "", [], [])
+            ok, why = proved(head_tree, parents, "", False, repo, [], [])
         else:
             train_tree = _git("rev-parse", f"{parents[1]}^{{tree}}")
-            if head_tree != train_tree:
-                ok, why = proved(head_tree, parents, train_tree, [], [])
+            inside = subprocess.run(["git", "merge-base", "--is-ancestor", parents[0], parents[1]], check=False)
+            if head_tree != train_tree or inside.returncode != 0:
+                ok, why = proved(head_tree, parents, train_tree, inside.returncode == 0, repo, [], [])
             else:
-                repo = os.environ["GITHUB_REPOSITORY"]
-                pulls = _api(f"repos/{repo}/commits/{parents[1]}/pulls")
-                checks = _api(f"repos/{repo}/commits/{parents[1]}/check-runs?check_name={UNIT}&per_page=100")
-                ok, why = proved(head_tree, parents, train_tree, list(pulls), list(checks.get("check_runs") or []))
+                pulls = list(_api(f"repos/{repo}/commits/{parents[1]}/pulls"))
+                ok, why = proved(head_tree, parents, train_tree, True, repo, pulls, _check_runs(repo, parents[1]))
     except (OSError, KeyError, ValueError, AttributeError, TypeError, subprocess.CalledProcessError) as exc:
         ok, why = False, f"could not ask ({type(exc).__name__}); the full tier runs"
     print(f"ci_proved_tree: {why}", file=sys.stderr)

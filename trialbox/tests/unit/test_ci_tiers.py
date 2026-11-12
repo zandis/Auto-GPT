@@ -131,6 +131,13 @@ def test_a_master_push_at_a_proved_tree_runs_the_fast_tier(
     assert _full(event, draft, head_ref, tmp_path, proved) == full
 
 
+def test_the_proved_rule_asks_for_every_full_tier_job() -> None:
+    """Review of D-578: a proved push skips the whole full tier, so the rule reads every one of its checks."""
+    from tools import ci_proved_tree
+
+    assert set(ci_proved_tree.FULL_TIER) == FULL
+
+
 def test_the_proved_step_runs_on_a_push_only_and_may_read_checks_and_pull_requests() -> None:
     job = _wf(CI)["jobs"]["changes"]
     step = next(s for s in job["steps"] if s.get("id") == "proved")
@@ -186,11 +193,17 @@ def test_the_lock_job_starts_on_what_it_reads() -> None:
     for needed in (
         "trialbox/uv.lock", "trialbox/pyproject.toml", "trialbox/deploy/**", "trialbox/tools/supply_chain/**",
         "trialbox/tools/make_bundle.sh", "trialbox/Makefile", "trialbox/.dockerignore",
+        "trialbox/demo/**", "trialbox/README.md",  # review: the gate tests read the demo Dockerfile and the README
         "trialbox/tests/unit/test_supply_chain.py", "trialbox/tests/fixtures/supply_chain/**",
         ".github/workflows/trialbox-*.yml",
     ):  # fmt: skip
         assert needed in paths, needed
     assert _on(_wf(WORKFLOWS / "trialbox-supply-chain.yml"))["schedule"]  # new advisories, weekly
+
+
+def test_the_weekly_scan_does_not_cancel_a_master_pushs_scan() -> None:
+    group = _wf(WORKFLOWS / "trialbox-images.yml")["concurrency"]["group"]
+    assert "github.event_name" in group
 
 
 def test_a_push_to_master_is_not_a_release() -> None:

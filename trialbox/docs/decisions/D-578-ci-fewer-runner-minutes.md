@@ -26,13 +26,15 @@ merge ran the full suite again on a tree the train had already proved.
    weekly and by hand. Not on a card's pull request: a card that changes an image says so and goes on a train
    early. The arm64 leg runs for a train, master and a release tag; the weekly run and a run by hand scan amd64.
    The multi-architecture job still runs for a release tag or by hand only.
-3. **The lock job** of the supply-chain workflow starts on what it reads (the locks, `deploy/`, the gate code, its
-   tests and fixtures, the Makefile, the workflows), not on all of `trialbox/`. Its gate tests also run with the
+3. **The lock job** of the supply-chain workflow starts on what it reads (the locks, `deploy/`, `demo/`, the gate
+   code, its tests and fixtures, the Makefile, the README, the workflows), not on all of `trialbox/`. Its gate tests also run with the
    unit tests, and new advisories are the weekly run's.
 4. **A push to master at a tree a train proved** runs the fast tier only. `tools/ci_proved_tree.py` says so only
-   when the pushed commit is a merge of two whose tree equals the second parent's, that parent is the head of a
-   merged pull request from a `train/*` branch, and every `unit` check GitHub Actions recorded on that head
-   passed. Any doubt or error says no, and the full tier runs. The nightly run keeps the whole suite on master.
+   when all of these hold: the pushed commit is a merge of two whose tree equals the second parent's; master
+   before the merge is an ancestor of that parent (the train held everything master had); that parent is the head
+   of a merged pull request into master, from this repository, on a `train/*` branch; and GitHub Actions recorded
+   a run of every full-tier job on that head and every one passed. Any doubt or error says no, and the full tier
+   runs.
 
 ### Why the lock job "failed" 22 times
 
@@ -83,3 +85,19 @@ that run repeats what the train scanned and could go the same way as rule 4 if t
 - The `changes` job may read checks and pull requests (read only) to ask about a train's head.
 - `tests/unit/test_ci_tiers.py` holds the tiers, the steps of `checks` and their commands, the image gates'
   triggers and the lock job's paths; `tests/unit/test_ci_proved_tree.py` holds rule 4.
+
+## After the adversarial review (2026-11-12)
+
+- **HIGH, fixed.** Rule 4 read only `unit`, but a proved push skips the whole full tier: a train merged with
+  `security` or a `goldens` leg red would have given a green master. The rule now asks for a passed run of every
+  full-tier job, the legs of a matrix included; a test holds its list equal to the workflow's.
+- **Fixed.** Equal trees do not show that the train's run tested that tree: master gets a commit, the train's run
+  tests the train with it, master reverts it, the train is merged. The rule now also needs master to be an
+  ancestor of the train's head. The pull request must be into master and from this repository.
+- **Fixed.** The first text said the nightly run keeps the whole suite on master. It does not: the nightly
+  workflows run the unit suite, the drills and the scale gate, not the goldens, the standards job or the security
+  scans. With the rule as it now is, nothing is skipped on master that was not green on the same tree.
+- **Fixed.** The lock job's paths lacked `demo/` and the README, which its gate tests read. The image gates'
+  concurrency group now holds the event, so the weekly run does not cancel a master push's scan.
+- **Known, not changed.** The cache of the `standards` job is saved only by that job; after a train changes its
+  key a proved master push does not refill it, and pull requests fill their own until a full run on master.

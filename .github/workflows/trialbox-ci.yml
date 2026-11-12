@@ -1,5 +1,5 @@
 # TrialBox CI gate v1 (D-206, T-007, WS-01.4, WS-12.2, WS-13.8): every pull request that touches trialbox/ and every
-# push to master runs these jobs; `make ci` runs the same list locally. Job names are stable: branch protection on
+# push to master runs these jobs (in tiers: D-564, D-578); `make ci` runs the same list locally. Job names are stable: branch protection on
 # master requires unit, checks, goldens, data-scan and e2e-simple (the owner sets the list; RUNBOOK §3). Since D-578
 # `checks` holds what the jobs lint, types, docs, contracts, trace and shell held: where branch protection names `lint`
 # or `contracts`, it must name `checks` instead.
@@ -62,7 +62,7 @@ jobs:
             echo "trialbox=false" >> "$GITHUB_OUTPUT"
           fi
       # D-578: a push to master whose tree a merged train's green `unit` already proved runs the fast tier only
-      # (tools/ci_proved_tree.py: any doubt or error says false). The nightly run keeps the whole suite on master.
+      # (tools/ci_proved_tree.py: every full-tier check green on the train's head; any doubt or error says false).
       - id: proved
         if: github.event_name == 'push'
         working-directory: .

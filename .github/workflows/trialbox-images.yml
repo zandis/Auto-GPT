@@ -60,7 +60,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: trialbox-images-${{ github.event.pull_request.number || github.ref }}
+  # the event is in the group (D-578): the weekly run or a run by hand does not cancel a master push's scan
+  group: trialbox-images-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

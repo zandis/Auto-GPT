@@ -75,8 +75,8 @@ Three rules keep the billed runner minutes down (D-578):
   for a release tag, weekly and by hand. They do not run on a card's pull request: a card that changes an image
   says so, and the integrator puts it on a train early. The arm64 leg runs for a train, `master` and a release tag.
 * A push to `master` whose tree a merged train already proved runs the fast tier only
-  (`tools/ci_proved_tree.py`: the merge commit's tree equals the train head's, and that head's `unit` passed). The
-  nightly run keeps the whole suite on `master`.
+  (`tools/ci_proved_tree.py`: the merge commit's tree equals the train head's, master had nothing the train lacked,
+  and every full-tier check passed on that head). Any doubt runs the full tier.
 
 * A card's pull request stays a draft while it is built. It needs the fast tier green on its head, its targeted
   tests and, where the plan asks, its adversarial review. On a draft the check `unit` shows as skipped, never as

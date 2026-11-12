@@ -20,18 +20,37 @@ pytestmark = pytest.mark.nodb
 
 HEAD = "a" * 40
 TRAIN = "b" * 40
+REPO = "o/r"
 
 
 def _pull(**over: Any) -> dict[str, Any]:
-    return {"merged_at": "2026-11-12T10:00:00Z", "head": {"ref": "train/3", "sha": TRAIN}, **over}
+    return {"merged_at": "2026-11-12T10:00:00Z", "base": {"ref": "master"},
+            "head": {"ref": "train/3", "sha": TRAIN, "repo": {"full_name": REPO}}, **over}  # fmt: skip
+
+
+def _head(**over: Any) -> dict[str, Any]:
+    return {"ref": "train/3", "sha": TRAIN, "repo": {"full_name": REPO}, **over}
+
+
+def _green(**over: str) -> list[dict[str, Any]]:
+    """One passed run for every full-tier check, as a green train leaves them; ``over`` changes some."""
+    names = {**{n: "success" for n in cpt.FULL_TIER}, **over}
+    return [_run(c, n) for n, c in names.items()]
 
 
 def _run(conclusion: str = "success", name: str = "unit", app: str = "github-actions") -> dict[str, Any]:
     return {"name": name, "status": "completed", "conclusion": conclusion, "app": {"slug": app}}
 
 
-def test_a_train_merge_with_the_same_tree_and_a_green_unit_is_proved() -> None:
-    assert cpt.proved("t1", [HEAD[:1] * 40, TRAIN], "t1", [_pull()], [_run()]) == (True, "proved by train/3")
+def _args(**kw: Any) -> dict[str, Any]:
+    return {"head_tree": "t1", "parents": [HEAD, TRAIN], "train_tree": "t1", "master_in_train": True, "repo": REPO,
+            "pulls": [_pull()], "runs": _green(), **kw}  # fmt: skip
+
+
+def test_a_train_merge_with_the_same_tree_and_a_green_full_tier_is_proved() -> None:
+    assert cpt.proved(**_args()) == (True, "proved by train/3")
+    more = [*_green(), _run("success", "goldens (omop)"), _run("success", "unit-shard (3)"), _run("failure", "checks")]
+    assert cpt.proved(**_args(runs=more))[0]  # the legs of a matrix count; the fast tier runs on master anyway
 
 
 @pytest.mark.parametrize(
@@ -40,24 +59,31 @@ def test_a_train_merge_with_the_same_tree_and_a_green_unit_is_proved() -> None:
         ({"parents": [TRAIN]}, "not a merge of two"),
         ({"parents": [HEAD, TRAIN, "c" * 40]}, "not a merge of two"),
         ({"train_tree": "t2"}, "tree differs"),
+        # review M2: the train's run tested the train merged into master as it was; master must be inside the train
+        ({"master_in_train": False}, "master had commits the train did not hold"),
         ({"pulls": []}, "no merged train"),
         ({"pulls": [_pull(merged_at=None)]}, "no merged train"),
-        ({"pulls": [_pull(head={"ref": "agent/train/3", "sha": TRAIN})]}, "no merged train"),
-        ({"pulls": [_pull(head={"ref": "train/3", "sha": "d" * 40})]}, "no merged train"),
+        ({"pulls": [_pull(head=_head(ref="agent/train/3"))]}, "no merged train"),
+        ({"pulls": [_pull(head=_head(sha="d" * 40))]}, "no merged train"),
+        ({"pulls": [_pull(base={"ref": "train/9"})]}, "no merged train"),  # review M3: into master only
+        ({"pulls": [_pull(head=_head(repo={"full_name": "someone/fork"}))]}, "no merged train"),  # and from this repo
         ({"runs": []}, "no unit check"),
-        ({"runs": [_run("failure")]}, "unit was failure"),
-        ({"runs": [_run("skipped")]}, "unit was skipped"),
-        ({"runs": [_run(), _run("failure")]}, "unit was failure"),
-        ({"runs": [_run(name="unit-shard (1)")]}, "no unit check"),
-        ({"runs": [_run(app="someone-else")]}, "no unit check"),
-        ({"runs": [{"name": "unit", "status": "in_progress", "conclusion": None, "app": {"slug": "github-actions"}}]},
+        ({"runs": _green(unit="failure")}, "unit was failure"),
+        ({"runs": _green(unit="skipped")}, "unit was skipped"),
+        ({"runs": [*_green(), _run("failure")]}, "unit was failure"),
+        ({"runs": [r for r in _green() if r["name"] != "unit"] + [_run(name="unit-shard (1)")]}, "no unit check"),
+        ({"runs": [_run(app="someone-else"), *[r for r in _green() if r["name"] != "unit"]]}, "no unit check"),
+        ({"runs": [{**r, "status": "in_progress", "conclusion": None} if r["name"] == "unit" else r for r in _green()]},
          "unit was None"),
+        # review HIGH: every full-tier job is skipped on master, so every one of them must have passed on the train
+        ({"runs": _green(security="failure")}, "security was failure"),
+        ({"runs": [*_green(), _run("failure", "goldens (omop)")]}, "goldens was failure"),
+        ({"runs": [r for r in _green() if r["name"] != "standards"]}, "no standards check"),
+        ({"runs": _green(**{"demo-boot": "cancelled"})}, "demo-boot was cancelled"),
     ],
 )  # fmt: skip
 def test_anything_else_is_not_proved(kw: dict[str, Any], why: str) -> None:
-    args: dict[str, Any] = {"head_tree": "t1", "parents": [HEAD, TRAIN], "train_tree": "t1", "pulls": [_pull()],
-                            "runs": [_run()], **kw}  # fmt: skip
-    ok, said = cpt.proved(**args)
+    ok, said = cpt.proved(**_args(**kw))
     assert not ok and why in said, said
 
 
@@ -95,8 +121,8 @@ def _gh(tmp_path: Path, train: str, *, conclusion: str = "success", fail: bool =
     """A stand-in for the `gh` command: answers the two calls from files, or fails."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    (tmp_path / "pulls.json").write_text(json.dumps([_pull(head={"ref": "train/3", "sha": train})]), encoding="utf-8")
-    (tmp_path / "checks.json").write_text(json.dumps({"check_runs": [_run(conclusion)]}), encoding="utf-8")
+    (tmp_path / "pulls.json").write_text(json.dumps([_pull(head=_head(sha=train))]), encoding="utf-8")
+    (tmp_path / "checks.json").write_text(json.dumps({"check_runs": _green(unit=conclusion)}), encoding="utf-8")
     gh = bin_dir / "gh"
     gh.write_text(
         "#!/bin/sh\n"
@@ -110,7 +136,7 @@ def _gh(tmp_path: Path, train: str, *, conclusion: str = "success", fail: bool =
 
 
 def _cmd(repo: Path, bin_dir: Path) -> subprocess.CompletedProcess[str]:
-    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "GITHUB_REPOSITORY": "o/r", "GIT_CONFIG_GLOBAL": "/dev/null",
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "GITHUB_REPOSITORY": REPO, "GIT_CONFIG_GLOBAL": "/dev/null",
            "GIT_CONFIG_SYSTEM": "/dev/null"}  # fmt: skip
     return subprocess.run(
         [sys.executable, cpt.__file__], cwd=repo, env=env, capture_output=True, text=True, check=False
@@ -138,3 +164,28 @@ def test_the_command_says_false_when_unit_failed_or_github_does_not_answer(tmp_p
     (tmp_path / "bin").rmdir()
     r = _cmd(repo, _gh(tmp_path, train, fail=True))
     assert (r.returncode, r.stdout.strip()) == (0, "false") and "could not ask" in r.stderr
+
+
+def test_review_m2_a_revert_on_master_that_makes_the_trees_equal_is_not_proved(tmp_path: Path) -> None:
+    """Master gets a commit, the train's run tests the train with it, master reverts it, the train is merged: the
+    merge's tree is the train's, and no run ever tested that tree."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "master")
+    (repo / "a").write_text("1\n", encoding="utf-8")
+    _git(repo, "add", "a")
+    _git(repo, "commit", "-q", "-m", "base")
+    _git(repo, "checkout", "-q", "-b", "train/3")
+    (repo / "b").write_text("2\n", encoding="utf-8")
+    _git(repo, "add", "b")
+    _git(repo, "commit", "-q", "-m", "card")
+    train = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "checkout", "-q", "master")
+    (repo / "x").write_text("x\n", encoding="utf-8")
+    _git(repo, "add", "x")
+    _git(repo, "commit", "-q", "-m", "X")
+    _git(repo, "revert", "--no-edit", "HEAD")
+    _git(repo, "merge", "-q", "--no-ff", "-m", "train 3", "train/3")
+    assert _git(repo, "rev-parse", "HEAD^{tree}") == _git(repo, "rev-parse", f"{train}^{{tree}}")  # the premise
+    r = _cmd(repo, _gh(tmp_path, train))
+    assert (r.returncode, r.stdout.strip()) == (0, "false") and "master had commits" in r.stderr

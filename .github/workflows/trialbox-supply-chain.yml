@@ -18,6 +18,8 @@ on:
       - "trialbox/tools/make_bundle.sh"
       - "trialbox/Makefile"
       - "trialbox/.dockerignore"
+      - "trialbox/demo/**"
+      - "trialbox/README.md"
       - "trialbox/tests/unit/test_supply_chain.py"
       - "trialbox/tests/fixtures/supply_chain/**"
       - ".github/workflows/trialbox-*.yml"
