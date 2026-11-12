@@ -128,7 +128,7 @@ def test_a_box_installs_from_the_installer_with_only_the_wizards_answers(tmp_pat
     t["calls"].write_text("", encoding="utf-8")
     try:
         again = subprocess.run(["bash", str(t["deploy"] / "box-install.sh"), "--firstrun"], cwd=tmp_path, env=t["env"],
-                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30)  # fmt: skip
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30, check=False)  # fmt: skip
     except subprocess.TimeoutExpired as e:
         raise AssertionError(f"the second start waits for ever:\n{(e.stdout or b'')[-600:]!r}") from e
     assert again.returncode == 0, again.stdout[-2000:]
