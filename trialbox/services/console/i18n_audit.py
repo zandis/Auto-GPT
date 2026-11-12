@@ -230,6 +230,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "setup.practice": ("Site practice recorded (service)", "施設の運用の記録（サービス）", "記錄院內作業方式（服務）"),
     "setup.publish": ("Site set-up published", "施設設定の公開", "發布院內設定"),
     "setup.publish_begin": ("Site set-up publishing started", "施設設定の公開開始", "開始發布院內設定"),
+    "setup.publish_building": (
+        "Site set-up publishing waits for a rebuild in progress",
+        "施設設定の公開は進行中の再構築を待機",
+        "發布院內設定正等待進行中的重建",
+    ),
     "setup.publish_deferred": ("Site set-up publishing deferred", "施設設定の公開延期", "延後發布院內設定"),
     "setup.remote": (
         "Remote site source changed (service)",
