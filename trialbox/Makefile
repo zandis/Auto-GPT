@@ -18,7 +18,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: cross-card security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
+.PHONY: cross-card embed-start security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
 	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle supply-chain release-version release-tag
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
@@ -296,8 +296,17 @@ images: jvm-deps $(FONTS)
 	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) --build-arg TB_REVISION=$(TB_REVISION) \
 		-f deploy/docker/python.Dockerfile -t trialbox-py:1.0.0 .
 	docker build $(PLATFORM_ARG) $(OCI_LABELS) -f deploy/docker/jvm.Dockerfile -t trialbox-jvm:1.0.0 .
+	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) -f deploy/docker/embed.Dockerfile \
+		-t trialbox-embed:1.0.0 .
 	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) -f deploy/docker/db.Dockerfile \
 		-t trialbox-postgres:16-1 deploy/docker
+
+# ENG-003 (D-563): a PRODUCTION box starts its embed service. The box's compose file, the trialbox-embed image,
+# TB_ENV=PRODUCTION, a tiny model made on the spot (no download), pinned by the installer's own call; one
+# sentence embedded. Needs Docker and `make images`. CI: the image gates' job and the nightly compose job.
+embed-start:
+	TB_INTEGRATION=1 TB_STRICT_SKIPS=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -n 0 \
+		-p no:cacheprovider -m integration tests/integration/test_embed_production_start.py
 
 # both architectures (x86_64 servers, GB10 aarch64); push to the site registry or export with --output type=oci
 PLATFORMS ?= linux/amd64,linux/arm64
@@ -307,6 +316,9 @@ images-multiarch: jvm-deps $(FONTS)
 		--build-arg TB_REVISION=$(TB_REVISION) -f deploy/docker/python.Dockerfile -t $(REGISTRY)/trialbox-py:1.0.0 --push .
 	docker buildx build --platform $(PLATFORMS) $(OCI_LABELS) --build-arg BASE_IMAGE=$(REGISTRY)/trialbox-py:1.0.0 \
 		-f deploy/docker/jvm.Dockerfile -t $(REGISTRY)/trialbox-jvm:1.0.0 --push .
+	docker buildx build --platform $(PLATFORMS) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) \
+		--build-arg BASE_IMAGE=$(REGISTRY)/trialbox-py:1.0.0 -f deploy/docker/embed.Dockerfile \
+		-t $(REGISTRY)/trialbox-embed:1.0.0 --push .
 	docker buildx build --platform $(PLATFORMS) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) -f deploy/docker/db.Dockerfile \
 		-t $(REGISTRY)/trialbox-postgres:16-1 --push deploy/docker
 
@@ -361,8 +373,10 @@ logs:
 fixtures:
 	$(PY) tools/make_fixtures.py --out tests/fixtures/synthetic_patients
 
+# ANCHOR=<folder>: also against every signed head kept there (NEW-STD-2, D-562): a removed and recomputed event fails
+ANCHOR ?=
 audit-verify:
-	$(PY) tools/audit_verify.py $${TB_AUDIT_DIR:-data/audit}
+	$(PY) tools/audit_verify.py $${TB_AUDIT_DIR:-data/audit} $(if $(ANCHOR),--heads "$(ANCHOR)",)
 
 bench:
 	$(PY) tools/bench.py
@@ -458,7 +472,7 @@ SCANNERS := $(CURDIR)/.cache/scanners/bin
 TRIVY_CACHE ?= .cache/trivy
 # every image a bundle carries: ours (make images, make demo-bundle) and the third-party images compose pulls,
 # the same list tools/make_bundle.sh exports
-SC_OWN_IMAGES ?= trialbox-py:1.0.0 trialbox-jvm:1.0.0 trialbox-postgres:16-1 trialbox-demo:step5
+SC_OWN_IMAGES ?= trialbox-py:1.0.0 trialbox-jvm:1.0.0 trialbox-embed:1.0.0 trialbox-postgres:16-1 trialbox-demo:step5
 SC_THIRD_PARTY ?= $(shell docker compose --project-directory deploy -f deploy/docker-compose.yml -f deploy/docker-compose.test.yml \
 	--profile stub --profile test --profile gpu config --images 2>/dev/null | grep -v '^trialbox-' | sort -u)
 # the third-party images are scanned in their registry, by digest, for this machine's platform (or SC_PLATFORM)

@@ -59,6 +59,10 @@ class AdapterConfig:
     table_max_drop_pct: float = 10.0
     required_tables: tuple[str, ...] = ()
     optional_tables: tuple[str, ...] = ()
+    # NEW-DIN-8 (D-583): on the first night every table the mapping declares must be there with rows, unless it is
+    # in ``optional_tables``. The product's entry (``adapter.cli``) always sets it; a tool or a test that builds a
+    # night from a partial feed of its own making leaves it off
+    first_night_all_tables: bool = False
     source_encoding: str | None = None  # T-615b: settings.data_source.encoding, the csv reader's first candidate
     # T-659b (D-370): the folder of data contracts (adapter/governance.py); None: no contract checks
     contracts_dir: Path | None = None
@@ -515,6 +519,7 @@ def _run_ingest(
     source: Source | None = None
     tombstones: dict[str, set[str]] = {}  # type -> ids deleted at the source (dataflow review P0-1)
     tables: dict[str, dict[str, Any]] = {}  # T-611: per source table, present / rows / duplicate keys
+    unmapped_codes: dict[str, dict[str, dict[str, int]]] = {}  # NEW-DIN-6: table -> look-up -> code -> rows
     quarantined: dict[str, str] = {}  # T-615b: table -> why its file was quarantined
     current_before = _current(cfg.lake_dir)
     # T-659b (D-370): the controls moved from the retired data platform: contracts, row quarantine, control totals
@@ -606,12 +611,15 @@ def _run_ingest(
                 quarantined[table] = refused
                 errors.append(f"{table}: {refused}")
                 rows = rows.where(keep=set())
+            if table in quarantined:  # NEW-DIN-8: already an error of its own; not also "empty"
+                tables[table]["set_aside"] = True
             # a row marked deleted (``deleted`` column, or the table's ``deleted:`` column) is a tombstone, never a
             # record; a source that keeps deletes apart (SS-MIX2 flag 0) gives them through ``deleted_rows``
             dcol = str(tspec.get("deleted") or "deleted")
             dead = [r for r in rows if dcol in r and is_deleted_flag(r[dcol])]
             if dead:
                 rows = rows.where(live=dcol)
+                tables[table]["rows_live"] = len(rows)  # NEW-DIN-8: a table of deleted rows only is empty
             deleted_rows = getattr(src, "deleted_rows", None)
             if deleted_rows is not None:
                 dead += [mapping.normalize(table, r) for r in deleted_rows(table, src_name, delta, since)]
@@ -644,6 +652,10 @@ def _run_ingest(
                 if n_bad * 100 > REJECT_MAX_PCT * len(rows):
                     errors.append(f"{table}: {n_bad} of {len(rows)} rows rejected (over {REJECT_MAX_PCT:g} %): {why}")
             rows.discard()
+        # NEW-DIN-6 (D-580): rows dropped for a code the look-up does not know, per table (codes and counts only)
+        for table, by_lookup in mapper.unmapped_summary().items():
+            tables[table]["unmapped"] = by_lookup
+        unmapped_codes = mapper.unmapped_by_code(cfg.mrn_regex)  # codes only: never a chart number or a name
     at.update(step="snapshot", table=None)
     unit_defaults = mapping.unit_defaults if source_kind != "fhir_bulk" else _bulk_unit_defaults(cfg.mapping_path)
     counts = spool.counts()
@@ -694,7 +706,9 @@ def _run_ingest(
     prev = [s for s in list_snapshots(cfg.lake_dir) if s < snap]
     last_good = merge_base(cfg.lake_dir, snap)  # D-271: never a held night's NDJSON
     base = snapshot_dir(cfg.lake_dir, last_good) if (since and last_good) else None
-    if since and last_good is None and (prev or _current(cfg.lake_dir)):
+    if since and last_good is None and (prev or _current(cfg.lake_dir) or cfg.first_night_all_tables):
+        # NEW-DIN-8 (D-583): on a box a delta is never the first night: it has nothing to merge over and no
+        # table of it can be judged complete
         errors.append("delta night: no earlier snapshot passed validation to merge over; run a full load")
     full_counts = write_snapshot(out_dir, spool, base, tombstones, transform=night)
     defaulted, presence_read, shifted, aliased = (
@@ -712,6 +726,16 @@ def _run_ingest(
     (out_dir / COMPLETENESS).write_text(
         json.dumps(completeness, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8"
     )
+    if unmapped_codes:
+        (out_dir / UNMAPPED_CODES).write_text(
+            json.dumps(unmapped_codes, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
+        )
+        for table, by_lookup in sorted(unmapped_codes.items()):
+            log.warning("%s: %d rows dropped: %d values have no look-up row with a code (%s)", table,
+                        sum(sum(c.values()) for c in by_lookup.values()), sum(len(c) for c in by_lookup.values()),
+                        UNMAPPED_CODES)  # fmt: skip
+    else:  # an earlier attempt of this night may have left one
+        (out_dir / UNMAPPED_CODES).unlink(missing_ok=True)
     if gaps:
         what = f"incomplete feed (against snapshot {last_good or 'none'}): {'; '.join(gaps)}"
         reason = feedguard.override_for(snap)
@@ -906,6 +930,9 @@ def _run_ingest(
                 "incomplete": completeness["problems"] or None,
                 "duplicate_keys": {t: v["duplicate_keys"] for t, v in tables.items() if v["duplicate_keys"]} or None,
                 "orphans": completeness["orphans"] or None,
+                # NEW-DIN-6 (D-580): rows dropped for a code no look-up knows, per table (the codes: the file)
+                "unmapped": {t: sum(sum(c.values()) for c in by.values()) for t, by in sorted(unmapped_codes.items())}
+                or None,
                 # T-615b: the tables whose file was set aside (character set or CSV form; no cell text)
                 "quarantined": quarantined or None,
                 # T-659b: the night's one gate record, rows set aside by the contracts, merged chart numbers
@@ -1116,6 +1143,7 @@ def jp_core_check(cfg: AdapterConfig, picked: list[Resource], out_dir: Path) -> 
 PASSED = "passed.json"  # written in a snapshot's NDJSON folder when its night passed (D-271)
 HELD = "held.json"  # written in a snapshot's NDJSON folder when its night was held, with why (T-611)
 REJECT_MAX_PCT = 1.0  # STD-025: a table whose rejected rows pass this share of its rows holds the night (T-615a)
+UNMAPPED_CODES = "unmapped_codes.json"  # NEW-DIN-6 (D-580): every code no look-up knows, with its row count
 COMPLETENESS = "completeness.json"  # per source table: present, rows, duplicate keys; the gate's findings (T-611)
 _PATIENT_REF = re.compile(rb'"Patient/([^"]+)"')
 
@@ -1164,12 +1192,25 @@ def completeness_check(
     before: dict[str, int] = {str(k): int(v) for k, v in (base.get("reference") or {}).items()}
     problems: list[str] = []
     optional = set(cfg.optional_tables)
+    # NEW-DIN-8 (D-583): a table no earlier good night had rows of has no baseline to be compared with: the first
+    # night, the first night after a first load (the back-fill writes no completeness record), a table an override
+    # once let through empty. So on a full night such a table must be there with live rows, unless the site lists
+    # it as optional; else a table missing on go-live night would never be asked for again.
     for t in sorted(set(tables) | set(cfg.required_tables)):
         now = tables.get(t)
         rows = int(now["rows"]) if now else 0
         present = now["present"] if now else None
         if t in cfg.required_tables and (present is False or (full and rows == 0) or now is None):
             problems.append(f"{t}: required table {'missing' if present is False or now is None else 'empty'}")
+            continue
+        live = int(now.get("rows_live", rows)) if now else 0
+        if (cfg.first_night_all_tables and full and not before.get(t) and t not in optional and now is not None
+                and not now.get("set_aside") and (present is False or live == 0)):  # fmt: skip
+            problems.append(
+                f"{t}: table {'missing' if present is False else 'empty'} and no earlier good night had it (every "
+                "table of the mapping is required until one has; a table this site does not have goes under "
+                "feed_completeness.optional_tables)"
+            )
             continue
         old = before.get(t, 0)
         if not old or t in optional:

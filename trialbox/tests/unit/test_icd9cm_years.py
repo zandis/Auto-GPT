@@ -182,3 +182,12 @@ def test_any_beside_a_column_needs_both(tmp_path: Path) -> None:
     both = {"any": [[{"column": "a", "equals": "1"}]], "column": "b", "equals": "2"}
     assert plain.cond(both, {"a": "1", "b": "2"}) and not plain.cond(both, {"a": "1", "b": "3"})
     assert not plain.cond({"any": []}, {"a": "1"})
+
+
+def test_a_date_of_another_calendar_refuses_the_row_and_is_never_read_as_before_2016(tw: Mapper) -> None:
+    """With DIN-001 (#323): a Republic-of-China date used to parse as a year near 1100 and so as "before 2016";
+    it is refused, in the keyed day and in the day of the diagnosis alike."""
+    for row in ({**_diag("M05.79", "1090105"), "recorded_date": ""}, {**_diag("M05.79", "2020-01-05"), "recorded_date": "1090105"},
+                {**_diag("M05.79", "0109-01-05"), "recorded_date": ""}):  # fmt: skip
+        with pytest.raises(MappingError):
+            _systems(tw, row)
