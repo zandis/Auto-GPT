@@ -1004,3 +1004,141 @@ def test_s4_a_second_opinion_that_disagrees_sends_a_strong_candidate_to_review(
     else:
         assert (o.status, o.stage, o.reason, t.tier) == ("unknown", "S4", "S3/S4 disagree", "potential:uncertain")
         assert res.stage("S4").detail["disagreements"] == 1
+
+
+# ================================================================================================ T-203b S2b cut sets
+# D-449 (review of PR #275, HIGH 1): S2b shows the judge only the notes that hold one of its top sentences. A window
+# note with none of them is part of the record the models did not read, so a "not met" on that cut set must never
+# exclude: it counts as left out (the D-276 guard), on the on-the-fly ranking and on a stored one.
+DECISIVE = "Painful swollen red first toe since Monday."
+FILLER = "\n".join(f"Routine line {i} of the visit." for i in range(1, 6))
+
+
+@dataclass
+class _Reader:
+    """A judge that READS the excerpts: the gout inclusion is met only when the decisive sentence is shown, else a
+    confident "not met"; the infection exclusion is absent. Both roles answer alike (the pair agrees)."""
+
+    shown: dict[str, set[str]] = field(default_factory=dict)  # pid -> note ids it was shown
+    pid_of: dict[str, str] = field(default_factory=dict)
+
+    def judge(self, *, role: str, criterion_text: str, excerpts: list[dict[str, Any]], **_: Any) -> JudgeReply:
+        for e in excerpts:
+            self.shown.setdefault(self.pid_of[str(e["did"])], set()).add(str(e["did"]))
+        hit = next((e for e in excerpts if "swollen" in str(e["text"])), None)
+        ex = hit or excerpts[0]
+        if criterion_text == "Gout flare documented":
+            verdict = "pass" if hit is not None else "fail"
+        else:
+            verdict = "fail"  # no infection: the exclusion does not apply
+        return JudgeReply(verdict, 0.95, str(ex["text"]), str(ex["date"]), "from the notes", call_id="r1")
+
+
+@dataclass
+class _Toe:
+    """On-the-fly embedder: the decisive sentence first (``first``) or last (every other sentence above it)."""
+
+    first: bool
+    model: str = "stub-embedder"
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        def v(s: str) -> list[float]:
+            near = ("swollen" in s) == self.first
+            return [1.0, 0.0] if near else [0.6, 0.8]
+
+        return [[1.0, 0.0], *[v(s) for s in texts[1:]]]
+
+
+@dataclass
+class _Ranked:
+    """A stored-vector source (D-449): ``decisive`` first, ``fillers`` (the decisive sentence never in the top five),
+    ``fallback``, ``error``, or ``mixed`` (a fallback for the exclusion's pairs, a fillers ranking for the rest)."""
+
+    kind: str
+
+    def rank(self, pid: str, query: str, notes: Sequence[Any], k: int) -> Any:
+        from matching.cascade.s2b_semantic import SourceFallback, SourceRanking
+
+        sents = [s for n in notes for s in n.sents]
+        if self.kind == "error":
+            raise ConnectionError("vector store down")
+        if self.kind == "fallback" or (self.kind == "mixed" and "infection" in query.lower()):
+            return SourceFallback("vector store unavailable")
+        order = sorted(range(len(sents)), key=lambda i: (("swollen" in sents[i]) != (self.kind == "decisive"), i))
+        return SourceRanking(0.9, [(i, 0.9) for i in order[:k]], "m")
+
+
+def _toe_run(notes: list[dict[str, Any]], pids: list[str], embedder: Any, source: Any) -> tuple[Any, _Reader]:
+    lake = _lake(CASCADE_RS, pids, notes)
+    judge = _Reader(pid_of={str(n["did"]): str(n["pid"]) for n in notes})
+    conf: dict[str, Any] = {"study_id": lake.rs.id, "run_date": INDEX, "index_mode": "single",
+                            "population": sorted(lake.s1), "semantics": "v1", "snapshot": None, "lexicon": LEXICON,
+                            "absence_semantics": False, "sample_per_stratum": None}  # fmt: skip
+    res = run_cascade(lake, lake.rs, CascadeConfig(**conf), judge=judge, embedder=embedder, s2b_source=source)
+    return res, judge
+
+
+@pytest.mark.parametrize("flag", ["off", "on"])
+def test_regression_a_ranking_that_cuts_the_decisive_note_never_excludes(flag: str) -> None:
+    """The review's reproduction: two window notes, five filler sentences and one decisive sentence. The on-the-fly
+    ranking puts the decisive sentence first and shows both notes (strong); a stored ranking that puts the fillers
+    first used to show only the filler note, and the confident "not met" became a hard exclusion at S3. Now the
+    unshown note counts as left out: "needs information", never "not matched"."""
+    notes = [_note("T-1", FILLER, offset=-10, did="a"), _note("T-1", DECISIVE, offset=-11, did="b")]
+    source = _Ranked("fillers") if flag == "on" else None
+    res, judge = _toe_run(notes, ["T-1"], _Toe(first=True), source)
+    t = res.traces["T-1"]
+    o = t.outcomes["N-INC-01"]
+    if flag == "off":
+        assert (t.tier, o.status) == ("strong", "pass") and judge.shown["T-1"] == {"a", "b"}
+    else:
+        assert judge.shown["T-1"] == {"a"} and t.s2b_source is not None and t.s2b_source["vec_pairs"] == 2
+        assert t.exit_stage is None and t.tier != "excluded" and not o.hard
+        assert (o.status, o.unknown_kind) == ("unknown", "uncertain") and o.reason.startswith("not judged: 1 ")
+    # the same cut on the on-the-fly path (master's defect): the decisive sentence ranked last, never shown
+    cut, judge2 = _toe_run([_note("T-2", FILLER + "\nAnother routine line.", offset=-10, did="a2"),
+                            _note("T-2", DECISIVE, offset=-11, did="b2")], ["T-2"], _Toe(first=False), None)  # fmt: skip
+    t2 = cut.traces["T-2"]
+    assert judge2.shown["T-2"] == {"a2"} and t2.exit_stage is None and t2.tier != "excluded"
+    assert t2.outcomes["N-INC-01"].status == "unknown"
+
+
+TOE_PATIENTS: dict[str, list[tuple[str, int]]] = {  # pid -> (text, offset) of its window notes
+    "U-1": [(FILLER, -10), (DECISIVE, -11)],  # decisive in the second note
+    "U-2": [(DECISIVE, -10), (FILLER, -11)],  # decisive in the first note
+    "U-3": [(FILLER, -10), ("One more routine line.\nNothing else.", -12), (DECISIVE, -13)],  # three notes
+    "U-4": [(FILLER, -10), ("One more routine line.", -11)],  # no decisive sentence anywhere: may be excluded
+    "U-5": [(FILLER + "\n" + DECISIVE, -10)],  # one note
+}
+
+
+@pytest.mark.parametrize(
+    ("embedder", "source"),
+    [
+        pytest.param(_Toe(first=True), None, id="on-the-fly decisive first"),
+        pytest.param(_Toe(first=False), None, id="on-the-fly decisive last"),
+        *[
+            pytest.param(_Toe(first=True), _Ranked(k), id=f"stored {k}")
+            for k in ("decisive", "fillers", "fallback", "error", "mixed")
+        ],
+        pytest.param(_Toe(first=False), _Ranked("mixed"), id="stored mixed over on-the-fly last"),
+    ],
+)
+def test_no_ranking_excludes_a_patient_for_what_it_left_out(embedder: Any, source: Any) -> None:
+    """For any S2b ranking, on the fly or stored (including fallbacks, errors and a mix inside one patient's run): a
+    patient the full-record judge would not exclude is never excluded, and a patient is excluded only when the judge
+    was shown every window note."""
+    notes = [_note(pid, text, offset=off, did=f"{pid}-{i}") for pid, ns in TOE_PATIENTS.items()
+             for i, (text, off) in enumerate(ns)]  # fmt: skip
+    res, judge = _toe_run(notes, sorted(TOE_PATIENTS), embedder, source)
+    for pid, ns in TOE_PATIENTS.items():
+        t = res.traces[pid]
+        full_record_met = any("swollen" in text for text, _ in ns)
+        if full_record_met:
+            assert t.exit_stage is None and t.tier != "excluded", (pid, t.outcomes)
+        if t.tier == "excluded":
+            assert judge.shown[pid] == {f"{pid}-{i}" for i in range(len(ns))}, pid
+        assert not any(o.hard for o in t.outcomes.values()) or not full_record_met, pid
+    if isinstance(source, _Ranked) and source.kind == "mixed":
+        recs = [t.s2b_source for t in res.traces.values() if t.s2b_source]
+        assert any(r["vec_pairs"] and r["fallback_pairs"] for r in recs)  # a mixed patient-run is recorded as such

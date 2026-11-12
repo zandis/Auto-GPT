@@ -56,6 +56,7 @@ from orchestrator.scenarios.screen import (
     persist_pool,
     practitioner_names,
     practitioners_of,
+    publish_s2b_source,
     report_meta,
     run_screen,
     small_cell,
@@ -299,6 +300,7 @@ def run(ctx: Ctx) -> Outcome:
             record = {"ruleset": rs.id, "run_date": run_date.isoformat(), "pids": sorted(earlier | set(screened))}
             body = json.dumps(record, ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
             ctx.publish(f"{NEW_DOC}{rs.id}_v{rs.version}.json", body, "phi", [])  # the console and the next run only
+            publish_s2b_source(ctx, srun)  # T-203b (D-449): only when the flag vec.s2b was on
     ctx.metrics(patients_scoped=used + len(screened))
     over = len(due) - len(recheck)
     ctx.orch.audit.append(

@@ -423,7 +423,11 @@ ADDED: dict[str, tuple[str, ...]] = {
     # T-108c (D-401): mail version 3, the send keys as the outbox and the job type on each intake row
     "mail": ("dc540a482b5619e6226318becb615e79a639ab2be3c2d47154b43029886f8579",),
     # D-399 (T-302a): team version 2, the approved consent-form versions as history rows
-    "team": ("ad5cea87a2f6b2b0210c392f8c698a0c72253a93cbbb6ec74915bf0cefbd076f",),
+    # T-303 (D-436): team version 3, the monitoring-visit records
+    "team": (
+        "ad5cea87a2f6b2b0210c392f8c698a0c72253a93cbbb6ec74915bf0cefbd076f",
+        "e3f9d90d7bb93b34988eed53250d15178b95f8b39de74d715c67a7bae376574f",
+    ),
     # D-280: the break-glass grants, new after the baseline
     # T-309 (D-430): version 2, each use of a grant (the steward's review list)
     "breakglass": (
@@ -432,6 +436,8 @@ ADDED: dict[str, tuple[str, ...]] = {
     ),
     # T-112a (D-427): the data-operations batches, new after the baseline
     "dataops": ("01925afb0e82837617a880fa2d2b32f7efaa6d5e98945e7144f57510d76efbcf",),
+    # T-103 (D-438): orch version 2, the orchestrator's identifier caps as use rows (``id_limits``)
+    "orch": ("444cff97a092dda26501bfa81db70438eae3dda40e545bb86721748c241eba11",),
     # T-310a (D-446): the weekly PI sample of criteria not matched and the site's check, new after the baseline
     "tuned": ("e8565a9e2288df90d120272ab2956fafe4595465ecd7c58c2e2debb35ee934a1",),
     # T-203a (D-439): the vector store, new after the baseline (needs pgvector: the db image)

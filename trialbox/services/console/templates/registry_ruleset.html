@@ -29,7 +29,9 @@
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <button type="submit" class="secondary" {{ 'disabled' if not user.can_request else '' }} data-testid="registry-promote">{{ t('registry.promote.submit') }}</button>
 </form>
-{% if user.can_request %}<p class="mt"><a href="/pilot/registry/{{ ruleset }}/export.xlsx" data-testid="registry-export">{{ t('registry.export') }}</a> <span class="hint">{{ t('registry.export.help') }}</span></p>{% endif %}
+{% if user.can_request %}<form class="mt" method="get" action="/pilot/registry/{{ ruleset }}/export.xlsx" data-testid="registry-export-form"><label for="export-reason">{{ t('reveal.reason') }}</label><select id="export-reason" name="reason" required data-testid="export-reason"><option value="">{{ t('mark.reason.choose') }}</option>{% for k in ['contact', 'eligibility', 'consent', 'other'] %}<option value="{{ k }}">{{ t('reveal.reason.' ~ k) }}</option>{% endfor %}</select>
+<label for="export-note">{{ t('reveal.note') }}</label><input id="export-note" name="note" maxlength="200" data-testid="export-note">
+<button type="submit" class="secondary" data-testid="registry-export">{{ t('registry.export') }}</button> <span class="hint">{{ t('registry.export.help') }}</span></form>{% endif %}
 </section>
 </div>
 
