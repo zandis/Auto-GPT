@@ -106,7 +106,7 @@ def test_cgroup_is_refused_where_there_is_none(monkeypatch: pytest.MonkeyPatch) 
 
 # ------------------------------------------------------------------------------------------------ the stand-in
 def test_the_stand_in_is_slow_fails_for_a_while_and_restarts(tmp_path: Path) -> None:
-    m = scale.SlowModel(tmp_path, latency_s=0.3, outage_after=2, outage_s=1.5)
+    m = scale.SlowModel(tmp_path, latency_s=0.3, outage_after=2, outage_s=1.5, restart_gap_s=0.2)
     m.start()
     try:
         body = {"model": "stub", "messages": [{"role": "user", "content": "x"}]}
@@ -267,3 +267,62 @@ def test_the_nightly_job_runs_the_gate_at_50000_under_a_cgroup() -> None:
 def test_the_lint_runs_on_every_pull_request() -> None:
     wf = (ROOT.parent / ".github/workflows/trialbox-ci.yml").read_text(encoding="utf-8")
     assert "python -m tools.limits_lint" in wf
+
+
+# ------------------------------------------------------------------------------------------------ the edges of the parts
+def test_compose_setting_reads_a_list_environment(tmp_path: Path) -> None:
+    f = tmp_path / "c.yml"
+    f.write_text('services:\n  a:\n    environment: [X=1, Y, "Z=${V:-2}"]\n', encoding="utf-8")
+    assert scale.compose_setting("a", "X", f) == "1"
+    assert scale.compose_setting("a", "Y", f) is None and scale.compose_setting("a", "Z", f) is None
+
+
+def test_the_cgroup_prefix_and_its_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(scale.os, "geteuid", lambda: 1000)
+    pre = scale._cgroup_prefix(2**30)
+    assert pre[:3] == ["sudo", "-n", "-E"] and "--uid=" + str(scale.os.getuid()) in pre  # the runner keeps its user
+    monkeypatch.setattr(scale.shutil, "which", lambda name: None)
+    assert scale.cgroup_available() is False  # no systemd-run
+    monkeypatch.setattr(scale.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(Path, "exists", lambda self: True)
+
+    class Done:
+        def __init__(self, rc: int) -> None:
+            self.returncode = rc
+
+    for answer, want in ((Done(0), True), (Done(1), False), (OSError("no sudo"), False)):
+
+        def run(*a: Any, answer: Any = answer, **k: Any) -> Any:
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+        monkeypatch.setattr(scale.subprocess, "run", run)
+        assert scale.cgroup_available() is want
+
+
+def test_a_service_that_ignores_the_stop_is_killed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(scale, "STOP_GRACE_S", 0.5)
+    code = (
+        "import signal, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\nprint('up', flush=True)\ntime.sleep(60)\n"
+    )
+    enf = scale.Enforcer("measure")
+    t0 = time.monotonic()
+    with enf.start("stubborn", "lake", 2**30, [sys.executable, "-c", code], {}, tmp_path, tmp_path / "s.log") as (
+        proc,
+        run,
+    ):
+        end = time.monotonic() + 10
+        while "up" not in (tmp_path / "s.log").read_text() and time.monotonic() < end:
+            time.sleep(0.05)
+    assert proc.returncode == -9 and run.rc == 0 and time.monotonic() - t0 < 10
+    assert scale._tail(tmp_path / "missing.log") == ""
+
+
+def test_a_stand_in_that_never_answers_is_an_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert scale.wait_http(f"http://127.0.0.1:{scale.free_port()}/v1/models", 0.3) is False
+    monkeypatch.setattr(scale, "wait_http", lambda *a, **k: False)
+    m = scale.SlowModel(tmp_path)
+    with pytest.raises(RuntimeError, match="did not start"):
+        m.start()
+    m.stop()

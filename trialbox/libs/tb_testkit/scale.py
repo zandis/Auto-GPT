@@ -46,6 +46,7 @@ ROOT = Path(__file__).resolve().parents[2]
 COMPOSE = ROOT / "deploy" / "docker-compose.yml"
 _SIZE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([kmgt]?)i?b?\s*$", re.IGNORECASE)
 _VAR = re.compile(r"^\$\{(\w+)(?::?-([^}]*))?\}$")
+STOP_GRACE_S = 30.0  # as `docker compose stop`'s default grace before SIGKILL (10 s) and then some
 _CHAT = re.compile(r"\"path\": \"/v1/chat/completions\", \"status\": (\d+)")
 _UNIT = {"": 1, "k": 2**10, "m": 2**20, "g": 2**30, "t": 2**40}
 
@@ -254,7 +255,7 @@ class Enforcer:
                 with contextlib.suppress(OSError):
                     os.killpg(proc.pid, signal.SIGTERM)
                 try:
-                    proc.wait(timeout=30)
+                    proc.wait(timeout=STOP_GRACE_S)
                 except subprocess.TimeoutExpired:
                     with contextlib.suppress(OSError):
                         os.killpg(proc.pid, signal.SIGKILL)
