@@ -209,18 +209,36 @@ class PidMap:
         replaced (a changed key or rule is refused, not recorded). A row from before D-595 has no rule: it gets
         the rule in force, and only when the key and rule in hand check out against the stored pseudonyms."""
         now = datetime.now(UTC).isoformat(timespec="seconds")
-        rule = str(chartno.site_rule())
+        try:
+            rule = str(chartno.site_rule())
+        except chartno.ChartNoError:
+            return  # a rule nobody can read is never recorded; :meth:`site_key_problem` says why the night stops
         with self._db.transaction() as tx:
             tx.execute(
                 "INSERT INTO site_key (site_id, fingerprint, recorded_at, chartno_rule) VALUES (?,?,?,?)"
                 " ON CONFLICT (site_id) DO NOTHING",
                 (site_id, key_fingerprint(site_key), now, rule),
             )
-        if self.stored_chartno_rule(site_id) is None and self.site_key_problem(site_id, site_key) is None:
+        if (
+            self.stored_chartno_rule(site_id) is None
+            and self.site_key_problem(site_id, site_key) is None
+            and self._every_pseudonym_holds(site_key)
+        ):
             with self._db.transaction() as tx:
                 tx.execute(
                     "UPDATE site_key SET chartno_rule = ? WHERE site_id = ? AND chartno_rule IS NULL", (rule, site_id)
                 )
+
+    def _every_pseudonym_holds(self, site_key: bytes) -> bool:
+        """Whether the key and the chart-number rule in force give back EVERY pseudonym this map holds, the staged
+        nights' too. Read once, when a row from before D-595 adopts its rule: the five-row probe of
+        :meth:`site_key_problem` cannot see the one patient whose leading zeros the new rule would drop."""
+        for table in ("pid_map", "pending"):
+            for pid, blob in self._db.fetchall(f"SELECT pid, mrn FROM {table} WHERE key_id = ?", (self.key_id,)):
+                mrn = aes_decrypt(self.key, bytes(blob), str(pid).encode()).decode()
+                if pid_for_mrn(site_key, mrn) != pid:
+                    return False
+        return True
 
     def stored_chartno_rule(self, site_id: str) -> str | None:
         """The chart-number rule recorded for ``site_id`` (its canonical text), or None when none is recorded."""
