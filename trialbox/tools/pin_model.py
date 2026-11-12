@@ -310,6 +310,57 @@ def set_served(build_id: str, endpoint: str, served_name: str, out: Path = DEFAU
     _write_override(out, doc)
 
 
+# LLM-007 (D-568): the variable that holds the length a profile's server is started with (compose passes it to
+# --max-model-len), by the endpoint the build is served on
+CONTEXT_VARS = {"serving": "JUDGE_MAX_LEN", "verifier": "VERIFIER_MAX_LEN"}
+CONTEXT_UNMEASURED = ("", "unmeasured")  # deploy/platform/overlays/*/serving.env before the partition is measured
+
+
+def set_context(build_id: str, context: int, out: Path = DEFAULT_OVERRIDE, registry_path: Path | None = None) -> None:
+    """Write ``context_length`` into the pin of a build already pinned in ``out`` (a registry row that names none)."""
+    from registry.registry import Registry, apply_override
+
+    committed, _ = _committed(registry_path)
+    doc = load_override(out)
+    entry = doc["builds"].get(build_id)
+    if not entry:
+        raise PinError(f"{build_id} is not pinned in {out}")
+    if isinstance(context, bool) or not isinstance(context, int) or context <= 0:
+        raise PinError(f"{build_id}: a context is a whole number above zero, not {context!r}")
+    entry["context_length"] = context
+    Registry(apply_override(committed, doc))  # validates the merged registry; raises before writing
+    _write_override(out, doc)
+
+
+def install_context(
+    build_id: str, endpoint: str, row: dict[str, Any], out: Path, env: dict[str, str], registry_path: Path | None
+) -> tuple[bool, str]:
+    """The context of a pinned build whose registry row names none, from the profile's variable (LLM-007): (ok, a
+    note for the build's line). A row that names its context needs nothing. A length in the variable is written, and
+    replaces another one in the pin (the partition was measured again); the note says both."""
+    if row.get("context_length"):
+        return True, ""
+    have = (load_override(out)["builds"].get(build_id) or {}).get("context_length")
+    var = CONTEXT_VARS.get(endpoint, "")
+    raw = (env.get(var) or "").strip()
+    if raw.isascii() and raw.isdigit() and int(raw) > 0:
+        if have == int(raw):
+            return True, ""
+        set_context(build_id, int(raw), out, registry_path)
+        return True, f"; context {int(raw)} ({var}" + (f"; was {have})" if have else ")")
+    # not measured yet (unset, or the platform's placeholder): said, and the pair's result stays; a value that is
+    # set and is not a length is a mistake where the variable is set: not ok
+    unmeasured = raw in CONTEXT_UNMEASURED
+    if have:
+        return unmeasured, "" if unmeasured else f"; {var} is {raw!r}, not a length: the pin keeps context {have}"
+    return unmeasured, (
+        f"; no context: the registry names none for this build and {var or 'its length'} is {raw!r} (the length the "
+        "server runs with, a whole number): the weights are pinned, but the model routes nothing in PRODUCTION "
+        "until it is set in the environment of pin_model --install (the platform: serving.env, then the pin job "
+        f"again), or by hand: pin_model --build {build_id} --model-dir <folder> --context N"
+    )
+
+
 def add_template(build_id: str, path: Path, out: Path = DEFAULT_OVERRIDE, registry_path: Path | None = None) -> None:
     """Record the chat template in the pin of a build pinned without one (a box pinned before T-674)."""
     from registry.registry import Registry, apply_override
@@ -502,6 +553,8 @@ def install_pins(
                     if stale
                     else f"; chat template {tpl_path.name} added to the pin"
                 )
+            ctx_ok, ctx_note = install_context(build, endpoint, known.get(build) or {}, out, e, registry_path)
+            ok, note = ok and ctx_ok, note + ctx_note
             was = ((have.get(build) or {}).get("served") or {}).get(endpoint)
             if was != name:
                 set_served(build, endpoint, name, out)
@@ -535,9 +588,11 @@ def install_pins(
             if build == EMBED_BUILD
             else "champion after trialbox eval qualify and --promote"
         )
+        ctx_ok, ctx_note = install_context(build, endpoint, known.get(build) or {}, out, e, registry_path)
+        ok = ok and ctx_ok
         lines.append(
             f"{build}: pinned {m.sha256[:12]} ({m.files} files) as candidate on {endpoint}; "
-            f"{after}" + (f"; chat template {tpl['source']} at {tpl['revision']}" if tpl else "")
+            f"{after}" + (f"; chat template {tpl['source']} at {tpl['revision']}" if tpl else "") + ctx_note
         )
     return ok, lines
 
@@ -624,6 +679,13 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--build", help="build_id in models/registry.yaml")
     ap.add_argument("--model-dir", type=Path)
+    ap.add_argument(
+        "--context",
+        type=int,
+        metavar="N",
+        help="with --build: the length the model server runs with, for a build whose registry row names no "
+        "context_length (LLM-007)",
+    )
     ap.add_argument("--served-name", default="", help="name the endpoint reports (vLLM --served-model-name)")
     ap.add_argument("--endpoint", default="serving", help="routing.yaml endpoint that serves the build")
     ap.add_argument("--out", type=Path, default=DEFAULT_OVERRIDE, help="site override file")
@@ -700,6 +762,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if good else 1
     if not args.build or args.model_dir is None:
         ap.error("--build and --model-dir are required (or use --verify-all MODELS_ROOT)")
+    if args.context is not None and args.context <= 0:
+        print(f"pin_model: --context is a whole number above zero, not {args.context}", file=sys.stderr)
+        return 2
     try:
         if args.verify:
             good, msg = verify(args.build, args.model_dir, args.out)
@@ -720,6 +785,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"pin_model: {exc}", file=sys.stderr)
         return 2
     print(f"pinned {args.build}: sha256 {m.sha256} ({m.files} files, {m.bytes} bytes) -> {path}")
+    if args.context is not None:
+        try:
+            set_context(args.build, args.context, args.out)
+        except (PinError, ValueError) as exc:
+            print(f"pin_model: {exc}", file=sys.stderr)
+            return 2
+        print(f"{args.build}: context {args.context}")
     return 0
 
 

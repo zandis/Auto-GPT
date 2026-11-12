@@ -117,6 +117,7 @@ def test_champion_pin_resolves_in_production_and_other_pins_are_kept(tmp_path: P
     (other / "w.gguf").write_bytes(b"g")
     pin_model.pin("gpt-oss-120b-candidate", other, served_name="v-local", out=out, trust_first_use=True)
     promote_pins(out, [BUILD])  # as a passing qualification record would (tests/unit/test_champion_qualify.py)
+    pin_model.set_context(BUILD, 32768, out)  # LLM-007 (D-568): the row names none; the install writes the server's
     reg = Registry.load(DEFAULT_PATH, out)
     assert reg.resolve("j-workhorse", "serving", role="judge", env=Environment.PRODUCTION).build.build_id == BUILD
     assert reg.resolve("v-verifier", "serving", role="judge", env=Environment.TEST).served_name == "v-local"
