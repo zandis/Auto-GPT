@@ -140,6 +140,16 @@ def _study(request: Request) -> str | None:
     return str(request.path_params.get("rs") or "").strip().upper() or None
 
 
+def _named_study(request: Request) -> str | None:
+    """The study a `report` route's path names (``{rs}``, or ``{ruleset}`` on the registry's routes), upper-cased;
+    None when the path names none (a route of the whole box, or of a set-up workspace): there is nothing to hold
+    the claim's study against there."""
+    for name in ("rs", "ruleset"):
+        if name in request.path_params:
+            return str(request.path_params[name] or "").strip().upper()
+    return None
+
+
 def _count(request: Request, reason: str) -> None:
     """One more changing call of a `report` route without a verified person. The count is in ``UNSIGNED``; the
     first of each route and reason in this process is logged and written to the audit trail (``actor.unsigned``),
@@ -175,7 +185,8 @@ async def _report(request: Request) -> None:
             elif claim.body != actor_v3.body_hash(await request.body()):
                 reason = "body"
             else:  # the route's own action is not known in this stage: the claim's study, and its own right
-                reason = check(claim, claim.action, _study(request), True)
+                named = _named_study(request)
+                reason = check(claim, claim.action, claim.study if named is None else named, True)
             if not reason:
                 request.state.tb_actor = claim
         except ActorError as exc:
@@ -189,7 +200,8 @@ def person_of(request: Request, action: str, *, service: bool = False) -> str:
     verified person of this call when its claim is for ``action`` on the route's study and the matrix allows it,
     else ``UNVERIFIED``. Never the body's ``by``: a derived lifecycle record names a verified person or nobody."""
     claim = getattr(request.state, "tb_actor", None)
-    if claim is not None and not check(claim, action, _study(request), service):
+    named = _named_study(request)
+    if claim is not None and not check(claim, action, claim.study if named is None else named, service):
         return str(claim.sub)
     _count(request, "derived record: no verified person")
     return UNVERIFIED
