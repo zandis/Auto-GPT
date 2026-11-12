@@ -66,7 +66,7 @@ NEVER_LOGS = {"db": "PostgreSQL logs a failed statement with its values (OPS-035
               "llm-service": "vLLM may log prompts, which hold note text"}  # fmt: skip
 REFUSED_SUFFIXES = (".key", ".tbbak", ".dump", ".sql", ".sql.gz", ".parquet", ".duckdb", ".db", ".sqlite", ".age")
 REFUSED_NAMES = re.compile(r"^(?:\.env|secrets\.env|pidmap.*|.*\.token|id_[a-z0-9]+)$", re.I)
-SECRET_KEY = re.compile(r"PASSW(?:OR)?D|SECRET|TOKEN|KEY|CREDENTIAL|PRIVATE|DSN|AUTH|SALT|PEPPER|COOKIE|PIN", re.I)
+SECRET_KEY = re.compile(r"PASS|_PW|SECRET|TOKEN|KEY|CREDENTIAL|PRIVATE|DSN|AUTH|SALT|PEPPER|COOKIE|PIN", re.I)
 SAFE_KEY = re.compile(r"_(?:FILE|PATH|DIR|DAYS|HOURS|MODE|TARGETS)$", re.I)  # a path or a number, not a secret
 ASSIGN = re.compile(r"^(?P<lead>\s*-?\s*)(?P<key>[A-Za-z_][A-Za-z0-9_.\-]*)(?P<sep>\s*[:=]\s*)(?P<val>.*)$")
 USERINFO = re.compile(r"(?P<scheme>[A-Za-z][A-Za-z0-9+.\-]*://)[^/@\s:]+:[^/@\s]+@")
