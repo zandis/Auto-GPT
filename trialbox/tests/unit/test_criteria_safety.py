@@ -608,9 +608,7 @@ def test_the_adapter_keeps_an_undated_order(tmp_path: Path) -> None:
     """The ingest step no longer deletes an order with no date (it reported it as "dropped")."""
     import inspect
 
-    from adapter import ndjson
-
-    from adapter import pipeline
+    from adapter import ndjson, pipeline
 
     # run_ingest wraps _run_ingest (T-615b); since T-692 each resource passes _NightPass as it is written: it counts
     # an undated order and returns False only for a Patient merged into another (its chart number), never for an order

@@ -93,6 +93,15 @@ class Declared:
 
 #: every flag the box knows; an undeclared name is refused
 DECLARED: dict[str, Declared] = {
+    "derived.stored_read": Declared(
+        values=("off", "on"),
+        default="off",
+        seed_env=None,  # switched on by the administrator with a reason once a real run proved it (D-442)
+        help="Screening reads the stored derived rows (D-442): on, a decided answer on CDAI, SDAI, DAS28 or eGFR "
+        "stands only on the stored row of the snapshot's derive batch, on every path (SCREEN, MICROBATCH, NAV, CASE, "
+        "COHORT), else it is 'needs information'; off, no path reads the store. Off until the age rule, the pinned "
+        "reads and the missing-batch warnings are proven on a real run.",
+    ),
     "demo.mode": Declared(
         values=("off", "on"),
         default="off",

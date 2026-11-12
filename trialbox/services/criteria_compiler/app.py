@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from lake.client import LakeHttp
@@ -15,6 +14,7 @@ from tb_common.fhir import FhirEvaluator
 from tb_common.http import make_app
 from tb_common.llm import LlmClient
 from tb_common.objstore import from_config
+from tb_common.ruleset import SEED_RULESETS
 from tb_contracts import (
     ApproveRequest,
     ApproveResult,
@@ -32,7 +32,7 @@ from criteria_compiler.service import CompileFailed, Compiler, CompilerDeps
 from criteria_compiler.terminology import resolver
 
 _compiler: Compiler | None = None
-SEED = Path(__file__).resolve().parents[2] / "rulesets"
+SEED = SEED_RULESETS  # D-469: read-only; the working copy is cfg.env.rulesets_path
 
 
 def _egfr(tz: str, locale: str | None) -> str:

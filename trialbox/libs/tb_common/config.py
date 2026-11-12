@@ -153,7 +153,10 @@ class Env:
 
     @property
     def rulesets_path(self) -> Path:
-        return Path(self.rulesets_dir) if self.rulesets_dir else REPO_ROOT / "rulesets"
+        """D-469: the working copy of the rulesets, ``<TB_DATA_DIR>/rulesets`` unless ``TB_RULESETS_DIR`` names another
+        folder (the compose files and the platform manifests name ``/data/rulesets``, which is the same). Never the
+        checkout's ``rulesets/``: that folder is the read-only seed (``tb_common.ruleset.SEED_RULESETS``)."""
+        return Path(self.rulesets_dir) if self.rulesets_dir else Path(self.data_dir) / "rulesets"
 
 
 _ENV_MAP: dict[str, str] = {
@@ -370,12 +373,29 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_BACKUP_ALERT_CMD": Declared("str", "", "command run when the newest good backup is too old"),
     "TB_BACKUP_DIRS": Declared("str", "", "extra host folders put in a backup"),
+    "TB_BACKUP_JOB_WAIT_S": Declared(
+        "float",
+        "21600",
+        "backup waits this long for jobs, then goes on anyway: half of (36 h alert - 24 h cron), D-455",
+    ),
     "TB_BACKUP_KEEP": Declared("int", "14", "backups kept per target"),
+    "TB_BACKUP_KEEP_SHARE": Declared(
+        "float", "0.5", "part of a target's capacity this box's backups may fill; the rest is for others (D-455)"
+    ),
     "TB_BACKUP_MAILTO": Declared("str", "", "address told when the backup is too old"),
     "TB_BACKUP_MAX_AGE_HOURS": Declared("float", "", "age after which backup-status alerts"),
+    "TB_BACKUP_MIN_MBPS": Declared(
+        "float", "5", "slowest MB/s a backup step may run before it counts as hung: a tenth of a box disk (D-455)"
+    ),
     "TB_BACKUP_OFFBOX": Declared("str", "", "the off-box backup target"),
     "TB_BACKUP_PUBKEY": Declared("str", "deploy/secrets/backup.pub", "public key backups are encrypted to"),
-    "TB_BACKUP_QUIESCE": Declared("str", "pause", "how services are quiesced for a backup (pause or none)"),
+    "TB_BACKUP_QUERY_TIMEOUT_S": Declared(
+        "float", "60", "limit of the backup's small queries (sizes, job count); not work sized by data (D-455)"
+    ),
+    "TB_BACKUP_QUIESCE": Declared("str", "off", "off: the snapshot alone; pause: hold services still (D-455)"),
+    "TB_BACKUP_STEP_START_S": Declared(
+        "float", "900", "seconds of a backup step that do not grow with the data (container, connection; D-455)"
+    ),
     "TB_BACKUP_TARGETS": Declared("str", "", "backup-nightly target folders"),
     "TB_BAKEOFF_API_KEY": Declared("str", "", "judge bake-off tool: API key of a cloud endpoint (tool only)"),
     "TB_BENCH_EMBED_CMD": Declared("str", "", "complete-run tool: the embedding benchmark command"),
@@ -479,6 +499,7 @@ DECLARED: dict[str, Declared] = {
     "TB_FHIR_PACKAGE_HOME": Declared("str", "/opt/hl7/home", "FHIR validator package folder"),
     "TB_FHIR_URL": Declared("str", "", "testbench: FHIR store URL"),
     "TB_FHIR_WORKERS": Declared("int", "8", "compiler: parallel FHIR evaluations"),
+    "TB_FIRSTRUN_DIR": Declared("path", "", "console: the box's first-run folder (tmpfs; T-729, D-466)"),
     "TB_FONTS_DIR": Declared("path", "", "report fonts folder"),
     "TB_GATEWAY_BREAKER_FAILURES": Declared("int", "5", "gateway: failures in a row that open an endpoint's breaker"),
     "TB_GATEWAY_BREAKER_OPEN_S": Declared("float", "30", "gateway: seconds a breaker stays open before one try"),
@@ -526,6 +547,10 @@ DECLARED: dict[str, Declared] = {
         "str", "auto", "console: candidate view held until the IRB text is recorded (auto, on, off; D-395)"
     ),
     "TB_JAVA": Declared("str", "java", "java command"),
+    "TB_JOB_LOST_SECONDS": Declared(
+        "float", "900", "a polled job is lost when its service is silent this long (> a restart; D-472)"
+    ),
+    "TB_JOB_POLL_SECONDS": Declared("float", "5", "longest pause between reads of a polled job's state (D-472)"),
     "TB_JP_INGREDIENT_ATC": Declared("str", "", "compiler: Japanese ingredient to ATC map"),
     "TB_JVM_IMAGE": Declared("str", "", "platform: JVM image"),
     "TB_KEK_FILE": Declared("path", "", "the key-encryption key file"),
@@ -602,6 +627,14 @@ DECLARED: dict[str, Declared] = {
     "TB_OMOP_CONCEPT_BLOCK": Declared("int", "", "OMOP: concept id block"),
     "TB_OMOP_DB_URL": Declared("str", "", "OMOP database URL (unset: TB_DB_URL)"),
     "TB_OMOP_DUAL_WRITE": Declared("bool", "", "OMOP dual write on"),
+    "TB_OPPORTUNITY_APPROVED_FILE": Declared("path", "", "opportunity feed: steward's approved study list (D-467)"),
+    "TB_OPPORTUNITY_PERIOD_DAYS": Declared(
+        "int", "30", "opportunity feed: publication period, at least 28 days, so a day's change is not exposed"
+    ),
+    "TB_OPPORTUNITY_PER_CONDITION": Declared(
+        "int", "20", "opportunity feed: studies per condition per feed; bounds what one feed can probe"
+    ),
+    "TB_OPPORTUNITY_SECRET_FILE": Declared("path", "", "opportunity feed: site secret seeding the band (secret)"),
     "TB_OPS_DEPLOY": Declared("str", "", "ops: deploy folder the console sees"),
     "TB_OPS_DIR": Declared("path", "/data/ops", "ops: request and status folder"),
     "TB_OPS_RUNNER": Declared("str", "host", "ops: who runs requests (host or local)"),
@@ -710,6 +743,7 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_SKIP_AUDIT": Declared("bool", "", "update: skip the audit check (drills)"),
     "TB_SOURCE_DIR": Declared("path", "./site/feed", "compose: host folder of the site feed (settings wizard, T-632)"),
+    "TB_SOURCE_DSN": Declared("str", "", "adapter: the read connection of a database source (secret; T-729, T-731)"),
     "TB_SOURCE_MOUNT": Declared("path", "/data/source/site", "compose: where the site feed is mounted (T-632)"),
     "TB_SOURCE_PATH": Declared("path", "", "adapter: source records path"),
     "TB_SPONSOR_WEEKLY_MAX_BYTES": Declared("int", "2000000", "largest sponsor weekly sheet read (D-435)"),

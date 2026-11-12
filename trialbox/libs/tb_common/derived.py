@@ -34,7 +34,8 @@ entered-in-error or preliminary feed row is not filtered there until the lake ca
 
 Impossible values. A value outside :data:`DOMAIN` after conversion (a negative CRP or ESR, a joint count outside
 0-28, a creatinine of 0 or less, a value that is not a finite number) gives no value and ``derived_unit:<component>``,
-like a global outside its 0-10 scale; an age of 0 or less gives ``derived_missing_input:age``. No input makes
+like a global outside its 0-10 scale; an age of 0 or less gives ``derived_missing_input:age``; an age under 18 gives
+no eGFR and ``derived_adult_only:age`` (D-442: both equations are for adults). No input makes
 :func:`compute` raise. The SQL and CQL engines apply :data:`DOMAIN` to every converted input the same way (D-275).
 
 Units (dataflow review P0-5, D-149). Every component value is converted to the unit the formula expects with the
@@ -193,6 +194,15 @@ DOMAIN: dict[str, tuple[float, float, bool]] = {
 
 MISSING = "derived_missing_input"
 UNIT = "derived_unit"
+# D-442: the eGFR equations are for adults. A patient under :data:`EGFR_MIN_AGE` gets no value and this reason, in
+# every engine (catalogue egfr_ckd_epi_2021.yaml and egfr_jsn_2009.yaml: "age < 18: do not compute")
+ADULT_ONLY = "derived_adult_only"
+EGFR_MIN_AGE = 18
+# D-442, the stored-row read (flag ``derived.stored_read``): a decided score answer the stored rows do not support
+NOT_STORED = "derived_not_stored"
+VS_DOCUMENTED = "derived_vs_documented"
+# every reason prefix a derived score gives (the first in a criterion's evidence is its reason)
+PREFIXES = (UNIT, ADULT_ONLY, MISSING, NOT_STORED, VS_DOCUMENTED)
 
 
 def norm_unit(unit: str | None) -> str:
@@ -263,8 +273,8 @@ def reason_of(items: Iterable[str]) -> tuple[str | None, list[str]]:
     code: str | None = None
     rest: list[str] = []
     for x in items:
-        if x.startswith((MISSING, UNIT)):
-            code = code or (UNIT if x.startswith(UNIT) else MISSING)
+        if x.startswith(PREFIXES):
+            code = code or next(p for p in PREFIXES if x.startswith(p))
         else:
             rest.append(x)
     return code, rest
@@ -410,6 +420,8 @@ def compute(
     if score.startswith("egfr"):
         if age is None or age <= 0:  # JSN raises the age to a negative power: 0 or less is no usable age
             return Derived(None, f"{MISSING}:age", picked)
+        if age < EGFR_MIN_AGE:  # D-442: an adult equation; a child's eGFR is not computed (no paediatric equation)
+            return Derived(None, f"{ADULT_ONLY}:age", picked)
         if female is None:
             return Derived(None, f"{MISSING}:sex", picked)
         fn = egfr_jsn if score == "egfr_jsn" else egfr

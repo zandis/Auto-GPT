@@ -52,7 +52,7 @@ from tb_common.service_auth import bind_session
 from tb_common.ulid import new_ulid
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
-from console import api_first, demo_guard, feedback, i18n_roles
+from console import api_first, demo_guard, feedback, firstrun, i18n_roles
 from console.admin_accounts import end_date
 from console.auth import (
     AFFILIATIONS,
@@ -890,6 +890,19 @@ def create_app(
         ),
     )
 
+    fr_dir = (_env_map(env).get("TB_FIRSTRUN_DIR") or "").strip()
+    firstrun.register(  # T-729 (D-466): the box's first-run wizard, before any account exists
+        app,
+        firstrun.FirstRunHooks(
+            users=us,
+            audit=au,
+            page=page,
+            seal=ident.box.seal,
+            secure=settings.secure_cookie,
+            folder=Path(fr_dir) if fr_dir else None,
+        ),
+    )
+
     @app.post("/lang")
     def set_lang(request: Request, lang: str = Form("en"), csrf: str = Form(""), back: str = Form("/")) -> Response:
         sess = need(request)
@@ -921,11 +934,11 @@ def create_app(
     def ingest(request: Request, csrf: str = Form("")) -> Response:
         sess = need_admin(request, csrf)
         au.append("console.operate", actor=actor(sess), detail={"action": "ingest"})
-        report = bk.ingest()
+        started = bk.ingest()  # T-690 (D-472): started, not waited for; the night's end is the adapter's audit line
         au.append(
             "console.operate",
             actor=actor(sess),
-            detail={"action": "ingest.done", "reason": "passed" if report.get("passed") else "not passed"},
+            detail={"action": "ingest.started", "run": str(started.get("run") or "")},
         )
         return RedirectResponse("/?notice=ingested", status_code=303)
 

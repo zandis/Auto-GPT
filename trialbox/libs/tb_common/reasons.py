@@ -38,6 +38,12 @@ class Reason(StrEnum):
     CHECK_DATES = "check_dates"  # deceased or not yet born at the screening date by the records (D-142)
     DERIVED_MISSING_INPUT = "derived_missing_input"  # a score lacks an input at the visit (D-149)
     DERIVED_UNIT = "derived_unit"  # a score's input has a unit the formula cannot use (D-149)
+    DERIVED_ADULT_ONLY = "derived_adult_only"  # an adult equation (eGFR) and a patient under 18 (D-442)
+    # screening reads the stored derived row (D-442): none for this snapshot, another definition version, or a row
+    # that does not match the visit the engine used
+    DERIVED_NOT_STORED = "derived_not_stored"
+    # the stored score differs from a documented one and no person has chosen yet (D-190, D-442)
+    DERIVED_VS_DOCUMENTED = "derived_vs_documented"
     # a lab row's unit cannot be used: not the lookup's at ingest (R-31, D-215), or not the criterion's and no tested
     # conversion (D-275): no value, unknown
     UNIT_MISMATCH = "unit_mismatch"
@@ -71,6 +77,9 @@ _RULES: tuple[tuple[tuple[str, ...], Reason], ...] = (
     (("unknown code system", "unknown_code_system"), Reason.UNKNOWN_CODE_SYSTEM),
     (("proposed_fact", "proposed fact"), Reason.PROPOSED_FACT),
     (("derived_unit",), Reason.DERIVED_UNIT),
+    (("derived_adult_only",), Reason.DERIVED_ADULT_ONLY),
+    (("derived_not_stored",), Reason.DERIVED_NOT_STORED),
+    (("derived_vs_documented",), Reason.DERIVED_VS_DOCUMENTED),
     (("order_dates_missing",), Reason.ORDER_DATES_MISSING),
     (("rules_changed",), Reason.RULES_CHANGED),
     (("derived_missing_input",), Reason.DERIVED_MISSING_INPUT),
@@ -166,6 +175,21 @@ LABELS: dict[str, dict[str, str]] = {
         "en": "the score cannot be computed: an input has a unit that cannot be used, please check",
         "ja": "スコアを計算できない：入力値の単位が使用できないため確認してください",
         "zh-TW": "無法計算分數：輸入值的單位無法使用，請確認",
+    },
+    "derived_adult_only": {
+        "en": "the score is not computed: its equation is for adults (18 and over)",
+        "ja": "スコアを計算しない：この式は成人（18歳以上）用",
+        "zh-TW": "不計算分數：此公式僅適用於成人（18歲以上）",
+    },
+    "derived_not_stored": {
+        "en": "the stored score for this date is missing or out of date: please check",
+        "ja": "この日付の保存済みスコアがない、または古い：確認してください",
+        "zh-TW": "此日期的已儲存分數不存在或已過時：請確認",
+    },
+    "derived_vs_documented": {
+        "en": "the computed score and the score written in the record differ: please check",
+        "ja": "計算したスコアと記録に書かれたスコアが異なる：確認してください",
+        "zh-TW": "計算出的分數與紀錄中記載的分數不同：請確認",
     },
     "unit_mismatch": {
         "en": "a result's unit does not fit the test or the criterion: not used, please check",

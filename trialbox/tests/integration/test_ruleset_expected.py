@@ -8,12 +8,14 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 import pytest
 from lake.store import Lake
 from tb_common.crypto import pid_for_mrn
+from tb_common.derived import EGFR_MIN_AGE, age_at
 from tb_common.ruleset import Ruleset
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -92,18 +94,29 @@ def test_gzqo_planted_state_oracle(ingested: dict[str, Any], synth_dir: Path) ->
         "bariatric": {"crit": "GZQO-EXC-05", "yes": True, "no": False},
         "urate": {"crit": "GZQO-INC-04", "good": True, "missing": None, "stale": None},
     }
-    checked = 0
+    # D-442: no eGFR under 18 (an adult equation): a minor's planted creatinine state gives no answer, unknown
+    births = {
+        r["pid"]: r["birth_date"]
+        for r in Lake(ingested["lake_dir"]).query("SELECT pid, birth_date FROM patient", []).to_pylist()
+    }
+    index = date(2026, 10, 5)
+    checked = minors = 0
     for mrn, st in states.items():
         if st.get("archetype") != "gout":
             continue
-        row = got.get(pid_for_mrn(ingested["key"], mrn))
+        pid = pid_for_mrn(ingested["key"], mrn)
+        row = got.get(pid)
         if row is None:  # minors etc. are still in scope; deceased excluded
             continue
+        birth = births.get(pid)
+        minor = birth is not None and age_at(birth, index) < EGFR_MIN_AGE
         for attr, rule in rules.items():
             if attr in st and st[attr] in rule:
-                assert row[rule["crit"]] == rule[st[attr]], (mrn, attr, st[attr], row[rule["crit"]])
+                want = None if attr == "creatinine" and minor else rule[st[attr]]
+                minors += int(attr == "creatinine" and minor and st[attr] != "missing")
+                assert row[rule["crit"]] == want, (mrn, attr, st[attr], row[rule["crit"]])
                 checked += 1
-    assert checked > 1000
+    assert checked > 1000 and minors > 0
 
 
 def test_ra_bio_planted_state_oracle(ingested: dict[str, Any], synth_dir: Path) -> None:

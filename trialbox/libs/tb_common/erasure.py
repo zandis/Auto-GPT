@@ -259,6 +259,10 @@ TABLES: dict[str, Entry] = {
     "derived.score_row": _owed("a derived score of a pseudonym"),
     "derived.conflict": _owed("a documented-versus-derived conflict of a pseudonym"),
     "derived.input_link": _owed("the source rows each derived score was computed from"),
+    "derived.batch_run": _owed(
+        "one row per nightly derive batch; failed_pids lists the pseudonyms whose recompute failed",
+        "the pseudonym in failed_pids",
+    ),
     "derived.definition": _none("score definitions"),
     **_each("dataops", ("batch", "batch_step"), _none("ingest batches and their steps: counts")),
     "tuned.tuned_patients": _owed("the weekly PI sample of patients not matched, by pseudonym"),
@@ -369,7 +373,7 @@ LAKE: dict[str, Entry] = {
     "lake:CURRENT.tmp": _none("the served snapshot's name while it is replaced"),
     "lake:FEED": _none("the date of the last feed snapshot"),
     "lake:.rebuild.lock": _none("the lock one lake rebuild holds (T-722), no patient"),
-    "lake:locks": _none("lock files of the lake's readers and writers (T-722), no patient"),
+    "lake:locks": _none("lock files of the lake's readers and writers (T-722), rebuild job states (T-690)"),
 }
 
 # ------------------------------------------------------------------------------------------------ object store

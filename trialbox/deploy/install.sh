@@ -42,6 +42,10 @@
 # configuration (tools/pin_model.py --name-judge). The install ends with exit 1 when a FAIL line remains.
 # In GPU mode step 3 also makes the key of the on-box model servers (TB_LLM_API_KEY, D-177) and step 4 checks that
 # they serve the pinned names and require that key (trialbox doctor --serving): a mismatch stops the install.
+# The box form (T-729, D-466): deploy/box-install.sh runs this script with TB_BOX=1 and an answers file it planned from
+# the detected hardware: deploy/docker-compose.box.yml is added (the console's first-run folder) and no administrator
+# is made here (the owner makes the first accounts in the first-run wizard). TB_BOX_DEFER_SEAL=1 (a board without a
+# TPM) leaves the site keys to the box's apply step, which seals them under the passphrase the owner set.
 # TB_COMPOSE_OVERRIDE=<file> adds one compose file after the others (the box rehearsal's model stand-ins, D-176); it is
 # printed and kept in deploy/.env COMPOSE_FILE so every later compose command uses it too.
 # Re-running is safe: every step is idempotent. Nothing leaves the host: no registry, no download, no telemetry.
@@ -384,6 +388,9 @@ if [ -n "$TLS_HOST" ]; then
   [ "${PIPESTATUS[0]}" = 0 ] || die "the TLS settings do not pass (FAIL above): fix TB_TLS_* in deploy/.env (RUNBOOK §12), then re-run"
   COMPOSE+=(-f deploy/docker-compose.identity.yml); FILES="$FILES:$ROOT/deploy/docker-compose.identity.yml"
 fi
+if [ "${TB_BOX:-0}" = 1 ]; then  # T-729: the console's first-run folder (box-install.sh makes it, tmpfs)
+  COMPOSE+=(-f deploy/docker-compose.box.yml); FILES="$FILES:$ROOT/deploy/docker-compose.box.yml"
+fi
 LOCK_FILES="$FILES"
 if [ -n "${TB_COMPOSE_OVERRIDE:-}" ]; then  # D-176: the rehearsal's model stand-ins (or a site's own override)
   [ -f "$TB_COMPOSE_OVERRIDE" ] || die "TB_COMPOSE_OVERRIDE: no such file $TB_COMPOSE_OVERRIDE"
@@ -442,7 +449,9 @@ say "site keys (made once, never replaced)"
 # box only when it has deploy/site/hardening.conf. The KEK's back end is the site's (KEK_BACKEND, default tpm); the
 # host check FAILs a plain site key in VALIDATION and PRODUCTION
 HB_CONF="$ROOT/deploy/site/hardening.conf"
-if [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f "$HB_CONF" ]; then
+if [ "${TB_BOX_DEFER_SEAL:-0}" = 1 ]; then
+  echo "    site keys: sealed at the box's apply step, under the owner's passphrase (box-install.sh, T-729)"
+elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f "$HB_CONF" ]; then
   say "site keys sealed under the KEK (deploy/hardening/seal_keys.sh)"
   [ "$(id -u)" = 0 ] || die "sealing the site keys needs root (the secrets volume, the TPM): run the installer as root"
   SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)}"
@@ -574,6 +583,9 @@ open_audit(Path("/data/audit")).append("update.applied", actor="deploy/install.s
 done
 
 # ------------------------------------------------------------------------------------------------ 5. accounts
+if [ "${TB_BOX:-0}" = 1 ]; then  # T-729: the owner makes the first accounts in the first-run wizard
+  say "first accounts: the first-run wizard (box-install.sh shows its address and one-time code)"
+else
 say "first console administrator"
 ADMIN_MAIL="$(sed -n 's/^MAIL_ADMIN_ADDR=//p' deploy/.env | head -1)"
 ADMIN_MAIL="${ADMIN_MAIL:-${TB_ADMIN_EMAIL:-}}"
@@ -593,6 +605,7 @@ case "$rc" in
   *) echo "$ENROL" | sed 's/^/    /' >&2; FAILS+=("no enrolment code for admin (python -m console.cli enrol-code admin)") ;;
 esac
 echo "    add coordinators and viewers on the console's Users page, or: docker compose exec console python -m console.cli add-user"
+fi
 
 # ------------------------------------------------------------------------------------------------ 6. check
 say "host check"

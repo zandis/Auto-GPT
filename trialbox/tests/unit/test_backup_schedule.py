@@ -627,13 +627,17 @@ class RunningBox(FakeBox):
         out = super().__call__(argv, **kw)
         if "ps" in argv and "--services" in argv:
             return "db\norchestrator\nconsole\nadapter\n"
+        if argv[-1] == bs.RUNNING_JOBS_SQL:  # D-455: no job runs, so TB_BACKUP_QUIESCE=pause may pause
+            return "0\n"
+        if "pg_database_size" in " ".join(argv):  # D-455 (M4): every size is known, so a pause has its limits
+            return "1000\n"
         return out
 
 
 def test_compose_nightly_holds_the_writers_still_and_takes_the_host_files(tmp_path: Path) -> None:
-    """DI-11: every running service but db is paused from the first snapshot until the backup container is done,
-    and unpaused even when the run fails. DI-12 / OPS-046: deploy/.env, settings, deploy/site and the identity and
-    proxy volumes go in through the dump folder's host/ part."""
+    """DI-11: with TB_BACKUP_QUIESCE=pause (opt-in since D-455) every running service but db is paused from the first
+    snapshot until the backup container is done, and unpaused even when the run fails. DI-12 / OPS-046: deploy/.env,
+    settings, deploy/site and the identity and proxy volumes go in through the dump folder's host/ part."""
     deploy = tmp_path / "deploy"
     (deploy / "site").mkdir(parents=True)
     vols = tmp_path / "volumes"
@@ -655,7 +659,7 @@ def test_compose_nightly_holds_the_writers_still_and_takes_the_host_files(tmp_pa
     ops = bs.ComposeOps(deploy, fake)
     real_container = ops.box._backup_container
     ops.box._backup_container = spy  # type: ignore[method-assign,assignment]
-    cfg = _cfg(tmp_path, deploy=deploy)
+    cfg = _cfg(tmp_path, deploy=deploy, quiesce="pause")
     make = ops.make_backup(cfg)
     res = bs.nightly(cfg, make, lambda e, d: None, now=T0, classify=_offbox({"nas"}))
     assert res["ok"], res["errors"]
@@ -665,21 +669,23 @@ def test_compose_nightly_holds_the_writers_still_and_takes_the_host_files(tmp_pa
     pause = next(c for c in fake.calls if "pause" in c)
     assert pause[-3:] == ["adapter", "console", "orchestrator"] and "db" not in pause[pause.index("pause") :]
     i_pause, i_unpause = fake.calls.index(pause), next(i for i, c in enumerate(fake.calls) if "unpause" in c)
-    i_snap = next(i for i, c in enumerate(fake.calls) if "psql" in " ".join(c))
+    i_snap = next(i for i, c in enumerate(fake.calls) if "psql -X -q" in " ".join(c))  # the snapshot script
     i_run = next(i for i, c in enumerate(fake.calls) if c[:2] == ["docker", "run"])
     assert i_pause < i_snap < i_run < i_unpause
     assert res["point_in_time"]["held"] and res["point_in_time"]["paused"] == ["adapter", "console", "orchestrator"]
     assert json.loads(cfg.last_file.read_text())["point_in_time"]["held"]
     assert seen["host"] == ["deploy.env", "settings.yaml", "site/registry.site.yaml", "volumes/caddy-data/root.crt"]
     # a failing snapshot still unpauses
-    bad = RunningBox(fail="psql")
+    bad = RunningBox(fail="psql -X -q")  # the snapshot script (not the job count before the pause)
     ops2 = bs.ComposeOps(deploy, bad)
     res2 = bs.nightly(cfg, ops2.make_backup(cfg), lambda e, d: None, now=T0, classify=_offbox({"nas"}))
     assert not res2["ok"] and any("unpause" in c for c in bad.calls)
     # TB_BACKUP_QUIESCE=off: nothing paused, and the record says so
     (deploy / ".env").write_text("TB_SITE_ID=CGMH\nTB_BACKUP_QUIESCE=off\n")
     off = RunningBox()
-    res3 = bs.nightly(cfg, bs.ComposeOps(deploy, off).make_backup(cfg), lambda e, d: None, now=T0,
+    cfg_off = bs.config(deploy, {"TB_SITE_ID": "CGMH", "TB_BACKUP_QUIESCE": "off"})
+    assert cfg_off.quiesce == "off"
+    res3 = bs.nightly(cfg, bs.ComposeOps(deploy, off).make_backup(cfg, cfg_off.quiesce), lambda e, d: None, now=T0,
                       classify=_offbox({"nas"}))  # fmt: skip
     assert not any("pause" in c for c in off.calls) and res3["point_in_time"]["held"] is False
 

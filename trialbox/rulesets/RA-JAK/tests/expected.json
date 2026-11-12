@@ -2,7 +2,7 @@
  "agreement": {
   "all_equal": true,
   "known_differences": {},
-  "patients": 786,
+  "patients": 779,
   "per_criterion": {
    "RA-JAK-EXC-01": 100.0,
    "RA-JAK-EXC-02": 100.0,
@@ -49,7 +49,7 @@
    "RA-JAK-EXC-08": true,
    "RA-JAK-EXC-09": false,
    "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
+   "RA-JAK-EXC-11": null,
    "RA-JAK-INC-01": false,
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": false,
@@ -119,22 +119,6 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
   },
-  "20000014": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": true,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
   "20000015": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": null,
@@ -166,22 +150,6 @@
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": false
-  },
-  "20000018": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
   },
   "20000020": {
    "RA-JAK-EXC-01": false,
@@ -423,6 +391,22 @@
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": true
   },
+  "20000043": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": true,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
+  },
   "20000044": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": false,
@@ -534,6 +518,22 @@
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
+  },
+  "20000058": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": null,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
   },
   "20000059": {
    "RA-JAK-EXC-01": false,
@@ -695,22 +695,6 @@
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": null
   },
-  "20000078": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": true,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
   "20000082": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": true,
@@ -726,22 +710,6 @@
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
-  },
-  "20000086": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": true,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
   },
   "20000088": {
    "RA-JAK-EXC-01": false,
@@ -966,22 +934,6 @@
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": true
-  },
-  "20000119": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
   },
   "20000121": {
    "RA-JAK-EXC-01": false,
@@ -1351,22 +1303,6 @@
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": true
   },
-  "20000158": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": false,
-   "RA-JAK-EXC-04": false,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": true,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": null,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": true,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
   "20000159": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": false,
@@ -1575,6 +1511,22 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
   },
+  "20000189": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": false,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
+  },
   "20000191": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": null,
@@ -1639,6 +1591,22 @@
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": true
   },
+  "20000202": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": false,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
+  },
   "20000205": {
    "RA-JAK-EXC-01": true,
    "RA-JAK-EXC-02": null,
@@ -1702,22 +1670,6 @@
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": true
-  },
-  "20000215": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
   },
   "20000218": {
    "RA-JAK-EXC-01": false,
@@ -1815,22 +1767,6 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
   },
-  "20000226": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": null,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
   "20000229": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": false,
@@ -1879,7 +1815,23 @@
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": null
   },
-  "20000233": {
+  "20000236": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": false,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
+  },
+  "20000238": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": null,
    "RA-JAK-EXC-04": null,
@@ -1921,7 +1873,7 @@
    "RA-JAK-EXC-08": false,
    "RA-JAK-EXC-09": false,
    "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
+   "RA-JAK-EXC-11": null,
    "RA-JAK-INC-01": false,
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": false,
@@ -1937,7 +1889,7 @@
    "RA-JAK-EXC-08": false,
    "RA-JAK-EXC-09": false,
    "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
+   "RA-JAK-EXC-11": null,
    "RA-JAK-INC-01": false,
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
@@ -1958,22 +1910,6 @@
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": false
-  },
-  "20000248": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
   },
   "20000249": {
    "RA-JAK-EXC-01": true,
@@ -2135,22 +2071,6 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
   },
-  "20000270": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": true,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": true,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
   "20000271": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": null,
@@ -2183,22 +2103,6 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
   },
-  "20000273": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
   "20000275": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": null,
@@ -2210,22 +2114,6 @@
    "RA-JAK-EXC-09": false,
    "RA-JAK-EXC-10": true,
    "RA-JAK-EXC-11": false,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": true,
-   "RA-JAK-INC-03": true,
-   "RA-JAK-INC-04": true
-  },
-  "20000277": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": false,
-   "RA-JAK-EXC-04": false,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": null,
    "RA-JAK-INC-01": true,
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
@@ -2647,22 +2535,6 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
   },
-  "20000323": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": null,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
   "20000324": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": false,
@@ -2775,6 +2647,22 @@
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": true
   },
+  "20000336": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": null,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
+  },
   "20000340": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": false,
@@ -2790,6 +2678,22 @@
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
+  },
+  "20000342": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": null,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
   },
   "20000343": {
    "RA-JAK-EXC-01": false,
@@ -2871,38 +2775,6 @@
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": null
   },
-  "20000353": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
-  "20000354": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": true,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
   "20000355": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": null,
@@ -2920,22 +2792,6 @@
    "RA-JAK-INC-04": true
   },
   "20000356": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
-  "20000360": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": null,
    "RA-JAK-EXC-04": null,
@@ -2982,22 +2838,6 @@
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
-  },
-  "20000365": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
   },
   "20000367": {
    "RA-JAK-EXC-01": false,
@@ -3079,6 +2919,22 @@
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": true
   },
+  "20000379": {
+   "RA-JAK-EXC-01": true,
+   "RA-JAK-EXC-02": false,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": null,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": true,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": true
+  },
   "20000380": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": true,
@@ -3124,22 +2980,6 @@
    "RA-JAK-EXC-11": false,
    "RA-JAK-INC-01": true,
    "RA-JAK-INC-02": true,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
-  "20000391": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": null,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": null
   },
@@ -3239,22 +3079,6 @@
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": null
   },
-  "20000401": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": true,
-   "RA-JAK-INC-01": false,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
   "20000402": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": null,
@@ -3319,22 +3143,6 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": false
   },
-  "20000407": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": true,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
   "20000409": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": false,
@@ -3361,7 +3169,7 @@
    "RA-JAK-EXC-08": false,
    "RA-JAK-EXC-09": false,
    "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
+   "RA-JAK-EXC-11": null,
    "RA-JAK-INC-01": false,
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": false,
@@ -3382,6 +3190,22 @@
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": null
+  },
+  "20000415": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": false,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": null,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": true,
+   "RA-JAK-INC-03": true,
+   "RA-JAK-INC-04": false
   },
   "20000416": {
    "RA-JAK-EXC-01": false,
@@ -3463,6 +3287,22 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
   },
+  "20000424": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": null,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
+  },
   "20000425": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": null,
@@ -3477,22 +3317,6 @@
    "RA-JAK-INC-01": true,
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
-   "RA-JAK-INC-04": true
-  },
-  "20000426": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": true,
-   "RA-JAK-EXC-04": false,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": null,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": true,
-   "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": true
   },
   "20000427": {
@@ -3585,7 +3409,7 @@
    "RA-JAK-EXC-08": false,
    "RA-JAK-EXC-09": false,
    "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": true,
+   "RA-JAK-EXC-11": null,
    "RA-JAK-INC-01": false,
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
@@ -3766,22 +3590,6 @@
    "RA-JAK-INC-02": false,
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": true
-  },
-  "20000466": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": false,
-   "RA-JAK-EXC-04": false,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": null,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": true,
-   "RA-JAK-INC-03": true,
-   "RA-JAK-INC-04": null
   },
   "20000471": {
    "RA-JAK-EXC-01": false,
@@ -4151,6 +3959,22 @@
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": true
   },
+  "20000515": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": true,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
+  },
   "20000516": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": false,
@@ -4258,22 +4082,6 @@
    "RA-JAK-EXC-09": false,
    "RA-JAK-EXC-10": false,
    "RA-JAK-EXC-11": false,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
-  "20000530": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": null,
    "RA-JAK-INC-01": true,
    "RA-JAK-INC-02": false,
    "RA-JAK-INC-03": false,
@@ -4919,6 +4727,22 @@
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": true
   },
+  "20000594": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": false,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
+  },
   "20000596": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": false,
@@ -5047,22 +4871,6 @@
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": true
   },
-  "20000605": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": null,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
   "20000606": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": false,
@@ -5110,6 +4918,22 @@
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": true
+  },
+  "20000612": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": false,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
   },
   "20000613": {
    "RA-JAK-EXC-01": false,
@@ -5191,6 +5015,22 @@
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": true
   },
+  "20000618": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": false,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": null,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": true,
+   "RA-JAK-INC-03": true,
+   "RA-JAK-INC-04": true
+  },
   "20000620": {
    "RA-JAK-EXC-01": true,
    "RA-JAK-EXC-02": false,
@@ -5270,22 +5110,6 @@
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": false
-  },
-  "20000625": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": true,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
   },
   "20000628": {
    "RA-JAK-EXC-01": false,
@@ -5383,22 +5207,6 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
   },
-  "20000636": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": null,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
   "20000637": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": false,
@@ -5430,6 +5238,22 @@
    "RA-JAK-INC-02": false,
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": null
+  },
+  "20000640": {
+   "RA-JAK-EXC-01": true,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": true,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": null,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": true
   },
   "20000642": {
    "RA-JAK-EXC-01": true,
@@ -5526,6 +5350,22 @@
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": null
+  },
+  "20000659": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": false,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": null,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": true,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": true
   },
   "20000663": {
    "RA-JAK-EXC-01": true,
@@ -6119,22 +5959,6 @@
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": true
   },
-  "20000733": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
   "20000734": {
    "RA-JAK-EXC-01": true,
    "RA-JAK-EXC-02": false,
@@ -6161,7 +5985,7 @@
    "RA-JAK-EXC-08": false,
    "RA-JAK-EXC-09": false,
    "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
+   "RA-JAK-EXC-11": null,
    "RA-JAK-INC-01": false,
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": false,
@@ -6225,11 +6049,27 @@
    "RA-JAK-EXC-08": false,
    "RA-JAK-EXC-09": false,
    "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
+   "RA-JAK-EXC-11": null,
    "RA-JAK-INC-01": false,
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": false
+  },
+  "20000742": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": null,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
   },
   "20000745": {
    "RA-JAK-EXC-01": false,
@@ -6343,38 +6183,6 @@
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": true
   },
-  "20000756": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": true,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
-  "20000757": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": true,
-   "RA-JAK-INC-01": false,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
   "20000758": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": false,
@@ -6418,22 +6226,6 @@
    "RA-JAK-EXC-09": false,
    "RA-JAK-EXC-10": false,
    "RA-JAK-EXC-11": true,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
-  "20000765": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": false,
-   "RA-JAK-EXC-04": true,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": true,
-   "RA-JAK-EXC-10": true,
-   "RA-JAK-EXC-11": null,
    "RA-JAK-INC-01": true,
    "RA-JAK-INC-02": false,
    "RA-JAK-INC-03": false,
@@ -6548,6 +6340,22 @@
    "RA-JAK-EXC-11": false,
    "RA-JAK-INC-01": true,
    "RA-JAK-INC-02": true,
+   "RA-JAK-INC-03": true,
+   "RA-JAK-INC-04": null
+  },
+  "20000784": {
+   "RA-JAK-EXC-01": true,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": false,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": null,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": null
   },
@@ -6722,6 +6530,22 @@
    "RA-JAK-EXC-09": false,
    "RA-JAK-EXC-10": false,
    "RA-JAK-EXC-11": false,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
+  },
+  "20000804": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": true,
    "RA-JAK-INC-01": true,
    "RA-JAK-INC-02": false,
    "RA-JAK-INC-03": false,
@@ -6929,7 +6753,7 @@
    "RA-JAK-EXC-08": false,
    "RA-JAK-EXC-09": false,
    "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
+   "RA-JAK-EXC-11": null,
    "RA-JAK-INC-01": false,
    "RA-JAK-INC-02": false,
    "RA-JAK-INC-03": false,
@@ -7143,6 +6967,22 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": null
   },
+  "20000855": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": null,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
+  },
   "20000860": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": false,
@@ -7319,6 +7159,22 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
   },
+  "20000876": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": true,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
+  },
   "20000877": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": null,
@@ -7350,22 +7206,6 @@
    "RA-JAK-INC-02": false,
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": false
-  },
-  "20000882": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": null,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
   },
   "20000884": {
    "RA-JAK-EXC-01": false,
@@ -7559,6 +7399,22 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
   },
+  "20000907": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": false,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
+  },
   "20000910": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": null,
@@ -7591,22 +7447,6 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": null
   },
-  "20000914": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
   "20000916": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": false,
@@ -7622,22 +7462,6 @@
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
-  },
-  "20000918": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": true,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
   },
   "20000920": {
    "RA-JAK-EXC-01": true,
@@ -7815,22 +7639,6 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": null
   },
-  "20000941": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": true,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
   "20000942": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": false,
@@ -7845,6 +7653,22 @@
    "RA-JAK-INC-01": true,
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
+   "RA-JAK-INC-04": null
+  },
+  "20000943": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": null,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": null
   },
   "20000946": {
@@ -8097,7 +7921,7 @@
    "RA-JAK-EXC-08": false,
    "RA-JAK-EXC-09": false,
    "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
+   "RA-JAK-EXC-11": null,
    "RA-JAK-INC-01": false,
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
@@ -8152,6 +7976,22 @@
    "RA-JAK-INC-04": null
   },
   "20000983": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": false,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
+  },
+  "20000985": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": null,
    "RA-JAK-EXC-04": null,
@@ -8310,22 +8150,6 @@
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": null
-  },
-  "20000999": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": true,
-   "RA-JAK-EXC-04": false,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": null,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": true,
-   "RA-JAK-INC-03": true,
-   "RA-JAK-INC-04": true
   },
   "20001002": {
    "RA-JAK-EXC-01": false,
@@ -8593,27 +8417,11 @@
    "RA-JAK-EXC-08": false,
    "RA-JAK-EXC-09": false,
    "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
+   "RA-JAK-EXC-11": null,
    "RA-JAK-INC-01": false,
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": true
-  },
-  "20001026": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
   },
   "20001028": {
    "RA-JAK-EXC-01": false,
@@ -8759,22 +8567,6 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
   },
-  "20001043": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
   "20001045": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": null,
@@ -8785,7 +8577,7 @@
    "RA-JAK-EXC-08": false,
    "RA-JAK-EXC-09": false,
    "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
+   "RA-JAK-EXC-11": null,
    "RA-JAK-INC-01": false,
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
@@ -8887,6 +8679,22 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
   },
+  "20001069": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": false,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
+  },
   "20001070": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": false,
@@ -8935,6 +8743,22 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
   },
+  "20001073": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": null,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
+  },
   "20001074": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": false,
@@ -8950,22 +8774,6 @@
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": null
-  },
-  "20001076": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": false,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": null,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": true,
-   "RA-JAK-INC-03": true,
-   "RA-JAK-INC-04": true
   },
   "20001077": {
    "RA-JAK-EXC-01": true,
@@ -8993,7 +8801,7 @@
    "RA-JAK-EXC-08": false,
    "RA-JAK-EXC-09": false,
    "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
+   "RA-JAK-EXC-11": null,
    "RA-JAK-INC-01": false,
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
@@ -9030,22 +8838,6 @@
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
-  },
-  "20001083": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": true,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
   },
   "20001085": {
    "RA-JAK-EXC-01": false,
@@ -9271,22 +9063,6 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
   },
-  "20001113": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": null,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
   "20001117": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": false,
@@ -9329,7 +9105,7 @@
    "RA-JAK-EXC-08": false,
    "RA-JAK-EXC-09": false,
    "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": true,
+   "RA-JAK-EXC-11": null,
    "RA-JAK-INC-01": false,
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": false,
@@ -9495,6 +9271,22 @@
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": null
   },
+  "20001139": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": false,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
+  },
   "20001140": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": false,
@@ -9622,6 +9414,22 @@
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
+  },
+  "20001153": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": false,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
   },
   "20001155": {
    "RA-JAK-EXC-01": false,
@@ -10327,6 +10135,22 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": false
   },
+  "20001232": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": true,
+   "RA-JAK-INC-01": false,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
+  },
   "20001234": {
    "RA-JAK-EXC-01": true,
    "RA-JAK-EXC-02": null,
@@ -10551,22 +10375,6 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": null
   },
-  "20001261": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": true,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
   "20001262": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": null,
@@ -10593,7 +10401,7 @@
    "RA-JAK-EXC-08": false,
    "RA-JAK-EXC-09": false,
    "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
+   "RA-JAK-EXC-11": null,
    "RA-JAK-INC-01": false,
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
@@ -10839,6 +10647,22 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
   },
+  "20001292": {
+   "RA-JAK-EXC-01": true,
+   "RA-JAK-EXC-02": false,
+   "RA-JAK-EXC-04": false,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": null,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": true,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": true
+  },
   "20001297": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": false,
@@ -10869,6 +10693,22 @@
    "RA-JAK-INC-01": true,
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
+   "RA-JAK-INC-04": null
+  },
+  "20001299": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": true,
+   "RA-JAK-INC-01": false,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": null
   },
   "20001300": {
@@ -11127,38 +10967,6 @@
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": true
   },
-  "20001331": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
-  "20001332": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": null,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
   "20001336": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": null,
@@ -11239,6 +11047,22 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
   },
+  "20001344": {
+   "RA-JAK-EXC-01": true,
+   "RA-JAK-EXC-02": false,
+   "RA-JAK-EXC-04": false,
+   "RA-JAK-EXC-05": true,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": null,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": true,
+   "RA-JAK-INC-03": true,
+   "RA-JAK-INC-04": true
+  },
   "20001345": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": false,
@@ -11271,7 +11095,7 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": null
   },
-  "20001352": {
+  "20001350": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": null,
    "RA-JAK-EXC-04": null,
@@ -11282,7 +11106,7 @@
    "RA-JAK-EXC-09": false,
    "RA-JAK-EXC-10": false,
    "RA-JAK-EXC-11": true,
-   "RA-JAK-INC-01": false,
+   "RA-JAK-INC-01": true,
    "RA-JAK-INC-02": false,
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": null
@@ -11767,22 +11591,6 @@
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
   },
-  "20001415": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
-  },
   "20001417": {
    "RA-JAK-EXC-01": true,
    "RA-JAK-EXC-02": true,
@@ -11879,6 +11687,22 @@
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": null
   },
+  "20001430": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": false,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
+  },
   "20001431": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": false,
@@ -11894,22 +11718,6 @@
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
-  },
-  "20001432": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": true,
-   "RA-JAK-INC-01": false,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
-   "RA-JAK-INC-04": null
   },
   "20001433": {
    "RA-JAK-EXC-01": false,
@@ -12039,6 +11847,22 @@
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": null
   },
+  "20001442": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": null,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
+  },
   "20001443": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": null,
@@ -12069,22 +11893,6 @@
    "RA-JAK-INC-01": true,
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
-   "RA-JAK-INC-04": null
-  },
-  "20001445": {
-   "RA-JAK-EXC-01": false,
-   "RA-JAK-EXC-02": null,
-   "RA-JAK-EXC-04": null,
-   "RA-JAK-EXC-05": false,
-   "RA-JAK-EXC-06": false,
-   "RA-JAK-EXC-07": false,
-   "RA-JAK-EXC-08": false,
-   "RA-JAK-EXC-09": false,
-   "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": null,
-   "RA-JAK-INC-01": true,
-   "RA-JAK-INC-02": false,
-   "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": null
   },
   "20001446": {
@@ -12118,6 +11926,38 @@
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": false
+  },
+  "20001449": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": null,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
+  },
+  "20001450": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": false,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": null,
+   "RA-JAK-INC-01": false,
+   "RA-JAK-INC-02": true,
+   "RA-JAK-INC-03": true,
+   "RA-JAK-INC-04": true
   },
   "20001451": {
    "RA-JAK-EXC-01": true,
@@ -12327,6 +12167,22 @@
    "RA-JAK-INC-03": false,
    "RA-JAK-INC-04": null
   },
+  "20001471": {
+   "RA-JAK-EXC-01": true,
+   "RA-JAK-EXC-02": false,
+   "RA-JAK-EXC-04": false,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": null,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": true,
+   "RA-JAK-INC-03": true,
+   "RA-JAK-INC-04": true
+  },
   "20001472": {
    "RA-JAK-EXC-01": false,
    "RA-JAK-EXC-02": false,
@@ -12342,6 +12198,38 @@
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
    "RA-JAK-INC-04": true
+  },
+  "20001473": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": false,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
+  },
+  "20001475": {
+   "RA-JAK-EXC-01": false,
+   "RA-JAK-EXC-02": null,
+   "RA-JAK-EXC-04": null,
+   "RA-JAK-EXC-05": false,
+   "RA-JAK-EXC-06": false,
+   "RA-JAK-EXC-07": false,
+   "RA-JAK-EXC-08": false,
+   "RA-JAK-EXC-09": false,
+   "RA-JAK-EXC-10": false,
+   "RA-JAK-EXC-11": true,
+   "RA-JAK-INC-01": true,
+   "RA-JAK-INC-02": false,
+   "RA-JAK-INC-03": false,
+   "RA-JAK-INC-04": null
   },
   "20001478": {
    "RA-JAK-EXC-01": false,
@@ -12481,7 +12369,7 @@
    "RA-JAK-EXC-08": false,
    "RA-JAK-EXC-09": false,
    "RA-JAK-EXC-10": false,
-   "RA-JAK-EXC-11": false,
+   "RA-JAK-EXC-11": null,
    "RA-JAK-INC-01": false,
    "RA-JAK-INC-02": true,
    "RA-JAK-INC-03": true,
