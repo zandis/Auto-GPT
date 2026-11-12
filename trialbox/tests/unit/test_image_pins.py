@@ -126,10 +126,8 @@ def test_an_image_no_service_of_this_box_runs_is_not_asked_for(tmp_path: Path) -
     what it runs is still required."""
     deploy, files = _box(tmp_path, "", {PG: PG_ID})
     used = {PG}  # the rendered stack: the database, and the FHIR store replaced by an override's image
-    changes, notes, missing = ip.resolve(deploy, files, has=lambda ref: False, used=used)
-    assert missing == [f"POSTGRES_IMAGE: {PG}"] or missing == [
-        f"POSTGRES_IMAGE: {PG} (no pin in deploy/image-pins.json)"
-    ]
+    _changes, notes, missing = ip.resolve(deploy, files, has=lambda ref: False, used=used)
+    assert missing == [f"POSTGRES_IMAGE: {PG}"]  # what the stack runs is still required
     assert any(n.startswith("HAPI_IMAGE:") and "no service of this box's stack runs it" in n for n in notes)
     # nothing given: every pinned variable is asked for, as before
     _, _, all_missing = ip.resolve(deploy, files, has=lambda ref: False)
