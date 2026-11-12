@@ -14,6 +14,10 @@ closed). Checks:
 * ``secure_cookie``: the console session cookie is marked Secure (``TB_CONSOLE_SECURE_COOKIE=1``, or unset or empty in
   PRODUCTION, the console's default since D-192). FAIL in
   PRODUCTION and VALIDATION, WARN elsewhere (a DEV/TEST box may serve plain http on localhost; D-121);
+* ``console_mfa`` (D-447, CR-033 rest; D-192 "Open"): every way into the console asks for a second factor:
+  ``TB_CONSOLE_MFA`` resolves to ``totp`` (the console's default outside DEV and TEST), OIDC, when on, keeps
+  ``TB_OIDC_REQUIRE_MFA``, and no trusted identity header (``TB_CONSOLE_SSO_HEADER``, D-93) signs people in. FAIL in
+  PRODUCTION and VALIDATION, WARN elsewhere;
 * ``publish_gate``: the data platform has a current signed snapshot and the last gate decision is known;
 * ``note_block``: ``TB_NOTE_BLOCK=both_agree`` (the default, D-95) needs a verifier build (``TB_GATEWAY_VERIFIER_MODEL``
   or ``LLM_VERIFIER_BASE_URL``) and ``TB_SCREEN_JUDGE`` other than ``single``; otherwise the box runs single-model
@@ -281,6 +285,29 @@ def check_secure_cookie(inp: DoctorInputs) -> Check:
     status: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
     why = f"TB_CONSOLE_SECURE_COOKIE is off in {env}: the session cookie can travel on http"
     return Check("secure_cookie", status, why)
+
+
+def check_console_mfa(inp: DoctorInputs) -> Check:
+    """The console's own rules (``console.identity.IdentitySettings.from_env``, ``console.oidc.OidcSettings``; D-192,
+    D-447), read from the settings as compose passes them: a box with no second factor on some way in fails in
+    PRODUCTION and VALIDATION (the console also refuses to start there; doctor says why before it is started)."""
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    dev = env in ("DEV", "TEST")
+    off = ("1", "true", "on", "yes")
+    mfa = (inp.env.get("TB_CONSOLE_MFA") or ("off" if dev else "totp")).strip().lower()
+    gaps = []
+    if mfa != "totp":
+        gaps.append(f"TB_CONSOLE_MFA={mfa}: local accounts sign in with a password alone")
+    oidc_on = (inp.env.get("TB_OIDC_ENABLED") or "").strip().lower() in off
+    if oidc_on and (inp.env.get("TB_OIDC_REQUIRE_MFA") or "1").strip().lower() in ("0", "false", "off", "no"):
+        gaps.append("TB_OIDC_REQUIRE_MFA=0: a directory sign-in without a second factor is accepted")
+    if (inp.env.get("TB_CONSOLE_SSO_HEADER") or "").strip():
+        gaps.append("TB_CONSOLE_SSO_HEADER is set: a trusted header signs people in with no second factor")
+    if not gaps:
+        return Check("console_mfa", "PASS", "every console sign-in asks for a second factor"
+                     + (" (TOTP; OIDC with a second factor)" if oidc_on else " (TOTP)"))  # fmt: skip
+    status: Status = "WARN" if dev else "FAIL"
+    return Check("console_mfa", status, f"{env}: " + "; ".join(gaps))
 
 
 def check_publish_gate(inp: DoctorInputs) -> Check:
@@ -840,6 +867,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_perimeter_addresses,
     check_channel_engine,
     check_secure_cookie,
+    check_console_mfa,
     check_publish_gate,
     check_note_block,
     check_judge_route,

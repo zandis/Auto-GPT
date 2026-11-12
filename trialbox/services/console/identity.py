@@ -2,9 +2,11 @@
 recovery actions and the TLS settings check.
 
 * **Local accounts sign in with a password and a TOTP code** (RFC 6238, ``console.totp``). It is the default:
-  ``TB_CONSOLE_MFA`` is ``totp`` unless ``TB_ENV`` is DEV or TEST, and ``off`` is refused in PRODUCTION. An account
-  without an authenticator enrols one at its first sign-in (after its password). A wrong or replayed code counts as a
-  failed sign-in; five in 15 minutes from one address lock the account from that address (``console.auth``, D-279).
+  ``TB_CONSOLE_MFA`` is ``totp`` unless ``TB_ENV`` is DEV or TEST, and ``off`` is refused outside them, as is an OIDC
+  sign-in without a second factor (``TB_OIDC_REQUIRE_MFA=0``; D-447; ``trialbox doctor`` check ``console_mfa``).
+  An account without an authenticator enrols one at its first sign-in (after its password). A wrong or replayed code
+  counts as a failed sign-in; five in 15 minutes from one address lock the account from that address
+  (``console.auth``, D-279).
   ``POST /api/v1/session`` asks for the same two factors in one call (password and ``code``, checked by
   :meth:`Identity.step_up`); an account enrols its authenticator on the page only. A token from that route is a
   bearer token and never a cookie, and a page's cookie is never a bearer token (T-505a, D-320, ROLE-001).
@@ -113,6 +115,8 @@ class IdentitySettings:
             oidc = OidcSettings.from_env(env)
         except OidcConfigError as exc:
             raise IdentityConfigError(str(exc)) from exc
+        if oidc.enabled and not oidc.require_mfa and not dev:  # D-447: every way in asks for a second factor
+            raise IdentityConfigError(f"TB_OIDC_REQUIRE_MFA=0 is refused in {environment}: directory sign-ins need MFA")
         return cls(
             mfa=mfa,
             idle=timedelta(minutes=_int_in(env, "TB_CONSOLE_IDLE_MINUTES", 10, 1, 60)),
