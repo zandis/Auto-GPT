@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from console import i18n_flags, i18n_identity
 from console.i18n import CATALOGUES
+from opportunity_hub import dashboard as hub_dashboard
 from orchestrator import i18n as orch_i18n
 from orchestrator.reports import case_html, consent_html
 from tb_common.wording import (
@@ -91,6 +92,15 @@ def _orchestrator() -> dict[str, dict[str, str]]:
     return out
 
 
+def _hub() -> dict[str, dict[str, str]]:
+    """The trial-opportunity board's labels (D-467): the hub's page speaks the product's words too."""
+    return {lang: dict(cat) for lang, cat in hub_dashboard.LABELS.items()}
+
+
+def _source(name: str) -> dict[str, dict[str, str]]:
+    return {"console": _catalogues, "orchestrator": _orchestrator, "opportunity_hub": _hub}[name]()
+
+
 @pytest.mark.parametrize("lang", ["en", "ja", "zh-TW"])
 def test_the_statement_is_the_one_in_the_intended_use_document(lang: str) -> None:
     """REG-020: one statement; the document and the console footer carry the same words."""
@@ -104,22 +114,22 @@ def test_the_footer_key_comes_from_the_statement(lang: str) -> None:
     assert CATALOGUES[lang]["footer.statement"] == STATEMENT[lang]
 
 
-@pytest.mark.parametrize("source", ["console", "orchestrator"])
+@pytest.mark.parametrize("source", ["console", "orchestrator", "opportunity_hub"])
 def test_no_catalogue_string_gives_a_verdict_word(source: str) -> None:
     """No console, mail or report string says "excluded", 除外 or 排除 of a patient, labels a patient "likely
     eligible", or uses another word of TB-IU-01 §2 (診断, 判定, 対象外, "diagnosis" ...) (T-116); the protocol's own
     heading (除外基準, 排除條件) is allowed. Placeholders such as ``{excluded}`` are names, not words."""
     hits = []
-    for lang, cat in (_catalogues() if source == "console" else _orchestrator()).items():
+    for lang, cat in _source(source).items():
         for key, text in cat.items():
             hits += [f"{lang} {key}: {h.word} in {h.context}" for h in check(re.sub(r"{\w+}", " ", text))]
     assert hits == []
 
 
-@pytest.mark.parametrize("source", ["console", "orchestrator"])
+@pytest.mark.parametrize("source", ["console", "orchestrator", "opportunity_hub"])
 def test_the_old_variants_are_banned(source: str) -> None:
     bad = []
-    for lang, cat in (_catalogues() if source == "console" else _orchestrator()).items():
+    for lang, cat in _source(source).items():
         for key, text in cat.items():
             bad += [f"{lang} {key}: {word}" for word in BANNED[lang] if word in text]
     assert bad == []

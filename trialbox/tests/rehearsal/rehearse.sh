@@ -3,6 +3,7 @@
 #
 #   make rehearse                       # every case below, about 40-60 minutes, US$0
 #   tests/rehearsal/rehearse.sh [CASE ...]   # some cases, in order: run-a run-b bucket served no-upload hang busy
+#                                            # preempt
 #   make rehearse CASES=run-a,bucket    # commas or spaces
 #
 # It runs the REAL driver (deploy/gcp/complete-run.sh, the commit at HEAD, as `git archive` uploads it) against the REAL
@@ -31,6 +32,10 @@
 #              (2 minutes here); --collect then starts the stopped VM results-only and gets what is there (H-04);
 #   busy       a silent part that works for 5 minutes (selftest-busy), idle limit 2 minutes, no driver: the in-run
 #              heartbeat keeps the VM alive (H-03); it finishes, powers off after the grace; --collect gets the result.
+#   preempt    G1 bug A1: three short parts done, the VM pre-empted (stopped without warning) while the fourth, a
+#              silent selftest-busy, runs; --collect starts it results-only and gets the three; then the same run is
+#              started again (`TB_RUN_ID=<run> complete-run.sh --shard 1`): the three are kept (--resume), only the
+#              fourth runs, and no collect removed a finished part.
 # Every case is checked by check.py; the evidence stays in $TB_REHEARSAL_DIR/evidence/<case>/.
 #
 # Needs: docker (a private dockerd is started under $TB_REHEARSAL_DIR when none answers, and stopped afterwards),
@@ -47,9 +52,10 @@ BASE_SHA=e77b6f10c2590cef872b33ee9f635a0e3fd1f57fb074c0e52b5c7f56147a0c86
 CA="${TB_REHEARSAL_CA:-${SSL_CERT_FILE:-/etc/ssl/certs/ca-certificates.crt}}"
 VENV="$(readlink -f "$TBROOT/.venv")"
 PY="$VENV/bin/python"
+PRE_ONLY=scenario-gateway,scenario-it-dump,scenario-registry,selftest-busy   # the preempt case: 3 short parts, 1 long
 POS_ONLY="${TB_REHEARSAL_ONLY:-hospital-ja,public-ja,scenario-gateway,scenario-emr-fhir,scenario-it-dump,scenario-public-medtxt,scenario-public-trec}"
 # shellcheck disable=SC2206  # CASES=run-a,bucket from make: split on commas and spaces
-CASES=(${*//,/ }); [ "${#CASES[@]}" -gt 0 ] || CASES=(run-a run-b bucket served no-upload hang busy)
+CASES=(${*//,/ }); [ "${#CASES[@]}" -gt 0 ] || CASES=(run-a run-b bucket served no-upload hang busy preempt)
 S="$REH/state"
 mkdir -p "$REH" "$REH/evidence"
 log() { echo "$(date -u +%T) rehearse: $*"; }
@@ -74,7 +80,7 @@ prune_evidence() {  # D-201: the newest two per case, <case> and <case>.prev; ol
   for d in "$REH/evidence"/*.*; do
     [ -e "$d" ] || continue
     name="$(basename "$d")"
-    for c in "${CASES[@]}" run-a run-b bucket served no-upload hang busy; do
+    for c in "${CASES[@]}" run-a run-b bucket served no-upload hang busy preempt; do
       if [ "${name%%.*}" = "$c" ] && [ "$name" != "$c.prev" ]; then rm -rf "$d"; break; fi
     done
   done
@@ -232,6 +238,27 @@ for case in "${CASES[@]}"; do
       collect_until_done busy 15 || log "busy: no results after 15 minutes"
       wait_terminated 5 || true
       end_case busy; check busy "$E" ;;
+    preempt)  # G1 bug A1: pre-empted after part 3, collected, resumed; the parts already done are kept
+      start_case preempt; knob tb-selftest-seconds 1800
+      drive preempt --no-wait --patients 500 --only "$PRE_ONLY" || true
+      for _ in $(seq 1 360); do  # the three short parts are done; the silent fourth runs
+        [ "$(docker exec "$C" sh -c 'ls /var/lib/tb/runs/*/parts/*.json 2>/dev/null | wc -l')" -ge 3 ] && break
+        sleep 10
+      done
+      sleep 20   # tb-pack after part 3 has written results.tgz
+      PATH="$HERE/driver-shims:$PATH" gcloud compute instances stop "$C" >/dev/null 2>&1 || true   # the pre-emption
+      wait_terminated 2 || log "preempt: the VM did not stop"
+      cp "$S/POWEROFF" "$E/POWEROFF.preempt"; : > "$S/POWEROFF"
+      rm -rf "$S/knobs/metadata"
+      collect_until_done preempt 15 || log "preempt: no results after the pre-emption"
+      cp -r "$REH/runs/preempt/parts" "$E/parts-after-collect" 2>/dev/null || true
+      wait_terminated 5 || true
+      knob tb-selftest-seconds 5
+      PATH="$HERE/driver-shims:$PATH" TB_COMPLETE_DIR="$REH/runs/preempt" TB_RUN_ID="$(cat "$REH/runs/preempt/run-id")" \
+        "$TBROOT/deploy/gcp/complete-run.sh" --no-wait --shard 1 >> "$E/driver.log" 2>&1 || true   # the resume
+      collect_until_done preempt 45 || log "preempt: the resumed run is not done after 45 minutes"
+      wait_terminated 5 || true
+      end_case preempt; check preempt "$E" --only "$PRE_ONLY" ;;
     *) echo "unknown case $case" >&2; exit 2 ;;
   esac
 done
