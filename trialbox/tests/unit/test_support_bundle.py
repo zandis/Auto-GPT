@@ -51,6 +51,10 @@ def box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         f"TB_AUDIT_HOST_DIR={tmp_path / 'audit'}\n"
         f"POSTGRES_PASSWORD={FAKE_PASSWORD}\n"
         "TB_METRICS_TOKEN_FILE=/run/secrets/metrics.token\n"
+        f"SMTP_PASS={FAKE_PASSWORD}\n"
+        f"IMAP_PASS={FAKE_PASSWORD}\n"
+        f"TB_DB_PW_LAKE={FAKE_PASSWORD}\n"
+        f"TB_KEK_PASSPHRASE={FAKE_PASSWORD}\n"
         f"TB_DB_URL=postgresql://tb:{FAKE_PASSWORD}@db:5432/tb\n",
         encoding="utf-8",
     )
@@ -123,6 +127,8 @@ def test_bundle_holds_the_box_state_and_no_patient_data(box: Path, tmp_path: Pat
     # secrets: names kept, values redacted, file paths kept
     assert not any(FAKE_PASSWORD in text for text in m.values())
     assert "POSTGRES_PASSWORD=[redacted]" in m["env.redacted"]
+    for name in ("SMTP_PASS", "IMAP_PASS", "TB_DB_PW_LAKE", "TB_KEK_PASSPHRASE"):  # OPS-002 (review of 2026-11-12)
+        assert f"{name}=[redacted]" in m["env.redacted"], name
     assert "TB_METRICS_TOKEN_FILE=/run/secrets/metrics.token" in m["env.redacted"]
     assert "postgresql://[redacted]@db" in m["env.redacted"]
     assert (
