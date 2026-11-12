@@ -16,6 +16,7 @@ from orchestrator.candidates import CandidateRegistry, RegistryError
 from orchestrator.clients import StepFailed
 from orchestrator.db import JobDB
 from orchestrator.scenarios import case
+from sitesetup.store import SetupError
 from tb_common.audit import AuditLog
 from tb_common.crypto import pid_for_mrn
 from tb_contracts import RegistryUpdate
@@ -70,5 +71,20 @@ def test_site_setup_takes_it_for_a_pasted_chart(svc: Any) -> None:  # noqa: F811
     charts = [i for i in svc.store.inputs("practice") if i["kind"] == "chart"]
     assert len(charts) == len(TYPED) and {i["pid"] for i in charts} == {want}  # every spelling: the one patient
     for typed in WRONG:
-        with pytest.raises(Exception, match="not a chart number of this hospital"):
+        with pytest.raises(SetupError, match="not a chart number of this hospital"):
             svc.add_chart("practice", typed, "pasted.txt", b"Gout flare.", "crc", "en", pasted=True)
+
+
+def test_a_short_typed_number_masks_the_chart_number_and_nothing_else(svc: Any) -> None:  # noqa: F811
+    """The review's MED-1: the chart's text is masked for the number as the site writes it. Typed ``2`` is chart
+    ``00000002``; masking the typed text would have replaced every 2 in the chart."""
+    text = "Chart 00000002. Gout flare. Uric acid 9.2 mg/dL on 2024-03-01. Dose 2 tablets."
+    assert svc.redact(text, "2").startswith("Chart [MRN]. Gout flare. Uric acid 9.2 mg/dL")
+    assert "Dose 2 tablets" in svc.redact(text, "2")
+    assert svc.redact("Chart 00123456 seen.", "123456") == "Chart [MRN] seen."
+    assert svc.redact("Chart 00123456 seen.", "００１２３４５６") == "Chart [MRN] seen."
+    assert svc.redact("No. ００１２３４５６ seen.", "００１２３４５６") == "No. [MRN] seen."  # as typed, when as long
+    svc.add_chart("practice", "2", "pasted.txt", text.encode(), "crc", "en", pasted=True)
+    iid = max(i["id"] for i in svc.store.inputs("practice"))
+    stored = (svc.root / f"practice/inputs/{iid}.lake.txt").read_text(encoding="utf-8")
+    assert "9.2 mg/dL" in stored and "00000002" not in stored

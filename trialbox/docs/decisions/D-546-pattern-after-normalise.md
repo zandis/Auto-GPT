@@ -25,12 +25,27 @@ so it does not fit).
 
 ## What it does not do
 
-- It refuses fewer numbers, never others: every number accepted now is one whose normalised form fits the
-  pattern, and that form is what is hashed. No number reaches another patient than before.
+- For a pattern that fits the rule (the pairs the installer writes, D-579) it refuses fewer numbers, never
+  others: every number accepted now is one whose normalised form fits the pattern, and that form is what is
+  hashed. No number reaches another patient than before. With a pattern set by hand that does not fit the rule
+  (`digits` without a width and `^\d{8}$`; a hex rule and a pattern of the other case) a number that was accepted
+  as typed is now refused, because the form that would be hashed does not fit: the safe side.
 - The opt-out desk's shape check (`console.team`: letters, digits or `-`) is not the site's pattern and is not
   changed here; it refuses full-width digits before the box is asked. That file is in two open cards (#394,
   #406); the change can follow them.
 - Under the rule `asis` nothing changes but blanks and full-width forms, which the rule already removes.
+
+## What the adversarial review changed
+
+One review by a fresh reviewer. Verdict: fix first, one MED. The property that matters held in every rule and
+input it ran: what is hashed is exactly the form that was matched, and no two numbers become one.
+
+- **MED-1, a fault this card made:** site set-up masks the chart number in the stored chart text by replacing
+  the typed text. Before, the pattern forced the typed text to be the whole number. With this card `2` is
+  accepted for chart `00000002`, and every `2` in the chart became `[MRN]` (`9.[MRN] mg/dL`). The masking now
+  replaces the number as the site writes it, and a typed spelling only when it is as long. Test with typed `2`.
+- **LOW:** the sentence above about "fewer numbers" was too wide and is corrected; the set-up test asserts the
+  error's type.
 
 ## Reuse check
 
