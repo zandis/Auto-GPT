@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{# T-211c (D-451): one patient's audit report: every event that names the pseudonym, as the events hold it. #}
+{% block title %}{{ t('audit.report.title', pid=f.pid[:8]) }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1 data-testid="audit-report-title">{{ t('audit.report.title', pid=f.pid) }}</h1><a href="/audit">{{ t('audit.report.back') }}</a></div>
+<p class="hint">{{ t('audit.report.help') }}</p>
+<section class="card">
+<form method="get" action="/audit/patients/{{ f.pid }}" class="inline">
+<label for="r-kind">{{ t('audit.filter.kind') }}</label> <select id="r-kind" name="kind"><option value="">{{ t('audit.filter.all') }}</option>{% for k in kinds %}<option value="{{ k }}"{% if k == f.kind %} selected{% endif %}>{{ t('audit.kind.' + k) }}</option>{% endfor %}</select>
+<label for="r-since">{{ t('audit.filter.since') }}</label> <input id="r-since" name="since" type="date" value="{{ f.since }}"> <span class="hint datefmt">{{ t('date.fmt') }}</span>
+<label for="r-until">{{ t('audit.filter.until') }}</label> <input id="r-until" name="until" type="date" value="{{ f.until }}"> <span class="hint datefmt">{{ t('date.fmt') }}</span>
+<button type="submit">{{ t('audit.filter.go') }}</button>
+</form>
+<p><a class="button" href="/audit/patients/{{ f.pid }}/report.csv{{ '?' + rq if rq else '' }}" data-testid="audit-report-csv" download>{{ t('audit.report.csv') }}</a></p>
+<p data-testid="audit-report-counts">{{ t('audit.report.counts') }}: {% for k, n in counts.items() %}<span class="kv" data-kind="{{ k }}" data-n="{{ n }}">{{ t('audit.kind.' + k) }} {{ n }}</span>{{ ' · ' if not loop.last else '' }}{% endfor %}</p>
+{% if not records %}<p class="empty" data-testid="audit-report-none">{{ t('audit.report.none') }}</p>{% else %}
+{% set rows = records %}{% include "_audit_table.html" %}{% endif %}
+{% if next_before %}<p><a href="/audit/patients/{{ f.pid }}?{{ rq + '&' if rq else '' }}before={{ next_before|urlencode }}" data-testid="audit-older">{{ t('audit.older') }} →</a></p>{% endif %}
+</section>
+{% endblock %}
