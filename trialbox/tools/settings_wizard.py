@@ -61,6 +61,13 @@ QUESTIONS: list[tuple[str, str, Any, str]] = [
     ("data_source_dsn_env", "Env var holding the SQL DSN (cgrd_sql) or empty", "", "str"),
     ("mapping", "Mapping YAML (in deploy/site/mapping, else the shipped ones)", "mapping/tw_core/demo_his.yaml", "str"),
     ("mrn_regex", "MRN pattern (regular expression)", r"^\d{8}$", "str"),
+    # NEW-DIN-3 (D-579): asked once; with no answer it is read from an answered pattern of fixed digits, else asis
+    (
+        "chartno_rule",
+        "Chart-number format: asis | digits[:width] | hex[:width][:lower] (empty: from the MRN pattern)",
+        "",
+        "str",
+    ),
     ("registry_type", "Consent registry (csv | sql | none)", "none", "str"),
     ("registry_path", "Registry CSV path (csv) or empty", "", "str"),
     ("departments", "Departments CODE=name (comma separated)", None, "map"),
@@ -201,6 +208,60 @@ def ask(answers: dict[str, Any], prompt: Callable[[str], str] = input) -> dict[s
     return out
 
 
+_FIXED_DIGITS = re.compile(r"\^?(?:\\d|\[0-9\])\{(\d+)\}\$?")  # ^\d{8}$ and its plain spellings: N digits, nothing else
+_PROBE_WIDTHS = range(1, 65)  # the widths tb_common.chartno accepts
+
+
+def chartno_rule(answer: Any, mrn_regex: str, regex_answered: bool, errors: list[str], warnings: list[str]) -> str:
+    """The site's chart-number rule for ``TB_CHARTNO_RULE`` (NEW-DIN-3, D-579; ``tb_common.chartno``).
+
+    An answer must be a rule the normaliser reads, and it must not contradict the MRN pattern: a chart number
+    written by the rule has to be one the pattern accepts, or the rule would never apply (or every number would be
+    refused). With no answer the rule is read from the MRN pattern only when the site answered that pattern and it
+    says a fixed number of digits (``^\\d{8}$`` gives ``digits:8``: a number of that pattern cannot be confused
+    with another by padding). Anything else stays ``asis``, and a warning says that leading zeros are significant.
+    The wizard's own default pattern is a placeholder and is never read as the hospital's format."""
+    from tb_common import chartno
+
+    text = str(answer or "").strip()
+    fixed = _FIXED_DIGITS.fullmatch(mrn_regex.strip())
+    if not text:
+        if fixed and regex_answered and int(fixed.group(1)) in _PROBE_WIDTHS:
+            rule = f"digits:{int(fixed.group(1))}"
+            warnings.append(
+                f"chartno_rule was not answered: {rule}, read from the MRN pattern {mrn_regex} (a chart number that "
+                "lost its leading zeros in a sheet gets them back)"
+            )
+            return rule
+        warnings.append(
+            "chartno_rule was not answered and the MRN pattern does not say a fixed number of digits: asis, where "
+            "leading zeros stay significant: a chart number that lost them in a sheet is another patient. Answer "
+            "chartno_rule (digits:<width> or hex:<width>) with the hospital's chart-number format"
+        )
+        return "asis"
+    if any(c in text for c in "\r\n"):
+        errors.append("chartno_rule has a line break")
+        return "asis"
+    try:
+        rule_ = chartno.parse_rule(text)
+    except chartno.ChartNoError as exc:
+        errors.append(f"chartno_rule: {exc}")
+        return "asis"
+    if rule_.kind != "asis":
+        try:
+            pat = re.compile(mrn_regex)
+        except re.error:
+            return str(rule_)  # the pattern's own error is reported by the caller
+        last = "1" if rule_.kind == "digits" else ("a" if rule_.case == "lower" else "A")
+        widths = [rule_.width] if rule_.width else list(_PROBE_WIDTHS)
+        if not any(pat.fullmatch("0" * (w - 1) + last) for w in widths):
+            errors.append(
+                f"chartno_rule {rule_} contradicts mrn_regex {mrn_regex}: a chart number written by the rule is not "
+                "one the pattern accepts"
+            )
+    return str(rule_)
+
+
 def _zone_errors(tz: str, mapping: Path) -> list[str]:
     """site.tz must be a real zone and the one the data source mapping states (D-315, doctor check site_tz)."""
     from zoneinfo import ZoneInfo
@@ -254,6 +315,7 @@ def build(
         re.compile(str(get("mrn_regex")))
     except re.error as exc:
         errors.append(f"mrn_regex does not compile: {exc}")
+    chart_rule = chartno_rule(a.get("chartno_rule"), str(get("mrn_regex")), bool(a.get("mrn_regex")), errors, warnings)
     depts = _map(get("departments"))
     prac = _practitioners(get("practitioners"))
     for pid, p in prac.items():
@@ -413,6 +475,7 @@ def build(
     env = {
         "TB_SITE_ID": site_id,
         "TB_TZ": settings["site"]["tz"],
+        "TB_CHARTNO_RULE": chart_rule,  # NEW-DIN-3 (D-579): every service reads .env (tb_common.chartno)
         "COMPOSE_PROFILES": "gpu" if str(a.get("llm_mode", "gpu")) == "gpu" else "stub",
         "TB_LLM_MODE": "vllm" if str(a.get("llm_mode", "gpu")) == "gpu" else "stub",
         "TB_EMBED_MODE": embed_mode,

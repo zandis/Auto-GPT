@@ -354,6 +354,8 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         "imap_host": "",
         "mta_authserv_id": "",
         "tls_hostname": a.hostname,
+        # NEW-DIN-3 (D-579): the first-run page's answer, once it has the field; empty: the wizard decides and warns
+        "chartno_rule": getattr(a, "chartno_rule", ""),
         "tls_mode": "internal",  # the box's default; the hospital's certificate is IT's optional step (one page, T-735)
         "retention_rules": retention_rules(a.tz),
         "ctgov_mode": "offline",
