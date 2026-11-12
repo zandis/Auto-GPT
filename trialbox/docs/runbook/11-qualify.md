@@ -11,7 +11,11 @@ that card's profile. G1b runs through this command. It costs nothing by itself: 
    record taken on the box names its sha256 (`chat_template_sha256`).
 2. The working tree is clean at the commit you want to qualify.
 3. Have these at hand:
-   - the two weight folders (for the licence file check);
+   - the two weight folders (for the licence file check). A build whose source holds no licence file (the
+     registry says `licence_file: none-in-source`; today the judge) is checked against its licence register row,
+     and its folder stays as published: put the licence text beside it, in `deploy/models/licences/<folder>/LICENSE`
+     (never into the weight folder: the pin is the digest of every file there). This holds for the flat
+     `deploy/models/<folder>` layout; beside a model cache's snapshot the text is not looked for (D-565);
    - the model servers' log files, for example `docker logs <server> > /tmp/judge.log 2>&1`;
    - the gateway's audit folder;
    - the result files of the three evidence steps, each written at the same commit: N-12 (`tools/trec_ct_eval.py`),
