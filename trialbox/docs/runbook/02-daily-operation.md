@@ -9,6 +9,7 @@
 | 05:00 | RETENTION: attachments 90 days, outputs 365 days, mail logs by country | `retention_<date>.json` |
 | 07:00, 07:30 | morning mail N1 (coordinator) and N2 (investigator), console timers | Notices received |
 | Mon 03:00, 03:30 | MICROBATCH and NAV per ruleset | mail |
+| Mon 06:00 | the weekly PI sample of ten "criteria not matched" patients per study (orchestrator, `schedule.not_matched_sample`; D-446) | `notmatched.sample` in the audit |
 | 1st of the month 05:30 | CALIBRATION | `calibration.json` |
 | quarterly 04:00 | COHORT tables | mail |
 
@@ -18,6 +19,11 @@ administrator's Jobs page, or `docker compose exec orchestrator` with the operat
 
 `TB_IRB_TEXT_GATE` (D-395): the whole-hospital candidate pages wait for the study's IRB-text record. `auto` (default)
 is on in VALIDATION and PRODUCTION; `on` forces it in DEV or TEST; `off` is refused in VALIDATION and PRODUCTION.
+
+`TB_NOT_MATCHED_GATE` (D-446): a study's "criteria not matched" list and its weekly sample wait for the data
+steward's record that the site's check (the dry run) passed (`/studies/{rs}/not-matched/check`). `auto` (default) is
+on in VALIDATION and PRODUCTION; `on` forces it in DEV or TEST; `off` is refused in VALIDATION and PRODUCTION. Set it
+the same for the console and the orchestrator.
 
 ## Logs (D-138)
 

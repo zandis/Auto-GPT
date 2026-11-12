@@ -39,7 +39,22 @@ from tb_common.http import EgressGuard, EgressRefused, GuardedTransport
 from console.auth import ROLES
 
 ALGS = ("RS256", "ES256")
-MFA_AMR = frozenset({"mfa", "otp", "hwk", "swk", "pop", "sc", "fido"})  # RFC 8176 values that are a second factor
+# D-447 (CR-118, "generous AMR set"): the provider reports a second factor when ``amr`` says ``mfa`` (RFC 8176: more
+# than one factor), or names factors of two different kinds (something known, something held, something one is).
+# One value alone (``swk``, ``pop``, ``otp`` without a password) no longer counts. Authelia's two-factor sign-ins are
+# expected to say ``mfa`` (not yet checked against a running Authelia; RUNBOOK §12 asks for one sign-in at IQ).
+MFA_AMR = "mfa"
+AMR_KNOW = frozenset({"pwd", "pin", "kba"})
+AMR_HAVE = frozenset({"otp", "hwk", "swk", "sc", "sms", "tel", "pop"})
+AMR_ARE = frozenset({"fpt", "face", "iris", "retina", "vbm", "bio"})
+
+
+def reports_mfa(amr: tuple[str, ...] | list[str]) -> bool:
+    """True when an ID token's ``amr`` shows two factors (D-447)."""
+    got = set(amr)
+    return MFA_AMR in got or sum(bool(kind & got) for kind in (AMR_KNOW, AMR_HAVE, AMR_ARE)) >= 2
+
+
 SKEW = 120  # seconds of clock difference tolerated for exp/iat
 FRESH_SKEW = 30  # seconds a fresh authentication (T-205) may seem to precede the round trip that asked for it
 
@@ -271,7 +286,7 @@ class OidcClient:
             mail = info.get("email") if mail is None else mail
         amr = claims.get("amr")
         amr_t = tuple(a for a in amr if isinstance(a, str)) if isinstance(amr, list) else ()
-        if (self.settings.require_mfa or fresh_since is not None) and not (MFA_AMR & set(amr_t)):
+        if (self.settings.require_mfa or fresh_since is not None) and not reports_mfa(amr_t):
             raise OidcError("the identity provider did not report a second factor")
         auth_time = claims.get("auth_time")
         at = float(auth_time) if isinstance(auth_time, int | float) and not isinstance(auth_time, bool) else None

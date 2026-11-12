@@ -54,6 +54,18 @@ sign-in: five failures in 15 minutes lock the account for 15 minutes, and the lo
   `TB_CONSOLE_SECURE_COOKIE=0` is refused in PRODUCTION.
 - The trusted-header SSO (`TB_CONSOLE_SSO_HEADER`, D-93) runs only with TOTP off (DEV, TEST) and OIDC off, never signs
   in a local account, and Caddy strips identity headers from every request: a hospital uses the OIDC sign-in below.
+- **Passwords** (D-447): at least 12 characters, not one of the account's last five, and not on the box's
+  breached-password list. The list is a file the operator provides, because the box has no network: download the
+  Have I Been Pwned "Pwned Passwords" SHA-1 file ordered by hash (CC BY 4.0; tens of GB) or another sorted list of
+  SHA-1 hashes where the network is, copy it to the box (for example `deploy/secrets/breached/pwned-sha1.txt`, mounted
+  read-only into the console) and set `TB_CONSOLE_BREACHED_PASSWORDS_FILE` to its path in the container. Lines are
+  `HASH` or `HASH:count`, sorted; a shorter file of hash prefixes (every line the same length, at least 10 hex
+  digits) also works. The file is searched in place, never loaded. A configured file that cannot be read refuses
+  every new password (the console log says why) until it is fixed. Without the setting nothing is checked: record
+  the choice in the install checklist. TrialBox ships no list.
+- **`trialbox doctor`** fails in PRODUCTION and VALIDATION (check `console_mfa`) when a way into the console asks for
+  no second factor: `TB_CONSOLE_MFA` other than `totp`, OIDC with `TB_OIDC_REQUIRE_MFA=0` (the console refuses it
+  too), or a trusted identity header (`TB_CONSOLE_SSO_HEADER`).
 - The TOTP secrets are stored encrypted, with the key `totp.key` on the `console-data` volume, not in the database.
   Back up both; with the database but without the key, every person sets up a new authenticator (an administrator
   resets them all).
@@ -77,8 +89,11 @@ sign-in: five failures in 15 minutes lock the account for 15 minutes, and the lo
 Only the groups in `TB_OIDC_GROUP_ROLES` give a role. A person in no mapped group, or in groups that map to two
 different roles, is refused, and the refusal is audited (`console.login_failed`, `via: oidc`); a `role` claim or any
 other group is ignored. The role is read again at every sign-in, so removing someone from a group takes effect at
-their next sign-in. Authelia asks for the second factor (TOTP or a security key), and the console refuses a sign-in
-the provider did not report as two-factor. A hospital account never takes over a local account of the same name.
+their next sign-in. Authelia asks for the second factor (TOTP or a security key, WebAuthn), and the console refuses a
+sign-in the provider did not report as two-factor: `amr` must say `mfa` or name two kinds of factor (for example
+`pwd` and `hwk`); one value alone, such as `swk` or `hwk` without user verification, is not enough (D-447). WebAuthn
+is offered through Authelia only: a person who wants a security key signs in with the hospital account; local
+accounts use TOTP. A hospital account never takes over a local account of the same name.
 Sign-out also signs out of Authelia. Add the `authelia-data` volume to the backup (the authenticators registered by
 directory users). Authelia's OIDC provider is certified but still called beta by its makers (D-192).
 
