@@ -22,9 +22,22 @@
   refused over HTTP from every caller: the scheduler starts its jobs in process. The old shared token reaches the
   orchestrator only in DEV and TEST. Refusals are 403 `route_not_allowed`, `caller_unverified` or
   `internal_principal` (header `X-TB-Refusal`), audited as `service.route_refused` with the verified service. The
-  table decides which service, not which person: the body `by` of the study, data, lifecycle, set-up and sponsor
-  routes is T-715's. Tests: `tests/unit/test_orchestrator_callers.py` (the route walk; a new route fails it until it
-  is placed).
+  table decides which service, not which person (the next item). Tests: `tests/unit/test_orchestrator_callers.py`
+  (the route walk; a new route fails it until it is placed).
+- **The person of a changing orchestrator route** (D-483, T-715; review 2026-11-12 trust F2).
+  `services/orchestrator/route_actors.yaml` puts every route group with a changing route in one stage. `refuse`
+  (the lifecycle and sponsor routes): the route has `require_actor(<action>)` (`orchestrator/actor.py`), which
+  takes the person from a v3 assertion (`tb_common/actor_v3.py`: the verified account, its role, one study, its
+  standing from the delegation log, the matrix action, the request, the body's hash, a nonce) that the console
+  mints in one place (`console/actor.py`, after `permit`), checks that it is for this action, this study, this
+  request and this body, and asks the matrix again; no field of the body names a person. A refusal is 403 with
+  code `ACTOR` and a reason, audited `actor.refused`. `report` (study, data core, site set-up, registry): the
+  person is still the body's `by`; a changing call without a verified person is counted
+  (`orchestrator.actor.UNSIGNED`), logged and audited (`actor.unsigned`) once per route and reason; a
+  participant's step such a route derives names the verified person or `unverified`. `v2` (jobs, reveal, export, notices, EDC): the
+  handler verifies the older assertion. `no_person`: two groups with their reasons. The service does not start
+  when a changing route is in no stage or has the wrong dependency. Tests: `tests/unit/test_actor_routes.py`,
+  `tests/unit/test_actor_v3.py`, `tests/console/test_actor_v3_box.py`.
 - **The administrator's retry of a failed nightly job** (D-474, T-746). `POST /jobs/{job_id}/retry` (group
   `job_retry_scheduled`, the console only; the mail gateway and the operator token are refused by the route gate)
   runs a failed job of the box's own scheduler again (every type of `scheduler.plan`). The orchestrator checks the

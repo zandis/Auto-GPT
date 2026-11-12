@@ -15,6 +15,7 @@ from typing import Any
 from xml.etree import ElementTree as ET
 
 import pytest
+from console.backend import read_audit
 from console.entry_pages import can_enter, record_key, why
 from console.i18n import CATALOGUES
 from console.i18n_entry import EN as DE_EN
@@ -282,3 +283,26 @@ def test_helpers() -> None:
     assert record_key(" gzqo-0001 ") == "GZQO-0001" and record_key("AB" * 16) == "ab" * 16
     assert why("ja", {"field": "x", "code": "max", "max": "400"}, {"x": "体重"}) == "体重: 400 以下にしてください。"
     assert why("en", {"field": "x", "code": "???"}, {}) == "This value was refused."
+
+
+def test_a_ticked_investigator_saves_a_lifecycle_form(dcb: dict[str, Any]) -> None:
+    """T-715 review H1: an investigator the PI ticked "enter data" for saves a form that moves the participant. The
+    follow-up refresh of the participants is the coordinator's (``study.setup``); the investigator's save must not
+    answer 403 after the data is stored, and no false ``console.denied`` is written."""
+    sub_investigator(dcb, "pi", tasks=("screen", "enter_data"))
+    (no,) = _numbers(dcb, 1)
+    c, csrf = login(dcb["app"], "crc", PW)
+    _builtin(c, csrf)
+    u, ucsrf = login(dcb["app"], "pi", PW)
+
+    def denied() -> list[Any]:
+        return [x for x in read_audit(dcb["dir"] / "audit") if x.event == "console.denied"]
+
+    before = len(denied())
+    r = _save(u, ucsrf, no, "tb_consent", {"ic_date": "2026-11-02", "ic_version": "v2.1", "ic_copy": "1"})
+    assert r.status_code == 200, r.text[-300:]
+    assert dcb["dc"].record("GZQO", no)["ic_version"] == "v2.1"
+    assert len(denied()) == before
+    # the entry call itself carried the investigator's signed claim for `task.enter_data`
+    entry = [c_ for c_ in dcb["calls"] if c_[0] == "POST" and "/entry/" in c_[1]]
+    assert entry and all("by" not in (c_[2] or {}) or c_[2]["by"] == "console:pi" for c_ in entry)

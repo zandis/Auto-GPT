@@ -78,6 +78,18 @@ CREATE TABLE IF NOT EXISTS pid_alias (
   merged_at TEXT NOT NULL
 )
 """,
+    # T-723 (D-489): a night's chart numbers wait here until the night is published (it passed the gate, or a
+    # steward accepted it); a held night's never reach the reverse map. Encrypted as the map's own rows are
+    """
+CREATE TABLE IF NOT EXISTS pending (
+  snapshot TEXT NOT NULL,
+  key_id TEXT NOT NULL,
+  pid TEXT NOT NULL,
+  mrn BYTEA NOT NULL,
+  blob BYTEA,
+  PRIMARY KEY (snapshot, key_id, pid)
+)
+""",
 )
 
 
@@ -89,6 +101,23 @@ def pseudonym(site_key: bytes, chart_no: str) -> tuple[str, str]:
     """``(pid, chart number written the site's way)``: the pair the map stores."""
     norm = chartno.normalise(None, chart_no)
     return pid_for_mrn(site_key, norm), norm
+
+
+class PidCollision(ValueError):
+    """One pseudonym for two different chart numbers: two patients under one name (D-591). Nothing is stored."""
+
+
+def _one_per_pid(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """One row per pseudonym, the first kept: two spellings of one chart number (R-48) are one patient. One
+    pseudonym for two different chart numbers is refused (D-591), with no chart number in the message. Whether
+    two spellings are one number is asked of ``chartno.same_number``, which does not go through the normaliser
+    the pseudonym was made with: a fault there (two numbers made one) is caught here."""
+    first: dict[str, tuple[str, str]] = {}
+    for pid, mrn in pairs:
+        kept = first.setdefault(pid, (pid, mrn))
+        if kept[1] != mrn and not chartno.same_number(None, kept[1], mrn):
+            raise PidCollision(f"one pseudonym for two chart numbers ({pid[:8]}…): the batch is not stored")
+    return list(first.values())
 
 
 def _follow(raw: Mapping[str, str], pid: str) -> str:
@@ -173,8 +202,7 @@ class PidMap:
         return str(row[0]) if row is not None else None
 
     def upsert_many(self, pairs: list[tuple[str, str]]) -> int:
-        # one row per pseudonym: two spellings of one chart number (R-48) are one patient; the first is kept
-        pairs = list({pid: (pid, mrn) for pid, mrn in reversed(pairs)}.values())[::-1]
+        pairs = _one_per_pid(pairs)
         now = datetime.now(UTC).isoformat(timespec="seconds")
         with self._db.transaction() as tx:
             existing = {r[0] for r in tx.fetchall("SELECT pid FROM pid_map WHERE key_id = ?", (self.key_id,))}
@@ -189,6 +217,65 @@ class PidMap:
                 [(now, self.key_id, p) for p, _ in pairs if p in existing],
             )
         return len(new)
+
+    # ------------------------------------------------------------------ staging (T-723, D-489; lifecycle F-12)
+    def stage(self, snapshot: str, pairs: list[tuple[str, str]], identities: list[tuple[str, dict[str, str]]]) -> int:
+        """Keep a night's (pid, chart number) pairs and identities aside, in place of an earlier staging of the
+        same night. The reverse map (:meth:`resolve`) does not know them until :meth:`commit`."""
+        ident = dict(identities)
+        rows = [
+            (
+                snapshot,
+                self.key_id,
+                pid,
+                aes_encrypt(self.key, chartno.normalise(None, mrn).encode(), pid.encode()),
+                aes_encrypt(self.key, json.dumps(ident[pid], ensure_ascii=False, sort_keys=True).encode(), pid.encode())
+                if pid in ident
+                else None,
+            )
+            for pid, mrn in _one_per_pid(pairs)
+        ]
+        with self._db.transaction() as tx:
+            tx.execute("DELETE FROM pending WHERE snapshot = ? AND key_id = ?", (snapshot, self.key_id))
+            tx.executemany("INSERT INTO pending (snapshot, key_id, pid, mrn, blob) VALUES (?,?,?,?,?)", rows)
+        return len(rows)
+
+    def commit(self, snapshot: str) -> int:
+        """The night is published: its staged rows enter the map (a pid the map knows keeps its first chart number,
+        its ``last_seen`` moves; an identity replaces the stored one) and leave the staging, in one transaction.
+        Returns the pids new to the map. Nothing staged: 0 (a second call, a night with no patient table)."""
+        now = datetime.now(UTC).isoformat(timespec="seconds")
+        with self._db.transaction() as tx:
+            new = tx.execute(
+                "INSERT INTO pid_map (key_id, pid, mrn, first_seen, last_seen) SELECT key_id, pid, mrn, ?, ? "
+                "FROM pending WHERE snapshot = ? AND key_id = ? ON CONFLICT (key_id, pid) DO NOTHING",
+                (now, now, snapshot, self.key_id),
+            )
+            tx.execute(
+                "UPDATE pid_map m SET last_seen = ? FROM pending p WHERE p.snapshot = ? AND p.key_id = ? "
+                "AND m.key_id = p.key_id AND m.pid = p.pid",
+                (now, snapshot, self.key_id),
+            )
+            tx.execute(
+                "INSERT INTO identity (key_id, pid, blob) SELECT key_id, pid, blob FROM pending WHERE snapshot = ? "
+                "AND key_id = ? AND blob IS NOT NULL ON CONFLICT (key_id, pid) DO UPDATE SET blob = excluded.blob",
+                (snapshot, self.key_id),
+            )
+            tx.execute("DELETE FROM pending WHERE snapshot = ? AND key_id = ?", (snapshot, self.key_id))
+        return int(new)
+
+    def staged(self) -> dict[str, int]:
+        """``night -> staged pids`` (counts only)."""
+        rows = self._db.fetchall(
+            "SELECT snapshot, count(*) FROM pending WHERE key_id = ? GROUP BY snapshot", (self.key_id,)
+        )
+        return {str(s): int(n) for s, n in rows}
+
+    def discard(self, keep: set[str]) -> int:
+        """Delete the staged rows of every night not in ``keep`` (a rejected night, a night replaced by a later
+        run); returns the rows deleted."""
+        with self._db.transaction() as tx:
+            return int(tx.execute("DELETE FROM pending WHERE NOT (snapshot = ANY(?))", (sorted(keep),)))
 
     def upsert_identity(self, rows: list[tuple[str, dict[str, str]]]) -> None:
         with self._db.transaction() as tx:
@@ -284,9 +371,20 @@ class PidMap:
                 "INSERT INTO identity (key_id, pid, blob) VALUES (?,?,?) ON CONFLICT (key_id, pid) DO NOTHING",
                 [(new_id, pid, again(pid, blob)) for pid, blob in ids],
             )
+            # T-723 review: a night that waits (held, or between the gate and its publish) is staged under the old
+            # key; without this its rows were invisible to ``commit`` and the published patients could not be resolved
+            staged = tx.fetchall("SELECT snapshot, pid, mrn, blob FROM pending WHERE key_id = ?", (self.key_id,))
+            tx.execute("DELETE FROM pending WHERE key_id = ?", (self.key_id,))
+            tx.executemany(
+                "INSERT INTO pending (snapshot, key_id, pid, mrn, blob) VALUES (?,?,?,?,?)",
+                [
+                    (snap, new_id, pid, again(pid, mrn), again(pid, ident) if ident is not None else None)
+                    for snap, pid, mrn, ident in staged
+                ],
+            )
             tx.execute("DELETE FROM pid_map WHERE key_id = ?", (self.key_id,))
             tx.execute("DELETE FROM identity WHERE key_id = ?", (self.key_id,))
-            moved = len(rows) + len(ids)
+            moved = len(rows) + len(ids) + len(staged)
         self.key, self.key_id = new_key, new_id
         return moved
 

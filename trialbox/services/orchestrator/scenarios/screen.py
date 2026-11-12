@@ -19,13 +19,22 @@ from matching.coverage import unknown_system_counts
 from tb_common.authz import norm
 from tb_common.kek import key_present
 from tb_common.llm import LlmError, LlmPromptUnqualified, load_prompt
+from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
 from tb_common.subject import job_subject
 from tb_common.timeutil import add_months
+from tb_common.verdict_word import shown_of
 from tb_contracts import CandidateList, CandidateRow, Judging, Routing, ScreenRunScope, TierSummary, dump
 
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_language, job_stamp
+from orchestrator.decision_context import (
+    NO_CONTACT_ACTION,
+    REFUSED_REASON,
+    configured_note_block,
+    decision_of,
+    note_block_of,
+)
 from orchestrator.i18n import population_line, t
 from orchestrator.reports import candidate_xlsx, screen_summary_pdf
 from orchestrator.reports.common import ReportMeta
@@ -38,8 +47,7 @@ from orchestrator.scenarios.evaluate import (
     engine_from_env,
     evaluate_patients,
     is_note_answer,
-    note_block_policy,
-    note_block_why,
+    not_in_snapshot,
     row,
     sort_key,
 )
@@ -117,10 +125,12 @@ class ScreenRun:
         return "cascade" if self.cascade else "v1"
 
 
-def judging_info(judge: NoteJudge | None) -> dict[str, Any]:
+def judging_info(judge: NoteJudge | None, ctx: Any = None) -> dict[str, Any]:
     """How note criteria were judged on this run: models, agreement mode, and whether a note answer could exclude
-    (D-97). Aggregate metadata: goes into the candidate list, the summary PDF, the done mail and the console."""
-    may_block, policy, reason, code = note_block_why(judge)
+    (D-97). Aggregate metadata: goes into the candidate list, the summary PDF, the done mail and the console.
+    ``ctx``: the job, so the record says the decision the job ran under (D-477); None for a caller with no job."""
+    nb = note_block_of(judge, ctx)
+    may_block, policy, reason, code = nb.may_block, nb.policy, nb.reason, nb.code
     return {
         "mode": judge.mode if judge is not None else "none",
         "judge_model": judge.llm.model if judge is not None else None,
@@ -128,7 +138,7 @@ def judging_info(judge: NoteJudge | None) -> dict[str, Any]:
         "note_block": policy,
         "note_block_reason": reason,
         "note_block_code": code,
-        "configured_note_block": note_block_policy(),
+        "configured_note_block": configured_note_block(),
         "may_block": may_block,
         "disagreements": judge.disagreements if judge is not None else 0,
         "failures": judge.failures if judge is not None else 0,
@@ -182,36 +192,15 @@ def drop_opted_out(ctx: Ctx, scoped: list[Scoped]) -> list[Scoped]:
     """D-147: patients on the research office's opt-out register (``tb_common.optout``) are never screened. The
     register is read as it stood when the job was received, so a re-run of an old job stays byte-identical (D-82).
     The removal is audited by count (who opted out is itself private)."""
-    from tb_common.optout import opted_out
-
-    gone = opted_out(as_of=ctx.job.received_at.isoformat())
-    kept = [s for s in scoped if s.pid not in gone]
-    if len(kept) != len(scoped):
-        ctx.orch.audit.append(
-            "screen.opt_out_removed",
-            job_id=ctx.job.job_id,
-            ruleset=ctx.job.ruleset,
-            detail={"removed": len(scoped) - len(kept), "register": "optout"},
-        )
-    return kept
+    gone = decision_of(ctx).drop([s.pid for s in scoped], "screen.opt_out_removed")
+    return [s for s in scoped if s.pid not in gone]
 
 
 def opted_out_now(ctx: Ctx, pids: Iterable[str], where: str) -> frozenset[str]:
     """D-441 (review MED-3): the register read again, as it stands now, just before a run publishes or stores its
     lists: a patient who opted out while the run was going (or before a re-run of an old job) leaves its files, its
     mail and the pool. The scope read (:func:`drop_opted_out`) stays as of the job's receipt. Audited by count."""
-    from tb_common.optout import opted_out
-
-    want = set(pids)
-    gone = frozenset(opted_out() & want) if want else frozenset()
-    if gone:
-        ctx.orch.audit.append(
-            "screen.opt_out_at_publish",
-            job_id=ctx.job.job_id,
-            ruleset=ctx.job.ruleset,
-            detail={"removed": len(gone), "where": where, "register": "optout"},
-        )
-    return gone
+    return decision_of(ctx).drop_now(pids, "screen.opt_out_at_publish", where=where)
 
 
 def local_iso(value: object, tz: str) -> str | None:
@@ -302,12 +291,7 @@ def scores_unverified(ctx: Ctx, rs: Ruleset, snapshot: str) -> bool:
 
 
 def threshold(ctx: Ctx, rs: Ruleset) -> float:
-    m, s = rs.manifest, ctx.cfg.settings
-    if m.thresholds and m.thresholds.tier_high_confidence is not None:
-        return float(m.thresholds.tier_high_confidence)
-    if s.thresholds and s.thresholds.tier_high_confidence is not None:
-        return float(s.thresholds.tier_high_confidence)
-    return 0.75
+    return decision_of(ctx).threshold(rs)
 
 
 def small_cell(ctx: Ctx, rs: Ruleset) -> int:
@@ -484,6 +468,7 @@ def evaluate_scope(
         threshold(ctx, rs),
         only=only,
         all_candidates=all_candidates,
+        note_block=decision_of(ctx).note_block(judge).may_block,
     )
     check_judge(judge)
     tiers = {t: sum(1 for v in res.values() if v.tier == t) for t in ("high", "review", "excluded")}
@@ -501,7 +486,7 @@ def evaluate_scope(
             "patients": len(scoped),
             "only": sorted(only) if only else None,
             "tiers": tiers,
-            "judging": judging_info(judge),
+            "judging": judging_info(judge, ctx),
         },
     )
     if judge is not None:
@@ -512,6 +497,28 @@ def evaluate_scope(
             tokens_out=(m.tokens_out if m else 0) + judge.tokens_out,
         )
     return res
+
+
+def screen_v1(
+    ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str, scoped: list[Scoped], judge: NoteJudge | None
+) -> dict[str, PatientVerdicts]:
+    """SCREEN and MICROBATCH's new patients on the v1 evaluator, with the consent rule the cascade's S0 applies
+    (D-477, review M2 and M1b): a patient whose latest statement refuses research use is out of scope and not
+    evaluated; one whose latest statement denies contact is evaluated and never listed."""
+    d = decision_of(ctx)
+    refused, no_contact = d.refused(), d.no_contact()
+    res = evaluate_scope(ctx, rs, run_date, snapshot, [s for s in scoped if s.pid not in refused], judge=judge)
+    out: dict[str, PatientVerdicts] = {}
+    for s in scoped:
+        if s.pid in refused:
+            pv = not_in_snapshot(rs, s.pid, reason=Reason.NOT_EVALUATED)
+            out[s.pid] = PatientVerdicts(s.pid, pv.verdicts, "excluded", [REFUSED_REASON], pv.n_unknown)
+            continue
+        pv = res[s.pid]
+        if s.pid in no_contact and pv.tier != "excluded":
+            pv = PatientVerdicts(s.pid, pv.verdicts, "excluded", [*pv.actions, NO_CONTACT_ACTION], pv.n_unknown)
+        out[s.pid] = pv
+    return out
 
 
 def study_scope(ctx: Ctx, ruleset: str) -> dict[str, Any] | None:
@@ -581,10 +588,11 @@ def run_screen(
     chosen = select is not None or given is not None
     if chosen and not scoped:  # nobody to evaluate: no model call, no audit of an empty run
         return ScreenRun(
-            rs, run_date, snapshot, [], {}, [], list(practitioners or []), depts, window, judge, judging_info(judge),
+            rs, run_date, snapshot, [], {}, [], list(practitioners or []), depts, window, judge,
+            judging_info(judge, ctx),
             whole_hospital=practitioners is None,
         )  # fmt: skip
-    judging = judging_info(judge)
+    judging = judging_info(judge, ctx)
     cascade: dict[str, Any] | None = None
     s2b_sources: dict[str, dict[str, Any]] | None = None
     if pipeline() == "cascade":  # D-103: the v4 cascade is the screening engine
@@ -621,8 +629,8 @@ def run_screen(
             },
         )
     else:
-        results = evaluate_scope(ctx, rs, run_date, snapshot, scoped, judge=judge)
-        judging = judging_info(judge)  # after the run: its disagreements and failures, as the cascade path does
+        results = screen_v1(ctx, rs, run_date, snapshot, scoped, judge)
+        judging = judging_info(judge, ctx)  # after the run: its disagreements and failures, as the cascade path does
     # T-514 (D-362, review UX-008): each coded answer carries the record's value, unit, date and code for the person
     # who checks it; display only, after every answer is decided
     coded_values.attach(
@@ -721,7 +729,7 @@ def excluded_doc(ctx: Ctx, run: ScreenRun) -> dict[str, Any]:
         failing = [
             {"id": v.id, "source": source(v), **(v.evidence.model_dump(mode="json", exclude_none=True)
                                                  if v.evidence is not None else {})}
-            for v in r.criteria if v.verdict == "fail"
+            for v in r.criteria if shown_of(v)[0] == "fail"  # D-478: an answer that could not exclude is no reason
         ]  # fmt: skip
         rows.append({"pid": r.pid, "criteria": failing, "actions": list(r.actions)})
     return {"ruleset": run.rs.id, "version": run.rs.version, "run_date": run.run_date.isoformat(),

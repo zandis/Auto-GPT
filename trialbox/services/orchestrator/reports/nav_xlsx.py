@@ -8,6 +8,7 @@ from collections.abc import Mapping
 
 from tb_common.deterministic import normalize_ooxml
 from tb_common.ruleset import Ruleset
+from tb_common.verdict_word import shown_of
 from tb_contracts import NavRow
 
 from orchestrator.reports.common import ReportMeta
@@ -61,7 +62,7 @@ def render(
                     practitioners.get(r.practitioner_id or "", r.practitioner_id or ""),
                     r.approval_end.isoformat() if r.approval_end else "",
                 ]
-                + [SHOWN[by_id[c.id].verdict] if c.id in by_id else "" for c in crit]
+                + [SHOWN[shown_of(by_id[c.id])[0]] if c.id in by_id else "" for c in crit]
                 + [
                     "; ".join(m.item for m in r.missing or []),
                     "; ".join(m.suggested_order for m in r.missing or [] if m.suggested_order),

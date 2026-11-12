@@ -1,5 +1,5 @@
 # TrialBox supply chain, lock side (trialbox/docs/SECURITY.md §8; DECISIONS D-185, D-186). On every pull request
-# touching trialbox/ and weekly: the hashed lock is current and complete, the allow-list is valid, pip-audit (from a
+# touching what it reads (the locks, deploy/, the gate code and its tests; D-578) and weekly: the hashed lock is current and complete, the allow-list is valid, pip-audit (from a
 # hashed lock) passes the gate, the lock's SBOM (Syft over an environment installed from the lock) passes the
 # licence gate, and the gate tests pass. No images: trialbox-images.yml scans those.
 # Every action is pinned to a commit (tag in the comment); Syft and Trivy come with pinned sha256
@@ -8,9 +8,21 @@ name: TrialBox supply chain
 
 on:
   pull_request:
+    # D-578: what the job reads, not all of trialbox/ (362 runs on 2026-11-12, nearly all on changes it cannot see).
+    # tests/unit/test_supply_chain.py also runs with the unit tests; new advisories are the weekly run's.
     paths:
-      - "trialbox/**"
-      - ".github/workflows/trialbox-supply-chain.yml"
+      - "trialbox/uv.lock"
+      - "trialbox/pyproject.toml"
+      - "trialbox/deploy/**"
+      - "trialbox/tools/supply_chain/**"
+      - "trialbox/tools/make_bundle.sh"
+      - "trialbox/Makefile"
+      - "trialbox/.dockerignore"
+      - "trialbox/demo/**"
+      - "trialbox/README.md"
+      - "trialbox/tests/unit/test_supply_chain.py"
+      - "trialbox/tests/fixtures/supply_chain/**"
+      - ".github/workflows/trialbox-*.yml"
   schedule:
     - cron: "17 3 * * 1"
   workflow_dispatch:
@@ -19,7 +31,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: trialbox-supply-chain-${{ github.ref }}
+  group: trialbox-supply-chain-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

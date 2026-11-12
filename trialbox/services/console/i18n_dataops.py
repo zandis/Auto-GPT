@@ -57,6 +57,8 @@ EN: dict[str, str] = {
     "dataops.err.decision": "Choose accept or reject.",
     "dataops.err.state": "That night is no longer held.",
     "dataops.err.promote": "The night could not be published, so it stays held. Nothing was changed.",
+    "dataops.err.publishing": "The publishing of this night was started and its end is not known. "
+    "Accept the night again to finish it. It can no longer be rejected.",
     "dataops.err.store": "The trial database cannot be reached. Try again later or ask the administrator.",
     "dataops.batch.title": "Night {snapshot} · {source} · attempt {attempt}",
     "dataops.steps.title": "Trail",
@@ -119,6 +121,8 @@ JA: dict[str, str] = {
     "dataops.err.decision": "承認か却下を選んでください。",
     "dataops.err.state": "その取り込みはもう保留されていません。",
     "dataops.err.promote": "取り込みを公開できなかったため、保留のままです。何も変更されていません。",
+    "dataops.err.publishing": "この取り込みの公開は開始されましたが、完了を確認できていません。"
+    "もう一度承認して完了させてください。却下はできなくなりました。",
     "dataops.err.store": "治験データベースに接続できません。時間をおいて再度試すか、管理者に連絡してください。",
     "dataops.batch.title": "{snapshot} の取り込み · {source} · {attempt} 回目",
     "dataops.steps.title": "履歴",
@@ -181,6 +185,7 @@ ZH: dict[str, str] = {
     "dataops.err.decision": "請選擇接受或駁回。",
     "dataops.err.state": "該匯入已不在暫停狀態。",
     "dataops.err.promote": "無法發布這一晚的匯入，因此仍維持暫停。沒有任何變更。",
+    "dataops.err.publishing": "這一晚的匯入已開始發布，但尚未確認是否完成。請再次接受以完成發布。已無法駁回。",
     "dataops.err.store": "無法連線至試驗資料庫。請稍後再試或聯絡管理員。",
     "dataops.batch.title": "{snapshot} 的匯入 · {source} · 第 {attempt} 次",
     "dataops.steps.title": "紀錄",

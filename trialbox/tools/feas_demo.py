@@ -30,6 +30,7 @@ import re
 import secrets
 import shutil
 import sys
+from collections.abc import Mapping, MutableMapping
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -144,6 +145,31 @@ def shift_dates(folder: Path, days: int) -> int:
     return moved
 
 
+SITE_LANG_ENV = "TB_DEMO_SITE_LANG"  # DEMO-JA: the language of the demo hospital's records and notes
+SITE_LANGS = ("ja", "zh-TW")
+
+
+def site_profile(profile: str, environ: Mapping[str, str] | None = None) -> str:
+    """DEMO-JA: the ``ci`` hospital (a Japanese and a Taiwanese campus) in one language when ``TB_DEMO_SITE_LANG`` is
+    ``ja`` (both campuses Japanese-style: ``ci-ja``) or ``zh-TW`` (``ci-zh-TW``); unset keeps both campuses. Other
+    profiles have one language already and are kept."""
+    value = str((os.environ if environ is None else environ).get(SITE_LANG_ENV) or "").strip()
+    if profile != "ci" or not value:
+        return profile
+    if value not in SITE_LANGS:
+        raise SystemExit(f"{SITE_LANG_ENV}={value!r}: use ja or zh-TW (unset: both campuses)")
+    return f"ci-{value}"
+
+
+def stub_reads_site_lang(environ: MutableMapping[str, str] | None = None) -> None:
+    """DEMO-JA: on the Japanese site (``TB_DEMO_SITE_LANG=ja``) the stub model also reads the Japanese notes
+    (``llm_stub.handlers.NOTE_LANGS_ENV``); without it no GZQO note criterion could pass and every patient would be
+    "review". A value set by hand is kept."""
+    env = os.environ if environ is None else environ
+    if str(env.get(SITE_LANG_ENV) or "").strip() == "ja":
+        env.setdefault("TB_LLM_STUB_NOTE_LANGS", "zh-TW,ja")
+
+
 def build(work: Path) -> tuple[Any, Any, Path, dict[str, Any]]:
     """The demo's box on the ``ci`` hospital (tools.complete_run wraps this one-argument form)."""
     return build_site(work)
@@ -161,9 +187,10 @@ def build_site(
     from tools.role_demo import orch_client
     from tools.synth_hospital import run as synth_run
 
+    stub_reads_site_lang()
     synth = work / "synth"
     if not (synth / "summary.json").exists():
-        res = synth_run(synth, profile=profile, ref_date=REF)
+        res = synth_run(synth, profile=site_profile(profile), ref_date=REF)
         if not res.passed:
             raise SystemExit("synthetic hospital checks failed:\n" + "\n".join(res.failures))
     summary = json.loads((synth / "summary.json").read_text(encoding="utf-8"))
@@ -200,6 +227,7 @@ def reopen_site(work: Path, settings_update: dict[str, Any] | None = None) -> tu
 
     if not (work / "lake").exists() or not (work / "box" / "repo").exists():
         raise SystemExit(f"{work} holds no seeded demo to keep; start once without --keep")
+    stub_reads_site_lang()
     box = make_box(work / "box", work / "lake", work / "sec", REF + timedelta(days=1), settings_update=settings_update)
     orch_app._orch = box.orch
     return box, orch_client(orch_app.app), work / "box" / "repo"

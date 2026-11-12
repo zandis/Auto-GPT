@@ -175,6 +175,14 @@ class JobDB:
         with self._db.transaction() as tx:
             yield tx
 
+    @contextmanager
+    def locked(self, name: str) -> Iterator[None]:
+        """Hold the lock ``name`` to the end of the block: one holder at a time over every process of the box (an
+        advisory lock of one transaction, so a holder that dies releases it). T-704 (D-458): the night's allowance."""
+        with self.tx() as tx:
+            tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (name,))
+            yield
+
     # ------------------------------------------------------------------ identifier caps (T-103, D-438)
     def take_limit(self, kind: str, who: str, at_ms: int, window_ms: int, limit: int) -> bool:
         """One capped use of ``kind`` by ``who``: in one transaction, serialised per kind and person, count the uses
@@ -247,10 +255,76 @@ class JobDB:
         rows = self._db.fetchall(sql, [*args, limit])
         return [Job.model_validate_json(r[0]) for r in rows]
 
-    def claim(self) -> str | None:
+    # ------------------------------------------------------------------ the night's chain (T-726, D-492)
+    def scheduler_jobs(
+        self,
+        *,
+        type_: str | None = None,
+        ruleset: str | None = None,
+        night: str | None = None,
+        step: str | None = None,
+        night_day_from: str | None = None,
+        received_from: str | None = None,
+        unfinished: bool = False,
+    ) -> list[Job]:
+        """The scheduler's own jobs, oldest first: of one type and study (``ruleset=""``: the box-wide ones), of
+        one night (``options.night``), of one step of the chain (``options.step``; ``""``: jobs that carry none,
+        made before the chain), of nights from a date on (``options.night_day``), received from a time on, or only
+        those that have not ended. Every row that matches: the chain reads its state from the jobs, so it must not
+        read a part of them."""
+        where, args = ["requested_by = 'scheduler'"], []
+        filters = (
+            ("type = ?", type_),
+            ("coalesce(ruleset, '') = ?", ruleset),
+            ("received_at >= ?", received_from),
+            ("(data::jsonb)->'options'->>'night' = ?", night),
+            ("(data::jsonb)->'options'->>'night_day' >= ?", night_day_from),
+        )
+        for col, val in filters:
+            if val is not None:
+                where.append(col)
+                args.append(val)
+        if step == "":
+            where.append("(data::jsonb)->'options'->>'step' IS NULL")
+        elif step is not None:
+            where.append("(data::jsonb)->'options'->>'step' = ?")
+            args.append(step)
+        if unfinished:
+            where.append(f"state NOT IN ({','.join('?' for _ in TERMINAL)})")
+            args += list(TERMINAL)
+        rows = self._db.fetchall(
+            "SELECT data FROM jobs WHERE " + " AND ".join(where) + " ORDER BY received_at, seq", args
+        )
+        return [Job.model_validate_json(r[0]) for r in rows]
+
+    def chained_ingest(self, before: str | None = None) -> Job | None:
+        """The newest ingest that passed and carries the chain's option, received before ``before`` (none: the
+        newest of all)."""
+        row = self._db.fetchone(
+            "SELECT data FROM jobs WHERE type = 'INGEST' AND state = 'done' "
+            "AND (data::jsonb)->'options'->>'chain' = '1' AND (? = '' OR received_at < ?) "
+            "ORDER BY received_at DESC, seq DESC LIMIT 1",
+            (before or "", before or ""),
+        )
+        return Job.model_validate_json(row[0]) if row else None
+
+    def with_option(self, type_: str, key: str, value: str) -> list[Job]:
+        """Every job of ``type_`` whose options carry ``key`` = ``value``, oldest first (NEW-PERF-2: the INGEST
+        jobs that are on one adapter run)."""
+        rows = self._db.fetchall(
+            "SELECT data FROM jobs WHERE type = ? AND (data::jsonb)->'options'->>? = ? ORDER BY received_at, seq",
+            (type_, key, value),
+        )
+        return [Job.model_validate_json(r[0]) for r in rows]
+
+    def claim(self, only: tuple[str, ...] = ()) -> str | None:
+        """Take the oldest queued job; ``only``: of these types (T-704, D-458: the worker kept for the ingest)."""
+        types = " AND type = ANY(?)" if only else ""
         with self.tx() as con:
             row = con.fetchone(
-                "SELECT job_id FROM jobs WHERE queued = 1 ORDER BY received_at, job_id LIMIT 1 FOR UPDATE SKIP LOCKED"
+                f"SELECT job_id FROM jobs WHERE queued = 1{types} ORDER BY received_at, job_id LIMIT 1 "
+                "FOR UPDATE SKIP LOCKED",
+                (list(only),) if only else (),
             )
             if row is None:
                 return None

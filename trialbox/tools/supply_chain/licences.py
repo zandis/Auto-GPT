@@ -44,13 +44,15 @@ PERMISSIVE = frozenset(
     }
 )  # fmt: skip
 # accepted, not copyleft in the sense of this gate, but not offered as an OR choice (file-level copyleft: notices)
-OTHER_OK = frozenset({"mpl-2.0"})
+# cnri-python: the CPython 1.6 terms the `regex` wheel names beside Apache-2.0 (permissive; D-563)
+OTHER_OK = frozenset({"mpl-2.0", "cnri-python"})
 # the trove-classifier and common names of permissive licences (lower case, whitespace collapsed)
 PERMISSIVE_NAMES = frozenset(
     {
-        "mit license", "the mit license", "mit licence", "bsd license", "bsd licence", "new bsd license",
+        "mit license", "the mit license", "mit licence", "bsd", "bsd license", "bsd licence", "new bsd license",
         "bsd 3-clause license", "bsd 2-clause license", "apache software license", "apache license 2.0",
         "apache license, version 2.0", "apache license version 2.0", "apache 2.0", "apache-2", "apache 2",
+        "apache 2.0 license",
         "python software foundation license", "isc license (iscl)", "isc license", "the unlicense (unlicense)",
         "zlib/libpng license", "boost software license 1.0 (bsl-1.0)",
         "historical permission notice and disclaimer (hpnd)",

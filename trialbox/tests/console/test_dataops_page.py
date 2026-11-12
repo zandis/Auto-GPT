@@ -133,8 +133,10 @@ def test_accept_promotes_and_a_failed_promotion_keeps_the_night_held(box: dict[s
     assert 'value="accept"' in page
     r = c.post(f"/data-ops/batches/{bad}/decide", data={"csrf": tok, "decision": "accept", "reason": "checked"},
                follow_redirects=False)  # fmt: skip
-    assert r.headers["location"].endswith("err=promote") and _state(bad) == HELD
-    assert not _events(box, "dataops.decide")  # nothing written when the promotion fails
+    # D-489 (review of T-723, HIGH-2): the publish raised and its end is not known, so the accept stays recorded
+    # (before: "err=promote" and nothing written). The night is still held
+    assert r.headers["location"].endswith("err=publishing") and _state(bad) == HELD
+    assert [e["detail"]["phase"] for e in _events(box, "dataops.decide")] == ["started", "ended"]
     r = c.post(f"/data-ops/batches/{good}/decide", data={"csrf": tok, "decision": "accept", "reason": "checked"},
                follow_redirects=False)  # fmt: skip
     assert r.headers["location"].endswith("done=accept") and _state(good) == PUBLISHED and seen == ["2026-11-10"]

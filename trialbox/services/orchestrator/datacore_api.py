@@ -36,12 +36,13 @@ from typing import Any
 from datacore import fhir, forms, sync
 from datacore.sources import RedcapSource
 from datacore.store import DataCore, DataError
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from rc_bridge.client import RcError, RedcapClient
 from tb_common.audit import AuditLog
 from tb_common.flowledger import record_export
 
+from orchestrator.actor import person_of
 from orchestrator.lifecycle_api import LIFE_FORMS, derive_record
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
@@ -388,7 +389,7 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         return {"record": rec, "values": values, "history": dc.history(rid, rec), "owners": dc.owners(rid)}
 
     @r.post("/studies/{rs}/entry/{record}")
-    def save_form(rs: str, record: str, body: FormBody) -> dict[str, Any]:
+    def save_form(rs: str, record: str, body: FormBody, request: Request) -> dict[str, Any]:
         svc, rid, rec = get(), _rs(rs), record_key(record)
         try:
             out = sync.save_form(svc.dc, rid, rec, body.event, body.form, body.values, body.by, svc.stamp())
@@ -399,7 +400,8 @@ def router(get: Callable[[], DataService]) -> APIRouter:
                                  "fields": out["written"]})  # fmt: skip
         life: dict[str, Any] = {}
         if body.form in LIFE_FORMS and out["changed"]:  # the subject follows its answers (D-134)
-            life = derive_record(svc, rid, rec, body.by)
+            # T-715 (D-483): the step this save derives names the verified person of the call, never the body's `by`
+            life = derive_record(svc, rid, rec, person_of(request, "task.enter_data"))
         return {**out, "record": rec, "event": body.event, "values": svc.dc.record(rid, rec, body.event),
                 "life": life}  # fmt: skip
 
@@ -416,7 +418,10 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         if fmt not in export.FORMATS:
             raise HTTPException(status_code=404, detail={"code": "DATA-EXPORT", "message": "odm, cdisc, csv or xlsx"})
         at = svc.now().isoformat(timespec="seconds")
-        body = export.export(svc.dc, rid, fmt, at)
+        try:
+            body = export.export(svc.dc, rid, fmt, at)
+        except DataError as exc:  # EDC-010 (D-581): DATA-CHARS names the field; a person must see it
+            raise _fail(exc) from exc
         suffix, media = export.media(fmt)
         name = f"{rid}_{svc.now().strftime('%Y%m%d')}{suffix}"
         svc.audit.append("data.export", ruleset=rid, actor=by or "orchestrator", detail={"format": fmt})

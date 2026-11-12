@@ -129,13 +129,18 @@ media() (  # a subshell: set -e stops the step, not the run
   # the images a box runs without a GPU: the three TrialBox images (the database is built here since D-204) and the
   # third-party ones of the base compose file
   local imgs=(trialbox-py:1.0.0 trialbox-jvm:1.0.0 trialbox-postgres:16-1) args=() i
-  mkdir -p "$W/vendor/cfg" && : > "$W/vendor/cfg/.env"   # compose renders nothing without an env file
+  # compose renders nothing without an env file, and since D-315 nothing without TB_TZ: the rehearsal site's zone
+  mkdir -p "$W/vendor/cfg"
+  printf 'TB_TZ=%s\n' "$(sed -n "s/^tz: *['\"]\{0,1\}\([A-Za-z0-9_+\/-]*\).*/\1/p" tools/rehearse_box/site_answers.yaml | head -1)" > "$W/vendor/cfg/.env"
+  grep -q '^TB_TZ=.' "$W/vendor/cfg/.env" || { echo "site_answers.yaml names no tz"; return 1; }
   while IFS= read -r i; do case "$i" in trialbox-*) ;; *) imgs+=("$i") ;; esac; done \
     < <(docker compose --project-directory "$W/vendor/cfg" -f deploy/docker-compose.yml config --images | sort -u)
   [ ${#imgs[@]} -ge 4 ] || { echo "compose listed no third-party image"; return 1; }
   : > "$W/vendor/bundle-images.txt"
   for i in "${imgs[@]}"; do
-    docker image inspect "$i" >/dev/null 2>&1 || docker pull -q "$i" >/dev/null
+    # `set -e` does not act here (the step runs inside an `if`): a failed pull must stop the step by name
+    docker image inspect "$i" >/dev/null 2>&1 || docker pull -q "$i" >/dev/null \
+      || { echo "cannot pull $i (the registry refused or is not reachable): pull it once, then run again"; return 1; }
     echo "$i $(docker image inspect --format '{{.Id}}' "$i")" >> "$W/vendor/bundle-images.txt"
     args+=(--image "$i")
   done
@@ -143,7 +148,9 @@ media() (  # a subshell: set -e stops the step, not the run
   make release-gates SC_LOCAL_IMAGES=1 SC_DIR="$W/vendor/gates" SC_IMAGES="${imgs[*]}" || { echo "the release gates did not pass"; return 1; }
   tools/make_bundle.sh --key "$W/vendor/keys/vendor_ed25519.key" --id "$ID" --release-seq 1 \
     --out "$MEDIA/linux/$BUNDLE_NAME" --gates "$W/vendor/gates/gates.json" --sbom-dir dist/sbom \
-    --models "$W/vendor/models" --refdata "$pack" "${args[@]}"
+    --models "$W/vendor/models" --refdata "$pack" "${args[@]}" \
+    || { echo "the bundle was not built"; return 1; }
+  [ -s "$MEDIA/linux/$BUNDLE_NAME" ] || { echo "no bundle at $MEDIA/linux/$BUNDLE_NAME"; return 1; }
   cp "$W/vendor/keys/vendor_ed25519.pub" "$MEDIA/linux/"
   cp deploy/measured/serving_config.*.json "$MEDIA/measured/"
   cp deploy/windows/preflight.ps1 "$MEDIA/windows/"

@@ -21,7 +21,7 @@ plan is TB-PLAN-06 (`docs/plan/28-master-plan-v6.md`); its §6.1 holds the full 
 * Take the next free number from `docs/decisions/REGISTRY.md` (new numbers start at D-300) and add its row, or
   write "decision number needed" in the pull request. No need to wait for the integrator (D-311).
 * `docs/DECISIONS.md` is frozen: it keeps D-01 to D-270 as they are and takes no new entry.
-* `python -m tools.decisions_index --check` (CI job `docs`) fails only on a number written twice; registry
+* `python -m tools.decisions_index --check` (CI job `checks`) fails only on a number written twice; registry
   bookkeeping is printed as notes. `python -m tools.decisions_index` prints the index.
 
 ## Generated files are regenerated, never hand-merged
@@ -31,9 +31,9 @@ These files are written by a tool. Never edit them by hand and never resolve a m
 | File | Generator | Checked in CI job |
 | --- | --- | --- |
 | `libs/tb_contracts/generated/models.py` | `make contracts` (`tools/gen_contracts.py`) | `contracts` (`make contracts-check`) |
-| `docs/plan/25-traceability.csv` | `tools/gen_traceability.py` | `trace` (`--check`, warnings only) |
+| `docs/plan/25-traceability.csv` | `tools/gen_traceability.py` | `checks` (`--check`, warnings only) |
 | the goldens under `tests/golden/` | `make goldens REASON="why the numbers move"` (`tools/goldens.py`) | `goldens` (`make goldens-check`) |
-| the decisions index | `python -m tools.decisions_index` (printed, never committed) | `docs` (`--check`) |
+| the decisions index | `python -m tools.decisions_index` (printed, never committed) | `checks` (`--check`) |
 
 On a conflict in one of them: take master's copy, run the generator, commit the result. CI fails when the committed
 file differs from what the generator writes. Only one golden regeneration is in flight at a time; the integrator

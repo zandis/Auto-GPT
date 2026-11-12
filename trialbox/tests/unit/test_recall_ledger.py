@@ -290,10 +290,10 @@ def test_postgres_ledger_round_trip(db_url: str) -> None:
 
 def test_ledger_has_its_own_schema(db_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """The ledger's migrations are versioned per schema, so it refuses another store's backend (D-126)."""
-    wf = open_backend(db_url)
+    other = open_backend(db_url, "orch")
     with pytest.raises(LedgerError, match="schema"):
-        RecallLedger(wf)
-    wf.close()
+        RecallLedger(other)
+    other.close()
     led = RecallLedger(url=db_url)
     assert led.backend.schema.endswith("recall")
     led.close()
