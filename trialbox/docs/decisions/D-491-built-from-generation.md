@@ -20,7 +20,8 @@ transaction, a marker file, a `finished_at`, or nothing), and each reader its ow
 
 ## Decision
 
-1. **One ledger, `libs/tb_common/generation.py`**, schema `generation` of the trial database, table `built`: one
+1. **One ledger** (`services/datacore/generations.py`; the value and its order in
+   `libs/tb_common/generation.py`), table `built` in schema `dataops` of the trial database: one
    row per derived artefact with the generation it is built from, its state (`building`, `finished`) and the
    times. The artefacts are named in one list: `derived` (the stored derived rows), `twin` (the patient twins),
    `vec` (the note vectors) and `fhir` (the FHIR store's night). No patient data.
@@ -39,11 +40,48 @@ transaction, a marker file, a `finished_at`, or nothing), and each reader its ow
    generation: when the derived rows are not finished from it, the job reads no stored score (each such criterion
    is "needs information", as for an unfinished batch today).
 
+## The adversarial review (2026-11-12) and what changed
+
+1. **Builds of one artefact are serial from begin to finish**, in every process (`Built.building`: a session lock
+   in the database, waited for as long as the build before it runs). Before, an older build that was still
+   writing when a newer one began and finished wrote last: the content was the older night's and the ledger said
+   "finished from the newer". The same generation asked for twice (an administrator's retry) is built twice, one
+   after the other, so the artefact is never `finished` while a build of it writes. A build whose `finish`
+   changes nothing is a failed build (`Overtaken`), not a result.
+2. **A twin build that did not run, or that failed for a patient, is not finished**: the ledger keeps `building`
+   and readers get "unknown" until a build of that generation ends well.
+3. **The ledger keeps what the build made** (`built.ref`: the derive batch's run id). A job pinned to a generation
+   reads that batch. Before, the reader passed the gate and was handed the first finished batch of the date, which
+   is another generation's when a site publish made a second generation of the night.
+4. **A FHIR load whose ledger cannot be read does not run.** Before, it ran as if there were no ledger: an older
+   night was loaded over a newer one, deletes included. (No trial database at all, or a folder that is not a
+   night: no ledger, as before.)
+5. **A generation is a calendar date `YYYY-MM-DD` and an ASCII number from 1.** Any other snapshot name is not a
+   generation: its build runs and is not recorded, and it can never stand in the order before or after a night.
+6. **A job keeps one reader to its end**, so the answer it got first is the answer of its later reads.
+
+Left as it is, with the reason:
+
+- **One row per artefact, no history.** Once a newer generation's build begins, a job pinned to the older one
+  reads every stored score as unknown: safe (unknown never excludes), but a re-run of yesterday's job does not
+  read what the job read (D-442). Keeping the finished generations of `derived` (whose store keeps its rows as of
+  a batch) needs a key of (artefact, generation) and a rule per artefact: put to the owner, a card of its own.
+- **A box updated to this card has no ledger rows**: on the first night stored scores read as unknown until that
+  night's batch ends (the list header says so; the readiness item and the health line read `batch_run` and do
+  not), and the first re-run of an older night is not refused.
+- **A date after today** as a generation would refuse every real night until that date: refusing such a snapshot
+  is the ingest's (NEW-PERF-3).
+- **Readers that do not ask**: the twin build reads the derived rows directly (`patient_profile/twin.py`), the
+  console's twin page, the vector search, the FHIR evaluators. The FHIR store's night is recorded as the bare date
+  (the adapter does not know the lake's generation), so `readable_all` of a `<date>.g<n>` is never all-ok until
+  T-724 hands the generation to the adapter. `vec` has no builder that records.
+
 ## Consequences
 
 - A late re-run of an earlier night changes the lake's older file and nothing else.
 - After a site publish (a new generation of the same date) the derived rows and twins read as unknown for a job on
-  the new generation until they are built from it; a job on the old generation still reads them.
+  the new generation until they are built from it. A job on the old generation reads them until the new build
+  begins, and as unknown after it (one row per artefact: see the review above).
 
 ## Not decided here
 

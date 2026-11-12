@@ -72,14 +72,21 @@ def twins_after_ingest(ctx: Ctx, snapshot: object) -> None:
     from datacore.generations import generation_of, guarded
 
     night = str(snapshot)
+
+    def build() -> object:
+        # review of T-725 (H2): the build never raises and answers None when it could not run; a build that did
+        # not run, or that failed for a patient, is not a finished build (the ledger keeps "building")
+        rep = build_twins(orch_db, lake, night, datetime.now(UTC).isoformat(timespec="seconds"))
+        if rep is None:
+            raise RuntimeError("the twin build did not run")
+        if rep.failed:
+            raise RuntimeError(f"the twin build failed for {len(rep.failed)} patient(s)")
+        return rep
+
     try:
-        guarded(
-            "twin",
-            generation_of(lake, night),
-            lambda: build_twins(orch_db, lake, night, datetime.now(UTC).isoformat(timespec="seconds")),
-        )
-    except Exception as exc:  # the ledger's own failure never fails the ingest
-        log.warning("twin build after the ingest did not run (%s)", type(exc).__name__)
+        guarded("twin", generation_of(lake, night), build)
+    except Exception as exc:  # neither the ledger's failure nor the build's fails the ingest
+        log.warning("twin build after the ingest is not finished (%s: %s)", type(exc).__name__, exc)
 
 
 def ingest(ctx: Ctx) -> Outcome:

@@ -2,7 +2,9 @@
 
 A generation is ``<date>.g<n>`` (T-724, D-490): the snapshot date and a sequence number. A bare date is that date's
 generation 0: a lake without generations, or a store that only knows the night. Generations are ordered by date,
-then by number: "older" and "newer" mean this order everywhere.
+then by number: "older" and "newer" mean this order everywhere. The date is a calendar date written
+``YYYY-MM-DD`` and the number is written in ASCII digits from 1: any other name (a tool's snapshot, ``latest``, a
+date without its zeros) is not a generation and has no place in the order (:meth:`Generation.parse` refuses it).
 
 :class:`Verdict` is the answer of the one reader question, "may a job pinned to generation G read this artefact"
 (``datacore.generations.Built.readable``): ``ok`` only when the artefact is finished and built from exactly G.
@@ -12,9 +14,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date
 from functools import total_ordering
 
-_GEN = re.compile(r"^(?P<snap>[^/\\\s]+?)(?:\.g(?P<seq>[1-9][0-9]*))?$")
+_GEN = re.compile(r"^(?P<snap>[0-9]{4}-[0-9]{2}-[0-9]{2})(?:\.g(?P<seq>[1-9][0-9]*))?$", re.ASCII)
 #: the derived artefacts, in the order the night builds them
 ARTEFACTS = ("fhir", "derived", "twin", "vec")
 BUILDING, FINISHED = "building", "finished"
@@ -28,9 +31,13 @@ class Generation:
 
     @classmethod
     def parse(cls, name: str) -> Generation:
-        m = _GEN.match(str(name).strip())
-        if not m or re.search(r"\.g\d*$", m["snap"]):  # "<date>.g0", "<date>.g": a number from 1, or no suffix
+        m = _GEN.match(str(name))
+        if not m:  # also "<date>.g0", "<date>.g": a number from 1, or no suffix
             raise ValueError(f"not a generation: {name!r}")
+        try:
+            date.fromisoformat(m["snap"])
+        except ValueError:
+            raise ValueError(f"not a generation: {name!r} (not a calendar date)") from None
         return cls(m["snap"], int(m["seq"] or 0))
 
     def __str__(self) -> str:

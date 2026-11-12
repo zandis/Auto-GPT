@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from typing import Any
@@ -54,12 +55,13 @@ class GenerationReader:
 
     def __init__(self, store: DerivedStore, url: str | None, ctx: Any) -> None:
         self._store, self._url, self._ctx = store, url, ctx
-        self._seen: dict[tuple[str, str], bool] = {}
+        self._seen: dict[tuple[str, str], tuple[bool, str]] = {}
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._store, name)
 
-    def _readable(self, snapshot: str, generation: str) -> bool:
+    def _readable(self, snapshot: str, generation: str) -> tuple[bool, str]:
+        """``(readable, the run id of the batch that generation's build made)``; asked once, kept to the job's end."""
         key = (snapshot, generation)
         if key not in self._seen:
             from datacore.generations import Built
@@ -67,11 +69,12 @@ class GenerationReader:
             try:
                 with Built(self._url) as ledger:
                     why = ledger.readable("derived", generation)
+                    ref = ledger.ref("derived") if why.ok else ""
             except Exception as exc:  # the ledger cannot be read: unknown, never "as if finished"
                 log.warning("stored scores unknown: the generation ledger cannot be read (%s)", type(exc).__name__)
-                self._seen[key] = False
+                self._seen[key] = (False, "")
             else:
-                self._seen[key] = why.ok
+                self._seen[key] = (why.ok, ref)
                 if not why.ok:
                     log.info("stored scores read as unknown: %s", why.reason)
         return self._seen[key]
@@ -81,8 +84,11 @@ class GenerationReader:
         day = getattr(job, "snapshot_date", None)
         if day is not None and snapshot == day.isoformat():
             gen = str((getattr(job, "options", None) or {}).get("lake_generation") or snapshot)
-            if not self._readable(snapshot, gen):
+            ok, ref = self._readable(snapshot, gen)
+            if not ok:
                 return None
+            if ref.isdigit():  # the batch that generation's build made, not the first finished batch of the date
+                return self._store.batch_by_id(int(ref))
         return self._store.batch(snapshot)
 
 
@@ -94,7 +100,13 @@ def reader_for(ctx: Any) -> Any:
     st = reader(orch)
     if st is None or getattr(ctx, "job", None) is None:
         return st
-    return GenerationReader(st, url_of(orch), ctx)
+    kept = getattr(ctx, "_generation_reader", None)  # one reader, and so one answer, for the whole job
+    if isinstance(kept, GenerationReader):
+        return kept
+    made = GenerationReader(st, url_of(orch), ctx)
+    with contextlib.suppress(AttributeError, TypeError):  # a context that takes no attribute: a reader per call
+        ctx._generation_reader = made
+    return made
 
 
 def after_ingest(orch: Any, snapshot: str) -> dict[str, Any] | None:
@@ -117,6 +129,9 @@ def after_ingest(orch: Any, snapshot: str) -> dict[str, Any] | None:
             generation_of(lake, snapshot),
             lambda: run_batch(st, lake, mapping_version=mapping_version_of(lake, snapshot), snapshot=snapshot),
             url_of(orch),
+            # what this build made: its batch's run id (builds of "derived" are serial, so the newest finished
+            # batch of the night is this one). A reader pinned to the generation reads that batch
+            ref=lambda _rep: str(getattr(st, "newest_batch_id", lambda _s: None)(snapshot) or ""),
         )
         if rep is None:
             orch.audit.append("derive.failed", detail={"snapshot": snapshot, "error": "OlderGeneration"})

@@ -74,10 +74,12 @@ CREATE INDEX IF NOT EXISTS batch_by_state ON batch (state, snapshot)
 """
 
 # T-725 (D-491): which generation each derived artefact (the FHIR store's night, the derived rows, the twins, the
-# vectors) is built from, and whether that build finished; one row per artefact, no patient data
+# vectors) is built from, and whether that build finished; one row per artefact, no patient data. ``ref``: what the
+# build made, in the store's own terms (the derive batch's run id), so a reader takes that and no other
 SCHEMA_V2 = """
 CREATE TABLE IF NOT EXISTS built (artefact TEXT PRIMARY KEY, snapshot TEXT NOT NULL, seq INTEGER NOT NULL,
-  state TEXT NOT NULL CHECK (state IN ('building', 'finished')), started_at TEXT NOT NULL, finished_at TEXT)
+  state TEXT NOT NULL CHECK (state IN ('building', 'finished')), started_at TEXT NOT NULL, finished_at TEXT,
+  ref TEXT NOT NULL DEFAULT '')
 """
 #: ``migrate`` versions of schema ``dataops`` (append-only)
 MIGRATIONS = (SCHEMA, SCHEMA_V2)

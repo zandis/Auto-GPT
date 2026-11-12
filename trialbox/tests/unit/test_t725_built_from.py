@@ -99,7 +99,13 @@ def test_the_twin_build_of_an_older_night_does_not_run(db_url: str, monkeypatch:
     from patient_profile import twin
 
     built: list[str] = []
-    monkeypatch.setattr(twin, "after_ingest", lambda db, lake, snap, now, url=None: built.append(snap))
+
+    # the build's stand-in answers a report, as the build does when it ran (None is "could not run": review H2)
+    def ran(db: Any, lake: Any, snap: str, now: str, url: str | None = None) -> Any:
+        built.append(snap)
+        return twin.BuildReport(snap)
+
+    monkeypatch.setattr(twin, "after_ingest", ran)
 
     class Lake:  # a lake with generations (T-724) says which one a night is
         def generation(self, snapshot: str) -> str:

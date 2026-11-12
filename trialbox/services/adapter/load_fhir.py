@@ -203,7 +203,9 @@ _NIGHT = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 def _begin_night(name: str) -> Any:
     """Record the start of the FHIR store's load of the night ``name`` in the generation ledger; ``_OLDER`` when
     the store holds a newer night (the load is then skipped), None when there is no ledger to ask (a folder that
-    is not a night, no trial database, a store that cannot be reached: the load goes on as before)."""
+    is not a night, no trial database: the load goes on as before). A ledger that is there and cannot be read
+    stops the load (review of T-725, M1: it loaded an older night over a newer one, deletes included, while the
+    ledger still said "newer, finished")."""
     if not _NIGHT.match(name) or not os.environ.get("TB_DB_URL"):
         return None
     from tb_common.generation import OlderGeneration
@@ -217,8 +219,9 @@ def _begin_night(name: str) -> Any:
         log.warning("fhir-store not loaded: %s", exc)
         return _OLDER
     except Exception as exc:
-        log.warning("fhir-store load not recorded in the generation ledger (%s)", type(exc).__name__)
-        return None
+        raise RuntimeError(
+            f"the generation ledger cannot be read ({type(exc).__name__}): the FHIR store is not loaded"
+        ) from exc
 
 
 def _finish_night(built: Any) -> None:

@@ -444,7 +444,7 @@ ADDED: dict[str, tuple[str, ...]] = {
     # T-725 (D-491): dataops version 2, which generation each derived artefact is built from (``built``)
     "dataops": (
         "01925afb0e82837617a880fa2d2b32f7efaa6d5e98945e7144f57510d76efbcf",
-        "4f32fb40077e6a89d07d306d1f73a4421cfde7a1ce83eb317ec1685e2eeda5c0",
+        "684ba94dca3b1a27f4dc387083319f161caf1f69b705fda4754fcf7f5b97c59a",
     ),
     # T-103 (D-438): orch version 2, the orchestrator's identifier caps as use rows (``id_limits``)
     # T-689 (D-456): orch version 3, a job's restart count (``jobs.attempts``) and its kept model answers
