@@ -401,3 +401,28 @@ def test_a_report_route_reads_the_study_where_its_path_names_one(monkeypatch: py
     c.post("/setup/pseudonym", json=body, headers=signed("request.prepare", "GZQO", "POST", "/setup/pseudonym", body))
     assert seen == ["console:crc", "", "console:crc"]
     assert ra.UNSIGNED[("POST /registry/{ruleset}", "study")] >= 1
+
+
+def test_a_report_route_keeps_why_a_claim_was_not_a_verified_person() -> None:
+    """A door behind the stage that refuses (T-719's chart-number door) says why in its own refusal."""
+    app = FastAPI()
+    why: list[str] = []
+
+    @app.post("/setup/pseudonym", dependencies=[ra.report_actor])
+    def whole_box(body: _Plain, request: Request) -> dict[str, str]:
+        why.append(getattr(request.state, "tb_actor_why", ""))
+        return {}
+
+    c, body = TestClient(app), {"to": "a"}
+    c.post(
+        "/setup/pseudonym",
+        json=body,
+        headers=signed("optout.keep", "", "POST", "/setup/pseudonym", body, role="viewer"),
+    )
+    c.post("/setup/pseudonym", json=body)
+    c.post(
+        "/setup/pseudonym",
+        json=body,
+        headers=signed("optout.keep", "", "POST", "/setup/pseudonym", body, role="steward"),
+    )
+    assert why == ["right", "no v3 assertion", ""]
