@@ -1211,10 +1211,36 @@ class ComposeBox(_DockerImages):
             svc_secrets.ensure_actor_sign_key(self.deploy)
         return made
 
+    def pre_start(self) -> None:
+        """The host-side steps before the stack starts, run by the release whose tree is now in force
+        (``tools/trialbox/prestart.py``): this process is the installed, older release's, and a step the new release
+        added is not in it. The command runs in the install folder, where ``tools/`` is the new tree since
+        ``apply_host``. A tree without the command (a downgrade to a release from before it; a box with no host
+        tree) gets the two steps every such release ran, here."""
+        # absolute, not resolved: the command changes into the install folder first, and the symlinked layout stays
+        deploy = Path(os.path.abspath(self.deploy))
+        root = deploy.parent
+        if not (root / "tools" / "trialbox" / "prestart.py").is_file():
+            self.resolve_pins()
+            self.ensure_model_key()
+            return
+        python = sys.executable or "python3"
+        argv = ["sh", "-c", 'cd "$1" && shift && exec "$@"', "tb-pre-start", str(root),
+                python, "-m", "tools.trialbox", "pre-start", "--deploy", str(deploy)]  # fmt: skip
+        try:
+            out = self.run(argv, timeout=3600)
+        except UpdateFailed as exc:
+            # the reason the step gave, not the command line around it
+            said = [ln.strip() for ln in str(exc).splitlines() if ln.strip().startswith("pre-start")]
+            raise UpdateFailed(said[-1] if said else f"pre-start failed: {str(exc)[-400:]}") from exc
+        finally:
+            self.env = _env_file(self.deploy / ".env")  # a step may have written a setting the checks read
+        for line in (out or "").splitlines():
+            print(line)  # each step and what it did, in the operator's log
+
     def restart(self, plan: Plan) -> None:
         # new images: the containers are recreated and every service runs its migrations at start (tb_common.db)
-        self.resolve_pins()
-        self.ensure_model_key()
+        self.pre_start()
         t = os.environ.get("TB_INSTALL_UP_TIMEOUT", "900")
         pull = os.environ.get("TB_INSTALL_PULL") or "never"  # as install.sh: every image from a bundle (D-176)
         if pull not in ("never", "missing"):
