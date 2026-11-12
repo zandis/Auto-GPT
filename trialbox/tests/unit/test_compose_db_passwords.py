@@ -306,7 +306,10 @@ def test_doctor_reads_the_running_containers(tmp_path: Path) -> None:
 
 
 def test_doctor_says_when_it_has_nothing_to_judge(tmp_path: Path) -> None:
-    assert doctor.check_db_passwords(doctor.DoctorInputs(env={"TB_ENV": "PRODUCTION"})).status == "PASS"
+    # review of #308 (H1): "not judged" is never a pass; on a box that may hold real data it fails
+    for env_name, want in (("PRODUCTION", "FAIL"), ("VALIDATION", "FAIL"), ("", "FAIL"), ("DEV", "WARN")):
+        got = doctor.check_db_passwords(doctor.DoctorInputs(env={"TB_ENV": env_name}))
+        assert got.status == want and "not judged" in got.detail, env_name
     env = box_env(marks()) | {"COMPOSE_FILE": str(tmp_path / "gone.yml")}
     got = _doctor(tmp_path, env)
     assert got.status == "FAIL" and "gone.yml" in got.detail
@@ -335,3 +338,45 @@ def test_running_config_reads_docker_inspect() -> None:
         raise FileNotFoundError("docker")
 
     assert ds.running_config("box", no_docker) is None
+
+
+def test_doctor_judges_the_box_from_inside_its_own_image(tmp_path: Path) -> None:
+    """Review of #308 (H1): ``check_host.sh`` runs the doctor in the box's image, where ``deploy`` is mounted at
+    another path than the host-absolute entries of ``COMPOSE_FILE`` (``install.sh`` writes ``$ROOT/deploy/...``)."""
+    m = marks()
+    env = box_env(m)
+    del env["TB_DB_PW_CONSOLE"]
+    box = make_box(tmp_path, env)
+    env["COMPOSE_FILE"] = f"/opt/trialbox-host/deploy/{BASE}:/opt/trialbox-host/deploy/{SECRETS}"
+    got = _doctor(box, env)
+    assert got.status == "FAIL" and "TB_DB_PW_CONSOLE is not set" in got.detail, got.detail
+    env = box_env(m) | {"COMPOSE_FILE": env["COMPOSE_FILE"]}
+    (tmp_path / "ok").mkdir()
+    assert _doctor(make_box(tmp_path / "ok", env), env).status == "PASS"
+    text = (ROOT / "deploy" / "check_host.sh").read_text(encoding="utf-8")
+    before, run = text.split('docker run --rm --network none --env-file "$ENV_FILE"', 1)
+    # the doctor in the image is told where the box's file is (the deploy folder is mounted at /app/deploy)
+    assert 'set -- "$@" --env-file /app/deploy/.env' in before.rsplit("set -- ;", 1)[1]
+    assert '-v "$ROOT_DIR/deploy:/app/deploy:ro"' in run and 'tools.trialbox doctor "$@"' in run[: run.index("then")]
+
+
+def test_an_empty_tb_env_is_production_for_the_doctor(tmp_path: Path) -> None:
+    """Review of #308 (M1): ``TB_ENV=`` in deploy/.env is PRODUCTION everywhere else (D-127)."""
+    m = marks()
+    env = box_env(m) | {"TB_ENV": ""}
+    del env["TB_DB_PW_CONSOLE"]
+    box = make_box(tmp_path, env)
+    env["COMPOSE_FILE"] = f"{box / BASE}:{box / SECRETS}"
+    assert _doctor(box, env).status == "FAIL"
+
+
+def test_the_platform_doctor_holds_no_database_password(tmp_path: Path) -> None:
+    """Review of #308 (H2): it is on the egress network only and cannot reach the database; it held the
+    administrator's password and URL for nothing."""
+    assert ds.ADMIN_HOLDERS["POSTGRES_WF_PASSWORD"] == {"db"}
+    m = marks()
+    env = box_env(m)
+    box = make_box(tmp_path, env)
+    files = [box / BASE, box / SECRETS, box / "platform" / "docker-compose.platform.yml"]
+    got = ds.render(files, env, project_dir=box)["services"]["doctor"]["environment"]
+    assert not any(v and v in str(x) for x in got.values() for v in m.values()), sorted(got)
