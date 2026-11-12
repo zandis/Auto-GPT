@@ -104,6 +104,9 @@ def test_the_driver_sets_each_vms_provisioning_model(tmp_path: Path) -> None:
     lines = [ln for ln in out.splitlines() if "set-scheduling" in ln and "max-run-duration=" in ln]
     assert len(lines) == 3, out[-2000:]
     assert sum("--provisioning-model=STANDARD" in ln for ln in lines) == 2  # the two hospital VMs
+    # GCE refuses STANDARD on a preemptible VM unless --no-preemptible goes with it (G1 2026-11-12)
+    assert all("--no-preemptible" in ln for ln in lines if "--provisioning-model=STANDARD" in ln)
+    assert all("--preemptible" in ln and "--no-preemptible" not in ln for ln in lines if "--provisioning-model=SPOT" in ln)
     assert sum("--provisioning-model=SPOT" in ln for ln in lines) == 1
     assert "on demand" in out
 
