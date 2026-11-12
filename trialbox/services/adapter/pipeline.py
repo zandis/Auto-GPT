@@ -571,7 +571,7 @@ def _run_ingest(
         # no pack loaded or no database answers nothing, and nothing is mapped
         mapper = Mapper(
             mapping, key, cfg.site_id, ingest_instant(snap, mapping.tz),
-            concept_map=lambda system, code: refdata.map_targets_or_empty(system, code, cfg.db_url),
+            concept_map=lambda system, code: refdata.map_targets_or_none(system, code, cfg.db_url),
         )  # fmt: skip
         fhir_profiles = mapping.fhir_profiles
         source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)

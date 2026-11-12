@@ -958,6 +958,22 @@ def map_targets_or_empty(source_system: str, code: str, url: str | None = None) 
         return []
 
 
+def map_targets_or_none(source_system: str, code: str, url: str | None = None) -> list[dict[str, Any]] | None:
+    """:meth:`RefStore.map_targets` for a caller that must tell "no entry" from "could not ask" (D-593): [] when no
+    database is configured (there is nothing to ask), None when one is configured and it cannot be reached or the
+    question fails."""
+    if not _url(url):
+        return []
+    st = shared(url)
+    if st is None:
+        return None
+    try:
+        return st.map_targets(source_system, code)
+    except Exception:
+        _drop_shared(st)
+        return None
+
+
 def synonyms_or_empty(term: str, domain: str = "", url: str | None = None) -> list[dict[str, Any]]:
     st = shared(url)
     if st is None:

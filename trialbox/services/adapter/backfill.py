@@ -229,7 +229,7 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
             unit_defaults = mapping.unit_defaults
             mapper = Mapper(
                 mapping, key, cfg.site_id, ingest_instant(snap, mapping.tz),
-                concept_map=lambda system, code: refdata.map_targets_or_empty(system, code, cfg.db_url),  # D-593
+                concept_map=lambda system, code: refdata.map_targets_or_none(system, code, cfg.db_url),  # D-593
             )  # fmt: skip
             source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)
             for res in mapper.static_resources():

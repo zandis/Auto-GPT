@@ -540,6 +540,10 @@ def _known_codes_are_the_maps(path: Path, r: ResourceSpec) -> None:
     walk(r.elements)
 
 
+# D-593: an all-numeric ICD-9-CM code, with its dot (three places, then one or two) or without (three to five)
+_ICD9_NUMERIC = re.compile(r"(\d{3})(?:\.(\d{1,2}))?|(\d{4,5})")
+
+
 class Mapper:
     """Applies a :class:`Mapping` to source rows."""
 
@@ -549,7 +553,7 @@ class Mapper:
         site_key: bytes,
         site_id: str,
         ingest_time: str | None = None,
-        concept_map: Callable[[str, str], list[dict[str, Any]]] | None = None,
+        concept_map: Callable[[str, str], list[dict[str, Any]] | None] | None = None,
     ) -> None:
         # D-593: the reference data's map (code system, code → its rows), when the caller has it: the night and the
         # back-fill pass the box's own; without it ``mapped_coding`` maps nothing
@@ -952,26 +956,40 @@ class Mapper:
         """D-593: the coding of a column's code in another system (``from`` → ``to``, names of ``systems``), only
         when the reference data's map has exactly one row for the code into that system and the row says the two
         are the same (``equivalent`` / ``equal``). An approximate entry, alternatives, a combination or no entry
-        give nothing, and the row is counted (``map:<from>-><to>``, the code): never a guess. ``dotted: icd9``
-        looks the code up with its dot (``7140`` is ``714.0``). Without a ``concept_map`` nothing is mapped or
-        counted."""
+        give nothing, and the row is counted (``map:<from>-><to>``, the value as fed): never a guess.
+
+        ``dotted: icd9``: only an all-numeric ICD-9-CM code is looked up, with its dot (``7140`` is ``714.0``). A
+        code that starts with a letter is never looked up: ``E03.0`` and ``V12.5`` are codes of both editions, and
+        a site that wrote ICD-10-CM in its ICD-9-CM years would get another disease's code.
+
+        A map that could not be asked (``None``) is not "no entry": nothing is mapped, the row is counted under
+        ``…:unavailable`` and the next row asks again. Without a ``concept_map`` nothing is mapped or counted."""
         raw = row.get(args["column"])
         if self.concept_map is None or raw is None or not str(raw).strip():
             return None
-        code = str(raw).strip()
+        fed = str(raw).strip().upper()
+        name = f"map:{args['from']}->{args['to']}"
+        code: str | None = fed
         if args.get("dotted") == "icd9":
-            bare = code.upper().replace(".", "")
-            head = 4 if bare.startswith("E") else 3
-            code = bare if len(bare) <= head else f"{bare[:head]}.{bare[head:]}"
+            m = _ICD9_NUMERIC.fullmatch(fed)
+            code = None if m is None else (m.group(1) + (f".{m.group(2)}" if m.group(2) else "") if m.group(1)
+                                           else f"{m.group(3)[:3]}.{m.group(3)[3:]}")  # fmt: skip
+        if code is None:
+            self._note_unmapped(rs.table, name, fed)
+            return None
         key = (str(args["from"]), str(args["to"]), code)
         if key not in self._mapped:
             target = self.m.systems[args["to"]]
-            rows = [t for t in self.concept_map(self.m.systems[args["from"]], code) if t.get("target_system") == target]
+            asked = self.concept_map(self.m.systems[args["from"]], code)
+            if asked is None:
+                self._note_unmapped(rs.table, f"{name}:unavailable", fed)
+                return None
+            rows = [t for t in asked if t.get("target_system") == target]
             same = len(rows) == 1 and rows[0].get("relation") in ("equivalent", "equal") and rows[0].get("target_code")
             self._mapped[key] = str(rows[0]["target_code"]) if same else None
         hit = self._mapped[key]
         if hit is None:
-            self._note_unmapped(rs.table, f"map:{args['from']}->{args['to']}", code)
+            self._note_unmapped(rs.table, name, fed)  # as fed, so the count's own filter sees what it was
             return None
         # userSelected false: not the code the hospital recorded, the one the map says it is
         return {"system": self.m.systems[args["to"]], "code": hit, "userSelected": False}

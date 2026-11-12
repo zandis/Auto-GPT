@@ -23,8 +23,11 @@ meaning.
    mapper without it (the mapping check, a box with no pack loaded) maps nothing, and the diagnosis stays as
    D-586 left it.
 2. **One new builder, `mapped_coding`**: the coding of a column's code in another system, only when the map has
-   exactly one row for that code into that system and its relation is `equivalent` (or `equal`). The ICD-9-CM
-   code is looked up with its dot (`7140` and `714.0` are one code).
+   exactly one row for that code into that system and its relation is `equivalent` (or `equal`). **Only an
+   all-numeric ICD-9-CM code is looked up**, with its dot (`7140` and `714.0` are one code). A code that starts
+   with a letter is never looked up: the V and E codes of ICD-9-CM share their shapes with ICD-10-CM chapters, and
+   a site that wrote ICD-10-CM in its ICD-9-CM years would get another disease's code (the review of this card:
+   `E03.0`, hypothyroidism, re-dotted into the ICD-9-CM E-code `E030`, which the file maps exactly to `Y93.9`).
 3. **The shared mapping** gives an ICD-9-CM diagnosis that coding first and its ICD-9-CM coding second. The lake
    keeps one code per diagnosis, the first: such a diagnosis is read as the ICD-10-CM code, and the record keeps
    both. The mapped coding says it was not the hospital's own (`userSelected: false`).
@@ -33,6 +36,14 @@ meaning.
    inclusion, a person looks). Each such row is counted with D-580's counter under `map:icd9cm->icd10cm`, with
    the code, so a site sees which of its old codes are not carried over. Nothing is guessed.
 5. **A mapping without `icd9cm_before` is unchanged** (no diagnosis is ICD-9-CM there).
+6. **"Could not ask" is not "no entry".** The night and the back-fill ask through
+   `tb_common.refdata.map_targets_or_none`: no database configured answers "nothing to ask"; a database that is
+   down, or a role that may not read the reference data, answers "could not ask". Then nothing is mapped for that
+   row, it is counted apart (`map:icd9cm->icd10cm:unavailable`), and the next row asks again. The night is not
+   held for it: a diagnosis that was ICD-10-CM yesterday and is ICD-9-CM today goes from a decided answer to
+   `unknown` (a person looks), never the other way. The count is what shows an outage; holding the night
+   instead is lane B's choice (sent to the integrator, with the adapter role's read grant on the reference
+   data, which this needs on a box).
 
 ## Consequences
 
@@ -42,6 +53,15 @@ meaning.
   D-586. Whole families are outside (`428.0`, most of `250.x`, `070.20`, `070.30`, `714.0`).
 - The shared mapping file changes, so the mapping version of every lake table changes (the goldens' version and
   table hash, no data column: the synthetic sites have no ICD-9-CM years).
+
+## Known limits
+
+- The lake keeps one code per diagnosis: a mapped diagnosis is the ICD-10-CM code there, and the OMOP load takes
+  its `condition_source_value` from the lake, so that value is the mapped code, not the hospital's `585.3`
+  (`services/omop/load.py` says "kept verbatim"). The FHIR record keeps both codings. A later card of this lane.
+- A box with a pack that lacks the map counts every ICD-9-CM diagnosis under `map:icd9cm->icd10cm`, the same as
+  "no entry": about three quarters of the codes are there in any case (D-592).
+- The same pair loaded from two reference-data sources gives two rows, so nothing is mapped (safe, and silent).
 
 ## Not in this card
 

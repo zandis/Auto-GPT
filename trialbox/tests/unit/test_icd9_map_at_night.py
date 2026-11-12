@@ -22,6 +22,11 @@ GEM = {
     "V58.69": [("Z79.84", "relatedto"), ("Z79.891", "relatedto"), ("Z79.899", "relatedto")],
     "305.93": [("F18.11", "relatedto"), ("F19.11", "relatedto")],
     "001.0": [("A00.0", "equal")],
+    # entries that exist in the real file and must never be reached by a value that is not a numeric ICD-9-CM code
+    "E030": [("Y93.9", "equivalent")],
+    "E03.0": [("Y93.9", "equivalent")],
+    "V12.5": [("Z86.7", "equivalent")],
+    "123.45": [("X00", "equivalent")],
 }
 
 
@@ -82,8 +87,7 @@ def test_everything_else_stays_icd9cm_and_is_counted(tmp_path: Path, code: str) 
     """An approximate entry, alternatives, a combination, no entry: never "the" code (D-592)."""
     mapper = _mapper(tmp_path, _map())
     assert _codings(mapper, _diag(code)) == [(I9, code)]
-    dotted = "714.0" if code == "7140" else code
-    assert dict(mapper.unmapped) == {("diagnosis", "map:icd9cm->icd10cm", dotted): 1}
+    assert dict(mapper.unmapped) == {("diagnosis", "map:icd9cm->icd10cm", code): 1}  # counted as fed
 
 
 def test_a_mapper_without_the_reference_data_maps_nothing_and_counts_nothing(tmp_path: Path) -> None:
@@ -129,4 +133,53 @@ def test_a_map_that_fails_or_answers_oddly_never_gives_a_code(tmp_path: Path) ->
 def test_the_night_and_the_backfill_give_the_mapper_the_boxes_reference_data() -> None:
     for name in ("pipeline.py", "backfill.py"):
         text = (ROOT / "services/adapter" / name).read_text(encoding="utf-8")
-        assert "concept_map=" in text and "map_targets_or_empty" in text, name
+        assert "concept_map=" in text and "map_targets_or_none" in text, name
+
+
+@pytest.mark.parametrize("code", [
+    "E03.0", "E030", "e03.0",          # an ICD-10-CM code written in the ICD-9-CM years (a site that back-coded)
+    "V12.5", "V125", "E800.0",         # the letter chapters share their shapes with ICD-10: never looked up
+    "0.42", "71.40", "5853.", "585.300", "58", "123456", "585,3", "7140;4010",  # not the shape of a numeric code
+])  # fmt: skip
+def test_only_a_numeric_icd9cm_code_is_ever_looked_up(tmp_path: Path, code: str) -> None:
+    """The review's finding: ``E03.0`` (ICD-10-CM, hypothyroidism) was re-dotted into the ICD-9-CM E-code ``E030``,
+    which the real file maps exactly to ``Y93.9``. A code that starts with a letter can be either edition."""
+    calls: list[tuple[str, str]] = []
+    mapper = _mapper(tmp_path, _map(calls))
+    assert _codings(mapper, _diag(code)) == [(I9, code)] and calls == []
+    assert dict(mapper.unmapped) == {("diagnosis", "map:icd9cm->icd10cm", code.upper()): 1}
+
+
+def test_a_value_shaped_like_a_chart_number_reaches_the_count_as_fed_so_the_filter_sees_it(tmp_path: Path) -> None:
+    mapper = _mapper(tmp_path, _map())
+    list(mapper.map_table("diagnosis", iter([_diag("12345678"), _diag("54321", diag_no="D2")])))
+    by_code = mapper.unmapped_by_code(r"\d{8}|\d{5}")["diagnosis"]["map:icd9cm->icd10cm"]
+    assert by_code == {"(not a code)": 2}
+
+
+def test_a_map_that_could_not_be_asked_is_not_no_entry(tmp_path: Path) -> None:
+    """The reference data down for one question: nothing is mapped for that row, it is counted apart, and the
+    next row of the same code asks again."""
+    state = {"down": True}
+    calls: list[str] = []
+
+    def ask(system: str, code: str) -> list[dict[str, Any]] | None:
+        calls.append(code)
+        if state["down"]:
+            return None
+        return [{"target_system": I10, "target_code": "B20", "relation": "equivalent"}]
+
+    mapper = _mapper(tmp_path, ask)
+    assert _codings(mapper, _diag("042")) == [(I9, "042")]
+    assert dict(mapper.unmapped) == {("diagnosis", "map:icd9cm->icd10cm:unavailable", "042"): 1}
+    state["down"] = False
+    assert _codings(mapper, _diag("042", diag_no="D2")) == [(I10, "B20"), (I9, "042")]
+    assert calls == ["042", "042"]
+
+
+def test_the_boxes_reference_data_says_when_it_could_not_be_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tb_common import refdata
+
+    monkeypatch.delenv("TB_DB_URL", raising=False)
+    assert refdata.map_targets_or_none(I9, "042") == []  # no database configured: there is nothing to ask
+    assert refdata.map_targets_or_none(I9, "042", "postgresql://nobody@127.0.0.1:1/none") is None  # configured, down
