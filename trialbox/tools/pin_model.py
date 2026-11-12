@@ -583,6 +583,136 @@ def promote(
     return str(rec["record_id"])
 
 
+SHIPPED_RECORDS = ROOT / "deploy" / "qualification"  # D-569: <profile>/<record>.json, in the bundle's host tree
+IMAGES_LOCK = ROOT / "deploy" / "images.lock"
+
+
+def _shipped_mismatch(rec: Any, gpu: str, builds: list[str], pins: dict[str, Any], lock_digest: str) -> str:
+    """Why this record is not the qualification of this box's pinned pair (empty: it is)."""
+    from tools.qualify import check_record
+
+    problems = check_record(rec, profile=gpu, environment="PRODUCTION")
+    if problems:
+        return "; ".join(problems)
+    by_build = {b["build_id"]: b for b in rec["builds"].values()}
+    for build in builds:
+        if build not in by_build:
+            return f"the record does not name build {build}"
+        if by_build[build].get("weights_sha256") != pins[build]["sha256"]:
+            return (
+                f"the record qualified other weights for {build} ({str(by_build[build].get('weights_sha256'))[:12]}) "
+                f"than the pinned ones ({pins[build]['sha256'][:12]})"
+            )
+    detail = ((rec.get("steps") or {}).get("serving_record") or {}).get("detail") or {}
+    image = detail.get("model_server_image") or {}
+    if not image.get("digest"):
+        return "the record does not name the model server image it was taken with (a record from before D-569)"
+    if image["digest"] != lock_digest:
+        return (
+            f"the record was taken with model server image {str(image['digest'])[:19]}, this release pins "
+            f"{lock_digest[:19]} (deploy/images.lock)"
+        )
+    for build in builds:
+        pinned_tpl = ((pins[build].get("weights") or {}).get("chat_template") or {}).get("sha256")
+        if not pinned_tpl:
+            continue
+        if not detail.get("chat_template_sha256"):
+            return "the record does not name the judge's chat template it was taken with"
+        if detail["chat_template_sha256"] != pinned_tpl:
+            return (
+                f"the record was taken with chat template {str(detail['chat_template_sha256'])[:12]}, the pin of "
+                f"{build} holds {str(pinned_tpl)[:12]}"
+            )
+    return ""
+
+
+def promote_shipped(
+    gpu: str,
+    records: Path = SHIPPED_RECORDS,
+    out: Path = DEFAULT_OVERRIDE,
+    *,
+    images_lock: Path = IMAGES_LOCK,
+    now: datetime | None = None,
+) -> tuple[bool, list[str]]:
+    """HW-003 (D-569): promote the profile's pinned pair from a shipped qualification record. One record under
+    ``records/<gpu>/`` must pass ``check_record`` for the profile and PRODUCTION, name every build of the pair, and
+    have qualified exactly the pinned weights, the model server image of ``images_lock`` and the chat template in
+    the judge's pin. Every build is promoted from that one record, or none. (ok, lines): not ok when nothing was
+    promoted and the pair is not already champion."""
+    import json
+
+    pairs = PROFILE_PAIRS.get(gpu)
+    if pairs is None:
+        return False, [f"no deployed pair for GPU profile {gpu!r}"]
+    builds = [p[0] for p in pairs]
+    pins = (load_override(out).get("builds") or {}) if out.exists() else {}
+    missing = [b for b in builds if not (pins.get(b) or {}).get("sha256")]
+    if missing:
+        return False, [f"{b}: not pinned in {out}: pin the pair first (--install)" for b in missing]
+    if all(
+        pins[b].get("status") == "champion"
+        and (pins[b].get("qualification") or {}).get("weights_sha256") == pins[b]["sha256"]
+        for b in builds
+    ):
+        return True, [f"{b}: already champion on record {pins[b]['qualification'].get('record_id')}" for b in builds]
+    files = sorted((records / gpu).glob("*.json")) if (records / gpu).is_dir() else []
+    if not files:
+        return False, [
+            f"no shipped qualification record for profile {gpu} in {records / gpu}: the pair stays candidate and "
+            "routes nothing in PRODUCTION (the vendor's record for these weights rides in the release under "
+            "deploy/qualification/; or qualify on this box: RUNBOOK §11)"
+        ]
+    lock = json.loads(images_lock.read_text(encoding="utf-8")) if images_lock.is_file() else {}
+    digest = str(((lock.get("third_party") or {}).get("vllm") or {}).get("digest") or "")
+    lines: list[str] = []
+    for path in files:
+        try:
+            rec = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            lines.append(f"{path.name}: not a readable qualification record ({exc})")
+            continue
+        why = _shipped_mismatch(rec, gpu, builds, pins, digest)
+        if why:
+            lines.append(f"{path.name}: {why}")
+            continue
+        before = out.read_text(encoding="utf-8")
+        try:
+            for build in builds:
+                promote(build, path, out, now=now)
+        except PinError as exc:  # both or neither
+            out.write_text(before, encoding="utf-8")
+            lines.append(f"{path.name}: {exc}")
+            continue
+        detail = rec["steps"]["serving_record"]["detail"]
+        return True, [
+            *(f"{b}: champion on shipped record {rec['record_id']} ({path.name})" for b in builds),
+            f"the record was taken on {detail.get('gpu') or rec.get('driver')} with driver "
+            f"{detail.get('driver') or rec.get('driver')}: the canary on this box decides whether this card answers "
+            "as that one did; on another driver or card edition, take a serving capture",
+        ]
+    return False, lines
+
+
+def demote_pair(gpu: str, out: Path = DEFAULT_OVERRIDE) -> list[str]:
+    """Put the profile's promoted builds back to ``candidate`` and drop their qualification reference (D-569: the
+    canary on the box failed after a shipped promotion). The weights' pins stay. One line per build put back."""
+    from registry.registry import Registry, apply_override
+
+    doc = load_override(out)
+    lines = []
+    for build, *_ in PROFILE_PAIRS.get(gpu) or []:
+        entry = doc["builds"].get(build)
+        if not entry or entry.get("status") != "champion":
+            continue
+        entry["status"] = "candidate"
+        entry.pop("qualification", None)
+        lines.append(f"{build}: back to candidate (its qualification reference is removed; the weights stay pinned)")
+    if lines:
+        Registry(apply_override(_committed()[0], doc))  # validates the merged registry; raises before writing
+        _write_override(out, doc)
+    return lines
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--build", help="build_id in models/registry.yaml")
@@ -601,6 +731,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--promote", metavar="BUILD", help="make BUILD champion from --record (a passing qualify record)")
     ap.add_argument("--record", type=Path, help="--promote: the qualification record (eval/qualification/*.json)")
     ap.add_argument("--environment", default="PRODUCTION", help="--promote: the environment the record must qualify")
+    ap.add_argument(
+        "--promote-shipped",
+        metavar="GPU",
+        help="promote the profile's pinned pair from a shipped record (D-569); exit 0 promoted, 3 no record "
+        "matches, 4 the pair was champion already",
+    )
+    ap.add_argument("--records", type=Path, default=SHIPPED_RECORDS, help="--promote-shipped: the records' folder")
+    ap.add_argument("--images-lock", type=Path, default=IMAGES_LOCK, help="--promote-shipped: deploy/images.lock")
+    ap.add_argument("--demote-pair", metavar="GPU", help="put the profile's promoted pair back to candidate (D-569)")
     ap.add_argument("--revision", default=None, help="upstream revision (commit or tag) of the weights")
     ap.add_argument(
         "--chat-template",
@@ -629,6 +768,23 @@ def main(argv: list[str] | None = None) -> int:
         try:
             print(judge_line(args.name_judge, args.out))
         except PinError as exc:
+            print(f"pin_model: {exc}", file=sys.stderr)
+            return 2
+        return 0
+    if args.promote_shipped:
+        try:
+            good, lines = promote_shipped(args.promote_shipped, args.records, args.out, images_lock=args.images_lock)
+        except (PinError, ValueError) as exc:
+            print(f"pin_model: {exc}", file=sys.stderr)
+            return 2
+        print("\n".join(lines))
+        if good and all("already champion" in ln for ln in lines):
+            return 4  # nothing was promoted now: the install leaves a pair that was champion before alone
+        return 0 if good else 3
+    if args.demote_pair:
+        try:
+            print("\n".join(demote_pair(args.demote_pair, args.out)))
+        except (PinError, ValueError) as exc:
             print(f"pin_model: {exc}", file=sys.stderr)
             return 2
         return 0

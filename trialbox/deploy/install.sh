@@ -533,6 +533,34 @@ if [ -n "${OVR:-}" ]; then  # the override is outside deploy/: mount it where th
   SHEET_MOUNT=(-v "$OVR:/app/deploy/compose-override.yml:ro"); SHEET_FILES="${SHEET_FILES//$OVR/deploy/compose-override.yml}"
 fi
 FAILS=()   # T-632: a FAIL here does not stop the install half-way; the install ends with exit 1 and the list
+# HW-003 (D-569): the shipped qualification record. The pair was pinned as candidate, and PRODUCTION routes a
+# champion only. When a record in deploy/qualification/<profile>/ qualified exactly these weights, this model
+# server image and this chat template, the pair is promoted; the promotion is kept only when the box's own canary
+# passes through the gateway (the self-test the orchestrator runs at start and before each night).
+if [ "$MODE" = gpu ] && [ -f deploy/site/registry.site.yaml ]; then
+  say "model pair: the shipped qualification record (tools/pin_model.py --promote-shipped)"
+  set +e
+  docker run --rm -v "$ROOT/deploy:/d" "$IMAGE_PY" \
+    python -m tools.pin_model --promote-shipped "$GPU" --records /d/qualification --images-lock /d/images.lock --out /d/site/registry.site.yaml 2>&1 | sed 's/^/    /'
+  rc="${PIPESTATUS[0]}"
+  set -e
+  if [ "$rc" = 0 ]; then
+    "${COMPOSE[@]}" restart gateway >/dev/null
+    say "model pair: the canary on this box (trialbox selftest)"
+    set +e
+    python3 -m tools.trialbox selftest 2>&1 | sed 's/^/    /'
+    rc="${PIPESTATUS[0]}"
+    set -e
+    if [ "$rc" != 0 ]; then
+      docker run --rm -v "$ROOT/deploy:/d" "$IMAGE_PY" \
+        python -m tools.pin_model --demote-pair "$GPU" --out /d/site/registry.site.yaml 2>&1 | sed 's/^/    /' || true
+      "${COMPOSE[@]}" restart gateway >/dev/null || true
+      FAILS+=("the model pair was promoted on its shipped record but the canary on this box failed (above): it is back to candidate and routes nothing; check the card, the driver and the model servers' logs, then re-run (RUNBOOK §11)")
+    fi
+  elif [ "$rc" != 4 ]; then  # 4: the pair was champion before this install (qualified here); left as it is
+    FAILS+=("the model pair is not qualified on this box (above): no record in deploy/qualification/$GPU matches its weights, model server image and chat template; it routes nothing in PRODUCTION until the release ships one or the pair is qualified here (RUNBOOK §11)")
+  fi
+fi
 # T-632 (OPS-014): every overlay renders; an error is shown, never hidden
 if SHEET_OUT="$(docker run --rm -v "$ROOT/deploy:/app/deploy" ${SHEET_MOUNT[@]+"${SHEET_MOUNT[@]}"} --user "$(id -u):$(id -g)" "$IMAGE_PY" \
      python -m tools.network_sheet --files "$SHEET_FILES" --env deploy/.env --out deploy/site/network-sheet 2>&1)"; then
