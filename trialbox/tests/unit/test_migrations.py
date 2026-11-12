@@ -416,9 +416,11 @@ ADDED: dict[str, tuple[str, ...]] = {
     "feedback": ("3981b6201cd514508bed945433f3415993494cb24e52809cca7f37fe3801e368",),
     # D-281: edc version 2, the signature's version and key id, and signature_void
     # T-115 (D-368): edc version 3, what each draft was built under and the stored re-entry result
+    # T-720 (D-461): edc version 4, sig_version defaults to 2 and the frozen version-1 list
     "edc": (
         "660d794773184321ebd80015911a26e65973b24d93fa2415c39b6114a22f561b",
         "7307dbdcdff73f68593da4a33739e1803bcc90079eff738c175f3ad13bd26003",
+        "e41207e89e77c7e9ab530c00f9c086627e49bb4aa888abdde6a735c123c32b37",
     ),
     # T-108c (D-401): mail version 3, the send keys as the outbox and the job type on each intake row
     "mail": ("dc540a482b5619e6226318becb615e79a639ab2be3c2d47154b43029886f8579",),

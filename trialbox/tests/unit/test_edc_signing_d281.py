@@ -132,12 +132,15 @@ def test_a_rewritten_signature_row_stops_send_and_export(tmp_path: Path) -> None
 
 
 def test_an_old_unkeyed_signature_is_checked_by_its_own_rule(tmp_path: Path) -> None:
-    svc, _, sig = _signed(tmp_path)
-    shas = {int(i): str(v) for i, v in json.loads(sig["drafts"]).items()}
-    old = {**sig, "sig_version": 1, "content_sha": _legacy_sha(shas)}
-    assert svc.store.intact(old)
-    assert not svc.store.intact({**old, "drafts": json.dumps({"1": "0" * 64})})
-    assert not svc.store.intact({**sig, "sig_version": 7})  # an unknown version never passes
+    """D-461: the old row is one that existed before the migration (on the frozen list); a version-1 row made after
+    it is the forgery of ``test_edc_v1_frozen.py``."""
+    store, old = k.store_with_old_signature()
+    shas = {int(i): str(v) for i, v in json.loads(old["drafts"]).items()}
+    assert old["sig_version"] == 1 and old["content_sha"] == _legacy_sha(shas)
+    assert store.intact(old)
+    assert not store.intact({**old, "drafts": json.dumps({"1": "0" * 64})})
+    assert not store.intact({**old, "sig_version": 7})  # an unknown version never passes
+    store.close()
 
 
 @pytest.mark.parametrize("table", ["signature", "decision", "sent", "signature_void", "switch_event", "map_event"])

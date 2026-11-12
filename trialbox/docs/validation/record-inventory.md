@@ -106,7 +106,7 @@ are marked "files".
 | `libs/tb_common/optout.py` | `optout_events` | R-06 |
 | `services/console/saerecord.py` | `sae_case`, `sae_report`, `sae_trail` | R-07 |
 | `services/datacore/lifecycle.py` | `ae_ack`, `sae_rule` | R-07 |
-| `services/edc/store.py` | `switch`, `switch_event`, `item_map`, `map_event`, `target`, `draft`, `decision`, `signature`, `signature_void`, `sent`, `reentry_record` | R-08 |
+| `services/edc/store.py` | `switch`, `switch_event`, `item_map`, `map_event`, `target`, `draft`, `decision`, `signature`, `signature_void`, `sent`, `reentry_record`, `sig_v1_frozen` | R-08 |
 | `services/datacore/store.py` | `form`, `value`, `history`, `conflict`, `owner`, `source_cfg`, `src_record` | R-09 |
 | `services/datacore/lifecycle.py` | `subject`, `subject_step`, `schedule`, `schedule_version`, `contact_rule`, `deviation_call` | R-10 |
 | `services/console/teamstore.py` | `referrals`, `referral_events` | R-11 |
