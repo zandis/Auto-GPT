@@ -5,10 +5,11 @@ both block a criterion and the deterministic filters decide the ``filter`` crite
 (:func:`tools.trialgpt_compare.filter_first`). Scored from the recorded answers in
 ``eval/trialgpt_compare/results/raw``. Gate: EN <= 5, JA <= 4, zh-TW <= 2 (provisional), never above 8 of 79.
 
-N-12 (TREC CT 2021/22): projected true loss of eligible pairs under filter-first <= 5 %, judged on the point
-estimate: ``1 - (1 - q) ** (llm_share * criteria_per_trial)`` x the audited share of drops that are model errors,
-from the measured inputs recorded by ``tools.hospital_sim project`` (``eval/hospital_sim/results/``) and the hand
-check in ``eval/trec_ct/AUDIT.md``.
+N-12 (TREC CT 2021/22): eligible pairs wrongly dropped under filter-first <= 5 %, gated on the UNADJUSTED figure (D-343):
+``1 - (1 - q) ** (llm_share * criteria_per_trial)`` from the measured inputs recorded by ``tools.hospital_sim project``
+(``eval/hospital_sim/results/``). The audit-adjusted figure (that times the audited share of drops that are model
+errors, ``eval/trec_ct/AUDIT.md``) is printed as a labelled note and never sets the status: the label check was by an AI
+assistant, not a clinician.
 
 For each build the replay says which recordings exist and, when one is missing, exactly which file a GPU run must
 produce (``python -m tools.trialgpt_compare run --pipelines trialbox ...`` on the card, see
@@ -153,19 +154,26 @@ def n12() -> dict[str, Any]:
     def lost(qq: float) -> float:
         return float(1 - (1 - qq) ** k)
 
-    point = lost(q["point"]) * hit / sampled
-    recorded = next(
-        r["share_dropped"]
-        for r in rec["per_year"]["wrongly_dropped"]
-        if r["lang"] == "en" and r["kind"] == "audit_adjusted"
-    )
+    unadjusted = lost(q["point"])
+    point = unadjusted * hit / sampled
+    rows = {r["kind"]: r["share_dropped"] for r in rec["per_year"]["wrongly_dropped"] if r["lang"] == "en"}
+    recorded, recorded_adj = rows["raw"], rows["audit_adjusted"]
     return {
-        "status": "pass" if point <= GATE_N12 else "fail",
+        # D-343: the gate is the unadjusted figure. The audit-adjusted one rests on a model's check of the labels, not a
+        # clinician's, and is a note only: it never sets the status.
+        "status": "pass" if unadjusted <= GATE_N12 else "fail",
+        "basis": "unadjusted",
         "models": par["models"],
-        "projected_true_loss": round(point, 4),
+        "unadjusted_loss": round(unadjusted, 4),
         "recorded_point": recorded["point"],
         "recorded_95": [recorded["p2.5"], recorded["p97.5"]],
         "gate": GATE_N12,
+        "note_audit_adjusted": {
+            "projected_true_loss": round(point, 4),
+            "recorded_point": recorded_adj["point"],
+            "recorded_95": [recorded_adj["p2.5"], recorded_adj["p97.5"]],
+            "label": "note only, not a gate (D-343): the label check was by an AI assistant, not a clinician",
+        },
         "inputs": {
             "per_criterion_false_block_q": q["point"],
             "llm_share": par["llm_share_of_criteria"],
@@ -213,9 +221,14 @@ def table(res: dict[str, Any]) -> str:
         lines.append(f"N-12 MISSING {m['missing']}")
     else:
         lines.append(
-            f"N-12 TREC CT projected true loss {m['projected_true_loss']:.1%} (recorded {m['recorded_point']:.1%}, "
+            f"N-12 TREC CT unadjusted loss {m['unadjusted_loss']:.1%} (recorded {m['recorded_point']:.1%}, "
             f"95 % {m['recorded_95'][0]:.1%}-{m['recorded_95'][1]:.1%}), gate <= {m['gate']:.0%}: {m['status'].upper()}"
             f"  [{m['measured_on']}]"
+        )
+        a = m["note_audit_adjusted"]
+        lines.append(
+            f"  note (not a gate): audit-adjusted {a['projected_true_loss']:.1%} (recorded {a['recorded_point']:.1%}); "
+            f"{a['label']}"
         )
     return "\n".join(lines)
 
@@ -227,8 +240,12 @@ def reproduces(res: dict[str, Any]) -> list[str]:
             if r["status"] != "missing" and r["recorded"] is not None and r["recorded"] != r["lost"]:
                 bad.append(f"{b['build']} {r['lang']}: replay {r['lost']} vs recorded {r['recorded']}")
     m = res["n12"]
-    if m["status"] != "missing" and abs(m["projected_true_loss"] - m["recorded_point"]) > 0.0005:
-        bad.append(f"N-12: replay {m['projected_true_loss']} vs recorded {m['recorded_point']}")
+    if m["status"] != "missing":
+        if abs(m["unadjusted_loss"] - m["recorded_point"]) > 0.0005:
+            bad.append(f"N-12: replay {m['unadjusted_loss']} vs recorded {m['recorded_point']}")
+        a = m["note_audit_adjusted"]
+        if abs(a["projected_true_loss"] - a["recorded_point"]) > 0.0005:
+            bad.append(f"N-12 adjusted note: replay {a['projected_true_loss']} vs recorded {a['recorded_point']}")
     return bad
 
 
