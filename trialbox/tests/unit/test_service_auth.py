@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -11,7 +12,9 @@ from fastapi.testclient import TestClient
 from tb_common import service_auth as sa
 from tb_common.http import ServiceClient
 
-TOKEN = "test-service-token-0123456789"
+from tests.service_tokens import per_service_tokens, token_of
+
+TOKEN = token_of("console")
 
 
 @pytest.fixture
@@ -95,13 +98,13 @@ def _fake_box(events: list[dict[str, Any]]) -> SimpleNamespace:
 
 
 def test_reveal_only_for_a_patient_on_the_jobs_list_and_at_a_bounded_rate(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Security review 2026-11-08 F-03: reveal used to resolve any pseudonym in the hospital through any job."""
     from orchestrator import app as oapp
     from orchestrator.scenarios import screen
 
-    monkeypatch.setenv("TB_SERVICE_TOKEN", TOKEN)
+    per_service_tokens(tmp_path, monkeypatch)  # D-464: in PRODUCTION the orchestrator names its caller
     monkeypatch.setenv("TB_ENV", "PRODUCTION")
     monkeypatch.setenv("TB_REVEAL_MAX_PER_HOUR", "2")
     monkeypatch.setattr(oapp, "REVEALS", oapp.RevealLimit())
@@ -120,11 +123,13 @@ def test_reveal_only_for_a_patient_on_the_jobs_list_and_at_a_bounded_rate(
     assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=other).status_code == 200
 
 
-def test_reveal_audits_the_header_actor_not_the_body(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_reveal_audits_the_header_actor_not_the_body(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     from orchestrator import app as oapp
     from orchestrator.scenarios import screen
 
-    monkeypatch.setenv("TB_SERVICE_TOKEN", TOKEN)
+    per_service_tokens(tmp_path, monkeypatch)  # D-464: in PRODUCTION the orchestrator names its caller
     monkeypatch.setenv("TB_ENV", "PRODUCTION")
     events: list[dict[str, Any]] = []
     fake = _fake_box(events)
@@ -157,7 +162,7 @@ def test_service_client_sends_the_token_to_every_trialbox_service(monkeypatch: p
 
 
 def test_a_token_holder_cannot_name_a_user_or_reset_the_cap_and_exports_are_audited(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Review 2026-11-09 S-09 (D-143): an unsigned X-TB-Actor is refused and audited; the reveal cap is per verified
     person; the screening-log export with chart numbers needs a signed user, is audited with the file's sha256 and
@@ -165,7 +170,7 @@ def test_a_token_holder_cannot_name_a_user_or_reset_the_cap_and_exports_are_audi
     from orchestrator import app as oapp
     from orchestrator.scenarios import screen
 
-    monkeypatch.setenv("TB_SERVICE_TOKEN", TOKEN)
+    per_service_tokens(tmp_path, monkeypatch)  # D-464: in PRODUCTION the orchestrator names its caller
     monkeypatch.setenv("TB_ENV", "PRODUCTION")
     monkeypatch.setenv("TB_REVEAL_MAX_PER_HOUR", "1")
     monkeypatch.setenv("TB_EXPORT_MAX_PER_HOUR", "1")

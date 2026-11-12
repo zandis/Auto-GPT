@@ -18,6 +18,7 @@ from tb_common.logging import setup_logging
 
 M = TypeVar("M", bound=BaseModel)
 HealthCheck = Callable[[], dict[str, Any]]
+RouteGate = Callable[[Request, str | None], Response | None]
 VERSION = "1.0.0"
 
 
@@ -36,6 +37,7 @@ def make_app(
     lifespan: Any = None,
     service_token: bool = True,
     protect_reads: bool = False,
+    route_gate: RouteGate | None = None,
 ) -> FastAPI:
     """Create a FastAPI app with ``GET /healthz`` and structured logging (optional ``lifespan`` context).
 
@@ -43,7 +45,10 @@ def make_app(
     ``X-TB-Service-Token`` (``tb_common.service_auth.authorize``), on every internal service, not only the
     orchestrator; with a token registry (D-138) only the callers of ``service_auth.CALLERS[service]``.
     ``protect_reads`` (D-130, plan v4 F4): reads need it too (the orchestrator, the lake, the mail gateway, the trace
-    store). ``/healthz`` stays open for the compose health checks."""
+    store). ``/healthz`` stays open for the compose health checks.
+    ``route_gate`` (T-713, D-464): called right after the token is verified, with the request and the verified
+    calling service (None on an open DEV/TEST box, ``legacy`` for the old shared token); a response it returns is the
+    answer (a refusal), None lets the call through. One place per app decides which service reaches which route."""
     log = setup_logging(service, level)
     app = FastAPI(title=f"trialbox-{service}", version=VERSION, lifespan=lifespan)
     health_checks = list(checks or [])
@@ -88,6 +93,10 @@ def make_app(
                 if refused is not None:
                     return JSONResponse({"detail": refused[1]}, status_code=refused[0])
                 request.state.tb_caller = caller
+                if route_gate is not None:
+                    gated = route_gate(request, caller)
+                    if gated is not None:
+                        return gated
             return await call_next(request)
 
     @app.middleware("http")

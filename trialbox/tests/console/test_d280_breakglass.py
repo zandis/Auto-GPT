@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -203,14 +204,17 @@ def test_the_steward_reviews_each_grant_and_the_pi_sees_their_studys(box: dict[s
     assert _events(box, "console.breakglass_review")[0]["detail"]["grant"] == gid
 
 
-def test_the_orchestrator_gives_no_chart_number_to_the_admin_role(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_orchestrator_gives_no_chart_number_to_the_admin_role(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """D-280: the box's own check. ``admin`` is refused; the console's break-glass role is accepted."""
     from orchestrator import app as oapp
     from orchestrator.scenarios import screen
 
+    from tests.service_tokens import per_service_tokens
     from tests.unit.test_service_auth import TOKEN, _fake_box
 
-    monkeypatch.setenv("TB_SERVICE_TOKEN", TOKEN)
+    per_service_tokens(tmp_path, monkeypatch)  # D-464: in PRODUCTION the orchestrator names its caller
     monkeypatch.setenv("TB_ENV", "PRODUCTION")
     monkeypatch.setattr(oapp, "REVEALS", oapp.RevealLimit())
     events: list[dict[str, Any]] = []

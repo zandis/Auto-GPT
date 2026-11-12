@@ -39,6 +39,8 @@ from tb_common.service_auth import (
 )
 from tb_contracts import Job, JobCreate, RegistryEntry, RegistryEvent, RegistryPromote, RegistrySummary, RegistryUpdate
 
+from orchestrator.callers import Gate
+from orchestrator.callers import load as load_callers
 from orchestrator.candidates import CandidateRegistry, RegistryError
 from orchestrator.clients import AdapterHttp, CompilerHttp, MailHttp, ParserHttp
 from orchestrator.core import Orchestrator, Rejected, Services
@@ -159,7 +161,10 @@ def _queue() -> dict[str, Any]:
 
 # D-114: every changing call carries the box's service token; D-130 (plan v4 F4): every read too (jobs and their
 # outputs, the registry, studies, the data core), since they are patient level. /healthz stays open.
-app = make_app("orchestrator", checks=[_queue], lifespan=lifespan, protect_reads=True)
+# T-713 (D-464): which verified service reaches which route is one table (route_callers.yaml), enforced right after the
+# token check; a refusal is 403 with a named reason and audited with the verified service.
+CALLER_GATE = Gate(load_callers(), lambda: orch().audit)
+app = make_app("orchestrator", checks=[_queue], lifespan=lifespan, protect_reads=True, route_gate=CALLER_GATE)
 
 
 def _claim(request: Request, fallback: str | None = None) -> Actor:
@@ -303,7 +308,15 @@ def ruleset_detail(ruleset: str) -> dict[str, Any]:
 @app.post("/jobs")
 def create_job(req: JobCreate, request: Request) -> Job:
     """A new job. From the console (D-146, review J-01) the call names the signed-in person and their role in a signed
-    assertion, and the role decides; from the mail gateway (no person named) the sender's mailbox decides."""
+    assertion, and the role decides; from the mail gateway (no person named) the sender's mailbox decides. T-713
+    (D-464): an internal principal (``scheduler``, ``system``) is never accepted from HTTP, and the mail gateway starts
+    only the mail commands."""
+    from tb_common.authz import norm
+
+    caller = getattr(request.state, "tb_caller", None)
+    why = CALLER_GATE.job_start(caller, str(req.type), norm(req.requested_by))
+    if why is not None:
+        raise CALLER_GATE.refuse(caller, "POST /jobs", why, request.url.path)
     role, by = "", ""
     if request.headers.get(ACTOR_HEADER) and request.headers.get(ROLE_HEADER):
         who = _claim(request)
@@ -315,10 +328,16 @@ def create_job(req: JobCreate, request: Request) -> Job:
 
 
 @app.get("/jobs/{job_id}")
-def get_job(job_id: str) -> Job:
+def get_job(job_id: str, request: Request) -> Job:
     job = orch().db.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="no such job")
+    caller = getattr(request.state, "tb_caller", None)
+    why = CALLER_GATE.job_read(
+        caller, job.message_id
+    )  # T-713 (D-464): the mail gateway reads the jobs that came by mail
+    if why is not None:
+        raise CALLER_GATE.refuse(caller, "GET /jobs/{job_id}", why, request.url.path)
     return job
 
 

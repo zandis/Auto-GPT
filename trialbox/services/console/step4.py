@@ -20,6 +20,9 @@ from console.backend import Refused, Unavailable
 from console.home import Helpers
 from console.models_view import build_rows
 
+# the orchestrator's in-process principals (orchestrator.core.SYSTEM_SENDERS; D-464): a retry names a person instead
+INTERNAL_PRINCIPALS = ("scheduler", "system")
+
 _ULID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
 TERMINAL = ("done", "failed")
 TABS = ("health", "jobs", "sources")
@@ -454,12 +457,17 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(409, "admin.jobs.not_retryable")
         if confirm != "yes":
             return h.page(request, "admin_confirm.html", sess, job=job, action="retry")
+        requested_by = job.requested_by
+        if requested_by.strip().lower() in INTERNAL_PRINCIPALS:  # T-713 (D-464): never named over HTTP
+            if not sess.user.mailbox:
+                raise h.problem(400, "request.refused", reason="this account has no mailbox (console.cli set-mailbox)")
+            requested_by = sess.user.mailbox  # the administrator retries it, under the administrator's role
         req = JobCreate(
             type=job.type,
             ruleset=job.ruleset,
             options=dict(job.options or {}),
             comment=job.comment,
-            requested_by=job.requested_by,
+            requested_by=requested_by,
             inputs=list(job.inputs or []) or None,
         )
         try:

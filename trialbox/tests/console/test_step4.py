@@ -258,6 +258,30 @@ def test_admin_tabs_cancel_and_retry(b4: dict[str, Any]) -> None:
     assert crc.post(f"/admin/jobs/{failed.job_id}/retry", data={"csrf": crc_csrf, "confirm": "yes"}).status_code == 403
 
 
+def test_admin_retry_of_a_scheduler_job_names_the_administrator(b4: dict[str, Any]) -> None:
+    """T-713 (D-464): the orchestrator refuses ``requested_by: scheduler`` over HTTP, so a retry of a failed nightly
+    job names the administrator's mailbox and runs under the administrator's role."""
+    bk = b4["backend"]
+    nightly = bk.add_job(
+        Job(
+            job_id=_ulid(703),
+            type="MICROBATCH",
+            ruleset="GZQO",
+            requested_by="scheduler",
+            received_at=_T,
+            updated_at=_T,
+            state="failed",
+            options={},
+            error=JobError(step="running", message="x"),
+        )
+    )
+    c, csrf = login(b4["app"])
+    r = c.post(f"/admin/jobs/{nightly.job_id}/retry", data={"csrf": csrf, "confirm": "yes"}, follow_redirects=False)
+    assert r.status_code == 303
+    req = bk.created[-1]
+    assert req.type == "MICROBATCH" and req.requested_by not in ("scheduler", "system") and "@" in req.requested_by
+
+
 def test_admin_data_sources_from_ingest_records(b4: dict[str, Any]) -> None:
     au = AuditLog(b4["backend"].audit_dir)
     au.append(

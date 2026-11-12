@@ -355,8 +355,9 @@ import httpx
 from tb_common.service_auth import auth_headers
 
 orch = "http://orchestrator:8010"
+# D-464: the mail gateway's token starts mail commands and reads the jobs that came in by mail (a message id)
 body = {"type": "SCREEN", "ruleset": "GZQO", "options": {"version": "1.0.0"}, "comment": "rehearsal-$tag",
-        "requested_by": "crc1@hospa.test"}
+        "requested_by": "crc1@hospa.test", "message_id": "<rehearsal-$tag@hospa.test>"}
 job = httpx.post(f"{orch}/jobs", json=body, headers=auth_headers(), timeout=60)
 assert job.status_code == 200, f"POST /jobs: {job.status_code} {job.text[:300]}"
 jid = job.json()["job_id"]
@@ -392,7 +393,8 @@ after-restart)
   st="$(dc exec -T criteria-compiler python -m tb_common.refdata status)" && echo "$st" | grep -q "$(cat "$W/vendor/refdata-pack-id.txt")" \
     || fail "the reference data did not survive the restart"
   ok "reference data still loaded"
-  in_svc mail-gateway <<'EOF' || fail "the first SCREEN's job did not survive the restart"
+  # D-464: listing jobs is the console's, not the mail gateway's
+  in_svc console <<'EOF' || fail "the first SCREEN's job did not survive the restart"
 import httpx
 from tb_common.service_auth import auth_headers
 jobs = httpx.get("http://orchestrator:8010/jobs", params={"type": "SCREEN"}, headers=auth_headers(), timeout=60).json()

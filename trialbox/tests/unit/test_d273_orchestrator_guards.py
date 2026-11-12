@@ -4,6 +4,7 @@ refuse a NAV job and never reveal a patient on the opt-out register. Synthetic p
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -12,7 +13,9 @@ from fastapi.testclient import TestClient
 from tb_common import optout as optout_mod
 from tb_common import service_auth as sa
 
-TOKEN = "test-service-token-0123456789"
+from tests.service_tokens import per_service_tokens, token_of
+
+TOKEN = token_of("console")  # D-464: a PRODUCTION orchestrator admits a caller it can name
 
 
 def _box(events: list[dict[str, Any]], job_type: str = "SCREEN") -> SimpleNamespace:
@@ -31,11 +34,11 @@ def _box(events: list[dict[str, Any]], job_type: str = "SCREEN") -> SimpleNamesp
 
 
 @pytest.fixture
-def box(monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, list[dict[str, Any]], dict[str, Any]]:
+def box(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[TestClient, list[dict[str, Any]], dict[str, Any]]:
     from orchestrator import app as oapp
     from orchestrator.scenarios import screen
 
-    monkeypatch.setenv("TB_SERVICE_TOKEN", TOKEN)
+    per_service_tokens(tmp_path, monkeypatch)
     monkeypatch.setenv("TB_ENV", "PRODUCTION")
     monkeypatch.setattr(oapp, "REVEALS", oapp.RevealLimit())
     monkeypatch.setattr(oapp, "EXPORTS", oapp.RevealLimit("TB_EXPORT_MAX_PER_HOUR", 10))

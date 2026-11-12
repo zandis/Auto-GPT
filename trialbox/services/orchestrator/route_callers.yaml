@@ -1,0 +1,182 @@
+# Which verified calling service may reach which route of the orchestrator (T-713, D-464).
+#
+# The calling service is the one the request's X-TB-Service-Token identifies (tb_common.service_auth, D-138;
+# request.state.tb_caller). orchestrator.callers enforces this table in the token middleware (make_app's
+# route_gate), before routing: a route outside the caller's groups is 403 with a named reason and one audit event
+# (service.route_refused). tests/unit/test_orchestrator_callers.py walks every route of the app with every service's
+# token: a route in no group fails it, so a new route must be placed here.
+#
+# This table says which SERVICE may call a route, never which PERSON: the routes that take the person from the body
+# (`by`) are T-715's (actor assertion v3).
+schema: tb-orchestrator-callers/1
+
+# open to every caller, also without a token (the compose health checks)
+open:
+  - GET /healthz
+
+# every route of the app, each in exactly one group ("METHOD /template", as FastAPI declares it)
+groups:
+  jobs_start:
+    - POST /jobs
+  job_read:
+    - GET /jobs/{job_id}
+  jobs_list:
+    - GET /jobs
+  job_cancel:
+    - POST /jobs/{job_id}/cancel
+  job_reveal:   # a chart number; the signed person, role and scope are checked again in the handler (D-273)
+    - POST /jobs/{job_id}/reveal
+  notices:
+    - POST /notices
+  models_read:
+    - GET /models
+    - GET /metrics
+  models_canary:
+    - POST /models/canary
+  rulesets:
+    - GET /rulesets/{ruleset}
+  patients:
+    - POST /patients/deceased
+  registry:
+    - GET /registry
+    - GET /registry/{ruleset}
+    - GET /registry/{ruleset}/events
+    - POST /registry/{ruleset}
+    - POST /registry/{ruleset}/promote
+  registry_export:   # every chart number of a study; signed person checked in the handler (S-09, D-273)
+    - GET /registry/{ruleset}/export.xlsx
+  study:   # services/orchestrator/study_api.py (S-28 study store, REDCap; D-109)
+    - GET /studies/{rs}/settings
+    - PUT /studies/{rs}/settings
+    - GET /studies/{rs}/screen-scope
+    - PUT /studies/{rs}/screen-scope
+    - GET /redcap/connections
+    - PUT /redcap/connections/{ref}
+    - POST /redcap/connections/{ref}/test
+    - GET /redcap/connections/{ref}/dictionary
+    - GET /studies/{rs}/redcap-link
+    - PUT /studies/{rs}/redcap-link
+    - POST /studies/{rs}/redcap-link/test
+    - POST /studies/{rs}/redcap-read
+    - GET /studies/{rs}/redcap-records
+  datacore:   # services/orchestrator/datacore_api.py (TrialBox's own data core; D-123)
+    - GET /studies/{rs}/forms
+    - POST /studies/{rs}/forms/dictionary
+    - GET /studies/{rs}/data
+    - PUT /studies/{rs}/data/{record}
+    - GET /studies/{rs}/sources
+    - PUT /studies/{rs}/sources/redcap
+    - DELETE /studies/{rs}/sources/redcap
+    - POST /studies/{rs}/sync/{name}
+    - POST /studies/{rs}/import/sheet
+    - GET /studies/{rs}/conflicts
+    - POST /studies/{rs}/conflicts/{cid}
+    - POST /studies/{rs}/forms/builtin
+    - GET /studies/{rs}/records
+    - GET /studies/{rs}/records/{record}
+    - POST /studies/{rs}/entry/{record}
+    - GET /studies/{rs}/export/{fmt}
+    - GET /studies/{rs}/fhir
+  lifecycle:   # services/orchestrator/lifecycle_api.py (subjects, schedule, SAE; D-134)
+    - POST /studies/{rs}/subjects/refresh
+    - GET /studies/{rs}/subjects
+    - GET /studies/{rs}/subjects/{record}
+    - POST /studies/{rs}/subjects/{record}/step
+    - POST /studies/{rs}/subjects/{record}/undo
+    - GET /studies/{rs}/schedule
+    - PUT /studies/{rs}/schedule
+    - POST /studies/{rs}/schedule/redcap
+    - GET /studies/{rs}/visits
+    - GET /studies/{rs}/aes
+    - GET /studies/{rs}/sae-rule
+    - PUT /studies/{rs}/sae-rule
+    - GET /studies/{rs}/contact-rule
+    - PUT /studies/{rs}/contact-rule
+    - GET /studies/{rs}/deviations/possible
+    - POST /studies/{rs}/deviations/possible
+    - POST /studies/{rs}/aes/{record}/{event}/ack
+    - GET /studies/{rs}/report
+    - GET /studies/{rs}/report/{fmt}
+  sponsor:   # services/orchestrator/sponsor_api.py (D-435)
+    - GET /studies/{rs}/sponsor/layout
+    - PUT /studies/{rs}/sponsor/layout
+    - POST /studies/{rs}/sponsor/weekly
+    - POST /studies/{rs}/sponsor/weekly/confirm
+  setup:   # services/orchestrator/setup_api.py (site set-up; D-131, D-132, D-135)
+    - GET /setup/templates/{name}
+    - GET /setup/{ws}/readiness
+    - GET /setup/{ws}/inputs
+    - GET /setup/{ws}/facts
+    - GET /setup/{ws}/codes
+    - GET /setup/{ws}/checks
+    - GET /setup/{ws}/fixes
+    - GET /setup/{ws}/people
+    - GET /setup/{ws}/patients
+    - GET /setup/{ws}/feasibility
+    - POST /setup/{ws}/sheets
+    - POST /setup/{ws}/sheets/{iid}/roles
+    - POST /setup/{ws}/charts
+    - POST /setup/{ws}/facts/{fid}
+    - POST /setup/{ws}/codes
+    - POST /setup/{ws}/codes/sheet
+    - POST /setup/{ws}/checks/{cid}
+    - POST /setup/{ws}/people/resolve
+    - POST /setup/pseudonym
+    - POST /setup/{ws}/publish
+    - POST /setup/practice/load
+    - POST /setup/practice/reset
+    - GET /setup/terminology
+    - GET /setup/remote
+    - PUT /setup/remote
+    - POST /assist
+  edc:   # services/orchestrator/edc_api.py (EDC prefill; the person from the signed assertion, D-160, D-162)
+    - GET /studies/{rs}/edc
+    - POST /studies/{rs}/edc/switch
+    - POST /studies/{rs}/edc/reentry
+    - POST /studies/{rs}/edc/dictionary
+    - GET /studies/{rs}/edc/map/suggest
+    - PUT /studies/{rs}/edc/map
+    - POST /studies/{rs}/edc/drafts
+    - GET /studies/{rs}/edc/drafts
+    - POST /studies/{rs}/edc/drafts/{draft_id}/decide
+    - POST /studies/{rs}/edc/sign
+    - POST /studies/{rs}/edc/import/odm
+    - POST /studies/{rs}/edc/send/redcap
+    - GET /studies/{rs}/edc/export/odm
+    - GET /studies/{rs}/edc/trail/{record}
+  api_docs:   # FastAPI's own schema pages
+    - GET /openapi.json
+    - GET /docs
+    - GET /docs/oauth2-redirect
+    - GET /redoc
+
+# verified calling service -> the groups it may reach. A service of the token registry with no row reaches nothing.
+services:
+  console:   # the front desk: services/console/backend.py, s28.call (data, entry, EDC, set-up, lifecycle pages)
+    groups: [jobs_start, job_read, jobs_list, job_cancel, job_reveal, notices, models_read, models_canary, rulesets,
+             patients, registry, registry_export, study, datacore, lifecycle, sponsor, setup, edc]
+  mail-gateway:   # parses hostile mail: starts the mail commands and reads the jobs that came in by mail, nothing else
+    groups: [jobs_start, job_read]
+    job_types: [FEAS, SCREEN, COHORT, NAV, APPROVE, STATUS, CANCEL, SUBMIT, FEEDBACK, CONSENT, RELEASE, CASE]
+    own_jobs: mail   # GET /jobs/{job_id}: only a job with a message_id (it came in by mail)
+  operator:   # the administrator's host token (scripts, curl; runbook §2): job and model reads. tools/trialbox
+              # reaches the orchestrator only with `docker compose exec`, never over HTTP.
+    groups: [jobs_list, job_read, models_read, api_docs]
+  adapter:            # CALLERS refuses it at the orchestrator already; listed so that a new caller is a decision
+    groups: []
+  lake:
+    groups: []
+  criteria-compiler:
+    groups: []
+  doc-parser:
+    groups: []
+  gateway:
+    groups: []
+  orchestrator:   # the callee itself: it calls its own code in process
+    groups: []
+  embed-service:
+    groups: []
+  scheduler:   # in process only (orchestrator/scheduler.py calls Orchestrator.create): no HTTP route
+    groups: []
+    in_process: true
+    principals: [scheduler, system]   # never accepted as requested_by from an HTTP body
