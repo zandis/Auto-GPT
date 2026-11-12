@@ -3,7 +3,9 @@ its extended storage (TB-PLAN-04 step 7, D-137).
 
 Layout (SS-MIX2 標準化ストレージ仕様書 v1.2): ``<root>/<id[0:3]>/<id[3:6]>/<patient id>/<YYYYMMDD | ->/<type>/<file>``
 with file names ``<patient id>_<date>_<type>_<order no>_<timestamp>_<dept>_<flag>``. Every change writes a new file;
-the newest timestamp per (patient, type, order no) wins and flag ``0`` means the record was deleted.
+the newest timestamp per (patient, type, order no) wins and flag ``0`` means the record was deleted. A site whose
+order numbers come back on another day sets ``TB_SSMIX2_ORDER_NUMBERS=per_day`` (D-594): the day is then part of
+that key; either way an order number seen on several days is counted (``<type>:order number on several days``).
 
 The message types read, and the canonical tables (``mapping/templates/CANONICAL.md``) they become:
 
@@ -73,6 +75,7 @@ import csv
 import io
 import json
 import logging
+import os
 import re
 from collections import Counter
 from collections.abc import Callable, Iterator
@@ -95,6 +98,9 @@ TYPES = {
     "medication": ("OMP-01", "OMP-02"),
     "lab": ("OML-11",),
 }
+_RECORD_TYPES = frozenset(t for types in TYPES.values() for t in types)
+ORDER_KEY_ENV = "TB_SSMIX2_ORDER_NUMBERS"
+ORDER_KEYS = ("unique", "per_day")  # D-594
 CHANGES = {"encounter": ("ADT-52",), "medication": ("OMP-11", "OMP-12")}  # read after the table's own types
 INJECTION = ("OMP-02", "OMP-12")
 JP_CORE = Path(__file__).resolve().parents[2] / "mapping" / "jp_core"
@@ -281,6 +287,7 @@ class Ssmix2Source:
         lab_lookup: Path | None = None,
         licensed: dict[str, dict[str, dict[str, str]]] | None = None,
         quarantine_max_pct: float = QUARANTINE_MAX_PCT,
+        order_key: str | None = None,
     ) -> None:
         if not directory.is_dir():
             raise FileNotFoundError(f"ssmix2 storage not found: {directory}")
@@ -311,6 +318,10 @@ class Ssmix2Source:
         self._cm: set[str] | None = None
         self.missed: Counter[str] = Counter()  # "diagnosis:<標準病名 code>", "medication:<YJ code>"
         self.stats: Counter[str] = Counter()  # messages and documents read, by type and outcome
+        # NEW-DIN-4 (D-594): whether the day folder is part of an order's key: the site's declaration
+        self.order_key = order_key or os.environ.get(ORDER_KEY_ENV) or "unique"
+        if self.order_key not in ORDER_KEYS:
+            raise ValueError(f"{ORDER_KEY_ENV}={self.order_key!r}: the key is one of {', '.join(ORDER_KEYS)}")
         self._index: dict[str, list[StoredFile]] | None = None
         self._gone: dict[str, list[StoredFile]] = {}  # newest version deleted (flag 0), by message type
         self._deleted_docs: list[Row] = []  # extended-storage documents whose newest version is deleted
@@ -323,15 +334,31 @@ class Ssmix2Source:
         """The current version of every record by message type (latest timestamp wins, flag 0 = deleted)."""
         if self._index is None:
             latest: dict[tuple[str, str, str, str], StoredFile] = {}
+            per_day: dict[tuple[str, str, str, str], StoredFile] = {}  # the newest version in each day folder
             for top in sorted(p for p in self.root.iterdir() if p.is_dir() and p.name not in NOT_PATIENT_DIRS):
                 for f in top.glob("*/*/*/*/*"):
                     sf = parse_name(f)
                     if sf is None or not f.is_file():
                         continue
-                    key = (sf.patient, sf.type, sf.order, sf.day if sf.order == "-" else "")
+                    # D-594: the day is part of the key only where the site says its order numbers repeat
+                    by_day = sf.order == "-" or self.order_key == "per_day"
+                    key = (sf.patient, sf.type, sf.order, sf.day if by_day else "")
                     cur = latest.get(key)
                     if cur is None or sf.stamp > cur.stamp:
                         latest[key] = sf
+                    if sf.order != "-" and sf.type in _RECORD_TYPES:
+                        on = (sf.patient, sf.type, sf.order, sf.day)
+                        if on not in per_day or sf.stamp > per_day[on].stamp:
+                            per_day[on] = sf
+            # counted either way, so the site check shows whether a storage's order numbers come back on another
+            # day: live versions of the record types only (a change message names an earlier order by design)
+            days: Counter[tuple[str, str, str]] = Counter()
+            for (patient, typ, order, _day), sf in per_day.items():
+                if not sf.deleted:
+                    days[(patient, typ, order)] += 1
+            for (_patient, typ, _order), n in days.items():
+                if n > 1:
+                    self.stats[f"{typ}:order number on several days"] += 1
             index: dict[str, list[StoredFile]] = {}
             gone: dict[str, list[StoredFile]] = {}
             for sf in sorted(latest.values(), key=lambda s: (s.type, s.patient, s.day, s.order)):
@@ -364,6 +391,11 @@ class Ssmix2Source:
                 for row in rows:
                     row.pop("_same", None)
                     yield row
+
+    def _order_on_its_day(self, sf: StoredFile) -> str:
+        """The order number for an id built from it (a result with no id of its own): with ``per_day`` it
+        always carries its day, so an id never changes meaning when another day's file appears (D-594)."""
+        return f"{sf.order}@{sf.day}" if self.order_key == "per_day" else sf.order
 
     def _messages(self, typ: str) -> Iterator[tuple[StoredFile, hl7.Message]]:
         """The current messages of one type. A file no codec reads, or that is not HL7, is quarantined (STD-020):
@@ -674,7 +706,7 @@ class Ssmix2Source:
             status = _status(_OBX_STATUS, obx.field(11))
             order = (obr.comp(3, 1) or obr.comp(2, 1)) if obr else ""
             row: Row = {
-                "lab_no": obx.comp(21, 1) or f"{sf.order}-{obx.field(1)}",
+                "lab_no": obx.comp(21, 1) or f"{self._order_on_its_day(sf)}-{obx.field(1)}",
                 "mrn": sf.patient,
                 "local_code": code,  # the lookup key (jlac10_to_loinc.csv), JLAC10 or the hospital's own code
                 "jlac10_code": jlac,
