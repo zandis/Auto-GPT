@@ -124,7 +124,7 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
   in a checkout.
 - **Fix.** Default to a copy under `TB_DATA_DIR`, and never write to the source tree. Add a test that the checkout
   is unchanged after a compile.
-- **Status.** Open.
+- **Status.** Fixed in #294.
 
 ## C. Fixed: keep them fixed
 
