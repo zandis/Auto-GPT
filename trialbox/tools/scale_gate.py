@@ -97,19 +97,12 @@ EXPECTED: dict[str, Expected] = {
         FULL,
         "the rebuild loads every line into one Arrow table: 17 GB measured against the lake's 8 GB",
     ),
-    "publish.recorded_once": Expected(
-        ("F-01",),
-        "T-690",
-        FULL,
-        "the publish waits 330 s on an 805 s rebuild, is never recorded, and the next tick rebuilds again",
-    ),
     "screen.outage_no_unknown": Expected(
         ("F-04",),
         "T-689",
         0,
         "a refused call is tried once at once and then lost as unknown; reproduced at 200 patients with a 1 s outage",
     ),
-    "backup.no_pause": Expected(("F-02",), "T-691", 0, "every service but db is paused for the whole dump"),
 }
 
 
@@ -126,6 +119,7 @@ class Params:
     restart_gap_s: float = 0.0  # how long it is down
     lake_timeout_s: float | None = None  # None: the product's LakeHttp default (the limit F-01 is about)
     publish_poll_s: float = 5.0
+    backup_quiesce: str = ""  # "" : the box's default (D-455: off); "pause": D-274's pause, to show the gate sees it
     publish_wait_s: float = 6 * 3600.0  # a guard for a hung lake; the CI job's own timeout is the real bound
     caps: dict[str, int] = field(default_factory=dict)
 
@@ -498,21 +492,37 @@ class _CountingLake:
         return out
 
     def rebuild(self, snapshot: str, allow_empty: bool = False) -> dict[str, Any]:
+        return self._count(lambda: self.inner.rebuild(snapshot))
+
+    def start_rebuild(self, snapshot: str, allow_empty: bool = False) -> dict[str, Any]:
+        """T-690 (D-472): the publish starts the rebuild as a job and follows it; a start counts as one rebuild."""
+        return self._count(lambda: self.inner.start_rebuild(snapshot))
+
+    def _count(self, call: Any) -> dict[str, Any]:
         import httpx
 
         try:
-            out: dict[str, Any] = self.inner.rebuild(snapshot)
+            out: dict[str, Any] = call()
         except httpx.HTTPStatusError as exc:
-            if exc.response.status_code != 409:
+            if exc.response.status_code != 409:  # 409: busy, already building: no rebuild started
                 self.started += 1
             self.errors.append(f"{exc.response.status_code}")
             raise
         except Exception as exc:
-            self.started += 1
+            if not _busy(exc):
+                self.started += 1
             self.errors.append(type(exc).__name__)
             raise
         self.started += 1
         return out
+
+
+def _busy(exc: Exception) -> bool:
+    try:
+        from lake.store import LakeBusy
+    except ImportError:  # pragma: no cover - an older lake
+        return False
+    return isinstance(exc, LakeBusy)
 
 
 def _publish(p: Params, rep: Report, url: str, alive: Any, token: str) -> bool:
@@ -567,7 +577,8 @@ def _publish(p: Params, rep: Report, url: str, alive: Any, token: str) -> bool:
         "client_timeout_s": inner.client.timeout.read,
     }
     if not alive():
-        rep.check("publish.recorded_once", False, f"the lake died during the publish (ticks {ticks[-5:]})")
+        # the lake's death is the rebuild's failure (its cap, F-05), not the publish's: blocked by it, never a pass
+        rep.check("publish.recorded_once", None, f"the lake died during the publish (ticks {ticks[-5:]})", "rebuild")
         return False
     ok = st.pub is not None and lake.started == 1
     detail = (
@@ -722,6 +733,8 @@ class ComposeStandIn:
                     timeout=timeout,
                 )
                 f.unlink()
+            elif "psql" in argv and "-c" in argv:  # the backup's catalogue questions to the db container (D-455)
+                out = self._query(argv[argv.index("-c") + 1])
             elif len(argv) >= 3 and argv[-3] == "cp":
                 dest = Path(argv[-1])
                 for x in self.spool.glob(f"{self.db}.*"):
@@ -741,6 +754,23 @@ class ComposeStandIn:
         finally:
             self.log.append((t0, time.monotonic(), list(argv)))
         return out
+
+    def _query(self, sql: str) -> str:
+        """A database's size is the run's own schemas (what its snapshot reads here); the run has no orchestrator, so
+        no job runs (the count is 0, the list empty)."""
+        if "orch.jobs" in sql:
+            return "" if "job_id" in sql else "0\n"
+        if "pg_database_size" in sql:
+            size = (
+                "SELECT coalesce(sum(pg_total_relation_size(c.oid)), 0)::bigint FROM pg_class c "
+                "JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname LIKE %s AND c.relkind = 'r'"
+            )
+            import psycopg
+
+            with psycopg.connect(self.dsn) as conn:
+                row = conn.execute(size, (f"{self.prefix}%",)).fetchone()
+            return f"{int(row[0]) if row else 0}\n"
+        raise RuntimeError(f"the compose stand-in has no answer for: {sql[:80]}")
 
     def paused_window(self) -> tuple[list[str], float, float]:
         """The services paused, how long, and how much of the dump ran while they were."""
@@ -764,12 +794,16 @@ def _backup(p: Params, rep: Report, work: Path, db_url: str) -> None:
 
     deploy = work / "deploy"
     deploy.mkdir(parents=True, exist_ok=True)
-    (deploy / ".env").write_text("TB_SITE_ID=SCALE\n", encoding="utf-8")
+    volumes = work / "docker-volumes"  # the box's volumes, walked by the backup (D-455): none made here
+    volumes.mkdir()
+    (deploy / ".env").write_text(f"TB_SITE_ID=SCALE\nTB_DOCKER_VOLUMES={volumes}\n", encoding="utf-8")
     pub = work / "keys" / "box.pub"
     bk.keygen(work / "keys" / "box.key", pub)
     target = work / "backup-target"
     target.mkdir()
     cfg = bs.Config(deploy=deploy, targets=[target], public_key=pub, production=False, keep=3, site="SCALE", mailto="")
+    if p.backup_quiesce:
+        cfg.quiesce = p.backup_quiesce
     box = ComposeStandIn(db_url, work / "db-spool")
     ops = bs.ComposeOps(deploy, box)
     events: list[str] = []

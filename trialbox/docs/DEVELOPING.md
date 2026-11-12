@@ -65,7 +65,7 @@ measured speed or the size of the data, or it is a declared setting with a reaso
   50,000 synthetic patients: ingest, the lake rebuild through the site publish, the screen with the slow model
   stand-in (seconds per call, a 40 s outage, a restart) and the backup, each part in its own process under the
   `mem_limit` of its compose service, enforced by a cgroup (`systemd-run`). Today's failures are listed in `EXPECTED`
-  of `tools/scale_gate.py` with their findings and cards (F-01 T-690, F-02 T-691, F-04 T-689, F-05 T-692): they show as
+  of `tools/scale_gate.py` with their findings and cards (today F-04 T-689 and F-05 T-692; F-01 and F-02 were removed when T-690 and T-691 fixed them): they show as
   XFAIL and keep the job green; the card that fixes one removes its line, because a pass of a listed check fails the
   job. A small run on this machine: `TB_ENV=DEV TB_TZ=Asia/Taipei PYTHONPATH=libs:services:. .venv/bin/python -m
   tools.scale_gate --patients 300` (no cgroup here: the memory is measured and a part over its cap is killed). The

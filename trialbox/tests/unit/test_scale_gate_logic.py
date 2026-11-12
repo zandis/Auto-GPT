@@ -162,8 +162,10 @@ def test_the_ledger_names_a_finding_and_a_card_for_each_known_failure() -> None:
     assert set(sg.EXPECTED) <= set(sg.CHECKS)
     for cid, e in sg.EXPECTED.items():
         assert e.findings and all(f.startswith("F-") for f in e.findings) and e.card.startswith("T-"), cid
-    # the owner's three blockers are there (G1 BUGS.md B2): F-01, F-02, F-05
-    assert {f for e in sg.EXPECTED.values() for f in e.findings} >= {"F-01", "F-02", "F-05"}
+    # G1 BUGS.md B2's three blockers: F-01 (T-690) and F-02 (T-691) are fixed on master and pass the gate (their lines
+    # are gone); F-05 (T-692) is open, and so is F-04 (T-689), which the gate reproduces at any size
+    found = {f for e in sg.EXPECTED.values() for f in e.findings}
+    assert found >= {"F-04", "F-05"} and not found & {"F-01", "F-02"}
 
 
 # ------------------------------------------------------------------------------------------------ the gate, small
@@ -185,8 +187,8 @@ def _params(tmp_path: Path, **kw: Any) -> sg.Params:
 
 
 def test_the_gate_at_200_patients(tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every part runs; under 50,000 the size-bound checks pass, and the size-free known failures (F-02's pause, F-04's
-    lost calls) are reported as known-open with their cards; the gate is green."""
+    """Every part runs; under 50,000 the size-bound checks pass, the publish (T-690) and the backup without a pause
+    (T-691) pass, and F-04's lost calls are reported as known-open with its card; the gate is green."""
     monkeypatch.setenv("TB_DB_URL", db_url)
     rep = sg.run(_params(tmp_path))
     rows = {r["check"]: r for r in rep.rows()}
@@ -198,26 +200,34 @@ def test_the_gate_at_200_patients(tmp_path: Path, db_url: str, monkeypatch: pyte
         "screen.ends_under_cap",
         "screen.model_faults_seen",
         "backup.ends",
+        "backup.no_pause",
     ):
         assert rows[cid]["state"] == scale.PASS, rows[cid]
-    assert rows["backup.no_pause"]["state"] == scale.KNOWN and rows["backup.no_pause"]["expected"] == "F-02 (T-691)"
-    assert rows["screen.outage_no_unknown"]["state"] == scale.KNOWN
+    out = rows["screen.outage_no_unknown"]
+    assert out["state"] == scale.KNOWN and out["expected"] == "F-04 (T-689)", out
     assert rep.ok()
     md = (tmp_path / "gate" / "scale_gate.md").read_text(encoding="utf-8")
-    assert "known-open | F-02 (T-691)" in md and "enforcement: measure" in md and "Gate: green" in md
+    assert "known-open | F-04 (T-689)" in md and "enforcement: measure" in md and "Gate: green" in md
     assert rep.numbers["publish"]["rebuilds_started"] == 1 and rep.numbers["screen"]["stand_in_restarts"] == 1
 
 
-def test_the_gate_catches_a_publish_slower_than_its_client(
-    tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """F-01's shape at a small size: a lake client whose limit is shorter than the rebuild. The publish is never
-    recorded and the next tick rebuilds again; the gate says so (FAIL, since the F-01 line applies from 50,000)."""
+def test_the_gate_catches_f01_and_f02_shapes(tmp_path: Path, db_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The gate still sees what T-690 and T-691 fixed. F-01's shape: a site publish that loses its publish in progress
+    (the record of the job it started), so it is never recorded and a later tick starts a second rebuild of the
+    snapshot. F-02's shape: the backup with D-274's pause (``TB_BACKUP_QUIESCE=pause``). Both FAIL (no EXPECTED line
+    covers them any more), and the gate is red."""
+    from sitesetup.service import SiteSetup
+
     monkeypatch.setenv("TB_DB_URL", db_url)
-    rep = sg.run(_params(tmp_path, lake_timeout_s=0.2, outage_s=0.0, restart_after=0))
-    row = next(r for r in rep.rows() if r["check"] == "publish.recorded_once")
-    assert row["state"] == scale.FAIL and "recorded=False" in row["detail"], row
-    assert rep.numbers["publish"]["rebuilds_started"] >= 2 and not rep.ok()
+    monkeypatch.setattr(SiteSetup, "_record", lambda self, ws: None)  # the publish forgets the job it started
+    rep = sg.run(_params(tmp_path, outage_s=0.0, restart_after=0, backup_quiesce="pause"))
+    rows = {r["check"]: r for r in rep.rows()}
+    pub = rows["publish.recorded_once"]
+    assert pub["state"] == scale.FAIL and "recorded=False" in pub["detail"], pub
+    assert rep.numbers["publish"]["rebuilds_started"] >= 2
+    pause = rows["backup.no_pause"]
+    assert pause["state"] == scale.FAIL and "services paused" in pause["detail"], pause
+    assert rep.numbers["backup"]["paused"] and not rep.ok()
 
 
 def test_a_night_killed_at_its_cap_blocks_nothing_it_can_feed(
@@ -237,7 +247,7 @@ def test_a_night_killed_at_its_cap_blocks_nothing_it_can_feed(
         assert rows["publish.recorded_once"]["state"] in (scale.PASS, scale.FAIL)
     else:  # the back-fill did not fit 40 MB either: everything that needs the snapshot is blocked by the ingest
         assert rows["rebuild.under_cap"]["blocked_by"] == "ingest"
-    assert rows["backup.no_pause"]["state"] == scale.KNOWN
+    assert rows["backup.no_pause"]["state"] == scale.PASS
 
 
 # ------------------------------------------------------------------------------------------------ the nightly job

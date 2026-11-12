@@ -36,7 +36,9 @@
    (2 s per call, a 40 s outage) are the row's; the gateway, its breaker and its budgets in between are the real
    ones over real HTTP.
 5. **Today's failures are strict expected failures by finding id and card** (`EXPECTED` in the test, like D-460):
-   F-01 (T-690), F-02 (T-691), F-05 (T-692), and F-04 (T-689), which the gate reproduced here at 200 and 2,000
+   F-05 (T-692) and F-04 (T-689) (F-01 and F-02 were listed until T-690, D-472, and T-691, D-455, fixed them: on
+   their merge the gate passes both checks and their lines were removed; the pull-request test still shows the gate
+   catches both shapes, a publish that loses its job and a backup with `TB_BACKUP_QUIESCE=pause`). F-04, which the gate reproduced here at 200 and 2,000
    patients (a 1 s and a 5 s outage lost 2 of 5 and 60 of 74 judge calls: the gateway tries a refused call once at
    once, then its breaker answers for the model). Only the model's faults count (`model_unavailable`,
    `upstream_failed`, `model_busy`, `model_asleep`); a content refusal is reported beside them. The job is green while
@@ -54,7 +56,8 @@
 - Not run at 50,000 on the build machine (4 shared cores): the first scheduled run of `scale-50k` is the proof. The
   harness was run at 200, 300 (with the HL7 validator) and 2,000 patients in `measure` mode. At 50,000 the night is
   expected to be killed at the adapter's cap (F-05); the back-fill path then feeds the rebuild, which is expected to be
-  killed at the lake's cap (F-05) and so to fail the publish (F-01); the screen is then blocked by the rebuild. If the
+  killed at the lake's cap (F-05); the publish over a dead lake is then "blocked by rebuild" (not a pass, not a
+  failure of T-690's fix), and so is the screen. If the
   first run shows another failure with a finding of the review (F-07, F-29, F-36 at 50,000), its line is added to
   `EXPECTED` with its card.
 - When F-04 is fixed and the screen no longer loses calls, the stand-in's restart after call 900 is reached; until then
