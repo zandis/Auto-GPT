@@ -17,10 +17,14 @@ COPY deploy/requirements-embed.lock /tmp/requirements-embed.lock
 # for torch only (pyproject.toml [tool.uv.sources])
 # $CERT is empty or "--cert <file>": it must split into two words (SC2086 by design)
 # hadolint ignore=SC2086
+# setuptools comes in because torch names it (its helpers that compile extensions); the service never compiles.
+# It is taken out in the same layer, so no layer ships it: it carries an LGPL part (autocommand) and Windows
+# launchers the licence gate cannot name. The start test embeds without it.
 RUN --mount=type=secret,id=extra_ca,required=false \
     set -eux; CERT=""; if [ -f /run/secrets/extra_ca ]; then CERT="--cert /run/secrets/extra_ca"; fi; \
     pip install $CERT --only-binary=:all: --require-hashes --extra-index-url https://download.pytorch.org/whl/cpu \
-      -r /tmp/requirements-embed.lock
+      -r /tmp/requirements-embed.lock; \
+    pip uninstall -y setuptools
 # the service never asks the publisher's hub for anything: the folder is the site's own (D-429)
 ENV HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_HUB_DISABLE_TELEMETRY=1 HF_HOME=/tmp/hf
 USER tb
