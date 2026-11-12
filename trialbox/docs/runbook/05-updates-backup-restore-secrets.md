@@ -79,8 +79,17 @@ you may push to the hospital's git server.
    `backup-keygen`). In PRODUCTION it refuses without an **alert route**: `TB_BACKUP_ALERT_CMD` (a command that
    reads the message on stdin), or `TB_BACKUP_MAILTO` on a host with a mail transfer agent. The cron runs
    `backup-nightly` at 04:45 (move it after the night's jobs) and `backup-status --quiet` every hour. A run checks
-   free space first, never runs twice at once, and pauses every service but `db` while it reads, so the databases
-   and the files are of one point in time (`TB_BACKUP_QUIESCE=off` leaves them running). Each backup also holds a
+   free space first and never runs twice at once. **Nothing is paused** (D-455): each database is copied as one
+   snapshot (`trialbox_wf`, then `hapi`) and the files are read after both; `backup-last.json` records the window
+   (`point_in_time`: each snapshot's time, `files_done_at`, the step limits). Rows written after a database's snapshot
+   are not in the backup. `TB_BACKUP_QUIESCE=pause` pauses every service but `db` for one instant of databases and
+   files, but never while a job runs, and holds the watchdog's maintenance flag meanwhile (the watchdog never restarts
+   a paused container, and restarts nothing while `deploy/watchdog/maintenance` exists: to hold services still by
+   hand, write `{"by": "<you>", "why": "<what>"}` there and remove it after). Each step's time limit
+   comes from what it reads: `TB_BACKUP_STEP_START_S` (900) plus the measured size at `TB_BACKUP_MIN_MBPS` (5 MB/s);
+   with no size, no limit (a hung run then shows as "another backup run holds the lock" and the age alert). A target
+   keeps at most `TB_BACKUP_KEEP` backups and at most `TB_BACKUP_KEEP_SHARE` (0.5) of its capacity; the newest is
+   always kept. Each backup also holds a
    `host` part: `deploy/.env`, the settings file, `deploy/site`, `deploy/secrets` (the pgBackRest cipher) and the
    Authelia and Caddy volumes. The result is in `deploy/site/backup-last.json` and the audit (`backup.done`,
    `backup.failed`). `trialbox doctor --env-file deploy/.env` FAILs in PRODUCTION without an off-box target, an

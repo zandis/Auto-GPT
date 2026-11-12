@@ -18,8 +18,9 @@ EN: dict[str, str] = {
     "ops.action.update_apply": "Apply this update",
     "ops.action.logs_collect": "Collect yesterday's logs",
     "ops.action.network_sheet": "Write the network sheet again",
-    "ops.confirm.backup": "Back up the box now? The services pause for a few minutes while the databases are copied, "
-    "then start again. The backup is encrypted to the hospital's key and written to every backup target.",
+    "ops.confirm.backup": "Back up the box now? The services keep running and nobody's work stops: each database is "
+    "copied as one snapshot, then the files. The backup is encrypted to the hospital's key and written to every backup "
+    "target.",
     "ops.confirm.backup_check": "Check the newest backup in every target? Nothing changes. The check finds a cut or "
     "half-written file; only the private key in the envelope can prove the content.",
     "ops.confirm.update_check": "Verify the bundle {bundle}? Its signature and every file are checked. Nothing on the "
@@ -152,8 +153,9 @@ JA: dict[str, str] = {
     "ops.action.update_apply": "この更新を適用",
     "ops.action.logs_collect": "昨日のログを収集",
     "ops.action.network_sheet": "ネットワーク表を作り直す",
-    "ops.confirm.backup": "今すぐバックアップしますか？データベースをコピーする数分間、サービスは一時停止し、その後再"
-    "開します。バックアップは病院の鍵で暗号化され、すべての保存先に書き込まれます。",
+    "ops.confirm.backup": "今すぐバックアップしますか？サービスは止まらず、作業も中断されません。各データベースを一つ"
+    "のスナップショットとしてコピーし、その後ファイルをコピーします。バックアップは病院の鍵で暗号化され、すべての保存先"
+    "に書き込まれます。",
     "ops.confirm.backup_check": "各保存先の最新のバックアップを確認しますか？何も変更されません。途中で切れたファイル"
     "や書きかけのファイルを見つけます。内容を証明できるのは封筒の中の秘密鍵だけです。",
     "ops.confirm.update_check": "バンドル {bundle} を検証しますか？署名とすべてのファイルを確認します。この機器では何"
@@ -288,8 +290,8 @@ ZH: dict[str, str] = {
     "ops.action.update_apply": "套用此更新",
     "ops.action.logs_collect": "收集昨天的記錄檔",
     "ops.action.network_sheet": "重新產生網路說明表",
-    "ops.confirm.backup": "要立即備份嗎？複製資料庫的幾分鐘內服務會暫停，之後再啟動。備份以醫院的金鑰加密，並寫入每個"
-    "備份位置。",
+    "ops.confirm.backup": "要立即備份嗎？服務持續運作，不會中斷任何人的工作：每個資料庫以一個快照複製，之後再複製檔案。"
+    "備份以醫院的金鑰加密，並寫入每個備份位置。",
     "ops.confirm.backup_check": "要檢查每個備份位置中最新的備份嗎？不會變更任何內容。此檢查可找出被截斷或未寫完的檔案"
     "；只有信封中的私鑰才能證明內容。",
     "ops.confirm.update_check": "要驗證更新包 {bundle} 嗎？將檢查其簽章與每個檔案。本機不會有任何變更。",
