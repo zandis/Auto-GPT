@@ -37,7 +37,7 @@ CONSENT: list[tuple[str, str, bool | None, str | None]] = [
     ("P-OK", "active", True, "2026-05-01"),
     ("P-UNDATED", "active", True, "2026-05-01"),
     # an undated refusal: its date is unknown, so it cannot be shown to be older than the consent. The patient is
-    # out on every path (the integrator's ruling on the review of T-708, until the owner decides)
+    # out on every path (D-477: the owner's ruling of 2026-11-12)
     ("P-UNDATED", "rejected", False, None),
     ("P-UNDATEDOK", "active", True, None),  # an undated consent is the oldest statement: the dated refusal decides
     ("P-UNDATEDOK", "rejected", False, "2026-05-01"),
