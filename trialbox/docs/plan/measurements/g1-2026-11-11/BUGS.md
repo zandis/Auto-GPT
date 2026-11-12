@@ -85,7 +85,7 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
   started count as `<part> did not report`.
 - **Cause.** The report does not tell "not run yet / not run" apart from "failed".
 - **Fix.** Add the states `pending` and `not run (VM stopped)`. FAILED only when a part that ran has a failed check.
-- **Status.** Open.
+- **Status.** Fixed in #300.
 
 ## B. Open: the product
 
