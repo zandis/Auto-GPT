@@ -210,7 +210,8 @@ def test_a_table_with_a_patient_column_is_never_no_patient_data(monkeypatch: pyt
 
 def test_every_clear_resolves_and_the_worker_runs_each() -> None:
     names = [c.name for c in erasure.clears()]
-    assert names == ["candidate_pool", "candidate_registry", "omop", "profile", "vec"]
+    # T-723 (D-489) adds pid_pending: the pid map's staging of a held night
+    assert names == ["candidate_pool", "candidate_registry", "omop", "pid_pending", "profile", "vec"]
     for c in erasure.clears():
         clear, verify = c.resolve()
         assert callable(clear) and callable(verify), c.name

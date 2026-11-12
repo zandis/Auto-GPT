@@ -25,7 +25,6 @@ from tb_contracts.landing import Severity
 
 from adapter import governance
 from adapter.instants import to_site_offset
-from adapter.load_fhir import sync_snapshot
 from adapter.mapping.engine import Mapper, Mapping, resource_id
 from adapter.ndjson import Spool, is_deleted_flag, list_snapshots, snapshot_dir, tombstone_count, write_snapshot
 from adapter.pidmap import PidMap
@@ -48,6 +47,10 @@ class AdapterConfig:
     validation_max_pct: float = 0.5
     sample_fraction: float = 0.01
     rebuild: Callable[[str, Path], RebuildResult] | None = None
+    # T-723 (D-489): the lake in two steps, so a publish promotes last: ``build`` builds and judges a night without
+    # serving it, ``promote`` makes it the served one (False: a newer night is served). Both None: ``rebuild`` alone
+    build: Callable[[str, Path], RebuildResult] | None = None
+    promote: Callable[[str], bool] | None = None
     # settings.registry_source: None = the data source's own ``registry`` table; ("none", "") = no registry;
     # ("csv", "/path/registry.csv") or ("sql", dsn) = a separate consent registry
     registry: tuple[str, str] | None = None
@@ -457,6 +460,7 @@ def run_ingest(
                     source=source_kind,
                     passed=False,
                     held=False,
+                    batch=at.get("batch"),
                     actor="adapter",
                     detail={
                         "source": source_kind,
@@ -489,6 +493,7 @@ def _run_ingest(
     zone = ZoneInfo(cfg.tz)
     started = datetime.now(zone)
     snap = snapshot or started.date().isoformat()
+    at["batch"] = _open_night(cfg, source_kind, snap, started.isoformat())  # T-723 (D-489): the row, from the start
     try:  # T-612: before anything is read or written
         key = cfg.site_key()
         check_site_key(cfg, key)
@@ -677,12 +682,21 @@ def _run_ingest(
         if bad:
             errors.append(f"data contracts: {'; '.join(bad)}")
     aliases: dict[str, str] = {}
+    from adapter.publish import finish_served
+
+    finish_served(cfg)  # T-723 second review (H2): a served night whose pid map step did not end is finished first
     if patient_pairs:
         pm = cfg.pidmap()
         try:
-            pm.upsert_many(patient_pairs)
-            if identities:
-                pm.upsert_identity(identities)
+            # T-723 (D-489, F-12): the night's chart numbers are staged, not written: they enter the pid map when
+            # the night is published (adapter.publish), so a held night's never reach the reverse map. The staged
+            # rows of nights that are no longer held (rejected, replaced) are dropped here; never the served
+            # night's (its pid map step may still be owed: ``finish_served``)
+            still_held = _held_nights(cfg)
+            if still_held is not None:
+                served_now = _current(cfg.lake_dir)
+                pm.discard(still_held | {snap} | ({served_now} if served_now else set()))
+            pm.stage(snap, patient_pairs, identities or [])
             aliases = pm.aliases()  # T-659b: a merged chart number's records, one pid (applied as they are written)
         finally:
             pm.close()
@@ -699,6 +713,9 @@ def _run_ingest(
     final_dir = out_dir = snapshot_dir(cfg.lake_dir, snap)
     # D-271: a re-run of a promoted night is written beside it and moved in only when it passes; a held re-run never
     # touches the NDJSON that CURRENT (or a later delta) was built from
+    from adapter.publish import recover_all
+
+    recover_all(cfg)  # T-723 review: a re-run that was killed in its lake step is put back before anything is read
     rerun = (final_dir / PASSED).exists() or _current(cfg.lake_dir) == snap
     if rerun:
         out_dir = cfg.lake_dir / RERUN_DIR / snap
@@ -710,7 +727,14 @@ def _run_ingest(
         # NEW-DIN-8 (D-583): on a box a delta is never the first night: it has nothing to merge over and no
         # table of it can be judged complete
         errors.append("delta night: no earlier snapshot passed validation to merge over; run a full load")
+    from adapter.publish import RECORD as PUBLISH_RECORD
+
+    try:  # T-723: the step record of an earlier publish of this folder (kept only for the same content)
+        prior_record: str | None = (out_dir / PUBLISH_RECORD).read_text(encoding="utf-8")
+    except OSError:
+        prior_record = None
     full_counts = write_snapshot(out_dir, spool, base, tombstones, transform=night)
+    (out_dir / PUBLISH_RECORD).unlink(missing_ok=True)
     defaulted, presence_read, shifted, aliased = (
         night.defaulted,
         night.presence_read,
@@ -809,52 +833,34 @@ def _run_ingest(
         )
         validation_msgs.append(errors[-1])
     held = bool(errors)
-    if held:
-        errors.append("night held: fhir-store and the lake were not loaded; CURRENT still names the previous snapshot")
-    elif rerun:  # the re-run passed: it replaces the night's folder
-        old = cfg.lake_dir / RERUN_DIR / f"{snap}.replaced"
-        shutil.rmtree(old, ignore_errors=True)
-        if final_dir.exists():
-            final_dir.rename(old)
-        out_dir.rename(final_dir)
-        shutil.rmtree(old, ignore_errors=True)
-        out_dir = final_dir
     omop_load = None
-    if not held:  # T-106 (D-339): the dual write into OMOP; its refusal or failure never holds the night
-        at["step"] = "omop"
-        from adapter.dual_write import load_night
-
-        omop_load = load_night(cfg, snap, out_dir)
-    at["step"] = "load"
     fhir_loaded = fhir_deleted = 0
-    if not held and load_fhir and cfg.fhir_base_url:
-        try:
-            fhir_loaded, fhir_deleted = sync_snapshot(
-                cfg.fhir_base_url,
-                out_dir,
-                cfg.lake_dir / "fhir_ledger",
-                snapshot_dir(cfg.lake_dir, last_good) if last_good else None,
-            )
-        except Exception as exc:
-            errors.append(f"fhir-store load failed: {exc}")
     lake_result: RebuildResult | None = None
     lake_busy = False
-    if not held and rebuild_lake and cfg.rebuild is not None:
-        try:
-            lake_result = cfg.rebuild(snap, out_dir)
-        except Exception as exc:
-            errors.append(f"lake rebuild failed: {exc}")
-            if type(exc).__name__ in BUSY:
-                # D-462: a job holds the snapshot or another rebuild of it runs: nothing written, not the data's fault
-                lake_busy = True
-                errors.append("lake busy: the night is run again once the lake is free (nothing was written)")
-            elif type(exc).__name__ in REFUSALS:  # D-271: the lake or the OMOP store refused the data: a held night
-                held = True
-                errors.append("night held: the lake refused the snapshot; CURRENT still names the previous snapshot")
+    publish_steps: dict[str, str] | None = None
+    if held:
+        errors.append("night held: fhir-store and the lake were not loaded; CURRENT still names the previous snapshot")
+    else:
+        # T-723 (D-489): the night passed the gate. One resumable function publishes it: pid map, OMOP, the FHIR
+        # store, the lake (promote last). A step that fails stops it there; a re-run of the served night touches
+        # nothing while a job holds the snapshot
+        from adapter.publish import RECORD, publish_night
+
+        def on_step(step: str, steps: dict[str, str]) -> None:
+            at["step"] = f"publish:{step}"
+            _note(cfg, at.get("batch"), step=at["step"], publish=steps)
+
+        if prior_record is not None:  # the same night run again: the steps done for the same content are kept
+            (out_dir / RECORD).write_text(prior_record, encoding="utf-8")
+        pub = publish_night(
+            cfg, snap, out_dir, last_good=last_good, load_fhir=load_fhir, rebuild_lake=rebuild_lake, on_step=on_step
+        )
+        out_dir, publish_steps = pub.out_dir, dict(pub.steps)
+        errors += pub.errors
+        held, lake_busy = pub.held, pub.lake_busy
+        omop_load, fhir_loaded, fhir_deleted, lake_result = pub.omop, pub.fhir_loaded, pub.fhir_deleted, pub.lake
     at["step"] = "report"
     passed = not errors
-    if passed:  # D-271: the only NDJSON a later delta night may merge over
-        (out_dir / PASSED).write_text(json.dumps({"snapshot": snap}) + "\n", encoding="utf-8")
     report = IngestReport(
         snapshot=date.fromisoformat(snap),
         source=source_kind,
@@ -911,6 +917,7 @@ def _run_ingest(
             passed=passed,
             held=held,
             started_at=started.isoformat(),
+            batch=at.get("batch"),
             output_sha=sha256_bytes(body),
             actor="adapter",
             detail={
@@ -922,6 +929,7 @@ def _run_ingest(
                 "tombstoned": tombstoned,
                 "held": held,
                 "lake_busy": lake_busy or None,  # D-462: run again once the lake is free
+                "publish": publish_steps,  # T-723: each publish step's state (None: the night was held at the gate)
                 "unit_defaults_applied": defaulted,
                 "presence_words_read": presence_read,
                 "instants_to_site_offset": shifted,
@@ -966,8 +974,62 @@ def _run_ingest(
 _REFERENCE = re.compile(r"^Patient/(.+)$")
 
 
+def _ops(cfg: AdapterConfig) -> Any:
+    from datacore.dataops import DataOps
+
+    return DataOps(cfg.db_url or os.environ.get(DB_URL_ENV))
+
+
+def _open_night(cfg: AdapterConfig, source: str, snapshot: str, started_at: str) -> str | None:
+    """T-723 (D-489): the night's ``dataops.batch`` row, opened when the run starts (``LANDED``); the id as text, or
+    None when there is no audit folder or the trial database cannot be reached (the night goes on, and its end
+    writes the event without a row, as before)."""
+    if not cfg.audit_dir:
+        return None
+    try:
+        ops = _ops(cfg)
+    except Exception as exc:
+        log.error("the night's batch row was not opened", extra={"error": type(exc).__name__})
+        return None
+    try:
+        row = ops.open_night(open_audit(cfg.audit_dir, cfg.tz), source=source, snapshot=snapshot, by="adapter",
+                             at=started_at)  # fmt: skip
+        return str(row.id)
+    except Exception as exc:
+        log.error("the night's batch row was not opened", extra={"error": type(exc).__name__})
+        return None
+    finally:
+        ops.close()
+
+
+def _note(cfg: AdapterConfig, batch: str | None, **detail: Any) -> None:
+    """Write where the running night is into its row's detail (the step, the publish steps); never fails the run."""
+    if not batch:
+        return
+    try:
+        ops = _ops(cfg)
+        try:
+            ops.note(int(batch), **detail)
+        finally:
+            ops.close()
+    except Exception as exc:
+        log.warning("the night's batch row was not updated", extra={"error": type(exc).__name__})
+
+
+def _held_nights(cfg: AdapterConfig) -> set[str] | None:
+    """The nights a steward has still to decide (``HELD`` rows), or None when the store cannot be read."""
+    try:
+        ops = _ops(cfg)
+        try:
+            return {b.snapshot for b in ops.held()}
+        finally:
+            ops.close()
+    except Exception:
+        return None
+
+
 def night_event(cfg: AdapterConfig, event: str, *, snapshot: str, source: str, passed: bool, held: bool,
-                started_at: str = "", **fields: Any) -> None:  # fmt: skip
+                started_at: str = "", batch: str | None = None, **fields: Any) -> None:  # fmt: skip
     """The night's audit event and its ``dataops.batch`` row, in one transaction (T-112a, D-427): the one adapter
     hook of the data-operations schema. A trial database that cannot be reached does not hide the night's event: it
     is written without a row, says so (``detail.batch`` is ``None``) and the log names the error."""
@@ -984,7 +1046,7 @@ def night_event(cfg: AdapterConfig, event: str, *, snapshot: str, source: str, p
         return
     try:
         ops.record_night(audit, event, source=source, snapshot=snapshot, passed=passed, held=held, by="adapter",
-                         at=at, started_at=started_at, **fields)  # fmt: skip
+                         at=at, started_at=started_at, batch_id=int(batch) if batch else None, **fields)  # fmt: skip
     finally:
         ops.close()
 
@@ -1292,6 +1354,15 @@ def merge_base(lake_dir: Path, snap: str) -> str | None:
     return max(good) if good else None
 
 
+def _built_not_served(lake_dir: Path, snap: str) -> bool:
+    """The night has a publish record (T-723) and its promotion did not end. A folder without a record (a night
+    from before T-723, a lake rebuilt by hand) is not judged here."""
+    from adapter.publish import ENDED, read_record
+
+    steps = read_record(snapshot_dir(lake_dir, snap)).get("steps") or {}
+    return bool(steps) and steps.get("lake") not in ENDED
+
+
 def prune_snapshots(cfg: AdapterConfig, today: date) -> list[str]:
     """SPEC §10.3: keep the last N nightly snapshots and each month's last snapshot for M months (NDJSON, parquet,
     DuckDB); the current snapshot is always kept, and so is every snapshot a running job holds (T-305b, D-403: a
@@ -1306,7 +1377,10 @@ def prune_snapshots(cfg: AdapterConfig, today: date) -> list[str]:
     # T-611: only nights that passed count towards the N kept (a held night has no passed.json and no DuckDB; a
     # folder from before the marker that was promoted has its DuckDB)
     good = {s for s in snaps if (snapshot_dir(cfg.lake_dir, s) / PASSED).exists()}
-    good |= {p.stem for p in (cfg.lake_dir / "db").glob("*.duckdb")} | ({current} if current else set())
+    # T-723 second review (L3): the lake now builds a night before it serves it. A built night whose publish record
+    # says the promotion did not end was never served: it is not a good night and takes no place among the N kept
+    good |= {p.stem for p in (cfg.lake_dir / "db").glob("*.duckdb") if not _built_not_served(cfg.lake_dir, p.stem)}
+    good |= {current} if current else set()
     keep = snapshots_to_keep(snaps, today, cfg.keep_nightly, cfg.keep_month_end_months, good) | {current or ""}
     gone: list[str] = []
     with lake_lock(cfg.lake_dir):  # D-462: no hold lands between reading the holds and the deletes
