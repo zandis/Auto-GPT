@@ -167,7 +167,7 @@ stop_vm() {
   local s; s="$(status)"
   echo "VM $VM status: $s"
   # back to spot (D-468: a run puts a VM with a hospital part on demand; a VM started by hand later must not pay 3x)
-  gc compute instances set-scheduling "$VM" --zone "$ZONE" --provisioning-model=SPOT --instance-termination-action=STOP || true
+  gc compute instances set-scheduling "$VM" --zone "$ZONE" --preemptible --provisioning-model=SPOT --instance-termination-action=STOP || true
   gc compute instances add-metadata "$VM" --zone "$ZONE" --metadata-from-file startup-script="$ROOT/deploy/gcp/gpu-sim-startup.sh" || true
   gc compute instances remove-metadata "$VM" --zone "$ZONE" --keys tb-key,tb-door-version >/dev/null 2>&1 || true
 }
@@ -263,7 +263,10 @@ shard_run() {  # $1 = shard number; VM, ZONE and parts come from plan.json; the 
     [ "$s" = TERMINATED ] || { echo "$VM is $s, not TERMINATED: stop it first (--stop) or collect its run" >&2; return 3; }
     door_vm_ready || { echo "$VM: not started (see above)" >&2; return 3; }   # its door: Secret Manager, 443 only
     # ------------------------------------------------------------ 1. the cloud-side hard cap, before the start
-    gc compute instances set-scheduling "$VM" --zone "$ZONE" --max-run-duration="${CAP_H}h" --instance-termination-action=STOP --provisioning-model="$PROV"
+    # GCE refuses STANDARD on a VM created preemptible unless the flag is cleared with it (G1 2026-11-12: "For
+    # preemptible, only allowed provisioning_model value is SPOT"), and SPOT goes back with --preemptible
+    if [ "$PROV" = STANDARD ]; then PREEMPT=--no-preemptible; else PREEMPT=--preemptible; fi
+    gc compute instances set-scheduling "$VM" --zone "$ZONE" --max-run-duration="${CAP_H}h" --instance-termination-action=STOP "$PREEMPT" --provisioning-model="$PROV"
     [ "$DRY" = 1 ] || gc compute instances describe "$VM" --zone "$ZONE" \
       --format='value(scheduling.provisioningModel,scheduling.maxRunDuration.seconds,scheduling.instanceTerminationAction)'
     # ------------------------------------------------------------ the door (Secret Manager, TLS), the metadata, the start
