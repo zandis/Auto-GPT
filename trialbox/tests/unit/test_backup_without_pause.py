@@ -471,7 +471,7 @@ def test_a_rebuild_swap_waits_for_the_lakes_read_and_the_restored_lake_passes_it
     assert files == ["a.parquet", "b.parquet"]  # one state: all old
     assert all(_sidecar_ok(p) for p in [got / "db" / "S.duckdb", *(got / "parquet" / "snapshot=S").glob("*.parquet")])
     res = bk.restore(f, priv, env={"TB_DB_URL": db_url}, dirs={"lake": tmp_path / "restored"}, no_copy=True)
-    assert res["lake_check"] == {"snapshots": 1, "problems": [], "checked": True}
+    assert res["lake_check"] == {"snapshots": 1, "problems": [], "unsigned": 0, "checked": True}
 
 
 def test_without_the_lake_lock_a_swap_mid_read_fails_the_backup(tmp_path: Path, db_url: str, monkeypatch: Any) -> None:
@@ -499,12 +499,12 @@ def test_the_lake_check_finds_a_mismatch_and_an_empty_folder(tmp_path: Path) -> 
 
     lake = tmp_path / "lake"
     _lake_files(lake, "old", ("a",))
-    assert bk.lake_check(lake) == {"snapshots": 1, "problems": []}
+    assert bk.lake_check(lake) == {"snapshots": 1, "problems": [], "unsigned": 0}
     (lake / "parquet" / "snapshot=S" / "a.parquet").write_bytes(b"other")
     (lake / "db" / "T.duckdb").write_bytes(b"x")
-    problems = bk.lake_check(lake)["problems"]
-    assert any("a.parquet: content does not match" in p for p in problems)
-    assert any("T.duckdb: no .sha256" in p for p in problems) and any("snapshot=T: missing" in p for p in problems)
+    got = bk.lake_check(lake)
+    assert any("a.parquet: content does not match" in p for p in got["problems"])
+    assert any("snapshot=T: missing" in p for p in got["problems"]) and got["unsigned"] == 1  # T.duckdb: no sidecar
 
 
 def test_retention_never_prunes_before_the_new_file_is_checked(tmp_path: Path) -> None:

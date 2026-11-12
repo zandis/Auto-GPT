@@ -629,6 +629,8 @@ class RunningBox(FakeBox):
             return "db\norchestrator\nconsole\nadapter\n"
         if argv[-1] == bs.RUNNING_JOBS_SQL:  # D-455: no job runs, so TB_BACKUP_QUIESCE=pause may pause
             return "0\n"
+        if "pg_database_size" in " ".join(argv):  # D-455 (M4): every size is known, so a pause has its limits
+            return "1000\n"
         return out
 
 

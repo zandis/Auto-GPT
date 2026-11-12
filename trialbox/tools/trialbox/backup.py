@@ -567,6 +567,8 @@ def select_files(name: str, root: Path) -> tuple[list[str], dict[str, int]]:
             ndjson_keep = {cur.read_text(encoding="utf-8").strip(), *snaps[-2:]}
     for rel in _walk(root):
         parts = Path(rel).parts
+        if name == "lake" and rel == LAKE_LOCK:  # the lake's lock file (empty; the backup takes it, D-455)
+            continue
         why = ""
         if name == "lake" and parts[0] in LAKE_SKIP_TOP:
             why = "lake tmp/ (spill)"
@@ -725,14 +727,16 @@ def _add_lake(tar: tarfile.TarFile, root: Path, manifest: dict[str, Any]) -> tup
 def lake_check(root: Path) -> dict[str, Any]:
     """The lake's own check (``lake.store.Lake.verify``, D-462) of every snapshot under ``root``: each
     ``db/<snapshot>.duckdb`` and each Parquet file of its folder against its ``.sha256`` sidecar, and the folder not
-    empty. Run by the restore on the restored lake before it is put in place (D-455, H1)."""
+    empty. Run by the restore on the restored lake before it is put in place (D-455, H1). A file with no sidecar at
+    all (a lake from before sidecars) is listed in ``unsigned``, not a problem: nothing contradicts it."""
     problems: list[str] = []
+    unsigned: list[str] = []
     snaps = sorted(p for p in (root / "db").glob("*.duckdb")) if (root / "db").is_dir() else []
 
     def check(f: Path) -> None:
         side = f.with_name(f.name + ".sha256")
         if not side.is_file():
-            problems.append(f"{f.relative_to(root)}: no .sha256 sidecar")
+            unsigned.append(str(f.relative_to(root)))
         elif _sidecar_sha(side.read_bytes()) != _sha_file(f):
             problems.append(f"{f.relative_to(root)}: content does not match its .sha256 sidecar")
 
@@ -744,7 +748,7 @@ def lake_check(root: Path) -> dict[str, Any]:
             problems.append(f"parquet/snapshot={db.stem}: missing or empty")
         for f in files:
             check(f)
-    return {"snapshots": len(snaps), "problems": problems}
+    return {"snapshots": len(snaps), "problems": problems, "unsigned": len(unsigned)}
 
 
 def _write_sidecar(file: Path, sha: str) -> None:
@@ -1177,7 +1181,7 @@ def restore(
                 _audit(targets, env, "backup.restore_failed", sha, {**base, "error": str(e)[-300:]})
             back = f"; the box before it is kept in {copy}: trialbox restore {copy} puts it back" if copy else ""
             raise BackupError(f"{e}{back}") from e
-        lake: dict[str, Any] = {"snapshots": 0, "problems": [], "checked": False}
+        lake: dict[str, Any] = {"snapshots": 0, "problems": [], "unsigned": 0, "checked": False}
         if (work / "dirs" / "lake").is_dir():  # D-455 (H1): the lake's own check, before any folder moves
             lake = {**lake_check(work / "dirs" / "lake"), "checked": True}
             if lake["problems"]:

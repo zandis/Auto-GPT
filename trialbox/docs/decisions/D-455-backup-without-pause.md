@@ -77,7 +77,9 @@
    under the lock (the lake on disk is then damaged and a person looks). The rest of the lake (NDJSON, the vector
    store, the site inputs) is read after, without the lock. **A restore runs the lake's own check** (each
    `db/<snapshot>.duckdb` and its Parquet files against their sidecars, the folder not empty) on the restored lake
-   before any folder is put in place, refuses on a problem, and reports `lake_check`.
+   before any folder is put in place, refuses on a problem (a file that contradicts its sidecar, an empty Parquet
+   folder), and reports `lake_check`; a file with no sidecar at all (a lake from before sidecars) is counted as
+   `unsigned`, not refused. The lock file itself is not backed up.
 8. **Retention counts only good backups (review M1).** A file is a backup only with its `.sha256` sidecar. The
    nightly prunes after every copy of the new file is checked; the size rule never leaves fewer than two good
    backups on a target, and when two are still more than the share allows the run records an error (red) instead.
