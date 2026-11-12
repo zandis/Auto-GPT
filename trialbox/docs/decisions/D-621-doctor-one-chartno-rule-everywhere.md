@@ -32,9 +32,34 @@ pseudonym the feed never produces.
 ## Consequences
 
 - A container started before the rule was written to `.env` fails the check until it is started again, which is
-  what should happen: it would file pseudonyms under the old rule.
+  what should happen: it would file pseudonyms under the old rule. This needs the running containers to be read
+  (see the review below).
 - **Not closed here:** the processes still do not ask the pid map when they make a pseudonym; `doctor` finds a
   difference when it is run (the install, the nightly checks), not at the moment of the opt-out. The host tool
   `tools/keys.py` runs outside the containers under the caller's environment and is not judged. The Kubernetes
   path (`doctor --platform`) reads no compose files and gets the WARN or FAIL of item 2.
 - `tests/unit/test_trialbox_doctor.py` lists every check of a default run; the new name is added there.
+
+## After the adversarial review (2026-11-12)
+
+The first version was right for what its tests handed it and blind on a box: the host check runs `doctor` in a
+container with no network and no docker, so neither the running containers nor the pid map were read, and the
+rendered compose files alone cannot differ (one env file). It then passed, or warned for ever.
+
+- **`deploy/check_host.sh` hands both in.** The environment of the project's running containers goes to the
+  doctor's container through a pipe (`docker inspect` on standard input: it holds passwords and is never written
+  to a file), and the pid map's row for the site (fingerprint and rule; no secret) as a setting, read with `psql`
+  in the box's database container.
+- **A PASS no longer says what was not read.** Containers not read, or the pid map not asked or not readable, is
+  "NOT CHECKED" in the line and a WARN in VALIDATION and PRODUCTION. "The same as the pid map" and "no night has
+  recorded a rule" are said only when the pid map was asked.
+- **No service judged** (none started with `TB_SITE_ID`) is a FAIL on such a box, not "asis in 0 services".
+- **A pid map row with a key and no rule** is a WARN: the adapter has not adopted a rule (D-595), so the rule the
+  patients were loaded under is not known.
+- One test runs the real base compose file through the real rendering.
+- **Open:** two containers of one service leave one read (`running_config` keys by service); an inline comment
+  after the rule in `.env` reads as part of the rule and fails the check (compose may strip it; not verified);
+  jobs started with `docker compose run -e` are not containers of the stack and are not judged.
+- **Not run here:** the new lines of `check_host.sh` (Docker is not running on the build machine, no shellcheck).
+  The `shell` job and the next box rehearsal are their first run.
+

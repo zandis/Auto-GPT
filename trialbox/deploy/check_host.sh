@@ -289,11 +289,37 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
   # The release tree is mounted where the links point, as install.sh does (tree_args)
   TREE_MOUNT=""
   [ -d "$ROOT_DIR/current" ] && TREE_MOUNT="$(readlink -f "$ROOT_DIR/current"):/app/current:ro"
-  # $AUDIT_MOUNTS is a list of words by design (the folders' paths hold no space on a box)
-  # shellcheck disable=SC2086
-  if docker run --rm --network none --env-file "$ENV_FILE" -e TB_HOST_TZ="$HOST_TZ" -v "$ROOT_DIR/deploy:/app/deploy:ro" \
-      ${TREE_MOUNT:+-v "$TREE_MOUNT"} ${KEK_MOUNT:+-v "$KEK_MOUNT"} $AUDIT_MOUNTS --user 0:0 \
-      "${TB_IMAGE:-trialbox-py:1.0.0}" python -m tools.trialbox doctor "$@"; then
+  # D-621: the doctor's container has no network and no docker, so the host hands in what it cannot see: the
+  # environment of the running containers (docker inspect, through a pipe: it holds passwords and is never
+  # written to a file) and the pid map's row for the site (the fingerprint and the chart-number rule; no secret)
+  PROJECT="${COMPOSE_PROJECT_NAME:-trialbox}"
+  RUNNING_IDS="$(docker ps -q --filter "label=com.docker.compose.project=$PROJECT" 2>/dev/null | tr '\n' ' ')"
+  SITE_ID="$(sed -n 's/^TB_SITE_ID=//p' "$ENV_FILE" | tail -1)"
+  PIDMAP_ROW=""
+  if [ -n "$RUNNING_IDS" ] && [ -n "$SITE_ID" ]; then
+    if PIDMAP_OUT="$(printf '%s\n' "SELECT fingerprint || '|' || coalesce(chartno_rule, '') FROM pidmap.site_key WHERE site_id = :'site'" \
+        | docker compose --project-directory "$ROOT_DIR/deploy" exec -T db psql -X -q -tA -v ON_ERROR_STOP=1 \
+            -v site="$SITE_ID" -U trialbox -d trialbox_wf 2>/dev/null)"; then
+      PIDMAP_ROW="${PIDMAP_OUT:-none}"
+    fi
+  fi
+  # $AUDIT_MOUNTS and $RUNNING_IDS are lists of words by design (the folders' paths hold no space on a box)
+  running_env() {
+    # shellcheck disable=SC2086
+    if [ -n "$RUNNING_IDS" ] && docker inspect $RUNNING_IDS 2>/dev/null; then return 0; fi
+    echo '[]'
+  }
+  doctor_in_image() {
+    # shellcheck disable=SC2086
+    if docker run --rm --network none --env-file "$ENV_FILE" -i -e TB_HOST_TZ="$HOST_TZ" \
+        -e TB_DOCTOR_RUNNING_INSPECT=stdin -e TB_DOCTOR_PIDMAP_ROW="$PIDMAP_ROW" -v "$ROOT_DIR/deploy:/app/deploy:ro" \
+        ${TREE_MOUNT:+-v "$TREE_MOUNT"} ${KEK_MOUNT:+-v "$KEK_MOUNT"} $AUDIT_MOUNTS --user 0:0 \
+        "${TB_IMAGE:-trialbox-py:1.0.0}" python -m tools.trialbox doctor "$@"; then
+      return 0
+    fi
+    return 1
+  }
+  if running_env | doctor_in_image "$@"; then
     pass "trialbox doctor"
   else
     fail "trialbox doctor (see the lines above)"
