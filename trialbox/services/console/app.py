@@ -52,7 +52,7 @@ from tb_common.service_auth import bind_session
 from tb_common.ulid import new_ulid
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
-from console import api_first, demo_guard, feedback, i18n_roles
+from console import api_first, demo_guard, feedback, firstrun, i18n_roles
 from console.admin_accounts import end_date
 from console.auth import (
     AFFILIATIONS,
@@ -887,6 +887,19 @@ def create_app(
             secure=settings.secure_cookie,
             session_cookie=COOKIE,
             home="/home" if settings.pilot else "/",
+        ),
+    )
+
+    fr_dir = (_env_map(env).get("TB_FIRSTRUN_DIR") or "").strip()
+    firstrun.register(  # T-729 (D-466): the box's first-run wizard, before any account exists
+        app,
+        firstrun.FirstRunHooks(
+            users=us,
+            audit=au,
+            page=page,
+            seal=ident.box.seal,
+            secure=settings.secure_cookie,
+            folder=Path(fr_dir) if fr_dir else None,
         ),
     )
 
