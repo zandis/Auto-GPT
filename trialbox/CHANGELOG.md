@@ -10,6 +10,9 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- Database passwords (T-712, D-481): every service clears the other roles' and the administrators' passwords in
+  the base compose file, so no stack can be started with them; `trialbox doctor` has the check `db_passwords`
+  (the box's `.env`, its compose files and its running containers).
 - Release identity and bundle gates (T-110b, D-340): `tools/release.py` writes `release.json`
   (`schemas/release.schema.json`) and the release's `images.lock` for each bundle; `tools/make_bundle.sh` needs
   `--gates` and `--release-seq`, carries the SBOMs, the gate record, `NOTICE` and this file, and no longer carries
