@@ -54,19 +54,24 @@ TIMEZONES = tuple(sorted(z for z in available_timezones() if "/" in z and not z.
 
 
 def box_holds_patients() -> bool | None:
-    """NEW-DIN-3 (D-544, D-579): whether the pid map has a row. The chart-number rule may be chosen only while it
-    has none: another rule gives every loaded patient a second pseudonym. None: the map cannot be asked, which the
-    page treats as "it holds patients"."""
+    """NEW-DIN-3 (D-544, D-579): whether the pid map has a row, loaded or staged for a night that is not committed
+    yet. The chart-number rule may be chosen only while it has none: another rule gives every patient a second
+    pseudonym. None: the map cannot be asked, which the page treats as "it holds patients". Asking creates
+    nothing: the map's schema is looked up, never opened (``tb_common.optout.with_survivors`` does the same)."""
     import os
 
     from tb_common.db import Database
 
     try:
-        with Database.connect(os.environ.get("TB_DB_URL"), "pidmap") as db:
-            if db.fetchone("SELECT to_regclass('pid_map')") in (None, (None,)):
-                return False  # the map's tables are not made yet: nothing was ever loaded
-            row = db.fetchone("SELECT EXISTS (SELECT 1 FROM pid_map)")
-            return bool(row and row[0])
+        with Database.connect(os.environ.get("TB_DB_URL"), "auth") as db:  # the console's own schema
+            schema = db.schema[: -len("auth")] + "pidmap"
+            for table in ("pid_map", "pending"):
+                if db.fetchone("SELECT to_regclass(?)", (f'"{schema}".{table}',)) in (None, (None,)):
+                    continue  # not made yet: nothing was ever loaded into it
+                row = db.fetchone(f'SELECT EXISTS (SELECT 1 FROM "{schema}".{table})')  # nosec B608 - our own name
+                if row and row[0]:
+                    return True
+            return False
     except Exception:
         return None
 

@@ -13,6 +13,7 @@ record (D-88: TrialBox stays outside the regulated e-record).
 from __future__ import annotations
 
 import io
+import logging
 import re
 from datetime import datetime
 from pathlib import Path
@@ -40,9 +41,14 @@ FORWARD: dict[str, tuple[str, ...]] = {
 _RULESET = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,15}$")
 
 
+_log = logging.getLogger("trialbox.registry")
+
+
 def known_pid(secrets_dir: Path, db_url: str, pid: str) -> bool | None:
-    """NEW-DIN-3 (D-544): whether the pid map holds a row for this pseudonym, so whether it is a patient this box
-    has loaded. None: it cannot say (no map key yet, or the map cannot be read); never taken for "known"."""
+    """NEW-DIN-3 (D-544): whether the pid map knows this pseudonym, so whether it is a patient this box has loaded:
+    a row of its own, or a chart number merged into another patient (the opt-out register hides the surviving
+    patient for it, ``tb_common.optout.with_survivors``). None: it cannot say (no map key yet, or the map cannot be
+    read); never taken for "known". Why it cannot say goes to the log, without the pseudonym."""
     key = secrets_dir / "pid_map.key"
     if not key_present(key):
         return None
@@ -50,11 +56,13 @@ def known_pid(secrets_dir: Path, db_url: str, pid: str) -> bool | None:
 
     try:
         pm = PidMap(key, db_url)
-    except Exception:
+    except Exception as exc:
+        _log.warning("known_pid: the pid map cannot be opened: %s", type(exc).__name__)
         return None
     try:
-        return pm.resolve(pid) is not None
-    except Exception:
+        return pm.resolve(pid) is not None or pid in pm.aliases()
+    except Exception as exc:
+        _log.warning("known_pid: the pid map cannot be read: %s", type(exc).__name__)
         return None
     finally:
         pm.close()

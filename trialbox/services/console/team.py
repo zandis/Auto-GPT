@@ -100,6 +100,11 @@ NOT_A_PATIENT = (
     "this chart number is not a patient of this box: check the number; to register it anyway, write why "
     f"(at least {UNKNOWN_REASON_MIN} characters)"
 )
+# the box could not answer (the map is away, a release that does not answer): the keeper is not told to doubt the number
+CANNOT_CHECK = (
+    "TrialBox cannot check this chart number now: to register it without the check, write why "
+    f"(at least {UNKNOWN_REASON_MIN} characters)"
+)
 KNOWN_WORD = {True: "yes", False: "no", None: "cannot_say"}
 IRB_FIELDS = ("approval_no", "approved_on", "expires_on", "icf_version", "icf_date")  # the stored IRB record
 
@@ -981,7 +986,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         if not _CHART.match(chart):
             raise refused(TeamError("chart numbers are letters, digits or '-'"))
         try:  # the box turns the chart number into the pseudonym at the door; the number is never stored
-            out = s28.call(bk, "POST", "/setup/pseudonym", {"chart_no": chart})
+            out = s28.call(bk, "POST", "/setup/pseudonym", {"chart_no": chart, "ask_known": True})
         except (Problem, Unavailable) as exc:
             raise h.problem(409, "request.refused",
                             reason="the box could not turn the chart number into a pseudonym") from exc  # fmt: skip
@@ -1018,7 +1023,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             if known is not True and not body.lift:
                 why_unknown = " ".join(body.unknown_reason.split())[:300]
                 if len(why_unknown) < UNKNOWN_REASON_MIN:
-                    raise refused(OptOutError(NOT_A_PATIENT))
+                    raise refused(OptOutError(NOT_A_PATIENT if known is False else CANNOT_CHECK))
         detail = {"pid": pid, "action": "lift" if body.lift else "opt_out",
                   "reason": body.note.strip()[:300] if body.lift else "",
                   "source": "" if body.lift else (body.source if body.source in SOURCES else "other"),

@@ -164,23 +164,28 @@ def parse(raw: dict[str, Any], *, disks: tuple[str, ...] = ()) -> tuple[OwnerAns
     )
 
 
+# a rule exactly as tb_common.chartno writes one: ASCII digits, one width, no part twice
+_RULE = re.compile(r"^(asis|digits(:[0-9]{1,2})?|hex(:[0-9]{1,2})?(:(upper|lower))?)$")
+
+
 def chartno_rule(raw: dict[str, Any]) -> str | None:
     """The chart-number rule as ``tb_common.chartno`` writes it, from ``chartno_rule`` (a file) or from the form's
-    ``chartno_kind`` and ``chartno_width`` (and ``chartno_case`` for hex). Empty: no answer. None: it cannot be read."""
-    text = _s(raw.get("chartno_rule"), 32)
+    ``chartno_kind`` and ``chartno_width`` (and ``chartno_case`` for hex), never from both. Empty: no answer. None:
+    it cannot be read; nothing is cut, guessed or taken in part (the rule decides every patient's pseudonym)."""
+    text = str(raw.get("chartno_rule") or "").strip().lower()
+    kind = str(raw.get("chartno_kind") or "").strip().lower()
+    width, case = str(raw.get("chartno_width") or "").strip(), str(raw.get("chartno_case") or "").strip().lower()
+    if text and (kind or width or case):
+        return None
     if not text:
-        kind = _s(raw.get("chartno_kind"), 16).lower()
-        width, case = _s(raw.get("chartno_width"), 8), _s(raw.get("chartno_case"), 8).lower()
         if not kind:
             return None if width or case else ""
-        if kind == "asis" and (width or case):
-            return None
-        text = ":".join(p for p in (kind, width, case if case == "lower" else "") if p)
-        if case not in ("", "upper", "lower"):
-            return None
+        text = ":".join(p for p in (kind, width, case) if p)
+    if not _RULE.fullmatch(text):
+        return None
     try:
         return str(chartno.parse_rule(text))
-    except chartno.ChartNoError:
+    except ValueError:  # ChartNoError is one; a width the pattern let through and int() cannot read is another
         return None
 
 

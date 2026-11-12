@@ -55,6 +55,8 @@ class RolesBody(BaseModel):
 
 class PseudonymBody(BaseModel):
     chart_no: str = Field(max_length=40)
+    # NEW-DIN-3 (D-544): the opt-out desk asks whether the box knows the pseudonym; another caller pays no lookup
+    ask_known: bool = False
 
 
 class ChartBody(BaseModel):
@@ -324,7 +326,7 @@ def router(
     def post_pseudonym(body: PseudonymBody) -> dict[str, Any]:
         """D-147: a chart number typed at the door (the opt-out register) becomes the box's pseudonym here; the console
         stores only the pseudonym and the number is never kept or logged. ``known``: the pid map has that pseudonym
-        (true), has not (false), or cannot say (null)."""
+        (true), has not (false), or cannot say (null); answered only when ``ask_known`` is sent."""
         chart = body.chart_no.strip()
         if not chart:
             raise HTTPException(status_code=400, detail={"code": "SETUP-CHART", "message": "give a chart number"})
@@ -332,7 +334,7 @@ def router(
         pid = call(lambda: svc.pseudonym(chart))
         # NEW-DIN-3 (D-544): and whether that pseudonym is a patient of this box, so the desk does not register a
         # mistyped number as one
-        return {"pid": pid, "known": svc.known_pid(pid)}
+        return {"pid": pid, "known": svc.known_pid(pid)} if body.ask_known else {"pid": pid}
 
     @r.post("/setup/{ws}/publish")
     def post_publish(ws: str, body: ByBody) -> dict[str, Any]:

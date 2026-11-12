@@ -57,11 +57,11 @@ def test_the_route_says_whether_the_box_knows_the_pseudonym(tmp_path: Path, db_u
     secrets = tmp_path / "secrets"
     _map(secrets, db_url, [CHART])
     c = _client(tmp_path, lambda pid: candidates.known_pid(secrets, db_url, pid))
-    assert c.post("/setup/pseudonym", json={"chart_no": CHART}).json() == {
+    assert c.post("/setup/pseudonym", json={"chart_no": CHART, "ask_known": True}).json() == {
         "pid": pid_for_mrn(KEY, CHART),
         "known": True,
     }
-    assert c.post("/setup/pseudonym", json={"chart_no": OTHER}).json() == {
+    assert c.post("/setup/pseudonym", json={"chart_no": OTHER, "ask_known": True}).json() == {
         "pid": pid_for_mrn(KEY, OTHER),
         "known": False,
     }
@@ -69,7 +69,7 @@ def test_the_route_says_whether_the_box_knows_the_pseudonym(tmp_path: Path, db_u
 
 def test_a_service_with_no_way_to_ask_says_null_never_true(tmp_path: Path) -> None:
     c = _client(tmp_path, None)
-    assert c.post("/setup/pseudonym", json={"chart_no": CHART}).json() == {
+    assert c.post("/setup/pseudonym", json={"chart_no": CHART, "ask_known": True}).json() == {
         "pid": pid_for_mrn(KEY, CHART),
         "known": None,
     }
@@ -78,4 +78,32 @@ def test_a_service_with_no_way_to_ask_says_null_never_true(tmp_path: Path) -> No
         raise RuntimeError("the map is away")
 
     c = _client(tmp_path / "b", broken)
-    assert c.post("/setup/pseudonym", json={"chart_no": CHART}).json()["known"] is None
+    assert c.post("/setup/pseudonym", json={"chart_no": CHART, "ask_known": True}).json()["known"] is None
+
+
+def test_a_chart_number_merged_into_another_is_a_patient_of_this_box(tmp_path: Path, db_url: str) -> None:
+    """The review's M1: the register hides the surviving patient for an opt-out under the old number
+    (``tb_common.optout.with_survivors``), so the old number is a patient here although it has no row of its own."""
+    secrets = tmp_path / "secrets"
+    _map(secrets, db_url, [CHART])
+    pm = PidMap(secrets / "pid_map.key", db_url)
+    try:
+        pm.merge(KEY, OTHER, CHART, "the same person, two numbers (synthetic)", "T-0001")
+    finally:
+        pm.close()
+    assert candidates.known_pid(secrets, db_url, pid_for_mrn(KEY, OTHER)) is True
+    assert candidates.known_pid(secrets, db_url, pid_for_mrn(KEY, "00777777")) is False
+
+
+def test_the_map_is_asked_only_when_the_caller_asks(tmp_path: Path) -> None:
+    """The review's L5: the route's other caller (a CASE job's page) reads the pseudonym only."""
+    asked: list[str] = []
+
+    def known(pid: str) -> bool:
+        asked.append(pid)
+        return True
+
+    c = _client(tmp_path, known)
+    assert c.post("/setup/pseudonym", json={"chart_no": CHART}).json() == {"pid": pid_for_mrn(KEY, CHART)}
+    assert asked == []
+    assert c.post("/setup/pseudonym", json={"chart_no": CHART, "ask_known": True}).json()["known"] is True

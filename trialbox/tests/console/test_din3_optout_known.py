@@ -40,7 +40,16 @@ def _post(c: TestClient, **form: str) -> Any:
     return c.post("/site/opt-outs", data={"csrf": _csrf(c.get("/site/opt-outs").text), **form}, follow_redirects=False)
 
 
-@pytest.mark.parametrize("answer", [{"pid": B, "known": False}, {"pid": B, "known": None}, {"pid": B}])
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {"pid": B, "known": False},
+        {"pid": B, "known": None},
+        {"pid": B},
+        {"pid": B, "known": "true"},
+        {"pid": B, "known": 1},
+    ],
+)
 def test_a_chart_number_the_box_does_not_know_is_not_registered_without_a_reason(
     box: dict[str, Any],  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,
@@ -49,7 +58,10 @@ def test_a_chart_number_the_box_does_not_know_is_not_registered_without_a_reason
     """Unknown, cannot say, and an orchestrator that does not answer the question: none of them is "known"."""
     c = _door(box, monkeypatch, answer)
     r = _post(c, chart_no="SYN-0001", lang="en")
-    assert r.status_code == 400 and "not a patient of this box" in r.text
+    # the review's H2: "not a patient" only when the box said so; when it cannot say, the desk says that
+    says = "not a patient of this box" if answer.get("known") is False else "cannot check this chart number now"
+    other = "cannot check this chart number now" if answer.get("known") is False else "not a patient of this box"
+    assert r.status_code == 400 and says in r.text and other not in r.text
     assert B not in r.text and "bbbbbbbb" not in r.text  # the pseudonym is still not given back
     assert OptOutRegister().current() == []
     assert _events(box, "console.opt_out") == []
@@ -99,7 +111,9 @@ def test_the_desk_says_it_in_each_language(box: dict[str, Any], monkeypatch: pyt
     assert 'data-testid="optout-unknown-reason"' in page and f'lang="{lang}"' in page
     r = c.post("/site/opt-outs", data={"csrf": _csrf(page), "chart_no": "SYN-0001"}, follow_redirects=False)
     assert r.status_code == 400
-    assert "not a patient of this box" in r.text if lang == "en" else "not a patient of this box" not in r.text
+    shown = {"en": "not a patient of this box", "ja": "このTrialBoxの患者さんのものではありません",
+             "zh-TW": "不是本 TrialBox 的病人"}  # fmt: skip
+    assert shown[lang] in r.text and all(t not in r.text for k, t in shown.items() if k != lang)
 
 
 # ------------------------------------------------------------------------------------------- the first-run page
@@ -126,6 +140,8 @@ def test_no_answer_hands_over_no_rule_and_a_rule_that_cannot_be_read_is_shown(tm
     r, _ = _answers(c, chartno_kind="digits", chartno_width="0")
     assert r.status_code == 422 and 'data-testid="err-chartno_rule"' in r.text and b["users"].count() == 0
     r, _ = _answers(c, chartno_kind="roman")
+    assert r.status_code == 422 and 'data-testid="err-chartno_rule"' in r.text
+    r, _ = _answers(c, chartno_kind="digits", chartno_width="\u00b2")  # the review's M3: a digit int() cannot read
     assert r.status_code == 422 and 'data-testid="err-chartno_rule"' in r.text
     r, _ = _answers(c)
     assert r.status_code == 200
@@ -176,3 +192,37 @@ def test_the_answers_schema_reads_the_rule_both_ways() -> None:
     assert [str(p) for p in problems] == ["chartno_rule: chartno_rule"]
     _, problems = box_answers.parse({**base, "chartno_kind": "asis", "chartno_width": "8"})
     assert [str(p) for p in problems] == ["chartno_rule: chartno_rule"]
+    for odd in ({"chartno_rule": "digits:\u00b2"}, {"chartno_rule": "digits:8", "chartno_kind": "hex"},
+                {"chartno_rule": "digits:8:10"}, {"chartno_rule": "digits:8" + " " * 30 + "x"}):  # fmt: skip
+        _, problems = box_answers.parse({**base, **odd})
+        assert [str(p) for p in problems] == ["chartno_rule: chartno_rule"], odd
+
+
+def test_a_first_night_that_is_staged_counts_and_asking_makes_no_schema(tmp_path: Path, db_url: str) -> None:
+    """The review's M2 and L3: rows waiting in ``pidmap.pending`` are patients; and the question creates nothing."""
+    from console import firstrun as page
+    from tb_common.db import Database
+
+    def schemas() -> set[str]:
+        with Database.connect(db_url, "auth") as db:
+            return {
+                str(r[0]) for r in db.fetchall("SELECT nspname FROM pg_namespace WHERE nspname LIKE ?", ("%pidmap",))
+            }
+
+    before = schemas()
+    assert page.box_holds_patients() is False and schemas() == before
+    pm = PidMap(tmp_path / "pid_map.key", db_url)
+    try:
+        assert pm.stage("2026-11-12", [("d" * 32, "00123457")], []) == 1  # synthetic
+    finally:
+        pm.close()
+    assert page.box_holds_patients() is True
+
+
+def test_a_database_that_is_away_cannot_be_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+    from console import firstrun as page
+
+    monkeypatch.setenv("TB_DB_URL", "postgresql://trialbox@127.0.0.1:1/none")
+    assert page.box_holds_patients() is None
+    monkeypatch.delenv("TB_DB_URL")
+    assert page.box_holds_patients() is None

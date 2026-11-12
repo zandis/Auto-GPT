@@ -47,14 +47,40 @@ so more mistyped numbers end as a new pseudonym instead of meeting a real one. A
 
 ## What it does not do
 
-- **"Known" is "in the pid map".** A patient loaded by a path that writes no pid-map row (the FHIR feed, DIN-002)
-  is "not known" until that card lands; the desk then asks for the reason, it does not refuse the opt-out.
+- **"Known" is "in the pid map"** (a row, or a merged number). A patient loaded by a path that writes no pid-map
+  row is "not known": the FHIR feed (DIN-002), and a patient made in site set-up from a pasted chart or a sheet.
+  The desk then asks for the reason; it does not refuse the opt-out.
 - **The answer tells the keeper whether a chart number is a patient of the box.** That is the purpose. It is one
   bit per lookup, to an account that keeps the register, under the lookup cap of D-273 (per person and hour) and
   one audit event per lookup.
 - **The page does not check the rule against the site's chart-number pattern.** A box's owner is not asked a
   pattern; the installer's wizard checks the two against each other (D-579 item 2) and may refuse at apply.
 - **The other caller of the route** (`console.app`: an opted-out patient behind a CASE job) reads `pid` only.
+
+## What the adversarial review changed
+
+One review by a fresh reviewer. Verdict: fix first. No path registered an unknown chart number without a reason
+(page, API, `lift` and `known` in odd spellings), and nothing gives the pseudonym or the number back.
+
+- **H1, in lane D's installer, reported and not fixed here:** on a box, `tools.box apply` refuses every rule but
+  `asis`: the box's plan carries no chart-number pattern, and the wizard checks the rule against the pattern (the
+  text "None"). Until lane D's fix lands, an owner who picks digits or hexadecimal gets a failed install after the
+  accounts are made. **The three cards must not land together before that.**
+- **H2, "cannot say" was worded "not a patient".** With the map away, the key locked or an orchestrator of an
+  earlier release, the keeper was told to doubt a correct number. The desk now says "TrialBox cannot check this
+  chart number now" for that, and "not a patient of this box" only when the box said no. A reason is asked in both.
+- **M1, a chart number merged into another patient was "not a patient"**, though the register hides the surviving
+  patient for it. `known_pid` now also reads the map's aliases.
+- **M2, a first night that is staged and not committed** was an empty box to the first-run page.
+  `box_holds_patients` reads the staging table too.
+- **M3, a width such as a superscript two was a 500.** The rule must now match its written form exactly (ASCII
+  digits, one width, nothing cut at a length, never both `chartno_rule` and the form's fields).
+- **L3, asking made the schema `pidmap`** on a box that had none: the schema is now looked up, never opened.
+- **L5:** the map is asked only when the caller sends `ask_known` (the CASE page's call pays no lookup); a map
+  that cannot be opened or read writes one log line with the error's type.
+- **Not changed:** the reason is checked for length only, as a lift's reason is (L1); a pseudonym typed in the
+  other field skips the check (L2, item 4); a refused lookup counts against the hourly cap, so an unknown number
+  registered with a reason costs two (L7); the page offers no lower-case hexadecimal (a file may give it).
 
 ## Reuse check
 
