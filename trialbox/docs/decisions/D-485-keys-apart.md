@@ -67,6 +67,22 @@ and any grant, to the orchestrator.
 - **Asymmetric signing** (Ed25519: the orchestrator would hold a public key only) is not built; the keys file is
   still a signing key in the orchestrator's hands.
 
+- **The update that brings this release does not make the key** (the adversarial review's H1, confirmed by
+  reading). `apply_update.sh` starts the installed release's updater; it switches to the new files and restarts
+  with its own, older steps, which know no signing key. The new overlay names the key as a compose secret, so
+  `compose up` refuses, and the update rolls back: nothing is lost and nothing is signed with a derived key, but
+  the box is not updated. **Bring a box to this release with `deploy/install.sh` run again** (it runs
+  `secrets init`, which makes the key, before it starts the services), or run
+  `python3 -m tools.trialbox secrets init` from the new tree first. The update tool running the new release's own
+  steps is the update tool's card (sent to the integrator, 2026-11-12).
+- **The Kubernetes form** needs the Secret `trialbox-actor-sign` made by hand at an upgrade, and the Secret
+  `trialbox-actor` re-made from the new keys file; until both are done the old console pod keeps signing with the
+  derived key and the orchestrator keeps accepting it. The form is frozen (plan section 3.2); the step is to be
+  written into runbook 17 when it is taken up.
+- **`rotate --service actor --no-restart`** drops the previous key at once, and a second rotation after a failed
+  restart drops the key the running console still uses: both fail closed (nobody is signed) until the console is
+  recreated. Token rotation behaves the same way.
+
 ## Consequences
 
 - A service that receives the console's calls can no longer name a person to the orchestrator.

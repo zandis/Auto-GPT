@@ -120,3 +120,49 @@ def test_the_adapter_cannot_open_the_edc_or_audit_signing_keys() -> None:
         return {str(v).split(":")[0] for v in doc["services"][service].get("volumes", []) if "secrets" in str(v)}
 
     assert not secret_volumes("adapter") & secret_volumes("orchestrator")
+
+
+# ------------------------------------------------------------------------------ the adversarial review's findings
+def test_a_service_that_can_sign_nobody_says_so_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                     caplog: pytest.LogCaptureFixture) -> None:  # fmt: skip
+    """Review M2: a console without a usable key signed nobody and said nothing; every person's action was then a
+    403 at the orchestrator with no reason at the source."""
+    per_service_tokens(tmp_path, monkeypatch)
+    bad = tmp_path / "unreadable.key"
+    bad.write_text("not a key\n", encoding="utf-8")
+    monkeypatch.setenv(sa.ACTOR_SIGN_KEY_ENV, str(bad))
+    monkeypatch.setattr(sa, "_NO_KEY_SAID", False)
+    with caplog.at_level("ERROR", logger="tb.service_auth"):
+        assert sa.signing_key() is None and sa.signing_key() is None
+    said = [r for r in caplog.records if "can sign nobody" in r.getMessage()]
+    assert len(said) == 1 and str(bad) in said[0].getMessage() and "not a key" not in said[0].getMessage()
+
+
+def test_the_status_lists_the_signing_key_and_never_its_value(tmp_path: Path) -> None:
+    """Review M2: `trialbox secrets status` did not list the key, so a box without it looked whole."""
+    from tools.trialbox import svc_secrets as ss
+
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    row = next(r for r in ss.status(deploy) if r["name"] == "actor signing key")
+    assert row["present"] is False
+    ss.ensure_actor_sign_key(deploy, uid=None)
+    key = ss.actor_sign_key_path(deploy).read_text(encoding="utf-8").strip()
+    row = next(r for r in ss.status(deploy) if r["name"] == "actor signing key")
+    assert row["present"] is True and row["mode"] == "0o600" and key not in json.dumps(ss.status(deploy))
+
+
+def test_the_tool_and_the_service_agree_on_what_a_key_is(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review L3: the tool took an upper-case hex key for no key and replaced it; the service accepted it."""
+    from tools.trialbox import svc_secrets as ss
+
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    upper = secrets.token_hex(32).upper()
+    path = ss.actor_sign_key_path(deploy)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(upper + "\n", encoding="utf-8")
+    assert ss.ensure_actor_sign_key(deploy, uid=None) is False  # a key the service accepts is not replaced
+    assert path.read_text(encoding="utf-8").strip() == upper
+    monkeypatch.setenv(sa.ACTOR_SIGN_KEY_ENV, str(path))
+    assert sa.signing_key() == bytes.fromhex(upper)
