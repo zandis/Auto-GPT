@@ -153,7 +153,10 @@ class Env:
 
     @property
     def rulesets_path(self) -> Path:
-        return Path(self.rulesets_dir) if self.rulesets_dir else REPO_ROOT / "rulesets"
+        """D-469: the working copy of the rulesets, ``<TB_DATA_DIR>/rulesets`` unless ``TB_RULESETS_DIR`` names another
+        folder (the compose files and the platform manifests name ``/data/rulesets``, which is the same). Never the
+        checkout's ``rulesets/``: that folder is the read-only seed (``tb_common.ruleset.SEED_RULESETS``)."""
+        return Path(self.rulesets_dir) if self.rulesets_dir else Path(self.data_dir) / "rulesets"
 
 
 _ENV_MAP: dict[str, str] = {

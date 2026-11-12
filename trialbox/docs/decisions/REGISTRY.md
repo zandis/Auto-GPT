@@ -277,3 +277,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-457 | reserved | T-693 | held for T-693: the ingest gate's validation sample: an absolute cap per resource type beside the 1 % (F-06) |
 | D-458 | reserved | T-704 | held for T-704: the night as a chain: order of ingest, weekly jobs, backup and retention; the microbatch allowance and its sharing (F-32, F-33) |
 | D-461 | merged | T-720 | version-1 EDC signatures refused (no box holds one: synthetic data only); `sig_version` defaults to and must be 2 (EDC schema v5); the review page says "signed" only for a value an intact signature covers; the console leaves `tbs_edc` (file `D-461-edc-v1-signatures-frozen.md`) |
+| D-469 | reserved | G1 B3 | the ruleset compiler never writes the source `rulesets/`: the default working copy is `<TB_DATA_DIR>/rulesets`, seeded from the shipped folder; developer tools name the source tree explicitly (file `D-469-compiler-never-writes-source-rulesets.md`) |

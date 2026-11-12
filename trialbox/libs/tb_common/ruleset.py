@@ -13,6 +13,7 @@ Layout::
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
@@ -23,6 +24,10 @@ import yaml
 from tb_contracts import CriterionIR, RulesetManifest
 
 from tb_common.fhir import library_name
+
+# D-469: the rulesets that ship with the product. The checkout's (image's) folder is the seed and nothing the product
+# runs ever writes to it; the working copy is ``Env.rulesets_path`` (under ``TB_DATA_DIR``).
+SEED_RULESETS = Path(__file__).resolve().parents[2] / "rulesets"
 
 
 class RulesetNotApproved(RuntimeError):
@@ -228,3 +233,17 @@ def _has_tag(repo_dir: Path, tag: str) -> bool:
 
 def list_rulesets(rulesets_dir: Path) -> list[str]:
     return sorted(p.parent.name for p in rulesets_dir.glob("*/manifest.yaml"))
+
+
+def seed_working_copy(dest: Path, seed: Path = SEED_RULESETS) -> bool:
+    """Give a service that only reads rulesets a first copy of the shipped ones when its folder holds none (a new
+    box, a development run). Never touches a folder that already holds a ruleset (a box that compiled its own keeps
+    them), never writes ``seed``, and does nothing when ``dest`` cannot be written (a read-only mount: the criteria
+    compiler seeds that folder). True when it copied."""
+    if dest.resolve() == seed.resolve() or list_rulesets(dest) or not seed.is_dir():
+        return False
+    try:
+        shutil.copytree(seed, dest, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".*", "*.tmp", "__pycache__"))
+    except OSError:
+        return False
+    return True
