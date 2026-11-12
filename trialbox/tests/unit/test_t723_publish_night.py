@@ -60,6 +60,7 @@ class Fhir:
             from adapter import pipeline as home  # type: ignore[no-redef]
 
         self.calls: list[str] = []
+        self.back: list[bool] = []  # per call: asked as a put-back (the ledger lets it over an unfinished load)
         self.full: list[bool] = []  # per call: every resource is loaded again (a put-back), not only the changed
         self.down = False
         self.bad: set[str] = set()  # nights the store refuses part-way (it is up: a put-back works)
@@ -72,6 +73,7 @@ class Fhir:
     ) -> tuple[int, int]:  # fmt: skip
         self.calls.append(folder.name)
         self.full.append(full)
+        self.back.append(back)
         if self.down:
             raise ConnectionError("the FHIR store did not answer")
         if folder.name in self.bad:

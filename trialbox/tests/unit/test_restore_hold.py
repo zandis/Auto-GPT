@@ -218,14 +218,14 @@ def test_nav_and_the_weekly_sample_are_held_too(db_url: str, tmp_path: Path, mon
 
     def first_step(environ: Any) -> bool:  # the draw's first step after the hold (its own gate)
         asked.append(1)
-        raise RuntimeError("the test stops the draw here")
+        return True
 
     monkeypatch.setattr(notmatched_sample, "gate_on", first_step)
     reads: list[int] = []
 
-    def register(*a: Any, **k: Any) -> set[str]:
+    def register(*a: Any, **k: Any) -> set[str]:  # the next step: the register is read (the test stops the draw here)
         reads.append(1)
-        return set()
+        raise RuntimeError("the test stops the draw here")
 
     monkeypatch.setattr(notmatched_sample, "register_now", register)
     assert notmatched_sample.weekly(SimpleNamespace()) == {} and asked == []  # held: not even begun
@@ -233,7 +233,7 @@ def test_nav_and_the_weekly_sample_are_held_too(db_url: str, tmp_path: Path, mon
     flags.Flags(url=db_url, audit=AuditLog(tmp_path / "audit")).set(FLAG, "released", actor="console:admin",
                                                                     reason="re-applied")  # fmt: skip
     notmatched_sample.weekly(SimpleNamespace())
-    assert asked == [1]  # released: the draw goes on
+    assert asked == [1] and reads == [1]  # released: the draw goes on, and reads the register
 
 
 def test_doctor_shows_the_hold(db_url: str, tmp_path: Path) -> None:

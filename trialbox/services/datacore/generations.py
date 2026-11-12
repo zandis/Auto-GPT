@@ -94,8 +94,11 @@ class Built:
 
         ``back``: a put-back. The build of the newer generation did not end (its row is still ``building``) and the
         store is taken back to the generation that is served (T-723's FHIR put-back after a load that broke, D-489).
-        Allowed only over a build that never finished: a finished newer generation is never gone back from."""
+        Allowed only over a build that never finished: a finished newer generation is never gone back from.
+        Only the FHIR store has one (ValueError for any other artefact)."""
         self._check(artefact)
+        if back and artefact != "fhir":
+            raise ValueError("a put-back is the fhir store's alone: no other artefact is taken back")
         gen = generation if isinstance(generation, Generation) else Generation.parse(generation)
         with self._db.transaction() as tx:
             tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"dataops.built:{artefact}",))
