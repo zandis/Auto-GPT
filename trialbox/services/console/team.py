@@ -41,6 +41,7 @@ The same actions are on ``/api/v1`` (D-125) with the same rules.
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -88,6 +89,7 @@ from console.timefmt import local_date, site_zone
 DOCTOR_LANGS = ("ja", "zh-TW", "en")  # D-407 (UX-034): the languages of the request for the treating doctor
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
+log = logging.getLogger("console.team")
 _PID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 _WHOLE_PID = re.compile(r"^[0-9a-f]{32}$")  # tb_common.crypto.PID_HEX_LEN hex characters: a whole pseudonym
 WHOLE_PID_WHY = (
@@ -1003,7 +1005,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
                 rows = {e.pid for e in bk.registry_rows(rs)}
                 wk = h.week_bundle(None, rs) if h.week_bundle is not None else None
                 rows |= {str(r.get("pid")) for r in ((wk or {}).get("cl") or {}).get("rows") or []}
-            except Exception:
+            except Exception as exc:  # a study that cannot be read is left out of the note; the opt-out stands
+                log.warning("opt-out match: a study could not be read", extra={"error": type(exc).__name__})
                 continue
             if pid in rows:
                 found.append(rs)
@@ -1209,6 +1212,6 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         was_on = [] if body.lift else matched_before(sess, body)
         _pid, changed = change_optout(sess, request.url.path, body)
         out: dict[str, Any] = {"opted_out": not body.lift, "changed": changed}  # D-273 (PV-6): no pseudonym back
-        if not body.lift:
-            out["matched"] = len(was_on)  # NEW-JRN-2: how many studies listed the patient (0: nobody matched)
+        if not body.lift and body.pid.strip():  # NEW-JRN-2: for a typed pseudonym, how many studies listed the
+            out["matched"] = len(was_on)  # patient (0: nobody matched); a chart number's match is not given
         return out

@@ -388,7 +388,7 @@ JA: dict[str, str] = {
     "team.optout.done.lifted": "記録しました：患者がオプトアウトを取り消しました。",
     "team.optout.done.same": "変更なし：患者はすでにその状態です。",
     "team.optout.matched": "この患者が載っていた一覧・登録：{studies}。",
-    "team.optout.nomatch": "この仮名IDの患者は、本日この装置のどの一覧・登録にも載っていません。"
+    "team.optout.nomatch": "この仮名IDの患者は、本日このTrialBoxのどの一覧・登録にも載っていません。"
     "オプトアウトは保存され、今後一覧に載る場合に適用されます。現在一覧にいる患者のつもりであれば、"
     "仮名IDを確認するか、カルテ番号で入力してください。",
     "team.optout.add": "オプトアウトを登録",
@@ -599,7 +599,7 @@ ZH: dict[str, str] = {
     "team.optout.done.lifted": "已記錄：病人取消拒絕（病人改變意願）。",
     "team.optout.done.same": "沒有變更：病人已是該狀態。",
     "team.optout.matched": "此病人原本列於下列試驗的名單或登錄：{studies}。",
-    "team.optout.nomatch": "今天本機的任何名單或登錄中都沒有此假名代碼的病人。此退出紀錄已保存，"
+    "team.optout.nomatch": "今天這台 TrialBox 的任何名單或登錄中都沒有此假名代碼的病人。此退出紀錄已保存，"
     "日後該病人被列入時即適用。若您指的是目前名單上的病人，請確認假名代碼，或改以病歷號輸入。",
     "team.optout.add": "登記拒絕",
     "team.optout.chart": "病歷號",
