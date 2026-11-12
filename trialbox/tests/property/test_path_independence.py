@@ -730,16 +730,10 @@ class Known:
     why: str
 
 
-H4 = Known("H4", "the v1 path reads five retrieved chunks; their 'no flare' is final although the flare note was "
-                 "never shown (only retrieved chunks that did not fit count as left out)")  # fmt: skip
 M4U = Known("M4", "FEAS drops an inclusion with no value (IS TRUE); SCREEN keeps the patient for review")
 
 KNOWN: dict[tuple[str, str, str], Known] = {
-    ("screen.v1", "CUT", "status"): H4,
-    ("screen.v1", "CUT", "verdicts"): H4,
-    ("nav", "CUT", "status"): H4,
     ("feas", "NOAGE", "status"): M4U,
-    ("nav.single", "CUT", "status"): H4,
 }
 
 
@@ -925,20 +919,19 @@ def test_the_console_reads_the_register_as_the_jobs_do(tmp_path: Path) -> None:
     assert not stray, f"a console page reads the register without merged charts: {stray}"
 
 
-@pytest.mark.xfail(strict=True, reason="M5: FULL_RECORD_MAX_CANDIDATES: with more candidates in the run than the "
-                   "limit, nobody's unknown first answer gets the full-record read")  # fmt: skip
 def test_a_status_does_not_depend_on_how_many_patients_are_in_the_run(
     world: World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """DEEP's first answer is unknown (the five chunks are notes that say nothing of a flare); the full record holds
-    the flare. Evaluated alone and with one more candidate, on the same snapshot with the same pair, the status must
-    be the same. The limit is lowered to one candidate here so that a run of two is "a large run" (the limit is
-    100 on a box: the same thing at 101)."""
+    """DEEP's five top chunks are notes that say nothing of a flare; another note of the window holds the flare.
+    Evaluated alone and with one more candidate, on the same snapshot with the same pair, the status must be the
+    same. Before T-710 (D-479, review M5) the full record was read only for an unknown first answer in a run of at
+    most 100 candidates, so the same patient was ``high`` alone and ``review`` in a large run; now there is one
+    read of the window, the same for a run of any size."""
     from orchestrator.scenarios import evaluate
     from orchestrator.scenarios.evaluate import NoteJudge, SqlEngine, evaluate_patients
 
     monkeypatch.setenv("TB_NOTE_BLOCK", "both_agree")
-    monkeypatch.setattr(evaluate, "FULL_RECORD_MAX_CANDIDATES", 1)
+    assert not hasattr(evaluate, "FULL_RECORD_MAX_CANDIDATES")  # the limit is gone, not raised
     rs = Ruleset.load(world.rulesets_dir / "PIX")
     lake = LakeLocal(world.lake_dir, HashEmbedder(), TZ)
 

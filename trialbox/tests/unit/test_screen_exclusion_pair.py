@@ -211,12 +211,28 @@ def test_v1_not_met_is_not_final_when_the_budget_left_retrieved_notes_out(monkey
     assert _v1(large, "pass") == ("review", "notes_over_budget")
 
 
-def test_v1_the_full_record_read_settles_what_the_chunk_budget_cut(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The simplest "read the rest": when the chunk excerpts were cut, the evaluator's full-record read (28,000
-    tokens) gets its turn, and an answer on the whole window is final."""
+class _Roomy(ScriptedModel):
+    """A scripted model that tells its context: room for 28,000 tokens of notes (a 32k build)."""
+
+    def text_budget(self, prompt: str, fixed: dict[str, Any]) -> int:
+        return 28000
+
+
+def test_v1_an_answer_on_the_whole_window_is_final_when_the_context_holds_it() -> None:
+    """T-710 (D-479): one read, sized from the models' context. The same five long notes that a 2,500-token read
+    cuts (above) are read whole by models with room for them, and an answer on the whole window is final. Before,
+    this was the evaluator's second, "full record" read."""
     filler = "Routine follow-up, vitals stable, no change in plan. " * 75
     large = _Chunks([_chunk(n, f"{FLARE}. {filler}") for n in range(1, 6)])
-    assert _v1(large, "fail") == ("excluded", "note")
+    nj = NoteJudge(
+        lake=large,  # type: ignore[arg-type]
+        llm=_Roomy("judge-a", says("fail", FLARE)),  # type: ignore[arg-type]
+        verifier=_Roomy("verifier-b", says("fail", FLARE)),  # type: ignore[arg-type]
+    )
+    assert nj.window("P", INC, IDX).left_out == 0
+    out = evaluate_patients(ruleset([INC]), ["P"], IDX, _NoStructured(), nj, 0.75, only={INC.id}, all_candidates=True)
+    assert (out["P"].tier, _reason(out["P"], INC.id)) == ("excluded", "note")
+    assert _v1(large, "fail") == ("review", "notes_over_budget")  # the same notes, models that tell no context
 
 
 # ------------------------------------------------------------------------------------------------ SCREEN

@@ -29,9 +29,8 @@ from __future__ import annotations
 import hashlib
 import json
 import random
-import re
 import threading
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -46,6 +45,7 @@ from tb_common.ruleset import Ruleset
 from tb_common.timeutil import add_months, month_ends
 from tb_contracts import CriterionIR
 
+from matching import excerpts as excerpt_builder
 from matching.cascade.judge import JudgeClient, JudgeReply, expected_tokens, norm, sentence_hash, verify_span
 from matching.cascade.model import (
     STAGES,
@@ -72,6 +72,7 @@ from matching.cascade.s2b_semantic import (
     screen,
 )
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
+from matching.excerpts import sentences
 from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS, Proposed
 from matching.stored_scores import apply_rows
 
@@ -83,7 +84,6 @@ UNKNOWN_KEPT = "unknown_kept"  # v1: an unknown exclusion does not exclude (FEAS
 CODE_OUTSIDE_LIST = "code_outside_list"  # D-113: coded inside a grouper's family, not in its list: kept, unknown
 EXCERPT_TOKENS = 2500  # fits beside the judge prompt and its answer on every profile (8k and up, T-603)
 EXCLUSION_POWER_PRIOR = 0.5  # CAS-3 prior until the criterion library has site history
-_SENT = re.compile(r"[^。！？!?\n]+[。！？!?]?")
 
 Reviewer = Callable[[ReviewItem, PatientTrace], dict[str, Any]]
 
@@ -267,10 +267,6 @@ def lexicon_terms(c: CriterionIR, extra: Mapping[str, Sequence[str]]) -> list[st
     return [*source_words(text), *keywords(text, limit=24)]
 
 
-def sentences(text: str) -> list[str]:
-    return [s.strip() for s in _SENT.findall(text) if s.strip()]
-
-
 # ------------------------------------------------------------------------------------------------ the run
 POP_SQL = """
 SELECT p.pid,
@@ -339,6 +335,7 @@ class _Run:
         self.rs = rs
         self.cfg = cfg
         self.judge = judge
+        self._budgets: dict[str, int] = {}  # criterion id -> the excerpt budget of its judge prompt (budget_of)
         self.embedder = BatchEmbedder(embedder) if embedder is not None else None
         self.hashes = criterion_hashes(rs)
         self.ir_hash = ruleset_ir_hash(self.hashes)
@@ -600,38 +597,37 @@ class _Run:
 
     @staticmethod
     def excerpts(notes: list[_Note], keep: Mapping[str, Collection[str]]) -> list[dict[str, Any]]:
-        """Notes holding an evidence sentence, newest first, within the token budget (v1 RAG budget).
+        """The window's notes for one judge prompt, the evidence notes first, within the token budget.
 
-        A note longer than half the budget is cut to that half (its evidence sentences first, then its start), and a
-        note that no longer fits is skipped, not the end of the search: one long note used to stop the loop and hide
+        A note that does not fit whole is cut around its evidence sentences (at most half the budget), and a note
+        that no longer fits is skipped, not the end of the search: one long note used to stop the loop and hide
         every older note, so the model got nothing at all (D-142, review A-06)."""
         return _Run.excerpt_set(notes, keep)[0]
 
     @staticmethod
-    def excerpt_set(notes: list[_Note], keep: Mapping[str, Collection[str]]) -> tuple[list[dict[str, Any]], int]:
-        """:meth:`excerpts`, and how many evidence notes the budget did not show in full: a note skipped, or cut so
-        that one of its evidence sentences is gone. Both models read this one set, so with a note left out their
-        agreement on "not met" is not final (D-276, review S-10; :meth:`_map`)."""
-        out: list[dict[str, Any]] = []
-        budget = EXCERPT_TOKENS
-        cap = EXCERPT_TOKENS // 2
-        left_out = 0
-        for n in sorted(notes, key=lambda n: (n.d, n.did), reverse=True):
-            if n.did not in keep:
-                continue
-            text = n.text
-            cost = expected_tokens([{"text": text}]) - 300
-            if cost > cap:
-                text = _clip(n, keep[n.did], cap)
-                cost = expected_tokens([{"text": text}]) - 300
-            if cost > budget:
-                left_out += 1
-                continue
-            if text is not n.text and any(s not in text for s in keep[n.did]):
-                left_out += 1
-            budget -= cost
-            out.append({"date": n.d.isoformat(), "note_type": n.type, "text": text, "did": n.did})
-        return out, left_out
+    def excerpt_set(
+        notes: list[_Note], keep: Mapping[str, Collection[str]], budget: int | None = None, ranked: bool = False
+    ) -> tuple[list[dict[str, Any]], int]:
+        """:meth:`excerpts`, and how many of the window's notes are not shown in full: the one excerpt builder
+        (:func:`matching.excerpts.build`, T-710, D-479). ``notes``: every note of the criterion's window; ``keep``:
+        the evidence sentences per note (lexicon hits at S2, the top sentences at S2b): read first, and what a cut
+        note is cut around. Both models read this one set, so with any window note left out their agreement on
+        "not met" is not final (D-276, review S-10; :meth:`_map`). ``budget``: the models' context
+        (:meth:`budget_of`); :data:`EXCERPT_TOKENS` when not given. ``ranked``: ``keep`` is in the ranking's order
+        (S2b's top sentences, best first)."""
+        window = [excerpt_builder.Note(n.did, n.d, n.type, n.text, n.sents) for n in notes]
+        size = EXCERPT_TOKENS if budget is None else budget
+        got = excerpt_builder.build(window, keep, size, tokens=_tokens, ranked=ranked)
+        return got.shown, got.left_out
+
+    def budget_of(self, c: CriterionIR, index_date: date) -> int:
+        """Tokens of notes one judge prompt for ``c`` may hold: what the judge's and the verifier's context leave
+        (T-603, OD-10; the judge tells), else :data:`EXCERPT_TOKENS`. Worked out once per criterion."""
+        if c.id not in self._budgets:
+            fn = getattr(self.judge, "excerpt_budget", None)
+            room = fn(c, index_date) if callable(fn) else None
+            self._budgets[c.id] = room if isinstance(room, int) else EXCERPT_TOKENS
+        return self._budgets[c.id]
 
     # -------------------------------------------------------------------------------------------- S2 / S2b
     def s2(self, note_crit: list[CriterionIR]) -> tuple[list[_Route], list[tuple[str, str, list[_Note]]]]:
@@ -671,7 +667,7 @@ class _Run:
                     found: dict[str, set[str]] = {}
                     for n, s in hits:
                         found.setdefault(n.did, set()).add(s)
-                    shown, left = self.excerpt_set(win, found)
+                    shown, left = self.excerpt_set(win, found, self.budget_of(c, t.index_date))
                     routes.append(_Route(t.pid, c.id, shown, _set_hash(sset), "S2", left_out=left))
                     continue
                 self.metrics.pairs_s2_zero_hit += 1
@@ -757,12 +753,9 @@ class _Run:
                 for i in top:
                     keep.setdefault(sents[i][0].did, set()).add(sents[i][1])
                 sset = sorted({sentence_hash(sents[i][1]) for i in top})
-                shown, left = self.excerpt_set(win, keep)
-                # D-449 (review of PR #275, HIGH 1): S2b shows only the notes holding a top sentence. A window note
-                # with sentences and none of them in the top is part of the record the models did not read: it counts
-                # as left out, so a "not met" on this cut set is never final (D-276 guard in _map) and a "met" is
-                # flagged, never "strong" (T-603). On either ranking, on the fly or stored.
-                left += sum(1 for n in win if n.sents and n.did not in keep)
+                # T-710 (D-479): every window note is offered to the builder and each one not shown in full counts as
+                # left out, on either ranking (the rule PR #275 added here for S2b alone, D-449)
+                shown, left = self.excerpt_set(win, keep, self.budget_of(c, t.index_date), ranked=True)
                 routes.append(_Route(pid, cid, shown, _set_hash(sset), "S2b", best - thr.value, left_out=left))
                 continue
             self.metrics.pairs_s2b_below += 1
@@ -929,13 +922,13 @@ class _Run:
             if left_out:
                 # T-603 (review LLM-016, CR-004 flag half): the answer that keeps the patient stands, flagged; the
                 # caller marks the patient (PatientTrace.notes_over_budget) and the tier is never "strong"
-                why = f"notes_over_budget: {left_out} evidence note(s) did not fit the excerpts"
+                why = f"notes_over_budget: {left_out} note(s) of the window did not fit the excerpts"
                 return Outcome(c.id, "pass", stage, evidence=[*ev, meta], reason=why)
             return Outcome(c.id, "pass", stage, evidence=[*ev, meta], reason=reply.reason[:200])
         if left_out:
             # D-276 (review S-10): the judge and the verifier read the same excerpts. With an evidence note left out
             # by the budget, "not met" is an answer about part of the record: a person looks, nobody is excluded
-            why = f"not judged: {left_out} evidence note(s) did not fit the excerpts, so not met is not final"
+            why = f"not judged: {left_out} note(s) of the window did not fit the excerpts, so not met is not final"
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason=why)
         if reply.confidence < self.cfg.confidence_floor:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason="abstained")
@@ -1176,32 +1169,6 @@ def budget_stop(cfg: CascadeConfig, items: int, tokens: int, cost: int) -> str:
 
 def _tokens(text: str) -> int:
     return expected_tokens([{"text": text}]) - 300
-
-
-def _clip(n: _Note, evidence: Iterable[str], cap: int) -> str:
-    """At most ``cap`` tokens of a long note: the evidence sentences first (in note order), then the note's start;
-    always a run of whole sentences of the note, so a quote the model takes from it is found in the note."""
-    wanted = set(evidence)
-    chosen: list[int] = []
-    used = 0
-    order = [i for i, s in enumerate(n.sents) if s in wanted] + list(range(len(n.sents)))
-    for i in order:
-        if i in chosen:
-            continue
-        cost = _tokens(n.sents[i])
-        if used + cost > cap:
-            continue
-        chosen.append(i)
-        used += cost
-    if not chosen:  # one sentence longer than the cap: its start
-        out, used = [], 0
-        for ch in n.text:
-            used += 4 if "　" <= ch <= "鿿" else 1
-            if used > cap * 4:
-                break
-            out.append(ch)
-        return "".join(out)
-    return "\n".join(n.sents[i] for i in sorted(chosen))
 
 
 def _set_hash(hashes: Sequence[str]) -> str:

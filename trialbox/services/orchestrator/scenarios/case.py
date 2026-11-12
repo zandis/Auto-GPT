@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from matching import decision
+from matching import excerpts as excerpt_builder
 from tb_common import dates
 from tb_common.crypto import load_key, pid_for_mrn, sha256_bytes
 from tb_common.kek import key_present
@@ -240,7 +241,18 @@ class ChartJudge:
         if not ex:
             r = NoteResult("unknown", 0.0, reason=Reason.NO_NOTES.value, source="chart")
         else:
-            r = self.judge.judge_excerpts(c.text, c.note_question or c.text, index_date, ex, source="chart")
+            # T-710 (D-479): the chart's window through the one excerpt builder and the judge's own budget; before,
+            # the whole upload went to the models with no budget and nothing counted as left out
+            notes = [excerpt_builder.Note(str(e["did"]), str(e["date"]), str(e.get("note_type") or "note"),
+                                          str(e["text"])) for e in ex]  # fmt: skip
+            room = self.judge.excerpt_budget(c, index_date)
+            got = excerpt_builder.build(notes, {}, room if room is not None else excerpt_builder.DEFAULT_TOKENS)
+            if not got.shown:
+                r = NoteResult("unknown", 0.0, reason=Reason.NOTES_OVER_BUDGET.value, source="chart",
+                               left_out=got.left_out)  # fmt: skip
+            else:
+                r = self.judge.judge_window(c, index_date, got.shown, got.left_out, "chart")
+            ex = got.shown
             if r.predicate != "unknown" and not r.dids:
                 r.dids = [e["did"] for e in ex if r.quote and quote_in(r.quote, str(e["text"]))][:1]
         self.results[c.id] = r
