@@ -255,6 +255,15 @@ class JobDB:
         rows = self._db.fetchall(sql, [*args, limit])
         return [Job.model_validate_json(r[0]) for r in rows]
 
+    def with_option(self, type_: str, key: str, value: str) -> list[Job]:
+        """Every job of ``type_`` whose options carry ``key`` = ``value``, oldest first (NEW-PERF-2: the INGEST
+        jobs that are on one adapter run)."""
+        rows = self._db.fetchall(
+            "SELECT data FROM jobs WHERE type = ? AND (data::jsonb)->'options'->>? = ? ORDER BY received_at, seq",
+            (type_, key, value),
+        )
+        return [Job.model_validate_json(r[0]) for r in rows]
+
     def claim(self, only: tuple[str, ...] = ()) -> str | None:
         """Take the oldest queued job; ``only``: of these types (T-704, D-458: the worker kept for the ingest)."""
         types = " AND type = ANY(?)" if only else ""
