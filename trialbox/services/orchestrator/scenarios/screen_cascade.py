@@ -203,6 +203,9 @@ def verdict_of(o: Outcome) -> CriterionVerdict:
             reason=code_of(o.reason, status, bool(quote)),  # a code, never the engine's or the model's words (D-118)
             opinions=opinions or None,  # both quotes when the two checks disagree (D-120)
         ),
+        # T-707 (D-476): a soft fail (a single model's "not met", CAS-7) says so in the stored row, so that no later
+        # re-tier reads it as an answer a pair gave
+        final=False if status == "fail" and not o.hard else None,
     )
 
 
