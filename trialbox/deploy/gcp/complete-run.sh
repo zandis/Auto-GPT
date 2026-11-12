@@ -4,8 +4,8 @@
 # Gate before any paid launch: `make rehearse` passes on the commit to launch (tests/rehearsal, RUNBOOK §11).
 #
 #   export CLOUDSDK_CONFIG=<a private folder>              # never the default one
-#   export TB_SA_KEY_FILE=<the service account key file>   # gcloud re-activates from it on an auth error
-#   gcloud auth activate-service-account --key-file "$TB_SA_KEY_FILE" && gcloud config set project trialbox-demo
+#   export TB_SA_KEY_FILE=<the service account key file>   # every command activates from it (its path, to gcloud)
+#   gcloud config set project trialbox-demo                # once, in that config
 #   deploy/gcp/complete-run.sh --estimate [--patients 50000] [--vms N] [--parts g1,embed,profile] [--only TAG,TAG]
 #   deploy/gcp/complete-run.sh --dry-run [--vms N] [--zones z1,z2] [--parts ...] [--only TAG,TAG] [VM] [ZONE]
 #   deploy/gcp/complete-run.sh --provision --vms N --zones z1,z2,...   # once: the clones tb-gpu-sim-2..N (they
@@ -45,8 +45,9 @@
 #   3. The workload runs on the VM (48 vCPU): the driver uploads the code (git archive of HEAD with TB_HEAD.json; its
 #      sha256 goes in the metadata and the VM refuses anything else), polls, downloads the results and runs the stub
 #      parts (walk, backup, update, scale) here once the VMs have stopped. The driver can die at any moment.
-#   4. Every gcloud call goes through `gc` (deploy/gcp/gcloud-auth.sh): an auth error re-activates the service
-#      account from TB_SA_KEY_FILE and retries once; a probe before the start fails fast.
+#   4. Every command activates the service account from TB_SA_KEY_FILE and probes the token first (gc_start); every
+#      gcloud call goes through `gc` (deploy/gcp/gcloud-auth.sh): it has a timeout, and an auth error or a timeout
+#      re-activates and retries once, then fails fast with "credentials expired: re-activate" (G1 bug A2).
 #   5. Every part is resumable within its run: a restarted VM runs complete_run --resume, which keeps only parts of the
 #      same run id and HEAD. A preempted VM: `TB_RUN_ID=<run id> complete-run.sh --shard <i>` starts it again.
 # The door (T-119, CR-048): HTTPS on 443 only, the VM's self-signed certificate made here per run and its public key
@@ -111,6 +112,10 @@ if [ "$DRY" = 0 ]; then
   case "$CLOUDSDK_CONFIG" in "$HOME/.config/gcloud"*) echo "CLOUDSDK_CONFIG must be private" >&2; exit 2 ;; esac
 fi
 unset CLOUDSDK_AUTH_ACCESS_TOKEN
+# every command (launch, collect, stop, a shard child, provision, teardown) activates the service account from
+# TB_SA_KEY_FILE and probes the token before its first gcloud call: an activation left from an earlier command may
+# have lapsed (G1 bug A2); a dead credential fails here, at once, with "credentials expired: re-activate"
+gc_start || exit 5
 
 RUN_ID="${COLLECT:-${TB_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD)}}"
 OUT="${TB_COMPLETE_DIR:-$ROOT/.cache/complete-run/$RUN_ID}"
