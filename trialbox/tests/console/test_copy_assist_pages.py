@@ -142,7 +142,7 @@ def test_who_may_and_the_api(eb: dict[str, Any]) -> None:  # noqa: F811
     assert r.status_code == 200, r.text
     vals = [v for vis in r.json()["records"][0]["visits"] for f in vis["forms"] for v in f["values"]]
     assert {v["item"] for v in vals} == {"weight", "sex"} and all(v["source"] for v in vals)
-    assert c.post(f"/api/v1/studies/GZQO/edc/copy/{NO}/tick", json={"x": 1}, headers=hd).status_code == 400
+    assert c.post(f"/api/v1/studies/GZQO/edc/copy/{NO}/tick", json={"x": 1}, headers=hd).status_code == 422
     r = c.post(f"/api/v1/studies/GZQO/edc/copy/{NO}/tick", json={"drafts": [built["weight"]["id"]]}, headers=hd)
     assert r.status_code == 200 and len(r.json()["ticks"]) == 1
     r = c.post(f"/api/v1/studies/GZQO/edc/copy/{NO}/tick", json={"drafts": [built["urate"]["id"]]}, headers=hd)
@@ -223,7 +223,7 @@ def test_the_odm_import_form(eb: dict[str, Any]) -> None:  # noqa: F811
     assert c.post("/api/v1/studies/GZQO/edc/import/odm", content=b"").status_code == 401
     tok = c.post("/api/v1/session", json={"username": "crc", "password": PW}).json()["token"]
     hd = {"authorization": f"Bearer {tok}"}
-    assert c.post("/api/v1/studies/GZQO/edc/import/odm", json={}, headers=hd).status_code == 400
+    assert c.post("/api/v1/studies/GZQO/edc/import/odm", json={}, headers=hd).status_code == 422
     r = c.post("/api/v1/studies/GZQO/edc/import/odm", json={"name": "b.xml", "data": base64.b64encode(odm).decode()},
                headers=hd)  # fmt: skip
     assert r.status_code == 200 and len(r.json()["decided"]) == 1

@@ -132,9 +132,20 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         sched = start(o)
     if sched is not None and o.cfg.env.site_publish_batch_seconds > 0:  # T-305b (D-403): the batch's own tick
         sched.add_job(lambda: _flush_main(setup_of(o)), "interval", seconds=60, id="site-publish-batch")
+    # D-441: the opt-out worker ticks even when nights are on demand; in PRODUCTION also without the scheduler (and it
+    # refuses to be off there)
+    from datacore.optout_worker import start as optout_start
+    from tb_common.config import tb_env
+
+    production = tb_env(o.cfg.env) == "PRODUCTION"
+    optout_sched: Any = None
+    if production or os.environ.get("TB_SCHEDULER", "1") != "0":
+        optout_sched = optout_start(o, production=production)
     try:
         yield
     finally:
+        if optout_sched is not None:
+            optout_sched.shutdown(wait=False)
         if sched is not None:
             sched.shutdown(wait=False)
         o.stop()
@@ -213,6 +224,8 @@ def models() -> dict[str, Any]:
     mode = os.environ.get("TB_SCREEN_JUDGE", "agreement").strip().lower()
     verifier = s.verifier if mode != "single" else None
     judge = NoteJudge(s.lake, s.llm, "judge", job_id="", verifier=verifier) if s.llm is not None else None
+    from datacore.optout_worker import status as optout_status
+
     from orchestrator import canary_gate
     from orchestrator.scenarios.screen_cascade import pipeline
 
@@ -224,6 +237,7 @@ def models() -> dict[str, Any]:
         "gateway": bool(os.environ.get("TB_GATEWAY_URL", "").strip()),
         **judging_info(judge),
         "canary": canary_gate.status(),
+        "optout_worker": optout_status(),  # D-441: the health line turns red on a stale or failed tick
     }
 
 

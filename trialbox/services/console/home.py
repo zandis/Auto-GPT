@@ -34,6 +34,7 @@ from tb_contracts import Job
 
 from console import coded_view, s28
 from console import studies as st
+from console.api_first import before_body, page_twin
 from console.auth import REVEAL_REASONS, Session, reveal_reason, source_of
 from console.backend import Problem, Refused, Unavailable
 from console.i18n import translate
@@ -136,6 +137,12 @@ class Helpers:
     # set by console.breakglass (D-280, T-309): the account's open grant covering one patient or one job, else None;
     # each call that finds one is one audited use. None in bare test apps (no grant, so no access)
     breakglass: Callable[..., Any] | None = None
+    # T-310a (D-446): set by register(): the latest run's not-matched list and its rows as the page shows them; set by
+    # console.notmatched_pages: the weekly sample, the site's check and the send-back to the PI list. None in bare
+    # test apps (the list is open and nothing comes back)
+    excluded_bundle: Callable[[str], tuple[Job | None, dict[str, Any] | None]] | None = None
+    excluded_rows: Callable[[str, dict[str, Any], str], list[dict[str, Any]]] | None = None
+    not_matched: Any = None
 
     def gone(self) -> set[str]:
         """D-273 (PV-4): the pseudonyms on the opt-out register now. Every patient-level reader (lists, the excluded
@@ -227,6 +234,18 @@ class ApiReveal(BaseModel):
     note: str = Field(default="", max_length=200)  # D-273 (ROLE-016): required with "other"
 
 
+async def json_body(request: Request) -> dict[str, Any]:
+    """The JSON object of an ``/api/v1`` call, read after the session was checked (T-657's rule); anything else is
+    an empty object, so the route's own checks refuse it."""
+    try:
+        if not request.headers.get("content-type", "").startswith("application/json"):
+            return {}
+        body = await request.json()
+    except ValueError:
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
 def register(app: FastAPI, h: Helpers) -> None:
     bk, au, store = h.bk, h.au, h.store
 
@@ -313,6 +332,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         cl = load(job, "candidate_list_", ".json")
         if h.recorded:  # T-515 (D-323): recorded first and second checks on a DEV demo, each with its source
             cl = h.recorded.apply(cl, rs)
+        # T-310a (D-446, CR-014): a not-matched patient sent back is on the PI's list again, until the PI marks them
+        cl, sent_back = h.not_matched.back_to_list(rs, cl) if h.not_matched is not None else (cl, {})
         removed: list[str] = []
         if cl is not None and h.optout is not None:  # D-147: an opted-out patient is on no list, page or mail
             out = h.optout.active()
@@ -337,6 +358,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             today=h.today(),
         )
         others_of(sess, rs, rows)
+        for r in rows:
+            r["sent_back"] = sent_back.get(str(r["pid"]))
         asof = {**data_as_of(job, h.today()), "dead": len(dead), "dead_unchecked": unchecked}
         return {"job": job, "rows": rows, "counts": st.week_counts(rows), "summary": summary or {}, "cl": cl,
                 "removed": removed, "asof": asof, "deceased": dead, "dead_unchecked": unchecked}  # fmt: skip
@@ -852,6 +875,9 @@ def register(app: FastAPI, h: Helpers) -> None:
                 first["records"] += i["records"]
         return list(seen.values())
 
+    h.excluded_bundle = excluded_bundle
+    h.excluded_rows = excluded_rows
+
     def need_excluded(sess: Session, rs: str, path: str) -> str:
         rid = study_or_404(sess, rs)
         if not sess.user.can_view_phi:  # the PI and the CRC (and the administrator); never viewer or CRO
@@ -872,6 +898,13 @@ def register(app: FastAPI, h: Helpers) -> None:
     def excluded(request: Request, rs: str, src: str = "", page: int = 1, done: str = "") -> Response:
         sess = h.need(request)
         rid = need_excluded(sess, rs, request.url.path)
+        nm = h.not_matched
+        # T-310a (D-446, FIT-007): where the list waits for the site's check, the page says so and lists nobody
+        if nm is not None and not nm.shown(rid):
+            au.append("console.view", ruleset=rid, actor=h.actor(sess), detail={"page": "excluded", "held": True})
+            return h.page(request, "excluded.html", sess, rs=rid, job=None, doc=None, total=0, rows=[], sent={},
+                          counts={}, src="", sources=ex_sources, page_no=1, pages=1, done=False, held=nm.state(rid),
+                          may_sample=False)  # fmt: skip
         job, doc = excluded_bundle(rid)
         rows = excluded_rows(rid, doc, sess.lang) if doc else []
         sent = store.excluded_reviews(rid)
@@ -883,21 +916,25 @@ def register(app: FastAPI, h: Helpers) -> None:
         page_no = min(max(1, page), pages)
         au.append("console.view", ruleset=rid, actor=h.actor(sess), detail={"page": "excluded", "rows": len(rows)})
         total = len((doc or {}).get("rows") or [])
+        may_send = bool(h.permit(sess.user, "notmatched.send_back", rid))
         return h.page(request, "excluded.html", sess, rs=rid, job=job, doc=doc, total=total,
                       rows=rows[(page_no - 1) * st.PAGE_SIZE: page_no * st.PAGE_SIZE], sent=sent, counts=counts,
                       src=src if src in ex_sources else "", sources=ex_sources, page_no=page_no, pages=pages,
-                      done=done == "sent")  # fmt: skip
+                      done=done == "sent", held=nm.state(rid) if nm is not None else None, may_send=may_send,
+                      may_sample=bool(h.permit(sess.user, "notmatched.sample", rid)))  # fmt: skip
 
-    @app.post("/studies/{rs}/not-matched/{pid}/review")
-    @app.post("/studies/{rs}/excluded/{pid}/review")  # the old path still takes a form posted from an open page
-    def excluded_review(request: Request, rs: str, pid: str, csrf: str = Form(""), crit: str = Form(""),
-                        note: str = Form("")) -> Response:  # fmt: skip
-        """ "This is wrong, send to review": recorded with the person and the time, audited (P-04)."""
-        sess = h.need(request)
-        if not h.csrf_ok(sess, csrf):
-            raise h.problem(400, "csrf")
-        rid = need_excluded(sess, rs, request.url.path)
-        job, doc = excluded_bundle(rid)
+    def apply_review(sess: Session, path: str, rs: str, pid: str, crit: str, note: str) -> tuple[str, str]:
+        """ "This is wrong, send to review" (P-04), the same for the page and ``/api/v1``: recorded with the person
+        and the time, audited; T-310a (D-446, CR-014): the patient is back on the PI's weekly list. The
+        ``notmatched.send_back`` row decides who; a list held for the site's check takes nothing. Returns (study,
+        job)."""
+        rid = need_excluded(sess, rs, path)
+        if not h.permit(sess.user, "notmatched.send_back", rid):
+            au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
+            raise h.problem(403, "forbidden")
+        if h.not_matched is not None and not h.not_matched.shown(rid):
+            raise h.problem(409, "nm.held")
+        job, doc = excluded_bundle(rid)  # an opted-out patient is on no list, so never sent back (D-273)
         if (
             job is None
             or doc is None
@@ -909,7 +946,27 @@ def register(app: FastAPI, h: Helpers) -> None:
         store.send_excluded_review(rid, pid, job.job_id, crit, note.strip()[:300], h.actor(sess), h.clock().isoformat())
         au.append("console.excluded_review", job_id=job.job_id, ruleset=rid, actor=h.actor(sess),
                   detail={"pid": pid, "criterion": crit, "role": sess.user.role})  # fmt: skip
+        return rid, job.job_id
+
+    @app.post("/studies/{rs}/not-matched/{pid}/review")
+    @app.post("/studies/{rs}/excluded/{pid}/review")  # the old path still takes a form posted from an open page
+    def excluded_review(request: Request, rs: str, pid: str, csrf: str = Form(""), crit: str = Form(""),
+                        note: str = Form("")) -> Response:  # fmt: skip
+        sess = h.need(request)
+        if not h.csrf_ok(sess, csrf):
+            raise h.problem(400, "csrf")
+        rid, _job = apply_review(sess, request.url.path, rs, pid, crit, note)
         return RedirectResponse(f"/studies/{rid}/not-matched?done=sent#x-{pid[:8]}", status_code=303)
+
+    @app.post("/api/v1/studies/{rs}/not-matched/{pid}/review")
+    @page_twin("/studies/{rs}/excluded/{pid}/review")  # the page's old path, the same handler (T-657)
+    async def api_excluded_review(request: Request, rs: str, pid: str) -> dict[str, Any]:
+        """The page's "send to review" for the apps (T-310a): the session is checked before the body is read."""
+        sess = api_session(request)
+        body = await json_body(request)
+        rid, job_id = apply_review(sess, request.url.path, rs, pid, str(body.get("crit") or ""),
+                                   str(body.get("note") or ""))  # fmt: skip
+        return {"study": rid, "pid": pid, "job_id": job_id, "sent_back": True}
 
     # ------------------------------------------------------------------ amendment re-screen list (D-364, LIFE-010)
     def rescreen_bundle(sess: Session, rid: str) -> dict[str, Any]:
@@ -1450,7 +1507,24 @@ def register(app: FastAPI, h: Helpers) -> None:
             ],
         }
 
+    # T-657 (D-444): the handlers' own first checks, run before the body is read (console.api_first)
+    def first_study(sess: Session, request: Request) -> None:
+        study_or_404(sess, request.path_params["rs"])
+
+    def first_mark(sess: Session, request: Request) -> None:
+        rid = study_or_404(sess, request.path_params["rs"])
+        if not sess.user.can_mark or not any(h.permit(sess.user, f"task.{t}", rid) for t in ("approach", "screen")):
+            au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            raise h.problem(403, "forbidden")  # the body picks the task (apply_mark asks that one)
+
+    def first_outcome(sess: Session, request: Request) -> None:
+        study_or_404(sess, request.path_params["rs"])
+        if not sess.user.can_request:
+            au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            raise h.problem(403, "forbidden")
+
     @app.post("/api/v1/studies/{rs}/patients/{pid}/mark")
+    @before_body(first_mark)
     def api_mark(request: Request, rs: str, pid: str, body: ApiMark) -> dict[str, Any]:
         sess = api_session(request)
         rid, value, detail = apply_mark(
@@ -1460,12 +1534,15 @@ def register(app: FastAPI, h: Helpers) -> None:
                 "irb_override": detail.get("irb_override") or None}  # fmt: skip
 
     @app.post("/api/v1/studies/{rs}/patients/{pid}/outcome")
+    @before_body(first_outcome)
     def api_outcome(request: Request, rs: str, pid: str, body: ApiOutcome) -> dict[str, Any]:
         sess = api_session(request)
         rid, no = apply_outcome(sess, request.url.path, rs, pid, body.outcome, body.retry, body.note)
         return {"study": rid, "pid": pid, "outcome": body.outcome, "screening_no": no}
 
     @app.post("/api/v1/studies/{rs}/patients/{pid}/reveal")
+    @before_body(first_study)  # the rest of the one reveal path (break-glass grants) needs the patient: in the handler
+    @page_twin("/studies/{rs}/candidates/{pid}/reveal", "/studies/{rs}/referrals/{ref_id}/print")  # one reveal path
     def api_reveal(request: Request, rs: str, pid: str, body: ApiReveal) -> dict[str, Any]:
         """The chart number of one listed patient for an account with identifier authority (D-143), audited and
         rate-limited exactly as on the patient page."""

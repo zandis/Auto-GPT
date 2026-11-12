@@ -40,13 +40,14 @@ from datacore.export import BASE_EVENT
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 from httpx import HTTPError
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 from starlette.datastructures import UploadFile as StarletteUpload
 from tb_common.authz import Standing as Grant
 from tb_common.authz import permit
 from tb_common.service_auth import actor_header
 
 from console import demo_guard, s28
+from console.api_first import before_body, page_twin
 from console.auth import Session, source_of
 from console.backend import Problem, Unavailable
 from console.home import Helpers
@@ -280,13 +281,23 @@ def register(app: FastAPI, h: Helpers) -> None:
         au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
         return h.problem(403, "forbidden")
 
-    def study_or_404(sess: Session, rs: str, action: str, path: str) -> str:
+    def study_or_404(sess: Session, rs: str, action: str | tuple[str, ...], path: str) -> str:
+        """A study this account sees and an ``edc.*`` row it holds; with several actions, any one of them (T-657:
+        the check before the body, when the body picks the row)."""
         rid = rs.strip().upper()
         if not _RS.match(rid) or not sess.user.sees_study(rid) or not known_study(bk, rid):
             raise h.problem(404, "notfound")
-        if not may(sess, rid, (action,))[action]:
+        if not any(may(sess, rid, (action,) if isinstance(action, str) else action).values()):
             raise deny(sess, path)
         return rid
+
+    def first(*actions: str) -> Any:
+        """T-657 (D-444): the action's own first check, run before the body is read (console.api_first)."""
+
+        def check(sess: Session, request: Request) -> None:
+            study_or_404(sess, request.path_params["rs"], actions, request.url.path)
+
+        return check
 
     def may(sess: Session, rid: str, actions: tuple[str, ...] = EDC_PAGE_ACTIONS) -> dict[str, bool]:
         """The ``edc.*`` rows (T-102c, D-425) with the account's standing in the study, read once."""
@@ -777,11 +788,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         return {"study": rid, "may": may(sess, rid), **api_call(call, "GET", f"/studies/{rid}/edc")}
 
     @app.post("/api/v1/studies/{rs}/edc/switch")
+    @before_body(first("switch_on", "switch_off"))
     def api_switch(request: Request, rs: str, body: ApiSwitch) -> dict[str, Any]:
         sess = api(request)
         return {"study": rs.upper(), "switch": api_call(do_switch, sess, request.url.path, rs, body)}
 
     @app.post("/api/v1/studies/{rs}/edc/dictionary")
+    @before_body(first("map"))
     def api_dictionary(request: Request, rs: str, body: ApiEdcDictionary) -> dict[str, Any]:
         sess = api(request)
         return {"study": rs.upper(), **api_call(do_dictionary, sess, request.url.path, rs, body)}
@@ -796,11 +809,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         return {"study": rid, "items": st.get("map") or [], "target": st.get("target")}
 
     @app.put("/api/v1/studies/{rs}/edc/map")
+    @before_body(first("map"))
     def api_put_map(request: Request, rs: str, body: ApiMap) -> dict[str, Any]:
         sess = api(request)
         return {"study": rs.upper(), **api_call(do_map, sess, request.url.path, rs, body)}
 
     @app.post("/api/v1/studies/{rs}/edc/drafts")
+    @before_body(first("draft"))
     def api_draft(request: Request, rs: str, body: ApiDraft) -> dict[str, Any]:
         sess = api(request)
         return {"study": rs.upper(), "drafts": api_call(do_draft, sess, request.url.path, rs, body)}
@@ -817,6 +832,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         return {"study": rid, "record": rec, "drafts": api_call(call, "GET", f"/studies/{rid}/edc/drafts{q}")}
 
     @app.post("/api/v1/studies/{rs}/edc/drafts/{draft_id}/decide")
+    @before_body(first("review"))
+    @page_twin("/studies/{rs}/edc/decide/{draft_id}")
     def api_decide(request: Request, rs: str, draft_id: int, body: ApiDecide) -> dict[str, Any]:
         sess = api(request)
         return {
@@ -833,6 +850,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         }
 
     @app.post("/api/v1/studies/{rs}/edc/sign")
+    @before_body(first("sign"))
     def api_sign(request: Request, rs: str, body: ApiSign) -> dict[str, Any]:
         sess = api(request)
         return {"study": rs.upper(),
@@ -840,17 +858,14 @@ def register(app: FastAPI, h: Helpers) -> None:
                                       source_of(request.client.host if request.client else None))}  # fmt: skip
 
     @app.post("/api/v1/studies/{rs}/edc/import/odm")
-    async def api_import(request: Request, rs: str) -> dict[str, Any]:
+    @before_body(first("draft"))  # T-657 (D-444): the session and the row before the body
+    @page_twin("/studies/{rs}/edc/import")
+    def api_import(request: Request, rs: str, body: ApiImport) -> dict[str, Any]:
         sess = api(request)
-        study_or_404(sess, rs, "draft", request.url.path)  # the session and the right first; the body only then
-        try:
-            body = ApiImport.model_validate_json(await request.body() or b"{}")
-        except ValidationError as exc:
-            raise h.problem(400, "request.refused", code="ODM-BODY", reason="name and data (base64)",
-                            fields="") from exc  # fmt: skip
         return {"study": rs.upper(), **api_call(do_import, sess, request.url.path, rs, body)}
 
     @app.post("/api/v1/studies/{rs}/edc/send")
+    @before_body(first("send"))
     def api_send(request: Request, rs: str, body: ApiSend) -> dict[str, Any]:
         sess = api(request)
         return {"study": rs.upper(), **api_call(do_send, sess, request.url.path, rs, body.record)}

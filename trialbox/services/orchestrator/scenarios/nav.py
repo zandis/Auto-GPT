@@ -32,6 +32,7 @@ from orchestrator.scenarios.screen import (
     judge_for,
     judging_info,
     local_iso,
+    opted_out_now,
     pid_names,
     practitioner_names,
     report_meta,
@@ -109,6 +110,24 @@ def classify(
     return None, missing
 
 
+def _without_opted_out(ctx: Ctx, scoped: list[Any]) -> list[Any]:
+    """D-441: NAV's lists leave out a patient on the opt-out register (D-147), as SCREEN and MICROBATCH do; the
+    hospital registry's refusals reach the register through the opt-out worker. Read as the register stood when
+    the job was received (a re-run stays byte-identical, D-82); audited by count only."""
+    from tb_common.optout import opted_out
+
+    gone = opted_out(as_of=ctx.job.received_at.isoformat())
+    kept = [r for r in scoped if r["pid"] not in gone]
+    if len(kept) != len(scoped):
+        ctx.orch.audit.append(
+            "nav.opt_out_removed",
+            job_id=ctx.job.job_id,
+            ruleset=ctx.job.ruleset,
+            detail={"removed": len(scoped) - len(kept), "register": "optout"},
+        )
+    return kept
+
+
 def run(ctx: Ctx) -> Outcome:
     job = ctx.job
     rs = require_approved(ctx, (job.ruleset or "").upper(), (job.options or {}).get("version"))
@@ -138,6 +157,7 @@ def run(ctx: Ctx) -> Outcome:
     scoped = lake.query(
         SCOPE_SQL, [depts, run_date.isoformat(), (run_date + timedelta(days=window)).isoformat()]
     ).to_pylist()
+    scoped = _without_opted_out(ctx, scoped)
     pids = [r["pid"] for r in scoped]
     ctx.metrics(patients_scoped=len(pids))
     codes = list(rs.manifest.twpas.drug_codes or []) if rs.manifest.twpas else []
@@ -193,6 +213,10 @@ def run(ctx: Ctx) -> Outcome:
         ):
             lists[r["dept"]]["doc_gaps"].append(row)
     ctx.state("reporting")
+    # D-441 (review MED-3): the register again, as it stands now, before anything is published or mailed
+    gone = opted_out_now(ctx, [r.pid for d in lists.values() for rows in d.values() for r in rows], "publish")
+    if gone:
+        lists = {d: {k: [r for r in v if r.pid not in gone] for k, v in sets.items()} for d, sets in lists.items()}
     meta = report_meta(ctx, rs, snapshot, run_date, judging_info(judge))
     all_rows = [row for d in lists.values() for name in ("likely_eligible", "renewal_due") for row in d[name]]
     mrns = pid_names(ctx, [r.pid for d in lists.values() for rows in d.values() for r in rows])

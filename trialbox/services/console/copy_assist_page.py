@@ -13,7 +13,7 @@ the coordinator reviews and signs, and a person types the signed values into the
 * ``GET /studies/{rs}/edc/copy.csv``: the same sheet as a plain file (one subject with ``?record=``, else the
   study), with a ``flow.export`` row (D-149) before the bytes leave.
 * ``GET /api/v1/studies/{rs}/edc/copy`` and ``POST /api/v1/studies/{rs}/edc/copy/{record}/tick``: the same, for a
-  script. The session and the right are checked before the body is read.
+  script. The session and the right are checked before the body is read (``console.api_first``, T-657).
 
 Who: the matrix rows ``edc.copy`` (the sheet and the file) and ``edc.copy_tick`` (the ticks), read through the
 study's delegation log (``Helpers.permit``); the orchestrator checks the person's role again. No chart number is
@@ -32,10 +32,12 @@ from typing import Any
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, Field
 from tb_common.flowledger import record_export
 from tb_common.service_auth import actor_header
 
 from console import i18n_copyassist, s28
+from console.api_first import before_body
 from console.auth import Session
 from console.backend import Problem, Unavailable
 from console.edc_pages import err_of, item_words
@@ -55,6 +57,12 @@ _VISIT = re.compile(r"^[a-z][a-z0-9_]{0,99}$")
 ACTIONS = ("copied", "undone")
 CSV_COLUMNS = ("record", "visit", "visit_date", "form", "item", "label", "value", "word", "source", "signed_by",
                "signed_at", "copied_by", "copied_at")  # fmt: skip
+
+
+class ApiTick(BaseModel):
+    drafts: list[int] = Field(min_length=1, max_length=2000)
+    action: str = Field(default="copied", pattern=r"^(copied|undone)$")
+    reason: str = Field(default="", max_length=300)
 
 
 def source_line(c: Mapping[str, Any] | None, words: Mapping[str, Any], lang: str) -> str:
@@ -255,17 +263,14 @@ def register(app: FastAPI, h: Helpers) -> None:
         rec = record_of(rid, record) if record else None
         return {"study": rid, **api_call(read, sess, rid, rec, "api")}
 
+    def tick_first(sess: Session, request: Request) -> None:
+        """T-657 (D-444): the session and the ``edc.copy_tick`` row, before the body is read."""
+        guard(sess, request.path_params["rs"], TICK, request.url.path)
+
     @app.post("/api/v1/studies/{rs}/edc/copy/{record}/tick")
-    async def api_tick(request: Request, rs: str, record: str) -> dict[str, Any]:
+    @before_body(tick_first)
+    def api_tick(request: Request, rs: str, record: str, body: ApiTick) -> dict[str, Any]:
         sess = api_sess(request)
-        rid = guard(sess, rs, TICK, request.url.path)  # the session and the right first; the body only then
-        try:
-            body = json.loads(await request.body() or b"{}")
-        except ValueError:
-            body = None
-        if not isinstance(body, dict) or not isinstance(body.get("drafts"), list):
-            raise h.problem(400, "request.refused", code="COPY-BODY", reason="drafts: a list of draft ids", fields="")
+        rid = guard(sess, rs, TICK, request.url.path)
         rec = record_of(rid, record)
-        ids = sorted({int(x) for x in body["drafts"] if isinstance(x, int) and not isinstance(x, bool)})
-        action, reason = str(body.get("action") or "copied"), str(body.get("reason") or "")
-        return {"study": rid, **api_call(do_tick, sess, rid, rec, ids, action, reason)}
+        return {"study": rid, **api_call(do_tick, sess, rid, rec, sorted(set(body.drafts)), body.action, body.reason)}
