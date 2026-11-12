@@ -262,9 +262,8 @@ def test_one_model_never_excludes_and_a_caller_without_a_job_gets_the_rule() -> 
     assert note_block_of(pair).may_block and note_block_of(pair, _ctx()).may_block
 
 
-def test_the_fingerprint_names_what_the_job_decided_on_and_nobody() -> None:
-    a, b = DecisionContext(_ctx()), DecisionContext(_ctx())
-    assert a.fingerprint(RS) == b.fingerprint(RS) and len(a.fingerprint(RS)) == 16
-    assert a.pins(RS)["version"] == RS.version and a.threshold(RS) == 0.75
-    other = DecisionContext(_ctx(Lake(consent=False)))
-    assert other.fingerprint(RS) != a.fingerprint(RS)
+def test_the_threshold_is_the_rulesets_else_the_sites_else_the_default() -> None:
+    """(Until the review of T-708 this test also read ``pins()`` and ``fingerprint()``: methods no path called.
+    They are removed with the claim that the ruleset is read through the context; D-477 names what is left.)"""
+    assert DecisionContext(_ctx()).threshold(RS) == 0.75
+    assert not hasattr(DecisionContext, "fingerprint") and not hasattr(DecisionContext, "pins")
