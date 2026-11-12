@@ -35,6 +35,14 @@ nightly full load holds the whole night in memory, so the first load runs as a *
 (`<lake>/holds/<job id>.json`, `POST /holds` on the lake service) until it ends or waits no more:
 
 - the lake refuses to rebuild a held snapshot (`SnapshotHeld`, HTTP 409): nothing is written and `CURRENT` stays;
+  it checks when the rebuild starts and again at the swap (D-462): a rebuild builds beside the served files
+  (`db/<snapshot>.building`, `parquet/.building/`) and, if a job came to hold the snapshot during the build, discards
+  the build and is refused, so the job reads the bytes it pinned to its end;
+- `hold`, `release`, the pruning and a rebuild's start and swap take one lock (`<lake>/.rebuild.lock`, `flock`),
+  which holds across the lake's worker processes;
+- one rebuild of a snapshot runs at a time (`<lake>/locks/<snapshot>.build.lock`): a second one, from another worker
+  or a caller that retried after its HTTP client timed out, is refused at once with "already building" (HTTP 409),
+  and a site publish shows that as a waiting publish (`building: true`);
 - the adapter's pruning keeps every held snapshot (`prune_snapshots`);
 - a hold older than 14 days is a job that died and protects nothing.
 

@@ -413,6 +413,11 @@ class SiteSetup:
                 try:
                     lake.rebuild(snap)
                 except Exception as exc:
+                    if _building_refusal(exc):
+                        # D-462: another rebuild of the snapshot runs (an earlier publish whose HTTP client timed
+                        # out, another worker): never a second writer; this publish waits and shows "building"
+                        self.audit.append("setup.publish_building", actor=by, detail={"ws": ws, "snapshot": snap})
+                        return _pending(last, 0, 0, building=True)
                     if not _held_refusal(exc):
                         raise
                     # a job pinned the snapshot between the check and the rebuild: the batch waits for it (D-403)
@@ -439,16 +444,26 @@ class SiteSetup:
         self.audit.append("setup.reset", actor=by, detail={"ws": ws})
 
 
-def _pending(last: dict[str, Any] | None, wait: int, held: int) -> dict[str, Any]:
-    """What a publish that waits answers (T-305b, D-403): the last published snapshot and why it waits."""
+def _pending(last: dict[str, Any] | None, wait: int, held: int, building: bool = False) -> dict[str, Any]:
+    """What a publish that waits answers (T-305b, D-403): the last published snapshot and why it waits; ``building``
+    when another rebuild of the snapshot is running (D-462)."""
     return {
         "snapshot": last["snapshot"] if last else None,
         "unchanged": False,
         "pending": True,
         "wait_seconds": wait,
         "held_by_jobs": held,
+        "building": building,
         "counts": last["counts"] if last else {},
     }
+
+
+def _building_refusal(exc: Exception) -> bool:
+    """The lake refused the rebuild because another rebuild of the snapshot runs (D-462; in process, or the 409)."""
+    if type(exc).__name__ == "SnapshotBuilding":
+        return True
+    resp = getattr(exc, "response", None)
+    return getattr(resp, "status_code", None) == 409 and "already building" in str(getattr(resp, "text", ""))
 
 
 def _held_refusal(exc: Exception) -> bool:

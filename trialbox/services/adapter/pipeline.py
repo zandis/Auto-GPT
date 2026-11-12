@@ -1064,7 +1064,7 @@ def prune_snapshots(cfg: AdapterConfig, today: date) -> list[str]:
     long SCREEN, or one waiting for an approval, still reads its night after N newer ones arrived)."""
     import shutil
 
-    from lake.store import held_snapshots
+    from lake.store import drop_build_lock, held_snapshots, lake_lock
     from tb_common.retention import snapshots_to_keep
 
     current = (cfg.lake_dir / "CURRENT").read_text().strip() if (cfg.lake_dir / "CURRENT").exists() else None
@@ -1074,11 +1074,13 @@ def prune_snapshots(cfg: AdapterConfig, today: date) -> list[str]:
     good = {s for s in snaps if (snapshot_dir(cfg.lake_dir, s) / PASSED).exists()}
     good |= {p.stem for p in (cfg.lake_dir / "db").glob("*.duckdb")} | ({current} if current else set())
     keep = snapshots_to_keep(snaps, today, cfg.keep_nightly, cfg.keep_month_end_months, good) | {current or ""}
-    keep |= set(held_snapshots(cfg.lake_dir).values())
-    gone = sorted(s for s in snaps if s not in keep)
-    for s in gone:
-        shutil.rmtree(cfg.lake_dir / "ndjson" / s, ignore_errors=True)
-        shutil.rmtree(cfg.lake_dir / "parquet" / f"snapshot={s}", ignore_errors=True)
-        for f in (cfg.lake_dir / "db").glob(f"{s}.duckdb*"):
-            f.unlink(missing_ok=True)
+    with lake_lock(cfg.lake_dir):  # D-462: no hold lands between reading the holds and the deletes
+        keep |= set(held_snapshots(cfg.lake_dir).values())
+        gone = sorted(s for s in snaps if s not in keep)
+        for s in gone:
+            shutil.rmtree(cfg.lake_dir / "ndjson" / s, ignore_errors=True)
+            shutil.rmtree(cfg.lake_dir / "parquet" / f"snapshot={s}", ignore_errors=True)
+            for f in (cfg.lake_dir / "db").glob(f"{s}.duckdb*"):
+                f.unlink(missing_ok=True)
+            drop_build_lock(cfg.lake_dir, s)
     return gone
