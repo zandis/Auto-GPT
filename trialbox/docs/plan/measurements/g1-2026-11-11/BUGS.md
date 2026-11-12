@@ -50,7 +50,7 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
      collect, stop and shard.
   2. Every `gcloud` call gets a short timeout and a clear error ("credentials expired: re-activate").
   3. Add a test: `--collect` with an expired token fails within 60 s with that message.
-- **Status.** Open.
+- **Status.** Fixed in #296.
 
 ### A3. A pre-empted part restarts from zero (High; costs money)
 
