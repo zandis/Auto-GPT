@@ -30,8 +30,10 @@ replaced what they could not read with U+FFFD.
 
 from __future__ import annotations
 
+import codecs
 import unicodedata
 from collections.abc import Sequence
+from pathlib import Path
 
 THRESHOLD = 0.6
 # character sets that are never chosen unless asked for, but are weighed: when one reads a file as well as the
@@ -44,6 +46,7 @@ LEGACY: tuple[str, ...] = ("cp932", "big5")  # the sheets' default candidates af
 _FAMILY = {"big5": ("big5", "cp950"), "cp932": ("cp932",), "euc_jp": ("euc_jp",)}
 _SAMPLE = 200_000  # characters scored at most (the strict decode always covers the whole file)
 _BOM = b"\xef\xbb\xbf"
+_CHUNK = 1 << 20  # bytes read at a time by :func:`file_codec` (a read size, not a limit: the file is read to its end)
 
 
 class EncodingRefused(ValueError):
@@ -307,4 +310,50 @@ def decode(data: bytes, candidates: Sequence[str] = LEGACY) -> tuple[str, str]:
     return text, codec
 
 
-__all__ = ["LEGACY", "THRESHOLD", "EncodingRefused", "decode", "detect", "score"]
+def file_codec(path: Path, candidates: Sequence[str] = LEGACY) -> str:
+    """The codec :func:`decode` gives the file at ``path``, with the same refusals (T-692, D-473). A file that is UTF-8
+    throughout and that :func:`detect` reads as UTF-8 without weighing (a BOM, all ASCII, or enough usual non-ASCII
+    characters in the first :data:`_SAMPLE`) is read in chunks and never held; any other file is decided over all
+    its bytes, exactly as :func:`decode` does."""
+    fast = _utf8_codec(path)
+    if fast is not None:
+        return fast
+    return decode(path.read_bytes(), candidates)[1]
+
+
+def _utf8_codec(path: Path) -> str | None:
+    usual = seen = 0
+    plain = True
+    line, bad = 1, None
+    with path.open("rb") as fh:
+        head = fh.read(len(_BOM))
+        bom = head == _BOM
+        dec = codecs.getincrementaldecoder("utf-8")()
+        pending = b"" if bom else head
+        try:
+            while True:
+                text = dec.decode(pending)
+                if text:
+                    if seen < _SAMPLE:
+                        part = text[: _SAMPLE - seen]
+                        usual += sum(1 for ch in part if not ch.isascii() and _weight_utf8(ch) >= 0.9)
+                        seen += len(part)
+                    plain = plain and text.isascii()
+                    at = text.find("\ufffd")
+                    if at >= 0 and bad is None:
+                        bad = line + text.count("\n", 0, at)
+                    line += text.count("\n")
+                pending = fh.read(_CHUNK)
+                if not pending:
+                    dec.decode(b"", final=True)
+                    break
+        except UnicodeDecodeError:
+            return None
+    if not bom and not (plain or usual >= UTF8_SURE):
+        return None
+    if bad is not None:
+        raise EncodingRefused("the file holds replacement characters (U+FFFD)", bad)
+    return "utf-8-sig" if bom else "utf-8"
+
+
+__all__ = ["LEGACY", "THRESHOLD", "EncodingRefused", "decode", "detect", "file_codec", "score"]
