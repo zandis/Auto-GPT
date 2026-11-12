@@ -258,10 +258,11 @@ def cell(value: object, k: int) -> str:
 # job pages are decided by the job's type (see create_app._aggregate_denied)
 _AGGREGATE_DENY = re.compile(
     r"^/(?:jobs|audit|admin/redcap|pilot/registry|pilot/mailbox|pilot/cascade|site|api/v1/site)(?:/|$)"
-    r"|^/(?:api/v1/)?studies/[^/]+/(?!feasibility$|monitor/)"
+    r"|^/(?:api/v1/)?studies/[^/]+/(?!feasibility$|monitor(?:/|$))"
 )
-# D-380 (FIT-002 grant half): the one patient-level route a CRO account may reach, under a monitor grant (team.py)
-_MONITOR_ROUTE = re.compile(r"/(?:api/v1/)?studies/[A-Za-z0-9_-]+/monitor/[A-Za-z0-9_-]+")
+# D-380 (FIT-002 grant half), D-436 (T-303): the patient-level routes a CRO account may reach, under a monitor grant
+# (console.sdv_page: the enrolled subjects and visit records, one subject's source references, the visit record)
+_MONITOR_ROUTE = re.compile(r"/(?:api/v1/)?studies/[A-Za-z0-9_-]+/monitor(?:/[A-Za-z0-9_-]+)?")
 for _lang, _cat in (("en", i18n_roles.EN), ("ja", i18n_roles.JA), ("zh-TW", i18n_roles.ZH)):
     CATALOGUES[_lang].update(_cat)
 
@@ -1109,6 +1110,7 @@ def create_app(
         notify,
         recorded_opinions,
         screening_log,
+        sdv_page,
         site_pages,
         step4,
         study_setup,
@@ -1148,6 +1150,7 @@ def create_app(
     step4.register(app, helpers)  # header command field, S22, S29, S37, S13 tabs with S24 and S26 (D-110)
     raw_env = _env_map(env)
     team.register(app, helpers, raw_env)  # delegation log, candidates, referral, IRB warning, opt-outs (D-147)
+    sdv_page.register(app, helpers)  # T-303 (D-436): the monitor's SDV pages, after team (it reads the standing)
     admin_flags.register(app, helpers)  # /ops/flags and the flags' first-start seed (T-008, D-207)
     edc_pages.register(app, helpers)  # EDC prefill: switch, map, review, e-signature, send, ODM (D-160)
     demo_guard.register(app, helpers)  # T-502 (D-328): demo mode's refusals, banner and acknowledgement
