@@ -105,9 +105,11 @@ class LakeHttp:
         job: dict[str, Any] = resp.json()
         return job
 
-    def promote(self, snapshot: str) -> bool:
-        """T-723 (D-489): make the built ``snapshot`` the served one; False when a newer night is served."""
-        resp = self.client.post(f"{self.base}/promote", json={"snapshot": snapshot})
+    def promote(self, snapshot: str, generation: str | None = None) -> bool:
+        """T-723 (D-489): make the built ``snapshot`` the served one; False when a newer night is served.
+        ``generation``: the one the caller built; refused (409) when the date names another one now."""
+        body = {"snapshot": snapshot, **({"generation": generation} if generation else {})}
+        resp = self.client.post(f"{self.base}/promote", json=body)
         resp.raise_for_status()
         return bool(resp.json().get("promoted"))
 
@@ -231,10 +233,11 @@ class LakeLocal:
 
     def rebuild(self, snapshot: str, allow_empty: bool = False, promote: bool = True) -> dict[str, Any]:
         st = self.lake.rebuild(snapshot, self.embedder, promote=promote, allow_empty=allow_empty, check=not promote)
-        return {"snapshot": st.snapshot, "tables": st.tables, "chunks": st.chunks, "seconds": st.seconds}
+        return {"snapshot": st.snapshot, "tables": st.tables, "chunks": st.chunks, "seconds": st.seconds,
+                "generation": st.generation}  # fmt: skip
 
-    def promote(self, snapshot: str) -> bool:
-        return self.lake.promote_built(snapshot)
+    def promote(self, snapshot: str, generation: str | None = None) -> bool:
+        return self.lake.promote_built(snapshot, generation)
 
     def start_rebuild(self, snapshot: str, allow_empty: bool = False, promote: bool = True) -> dict[str, Any]:
         """The in-process lake runs the job here and answers its end (no client limit to outlast: T-690)."""

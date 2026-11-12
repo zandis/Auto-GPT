@@ -614,9 +614,10 @@ def select_files(name: str, root: Path) -> tuple[list[str], dict[str, int]]:
             why = "lake snapshot being built"  # D-462: the build file and the Parquet stage, swapped in when done
         elif name == "lake" and parts[:2] == ("db", ".open"):
             why = "lake reader links (the same files as db/)"  # D-462: hard links, taken once as db/<snapshot>.duckdb
-        elif name == "lake" and parts[:2] == ("db", "gen"):
+        elif name == "lake" and parts[:2] == ("db", "gen") and not rel.endswith(".json"):
             # T-724 (D-490): each date's newest generation is its own file db/<snapshot>.duckdb, taken once; an older
-            # generation is only a running job's. A restored date gets a generation again when a job pins it
+            # generation is only a running job's. The generations' records (names, numbers and hashes; no patient
+            # data) are kept: a restored date gets the name its bytes had, and a number is never given twice
             why = "lake generations (the newest is db/<snapshot>.duckdb)"
         elif name == "lake" and ndjson_keep is not None and parts[0] == "ndjson" and len(parts) > 2 \
                 and parts[1] not in ndjson_keep and rel.endswith(".ndjson"):  # fmt: skip

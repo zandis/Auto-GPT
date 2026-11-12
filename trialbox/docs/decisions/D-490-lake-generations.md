@@ -67,6 +67,26 @@ T-723 are this card's, written here so they do not fall between the two:
   that pins a generation no longer makes the lake busy at all. **Not built:** a row state of its own (the row of a
   busy night is FAILED with that detail); it needs a change of the `batch` table's check and a migration.
 
+## After the review of #318 (with T-723's build without promote on master)
+
+8. **A generation's name is never given to other bytes, a restore included.** The backup keeps the generations'
+   records (`db/gen/*.json`: name, number, cause, hash; no patient data) and not their files. A generation is
+   numbered after every file **and** every record of its date, and the record with the highest number stays when
+   its file is swept. After a restore, a date whose bytes have the hash of a record gets that record's name back;
+   a job started again whose generation's file is gone is told so (it never reads the date's newest in its place).
+   A backup made before this card has no records: its dates are adopted as generation 1 again.
+9. **The served date is not built without promote.** The date's own file is what the box serves, so a build
+   "without promote" of the served date was served the moment it was swapped in. It is refused before anything
+   is built; a publish's re-run of the served night already builds it with promote, in one step (D-489).
+10. **A promotion can name the generation it promotes.** `promote_built(date, generation)` and `POST /promote`
+    with `generation` refuse (409) when the date names another generation now: it was built again since. The
+    rebuild job's answer and the in-process client's carry the generation. **Owed:** the adapter's publish does
+    not pass it yet (the contract's `RebuildResult` has no such field and `publish.json` does not record it); until
+    then the promotion without a name is as T-723 left it.
+11. **Point 4, said exactly:** a generation hold never blocks the *lake's* rebuild. The adapter's publish still
+    answers "lake busy" for a re-run of the served night while a job holds it (`adapter/publish.py`, review F-3 of
+    T-723): safe, and stricter than the lake needs. Making the two agree is a follow-up.
+
 ## Consequences
 
 - A job's reads are the same bytes from its first query to its last whatever is published meanwhile, without the

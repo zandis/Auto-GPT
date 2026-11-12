@@ -257,15 +257,19 @@ def rebuild(req: RebuildRequest) -> JSONResponse:
 @app.post("/promote")
 def promote(body: dict[str, Any]) -> dict[str, Any]:
     """T-723 (D-489): the last step of a publish. Makes the built snapshot the served one; ``promoted`` is false,
-    and nothing changed, when a newer night is served. 404: no such built snapshot."""
+    and nothing changed, when a newer night is served. 404: no such built snapshot. With ``generation`` (the one
+    the caller built): 409, and nothing changed, when the date names another generation now."""
     try:
         snap = date.fromisoformat(str(body.get("snapshot") or "")).isoformat()
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="snapshot must be a date") from exc
+    gen = body.get("generation")
     try:
-        done = lake().promote_built(snap)
+        done = lake().promote_built(snap, str(gen) if gen else None)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:  # review of #318: the date was built again since the caller's build
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"promoted": done, "current": lake().current()}
 
 
