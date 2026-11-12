@@ -78,6 +78,18 @@ say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
 die() { printf 'install: %s\n' "$*" >&2; exit 1; }
 rand() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "${1:-32}"; }
 IMAGE_PY="${TB_IMAGE:-trialbox-py:1.0.0}"
+# OPS-004 (D-570): after an install from a bundle the shipped files under deploy/ are links into ../current
+# (tools/host_tree.py). A container that gets deploy/ alone sees them dangle (found by the box rehearsal: the measured
+# record, the image lock, the compose files). Every container started on deploy/ also gets the release tree where
+# those links point: /current beside a mount at /d, /app/current beside one at /app/deploy. A checkout has no
+# release tree and gets nothing.
+tree_args() {
+  TREE_D=(); TREE_APP=()
+  if [ -d "$ROOT/current" ]; then
+    local tree; tree="$(readlink -f "$ROOT/current")"
+    TREE_D=(-v "$tree:/current:ro"); TREE_APP=(-v "$tree:/app/current:ro")
+  fi
+}
 PUBKEY="${TB_VENDOR_PUBKEY:-$ROOT/deploy/keys/vendor_ed25519.pub}"
 
 if [ "$CHECK" = 1 ]; then exec sh "$ROOT/deploy/check_host.sh" "$@"; fi
@@ -211,11 +223,13 @@ fi
 if [ ! -f deploy/settings.yaml ]; then
   if [ -n "$ANSWERS" ]; then
     [ -f "$ANSWERS" ] || die "no such answers file: $ANSWERS"
-    docker run --rm -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" "${MAPPING_MOUNT[@]}" -v "$(cd "$(dirname "$ANSWERS")" && pwd)/$(basename "$ANSWERS"):/in/answers.yaml:ro" \
+    tree_args
+    docker run --rm -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" ${TREE_D[@]+"${TREE_D[@]}"} "${MAPPING_MOUNT[@]}" -v "$(cd "$(dirname "$ANSWERS")" && pwd)/$(basename "$ANSWERS"):/in/answers.yaml:ro" \
       --user "$(id -u):$(id -g)" "$IMAGE_PY" python -m tools.settings_wizard --answers /in/answers.yaml --out /out/settings.yaml --env-out /out/.env
   else
     [ -t 0 ] || die "no deploy/settings.yaml and no terminal for the questions: pass --answers site.yaml (RUNBOOK §1 step 3)"
-    docker run --rm -it -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" "${MAPPING_MOUNT[@]}" --user "$(id -u):$(id -g)" "$IMAGE_PY" \
+    tree_args
+    docker run --rm -it -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" ${TREE_D[@]+"${TREE_D[@]}"} "${MAPPING_MOUNT[@]}" --user "$(id -u):$(id -g)" "$IMAGE_PY" \
       python -m tools.settings_wizard --out /out/settings.yaml --env-out /out/.env
   fi
 else
@@ -255,7 +269,8 @@ if [ "$FRESH" = 1 ] || grep -q '^TB_SERVICE_TOKEN=change-me' deploy/.env; then s
 if command -v python3 >/dev/null; then
   python3 -m tools.trialbox secrets init --deploy "$ROOT/deploy" | sed 's/^/    /'
 else
-  docker run --rm --user 0 -v "$ROOT/deploy:/d" "$IMAGE_PY" python -m tools.trialbox secrets init --deploy /d | sed 's/^/    /'
+  tree_args
+  docker run --rm --user 0 -v "$ROOT/deploy:/d" ${TREE_D[@]+"${TREE_D[@]}"} "$IMAGE_PY" python -m tools.trialbox secrets init --deploy /d | sed 's/^/    /'
 fi
 # D-126: the host tools reach the one trial database as `trialbox`; each service has its own role (D-378)
 WF_PW="$(sed -n 's/^POSTGRES_WF_PASSWORD=//p' deploy/.env | tail -1)"
@@ -329,13 +344,15 @@ if [ "$MODE" = gpu ]; then
     val="$(sed -n "s/^$v=//p" deploy/.env | tail -1)"; [ -z "$val" ] || export "$v=$val"
   done
   say "pinning the $GPU model pair from deploy/models (tools/pin_model.py --install)"
-  docker run --rm -v "$ROOT/deploy:/d" -e JUDGE_MODEL_DIR -e JUDGE_MODEL -e JUDGE_CHAT_TEMPLATE -e VERIFIER_MODEL_DIR -e VERIFIER_MODEL "$IMAGE_PY" \
+  tree_args
+  docker run --rm -v "$ROOT/deploy:/d" ${TREE_D[@]+"${TREE_D[@]}"} -e JUDGE_MODEL_DIR -e JUDGE_MODEL -e JUDGE_CHAT_TEMPLATE -e VERIFIER_MODEL_DIR -e VERIFIER_MODEL "$IMAGE_PY" \
     python -m tools.pin_model --install "$GPU" --models-root /d/models --out /d/site/registry.site.yaml \
     || echo "install: warning: a model of the $GPU pair is not pinned (see above): it routes nothing until its weights are in deploy/models and install runs again (RUNBOOK §8)" >&2
   if ls deploy/site/registry.site.yaml >/dev/null 2>&1; then
     # SEC-64: every pinned build's weights must still hash to its pin, or the box does not start on them
     say "checking the pinned model weights (tools/pin_model.py --verify-all)"
-    docker run --rm -v "$ROOT/deploy:/d:ro" "$IMAGE_PY" \
+    tree_args
+    docker run --rm -v "$ROOT/deploy:/d:ro" ${TREE_D[@]+"${TREE_D[@]}"} "$IMAGE_PY" \
       python -m tools.pin_model --verify-all /d/models --out /d/site/registry.site.yaml \
       || die "model weights do not match their pins (see above): restore the pinned files or re-pin with tools/pin_model.py (RUNBOOK §8)"
   else
@@ -353,7 +370,8 @@ case "$MODE:$GPU" in gpu:rtxpro6000|gpu:gb10|gpu:rtx5090)
     [ -f "$f" ] && { REC="$f"; break; }
   done
   if [ -n "$REC" ]; then
-    docker run --rm -v "$ROOT/deploy:/d:ro" "$IMAGE_PY" python -m tools.serving_config measured "$GPU" "/d/${REC#deploy/}" \
+    tree_args
+    docker run --rm -v "$ROOT/deploy:/d:ro" ${TREE_D[@]+"${TREE_D[@]}"} "$IMAGE_PY" python -m tools.serving_config measured "$GPU" "/d/${REC#deploy/}" \
       || die "$REC is not a measurement of the $GPU profile on its own card (see above)"
     echo "    $GPU profile measured: $REC"
   elif [ -z "$TIER" ] && [ "${TB_ACCEPT_UNMEASURED_GPU:-0}" = 1 ]; then
@@ -468,7 +486,8 @@ if [ "$MODE" = gpu ]; then
   # gateway would get 404 or 401 on every call and the box would screen nothing (doctor check "serving")
   say "model servers: pinned served names and key (trialbox doctor --serving)"
   set +e
-  docker run --rm --network trialbox-model-net --env-file deploy/.env -v "$ROOT/deploy:/app/deploy:ro" \
+  tree_args
+  docker run --rm --network trialbox-model-net --env-file deploy/.env -v "$ROOT/deploy:/app/deploy:ro" ${TREE_APP[@]+"${TREE_APP[@]}"} \
     -e TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key --user "$(id -u):$(id -g)" "$IMAGE_PY" python -m tools.trialbox doctor --serving | sed 's/^/    /'
   rc="${PIPESTATUS[0]}"
   set -e
@@ -534,7 +553,8 @@ if [ -n "${OVR:-}" ]; then  # the override is outside deploy/: mount it where th
 fi
 FAILS=()   # T-632: a FAIL here does not stop the install half-way; the install ends with exit 1 and the list
 # T-632 (OPS-014): every overlay renders; an error is shown, never hidden
-if SHEET_OUT="$(docker run --rm -v "$ROOT/deploy:/app/deploy" ${SHEET_MOUNT[@]+"${SHEET_MOUNT[@]}"} --user "$(id -u):$(id -g)" "$IMAGE_PY" \
+tree_args
+if SHEET_OUT="$(docker run --rm -v "$ROOT/deploy:/app/deploy" ${TREE_APP[@]+"${TREE_APP[@]}"} ${SHEET_MOUNT[@]+"${SHEET_MOUNT[@]}"} --user "$(id -u):$(id -g)" "$IMAGE_PY" \
      python -m tools.network_sheet --files "$SHEET_FILES" --env deploy/.env --out deploy/site/network-sheet 2>&1)"; then
   echo "    network sheet: deploy/site/network-sheet.{en,ja,zh-TW}.{md,html}"
 else
@@ -614,7 +634,8 @@ sh "$ROOT/deploy/check_host.sh" ${HOST_ARGS[@]+"${HOST_ARGS[@]}"} || FAILS+=("th
 # T-632 (D-382): the judge, named from the configuration: its role, the registry's label for the build this profile
 # serves, and the site's pin (tools/pin_model.py --name-judge); a stub box has none
 if [ "$MODE" = gpu ]; then
-  JUDGE="$(docker run --rm -v "$ROOT/deploy:/d:ro" "$IMAGE_PY" python -m tools.pin_model --name-judge "$GPU" --out /d/site/registry.site.yaml 2>&1)" \
+  tree_args
+  JUDGE="$(docker run --rm -v "$ROOT/deploy:/d:ro" ${TREE_D[@]+"${TREE_D[@]}"} "$IMAGE_PY" python -m tools.pin_model --name-judge "$GPU" --out /d/site/registry.site.yaml 2>&1)" \
     || FAILS+=("the judge could not be named: $JUDGE")
 else
   JUDGE="judge: none (stub mode: structured criteria only; note criteria wait for a GPU)"

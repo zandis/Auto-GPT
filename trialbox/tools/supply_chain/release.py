@@ -366,9 +366,11 @@ def render(record: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def bundle_problems(record: Any, images: dict[str, str], *, now: dt.datetime | None = None) -> list[str]:
-    """Images (ref -> local image id) a bundle may not carry under this record (passing, and at most
-    ``vulns.MAX_DB_AGE_DAYS`` old: a newer advisory may have arrived since)."""
+def bundle_problems(
+    record: Any, images: dict[str, str] | dict[str, tuple[str, ...]], *, now: dt.datetime | None = None
+) -> list[str]:
+    """Images (ref -> local image id, or every digest that names the image) a bundle may not carry under this
+    record (passing, and at most ``vulns.MAX_DB_AGE_DAYS`` old: a newer advisory may have arrived since)."""
     if not isinstance(record, dict) or not record.get("ok"):
         return ["the gate record did not pass (or is not a gate record)"]
     created = vulns.parse_time(record.get("created"))
@@ -384,6 +386,9 @@ def bundle_problems(record: Any, images: dict[str, str], *, now: dt.datetime | N
     }
     problems = []
     for ref, image_id in images.items():
-        if not image_id or image_id not in passed:
-            problems.append(f"{ref} ({image_id}) is not a passing image of this record; run make release-gates")
+        ids = (image_id,) if isinstance(image_id, str) else tuple(image_id)
+        if not any(i and i in passed for i in ids):  # D-570: the image id differs by image store, the content not
+            problems.append(
+                f"{ref} ({ids[0] if ids else ''}) is not a passing image of this record; run make release-gates"
+            )
     return problems

@@ -127,6 +127,29 @@ def archive_configs(archive: Path) -> dict[str, str]:
     return out
 
 
+def archive_identities(archive: Path) -> tuple[str, ...]:
+    """Every digest that names the one image of a ``docker save`` archive: its config digest and, when the archive
+    holds one image, the digests of its ``index.json`` (OPS-004, D-570). Docker's image id, which the release gates
+    record, is the config digest on the classic image store and the index digest on the containerd store. With
+    several images in one archive an index digest could be another image's: only the config digests count."""
+    configs = sorted(set(archive_configs(archive).values()))
+    if len(configs) != 1:
+        return tuple(configs)
+    try:
+        with tarfile.open(archive) as tf:
+            member = tf.extractfile("index.json") if "index.json" in tf.getnames() else None
+            index = json.loads(member.read()) if member is not None else {}
+    except (OSError, KeyError, tarfile.TarError, json.JSONDecodeError) as exc:
+        raise ReleaseError(f"{archive.name}: cannot read its index.json ({exc})") from exc
+    more = [str(m.get("digest")) for m in (index.get("manifests") or []) if isinstance(m, dict)]
+    return (configs[0], *(d for d in more if re.fullmatch(r"sha256:[0-9a-f]{64}", d) and d != configs[0]))
+
+
+def gate_entry(by_id: dict[Any, dict[str, Any]], archive: Path) -> dict[str, Any] | None:
+    """The gate record's entry (keyed by its ``image_id``) for the image of ``archive``, or None."""
+    return next((by_id[i] for i in archive_identities(archive) if i in by_id), None)
+
+
 def repository(ref: str) -> str:
     ref = ref.split("@", 1)[0]
     head, _, last = ref.rpartition("/")
@@ -144,8 +167,11 @@ def image_name(ref: str, lock: dict[str, Any]) -> str:
     return last.removeprefix("trialbox-") if last.startswith("trialbox-") else last
 
 
-def gate_problems(record: Any, configs: dict[str, str], now: dt.datetime | None = None) -> list[str]:
-    """The release gates' own rule (``tools.supply_chain.release.bundle_problems``) over the archives' digests."""
+def gate_problems(
+    record: Any, configs: dict[str, str] | dict[str, tuple[str, ...]], now: dt.datetime | None = None
+) -> list[str]:
+    """The release gates' own rule (``tools.supply_chain.release.bundle_problems``) over the archives' digests
+    (one, or every digest that names the archive's image: :func:`archive_identities`)."""
     from tools.supply_chain.release import bundle_problems
 
     return bundle_problems(record, configs, now=now)
@@ -190,7 +216,7 @@ def build(
             raise ReleaseError(f"{archive.name}: one image per archive (found {len(set(configs.values()))})")
         tag, digest = sorted(configs.items())[0]
         saved.append((ref, archive, tag, digest))
-    problems = gate_problems(record, {f"{ref} ({tag})": d for ref, _, tag, d in saved}, now=now)
+    problems = gate_problems(record, {f"{ref} ({tag})": archive_identities(a) for ref, a, tag, _ in saved}, now=now)
     if problems:
         raise ReleaseError("; ".join(problems))
 
@@ -220,7 +246,7 @@ def build(
 
     rel_images: dict[str, dict[str, Any]] = {}
     for ref, archive, tag, digest in saved:
-        entry = by_id.get(digest)
+        entry = gate_entry(by_id, archive)  # by any digest that names the image (D-570: either image store)
         if entry is None or not entry.get("sbom"):
             raise ReleaseError(f"{ref}: the gate record names no SBOM for image {digest}")
         sha = take_sbom(str(entry["sbom"]), entry.get("sbom_sha256"), tag)
