@@ -33,7 +33,7 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
   2. `same_run()` must treat `<run_id>` and `<run_id>-s<N>` as the same run.
   3. Add a unit test: a part file written with id `X-s1` survives `run_all --resume` with run id `X`.
   4. Add a rehearsal case: pre-empt after part 3, collect, resume, and the parts already done are kept.
-- **Status.** Open.
+- **Status.** Fixed in #293.
 
 ### A2. The gcloud credentials expire during a long run (Blocker for unattended runs)
 
