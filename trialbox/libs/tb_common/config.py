@@ -460,6 +460,7 @@ DECLARED: dict[str, Declared] = {
     "TB_DATA_CLASS": Declared("str", "", "data class a gateway call names"),
     "TB_DATA_CONTRACTS": Declared("str", "", "adapter: data contracts set name or folder (T-659b, D-370)"),
     "TB_DATA_DIR": Declared("path", "/data", "the services' data folder"),
+    "TB_DB_ROLES_CMD": Declared("str", "", "restore: the command that puts the service roles back (D-573)"),
     "TB_DB_URL": Declared("str", "", "the trial database URL"),
     "TB_DEMO_ACCOUNTS": Declared("str", "", "demo: accounts to create"),
     "TB_DEMO_CONTAINER": Declared("str", "trialbox-demo", "demo: container name"),

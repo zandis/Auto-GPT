@@ -189,9 +189,12 @@ status and alert, wipe, restore with the pack loaded again, an old-format restor
 point-in-time recovery).
 
 **Database roles after a restore (D-378).** Each service signs in as its own role and reaches only its own schemas,
-which belong to group roles. A restore made as `trialbox` leaves its tables owned by `trialbox`, so run the role
-script once after it: `docker compose --project-directory deploy exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh`
-(`deploy/install.sh` runs it on every install and upgrade). It is safe to run any time.
+which belong to group roles. A restore made as `trialbox` leaves its tables and functions owned by `trialbox`, so
+the restore runs the role script itself after the trial database is restored (D-573): set
+`TB_DB_ROLES_CMD="docker compose --project-directory deploy exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh"`
+in the environment of `trialbox restore`. Without it a PRODUCTION restore ends "NOT complete" (exit 4) and prints
+that line to run by hand; when the command fails the restore stops with its output. `deploy/install.sh` runs the
+script on every install and upgrade. It is safe to run any time.
 Since D-461 the console is not in the EDC group (`tbs_edc`): the console reaches the EDC only through the
 orchestrator, and the script takes an earlier membership away on its next run.
 The script also gives the audit journal back to its owner and the services their right to write to it (D-394): until

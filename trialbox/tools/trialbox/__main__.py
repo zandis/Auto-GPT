@@ -448,6 +448,12 @@ def _backup_cmd(a: argparse.Namespace) -> int:
                   "erasures, break-glass, EDC signatures, consent): a steward re-applies each one (to_reapply above; "
                   "audit event backup.restore_reapply; RUNBOOK §5)", file=sys.stderr)  # fmt: skip
             return 4
+        roles = out.get("service_roles") or {}
+        if not bk.roles_ok(roles, os.environ):  # D-573
+            print("restore: NOT complete: the service roles were not put back (TB_DB_ROLES_CMD is not set), so the "
+                  f"services cannot work in the restored stores. Run: {roles.get('run')} (RUNBOOK §5)",
+                  file=sys.stderr)  # fmt: skip
+            return 4
         return 0 if bk.optouts_ok(lost) else 4
     except bk.BackupError as exc:
         print(f"{a.cmd}: {exc}", file=sys.stderr)
