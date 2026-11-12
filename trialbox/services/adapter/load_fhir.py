@@ -16,6 +16,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import re
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -163,6 +165,12 @@ def sync_snapshot(
     """Make fhir-store hold exactly the snapshot: PUT what is new or changed (everything with ``full``), then DELETE
     ids loaded earlier that the snapshot no longer has. Without a ledger yet (first run after an upgrade) the previous
     snapshot stands in for it, without hashes, so everything loads once. Returns (loaded, deleted)."""
+    # T-725 (D-491, review F-4): the load is the build of "fhir" from this night. A night older than the one the
+    # store holds is not loaded (a late re-run of an earlier night made the store hold the older night before);
+    # the store keeps the newer one and this step reports nothing loaded
+    built = _begin_night(directory.name)
+    if built is _OLDER:
+        return 0, 0
     current = snapshot_hashes(directory)
     known = _read_ledger(ledger)
     if not known and previous is not None and previous.is_dir():
@@ -184,4 +192,42 @@ def sync_snapshot(
     if deleted:
         log.info("deleted", extra={"count": deleted})
     _write_ledger(ledger, current)
+    _finish_night(built)
     return loaded, deleted
+
+
+_OLDER = object()
+_NIGHT = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _begin_night(name: str) -> Any:
+    """Record the start of the FHIR store's load of the night ``name`` in the generation ledger; ``_OLDER`` when
+    the store holds a newer night (the load is then skipped), None when there is no ledger to ask (a folder that
+    is not a night, no trial database, a store that cannot be reached: the load goes on as before)."""
+    if not _NIGHT.match(name) or not os.environ.get("TB_DB_URL"):
+        return None
+    from tb_common.generation import OlderGeneration
+
+    try:
+        from datacore.generations import Built
+
+        with Built() as ledger:
+            return ledger.begin("fhir", name)
+    except OlderGeneration as exc:
+        log.warning("fhir-store not loaded: %s", exc)
+        return _OLDER
+    except Exception as exc:
+        log.warning("fhir-store load not recorded in the generation ledger (%s)", type(exc).__name__)
+        return None
+
+
+def _finish_night(built: Any) -> None:
+    if built is None or built is _OLDER:
+        return
+    try:
+        from datacore.generations import Built
+
+        with Built() as ledger:
+            ledger.finish("fhir", built)
+    except Exception as exc:
+        log.warning("fhir-store load not recorded in the generation ledger (%s)", type(exc).__name__)

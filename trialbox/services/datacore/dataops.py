@@ -73,6 +73,15 @@ CREATE TABLE IF NOT EXISTS batch_step (id BIGINT GENERATED ALWAYS AS IDENTITY PR
 CREATE INDEX IF NOT EXISTS batch_by_state ON batch (state, snapshot)
 """
 
+# T-725 (D-491): which generation each derived artefact (the FHIR store's night, the derived rows, the twins, the
+# vectors) is built from, and whether that build finished; one row per artefact, no patient data
+SCHEMA_V2 = """
+CREATE TABLE IF NOT EXISTS built (artefact TEXT PRIMARY KEY, snapshot TEXT NOT NULL, seq INTEGER NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('building', 'finished')), started_at TEXT NOT NULL, finished_at TEXT)
+"""
+#: ``migrate`` versions of schema ``dataops`` (append-only)
+MIGRATIONS = (SCHEMA, SCHEMA_V2)
+
 # plpgsql bodies hold ``;`` (``Database.migrate`` splits on it), so the triggers are made after the migration
 _FUNCTIONS = (
     "CREATE OR REPLACE FUNCTION dataops_append_only() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
@@ -175,7 +184,7 @@ class DataOps:
 
     def __init__(self, url: str | None = None) -> None:
         self._db = Database.connect(url or os.environ.get(ENV), "dataops")
-        self._db.migrate([SCHEMA])
+        self._db.migrate(list(MIGRATIONS))
         with self._db.transaction() as tx:
             tx.execute("SELECT pg_advisory_xact_lock(hashtext(current_schema() || '.dataops_triggers'))")
             for fn in _FUNCTIONS:

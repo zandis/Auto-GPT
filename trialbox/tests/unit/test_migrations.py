@@ -355,7 +355,7 @@ def store_migrations() -> dict[str, list[str]]:
         "sae": list(saerecord.MIGRATIONS),
         "app": list(flags.MIGRATIONS),
         "derived": list(derived_store.MIGRATIONS),
-        "dataops": [dataops.SCHEMA],
+        "dataops": list(dataops.MIGRATIONS),
         "tuned": list(notmatched.MIGRATIONS),
         "vec": list(vec.MIGRATIONS),
         "profile": list(twin.MIGRATIONS),
@@ -441,7 +441,11 @@ ADDED: dict[str, tuple[str, ...]] = {
         "a109d4561de2163aa76c7efdb78674bc128bd1d8ce65f968aaabd6e63b9bdb99",
     ),
     # T-112a (D-427): the data-operations batches, new after the baseline
-    "dataops": ("01925afb0e82837617a880fa2d2b32f7efaa6d5e98945e7144f57510d76efbcf",),
+    # T-725 (D-491): dataops version 2, which generation each derived artefact is built from (``built``)
+    "dataops": (
+        "01925afb0e82837617a880fa2d2b32f7efaa6d5e98945e7144f57510d76efbcf",
+        "4f32fb40077e6a89d07d306d1f73a4421cfde7a1ce83eb317ec1685e2eeda5c0",
+    ),
     # T-103 (D-438): orch version 2, the orchestrator's identifier caps as use rows (``id_limits``)
     "orch": ("444cff97a092dda26501bfa81db70438eae3dda40e545bb86721748c241eba11",),
     # T-310a (D-446): the weekly PI sample of criteria not matched and the site's check, new after the baseline
