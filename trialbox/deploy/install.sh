@@ -458,6 +458,14 @@ if [ "$PULL" = never ]; then
   [ -z "$MISSING" ] || die "images not on this box:$MISSING. They come only from the bundle; nothing is pulled (TB_INSTALL_PULL=missing on a site with its own mirror)"
   echo "    every image of the stack is on this box (nothing is pulled)"
 fi
+# D-620: this release's host-side steps before its stack starts (tools/trialbox/prestart.py), the same command an
+# update runs: a step a release adds there is run by a fresh install too. The steps are safe to run again.
+if command -v python3 >/dev/null; then
+  python3 -m tools.trialbox pre-start --deploy "$ROOT/deploy" 2>&1 | sed 's/^/    /' \
+    || die "a start-up step of this release failed (pre-start above)"
+else
+  echo "    note: no python3 on this host: the release's start-up steps (tools.trialbox pre-start) were not run" >&2
+fi
 # T-612 (DATA-004): the site keys are made here and nowhere else. A key already in the secrets volume is kept; the
 # ingest refuses a night whose key is missing or is not the one the box's pseudonyms were made with
 say "site keys (made once, never replaced)"

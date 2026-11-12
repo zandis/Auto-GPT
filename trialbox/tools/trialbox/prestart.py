@@ -10,8 +10,15 @@ its own, in the install folder, where ``tools/`` is already the new tree (``tool
 ``ComposeBox.pre_start``).
 
 **A release that adds a step adds it to** :data:`STEPS`. A step takes the box (``ComposeBox``: its ``deploy``
-folder, its ``.env``) and returns one line for the log. It must be safe to run again, must work with the stack
-down, and fails by raising ``UpdateFailed``: the update then stops before the stack starts and is rolled back.
+folder, its ``.env``) and returns one line for the log. The contract:
+
+* safe to run again, and it works with the stack down;
+* it fails by raising ``UpdateFailed``: the update then stops before the stack starts and is rolled back;
+* what it leaves on the host must be harmless to the previous release: a rollback puts back the databases, the
+  images, the models and the host tree, not ``deploy/.env`` and not ``deploy/secrets``.
+
+A fresh install runs the same command: ``deploy/install.sh`` calls it before it starts the stack, so a step that is
+here is not written a second time there.
 
 The first release with this command cannot be helped by it: the release installed before it restarts the stack
 the old way. A release that adds a step therefore names, as its ``min_installed_version``, a release that has
@@ -47,8 +54,10 @@ STEPS: list[tuple[str, Callable[[ComposeBox], str]]] = [
 
 def run(deploy: Path) -> list[str]:
     """Every step, in order; the lines for the log. Raises ``UpdateFailed`` at the first step that fails."""
-    from tools.trialbox.update import ComposeBox
+    from tools.trialbox.update import ComposeBox, UpdateFailed
 
+    if not deploy.is_dir():
+        raise UpdateFailed(f"no deploy folder {deploy}")
     box = ComposeBox(deploy)
     return [f"pre-start: {name}: {step(box)}" for name, step in STEPS]
 

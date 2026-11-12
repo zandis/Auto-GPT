@@ -133,6 +133,54 @@ def test_this_releases_command_runs_its_steps_and_names_them(tmp_path: Path) -> 
     assert [n for n, _ in prestart.STEPS][:2] == ["image pins", "model key"]
 
 
+def test_review_a_relative_deploy_folder_still_reaches_the_steps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The command changes into the install folder first; a relative ``--deploy`` then named a folder that is not
+    there, every step found nothing to do, and the update went on without them."""
+    _, run, deploy = _box(tmp_path, monkeypatch, new_tree=True)
+    monkeypatch.chdir(tmp_path.parent)
+    rel = up.ComposeBox(Path(tmp_path.name) / "deploy", run=run)
+    rel.restart(_plan(tmp_path))
+    pre = next(c for c in run.calls if "pre-start" in c)
+    assert str(deploy) in pre and str(tmp_path) in pre  # absolute, both
+    assert (deploy / "secrets" / "new-in-this-release.key").exists()
+
+
+def test_review_the_command_refuses_a_deploy_folder_that_is_not_there(tmp_path: Path) -> None:
+    env = {**os.environ, "PYTHONPATH": "libs:services:."}
+    r = subprocess.run([sys.executable, "-m", "tools.trialbox", "pre-start", "--deploy", str(tmp_path / "none")],
+                       cwd=ROOT, capture_output=True, text=True, env=env, check=False)  # fmt: skip
+    assert r.returncode == 1 and "no deploy folder" in r.stderr
+
+
+def test_review_the_operator_reads_the_steps_and_a_short_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    box, _run, deploy = _box(tmp_path, monkeypatch, new_tree=True)
+    box.restart(_plan(tmp_path))
+    assert "pre-start: new-in-this-release.key made" in capsys.readouterr().out  # the child's lines are shown
+    (deploy / "FAIL").write_text("", encoding="utf-8")
+    with pytest.raises(up.UpdateFailed) as exc:
+        box.restart(_plan(tmp_path))
+    assert str(exc.value).startswith("pre-start") and "sh -c" not in str(exc.value)  # the reason, not the command
+    assert box.env.get("TB_NEW_SETTING") == "1"  # .env is read again after a failure too
+
+
+def test_review_a_fresh_install_runs_the_same_steps_before_its_stack_starts() -> None:
+    """A step that is only in STEPS would be skipped by every fresh install: install.sh runs the command too."""
+    text = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
+    call = text.index('python3 -m tools.trialbox pre-start --deploy "$ROOT/deploy"')
+    assert call < text.index('"${COMPOSE[@]}" up -d --pull "$PULL" --wait db')
+    assert "|| die" in text[call : call + 300]
+
+
+def test_review_the_contract_of_a_step_is_written_where_steps_are_added() -> None:
+    doc = prestart.__doc__ or ""
+    for words in ("safe to run again", "stack down", "harmless to the previous release", "install.sh"):
+        assert words in " ".join(doc.split()), words
+
+
 def test_the_runbook_says_where_a_release_puts_a_new_step() -> None:
     page = (ROOT / "docs" / "runbook" / "05-updates-backup-restore-secrets.md").read_text(encoding="utf-8")
     assert "tools/trialbox/prestart.py" in page and "min_installed_version" in page

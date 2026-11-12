@@ -43,3 +43,24 @@ installed updater.
   a tree without the command gets the old steps. **Not proven:** an update between two real releases with real
   images. `tools/update_drill.py` runs the in-process box, not the compose box; the box rehearsal with a second
   bundle would be that proof and does not exist yet.
+
+## After the adversarial review (2026-11-12)
+
+No HIGH finding. The reviewer built two releases from this tree under a scratch folder, switched from one to the
+other with the real host tree, and saw the second release's step run from the first release's updater, and the
+first release's command again after switching back.
+
+- **A fresh install did not run the command**, so a step added only to `STEPS` would have been skipped by every
+  fresh install. `deploy/install.sh` now runs it before it starts the stack.
+- **A relative `--deploy`** named a folder that is not there once the command had changed into the install
+  folder; every step found nothing to do and the update went on. The paths are made absolute (not resolved: the
+  symlinked layout stays), and the command refuses a deploy folder that does not exist.
+- **What a step leaves survives a rollback** (`deploy/.env` and `deploy/secrets` are not in the rollback point):
+  the contract of a step now says it must be harmless to the previous release.
+- The child's lines are shown to the operator; a failure reads as the step's own reason, not the command line
+  around it; `deploy/.env` is read again after a failure too.
+- **Open:** no release records "I have the command". `min_installed_version` is a number a person writes; the
+  first release number with the command has to be written into the runbook when that release is cut. Not built.
+- **Open:** the older tests that reach `restart` have no tree beside their deploy folder and so run the two old
+  steps in-process; only `tests/unit/test_update_prestart.py` runs the command.
+

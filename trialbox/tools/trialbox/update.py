@@ -1211,16 +1211,26 @@ class ComposeBox(_DockerImages):
         added is not in it. The command runs in the install folder, where ``tools/`` is the new tree since
         ``apply_host``. A tree without the command (a downgrade to a release from before it; a box with no host
         tree) gets the two steps every such release ran, here."""
-        root = self.deploy.parent
-        if (root / "tools" / "trialbox" / "prestart.py").is_file():
-            python = sys.executable or "python3"
-            argv = ["sh", "-c", 'cd "$1" && shift && exec "$@"', "tb-pre-start", str(root),
-                    python, "-m", "tools.trialbox", "pre-start", "--deploy", str(self.deploy)]  # fmt: skip
-            self.run(argv, timeout=3600)
-            self.env = _env_file(self.deploy / ".env")  # a step may have written a setting the checks read
+        # absolute, not resolved: the command changes into the install folder first, and the symlinked layout stays
+        deploy = Path(os.path.abspath(self.deploy))
+        root = deploy.parent
+        if not (root / "tools" / "trialbox" / "prestart.py").is_file():
+            self.resolve_pins()
+            self.ensure_model_key()
             return
-        self.resolve_pins()
-        self.ensure_model_key()
+        python = sys.executable or "python3"
+        argv = ["sh", "-c", 'cd "$1" && shift && exec "$@"', "tb-pre-start", str(root),
+                python, "-m", "tools.trialbox", "pre-start", "--deploy", str(deploy)]  # fmt: skip
+        try:
+            out = self.run(argv, timeout=3600)
+        except UpdateFailed as exc:
+            # the reason the step gave, not the command line around it
+            said = [ln.strip() for ln in str(exc).splitlines() if ln.strip().startswith("pre-start")]
+            raise UpdateFailed(said[-1] if said else f"pre-start failed: {str(exc)[-400:]}") from exc
+        finally:
+            self.env = _env_file(self.deploy / ".env")  # a step may have written a setting the checks read
+        for line in (out or "").splitlines():
+            print(line)  # each step and what it did, in the operator's log
 
     def restart(self, plan: Plan) -> None:
         # new images: the containers are recreated and every service runs its migrations at start (tb_common.db)
