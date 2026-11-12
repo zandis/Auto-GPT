@@ -64,6 +64,10 @@ services:
       - lake-data:/data/lake
       - audit-data:/data/audit
       - ../.cache/test-secrets:/run/secrets/trialbox
+  embed-service:
+    # ENG-003 (D-563): the hash embedder of a synthetic stack needs no library: the service image, not trialbox-embed
+    image: ${TB_EMBED_IMAGE:-trialbox-py:1.0.0}
+    build: {context: .., dockerfile: deploy/docker/python.Dockerfile}
   doc-parser:
     environment: {TB_DATA_CLASS: "${TB_DATA_CLASS:-D0}"}
     networks: [trialbox-net, host-net]

@@ -33,6 +33,9 @@ services:
     deploy: !reset {}
     healthcheck: *health
   embed-service:
+    # ENG-003 (D-563): the hash embedder of a synthetic stack needs no library: the service image, not trialbox-embed
+    image: ${TB_EMBED_IMAGE:-trialbox-py:1.0.0}
+    build: {context: ../.., dockerfile: deploy/docker/python.Dockerfile}
     environment:
       TB_EMBED_MODE: hash
   mail-gateway:

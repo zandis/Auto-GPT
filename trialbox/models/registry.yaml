@@ -590,15 +590,30 @@ builds:
     serving: local
     served: {embed: null}
     sha256: null
-    revision: null
-    repository: null
-    expected: {manifest_sha256: null, revision: null}  # from the G1 record (T-004): D-429 "Remains"
+    revision: 7b44caba5c06fd6f1ef1d2786261e636c38e4295
+    repository: BAAI/bge-m3
+    # ENG-003 (D-563; the owner's answers Q3 of D-494 and of 2026-11-12): the embedder is BGE-M3 at the last revision
+    # of the publisher's own repository that carries model.safetensors (2,271,064,456 bytes). The publisher removed
+    # that file one commit later (c400e3d6, "Delete model.safetensors", no reason given) and has shipped pickle
+    # weights only since (main, 5617a9f6); D-429 refuses pickle weights. The other files of the two revisions are
+    # the same. The folder a box holds is this revision without its three pickle files (pytorch_model.bin,
+    # colbert_linear.pt, sparse_linear.pt: the dense vectors need none of them). The manifest of that folder is
+    # written from its first hash on real files (lane G); until then `pin_model --install` reports the build as not
+    # pinned and a PRODUCTION embed service refuses to start. Nothing is trusted on first use.
+    expected: {manifest_sha256: null, revision: 7b44caba5c06fd6f1ef1d2786261e636c38e4295}
+    provenance:  # D-392
+      copy: publisher-subset
+      source: BAAI/bge-m3
+      revision: 7b44caba5c06fd6f1ef1d2786261e636c38e4295
+      left_out: [pytorch_model.bin, colbert_linear.pt, sparse_linear.pt]  # pickle files, refused (D-429)
+      note: the publisher removed model.safetensors after this revision; lane G compares its tensors with the
+        current pytorch_model.bin once, before the manifest is written
     quantisation: none
-    context_length: null
+    context_length: 8192
     family: embedder
-    model_name: the embedder (1024 dimensions, safetensors from the publisher; chosen in G1)
-    licence: {name: set with the chosen embedder (D-429), spdx: null, verified: false}
-    origin: {developer: set with the chosen embedder (D-429), country: to record, non_prc: null}
+    model_name: BGE-M3 (dense vectors, 1024 dimensions)
+    licence: {name: MIT, spdx: MIT, verified: true, register: model-bge-m3}
+    origin: {developer: Beijing Academy of Artificial Intelligence (BAAI), country: CN, non_prc: false}
 
   # ---------------------------------------------------------------- hosted bake-off builds (S1-14, DEV / D0 only)
   # A hosted build is one dated provider version of a model served by a third party (OpenRouter). It has no weights

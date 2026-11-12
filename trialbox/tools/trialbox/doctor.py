@@ -589,6 +589,8 @@ def check_serving(inp: DoctorInputs) -> Check:
     for b in reg.builds:
         if not b.pinned or b.serving in ("stub", "hosted"):
             continue
+        if b.family == "embedder":  # ENG-003 (D-563): the embed service is not a model server: it has no
+            continue  # /v1/models and no key; its own /healthz names the pinned weights (D-429)
         for ep_name, name in sorted(b.served.items()):
             ep = policy.endpoints.get(ep_name)
             if name and ep is not None and ep.zone == "perimeter":

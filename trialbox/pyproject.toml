@@ -41,7 +41,8 @@ dependencies = [
 [project.optional-dependencies]
 # Heavy, image-specific extras. Installed only in the doc-parser / embed-service images.
 docling = ["docling>=2.10"]
-embed = ["sentence-transformers>=3.0"]
+# torch is named so that its source below applies (a source binds only a direct dependency; ENG-003, D-563)
+embed = ["sentence-transformers>=3.0", "torch>=2.15"]
 dev = [
   "ruff>=0.6",
   "mypy>=1.11",
@@ -85,6 +86,16 @@ constraint-dependencies = ["pillow>=13"]
 # the editable install of this project is rebuilt only when its metadata changes, so `make venv-check` (uv sync
 # --check) does not report every edited source file as drift
 cache-keys = [{ file = "pyproject.toml" }]
+
+# ENG-003 (D-563): the embedder runs on the CPU, so on Linux torch comes from the publisher's CPU wheel index: the
+# embed image then carries no CUDA libraries (about 3 GB). `explicit`: nothing else is ever looked up there.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.setuptools.packages.find]
 where = ["libs", "services", "."]
@@ -138,7 +149,7 @@ warn_unused_ignores = true
 [[tool.mypy.overrides]]
 module = [
   "docxtpl.*", "docx.*", "py7zr.*", "apscheduler.*", "sqlglot.*", "duckdb.*",
-  "pyarrow.*", "matplotlib.*", "fhir.*", "docling.*", "sentence_transformers.*", "pypdf.*",
+  "pyarrow.*", "matplotlib.*", "fhir.*", "docling.*", "sentence_transformers.*", "torch", "torch.*", "transformers", "transformers.*", "pypdf.*",
   "uvicorn.*", "numpy.*", "duckdb_extension_fts.*", "paddleocr.*", "fontTools.*", "markdown.*",
 ]
 ignore_missing_imports = true
