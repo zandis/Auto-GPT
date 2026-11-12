@@ -406,6 +406,12 @@ DECLARED: dict[str, Declared] = {
     "TB_CANARY_GATE": Declared("bool", "", "note answers gated on a passed canary"),
     "TB_CANARY_MAX_AGE_H": Declared("float", "", "hours a passed canary stays valid"),
     "TB_CANARY_RESULT": Declared("str", "", "platform check: path of the canary result"),
+    "TB_CANARY_WHY_CASES": Declared(
+        "int", "2", "wrong cases named in a failed canary's line, read on one screen line (the report keeps ten)"
+    ),
+    "TB_CANARY_WHY_CHARS": Declared(
+        "int", "120", "characters of a call error kept in a failed canary's line (the gateway's log has it whole)"
+    ),
     "TB_CANDIDATE_VIEWS_PER_HOUR": Declared("int", "", "candidate views allowed per user per hour"),
     "TB_CATALOGUE_DIR": Declared("path", "", "folder of the study catalogue"),
     "TB_CHARTNO_RULE": Declared("str", "", "the site's chart-number pattern for the scrubber"),
