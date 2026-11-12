@@ -1131,6 +1131,35 @@ def markdown(rep: dict[str, Any]) -> str:
 
 # ---------------------------------------------------------------- the estimate
 PRICE_PER_HOUR = 2.74  # g4-standard-48 spot with the RTX PRO 6000 (RUNBOOK §11)
+# D-468 (G1 bug A3): a VM whose shard holds a hospital part runs on demand: a 5 h part cannot resume inside itself, and
+# a pre-emption loses it whole. The owner's figure: on demand is about 3x the spot price (confirm on the billing page
+# before a launch; the estimate and the cap's US$ use this number).
+ON_DEMAND_PRICE_PER_HOUR = round(3 * PRICE_PER_HOUR, 2)
+
+
+def provisioning(tags: list[str] | tuple[str, ...]) -> str:
+    """The VM's Compute Engine provisioning model for these parts (D-468): STANDARD (on demand, never pre-empted)
+    when a hospital part is among them, else SPOT."""
+    return "STANDARD" if any(t.startswith("hospital-") for t in tags) else "SPOT"
+
+
+def price_per_hour(model: str) -> float:
+    return ON_DEMAND_PRICE_PER_HOUR if model == "STANDARD" else PRICE_PER_HOUR
+
+
+def _priced(e: dict[str, Any], rows: list[dict[str, Any]], hours: float) -> dict[str, Any]:
+    """Hours, cap and US$ of one VM that runs ``rows``: spot, or on demand when a hospital part is among them."""
+    import math
+
+    model = provisioning([t for r in rows for t in r["tags"]])
+    price = price_per_hour(model)
+    for r in rows:
+        r["usd"] = round(r["hours"] * price, 2)
+    cap = math.ceil(hours * 1.3)
+    return {**e, "rows": rows, "hours": round(hours, 2), "usd": round(hours * price, 2), "cap_hours": cap,
+            "cap_usd": round(cap * price, 2), "provisioning": model, "price_per_hour": price}  # fmt: skip
+
+
 SETUP_HOURS = 0.25  # apt (PostgreSQL, tesseract jpn/chi_tra/eng, node), the venv, Playwright's Chromium, fonts
 BOOT_HOURS = 0.25  # VM start, both models resident (PRO6000-RUN-READY in about 15 minutes, D-139)
 CANARY_SECONDS = 300.0  # the pair canary (D-117, 54 cases) at the start of every box that has the pair
@@ -1171,7 +1200,6 @@ def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, flo
     ``parts``: ``g1`` (the complete run) and the benches ``embed`` and ``profile`` (:data:`EMBED_SECONDS`,
     :data:`PROFILE_SECONDS_PER_PATIENT`).
     Every work row carries the ``tags`` of the parts it times (``--only``), for :func:`shard_plan`."""
-    import math
 
     from tools import scenarios
 
@@ -1222,18 +1250,13 @@ def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, flo
         rows.append(row("bench: profile stand-in (judge)", profile_patients, profile_patients, s, ("profile",)))
     for r in rows:
         r["hours"] = round(r["seconds"] / 3600, 2)
-        r["usd"] = round(r["hours"] * PRICE_PER_HOUR, 2)
     hours = sum(r["seconds"] for r in rows) / 3600
-    cap = math.ceil(hours * 1.3)
-    return {"patients": patients, "price_per_hour": PRICE_PER_HOUR, "seconds_per_note_patient": sec, "rows": rows,
-            "hours": round(hours, 2), "usd": round(hours * PRICE_PER_HOUR, 2), "cap_hours": cap,
-            "cap_usd": round(cap * PRICE_PER_HOUR, 2), "parts": list(parts)}  # fmt: skip
+    return _priced({"patients": patients, "seconds_per_note_patient": sec, "parts": list(parts)}, rows, hours)
 
 
 def restrict(e: dict[str, Any], only: list[str]) -> dict[str, Any]:
     """The estimate of a bounded run (``--only`` tags, e.g. the first paid launch after a failed one): the start and
     setup rows, and only the work rows of those parts. ``install`` and ``prepare`` have no row of their own."""
-    import math
 
     if not only:
         return e
@@ -1242,14 +1265,11 @@ def restrict(e: dict[str, Any], only: list[str]) -> dict[str, Any]:
     unknown = sorted(set(only) - known)
     if unknown:
         raise ValueError(f"--only: no such part in the plan: {' '.join(unknown)}")
-    rows = [r for r in e["rows"] if not r["tags"] or set(r["tags"]) & set(only)]
-    rows += [{"scenario": t, "patients": 0, "model_items": 0, "seconds": 600.0, "tags": [t], "hours": 0.17,
-              "usd": round(0.17 * e["price_per_hour"], 2)} for t in selftests]  # fmt: skip
+    rows = [dict(r) for r in e["rows"] if not r["tags"] or set(r["tags"]) & set(only)]
+    rows += [{"scenario": t, "patients": 0, "model_items": 0, "seconds": 600.0, "tags": [t], "hours": 0.17}
+             for t in selftests]  # fmt: skip
     hours = sum(r["seconds"] for r in rows) / 3600
-    cap = math.ceil(hours * 1.3)
-    price = e["price_per_hour"]
-    return {**e, "rows": rows, "only": list(only), "hours": round(hours, 2), "usd": round(hours * price, 2),
-            "cap_hours": cap, "cap_usd": round(cap * price, 2)}  # fmt: skip
+    return _priced({**e, "only": list(only)}, rows, hours)
 
 
 def shard_plan(e: dict[str, Any], vms: int) -> dict[str, Any]:
@@ -1281,13 +1301,42 @@ def shard_plan(e: dict[str, Any], vms: int) -> dict[str, Any]:
         sec = fixed_s + sum(r["seconds"] for r in b)
         h = sec / 3600
         cap = math.ceil(h * 1.3)
+        model = provisioning(tags)  # D-468: on demand for a VM with a hospital part, spot for the others
+        price = price_per_hour(model)
         shards.append({"shard": i + 1, "tags": tags, "rows": [r["scenario"] for r in b], "hours": round(h, 2),
-                       "usd": round(h * e["price_per_hour"], 2), "cap_hours": cap,
-                       "cap_usd": round(cap * e["price_per_hour"], 2)})  # fmt: skip
+                       "usd": round(h * price, 2), "cap_hours": cap, "cap_usd": round(cap * price, 2),
+                       "provisioning": model, "price_per_hour": price})  # fmt: skip
     total = sum(x["hours"] for x in shards)
     return {"vms": len(shards), "shards": shards, "wall_hours": max(x["hours"] for x in shards),
             "hours": round(total, 2), "usd": round(sum(x["usd"] for x in shards), 2),
             "cap_usd": round(sum(x["cap_usd"] for x in shards), 2)}  # fmt: skip
+
+
+def _done(dirs: list[Path], tag: str, run_id: str, head: str) -> bool:
+    for d in dirs:
+        f = d / f"{tag}.json"
+        try:
+            res = json.loads(f.read_text(encoding="utf-8")) if f.is_file() else None
+        except (OSError, ValueError):
+            res = None
+        if res is not None and _passed(res) and same_run(res, run_id, head)[0]:
+            return True
+    return False
+
+
+def shard_now(doc: dict[str, Any], i: int, dirs: list[Path], run_id: str, head: str) -> dict[str, Any]:
+    """Shard ``i`` of a run's plan (``plan.json``) as it stands now (D-468; G1 bug A3/A4): the parts it has left, its
+    estimate, hard cap, provisioning model and price. A part is done when a result in ``dirs`` passed and was made by
+    this shard (``<run id>-s<i>``) at ``head`` (the archive the VM runs): exactly what the VM's ``--resume`` keeps.
+    A restarted shard (``TB_RUN_ID=<run id> complete-run.sh --shard i`` after a pre-emption) then gets a cap for what
+    is left, and spot once its hospital parts are done. Nothing known (no results, no HEAD): the whole shard."""
+    s = doc["plan"]["shards"][i - 1]
+    left = [t for t in s["tags"] if not (head and _done(dirs, t, f"{run_id}-s{i}", head))]
+    e = estimate(int(doc["patients"]), parts=tuple(doc.get("parts") or ("g1",)))
+    now = restrict(e, left or ["install"])  # nothing left: the start and setup rows only
+    return {"left": left, "done": [t for t in s["tags"] if t not in left], "hours": now["hours"], "usd": now["usd"],
+            "cap_hours": now["cap_hours"], "cap_usd": now["cap_usd"], "provisioning": provisioning(left),
+            "price_per_hour": price_per_hour(provisioning(left))}  # fmt: skip
 
 
 CPUS_PER_VM = 48  # g4-standard-48
@@ -1299,11 +1348,12 @@ def _quota(quotas: list[dict[str, Any]], match: Any) -> dict[str, float] | None:
 
 
 def quota_problems(project: dict[str, Any], regions: dict[str, dict[str, Any]], zones: list[str],
-                   cpus_per_vm: int = CPUS_PER_VM) -> list[str]:  # fmt: skip
+                   cpus_per_vm: int = CPUS_PER_VM, standard: list[str] | None = None) -> list[str]:  # fmt: skip
     """Why ``len(zones)`` Spot RTX PRO 6000 VMs (one per zone) cannot run now, from ``gcloud compute project-info
     describe --format=json`` and ``gcloud compute regions describe <region> --format=json`` (review H-05). Spot VMs
     draw on the PREEMPTIBLE_ quota when the project has one (limit > 0), else on the regular one; the project's
-    GPUS_ALL_REGIONS bounds them all. Empty: the quota is there. A quota that cannot be read is a problem too."""
+    GPUS_ALL_REGIONS bounds them all. ``standard``: the zones whose VM runs on demand (D-468, a hospital part): they
+    draw on the regular quota. Empty: the quota is there. A quota that cannot be read is a problem too."""
     out: list[str] = []
     q = _quota(project.get("quotas") or [], lambda m: m == "GPUS_ALL_REGIONS")
     if q is None:
@@ -1311,10 +1361,11 @@ def quota_problems(project: dict[str, Any], regions: dict[str, dict[str, Any]], 
     elif q["limit"] - q["usage"] < len(zones):
         out.append(f"project quota GPUS_ALL_REGIONS: limit {q['limit']:g}, in use {q['usage']:g}, free "
                    f"{q['limit'] - q['usage']:g}; this run needs {len(zones)} GPU(s)")  # fmt: skip
-    need: dict[str, int] = {}
+    need: dict[tuple[str, bool], int] = {}
     for z in zones:
-        need[z.rsplit("-", 1)[0]] = need.get(z.rsplit("-", 1)[0], 0) + 1
-    for region, n in need.items():
+        key = (z.rsplit("-", 1)[0], z in (standard or []))
+        need[key] = need.get(key, 0) + 1
+    for (region, on_demand), n in need.items():
         qs = (regions.get(region) or {}).get("quotas") or []
         for what, per_vm, regular, pre in (
             ("RTX PRO 6000 GPUs", 1, lambda m: "RTX_PRO_6000" in m and not m.startswith("PREEMPTIBLE"),
@@ -1323,6 +1374,8 @@ def quota_problems(project: dict[str, Any], regions: dict[str, dict[str, Any]], 
         ):  # fmt: skip
             p, r = _quota(qs, pre), _quota(qs, regular)
             use, name = (p, "PREEMPTIBLE") if p is not None and p["limit"] > 0 else (r, "regular")
+            if on_demand:
+                use, name = r, "regular"
             if use is None and what.startswith("RTX") and qs and q is not None:
                 # Compute Engine does not list a per-region RTX PRO 6000 metric in ``regions describe`` (2026-11-10;
                 # the region's other quotas are there): GPUS_ALL_REGIONS above is the readable bound, and a start
@@ -1331,18 +1384,19 @@ def quota_problems(project: dict[str, Any], regions: dict[str, dict[str, Any]], 
             if use is None:
                 out.append(f"{region}: {what} quota not readable")
             elif use["limit"] - use["usage"] < n * per_vm:
-                out.append(f"{region}: {what} ({name} quota, which Spot VMs use here): limit {use['limit']:g}, in use "
+                who = "on-demand VMs (a hospital part, D-468) use" if on_demand else "Spot VMs use here"
+                out.append(f"{region}: {what} ({name} quota, which {who}): limit {use['limit']:g}, in use "
                            f"{use['usage']:g}; {n} VM(s) need {n * per_vm}")  # fmt: skip
     return out
 
 
-def quota_check(folder: Path, zones: list[str]) -> int:
+def quota_check(folder: Path, zones: list[str], standard: list[str] | None = None) -> int:
     """``--quota-check DIR``: DIR holds ``project.json`` and ``region-<region>.json`` (the driver writes them with
     read-only gcloud calls). Exit 0 when the quota is there, 4 with every shortfall printed otherwise."""
     project = json.loads((folder / "project.json").read_text(encoding="utf-8"))
     regions = {p.stem.removeprefix("region-"): json.loads(p.read_text(encoding="utf-8"))
                for p in folder.glob("region-*.json")}  # fmt: skip
-    bad = quota_problems(project, regions, zones)
+    bad = quota_problems(project, regions, zones, standard=standard)
     for b in bad:
         print(f"quota: {b}", file=sys.stderr)
     if bad:
@@ -1354,12 +1408,13 @@ def quota_check(folder: Path, zones: list[str]) -> int:
 
 
 def print_shards(e: dict[str, Any], p: dict[str, Any]) -> str:
-    lines = [f"Split over {p['vms']} VM(s), each one RTX PRO 6000 (g4-standard-48 spot, US${e['price_per_hour']}/h); "
+    lines = [f"Split over {p['vms']} VM(s), each one RTX PRO 6000 (g4-standard-48: spot US${PRICE_PER_HOUR}/h, on "
+             f"demand US${ON_DEMAND_PRICE_PER_HOUR}/h for a VM with a hospital part, D-468); "
              f"parts: {', '.join(e['parts'])}", "",
-             f"{'VM':<4}{'hours':>7}{'US$':>8}{'cap h':>7}{'cap US$':>9}  parts"]  # fmt: skip
+             f"{'VM':<4}{'hours':>7}{'US$':>8}{'cap h':>7}{'cap US$':>9}  {'model':<9} parts"]  # fmt: skip
     for x in p["shards"]:
         lines.append(f"{x['shard']:<4}{x['hours']:>7.2f}{x['usd']:>8.2f}{x['cap_hours']:>7}{x['cap_usd']:>9.2f}  "
-                     f"{' '.join(x['tags'])}")  # fmt: skip
+                     f"{x.get('provisioning', 'SPOT'):<9} {' '.join(x['tags'])}")  # fmt: skip
     lines += ["", f"total: {p['hours']:.2f} VM-hours, US${p['usd']:.2f}; wall about {p['wall_hours']:.2f} h; "
               f"every VM at its cap: at most US${p['cap_usd']:.2f}",
               "each VM pays its own start and setup (0.5 h); the stub parts run on the driver after."]  # fmt: skip
@@ -1376,6 +1431,8 @@ def print_estimate(e: dict[str, Any]) -> str:
         )
     lines += ["", f"{'total':<42}{'':>10}{'':>13}{e['hours']:>8.2f}{e['usd']:>9.2f}",
               f"hard cap (estimate x 1.3, rounded up): {e['cap_hours']} h, at most US${e['cap_usd']}",
+              f"one VM: {'on demand (a hospital part, D-468)' if e.get('provisioning') == 'STANDARD' else 'spot'}, "
+              f"US${e['price_per_hour']}/h",
               f"a bounded run: only {' '.join(e['only'])}" if e.get("only") else
               "walk, backup, update and scale run on the stub after the VM stops: no card time."]  # fmt: skip
     return "\n".join(lines)
@@ -1439,6 +1496,11 @@ def main(argv: list[str] | None = None) -> int:
                     help="a full run's report.json: the checks a crashed part would have run (M-03)")  # fmt: skip
     ap.add_argument("--quota-check", type=Path, help="a folder of gcloud quota JSON: refuse when too small (H-05)")
     ap.add_argument("--quota-zones", default="", help="--quota-check: the run's zones, comma list (one VM each)")
+    ap.add_argument("--quota-standard", default="", help="--quota-check: the zones whose VM runs on demand (D-468)")
+    ap.add_argument("--shard-now", type=Path, help="a run's plan.json: print shard --shard-index as it stands (D-468)")
+    ap.add_argument("--shard-index", type=int, default=1, help="--shard-now: the shard")
+    ap.add_argument("--parts-dir", type=Path, nargs="*", default=[], help="--shard-now: folders of collected parts")
+    ap.add_argument("--head-file", type=Path, help="--shard-now: the archive's TB_HEAD.json (the VM's HEAD)")
     ap.add_argument("--estimate", action="store_true", help="print hours and US$ per scenario on the card and exit")
     ap.add_argument("--estimate-from", type=Path, help="a local stub report.json whose part times to scale")
     ap.add_argument("--json", action="store_true", help="--estimate: print JSON")
@@ -1448,7 +1510,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--report-parts", nargs="*", default=[], help="--report-only: only these parts or tags")
     a = ap.parse_args(argv)
     if a.quota_check:
-        return quota_check(a.quota_check, [z for z in a.quota_zones.split(",") if z])
+        return quota_check(a.quota_check, [z for z in a.quota_zones.split(",") if z],
+                           [z for z in a.quota_standard.split(",") if z])  # fmt: skip
+    if a.shard_now:
+        hf = a.head_file
+        head = str(json.loads(hf.read_text(encoding="utf-8")).get("head", "")) if hf and hf.is_file() else ""
+        doc = json.loads(a.shard_now.read_text(encoding="utf-8"))
+        print(json.dumps(shard_now(doc, a.shard_index, list(a.parts_dir), a.run_id, head)))
+        return 0
     if a.estimate:
         local, n = _local_timings(a.estimate_from)
         parts = tuple(x for x in a.parts.split(",") if x)

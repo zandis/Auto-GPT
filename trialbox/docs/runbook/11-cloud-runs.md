@@ -67,7 +67,12 @@ keys, setup, state and timing are, the layer every failure of 2026-11-09 was in.
    * probes the credential (`gc_probe`), reads the GPU and CPU quota (read-only) and refuses when the VMs cannot run,
      and refuses unless every VM is `TERMINATED`;
    * sets the **cloud-side hard cap**: `gcloud compute instances set-scheduling tb-gpu-sim --zone asia-east1-a
-     --max-run-duration=<estimate x 1.3, rounded up>h --instance-termination-action=STOP` (`--hours N` to change);
+     --max-run-duration=<estimate x 1.3, rounded up>h --instance-termination-action=STOP
+     --provisioning-model=STANDARD|SPOT` (`--hours N` to change). A VM whose shard holds a hospital part runs **on
+     demand** (STANDARD: never pre-empted, about 3x the spot price, the regular quota), the others spot (D-468): run
+     with `--vms 4` (or `--vms 2` to finish G1) so that only the hospital parts pay it. The estimate is of the parts
+     the shard has **left**: a restart after a pre-emption (`TB_RUN_ID=<run id> --shard i`, after a `--collect`) gets
+     the cap and the model of what remains;
    * checks the VM's door (T-119): the VM has a service account (its scope is set to `cloud-platform` while it is
      stopped), and no firewall rule opens tcp:80 to it from outside while one opens tcp:443; else it refuses, with
      the command that fixes it; a `tb-key` an older driver left in the metadata is removed;
