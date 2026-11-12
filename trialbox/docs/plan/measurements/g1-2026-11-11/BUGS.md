@@ -77,7 +77,7 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
   - For a resumed or `--only` run (2.64 h → cap 4 h) the cap STOPs the VM in the middle of a hospital part.
 - **Fix.** Use the measured 5.0 h per hospital part at 50k, and scale it with the patient count. Re-check the cap with
   the new figure before the next launch.
-- **Status.** Open.
+- **Status.** Fixed in #299.
 
 ### A5. The partial report says FAILED for parts that never ran (Medium; confusing)
 
