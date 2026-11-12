@@ -49,7 +49,7 @@ from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
 from tb_common.flowledger import level_of_tag, record_export
 from tb_common.reasons import label as reason_label
-from tb_common.service_auth import bind_session, scope_of
+from tb_common.service_auth import bind_session
 from tb_common.ulid import new_ulid
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
@@ -258,10 +258,11 @@ def cell(value: object, k: int) -> str:
 # job pages are decided by the job's type (see create_app._aggregate_denied)
 _AGGREGATE_DENY = re.compile(
     r"^/(?:jobs|audit|admin/redcap|pilot/registry|pilot/mailbox|pilot/cascade|site|api/v1/site)(?:/|$)"
-    r"|^/(?:api/v1/)?studies/[^/]+/(?!feasibility$|monitor/)"
+    r"|^/(?:api/v1/)?studies/[^/]+/(?!feasibility$|monitor(?:/|$))"
 )
-# D-380 (FIT-002 grant half): the one patient-level route a CRO account may reach, under a monitor grant (team.py)
-_MONITOR_ROUTE = re.compile(r"/(?:api/v1/)?studies/[A-Za-z0-9_-]+/monitor/[A-Za-z0-9_-]+")
+# D-380 (FIT-002 grant half), D-436 (T-303): the patient-level routes a CRO account may reach, under a monitor grant
+# (console.sdv_page: the enrolled subjects and visit records, one subject's source references, the visit record)
+_MONITOR_ROUTE = re.compile(r"/(?:api/v1/)?studies/[A-Za-z0-9_-]+/monitor(?:/[A-Za-z0-9_-]+)?")
 for _lang, _cat in (("en", i18n_roles.EN), ("ja", i18n_roles.JA), ("zh-TW", i18n_roles.ZH)):
     CATALOGUES[_lang].update(_cat)
 
@@ -310,27 +311,6 @@ def unmask_ids(text: str, options: Mapping[str, Any] | None) -> str:
         return f"{m.group(1)}={val}" if val not in (None, "") else m.group(0)
 
     return ID_IN_TEXT.sub(back, text or "")
-
-
-class IdViews:
-    """At most ``TB_REVEAL_MAX_PER_HOUR`` (default 60, the orchestrator's reveal cap) identifiers shown per person per
-    rolling hour by the console itself (a request line with ``mrn=``), per process (D-143). A view over the cap is
-    masked and recorded as refused."""
-
-    def __init__(self) -> None:
-        self._seen: dict[str, list[float]] = {}
-
-    def allow(self, who: str) -> bool:
-        import time
-
-        cap = int(os.environ.get("TB_REVEAL_MAX_PER_HOUR", "60"))
-        t = time.monotonic()
-        recent = [x for x in self._seen.get(who, []) if t - x < 3600]
-        if len(recent) >= cap:
-            self._seen[who] = recent
-            return False
-        self._seen[who] = [*recent, t]
-        return True
 
 
 def job_line(job: Job) -> str:
@@ -479,7 +459,6 @@ def create_app(
     au: AuditLog = audit
     us: UserStore = users
     us.zone = site_tz  # an account's end date is a site day (D-270)
-    id_views = IdViews()
 
     boot: list[Callable[[], Any]] = []  # started with the app (the box's own timers, D-121)
 
@@ -1131,6 +1110,7 @@ def create_app(
         notify,
         recorded_opinions,
         screening_log,
+        sdv_page,
         site_pages,
         step4,
         study_setup,
@@ -1170,6 +1150,7 @@ def create_app(
     step4.register(app, helpers)  # header command field, S22, S29, S37, S13 tabs with S24 and S26 (D-110)
     raw_env = _env_map(env)
     team.register(app, helpers, raw_env)  # delegation log, candidates, referral, IRB warning, opt-outs (D-147)
+    sdv_page.register(app, helpers)  # T-303 (D-436): the monitor's SDV pages, after team (it reads the standing)
     admin_flags.register(app, helpers)  # /ops/flags and the flags' first-start seed (T-008, D-207)
     edc_pages.register(app, helpers)  # EDC prefill: switch, map, review, e-signature, send, ODM (D-160)
     demo_guard.register(app, helpers)  # T-502 (D-328): demo mode's refusals, banner and acknowledgement
@@ -1376,7 +1357,8 @@ def create_app(
             raw_rows.insert(0, (None, unmask_ids(mask_ids(str(web.detail.get("line", ""))), job.options)))
         case = _case_card(job)
         out = _case_opted_out(job, case)
-        thread_rows = [(m, shown_ids(sess, job, text, "thread", opted_out=out, bg=grant is not None))
+        auto = request.query_params.get("auto") == "1"  # the page's own 5-second refresh (base.html)
+        thread_rows = [(m, shown_ids(sess, job, text, "thread", opted_out=out, bg=grant is not None, auto=auto))
                        for m, text in raw_rows]  # fmt: skip
         return page(
             request,
@@ -1424,22 +1406,23 @@ def create_app(
         pid = str((got or {}).get("pid") or "")
         return not pid or pid in gone
 
-    def shown_ids(sess: Session, job: Job, text: str, where: str, opted_out: bool = False, bg: bool = False) -> str:
+    def shown_ids(sess: Session, job: Job, text: str, where: str, opted_out: bool = False, bg: bool = False,
+                  auto: bool = False) -> str:  # fmt: skip
         """A request line or subject as this reader may see it (P-01, D-143): the chart number in clear for an
-        account with identifier authority for the job's study (administrator, coordinator, the study's
-        investigator), as one audited view under the reveal cap; masked for everyone else (viewer, CRO)."""
+        account with identifier authority for the job's study (coordinator, the study's delegated investigator) or
+        under the page's break-glass grant, through the one reveal path (T-103, D-438: one use of the cap per person,
+        job and hour, one record; the auto-refresh costs nothing); masked for everyone else (viewer, CRO)."""
         masked = mask_ids(text)
-        if masked == text or opted_out or not (sess.user.sees_ids(job.ruleset) or bg):
+        if masked == text or opted_out:
             return masked
-        if not helpers.delegated_ok(sess.user, job.ruleset):
+        basis = helpers.reveal.own_basis(sess, job.ruleset) if job.ruleset else ""
+        if not basis and not job.ruleset and sess.user.sees_ids(None):
+            basis = "role"  # a job without a study: an unscoped account with the ``id.reveal`` row
+        if not basis and not bg:
             return masked
-        if not id_views.allow(actor(sess)):
-            au.append("console.view_id_refused", job_id=job.job_id, ruleset=job.ruleset, actor=actor(sess),
-                      detail={"where": where, "reason": "rate limit"})  # fmt: skip
-            return masked
-        au.append("console.view_id", job_id=job.job_id, ruleset=job.ruleset, actor=actor(sess),
-                  detail={"where": where, "role": sess.user.role, **({"breakglass": True} if bg else {})})  # fmt: skip
-        return text
+        ok = helpers.reveal.shown_in_line(sess, job.ruleset or "", job.job_id, where, auto=auto,
+                                          basis=basis or "breakglass")  # fmt: skip
+        return text if ok else masked
 
     def _screen_card(job: Job, sess: Session, revealed: dict[str, str] | None = None,
                      bg: bool = False) -> dict[str, Any] | None:  # fmt: skip
@@ -1523,24 +1506,22 @@ def create_app(
         reason: str = Form(""),
         note: str = Form(""),
     ) -> Response:
-        """One chart number for one listed pseudonym, shown once on the page (D-99). D-273 (PV-2): through the
-        console's one reveal path, ``home.apply_reveal``: identifier authority for the study, the delegation log for
-        an investigator, a reason (with a written note for "other"), never a patient who is not on the study's latest
-        list (so never an opted-out patient), audited before the orchestrator is asked, and the orchestrator's cap."""
+        """One chart number for one listed pseudonym, shown once on the page (D-99): a thin handler over the one reveal
+        path (T-103, D-438), with the job so that a break-glass grant for this job counts."""
         sess = need(request)
         job = _job_or_404(job_id)
-        # D-280: the administrator gets through only under a break-glass grant; ``apply_reveal`` checks it
-        _need_role(request, csrf, sess.user.sees_ids(job.ruleset) or sess.user.is_admin, sess)
+        _need_role(request, csrf, True, sess)
+        helpers.reveal.guard(sess, job.ruleset, request.url.path, "screening_list", reason, "job", job.job_id)
         if job.type not in ("SCREEN", "MICROBATCH") or job.state != "done":
             raise _Problem(409, "request.refused", reason="chart numbers are revealed for finished screening jobs only")
         pid = pid.strip()
         if not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", pid):
             raise _Problem(400, "request.refused", reason="bad pseudonym")
-        if helpers.apply_reveal is None or not job.ruleset:
+        if not job.ruleset:
             raise _Problem(403, "forbidden")
-        _ctx, mrn = helpers.apply_reveal(sess, request.url.path, job.ruleset, pid, reason, via="job", note=note,
-                                         job_id=job.job_id)  # fmt: skip
-        return _job_page(request, sess, job, revealed={pid: mrn})
+        got = helpers.reveal.identifier(sess, job.ruleset, pid, "screening_list", reason, note=note, via="job",
+                                        path=request.url.path, job_id=job.job_id)  # fmt: skip
+        return _job_page(request, sess, job, revealed={pid: got.mrn})
 
     def _case_card(job: Job) -> dict[str, Any] | None:
         if job.type != "CASE" or job.state != "done":
@@ -1588,7 +1569,10 @@ def create_app(
         # patient-level files leave by the browser only to their named recipients (D-369 guarded download)
         if out is None or (out.tag != "aggregate" and not phi_download_ok(sess, job, out)):
             raise _Problem(404, "notfound")
-        data = bk.get_object(out.minio_key)
+        if out.tag == "phi" and filename.lower().endswith(".xlsx"):  # every listed patient's chart number
+            data = helpers.reveal.workbook(sess, job, out, request.url.path)  # T-103 (D-438): the one path
+        else:
+            data = bk.get_object(out.minio_key)
         au.append(
             "console.download",
             job_id=job_id,
@@ -1994,25 +1978,21 @@ def create_app(
         )
 
     @app.get("/pilot/registry/{ruleset}/export.xlsx")
-    def registry_export(request: Request, ruleset: str) -> Response:
+    def registry_export(request: Request, ruleset: str, reason: str = "", note: str = "") -> Response:
+        """The study's screening log with every chart number: through the one reveal path (T-103, D-438): own rights
+        and the delegation log (D-273 PV-5), a reason, one use of the cap, one record with the count; the
+        orchestrator checks the signed role and studies again and keeps its export cap (S-09)."""
         sess = need(request)
         rs = ruleset.strip().upper()
         if not _RULESET_ID.match(rs):
             raise _Problem(404, "notfound")
-        if not sess.user.sees_ids(rs):  # the export carries chart numbers (phi): identifier authority (D-143)
-            raise _Problem(403, "forbidden")
-        # D-273 (PV-5): the same rule as one reveal: an investigator exports only as the PI or a sub-investigator
-        # ticked "screen"; the request is audited before the file is built; the orchestrator checks the signed role
-        # and studies again
-        helpers.delegated(sess, rs, request.url.path)
-        au.append("console.registry", actor=actor(sess), ruleset=rs,
-                  detail={"action": "export_requested", "role": sess.user.role})  # fmt: skip
-        try:
-            data = bk.registry_export(rs, actor(sess), role=sess.user.role, scope=scope_of(sess.user.studies))
-        except Refused as exc:  # the orchestrator's cap on exports with chart numbers (S-09)
-            au.append("console.refused", ruleset=rs, actor=actor(sess), detail={"reason": str(exc)[:200]})
-            why = "too many exports with chart numbers in the last hour"
-            raise _Problem(409, "request.refused", reason=why) from exc
+
+        def requested() -> None:  # D-273: audited before the file is built, once the rule has let it through
+            au.append("console.registry", actor=actor(sess), ruleset=rs,
+                      detail={"action": "export_requested", "role": sess.user.role})  # fmt: skip
+
+        data = helpers.reveal.screening_log(sess, rs, reason, note=note[:300], path=request.url.path,
+                                            before=requested)  # fmt: skip
         au.append(
             "console.registry",
             actor=actor(sess),
