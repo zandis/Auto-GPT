@@ -21,7 +21,6 @@ from tb_common.audit import AuditLog
 from tb_common.deterministic import normalize_ooxml
 from tb_contracts import RegistryEntry, RegistryEvent, RegistryPromote, RegistrySummary, RegistryUpdate
 
-from orchestrator import identifiers
 from orchestrator.db import JobDB
 
 STATUSES: tuple[str, ...] = ("candidate", "contacted", "consented", "enrolled", "screen_fail", "declined", "withdrawn")
@@ -62,11 +61,17 @@ class CandidateRegistry:
             raise RegistryError("a chart number (mrn) or a pseudonym (pid) is needed")
         if self.mrn_regex and not re.match(self.mrn_regex, upd.mrn):
             raise RegistryError("that does not look like a chart number of this site")
+        # imported here, not at the top: the console imports this module for two constants and must not load the
+        # door, its route dependency and their audit events with it (T-721's table of who writes what)
+        from orchestrator import identifiers
+
         if not identifiers.has_site_key(self.secrets_dir):  # plain or wrapped under the KEK (T-210b)
             raise RegistryError("the box has no site key yet (no ingest has run), so chart numbers cannot be resolved")
         return identifiers.pid_of(self.secrets_dir, upd.mrn)
 
     def mrns(self, pids: list[str]) -> dict[str, str]:
+        from orchestrator import identifiers
+
         return identifiers.charts_of(self.secrets_dir, pids, self.db.url)  # the trial database of the registry
 
     # ------------------------------------------------------------------ reads
