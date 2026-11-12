@@ -37,8 +37,8 @@
 <label for="f-who">{{ t('audit.filter.who') }}</label> <input id="f-who" name="who" value="{{ f.who }}" maxlength="80">
 <label for="f-pid">{{ t('audit.filter.pid') }}</label> <input id="f-pid" name="pid" value="{{ f.pid }}" maxlength="32" class="mono">
 <label for="f-job">{{ t('audit.filter.job') }}</label> <input id="f-job" name="job" value="{{ f.job }}" maxlength="40" class="mono">
-<label for="f-since">{{ t('audit.filter.since') }}</label> <input id="f-since" name="since" type="date" value="{{ f.since }}">
-<label for="f-until">{{ t('audit.filter.until') }}</label> <input id="f-until" name="until" type="date" value="{{ f.until }}">
+<label for="f-since">{{ t('audit.filter.since') }}</label> <input id="f-since" name="since" type="date" value="{{ f.since }}"> <span class="hint datefmt">{{ t(\'date.fmt\') }}</span>
+<label for="f-until">{{ t('audit.filter.until') }}</label> <input id="f-until" name="until" type="date" value="{{ f.until }}"> <span class="hint datefmt">{{ t(\'date.fmt\') }}</span>
 <button type="submit">{{ t('audit.filter.go') }}</button> <a href="/audit">{{ t('audit.filter.clear') }}</a>
 </form>
 {% if not records %}<p class="empty" data-testid="audit-none">{{ t('audit.none') }}</p>{% else %}

@@ -206,6 +206,15 @@ ROUTE_ACTIONS: dict[tuple[str, str], str] = {
     ("GET", "/audit/patients/{pid}"): "audit.browse",
     ("GET", "/audit/patients/{pid}/report.csv"): "audit.browse",
     ("POST", "/audit/verify"): "audit.browse",
+    # T-310a (D-446): the weekly PI sample of criteria not matched and the site's check, page and /api/v1 alike
+    ("GET", "/studies/{rs}/not-matched/sample"): "notmatched.sample",
+    ("POST", "/studies/{rs}/not-matched/sample/{pid}"): "notmatched.sample",
+    ("GET", "/api/v1/studies/{rs}/not-matched/sample"): "notmatched.sample",
+    ("POST", "/api/v1/studies/{rs}/not-matched/sample/{pid}"): "notmatched.sample",
+    ("GET", "/studies/{rs}/not-matched/check"): "notmatched.check",
+    ("POST", "/studies/{rs}/not-matched/check"): "notmatched.check",
+    ("GET", "/api/v1/studies/{rs}/not-matched/check"): "notmatched.check",
+    ("POST", "/api/v1/studies/{rs}/not-matched/check"): "notmatched.check",
 }
 
 # T-102c (D-425, ROLE-017): a page, its download and its /api/v1 twin ask one question, so every role gets the same
@@ -216,6 +225,10 @@ SAME_ANSWER: tuple[tuple[tuple[str, str], ...], ...] = (
     (("GET", "/reports/research-office"), ("GET", "/reports/research-office.xlsx")),
     (("GET", "/audit"), ("GET", "/audit/patients/{pid}"), ("GET", "/audit/patients/{pid}/report.csv"),
      ("POST", "/audit/verify")),
+    (("GET", "/studies/{rs}/not-matched/sample"), ("GET", "/api/v1/studies/{rs}/not-matched/sample")),  # T-310a
+    (("POST", "/studies/{rs}/not-matched/sample/{pid}"), ("POST", "/api/v1/studies/{rs}/not-matched/sample/{pid}")),
+    (("GET", "/studies/{rs}/not-matched/check"), ("GET", "/api/v1/studies/{rs}/not-matched/check")),
+    (("POST", "/studies/{rs}/not-matched/check"), ("POST", "/api/v1/studies/{rs}/not-matched/check")),
 )  # fmt: skip
 
 

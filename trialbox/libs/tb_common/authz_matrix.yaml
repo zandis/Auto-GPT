@@ -712,3 +712,36 @@ actions:
     cro: false
     steward: true
     privacy: false
+
+  # ---------------------------------------------------------------- "criteria not matched" (D-446, T-310a)
+  # URS-PI-05: ten of the not-matched patients a week for the study's PI; a patient sent back is on the PI's weekly
+  # list again; where the list waits for the site's check, the steward records it. A sub-investigator samples and
+  # sends back only with the "screen" tick; a coordinator may send a patient back from the list (D-143), not answer the
+  # PI's sample.
+  notmatched.sample:
+    what: see and answer the study's weekly sample of ten criteria-not-matched patients (D-446, T-310a)
+    admin: false
+    coordinator: false
+    investigator: [pi, task:screen]
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
+  notmatched.send_back:
+    what: send a criteria-not-matched patient back to the PI's weekly list, from the list or the sample (D-143, D-446)
+    admin: false
+    coordinator: true
+    investigator: [pi, task:screen]
+    viewer: false
+    cro: false
+    steward: false
+    privacy: false
+  notmatched.check:
+    what: record whether the site's check (the dry run) of a study's criteria-not-matched list passed (D-446, FIT-007)
+    admin: false
+    coordinator: false
+    investigator: false
+    viewer: false
+    cro: false
+    steward: true
+    privacy: false

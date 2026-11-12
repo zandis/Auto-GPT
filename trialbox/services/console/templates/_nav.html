@@ -21,8 +21,7 @@
       {{ item('/home', 'nav.admin', path == '/home') }}
       {{ item('/home?view=studies', 'nav.studies', false) }}
       {{ item('/ops/users', 'nav.users', path.startswith('/ops/users')) }}
-      {% if permit(r, 'audit.browse') %}{{ item('/audit', 'nav.audit', path.startswith('/audit')) }}{% endif %}
-      {% if permit(r, 'dataops.view') %}{{ item('/data-ops', 'dataops.title', path.startswith('/data-ops')) }}{% endif %}
+      {% if permit(r, 'audit.browse') %}{{ item('/audit', 'nav.audit', path.startswith('/audit')) }}{% endif %}{# T-211c (D-451) #}
     {% else %}
       {{ item('/home', 'nav.studies', path == '/home') }}
       {{ item('/week', 'nav.week', path.startswith('/week') or path.endswith('/week') or '/patients/' in path) }}

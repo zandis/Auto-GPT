@@ -27,7 +27,8 @@ EN: dict[str, str] = {
     "ex.wrong": "This is wrong, send to review",
     "ex.wrong.note": "What looks wrong (optional)",
     "ex.sent": "Sent to review by {who} at {at}",
-    "ex.sent.done": "Sent to review. It is recorded with your name; the study team sees it at the top of this page.",
+    "ex.sent.done": "Sent to review. It is recorded with your name; the study team sees it at the top of this page, "
+    "and the patient is on the weekly list again until a mark is recorded.",
     "ex.sent.title": "Sent to review: {n}",
     "ex.link": "Criteria not matched",
     "confirm.title": "Please confirm",
@@ -86,7 +87,8 @@ JA: dict[str, str] = {
     "ex.wrong": "誤りなので確認に回す",
     "ex.wrong.note": "誤りと思われる点（任意）",
     "ex.sent": "{who} が {at} に確認に回しました",
-    "ex.sent.done": "確認に回しました。氏名とともに記録され、試験チームにはこのページの上部に表示されます。",
+    "ex.sent.done": "確認に回しました。氏名とともに記録され、試験チームにはこのページの上部に表示されます。"
+    "患者は印が記録されるまで週次リストに再び表示されます。",
     "ex.sent.title": "確認に回した患者：{n} 名",
     "ex.link": "基準に合致しない患者",
     "confirm.title": "確認してください",
@@ -142,7 +144,8 @@ ZH: dict[str, str] = {
     "ex.wrong": "這是錯的，送回審閱",
     "ex.wrong.note": "看起來不對的地方（選填）",
     "ex.sent": "{who} 已於 {at} 送回審閱",
-    "ex.sent.done": "已送回審閱，並連同您的姓名記錄；試驗團隊會在本頁上方看到。",
+    "ex.sent.done": "已送回審閱，並連同您的姓名記錄；試驗團隊會在本頁上方看到；"
+    "在記錄標記之前，病人會再次出現在每週名單上。",
     "ex.sent.title": "已送回審閱：{n} 位",
     "ex.link": "未符合條件之病人",
     "confirm.title": "請確認",
