@@ -20,6 +20,7 @@ names. Every record is written by the pull request or the tool that does the wor
 | [`ai-governance.md`](ai-governance.md) | the AI governance note: who answers for the models, what they may and may not do | T-649b |
 | [`model-change-protocol.md`](model-change-protocol.md) | the model change protocol: the qualify steps and their thresholds | T-649b |
 | [`record-inventory.md`](record-inventory.md) | every record the box makes or holds: class, system of record, keeper, retention, export, audit events; the store map | T-643 |
+| [`erasure-registry.md`](erasure-registry.md) | generated from `libs/tb_common/erasure.py`: what an opt-out erases, keeps (with the decision) and still owes, per table, lake folder and store | T-727 |
 | [`soa.csv`](soa.csv) | the statement of applicability: ISO/IEC 27001:2022 Annex A, 93 controls, who each applies to (product, Aimedics, hospital), evidence or a reason | T-649c |
 | `protocols/` | IQ, OQ, PQ protocols, only under TB-PLAN-06 §0.3 item 2 (planned) | T-315b |
 
