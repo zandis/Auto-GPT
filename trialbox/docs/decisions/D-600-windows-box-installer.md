@@ -35,7 +35,8 @@ data, so the rules below say what the installer may touch.
    account): the installer records that account and refuses to continue under another.
 4. **Folders it makes are closed to standard accounts.** `<data drive>\TrialBox` and
    `%ProgramData%\TrialBox\box-install` are made for SYSTEM, the administrators and the installing account, with
-   nothing inherited. A folder of that name that another account owns is refused. Reason: the first holds the
+   nothing inherited. A folder of that name that another account owns is refused. A folder of that name that was
+   open to other accounts is taken only when it is empty. Reason: the first holds the
    virtual disk and the scripts WSL2 runs as root; the second holds the script the resume task runs elevated.
 5. **The restart.** When Windows reports that a feature or the WSL package needs a restart, the installer copies
    itself to the state folder, registers the task `TrialBox-Install-Resume` (at this account's sign-in, elevated,

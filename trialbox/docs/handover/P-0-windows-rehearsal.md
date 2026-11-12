@@ -48,10 +48,13 @@ the log: the installer can be started again later and goes on from the step that
 | --- | --- | --- |
 | 17 | In an administrator PowerShell: `wsl --shutdown`, then start the installer again with `-StateDir C:\tb-p0-state2 -DataDrive <the same drive>` | It stops at step 7 `import`: "A WSL system named TrialBox already exists ... did not make it". `wsl --list` still shows `TrialBox`; the virtual disk's size and date are unchanged |
 | 18 | Read `Get-ScheduledTask TrialBox-Install-Resume` | No such task (it was removed when step 5 found WSL ready) |
+| 19 | On a drive with no `TrialBox` folder (or on a second PC): as administrator make `<drive>\TrialBox` in Explorer, put any file in it, and start the installer with `-StateDir C:\tb-p0-state3 -DataDrive <that drive>` | It stops at step 4 `drive`: "The folder ... already exists and belongs to another account" (a folder open to other accounts is taken only when empty). The file is still there. Then empty the folder and start again: step 4 passes and line 5's "Access is denied" holds for it |
 
 ## What the answers decide
 
 - Line 2 "no": the launcher or the execution policy; fix in `Install-TrialBox.cmd`.
+- Line 19 "no": a folder that a standard account could write to was taken with its contents; D-600 point 4 does
+  not hold on Windows as written. This blocks NEW-WIN-8.
 - Line 5 "no": the folder permissions of D-600 point 4 are not what the installer set; a standard desktop account
   could read the virtual disk. This blocks NEW-WIN-8.
 - Line 7 "no": the continuation after the restart needs another form (for example a start-up shortcut that asks
