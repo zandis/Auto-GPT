@@ -1084,16 +1084,17 @@ def optouts_after(src: DbSource, since: datetime) -> dict[str, Any]:
     first and the last time. Never a pseudonym, a note or who typed it. A register that cannot be read is
     ``readable: False`` with the reason, never a count of zero."""
     import psycopg
+    from psycopg import sql
     from tb_common.optout import REGISTRY_ACTOR
     from tb_common.optout import SCHEMA as OPTOUT
 
-    table = f'"{src.prefix}{OPTOUT}".optout_events'
+    table = sql.Identifier(f"{src.prefix}{OPTOUT}", "optout_events")
     try:
         with psycopg.connect(src.dsn, autocommit=True) as con:
-            there = con.execute("SELECT to_regclass(%s)", (table,)).fetchone()
+            there = con.execute("SELECT to_regclass(%s)", (table.as_string(con),)).fetchone()
             if there is None or there[0] is None:
                 return {"readable": False, "events": None, "why": NO_REGISTER}
-            rows = con.execute(f"SELECT action, source, by, at FROM {table}").fetchall()
+            rows = con.execute(sql.SQL("SELECT action, source, by, at FROM {}").format(table)).fetchall()
     except psycopg.Error as exc:
         return {"readable": False, "events": None, "why": f"the register could not be read ({type(exc).__name__})"}
     later = sorted(
@@ -1128,22 +1129,22 @@ def fail_running_jobs(src: DbSource, when: datetime, made: str) -> list[dict[str
     Returns the jobs failed (id, type, step). One statement: all of them or none."""
     import psycopg
     from orchestrator.db import SCHEMA_NAME as ORCH
+    from psycopg import sql
 
-    table = f'"{src.prefix}{ORCH}".jobs'
+    table = sql.Identifier(f"{src.prefix}{ORCH}", "jobs")
     ts = when.isoformat(timespec="seconds")
+    fail = sql.SQL(
+        "WITH was AS (SELECT job_id, state FROM {t} WHERE queued = 0 AND state NOT IN "
+        "('done','failed','awaiting_approval') FOR UPDATE) UPDATE {t} j SET state = 'failed', "
+        "updated_at = %s::text, data = (j.data::jsonb || jsonb_build_object('state', 'failed', "
+        "'updated_at', %s::text, 'error', jsonb_build_object('step', was.state, 'message', %s::text)))::text "
+        "FROM was WHERE j.job_id = was.job_id RETURNING j.job_id, j.type, was.state"
+    ).format(t=table)
     with psycopg.connect(src.dsn) as con:
-        there = con.execute("SELECT to_regclass(%s)", (table,)).fetchone()
+        there = con.execute("SELECT to_regclass(%s)", (table.as_string(con),)).fetchone()
         if there is None or there[0] is None:
             return []
-        rows = con.execute(
-            f"WITH was AS (SELECT job_id, state FROM {table} WHERE queued = 0 AND state NOT IN "
-            f"('done','failed','awaiting_approval') FOR UPDATE) UPDATE {table} j SET state = 'failed', "
-            "updated_at = %s::text, data = (j.data::jsonb || jsonb_build_object('state', 'failed', "
-            "'updated_at', %s::text, 'error', jsonb_build_object('step', was.state, 'message', %s::text)))::text "
-            "FROM was "
-            "WHERE j.job_id = was.job_id RETURNING j.job_id, j.type, was.state",
-            (ts, ts, RESTORE_STEP_MESSAGE.format(made=made)),
-        ).fetchall()
+        rows = con.execute(fail, (ts, ts, RESTORE_STEP_MESSAGE.format(made=made))).fetchall()
         con.commit()
     return sorted(({"job_id": str(j), "type": str(t), "step": str(st)} for j, t, st in rows), key=lambda r: r["job_id"])
 
