@@ -1021,7 +1021,7 @@ def _stage15(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, m
     ry = crc.post(f"/studies/{TRIAL}/candidates/{y}/reveal",
                   data={"csrf": csrf(crc), "purpose": "contact", "reason": "contact"})  # fmt: skip
     my = re.search(r'data-testid="mrn">[^<]*<span class="mono">([^<]+)<', ry.text)
-    mrn_y = my.group(1) if my else None
+    mrn_y = my.group(1) if my else ""
     s.check("the coordinator reads the chart number of a candidate on the page (D-143)", mrn_y in mrns, ry.status_code)
     # D-380 (CR-023): the steward (or the privacy office) keeps the opt-out register, not the coordinator
     h.users.create("stw", "steward", password, "stw@hospa.test")
