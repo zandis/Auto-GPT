@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 from console.backend import Refused
-from console.breakglass import BreakGlassStore
+from console.breakglass_store import BreakGlassStore
 
 from tests.actor3 import log_pi, signer
 from tests.console.test_console_app import ADMIN_PW, CRC_PW, login
