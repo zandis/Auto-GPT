@@ -278,6 +278,13 @@ def test_d380_irb_dates_and_the_monitor_grant() -> None:
     for state in ("candidate", "approached", "consented", "screen_fail", "withdrawn", ""):
         assert not authz.monitor_may_see({"state": state}), state
     assert authz.monitor_may_see({"state": "withdrawn", "enrolment": "2026-05-01"})
+    # D-436: the data core's subject list gives the enrolment step's day as ``enrolled``; the whole reply of
+    # ``GET /studies/{rs}/subjects/{record}`` (the subject nested under "subject") is never read as a subject
+    assert authz.monitor_may_see({"state": "withdrawn", "enrolled": "2026-05-01"})
+    assert not authz.monitor_may_see({"state": "withdrawn", "enrolled": ""})
+    assert not authz.monitor_may_see({"study": "GZQO", "subject": {"state": "enrolled"}})
+    assert {r for r in ROLES if permit(r, "monitor.visit", Standing(monitor=True))} == {"cro"}
+    assert not permit("cro", "monitor.visit", Standing(monitor=False))
 
 
 def test_d380_the_administrator_reads_no_patient_row_at_all() -> None:

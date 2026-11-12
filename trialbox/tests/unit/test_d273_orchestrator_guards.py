@@ -4,6 +4,7 @@ refuse a NAV job and never reveal a patient on the opt-out register. Synthetic p
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -14,6 +15,7 @@ from tb_common import optout as optout_mod
 from tb_common import service_auth as sa
 
 from tests.service_tokens import per_service_tokens, token_of
+from tests.unit.test_service_auth import limits_store
 
 TOKEN = token_of("console")  # D-464: a PRODUCTION orchestrator admits a caller it can name
 
@@ -23,7 +25,8 @@ def _box(events: list[dict[str, Any]], job_type: str = "SCREEN") -> SimpleNamesp
     job = SimpleNamespace(type=job_type, state="done", ruleset="RS", outputs=[out])
     lists = {out.minio_key: json.dumps({"rows": [{"pid": "PID-00000001"}, {"pid": "PID-00000002"}]}).encode()}
     return SimpleNamespace(
-        db=SimpleNamespace(get=lambda _id: job, url=None),
+        db=SimpleNamespace(get=lambda _id: job, url=None, take_limit=limits_store().take_limit),
+        _now=lambda: datetime.now(UTC),
         cfg=SimpleNamespace(
             env=SimpleNamespace(secrets_dir="/nonexistent"),
             settings=SimpleNamespace(site=SimpleNamespace(id="S1")),

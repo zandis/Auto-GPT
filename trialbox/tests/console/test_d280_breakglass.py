@@ -221,7 +221,7 @@ def test_the_orchestrator_gives_no_chart_number_to_the_admin_role(
     monkeypatch.setattr(oapp, "orch", lambda: _fake_box(events))
     monkeypatch.setattr(screen, "resolve_mrns", lambda _d, pids, _url=None: {p: "MRN-1" for p in pids})
     client = TestClient(oapp.app)
-    assert "admin" not in oapp.ID_ROLES
+    assert not oapp.id_authority("admin") and oapp.id_authority(authz.BREAK_GLASS_ROLE)  # T-103: the matrix row
     h = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("console:it1", role="admin", scope="*")}
     r = client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=h)
     assert r.status_code == 403 and events[-1]["detail"]["reason"] == "role"

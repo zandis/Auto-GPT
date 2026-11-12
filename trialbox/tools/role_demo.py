@@ -186,10 +186,13 @@ class InprocBackend:
             raise Refused(r.text[:200])
         return bytes(r.content)
 
-    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "") -> str | None:
+    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "", purpose: str = "",
+               reason: str = "") -> str | None:  # fmt: skip
         from console.backend import Refused
 
-        r = self.c.post(f"/jobs/{job_id}/reveal", json={"pid": pid}, headers=actor_header(by, role=role, scope=scope))
+        # T-103 (D-438): the purpose and reason travel to the orchestrator's record, as from HttpBackend
+        body = {"pid": pid, **({"purpose": purpose} if purpose else {}), **({"reason": reason} if reason else {})}
+        r = self.c.post(f"/jobs/{job_id}/reveal", json=body, headers=actor_header(by, role=role, scope=scope))
         if r.status_code == 404:
             return None
         if r.status_code != 200:

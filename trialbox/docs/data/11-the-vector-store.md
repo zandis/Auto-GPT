@@ -27,5 +27,32 @@ backup drill (`tools/backup_drill.py`) checks it reads back the same after a res
 `VecStore.delete_patient`, which removes the patient's chunks and every vector no other chunk uses, in one
 transaction.
 
-**Not yet.** Screening does not read this store yet: S2b reads it behind a flag after a parity test (T-203b), and
-the lake's older vector file `embed_cache.duckdb` (D-149) is removed only after that.
+**Screening reads it behind a flag (T-203b, D-449).** The flag `vec.s2b` (off; switched on `/ops/flags` with a
+reason, never by an environment file) makes S2b of the screening cascade rank a patient's window sentences from the
+stored vectors instead of embedding them during the run. The orchestrator asks the lake service (`POST /vec/s2b`):
+only the lake's role reads `vec`. The lake reads the window notes from the snapshot the job pinned and chunks them
+again exactly as the indexer does; when every note's chunks and their vectors of the lake's embedder model are in the
+store, it ranks them, and the cascade gives each sentence the score of the best chunk over it. Anything else (no
+store, a note not indexed, a note whose text changed since a later night indexed it, a missing vector, an error)
+sends that pair to the old on-the-fly path. Each patient's run records how many pairs came from the store, how many
+fell back and why, and the embedder model of each, in the job's file `s2b_source_<study>_v<version>.json` (SCREEN and
+MICROBATCH; console only, never mailed); the stage log counts them. A second model inside one patient's run is refused. With absence
+semantics on (feasibility) the store is not asked, because the S2b threshold is fitted to on-the-fly vectors and is
+refitted only after the embedder is chosen (D-429). In screening S2b only picks the excerpts: a stored score never decides
+the index rescue before the refit. The judge may read other notes with the flag on than with it off, but a window
+note that S2b did not show counts as left out, so a "not met" on what was shown is never final ("needs
+information"); nobody is excluded for a note the ranking left out, with the flag on or off. The flag is decided once
+per job and, when on, written into the job record.
+
+**Indexing a snapshot.** `vec.index.index_snapshot(store, lake, snapshot, embedder, exclude=opted_out)` indexes every
+note of a snapshot, leaving out the patients of the opt-out register; text already embedded costs nothing. Its
+nightly run after the lake rebuild is not wired yet (see D-449 "Open").
+
+**Parity.** `python -m tools.vec_parity --db-url <a database with pgvector>` builds a synthetic site,
+indexes it, runs the screening cascade of every ruleset with note criteria with the flag off and on, and writes
+`eval/vec_parity/report.json`: the S2b pairs, how many were ranked from the store, how many excerpt sets and final
+results differ. The committed record is the hash stub's; it is repeated with the chosen embedder before the flag is
+switched on at a site.
+
+**Not yet.** The lake's older vector file `embed_cache.duckdb` (D-149) stays until the parity with the chosen
+embedder is recorded (D-449 "Open").
