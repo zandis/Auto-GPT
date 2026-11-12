@@ -90,7 +90,9 @@ def test_registry_state_reads_the_lake_with_the_cohort_rule() -> None:
         [
             (A, "active", True, "2026-10-01"),
             (A, "rejected", None, "2026-10-20"),  # a later withdrawal ends the earlier consent
-            (B, "rejected", None, None),  # undated: the oldest statement
+            # undated: its date is unknown, so the dated consent cannot be shown to be later. The patient stays
+            # refused (the ruling on the review of T-708, D-477; before: "the oldest statement", not refused)
+            (B, "rejected", None, None),
             (B, "active", True, "2026-09-01"),
             (C, "active", True, "2026-10-01"),
             (C, "rejected", None, "2026-10-21"),
@@ -99,7 +101,7 @@ def test_registry_state_reads_the_lake_with_the_cohort_rule() -> None:
         ]
     )
     st = registry_state(lake, lake.snapshot(), "2026-11-02")
-    assert st is not None and st.refused == {A, C}
+    assert st is not None and st.refused == {A, B, C} and B not in st.consenting
     assert registry_state(Lake(None), "2026-11-02", "2026-11-02") is None  # no registry ingested: nothing to apply
 
 

@@ -22,14 +22,33 @@ note-block decision at four places, and "today" in two ways.
    and built beside the pinned lake. A path reads through it: the pinned snapshot and the run date; the opt-out
    register (one function, with the surviving pseudonym of a merged chart; as of the job's receipt for the scope,
    as it stands now before anything is published or stored); consent (one rule: `tb_common.optout.registry_rule`
-   as of the run date on the pinned snapshot); the approved ruleset with its pins; whether a note answer may
-   exclude on this run (decided once per job and judge); the confidence threshold.
+   as of the run date on the pinned snapshot); whether a note answer may exclude on this run (decided once per
+   job and judge); the confidence threshold. **Not through it** (review of this card): the approved ruleset and
+   its pins. The scenarios call `require_approved` directly, as before; the first version of this card had
+   `ruleset()`, `pins()` and `fingerprint()` on the context with no caller, and they are removed. Reading the
+   ruleset, its pins and the derived-score reader through the context, and recording what a job decided on, has
+   no card yet (it belongs with T-724's generations); the integrator assigns it.
 2. **A lint test keeps it so.** `tests/unit/test_decision_context_lint.py` fails on a call of `opted_out(`, on
-   `FROM consent`, and on a read of the note-block decision outside the module (and the library function the module
-   calls). Reads outside a job path that stay are a named list with a reason per line; the list only shrinks.
+   **an import of the register module** (`tb_common.optout`: whatever name the read then goes by, so a rename
+   does not pass), on a query of the consent table (either case, with a schema name), and on a read of the
+   note-block decision outside the module (and the library function the module calls). Reads outside a job
+   path that stay are a named list with a reason per line (ten today: the reveal guard, the twin builder, the
+   as-of export, the EDC wiring, the cascade's fallback, the opt-out worker, the research office's page, the
+   backup); the list only shrinks.
 3. **Consent has one rule on every path.** The rule of the registry (the latest statement on or before the run
-   date decides; an undated statement is the oldest; a statement entered in error is none; ties of one day fail
-   closed). The cascade's S0 takes the state from the context instead of its own query.
+   date decides; a statement entered in error is none; ties of one day fail closed). The cascade's S0 takes the
+   state from the context instead of its own query.
+   **An undated refusal: proposed, not accepted (owner decision).** The registry's rule on master (T-206a)
+   reads an undated statement as the oldest, so a dated consent after it lists the patient; the cascade's S0
+   kept such a patient out. One rule needs one reading. Until the owner decides, the integrator's ruling on the
+   review of this card holds: **an undated refusal keeps the patient out on every path** (a refusal whose date
+   is unknown cannot be shown to be older than a consent): refused, not consenting, not contactable; the
+   opt-out worker therefore copies it to the register and does not lift it. An undated consent stays the
+   oldest statement. The other reading (undated = oldest for a refusal too) would list those patients again.
+3a. **CASE reads the register again before the sheet leaves** (`case.opt_out_at_publish`): the evaluation can
+   take hours; a patient who opted out meanwhile gets no sheet. OPPORTUNITY and FEAS publish counts only, read
+   the register as of the job's receipt and do not read it again: a count names nobody, and its "as of" is the
+   receipt.
 4. **Counts honour the register** (OD-8): FEAS and COHORT read the register through the context.
 5. **Goldens are unchanged**: they run without a trial database (no register) and reach none of these reads.
 

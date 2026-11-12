@@ -209,6 +209,13 @@ def refuse_opted_out(ctx: Ctx, pid: str | None) -> None:
         raise StepFailed("received", "This patient opted out of research use: no eligibility sheet is made.")
 
 
+def refuse_opted_out_now(ctx: Ctx, pid: str | None) -> None:
+    """Review of T-708 (D-477): the register is read again before the sheet leaves. The evaluation can take hours
+    (an outage wait, T-689); a patient who opted out meanwhile gets no sheet. Audited by count, as every removal."""
+    if pid is not None and decision_of(ctx).drop_now([pid], "case.opt_out_at_publish"):
+        raise StepFailed("reporting", "This patient opted out of research use: no eligibility sheet is made.")
+
+
 # ------------------------------------------------------------------------------------------------ judging
 @dataclass
 class ChartJudge:
@@ -379,6 +386,7 @@ def run(ctx: Ctx) -> Outcome:
         "criteria": rows,
     }
     ctx.state("reporting")
+    refuse_opted_out_now(ctx, subj.pid)
     to = sorted(set(phi_to) | ({job.requested_by.lower()} if job.requested_by.lower() in phi_to else set()))
     rec["recipients"] = to
     stem = f"case_{rs.id}_{job.job_id}"
