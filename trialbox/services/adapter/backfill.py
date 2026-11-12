@@ -46,7 +46,7 @@ from pathlib import Path
 from typing import IO, Any
 from zoneinfo import ZoneInfo
 
-from tb_common import feedguard
+from tb_common import feedguard, refdata
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import pid_for_mrn
 
@@ -227,7 +227,10 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
         else:
             mapping = Mapping.load(cfg.mapping_path)
             unit_defaults = mapping.unit_defaults
-            mapper = Mapper(mapping, key, cfg.site_id, ingest_instant(snap, mapping.tz))
+            mapper = Mapper(
+                mapping, key, cfg.site_id, ingest_instant(snap, mapping.tz),
+                concept_map=lambda system, code: refdata.map_targets_or_empty(system, code, cfg.db_url),  # D-593
+            )  # fmt: skip
             source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)
             for res in mapper.static_resources():
                 emit(res)

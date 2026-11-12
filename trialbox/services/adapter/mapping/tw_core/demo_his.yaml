@@ -163,7 +163,11 @@ resources:
       # every diagnosis is ICD-10-CM, as before. With the parameter set, a diagnosis with neither date and no
       # system gets no code (unknown, never a guess)
       code.coding[0]: {builder: coding, column: icd10, system: icd10cm, when: &icd10cm {any: [[{column: diag_code_system, in: [icd10cm]}], [{column: diag_code_system, not_empty: false}, {column: recorded_date, date_from: {param: icd9cm_before}}], [{column: diag_code_system, not_empty: false}, {column: recorded_date, not_empty: false}, {column: diag_date, date_from: {param: icd9cm_before}}]]}}
-      code.coding[3]: {builder: coding, column: icd10, system: icd9cm, when: {any: [[{column: diag_code_system, in: [icd9cm]}], [{column: diag_code_system, not_empty: false}, {column: recorded_date, date_before: {param: icd9cm_before}}], [{column: diag_code_system, not_empty: false}, {column: recorded_date, not_empty: false}, {column: diag_date, date_before: {param: icd9cm_before}}]]}}
+      # D-593: a diagnosis of the ICD-9-CM years gains its ICD-10-CM code first (the lake reads the first code)
+      # only where the reference data's map (the CMS GEMs, D-592) has exactly one entry and calls it the same code;
+      # else it stays ICD-9-CM alone and is counted (`map:icd9cm->icd10cm`). No reference data: nothing is mapped
+      code.coding[3]: {builder: mapped_coding, column: icd10, from: icd9cm, to: icd10cm, dotted: icd9, when: &icd9cm {any: [[{column: diag_code_system, in: [icd9cm]}], [{column: diag_code_system, not_empty: false}, {column: recorded_date, date_before: {param: icd9cm_before}}], [{column: diag_code_system, not_empty: false}, {column: recorded_date, not_empty: false}, {column: diag_date, date_before: {param: icd9cm_before}}]]}}
+      code.coding[4]: {builder: coding, column: icd10, system: icd9cm, when: *icd9cm}
       # TW Core slices icd10-cm-2014 / icd10-cm-2023: the NHI edition by the date of the diagnosis (2023 from 2025-01-01)
       code.coding[1]: {builder: coding, column: icd10, system: tw_icd10cm_2014, when: [{fhir_profiles: tw-core}, *icd10cm, {column: diag_date, date_before: "2025-01-01"}]}
       code.coding[2]: {builder: coding, column: icd10, system: tw_icd10cm_2023, when: [{fhir_profiles: tw-core}, *icd10cm, {column: diag_date, date_from: "2025-01-01"}]}

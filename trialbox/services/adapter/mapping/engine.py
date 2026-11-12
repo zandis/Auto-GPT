@@ -543,7 +543,18 @@ def _known_codes_are_the_maps(path: Path, r: ResourceSpec) -> None:
 class Mapper:
     """Applies a :class:`Mapping` to source rows."""
 
-    def __init__(self, mapping: Mapping, site_key: bytes, site_id: str, ingest_time: str | None = None) -> None:
+    def __init__(
+        self,
+        mapping: Mapping,
+        site_key: bytes,
+        site_id: str,
+        ingest_time: str | None = None,
+        concept_map: Callable[[str, str], list[dict[str, Any]]] | None = None,
+    ) -> None:
+        # D-593: the reference data's map (code system, code → its rows), when the caller has it: the night and the
+        # back-fill pass the box's own; without it ``mapped_coding`` maps nothing
+        self.concept_map = concept_map
+        self._mapped: dict[tuple[str, str, str], str | None] = {}  # (from, to, code) → the one code, asked once
         self.m = mapping
         self.key = site_key
         self.site_id = site_id
@@ -552,6 +563,7 @@ class Mapper:
             "lab_value": self._b_lab_value,
             "coding": self._b_coding,
             "period": self._b_period,
+            "mapped_coding": self._b_mapped_coding,
         }
         # NEW-DIN-6 (D-580): rows a resource's ``where`` dropped because the look-up has no row for their code,
         # by (source table, look-up, code as fed without its blanks): codes and counts, never a row
@@ -935,6 +947,34 @@ class Mapper:
         if "display_column" in args and row.get(args["display_column"]):
             coding["display"] = str(row[args["display_column"]])
         return coding
+
+    def _b_mapped_coding(self, rs: ResourceSpec, row: Row, args: dict[str, Any]) -> Any:
+        """D-593: the coding of a column's code in another system (``from`` → ``to``, names of ``systems``), only
+        when the reference data's map has exactly one row for the code into that system and the row says the two
+        are the same (``equivalent`` / ``equal``). An approximate entry, alternatives, a combination or no entry
+        give nothing, and the row is counted (``map:<from>-><to>``, the code): never a guess. ``dotted: icd9``
+        looks the code up with its dot (``7140`` is ``714.0``). Without a ``concept_map`` nothing is mapped or
+        counted."""
+        raw = row.get(args["column"])
+        if self.concept_map is None or raw is None or not str(raw).strip():
+            return None
+        code = str(raw).strip()
+        if args.get("dotted") == "icd9":
+            bare = code.upper().replace(".", "")
+            head = 4 if bare.startswith("E") else 3
+            code = bare if len(bare) <= head else f"{bare[:head]}.{bare[head:]}"
+        key = (str(args["from"]), str(args["to"]), code)
+        if key not in self._mapped:
+            target = self.m.systems[args["to"]]
+            rows = [t for t in self.concept_map(self.m.systems[args["from"]], code) if t.get("target_system") == target]
+            same = len(rows) == 1 and rows[0].get("relation") in ("equivalent", "equal") and rows[0].get("target_code")
+            self._mapped[key] = str(rows[0]["target_code"]) if same else None
+        hit = self._mapped[key]
+        if hit is None:
+            self._note_unmapped(rs.table, f"map:{args['from']}->{args['to']}", code)
+            return None
+        # userSelected false: not the code the hospital recorded, the one the map says it is
+        return {"system": self.m.systems[args["to"]], "code": hit, "userSelected": False}
 
     def _b_period(self, rs: ResourceSpec, row: Row, args: dict[str, Any]) -> Any:
         typ = args.get("type", "date")
