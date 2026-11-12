@@ -638,7 +638,10 @@ class PromptRegistry:
 
 
 def _env(environment: str | None) -> str:
-    return (environment if environment is not None else _environment()).strip().upper()
+    """The environment a check is for. None and "" both mean this process's (``TB_ENV``; unset is PRODUCTION), as for
+    :func:`tb_common.llm.load_prompt`: an empty name once read as "not PRODUCTION", so a PRODUCTION box that passed
+    ``""`` pinned a version it does not serve (review of 2026-11-12)."""
+    return (environment or _environment()).strip().upper()
 
 
 def _environment() -> str:

@@ -115,6 +115,15 @@ def test_the_driver_sets_each_vms_provisioning_model(tmp_path: Path) -> None:
     assert "on demand" in out
 
 
+def test_the_driver_says_when_the_owner_forced_the_provisioning_model(tmp_path: Path) -> None:
+    out = _dry(tmp_path, "--patients", "50000", "--only", "scenario-gateway", TB_PROVISIONING="STANDARD")
+    line = next(ln for ln in out.splitlines() if ln.startswith("VM 1/"))
+    assert "on demand (forced by TB_PROVISIONING)" in line and "a hospital part" not in line, line
+    out = _dry(tmp_path, "--patients", "50000", "--only", "install,hospital-ja", TB_PROVISIONING="SPOT")
+    line = next(ln for ln in out.splitlines() if ln.startswith("VM 1/"))
+    assert "spot (forced by TB_PROVISIONING)" in line, line
+
+
 def test_a_resumed_shard_gets_a_recomputed_cap(tmp_path: Path) -> None:
     only = "install,hospital-ja,scenario-gateway"
     out = _dry(tmp_path, "--patients", "50000", "--only", only, TB_RUN_ID="R")

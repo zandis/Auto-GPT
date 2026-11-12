@@ -247,7 +247,7 @@ collect_start() {  # a stopped VM whose results are on its disk: start it in the
 }
 
 shard_run() {  # $1 = shard number; VM, ZONE and parts come from plan.json; the cap from what is left (shard_now)
-  local i=$1 SH TAGS EST_H EST_USD CAP_H PROV PRICE LEFT s p done_seen=0
+  local i=$1 SH TAGS EST_H EST_USD CAP_H PROV PRICE LEFT PREEMPT WHY_PROV s p done_seen=0
   VM="$(plan_get "$i" vm)"; ZONE="$(plan_get "$i" zone)"; TAGS="$(plan_get "$i" tags)"
   SH="$OUT/shard-$i"; mkdir -p "$SH"; KEYF="$SH/tb-key"
   if [ -z "$COLLECT" ]; then
@@ -258,7 +258,11 @@ shard_run() {  # $1 = shard number; VM, ZONE and parts come from plan.json; the 
     now_get() { "$PY" -c 'import json,sys; v=json.load(open(sys.argv[1]))[sys.argv[2]]; print(" ".join(v) if isinstance(v, list) else v)' "$SH/now.json" "$1"; }
     EST_H="$(now_get hours)"; EST_USD="$(now_get usd)"; CAP_H="${HOURS:-$(now_get cap_hours)}"
     PROV="$(now_get provisioning)"; PRICE="$(now_get price_per_hour)"; LEFT="$(now_get left)"
-    echo "VM $i/$VMS $VM ($ZONE): estimate ${EST_H} h (US\$${EST_USD}); hard cap ${CAP_H} h (STOP), at most US\$$("$PY" -c "print(round($CAP_H*$PRICE, 2))"); $([ "$PROV" = STANDARD ] && echo "on demand (a hospital part, D-468)" || echo spot); parts: $TAGS; parts left: ${LEFT:-none}"
+    # why this model: the owner's TB_PROVISIONING for every VM (tools.complete_run.provisioning), else D-468
+    if [ -n "${TB_PROVISIONING:-}" ]; then WHY_PROV="$([ "$PROV" = STANDARD ] && echo "on demand" || echo spot) (forced by TB_PROVISIONING)"
+    elif [ "$PROV" = STANDARD ]; then WHY_PROV="on demand (a hospital part, D-468)"
+    else WHY_PROV=spot; fi
+    echo "VM $i/$VMS $VM ($ZONE): estimate ${EST_H} h (US\$${EST_USD}); hard cap ${CAP_H} h (STOP), at most US\$$("$PY" -c "print(round($CAP_H*$PRICE, 2))"); $WHY_PROV; parts: $TAGS; parts left: ${LEFT:-none}"
     s="$(status)"
     [ "$s" = TERMINATED ] || { echo "$VM is $s, not TERMINATED: stop it first (--stop) or collect its run" >&2; return 3; }
     door_vm_ready || { echo "$VM: not started (see above)" >&2; return 3; }   # its door: Secret Manager, 443 only

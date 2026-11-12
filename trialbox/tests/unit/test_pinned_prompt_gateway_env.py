@@ -99,8 +99,10 @@ def test_an_unqualified_prompt_is_not_a_model_that_did_not_answer(monkeypatch: p
     b = Breaker(BreakerSettings(failures=5, window_s=300.0))
     g = GuardedLlm(Client(), lambda: False, b, "judge")
     for _ in range(8):
-        with pytest.raises(LlmPromptUnqualified):
+        # the job stops at the call (review of 2026-11-12: it cannot succeed on a retry), and says which prompt
+        with pytest.raises(StepFailed, match="prompt_unqualified") as stop:
             g.chat_json("zz_v9", {})
+        assert "zz_v9" in str(stop.value) and isinstance(stop.value.__cause__, LlmPromptUnqualified)
     assert b.state == "closed" and b.failures == 0  # the request was refused; no model was down
 
 

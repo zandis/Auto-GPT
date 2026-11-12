@@ -155,6 +155,7 @@ def gateway_client(env: dict[str, str], upstream: Any = None) -> Any:
     from guard.guard import Guard
     from registry.registry import Registry
     from tb_common.audit import AuditLog
+    from tb_common.config import environment_name
     from tb_common.service_auth import TOKEN_HEADER
     from tb_llm import GatewayClient
 
@@ -179,7 +180,8 @@ def gateway_client(env: dict[str, str], upstream: Any = None) -> Any:
     http.event_hooks["request"].append(as_orchestrator)
     client = GatewayClient("http://tb-gateway/v1", "orchestrator", http=http)
     # the box's callers load the prompt version that box's TB_ENV serves (D-359), not this harness's environment
-    client.prompt_environment = env.get("TB_ENV")  # type: ignore[attr-defined]
+    # by the one rule for TB_ENV (unset is PRODUCTION, as the gateway built above reads it), never "" or None
+    client.prompt_environment = environment_name(env)  # type: ignore[attr-defined]
     return client
 
 

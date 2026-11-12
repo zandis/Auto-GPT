@@ -79,7 +79,7 @@ def approval_pins(
     models = dump(manifest.models) if manifest.models else {}
     pid = str(models.get("judge_prompt") or "judge").rsplit("_v", 1)[0]
     try:
-        pins = default_registry().pins({pid: None}, environment)
+        pins = default_registry().pins({pid: None}, environment or None)  # "" names no environment
     except PromptRegistryError as exc:
         raise CompileFailed("approve", f"the judge prompt cannot be pinned ({exc.reason}): {exc}") from exc
     out: dict[str, Any] = {"models": {**models, "judge_prompt": f"{pid}_v{pins[pid]['version']}"}, "prompt_pins": pins}

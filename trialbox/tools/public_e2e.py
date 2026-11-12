@@ -699,12 +699,10 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     s = Stage("6 other screens")
     t = time.perf_counter()
     for who, c in (("crc", crc), ("pi", pi), ("admin", admin)):
-        for path in ("/home", "/week", "/account", "/help", "/notices/received", "/reports", "/settings/notices"):
+        for path, code in other_screens(who, TRIAL):
             r = c.get(path)
-            if (who, path) == ("admin", "/week"):  # D-280: the administrator sees no patient data, so no weekly list
-                s.check("admin /week is refused (403: no patient data)", r.status_code == 403, r.status_code)
-                continue
-            s.check(f"{who} {path}", r.status_code == 200, r.status_code)
+            label = f"{who} {path}" if code == 200 else f"{who} {path} is refused ({code}: no patient data)"
+            s.check(label, r.status_code == code, r.status_code)
     # D-120: a public-data site says so (not "synthetic"), lists its own studies only, and names its clinicians
     # from the records
     home = crc.get("/home").text
@@ -922,6 +920,17 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         }
     )
     return out
+
+
+def other_screens(who: str, trial: str) -> list[tuple[str, int]]:
+    """Stage 6: the pages every role opens, each with the status it must get. The administrator sees no patient data
+    (D-280), and the page that says so is the study's week page: ``/week`` has no guard of its own for that role (it
+    answers 403 only because, with one study and nothing to approve, it sends the reader on to that page), so ``/week``
+    is not asserted for the administrator (review of 2026-11-12)."""
+    pages = ["/home", "/week", "/account", "/help", "/notices/received", "/reports", "/settings/notices"]
+    if who == "admin":
+        return [(p, 200) for p in pages if p != "/week"] + [(f"/studies/{trial}/week", 403)]
+    return [(p, 200) for p in pages]
 
 
 # roles that hold no identifier authority (D-143): they must never see a chart number or a patient's name

@@ -50,7 +50,34 @@ MIN_ACCURACY = 0.85
 # and it is wrong (a flip, or yes/no where the note is silent) is a case where the box would exclude wrongly. Since
 # a passing pair canary is what lets a note answer exclude (D-117), one such case is one too many.
 MAX_PAIR_WRONG = 0
-WHY_CASES = 2  # wrong cases named in a failed model's problem line (the first ten are in the report's "wrong")
+# A failed model's problem line is read on one screen line of the log, the Models tile and the audit viewer, so its
+# two open-ended parts are settings (OD-10; ``tb_common.config.DECLARED``): how many wrong cases it names
+# (``TB_CANARY_WHY_CASES``; the first ten are in the report's "wrong") and how much of a call error it keeps
+# (``TB_CANARY_WHY_CHARS``; the full error is in the gateway's log). Everything else in a line is figures.
+WHY_CASES = 2
+WHY_CHARS = 120
+
+
+def _count(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(name) or default))
+    except ValueError:
+        return default
+
+
+def why_cases() -> int:
+    return _count("TB_CANARY_WHY_CASES", WHY_CASES)
+
+
+def why_chars() -> int:
+    return _count("TB_CANARY_WHY_CHARS", WHY_CHARS)
+
+
+def clip(text: str, chars: int | None = None) -> str:
+    """``text`` on one line, at most ``chars`` (``TB_CANARY_WHY_CHARS``) characters; a cut one ends in "…"."""
+    n = why_chars() if chars is None else chars
+    one = " ".join(str(text).split())
+    return one if len(one) <= n else one[:n] + "…"
 
 
 @dataclass
@@ -77,9 +104,12 @@ class ModelReport:
             and self.correct >= MIN_ACCURACY * self.cases
         )
 
-    def why(self, shown: int = WHY_CASES) -> str:
+    def why(self, shown: int | None = None) -> str:
         """Why this model failed, for the report's ``problems`` line ("" when it passed): each threshold it missed
-        with the figures, the first call error, and the first ``shown`` wrong cases with their reason codes."""
+        with the figures, the first call error (cut, :func:`clip`), and the first ``shown`` wrong cases
+        (:func:`why_cases`) with their reason codes. The line is bounded by those two settings: the canary gate
+        joins the lines of every failed model uncut, so each must stay short by itself."""
+        shown = why_cases() if shown is None else shown
         if self.ok:
             return ""
         if self.cases == 0:
@@ -96,7 +126,7 @@ class ModelReport:
         if self.flips > MAX_FLIPS:
             parts.append(f"{self.flips} answers the wrong way round, at most {MAX_FLIPS} allowed")
         if self.errors:
-            parts.append(f"first error: {self.errors[0]}")
+            parts.append(f"first error: {clip(self.errors[0])}")
         if self.wrong:
             first = "; ".join(
                 f"{w['id']} expected {w['expected']}, got {w['got']}" + (f" ({w['reason']})" if w.get("reason") else "")
@@ -133,7 +163,7 @@ def check_model(role: str, client: LlmClient, cases: list[dict[str, Any]], promp
         try:
             res = client.chat_json(prompt, variables, job_id="selftest")
         except LlmError as exc:
-            rep.errors.append(f"{c['id']}: {str(exc)[:120]}")
+            rep.errors.append(clip(f"{c['id']}: {exc}"))
             continue
         rep.answered += 1
         for name in served_keys(getattr(res, "model", ""), getattr(res, "build_sha", "")):
@@ -176,14 +206,14 @@ def run_selftest(
                 swap(endpoint)
             models.append(check_model(role, client, cs))
         except LlmError as exc:  # the swap itself failed
-            problems.append(f"{role}: {exc}")
+            problems.append(f"{role}: {clip(str(exc))}")
     if release is not None:
         release()
     elif swap is not None and verifier is not None:
         try:
             swap("serving")
         except LlmError as exc:
-            problems.append(f"judge did not wake after the self-test: {exc}")
+            problems.append(f"judge did not wake after the self-test: {clip(str(exc))}")
     problems += [f"{m.role} {m.model} failed the canary ({m.why()})" for m in models if not m.ok]
     by_role = {m.role: m for m in models}
     pair = None
