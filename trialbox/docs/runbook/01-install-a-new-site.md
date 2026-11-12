@@ -28,6 +28,14 @@ registry's label of the build the profile serves, and the pin) and ends with the
 checks from the box with the certificate the clinic PCs will see. It exits 1 when a FAIL line remains, and lists them
 (T-632, D-382). `--mode stub` installs a box without a GPU.
 
+**Memory caps from the hospital's size** (T-692, D-473). The night's ingest and the lake rebuild stream: what they
+hold grows only slowly with the patient count. The installer sizes `TB_MEM_ADAPTER` and `TB_MEM_LAKE` in
+`deploy/.env` from the number of patients (the lake's `CURRENT` snapshot on a re-install, else `TB_SITE_PATIENTS`,
+which the site puts in `deploy/.env` before the first install) and the measured record
+`deploy/measured/ingest_memory.json` (`python -m tools.trialbox.memcaps --measure` re-measures it). The compose
+defaults are the floor; a cap set by hand is kept. `trialbox doctor` (`memory_caps`) fails when a cap is below what
+the patient count needs; `python -m tools.trialbox.memcaps --env-file deploy/.env --write` sizes them again.
+
 **What the site brings** (D-382). A folder with the answers file and the site's mapping beside it:
 `site.yaml` and `mapping/tw_core/<site>.yaml` (with its lab lookup). The installer copies `mapping/` into
 `deploy/site/mapping/`, which every update keeps; the wizard and the adapter look there before the image, so the
