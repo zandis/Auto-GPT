@@ -25,6 +25,8 @@ The checks and their thresholds (each can be moved in ``deploy/.env``):
 ``certificate``     the hospital's certificate (``TB_TLS_CERT_FILE``): red when it ends within
                     ``TB_HEALTH_CERT_RED_DAYS`` (30) days, warn within 45 (OPS-030); Caddy's own certificate
                     (``TB_TLS_MODE=internal``) renews itself and is ok
+``optout_worker``   red when the opt-out worker's last tick failed or none completed for three intervals (D-441,
+                    from the orchestrator's ``/models``); not shown when the orchestrator does not report it
 ``facts``           warn when the host's runner has not written the facts for an hour (the checks above are old)
 ==================  ==========================================================================================
 
@@ -87,7 +89,7 @@ class Thresholds:
 
 @dataclass(frozen=True)
 class Check:
-    name: str  # canary | backup | backup_verified | disk:<path> | certificate | facts
+    name: str  # canary | backup | backup_verified | disk:<path> | certificate | optout_worker | facts
     level: str
     text: str  # one plain sentence, no patient data
     value: float | None = None  # the measure behind it (hours, days, percent), for /metrics
@@ -159,6 +161,26 @@ def check_canary(canary: Mapping[str, Any] | None) -> Check:
     return Check("canary", OK, f"model self-test passed at {at}", 1.0)
 
 
+def check_optout(worker: Mapping[str, Any], now: datetime) -> Check:
+    """From the orchestrator's ``/models`` ``optout_worker`` (``datacore.optout_worker.status``): ``every`` (minutes;
+    0 off), ``started``, ``ok_at`` (the last tick that completed), ``failed`` (what the last tick could not do)."""
+    every = float(worker.get("every") or 0)
+    if every <= 0:
+        return Check("optout_worker", RED, "the opt-out worker is off: an opt-out does not reach the stores")
+    if worker.get("failed"):
+        return Check("optout_worker", RED, f"the opt-out worker's last tick failed ({', '.join(worker['failed'])})")
+    ok_at = _when(worker.get("ok_at"))
+    since = ok_at or _when(worker.get("started"))
+    if since is None:
+        return Check("optout_worker", WARN, "the opt-out worker has not reported")
+    age = (now - since).total_seconds() / 60
+    if age > 3 * every:
+        return Check("optout_worker", RED, f"no opt-out worker tick completed for {age:.0f} min", age)
+    if ok_at is None:
+        return Check("optout_worker", WARN, "the opt-out worker has not completed a tick yet", age)
+    return Check("optout_worker", OK, f"opt-out worker ticked {age:.0f} min ago", age)
+
+
 def check_backup(backup: Mapping[str, Any] | None, th: Thresholds) -> Check:
     """From ``tools.trialbox.backup_schedule.status`` (T-117b): its level, age and first problem."""
     if not backup:
@@ -221,11 +243,15 @@ def evaluate(
     canary: Mapping[str, Any] | None,
     now: datetime,
     th: Thresholds | None = None,
+    optout: Mapping[str, Any] | None = None,
 ) -> Health:
-    """The health at ``now`` from the host facts (:func:`host_facts`) and the orchestrator's canary status."""
+    """The health at ``now`` from the host facts (:func:`host_facts`), the orchestrator's canary status and, when it
+    reports one, its opt-out worker (:func:`check_optout`)."""
     th = th or Thresholds.from_env()
     f = facts or {}
     checks = [check_canary(canary), check_backup(f.get("backup"), th), check_verified(f.get("verified"), now, th)]
+    if optout is not None:
+        checks.append(check_optout(optout, now))
     checks += check_disks(f.get("disks") or [], th)
     checks.append(check_cert(f.get("cert"), now, th))
     seen = _when(f.get("at"))
