@@ -86,6 +86,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "console.breakglass_notice": ("Break-glass notice sent", "緊急アクセス通知の送信", "寄送緊急存取通知"),
     # exports and downloads
     "console.export": ("Export downloaded", "エクスポートのダウンロード", "下載匯出檔"),
+    "console.first_run": ("First-run set-up completed", "初回セットアップの完了", "完成首次設定"),
     "console.download": ("File downloaded", "ファイルのダウンロード", "下載檔案"),
     "console.data_export": ("Study data exported", "研究データのエクスポート", "匯出研究資料"),
     "console.registry": ("Registry list exported", "レジストリ一覧のエクスポート", "匯出登錄名單"),
