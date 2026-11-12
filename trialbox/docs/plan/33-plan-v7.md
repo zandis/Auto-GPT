@@ -4,7 +4,7 @@
 | --- | --- |
 | Document ID | TB-PLAN-07 |
 | Date | 2026-11-12 |
-| Version | 7.1 (2026-11-12): the owner's nine answers folded in (D-494) |
+| Version | 7.2 (2026-11-12): v7.1 (the owner's nine answers, D-494) reviewed by the integrator session against `master` and the open pull requests; corrections listed in section 9 |
 | Owner | Changfu Kuo (Aimedics) |
 | Status | **Proposed.** It replaces the task lists and the order of work of `28-master-plan-v6.md` (TB-PLAN-06) and `31-master-plan-v6.1-addendum.md` (TB-PLAN-06.1) once the owner accepts it. The owner decisions OD-10 to OD-21 and D-311 are unchanged and win over this file. The nine questions of section 2 were answered by the owner on 2026-11-12 (`docs/decisions/D-494-plan-v7-owner-answers-windows-box.md`). |
 | Basis | The deep review of 2026-11-12, `docs/reviews/2026-11-12-deep-review/` (TB-DR2-00 to TB-DR2-13), on `master` at `514ae9b`. Finding ids below (PLAN-, ARCH-, ENG-, JRN-, UX-, LLM-, PERF-, DIN-, LIFE-, EDC-, STD-, OPS-, HW-) are that review's. |
@@ -191,7 +191,7 @@ R6 shows REDCap's branching equal to ours. EDC-011, EDC-012 and EDC-018 are date
 | `services/deliverables` | drop or move under `tools/` | PLAN §5.1 |
 | `tracestore`, `registry` as services | merge into the gateway | PLAN §5.1 |
 | `embed-service` as its own container when it runs the lake's image | merge into the data process | ARCH §5.10 |
-| `StepStore`/`Dispatcher` (schema `wf`) | use it for T-689, or delete it; no third option | ARCH-004 |
+| `StepStore`/`Dispatcher` (schema `wf`) | delete it: T-689 (#309, D-456) keeps a job's answers in `orch.judge_answers` with a restart limit and did not use it (v7.2) | ARCH-004 |
 | `deploy/topology_a`, `deploy/pgbackrest/Dockerfile`, `site_params.yaml`, the second `settings.example.yaml` | drop | OPS §5, ARCH-013 |
 | `deploy/windows` | **kept and extended** (v7.1: v7 dropped it from the bundle; the site machine is now Windows, section 2.3) | D-494 |
 | `tools/` in every service image (68,000 lines) | out of the image | ARCH-012 |
@@ -209,6 +209,11 @@ the bare Ubuntu box form (v7.1; its installer stays in use inside WSL2); Kuberne
 shared-quota, two-device, RTX 5090, GB10 forms (out of the per-PR CI as well);
 the model bake-off tools and the 19 MB of evaluation corpora (moved to the fetch cache); T-711; T-717, T-718, T-721
 until T-715 is in refuse mode; T-697, T-698, T-700 (except the `list_jobs(limit=500)` calls), T-701.
+
+v7.2: four cards of this list were built on 2026-11-12 before this plan was read and have open pull requests: T-711
+(#319), T-717 (#332), T-718 (#337), T-721 (#334). By the rule of section 3.3 they land when they are reviewed and
+green; no further work is started on them before go-live. T-717, T-718 and T-721 are reviewed after T-715 (#317),
+because they rest on it.
 
 ### 3.3 After go-live: every frozen item has a wave (Q7)
 
@@ -232,22 +237,22 @@ Working days from 2026-11-13 (Taiwan calendar): 40 to 2027-01-08, 70 to 2027-02-
 
 | # | Step | Cards and findings | Ends | Depends on |
 | --- | --- | --- | --- | --- |
-| 1 | The gate gates: branch protection, nightly green, unit job in shards | T-007, ENG-001, ENG-002, T-747 (#306), T-653 | Fri 2026-11-20 | — |
+| 1 | The gate gates: branch protection (the owner sets it: it needs the repository's admin right), nightly green, unit job in shards with a fast cross-card job | T-007, ENG-001, ENG-002, T-747 (#306), T-653 | Fri 2026-11-20 | owner: the GitHub Actions spending limit (section 8, line 8) |
 | 2 | Hardware decided (D-494): a Windows workstation. Quotes asked from resellers in Taiwan and Japan on Fri 2026-11-13 to section 2.2; **reference workstation ordered** | Q1, Q2, NEW-PLAN-2 | Fri 2026-11-27 (v7: 11-20) | owner |
 | 2a | The REDCap release zip from the owner; our test instance up with its project and four tokens | Q5, NEW-EDC-0 | zip Fri 2026-11-27; instance Fri 2026-12-04 | owner |
-| 3 | One model never excludes; one decision function; one excerpt builder that keeps headings and negation | T-707 (#307), T-708 (#311), T-709, T-710, NEW-LLM-1 | Fri 2026-11-27 | — |
-| 4 | The screening job survives an outage and a restart | T-689 (#309), ARCH-001, NEW-ARCH-1 | Fri 2026-11-27 | — |
+| 3 | One model never excludes; one decision function; one excerpt builder that keeps headings and negation | T-707 (#307), T-708 (#311), T-709 (#330), T-710 (#331), NEW-LLM-1 | Fri 2026-12-04 (v7.1: 11-27; the four pull requests are built, each needs its review and fixes, and NEW-LLM-1 is not started) | 1 |
+| 4 | The screening job survives an outage and a restart | T-689 (#309), ARCH-001, NEW-ARCH-1 | Fri 2026-12-04 (v7.1: 11-27) | 1 |
 | 5 | A PRODUCTION box starts and holds a qualified pair: embedder image, installer to the wizard, vendor qualification record shipped and promoted at install, chat template pinned | ENG-003, HW-002, HW-003, HW-004, HW-005, OPS-003, OPS-004, LLM-005, LLM-007 | Fri 2026-12-04 | Q3 |
 | 6 | The measuring harness measures the product: concurrency from the serving record, calls/s, tokens/s, p50/p95, GPU utilisation; dense synthetic profile | NEW-PERF-1, HW-006, PERF-002, T-687 | Fri 2026-12-04 | — |
 | 7 | **The product-on-GPU run** (replaces "G1 attempt 3"), on the Linux VM: it proves the installer that runs inside WSL2 and gives the Linux baseline for P-10. Real bundle, `box-install.sh`, record, canary, 50,000-patient screen at 1/4/8/16/32 in flight, power cycle | section 7.1, tests G-1 to G-9 | Fri 2026-12-11 | 3 to 6 |
 | 8 | Capacity statement (the Linux figure, marked "not yet the site's form") and hardware note; **both site workstations ordered** to section 2.2 | T-667, T-734 | **Fri 2026-12-18** | 7 |
 | 8a | The Windows form built and rehearsed on a Windows 11 PC with an NVIDIA card, before the reference workstation arrives: the installer, start without a person, `.wslconfig`, unlock and keys | NEW-WIN-1, NEW-WIN-2, NEW-WIN-3, NEW-WIN-8, P-0 | Fri 2027-01-08 | 5 |
-| 9 | `publish(night)`; ingest and rebuild in streams; nightly deltas | T-723 (#314), T-692 (#304), T-726, PERF-001, PERF-006 | Fri 2027-01-15 | 4 |
+| 9 | `publish(night)`; ingest and rebuild in streams; nightly deltas | T-723 (#314), T-692 (#304), T-726 (#322), PERF-001, PERF-006 | Fri 2027-01-15 | 4 |
 | 10a | The CGRD connector reads the real connection (ready, Q8); its mapping check runs on the owner's side; the date, code and unit repairs for real feeds | T-731 (CGRD only), section 5 lane E waves 0 to 2, P-7 (CGMH part) | Fri 2026-12-18 | — |
 | 10b | The first whole night from CGRD through `publish(night)` | T-731, T-723 | Fri 2027-01-22 | 9, 10a |
 | 11 | Reference workstation delivered (9 weeks P50: 2027-01-29; 13 weeks P90: 2027-02-26), installed from factory Windows by `box-install.ps1` and the handbook; **WSL2 measured against Linux** (P-10 to P-15); update, backup, restore-on-a-second-machine, restart and power-cut drills | T-730 (split in five), T-213b, NEW-OPS-1, NEW-WIN-4 to NEW-WIN-9, HW-012 | Fri 2027-02-19 (v7: 01-29) | 2, 5, 8a |
 | 11a | The REDCap API send repaired against our instance: conformance cassettes and a strict simulator, then the ledger, per-record fallback, whole-instance writes, checkbox columns | NEW-EDC-1 (Fri 2026-12-18), EDC-008, EDC-007, EDC-002, EDC-003 | Fri 2027-01-29 | 2a |
-| 12 | The acting person is a fact the callee checks; opt-out erasure in every store; generations | T-712 (#308), T-714 (#312), T-715, T-716, T-719, T-206b (#278), T-727, T-728 (#313), T-724, T-725 | Fri 2027-02-12 | 9 |
+| 12 | The acting person is a fact the callee checks; opt-out erasure in every store; generations | T-712 (#308), T-714 (#312), T-715 (#317), T-716 (#326), T-719 (#336), T-206b (#278), T-727 (merged, #289), T-728 (#313), T-724 (#318), T-725 (#320) | Fri 2027-02-12 | 9 |
 | 13 | Feature complete: lifecycle repairs, outputs in three languages, the EDC send and copy-assist repairs with R1 to R9 passed on our instance (EDC-004, EDC-005, EDC-006, P-6), accuracy set per language measured on the workstation, the capacity statement restated for WSL2 from P-10 | sections 5 and 7 | **Fri 2027-02-26** | 3 to 12 |
 | 14 | Site workstations delivered (9 weeks P50: 2027-02-19; 13 weeks P90: 2027-03-19), installed by `box-install.ps1`, connected, mapping content done on a real extract, first real night; R1 to R9 once on each site's own REDCap test project | T-315b, T-315c, T-735, NEW-DIN-17 | CGMH Fri 2027-03-26; Japan Fri 2027-04-09 | 8, 10, 11 |
 | 15 | Real-data dry run, the journeys of T-315a on the site's box, training with the guides in zh-TW and ja, acceptance | T-317, `docs/runbook/06-go-live-acceptance.md` | CGMH Fri 2027-04-16; Japan Fri 2027-04-30 | 14 |
@@ -275,27 +280,48 @@ What the Windows form does to the float (v7.1):
 
 ## 5. Waves and lanes for parallel sessions
 
-At most four sessions at a time, one card each. The lanes touch different folders so that sessions do not collide.
+At most four build sessions at a time, one card each. The lanes touch different folders so that sessions do not
+collide. The cloud-run session is a fifth session with its own files (lane G); the integrator session reviews and
+merges and builds no card.
 v7.1 adds lane W. It is a sixth lane, not a fifth session: with about 236 session-days against 280, every wave
 needs all four sessions.
 A card merges only after its own unit job is green (v6.1 §5.6 stays).
 
 | Lane | Owns (folders) | Must not touch |
 | --- | --- | --- |
-| **A. Decision and model** | `services/matching`, `services/criteria_compiler`, `services/guard`, `libs/tb_llm`, `eval/`, `tests/property` | `deploy/`, `services/adapter` |
-| **B. Night and capacity** | `services/adapter` (pipeline, not mapping), `services/lake`, `services/orchestrator` (jobs, scheduler, clients), `tools/trialbox/backup.py` | `services/console`, `services/matching` |
+| **A. Decision and model** | `services/matching`, `services/criteria_compiler`, `services/guard`, `libs/tb_llm`, `services/orchestrator/scenarios` (where a verdict becomes a status: SCREEN, NAV, CASE, MICROBATCH), `eval/`, `tests/property` | `deploy/`, `services/adapter` |
+| **B. Night and capacity** | `services/adapter` (pipeline, not mapping), `services/lake`, `services/orchestrator` (jobs, scheduler, clients; not `scenarios`), `tools/trialbox/backup.py`, `tools/scale_gate.py`, `tests/perf` | `services/console`, `services/matching` |
 | **C. Trust and console** | `services/console`, `services/orchestrator/app.py` routes, `libs/tb_common` (auth, erasure, roles), `deploy/docker/*roles*` | `services/lake`, `services/matching` |
-| **D. Box, serving and operations** | `deploy/` (not `deploy/windows`), `tools/` (install, qualify, complete_run, support), `services/gateway`, `services/embed_service`, `docs/runbook`, `docs/handover` | `services/console` pages |
+| **D. Box, serving and operations** | `deploy/` (not `deploy/windows`, not `deploy/gcp`), `tools/` (install, qualify, support; not lane G's files), `services/gateway`, `services/embed_service`, `docs/runbook`, `docs/handover`, `.github/workflows` | `services/console` pages |
 | **E. Data input, standards, EDC** | `services/adapter/mapping`, `services/adapter/sources`, `services/datacore`, `services/omop`, `services/edc`, `services/rc_bridge`, `services/rc_sim`, `catalogue/`, reports, the REDCap test instance | `services/orchestrator` |
+| **G. Cloud runs** (the cloud-run session; v7.2) | `deploy/gcp/*`, `tools/complete_run.py`, `tools/run_metrics.py`, `tools/chat_template_check.py`, `tools/vllm_standin.py`, `tests/rehearsal/*`, `tests/unit/test_g1_*.py`, `tests/unit/test_g3_*.py`, `docs/plan/measurements/*` | all product code: a defect a paid run finds goes to the integrator as a list in the results pull request (`claude/g1-results-*`) |
 | **W. The Windows form** (v7.1) | `deploy/windows`, the Windows media, `docs/handover/OFFLINE-MEDIA.md`, `docs/handover/WINDOWS-INSTALL-CHECKLIST.md`; its changes to `tools/box` and the key back end go as small cards of their own, agreed with lanes D and C | `deploy/*.sh`, the compose files |
+
+Files every lane appends to (v7.2). Six pull requests lost a CI round on 2026-11-12 because two cards met in one
+of them: `docs/decisions/REGISTRY.md`, `libs/tb_common/config.py` (the declared settings),
+`services/console/i18n_audit.py` and `i18n_roles.py`, `libs/tb_common/erasure.py` with its generated page,
+`libs/tb_common/authz_matrix.yaml`, `docs/validation/record-inventory.md`, the migration hashes,
+`tools/limits_allow.yaml` and the `EXPECTED` and `KNOWN` tables of expected failures. The rule: a card adds its own
+lines and changes nobody else's; a card that makes an expected failure pass removes that line in the same pull
+request; the cross-card job of T-747 runs the tests that read these files in under two minutes; the integrator
+resolves a conflict in them at merge. Decision numbers are given out by the integrator, one per card, never taken
+from the registry by a build session.
+
+The sessions running on 2026-11-12 were opened before this plan and are named by v6.1's lanes: "lane A, decision"
+is lane A here; "lane B, trust" is lane C here; "lane C, night and capacity" is lane B here.
+
+Every pull request that touches how a patient is excluded, who may act, what a restore or an erasure keeps, or what
+the night publishes gets one adversarial review before it merges. On 2026-11-12 seven such reviews were run and
+seven found defects that tests had not (T-707, T-712, T-713, T-689, T-691, T-723, T-728). The review and its fixes
+are part of the card's size.
 
 ### Wave 0: 2026-11-13 to 2026-11-20. Small and certain; land the open pull requests
 
 | Lane | Cards | Size |
 | --- | --- | --- |
-| all | Merge or close the open pull requests #304 to #315, #278, #262; merge #323 (DIN-001) and #324 (OPS-002) | — |
+| integrator | Review, have fixed and land the pull requests built on 2026-11-12, in this order (v7.2). First what unblocks the rest: #306 (T-747 shards and the cross-card job), #328 (the images job's disk), #298 (T-687 scale gate), #304 (T-692 streams). Then, each after its review fixes: #307 T-707, #311 T-708, #330 T-709, #331 T-710; #309 T-689, #313 T-728, #314 T-723, #322 T-726, #318 T-724, #320 T-725, #327 T-693, #329 T-704; #308 T-712, #312 T-714, #317 T-715, #326 T-716, #336 T-719; then #319 T-711, #332 T-717, #334 T-721, #337 T-718. #323 (DIN-001) and #324 (OPS-002) when green. #278 (T-206b) is a claim with no code: it is built in wave 3 on T-727's registry. #262 (T-207) merged on 2026-11-12 | — |
+| owner | Raise the GitHub Actions spending limit (no job has started since 2026-11-12 09:18 UTC; nothing merges without a real `unit` run). Set branch protection on `master` with `unit` and the fast jobs as required checks (T-007; it needs the admin right, which no session holds) | — |
 | owner | Ask the resellers in Taiwan and Japan for quotes to section 2.2 (Fri 2026-11-13). Fetch the REDCap release zip in the sites' version (by Fri 2026-11-27) | — |
-| C | T-007 branch protection with the CI jobs as required checks (ENG-001) | S |
 | D | Nightly green: `TB_ENV=TEST` for the test stack's embed service, the public-data fetch, random order to completion (ENG-002); a red nightly is the next day's first card | M |
 | A | LLM-001 stop-gap: a clipped note never gives a final "not met" (`engine.py:618`) | S |
 | A | NEW-LIFE-1: no pre-approved ruleset on a VALIDATION or PRODUCTION box (LIFE-001) | S |
@@ -314,29 +340,29 @@ A card merges only after its own unit job is green (v6.1 §5.6 stays).
 
 | Lane | Cards | Size |
 | --- | --- | --- |
-| A | T-709 one status function; T-710 one excerpt builder with NEW-LLM-1 (windows keep their heading and negation scope; the budget from the build's context) | M, M |
+| A | T-709 (#330) and T-710 (#331) are built: review fixes; then NEW-LLM-1 on T-710's builder (windows keep their heading and negation scope; the budget from the build's context) | fixes, M |
 | A | NEW-LIFE-2: the weekly re-check covers every structured criterion and brings excluded patients back (LIFE-003, LIFE-004); goldens move | M |
-| B | T-689 on `StepStore`: lease, attempts, recorded steps; a restart resumes (ARCH-001) | L |
-| B | T-687 scale gate with the dense profile (about 500 records and 40 notes per patient) under the compose memory caps; its lint covers every timeout and `LIMIT`, not only those above 60 s (PERF-002, PLAN-012) | L |
-| C | T-714 (#312), T-712 (#308), then T-715 in report mode | M, S, L starts |
+| B | T-689 (#309) is built on kept answers, not on `StepStore`: review fixes (the model build in the replay key; no retry of a timeout or a configuration fault); then delete `StepStore`/`Dispatcher` (ARCH-004); a lease so two workers cannot resume one job | fixes, S, S |
+| B | T-687 (#298) lands in wave 0 with the thin profile. Here: the dense profile (about 500 records and 40 notes per patient) under the compose memory caps; its lint covers every timeout and `LIMIT`, not only those above 60 s (PERF-002, PLAN-012); the first nightly runs at 50,000 are read and each new failure gets its line and card | M |
+| C | T-714 (#312), T-712 (#308) and T-715 (#317) are built: review fixes, T-715 lands in report mode. From T-712's review: a database role for the FHIR store that is not the cluster's superuser (owner's ruling asked); the adapter's `POST /publish` checks the signed person and right (found in T-723's review) | fixes, M, S |
 | D | Embedder pinned, in the image with hashed extras, PRODUCTION start test (ENG-003, HW-002) | M |
 | D | Qualification path: licence step accepts `none-in-source` (HW-004); vendor record shipped in the bundle and promoted by the installer (HW-003, LLM-005); chat template hashed and passed (HW-005); context written into the pin, null context refused in PRODUCTION (LLM-007) | S, M, S, S |
 | D | Installer reaches the wizard: backup step without a mail relay is a FAIL line, not a stop (OPS-003); the real `install.sh` in `make rehearse-box` and in CI (OPS-004) | S, M |
-| D | NEW-PERF-1: `complete_run` sets `TB_SCREEN_LLM_CONCURRENCY` from the serving record and records calls/s, tokens/s, p50/p95, GPU utilisation (HW-006, PERF-007, LLM-012) | S |
+| G | NEW-PERF-1: `complete_run` sets `TB_SCREEN_LLM_CONCURRENCY` from the serving record and records calls/s, tokens/s, p50/p95, GPU utilisation (HW-006, PERF-007, LLM-012); #333 is its pull request | S |
 | E | NEW-DIN-1 rest: ROC and era dates as declared column types. NEW-STD-1: ICD-9-CM years in Taiwan (STD-001). NEW-STD-4 / DIN-009: unit spellings (`IU/L`, `×10^3/µL`, `mL/分/1.73m2`, `秒`). NEW-STD-5: NHI drug code to ATC in the nightly path | S, M, S, S |
 | E | NEW-DIN-3: the opt-out desk checks the patient is known; the chart-number rule is asked at install (DIN-003) | S |
 | E | T-731 the CGRD connector: the read side and its mapping step on the real connection (to wave 2). Nothing read from it enters the repository | L starts |
 | E | NEW-EDC-0: our REDCap test instance from the owner's zip, with its project, four tokens and the R1 to R9 command (section 2.4) | M |
 | W | NEW-WIN-1: `box-install.ps1` (to wave 2) | L starts |
 
-### Wave 2: 2026-12-07 to 2026-12-18. The product on a GPU; the order
+### Wave 2: 2026-12-07 to 2026-12-31. The product on a GPU; the order on 2026-12-18
 
 | Lane | Cards | Size |
 | --- | --- | --- |
-| D + cloud session | The product-on-GPU run (section 7.1); then T-667, T-734 from its numbers; the vLLM image move in the same GPU session (ENG-013: 337 accepted findings lapse 2026-12-10) | run, S, M, M |
+| G, after D | The product-on-GPU run (section 7.1). Lane D builds first, in wave 1: the embedder image, the installer to the wizard, the qualification path, the offline bundle. Lane G then rehearses that fixed commit, runs it and writes the results pull request; a defect goes back to the integrator as a list. From its numbers: lane G writes the inputs (calls/s, tokens/s, memory, the curve), lane D writes T-667 and T-734 from them. The vLLM image move (ENG-013: 337 accepted findings lapse 2026-12-10): lane D changes the image pin and the lock, lane G runs G-10 on it in the same GPU session | run, S, M, M |
 | A | NEW-LLM-2: the retrieval lexicon from the compiled ruleset in the site's language; the pinned embedder in SCREEN (LLM-002) | L |
 | A | NEW-LLM-3/4: the PHI tripwire stops refusing ordinary zh-TW and ja criteria and reads full-width digits, katakana names and Japanese insurance numbers (LLM-003, LLM-004) | M |
-| B | T-723 (#314) `publish(night)`; T-692 (#304) streams, the build as its own process (PERF-001) | L, L |
+| B | T-723 (#314) and T-692 (#304) are built and land in waves 0 and 1 after their fixes. Here: the build as its own process (PERF-001); what T-724 (#318) took over from T-723 (the publish record of T-690, a newer night over a site publish's facts, the named busy state) | M, M |
 | C | T-715 router by router, lifecycle first; NEW-ARCH-3 the console leaves the orchestrator's stores | L, M |
 | E | NEW-EDC-1: conformance run on our REDCap instance (NEW-EDC-0) recorded as cassettes; the simulator made as strict (EDC-001) | M |
 | E | T-731: the CGRD mapping step ends; P-7's CGMH part gives the first code-coverage report | L ends |
@@ -350,8 +376,8 @@ A card merges only after its own unit job is green (v6.1 §5.6 stays).
 | D | The reference workstation from factory Windows by `box-install.ps1`: the Windows media, name resolution, a time source (HW-012, OPS-001, OPS-005, OPS-006, OPS-007; `box-prepare.sh` and the Linux media go with the parked Ubuntu form). T-730 as five cards (message path and the first-run code in the installer's window, backup target and key ceremony, health checks for night, clock and GPU, the BitLocker recovery page, updates in the window of NEW-WIN-5). When the workstation arrives: P-1 to P-5 and P-10 to P-15 | L, 5 × M, runs |
 | W | NEW-WIN-4 the console on the site's network; NEW-WIN-5 Windows Update and restarts; NEW-WIN-6 the card shared with the desktop; NEW-WIN-7 backup and restore paths; NEW-WIN-9 media and handover documents | 5 × M |
 | D | T-735 the owner's handbook and IT's one page; the IT pack rewritten to the box (OPS-011, HW-013) | L |
-| B | T-726 the night runner with nightly deltas (`since` the last published generation) (PERF-006); T-724, T-725 generations; backup: incremental, lake lock for the listing only, append-only files (PERF-010, PERF-011, ENG-011) | M, M, M, M |
-| C | T-715 refuse mode; T-716; T-719; T-206b (#278) on T-727's registry; T-728 (#313) | —, M, M, M, S |
+| B | T-726 (#322), T-724 (#318) and T-725 (#320) are built: what their reviews leave; nightly deltas (`since` the last published generation) (PERF-006) if #322 does not hold them; backup: incremental, lake lock for the listing only, append-only files (PERF-010, PERF-011, ENG-011); the steward's acknowledgement of a restore's re-apply list (left open by T-691) | fixes, M, M, S |
+| C | T-715 refuse mode; T-716 (#326) and T-719 (#336) are built: what their reviews leave; T-206b (#278) on T-727's registry, taking the tables and files `KNOWN_OWED` lists; the opt-out register read at publish by OPPORTUNITY and CASE, and by the FEAS and COHORT counts (found in T-728's review) | —, fixes, M, S |
 | E | T-731 on `publish(night)`: the first whole night from CGRD (step 10b) | M |
 | E | The REDCap send: EDC-008 a true attempt ledger; EDC-007 per-record fallback and the lock read first; EDC-002 whole-instance writes; EDC-003 checkbox columns | S, S, S, M |
 | A | NEW-LLM-6: the accuracy set per language and stratum (long notes, negation, family history, era dates, labs; about 200 gold exclusions each), with a calibration table and paraphrased injection (LLM-006, LLM-009, LLM-011); measured on the reference box | L |
@@ -396,6 +422,8 @@ T-206a, T-212c, T-656, T-664. Status is generated from the registry and the pull
 Thresholds come from the night window and the data size, not from a fixed figure. With an 8-hour night, 50,000
 patients × 5 studies needs at least 1.66 pair calls per second and 500,000 × 1 study needs 3.3 (LLM §7).
 The VM is Linux. Its numbers are the Linux baseline; the site's form is measured by P-10 (section 7.2).
+Every test of this table is run by lane G, on a commit rehearsed and pushed to a `g1/rehearsed-*` branch, after the
+owner has seen the estimate and said yes. Lane G changes no product code.
 
 | Id | Test | Record | Pass |
 | --- | --- | --- | --- |
@@ -446,10 +474,19 @@ The VM is Linux. Its numbers are the Linux baseline; the site's form is measured
 6. The reference workstation ordered by 2026-11-27. It gives the first WSL2 figure. Until it runs, every
    capacity figure is a Linux figure and says so.
 7. Four sessions in every wave. At three the plan of v7.1 does not fit (section 2.1, line 7).
+8. GitHub Actions that runs (v7.2). The repository is private and its minutes are billed; on 2026-11-12 the
+   spending limit was reached with about twenty merges and four sessions pushing, and no job has started since
+   09:18 UTC. Step 1 and every merge after it wait for the owner to raise it. With T-747's six shards a push bills
+   about 55 runner-minutes against about 40 before, and `unit` answers in about 16 minutes against 36 to 43.
+9. Review capacity (v7.2). About 25 cards of waves 1 to 3 were built on 2026-11-12 and wait as pull requests. They
+   are not done: each safety-core one needs its review, its fixes and a green `unit` run on a head that holds
+   master, one at a time. Wave 0 is that work. The session-days of section 2.1 count building; NEW-PLAN-5 restates
+   the work left from the registry and the pull requests when wave 0 ends.
 
 ## 9. Change history
 
 | Date | Change |
 | --- | --- |
 | 2026-11-12 | First draft from the deep review of 2026-11-12. |
+| 2026-11-12 | **v7.2.** The integrator session's review against `master` and the open pull requests. Steps 3 and 4 end 2026-12-04, with wave 1 (v7.1 had 11-27 against a wave that ends 12-04). Wave 2 runs to 2026-12-31 (v7.1 left the nine working days after 12-18 in no wave though section 1 counts them). About 25 cards scheduled for waves 1 to 3 already have pull requests: the waves now say land, review and fix, not build; four frozen cards that were built land when green. T-689 is #309 on kept answers; `StepStore` is deleted. Lane G (the cloud-run session) and its files are named; NEW-PERF-1 and every test of section 7.1 are lane G's; lane D builds the box pieces the product-on-GPU run needs first. `services/orchestrator/scenarios` goes to lane A, `tools/scale_gate.py` and `tests/perf` to lane B, `.github/workflows` to lane D. Branch protection and the Actions spending limit are the owner's. The shared files and the review rule are written into section 5. Section 8 gains lines 8 and 9. |
 | 2026-11-12 | **v7.1.** The owner answered Q1 to Q9 (D-494). The site machine is a Windows workstation that staff also use; TrialBox runs in WSL2 with Docker Engine inside it (sections 2.2, 2.3; cards NEW-WIN-1 to NEW-WIN-9; lane W). `deploy/windows` is kept. The REDCap API send is live at go-live, on our own test instance (section 2.4; NEW-EDC-0; EDC-001 to EDC-008 in waves 2 to 4). T-731 starts in wave 0. Every frozen item has a dated wave after go-live (section 3.3, waves 6 to 11). Section 4: step 2 to 2026-11-27, step 11 to 2027-02-19, new steps 2a, 8a, 10a, 10b, 11a. Section 7.2: P-0 and P-10 to P-15. Go-live dates and the order of 2026-12-18 unchanged. |
