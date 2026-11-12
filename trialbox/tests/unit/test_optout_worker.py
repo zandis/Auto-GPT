@@ -82,7 +82,7 @@ class Jobs:
 def test_the_latest_registry_statement_decides() -> None:
     st = registry_rule([(A, "active", True), (A, "rejected", None), (B, "rejected", None), (B, "active", True),
                         (C, "active", False)])  # fmt: skip
-    assert st == RegistryState(frozenset({A}), frozenset({C}), frozenset({B, C}))
+    assert st == RegistryState(frozenset({A}), frozenset({C}), frozenset({B, C}), frozenset({B}))
 
 
 def test_registry_state_reads_the_lake_with_the_cohort_rule() -> None:

@@ -184,7 +184,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def prescreen(rs: str) -> list[dict[str, Any]]:
         refs: dict[str, Any] = h.team.latest_referrals(rs) if h.team is not None else {}
-        gone = h.optout.active() if h.optout is not None else set()
+        gone = h.gone()
         return prescreen_rows(store.all_marks(rs), store.screening_nos(rs), store.first_seen(rs), registry_rows(rs),
                               refs, set(gone))  # fmt: skip
 
@@ -205,7 +205,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         overrides: dict[str, tuple[str, list[str], str, str]] = {}
         for o in h.team.overrides(rs) if h.team is not None else []:
             overrides[o[0]] = o
-        gone = h.optout.active() if h.optout is not None else set()
+        gone = h.gone()
         rows = []
         for pid, no, at in store.screening_rows(rs):
             if pid in gone:
@@ -390,7 +390,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         jobs.sort(key=lambda j: j.updated_at or j.received_at)
         job = jobs[-1] if jobs else None
         cl = load(job, "candidate_list_")
-        gone = h.optout.active() if h.optout is not None else set()  # D-147: opted-out patients are on no list
+        gone = h.gone()  # D-147: opted-out patients are on no list
         members = [
             str(r.get("pid")) for r in (cl or {}).get("rows") or [] if r.get("tier") == "high"
             and str(r.get("pid")) not in gone

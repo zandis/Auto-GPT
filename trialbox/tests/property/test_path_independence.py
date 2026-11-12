@@ -698,7 +698,8 @@ _COVERS: dict[str, set[str]] = {p: set(SCREENED) for p in (
     "screen.cascade", "screen.v1", "screen.single", "screen.pair_disagrees", "screen.amended", "case")}  # fmt: skip
 _COVERS["microbatch.new"] = set(SCREENED) - {"OPT"}  # the register keeps OPT out of the new patients too
 # the pool each re-check starts from: who its SCREEN listed (the world checks that the run agrees)
-POOL = {"ELIG", "SILENT", "PERMIT", "LOWCONF", "NOAGE", "CUT", "DEEP"}
+# UNDATED is listed since D-477: an undated refusal is the oldest statement, so the dated consent decides
+POOL = {"ELIG", "SILENT", "PERMIT", "LOWCONF", "NOAGE", "CUT", "DEEP", "UNDATED"}
 _COVERS["microbatch.recheck"] = _COVERS["microbatch.amended"] = POOL
 _COVERS["microbatch.after_single"] = POOL | {"INF", "NOFLARE", "PREGNANT"}  # one model's "not met" is not final
 
@@ -717,47 +718,20 @@ H4 = Known("H4", "the v1 path reads five retrieved chunks; their 'no flare' is f
                  "never shown (only retrieved chunks that did not fit count as left out)")  # fmt: skip
 M1A = Known("M1", "(a) a 'met' at confidence 0.6: the cascade keeps it as met (strong), evaluate.tier and NAV's "
                   "_ok send it to review / unknown")  # fmt: skip
-M1B = Known("M1", "(b) contact: deny: the cascade never lists the patient, the v1 tier and NAV list them")
-M2 = Known("M2", "consent: only the cascade's S0 reads the lake's consent; v1, NAV and CASE depend on the opt-out "
-                 "worker having copied the refusal into the register (no tick ran after this ingest)")  # fmt: skip
-M2U = Known("M2", "consent: the cascade's S0 sorts an undated statement as the newest (here a refusal); the "
-                  "registry rule and COHORT read it as the oldest")  # fmt: skip
 M4U = Known("M4", "FEAS drops an inclusion with no value (IS TRUE); SCREEN keeps the patient for review")
-M4R = Known("M4", "FEAS counts a patient on the opt-out register (FG D-278, CR-026)")
-M4C = Known("M4", "FEAS counts a patient who refused research use (it reads no consent)")
-CR26 = Known("CR-026", "COHORT counts a patient on the opt-out register (FG D-278)")
-M2C = Known("M2", "COHORT's population reads no consent (only n_contactable does): a refusal is counted")
 
 KNOWN: dict[tuple[str, str, str], Known] = {
     ("screen.v1", "CUT", "status"): H4,
     ("screen.v1", "CUT", "verdicts"): H4,
     ("screen.v1", "LOWCONF", "status"): M1A,
-    ("screen.v1", "NOCONTACT", "status"): M1B,
-    ("screen.v1", "REFUSED", "status"): M2,
-    ("screen.v1", "UNDATED", "status"): M2U,
     ("microbatch.recheck", "LOWCONF", "status"): M1A,
     ("nav", "CUT", "status"): H4,
     ("nav", "LOWCONF", "status"): M1A,
-    ("nav", "NOCONTACT", "status"): M1B,
-    ("nav", "REFUSED", "status"): M2,
-    ("nav", "UNDATED", "status"): M2U,
-    ("case", "REFUSED", "status"): M2,
-    ("case", "UNDATED", "status"): M2U,
     ("feas", "NOAGE", "status"): M4U,
-    ("feas", "OPT", "status"): M4R,
-    ("feas", "REFUSED", "status"): M4C,
-    ("feas", "UNDATED", "status"): M2U,
-    ("cohort", "OPT", "status"): CR26,
-    ("cohort", "REFUSED", "status"): M2C,
-    ("cohort", "UNDATED", "status"): M2U,
-    ("cohort", "UNDATED", "consent"): M2U,
     ("nav.single", "INF", "status"): H2,
     ("nav.single", "PREGNANT", "status"): H2,
     ("nav.single", "CUT", "status"): Known("H4", H4.why + "; H2: and one model's answer drops the patient"),
     ("nav.single", "LOWCONF", "status"): M1A,
-    ("nav.single", "NOCONTACT", "status"): M1B,
-    ("nav.single", "REFUSED", "status"): M2,
-    ("nav.single", "UNDATED", "status"): M2U,
     ("microbatch.after_single", "INF", "verdicts"): H1,
     ("microbatch.after_single", "LOWCONF", "status"): M1A,
 }
@@ -830,9 +804,11 @@ def test_the_world_is_not_vacuous(world: World) -> None:
     assert world.seen["feas"].status["ELIG"] == "member" and world.seen["cohort"].status["ELIG"] == "member"
     for p in ("microbatch.recheck", "microbatch.after_single", "microbatch.amended", "microbatch.new"):
         assert world.seen[p].covers == _COVERS[p], (p, sorted(world.seen[p].covers ^ _COVERS[p]))
-    assert world.jobs["case.OPT"].state == "failed" and "opted out" in world.jobs["case.OPT"].error
+    refused = ("case.OPT", "case.REFUSED")  # the register, and since D-477 a registry refusal: no sheet is made
+    for n in refused:
+        assert world.jobs[n].state == "failed" and "opted out" in world.jobs[n].error, n
     assert {"gout flare", "tuberculosis", "pregnan"} <= world.asked
-    failed = {n: j.error for n, j in world.jobs.items() if j.state != "done" and n != "case.OPT"}
+    failed = {n: j.error for n, j in world.jobs.items() if j.state != "done" and n not in refused}
     assert not failed, failed
 
 
