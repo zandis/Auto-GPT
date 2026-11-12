@@ -121,7 +121,7 @@ JA: dict[str, str] = {
     "team.log.training_cert": "研修修了証",
     "team.log.visit": "モニタリング訪問の ID",
     "team.log.visit.help": "モニターの許可のときだけ：モニタリング訪問の ID（最終日は上の欄）。",
-    "account.totp_on": "2段階認証はオンです。サインインのたびに認証アプリのコードを入力します。",
+    "account.totp_on": "2段階認証はオンです。ログインのたびに認証アプリのコードを入力します。",
     "irbt.sentence_en": "英語の原文：",
     "dataops.event.ingest.done": "夜間取り込み完了",
     "dataops.event.ingest.failed": "夜間取り込み失敗",

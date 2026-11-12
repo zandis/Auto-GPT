@@ -44,7 +44,7 @@
     <h2>{{ t('admin.refdata') }}</h2>
     {% if refdata %}<p class="big" data-testid="refdata-asof">{{ refdata.data_as_of }}</p>
     <p class="hint">{{ t('admin.refdata.asof', pack=refdata.pack_id) }}{% if refdata.sample %} <span class="pill warn">{{ t('admin.refdata.sample') }}</span>{% endif %}</p>
-    <ul class="plain">{% for s in refdata.sources %}<li>{{ t_or('refdata.src.' ~ (s.id or ''), s.name) }} · {{ num(s.records) }}{% if s.distribution == 'site-fetch' %} <span class="pill">{{ t('admin.refdata.site') }}</span>{% endif %}</li>{% endfor %}</ul>
+    <ul class="plain">{% for s in refdata.sources %}<li>{{ t_or('refdata.src.' ~ (s.source_id or ''), s.name) }} · {{ num(s.records) }}{% if s.distribution == 'site-fetch' %} <span class="pill">{{ t('admin.refdata.site') }}</span>{% endif %}</li>{% endfor %}</ul>
     {% else %}<p class="hint" data-testid="refdata-none">{{ t('admin.refdata.none') }}</p>{% endif %}
     <a href="/admin/notice" data-testid="notice-link">{{ t('admin.notice_page') }}</a>
   </section>

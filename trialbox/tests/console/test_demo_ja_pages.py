@@ -130,3 +130,20 @@ def test_a_monitor_grant_says_which_field_is_missing_and_has_a_visit_field(box: 
     ok = pi.post("/studies/GZQO/team", data={**grant, "end": "2099-12-31", "visit": "MV-7"}, follow_redirects=False)
     assert ok.status_code == 303
     assert "MV-7" in pi.get("/studies/GZQO/team").text  # the visit id is on the log entry
+
+
+def test_the_admin_page_names_the_reference_sources_in_japanese(
+    box: dict[str, Any], db_url: str, tmp_path: Path
+) -> None:  # noqa: F811
+    from tb_common import refdata as rd
+
+    from tools import refdata_fetch as rf
+
+    tar = rf.build(rf.sample_raw(tmp_path / "raw"), tmp_path, "20261109", sample=True)
+    with rd.opened(tar) as p, rd.RefStore(db_url) as st:
+        st.load(p)
+    c, csrf = login(box["app"])
+    c.post("/lang", data={"csrf": csrf, "lang": "ja", "back": "/"})
+    page = c.get("/admin").text
+    assert i18n_demoja.JA["refdata.src.ctgov"] in page and i18n_demoja.JA["refdata.src.ctcae_v5_en"] in page
+    assert "ClinicalTrials.gov, all studies" not in page and "terms and grades, English" not in page
