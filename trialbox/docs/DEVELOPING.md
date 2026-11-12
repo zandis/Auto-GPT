@@ -57,6 +57,26 @@ The cross-card list is `CROSS_CARD_TESTS` in the Makefile: a test that fails onl
 index or a matrix every card writes to) belongs there. N is the matrix of `unit-shard` in
 `.github/workflows/trialbox-ci.yml`; changing it moves files between shards and nothing else.
 
+## CI tiers and the merge train (D-564)
+
+A push starts one of two tiers. `tests/unit/test_ci_tiers.py` holds the lists; a new job is put in one.
+
+| Tier | Runs | Jobs |
+| --- | --- | --- |
+| fast tier | on every push to a pull request, draft or not | `changes`, `lint`, `types`, `docs`, `contracts`, `data-scan`, `shell`, `trace`, `cross-card` (and `lock` of the supply-chain workflow) |
+| full tier | when the pull request is not a draft (marking it ready for review starts it), on a branch named `train/*`, on a push to `master`, and by hand | `unit-shard`, `unit`, `property`, `goldens`, `e2e-simple`, `demo-boot`, `security`, `standards`, `images` (and the image gates) |
+
+* A card's pull request stays a draft while it is built. It needs the fast tier green on its head, its targeted
+  tests and, where the plan asks, its adversarial review. On a draft the check `unit` shows as skipped, never as
+  success: nothing merges on it.
+* A new push cancels the older run of the same pull request.
+* **The merge train.** The integrator builds `train/<n>` from `master` by merging the heads of several reviewed
+  pull requests (`git merge --no-ff <head>` for each) and opens it as a pull request. The full tier runs once on
+  it. A green train is merged with a merge commit, not a squash, so the card pull requests show as merged. A red
+  train names the failing tests: the card that owns them is dropped and the train rebuilt.
+* To repeat a train's failure: `make test SHARD=i/N` for a unit shard, the job's own `make` target for the others
+  (RUNBOOK §3, the build-gate parts).
+
 ## Documents
 
 * **Nine documents.** README and the eight under `docs/`: Architecture, Runbook, Security, Data, Validation, User
