@@ -593,9 +593,9 @@ def test_the_publish_over_the_real_lake_service_is_recorded_with_one_rebuild(
     starts: list[str] = []
 
     class Counting(LakeHttp):
-        def start_rebuild(self, snapshot: str, allow_empty: bool = False) -> dict[str, Any]:
+        def start_rebuild(self, snapshot: str, allow_empty: bool = False, promote: bool = True) -> dict[str, Any]:
             starts.append(snapshot)
-            return super().start_rebuild(snapshot, allow_empty)
+            return super().start_rebuild(snapshot, allow_empty, promote)
 
     http = Counting("http://testserver")
     http.client = TestClient(lake_app.app)

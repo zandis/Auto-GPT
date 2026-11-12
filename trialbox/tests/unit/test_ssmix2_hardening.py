@@ -199,7 +199,8 @@ def test_one_bad_row_is_rejected_and_counted_the_table_goes_on(
     snap = tmp_path / "ok" / "ingest" / "ndjson" / "2026-11-01"
     comp = json.loads((snap / "completeness.json").read_text(encoding="utf-8"))
     assert comp["tables"]["lab"]["rows"] == 4
-    assert comp["tables"]["lab"]["rejected"] == {"unparseable datetime <value>": 1}
+    # D-520: the key names the exception's type before the value-free message
+    assert comp["tables"]["lab"]["rejected"] == {"MappingError: unparseable datetime <value>": 1}
     obs = (snap / "Observation.ndjson").read_text(encoding="utf-8").splitlines()
     assert len(obs) == 3 and "2026-13" not in "".join(obs)
 

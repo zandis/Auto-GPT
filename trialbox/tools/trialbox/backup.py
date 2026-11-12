@@ -401,6 +401,44 @@ def restore_db(src: DbSource, dump_file: Path, env: Mapping[str, str]) -> None:
         raise BackupError(f"pg_restore of {src.name} failed: {r.stderr.decode(errors='replace').strip()[-400:]}")
 
 
+ROLES_CMD = "TB_DB_ROLES_CMD"
+ROLES_NOT_NEEDED = "not-needed"  # the value of TB_DB_ROLES_CMD where every service signs in as trialbox
+ROLES_ON_A_BOX = "docker compose --project-directory deploy exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh"
+
+
+def reapply_service_roles(env: Mapping[str, str]) -> dict[str, str]:
+    """D-573: after ``pg_restore --no-owner`` every restored schema, table and function is the restoring role's
+    (``trialbox``); a service works as its schema's group, which then owns nothing. The service-roles script
+    (D-378) gives them back; the restore runs it through ``TB_DB_ROLES_CMD``. ``{"state": "applied"}``, or
+    ``not_configured`` with the line to run; a command that fails is a :class:`BackupError` with its output."""
+    if (env.get(ROLES_CMD) or "").strip() == ROLES_NOT_NEEDED:  # the platform: its services sign in as trialbox
+        return {"state": "not_needed"}
+    cmd = _cmd(env, ROLES_CMD, "")
+    if not cmd:
+        return {"state": "not_configured", "run": ROLES_ON_A_BOX}
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, env={**os.environ, **dict(env)}, check=False)
+    except OSError as e:
+        raise BackupError(f"the service roles were not put back after the restore: {' '.join(cmd)}: {e}") from e
+    if r.returncode != 0:
+        raise BackupError(
+            "the service roles were not put back after the restore (exit "
+            f"{r.returncode}): {(r.stderr or r.stdout).strip()[-400:]}; the databases are restored and the services "
+            "cannot work in them: do not start the services; fix what the output names and run this restore again"
+        )
+    return {"state": "applied"}
+
+
+def roles_ok(roles: Mapping[str, str], env: Mapping[str, str]) -> bool:
+    """Is the restore complete as far as the service roles go? Not when the command was not set on a box that
+    runs for real (PRODUCTION, VALIDATION; an unset TB_ENV is PRODUCTION)."""
+    if roles.get("state") != "not_configured":
+        return True
+    from tb_common.config import environment_name
+
+    return environment_name(env) not in ("PRODUCTION", "VALIDATION")
+
+
 def _drop_schemas(src: DbSource) -> None:
     """Drop the source's schemas in one transaction: those of its ``tb_prefix``, or, for a whole database, every
     schema but the system ones (``public`` is made again, empty, for the dump's objects)."""
@@ -1464,6 +1502,7 @@ def restore(
             kept_done = True
 
         wf_restored = False
+        roles: dict[str, str] = {"state": "not_restored"}  # D-573: no trial database in this backup, nothing to move
         jobs_failed: list[dict[str, str]] = []
         checked = {}
         # NEW-B-3 (D-522, review H1): what stands before the trial database is replaced. A hold that stands, or an
@@ -1523,6 +1562,10 @@ def restore(
                         f"the opt-outs recorded after the backup could not be put back ({type(e).__name__}); do "
                         "not start the services: those patients would be listed again"
                     ) from e
+                # D-573: the stores go back to their services' roles. After the running jobs were failed and the
+                # opt-outs kept (both are rows, written as trialbox): a failure here leaves neither undone. Not
+                # set: said in the result and by the command, see roles_ok
+                roles = reapply_service_roles(env)
         except BackupError as e:
             if wf_restored:  # the live register is gone: a second run could not read them any more (review H2)
                 with contextlib.suppress(Exception):
@@ -1589,7 +1632,8 @@ def restore(
             if HOST in targets and HOST in manifest["dirs"]
             else ("in the backup; not restored (--dir host=<folder> writes it)" if HOST in manifest["dirs"] else "none")
         )
-        complete = not reapply and optouts_ok(lost)
+        # D-573 (lane D): a restore whose service roles were not put back is not complete either (the hold stays)
+        complete = not reapply and optouts_ok(lost) and roles_ok(roles, env)
         # NEW-B-3 (D-522; D-455's open item): a restore that is not complete leaves the box's list jobs held until
         # a person releases the hold. The restore takes its own hold off only when it is complete and nothing was
         # carried (a hold that stood before, an earlier restore's set-aside chain)
@@ -1602,13 +1646,13 @@ def restore(
         audited = _audit(targets, env, "backup.restored", sha, {
             **base, "rows": checked, "dirs": sorted(manifest["dirs"]), "refdata_missing": refdata["missing"],
             "warnings": len(warnings), "optouts_after_backup": lost, "jobs_failed": len(jobs_failed),
-            "hold": hold, "to_reapply": len(reapply)})  # fmt: skip
+            "hold": hold, "to_reapply": len(reapply), "service_roles": roles["state"]})  # fmt: skip
     return {"ok": not refdata["missing"], "site": manifest["site"], "created_at": manifest["created_at"],
             "layout": manifest.get("layout", 1), "rows": checked, "dirs": sorted(manifest["dirs"]),
             "refdata": refdata, "warnings": warnings, "kept_copy": str(copy) if copy else None, "copy": copy_note,
             "host": host, "lake_check": lake,
             "to_reapply": reapply, "reapply_since": since.isoformat(timespec="milliseconds"),
-            "optouts_after_backup": lost, "jobs_failed": jobs_failed,
+            "optouts_after_backup": lost, "jobs_failed": jobs_failed, "service_roles": roles,
             "complete": complete, "hold": hold, "audit": audited}  # fmt: skip
 
 

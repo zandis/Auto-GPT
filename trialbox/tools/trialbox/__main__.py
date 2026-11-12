@@ -144,6 +144,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     s.add_argument("--deploy", type=Path, default=deploy)
     s.add_argument("--no-restart", action="store_true", help="rotate the files only; restart the services yourself")
+    sg = sub.add_parser("audit-sign", help="the nightly signed head of the audit chain (NEW-STD-2, D-562)")
+    sg.add_argument("--deploy", type=Path, default=deploy)
+    sg.add_argument("--local", action="store_true", help="an in-process box: sign here, append the event to the chain")
     lg = sub.add_parser("logs", help="log retention: collect, prune, archive-audit, daily (all three)")
     lg.add_argument("action", choices=["collect", "prune", "archive-audit", "daily"])
     lg.add_argument("--deploy", type=Path, default=deploy)
@@ -214,6 +217,10 @@ def main(argv: list[str] | None = None) -> int:
         return tb_watchdog.main(a.deploy, interval=a.interval, after_minutes=a.after_minutes,
                                 max_restarts=a.max_restarts, window_hours=a.window_hours, dry_run=a.dry_run,
                                 as_json=a.json)  # fmt: skip
+    if a.cmd == "audit-sign":
+        from tools.trialbox import audit_heads
+
+        return audit_heads.main_action(a.deploy, a.local)
     if a.cmd == "logs":
         from tools.trialbox import logs as tb_logs
 
@@ -440,6 +447,12 @@ def _backup_cmd(a: argparse.Namespace) -> int:
             print(f"restore: the hold on the box's list jobs could {hold}: the box WILL screen before the events "
                   "above are re-applied. Keep the services stopped until they are (RUNBOOK §5)",
                   file=sys.stderr)  # fmt: skip
+        roles = out.get("service_roles") or {}
+        roles_missing = not bk.roles_ok(roles, os.environ)  # D-573; said before any early exit
+        if roles_missing:
+            print("restore: NOT complete: the service roles were not put back (TB_DB_ROLES_CMD is not set), so the "
+                  f"services cannot work in the restored stores. Run, from the release folder: {roles.get('run')} "
+                  "(RUNBOOK §5)", file=sys.stderr)  # fmt: skip
         if out["refdata"]["missing"]:  # D-187: a backup holds no vendor pack rows; the box is not whole without them
             print(f"restore: the reference data is NOT loaded: put {', '.join(out['refdata']['missing'])}.tar in "
                   f"{a.refdata} (the update bundle or the vendor) and run this restore again, or load it with "
@@ -451,7 +464,7 @@ def _backup_cmd(a: argparse.Namespace) -> int:
                   "erasures, break-glass, EDC signatures, consent): a steward re-applies each one (to_reapply above; "
                   "audit event backup.restore_reapply; RUNBOOK §5)", file=sys.stderr)  # fmt: skip
             return 4
-        return 0 if bk.optouts_ok(lost) else 4
+        return 0 if bk.optouts_ok(lost) and not roles_missing else 4
     except bk.BackupError as exc:
         print(f"{a.cmd}: {exc}", file=sys.stderr)
         return 1

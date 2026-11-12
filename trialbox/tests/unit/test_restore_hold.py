@@ -59,7 +59,7 @@ def _backup_and_restore(
     monkeypatch.setattr(bk, "take_snapshot", snapshot_then_events)
     f = bk.backup([tmp_path / "nas"], pub, env={"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}, dirs={"audit": audit})[0]
     monkeypatch.setattr(bk, "take_snapshot", real)
-    out = bk.restore(f, priv, env={"TB_DB_URL": db_url}, dirs={"audit": audit}, no_copy=True)
+    out = bk.restore(f, priv, env={"TB_DB_URL": db_url, "TB_ENV": "DEV"}, dirs={"audit": audit}, no_copy=True)
     return out, audit, f, priv
 
 
@@ -127,7 +127,7 @@ def test_a_second_restore_never_removes_the_hold(tmp_path: Path, db_url: str, mo
     monkeypatch.setattr(bk, "optouts_ok", lambda lost: True)  # the register's side is whole in both runs
     # the second run reads the chain the first run restored, not the one the box wrote: it finds nothing
     monkeypatch.setattr(bk, "events_to_reapply", lambda audit_dir, since: [])
-    again = bk.restore(f, priv, env={"TB_DB_URL": db_url}, dirs={"audit": audit}, no_copy=True)
+    again = bk.restore(f, priv, env={"TB_DB_URL": db_url, "TB_ENV": "DEV"}, dirs={"audit": audit}, no_copy=True)
     assert again["to_reapply"] == [] and again["complete"] is True
     assert again["hold"] == "held" and flags.Flags(url=db_url).row(FLAG) == "held"
 
@@ -158,11 +158,11 @@ def test_a_restore_that_stops_after_the_database_was_replaced_leaves_the_box_hel
 
     monkeypatch.setattr(bk, "fail_running_jobs", cannot)
     with pytest.raises(bk.BackupError, match="could not be failed"):
-        bk.restore(f, priv, env={"TB_DB_URL": db_url}, dirs={"audit": audit}, no_copy=True)
+        bk.restore(f, priv, env={"TB_DB_URL": db_url, "TB_ENV": "DEV"}, dirs={"audit": audit}, no_copy=True)
     assert flags.Flags(url=db_url).row(FLAG) == "held"
     monkeypatch.setattr(bk, "fail_running_jobs", real)
     monkeypatch.setattr(bk, "optouts_ok", lambda lost: True)
-    out = bk.restore(f, priv, env={"TB_DB_URL": db_url}, dirs={"audit": audit}, no_copy=True)
+    out = bk.restore(f, priv, env={"TB_DB_URL": db_url, "TB_ENV": "DEV"}, dirs={"audit": audit}, no_copy=True)
     assert out["hold"] == "held" and flags.Flags(url=db_url).row(FLAG) == "held"  # the re-run does not release it
 
 
@@ -234,7 +234,7 @@ def test_doctor_shows_the_hold(db_url: str, tmp_path: Path) -> None:
 
     from tools.trialbox import doctor
 
-    inp: Any = SimpleNamespace(env={"TB_DB_URL": db_url})
+    inp: Any = SimpleNamespace(env={"TB_DB_URL": db_url, "TB_ENV": "DEV"})
     assert doctor.check_restore_hold(inp).status == "PASS"
     flags.Flags(url=db_url, audit=AuditLog(tmp_path / "audit")).set(FLAG, "held", actor="trialbox restore",
                                                                     reason="2 event(s) to re-apply")  # fmt: skip

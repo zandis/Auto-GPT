@@ -17,6 +17,8 @@ unit**: the same UCUM code or one of its usual spellings (:data:`UCUM`: ``mg/dl`
 * a different unit, even one a factor away (a CRP in ``mg/L`` against an ``mg/dL`` lookup is *not* divided by 10:
   the lookup may be wrong, the row may be wrong, and the site's lab team says which once, D-149);
 * a unit :data:`UCUM` lacks, on either side (never converted, never assumed equal);
+* ``IU/L`` against ``U/L``, except for the analytes of catalytic activity (:data:`ENZYME_ACTIVITY`, D-585), where
+  the two are one unit by definition;
 * a row unit when the lookup declares none.
 
 No value is unknown to the screening engines, never a failed comparison (D-130): a unit mismatch can hold a patient for
@@ -75,10 +77,39 @@ UNKNOWN_VALUE = Reason.UNKNOWN_VALUE.value
 # UCUM code -> the spellings that mean exactly that unit: one table in :mod:`tb_common.labunit` (D-418), which
 # the engines' scale conversions read too.
 UCUM = labunit.UCUM
+# NEW-STD-4 (D-585): what Japanese and Taiwanese labs print. Read here, in the feed's reader, and not added to the
+# engines' table: a spelling there becomes an arm of every ruleset's compiled SQL. A mapped row is stored in its
+# look-up's unit once this reader agreed, so the engines never meet these spellings from a mapped feed.
+# the multiplication sign as ``x``, and the units of time written in kanji (``mL/分/1.73m2``, ``秒``, ``mm/時``)
+_SPELL = str.maketrans({"×": "x", "✕": "x", "分": "min", "秒": "s", "時": "h"})
+# more spellings of units the table knows, and one unit it does not: ``10*2/uL`` (white cells in Japan) agrees with
+# itself only. ``G/L`` is on purpose not here: giga per litre in a blood count, grams per litre in an upper-case
+# export; the site declares it per analyte (``source_unit``).
+FEED_SPELLINGS: dict[str, tuple[str, ...]] = {
+    "10*3/uL": ("千/uL", "千/µL"),
+    "10*4/uL": ("x10^4/µL",),
+    "10*6/uL": ("x10^6/µL",),
+    "10*2/uL": ("10^2/uL", "10^2/µL", "x10^2/uL", "x10^2/µL"),
+    "/uL": ("個/uL", "個/µL"),
+}
+# analytes measured as catalytic activity per volume in serum or plasma (LOINC): AST, ALT, ALP, LDH, CK, γ-GT and
+# lipase, each confirmed as "[Enzymatic activity/volume]" in ``catalogue/codes_checked.csv``. A code is added here
+# with its catalogue row, never from memory. For these, and only these, the international unit is the enzyme unit
+# by definition (1 IU = 1 U = 1 µmol of substrate a minute), so ``IU/L`` on a row and ``U/L`` in the look-up are
+# one unit. An IU of insulin or of a vitamin is not an enzyme unit: every other analyte keeps them apart (D-215).
+ENZYME_ACTIVITY = frozenset({"1920-8", "1742-6", "6768-6", "2532-0", "2157-6", "2324-2", "3040-3"})
+_ENZYME_UNIT = {"[IU]/L": "U/L", "[IU]/mL": "U/mL", "m[IU]/mL": "mU/mL"}
+
+
+def _spelled(unit: object) -> str:
+    """A unit as it is looked up: NFKC, no spaces, the signs of :data:`_SPELL` in their plain form."""
+    return unicodedata.normalize("NFKC", str(unit)).replace(" ", "").translate(_SPELL)
+
+
 _KNOWN: dict[str, str] = {}
-for _code, _spellings in UCUM.items():
+for _code, _spellings in (*UCUM.items(), *FEED_SPELLINGS.items()):
     for _u in (_code, *_spellings):
-        _KNOWN[unicodedata.normalize("NFKC", _u).replace(" ", "")] = _code
+        _KNOWN[_spelled(_u)] = _code
 
 
 _FOLDED: dict[str, set[str]] = {}
@@ -88,18 +119,34 @@ for _k, _code in _KNOWN.items():
 
 def ucum(unit: object) -> str | None:
     """The UCUM code a unit as written stands for, or None when :data:`UCUM` does not know it. The exact spelling
-    first (NFKC, no spaces); then, for a quotient only (``MG/DL``, ``U/l``: hospital exports often change the case),
-    the case-folded spelling when it names one code. A bare symbol is never case-folded (``M`` is molar, ``m`` metre;
-    ``S`` siemens, ``s`` second)."""
+    first (NFKC, no spaces, :data:`_SPELL`); then, for a quotient only (``MG/DL``, ``U/l``: hospital exports often
+    change the case), the case-folded spelling when it names one code. A bare symbol is never case-folded (``M`` is
+    molar, ``m`` metre; ``S`` siemens, ``s`` second)."""
     if unit is None:
         return None
-    u = unicodedata.normalize("NFKC", str(unit)).replace(" ", "")
+    u = _spelled(unit)
     if not u:
         return None
     if u in _KNOWN:
         return _KNOWN[u]
     folded = _FOLDED.get(u.lower(), set()) if "/" in u else set()
     return next(iter(folded)) if len(folded) == 1 else None
+
+
+def _as_enzyme(code: str | None, loinc: str | None) -> str | None:
+    return _ENZYME_UNIT.get(code, code) if code and loinc in ENZYME_ACTIVITY else code
+
+
+def units_agree(row_unit: object, lookup_unit: object, loinc: str | None = None) -> bool | None:
+    """None when the row names no unit (the site's declared unit applies); True only when both are the same UCUM
+    code (:func:`ucum`); False otherwise, a unit :data:`UCUM` lacks on either side included. Decided on the units
+    alone, before and whatever the result text is. ``loinc``: the analyte, for the one rule that depends on it
+    (:data:`ENZYME_ACTIVITY`: ``IU/L`` and ``U/L`` are one unit)."""
+    row = "" if row_unit is None else unicodedata.normalize("NFKC", str(row_unit)).strip()
+    if not row:
+        return None
+    mine, theirs = _as_enzyme(ucum(row), loinc), _as_enzyme(ucum(lookup_unit), loinc)
+    return mine is not None and mine == theirs
 
 
 class Reading(NamedTuple):
@@ -110,22 +157,12 @@ class Reading(NamedTuple):
     reason: str | None
 
 
-def units_agree(row_unit: object, lookup_unit: object) -> bool | None:
-    """None when the row names no unit (the site's declared unit applies); True only when both are the same UCUM
-    code (:func:`ucum`); False otherwise, a unit :data:`UCUM` lacks on either side included. Decided on the units
-    alone, before and whatever the result text is."""
-    row = "" if row_unit is None else unicodedata.normalize("NFKC", str(row_unit)).strip()
-    if not row:
-        return None
-    mine, theirs = ucum(row), ucum(lookup_unit)
-    return mine is not None and mine == theirs
-
-
-def read(text: object, row_unit: object, lookup_unit: object) -> Reading:
+def read(text: object, row_unit: object, lookup_unit: object, loinc: str | None = None) -> Reading:
     """``text`` (the result as written) with the row's own unit, against the unit the lookup declares. The units are
-    judged first (:func:`units_agree`): a mismatch is ``unit_mismatch`` whatever the text. Then the text is read by
-    :func:`parse` only (no exponent, no ``NaN``): a value comes back in the lookup's unit, never converted."""
-    if units_agree(row_unit, lookup_unit) is False:
+    judged first (:func:`units_agree`, with the analyte ``loinc`` when the look-up names one): a mismatch is
+    ``unit_mismatch`` whatever the text. Then the text is read by :func:`parse` only (no exponent, no ``NaN``): a
+    value comes back in the lookup's unit, never converted."""
+    if units_agree(row_unit, lookup_unit, loinc) is False:
         return Reading(None, None, UNIT_MISMATCH)
     got = parse(text)
     if got is None:

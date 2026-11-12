@@ -9,13 +9,23 @@
 #    site reports an analyte in another unit, set the lookup's `source_unit` and `factor` (mapping_check proposes
 #    the factor) and, if the lookup's `ucum` changes, the matching `unit_defaults` line (D-149, D-334; inherited
 #    from tw_core/demo_his.yaml until this file declares its own).
-# 4. python tools/mapping_check.py --mapping <file> --source cgrd_sql --dsn "$HIS_DSN"
+# 4. First look at the real source (T-731, D-588; the connection string stays in the environment variable):
+#      python tools/mapping_check.py --mapping <file> --source cgrd_sql --dsn-env HIS_DSN --columns-only --share columns.json
+#      python tools/mapping_check.py --mapping <file> --source cgrd_sql --dsn-env HIS_DSN --day <YYYY-MM-DD> --rows 20000 --share day.json
+#    The two share files hold names, shapes and counts, never a row value: only they may leave the site.
 # 5. settings.yaml: data_source: {type: cgrd_sql, dsn_env: HIS_DSN, mapping: mapping/tw_core/<site>.yaml}
 # `delta: updated_at` is the row's change time (`--since` nights); map the column that changes on every edit.
 version: 1
 name: SITE_his
 extends: ../tw_core/demo_his.yaml
 tz: Asia/Taipei
+# NEW-STD-1 (D-586): Taiwan's NHI coded diagnoses in ICD-9-CM until 2015-12-31. A diagnosis keyed before this day
+# (`recorded_date`; the day of the diagnosis when the row has no keyed day) carries the ICD-9-CM code system, never
+# ICD-10-CM. A site whose export has a column that says the edition renames it to `diag_code_system` and translates
+# its words to icd9cm / icd10cm under `values:`; the row's own word wins over the dates. The day is written
+# YYYY-MM-DD. After setting or changing it, run one full load (a delta night re-reads changed rows only). Remove
+# the line only for a site whose every diagnosis is ICD-10-CM.
+params: {icd9cm_before: "2016-01-01"}
 tables:
   patient:
     source: PATIENT_VIEW

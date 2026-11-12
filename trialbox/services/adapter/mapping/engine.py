@@ -46,6 +46,7 @@ import hashlib
 import hmac
 import json
 import re
+from collections import Counter
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -69,8 +70,29 @@ _OFFSET_RE = re.compile(r"\d[T ]\d{2}:?\d{2}(?::?\d{2}(?:\.\d+)?)?\s*(?:Z|[+-]\d
 MAPPING_VERSION = "urn:trialbox:mapping-version"  # the meta.tag system of the mapping version (lake.flatten)
 
 
+# the earliest year a feed date may carry. Reason, not a tuning value: no person alive was born before it (the
+# longest verified human life is 122 years) and no hospital system holds an older record of a living patient; a
+# smaller year is a date of another calendar read as western (ROC year 115, an era year), which must be refused.
+EARLIEST_YEAR = 1850
+# the latest year a feed date may carry is this many years after today's. Reason, not a tuning value: what a feed
+# dates ahead is a booked visit or the end of a prescription, both within a study's length; a year further on is a
+# two-digit-year value read as western (`640712081500` as the year 6407) or a placeholder (`9999-12-31`), and
+# neither is a fact about a patient (DIN-001, DIN-012).
+LATEST_YEARS_AHEAD = 10
+# a value of digits only is a date, a minute or a second by its length, and nothing else: `strptime` takes a
+# one-digit month, so a 7- or 13-digit Republic-of-China value used to match as the year 1150 (DIN-001), and 12
+# digits matched the seconds form as 08:03 for 08:30 (DIN-014).
+_COMPACT_FORMS = {8: "%Y%m%d", 12: "%Y%m%d%H%M", 14: "%Y%m%d%H%M%S"}
+_DIGIT_RUN_RE = re.compile(r"\d+")
+_FRACTION_RE = re.compile(r"\.\d+")
+
+
 class MappingError(ValueError):
     pass
+
+
+class DateRangeError(MappingError):
+    """A value that reads as a date outside ``EARLIEST_YEAR`` to today's year + ``LATEST_YEARS_AHEAD``."""
 
 
 def _zone(path: Path, name: object) -> ZoneInfo:
@@ -89,17 +111,53 @@ def resource_id(site_key: bytes, rtype: str, value: str) -> str:
     return hmac.new(site_key, f"{rtype}|{value}".encode(), hashlib.sha256).hexdigest()[:32]
 
 
+# full-width ASCII (U+FF01 to U+FF5E) and the ideographic space, to their half-width forms: what a Taiwanese or
+# Japanese system writes for the same code. Not Unicode NFKC: that also turns ``㎎`` into ``mg``, ``①`` into ``1``
+# and ``Ⅳ`` into ``IV``, which are other signs, not another width of the same code.
+_HALF_WIDTH = {**{c: c - 0xFEE0 for c in range(0xFF01, 0xFF5F)}, 0x3000: 0x20}
+# what a code looks like when it is written into a report (D-580): printable ASCII with no blank inside, and no
+# longer than this. Reason for the length: the longest code a look-up of this product is keyed by is JLAC10 (17
+# characters); a site's own prefix or suffix fits in the rest. A longer value, or one with a blank or a letter of
+# another script, is text someone typed into the code column and is counted, never written out.
+CODE_MAX = 40
+_CODE_SHAPE = re.compile(rf"[!-~]{{1,{CODE_MAX}}}")
+NO_CODE, NOT_A_CODE = "(no code)", "(not a code)"
+
+
+def fold_key(key: object) -> str:
+    """A look-up key as a person reads it (D-580): no blanks around it, full-width letters and digits made
+    half-width, lower case."""
+    return ("" if key is None else str(key)).translate(_HALF_WIDTH).strip().lower()
+
+
 @dataclass
 class Lookup:
     name: str
     key: str
     rows: dict[str, Row]
+    _folded: dict[str, Row | None] | None = field(default=None, repr=False, compare=False)
 
     @classmethod
     def load(cls, name: str, path: Path, key: str) -> Lookup:
-        with path.open(encoding="utf-8", newline="") as fh:
+        with path.open(encoding="utf-8-sig", newline="") as fh:  # a look-up saved with a byte order mark reads too
             rows = {r[key]: r for r in csv.DictReader(fh)}
         return cls(name, key, rows)
+
+    def find(self, key: object) -> Row | None:
+        """The row of ``key`` (NEW-DIN-6, D-580): as written first; else by its folded form (:func:`fold_key`) when
+        exactly one row of the table has it. Two rows that differ only by case, width or blanks are two codes of the
+        site: folding matches neither (never a guess). An empty key has no row."""
+        text = "" if key is None else str(key)
+        hit = self.rows.get(text)
+        if hit is not None or not text.strip():
+            return hit
+        if self._folded is None:
+            folded: dict[str, Row | None] = {}
+            for k, row in self.rows.items():
+                fk = fold_key(k)
+                folded[fk] = None if fk in folded else row
+            self._folded = folded
+        return self._folded.get(fold_key(text))
 
 
 @dataclass
@@ -126,6 +184,8 @@ class Mapping:
     fhir_profiles: str = ""  # "jp-core": the ingest checks a sample against JP Core (D-137); "tw-core" (T-619a)
     # D-149: the site's declared unit per analyte (LOINC code -> UCUM) for a feed result that arrives without one
     unit_defaults: dict[str, str] = field(default_factory=dict)
+    # NEW-STD-1 (D-586): what a site states once and conditions read as ``{param: name}`` (``icd9cm_before``)
+    params: dict[str, str] = field(default_factory=dict)
     # T-106b: ``<name>@<12 hex>``, the hash of the mapping file and the base it extends (a changed file, a new version)
     version: str = ""
 
@@ -154,6 +214,7 @@ class Mapping:
             site_tables = doc.get("tables") or {}
             merged = {**base, **{k: v for k, v in doc.items() if k != "extends"}}
             merged["systems"] = {**(base.get("systems") or {}), **(doc.get("systems") or {})}
+            merged["params"] = {**(base.get("params") or {}), **(doc.get("params") or {})}
             merged["lookups"] = {**(base.get("lookups") or {}), **(doc.get("lookups") or {})}
             lookup_dirs = {
                 **{n: base_path.parent for n in (base.get("lookups") or {})},
@@ -187,6 +248,7 @@ class Mapping:
         for r in resources:
             if r.table not in (doc.get("tables") or {}):
                 raise MappingError(f"{path}: resource {r.type} uses undeclared table {r.table!r}")
+            _known_codes_are_the_maps(path, r)
         return cls(
             name=doc.get("name", path.stem),
             tz=_zone(path, doc.get("tz")),
@@ -199,8 +261,40 @@ class Mapping:
             profiles={str(k): str(v or "") for k, v in (doc.get("profiles") or {}).items()},
             fhir_profiles=str(doc.get("fhir_profiles") or ""),
             unit_defaults={str(k): str(v) for k, v in (doc.get("unit_defaults") or {}).items()},
+            params=cls._params(path, doc),
             version=f"{doc.get('name', path.stem)}@{digest.hexdigest()[:12]}",
         )
+
+    @staticmethod
+    def _params(path: Path, doc: dict[str, Any]) -> dict[str, str]:
+        """The mapping's ``params`` (NEW-STD-1, D-586), checked when the mapping loads: each is a day written
+        ``YYYY-MM-DD`` (a bound is compared as text, so ``2016/01/01`` or a blank would move every diagnosis to the
+        wrong edition), and each is read by a condition (a misspelt name would switch its rule off silently)."""
+
+        def used(node: Any) -> set[str]:
+            if isinstance(node, dict):
+                here = {str(v["param"]) for k, v in node.items()
+                        if k in ("date_before", "date_from") and isinstance(v, dict) and "param" in v}  # fmt: skip
+                return here.union(*(used(v) for v in node.values()))
+            if isinstance(node, list):
+                return set().union(*(used(v) for v in node))
+            return set()
+
+        out: dict[str, str] = {}
+        read = used(doc.get("resources") or [])
+        for name, value in (doc.get("params") or {}).items():
+            text = "" if value is None else str(value)
+            try:
+                ok = len(text) == 10 and date.fromisoformat(text).isoformat() == text
+            except ValueError:
+                ok = False
+            if not ok:
+                raise MappingError(f"{path}: params.{name} must be a day written YYYY-MM-DD, not {text!r}")
+            if str(name) not in read:
+                raise MappingError(f"{path}: params.{name} is read by no condition of this mapping "
+                                   f"(known: {', '.join(sorted(read)) or 'none'})")  # fmt: skip
+            out[str(name)] = text
+        return out
 
     def normalize(self, table: str, row: Row) -> Row:
         """Source row → canonical row: ``rename`` local columns, then translate ``values`` codes."""
@@ -210,8 +304,12 @@ class Mapping:
         for col, codes in (spec.get("values") or {}).items():
             v = out.get(col)
             table_codes = {str(k): c for k, c in codes.items()}  # YAML may load 1: M with an int key
-            if v is not None and str(v) in table_codes:
+            if v is None:
+                continue
+            if str(v) in table_codes:
                 out[col] = table_codes[str(v)]
+            elif str(v).strip() in table_codes:  # D-587: blanks around a site's code are not part of it
+                out[col] = table_codes[str(v).strip()]
         return out
 
     def source_column(self, table: str, canonical: str | None) -> str | None:
@@ -220,6 +318,35 @@ class Mapping:
             return None
         rename: dict[str, str] = (self.tables.get(table) or {}).get("rename") or {}
         return next((local for local, canon in rename.items() if canon == canonical), canonical)
+
+
+def _known_codes_are_the_maps(path: Path, r: ResourceSpec) -> None:
+    """NEW-DIN-7 (D-587): a ``known:`` / ``unknown_to:`` list repeats the codes of the ``map:`` on the same column
+    of the same resource. One changed without the other would drop, or mark unknown, every row of a code the map
+    reads: the mapping does not load."""
+    maps: dict[str, set[str]] = {}
+    for expr in r.elements.values():
+        if isinstance(expr, dict) and isinstance(expr.get("map"), dict) and isinstance(expr.get("column"), str):
+            maps.setdefault(expr["column"], set()).update(str(k) for k in expr["map"])
+
+    def walk(x: Any) -> None:
+        if isinstance(x, dict):
+            for word in ("known", "unknown_to"):
+                col = x.get("column")
+                if word in x and col in maps and {str(c) for c in x[word]} != maps[col]:
+                    raise MappingError(
+                        f"{path}: {r.type} from {r.table}: the {word} codes {sorted(str(c) for c in x[word])} of "
+                        f"{col} are not the codes of the map on {col} {sorted(maps[col])}; a site's own codes go "
+                        "in the table's values: map"
+                    )
+            for v in x.values():
+                walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v)
+
+    walk(r.where)
+    walk(r.elements)
 
 
 class Mapper:
@@ -235,44 +362,87 @@ class Mapper:
             "coding": self._b_coding,
             "period": self._b_period,
         }
+        # NEW-DIN-6 (D-580): rows a resource's ``where`` dropped because the look-up has no row for their code,
+        # by (source table, look-up, code as fed without its blanks): codes and counts, never a row
+        self.unmapped: Counter[tuple[str, str, str]] = Counter()
+        self._row_seen: set[tuple[str, str]] | None = None  # the row :meth:`map_table` is mapping, else None
 
     # ------------------------------------------------------------------ scalar conversion
     def _parse_dt(self, raw: str) -> datetime:
         """A source date-time. One that states its offset keeps it (the same instant, the same offset: T-616,
-        STD-015); a naive one is in the mapping's ``tz``; a date alone is its midnight in ``tz``."""
+        STD-015); a naive one is in the mapping's ``tz``; a date alone is its midnight in ``tz``. A value that is
+        not a western calendar date-time is refused on every form (DIN-001)."""
+        try:
+            return self._read_dt(raw)
+        except DateRangeError:
+            raise
+        except ValueError as exc:
+            raise MappingError(f"unparseable datetime {raw!r}") from exc
+
+    def _read_dt(self, raw: str) -> datetime:
         if _OFFSET_RE.search(raw.strip()):
             text = raw.strip()
             text = text[:-1] + "+00:00" if text[-1] in "zZ" else text
+            return self._western(datetime.fromisoformat(text.replace(" ", "T", 1)), raw)
+        text = raw.strip().replace("T", " ")
+        compact = self._compact(text, raw)
+        if compact is not None:
+            return compact.replace(tzinfo=self.m.tz)
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M"):
             try:
-                return datetime.fromisoformat(text.replace(" ", "T", 1))
-            except ValueError as exc:
-                raise MappingError(f"unparseable datetime {raw!r}") from exc
-        raw = raw.strip().replace("T", " ")
-        for fmt in (
-            "%Y-%m-%d %H:%M:%S",
-            "%Y-%m-%d %H:%M",
-            "%Y/%m/%d %H:%M:%S",
-            "%Y/%m/%d %H:%M",
-            "%Y%m%d%H%M%S",
-        ):
-            try:
-                return datetime.strptime(raw, fmt).replace(tzinfo=self.m.tz)
+                got = datetime.strptime(text, fmt)
             except ValueError:
                 continue
-        try:
-            d = self._parse_date(raw)
-        except MappingError as exc:
-            raise MappingError(f"unparseable datetime {raw!r}") from exc
+            return self._western(got, raw).replace(tzinfo=self.m.tz)
+        d = self._parse_date(raw)
         return datetime(d.year, d.month, d.day, tzinfo=self.m.tz)
 
     @staticmethod
-    def _parse_date(raw: str) -> date:
-        raw = raw.strip()
-        for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"):
+    def _western(dt: datetime, raw: str) -> datetime:
+        """``dt`` when its year can be a patient's; one message for every form and column type."""
+        if not EARLIEST_YEAR <= dt.year <= date.today().year + LATEST_YEARS_AHEAD:
+            raise DateRangeError(
+                f"date {raw!r} is outside {EARLIEST_YEAR} to {LATEST_YEARS_AHEAD} years from now: "
+                "not a western calendar date"
+            )
+        return dt
+
+    @classmethod
+    def _compact(cls, text: str, raw: str) -> datetime | None:
+        """The value when it starts with digits and has no date separator. Digits only: 8, 12 or 14 of them
+        (``_COMPACT_FORMS``). Digits and then something else: the run is 8, 12 or 14 digits and its date is read, as
+        before this card (the time too when what follows 14 digits is a fraction of a second). None: not compact."""
+        run = _DIGIT_RUN_RE.match(text)
+        if run is None or "-" in text[: run.end() + 1] or "/" in text:
+            return None
+        digits, tail = run.group(), text[run.end() :]
+        fmt = _COMPACT_FORMS.get(len(digits))
+        if fmt is None:
+            raise MappingError(f"unparseable date {raw!r}")
+        if tail and not (len(digits) == 14 and _FRACTION_RE.fullmatch(tail)):
+            digits, fmt = digits[:8], "%Y%m%d"
+        try:
+            got = datetime.strptime(digits, fmt)
+        except ValueError as exc:
+            raise MappingError(f"unparseable date {raw!r}") from exc
+        return cls._western(got, raw)
+
+    @classmethod
+    def _parse_date(cls, raw: str) -> date:
+        """A western calendar date. Anything else is refused (DIN-001): `strptime` takes a one-digit month, so the
+        compact form on a Republic-of-China date (`1150501`) or a two-digit year (`640715`) used to give the year
+        1150 or 6407 and the night passed. The compact form needs 8 digits (or the 12 or 14 of a date-time), and a
+        year outside ``EARLIEST_YEAR`` to ``LATEST_YEARS_AHEAD`` years from now is not a patient's date."""
+        text = raw.strip()
+        compact = cls._compact(text.replace("T", " "), raw)
+        if compact is not None:
+            return compact.date()
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
             try:
-                return datetime.strptime(raw[:10] if "-" in raw or "/" in raw else raw[:8], fmt).date()
+                got = datetime.strptime(text[:10], fmt)
             except ValueError:
                 continue
+            return cls._western(got, raw).date()
         raise MappingError(f"unparseable date {raw!r}")
 
     def convert(self, value: Any, typ: str | None) -> Any:
@@ -310,8 +480,7 @@ class Mapper:
         return resource_id(self.key, rtype, str(row[col]))
 
     def lookup(self, spec: dict[str, Any], row: Row) -> Any:
-        lk = self.m.lookups[spec["name"]]
-        hit = lk.rows.get(str(row.get(spec["key"], "")))
+        hit = self.m.lookups[spec["name"]].find(row.get(spec["key"]))
         if hit is None:
             return spec.get("default")
         return hit.get(spec["field"]) or spec.get("default")
@@ -361,9 +530,12 @@ class Mapper:
             raw = row.get(expr["column"])
             if "map" in expr:
                 key = "" if raw is None else str(raw)
-                if key.strip() and key not in expr["map"] and "unmapped" in expr:
+                if key not in expr["map"]:
+                    key = key.strip()  # a padded code is the same code (D-580)
+                if key and key not in expr["map"] and "unmapped" in expr:
                     # D-275: a code the map does not know is not the empty default (a cancelled order must never
-                    # become "active" because the map lacks the word)
+                    # become "active" because the map lacks the word). NEW-DIN-7 (D-587): and it is counted
+                    self._note_unmapped(rs.table, f"column:{expr['column']}", key)
                     raw = expr["unmapped"]
                 else:
                     raw = expr["map"].get(key, expr.get("default"))
@@ -392,8 +564,21 @@ class Mapper:
             return None if text is None else base64.b64encode(str(text).encode("utf-8")).decode("ascii")
         raise MappingError(f"unknown value expression {expr!r}")
 
+    def _bound(self, value: Any) -> str | None:
+        """A date bound of a condition: a day, or ``{param: name}`` (NEW-STD-1): the mapping's parameter of that
+        name, None when the mapping sets none."""
+        if isinstance(value, dict):
+            got = self.m.params.get(str(value.get("param")))
+            return str(got) if got else None
+        return str(value)
+
     def cond(self, conds: Any, row: Row) -> bool:
         for c in conds if isinstance(conds, list) else [conds]:
+            if "any" in c:  # NEW-STD-1: one of the lists holds
+                if not any(self.cond(alt, row) for alt in c["any"]):
+                    return False
+                if not {"column", "lookup", "fhir_profiles"} & set(c):
+                    continue  # ``any`` alone; with a column or a look-up beside it both must hold
             if "fhir_profiles" in c:  # T-619a: the profile set of the mapping (tw-core, jp-core), not a column
                 if self.m.fhir_profiles != str(c["fhir_profiles"]):
                     return False
@@ -410,17 +595,26 @@ class Mapper:
                 return False
             if "in" in c and sv not in [str(x) for x in c["in"]]:
                 return False
+            # NEW-DIN-7 (D-587): ``known``: blank, or one of the codes; ``unknown_to``: a code that is none of them
+            if "known" in c and sv.strip() and sv.strip() not in [str(x) for x in c["known"]]:
+                return False
+            if "unknown_to" in c and (not sv.strip() or sv.strip() in [str(x) for x in c["unknown_to"]]):
+                return False
             if "not_in" in c and sv in [str(x) for x in c["not_in"]]:
                 return False
             if "date_before" in c or "date_from" in c:  # T-619a: an ISO date bound (a code edition by date)
-                try:
+                before = self._bound(c["date_before"]) if "date_before" in c else None
+                since = self._bound(c["date_from"]) if "date_from" in c else None
+                if "date_before" in c and before is None:
+                    return False  # a parameter the mapping does not set: nothing is "before" it
+                if before is not None or since is not None:
+                    # a value that is there and cannot be read refuses the row (it used to answer "no" to both
+                    # bounds, so the element was left out and nothing was counted)
                     day = self._parse_date(sv).isoformat() if sv.strip() else ""
-                except MappingError:
-                    day = ""
-                if not day or ("date_before" in c and day >= str(c["date_before"])):
-                    return False
-                if "date_from" in c and day < str(c["date_from"]):
-                    return False
+                    if not day or (before is not None and day >= before):
+                        return False
+                    if since is not None and day < since:
+                        return False
             if "numeric" in c:
                 try:
                     float(sv)
@@ -437,7 +631,7 @@ class Mapper:
         ``unit_column`` the row's own unit is checked against the unit the lookup says the source reports (its
         ``source_unit`` column, else ``ucum`` when ``factor`` is 1): a row in another unit, or in a unit nobody can
         check, has no value (R-31, D-215, :func:`tb_common.labvalue.read`)."""
-        lk = self.m.lookups[args["lookup"]].rows.get(str(row.get(args["key"], "")))
+        lk = self.m.lookups[args["lookup"]].find(row.get(args["key"]))
         raw = row.get(args["column"])
         if lk is None or raw is None or str(raw).strip() == "":
             return None
@@ -447,7 +641,8 @@ class Mapper:
             if column not in row:  # a declared unit column the source does not have: stop, never skip the check
                 raise MappingError(f"{rs.type} from {rs.table}: unit_column {column!r} is not a column of the source")
             source_unit = lk.get("source_unit") or (lk.get("ucum") if Decimal(lk.get("factor") or "1") == 1 else None)
-            checked = labvalue.read(raw, row[column], source_unit)
+            loinc = lk.get("code") if lk.get("system") == "loinc" else None  # NEW-STD-4: IU/L as U/L for enzymes
+            checked = labvalue.read(raw, row[column], source_unit, loinc)
             if checked.reason == labvalue.UNIT_MISMATCH:  # no value[x]: the engines read no value as unknown (D-130)
                 return {
                     "dataAbsentReason": {
@@ -489,7 +684,9 @@ class Mapper:
                 return {"valueString": str(raw)}
         factor = Decimal(lk.get("factor") or "1")
         val = num * factor
-        unit = lk.get("ucum") or ""
+        # NEW-STD-4 (D-585): the unit is stored as its UCUM code, never as the spelling the look-up was typed in
+        # (``×10^3/μL``): the engines read the code, not the spellings of the feed
+        unit = labvalue.ucum(lk.get("ucum")) or lk.get("ucum") or ""
         q: dict[str, Any] = {"value": float(val) if val % 1 else int(val), "unit": unit}
         if comparator:
             q["comparator"] = comparator
@@ -583,6 +780,7 @@ class Mapper:
 
     def map_row(self, rs: ResourceSpec, row: Row) -> Resource | None:
         if rs.where and not self.cond(rs.where, row):
+            self._count_unmapped(rs, row)
             return None
         res: Resource = {"resourceType": rs.type, "id": self.row_id(rs, row)}
         if rs.profile:
@@ -600,6 +798,62 @@ class Mapper:
         pruned: Resource = self.prune(res)
         return pruned
 
+    def _note_unmapped(self, table: str, name: str, code: str) -> None:
+        """One dropped or unknown code, once per source row and name (``self._row_seen`` is the row's set while
+        :meth:`map_table` maps it; a caller of :meth:`map_row` alone counts every call)."""
+        at = (name, code)
+        if self._row_seen is None or at not in self._row_seen:
+            self.unmapped[(table, *at)] += 1
+            if self._row_seen is not None:
+                self._row_seen.add(at)
+
+    def _count_unmapped(self, rs: ResourceSpec, row: Row) -> None:
+        """Count the row a ``where`` dropped when the reason is a code nobody knows: a ``{lookup: ..., not_empty:
+        true}`` condition whose look-up gives nothing for the row's key (D-580), or a ``{column: ..., known:
+        [...]}`` condition whose column holds another code (NEW-DIN-7, D-587)."""
+        for c in rs.where if isinstance(rs.where, list) else [rs.where]:
+            if not isinstance(c, dict):
+                continue
+            spec = c.get("lookup")
+            if spec and c.get("not_empty") and self.lookup(spec, row) in (None, ""):
+                code = row.get(spec["key"])
+                self._note_unmapped(rs.table, str(spec["name"]), "" if code is None else str(code).strip())
+            elif "known" in c and "column" in c:
+                raw = row.get(c["column"])
+                code = "" if raw is None else str(raw).strip()
+                if code and code not in [str(x) for x in c["known"]]:
+                    self._note_unmapped(rs.table, f"column:{c['column']}", code)
+
+    def unmapped_by_code(self, chart_pattern: str | None = None) -> dict[str, dict[str, dict[str, int]]]:
+        """``{table: {look-up: {code: rows}}}``, the largest count first: every code, none cut (OD-10). Only what
+        looks like a code is written out (``_CODE_SHAPE``, and not the site's chart-number pattern): a value with a
+        blank, a name or a number of a patient that a mis-mapped column put where the code belongs is counted under
+        ``NOT_A_CODE``, an empty one under ``NO_CODE``. Nothing identifying reaches a report."""
+        chart = re.compile(chart_pattern) if chart_pattern else None
+        counts: Counter[tuple[str, str, str]] = Counter()
+        for (table, name, code), n in self.unmapped.items():
+            if not code:
+                code = NO_CODE
+            elif not _CODE_SHAPE.fullmatch(code) or (chart is not None and chart.fullmatch(code)):
+                code = NOT_A_CODE
+            counts[(table, name, code)] += n
+        out: dict[str, dict[str, dict[str, int]]] = {}
+        for (table, name, code), n in sorted(counts.items(), key=lambda kv: (kv[0][:2], -kv[1], kv[0][2])):
+            out.setdefault(table, {}).setdefault(name, {})[code] = n
+        return out
+
+    def unmapped_summary(self) -> dict[str, dict[str, dict[str, int]]]:
+        """``{table: {look-up: {"rows": dropped rows, "codes": distinct values}}}`` for the night's report."""
+        rows: Counter[tuple[str, str]] = Counter()
+        codes: Counter[tuple[str, str]] = Counter()
+        for (table, name, _code), n in self.unmapped.items():
+            rows[(table, name)] += n
+            codes[(table, name)] += 1
+        out: dict[str, dict[str, dict[str, int]]] = {}
+        for table, name in sorted(rows):
+            out.setdefault(table, {})[name] = {"rows": rows[(table, name)], "codes": codes[(table, name)]}
+        return out
+
     def row_hash(self, row: Row) -> str:
         """The source row's fingerprint: an HMAC under the site key of its canonical JSON (24 hex)."""
         body = json.dumps(row, sort_keys=True, default=str, ensure_ascii=False).encode("utf-8")
@@ -607,11 +861,15 @@ class Mapper:
 
     def map_table(self, table: str, rows: Iterator[Row]) -> Iterator[Resource]:
         specs = [r for r in self.m.resources if r.table == table]
-        for row in rows:
-            for rs in specs:
-                res = self.map_row(rs, row)
-                if res is not None:
-                    yield res
+        try:
+            for row in rows:
+                self._row_seen = set()
+                for rs in specs:
+                    res = self.map_row(rs, row)
+                    if res is not None:
+                        yield res
+        finally:
+            self._row_seen = None
 
     def static_resources(self) -> list[Resource]:
         out: list[Resource] = []

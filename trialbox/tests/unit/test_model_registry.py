@@ -21,7 +21,13 @@ REG = Registry.load(ROOT / "models" / "registry.yaml")
 
 
 def _doc(*builds: dict[str, Any]) -> dict[str, Any]:
-    base = {"serving": "vllm", "served": {"serving": "m"}, "licence": {"name": "t"}, "origin": {"developer": "t"}}
+    base: dict[str, Any] = {
+        "serving": "vllm",
+        "served": {"serving": "m"},
+        "licence": {"name": "t"},
+        "origin": {"developer": "t"},
+    }
+    base["context_length"] = 32768  # LLM-007 (D-568): PRODUCTION routes no local build without one
     return {"version": "t", "aliases": {"j": {}}, "builds": [{**base, "alias": "j", **b} for b in builds]}
 
 

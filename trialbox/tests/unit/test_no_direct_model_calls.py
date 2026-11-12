@@ -41,6 +41,8 @@ ALLOWED: dict[str, str] = {
     "tests/unit/test_doctor_serving.py": "the doctor's serving check against local vLLM stand-ins (no network)",
     "deploy/gcp/gpu-fit-test.sh": "runs on the GPU VM: a one-line smoke prompt (no patient data) to its own servers",
     "tests/unit/test_model_swap.py": "fake vLLM servers behind an httpx.MockTransport (no network)",
+    "libs/tb_testkit/scale.py": "T-687: counts the slow stub stand-in's calls in its own request log (no model)",
+    "tests/unit/test_scale_gate_logic.py": "T-687: drives the stub stand-in on a local port (no model, no network)",
     "tools/phi_synth_eval.py": "survey 2026-11-07 PHI check on fictional D0 notes (Z-DEV, OpenRouter); not shipped",
     "tools/phi_synth_gen.py": "writes the fictional D0 notes for phi_synth_eval (Z-DEV); not shipped",
     "tools/bench_profile.py": "D-148 cost bench on fictional patients (Z-DEV); calls the judge directly only when the "
