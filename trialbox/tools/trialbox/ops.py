@@ -349,9 +349,10 @@ class OpsRunner:
             # a request without ``mode`` was queued by an older console, which confirmed a stop: it keeps the quiet
             # box, but never stops the services under a running job (D-455, F-03): the person asks again
             jobs = ComposeBox(self.box.deploy).running_jobs()
-            if jobs:
-                raise OpsFailed(f"not run: {jobs} job(s) running, and this backup would stop the services under them; "
-                                "ask again on the console (its Back up now keeps the services running)")  # fmt: skip
+            if jobs != 0:  # D-455 (M2): a count that could not be taken is a refusal too, never a stop
+                what = "the jobs could not be counted" if jobs is None else f"{jobs} job(s) running or queued"
+                raise OpsFailed(f"not run: {what}, and this backup would stop the services under them; ask again on "
+                                "the console (its Back up now keeps the services running)")  # fmt: skip
             work = self.box.deploy / "updates"
             work.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory(prefix="ops-backup-", dir=work) as tmp:

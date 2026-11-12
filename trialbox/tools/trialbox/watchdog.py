@@ -107,13 +107,27 @@ class Container:
 MAINTENANCE = "maintenance"  # the flag's file name in deploy/watchdog/ (D-455)
 
 
-def _alive(pid: int) -> bool:
+def _start_time(pid: int) -> str | None:
+    """The process's start time in clock ticks since boot (``/proc/<pid>/stat`` field 22), or None where there is
+    no ``/proc``: with the pid it names one process, so a pid reused by another process is not the flag's holder."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    fields = stat.rsplit(")", 1)[-1].split()  # the name in () may hold spaces
+    return fields[19] if len(fields) > 19 else None
+
+
+def _alive(pid: int, start: str | None = None) -> bool:
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
     except PermissionError:  # another user's process: it is there
-        return True
+        pass
+    if start is not None:  # D-455: the same pid, another process (the holder died, the pid was given out again)
+        now = _start_time(pid)
+        return now is None or now == start
     return True
 
 
@@ -129,7 +143,8 @@ def maintenance_state(deploy: Path, clean: bool = False) -> dict[str, Any] | Non
         doc = {"by": "unknown", "why": "an unreadable flag file"}  # a person's flag in another form: honoured
     doc = doc if isinstance(doc, dict) else {}
     pid = doc.get("pid")
-    if isinstance(pid, int) and not _alive(pid):
+    start = doc.get("pid_start")
+    if isinstance(pid, int) and not _alive(pid, start if isinstance(start, str) else None):
         if clean:
             f.unlink(missing_ok=True)
         return None
@@ -144,7 +159,9 @@ def maintenance(deploy: Path, by: str, why: str) -> Iterator[Path]:
     d.mkdir(parents=True, exist_ok=True)
     f = d / MAINTENANCE
     tmp = d / f".{MAINTENANCE}.tmp"
-    tmp.write_text(json.dumps({"by": by, "why": why, "since": int(time.time()), "pid": os.getpid()}), encoding="utf-8")
+    me = os.getpid()
+    tmp.write_text(json.dumps({"by": by, "why": why, "since": int(time.time()), "pid": me,
+                               "pid_start": _start_time(me)}), encoding="utf-8")  # fmt: skip
     os.replace(tmp, f)
     try:
         yield f
@@ -344,7 +361,9 @@ class Watchdog:
                 state.pop(gone)
         self._save(state)
         for a in actions:
-            if a["action"] not in ("waiting", "paused"):
+            if a["action"] == "paused":  # D-455: visible, so a service paused by mistake is seen
+                self.out(f"watchdog: paused {a['service']} (held on purpose: not restarted)")
+            elif a["action"] != "waiting":
                 self.out(f"watchdog: {a['action']} {a['service']} (unhealthy {a['unhealthy_minutes']} min)")
         return actions
 

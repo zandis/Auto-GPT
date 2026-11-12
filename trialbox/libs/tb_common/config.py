@@ -381,6 +381,9 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_BACKUP_OFFBOX": Declared("str", "", "the off-box backup target"),
     "TB_BACKUP_PUBKEY": Declared("str", "deploy/secrets/backup.pub", "public key backups are encrypted to"),
+    "TB_BACKUP_QUERY_TIMEOUT_S": Declared(
+        "float", "60", "limit of the backup's small queries (sizes, job count); not work sized by data (D-455)"
+    ),
     "TB_BACKUP_QUIESCE": Declared("str", "off", "off: the snapshot alone; pause: hold services still (D-455)"),
     "TB_BACKUP_STEP_START_S": Declared(
         "float", "900", "seconds of a backup step that do not grow with the data (container, connection; D-455)"

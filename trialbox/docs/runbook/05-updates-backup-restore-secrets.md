@@ -89,7 +89,9 @@ you may push to the hospital's git server.
    comes from what it reads: `TB_BACKUP_STEP_START_S` (900) plus the measured size at `TB_BACKUP_MIN_MBPS` (5 MB/s);
    with no size, no limit (a hung run then shows as "another backup run holds the lock" and the age alert). A target
    keeps at most `TB_BACKUP_KEEP` backups and at most `TB_BACKUP_KEEP_SHARE` (0.5) of its capacity; the newest is
-   always kept. Each backup also holds a
+   always kept, and only a file with its `.sha256` sidecar counts; two good backups always stay, and a target too
+   small for two turns the run red. The lake's `db/` and `parquet/` are read under the lake's lock: a rebuild waits
+   for that read (and a restore refuses a lake that fails its own check). Each backup also holds a
    `host` part: `deploy/.env`, the settings file, `deploy/site`, `deploy/secrets` (the pgBackRest cipher) and the
    Authelia and Caddy volumes. The result is in `deploy/site/backup-last.json` and the audit (`backup.done`,
    `backup.failed`). `trialbox doctor --env-file deploy/.env` FAILs in PRODUCTION without an off-box target, an
@@ -151,7 +153,13 @@ old box, or from the vendor. Keep a copy of `deploy/refdata/loaded` beside the o
    restore loads the packs the backup names from that folder.
 3. If a pack is not there the restore says which (`refdata.missing`, e.g. `['trialbox-refdata-20261109']`) and exits
    3 (`ok=False`; the database rows themselves are already restored and equal): put that pack file in the folder and
-   run the restore again. Rows that do not match the backup fail the restore; a backup made before
+   run the restore again. The restored lake must pass its own check (sidecars, D-455) before any folder moves.
+4. **Events after the backup (D-455).** The databases are of the backup's snapshot; the audit chain was copied a
+   little later and may hold events the restored databases do not: opt-outs, EDC draft erasures, break-glass,
+   EDC signatures and submissions, consent changes. The restore lists them (`to_reapply`: time, event, place in
+   the chain), writes `backup.restore_reapply` and exits 4 ("NOT complete"). A steward opens each one in the audit
+   browser and does it again (records the opt-out again, closes the break-glass, re-signs or re-sends the EDC
+   record) before screening resumes. Rows that do not match the backup fail the restore; a backup made before
 D-187 or by the update path, counted on a running box, gives a warning instead. Held by `tests/unit/test_backup.py`,
 `tests/unit/test_backup_schedule.py` and `tools/backup_drill.py` (`make backup-drill`: the nightly run, layout,
 status and alert, wipe, restore with the pack loaded again, an old-format restore, the Postgres settings and a

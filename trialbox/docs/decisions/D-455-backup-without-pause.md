@@ -68,6 +68,38 @@
    dry run), so a killed backup never leaves the watchdog off. A flag written by a person (no pid) stays until the
    person removes it; the watchdog names it on every pass. No time limit is attached to either.
 
+7. **The lake is read under its own lock (review H1).** The lake's served files (`db/`, `parquet/`) are listed and
+   read while the backup holds `lake/.rebuild.lock` (the `flock` of D-462; `flock` needs no write access, so the
+   backup container's read-only mount takes it too). A rebuild's swap, a hold and a release wait for that read (a
+   job that starts then waits for it too): it is a lock on the lake, not a pause of the services. After the read,
+   each file taken with its sidecar must hash to it and the listing must be unchanged, or the backup fails; a
+   listing that is not one state is listed again up to `READ_TRIES` when no lock could be had, and fails at once
+   under the lock (the lake on disk is then damaged and a person looks). The rest of the lake (NDJSON, the vector
+   store, the site inputs) is read after, without the lock. **A restore runs the lake's own check** (each
+   `db/<snapshot>.duckdb` and its Parquet files against their sidecars, the folder not empty) on the restored lake
+   before any folder is put in place, refuses on a problem, and reports `lake_check`.
+8. **Retention counts only good backups (review M1).** A file is a backup only with its `.sha256` sidecar. The
+   nightly prunes after every copy of the new file is checked; the size rule never leaves fewer than two good
+   backups on a target, and when two are still more than the share allows the run records an error (red) instead.
+9. **An unknown job count refuses (review M2, LOW).** A count that cannot be taken never allows a stop (an old
+   console request) or a pause. The count includes queued jobs (they would start under a pause or a stop).
+10. **Events after the snapshot are listed at a restore (review M3).** The audit chain is copied after the
+   database snapshots, so it can hold events whose effect the restored databases lost. Each backup records
+   `snapshot_at` per database (milliseconds; `created_at` for older backups). A restore lists the restored chain's
+   events after the earliest snapshot whose loss is unsafe (`REAPPLY_EVENTS` in `tools/trialbox/backup.py`:
+   opt-outs, erasures of EDC drafts, break-glass, EDC signatures and submissions, consent changes), with time,
+   event and place in the chain (never the detail), in its report (`to_reapply`, `complete: false`), audits
+   `backup.restore_reapply`, and the CLI exits 4 ("NOT complete") until a steward has re-applied them. No hold
+   that keeps the box from screening until a steward acknowledges exists yet: see Open.
+11. **A pause is never taken without every limit (review M4).** In pause mode every size is measured before the
+   pause; a size that cannot be measured means the snapshot-only backup, never a step without a limit under a
+   pause and the maintenance flag. The small queries (sizes, the job count) have `TB_BACKUP_QUERY_TIMEOUT_S`
+   (default 60, declared: a catalogue query, not work sized by data).
+12. **Smaller fixes (review LOW).** The maintenance flag records the holder's start time, so a reused pid does not
+   keep the watchdog off; a paused container is printed as `paused` (not restarted); `TB_BACKUP_MIN_MBPS`,
+   `TB_BACKUP_STEP_START_S` (above 0) and `TB_BACKUP_KEEP_SHARE` (above 0, at most 1) are checked, and a bad
+   value fails the run with a `backup.failed` record naming it.
+
 ## What is already closed (since the review was written)
 
 - D-462 (T-722) made the lake build beside the served bytes and the backup leave out every `.building` / `.old`
@@ -78,6 +110,14 @@
 - pgBackRest's retention is three full backups (item 3).
 
 ## Open (not built here)
+
+- **For the owner (R1): "the backup waits for a running job" was not built.** A job can run for a day at 500,000
+  patients; a wait needs a limit OD-10 does not allow, and the snapshot alone is consistent, so the backup runs
+  beside the job instead. In pause mode a running or queued job means no pause. If the owner wants the night's
+  backup after the jobs, T-726 (the night as a chain) is where it goes.
+- **A steward's acknowledgement hold after a restore (M3):** the list, the report, the audit event and the CLI's
+  exit 4 are built; a hold that keeps screening off until a steward acknowledges the list (and `doctor` showing it)
+  needs a place to record the acknowledgement; no existing mechanism fits.
 
 - **T-726** makes the backup a step of the night (after the ingest and the jobs) instead of a 04:45 clock time.
 - **The platform (k8s) jobs** keep `activeDeadlineSeconds: 21600` (`deploy/platform/base/day2.yaml`) and

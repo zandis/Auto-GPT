@@ -1036,8 +1036,11 @@ class ComposeBox(_DockerImages):
     def db_bytes(self, db: str, user: str) -> int | None:
         """``pg_database_size`` of ``db`` (D-455: a backup step's limit comes from it), or None when not known."""
         try:
+            from tools.trialbox import backup_schedule as bsch
+
             out = self.run(self._c("exec", "-T", "db", "psql", "-X", "-At", "-U", user, "-d", db, "-c",
-                                   "SELECT pg_database_size(current_database())"))  # fmt: skip
+                                   "SELECT pg_database_size(current_database())"),
+                           timeout=bsch.query_timeout(self.env))  # fmt: skip
             return int(out.strip())
         except Exception:  # no answer: no size, so no limit (never a fixed guess)
             return None
@@ -1048,7 +1051,7 @@ class ComposeBox(_DockerImages):
 
         try:
             out = self.run(self._c("exec", "-T", "db", "psql", "-X", "-At", "-U", "trialbox", "-d", "trialbox_wf",
-                                   "-c", bsch.RUNNING_JOBS_SQL))  # fmt: skip
+                                   "-c", bsch.RUNNING_JOBS_SQL), timeout=bsch.query_timeout(self.env))  # fmt: skip
             return int(out.strip())
         except Exception:  # no answer: not known
             return None

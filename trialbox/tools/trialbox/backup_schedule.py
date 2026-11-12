@@ -77,9 +77,22 @@ QUIESCE_KEEP = frozenset({"db"})  # D-274 (DI-11): with TB_BACKUP_QUIESCE=pause,
 MIN_MBPS = 5.0  # a tenth of the 30-50 MB/s measured for pg_dump on a box disk: only a hung step is stopped
 STEP_START_S = 900.0  # the part of a step that does not grow with the data: a container start, a connection
 KEEP_SHARE = 0.5  # the part of a target this box's backups may fill (the rest: other users, the next night's file)
-# D-455: jobs that are running (the orchestrator's own "interrupted" query, orchestrator/db.py)
-RUNNING_JOBS_SQL = ("SELECT count(*) FROM orch.jobs WHERE queued = 0 AND state NOT IN ('done', 'failed', "
-                    "'awaiting_approval')")  # fmt: skip
+# D-455: jobs that are running or queued to run (not done, failed or waiting for an approval; orchestrator/db.py)
+RUNNING_JOBS_SQL = "SELECT count(*) FROM orch.jobs WHERE state NOT IN ('done', 'failed', 'awaiting_approval')"
+QUERY_TIMEOUT_S = 60.0  # a catalogue query (a size, a count), not work sized by the data: TB_BACKUP_QUERY_TIMEOUT_S
+
+
+def query_timeout(env: Mapping[str, str]) -> float:
+    """The limit of the backup's small queries (the database sizes, the job count): ``TB_BACKUP_QUERY_TIMEOUT_S``."""
+    try:
+        v = float(
+            env.get("TB_BACKUP_QUERY_TIMEOUT_S") or os.environ.get("TB_BACKUP_QUERY_TIMEOUT_S") or QUERY_TIMEOUT_S
+        )
+    except ValueError:
+        return QUERY_TIMEOUT_S
+    return v if v > 0 else QUERY_TIMEOUT_S
+
+
 # D-274 (OPS-046): volumes a rebuild needs beyond the data. traces-data is left out on purpose: model traces are
 # diagnostics, not needed to rebuild, and may hold note text (PV-13)
 HOST_VOLUMES = ("authelia-data", "caddy-data")
@@ -118,19 +131,29 @@ def stamp_of(file: Path) -> datetime | None:
         return None
 
 
-def prune(target: Path, keep: int, prefix: str, max_bytes: int | None = None) -> list[Path]:
+MIN_GOOD = 2  # D-455 (M1): retention by size never leaves fewer good backups on a target without an error
+
+
+def prune(target: Path, keep: int, prefix: str, max_bytes: int | None = None, min_good: int = 1,
+          notes: list[str] | None = None) -> list[Path]:  # fmt: skip
     """Keep the newest ``keep`` backups of one box (``prefix``, ``trialbox-<site>-``) in a target; remove its older
     ones (with their sidecar) and its stale ``.part`` files. Other boxes' files on a shared target are never touched.
-    ``max_bytes`` (D-455, F-26): the kept files' total size too; the oldest go first, the newest is always kept."""
+    Only a file with its ``.sha256`` sidecar counts as a backup (D-455, M1): one without (a run cut short) is neither
+    counted nor kept as a backup, and is left for a person. ``max_bytes`` (F-26): the kept backups' total size too,
+    the oldest first, but never fewer than ``min_good``; when that is still too big, ``notes`` says so."""
     files = sorted(target.glob(f"{prefix}*{SUFFIX}"), key=lambda p: p.name.rsplit("-", 1)[-1])
-    files = [f for f in files if site_prefix(f.name) == prefix]
+    files = [f for f in files if site_prefix(f.name) == prefix and read_sidecar(f) is not None]
     gone = files[:-keep] if keep > 0 else []
     if max_bytes is not None:
         kept = files[len(gone) :]
         total = sum(_size(f) for f in kept)
-        while len(kept) > 1 and total > max_bytes:
+        while len(kept) > max(min_good, 1) and total > max_bytes:
             total -= _size(kept[0])
             gone.append(kept.pop(0))
+        if total > max_bytes and notes is not None:
+            notes.append(f"{target}: the {len(kept)} newest good backups take {total // 2**20} MiB, more than the "
+                         f"{max_bytes // 2**20} MiB TB_BACKUP_KEEP_SHARE allows; kept anyway (a bigger target, or "
+                         "a larger share)")  # fmt: skip
     gone += [sidecar(p) for p in gone]
     gone += [p for p in target.glob(f"{prefix}*{SUFFIX}*.part") if site_prefix(p.name.split(SUFFIX)[0] + SUFFIX)
              == prefix]  # fmt: skip
@@ -180,8 +203,13 @@ def volume_bytes(env: Mapping[str, str], fallback: int | None) -> int | None:
 
     root = Path(env.get("TB_DOCKER_VOLUMES") or os.environ.get("TB_DOCKER_VOLUMES") or "/var/lib/docker/volumes")
     total, unknown = 0, False
+    try:
+        readable = root.is_dir() and os.access(root, os.R_OK | os.X_OK)
+    except OSError:
+        readable = False
     for vol in update.BACKUP_VOLUMES.values():
-        n = tree_bytes(root / f"trialbox_{vol}" / "_data")
+        d = root / f"trialbox_{vol}" / "_data"
+        n = (0 if not d.parent.exists() else tree_bytes(d)) if readable else None  # a volume never made: 0 bytes
         if n is None:
             unknown = True
         else:
@@ -422,6 +450,7 @@ class Config:
     min_mbps: float = MIN_MBPS  # D-455: TB_BACKUP_MIN_MBPS
     step_start_s: float = STEP_START_S  # D-455: TB_BACKUP_STEP_START_S
     quiesce: str = "off"  # D-455: TB_BACKUP_QUIESCE, off (the snapshot alone) or pause
+    setting_errors: list[str] = field(default_factory=list)  # D-455: a bad setting fails the run with a record
 
     def timeout(self, nbytes: int | None) -> float | None:
         return step_timeout(nbytes, self.min_mbps, self.step_start_s)
@@ -458,11 +487,29 @@ def _unquote(v: str) -> str:
     return v[1:-1] if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'" else v
 
 
+def _num(e: Mapping[str, str], key: str, default: float, errors: list[str], hi: float | None = None) -> float:
+    """A positive number setting (D-455): a value that is not a number, not above 0 or above ``hi`` is reported in
+    ``errors`` (the run then fails with a record) and the default is used meanwhile."""
+    raw = (e.get(key) or "").strip()
+    if not raw:
+        return default
+    try:
+        v = float(raw)
+    except ValueError:
+        errors.append(f"{key}={raw!r} is not a number (deploy/.env)")
+        return default
+    if not v > 0 or (hi is not None and v > hi):
+        errors.append(f"{key}={raw!r} must be above 0{f' and at most {hi:g}' if hi is not None else ''} (deploy/.env)")
+        return default
+    return v
+
+
 def config(deploy: Path, env: Mapping[str, str], process_env: bool = True) -> Config:
     """The schedule's settings from ``deploy/.env`` (``env``, quotes removed), with the process environment winning
     (``process_env``; doctor passes its own merged settings and False)."""
     proc = {k: v for k, v in os.environ.items() if k.startswith("TB_")} if process_env else {}
     e = {k: _unquote(v) for k, v in {**env, **proc}.items()}
+    errors: list[str] = []
     return Config(
         deploy=deploy,
         targets=[Path(t) for t in _split(e.get("TB_BACKUP_TARGETS", ""))],
@@ -479,10 +526,11 @@ def config(deploy: Path, env: Mapping[str, str], process_env: bool = True) -> Co
         mailto=e.get("TB_BACKUP_MAILTO", ""),
         archive_set=(e.get("TB_PG_ARCHIVE_MODE") or "").lower(),
         pgbackrest_repo=e.get("TB_PGBACKREST_REPO", ""),
-        keep_share=float(e.get("TB_BACKUP_KEEP_SHARE") or KEEP_SHARE),
-        min_mbps=float(e.get("TB_BACKUP_MIN_MBPS") or MIN_MBPS),
-        step_start_s=float(e.get("TB_BACKUP_STEP_START_S") or STEP_START_S),
+        keep_share=_num(e, "TB_BACKUP_KEEP_SHARE", KEEP_SHARE, errors, hi=1.0),
+        min_mbps=_num(e, "TB_BACKUP_MIN_MBPS", MIN_MBPS, errors),
+        step_start_s=_num(e, "TB_BACKUP_STEP_START_S", STEP_START_S, errors),
         quiesce="pause" if (e.get("TB_BACKUP_QUIESCE") or "off").lower() == "pause" else "off",
+        setting_errors=errors,
     )
 
 
@@ -530,7 +578,9 @@ def nightly(
                            "file": None, "errors": [], "good_at": prev.get("good_at"),
                            "good_file": prev.get("good_file")}  # fmt: skip
     errors: list[str] = res["errors"]
-    if not cfg.targets:
+    if cfg.setting_errors:
+        errors += [f"bad setting: {x}" for x in cfg.setting_errors]
+    elif not cfg.targets:
         errors.append("no backup target: set TB_BACKUP_TARGETS in deploy/.env (RUNBOOK §5)")
     elif not cfg.public_key.is_file():
         errors.append(f"no backup key {cfg.public_key}: trialbox backup-keygen with hospital IT (RUNBOOK §5)")
@@ -543,7 +593,6 @@ def nightly(
             files = list(make_backup(cfg.targets))
             copies: list[dict[str, Any]] = []
             for f in files:
-                prune(f.parent, cfg.keep, site_prefix(f.name), cfg.keep_bytes(f.parent))
                 sha = read_sidecar(f)
                 if sha is None:
                     raise RuntimeError(f"{f} has no .sha256 sidecar: the backup did not complete")
@@ -552,6 +601,10 @@ def nightly(
                 raise RuntimeError("the copies of the backup differ or none was written")
             if len(copies) != len(cfg.targets):
                 raise RuntimeError(f"written to {len(copies)} of {len(cfg.targets)} targets")
+            notes: list[str] = []
+            for f in files:  # D-455 (M1): only after every copy is checked, and only good backups count
+                prune(f.parent, cfg.keep, site_prefix(f.name), cfg.keep_bytes(f.parent), MIN_GOOD, notes)
+            errors += notes
             res["file"] = {"name": Path(copies[0]["path"]).name, "bytes": copies[0]["bytes"],
                            "sha256": copies[0]["sha256"], "copies": copies}  # fmt: skip
         except Exception as e:  # every failure is recorded, audited and alerted (exit 1)
@@ -740,7 +793,8 @@ class ComposeOps:
             sql = "SELECT sum(pg_database_size(datname))::bigint FROM pg_database"
             user = self.env.get("POSTGRES_USER") or "hapi"
             out = self.box.run(
-                self.box._c("exec", "-T", "db", "psql", "-X", "-At", "-U", user, "-d", "hapi", "-c", sql)
+                self.box._c("exec", "-T", "db", "psql", "-X", "-At", "-U", user, "-d", "hapi", "-c", sql),
+                timeout=query_timeout(self.env),
             )
             return int(out.strip())
         except Exception:  # no answer: no size, so no limit (D-455)
@@ -750,7 +804,7 @@ class ComposeOps:
         """How many jobs the orchestrator is running now (D-455: a pause is never taken under one), or None."""
         return self.box.running_jobs()
 
-    def snapshot(self, db: str, user: str, work: Path, timeout: float | None = None) -> None:
+    def snapshot(self, db: str, user: str, work: Path, timeout: float | None = None, at: str | None = None) -> None:
         """:func:`snapshot_script` in the db container; its files are copied to ``work`` and removed there. Each of
         the two steps has ``timeout`` seconds (D-455: from the database's size; None: no limit)."""
         refdata = REFDATA if db == "trialbox_wf" else None
@@ -767,7 +821,8 @@ class ComposeOps:
                 self.box.run(self.box._c("exec", "-T", "db", "rm", "-rf", CONTAINER_SPOOL))
         script.unlink(missing_ok=True)
         (work / f"{db}.sql").unlink(missing_ok=True)
-        _write_json(work / f"{db}.dump.json", snapshot_meta(db, refdata))
+        at = at or datetime.now(UTC).isoformat(timespec="milliseconds")
+        _write_json(work / f"{db}.dump.json", {**snapshot_meta(db, refdata), "snapshot_at": at})  # D-455 (M3)
         parse_snapshot(work, db)  # the dump finished and every file is there, or the run fails here
 
     def writers(self) -> list[str]:
@@ -826,13 +881,27 @@ class ComposeOps:
             run.point_in_time = pit  # type: ignore[attr-defined]
             with contextlib.ExitStack() as stack:
                 try:
+                    # every size first: a pause is only taken when every step under it has a limit (D-455, M4)
+                    sizes = {
+                        db: self.db_bytes(db, user) for db, user in (("trialbox_wf", "trialbox"), ("hapi", "hapi"))
+                    }
+                    prev = int((_read_json(cfg.last_file).get("good_file") or {}).get("bytes") or 0) or None
+                    vols = volume_bytes(self.env, prev)
                     if mode == "pause":
                         jobs = self.running_jobs()
-                        if jobs != 0:
+                        unsized = [k for k, v in {**sizes, "volumes": vols}.items() if v is None]
+                        if jobs != 0 or unsized:
                             pit["running_jobs"] = jobs
-                            pit["why"] = ("TB_BACKUP_QUIESCE=pause, but " + ("the running jobs could not be counted"
-                                          if jobs is None else f"{jobs} job(s) running") + ": not paused, the "
-                                          "snapshot alone (D-455)")  # fmt: skip
+                            why = (
+                                (
+                                    "the jobs could not be counted"
+                                    if jobs is None
+                                    else f"{jobs} job(s) running or queued"
+                                )
+                                if jobs != 0
+                                else f"no size for {', '.join(unsized)} (a step without a limit)"
+                            )
+                            pit["why"] = f"TB_BACKUP_QUIESCE=pause, but {why}: not paused, the snapshot alone (D-455)"
                         else:
                             paused = self.writers()
                             stack.enter_context(watchdog.maintenance(self.deploy, "backup", "services paused"))
@@ -840,19 +909,18 @@ class ComposeOps:
                                 self.box.run(self.box._c("pause", *paused))
                             pit.update({"held": True, "paused": paused, "why": "TB_BACKUP_QUIESCE=pause"})
                     for db, user in (("trialbox_wf", "trialbox"), ("hapi", "hapi")):
-                        limit = cfg.timeout(self.db_bytes(db, user))
+                        limit = cfg.timeout(sizes[db])
                         pit["limits"][db] = limit
-                        pit["snapshot_at"][db] = datetime.now(UTC).isoformat(timespec="seconds")
-                        self.snapshot(db, user, work, timeout=limit)
+                        at = datetime.now(UTC).isoformat(timespec="milliseconds")
+                        pit["snapshot_at"][db] = at
+                        self.snapshot(db, user, work, timeout=limit, at=at)
                     self.host_files(work / "host")
-                    prev = int((_read_json(cfg.last_file).get("good_file") or {}).get("bytes") or 0) or None
-                    vols = volume_bytes(self.env, prev)
                     dumps = tree_bytes(work) or 0
                     limit = cfg.timeout(None if vols is None else dumps + vols)
                     pit["limits"]["container"] = limit
                     self.box._backup_container(work, cfg.public_key, [str(t) for t in targets], keep=cfg.keep,
                                                timeout=limit)  # fmt: skip
-                    pit["files_done_at"] = datetime.now(UTC).isoformat(timespec="seconds")
+                    pit["files_done_at"] = datetime.now(UTC).isoformat(timespec="milliseconds")
                 finally:
                     if paused:
                         self.box.run(self.box._c("unpause", *paused))
