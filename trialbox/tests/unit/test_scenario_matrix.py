@@ -131,7 +131,7 @@ def test_estimate_for_50000_patients_has_every_scenario_and_a_cap() -> None:
     assert {"db-csv (ja)", "db-csv (zh-TW)", *sc.SCENARIOS} <= names
     assert abs(sum(r["hours"] for r in e["rows"]) - e["hours"]) < 0.1
     assert e["cap_hours"] >= e["hours"] * 1.3 and e["cap_hours"] == int(e["cap_hours"])
-    assert abs(e["usd"] - e["hours"] * 2.74) < 0.02
+    assert abs(e["usd"] - e["hours"] * cr.ON_DEMAND_PRICE_PER_HOUR) < 0.05  # one VM with the hospitals (D-468)
     assert "hard cap" in cr.print_estimate(e)
 
 

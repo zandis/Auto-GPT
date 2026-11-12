@@ -33,7 +33,7 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
   2. `same_run()` must treat `<run_id>` and `<run_id>-s<N>` as the same run.
   3. Add a unit test: a part file written with id `X-s1` survives `run_all --resume` with run id `X`.
   4. Add a rehearsal case: pre-empt after part 3, collect, resume, and the parts already done are kept.
-- **Status.** Open.
+- **Status.** Fixed in #293.
 
 ### A2. The gcloud credentials expire during a long run (Blocker for unattended runs)
 
@@ -50,7 +50,7 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
      collect, stop and shard.
   2. Every `gcloud` call gets a short timeout and a clear error ("credentials expired: re-activate").
   3. Add a test: `--collect` with an expired token fails within 60 s with that message.
-- **Status.** Open.
+- **Status.** Fixed in #296.
 
 ### A3. A pre-empted part restarts from zero (High; costs money)
 
@@ -63,7 +63,7 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
   1. Run the two hospital parts on an on-demand VM (about 3x the price for those hours, no pre-emption), or
   2. Make the hospital part resumable by stage: keep the stage results and the screened job and skip finished stages.
   3. Either way, the cap must be re-computed for a resumed shard (see A4).
-- **Status.** Open. This is review finding G1-2 in PR #279.
+- **Status.** Fixed in #301 (D-468: an on-demand VM for a shard that holds a hospital part).
 
 ### A4. The estimate for a hospital part is far too low (Medium; makes the hard cap unsafe)
 
@@ -77,7 +77,7 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
   - For a resumed or `--only` run (2.64 h → cap 4 h) the cap STOPs the VM in the middle of a hospital part.
 - **Fix.** Use the measured 5.0 h per hospital part at 50k, and scale it with the patient count. Re-check the cap with
   the new figure before the next launch.
-- **Status.** Open.
+- **Status.** Fixed in #299.
 
 ### A5. The partial report says FAILED for parts that never ran (Medium; confusing)
 
@@ -85,7 +85,7 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
   started count as `<part> did not report`.
 - **Cause.** The report does not tell "not run yet / not run" apart from "failed".
 - **Fix.** Add the states `pending` and `not run (VM stopped)`. FAILED only when a part that ran has a failed check.
-- **Status.** Open.
+- **Status.** Fixed in #300.
 
 ## B. Open: the product
 
@@ -100,7 +100,9 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
   - the check's expected set assumes the small synthetic site.
 - **Fix.** Reproduce with `tools/complete_run.py --only hospital-ja --patients 50000` on the stub model (no GPU
   needed), then fix the cause, not the check. This touches D-149 / T-207 (derived and confirmed facts).
-- **Status.** Open.
+- **Status.** Open. #297 (D-470, proposed) keeps an undated chart fact unknown and makes stage 12 record which
+  expected facts were read, missing or undated, so the next run with the real models settles the cause (undated
+  facts, or dropped birth date and sex). A fix that dated facts from the section heading was reviewed and rejected.
 
 ### B2. Fixed limits tuned for small data break at production scale (Blocker class)
 
@@ -124,7 +126,7 @@ Open items come first. The fixed ones are kept so the same mistake is not made a
   in a checkout.
 - **Fix.** Default to a copy under `TB_DATA_DIR`, and never write to the source tree. Add a test that the checkout
   is unchanged after a compile.
-- **Status.** Open.
+- **Status.** Fixed in #294.
 
 ## C. Fixed: keep them fixed
 

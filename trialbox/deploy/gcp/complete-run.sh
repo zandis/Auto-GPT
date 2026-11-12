@@ -4,8 +4,8 @@
 # Gate before any paid launch: `make rehearse` passes on the commit to launch (tests/rehearsal, RUNBOOK §11).
 #
 #   export CLOUDSDK_CONFIG=<a private folder>              # never the default one
-#   export TB_SA_KEY_FILE=<the service account key file>   # gcloud re-activates from it on an auth error
-#   gcloud auth activate-service-account --key-file "$TB_SA_KEY_FILE" && gcloud config set project trialbox-demo
+#   export TB_SA_KEY_FILE=<the service account key file>   # every command activates from it (its path, to gcloud)
+#   gcloud config set project trialbox-demo                # once, in that config
 #   deploy/gcp/complete-run.sh --estimate [--patients 50000] [--vms N] [--parts g1,embed,profile] [--only TAG,TAG]
 #   deploy/gcp/complete-run.sh --dry-run [--vms N] [--zones z1,z2] [--parts ...] [--only TAG,TAG] [VM] [ZONE]
 #   deploy/gcp/complete-run.sh --provision --vms N --zones z1,z2,...   # once: the clones tb-gpu-sim-2..N (they
@@ -38,17 +38,22 @@
 #
 # Fail-safe (D-141; the 2026-11-09 incident: a dead driver left the VM running for 61 minutes), per VM:
 #   1. Cloud-side hard cap, set before the start: max-run-duration of that VM's estimate x 1.3 rounded up (--hours to
-#      change it), termination action STOP. Compute Engine stops the VM at the cap whatever else happens.
+#      change it), termination action STOP. Compute Engine stops the VM at the cap whatever else happens. The estimate
+#      is of the parts the shard has left (a restart after a pre-emption), and a VM with a hospital part runs on
+#      demand, the others spot (D-468).
 #   2. The VM stops itself (deploy/gcp/complete-run-vm.sh): a systemd hard cap, and a watchdog per phase; in the run it
 #      powers off when no part has worked for 20 minutes (an in-run heartbeat, D-150), and after the done marker (at
 #      once when the driver has collected, else 30 minutes later).
 #   3. The workload runs on the VM (48 vCPU): the driver uploads the code (git archive of HEAD with TB_HEAD.json; its
 #      sha256 goes in the metadata and the VM refuses anything else), polls, downloads the results and runs the stub
 #      parts (walk, backup, update, scale) here once the VMs have stopped. The driver can die at any moment.
-#   4. Every gcloud call goes through `gc` (deploy/gcp/gcloud-auth.sh): an auth error re-activates the service
-#      account from TB_SA_KEY_FILE and retries once; a probe before the start fails fast.
+#   4. Every command activates the service account from TB_SA_KEY_FILE and probes the token first (gc_start); every
+#      gcloud call goes through `gc` (deploy/gcp/gcloud-auth.sh): it has a timeout, and an auth error or a timeout
+#      re-activates and retries once, then fails fast with "credentials expired: re-activate" (G1 bug A2).
 #   5. Every part is resumable within its run: a restarted VM runs complete_run --resume, which keeps only parts of the
-#      same run id and HEAD. A preempted VM: `TB_RUN_ID=<run id> complete-run.sh --shard <i>` starts it again.
+#      same run (<run id> and <run id>-s<N> are one run) and HEAD, and removes a stale result only of a part it runs
+#      itself, so the collect's stub parts never remove the VMs' parts (G1 bug A1). A preempted VM:
+#      `TB_RUN_ID=<run id> complete-run.sh --shard <i>` starts it again; `make rehearse CASES=preempt` rehearses it.
 # The door (T-119, CR-048): HTTPS on 443 only, the VM's self-signed certificate made here per run and its public key
 # pinned (deploy/gcp/door-tls.sh); no port 80. The bearer key and the TLS key go to the VM through Secret Manager
 # (secret tb-gpu-door, one version per VM and run, destroyed once the results are here), never as metadata; a tb-key
@@ -78,7 +83,7 @@ while [ $# -gt 0 ]; do
     --shard) SHARD="$2"; shift 2 ;;
     --provision) PROVISION=1; shift ;;
     --teardown) TEARDOWN=1; shift ;;
-    -h|--help) sed -n 2,52p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,61p "$0"; exit 0 ;;
     *) break ;;
   esac
 done
@@ -111,6 +116,10 @@ if [ "$DRY" = 0 ]; then
   case "$CLOUDSDK_CONFIG" in "$HOME/.config/gcloud"*) echo "CLOUDSDK_CONFIG must be private" >&2; exit 2 ;; esac
 fi
 unset CLOUDSDK_AUTH_ACCESS_TOKEN
+# every command (launch, collect, stop, a shard child, provision, teardown) activates the service account from
+# TB_SA_KEY_FILE and probes the token before its first gcloud call: an activation left from an earlier command may
+# have lapsed (G1 bug A2); a dead credential fails here, at once, with "credentials expired: re-activate"
+gc_start || exit 5
 
 RUN_ID="${COLLECT:-${TB_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD)}}"
 OUT="${TB_COMPLETE_DIR:-$ROOT/.cache/complete-run/$RUN_ID}"
@@ -145,7 +154,10 @@ quota_check() {  # $1 = number of VMs (zones 1..N): read-only quota reads, refus
   for r in $(echo "$zs" | tr ',' '\n' | sed 's/-[^-]*$//' | awk '!seen[$0]++'); do
     gc compute regions describe "$r" --format=json > "$q/region-$r.json" || { echo "quota: region $r is not readable" >&2; return 4; }
   done
-  cr --quota-check "$q" --quota-zones "$zs"
+  # the zones whose VM runs on demand (a hospital part, D-468) draw on the regular quota
+  std="$("$PY" -c 'import json,sys; s=json.load(open(sys.argv[1]))["plan"]["shards"]
+print(",".join(x["zone"] for x in s[:int(sys.argv[2])] if x.get("provisioning") == "STANDARD"))' "$PLAN" "$n" 2>/dev/null || true)"
+  cr --quota-check "$q" --quota-zones "$zs" --quota-standard "$std"
 }
 
 # ================================================================== one VM (a shard of the plan): the D-141 run
@@ -154,6 +166,8 @@ stop_vm() {
   gc compute instances stop "$VM" --zone "$ZONE" || true
   local s; s="$(status)"
   echo "VM $VM status: $s"
+  # back to spot (D-468: a run puts a VM with a hospital part on demand; a VM started by hand later must not pay 3x)
+  gc compute instances set-scheduling "$VM" --zone "$ZONE" --provisioning-model=SPOT --instance-termination-action=STOP || true
   gc compute instances add-metadata "$VM" --zone "$ZONE" --metadata-from-file startup-script="$ROOT/deploy/gcp/gpu-sim-startup.sh" || true
   gc compute instances remove-metadata "$VM" --zone "$ZONE" --keys tb-key,tb-door-version >/dev/null 2>&1 || true
 }
@@ -232,20 +246,26 @@ collect_start() {  # a stopped VM whose results are on its disk: start it in the
   wait_door 30 || { echo "$VM: the door did not answer in 10 minutes (it powers off by itself)" >&2; return 1; }
 }
 
-shard_run() {  # $1 = shard number; VM, ZONE, caps and parts come from plan.json
-  local i=$1 SH TAGS EST_H EST_USD CAP_H s p done_seen=0
+shard_run() {  # $1 = shard number; VM, ZONE and parts come from plan.json; the cap from what is left (shard_now)
+  local i=$1 SH TAGS EST_H EST_USD CAP_H PROV PRICE LEFT s p done_seen=0
   VM="$(plan_get "$i" vm)"; ZONE="$(plan_get "$i" zone)"; TAGS="$(plan_get "$i" tags)"
-  EST_H="$(plan_get "$i" hours)"; EST_USD="$(plan_get "$i" usd)"; CAP_H="${HOURS:-$(plan_get "$i" cap_hours)}"
   SH="$OUT/shard-$i"; mkdir -p "$SH"; KEYF="$SH/tb-key"
   if [ -z "$COLLECT" ]; then
-    echo "VM $i/$VMS $VM ($ZONE): estimate ${EST_H} h (US\$${EST_USD}); hard cap ${CAP_H} h (STOP), at most US\$$("$PY" -c "print(round($CAP_H*2.74, 2))"); parts: $TAGS"
+    # D-468 (G1 bugs A3, A4): the estimate, cap and provisioning of the parts this shard has LEFT: a restart after a
+    # pre-emption (TB_RUN_ID=<run id> --shard i) gets a cap for what is left, and spot once its hospital parts are done
+    cr --shard-now "$PLAN" --shard-index "$i" --run-id "$RUN_ID" --head-file "$OUT/TB_HEAD.json" \
+      --parts-dir "$SH/parts" "$OUT/parts" > "$SH/now.json" || { echo "VM $i: no estimate of its parts left" >&2; return 3; }
+    now_get() { "$PY" -c 'import json,sys; v=json.load(open(sys.argv[1]))[sys.argv[2]]; print(" ".join(v) if isinstance(v, list) else v)' "$SH/now.json" "$1"; }
+    EST_H="$(now_get hours)"; EST_USD="$(now_get usd)"; CAP_H="${HOURS:-$(now_get cap_hours)}"
+    PROV="$(now_get provisioning)"; PRICE="$(now_get price_per_hour)"; LEFT="$(now_get left)"
+    echo "VM $i/$VMS $VM ($ZONE): estimate ${EST_H} h (US\$${EST_USD}); hard cap ${CAP_H} h (STOP), at most US\$$("$PY" -c "print(round($CAP_H*$PRICE, 2))"); $([ "$PROV" = STANDARD ] && echo "on demand (a hospital part, D-468)" || echo spot); parts: $TAGS; parts left: ${LEFT:-none}"
     s="$(status)"
     [ "$s" = TERMINATED ] || { echo "$VM is $s, not TERMINATED: stop it first (--stop) or collect its run" >&2; return 3; }
     door_vm_ready || { echo "$VM: not started (see above)" >&2; return 3; }   # its door: Secret Manager, 443 only
     # ------------------------------------------------------------ 1. the cloud-side hard cap, before the start
-    gc compute instances set-scheduling "$VM" --zone "$ZONE" --max-run-duration="${CAP_H}h" --instance-termination-action=STOP
+    gc compute instances set-scheduling "$VM" --zone "$ZONE" --max-run-duration="${CAP_H}h" --instance-termination-action=STOP --provisioning-model="$PROV"
     [ "$DRY" = 1 ] || gc compute instances describe "$VM" --zone "$ZONE" \
-      --format='value(scheduling.maxRunDuration.seconds,scheduling.instanceTerminationAction)'
+      --format='value(scheduling.provisioningModel,scheduling.maxRunDuration.seconds,scheduling.instanceTerminationAction)'
     # ------------------------------------------------------------ the door (Secret Manager, TLS), the metadata, the start
     if [ "$DRY" = 1 ]; then echo "+ a random key into $KEYF, a TLS key and its self-signed certificate $SH/door.crt (0600; door_make)"
     else door_make "$SH" || { echo "$VM: the door's key or certificate could not be made (openssl)" >&2; return 3; }; fi
@@ -344,11 +364,11 @@ if [ -f "$PLAN" ]; then
 import json, sys
 e = json.load(open(sys.argv[1])); p = e["plan"]
 print(f"plan: {e['patients']:,} patients, parts {','.join(e['parts'])}{', only ' + ' '.join(e['only']) if e.get('only') else ''}, "
-      f"{p['vms']} VM(s), US${e['price_per_hour']}/h each")
-print(f"{'VM':<3} {'name':<15} {'zone':<19} {'hours':>6} {'US$':>7} {'cap h':>6} {'cap US$':>8}  parts")
+      f"{p['vms']} VM(s); a VM with a hospital part runs on demand (D-468), the others spot")
+print(f"{'VM':<3} {'name':<15} {'zone':<19} {'hours':>6} {'US$':>7} {'cap h':>6} {'cap US$':>8}  {'model':<9} {'US$/h':>6}  parts")
 for s in p["shards"]:
     print(f"{s['shard']:<3} {s['vm']:<15} {s['zone']:<19} {s['hours']:>6.2f} {s['usd']:>7.2f} {s['cap_hours']:>6} "
-          f"{s['cap_usd']:>8.2f}  {' '.join(s['tags'])}")
+          f"{s['cap_usd']:>8.2f}  {s.get('provisioning', 'SPOT'):<9} {s.get('price_per_hour', 2.74):>6}  {' '.join(s['tags'])}")
 print(f"total {p['hours']:.2f} VM-hours, US${p['usd']:.2f}; wall about {p['wall_hours']:.2f} h; at most "
       f"US${p['cap_usd']:.2f} if every VM ran to its cap")
 PY
@@ -471,8 +491,16 @@ elif [ "$G1" = 1 ]; then
     --only walk backup update scale "${STUB[@]}" || true
 fi
 LIVE=(); [ -f "$OUT/serving_config.rtxpro6000.live.json" ] && LIVE=(--live-record "$OUT/serving_config.rtxpro6000.live.json")
+# the parts of a VM that still runs (and the stub parts, which wait for every VM) are "pending" in the report; any
+# other part without a result is "not run (VM stopped)": neither counts as a failed check (G1 bug A5)
+PENDING=()
+if [ -n "$running" ]; then
+  for i in $running; do read -r -a t <<< "$(plan_get "$i" tags)"; PENDING+=("${t[@]}"); done
+  [ "$G1" = 1 ] && PENDING+=(walk backup update scale)
+fi
+[ "${#PENDING[@]}" = 0 ] || PENDING=(--pending-parts "${PENDING[@]}")
 # shellcheck disable=SC2086  # ONLY is a list of tags
 env TB_ENV=DEV PYTHONPATH=libs:services:. "$PY" -m tools.complete_run --dir "$OUT" --report-only --model pair \
-  "${STUB[@]}" "${LIVE[@]}" ${TB_PLANNED_FROM:+--planned-from "$TB_PLANNED_FROM"} --report-parts $ONLY || true
+  "${STUB[@]}" "${LIVE[@]}" ${TB_PLANNED_FROM:+--planned-from "$TB_PLANNED_FROM"} "${PENDING[@]}" --report-parts $ONLY || true
 echo "report: $OUT/report/report.md"
 for i in $(seq 1 "$VMS"); do VM="$(plan_get "$i" vm)"; ZONE="$(plan_get "$i" zone)"; echo "VM $VM status: $(status)"; done

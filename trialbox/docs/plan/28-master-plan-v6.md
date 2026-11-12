@@ -1953,3 +1953,4 @@ The owner's request left these unsaid. Each is filled as stated; any of them can
 | Version | Date | Change |
 | --- | --- | --- |
 | 1.0 | 2026-11-10 | First issue (with the owner's answers to Q-01 to Q-21 of the same day, §10.4), from the deep review of 2026-11-10. Adds the PoC gate (GP-0, GP-1, GP, GP-2); redraws the critical path per site with float; defines "full scope" per site; reorganises the task list (wave P to wave L) with a conflict matrix; adds the standards compliance matrix, the dependency upgrade plan and the test strategy; lists the questions for the owner. |
+| 1.1 | 2026-11-12 | Addendum `32-trial-opportunity-feed.md`: the trial-opportunity feed and sponsor dashboard (D-467), cards T-740 to T-745. |

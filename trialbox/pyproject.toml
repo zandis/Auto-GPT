@@ -95,7 +95,7 @@ include = [
 ]
 
 [tool.setuptools.package-data]
-"*" = ["*.json", "*.yaml", "*.yml", "*.md", "*.cql", "*.sql", "*.j2", "*.html", "*.docx", "*.csv", "*.parquet", "*.ttf"]
+"*" = ["*.json", "*.yaml", "*.yml", "*.md", "*.cql", "*.sql", "*.j2", "*.html", "*.docx", "*.csv", "*.parquet", "*.ttf", "*.css", "*.js"]
 
 [tool.ruff]
 line-length = 120

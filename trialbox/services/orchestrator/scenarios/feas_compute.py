@@ -89,6 +89,8 @@ class FeasParams:
     capacity_per_month: float | None = None
     months: int = 12
     iterations: int = 1000
+    # pseudonyms left out of every count (the opt-out register as of the job's receipt, read by the caller; D-467)
+    exclude_pids: frozenset[str] = frozenset()
 
 
 @dataclass
@@ -293,7 +295,10 @@ def compute(lake: LakeAPI, rs: Ruleset, p: FeasParams) -> tuple[FeasibilityResul
         params.append(list(p.departments))
     table = lake.query(sql, params, p.snapshot)
     cols = table.to_pydict()
-    n = table.num_rows
+    if p.exclude_pids:
+        keep = [i for i, pid in enumerate(cols["pid"]) if str(pid) not in p.exclude_pids]
+        cols = {k: [v[i] for i in keep] for k, v in cols.items()}
+    n = len(cols["pid"])
     applied = [s for s in st if s.applied]
     remaining = {s.id: sum(1 for x in cols[f"f{i}"] if x) for i, s in enumerate(applied)}
     # inclusion: reached the step, never passed and never had a known value there -> dropped for lack of data;
