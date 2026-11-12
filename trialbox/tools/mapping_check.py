@@ -115,7 +115,7 @@ def unit_pairs(m: Any, args: dict[str, Any], got: list[dict[str, Any]]) -> list[
             "lookup_unit": expected,
             "rows": n,
         }
-        agree = labvalue.units_agree(unit, expected) if col else None
+        agree = labvalue.units_agree(unit, expected, _loinc(hit) or None) if col else None
         if agree is None:
             item["read"] = "no unit: read in the lookup's unit" if col else "not checked: no unit_column"
         elif agree:
