@@ -56,6 +56,7 @@ def test_default_install_passes() -> None:
         "site_key",
         "key_custody",
         "clock",
+        "ops_runner",
     }
 
 

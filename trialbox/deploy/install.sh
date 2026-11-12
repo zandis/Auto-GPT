@@ -492,13 +492,14 @@ if [ "${TB_SYSTEMD:-1}" != 0 ] && [ "$(id -u)" = 0 ] && [ -d /run/systemd/system
     done
     systemctl daemon-reload
     # trialbox-weights.timer (T-677, D-393): the weights against their pins before the night's runs
+    # trialbox-ops.timer (NEW-OPS-8, D-561): the runner that writes the host's health facts every minute and runs
+    # the Operations page's requests; without it the health line is red (OPS-009)
     systemctl enable trialbox-egress.service trialbox.service trialbox-egress-refresh.timer trialbox-watchdog.timer \
-      trialbox-egress-watch.service trialbox-weights.timer >/dev/null 2>&1 \
+      trialbox-egress-watch.service trialbox-weights.timer trialbox-ops.timer >/dev/null 2>&1 \
       || die "the systemd units could not be enabled (systemctl status trialbox-egress trialbox)"
     systemctl start trialbox-egress.service trialbox-egress-refresh.timer trialbox-watchdog.timer trialbox-weights.timer \
-      trialbox-egress-watch.service >/dev/null 2>&1 || true
-    echo "    enabled: trialbox-egress, trialbox, trialbox-egress-refresh.timer, trialbox-watchdog.timer, trialbox-weights.timer, trialbox-egress-watch"
-    echo "    (trialbox-ops.timer is installed, not enabled: RUNBOOK §15)"
+      trialbox-egress-watch.service trialbox-ops.timer >/dev/null 2>&1 || true
+    echo "    enabled: trialbox-egress, trialbox, trialbox-egress-refresh.timer, trialbox-watchdog.timer, trialbox-weights.timer, trialbox-egress-watch, trialbox-ops.timer"
   else
     echo "install: warning: systemd units not enabled: the egress rules were not applied (no state file for a boot)" >&2
   fi

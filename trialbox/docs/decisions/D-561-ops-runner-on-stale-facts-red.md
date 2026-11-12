@@ -5,8 +5,8 @@
 - **PR:** this branch (`agent/NEW-OPS-8-ops-timer-on`)
 - **Date:** 2026-11-12
 - **Status:** proposed (merges on green CI)
-- **Builds on:** D-178 (the operations page and its host runner), D-377 (the systemd units), D-273 (the health
-  line and `/metrics`)
+- **Builds on:** D-178 (the operations page and its host runner), D-377 (the systemd units; it left the
+  runner "a site's choice", which this decision ends), D-379 (the health line, the health mail and `/metrics`)
 
 ## Why
 
@@ -21,7 +21,8 @@ that never goes away teaches people not to read the line.
 1. **The installer turns the runner on.** `deploy/install.sh` enables and starts `trialbox-ops.timer` with the other
    timers. `box-install.sh` runs the same step. There is no manual step left in RUNBOOK §15.
 2. **Facts that are missing or old are red.** `tb_common.metrics.evaluate` gives the check `facts` the level `red`
-   when the runner never wrote the facts, or when they are older than `FACTS_STALE_H`. The message names the timer.
+   when the runner never wrote the facts, or when they are more than `FACTS_STALE_H` from the clock, behind it or
+   ahead of it (a record dated ahead of the clock would otherwise be fresh for ever). The message names the timer.
    The period is not new: one hour was the rule already, 60 runs of the one-minute timer.
 3. **`doctor` checks the runner.** A new check `ops_runner` reads the runner's own record (`status.json` in the
    operations folder): PASS when its facts are fresh; otherwise FAIL in VALIDATION and PRODUCTION (WARN in DEV and

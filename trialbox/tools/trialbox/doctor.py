@@ -129,6 +129,7 @@ class DoctorInputs:
     resolver: Callable[[str], list[str]] | None = None  # check perimeter_addresses; None: the system resolver
     compose_config: Mapping[str, Any] | None = None  # doctor --two-device: the device's rendered compose (D-373)
     input_errors: tuple[str, ...] = ()  # OPS-016: a settings file that is missing or does not parse is a FAIL line
+    timer_state: Callable[[str], str | None] | None = None  # check ops_runner; None: ask systemctl where it exists
 
 
 def _site_dir(inp: DoctorInputs) -> Path:
@@ -863,6 +864,65 @@ def check_clock(inp: DoctorInputs) -> Check:
     return Check("clock", "PASS", f"NTP-synchronised{where}" if st.synced else f"clock checked{where}")
 
 
+OPS_TIMER = "trialbox-ops.timer"
+
+
+def _timer_state(unit: str) -> str | None:
+    """``systemctl is-enabled``'s word for ``unit`` (enabled, disabled, not-found, ...); None where systemd cannot
+    be asked (a container, a platform, a developer's machine)."""
+    import shutil
+    import subprocess
+
+    if not Path("/run/systemd/system").is_dir() or shutil.which("systemctl") is None:
+        return None
+    try:
+        r = subprocess.run(["systemctl", "is-enabled", unit], capture_output=True, text=True, check=False)
+    except OSError:
+        return None
+    return (r.stdout.strip().splitlines() or ["unknown"])[0]
+
+
+def check_ops_runner(inp: DoctorInputs, now: datetime | None = None) -> Check:
+    """NEW-OPS-8 (OPS-009, D-561): the host runner (``trialbox-ops.timer``) writes the health facts every minute and
+    runs the Operations page's requests. Its own record says whether it runs: facts that are missing or older than
+    the health line's limit are a FAIL in VALIDATION and PRODUCTION (WARN elsewhere), with the timer's state."""
+    if inp.platform:
+        return Check("ops_runner", "PASS", "not a host check on a platform (pods; no host timer)")
+    from tb_common import metrics
+
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    soft: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
+    raw = (inp.env.get("TB_OPS_DIR") or "").strip()
+    if not raw and inp.deploy is None:
+        return Check("ops_runner", soft, "the deploy folder is not known: run with --env-file deploy/.env")
+    record = (Path(raw) if raw else (inp.deploy or ROOT / "deploy") / "ops") / "status.json"
+    seen: datetime | None = None
+    try:
+        doc = json.loads(record.read_text(encoding="utf-8"))
+        at = (doc.get("health") or {}).get("at") if isinstance(doc, dict) else None
+        seen = datetime.fromisoformat(str(at)) if at else None
+    except (OSError, ValueError):
+        seen = None
+    if seen is not None and seen.tzinfo is None:
+        seen = seen.replace(tzinfo=UTC)
+    now = now or datetime.now(UTC)
+    age = (now - seen).total_seconds() / 3600 if seen is not None else None
+    if age is not None and abs(age) <= metrics.FACTS_STALE_H:  # a record dated ahead of the clock is not fresh
+        return Check("ops_runner", "PASS", f"the runner wrote its record {max(age, 0) * 60:.0f} min ago ({record})")
+    state = (inp.timer_state or _timer_state)(OPS_TIMER)
+    what = f"the runner has never written {record}" if age is None else f"the runner's record is {age:.0f} h old"
+    if age is not None and age < 0:
+        what = f"the runner's record is dated {-age:.0f} h after this clock"
+    if state == "enabled":
+        fix = (
+            f"{OPS_TIMER} is enabled: see systemctl status trialbox-ops.service and journalctl -u trialbox-ops.service"
+        )
+    else:
+        is_now = f"{OPS_TIMER} is {state}; " if state else ""
+        fix = f"{is_now}turn it on: systemctl enable --now {OPS_TIMER} (RUNBOOK §15)"
+    return Check("ops_runner", soft, f"{what}: no health facts, and the Operations page's requests wait; {fix}")
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -882,6 +942,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_backup,
     check_key_custody,
     check_clock,
+    check_ops_runner,
 )
 
 
