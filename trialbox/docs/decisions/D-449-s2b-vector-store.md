@@ -50,13 +50,33 @@ source as an argument.
    not in the store, a note whose text a later night changed, a chunk with no vector of the embedder's model or any
    error is a **fallback**: the pair takes the on-the-fly path of before. An unavailable store is asked once per run;
    every later pair falls back without waiting on it.
-5. **Never a lost pair, never an exclusion.** The source is asked only with absence semantics off (SCREEN). With
-   them on (feasibility) every pair falls back, with that reason: the threshold is fitted to on-the-fly vectors. A
-   ranking that does not index the window's sentences is a fallback. In screening every S2b pair with sentences goes
-   on to the judge as before; only the excerpts and the rescue reason can differ. Property test:
-   `tests/unit/test_safety_properties.py::test_the_s2b_vector_source_never_changes_who_is_excluded_or_drops_a_pair`
-   (every status, tier and exit equal to the flag-off run, for a low, high, fallback, error and out-of-range source,
-   with absence semantics on and off).
+5. **Never a lost pair; a cut set never excludes** (corrected after the adversarial review of this pull request).
+   The source is asked only with absence semantics off (SCREEN); with them on (feasibility) every pair falls back,
+   with that reason. In screening every S2b pair with sentences goes on to the judge as before. **What the judge sees
+   can differ:** S2b shows only the notes holding one of its top-5 sentences, and a stored ranking (by chunk) picks
+   other sentences than the on-the-fly one (by sentence), so a real judge can read other notes, and fewer, with the
+   flag on. The review reproduced the danger (two window notes, the decisive sentence in the one a ranking left out:
+   a confident "not met" became a hard exclusion at S3), and found it on master too, for the on-the-fly ranking.
+   Fixed on both paths: in `_Run.s2b` every window note with sentences that is not shown counts as left out, so the
+   D-276 guard turns a "not met" on the cut set into "needs information" (`unknown`) and a "met" is flagged and never
+   "strong" (T-603). A real judge can therefore give, with the flag on, met where the flag-off run said needs
+   information or the reverse; it can never exclude a patient for a note the ranking left out: a patient is excluded
+   at S3/S4 only when the models were shown every window note. A stored score never decides the index rescue
+   (review LOW 2): the reason stays "not coded and not found in the notes; review" until the refit. Tests:
+   `tests/unit/test_safety_properties.py::test_regression_a_ranking_that_cuts_the_decisive_note_never_excludes` (the
+   reproduction, flag off and on) and `::test_no_ranking_excludes_a_patient_for_what_it_left_out` (a judge that
+   reads the excerpts; patients with one to three window notes; on-the-fly rankings, stored rankings, fallbacks,
+   errors and a mixed patient-run). Without the fix both fail.
+5a. **One answer per pair for the patient-run** (review LOW 5). `LakeVecSource` keeps each pair's answer (a
+   ranking or a fallback); the second two-phase round takes it, so both models read the same excerpts even if the
+   store changed in between. After 20 "not indexed" answers with no ranking (no indexer ran for this snapshot) the
+   source stops asking (review LOW 3); a store the lake could not open is tried again only after five minutes, and
+   the lake's `/healthz` counts the ranked and fallback answers it served (nothing while the flag is off).
+5b. **Once per job** (review LOW 4). `screen_cascade.job_vec_s2b` decides the flag once per job execution (all
+   studies of a MICROBATCH take one path) and, when on, writes `options.vec_s2b = on` into the job record. A re-run
+   takes the path its record says, except that a recorded "on" applies only while the flag is on (an operator's
+   switch-off is never overridden, and an option typed into a request cannot switch the store on). With the flag off
+   nothing is written.
 6. **One model, named.** The lake embeds the question with its own embedder and compares only vectors of that model
    and dimension (`VecStore.search`); the answer names the model. Inside one patient's run a second model is refused
    (a fallback). The model of the stored vectors and the on-the-fly model are both recorded.
@@ -72,7 +92,11 @@ source as an argument.
    (`tools.synth_hospital`, seed 42, 300 Taiwanese patients), indexes it, runs the SCREEN cascade of every committed
    ruleset with note criteria with the flag off and on (a keyword stand-in judge that answers from the excerpts
    only) and writes `eval/vec_parity/report.json`: S2b pairs, pairs from the store, fallbacks, excerpt sets and final
-   results that differ. The committed record is the hash stub's; it is repeated with the chosen embedder and the
+   results that differ. The stand-in judge says "not met" when its keyword is not in what it is shown, so the record shows
+   what a cut set does: on 300 patients, 24 S2b pairs all from the store, 25 of 42 excerpt sets differ, 7 patients'
+   final results differ, all in the safe direction (2 excluded with the flag off became needs information with it on,
+   2 strong became needs information, 3 data gap became uncertain), and no patient is excluded only with the flag on.
+   The committed record is the hash stub's; it is repeated with the chosen embedder and the
    real judge pair before the flag is switched on at a site.
 
 ## Consequences
@@ -87,10 +111,10 @@ source as an argument.
 
 ## Open
 
-- **The nightly indexing.** `index_snapshot` is not yet called after the night's rebuild: the lake service would
-  run it (only `tb_lake` writes `vec`), but `tb_lake` has no grant on `optout`, so it cannot read the register it
-  must exclude (D-378). Either the caller of the rebuild passes the opted-out pseudonyms, or `optout` is added to
-  `tb_lake`'s schemas. A follow-up card decides and wires it.
+- **The nightly indexing.** Decided (coordinator, 2026-11-12): the rebuild's caller passes the opted-out pids; no
+  new grant. Not wired here: the night's rebuild is called by the adapter, whose role reads no `optout` either, and
+  `RebuildRequest` is a generated contract; a follow-up adds the pids to the request (from a service that may read
+  the register) and calls `index_snapshot` after the rebuild.
 - **The removal of `embed_cache.duckdb`** (D-149) waits for the parity with the chosen embedder after G1 (T-203's
   own rule: removed after parity, in its own commit). `Lake.search` (the v1 RAG path) still reads it.
 - **The threshold.** The S2b threshold for stored vectors is refitted after G1 (D-429); until then the store is never

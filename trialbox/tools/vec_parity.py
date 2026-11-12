@@ -50,7 +50,8 @@ def _sha(obj: Any) -> str:
 @dataclass
 class KeywordJudge:
     """A deterministic stand-in for the judge: ``pass`` quoting the first excerpt sentence that holds a word of the
-    criterion, else ``unknown``. Records every excerpt set it is shown, by patient and criterion text."""
+    criterion, else a confident ``fail`` ("not met") quoting the first excerpt sentence. Records every excerpt set it
+    is shown, by patient and criterion text."""
 
     pid_of: dict[str, str]
     seen: dict[tuple[str, str, str], str] = field(default_factory=dict)
@@ -66,7 +67,16 @@ class KeywordJudge:
             for s in sentences(str(e.get("text") or "")):
                 if any(w in s.lower() for w in words):
                     return JudgeReply("pass", 0.9, s, str(e.get("date")), "keyword stand-in", call_id="kw")
-        return JudgeReply("unknown", 0.0, None, None, "keyword stand-in: no keyword", call_id="kw")
+        e = excerpts[0]  # no keyword in what it was shown: a confident "not met", as a real judge may say
+        first = next(iter(sentences(str(e.get("text") or ""))), "")
+        return JudgeReply("fail", 0.95, first or None, str(e.get("date")), "keyword stand-in: no keyword", call_id="kw")
+
+
+def _count(items: Any) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for x in items:
+        out[x] = out.get(x, 0) + 1
+    return out
 
 
 def build_site(work: Path, patients: int) -> tuple[Path, str, str]:
@@ -135,6 +145,9 @@ def compare(lk: Any, rs: Any, snapshot: str, pids: list[str], pid_of: dict[str, 
         "tiers_differ": sum(1 for a, b in final.values() if a[0] != b[0]),
         "excluded_off": sum(1 for a, _ in final.values() if a[0] == "excluded"),
         "excluded_on": sum(1 for _, b in final.values() if b[0] == "excluded"),
+        "excluded_only_on": sum(1 for a, b in final.values() if b[0] == "excluded" and a[0] != "excluded"),
+        "excluded_only_off": sum(1 for a, b in final.values() if a[0] == "excluded" and b[0] != "excluded"),
+        "tier_changes": dict(sorted(_count(f"{a[0]} -> {b[0]}" for a, b in final.values() if a[0] != b[0]).items())),
     }
 
 
@@ -198,6 +211,8 @@ def run(db_url: str, patients: int, out: Path, work: Path) -> dict[str, Any]:
                 "excerpt_sets_differ",
                 "final_results_differ",
                 "tiers_differ",
+                "excluded_only_on",
+                "excluded_only_off",
             )
         },
     }

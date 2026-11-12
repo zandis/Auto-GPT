@@ -258,16 +258,17 @@ def test_with_absence_semantics_the_store_is_not_asked() -> None:
     ]
 
 
-def test_the_index_rescue_reads_the_stored_ranking_and_never_excludes() -> None:
-    lake = _FakeLake(INDEX_RS, {"I-1": {"X-INC-01": False}}, notes=[_note("I-1", "Seen in clinic.", offset=-200)])
-    res = _run(lake, _Source([SourceRanking(0.0, [(0, 0.0)], "m")]), semantics="affirmative",
-               lexicon={"X-INC-01": ["gout"]})  # fmt: skip
-    t = res.traces["I-1"]
-    assert t.exit_stage is None and t.outcomes["X-INC-01"].status == "unknown"
-    assert t.outcomes["X-INC-01"].reason == "index condition not coded and not found in the notes; review"
-    up = _run(_FakeLake(INDEX_RS, {"I-1": {"X-INC-01": False}}, notes=[_note("I-1", "Seen in clinic.", offset=-200)]),
-              _Source([SourceRanking(0.9, [(0, 0.9)], "m")]), semantics="affirmative", lexicon={"X-INC-01": ["gout"]})  # fmt: skip
-    assert up.traces["I-1"].outcomes["X-INC-01"].reason == "index rescued"
+def test_a_stored_score_never_decides_the_index_rescue() -> None:
+    """Review LOW 2: the S2b threshold is fitted to on-the-fly vectors (D-429), so a stored ranking, high or low,
+    leaves the index condition to a person ("not coded ... review") until the refit; it never excludes."""
+    for score in (0.0, 0.9):
+        lake = _FakeLake(INDEX_RS, {"I-1": {"X-INC-01": False}}, notes=[_note("I-1", "Seen in clinic.", offset=-200)])
+        res = _run(lake, _Source([SourceRanking(score, [(0, score)], "m")]), semantics="affirmative",
+                   lexicon={"X-INC-01": ["gout"]})  # fmt: skip
+        t = res.traces["I-1"]
+        o = t.outcomes["X-INC-01"]
+        assert t.exit_stage is None and o.status == "unknown" and o.rescue is None
+        assert o.reason == "index condition not coded and not found in the notes; review"
 
 
 def test_lake_source_remembers_an_unavailable_store_and_a_lake_without_the_read() -> None:
@@ -363,3 +364,88 @@ def test_both_paths_publish_the_record_and_drop_who_opted_out_since(monkeypatch:
     import orchestrator.scenarios.microbatch as mb
 
     assert vars(mb)["publish_s2b_source"] is publish_s2b_source
+
+
+def test_one_answer_per_pair_for_both_rounds_and_a_store_with_nothing_indexed_is_left_alone() -> None:
+    @dataclass
+    class N:
+        did: str = "d1"
+        text: str = "A."
+        sents: list[str] = field(default_factory=lambda: ["A."])
+
+    @dataclass
+    class Changing:
+        calls: int = 0
+
+        def vec_s2b(self, pid: str, dids: list[str], query: str, snapshot: str | None = None) -> dict[str, Any]:
+            self.calls += 1  # the store changes between the rounds: the second read would fall back
+            if self.calls == 1:
+                return {"state": "vec", "model": "m", "hits": [{"did": "d1", "start": 0, "end": 2, "score": 0.4}]}
+            return s2b.fallback(s2b.STALE)
+
+    lk = Changing()
+    src = LakeVecSource(lk, "2026-01-02")
+    first = src.rank("p", "q", [N()], 5)
+    assert src.rank("p", "q", [N()], 5) == first == SourceRanking(0.4, [(0, 0.4)], "m") and lk.calls == 1
+
+    @dataclass
+    class Empty:
+        calls: int = 0
+
+        def vec_s2b(self, pid: str, dids: list[str], query: str, snapshot: str | None = None) -> dict[str, Any]:
+            self.calls += 1
+            return s2b.fallback(s2b.NOT_INDEXED)
+
+    e = Empty()
+    none = LakeVecSource(e, "2026-01-02")
+    for i in range(s2b.NOT_INDEXED_DOWN + 10):
+        assert none.rank(f"p{i}", "q", [N()], 5) == SourceFallback(s2b.NOT_INDEXED)
+    assert e.calls == s2b.NOT_INDEXED_DOWN and none.down == s2b.NOT_INDEXED
+
+
+def test_the_flag_is_decided_once_per_job_and_a_record_never_switches_it_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    state = {"flag": "on"}
+    monkeypatch.setattr(flags, "read", lambda name, url=None: state["flag"])
+
+    class Ctx:
+        def __init__(self, options: dict[str, str] | None) -> None:
+            self.job = SimpleNamespace(options=options)
+            self.updates: list[dict[str, Any]] = []
+
+        def update(self, **kw: Any) -> None:
+            self.updates.append(kw)
+            self.job = SimpleNamespace(**{**vars(self.job), **kw})
+
+    c = Ctx(None)
+    assert screen_cascade.job_vec_s2b(c) is True and c.job.options == {"vec_s2b": "on"}  # type: ignore[arg-type]
+    state["flag"] = "off"
+    assert screen_cascade.job_vec_s2b(c) is True  # type: ignore[arg-type]  # same job, same path (MICROBATCH)
+    assert screen_cascade.job_vec_s2b(Ctx({"vec_s2b": "on"})) is False  # type: ignore[arg-type]  # switched off
+    off = Ctx(None)
+    assert screen_cascade.job_vec_s2b(off) is False and off.updates == []  # type: ignore[arg-type]  # record unchanged
+    state["flag"] = "on"
+    assert screen_cascade.job_vec_s2b(Ctx({"vec_s2b": "off"})) is False  # type: ignore[arg-type]  # re-run: its path
+
+
+def test_the_lake_remembers_a_failed_open_and_reports_its_counts(monkeypatch: pytest.MonkeyPatch) -> None:
+    from lake import app as lake_app
+
+    opened: list[int] = []
+
+    class Boom:
+        def __init__(self, *a: Any, **k: Any) -> None:
+            opened.append(1)
+            raise ConnectionError("no database")
+
+    import vec.store
+
+    monkeypatch.setattr(vec.store, "VecStore", Boom)
+    monkeypatch.setattr(lake_app, "_vec", None)
+    monkeypatch.setattr(lake_app, "_vec_failed_at", None)
+    assert lake_app.vec_store() is None and lake_app.vec_store() is None and opened == [1]
+    monkeypatch.setattr(lake_app, "VEC_COUNTS", {"vec_ranked": 0, "vec_fallback": 0})
+    assert lake_app.vec_health() == {}  # nothing on /healthz while the store was never asked
+    lake_app.VEC_COUNTS["vec_fallback"] += 3
+    assert lake_app.vec_health() == {"vec_ranked": 0, "vec_fallback": 3}

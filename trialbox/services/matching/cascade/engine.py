@@ -720,7 +720,9 @@ class _Run:
             thr = self.cfg.thresholds.get(c.kind, self.cfg.language)
             stored = self._from_store(t, query, win, len(sents)) if sents else None
             if stored is not None:
-                res_above, best, top = stored.best >= thr.value, stored.best, [i for i, _ in stored.top]
+                # the threshold is fitted to on-the-fly vectors (D-429): a stored score never decides a rescue
+                # (index sweep) until the refit after G1; it only picks the excerpts (D-449)
+                res_above, best, top = False, stored.best, [i for i, _ in stored.top]
             elif self.embedder is None:
                 res_above, best, top = True, 1.0, list(range(min(5, len(sents))))  # no S2b: never absence
             else:
@@ -744,6 +746,11 @@ class _Run:
                     keep.setdefault(sents[i][0].did, set()).add(sents[i][1])
                 sset = sorted({sentence_hash(sents[i][1]) for i in top})
                 shown, left = self.excerpt_set(win, keep)
+                # D-449 (review of PR #275, HIGH 1): S2b shows only the notes holding a top sentence. A window note
+                # with sentences and none of them in the top is part of the record the models did not read: it counts
+                # as left out, so a "not met" on this cut set is never final (D-276 guard in _map) and a "met" is
+                # flagged, never "strong" (T-603). On either ranking, on the fly or stored.
+                left += sum(1 for n in win if n.sents and n.did not in keep)
                 routes.append(_Route(pid, cid, shown, _set_hash(sset), "S2b", best - thr.value, left_out=left))
                 continue
             self.metrics.pairs_s2b_below += 1

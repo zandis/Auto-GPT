@@ -38,8 +38,11 @@ sends that pair to the old on-the-fly path. Each patient's run records how many 
 fell back and why, and the embedder model of each, in the job's file `s2b_source_<study>_v<version>.json` (SCREEN and
 MICROBATCH; console only, never mailed); the stage log counts them. A second model inside one patient's run is refused. With absence
 semantics on (feasibility) the store is not asked, because the S2b threshold is fitted to on-the-fly vectors and is
-refitted only after the embedder is chosen (D-429). In screening S2b only picks the excerpts and the index rescue: it
-never excludes, with the flag on or off.
+refitted only after the embedder is chosen (D-429). In screening S2b only picks the excerpts: a stored score never decides
+the index rescue before the refit. The judge may read other notes with the flag on than with it off, but a window
+note that S2b did not show counts as left out, so a "not met" on what was shown is never final ("needs
+information"); nobody is excluded for a note the ranking left out, with the flag on or off. The flag is decided once
+per job and, when on, written into the job record.
 
 **Indexing a snapshot.** `vec.index.index_snapshot(store, lake, snapshot, embedder, exclude=opted_out)` indexes every
 note of a snapshot, leaving out the patients of the opt-out register; text already embedded costs nothing. Its

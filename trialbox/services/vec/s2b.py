@@ -21,7 +21,7 @@ second model inside one patient's run.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from embed_service.embedder import Embedder
@@ -37,6 +37,8 @@ NOT_INDEXED = "a window note of the pinned snapshot is not in the vector store"
 STALE = "a window note changed since it was indexed: the stored vectors are not this snapshot's"
 NO_VECTOR = "a window chunk has no vector of the embedder's model"
 NO_LAKE_READ = "the lake client offers no vector read"
+#: this many "not indexed" answers before any ranking: the store holds nothing of this run, the rest fall back unasked
+NOT_INDEXED_DOWN = 20
 
 
 class SearchStore(Protocol):
@@ -152,24 +154,47 @@ class LakeVecSource:
     lake: Any
     snapshot: str | None
     down: str | None = None  # an unavailable store is not asked again in this run: every later pair falls back
+    # D-449 (review LOW 5): one answer per pair for the whole patient-run. The two-phase rounds (judge pass, verifier
+    # pass) run the cascade again; the second round takes the first round's answer (a ranking or a fallback), never a
+    # fresh read of a store that may have changed in between, so both models read the same excerpts
+    answers: dict[tuple[str, str, tuple[str, ...]], SourceRanking | SourceFallback] = field(default_factory=dict)
+    not_indexed: int = 0  # NOT_INDEXED answers before the first ranking (review LOW 3)
+    ranked: int = 0
 
     def rank(self, pid: str, query: str, notes: Sequence[SourceNote], k: int) -> SourceRanking | SourceFallback:
+        dids = tuple(sorted({n.did for n in notes}))
+        key = (pid, query, dids)
+        if key in self.answers:
+            return self.answers[key]
+        got = self._ask(pid, query, notes, dids, k)
+        self.answers[key] = got
+        return got
+
+    def _ask(
+        self, pid: str, query: str, notes: Sequence[SourceNote], dids: tuple[str, ...], k: int
+    ) -> SourceRanking | SourceFallback:
         if self.down is not None:
             return SourceFallback(self.down)
         read = getattr(self.lake, "vec_s2b", None)
         if read is None:
             return SourceFallback(NO_LAKE_READ)
-        answer = read(pid, sorted({n.did for n in notes}), query, self.snapshot)
+        answer = read(pid, list(dids), query, self.snapshot)
         if answer.get("state") != "vec":
             reason = str(answer.get("reason") or UNAVAILABLE)
             if reason.startswith(UNAVAILABLE):
                 self.down = reason
+            elif reason == NOT_INDEXED and not self.ranked:
+                self.not_indexed += 1
+                if self.not_indexed >= NOT_INDEXED_DOWN:  # no indexer has run for this snapshot: stop asking
+                    self.down = NOT_INDEXED
             return SourceFallback(reason)
+        self.ranked += 1
         return sentence_ranking(answer.get("hits") or [], notes, str(answer["model"]), k)
 
 
 __all__ = [
     "NOT_INDEXED",
+    "NOT_INDEXED_DOWN",
     "NO_LAKE_READ",
     "NO_VECTOR",
     "STALE",

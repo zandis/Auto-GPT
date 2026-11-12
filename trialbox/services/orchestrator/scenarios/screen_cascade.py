@@ -17,6 +17,7 @@ one named funnel (S0 / S1 / S3 / S4, D-102) is now the engine's own stage log.
 
 from __future__ import annotations
 
+import contextlib
 import os
 from dataclasses import dataclass
 from datetime import date
@@ -116,6 +117,32 @@ def vec_s2b_on() -> bool:
     from tb_common.flags import read
 
     return read(VEC_FLAG) == "on"
+
+
+VEC_OPTION = "vec_s2b"  # the job record's copy of the flag, written at the job's first S2b (D-449, review LOW 4)
+
+
+def job_vec_s2b(ctx: Ctx) -> bool:
+    """The flag ``vec.s2b`` for this job, decided once per job execution (MICROBATCH runs several studies; all
+    take the same path) and, when on, written into the job record (``options.vec_s2b``; with the flag off the record
+    stays as before). A re-run of an old job takes the path its record says, with one limit: a recorded "on" applies
+    only while the flag is on, so an operator's switch-off is never overridden by a job record, and an option typed
+    into a request can never switch the store on."""
+    cached = getattr(ctx, "_tb_vec_s2b", None)
+    if cached is not None:
+        return bool(cached)
+    flag_on = vec_s2b_on()
+    opts = dict(getattr(ctx.job, "options", None) or {})
+    recorded = opts.get(VEC_OPTION)
+    if recorded is None:
+        on = flag_on
+        if on:  # written only when on: with the flag off the job record stays as before (D-449 item 2)
+            ctx.update(options={**opts, VEC_OPTION: "on"})
+    else:
+        on = recorded == "on" and flag_on
+    with contextlib.suppress(AttributeError):  # a stand-in context without attributes: read again next time
+        ctx._tb_vec_s2b = on  # type: ignore[attr-defined]
+    return on
 
 
 def s2b_source(lake: Any, snapshot: str, on: bool) -> Any:
@@ -338,7 +365,7 @@ def screen_with_cascade(
     may_block, _policy, _why = effective_note_block(note_judge)
     from embed_service.embedder import HashEmbedder
 
-    source = s2b_source(ctx.services.lake, snapshot, vec_s2b_on())  # read once: a run keeps its S2b source
+    source = s2b_source(ctx.services.lake, snapshot, job_vec_s2b(ctx))  # once per job (D-449)
     cfg = CascadeConfig(
         study_id=rs.id,
         run_date=run_date,
@@ -395,6 +422,7 @@ __all__ = [
     "CascadeScreen",
     "OrchestratorJudge",
     "check_failures",
+    "job_vec_s2b",
     "judged",
     "pipeline",
     "s2b_source",
