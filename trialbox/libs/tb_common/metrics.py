@@ -52,6 +52,9 @@ OK, WARN, RED = "ok", "warn", "red"
 RANK = {OK: 0, WARN: 1, RED: 2}
 VERIFIED_FILE = "backup-verified.json"  # under deploy/site, next to backup-last.json (T-117b)
 FACTS_STALE_H = 1.0
+# NEW-OPS-8 (OPS-009, D-561): facts that are missing or older than FACTS_STALE_H are red, not a warning that never
+# ends: without the runner a full disk, an old backup and an ending certificate are never reported
+RUNNER_HINT = "is trialbox-ops.timer on? systemctl enable --now trialbox-ops.timer"
 
 
 def _num(env: Mapping[str, str], key: str, default: float) -> float:
@@ -279,9 +282,9 @@ def evaluate(
     checks.append(check_cert(f.get("cert"), now, th))
     seen = _when(f.get("at"))
     if seen is None:
-        checks.append(Check("facts", WARN, "the host runner has not written the health facts (trialbox ops run)"))
-    elif (age := (now - seen).total_seconds() / 3600) > FACTS_STALE_H:
-        checks.append(Check("facts", WARN, f"the host's health facts are {age:.0f} h old (trialbox ops run)", age))
+        checks.append(Check("facts", RED, f"the host runner has not written the health facts ({RUNNER_HINT})"))
+    elif abs(age := (now - seen).total_seconds() / 3600) > FACTS_STALE_H:  # dated ahead of the clock: not fresh
+        checks.append(Check("facts", RED, f"the host's health facts are {age:.0f} h old ({RUNNER_HINT})", age))
     return Health(now, tuple(checks))
 
 

@@ -23,6 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from datacore.forms import XML_ILLEGAL
 from datacore.store import TRIALBOX, DataCore, DataError
 
 
@@ -83,12 +84,21 @@ def sync(dc: DataCore, study: str, source: Source, by: str, at: str, push: bool 
     res.refused = list(getattr(source, "refused", []) or [])
     for row in rows:
         res.pulled += 1
+        if XML_ILLEGAL.search(row.record) or XML_ILLEGAL.search(row.event):
+            # EDC-010 (D-581): a record or event key no XML file can carry; never stored, never repeated here
+            res.refused.append({"at": "a record", "reason": "its record or event key holds a control character"})
+            continue
         if row.source_id:
             dc.put_source_id(study, source.name, row.record, row.source_id)
         for f, v in row.values.items():
             if f not in carried:
                 continue
             v = str(v)
+            if XML_ILLEGAL.search(v):  # the source holds a control character: the field is named, the value not
+                res.refused.append(
+                    {"at": f"record {row.record}, field {f}", "reason": "the value holds a control character"}
+                )
+                continue
             owner = owners.get(f, TRIALBOX)
             cur = dc.get(study, row.record, row.event, f)
 
@@ -172,6 +182,10 @@ def resolve(dc: DataCore, cid: int, keep: str, by: str, at: str) -> dict[str, An
     if keep not in ("theirs", "trialbox"):
         raise DataError("DATA-CONFLICT", "keep is theirs or trialbox")
     s, rec, ev, f = c["study"], c["record"], c["event"], c["field"]
+    # D-582: the conflict is closed first, and only an open one can be. Of two people who resolve at once the
+    # second is refused here, before any value is written (the value and the conflict row never disagree)
+    if not dc.close_conflict(cid, keep, by, at):
+        raise DataError("DATA-CONFLICT", "no open conflict with that number")
     if keep == "theirs":
         dc.write(s, rec, ev, f, c["theirs"], by, at, f"resolve:{c['source']}", seen=c["theirs"])
         dc.mark(s, rec, ev, f, pushed=c["theirs"])
@@ -179,7 +193,6 @@ def resolve(dc: DataCore, cid: int, keep: str, by: str, at: str) -> dict[str, An
         dc.mark(s, rec, ev, f, seen=c["theirs"])
         if c["owner"] == TRIALBOX:
             dc.mark(s, rec, ev, f, pushed=c["theirs"])  # TrialBox's value differs from it: pushed on the next sync
-    dc.close_conflict(cid, keep, by, at)
     return {**c, "resolved": keep, "resolved_by": by, "resolved_at": at}
 
 

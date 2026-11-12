@@ -99,13 +99,13 @@ def unit_pairs(m: Any, args: dict[str, Any], got: list[dict[str, Any]]) -> list[
     seen: Counter[tuple[str, str]] = Counter()
     for row in got:
         code = str(row.get(args["key"]) or "")
-        hit = lk.rows.get(code)
+        hit = lk.find(code)
         if hit is None or hit.get("value_type") == "coded" or str(row.get(args["column"]) or "").strip() == "":
             continue
         seen[(code, str(row.get(col) or "").strip() if col else "")] += 1
     out: list[dict[str, Any]] = []
     for (code, unit), n in sorted(seen.items()):
-        hit = lk.rows[code]
+        hit = lk.find(code) or {}
         factor = Decimal(hit.get("factor") or "1")
         expected = hit.get("source_unit") or (hit.get("ucum") if factor == 1 else None)
         item: dict[str, Any] = {
@@ -142,13 +142,13 @@ def qualitative_values(m: Any, args: dict[str, Any], got: list[dict[str, Any]]) 
     seen: Counter[tuple[str, str]] = Counter()
     for row in got:
         code = str(row.get(args["key"]) or "")
-        hit = lk.rows.get(code)
+        hit = lk.find(code)
         raw = str(row.get(args["column"]) or "").strip()
         if hit is not None and hit.get("value_type") == "coded" and raw:
             seen[(code, raw)] += 1
     out: list[dict[str, Any]] = []
     for (code, raw), n in sorted(seen.items()):
-        answers = dict(a.split(":", 1) for a in (lk.rows[code].get("answers") or "").split(";") if ":" in a)
+        answers = dict(a.split(":", 1) for a in ((lk.find(code) or {}).get("answers") or "").split(";") if ":" in a)
         key = labvalue.answer_key(raw, answers)
         if key is not None:
             how = "site answer" if raw.upper() in answers else "shared table"
@@ -157,7 +157,7 @@ def qualitative_values(m: Any, args: dict[str, Any], got: list[dict[str, Any]]) 
             read = "unknown (unsettled on purpose)"
         else:
             read = "unknown (not recognised: stays text)"
-        out.append({"code": code, "loinc": _loinc(lk.rows[code]), "raw": raw, "rows": n, "read": read})
+        out.append({"code": code, "loinc": _loinc(lk.find(code) or {}), "raw": raw, "rows": n, "read": read})
     return out
 
 
@@ -231,7 +231,7 @@ def check(mapping_path: Path, source_kind: str, where: str, rows: int = 500) -> 
             lk = m.lookups["lab"]
             for row in got:
                 code = row.get(lk.key)
-                if code not in (None, "") and str(code) not in lk.rows:
+                if code not in (None, "") and lk.find(code) is None:  # as the night reads it (D-580)
                     unmapped[f"lab {lk.key}={code} (not in lookup)"] += 1
         t["unmapped_codes"] = dict(unmapped.most_common(20))
         args = lab_value_args(m, table)

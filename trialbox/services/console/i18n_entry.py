@@ -51,6 +51,7 @@ EN: dict[str, str] = {
     "dc.why.integer": "{label}: enter a whole number.",
     "dc.why.decimal": "{label}: enter a number.",
     "dc.why.decimals": "{label}: at most {places} decimal places.",
+    "dc.why.chars": "{label}: the text holds a character that cannot be stored (a control character from pasted text). Type it again.",
     "dc.why.time": "{label}: enter a time as HH:MM.",
     "dc.why.email": "{label}: enter an e-mail address.",
     "dc.why.phone": "{label}: enter a phone number.",
@@ -65,6 +66,7 @@ EN: dict[str, str] = {
     "dc.err.DATA-RECORD": "Not a screening number or pseudonym of this study: {fields}",
     "dc.err.DATA-EVENT": "Event names use lower-case letters, digits and _: {fields}",
     "dc.err.DATA-EXPORT": "Exports are ODM, REDCap CSV or Excel.",
+    "dc.err.DATA-CHARS": "A stored value holds a character that a file cannot carry (a control character from pasted text). Correct it, then export: {fields}",
 }
 
 JA: dict[str, str] = {
@@ -113,6 +115,7 @@ JA: dict[str, str] = {
     "dc.why.integer": "{label}: 整数を入力してください。",
     "dc.why.decimal": "{label}: 数値を入力してください。",
     "dc.why.decimals": "{label}: 小数点以下は {places} 桁までにしてください。",
+    "dc.why.chars": "{label}: 保存できない文字（貼り付けた文章の制御文字）があります。入力し直してください。",
     "dc.why.time": "{label}: 時刻を HH:MM で入力してください。",
     "dc.why.email": "{label}: メールアドレスを入力してください。",
     "dc.why.phone": "{label}: 電話番号を入力してください。",
@@ -127,6 +130,7 @@ JA: dict[str, str] = {
     "dc.err.DATA-RECORD": "この研究のスクリーニング番号または仮名IDではありません: {fields}",
     "dc.err.DATA-EVENT": "イベント名には英小文字・数字・_ を使ってください: {fields}",
     "dc.err.DATA-EXPORT": "書き出しは ODM、REDCap CSV、Excel のいずれかです。",
+    "dc.err.DATA-CHARS": "保存された値に、ファイルに書けない文字（貼り付けた文章の制御文字）があります。値を直してから書き出してください: {fields}",
 }
 
 ZH: dict[str, str] = {
@@ -175,6 +179,7 @@ ZH: dict[str, str] = {
     "dc.why.integer": "{label}:請輸入整數。",
     "dc.why.decimal": "{label}:請輸入數字。",
     "dc.why.decimals": "{label}:小數最多 {places} 位。",
+    "dc.why.chars": "{label}:含有無法儲存的字元（貼上文字帶入的控制字元），請重新輸入。",
     "dc.why.time": "{label}:請以 HH:MM 輸入時間。",
     "dc.why.email": "{label}:請輸入電子郵件地址。",
     "dc.why.phone": "{label}:請輸入電話號碼。",
@@ -189,4 +194,5 @@ ZH: dict[str, str] = {
     "dc.err.DATA-RECORD": "不是本研究的篩選編號或假名編號:{fields}",
     "dc.err.DATA-EVENT": "事件名稱請使用英文小寫、數字與 _:{fields}",
     "dc.err.DATA-EXPORT": "匯出格式為 ODM、REDCap CSV 或 Excel。",
+    "dc.err.DATA-CHARS": "已儲存的值含有檔案無法儲存的字元（貼上文字帶入的控制字元）。請先更正再匯出：{fields}",
 }
