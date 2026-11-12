@@ -4,8 +4,8 @@
 # Gate before any paid launch: `make rehearse` passes on the commit to launch (tests/rehearsal, RUNBOOK §11).
 #
 #   export CLOUDSDK_CONFIG=<a private folder>              # never the default one
-#   export TB_SA_KEY_FILE=<the service account key file>   # gcloud re-activates from it on an auth error
-#   gcloud auth activate-service-account --key-file "$TB_SA_KEY_FILE" && gcloud config set project trialbox-demo
+#   export TB_SA_KEY_FILE=<the service account key file>   # every command activates from it (its path, to gcloud)
+#   gcloud config set project trialbox-demo                # once, in that config
 #   deploy/gcp/complete-run.sh --estimate [--patients 50000] [--vms N] [--parts g1,embed,profile] [--only TAG,TAG]
 #   deploy/gcp/complete-run.sh --dry-run [--vms N] [--zones z1,z2] [--parts ...] [--only TAG,TAG] [VM] [ZONE]
 #   deploy/gcp/complete-run.sh --provision --vms N --zones z1,z2,...   # once: the clones tb-gpu-sim-2..N (they
@@ -47,10 +47,13 @@
 #   3. The workload runs on the VM (48 vCPU): the driver uploads the code (git archive of HEAD with TB_HEAD.json; its
 #      sha256 goes in the metadata and the VM refuses anything else), polls, downloads the results and runs the stub
 #      parts (walk, backup, update, scale) here once the VMs have stopped. The driver can die at any moment.
-#   4. Every gcloud call goes through `gc` (deploy/gcp/gcloud-auth.sh): an auth error re-activates the service
-#      account from TB_SA_KEY_FILE and retries once; a probe before the start fails fast.
+#   4. Every command activates the service account from TB_SA_KEY_FILE and probes the token first (gc_start); every
+#      gcloud call goes through `gc` (deploy/gcp/gcloud-auth.sh): it has a timeout, and an auth error or a timeout
+#      re-activates and retries once, then fails fast with "credentials expired: re-activate" (G1 bug A2).
 #   5. Every part is resumable within its run: a restarted VM runs complete_run --resume, which keeps only parts of the
-#      same run id and HEAD. A preempted VM: `TB_RUN_ID=<run id> complete-run.sh --shard <i>` starts it again.
+#      same run (<run id> and <run id>-s<N> are one run) and HEAD, and removes a stale result only of a part it runs
+#      itself, so the collect's stub parts never remove the VMs' parts (G1 bug A1). A preempted VM:
+#      `TB_RUN_ID=<run id> complete-run.sh --shard <i>` starts it again; `make rehearse CASES=preempt` rehearses it.
 # The door (T-119, CR-048): HTTPS on 443 only, the VM's self-signed certificate made here per run and its public key
 # pinned (deploy/gcp/door-tls.sh); no port 80. The bearer key and the TLS key go to the VM through Secret Manager
 # (secret tb-gpu-door, one version per VM and run, destroyed once the results are here), never as metadata; a tb-key
@@ -80,7 +83,7 @@ while [ $# -gt 0 ]; do
     --shard) SHARD="$2"; shift 2 ;;
     --provision) PROVISION=1; shift ;;
     --teardown) TEARDOWN=1; shift ;;
-    -h|--help) sed -n 2,52p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,61p "$0"; exit 0 ;;
     *) break ;;
   esac
 done
@@ -113,6 +116,10 @@ if [ "$DRY" = 0 ]; then
   case "$CLOUDSDK_CONFIG" in "$HOME/.config/gcloud"*) echo "CLOUDSDK_CONFIG must be private" >&2; exit 2 ;; esac
 fi
 unset CLOUDSDK_AUTH_ACCESS_TOKEN
+# every command (launch, collect, stop, a shard child, provision, teardown) activates the service account from
+# TB_SA_KEY_FILE and probes the token before its first gcloud call: an activation left from an earlier command may
+# have lapsed (G1 bug A2); a dead credential fails here, at once, with "credentials expired: re-activate"
+gc_start || exit 5
 
 RUN_ID="${COLLECT:-${TB_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD)}}"
 OUT="${TB_COMPLETE_DIR:-$ROOT/.cache/complete-run/$RUN_ID}"
@@ -484,8 +491,16 @@ elif [ "$G1" = 1 ]; then
     --only walk backup update scale "${STUB[@]}" || true
 fi
 LIVE=(); [ -f "$OUT/serving_config.rtxpro6000.live.json" ] && LIVE=(--live-record "$OUT/serving_config.rtxpro6000.live.json")
+# the parts of a VM that still runs (and the stub parts, which wait for every VM) are "pending" in the report; any
+# other part without a result is "not run (VM stopped)": neither counts as a failed check (G1 bug A5)
+PENDING=()
+if [ -n "$running" ]; then
+  for i in $running; do read -r -a t <<< "$(plan_get "$i" tags)"; PENDING+=("${t[@]}"); done
+  [ "$G1" = 1 ] && PENDING+=(walk backup update scale)
+fi
+[ "${#PENDING[@]}" = 0 ] || PENDING=(--pending-parts "${PENDING[@]}")
 # shellcheck disable=SC2086  # ONLY is a list of tags
 env TB_ENV=DEV PYTHONPATH=libs:services:. "$PY" -m tools.complete_run --dir "$OUT" --report-only --model pair \
-  "${STUB[@]}" "${LIVE[@]}" ${TB_PLANNED_FROM:+--planned-from "$TB_PLANNED_FROM"} --report-parts $ONLY || true
+  "${STUB[@]}" "${LIVE[@]}" ${TB_PLANNED_FROM:+--planned-from "$TB_PLANNED_FROM"} "${PENDING[@]}" --report-parts $ONLY || true
 echo "report: $OUT/report/report.md"
 for i in $(seq 1 "$VMS"); do VM="$(plan_get "$i" vm)"; ZONE="$(plan_get "$i" zone)"; echo "VM $VM status: $(status)"; done

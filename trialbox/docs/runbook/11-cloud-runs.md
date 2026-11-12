@@ -49,6 +49,7 @@ end with `REHEARSAL PASSED`; no paid launch without it, and none from a commit i
 | `hang` | a stuck, silent part and no driver: the idle watchdog powers off; `--collect` then gets the results from the stopped VM |
 | `busy` | a part silent for 5 minutes but working (idle limit 2): it is never powered off as idle; it finishes; `--collect` gets it |
 | `bucket` | `TB_BUCKET` set: the code and the results go through the bucket (a `gcloud storage` stand-in), not the door |
+| `preempt` | three short parts done, the VM pre-empted while a fourth runs; `--collect` gets the three from the stopped VM and removes none; the same run started again (`--shard 1`) keeps them (`--resume`) and runs only the fourth (G1 bug A1) |
 
 In every case the door is TLS on 443 with the driver's pinned certificate, the key and the TLS key come from the
 Secret Manager stand-in (never the metadata) and their version is destroyed once collected, and `run-a`, `run-b`
@@ -62,8 +63,11 @@ keys, setup, state and timing are, the layer every failure of 2026-11-09 was in.
 
 1. `deploy/gcp/complete-run.sh --estimate --patients 50000` prints the hours and US$ per scenario (`--only TAG,TAG`
    for a bounded run). `--dry-run` prints every command and starts nothing.
-2. The run: `export CLOUDSDK_CONFIG=<private folder> TB_SA_KEY_FILE=<key file, in place>`, activate the service
-   account once, then `deploy/gcp/complete-run.sh --patients 50000 --no-wait` (or `--detach`). It:
+2. The run: `export CLOUDSDK_CONFIG=<private folder> TB_SA_KEY_FILE=<key file, in place>`, then
+   `deploy/gcp/complete-run.sh --patients 50000 --no-wait` (or `--detach`). Every command of the driver (the launch,
+   each `--collect`, `--stop`, each VM's child, `--provision`, `--teardown`) first activates the service account from
+   `TB_SA_KEY_FILE` (gcloud gets the file's path; the driver never reads it) and probes the token: a dead credential
+   stops it at once with `credentials expired: re-activate` (G1 bug A2). It:
    * probes the credential (`gc_probe`), reads the GPU and CPU quota (read-only) and refuses when the VMs cannot run,
      and refuses unless every VM is `TERMINATED`;
    * sets the **cloud-side hard cap**: `gcloud compute instances set-scheduling tb-gpu-sim --zone asia-east1-a
@@ -103,14 +107,21 @@ keys, setup, state and timing are, the layer every failure of 2026-11-09 was in.
    cloud cap; it powers off as soon as the results are here; about US$0.20). Once every VM is done, it runs the walk,
    backup, update and scale on the stub here (at the run's `--patients`, OCR tesseract) and writes the report, whose
    head, host and run id are the VM's. A restart of the same run (`TB_RUN_ID=<run id> --shard i`) keeps the parts
-   passed in that run at that HEAD; a new run never keeps anything.
-5. Every gcloud call goes through `gc` (`deploy/gcp/gcloud-auth.sh`): an authentication error re-activates the
-   service account from `TB_SA_KEY_FILE` and retries once.
+   passed in that run at that HEAD; a new run never keeps anything. `<run id>` and the VM's `<run id>-s<i>` are one
+   run, and a `--resume` removes a stale result only of a part it runs itself: the collect's stub parts never remove
+   the VMs' finished parts (G1 bug A1; `make rehearse CASES=preempt` pre-empts after part 3, collects and resumes).
+5. Every gcloud call goes through `gc` (`deploy/gcp/gcloud-auth.sh`) and has a timeout (`GC_TIMEOUT_S`, 30 s, for
+   reads, secrets and the token; `GC_OP_TIMEOUT_S`, 900 s, for start, stop, metadata and storage copies;
+   `GC_IMAGE_TIMEOUT_S`, 3600 s, for a machine image; the reasons are in the script). An authentication error or a
+   timeout re-activates the service account from `TB_SA_KEY_FILE` and retries once; when that fails too and no token
+   comes, the call fails with `credentials expired: re-activate` instead of waiting (a G1 collect hung 10 minutes).
 6. Afterwards: `gcloud compute instances describe tb-gpu-sim --zone asia-east1-a --format='value(status)'` must say
    `TERMINATED`, and `--format='value(metadata.items)'` must show no `tb-key`;
    `gcloud secrets versions list tb-gpu-door --filter=state:enabled` must list nothing once collected; `deploy/gcp/complete-run.sh --stop` stops it by hand and puts the usual startup script back (a VM
    started by hand after that runs both model servers with no watchdog: only its cloud cap stops it). Read
-   `report.md`: a part that "crashed or never ran" is named in the headline, and a `profile` row whose path says
+   `report.md`: its verdict is PASSED, FAILED (a part that ran failed a check) or INCOMPLETE (parts without a
+   result: `pending` while their VM runs, `not run (VM stopped)` after; they count no check, G1 bug A5). A part that
+   "crashed or never ran" is named in the headline, and a `profile` row whose path says
    "direct (the gateway refused...)" is a failed check, whatever else passed.
 
 **The first launch after a failed one is bounded**: `deploy/gcp/complete-run.sh --patients 5000 --only
