@@ -63,13 +63,17 @@ def orch_client(app: Any) -> Any:
         own = {name: secrets.token_hex(16) for name in OWN_TOKENS}
         services = {"console": sa.token_hash(tok), **{name: sa.token_hash(t) for name, t in own.items()}}
         reg.write_text(json.dumps({"schema": sa.REGISTRY_SCHEMA, "services": services}), encoding="utf-8")
-        keys.write_text(sa.actor_key(tok).hex() + "\n", encoding="utf-8")
+        # T-717 (D-485): the console's signing key is its own random secret, as on a box
+        sign = d / "actor-sign.key"
+        sign.write_text(secrets.token_hex(32) + "\n", encoding="utf-8")
+        keys.write_text(sign.read_text(encoding="utf-8"), encoding="utf-8")
         for name, t in own.items():
             _token_file(reg, name).write_text(t + "\n", encoding="utf-8")
-        for f in (reg, keys, *(_token_file(reg, name) for name in own)):
+        for f in (reg, keys, sign, *(_token_file(reg, name) for name in own)):
             f.chmod(0o600)
         os.environ[sa.REGISTRY_ENV] = str(reg)
         os.environ.setdefault(sa.ACTOR_KEYS_ENV, str(keys))
+        os.environ.setdefault(sa.ACTOR_SIGN_KEY_ENV, str(sign))
     return TestClient(app, headers=auth_headers())
 
 

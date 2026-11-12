@@ -10,6 +10,9 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- The key that signs people (T-717, D-485): the console signs the acting person with a key of its own
+  (`deploy/secrets/services/actor-sign.key`), no longer derived from its service token. `install.sh` and
+  `trialbox update` make the file; `trialbox secrets rotate --service actor` rotates it.
 - Break-glass (T-716, D-484): the orchestrator reads the grant itself before it gives a chart number (this person,
   this patient or job, open now) and writes the use; an investigator's own right is read from the delegation log
   there too. The orchestrator's database role joins the `breakglass` and `team` schemas: `install.sh` re-runs the

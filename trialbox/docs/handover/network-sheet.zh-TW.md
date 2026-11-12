@@ -67,6 +67,7 @@
 
 | 機密 | 存放位置 | 提供給 |
 | --- | --- | --- |
+| actor-signing key | deploy/secrets/services/actor-sign.key (0600) | console only, at /run/secrets/tb_actor_sign_key; its copy for verification (deploy/secrets/services/actor/keys) in the orchestrator only |
 | model key | deploy/secrets/model/llm.key (0600) | gateway, model-guard only, at /run/secrets/tb_llm_key |
 | model key, the vLLM servers' copy (VLLM_API_KEY) | deploy/secrets/model/vllm.env (0600, root) | llm-service, llm-verifier only |
 | oidc_client_secret | deploy/secrets/authelia/oidc_client_secret.txt (0600, root) | console only, at /run/secrets/oidc_client_secret (OIDC on) |

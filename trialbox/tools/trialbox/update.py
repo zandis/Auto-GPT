@@ -1203,6 +1203,12 @@ class ComposeBox(_DockerImages):
                 svc_secrets.ensure_model_key(self.deploy)
             except svc_secrets.SecretsError as e:  # T-608 (D-445): two different model keys stop the update
                 raise UpdateFailed(str(e)) from e
+        # T-717 (D-485): the secrets overlay gives the console its signing key as a compose secret, which needs its
+        # file: a box with per-service tokens from before it gets the key (and the orchestrator's keys file) here
+        if (self.deploy / "secrets" / "services" / "public" / "tokens.json").is_file():
+            from tools.trialbox import svc_secrets
+
+            svc_secrets.ensure_actor_sign_key(self.deploy)
         return made
 
     def restart(self, plan: Plan) -> None:
