@@ -126,6 +126,16 @@ DECLARED: dict[str, Declared] = {
         "and a run whose note stage ends under the hold drops its note answers. Hold and release with `trialbox "
         "model hold|release` (release needs a passing pair canary run after the hold; RUNBOOK §19).",
     ),
+    "screening.after_restore": Declared(
+        values=("released", "held"),
+        default="released",
+        seed_env=None,  # set by a restore that is not complete, released by a person with a reason; never by a file
+        help="The hold after a restore (NEW-B-3, D-522): a restore that is not complete (audit events after the "
+        "backup's snapshot to re-apply, opt-outs that could not be put back or are unknown) sets it to held. While "
+        "it is held the scheduler starts no list job (SCREEN, MICROBATCH, COHORT, NAV) and a list job a person asks "
+        "for fails at its first step. A person releases it on /ops/flags with the reason, after the events were "
+        "re-applied (RUNBOOK §5).",
+    ),
     "vec.s2b": Declared(
         values=("off", "on"),
         default="off",

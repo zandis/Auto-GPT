@@ -162,6 +162,12 @@ old box, or from the vendor. Keep a copy of `deploy/refdata/loaded` beside the o
    the chain), writes `backup.restore_reapply` and exits 4 ("NOT complete"). A steward opens each one in the audit
    browser and does it again (records the opt-out again, closes the break-glass, re-signs or re-sends the EDC
    record) before screening resumes.
+   **The box is held until then (D-522).** A restore that is not complete (this step or the next) sets the flag
+   `screening.after_restore` to `held`: the timer starts no list job (SCREEN, MICROBATCH, COHORT, NAV) and a list
+   a person asks for fails with a message that says so. The ingest and retention run. `trialbox doctor` shows the
+   hold (`restore hold`). When every listed event is re-applied, the administrator sets the flag to `released` on
+   `/ops/flags`, with the reason (who re-applied what); the change is in the audit. If the restore prints that the
+   hold could not be set, keep the services stopped until the events are re-applied.
 5. **Opt-outs recorded after the backup (D-493).** Before the restore empties the trial database it reads the
    box's opt-out register. After the restored rows are checked it **puts back every opt-out** the register held
    that the backup does not (as it was recorded: who, when, why), so nobody who said no after the backup is listed

@@ -60,6 +60,24 @@ def cron_kwargs(spec: str, quarterly: bool = False) -> dict[str, Any]:
 
 LIST_JOBS = ("SCREEN", "MICROBATCH", "COHORT")  # the jobs that make a patient list (D-386)
 OPEN = "open"
+#: NEW-B-3 (D-522): the audited flag a restore that is not complete sets (``tools.trialbox.backup.hold_screening``).
+#: While it is ``held`` no job that lists patients is started by the timer, and a list scenario fails at its first
+#: step: an opt-out typed after the backup may not be in the restored databases yet
+RESTORE_FLAG = "screening.after_restore"
+HELD_AFTER_RESTORE = (*LIST_JOBS, "NAV")
+RESTORE_HELD = (
+    "The box was restored from a backup and the restore is not complete: events recorded after the backup (opt-outs, "
+    "erasures, consent changes) have to be re-applied first. No patient list is made until the hold is released "
+    "(the administrator: /ops/flags, screening.after_restore; RUNBOOK §5)."
+)
+
+
+def restore_held(url: str | None = None) -> bool:
+    """True while the hold of a restore that is not complete stands (the flag is ``held``). A flag that has no row
+    or cannot be read is not a hold: the list scenarios need the same database and fail there."""
+    from tb_common.flags import read
+
+    return read(RESTORE_FLAG, url) == "held"
 
 
 def study_state(ruleset: str, url: str | None = None) -> str:
@@ -89,6 +107,8 @@ def require_open(ruleset: str | None) -> None:
 
     from orchestrator.clients import StepFailed
 
+    if restore_held():  # NEW-B-3 (D-522): before anything is read or listed
+        raise StepFailed("restore", RESTORE_HELD)
     if not ruleset:
         return
     try:
@@ -107,6 +127,13 @@ def require_open(ruleset: str | None) -> None:
 def _held(orch: Orchestrator, jtype: str, ruleset: str | None) -> bool:
     """True when the timer must not start ``jtype`` for ``ruleset``: a list job of a study that is not open. The
     skip is audited (``scheduler.held``); a state that cannot be read holds the job too (logged)."""
+    if jtype in HELD_AFTER_RESTORE and restore_held():  # NEW-B-3 (D-522)
+        log.warning("%s for %s held: the box was restored and the restore is not complete", jtype, ruleset)
+        try:
+            orch.audit.append("scheduler.held", ruleset=ruleset, detail={"job": jtype, "state": "held after a restore"})
+        except Exception as exc:  # the audit must not take the scheduler down
+            log.warning("scheduler.held not audited: %s", exc)
+        return True
     if jtype not in LIST_JOBS or not ruleset:
         return False
     try:

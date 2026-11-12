@@ -1266,6 +1266,30 @@ def fail_running_jobs(src: DbSource, when: datetime, made: str) -> list[dict[str
     return sorted(({"job_id": str(j), "type": str(t), "step": str(st)} for j, t, st in rows), key=lambda r: r["job_id"])
 
 
+HOLD_FLAG = "screening.after_restore"  # tb_common.flags: the hold a restore that is not complete leaves (D-522)
+
+
+def hold_screening(env: Mapping[str, str], audit_dir: Path | None, reason: str) -> str:
+    """NEW-B-3 (D-522): the restore is not complete, so the box's list jobs are held until a person releases the
+    hold with a reason (the audited flag ``screening.after_restore``, set here to ``held``). Returns ``held``, or
+    ``NOT set: <why>`` when the flag could not be written (no audit directory: a flag change must be audited; a
+    database error). Never raises: the restore's own report says what happened. ``reason`` holds counts and times
+    only."""
+    if audit_dir is None:
+        return "NOT set: no audit directory in the layout (or TB_AUDIT_DIR); a hold must be audited"
+    try:
+        from tb_common.audit import AuditLog
+        from tb_common.flags import Flags
+
+        log = AuditLog(Path(audit_dir), tz=env["TB_TZ"]) if env.get("TB_TZ") else AuditLog(Path(audit_dir))
+        flags = Flags(url=env.get("TB_DB_URL"), audit=log)
+        if flags.row(HOLD_FLAG) != "held":  # held already (the backup was taken under a hold): it stays
+            flags.set(HOLD_FLAG, "held", actor=env.get("TB_RESTORE_ACTOR") or "trialbox restore", reason=reason)
+        return "held"
+    except Exception as exc:
+        return f"NOT set: {type(exc).__name__}"
+
+
 def _audit(dirs: Mapping[str, Path], env: Mapping[str, str], event: str, sha: str, detail: dict[str, Any]) -> str:
     """Append ``event`` to the box's audit log (the ``audit`` directory, else ``TB_AUDIT_DIR``); returns where, or
     why not."""
@@ -1516,13 +1540,24 @@ def restore(
         audited = _audit(targets, env, "backup.restored", sha, {
             **base, "rows": checked, "dirs": sorted(manifest["dirs"]), "refdata_missing": refdata["missing"],
             "warnings": len(warnings), "optouts_after_backup": lost, "jobs_failed": len(jobs_failed)})  # fmt: skip
+        complete = not reapply and optouts_ok(lost)
+        # NEW-B-3 (D-522; D-455's open item): a restore that is not complete holds the box's list jobs until a
+        # person releases the hold. After the restored rows are in (the flag lives in the restored database)
+        hold = "not needed"
+        if not complete:
+            hold = hold_screening(
+                env,
+                audit_dir,
+                f"restore of the backup of {manifest['created_at']}: {len(reapply)} event(s) to re-apply since "
+                f"{since.isoformat(timespec='seconds')}; opt-outs after the backup: {lost.get('state')}",
+            )
     return {"ok": not refdata["missing"], "site": manifest["site"], "created_at": manifest["created_at"],
             "layout": manifest.get("layout", 1), "rows": checked, "dirs": sorted(manifest["dirs"]),
             "refdata": refdata, "warnings": warnings, "kept_copy": str(copy) if copy else None, "copy": copy_note,
             "host": host, "lake_check": lake,
             "to_reapply": reapply, "reapply_since": since.isoformat(timespec="milliseconds"),
             "optouts_after_backup": lost, "jobs_failed": jobs_failed,
-            "complete": not reapply and optouts_ok(lost), "audit": audited}  # fmt: skip
+            "complete": complete, "hold": hold, "audit": audited}  # fmt: skip
 
 
 _safe = _sched.safe

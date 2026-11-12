@@ -430,6 +430,16 @@ def _backup_cmd(a: argparse.Namespace) -> int:
             print(f"restore: NOT complete: the opt-out register of this box could not be read before the restore "
                   f"({lost.get('why')}): what it held after the backup is unknown; check the office's records since "
                   "then (RUNBOOK §5)", file=sys.stderr)  # fmt: skip
+        hold = str(out.get("hold") or "")
+        if hold == "held":  # NEW-B-3 (D-522)
+            print("restore: the box's list jobs (SCREEN, MICROBATCH, COHORT, NAV) are HELD until the hold is "
+                  "released: when the events above are re-applied, set screening.after_restore to released on "
+                  "/ops/flags with the reason (RUNBOOK §5; `trialbox doctor` shows the hold)",
+                  file=sys.stderr)  # fmt: skip
+        elif hold.startswith("NOT set"):
+            print(f"restore: the hold on the box's list jobs could {hold}: the box WILL screen before the events "
+                  "above are re-applied. Keep the services stopped until they are (RUNBOOK §5)",
+                  file=sys.stderr)  # fmt: skip
         if out["refdata"]["missing"]:  # D-187: a backup holds no vendor pack rows; the box is not whole without them
             print(f"restore: the reference data is NOT loaded: put {', '.join(out['refdata']['missing'])}.tar in "
                   f"{a.refdata} (the update bundle or the vendor) and run this restore again, or load it with "
