@@ -32,9 +32,22 @@ ICD-10-CM coding beside the ICD-9-CM one wherever a public map gives exactly one
    - `relatedto`: one of several lines of its code (alternatives), or part of a combination (several ICD-10-CM
      codes together stand for the one ICD-9-CM code).
    Each row keeps the file's five flags and the number of lines its code has (`extra`).
-4. **What may be used as "the" ICD-10-CM code** (for the next part, the nightly mapping): only `equivalent` and
-   `inexact` rows, that is a code with exactly one target and no combination (10,765 of the 14,567 codes).
-   `714.0` gives `M06.9`. `V58.69` has three alternatives and gives none: unknown stays unknown.
+   The file names ten pairs twice (once alone, once inside a combination: `666.02` and `O72.0`); the pack holds
+   one row per pair with both flag sets, and the vendor's build refuses a map that names a pair twice (the box's
+   table would refuse it at the hospital).
+4. **What the rows may be used for** (the rule for the next part, the nightly mapping; said here because the
+   file's own guide says it: "an entry of the single type is not the same as a one-to-one mapping", and "GEMs
+   are not crosswalks"):
+   - an `equivalent` row (3,521 codes) may give the diagnosis its ICD-10-CM coding, tagged as mapped;
+   - an `inexact` row (7,244 codes) is a candidate, not a meaning, as `tb_common.refdata.in_set_via_map` already
+     treats the Taiwan edition map: it may turn "not in the value set" into `unknown`, and it must never let an
+     exclusion answer "no" or an inclusion answer "yes" by itself. Examples from the file: `714.9` (unspecified
+     polyarthropathy) goes to `M06.4`, inside the rheumatoid arthritis family; `070.42` goes to `B17.0`, another
+     concept; `274.11` goes to `N20.0` and loses gout;
+   - a `relatedto` row is never the code. Whole families are `relatedto`: `428.0`, 26 of the 40 diabetes codes
+     `250.x`, hepatitis B `070.20` and `070.30`.
+5. **Known limit: the edition.** The 2018 file lists the final ICD-9-CM edition only. A code of an older edition
+   (`585`, `274.0`, `274.1`, `277.0` have no line) gets no row, and stays an ICD-9-CM diagnosis no value set reads.
 
 ## Not in this card
 

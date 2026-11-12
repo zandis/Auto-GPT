@@ -54,7 +54,16 @@ def test_each_line_with_a_target_is_a_row_and_the_relation_says_what_the_file_sa
     assert "365.70" not in by  # "no map": no row, never a guess
     assert by["714.0"][0]["extra"] == {"flags": "10000", "lines": 1}
     assert by["073.0"][0]["extra"] == {"flags": "10111", "lines": 2}
-    assert len(rows) == 13
+    # the real file names one pair twice (alone, and inside a combination): one row, both flag sets kept
+    assert [(r["target_code"], r["relation"]) for r in by["666.02"] if r["target_code"] == "O72.0"] == [
+        ("O72.0", "relatedto")]  # fmt: skip
+    assert next(r for r in by["666.02"] if r["target_code"] == "O72.0")["extra"] == {
+        "flags": "10000+10111",
+        "lines": 11,
+    }
+    assert len(by["666.02"]) == 10 and len(rows) == 23
+    keys = [(r["source_code"], r["target_code"]) for r in rows]
+    assert len(keys) == len(set(keys))  # the box's table has one row per pair
 
 
 def test_the_one_code_rule_of_the_next_part_can_be_read_from_the_rows(tmp_path: Path) -> None:
@@ -79,7 +88,7 @@ def test_the_pack_is_built_from_the_sample_and_carries_source_licence_and_hash(t
         m = rd.verify(pack)
         (src,) = m["sources"]
         recs = list(rd.rows(pack, src["files"][0]["path"]))
-    assert src["id"] == "cms_gem_icd9_icd10cm" and src["records"] == 13 == len(recs) and src["kind"] == "map"
+    assert src["id"] == "cms_gem_icd9_icd10cm" and src["records"] == 23 == len(recs) and src["kind"] == "map"
     assert src["url"] == rf.BY_ID["cms_gem_icd9_icd10cm"].url and "17 U.S.C. 105" in src["licence"]
     assert len(src["download_sha256"]) == 64 and src["version"]
     assert "Centers for Medicare & Medicaid Services" in rd.notice(m)
@@ -93,3 +102,16 @@ def test_a_vendor_build_refuses_another_file_than_the_pinned_one(tmp_path: Path)
     )
     with pytest.raises(SystemExit, match="pinned"):
         rf.build(raw, tmp_path / "out", "20261112", ids=["cms_gem_icd9_icd10cm"])  # not a sample build: the hash rules
+
+
+def test_a_pack_with_one_map_pair_twice_fails_at_the_vendor_not_at_the_hospital() -> None:
+    row = {"source_system": I9, "source_code": "666.02", "target_system": I10, "target_code": "O72.0",
+           "relation": "relatedto", "source_display": "", "target_display": "", "extra": {}}  # fmt: skip
+    src = {"id": "cms_gem_icd9_icd10cm", "kind": "map"}
+    assert len(list(rd.check_records(src, [row, {**row, "target_code": "O72.1"}]))) == 2
+    with pytest.raises(rd.PackError, match="twice"):
+        list(rd.check_records(src, [row, dict(row)]))
+
+
+def test_the_item_names_no_country() -> None:
+    assert rf.BY_ID["cms_gem_icd9_icd10cm"].country == ""  # a U.S. file, used wherever ICD-9-CM was

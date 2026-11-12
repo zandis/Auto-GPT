@@ -203,7 +203,7 @@ SOURCES: tuple[Source, ...] = (
         "1.1 MB zip; 2018_I9gem.txt has 24,860 lines for 14,567 ICD-9-CM codes",
         "D-592: a code with exactly one target and no combination is `equivalent` or `inexact` (10,765 codes); every "
         "other row is `relatedto` and is never used as the code. Pinned by sha256; the reverse file is not read.",
-        "2018-ICD-10-CM-General-Equivalence-Mappings.zip", country="TW", decision="D-592", version="2018",
+        "2018-ICD-10-CM-General-Equivalence-Mappings.zip", decision="D-592", version="2018",
         sha256="1c5e5f14026ace48437a0d1c485d282fb5d171c357c6ab4f7798fc0a1e3624a2",
     ),
     Source(
@@ -672,7 +672,7 @@ def parse_cms_gem(path: Path) -> Iterator[dict[str, Any]]:
         lines = [ln.strip() for ln in z.read(name).decode("ascii", errors="replace").splitlines() if ln.strip()]
     if not lines:
         raise ValueError(f"{path.name}: {GEM_FILE} is empty")
-    by: dict[str, list[tuple[str, str]]] = {}
+    by: dict[str, list[tuple[str, str]]] = {}  # ICD-9-CM code → its lines (target, flags), in file order
     for n, line in enumerate(lines, 1):
         m = _GEM_LINE.fullmatch(line)
         if m is None:
@@ -681,18 +681,22 @@ def parse_cms_gem(path: Path) -> Iterator[dict[str, Any]]:
     for code9, targets in by.items():
         cut = 4 if code9.startswith("E") else 3  # an E code has four places before its dot
         dotted = code9[:cut] + ("." + code9[cut:] if len(code9) > cut else "")
+        # one row per pair: the file names ten pairs twice (once alone, once inside a combination), and the
+        # box's table holds one row per source and target
+        pairs: dict[str, list[str]] = {}
         for code10, flags in targets:
-            if flags[1] == "1" or code10 == "NoDx":
-                continue
-            if len(targets) > 1 or flags[2] == "1":
+            if flags[1] != "1" and code10 != "NoDx":
+                pairs.setdefault(code10, []).append(flags)
+        for code10, all_flags in pairs.items():
+            if len(targets) > 1 or all_flags[0][2] == "1":
                 relation = "relatedto"
             else:
-                relation = "inexact" if flags[0] == "1" else "equivalent"
+                relation = "inexact" if all_flags[0][0] == "1" else "equivalent"
             yield {
                 "source_system": "http://hl7.org/fhir/sid/icd-9-cm", "source_code": dotted, "source_display": "",
                 "target_system": "http://hl7.org/fhir/sid/icd-10-cm",
                 "target_code": code10[:3] + ("." + code10[3:] if len(code10) > 3 else ""), "target_display": "",
-                "relation": relation, "extra": {"flags": flags, "lines": len(targets)},
+                "relation": relation, "extra": {"flags": "+".join(all_flags), "lines": len(targets)},
             }  # fmt: skip
 
 
