@@ -13,6 +13,7 @@
 <p class="hint">{{ t('s20.pins.help') }}</p>
 </section>
 {% endif %}
+{% if pin_state and pin_state.derived_unpinned and pin_state.state != 'draft' %}<p class="hint" data-testid="pins-derived-unpinned">{{ t('s20.pins.unpinned') }}</p>{% endif %}
 {% if prev %}
 <section class="card attention" data-testid="changes">
 <h2>{{ t('s20.changes', v=prev) }}</h2>

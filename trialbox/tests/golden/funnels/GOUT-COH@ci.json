@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "be80e5a12dae221208e82de578d818e6dac47612",
+  "head": "e3ac1779aac2e0f5e13be8d94578e15142dc6697",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-616 (D-400): patient.deceased column, lake schema 4, base cohort leaves out a deceased patient with no date",
+  "reason": "D-442 (T-207): no eGFR under 18 (catalogue egfr_ckd_epi_2021 and egfr_jsn_2009: age < 18, do not compute); an eGFR criterion of a patient under 18 at the index date is unknown with derived_adult_only instead of met or not met",
   "ref_date": "2026-11-01",
   "ruleset": "GOUT-COH",
   "ruleset_version": "1.0.0",
@@ -89,7 +89,7 @@
     "GOUT-COH-INC-02": 79,
     "GOUT-COH-INC-03": 0,
     "GOUT-COH-INC-04": 0,
-    "GOUT-COH-INC-05": 35,
+    "GOUT-COH-INC-05": 38,
     "GOUT-COH-INC-06": 6,
     "GOUT-COH-INC-07": 0
    },
@@ -120,7 +120,7 @@
     "GOUT-COH-INC-02": 102,
     "GOUT-COH-INC-03": 0,
     "GOUT-COH-INC-04": 0,
-    "GOUT-COH-INC-05": 41,
+    "GOUT-COH-INC-05": 44,
     "GOUT-COH-INC-06": 5,
     "GOUT-COH-INC-07": 0
    },
@@ -151,12 +151,12 @@
     "GOUT-COH-INC-02": 102,
     "GOUT-COH-INC-03": 0,
     "GOUT-COH-INC-04": 0,
-    "GOUT-COH-INC-05": 29,
+    "GOUT-COH-INC-05": 33,
     "GOUT-COH-INC-06": 8,
     "GOUT-COH-INC-07": 0
    },
    "variants": {
-    "unknown_as_pass": 24
+    "unknown_as_pass": 26
    }
   }
  }

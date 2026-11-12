@@ -34,7 +34,7 @@ SNAP = "2026-11-02"
 #: clear takes its line out; a card that adds a store with patient data and no clear adds one.
 KNOWN_OWED = frozenset(
     {
-        "derived.conflict", "derived.input_link", "derived.score_row", "edc.draft", "lake:backfill", "lake:db",
+        "derived.batch_run", "derived.conflict", "derived.input_link", "derived.score_row", "edc.draft", "lake:backfill", "lake:db",
         "lake:embed_cache.duckdb", "lake:fhir_ledger", "lake:ndjson", "lake:ndjson-rerun", "lake:parquet", "lake:site",
         "lake:tmp", "mail.send_keys", "objects:attachments", "objects:outputs", "omop.cohort", "omop.condition_era",
         "omop.cost", "omop.device_exposure", "omop.dose_era", "omop.drug_era", "omop.episode", "omop.episode_event",
