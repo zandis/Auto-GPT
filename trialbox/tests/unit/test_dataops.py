@@ -126,7 +126,10 @@ def test_a_decision_needs_a_person_a_reason_and_a_known_word(ops: DataOps, tmp_p
     assert ops.batch(b.id).state == HELD  # type: ignore[union-attr]
 
 
-def test_a_failed_promotion_leaves_the_night_held_and_unaudited(ops: DataOps, tmp_path: Path) -> None:
+def test_a_failed_promotion_leaves_the_night_held_and_the_accept_in_the_audit(ops: DataOps, tmp_path: Path) -> None:
+    """D-489 (review of T-723, HIGH-2): the accept is recorded before the publish starts and its end after it, so a
+    publish whose end nobody read leaves a trace. (Before: nothing was written when the promotion failed.) The row
+    stays HELD and gets no step."""
     audit = _audit(tmp_path)
     b = _night(ops, audit)
     n = len(_events(tmp_path))
@@ -137,7 +140,9 @@ def test_a_failed_promotion_leaves_the_night_held_and_unaudited(ops: DataOps, tm
     with pytest.raises(RuntimeError):
         ops.decide(audit, b.id, "accept", by="steward1", at=AT, reason="ok", promote=boom)
     assert ops.batch(b.id).state == HELD and len(ops.steps(b.id)) == 2  # type: ignore[union-attr]
-    assert len(_events(tmp_path)) == n
+    said = [e["detail"] for e in _events(tmp_path)[n:]]
+    assert [(d["decision"], d["phase"], d.get("outcome")) for d in said] == [
+        ("accept", "started", None), ("accept", "ended", "unknown")]  # fmt: skip
 
 
 # ------------------------------------------------------------------------------------------- one transaction
