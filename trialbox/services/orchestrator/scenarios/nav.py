@@ -16,9 +16,10 @@ import json
 from datetime import date, timedelta
 from typing import Any
 
+from matching import decision
 from tb_common.ruleset import Ruleset
 from tb_common.subject import job_subject
-from tb_contracts import CriterionVerdict, JobOutput, MissingItem, NavLists, NavRow, dump
+from tb_contracts import JobOutput, MissingItem, NavLists, NavRow, dump
 
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome
@@ -27,7 +28,7 @@ from orchestrator.reports import docx_draft, nav_xlsx
 from orchestrator.reports.common import ReportMeta
 from orchestrator.scenarios import facts as factmod
 from orchestrator.scenarios import twpas
-from orchestrator.scenarios.evaluate import PatientVerdicts, check_judge, evaluate_patients, is_note_answer
+from orchestrator.scenarios.evaluate import PatientVerdicts, check_judge, evaluate_patients
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen import (
     judge_for,
@@ -58,15 +59,6 @@ FROM claim WHERE list_contains(CAST($1 AS VARCHAR[]), pid) {product} GROUP BY pi
 """
 
 
-def _ok(v: CriterionVerdict, by: dict[str, Any], t: float) -> str:
-    """yes / no / unknown from the eligibility-perspective verdict (weak note answers count as unknown)."""
-    c = by[v.id]
-    conf = v.evidence.confidence if v.evidence and v.evidence.confidence is not None else 1.0
-    if v.verdict in ("unknown", "pending_human") or (is_note_answer(c, v) and conf < t):
-        return "unknown"
-    return "yes" if v.verdict == "pass" else "no"
-
-
 def classify(
     rs: Ruleset,
     pv: PatientVerdicts,
@@ -76,11 +68,17 @@ def classify(
     lead_days: int,
     lookback_days: int,
     t: float,
+    note_block: bool = True,
 ) -> tuple[str | None, list[MissingItem]]:
+    """Which NAV sheet a patient is on, and what is still to confirm. Each criterion's answer (yes / no / unknown)
+    is the one status function's (:func:`matching.decision.answer_of`, T-709, D-478) under the run's policy
+    (``t``, ``note_block``): one model's "not met", a weak answer or one with notes left out is unknown, a row to
+    confirm, never a reason to drop the patient (review H2, M1d)."""
     by = rs.by_id()
+    policy = decision.Policy(t, note_block)
     status: dict[str, list[tuple[str, str]]] = {"inclusion": [], "exclusion": [], "renewal": [], "documentation": []}
     for v in pv.verdicts:
-        status[by[v.id].kind].append((v.id, _ok(v, by, t)))
+        status[by[v.id].kind].append((v.id, decision.answer_of(by[v.id], v, policy)))
     missing = [
         MissingItem(
             item=by[cid].label or by[cid].text[:40],
@@ -163,6 +161,7 @@ def run(ctx: Ctx) -> Outcome:
     }
     judge = judge_for(ctx, rs)
     t = threshold(ctx, rs)
+    note_block = decision_of(ctx).note_block(judge).may_block
     engine = structured_engine(ctx, snapshot)
     results = evaluate_patients(
         rs,
@@ -173,7 +172,7 @@ def run(ctx: Ctx) -> Outcome:
         t,
         all_candidates=True,
         kinds=("inclusion", "exclusion", "renewal", "documentation"),
-        note_block=decision_of(ctx).note_block(judge).may_block,
+        note_block=note_block,
     )
     check_judge(judge)
     if judge is not None:
@@ -187,8 +186,9 @@ def run(ctx: Ctx) -> Outcome:
     for r in scoped:
         cl = claims.get(r["pid"], {})
         name, missing = classify(
-            rs, results[r["pid"]], cl.get("active_end"), cl.get("last_application"), run_date, lead, lookback, t
-        )
+            rs, results[r["pid"]], cl.get("active_end"), cl.get("last_application"), run_date, lead, lookback, t,
+            note_block,
+        )  # fmt: skip
         if name is None:
             continue
         row = NavRow.model_validate(

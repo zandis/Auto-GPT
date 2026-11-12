@@ -1097,12 +1097,23 @@ class _Run:
                 kinds.add("uncertain")  # soft note fail (D-97): a person decides
             if t.notes_over_budget:
                 kinds.add("uncertain")  # T-603: a note the models did not read in full: a person looks
+            if any(self._weak_met(o) for o in t.outcomes.values()):
+                kinds.add("uncertain")  # T-709 (D-478, review M1a): a "met" below the floor is a person's check
             if "uncertain" in kinds:
                 t.tier = "potential:uncertain"
             elif "data_gap" in kinds:
                 t.tier = "potential:data_gap"
             else:
                 t.tier = "strong"
+
+    def _weak_met(self, o: Outcome) -> bool:
+        """A judged "met" whose confidence is below the floor: it keeps the patient and never counts as strong
+        (the rule of ``matching.decision.answer_of``; before T-709 the floor was checked on the excluding side
+        only)."""
+        if o.status != "pass" or o.stage not in ("S3", "S4"):
+            return False
+        conf = next((e["confidence"] for e in o.evidence if e.get("confidence") is not None), None)
+        return conf is not None and float(conf) < self.cfg.confidence_floor
 
     def s5(self, reviewer: Reviewer | None) -> tuple[list[ReviewItem], list[str]]:
         order = {"strong": 0, "potential:uncertain": 1, "potential:data_gap": 2}

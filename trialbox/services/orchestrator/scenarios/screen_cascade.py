@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+from matching import decision
 from matching.cascade import CascadeConfig, CascadeError, CascadeResult, run_cascade
 from matching.cascade.engine import NOT_AT_INDEX
 from matching.cascade.judge import JudgeReply
@@ -38,6 +39,7 @@ from orchestrator.scenarios.evaluate import (
     MAX_JUDGE_FAILURE_SHARE,
     NoteJudge,
     PatientVerdicts,
+    is_pair,
     not_in_snapshot,
 )
 from orchestrator.twophase import two_phase
@@ -170,9 +172,25 @@ def check_failures(judge: OrchestratorJudge | None) -> None:
 
 
 # --------------------------------------------------------------------------------------------- traces → verdicts
-def verdict_of(o: Outcome) -> CriterionVerdict:
+def basis_of(o: Outcome, status: str, pair: bool) -> Any:
+    """What a cascade outcome rests on (D-478): the records at S1, the models at S3/S4 (``pair`` when the run's
+    judge is two different models; a hard fail is a pair's by the cascade's own rule, CAS-7), a person at S5.
+    None for an answer nobody gave (unknown) and for S2's search rules, which no model and no record decides."""
+    if status == "pending_human" or (o.stage == "S5" and status in ("pass", "fail")):
+        return "person"
+    if status not in ("pass", "fail"):
+        return None
+    if o.stage == "S1":
+        return "coded"
+    if o.stage in ("S3", "S4"):
+        return "pair" if pair or o.hard else "single"
+    return None
+
+
+def verdict_of(o: Outcome, pair: bool = False) -> CriterionVerdict:
     """One cascade outcome as the candidate-list verdict: the verified span (document, quote, date), the lake records
-    of a coded answer, the judge's confidence and the stage's reason."""
+    of a coded answer, the judge's confidence and the stage's reason. ``pair``: the run's judge is two different
+    models (the basis of its note answers, D-478)."""
     refs: list[str] = []
     quote: str | None = None
     quote_date: str | None = None
@@ -206,16 +224,26 @@ def verdict_of(o: Outcome) -> CriterionVerdict:
         # T-707 (D-476): a soft fail (a single model's "not met", CAS-7) says so in the stored row, so that no later
         # re-tier reads it as an answer a pair gave
         final=False if status == "fail" and not o.hard else None,
+        basis=basis_of(o, status, pair),
     )
 
 
-def verdicts_of(rs: Ruleset, t: PatientTrace, dated: bool = False) -> PatientVerdicts:
+#: the policy of a caller that names none (a tool, a test): the cascade's default floor; notes may exclude, and each
+#: verdict's own ``final`` and ``basis`` still hold a single model back
+DEFAULT_POLICY = decision.Policy(threshold=0.75, note_block=True)
+
+
+def verdicts_of(
+    rs: Ruleset, t: PatientTrace, dated: bool = False, policy: decision.Policy | None = None, pair: bool = False
+) -> PatientVerdicts:
     """A patient's trace as the row every report understands: verdicts in protocol order, the candidate-list tier,
     the actions of the open criteria and the number of unknowns. ``dated``: the snapshot holds this patient, so a
-    patient without a base row was dropped for a death or birth date, not for being absent."""
+    patient without a base row was dropped for a death or birth date, not for being absent.
+
+    The tier is the one status function's (:func:`matching.decision.status_of`, T-709, D-478) over the verdict rows
+    under the run's ``policy``, not a mapping of the cascade's own label: a "met" below the confidence threshold is
+    a person's check here as on every other path (review M1a)."""
     vs: list[CriterionVerdict] = []
-    actions: list[str] = []
-    unknown = 0
     for c in rs.active():
         if c.kind not in ("inclusion", "exclusion"):
             continue
@@ -227,18 +255,16 @@ def verdicts_of(rs: Ruleset, t: PatientTrace, dated: bool = False) -> PatientVer
                 )
             )
             continue
-        v = verdict_of(o)
-        vs.append(v)
-        if v.verdict == "unknown":
-            unknown += 1
-        if (v.verdict in ("unknown", "pending_human") or (o.status == "fail" and not o.hard)) and c.action:
-            actions.append(c.action)
+        vs.append(verdict_of(o, pair))
     if not t.in_scope and t.scope_reason == NOT_AT_INDEX:
         # no base row: never "excluded" with the engine's words; a person looks (D-142, review B-02)
         return not_in_snapshot(rs, t.pid, reason=Reason.CHECK_DATES if dated else Reason.NOT_IN_SNAPSHOT)
-    tier = TIER.get(t.tier, "review")
-    if tier == "high" and unknown:
-        tier = "review"  # an open question (null value, data gap) is a person's check, as in v1
+    st = decision.status_of(rs.by_id(), vs, policy or DEFAULT_POLICY)
+    tier, actions, unknown = st.tier, list(st.actions), st.n_unknown
+    if tier == "excluded" and TIER.get(t.tier, "review") != "excluded":
+        tier = "review"  # the engine did not exclude: the rows never exclude on their own (cannot happen by CAS-7)
+    if tier == "high" and (t.notes_over_budget or TIER.get(t.tier, "review") == "review"):
+        tier = "review"  # the engine's own open question (a record that did not fit, a data gap it kept): a person
     if not t.in_scope:
         tier = "excluded"
         actions.append(t.scope_reason or "out of scope")
@@ -365,8 +391,8 @@ def screen_with_cascade(
     ``fail`` sends the patient to review and never out. Screening spends its tokens: every zero-hit pair goes to
     the judge (``absence_semantics=False``), nobody is sampled."""
     judge = OrchestratorJudge.from_note_judge(note_judge) if note_judge is not None else None
-    decision = decision_of(ctx)
-    may_block = decision.note_block(note_judge).may_block
+    dctx = decision_of(ctx)
+    may_block = dctx.note_block(note_judge).may_block
     from embed_service.embedder import HashEmbedder
 
     from orchestrator import derive
@@ -389,7 +415,7 @@ def screen_with_cascade(
         max_llm_items=max_pairs,
         llm_concurrency=llm_concurrency(),
         stored=derive.reader_for(ctx),  # D-442: the stored-row read, as the v1 engine's (None: the flag is off)
-        registry=lambda: decision.consent(run_date, snapshot),  # D-477: S0 reads consent through the job's context
+        registry=lambda: dctx.consent(run_date, snapshot),  # D-477: S0 reads consent through the job's context
     )
     try:
         res = two_phase(  # one GPU for both models (TB_MODEL_SWAP=sleep): judge pass, verifier pass, merge
@@ -403,7 +429,9 @@ def screen_with_cascade(
     check_failures(judge)
     dropped = [pid for pid, t in res.traces.items() if t.scope_reason == NOT_AT_INDEX]
     held = held_in_snapshot(ctx, dropped, snapshot)
-    results = {pid: verdicts_of(rs, res.traces[pid], pid in held) for pid in pids if pid in res.traces}
+    policy = decision.Policy(confidence_floor, may_block)  # the job's, from its decision context (D-477)
+    pair = is_pair(note_judge)
+    results = {pid: verdicts_of(rs, res.traces[pid], pid in held, policy, pair) for pid in pids if pid in res.traces}
     for pid in pids:
         if pid not in results:  # not in the lake's patient table on this snapshot: a person looks (D-118)
             results[pid] = not_in_snapshot(rs, pid)

@@ -34,6 +34,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from matching import decision
 from tb_common import dates
 from tb_common.crypto import load_key, pid_for_mrn, sha256_bytes
 from tb_common.kek import key_present
@@ -56,12 +57,14 @@ from orchestrator.scenarios.evaluate import (
     coded_settles,
     engine_from_env,
     human_verdict,
+    is_pair,
+    not_final,
     note_verdict,
     note_window,
     structured_verdict,
 )
 from orchestrator.scenarios.review import require_approved
-from orchestrator.scenarios.screen import judge_for
+from orchestrator.scenarios.screen import judge_for, threshold
 
 SCHEMA = "trialbox.case@1"
 CHART_EXT = (".pdf", ".docx", ".txt", ".md")
@@ -264,6 +267,12 @@ def evaluate_case(
         evals = engine.evaluate(rs, [subj.pid], index_date, ids) if ids else {}
     judge = judge_for(ctx, rs)
     cj = ChartJudge(judge, excerpts) if judge is not None else None
+    # T-709 (D-478, review H2): the one status function decides what a criterion's answer says. One model's "not
+    # met", or a pair's below the threshold, is printed as "to check" with the reading kept as evidence, never as
+    # not met: a single model takes no patient off any path, the PI's sheet included
+    may_block = decision_of(ctx).note_block(judge).may_block
+    policy = decision.Policy(threshold(ctx, rs), may_block)
+    pair = is_pair(judge)
     rows: list[dict[str, Any]] = []
     for c in active:
         source = "lake"
@@ -274,7 +283,7 @@ def evaluate_case(
             v = structured_verdict(c, evals.get(subj.pid or ""))
         elif cj is not None:
             r = cj.decide(c, index_date)
-            v = note_verdict(c, r)
+            v = not_final(c, note_verdict(c, r, pair), may_block)
             source = "chart"
         else:
             v = CriterionVerdict(
@@ -282,6 +291,12 @@ def evaluate_case(
             )
             source = "chart"
         ev = v.evidence or Evidence(resource_refs=[])
+        shown, why = v.verdict, ev.reason
+        if v.verdict == "fail" and decision.answer_of(c, v, policy) == "unknown":
+            single = v.basis == "single" or v.final is False
+            shown = "unknown"
+            why = Reason.SINGLE_MODEL.value if single else Reason.LOW_CONFIDENCE.value
+            v = v.model_copy(update={"verdict": "unknown"})  # the hint below reads the answer as shown
         rows.append(
             {
                 "id": c.id,
@@ -289,11 +304,11 @@ def evaluate_case(
                 "class": c.class_,
                 "label": c.label or c.text[:60],
                 "text": c.text,
-                "verdict": v.verdict,
+                "verdict": shown,
                 "source": source,
                 "quote": ev.quote,
                 "quote_date": ev.quote_date,
-                "reason": ev.reason,
+                "reason": why,
                 "refs": list(ev.resource_refs or [])[:5],
                 "resolve": resolve_hint(c, v, lang),
             }

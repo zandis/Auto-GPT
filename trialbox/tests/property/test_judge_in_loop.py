@@ -526,8 +526,6 @@ EXPECTED: dict[tuple[str, str], str] = {
     ("screen_v1", "index_lost"): "H4: a window note the index did not return is not left out; T-710",
     ("nav", "ranked_out"): "H4: NAV reads through the v1 chunks; T-710",
     ("nav", "index_lost"): "H4: NAV reads through the v1 chunks; T-710",
-    ("nav", "single"): "H2: NAV's classify ignores the run's note-block, so one model's answer excludes; T-709",
-    ("case", "single"): "H2: CASE prints one model's 'not met' as not met (decision.md answer 4); T-709",
     ("screen_cascade", "lexicon"): "H4 (S2 half): a window note with no lexicon hit is not left out; T-710",
 }  # fmt: skip
 
