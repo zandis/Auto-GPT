@@ -882,9 +882,12 @@ def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
     soft: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
     audit_dir, secrets, targets = audit_heads.host_dirs(inp.env)
     if not targets:
-        return Check("audit_heads", soft, f"no anchor folder: set {audit.ANCHOR_TARGETS_ENV} in deploy/.env to a folder "
-                     "off the box (the hospital's share); `trialbox audit-sign` then keeps a signed head of the audit "
-                     "chain there every night. Without it a removed audit event leaves no trace (D-562)")  # fmt: skip
+        why = (
+            f"no anchor folder: set {audit.ANCHOR_TARGETS_ENV} in deploy/.env to a folder off the box (the hospital's "
+            "share); `trialbox audit-sign` then keeps a signed head of the audit chain there every night. Without it "
+            "a removed audit event leaves no trace (D-562)"
+        )
+        return Check("audit_heads", soft, why)
     try:
         limit = float(inp.env.get("TB_AUDIT_HEAD_MAX_AGE_H") or HEAD_MAX_AGE_H)
     except ValueError:
@@ -892,8 +895,10 @@ def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
     now = now or datetime.now(UTC)
     problems: list[str] = []
     if not kek.key_present(secrets / audit.SIGN_KEY_FILE):
-        problems.append(f"no audit signing key in {secrets}: sh deploy/hardening/seal_keys.sh --secrets {secrets} "
-                        "makes it once (TB_SECRETS_HOST_DIR names the folder)")  # fmt: skip
+        problems.append(
+            f"no audit signing key in {secrets}: sh deploy/hardening/seal_keys.sh --secrets {secrets} makes it once "
+            "(TB_SECRETS_HOST_DIR names the folder)"
+        )
     newest: list[str] = []
     for t in targets:
         if audit._inside(t, audit_dir):
@@ -911,8 +916,10 @@ def check_audit_heads(inp: DoctorInputs, now: datetime | None = None) -> Check:
             continue
         age = (now - max(stamps)).total_seconds() / 3600
         if abs(age) > limit:  # dated ahead of the clock is not fresh either
-            problems.append(f"the newest signed head in {t} is {age:.0f} h old (limit {limit:g} h): the nightly "
-                            "audit-sign did not run or did not reach the folder (/var/log/trialbox-retention.log)")  # fmt: skip
+            problems.append(
+                f"the newest signed head in {t} is {age:.0f} h old (limit {limit:g} h): the nightly audit-sign did "
+                "not run or did not reach the folder (/var/log/trialbox-retention.log)"
+            )
         else:
             newest.append(f"{t}: {age:.0f} h")
     if problems:
