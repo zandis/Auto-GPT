@@ -294,7 +294,10 @@ def test_a_ticked_investigator_saves_a_lifecycle_form(dcb: dict[str, Any]) -> No
     c, csrf = login(dcb["app"], "crc", PW)
     _builtin(c, csrf)
     u, ucsrf = login(dcb["app"], "pi", PW)
-    denied = lambda: [x for x in read_audit(dcb["dir"] / "audit") if x.event == "console.denied"]  # noqa: E731
+
+    def denied() -> list[Any]:
+        return [x for x in read_audit(dcb["dir"] / "audit") if x.event == "console.denied"]
+
     before = len(denied())
     r = _save(u, ucsrf, no, "tb_consent", {"ic_date": "2026-11-02", "ic_version": "v2.1", "ic_copy": "1"})
     assert r.status_code == 200, r.text[-300:]
