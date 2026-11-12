@@ -827,6 +827,9 @@ DECLARED: dict[str, Declared] = {
     "TB_TLS_MODE": Declared("str", "internal", "console TLS mode (internal or hospital)"),
     "TB_TODAY": Declared("str", "", "pins the clock (test stack)"),
     "TB_TOPOLOGY": Declared("str", "A", "deployment topology (A or B)"),
+    "TB_TO_PID_MAX_PER_HOUR": Declared(
+        "int", "", "pseudonym lookups by chart number per signed name per hour (D-487); unset: TB_REVEAL_MAX_PER_HOUR"
+    ),
     "TB_TRACESTORE": Declared("str", "", "gateway trace store on"),
     "TB_TWPAS_IG": Declared("str", "", "TWPAS implementation guide"),
     "TB_TZ": Declared("str", "", "the site's IANA zone (D-315: no default)"),

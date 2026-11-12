@@ -10,6 +10,10 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- Chart number to pseudonym (T-719, D-487): the orchestrator gives the pseudonym of a chart number only to a
+  signed-in person with the right (the opt-out register, a registry row typed by chart number), at most
+  `TB_TO_PID_MAX_PER_HOUR` an hour per person (unset: the value of `TB_REVEAL_MAX_PER_HOUR`), and records each one
+  (`screen.to_pid`, with the pseudonym, never the chart number). A service token alone is refused.
 - The key that signs people (T-717, D-485): the console signs the acting person with a key of its own
   (`deploy/secrets/services/actor-sign.key`), no longer derived from its service token. `install.sh` and
   `trialbox update` make the file; `trialbox secrets rotate --service actor` rotates it.

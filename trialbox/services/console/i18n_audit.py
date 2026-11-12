@@ -66,6 +66,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
         "篩選服務拒絕提供病歷號",
     ),
     "console.chart_lookup": ("Chart number looked up", "カルテ番号の照会", "查詢病歷號"),
+    "screen.to_pid": (
+        "Pseudonym given out for a chart number by the screening service",
+        "スクリーニング処理によるカルテ番号からの仮名IDの提供",
+        "篩選服務依病歷號提供假名代碼",
+    ),
     "console.site_chart": ("Site chart passage read", "施設カルテ箇所の閲覧", "讀取院內病歷段落"),
     "console.candidate_view": ("Candidate page read", "候補者ページの閲覧", "讀取候選者頁面"),
     "console.monitor_view": (

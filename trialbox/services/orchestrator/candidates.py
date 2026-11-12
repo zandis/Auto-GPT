@@ -18,9 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 from tb_common.audit import AuditLog
-from tb_common.crypto import load_key, pid_for_mrn
 from tb_common.deterministic import normalize_ooxml
-from tb_common.kek import key_present
 from tb_contracts import RegistryEntry, RegistryEvent, RegistryPromote, RegistrySummary, RegistryUpdate
 
 from orchestrator.db import JobDB
@@ -63,22 +61,18 @@ class CandidateRegistry:
             raise RegistryError("a chart number (mrn) or a pseudonym (pid) is needed")
         if self.mrn_regex and not re.match(self.mrn_regex, upd.mrn):
             raise RegistryError("that does not look like a chart number of this site")
-        key = self.secrets_dir / "site_hmac.key"
-        if not key_present(key):  # plain or wrapped under the KEK (T-210b)
+        # imported here, not at the top: the console imports this module for two constants and must not load the
+        # door, its route dependency and their audit events with it (T-721's table of who writes what)
+        from orchestrator import identifiers
+
+        if not identifiers.has_site_key(self.secrets_dir):  # plain or wrapped under the KEK (T-210b)
             raise RegistryError("the box has no site key yet (no ingest has run), so chart numbers cannot be resolved")
-        return pid_for_mrn(load_key(key), upd.mrn)
+        return identifiers.pid_of(self.secrets_dir, upd.mrn)
 
     def mrns(self, pids: list[str]) -> dict[str, str]:
-        key = self.secrets_dir / "pid_map.key"
-        if not key_present(key) or not pids:  # no map yet
-            return {}
-        from adapter.pidmap import PidMap
+        from orchestrator import identifiers
 
-        pm = PidMap(key, self.db.url)  # the trial database of the registry's JobDB
-        try:
-            return pm.resolve_many(pids)
-        finally:
-            pm.close()
+        return identifiers.charts_of(self.secrets_dir, pids, self.db.url)  # the trial database of the registry
 
     # ------------------------------------------------------------------ reads
     def summaries(self) -> list[RegistrySummary]:

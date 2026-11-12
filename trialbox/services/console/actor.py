@@ -20,6 +20,9 @@ from console import s28
 
 NIGHTLY = "service:console-nightly"  # the nightly REDCap read (rc_read): no session either
 NOTIFY = "service:console-notify"  # the morning notices: no session (route_actors.yaml names what it may do)
+#: T-719 (D-487): a page asks whether a running case's subject is on the opt-out register. The reader may be anyone
+#: who sees the job and never sees the pseudonym, so the lookup is the console's, under this name, capped and logged
+OPTOUT_CHECK = "service:console-optout-check"
 
 
 def assert_for(

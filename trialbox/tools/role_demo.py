@@ -212,12 +212,14 @@ class InprocBackend:
         return str(self.box.mail(subject, tuple(files), sender=sender))
 
     # registry
-    def _call(self, method: str, path: str, body: Any = None) -> Any:
+    def _call(self, method: str, path: str, body: Any = None, sign: Any = None) -> Any:
         from console.backend import Refused
         from tb_contracts import dump
 
-        r = self.c.get(path) if method == "GET" else self.c.post(path, json=dump(body) if body is not None else None)
-        if r.status_code in (400, 404, 422):
+        payload = dump(body) if body is not None else None
+        headers = sign(method, path, payload) if sign else None
+        r = self.c.get(path) if method == "GET" else self.c.post(path, json=payload, headers=headers)
+        if r.status_code in (400, 403, 404, 422, 429):
             raise Refused(str(r.json().get("detail")))
         return r.json()
 
@@ -231,10 +233,10 @@ class InprocBackend:
 
         return [RegistryEntry.model_validate(r) for r in self._call("GET", f"/registry/{ruleset}")]
 
-    def registry_update(self, ruleset: str, upd: Any) -> Any:
+    def registry_update(self, ruleset: str, upd: Any, sign: Any = None) -> Any:
         from tb_contracts import RegistryEntry
 
-        return RegistryEntry.model_validate(self._call("POST", f"/registry/{ruleset}", upd))
+        return RegistryEntry.model_validate(self._call("POST", f"/registry/{ruleset}", upd, sign))
 
     def registry_promote(self, ruleset: str, req: Any) -> int:
         return int(self._call("POST", f"/registry/{ruleset}/promote", req)["added"])

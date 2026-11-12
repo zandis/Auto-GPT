@@ -91,12 +91,16 @@ def _same_target(claimed: str, request: Request) -> bool:
 
 
 def _refuse(request: Request, action: str, reason: str, who: str | None, study: str | None) -> HTTPException:
+    """The refusal of a person on a route: the ``actor.refused`` event is written, the 403 is returned to raise."""
     if _audit is not None:
         _audit().append("actor.refused", actor=who, ruleset=study or None,
                         detail={"reason": reason, "route": _template(request), "action": action,
                                 "caller": getattr(request.state, "tb_caller", None) or ""})  # fmt: skip
     return HTTPException(status_code=403, detail={"code": "ACTOR", "reason": reason,
                                                   "message": f"the signed-in person is refused: {reason}"})  # fmt: skip
+
+
+template, refusal = _template, _refuse  # for a door behind the dependency (orchestrator.identifiers, T-719)
 
 
 def check(claim: actor_v3.Claim, action: str, study: str | None, service: bool = False, *,

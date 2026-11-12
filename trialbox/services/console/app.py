@@ -1416,6 +1416,8 @@ def create_app(
             breakglass=grant,
         )
 
+    _case_pids: dict[str, str] = {}  # job id -> its subject's pseudonym: a job's chart number never changes
+
     def _case_opted_out(job: Job, case: dict[str, Any] | None) -> bool:
         """D-273 (PV-4): is the job's subject on the opt-out register now? The pseudonym comes from the finished
         CASE card or the job's options; for a CASE job still running, or failed, the box turns the job's own chart
@@ -1429,13 +1431,20 @@ def create_app(
         chart = str((job.options or {}).get("mrn") or "").strip()
         if job.type != "CASE" or not chart:
             return False
-        from console import s28
+        pid = _case_pids.get(job.job_id, "")
+        if not pid:
+            from console import actor as acting
+            from console import s28
 
-        try:
-            got = s28.call(bk, "POST", "/setup/pseudonym", {"chart_no": chart})
-        except Exception:  # the box is down or refuses: fail closed
-            return True
-        pid = str((got or {}).get("pid") or "")
+            path, body = "/setup/pseudonym", {"chart_no": chart}
+            try:  # T-719 (D-487): no reader's lookup, so the console's own named principal; once per job
+                sign = acting.assert_service(acting.OPTOUT_CHECK, "optout.keep", None, "POST", path, body)
+                got = s28.call(bk, "POST", path, body, headers=sign)
+            except Exception:  # the box is down or refuses: fail closed
+                return True
+            pid = str((got or {}).get("pid") or "")
+            if pid:
+                _case_pids[job.job_id] = pid
         return not pid or pid in gone
 
     def shown_ids(sess: Session, job: Job, text: str, where: str, opted_out: bool = False, bg: bool = False,
@@ -1952,8 +1961,15 @@ def create_app(
             ruleset=rs,
             detail={"action": "update", "status": status, "by_mrn": bool(upd.mrn)},
         )
+        sign = None
+        if upd.mrn:  # T-719 (D-487): a row by chart number is this person's lookup; the box refuses a bare token
+            from console import actor as acting
+
+            def sign(method: str, path: str, body: Any) -> dict[str, str]:
+                return acting.assert_for(helpers, sess, "request.prepare", rs, method, path, body)
+
         try:
-            bk.registry_update(rs, upd)
+            bk.registry_update(rs, upd, sign)
         except Refused as exc:
             return _registry_page(request, sess, rs, 422, error=str(exc))
         return RedirectResponse(f"/pilot/registry/{rs}", status_code=303)

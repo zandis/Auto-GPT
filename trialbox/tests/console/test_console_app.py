@@ -296,7 +296,15 @@ class FakeBackend:
             raise Refused("invalid ruleset id 'BAD'")
         return [e for (rs, _), e in self.registry.items() if rs == ruleset]
 
-    def registry_update(self, ruleset: str, upd: RegistryUpdate) -> RegistryEntry:
+    def registry_update(self, ruleset: str, upd: RegistryUpdate, sign: Any = None) -> RegistryEntry:
+        if (
+            upd.mrn and sign is None
+        ):  # T-719 (D-487): as the orchestrator, no pseudonym by chart number for a bare token
+            raise Refused("the signed-in person is refused: a chart number needs a verified person")
+        if upd.mrn:
+            from tb_contracts import dump
+
+            sign("POST", f"/registry/{ruleset}", dump(upd))  # the console's own check (the matrix, the study)
         if upd.mrn == "nope":
             raise Refused("that does not look like a chart number of this site")
         pid = upd.pid or ("ab" * 16 if upd.mrn == "A1001" else "cd" * 16)

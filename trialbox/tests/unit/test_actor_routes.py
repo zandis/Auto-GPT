@@ -187,7 +187,11 @@ def test_the_table_is_read_strictly(tmp_path: Path) -> None:
     f.write_text("schema: tb-orchestrator-actors/1\nno_person: {a: ''}\n", encoding="utf-8")
     with pytest.raises(ValueError, match="needs its reason"):
         ra.load(f)
-    assert set(ra.TABLE["principals"]) == {"service:console-notify", "service:console-nightly"}
+    assert set(ra.TABLE["principals"]) == {
+        "service:console-notify",
+        "service:console-nightly",
+        "service:console-optout-check",
+    }
 
 
 def test_the_console_mints_in_one_place() -> None:
