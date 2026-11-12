@@ -52,6 +52,7 @@ EN: dict[str, str] = {
     "dev.dismiss": "Not a deviation",
     "life.why.decision": "confirm or dismiss the possible deviation.",
     "life.why.dismiss_reason": "say why this is not a deviation.",
+    "life.why.chars": "the reason holds a character that cannot be stored (a control character from pasted text). Type it again.",
     "life.why.proposal": "this possible deviation is no longer shown by the facts; open the page again.",
     "life.why.decided": "this possible deviation was already answered.",
     # UX-034: the request for the treating doctor
@@ -118,6 +119,7 @@ JA: dict[str, str] = {
     "dev.dismiss": "逸脱ではない",
     "life.why.decision": "逸脱の可能性を確認するか、逸脱ではないとしてください。",
     "life.why.dismiss_reason": "逸脱ではない理由を書いてください。",
+    "life.why.chars": "理由に保存できない文字（貼り付けた文章の制御文字）があります。入力し直してください。",
     "life.why.proposal": "この逸脱の可能性は記録から示されなくなりました。ページを開き直してください。",
     "life.why.decided": "この逸脱の可能性にはすでに回答があります。",
     "ref.doc.title": "主治医への了承依頼",
@@ -183,6 +185,7 @@ ZH: dict[str, str] = {
     "dev.dismiss": "不是偏差",
     "life.why.decision": "請確認為偏差，或記為不是偏差。",
     "life.why.dismiss_reason": "請說明為何不是偏差。",
+    "life.why.chars": "原因含有無法儲存的字元（貼上文字帶入的控制字元），請重新輸入。",
     "life.why.proposal": "紀錄已不再顯示這項可能的偏差；請重新開啟頁面。",
     "life.why.decided": "這項可能的偏差已有回覆。",
     "ref.doc.title": "徵詢主治醫師同意",

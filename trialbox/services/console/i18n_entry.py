@@ -66,6 +66,7 @@ EN: dict[str, str] = {
     "dc.err.DATA-RECORD": "Not a screening number or pseudonym of this study: {fields}",
     "dc.err.DATA-EVENT": "Event names use lower-case letters, digits and _: {fields}",
     "dc.err.DATA-EXPORT": "Exports are ODM, REDCap CSV or Excel.",
+    "dc.err.DATA-CHARS": "A stored value holds a character that a file cannot carry (a control character from pasted text). Correct it, then export: {fields}",
 }
 
 JA: dict[str, str] = {
@@ -129,6 +130,7 @@ JA: dict[str, str] = {
     "dc.err.DATA-RECORD": "この研究のスクリーニング番号または仮名IDではありません: {fields}",
     "dc.err.DATA-EVENT": "イベント名には英小文字・数字・_ を使ってください: {fields}",
     "dc.err.DATA-EXPORT": "書き出しは ODM、REDCap CSV、Excel のいずれかです。",
+    "dc.err.DATA-CHARS": "保存された値に、ファイルに書けない文字（貼り付けた文章の制御文字）があります。値を直してから書き出してください: {fields}",
 }
 
 ZH: dict[str, str] = {
@@ -192,4 +194,5 @@ ZH: dict[str, str] = {
     "dc.err.DATA-RECORD": "不是本研究的篩選編號或假名編號:{fields}",
     "dc.err.DATA-EVENT": "事件名稱請使用英文小寫、數字與 _:{fields}",
     "dc.err.DATA-EXPORT": "匯出格式為 ODM、REDCap CSV 或 Excel。",
+    "dc.err.DATA-CHARS": "已儲存的值含有檔案無法儲存的字元（貼上文字帶入的控制字元）。請先更正再匯出：{fields}",
 }

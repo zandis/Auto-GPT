@@ -118,6 +118,13 @@ def xlsx(dc: DataCore, study: str) -> bytes:
     from datacore.forms import metadata
 
     cols, rows = flat(dc, study)
+    bad = sorted({c for r in rows for c in cols if XML_ILLEGAL.search(str(r[c]))})
+    if bad:  # EDC-010 (D-581): a row from before the rule; the workbook library would raise its own error
+        raise DataError(
+            "DATA-CHARS",
+            "a stored value holds a character a file cannot carry; correct it, then export: " + ", ".join(bad),
+            [{"field": name, "code": "chars"} for name in bad],
+        )
     wb = Workbook()
     ws = wb.active
     assert ws is not None
@@ -302,6 +309,8 @@ def odm(dc: DataCore, study: str, at: str, cdisc: bool = False) -> str:
             continue
         if XML_ILLEGAL.search(str(r["value"])):  # a row from before the rule (D-581): never written, never altered
             bad.add(fld.name)
+        if XML_ILLEGAL.search(str(r["record"])) or XML_ILLEGAL.search(str(r["event"])):
+            bad.add("record or event key")  # two keys must never become one SubjectKey by replacement
         data.setdefault(str(r["record"]), {}).setdefault(event_name(str(r["event"])), {})[fld.name] = str(r["value"])
     if bad:
         raise DataError(
