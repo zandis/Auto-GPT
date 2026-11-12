@@ -24,8 +24,9 @@ written for it.
 
 1. **With `TB_BOX=1`, a backup schedule that is not installed is a line in the install's FAIL list.** The install
    goes on, prints "TrialBox is running", and ends with exit 1 and the list, which `box-install.sh` already treats
-   as a running stack. The line says what is missing and where it is set later (the first-run wizard, then
-   `python3 -m tools.trialbox backup-install`).
+   as a running stack. The line says what is missing and what happens next: `box-install.sh` installs the
+   schedule again after the owner's answers (it did already; a failure there is a warning), and the command to run
+   by hand if it is still missing.
 2. **Without `TB_BOX` nothing changes**: the IT form still stops at this step. There a person is at the terminal
    with `deploy/.env` open, and an install that ends without a backup schedule is the wrong default.
 3. `backup-install` itself is unchanged: PRODUCTION still refuses a schedule without an alert route (D-274). The
