@@ -217,17 +217,11 @@ def test_served_console_takes_identity_settings_from_the_environment(tmp_path: P
 
 def test_the_file_makes_a_steward_and_a_privacy_officer_who_open_the_audit_browser(box: dict[str, Any]) -> None:  # noqa: F811
     """DEMO-JA: /audit needs the steward or the privacy office; the accounts file can make both (site-wide, no log
-    entry), and with a steward in the file every study it logs names its PI (D-380: the steward names the PI)."""
+    entry). Nobody acts as PI until a PI is named on the log (D-380): the seed writes that entry, as the steward would."""
     rows = [*FILE["accounts"], {"username": "tester1.stw", "role": "steward", "language": "ja", "expires": "2027-01-31"},
             {"username": "tester1.dpo", "role": "privacy", "language": "ja"}]  # fmt: skip
     got = demo.parse_accounts({"accounts": rows})
     assert [(a.role, a.scope) for a in got][-2:] == [("steward", ""), ("privacy", "")]
-    no_pi = [r for r in rows if r["username"] != "tester2.pi"] + [
-        {"username": "tester2.crc", "role": "coordinator", "delegation": [{"study": "GOUT-COH", "role": "crc"}]}
-    ]
-    with pytest.raises(demo.AccountsError, match="names its PI .no PI: GOUT-COH"):
-        demo.parse_accounts({"accounts": no_pi})
-    demo.parse_accounts({"accounts": [r for r in no_pi if r["role"] != "steward"]})  # no steward: as before
     done = demo.seed_accounts(box["users"], TeamStore(), got, today=date(2026, 10, 25), now="2026-10-25T00:00:00+00:00",
                               totp=False, issued=box["dir"] / demo.ISSUED, environ={},
                               known_studies={"GZQO", "GOUT-COH"}, audit=box["audit"])  # fmt: skip

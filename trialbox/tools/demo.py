@@ -200,11 +200,6 @@ def parse_accounts(data: Any) -> list[Account]:
         for e in a.delegation:
             if e.role == "pi" and pis.setdefault(e.study, a.username) != a.username:
                 raise AccountsError(f"study {e.study} has two PIs in the file ({pis[e.study]}, {a.username})")
-    if any(a.role == "steward" for a in out):  # D-380: the steward names each study's PI; the file is that record
-        named = sorted({e.study for a in out for e in a.delegation} - set(pis))
-        if named:
-            raise AccountsError(f"with a steward in the file, every study it logs names its PI (no PI: "
-                                f"{', '.join(named)})")  # fmt: skip
     return out
 
 

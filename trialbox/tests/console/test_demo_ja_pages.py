@@ -118,7 +118,11 @@ def test_a_monitor_grant_says_which_field_is_missing_and_has_a_visit_field(box: 
     assert "研修修了証（モニターの場合" not in form  # the training-certificate field is labelled for what it is
     grant = {"csrf": csrf, "username": "mon9", "role": "monitor", "start": "2026-01-01"}
     both = pi.post("/studies/GZQO/team", data=grant)
-    assert both.status_code == 400 and "最終日と ID が必要です" in both.text and "この依頼は実行できませんでした" not in both.text
+    assert (
+        both.status_code == 400
+        and "最終日と ID が必要です" in both.text
+        and "この依頼は実行できませんでした" not in both.text
+    )
     no_end = pi.post("/studies/GZQO/team", data={**grant, "visit": "MV-7"})
     assert no_end.status_code == 400 and "最終日が必要です" in no_end.text
     no_visit = pi.post("/studies/GZQO/team", data={**grant, "end": "2099-12-31"})

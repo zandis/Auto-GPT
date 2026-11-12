@@ -47,8 +47,9 @@ Give each tester their own accounts and keep their work across restarts:
   the ticked tasks (screen, approach, refer, enter_data), `crc` or `other`. The account sees only the studies it is
   logged on (or the `studies` list). A `steward` (data steward) or `privacy` (privacy office) account is site-wide:
   no `delegation` and no `studies`. They are the roles that open the audit browser (`/audit`; admin gets 403) and the
-  opt-out register. As on the real box, the steward names each study's PI (D-380), so a file with a steward must name
-  a PI for every study its entries log, else the demo refuses the file. Example rows:
+  opt-out register. As on the real box nobody acts as PI until a PI is named on the study's log (D-380); the seed
+  writes that entry for each demo study, as the steward would, and a `pi` delegation in the file names yours. Example
+  rows:
   `{"username": "tester1.steward", "role": "steward", "language": "ja", "expires": "2027-01-31"}`,
   `{"username": "tester1.privacy", "role": "privacy", "language": "ja", "expires": "2027-01-31"}`.
   A sub-investigator without the `approach` tick gets 403 on Approach, and only the
@@ -74,8 +75,9 @@ Give each tester their own accounts and keep their work across restarts:
   the hospital has a Japanese and a Taiwanese campus (notes in Japanese, Traditional Chinese and English, some
   Taiwanese notes with a 民國 date). `ja` seeds two Japanese-style campuses (notes in Japanese and English, 和暦 dates
   where a note uses them); `zh-TW` two Taiwanese-style ones. Same size and studies; it is read at the first seed (a
-  `TB_DEMO_KEEP` restart keeps the hospital it seeded). For a Japanese showing use `TB_DEMO_SITE_LANG=ja` with
-  `TB_DEMO_LANG=ja`.
+  `TB_DEMO_KEEP` restart keeps the hospital it seeded). With `ja` the stub model also reads the Japanese note
+  templates (`TB_LLM_STUB_NOTE_LANGS=zh-TW,ja`, set for you; off in every other run, so their results are unchanged).
+  For a Japanese showing use `TB_DEMO_SITE_LANG=ja` with `TB_DEMO_LANG=ja`.
 
 ## Run it anywhere with Docker
 
