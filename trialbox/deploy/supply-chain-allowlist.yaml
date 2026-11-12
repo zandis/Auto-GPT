@@ -12,7 +12,8 @@
 
 vulnerabilities:  # pip-audit on deploy/requirements.lock was clean on 2026-11-09; none accepted for it
   # Dated per-image exceptions that replace report mode for the HAPI FHIR and vLLM images (T-110b, D-340, ENG-007).
-  # Each accepts one finding of the image gates of 2026-11-10 in that image only (`image:`); a new finding blocks.
+  # Each accepts one finding of the image gates of 2026-11-10 in that image only (`image:`); a new finding blocks
+  # (but for the one D-622 entry below: every finding of linux-libc-dev in the pinned vLLM image).
   # They lapse on 2026-12-10, the target date of deploy/security/known-image-findings.md: by then the image moves to
   # a patched tag (and the entries go) or each entry is reviewed again with a new date and reason.
   - id: CVE-2026-102554

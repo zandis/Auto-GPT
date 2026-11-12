@@ -26,9 +26,11 @@ first.
    it names. It must name one package and one image; the image must be a third-party image of
    `deploy/images.lock`, by its full repository name; it is never an image of ours. It has a reason and a review
    date like every entry, and when the date has passed the gates fail on the findings again.
-2. **How it matches.** Only when the scanned image is known, and only that repository (in any registry): not a
-   longer path that ends the same way, not another image that carries the same package, not the lock's own gate.
-   Another package of the same image is not covered.
+2. **How it matches.** Only the pinned image: the scanned image must be that repository (in any registry; not a
+   longer path that ends the same way) at the digest `deploy/images.lock` pins for it. Another digest, a local
+   image under that name with no digest, another image that carries the same package and the lock's own gate
+   are not covered; nor is another package of the same image. A finding the scanner could not grade or name is
+   never accepted by such an entry.
 3. **No dead entries.** An entry for one id of a package in an image that an entry for every id covers is
    refused, so the list does not keep both.
 4. **The shipped list.** One such entry: `linux-libc-dev` in `vllm/vllm-openai`, review 2026-12-10. The 257
@@ -40,5 +42,22 @@ first.
   ids from the failed run); the same package in any other image still fails.
 - New kernel findings no longer stop a train or a release for this image until 2026-12-10. On that date the
   entry lapses and the question comes back: a patched vLLM tag, or our own image without the headers.
-- The entry is by package, not by version: if the pinned image moved to another headers version the entry would
-  still hold. The pin is `deploy/images.lock`; moving it is a model change and is reviewed as one.
+- The entry holds for the pinned digest only. When the pin moves, the entry covers nothing and the findings of
+  the new image fail until they are looked at.
+
+## After the adversarial review (2026-11-12)
+
+Verdict: ship; nothing the reviewer tried made the entry accept a finding outside this package and repository.
+Changed after it:
+
+- **The pinned image, not the name.** The first version matched the repository at any tag or digest, and a local
+  image merely tagged with the name. The ruling said "the pinned image": the entry now needs the lock's digest.
+- A finding with a severity the gate cannot read, or with no id, is not accepted by an entry for every id.
+- A lock that is not the expected shape refuses every such entry without a traceback.
+- Three documents said "a new finding blocks" for this image without the exception; they say it now.
+- **As ruled, and to know:** the entry accepts every severity and findings with no fix yet, for this package in
+  this image. The form is open to any third-party image of the lock (test-only ones too); each use is an entry
+  the owner approves in a pull request.
+- The match is by the package's normalised name; the gate's findings carry no package type, so a language
+  package of the same name in the image would be covered too. None exists.
+

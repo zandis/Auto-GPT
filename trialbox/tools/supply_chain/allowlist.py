@@ -39,7 +39,10 @@ A finding is accepted only by a written entry: which package, why, and until whe
 
 The checker rejects an entry with no reason, a reason shorter than 20 characters, no or a bad ``review_by``, a date
 in the past or more than 180 days ahead, an unknown or duplicate key, a duplicate entry, a vulnerability entry without
-a package, a dual entry without ``chosen``, and an unknown entry without ``licence``. "Today" is the build machine's
+a package, a dual entry without ``chosen``, and an unknown entry without ``licence``. An entry for every id (D-622,
+``id: "*"``) is rejected without a package or an image, for an image of ours, for an image that is not a third-party
+image of ``deploy/images.lock`` by its full name, and beside an entry for one id that it covers; it accepts findings
+only in the image at the digest the lock pins. "Today" is the build machine's
 date (``today()``); there is no override on the command line.
 """
 
@@ -120,9 +123,11 @@ class Allowlist:
         for e in self.vulnerabilities:
             if e.package != norm(package):
                 continue
-            if e.id == EVERY_ID:  # D-622: that one repository exactly, and only when the scanned image is known
+            if e.id == EVERY_ID:  # D-622: the pinned image: that repository exactly, at the lock's digest
                 if e.image and subject and same_repository(e.image, subject):
-                    return e
+                    digest = third_party_digests().get(e.image)
+                    if digest and "@" in subject and subject.rsplit("@", 1)[1] == digest:
+                        return e
             elif e.id.upper() in wanted and image_matches(e.image, subject):
                 return e
         return None
@@ -172,13 +177,25 @@ def same_repository(scope: str, subject: str) -> bool:
     return repo == scope
 
 
-def third_party_repositories() -> frozenset[str]:
-    """The repositories of the third-party images the project pins (``deploy/images.lock``)."""
+def third_party_digests() -> dict[str, str]:
+    """Repository -> pinned digest of the third-party images of ``deploy/images.lock``; empty when it cannot be read."""
     try:
         doc = json.loads(IMAGES_LOCK.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return frozenset()
-    return frozenset(image_repository(str(e.get("image", ""))) for e in (doc.get("third_party") or {}).values())
+        return {}
+    entries = doc.get("third_party") if isinstance(doc, dict) else None
+    if not isinstance(entries, dict):
+        return {}
+    return {
+        image_repository(str(e.get("image", ""))): str(e.get("digest") or "")
+        for e in entries.values()
+        if isinstance(e, dict) and e.get("image")
+    }
+
+
+def third_party_repositories() -> frozenset[str]:
+    """The repositories of the third-party images the project pins (``deploy/images.lock``)."""
+    return frozenset(third_party_digests())
 
 
 def norm(name: str) -> str:

@@ -6,6 +6,7 @@ a reason, a review date, the gates fail when the date has passed."""
 from __future__ import annotations
 
 import datetime as dt
+import json
 from typing import Any
 
 import pytest
@@ -15,7 +16,9 @@ from tools.supply_chain import allowlist, vulns
 pytestmark = pytest.mark.nodb
 
 IMAGE = "vllm/vllm-openai"
-REF = f"{IMAGE}:v0.32.0@sha256:" + "b" * 64
+LOCK = json.loads((allowlist.ROOT / "deploy" / "images.lock").read_text(encoding="utf-8"))
+DIGEST = next(e["digest"] for e in LOCK["third_party"].values() if e["image"].startswith(IMAGE + ":"))
+REF = f"{IMAGE}:v0.32.0@{DIGEST}"  # the pinned image, as the release gates name it
 PKG = "linux-libc-dev"
 REASON = "Ubuntu kernel headers of the upstream image, build-time files and not the running kernel"
 ON = dt.date(2026, 11, 12)
@@ -54,8 +57,12 @@ def test_another_package_of_the_same_image_still_fails() -> None:
     [
         "hapiproject/hapi:v8@sha256:" + "c" * 64,
         "trialbox-py:1.0.0",
-        "someone/vllm/vllm-openai:1",
-        "vllm/vllm-openai-x:1",
+        f"someone/vllm/vllm-openai:1@{DIGEST}",
+        f"vllm/vllm-openai-x:1@{DIGEST}",
+        # review M2: the ruling is for the PINNED image: another digest, or none (a local image under that name)
+        f"{IMAGE}:v0.33.0@sha256:" + "c" * 64,
+        f"{IMAGE}:v0.32.0",
+        IMAGE,
     ],
 )
 def test_the_same_package_in_any_other_image_still_fails(subject: str) -> None:
@@ -110,3 +117,51 @@ def test_the_shipped_list_has_the_one_entry_the_owner_ruled_on() -> None:
     wide = [(e.package, e.image, e.review_by) for e in allow.vulnerabilities if e.id == "*"]
     assert wide == [(PKG, IMAGE, dt.date(2026, 12, 10))]
     assert not [e for e in allow.vulnerabilities if e.package == PKG and e.id != "*"]  # the 257 per-id entries
+
+
+# ------------------------------------------------------------------------------------------------ the review
+def test_review_a_finding_the_scanner_could_not_grade_or_name_is_not_accepted_by_the_wide_entry() -> None:
+    """An entry for one id accepts a finding someone looked at. The wide entry accepts findings nobody has seen:
+    one with a severity the gate cannot read, or with no id, still fails."""
+    allow = _allow(_entry())
+    odd = vulns.Finding("trivy", "img", PKG, "6.8.0-147.147", "CVE-9", (), f"{vulns.INVALID}('x')", "")
+    nameless = vulns.Finding("trivy", "img", PKG, "6.8.0-147.147", "?", (), "HIGH", "")
+    result = vulns.gate([odd, nameless, _finding("CVE-1")], allow, subject=REF)
+    assert sorted(f.id for f in result.failing) == ["?", "CVE-9"] and len(result.accepted) == 1
+
+
+def test_review_the_lock_that_cannot_be_read_refuses_every_wide_entry(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for text in ("", "[]", '{"third_party": []}', "not json"):
+        lock = tmp_path / "images.lock"
+        lock.write_text(text, encoding="utf-8")
+        monkeypatch.setattr(allowlist, "IMAGES_LOCK", lock)
+        _, errors = allowlist.parse({"vulnerabilities": [_entry()]}, today=ON)
+        assert any("not a third-party image of deploy/images.lock" in e for e in errors), (text, errors)
+    monkeypatch.setattr(allowlist, "IMAGES_LOCK", tmp_path / "none")
+    _, errors = allowlist.parse({"vulnerabilities": [_entry()]}, today=ON)
+    assert errors
+
+
+def test_review_two_wide_entries_and_other_images_entries() -> None:
+    _, errors = allowlist.parse({"vulnerabilities": [_entry(), _entry(package="Linux_libc.dev")]}, today=ON)
+    assert any("duplicate entry" in e for e in errors), errors
+    other = _entry(id="CVE-1", image="hapiproject/hapi")  # the same package in another image: its own entry stays
+    _allow(_entry(), other)
+    _, errors = allowlist.parse({"vulnerabilities": [_entry(review_by="2025-01-01"), _entry(id="CVE-1")]}, today=ON)
+    assert not any("covered by the entry for every id" in e for e in errors)  # a refused wide entry covers nothing
+
+
+@pytest.mark.parametrize("image", ["docker.io/vllm/vllm-openai", "vllm/*", "library/caddy", "VLLM/vllm-openai"])
+def test_review_the_image_is_written_as_the_lock_writes_it(image: str) -> None:
+    _, errors = allowlist.parse({"vulnerabilities": [_entry(image=image)]}, today=ON)
+    assert errors, image
+
+
+def test_review_the_documents_say_what_the_entry_does() -> None:
+    root = allowlist.ROOT
+    for path in ("deploy/security/known-image-findings.md", "docs/security/08-supply-chain.md",
+                 "deploy/supply-chain-allowlist.yaml"):  # fmt: skip
+        assert "D-622" in (root / path).read_text(encoding="utf-8"), path
+    assert "D-622" in (allowlist.__doc__ or "")
