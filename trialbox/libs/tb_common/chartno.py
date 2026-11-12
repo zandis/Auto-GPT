@@ -19,7 +19,8 @@ The site's rule (``TB_CHARTNO_RULE``, set once at installation from the hospital
 * ``hex`` / ``hex:<width>`` / ``hex:<width>:lower``: a hexadecimal key; the case is made upper (or lower), and
   leading zeros are handled as for ``digits``.
 
-A number longer than ``<width>`` is never cut: two different chart numbers must never become one.
+A number longer than ``<width>`` is never cut and keeps its leading zeros (D-591): two different chart numbers must
+never become one.
 """
 
 from __future__ import annotations
@@ -112,6 +113,10 @@ def normalise(site_rule: Rule | str | None, value: str) -> str:
         if not _HEX.match(text):
             return text
         text = text.upper() if rule.case == "upper" else text.lower()
+    if rule.width and len(text) > rule.width:
+        # D-591: wider than the site's width, so its zeros are part of it. ``012345678`` under ``digits:8`` is not
+        # ``12345678``: that is another patient's number, and the two would share one pseudonym
+        return text
     core = text.lstrip("0") or "0"
     if rule.width and len(core) < rule.width:
         return core.zfill(rule.width)

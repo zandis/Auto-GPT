@@ -103,6 +103,18 @@ def pseudonym(site_key: bytes, chart_no: str) -> tuple[str, str]:
     return pid_for_mrn(site_key, norm), norm
 
 
+def _one_per_pid(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """One row per pseudonym, the first kept: two spellings of one chart number (R-48) are one patient. One
+    pseudonym for two different chart numbers (written the site's way) is two patients under one name: refused
+    (D-591), with no chart number in the message."""
+    first: dict[str, tuple[str, str]] = {}
+    for pid, mrn in pairs:
+        kept = first.setdefault(pid, (pid, mrn))
+        if kept[1] != mrn and chartno.normalise(None, kept[1]) != chartno.normalise(None, mrn):
+            raise ValueError(f"one pseudonym for two chart numbers ({pid[:8]}…): the batch is not stored")
+    return list(first.values())
+
+
 def _follow(raw: Mapping[str, str], pid: str) -> str:
     seen = {pid}
     while pid in raw:
@@ -185,8 +197,7 @@ class PidMap:
         return str(row[0]) if row is not None else None
 
     def upsert_many(self, pairs: list[tuple[str, str]]) -> int:
-        # one row per pseudonym: two spellings of one chart number (R-48) are one patient; the first is kept
-        pairs = list({pid: (pid, mrn) for pid, mrn in reversed(pairs)}.values())[::-1]
+        pairs = _one_per_pid(pairs)
         now = datetime.now(UTC).isoformat(timespec="seconds")
         with self._db.transaction() as tx:
             existing = {r[0] for r in tx.fetchall("SELECT pid FROM pid_map WHERE key_id = ?", (self.key_id,))}
@@ -217,7 +228,7 @@ class PidMap:
                 if pid in ident
                 else None,
             )
-            for pid, mrn in {pid: (pid, mrn) for pid, mrn in reversed(pairs)}.values()
+            for pid, mrn in _one_per_pid(pairs)
         ]
         with self._db.transaction() as tx:
             tx.execute("DELETE FROM pending WHERE snapshot = ? AND key_id = ?", (snapshot, self.key_id))
