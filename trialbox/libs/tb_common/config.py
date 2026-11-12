@@ -599,6 +599,14 @@ DECLARED: dict[str, Declared] = {
     "TB_OMOP_CONCEPT_BLOCK": Declared("int", "", "OMOP: concept id block"),
     "TB_OMOP_DB_URL": Declared("str", "", "OMOP database URL (unset: TB_DB_URL)"),
     "TB_OMOP_DUAL_WRITE": Declared("bool", "", "OMOP dual write on"),
+    "TB_OPPORTUNITY_APPROVED_FILE": Declared("path", "", "opportunity feed: steward's approved study list (D-467)"),
+    "TB_OPPORTUNITY_PERIOD_DAYS": Declared(
+        "int", "30", "opportunity feed: publication period, at least 28 days, so a day's change is not exposed"
+    ),
+    "TB_OPPORTUNITY_PER_CONDITION": Declared(
+        "int", "20", "opportunity feed: studies per condition per feed; bounds what one feed can probe"
+    ),
+    "TB_OPPORTUNITY_SECRET_FILE": Declared("path", "", "opportunity feed: site secret seeding the band (secret)"),
     "TB_OPS_DEPLOY": Declared("str", "", "ops: deploy folder the console sees"),
     "TB_OPS_DIR": Declared("path", "/data/ops", "ops: request and status folder"),
     "TB_OPS_RUNNER": Declared("str", "host", "ops: who runs requests (host or local)"),

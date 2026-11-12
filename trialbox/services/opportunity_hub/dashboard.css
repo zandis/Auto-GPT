@@ -18,6 +18,7 @@ header { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: end; justi
 h1 { font-size: 1.6rem; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
 .lede { margin: 4px 0 0; color: var(--muted); max-width: 68ch; }
 .banner { background: var(--warn-soft); color: var(--warn); border-radius: 6px; padding: 8px 12px; font-weight: 500; }
+.banner.bad { border: 2px solid var(--warn); text-transform: uppercase; margin-bottom: 8px; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
 .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
 .tile b { display: block; font-size: 1.6rem; font-variant-numeric: tabular-nums; }
