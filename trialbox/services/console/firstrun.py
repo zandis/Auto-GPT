@@ -35,7 +35,7 @@ from zoneinfo import available_timezones
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from tb_common import box_answers, firstrun
+from tb_common import box_answers, chartno, firstrun
 from tb_common.audit import AuditLog
 
 from console import totp
@@ -51,6 +51,23 @@ COOKIE = "tb_firstrun"
 FORM_TTL = timedelta(minutes=30)
 PATH = "/login/first-run"
 TIMEZONES = tuple(sorted(z for z in available_timezones() if "/" in z and not z.startswith(("Etc/", "SystemV/"))))
+
+
+def box_holds_patients() -> bool | None:
+    """NEW-DIN-3 (D-544, D-579): whether the pid map has a row. The chart-number rule may be chosen only while it
+    has none: another rule gives every loaded patient a second pseudonym. None: the map cannot be asked, which the
+    page treats as "it holds patients"."""
+    import os
+
+    from tb_common.db import Database
+
+    try:
+        with Database.connect(os.environ.get("TB_DB_URL"), "pidmap") as db:
+            if db.fetchone("SELECT to_regclass('pid_map')") in (None, (None,)):
+                return False  # the map's tables are not made yet: nothing was ever loaded
+            return db.fetchone("SELECT 1 FROM pid_map LIMIT 1") is not None
+    except Exception:
+        return None
 
 
 @dataclass
@@ -103,6 +120,7 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
         user = str(values.get("owner_username") or "owner")
         return h.page(
             request, "firstrun.html", None, status, step="answers", fr_csrf=state["csrf"], values=values,
+            ask_chartno=box_holds_patients() is False, chartno_kinds=chartno.KINDS,
             errors=ctx.pop("errors", {}), key=totp.grouped(secret), link=totp.otpauth_uri(secret, user),
             disks=hw.get("disks") or [], tpm=bool(hw.get("tpm")), timezones=TIMEZONES,
             sources=[k.value for k in box_answers.SourceKind], languages=box_answers.LANGUAGES,
@@ -156,6 +174,13 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
         disks = tuple(str(d.get("path", "")) for d in hw.get("disks") or ())
         answers, problems = box_answers.parse(data, disks=disks)
         errors = {p.field: p.code for p in problems}
+        # NEW-DIN-3 (D-544): the rule is an answer only while the box holds no patient; the page does not ask then,
+        # and an answer posted all the same makes nothing
+        answered = any(
+            data.get(k, "").strip() for k in ("chartno_rule", "chartno_kind", "chartno_width", "chartno_case")
+        )
+        if answered and "chartno_rule" not in errors and box_holds_patients() is not False:
+            errors["chartno_rule"] = "chartno_locked"
         pw = data.get("password", "")
         try:
             check_password_policy(pw)
@@ -193,6 +218,7 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
         au.append("console.first_run", actor=f"console:{answers.owner.username}", detail={
             "step": "done", "accounts": [a.username for a in plans], "roles": [a.role for a in plans],
             "source": answers.source.value, "backup": answers.backup.kind.value,
+            "chartno_rule": answers.chartno_rule,
         })  # fmt: skip
         resp = h.page(request, "firstrun.html", None, step="done", steward=plans[0].username)
         resp.delete_cookie(COOKIE)

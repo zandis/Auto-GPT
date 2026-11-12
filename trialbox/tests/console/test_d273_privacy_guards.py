@@ -158,7 +158,7 @@ def test_the_opt_out_door_gives_no_pseudonym_back_and_caps_chart_lookups(
 ) -> None:
     def study_api(method: str, path: str, body: dict[str, Any] | None = None, **_: Any) -> Any:
         if path == "/setup/pseudonym":
-            return {"pid": B}
+            return {"pid": B, "known": True}  # NEW-DIN-3 (D-544): a patient of this box
         raise Unavailable("no study store in this test")
 
     monkeypatch.setattr(box["backend"], "study_api", study_api, raising=False)

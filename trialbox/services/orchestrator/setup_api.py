@@ -323,11 +323,16 @@ def router(
     @r.post("/setup/pseudonym")
     def post_pseudonym(body: PseudonymBody) -> dict[str, Any]:
         """D-147: a chart number typed at the door (the opt-out register) becomes the box's pseudonym here; the console
-        stores only the pseudonym and the number is never kept or logged."""
+        stores only the pseudonym and the number is never kept or logged. ``known``: the pid map has that pseudonym
+        (true), has not (false), or cannot say (null)."""
         chart = body.chart_no.strip()
         if not chart:
             raise HTTPException(status_code=400, detail={"code": "SETUP-CHART", "message": "give a chart number"})
-        return {"pid": call(lambda: get().pseudonym(chart))}
+        svc = get()
+        pid = call(lambda: svc.pseudonym(chart))
+        # NEW-DIN-3 (D-544): and whether that pseudonym is a patient of this box, so the desk does not register a
+        # mistyped number as one
+        return {"pid": pid, "known": svc.known_pid(pid)}
 
     @r.post("/setup/{ws}/publish")
     def post_publish(ws: str, body: ByBody) -> dict[str, Any]:

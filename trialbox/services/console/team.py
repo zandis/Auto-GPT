@@ -93,6 +93,14 @@ _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")  # a screening number (re
 CHECK_DAYS = 30  # the copy is compared with the office's signed log every month
 IRB_REASON_MIN = 10  # D-380 (ROLE-015): the written reason for a change to a study's IRB record
 LIFT_REASON_MIN = 10  # D-380 (ROLE-005): the written reason for lifting an opt-out
+# NEW-DIN-3 (D-544): an opt-out typed by chart number for a pseudonym the pid map does not hold is registered only
+# with a written reason of this length; without one the desk says this
+UNKNOWN_REASON_MIN = 10
+NOT_A_PATIENT = (
+    "this chart number is not a patient of this box: check the number; to register it anyway, write why "
+    f"(at least {UNKNOWN_REASON_MIN} characters)"
+)
+KNOWN_WORD = {True: "yes", False: "no", None: "cannot_say"}
 IRB_FIELDS = ("approval_no", "approved_on", "expires_on", "icf_version", "icf_date")  # the stored IRB record
 
 
@@ -218,6 +226,7 @@ class ApiOptOut(BaseModel):
     source: str = "office"
     note: str = Field(default="", max_length=300)
     lift: bool = False
+    unknown_reason: str = Field(default="", max_length=300)  # NEW-DIN-3: why a number the box does not know is kept
 
 
 def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
@@ -958,12 +967,14 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return RedirectResponse(f"/site/staff?done={action}", status_code=303)
 
     # ------------------------------------------------------------------ opt-out register
-    def to_pid(chart_no: str, pid: str) -> str:
+    def to_pid(chart_no: str, pid: str) -> tuple[str, bool | None]:
+        """The pseudonym, and for a chart number whether the box holds a patient under it (NEW-DIN-3, D-544): True
+        only when the box says so; False when it says no; None when it cannot say or does not answer the question."""
         pid = pid.strip()
         if pid:
             if not _PID.match(pid):
                 raise refused(OptOutError("bad pseudonym"))
-            return pid
+            return pid, None
         chart = chart_no.strip()
         if not chart:
             raise refused(TeamError("give a chart number or a pseudonym"))
@@ -977,7 +988,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         got = str((out or {}).get("pid") or "")
         if not _PID.match(got):
             raise h.problem(409, "request.refused", reason="the box could not turn the chart number into a pseudonym")
-        return got
+        known = (out or {}).get("known")
+        return got, known if isinstance(known, bool) else None
 
     def change_optout(sess: Session, path: str, body: ApiOptOut) -> tuple[str, bool]:
         """One opt-out or lift. D-273 (PV-6): a chart number typed at the door is a lookup of a patient's
@@ -991,17 +1003,30 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         by_chart = bool(body.chart_no.strip()) and not body.pid.strip()
         if by_chart:
             chart_lookup(sess, "optout")
-        pid = to_pid(body.chart_no, body.pid)
+        pid, known = to_pid(body.chart_no, body.pid)
+        why_unknown = ""
         if by_chart:
             au.append(
                 "console.chart_lookup",
                 actor=h.actor(sess),
-                detail={"pid": pid, "for": "lift" if body.lift else "opt_out", "role": sess.user.role},
-            )
+                detail={"pid": pid, "for": "lift" if body.lift else "opt_out", "role": sess.user.role,
+                        "known": KNOWN_WORD[known]},
+            )  # fmt: skip
+            # NEW-DIN-3 (D-544): a number that is not a patient of this box (a slip of the hand, another hospital's
+            # number) is not registered as one; the keeper may still register it, saying why. A lift is not asked:
+            # what is on the register can always be taken off.
+            if known is not True and not body.lift:
+                why_unknown = " ".join(body.unknown_reason.split())[:300]
+                if len(why_unknown) < UNKNOWN_REASON_MIN:
+                    raise refused(OptOutError(NOT_A_PATIENT))
         detail = {"pid": pid, "action": "lift" if body.lift else "opt_out",
                   "reason": body.note.strip()[:300] if body.lift else "",
                   "source": "" if body.lift else (body.source if body.source in SOURCES else "other"),
                   "removed_from": "" if body.lift else "screening, candidate lists, exports"}  # fmt: skip
+        if by_chart and not body.lift:
+            detail["known"] = KNOWN_WORD[known]
+            if why_unknown:
+                detail["unknown_reason"] = why_unknown
 
         def audit() -> None:
             au.append("console.opt_out", actor=h.actor(sess), detail=detail)
@@ -1030,7 +1055,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         need_csrf(sess, form)
         body = ApiOptOut(pid=str(form.get("pid") or "")[:64], chart_no=str(form.get("chart_no") or "")[:40],
                          source=str(form.get("source") or "office")[:20], note=str(form.get("note") or "")[:300],
-                         lift=form.get("lift") == "1")  # fmt: skip
+                         lift=form.get("lift") == "1",
+                         unknown_reason=str(form.get("unknown_reason") or "")[:300])  # fmt: skip
         _pid, changed = change_optout(sess, request.url.path, body)
         done = ("lifted" if body.lift else "added") if changed else "same"
         return RedirectResponse(f"/site/opt-outs?done={done}", status_code=303)  # D-273 (PV-6): no pseudonym back

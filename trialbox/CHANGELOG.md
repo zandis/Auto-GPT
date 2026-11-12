@@ -10,6 +10,9 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- The opt-out desk checks the chart number (NEW-DIN-3, D-544): a number that is not a patient of this box is
+  refused with that message; the keeper may register it anyway with a written reason. The box's first-run page
+  asks how the hospital writes chart numbers, only while the box holds no patient.
 - Database passwords (T-712, D-481): every service clears the other roles' and the administrators' passwords in
   the base compose file, so no stack can be started with them; `trialbox doctor` has the check `db_passwords`
   (the box's `.env`, its compose files and its running containers).
