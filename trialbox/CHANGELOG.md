@@ -13,7 +13,7 @@ new heading with the version and date, in the same pull request that sets the ve
 - Break-glass (T-716, D-484): the orchestrator reads the grant itself before it gives a chart number (this person,
   this patient or job, open now) and writes the use; an investigator's own right is read from the delegation log
   there too. The orchestrator's database role joins the `breakglass` and `team` schemas: `install.sh` re-runs the
-  role script; after a `trialbox update` run it once by hand (runbook §5, "Secrets"), or a reveal under a grant
+  role script; after a `trialbox update` run it once by hand (runbook §5, "Database roles after a restore"), or a reveal under a grant
   or by an investigator is refused with "cannot be read".
 - The acting person (T-715, D-483): the participant, visit-schedule, SAE-rule, contact-rule, deviation and sponsor
   routes of the orchestrator take the person from a signed claim for that action, study and request, never from the

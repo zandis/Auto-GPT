@@ -152,3 +152,35 @@ def test_a_store_that_cannot_be_read_gives_nothing(site: dict[str, Any], monkeyp
         bk.reveal(job.job_id, pid, signer(STUDY, sub="console:drsato", role="investigator"))
     assert not ob.events("screen.reveal") and len(ob.events("screen.reveal_refused")) == 2
     assert bk.reveal(job.job_id, pid, signer(STUDY)) == ob.mrn[pid]
+
+
+def test_a_use_that_cannot_be_written_gives_no_number_and_no_reveal_line(
+    site: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,  # noqa: F811
+) -> None:
+    """Review M3: `screen.reveal` (found: true) was written before the grant's use. With the use-write failing the
+    route answered 500, the console's client tried again, and the trail held two reveals of a number never given.
+    The use is written first; when it cannot be, the call is a refusal with its own line."""
+    from orchestrator import grants
+
+    ob: OrchBox = site["ob"]
+    bk, job = site["backend"], ob.screen()
+    a = ob.listed()[0]
+    log_pi("drsato", STUDY)
+    adm, _ = login(site["app"], "admin", ADMIN_PW)
+    assert _open(adm, kind="patient", ruleset=STUDY, pid=a).headers["location"] == "/breakglass?done=open"
+    gid = _grant_of(ob)
+    as_admin: dict[str, Any] = {"sub": "console:admin", "role": "admin", "grant": {"id": str(gid)}}
+
+    def broken(*_a: Any, **_k: Any) -> None:
+        raise RuntimeError("the store is gone")
+
+    real = grants.record_use
+    monkeypatch.setattr(grants, "record_use", broken)
+    with pytest.raises(Refused, match="break-glass grant: the use cannot be written"):
+        bk.reveal(job.job_id, a, signer(STUDY, **as_admin), purpose="patient")
+    assert not ob.events("screen.reveal") and _uses(gid) == []
+    assert ob.events("screen.reveal_refused")[-1]["detail"]["reason"] == "break-glass grant: the use cannot be written"
+    monkeypatch.setattr(grants, "record_use", real)  # the store is back: the same grant gives the number once
+    assert bk.reveal(job.job_id, a, signer(STUDY, **as_admin), purpose="patient") == ob.mrn[a]
+    assert len(ob.events("screen.reveal")) == 1 and _uses(gid) == [("reveal", a, job.job_id)]

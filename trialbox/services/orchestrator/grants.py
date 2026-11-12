@@ -99,7 +99,8 @@ def log_standing(username: str, study: str, today: date, url: str | None = None)
 def person_right(role: str, username: str, study: str, today: date, url: str | None = None) -> str:
     """Why this person may not receive a chart number of ``study`` by their own rights ("" when they may). The
     delegation log is read only for a role whose right it decides, so a coordinator's reveal needs no log; a log
-    that cannot be read refuses (a box whose role script was not run again after the update: runbook, "Secrets")."""
+    that cannot be read refuses (a box whose role script was not run again after the update: runbook §5, "Database
+    roles after a restore")."""
     if not (conditional(role, "id.reveal") or conditional(role, "task.screen")):
         return own_right(role, Standing())
     try:
