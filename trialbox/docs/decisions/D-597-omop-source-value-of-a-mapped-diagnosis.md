@@ -23,7 +23,12 @@ of record must say what the source said.
 3. **The lake reads the mapped code**, as D-593 decided and as the lake built from the feed reads it: the mapped
    code and its system are kept in the record's `extra` (`code`, `system`), which the lake export already puts
    over the OMOP reading. Both lake sources stay the same row for row.
-4. A diagnosis with no mapped coding is loaded exactly as before.
+4. **Only the pair the map makes is read this way**: a first coding in ICD-10-CM marked `userSelected: false`
+   with the hospital's ICD-9-CM coding after it. Every other shape loads exactly as before: a first coding another
+   source flags for its own reasons, a mapped coding alone, a hospital code too long to be a source concept.
+5. **The record goes to the table of the mapped code's domain**, as a diagnosis recorded with that code does
+   (STD-031): a V code mapped to an ICD-10-CM Z code of the Observation domain is an OBSERVATION row, with the
+   V code as its source value.
 
 ## Consequences
 

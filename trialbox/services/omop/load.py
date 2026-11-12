@@ -220,6 +220,8 @@ class Rec:
     extra: dict[str, Any] = field(default_factory=dict)
     codes: list[Code] = field(default_factory=list)
     std_only: list[tuple[str | None, str]] = field(default_factory=list)  # standard lookup only (units, note class)
+    # D-597: the code whose domain routes the record when it is not the source code (a mapped diagnosis)
+    route: tuple[str | None, str] | None = None
     # set while resolving
     record_id: int | None = None
     person_id: int | None = None
@@ -441,6 +443,7 @@ class _Builder:
             # lake built from the feed reads the first coding)
             self._code(out, "condition_source_value", own[0], own[1], self._display(r.get("code"), own[1]), "Condition")
             out.extra["code"], out.extra["system"] = code, system
+            out.route = (system, code)  # the mapped code's domain routes the record, as a recorded one's does
         else:
             self._code(out, "condition_source_value", system, code, self._display(r.get("code"), code), "Condition")
         out.row["_std"] = (system, code)
@@ -929,10 +932,11 @@ def _route(tx: Any, recs: list[Rec], rep: LoadReport) -> None:
     want: dict[str, set[str]] = defaultdict(set)
     for r in cands:
         code = next((c for c in r.codes if c.domain != "Meas Value"), None)
-        sv = standard_vocabulary(code.system) if code else None
-        if code and sv:
-            src_of[id(r)] = (sv, code.code)
-            want[sv].add(code.code)
+        by = r.route or ((code.system, code.code) if code else None)
+        sv = standard_vocabulary(by[0]) if by else None
+        if by and sv:
+            src_of[id(r)] = (sv, by[1])
+            want[sv].add(by[1])
     src_dom: dict[tuple[str, str], str] = {}
     for sv, codes in want.items():
         for code, dom in tx.fetchall(
@@ -975,15 +979,24 @@ def _to_observation(r: Rec) -> None:
     r.row, r.table = row, "observation"
 
 
+_ICD10CM, _ICD9CM = "http://hl7.org/fhir/sid/icd-10-cm", "http://hl7.org/fhir/sid/icd-9-cm"  # the pair of D-593
+
+
 def _own_coding(cc: dict[str, Any] | None, read: str | None) -> tuple[str | None, str] | None:
     """``(system, code)`` of the hospital's own coding when the code the flattener read (``read``, the first
-    coding) is one a map gave (``userSelected: false``, D-593); None when the first coding is the hospital's own
-    or there is no other."""
+    coding) is the one the map gave (D-593): the first coding is ICD-10-CM marked ``userSelected: false`` and a
+    later one is the hospital's ICD-9-CM code. Any other shape is None and the record loads as before: a first
+    coding another source flags for its own reasons, a mapped coding alone, a hospital code too long to be a
+    source concept."""
     codings = [c for c in (cc or {}).get("coding") or [] if c.get("code")]
     if not codings or codings[0].get("code") != read or codings[0].get("userSelected") is not False:
         return None
-    own = next((c for c in codings[1:] if c.get("userSelected") is not False), None)
-    return (own.get("system"), str(own["code"])) if own is not None else None
+    if codings[0].get("system") != _ICD10CM:
+        return None
+    own = next((c for c in codings[1:] if c.get("system") == _ICD9CM and c.get("userSelected") is not False), None)
+    if own is None or len(str(own["code"])) > 50:
+        return None
+    return (own.get("system"), str(own["code"]))
 
 
 def _concepts(r: Rec, concepts: Concepts) -> None:

@@ -95,10 +95,59 @@ def test_the_standard_concept_is_the_one_the_mapped_code_has(tmp_path: Path, db:
     assert got["585.3"]["source"] != got["N18.3"]["source"]  # two source codes
 
 
-def test_a_reload_changes_nothing_and_an_unmapped_feed_loads_as_before(tmp_path: Path, db: Any) -> None:
+def test_a_reload_changes_nothing(tmp_path: Path, db: Any) -> None:
     from omop.load import load_batch
 
     feed = _feed(tmp_path)
     first = load_batch(db, "feed", SNAP, feed, tz="Asia/Taipei")
     again = load_batch(db, "feed", SNAP, feed, tz="Asia/Taipei")
     assert (again.inserted, again.updated, again.tombstoned) == (0, 0, 0) and again.same == first.inserted
+
+
+def _cond(feed: dict[str, list[dict[str, Any]]], rid: str, codings: list[dict[str, Any]]) -> dict[str, Any]:
+    base = next(r for r in feed["Condition"] if r["code"]["coding"][0]["code"] == "M05.79")
+    return {**base, "id": rid, "code": {"coding": codings}}
+
+
+def test_a_mapped_code_of_the_observation_domain_is_routed_as_a_recorded_one_is(tmp_path: Path, db: Any) -> None:
+    """The review's finding: the domain was looked up by the ICD-9-CM source code, which the vocabulary does not
+    know, so a V code mapped to a Z code stayed in CONDITION_OCCURRENCE while a recorded Z code moved."""
+    from omop.load import load_batch
+
+    with db.transaction() as tx:
+        tx.execute(
+            "INSERT INTO concept (concept_id, concept_name, domain_id, vocabulary_id, concept_class_id, "
+            "concept_code, valid_start_date, valid_end_date) VALUES (45500001, 'history of smoking', 'Observation', "
+            "'ICD10CM', '4-char billing code', 'Z87.891', '1970-01-01', '2099-12-31')"
+        )
+    feed = _feed(tmp_path)
+    feed["Condition"] = [
+        _cond(feed, "direct", [{"system": I10, "code": "Z87.891"}]),
+        _cond(feed, "mapped", [{"system": I10, "code": "Z87.891", "userSelected": False},
+                               {"system": I9, "code": "V15.82"}]),
+    ]  # fmt: skip
+    rep = load_batch(db, "feed", SNAP, feed, tz="Asia/Taipei")
+    assert rep.skipped.get("routed:condition_occurrence:observation") == 2
+    values = sorted(str(r[0]) for r in db.fetchall("SELECT observation_source_value FROM observation"))
+    assert "V15.82" in values and "Z87.891" in values  # each keeps what its hospital recorded
+
+
+@pytest.mark.parametrize(("codings", "value"), [
+    # a first coding flagged for the source's own reasons, not a D-593 pair: exactly as before
+    ([{"system": "http://snomed.info/sct", "code": "44054006", "userSelected": False}, {"system": I10, "code": "E11.9"}],
+     "44054006"),
+    ([{"system": I10, "code": "N18.3", "userSelected": False}], "N18.3"),                      # nothing else there
+    ([{"system": I9, "code": "585.3"}, {"system": I10, "code": "N18.3", "userSelected": False}], "585.3"),
+    ([{"system": I10, "code": "N18.3", "userSelected": "false"}, {"system": I9, "code": "585.3"}], "N18.3"),
+    ([{"system": I10, "code": "N18.3", "userSelected": False}, {"system": I9, "code": "5" * 60}], "N18.3"),  # too long
+    ([{"system": I10, "code": "N18.3", "userSelected": False}, {"system": I9, "code": "585.3"}], "585.3"),   # the pair
+])  # fmt: skip
+def test_only_the_pair_the_map_makes_changes_the_source_value(
+    tmp_path: Path, db: Any, codings: list[dict[str, Any]], value: str
+) -> None:
+    from omop.load import load_batch
+
+    feed = _feed(tmp_path)
+    feed["Condition"] = [_cond(feed, "one", codings)]
+    load_batch(db, "feed", SNAP, feed, tz="Asia/Taipei")
+    assert set(_conditions(db)) == {value}
