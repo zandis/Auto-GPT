@@ -65,7 +65,8 @@ def box_holds_patients() -> bool | None:
         with Database.connect(os.environ.get("TB_DB_URL"), "pidmap") as db:
             if db.fetchone("SELECT to_regclass('pid_map')") in (None, (None,)):
                 return False  # the map's tables are not made yet: nothing was ever loaded
-            return db.fetchone("SELECT 1 FROM pid_map LIMIT 1") is not None
+            row = db.fetchone("SELECT EXISTS (SELECT 1 FROM pid_map)")
+            return bool(row and row[0])
     except Exception:
         return None
 
