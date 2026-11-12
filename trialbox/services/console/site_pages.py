@@ -35,6 +35,7 @@ from pydantic import BaseModel, Field
 from tb_common.authz import permit
 
 from console import demo_guard, s28
+from console.api_first import before_body
 from console.auth import Session, User
 from console.backend import Problem, Unavailable
 from console.home import Helpers
@@ -153,6 +154,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         mine = studies(sess)
         if rid and _RS.match(rid) and sess.user.sees_study(rid):
             return rid  # a study whose protocol is being read may not be in the list yet: question 1 says so
+        if rid and not site_wide(sess.user):  # ROLE-020 (T-657): a study outside the account's scope is not found,
+            au.append("console.denied", actor=h.actor(sess), detail={"action": f"study {rid[:40]}"})
+            raise h.problem(404, "notfound")  # never its own study's answer instead
         return mine[0] if mine else ""
 
     def get(path: str) -> Any:
@@ -817,6 +821,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                 for f in not_gone(facts)]  # fmt: skip
 
     @app.post("/api/v1/site/facts/{fid}", response_model=None)
+    @before_body(lambda sess, _r: need_change(sess, "/site/facts"))  # T-657 (D-444): before the body
     def api_fact(request: Request, fid: int, body: ApiDecide, ws: str = "main") -> Any:
         sess = api_session(request)
         try:
@@ -825,6 +830,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             return refused(exc)
 
     @app.post("/api/v1/site/charts", response_model=None)
+    @before_body(lambda sess, _r: need_change(sess, "/site/charts"))  # T-657 (D-444): before the body
     def api_chart(request: Request, body: ApiChart, ws: str = "main") -> Any:
         sess = api_session(request)
         demo_guard.guard(request, h.problem)  # T-502: no chart text in demo mode
@@ -844,6 +850,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             return refused(exc)
 
     @app.post("/api/v1/site/codes", response_model=None)
+    @before_body(lambda sess, _r: need_change(sess, "/site/codes"))  # T-657 (D-444): before the body
     def api_code(request: Request, body: ApiMap, ws: str = "main") -> Any:
         sess = api_session(request)
         try:
@@ -861,6 +868,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             return refused(exc)
 
     @app.post("/api/v1/site/checks/{cid}", response_model=None)
+    @before_body(lambda sess, _r: need_change(sess, "/site/checks"))  # T-657 (D-444): before the body
     def api_check(request: Request, cid: int, body: ApiAnswer, ws: str = "main") -> Any:
         sess = api_session(request)
         try:
