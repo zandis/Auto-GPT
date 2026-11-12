@@ -1,0 +1,202 @@
+{
+  "media_missing": {
+    "en": "The TrialBox media was not found at {0} (no SHA256SUMS file). Start Install-TrialBox.cmd from the media itself.",
+    "ja": "{0} に TrialBox のメディアが見つかりません（SHA256SUMS がありません）。メディア上の Install-TrialBox.cmd から起動してください。",
+    "zh-TW": "在 {0} 找不到 TrialBox 安裝媒體（沒有 SHA256SUMS 檔）。請從媒體上的 Install-TrialBox.cmd 啟動。"
+  },
+  "media_file": {
+    "en": "The media must hold exactly one file {0}; it holds {1}. Ask Aimedics for a new copy of the media.",
+    "ja": "メディアには {0} がちょうど 1 つ必要ですが、{1} 個あります。Aimedics に新しいメディアを依頼してください。",
+    "zh-TW": "媒體上必須恰好有一個 {0}，目前有 {1} 個。請向 Aimedics 索取新的媒體。"
+  },
+  "media_checking": {
+    "en": "Checking the media at {0}. This takes a few minutes.",
+    "ja": "{0} のメディアを確認しています。数分かかります。",
+    "zh-TW": "正在檢查 {0} 的媒體，需要幾分鐘。"
+  },
+  "media_unlisted": {
+    "en": "The media's SHA256SUMS does not list {0}. Ask Aimedics for a new copy of the media.",
+    "ja": "メディアの SHA256SUMS に {0} が載っていません。Aimedics に新しいメディアを依頼してください。",
+    "zh-TW": "媒體的 SHA256SUMS 沒有列出 {0}。請向 Aimedics 索取新的媒體。"
+  },
+  "media_damaged": {
+    "en": "The file {0} on the media is damaged (it does not match SHA256SUMS). Nothing was changed. Ask Aimedics for a new copy of the media.",
+    "ja": "メディア上のファイル {0} が壊れています（SHA256SUMS と一致しません）。何も変更していません。Aimedics に新しいメディアを依頼してください。",
+    "zh-TW": "媒體上的檔案 {0} 已損壞（與 SHA256SUMS 不符）。沒有做任何變更。請向 Aimedics 索取新的媒體。"
+  },
+  "not_admin": {
+    "en": "Run the installer as a Windows administrator: right-click Install-TrialBox.cmd and choose \"Run as administrator\".",
+    "ja": "Windows の管理者として実行してください。Install-TrialBox.cmd を右クリックし、「管理者として実行」を選びます。",
+    "zh-TW": "請以 Windows 系統管理員身分執行：在 Install-TrialBox.cmd 上按右鍵，選「以系統管理員身分執行」。"
+  },
+  "other_account": {
+    "en": "This install was started by the Windows account {0}; you are signed in as {1}. Sign in as {0} and start the installer again: the TrialBox system belongs to that account.",
+    "ja": "このインストールは Windows アカウント {0} が開始しました。現在のサインインは {1} です。{0} でサインインして、もう一度インストーラーを起動してください。TrialBox のシステムはそのアカウントのものです。",
+    "zh-TW": "這次安裝是由 Windows 帳戶 {0} 開始的，您目前以 {1} 登入。請以 {0} 登入後再啟動安裝程式：TrialBox 系統屬於該帳戶。"
+  },
+  "edition": {
+    "en": "This Windows is edition {0}, build {1}. TrialBox needs Windows 11 Pro, Pro for Workstations, Enterprise or Education. Nothing was changed.",
+    "ja": "この Windows はエディション {0}、ビルド {1} です。TrialBox には Windows 11 Pro、Pro for Workstations、Enterprise または Education が必要です。何も変更していません。",
+    "zh-TW": "這台 Windows 的版本是 {0}，組建 {1}。TrialBox 需要 Windows 11 專業版、工作站專業版、企業版或教育版。沒有做任何變更。"
+  },
+  "virtualisation": {
+    "en": "CPU virtualisation is off. Turn on Intel VT-x or AMD-V (SVM) in the firmware (BIOS) settings of this machine, then start the installer again. Nothing was changed.",
+    "ja": "CPU の仮想化が無効です。この機械のファームウェア（BIOS）設定で Intel VT-x または AMD-V（SVM）を有効にしてから、もう一度インストーラーを起動してください。何も変更していません。",
+    "zh-TW": "CPU 虛擬化功能未開啟。請在這台機器的韌體（BIOS）設定中開啟 Intel VT-x 或 AMD-V（SVM），然後再啟動安裝程式。沒有做任何變更。"
+  },
+  "no_windows_driver": {
+    "en": "The NVIDIA driver for Windows does not answer (nvidia-smi.exe). Install the driver from the folder windows\\nvidia on the media, then start the installer again. Nothing was changed.",
+    "ja": "Windows 用の NVIDIA ドライバーが応答しません（nvidia-smi.exe）。メディアの windows\\nvidia フォルダーからドライバーをインストールしてから、もう一度インストーラーを起動してください。何も変更していません。",
+    "zh-TW": "Windows 的 NVIDIA 驅動程式沒有回應（nvidia-smi.exe）。請從媒體的 windows\\nvidia 資料夾安裝驅動程式，然後再啟動安裝程式。沒有做任何變更。"
+  },
+  "card": {
+    "en": "Graphics card and Windows driver: {0}",
+    "ja": "グラフィックスカードと Windows ドライバー: {0}",
+    "zh-TW": "顯示卡與 Windows 驅動程式：{0}"
+  },
+  "drive_unclear": {
+    "en": "The installer could not choose the data drive by itself (other fixed drives: {0}). Start it again without -Yes, or name the drive with -DataDrive.",
+    "ja": "データ用ドライブを自動で決められません（ほかの固定ドライブ: {0}）。-Yes を付けずに起動し直すか、-DataDrive でドライブを指定してください。",
+    "zh-TW": "安裝程式無法自行選定資料磁碟機（其他固定磁碟機：{0}）。請不加 -Yes 重新啟動，或用 -DataDrive 指定磁碟機。"
+  },
+  "drive_ask": {
+    "en": "Which drive should hold TrialBox's data? Other fixed drives: {0}. Windows itself is on {1}; a separate drive is better. Type the drive letter and press Enter.",
+    "ja": "TrialBox のデータをどのドライブに置きますか。ほかの固定ドライブ: {0}。Windows は {1} にあります。別のドライブをお勧めします。ドライブ文字を入力して Enter を押してください。",
+    "zh-TW": "TrialBox 的資料要放在哪個磁碟機？其他固定磁碟機：{0}。Windows 本身在 {1}；建議使用另一個磁碟機。請輸入磁碟機代號後按 Enter。"
+  },
+  "drive_bad": {
+    "en": "{0} is not a fixed NTFS drive of this machine. Nothing was changed on it.",
+    "ja": "{0} はこの機械の固定 NTFS ドライブではありません。そのドライブには何も変更していません。",
+    "zh-TW": "{0} 不是這台機器的固定 NTFS 磁碟機。沒有對它做任何變更。"
+  },
+  "drive_small": {
+    "en": "Drive {0} has {1} GB free; TrialBox needs {2} GB. Nothing was changed on it.",
+    "ja": "ドライブ {0} の空きは {1} GB です。TrialBox には {2} GB 必要です。そのドライブには何も変更していません。",
+    "zh-TW": "磁碟機 {0} 剩餘 {1} GB；TrialBox 需要 {2} GB。沒有對它做任何變更。"
+  },
+  "folder_not_ours": {
+    "en": "The folder {0} already exists and belongs to another account. The installer does not use or change a folder it did not make. Ask the box owner to look at it.",
+    "ja": "フォルダー {0} はすでに存在し、別のアカウントのものです。インストーラーは自分で作っていないフォルダーを使わず、変更もしません。ボックスの管理責任者に確認を依頼してください。",
+    "zh-TW": "資料夾 {0} 已存在，且屬於另一個帳戶。安裝程式不會使用或變更不是它建立的資料夾。請主機負責人查看。"
+  },
+  "drive": {
+    "en": "TrialBox's data folder: {0} ({1} GB free). Only administrators and this account can open it.",
+    "ja": "TrialBox のデータフォルダー: {0}（空き {1} GB）。管理者とこのアカウントだけが開けます。",
+    "zh-TW": "TrialBox 的資料夾：{0}（剩餘 {1} GB）。只有系統管理員與本帳戶可以開啟。"
+  },
+  "msi_unsigned": {
+    "en": "The WSL package on the media ({0}) is not signed by Microsoft. Nothing was changed. Ask Aimedics for a new copy of the media.",
+    "ja": "メディア上の WSL パッケージ（{0}）に Microsoft の署名がありません。何も変更していません。Aimedics に新しいメディアを依頼してください。",
+    "zh-TW": "媒體上的 WSL 套件（{0}）沒有 Microsoft 的簽章。沒有做任何變更。請向 Aimedics 索取新的媒體。"
+  },
+  "msi_failed": {
+    "en": "Windows could not install the WSL package (msiexec exit {0}).",
+    "ja": "Windows が WSL パッケージをインストールできませんでした（msiexec の終了コード {0}）。",
+    "zh-TW": "Windows 無法安裝 WSL 套件（msiexec 結束代碼 {0}）。"
+  },
+  "restart": {
+    "en": "Windows must restart once to turn WSL2 on. After the restart, sign in as {0}: the installer goes on by itself.",
+    "ja": "WSL2 を有効にするため、Windows を 1 回再起動します。再起動後、{0} でサインインしてください。インストーラーが自動で続きを実行します。",
+    "zh-TW": "Windows 需要重新啟動一次以開啟 WSL2。重新啟動後請以 {0} 登入：安裝程式會自行繼續。"
+  },
+  "press_enter": {
+    "en": "Save your work in other windows, then press Enter to restart",
+    "ja": "ほかのウィンドウの作業を保存してから、Enter を押すと再起動します",
+    "zh-TW": "請先儲存其他視窗中的工作，再按 Enter 重新啟動"
+  },
+  "wsl_not_ready": {
+    "en": "WSL does not answer yet (wsl.exe --version). Restart Windows and start the installer again.",
+    "ja": "WSL がまだ応答しません（wsl.exe --version）。Windows を再起動して、もう一度インストーラーを起動してください。",
+    "zh-TW": "WSL 尚未回應（wsl.exe --version）。請重新啟動 Windows 後再啟動安裝程式。"
+  },
+  "wslconfig_kept_no_swap0": {
+    "en": "Warning: {0} already exists and was not changed, but it does not set swap=0. TrialBox's host check will report it until swap is off.",
+    "ja": "注意: {0} はすでに存在するため変更していませんが、swap=0 が設定されていません。swap を無効にするまで、TrialBox のホスト検査がこれを報告します。",
+    "zh-TW": "警告：{0} 已存在，未做變更，但其中沒有設定 swap=0。在關閉 swap 之前，TrialBox 的主機檢查會持續回報此項。"
+  },
+  "wslconfig_kept": {
+    "en": "{0} already exists and was not changed.",
+    "ja": "{0} はすでに存在するため変更していません。",
+    "zh-TW": "{0} 已存在，未做變更。"
+  },
+  "distro_exists": {
+    "en": "A WSL system named {0} already exists on this account, and this install did not make it. The installer never replaces or removes one: it may hold a TrialBox with data. Nothing was changed.",
+    "ja": "このアカウントには {0} という名前の WSL システムがすでにあり、今回のインストールで作ったものではありません。インストーラーは既存のものを置き換えたり削除したりしません。データを持つ TrialBox かもしれません。何も変更していません。",
+    "zh-TW": "此帳戶已有名為 {0} 的 WSL 系統，而且不是這次安裝建立的。安裝程式絕不取代或移除既有的系統：其中可能是存有資料的 TrialBox。沒有做任何變更。"
+  },
+  "vhdx_exists": {
+    "en": "A virtual disk is already there: {0}. It may hold a TrialBox with data. The installer never replaces or removes one. Nothing was changed.",
+    "ja": "仮想ディスクがすでにあります: {0}。データを持つ TrialBox かもしれません。インストーラーは既存のものを置き換えたり削除したりしません。何も変更していません。",
+    "zh-TW": "已有虛擬磁碟：{0}。其中可能是存有資料的 TrialBox。安裝程式絕不取代或移除既有的虛擬磁碟。沒有做任何變更。"
+  },
+  "importing": {
+    "en": "Setting up the Linux system {0} in {1}.",
+    "ja": "Linux システム {0} を {1} に用意しています。",
+    "zh-TW": "正在 {1} 建立 Linux 系統 {0}。"
+  },
+  "import_failed": {
+    "en": "WSL could not set up the Linux system (exit {0}): {1}",
+    "ja": "WSL が Linux システムを用意できませんでした（終了コード {0}）: {1}",
+    "zh-TW": "WSL 無法建立 Linux 系統（結束代碼 {0}）：{1}"
+  },
+  "linux_step": {
+    "en": "The set-up inside WSL2 stopped at \"{0}\": {1}",
+    "ja": "WSL2 内のセットアップが「{0}」で止まりました: {1}",
+    "zh-TW": "WSL2 內的設定在「{0}」停止：{1}"
+  },
+  "no_systemd": {
+    "en": "The Linux system did not start with systemd (first process: {0}).",
+    "ja": "Linux システムが systemd で起動しませんでした（最初のプロセス: {0}）。",
+    "zh-TW": "Linux 系統沒有以 systemd 啟動（第一個程序：{0}）。"
+  },
+  "packages": {
+    "en": "Installing Docker Engine and the NVIDIA Container Toolkit inside WSL2, from the media.",
+    "ja": "メディアから、WSL2 内に Docker Engine と NVIDIA Container Toolkit をインストールしています。",
+    "zh-TW": "正在從媒體將 Docker Engine 與 NVIDIA Container Toolkit 安裝到 WSL2 內。"
+  },
+  "gpu_container": {
+    "en": "A container sees the graphics card: {0}",
+    "ja": "コンテナーからグラフィックスカードが見えます: {0}",
+    "zh-TW": "容器可以使用顯示卡：{0}"
+  },
+  "vendor_key": {
+    "en": "Compare this line with the key sheet Aimedics gave you: {0}",
+    "ja": "この行を Aimedics から受け取った鍵の用紙と見比べてください: {0}",
+    "zh-TW": "請將此行與 Aimedics 交給您的金鑰單核對：{0}"
+  },
+  "linux_install": {
+    "en": "Installing TrialBox inside WSL2. This window will show a one-time code and an address for the set-up page; keep it open until the set-up is finished.",
+    "ja": "WSL2 内に TrialBox をインストールしています。このウィンドウにセットアップページのアドレスと 1 回限りのコードが表示されます。セットアップが終わるまで閉じないでください。",
+    "zh-TW": "正在 WSL2 內安裝 TrialBox。此視窗會顯示設定頁面的網址與一次性代碼；設定完成前請勿關閉。"
+  },
+  "linux_install_stopped": {
+    "en": "The TrialBox installer inside WSL2 stopped before the set-up was finished (exit {0}). Its messages are above. Start Install-TrialBox.cmd again to go on.",
+    "ja": "WSL2 内の TrialBox インストーラーが、セットアップ完了前に止まりました（終了コード {0}）。メッセージは上にあります。続けるには Install-TrialBox.cmd をもう一度起動してください。",
+    "zh-TW": "WSL2 內的 TrialBox 安裝程式在設定完成前停止（結束代碼 {0}）。訊息在上方。請再次啟動 Install-TrialBox.cmd 以繼續。"
+  },
+  "host_check_fails": {
+    "en": "TrialBox is installed and running. The host check above still has FAIL lines: read them and put them right.",
+    "ja": "TrialBox はインストールされ、動いています。上のホスト検査（host check）に FAIL の行が残っています。内容を読んで対応してください。",
+    "zh-TW": "TrialBox 已安裝並在執行中。上方的主機檢查（host check）仍有 FAIL 行：請閱讀並處理。"
+  },
+  "already_installed": {
+    "en": "TrialBox is already installed on this machine by this installer. Nothing was changed. The install log: {0}",
+    "ja": "この機械には、このインストーラーで TrialBox がすでにインストールされています。何も変更していません。インストールの記録: {0}",
+    "zh-TW": "這台機器已由本安裝程式安裝 TrialBox。沒有做任何變更。安裝記錄：{0}"
+  },
+  "unexpected": {
+    "en": "The installer met an error it did not expect: {0}",
+    "ja": "インストーラーで想定していないエラーが起きました: {0}",
+    "zh-TW": "安裝程式遇到未預期的錯誤：{0}"
+  },
+  "stopped": {
+    "en": "The installer stopped at step {0} of {1}. You can start it again: it goes on from here. The log to send to Aimedics (it holds no password and no patient data): {2}",
+    "ja": "インストーラーは {1} 段階中の第 {0} 段階で止まりました。もう一度起動すると、ここから続きます。Aimedics に送る記録（パスワードも患者データも含みません）: {2}",
+    "zh-TW": "安裝程式停在第 {0} 步（共 {1} 步）。可以再次啟動，它會從這裡繼續。可寄給 Aimedics 的記錄（不含密碼，也不含病人資料）：{2}"
+  },
+  "done": {
+    "en": "The install is finished. The install log: {0}",
+    "ja": "インストールが完了しました。インストールの記録: {0}",
+    "zh-TW": "安裝完成。安裝記錄：{0}"
+  }
+}

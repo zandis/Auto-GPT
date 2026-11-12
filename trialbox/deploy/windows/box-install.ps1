@@ -1,0 +1,473 @@
+# TrialBox: the installer for a Windows workstation (NEW-WIN-1, D-600; plan v7.2 section 2.3; D-494).
+#
+#   Double-click Install-TrialBox.cmd on the offline media (docs/handover/OFFLINE-MEDIA.md), or, as administrator:
+#   powershell -NoProfile -ExecutionPolicy Bypass -File windows\box-install.ps1 [-DataDrive D:] [-Lang en|ja|zh-TW] [-Yes]
+#
+# Run it signed in as the box owner's Windows administrator account: WSL2's distribution belongs to the account
+# that imports it. What it does, in order; each step checks the machine first, so a second run goes on where the
+# first one stopped, and it stops at the first failure with one message and one line in the log:
+#    1 media          the files it needs are on the media and match SHA256SUMS (a damaged copy; the bundle's
+#                     signature is checked later, inside WSL2, by deploy/install.sh); the WSL package is signed by Microsoft
+#    2 windows        administrator; Windows 11 Pro, Pro for Workstations, Enterprise or Education; virtualisation
+#    3 gpu-driver     the NVIDIA driver for Windows answers (WSL2 uses it; no driver is ever installed in Linux)
+#    4 drive          the data drive (the only other fixed drive, or the one the owner names) has room; the folder
+#                     <drive>\TrialBox is made for administrators and this account only
+#    5 wsl-enable     the two Windows features and the WSL package from the media; when Windows needs a restart, a
+#                     task at this account's next sign-in runs this script again (-Resume), then the restart
+#    6 wslconfig      %USERPROFILE%\.wslconfig with swap=0 when there is none, before WSL2 first starts (memory and
+#                     processors are NEW-WIN-3's; no figure is written here)
+#    7 import         wsl --import <Distro> <drive>\TrialBox\wsl <the Ubuntu 24.04 image> --version 2
+#    8 systemd        /etc/wsl.conf [boot] systemd=true, the distribution stopped and started, PID 1 is systemd
+#    9 packages       no Linux NVIDIA driver, before and after; Docker Engine and the NVIDIA Container Toolkit from
+#                     the media's linux/debs
+#   10 gpu-container  a container started with --gpus all sees the card
+#   11 host-tree      the release's host tree unpacked to /opt/trialbox (never over an existing one)
+#   12 linux-install  deploy/box-install.sh inside WSL2, in this window: it shows the first-run code and waits for
+#                     the owner. Its window is never written to the log
+# It never removes a distribution, a virtual disk or a file it did not write: a distribution of the same name that
+# this install did not import, or a virtual disk already in the data folder, stops it (D-600).
+# The log, in English, for the install record: %ProgramData%\TrialBox\box-install\box-install.log. No secret is
+# written to it. Every Windows command is behind one function (the "seams" below) so the logic is tested with
+# Pester on PowerShell 7 (tests/windows); what only a real Windows machine can show is the P-0 rehearsal
+# (docs/handover/P-0-windows-rehearsal.md). Keep this file ASCII and in Windows PowerShell 5.1 syntax.
+[CmdletBinding()]
+param(
+  [string]$MediaRoot = "",
+  [string]$DataDrive = "",
+  [string]$Distro = "TrialBox",
+  [string]$Lang = "",
+  [string]$StateDir = "",
+  # room the data drive must have: the figure preflight.ps1 and preflight.sh already declare (D-125: images and
+  # models about 40 GB; the lake, the databases and the local backup copies are the rest)
+  [int]$MinFreeGB = 500,
+  # the first build of Windows 11 (WSL2 with systemd and GPU support in its supported form)
+  [int]$MinWindowsBuild = 22000,
+  # how long a stopped distribution may take to start again with systemd as PID 1
+  [int]$StartWaitSeconds = 120,
+  [switch]$Resume,
+  [switch]$Yes,
+  [switch]$LoadOnly
+)
+
+$script:TbSteps = @("media", "windows", "gpu-driver", "drive", "wsl-enable", "wslconfig", "import", "systemd",
+  "packages", "gpu-container", "host-tree", "linux-install")
+$script:TbEditions = @("Professional", "ProfessionalWorkstation", "Enterprise", "EnterpriseS", "Education",
+  "ProfessionalEducation")
+$script:TbFeatures = @("VirtualMachinePlatform", "Microsoft-Windows-Subsystem-Linux")
+$script:TbResumeTask = "TrialBox-Install-Resume"
+$script:TbRestartExit = 3010  # the exit code Windows installers use for "restart needed"
+
+# ------------------------------------------------------------------------------------------------ seams (Windows)
+function Get-TbWindowsFacts {
+  $cv = Get-ItemProperty -LiteralPath "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+  $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+  $cs = Get-CimInstance Win32_ComputerSystem
+  $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+  $admin = ([Security.Principal.WindowsPrincipal]$id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+  return @{
+    EditionId = [string]$cv.EditionID; Build = [int]$cv.CurrentBuildNumber
+    VirtualizationFirmware = [bool]$cpu.VirtualizationFirmwareEnabled; HypervisorPresent = [bool]$cs.HypervisorPresent
+    Account = [string]$id.Name; IsAdmin = [bool]$admin; UiCulture = [string](Get-UICulture).Name
+    SystemDrive = [string]$env:SystemDrive; UserProfile = [string]$env:USERPROFILE
+  }
+}
+function Get-TbDriveFacts([string]$Drive) {
+  $ld = Get-CimInstance Win32_LogicalDisk -Filter ("DeviceID='{0}'" -f $Drive.Substring(0, 2))
+  if ($null -eq $ld) { return $null }
+  return @{ FreeGB = [math]::Floor($ld.FreeSpace / 1GB); Fixed = ($ld.DriveType -eq 3); FileSystem = [string]$ld.FileSystem }
+}
+function Get-TbDataDriveCandidates([string[]]$Not) {
+  $out = @()
+  foreach ($ld in @(Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3")) {
+    if ($ld.FileSystem -eq "NTFS" -and ($Not -notcontains [string]$ld.DeviceID)) { $out += [string]$ld.DeviceID }
+  }
+  return $out
+}
+function Protect-TbDirectory([string]$Path, [string]$Account) {
+  # A folder for SYSTEM, the administrators and the installing account only, with nothing inherited: a standard
+  # desktop account can neither read the virtual disk nor plant a script that this installer would run.
+  $sids = @(
+    (New-Object Security.Principal.SecurityIdentifier "S-1-5-18"),
+    (New-Object Security.Principal.SecurityIdentifier "S-1-5-32-544"),
+    (New-Object Security.Principal.NTAccount $Account).Translate([Security.Principal.SecurityIdentifier])
+  )
+  if (Test-Path -LiteralPath $Path) {
+    $owner = (Get-Acl -LiteralPath $Path).GetOwner([Security.Principal.SecurityIdentifier])
+    if (@($sids | Where-Object { $_.Value -eq $owner.Value }).Count -eq 0) {
+      throw ("TBOWNER " + $owner.Value)
+    }
+  }
+  $acl = New-Object Security.AccessControl.DirectorySecurity
+  $acl.SetAccessRuleProtection($true, $false)
+  $acl.SetOwner($sids[1])
+  $inherit = [Security.AccessControl.InheritanceFlags]"ContainerInherit, ObjectInherit"
+  foreach ($sid in $sids) {
+    $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($sid, "FullControl", $inherit, "None", "Allow")))
+  }
+  if (-not (Test-Path -LiteralPath $Path)) { [void][IO.Directory]::CreateDirectory($Path, $acl) }
+  else { Set-Acl -LiteralPath $Path -AclObject $acl }
+}
+function Get-TbFeatureEnabled([string]$Name) {
+  return ((Get-WindowsOptionalFeature -Online -FeatureName $Name).State -eq "Enabled")
+}
+function Enable-TbFeature([string]$Name) {
+  $r = Enable-WindowsOptionalFeature -Online -FeatureName $Name -All -NoRestart
+  return [bool]$r.RestartNeeded
+}
+function Test-TbMsiSignature([string]$Path) {
+  $sig = Get-AuthenticodeSignature -LiteralPath $Path
+  return ($sig.Status -eq "Valid" -and [string]$sig.SignerCertificate.Subject -match "O=Microsoft Corporation")
+}
+function Register-TbResumeTask([string]$ScriptPath, [string]$Account, [string]$StateDir) {
+  $arguments = '-NoProfile -ExecutionPolicy Bypass -NoExit -File "{0}" -Resume -StateDir "{1}"' -f $ScriptPath, $StateDir
+  $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arguments
+  $trigger = New-ScheduledTaskTrigger -AtLogOn -User $Account
+  $principal = New-ScheduledTaskPrincipal -UserId $Account -LogonType Interactive -RunLevel Highest
+  Register-ScheduledTask -TaskName $script:TbResumeTask -Action $action -Trigger $trigger -Principal $principal `
+    -Description "TrialBox: go on with the install after the restart (NEW-WIN-1)" -Force | Out-Null
+}
+function Unregister-TbResumeTask {
+  if (Get-ScheduledTask -TaskName $script:TbResumeTask -ErrorAction SilentlyContinue) {
+    Unregister-ScheduledTask -TaskName $script:TbResumeTask -Confirm:$false
+  }
+}
+function Restart-TbComputer { Restart-Computer -Force }
+function Start-TbSleep([int]$Seconds) { Start-Sleep -Seconds $Seconds }
+function Read-TbLine([string]$Prompt) { return (Read-Host $Prompt) }
+function Write-TbScreen([string]$Text) { Write-Host $Text }
+function Invoke-TbNative([string]$Exe, [string[]]$Arguments) {
+  # a program's exit code and its output as lines; wsl.exe prints UTF-16 unless WSL_UTF8 is set
+  $ErrorActionPreference = "Continue"
+  $old = $env:WSL_UTF8; $env:WSL_UTF8 = "1"
+  try {
+    $out = @(& $Exe @Arguments 2>&1 | ForEach-Object { ([string]$_) -replace "`0", "" })
+    $code = $LASTEXITCODE
+  } catch [System.Management.Automation.CommandNotFoundException] {
+    $out = @(); $code = -1
+  } finally { $env:WSL_UTF8 = $old }
+  return @{ ExitCode = [int]$code; Output = $out }
+}
+function Invoke-TbNativeConsole([string]$Exe, [string[]]$Arguments) {
+  # a program that owns this window (the Linux installer: its questions and the first-run code); nothing is captured
+  & $Exe @Arguments
+  return [int]$LASTEXITCODE
+}
+
+# ------------------------------------------------------------------------------------------------ small pieces
+function ConvertTo-TbWslPath([string]$Path) {
+  $p = $Path -replace "\\", "/"
+  if ($p -match "^([A-Za-z]):(/.*)?$") { return ("/mnt/" + $Matches[1].ToLower() + $Matches[2]) }
+  return $p
+}
+function Get-TbLang([string]$Asked, [string]$UiCulture) {
+  if ($Asked) { return $Asked }
+  if ($UiCulture -like "ja*") { return "ja" }
+  if ($UiCulture -like "zh-TW*" -or $UiCulture -like "zh-Hant*" -or $UiCulture -like "zh-HK*" -or $UiCulture -like "zh-MO*") { return "zh-TW" }
+  return "en"
+}
+function Get-TbText([string]$Key, [object[]]$Values, [string]$Language) {
+  $entry = $script:TbMessages.$Key
+  if ($null -eq $entry) { return ("{0} {1}" -f $Key, ($Values -join " ")) }
+  $fmt = [string]$entry.$Language
+  if (-not $fmt) { $fmt = [string]$entry.en }
+  return ($fmt -f (@($Values) + @("", "", "")))  # a value that is missing prints as nothing, never as an error
+}
+function Write-TbLog([string]$Text) {
+  $line = "{0} {1}" -f ([DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")), $Text
+  [IO.File]::AppendAllText($script:TbLogPath, $line + "`r`n", (New-Object Text.UTF8Encoding $false))
+}
+function Say([string]$Key, [object[]]$Values) {
+  Write-TbScreen (Get-TbText $Key $Values $script:TbLang)
+  Write-TbLog ("say: " + (Get-TbText $Key $Values "en"))
+}
+function Stop-TbStep([string]$Key, [object[]]$Values) {
+  $script:TbStop = @{ Key = $Key; Values = $Values }
+  throw ("TBSTOP " + $Key)
+}
+function Save-TbState {
+  $json = $script:TbState | ConvertTo-Json
+  [IO.File]::WriteAllText($script:TbStatePath, $json, (New-Object Text.UTF8Encoding $false))
+}
+function Read-TbState {
+  $s = @{ version = 1; account = ""; media_root = ""; data_drive = ""; distro = ""; imported = $false
+    restart_pending = $false; finished = $false }
+  if (Test-Path -LiteralPath $script:TbStatePath) {
+    $j = Get-Content -LiteralPath $script:TbStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
+    foreach ($k in @($s.Keys)) { if ($null -ne $j.$k) { $s[$k] = $j.$k } }
+  }
+  return $s
+}
+function Find-TbOne([string]$Dir, [string]$Filter, [string]$Not) {
+  $found = @(Get-ChildItem -LiteralPath $Dir -Filter $Filter -File -ErrorAction SilentlyContinue |
+      Where-Object { -not $Not -or $_.Name -ne $Not })
+  if ($found.Count -ne 1) { Stop-TbStep "media_file" @((Join-Path $Dir $Filter), $found.Count) }
+  return $found[0].FullName
+}
+function Invoke-TbSetup([string]$Step, [string[]]$More) {
+  # one step of wsl-setup.sh as root inside the distribution; its output goes to the log
+  $a = @("-d", $script:TbState.distro, "-u", "root", "--cd", "/", "--exec", "bash", $script:TbSetupWsl, $Step) + @($More)
+  $r = Invoke-TbNative "wsl.exe" $a
+  foreach ($ln in $r.Output) { Write-TbLog ("    " + $ln) }
+  return $r
+}
+function Assert-TbSetup([string]$Step, [string[]]$More) {
+  $r = Invoke-TbSetup $Step $More
+  if ($r.ExitCode -ne 0) { Stop-TbStep "linux_step" @($Step, (@($r.Output) | Select-Object -Last 1)) }
+  return $r
+}
+
+# ------------------------------------------------------------------------------------------------ the steps
+function Step-Media {
+  $m = $script:TbState.media_root
+  if (-not (Test-Path -LiteralPath (Join-Path $m "SHA256SUMS"))) { Stop-TbStep "media_missing" @($m) }
+  $win = Join-Path $m "windows"; $lin = Join-Path $m "linux"
+  $script:TbFiles = @{
+    Msi = Find-TbOne (Join-Path $win "wsl") "wsl.*.msi" ""
+    RootFs = Find-TbOne (Join-Path $win "wsl") "ubuntu-24.04*.tar.gz" ""
+    Setup = Find-TbOne $win "wsl-setup.sh" ""
+    HostTar = Find-TbOne $lin "trialbox-host.tar" ""
+    Bundle = Find-TbOne $lin "trialbox-*.tar" "trialbox-host.tar"
+    PubKey = Find-TbOne $lin "vendor_ed25519.pub" ""
+    Debs = Join-Path $lin "debs"
+  }
+  if (@(Get-ChildItem -LiteralPath $script:TbFiles.Debs -Filter *.deb -File -ErrorAction SilentlyContinue).Count -eq 0) {
+    Stop-TbStep "media_file" @((Join-Path $script:TbFiles.Debs "*.deb"), 0)
+  }
+  Say "media_checking" @($m)
+  $sums = @{}
+  foreach ($ln in Get-Content -LiteralPath (Join-Path $m "SHA256SUMS") -Encoding UTF8) {
+    if ($ln -match "^([0-9a-fA-F]{64})\s+\*?(.+)$") { $sums[($Matches[2].Trim() -replace "\\", "/")] = $Matches[1].ToLower() }
+  }
+  $check = @($script:TbFiles.Msi, $script:TbFiles.RootFs, $script:TbFiles.Setup, $script:TbFiles.HostTar,
+    $script:TbFiles.Bundle, $script:TbFiles.PubKey)
+  $check += @(Get-ChildItem -LiteralPath $script:TbFiles.Debs -Filter *.deb -File | ForEach-Object { $_.FullName })
+  if (-not (Test-TbMsiSignature $script:TbFiles.Msi)) { Stop-TbStep "msi_unsigned" @($script:TbFiles.Msi) }
+  $rootLen = $m.TrimEnd("\", "/").Length + 1
+  foreach ($f in $check) {
+    $rel = $f.Substring($rootLen) -replace "\\", "/"
+    if (-not $sums.ContainsKey($rel)) { Stop-TbStep "media_unlisted" @($rel) }
+    if ((Get-FileHash -Algorithm SHA256 -LiteralPath $f).Hash.ToLower() -ne $sums[$rel]) { Stop-TbStep "media_damaged" @($rel) }
+  }
+}
+function Step-Windows {
+  $f = $script:TbFacts
+  if (-not $f.IsAdmin) { Stop-TbStep "not_admin" @() }
+  if ($script:TbState.account -and $script:TbState.account -ne $f.Account) { Stop-TbStep "other_account" @($script:TbState.account, $f.Account) }
+  if ($script:TbEditions -notcontains $f.EditionId -or $f.Build -lt $MinWindowsBuild) { Stop-TbStep "edition" @($f.EditionId, $f.Build) }
+  if (-not ($f.VirtualizationFirmware -or $f.HypervisorPresent)) { Stop-TbStep "virtualisation" @() }
+  $script:TbState.account = $f.Account
+}
+function Step-GpuDriver {
+  $r = Invoke-TbNative "nvidia-smi.exe" @("--query-gpu=name,driver_version,memory.total", "--format=csv,noheader")
+  $card = @($r.Output) | Select-Object -First 1
+  if ($r.ExitCode -ne 0 -or -not $card) { Stop-TbStep "no_windows_driver" @() }
+  Say "card" @($card)
+}
+function Step-Drive {
+  $d = $script:TbState.data_drive
+  if (-not $d) {
+    $mediaDrive = ""; if ($script:TbState.media_root -match "^([A-Za-z]:)") { $mediaDrive = $Matches[1].ToUpper() }
+    $cands = @(Get-TbDataDriveCandidates @($script:TbFacts.SystemDrive.ToUpper(), $mediaDrive))
+    if ($cands.Count -eq 1) { $d = $cands[0] }
+    elseif ($Yes) { Stop-TbStep "drive_unclear" @(($cands -join ", ")) }
+    else {
+      Say "drive_ask" @(($cands -join ", "), $script:TbFacts.SystemDrive)
+      $d = ([string](Read-TbLine ">")).Trim().TrimEnd("\")
+      if ($d -match "^[A-Za-z]$") { $d = $d + ":" }
+    }
+    if ($d -match "^[A-Za-z]:$") { $d = $d.ToUpper() }
+  }
+  $facts = Get-TbDriveFacts $d
+  if ($null -eq $facts -or -not $facts.Fixed -or $facts.FileSystem -ne "NTFS") { Stop-TbStep "drive_bad" @($d) }
+  if ($facts.FreeGB -lt $MinFreeGB -and -not $script:TbState.imported) { Stop-TbStep "drive_small" @($d, $facts.FreeGB, $MinFreeGB) }
+  $script:TbState.data_drive = $d
+  $base = $d; if ($base -match "^[A-Za-z]:$") { $base = $base + "\" }
+  $script:TbDataRoot = Join-Path $base "TrialBox"
+  try { Protect-TbDirectory $script:TbDataRoot $script:TbFacts.Account }
+  catch { if ([string]$_.Exception.Message -like "TBOWNER*") { Stop-TbStep "folder_not_ours" @($script:TbDataRoot) } else { throw } }
+  Say "drive" @($script:TbDataRoot, $facts.FreeGB)
+}
+function Step-WslEnable {
+  $restart = $false
+  foreach ($name in $script:TbFeatures) {
+    if (-not (Get-TbFeatureEnabled $name)) {
+      Write-TbLog ("    enabling Windows feature " + $name)
+      if (Enable-TbFeature $name) { $restart = $true }
+    }
+  }
+  if ((Invoke-TbNative "wsl.exe" @("--version")).ExitCode -ne 0) {
+    $r = Invoke-TbNative "msiexec.exe" @("/i", $script:TbFiles.Msi, "/qn", "/norestart")
+    Write-TbLog ("    msiexec exit " + $r.ExitCode)
+    if ($r.ExitCode -eq $script:TbRestartExit) { $restart = $true }
+    elseif ($r.ExitCode -ne 0) { Stop-TbStep "msi_failed" @($r.ExitCode) }
+  }
+  if ($restart) {
+    # the copy the task runs must not depend on the media's drive letter after the restart
+    $copy = Join-Path $script:TbStateDir "scripts"
+    Protect-TbDirectory $copy $script:TbFacts.Account
+    foreach ($n in @("box-install.ps1", "box-install.messages.json")) {
+      Copy-Item -LiteralPath (Join-Path $PSScriptRoot $n) -Destination (Join-Path $copy $n) -Force
+    }
+    Register-TbResumeTask (Join-Path $copy "box-install.ps1") $script:TbFacts.Account $script:TbStateDir
+    $script:TbState.restart_pending = $true
+    Save-TbState
+    Say "restart" @($script:TbFacts.Account)
+    if (-not $Yes) { [void](Read-TbLine (Get-TbText "press_enter" @() $script:TbLang)) }
+    Write-TbLog "restarting Windows"
+    Restart-TbComputer
+    return "restart"
+  }
+  if ((Invoke-TbNative "wsl.exe" @("--version")).ExitCode -ne 0) { Stop-TbStep "wsl_not_ready" @() }
+  Unregister-TbResumeTask
+  $script:TbState.restart_pending = $false
+  [void](Invoke-TbNative "wsl.exe" @("--set-default-version", "2"))
+}
+function Step-WslConfig {
+  $path = Join-Path $script:TbFacts.UserProfile ".wslconfig"
+  if (Test-Path -LiteralPath $path) {
+    $text = Get-Content -LiteralPath $path -Raw
+    if ($text -notmatch "(?im)^\s*swap\s*=\s*0\s*$") { Say "wslconfig_kept_no_swap0" @($path) } else { Say "wslconfig_kept" @($path) }
+    return
+  }
+  $lines = @("# TrialBox (NEW-WIN-1, D-421): no swap, so patient data never pages to a disk file.",
+    "# Memory and processors are set from this machine's hardware by NEW-WIN-3.", "[wsl2]", "swap=0", "")
+  if (-not (Test-Path -LiteralPath $script:TbFacts.UserProfile)) { [void](New-Item -ItemType Directory -Force -Path $script:TbFacts.UserProfile) }
+  [IO.File]::WriteAllText($path, ($lines -join "`r`n"), (New-Object Text.ASCIIEncoding))
+  Write-TbLog ("    wrote " + $path)
+}
+function Step-Import {
+  $name = $script:TbState.distro
+  $dir = Join-Path $script:TbDataRoot "wsl"
+  $r = Invoke-TbNative "wsl.exe" @("--list", "--quiet")
+  $have = @($r.Output | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ -eq $name }).Count -gt 0
+  if ($have) {
+    if (-not $script:TbState.imported) { Stop-TbStep "distro_exists" @($name) }
+    Write-TbLog ("    " + $name + " was imported by this install: kept")
+    return
+  }
+  if (Test-Path -LiteralPath (Join-Path $dir "ext4.vhdx")) { Stop-TbStep "vhdx_exists" @((Join-Path $dir "ext4.vhdx")) }
+  Protect-TbDirectory $dir $script:TbFacts.Account
+  Say "importing" @($name, $dir)
+  $r = Invoke-TbNative "wsl.exe" @("--import", $name, $dir, $script:TbFiles.RootFs, "--version", "2")
+  foreach ($ln in $r.Output) { Write-TbLog ("    " + $ln) }
+  if ($r.ExitCode -ne 0) { Stop-TbStep "import_failed" @($r.ExitCode, (@($r.Output) | Select-Object -Last 1)) }
+  $script:TbState.imported = $true
+  Save-TbState
+}
+function Copy-TbStaging {
+  # the scripts and small files WSL2 reads, on the data drive (a fixed drive is always mounted in WSL2; the media
+  # may be a USB disk that is not). The shell script is written with Unix line ends whatever the media's copy has.
+  $stage = Join-Path $script:TbDataRoot "install"
+  Protect-TbDirectory $stage $script:TbFacts.Account
+  $text = [IO.File]::ReadAllText($script:TbFiles.Setup) -replace "`r`n", "`n"
+  [IO.File]::WriteAllText((Join-Path $stage "wsl-setup.sh"), $text, (New-Object Text.UTF8Encoding $false))
+  $debs = Join-Path $stage "debs"
+  Protect-TbDirectory $debs $script:TbFacts.Account
+  foreach ($f in Get-ChildItem -LiteralPath $script:TbFiles.Debs -Filter *.deb -File) { Copy-Item -LiteralPath $f.FullName -Destination $debs -Force }
+  Copy-Item -LiteralPath $script:TbFiles.HostTar -Destination $stage -Force
+  Copy-Item -LiteralPath $script:TbFiles.PubKey -Destination $stage -Force
+  $script:TbStage = $stage
+  $script:TbSetupWsl = ConvertTo-TbWslPath (Join-Path $stage "wsl-setup.sh")
+}
+function Step-Systemd {
+  Copy-TbStaging
+  $r = Assert-TbSetup "wslconf" @()
+  if (@($r.Output) -contains "changed") {
+    [void](Invoke-TbNative "wsl.exe" @("--terminate", $script:TbState.distro))
+  }
+  $waited = 0; $pause = 5
+  while ($true) {
+    $r = Invoke-TbSetup "pid1" @()
+    if ($r.ExitCode -eq 0 -and (@($r.Output) | Select-Object -Last 1) -eq "systemd") { return }
+    if ($waited -ge $StartWaitSeconds) { Stop-TbStep "no_systemd" @((@($r.Output) | Select-Object -Last 1)) }
+    Start-TbSleep $pause; $waited += $pause
+  }
+}
+function Step-Packages {
+  [void](Assert-TbSetup "no-linux-driver" @())
+  Say "packages" @()
+  [void](Assert-TbSetup "packages" @((ConvertTo-TbWslPath (Join-Path $script:TbStage "debs"))))
+  [void](Assert-TbSetup "no-linux-driver" @())
+}
+function Step-GpuContainer {
+  $r = Assert-TbSetup "gpu" @()
+  Say "gpu_container" @((@($r.Output) | Select-Object -Last 1))
+}
+function Step-HostTree {
+  $r = Assert-TbSetup "host-tree" @((ConvertTo-TbWslPath (Join-Path $script:TbStage "trialbox-host.tar")),
+    (ConvertTo-TbWslPath (Join-Path $script:TbStage "vendor_ed25519.pub")))
+  foreach ($ln in @($r.Output | Where-Object { $_ -like "vendor key*" })) { Say "vendor_key" @($ln) }
+}
+function Step-LinuxInstall {
+  Say "linux_install" @()
+  $a = @("-d", $script:TbState.distro, "-u", "root", "--cd", "/", "--exec", "bash", $script:TbSetupWsl, "install",
+    (ConvertTo-TbWslPath $script:TbFiles.Bundle))
+  if ($Yes) { $a += "--yes" }
+  $code = Invoke-TbNativeConsole "wsl.exe" $a
+  Write-TbLog ("    the Linux installer ended with exit " + $code)
+  $r = Invoke-TbSetup "state" @()
+  $line = [string](@($r.Output) | Select-Object -Last 1)
+  if ($line -ne "installed=1") { Stop-TbStep "linux_install_stopped" @($code) }
+  if ($code -ne 0) { Say "host_check_fails" @() }
+  $script:TbState.finished = $true
+}
+
+# ------------------------------------------------------------------------------------------------ the run
+function Invoke-TbInstall {
+  param([string]$MediaRoot, [string]$DataDrive, [string]$Distro = "TrialBox", [string]$Lang, [string]$StateDir,
+    [switch]$Resume, [switch]$Yes)
+  $script:TbFacts = Get-TbWindowsFacts
+  $script:TbLang = Get-TbLang $Lang $script:TbFacts.UiCulture
+  $script:TbMessages = Get-Content -LiteralPath (Join-Path $PSScriptRoot "box-install.messages.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+  if (-not $script:TbFacts.IsAdmin) { Write-TbScreen (Get-TbText "not_admin" @() $script:TbLang); return 1 }
+  if (-not $StateDir) { $StateDir = Join-Path $env:ProgramData "TrialBox\box-install" }
+  $script:TbStateDir = $StateDir
+  try { Protect-TbDirectory $StateDir $script:TbFacts.Account }
+  catch { Write-TbScreen (Get-TbText "folder_not_ours" @($StateDir) $script:TbLang); return 1 }
+  $script:TbStatePath = Join-Path $StateDir "state.json"
+  $script:TbLogPath = Join-Path $StateDir "box-install.log"
+  $script:TbState = Read-TbState
+  $script:TbStop = $null
+  Write-TbLog ("box-install.ps1 started by {0}; resume={1}; Windows {2} build {3}; language {4}" -f $script:TbFacts.Account,
+    [bool]$Resume, $script:TbFacts.EditionId, $script:TbFacts.Build, $script:TbLang)
+  if ($script:TbState.finished) { Say "already_installed" @($script:TbLogPath); return 0 }
+  if (-not $script:TbState.media_root) {
+    if (-not $MediaRoot) { $MediaRoot = Split-Path -Parent $PSScriptRoot }
+    $script:TbState.media_root = $MediaRoot
+  } elseif ($MediaRoot) { $script:TbState.media_root = $MediaRoot }
+  if (-not $script:TbState.data_drive -and $DataDrive) { $script:TbState.data_drive = $DataDrive }
+  if (-not $script:TbState.distro) { $script:TbState.distro = $Distro }
+  $n = 0
+  foreach ($step in $script:TbSteps) {
+    $n++
+    $label = "step {0}/{1} {2}" -f $n, $script:TbSteps.Count, $step
+    Write-TbLog ($label + ": start")
+    try {
+      $fn = "Step-" + (($step -split "-" | ForEach-Object { $_.Substring(0, 1).ToUpper() + $_.Substring(1) }) -join "")
+      $result = & $fn
+    } catch {
+      $text = [string]$_.Exception.Message
+      if ($text -like "TBSTOP*" -and $null -ne $script:TbStop) {
+        Write-TbLog ("STOP {0}: {1}" -f $label, (Get-TbText $script:TbStop.Key $script:TbStop.Values "en"))
+        Write-TbScreen (Get-TbText $script:TbStop.Key $script:TbStop.Values $script:TbLang)
+      } else {
+        Write-TbLog ("STOP {0}: unexpected: {1}" -f $label, $text)
+        Write-TbScreen (Get-TbText "unexpected" @($text) $script:TbLang)
+      }
+      Save-TbState
+      Write-TbScreen (Get-TbText "stopped" @($n, $script:TbSteps.Count, $script:TbLogPath) $script:TbLang)
+      return 1
+    }
+    Save-TbState
+    if ($result -eq "restart") { Write-TbLog ($label + ": restart"); return $script:TbRestartExit }
+    Write-TbLog ($label + ": ok")
+  }
+  Say "done" @($script:TbLogPath)
+  return 0
+}
+
+if (-not $LoadOnly) {
+  $code = Invoke-TbInstall -MediaRoot $MediaRoot -DataDrive $DataDrive -Distro $Distro -Lang $Lang -StateDir $StateDir `
+    -Resume:$Resume -Yes:$Yes
+  exit $code
+}
