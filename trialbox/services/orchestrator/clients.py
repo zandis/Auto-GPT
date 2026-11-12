@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Protocol
 
 from tb_common.http import ServiceClient, ServiceError
@@ -22,6 +23,8 @@ from tb_contracts import (
     SendRequest,
     SendResult,
 )
+
+log = logging.getLogger("orchestrator.clients")
 
 
 class StepFailed(RuntimeError):
@@ -126,11 +129,29 @@ class AdapterHttp:
     """The night's ingest on the adapter (T-690, D-472): ``POST /run`` starts it (202 and a run id), then its state
     is read until it ends. The night is never timed (OD-10; before, 7,200 s around the whole run, no retry): each
     request is short; the poll's interval and its bound on silence are the declared settings of
-    :mod:`tb_common.jobpoll`."""
+    :mod:`tb_common.jobpoll`. When the adapter is already running an ingest (409), that run is followed
+    (NEW-PERF-2)."""
 
     def __init__(self, base_url: str, poll: Any = None) -> None:
         self.c = ServiceClient(base_url, "adapter", timeout=60, retries=0, idempotent=False)
         self.poll = poll
+
+    def _running(self, refused: ServiceError) -> dict[str, Any]:
+        """NEW-PERF-2 (PERF-008, ARCH-002): the adapter refused the start because an ingest is running (409). That
+        is the night this job asked for, started before the orchestrator restarted (or by another caller): the job
+        follows it to its end and takes its report, instead of failing beside a night that is published. Returns
+        the state of the run to follow (the adapter's newest run). Anything else is the step failure it was: another
+        refusal, an adapter that cannot be asked, or one that knows no run (it restarted in between)."""
+        if refused.status != 409:
+            raise _step_error(refused, "ingest") from refused
+        try:
+            latest: dict[str, Any] = self.c.get_json("/run")
+        except ServiceError:
+            raise _step_error(refused, "ingest") from refused
+        if not isinstance(latest, dict) or not latest.get("run") or latest.get("state") in (None, "none"):
+            raise _step_error(refused, "ingest") from refused
+        log.warning("an ingest is already running on the adapter (run %s): this job follows it", latest["run"])
+        return latest
 
     def run(self, req: IngestRequest) -> IngestReport:
         from tb_common.jobpoll import JobLost, Poll
@@ -138,7 +159,7 @@ class AdapterHttp:
         try:
             started = self.c.post_raw("/run", req).json()
         except ServiceError as exc:
-            raise _step_error(exc, "ingest") from exc
+            started = self._running(exc)
         rid = str(started.get("run") or "")
 
         def read() -> dict[str, Any]:
