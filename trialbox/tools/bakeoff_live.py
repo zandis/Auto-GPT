@@ -106,7 +106,7 @@ def stem(build_id: str, variant: str = "") -> str:
     return f"{build_id}__{variant}" if variant else build_id
 
 
-RETRY_REASONS = frozenset({"upstream_failed"})
+RETRY_REASONS = frozenset({"upstream_failed", "upstream_down"})  # D-456: the gateway names an outage apart
 _LABEL = re.compile(r'"label"\s*:\s*"([^"]{1,40})"')
 
 
