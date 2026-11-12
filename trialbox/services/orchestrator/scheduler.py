@@ -90,7 +90,8 @@ def restore_held(url: str | None = None) -> bool:
 
 def require_released() -> None:
     """The first check of a scenario that lists patients (NEW-B-3, D-522): nothing is listed while the hold of a
-    restore stands. :func:`require_open` calls it for SCREEN, MICROBATCH and COHORT; NAV calls it itself."""
+    restore stands. :func:`require_open` calls it for SCREEN, MICROBATCH and COHORT; NAV and CASE call it
+    themselves (CASE names one patient: the owner's ruling of 2026-11-12). FEAS counts and is not held."""
     from orchestrator.clients import StepFailed
 
     if restore_held():

@@ -205,6 +205,15 @@ def test_nav_and_the_weekly_sample_are_held_too(db_url: str, tmp_path: Path, mon
     ctx: Any = SimpleNamespace(job=SimpleNamespace(ruleset="NHI1", options={}))
     with pytest.raises(StepFailed, match="restored from a backup"):
         nav.run(ctx)
+    # the owner's ruling of 2026-11-12: CASE (one patient a person names) is refused too; FEAS (counts) is not
+    from orchestrator.scenarios import case, feas
+
+    bare: Any = SimpleNamespace(job=SimpleNamespace(ruleset="ADX", options={}))
+    with pytest.raises(StepFailed, match="restored from a backup"):
+        case.run(bare)
+    with pytest.raises(Exception) as not_the_hold:  # FEAS goes past the hold (and stops on this bare stand-in)
+        feas.run(bare)
+    assert "restored from a backup" not in str(not_the_hold.value)
     asked: list[int] = []
 
     def register() -> set[str]:

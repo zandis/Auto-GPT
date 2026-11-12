@@ -36,8 +36,8 @@ place to record an acknowledgement.
 4. **The orchestrator reads it** from the store each time, and **a hold that cannot be read is a hold**. While it
    is `held`: the timer and the night's chain start no list job (`scheduler._held`: SCREEN, MICROBATCH, COHORT and
    NAV; audited `scheduler.held`, "held after a restore"); a list scenario fails at its first step
-   (`scheduler.require_released`: SCREEN, MICROBATCH and COHORT through `require_open`, NAV itself: also a NAV
-   that was queued at the backup or that the administrator retries); the timer's weekly sample of "criteria not
+   (`scheduler.require_released`: SCREEN, MICROBATCH and COHORT through `require_open`, NAV and CASE
+   themselves: also a NAV that was queued at the backup or that the administrator retries); the timer's weekly sample of "criteria not
    matched" is not drawn. The ingest, retention and the monthly calibration run: they list nobody.
 5. **A person releases it** on `/ops/flags` with the reason, after the listed events were re-applied. The change
    is audited with the account.
@@ -55,8 +55,8 @@ place to record an acknowledgement.
 
 - **Who may release.** `/ops/flags` is the administrator's page; D-455 names a steward. A release by the steward's
   own account needs a right for this one flag (the console, lane C).
-- **CASE and FEAS** are not held: CASE answers for one patient a person names, FEAS counts. Whether a held box
-  should refuse them too is the owner's.
+- **FEAS is not held** (the owner's ruling of 2026-11-12): it counts and names nobody. **CASE is held** by the
+  same ruling: it answers for one patient a person names, whose opt-out may be among the events to re-apply.
 - **The console's own drawing of the not-matched sample** on a page view: `notmatched_sample.weekly` is held
   whoever calls it; any other drawing path of the console is lane C's.
 - A restore killed between the restored rows and their comparison with the backup has set no hold yet; no folder
