@@ -402,6 +402,7 @@ def restore_db(src: DbSource, dump_file: Path, env: Mapping[str, str]) -> None:
 
 
 ROLES_CMD = "TB_DB_ROLES_CMD"
+ROLES_NOT_NEEDED = "not-needed"  # the value of TB_DB_ROLES_CMD where every service signs in as trialbox
 ROLES_ON_A_BOX = "docker compose --project-directory deploy exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh"
 
 
@@ -410,6 +411,8 @@ def reapply_service_roles(env: Mapping[str, str]) -> dict[str, str]:
     (``trialbox``); a service works as its schema's group, which then owns nothing. The service-roles script
     (D-378) gives them back; the restore runs it through ``TB_DB_ROLES_CMD``. ``{"state": "applied"}``, or
     ``not_configured`` with the line to run; a command that fails is a :class:`BackupError` with its output."""
+    if (env.get(ROLES_CMD) or "").strip() == ROLES_NOT_NEEDED:  # the platform: its services sign in as trialbox
+        return {"state": "not_needed"}
     cmd = _cmd(env, ROLES_CMD, "")
     if not cmd:
         return {"state": "not_configured", "run": ROLES_ON_A_BOX}
@@ -420,8 +423,8 @@ def reapply_service_roles(env: Mapping[str, str]) -> dict[str, str]:
     if r.returncode != 0:
         raise BackupError(
             "the service roles were not put back after the restore (exit "
-            f"{r.returncode}): {(r.stderr or r.stdout).strip()[-400:]}; the databases are restored, the services "
-            f"cannot work in them until this passes: {' '.join(cmd)}"
+            f"{r.returncode}): {(r.stderr or r.stdout).strip()[-400:]}; the databases are restored and the services "
+            "cannot work in them: do not start the services; fix what the output names and run this restore again"
         )
     return {"state": "applied"}
 
@@ -431,7 +434,9 @@ def roles_ok(roles: Mapping[str, str], env: Mapping[str, str]) -> bool:
     runs for real (PRODUCTION, VALIDATION; an unset TB_ENV is PRODUCTION)."""
     if roles.get("state") != "not_configured":
         return True
-    return (env.get("TB_ENV") or "PRODUCTION").upper() not in ("PRODUCTION", "VALIDATION")
+    from tb_common.config import environment_name
+
+    return environment_name(env) not in ("PRODUCTION", "VALIDATION")
 
 
 def _drop_schemas(src: DbSource) -> None:
@@ -1468,8 +1473,6 @@ def restore(
                         raise BackupError(msg)
                     warnings.append(msg + " (this backup counted its rows on a running box: check those tables)")
                 checked[name] = sum(r[0] for r in got.values())
-            if "trialbox_wf" in manifest["databases"]:  # D-573: the stores go back to their services' roles
-                roles = reapply_service_roles(env)  # not set: said in the result and by the command, see roles_ok
             if "trialbox_wf" in manifest["databases"]:  # T-728 (D-493, F-11): after the rows were checked
                 try:
                     jobs_failed = fail_running_jobs(srcs["trialbox_wf"], when, manifest["created_at"])
@@ -1485,6 +1488,10 @@ def restore(
                         f"the opt-outs recorded after the backup could not be put back ({type(e).__name__}); do "
                         "not start the services: those patients would be listed again"
                     ) from e
+                # D-573: the stores go back to their services' roles. After the running jobs were failed and the
+                # opt-outs kept (both are rows, written as trialbox): a failure here leaves neither undone. Not
+                # set: said in the result and by the command, see roles_ok
+                roles = reapply_service_roles(env)
         except BackupError as e:
             if wf_restored:  # the live register is gone: a second run could not read them any more (review H2)
                 with contextlib.suppress(Exception):

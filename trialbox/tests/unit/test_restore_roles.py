@@ -153,3 +153,39 @@ def test_the_restore_itself_runs_the_command_after_the_trial_database(pg_cluster
     finally:
         with psycopg.connect(dsn, autocommit=True) as con:
             con.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+
+
+# ------------------------------------------------------------------------------------------------ the review of #376
+@pytest.mark.nodb
+def test_review_the_roles_step_comes_after_the_running_jobs_are_failed_and_the_opt_outs_kept() -> None:
+    """HIGH-1: the command ran before `fail_running_jobs`; when it failed, the restored queue kept its running jobs
+    and the message sent the operator to run the command and start the services, which would run them again."""
+    text = (ROOT / "tools" / "trialbox" / "backup.py").read_text(encoding="utf-8")
+    body = text[text.index("def restore(") :]
+    order = [body.index(x) for x in ("fail_running_jobs(srcs[", "keep()\n", "roles = reapply_service_roles(env)")]
+    assert order == sorted(order)
+    with pytest.raises(bk.BackupError) as e:
+        bk.reapply_service_roles({"TB_DB_ROLES_CMD": f'{sys.executable} -c "import sys; sys.exit(2)"'})
+    assert "run this restore again" in str(e.value)  # not: run the command and start the services
+
+
+@pytest.mark.nodb
+def test_review_the_roles_line_is_printed_before_any_early_exit_of_the_command() -> None:
+    """MED-2: the line came after the returns for a missing pack and for events to re-apply: on a fresh box the
+    operator never saw it."""
+    main = (ROOT / "tools" / "trialbox" / "__main__.py").read_text(encoding="utf-8")
+    assert main.index("the service roles were not put back") < main.index("the reference data is NOT loaded")
+
+
+@pytest.mark.nodb
+def test_review_the_environment_is_read_by_the_one_rule_and_a_platform_restore_needs_no_roles() -> None:
+    """LOW-6: `production ` with a space counted as not for real. MED-4: the platform's services sign in as
+    trialbox; its restore job is not "not complete" for a step it does not need."""
+    assert not bk.roles_ok({"state": "not_configured"}, {"TB_ENV": " production "})
+    assert bk.roles_ok({"state": "not_configured"}, {"TB_ENV": "dev"})
+    assert bk.reapply_service_roles({"TB_DB_ROLES_CMD": bk.ROLES_NOT_NEEDED}) == {"state": "not_needed"}
+    assert bk.roles_ok({"state": "not_needed"}, {})
+    day2 = (ROOT / "tools" / "trialbox" / "platform_day2.py").read_text(encoding="utf-8")
+    assert "bk.ROLES_NOT_NEEDED" in day2
+    page = (ROOT / "docs" / "runbook" / "05-updates-backup-restore-secrets.md").read_text(encoding="utf-8")
+    assert "from the release folder" in page and "clears the service roles' passwords" in page

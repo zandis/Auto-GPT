@@ -23,11 +23,13 @@ itself moved tables, views and sequences to their groups, and not functions.
 1. **The roles script moves functions, procedures and aggregates of a store schema to its group**, as it moves
    tables. What an extension owns is left to the extension. Both copies of the script (the box's and the
    platform's) stay identical.
-2. **The restore runs the roles script itself, after the trial database is restored and its rows are checked.**
+2. **The restore runs the roles script itself, after the trial database is restored, its rows are checked, the
+   jobs that were running at the backup are failed and the opt-outs recorded after it are put back** (those are
+   rows, written as `trialbox`; a failure of the roles step leaves neither undone).
    The command is the setting `TB_DB_ROLES_CMD` (on a box:
    `docker compose --project-directory deploy exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh`).
-   A command that fails stops the restore with its output, at the point where a row difference stops it: the
-   databases are restored, no directory was touched yet.
+   A command that fails stops the restore with its output: the databases are restored, no directory was touched
+   yet, and the message says not to start the services and to run the restore again.
 3. **With no command set, the restore says so.** In PRODUCTION and VALIDATION the restore is then not complete:
    its result says `service_roles: not_configured`, the command prints the line to run, and the exit code is 4, as
    for the other "not complete" cases. In DEV and TEST it is a line in the result only.
@@ -38,6 +40,12 @@ itself moved tables, views and sequences to their groups, and not functions.
 
 ## Consequences
 
-- The hand step is gone from the runbook; it stays as the repair line when the command was not set.
+- The hand step becomes a setting. **Nothing on a box sets `TB_DB_ROLES_CMD` yet** (the installer does not write
+  it, as it writes neither of the restore's other commands): the runbook's restore step names it, and a PRODUCTION
+  restore without it ends "not complete" with the line to run. Open: a default on a box.
+- The platform's restore job passes `not-needed`: its services sign in as `trialbox`.
+- Run from the host without the `TB_DB_PW_*` variables, the script clears the service roles' passwords (D-378's
+  rule for an empty variable); the runbook says to run it through the `db` container.
+- Types, domains, collations and text search objects in a store schema are not moved; the product makes none.
 - One new setting, `TB_DB_ROLES_CMD`, declared. No limit, no new store, no new audit event (one more field of
   `backup.restored`).
