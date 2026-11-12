@@ -15,7 +15,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from orchestrator import actor as ra
 from pydantic import BaseModel
@@ -375,3 +375,29 @@ def test_a_count_that_cannot_be_audited_does_not_refuse_the_call(monkeypatch: py
     r = TestClient(app).post("/studies/GZQO/x", json={"to": "a"})
     assert r.status_code == 200 and r.json() == {"ok": "GZQO"}
     assert ra.UNSIGNED[(key, "no v3 assertion")] == before + 1
+
+
+def test_a_report_route_reads_the_study_where_its_path_names_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Found when T-719 met this card: the registry's routes name the study `{ruleset}`, and some routes name none.
+    A claim for the study of the path is a verified person there; a claim for another study is counted; on a path
+    that names no study the claim's own study is not compared with anything."""
+    monkeypatch.setattr(ra, "_audit", None)
+    app = FastAPI()
+    seen: list[str] = []
+
+    @app.post("/registry/{ruleset}", dependencies=[ra.report_actor])
+    def row(ruleset: str, body: _Plain, request: Request) -> dict[str, str]:
+        seen.append(getattr(getattr(request.state, "tb_actor", None), "sub", ""))
+        return {}
+
+    @app.post("/setup/pseudonym", dependencies=[ra.report_actor])
+    def whole_box(body: _Plain, request: Request) -> dict[str, str]:
+        seen.append(getattr(getattr(request.state, "tb_actor", None), "sub", ""))
+        return {}
+
+    c, body = TestClient(app), {"to": "a"}
+    c.post("/registry/GZQO", json=body, headers=signed("request.prepare", "GZQO", "POST", "/registry/GZQO", body))
+    c.post("/registry/GZQO", json=body, headers=signed("request.prepare", "OTHER", "POST", "/registry/GZQO", body))
+    c.post("/setup/pseudonym", json=body, headers=signed("request.prepare", "GZQO", "POST", "/setup/pseudonym", body))
+    assert seen == ["console:crc", "", "console:crc"]
+    assert ra.UNSIGNED[("POST /registry/{ruleset}", "study")] >= 1
