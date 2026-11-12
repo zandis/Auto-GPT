@@ -240,7 +240,7 @@ def _reads_a_fail(tree: ast.AST) -> list[int]:
         if index is not None:
             src = ast.unparse(index)
             if src.endswith(".verdict") or src in ("verdict", "r['verdict']", "v['verdict']"):
-                out.append(node.lineno)
+                out.append(getattr(node, "lineno", 0))
     return sorted(out)
 
 

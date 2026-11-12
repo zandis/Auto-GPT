@@ -890,7 +890,7 @@ def trail_rows(criteria: Sequence[Mapping[str, Any]], labels: Mapping[str, str])
         word, why = shown_of(v)
         out.append(
             {
-                "label": labels.get(v.get("id"), v.get("id")),
+                "label": labels.get(str(v.get("id")), str(v.get("id"))),
                 "verdict": word,
                 "reason": why or (v.get("evidence") or {}).get("reason") or "",
             }
