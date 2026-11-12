@@ -276,6 +276,30 @@ jobs:
           path: ${{ runner.temp }}/coverage.json
           if-no-files-found: ignore
 
+  # T-737 (D-463, plan §7.5): the `property` gate. The safety properties (tests/unit/test_safety_properties.py), the
+  # hypothesis properties of the unit tests and tests/property/ when it exists; `make property`. The unit job runs the
+  # same files too; this job names the gate and fails alone. Until hypothesis is in uv.lock its five tests skip (the
+  # job prints the skips and a warning).
+  property:
+    runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      - name: PostgreSQL server binaries
+        run: tools/ci_postgres.sh  # the one major of deploy/images.lock, pg_config --version checked (D-371)
+      - name: Property tests
+        env:
+          TB_DATA_DIR: ${{ runner.temp }}/tb-data
+        run: make property
+
   # T-202 (D-384): e2e-simple and goldens run once per lake source. The legacy run keeps the job's plain name (the
   # required check of branch protection); the OMOP run is "<job> (omop)". Neither may fail (fail-fast off).
   e2e-simple:
