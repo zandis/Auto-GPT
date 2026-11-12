@@ -69,8 +69,29 @@ _OFFSET_RE = re.compile(r"\d[T ]\d{2}:?\d{2}(?::?\d{2}(?:\.\d+)?)?\s*(?:Z|[+-]\d
 MAPPING_VERSION = "urn:trialbox:mapping-version"  # the meta.tag system of the mapping version (lake.flatten)
 
 
+# the earliest year a feed date may carry. Reason, not a tuning value: no person alive was born before it (the
+# longest verified human life is 122 years) and no hospital system holds an older record of a living patient; a
+# smaller year is a date of another calendar read as western (ROC year 115, an era year), which must be refused.
+EARLIEST_YEAR = 1850
+# the latest year a feed date may carry is this many years after today's. Reason, not a tuning value: what a feed
+# dates ahead is a booked visit or the end of a prescription, both within a study's length; a year further on is a
+# two-digit-year value read as western (`640712081500` as the year 6407) or a placeholder (`9999-12-31`), and
+# neither is a fact about a patient (DIN-001, DIN-012).
+LATEST_YEARS_AHEAD = 10
+# a value of digits only is a date, a minute or a second by its length, and nothing else: `strptime` takes a
+# one-digit month, so a 7- or 13-digit Republic-of-China value used to match as the year 1150 (DIN-001), and 12
+# digits matched the seconds form as 08:03 for 08:30 (DIN-014).
+_COMPACT_FORMS = {8: "%Y%m%d", 12: "%Y%m%d%H%M", 14: "%Y%m%d%H%M%S"}
+_DIGIT_RUN_RE = re.compile(r"\d+")
+_FRACTION_RE = re.compile(r"\.\d+")
+
+
 class MappingError(ValueError):
     pass
+
+
+class DateRangeError(MappingError):
+    """A value that reads as a date outside ``EARLIEST_YEAR`` to today's year + ``LATEST_YEARS_AHEAD``."""
 
 
 def _zone(path: Path, name: object) -> ZoneInfo:
@@ -239,40 +260,79 @@ class Mapper:
     # ------------------------------------------------------------------ scalar conversion
     def _parse_dt(self, raw: str) -> datetime:
         """A source date-time. One that states its offset keeps it (the same instant, the same offset: T-616,
-        STD-015); a naive one is in the mapping's ``tz``; a date alone is its midnight in ``tz``."""
+        STD-015); a naive one is in the mapping's ``tz``; a date alone is its midnight in ``tz``. A value that is
+        not a western calendar date-time is refused on every form (DIN-001)."""
+        try:
+            return self._read_dt(raw)
+        except DateRangeError:
+            raise
+        except ValueError as exc:
+            raise MappingError(f"unparseable datetime {raw!r}") from exc
+
+    def _read_dt(self, raw: str) -> datetime:
         if _OFFSET_RE.search(raw.strip()):
             text = raw.strip()
             text = text[:-1] + "+00:00" if text[-1] in "zZ" else text
+            return self._western(datetime.fromisoformat(text.replace(" ", "T", 1)), raw)
+        text = raw.strip().replace("T", " ")
+        compact = self._compact(text, raw)
+        if compact is not None:
+            return compact.replace(tzinfo=self.m.tz)
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M"):
             try:
-                return datetime.fromisoformat(text.replace(" ", "T", 1))
-            except ValueError as exc:
-                raise MappingError(f"unparseable datetime {raw!r}") from exc
-        raw = raw.strip().replace("T", " ")
-        for fmt in (
-            "%Y-%m-%d %H:%M:%S",
-            "%Y-%m-%d %H:%M",
-            "%Y/%m/%d %H:%M:%S",
-            "%Y/%m/%d %H:%M",
-            "%Y%m%d%H%M%S",
-        ):
-            try:
-                return datetime.strptime(raw, fmt).replace(tzinfo=self.m.tz)
+                got = datetime.strptime(text, fmt)
             except ValueError:
                 continue
-        try:
-            d = self._parse_date(raw)
-        except MappingError as exc:
-            raise MappingError(f"unparseable datetime {raw!r}") from exc
+            return self._western(got, raw).replace(tzinfo=self.m.tz)
+        d = self._parse_date(raw)
         return datetime(d.year, d.month, d.day, tzinfo=self.m.tz)
 
     @staticmethod
-    def _parse_date(raw: str) -> date:
-        raw = raw.strip()
-        for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"):
+    def _western(dt: datetime, raw: str) -> datetime:
+        """``dt`` when its year can be a patient's; one message for every form and column type."""
+        if not EARLIEST_YEAR <= dt.year <= date.today().year + LATEST_YEARS_AHEAD:
+            raise DateRangeError(
+                f"date {raw!r} is outside {EARLIEST_YEAR} to {LATEST_YEARS_AHEAD} years from now: "
+                "not a western calendar date"
+            )
+        return dt
+
+    @classmethod
+    def _compact(cls, text: str, raw: str) -> datetime | None:
+        """The value when it starts with digits and has no date separator. Digits only: 8, 12 or 14 of them
+        (``_COMPACT_FORMS``). Digits and then something else: the run is 8, 12 or 14 digits and its date is read, as
+        before this card (the time too when what follows 14 digits is a fraction of a second). None: not compact."""
+        run = _DIGIT_RUN_RE.match(text)
+        if run is None or "-" in text[: run.end() + 1] or "/" in text:
+            return None
+        digits, tail = run.group(), text[run.end() :]
+        fmt = _COMPACT_FORMS.get(len(digits))
+        if fmt is None:
+            raise MappingError(f"unparseable date {raw!r}")
+        if tail and not (len(digits) == 14 and _FRACTION_RE.fullmatch(tail)):
+            digits, fmt = digits[:8], "%Y%m%d"
+        try:
+            got = datetime.strptime(digits, fmt)
+        except ValueError as exc:
+            raise MappingError(f"unparseable date {raw!r}") from exc
+        return cls._western(got, raw)
+
+    @classmethod
+    def _parse_date(cls, raw: str) -> date:
+        """A western calendar date. Anything else is refused (DIN-001): `strptime` takes a one-digit month, so the
+        compact form on a Republic-of-China date (`1150501`) or a two-digit year (`640715`) used to give the year
+        1150 or 6407 and the night passed. The compact form needs 8 digits (or the 12 or 14 of a date-time), and a
+        year outside ``EARLIEST_YEAR`` to ``LATEST_YEARS_AHEAD`` years from now is not a patient's date."""
+        text = raw.strip()
+        compact = cls._compact(text.replace("T", " "), raw)
+        if compact is not None:
+            return compact.date()
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
             try:
-                return datetime.strptime(raw[:10] if "-" in raw or "/" in raw else raw[:8], fmt).date()
+                got = datetime.strptime(text[:10], fmt)
             except ValueError:
                 continue
+            return cls._western(got, raw).date()
         raise MappingError(f"unparseable date {raw!r}")
 
     def convert(self, value: Any, typ: str | None) -> Any:
@@ -413,10 +473,9 @@ class Mapper:
             if "not_in" in c and sv in [str(x) for x in c["not_in"]]:
                 return False
             if "date_before" in c or "date_from" in c:  # T-619a: an ISO date bound (a code edition by date)
-                try:
-                    day = self._parse_date(sv).isoformat() if sv.strip() else ""
-                except MappingError:
-                    day = ""
+                # a value that is there and cannot be read refuses the row (it used to answer "no" to both
+                # bounds, so the element was left out and nothing was counted)
+                day = self._parse_date(sv).isoformat() if sv.strip() else ""
                 if not day or ("date_before" in c and day >= str(c["date_before"])):
                     return False
                 if "date_from" in c and day < str(c["date_from"]):
