@@ -87,6 +87,8 @@ jobs:
         working-directory: /
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/share/swift /usr/local/.ghcup /usr/local/share/boost /usr/local/share/powershell
+          sudo rm -rf /opt/hostedtoolcache/go /opt/hostedtoolcache/Ruby /opt/hostedtoolcache/PyPy /opt/hostedtoolcache/node
           df -h /
 
       - name: Python environment and pinned scanners
@@ -116,6 +118,12 @@ jobs:
       # (T-110b): their fixable CRITICAL/HIGH findings are listed in the job summary. Everything else fails this step:
       # a finding in any image a bundle carries that no dated allow-list entry accepts, the licence gate, a build or
       # scan error, a missing or empty report, an image not named by its scan.
+      # the layers the builds cached are not what is scanned (the images are): they go before the largest scan
+      - name: Drop the build cache
+        run: |
+          docker builder prune -af > /dev/null
+          df -h /
+
       - name: Release gates (Trivy offline, SBOMs, licences, record)
         run: make release-gates SC_PLATFORM=${{ matrix.platform }} RELEASE_GATES_ARGS="--vuln-mode report"
 
@@ -180,6 +188,8 @@ jobs:
         working-directory: /
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/share/swift /usr/local/.ghcup /usr/local/share/boost /usr/local/share/powershell
+          sudo rm -rf /opt/hostedtoolcache/go /opt/hostedtoolcache/Ruby /opt/hostedtoolcache/PyPy /opt/hostedtoolcache/node
           df -h /
 
       - name: Python environment and pinned scanners
