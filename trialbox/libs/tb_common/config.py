@@ -538,6 +538,9 @@ DECLARED: dict[str, Declared] = {
     "TB_HOST_ROOT": Declared("path", "", "host scripts: fake host root for the tests only, empty on the box (D-408)"),
     "TB_HOST_TZ": Declared("str", "", "doctor: the host's zone to compare"),
     "TB_IMAGE": Declared("str", "trialbox-py:1.0.0", "the Python services' image"),
+    "TB_INGEST_SORT_MB": Declared(
+        "int", "", "ingest: MB of NDJSON lines one sort run of the merge holds (unset: a sixteenth of the cap; D-473)"
+    ),
     "TB_INSTALL_PULL": Declared("str", "never", "install: image pull policy"),
     "TB_INSTALL_UP_TIMEOUT": Declared("int", "900", "install: seconds to wait for health"),
     "TB_IRB_TEXT_GATE": Declared(
@@ -703,6 +706,10 @@ DECLARED: dict[str, Declared] = {
     "TB_ROUTING_PATH": Declared("path", "", "gateway: routing file"),
     "TB_RULESETS_DIR": Declared("path", "/data/rulesets", "rulesets folder"),
     "TB_RUN_ID": Declared("str", "", "complete-run tool: run id"),
+    "TB_PROVISIONING": Declared("str", "", "complete-run tool: SPOT or STANDARD for every VM (unset: D-468)"),
+    "TB_ESTIMATE_LLM_SPEEDUP": Declared(
+        "float", "2", "complete-run estimate: most that N model calls in flight cut the screening time by"
+    ),
     "TB_SAE_FOLLOWUP_DAYS": Declared("int", "", "SAE: follow-up days"),
     "TB_SAE_OFFICE_MAILBOX": Declared("str", "", "SAE: office mailbox"),
     "TB_SAE_REPORT_DAYS": Declared("int", "", "SAE: report days"),
@@ -732,6 +739,9 @@ DECLARED: dict[str, Declared] = {
     "TB_SETTINGS": Declared("str", "", "settings.yaml path"),
     "TB_SETTINGS_FILE": Declared("path", "settings.yaml", "backup schedule: settings.yaml path"),
     "TB_SITE_ID": Declared("str", "", "the site id"),
+    "TB_SITE_PATIENTS": Declared(
+        "int", "", "install: the hospital's patients, sizing the memory caps before the first night (D-473)"
+    ),
     "TB_SITE_PUBLISH_BATCH_SECONDS": Declared(
         "int", "0", "site decisions on main wait this long and publish as one batch (0: at once; D-403)"
     ),
