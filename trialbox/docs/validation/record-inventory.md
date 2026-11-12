@@ -123,7 +123,7 @@ are marked "files".
 | `services/orchestrator/studystore.py` | `rc_record`, `rc_read_log`, `rc_write` | R-16 |
 | `services/criteria_compiler/library/ddl.py` | `criterion_library`, `criterion_library_text`, `criterion_library_valueset`, `criterion_library_lexicon_key`, `criterion_library_usage`, `criterion_library_meta` | R-17 |
 | `services/omop/schema.py` | `tb_ruleset_release` | R-17 |
-| `services/orchestrator/db.py` | `jobs`, `submissions` | R-18 |
+| `services/orchestrator/db.py` | `jobs`, `submissions`, `judge_answers` | R-18 |
 | `services/orchestrator/recall/ledger.py` | `recall_cell`, `recall_observation`, `recall_sequence_state`, `recall_run_cell`, `recall_registration`, `recall_known_positive` | R-19 |
 | `services/sitesetup/store.py` | `input`, `fact`, `local_code`, `check_item`, `fix`, `setting`, `published` | R-20 |
 | `services/console/sitestore.py` | `site_profile` | R-21 |

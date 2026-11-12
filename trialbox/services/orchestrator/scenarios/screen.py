@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 from matching import coded_values
 from matching.coverage import unknown_system_counts
 from tb_common.authz import norm
+from tb_common.llm import LlmError, LlmPromptUnqualified, load_prompt
 from tb_common.ruleset import Ruleset
 from tb_common.subject import job_subject
 from tb_common.timeutil import add_months
@@ -29,15 +30,16 @@ from orchestrator.i18n import population_line, t
 from orchestrator.reports import candidate_xlsx, screen_summary_pdf
 from orchestrator.reports.common import ReportMeta
 from orchestrator.scenarios.evaluate import (
+    NOTE_BLOCK_CODES,
     NoteJudge,
     PatientVerdicts,
     StructuredEngine,
     check_judge,
-    effective_note_block,
     engine_from_env,
     evaluate_patients,
     is_note_answer,
     note_block_policy,
+    note_block_why,
     row,
     sort_key,
 )
@@ -118,13 +120,14 @@ class ScreenRun:
 def judging_info(judge: NoteJudge | None) -> dict[str, Any]:
     """How note criteria were judged on this run: models, agreement mode, and whether a note answer could exclude
     (D-97). Aggregate metadata: goes into the candidate list, the summary PDF, the done mail and the console."""
-    may_block, policy, reason = effective_note_block(judge)
+    may_block, policy, reason, code = note_block_why(judge)
     return {
         "mode": judge.mode if judge is not None else "none",
         "judge_model": judge.llm.model if judge is not None else None,
         "verifier_model": judge.verifier.model if judge is not None and judge.verifier is not None else None,
         "note_block": policy,
         "note_block_reason": reason,
+        "note_block_code": code,
         "configured_note_block": note_block_policy(),
         "may_block": may_block,
         "disagreements": judge.disagreements if judge is not None else 0,
@@ -138,7 +141,11 @@ def judging_sentence(j: dict[str, Any], lang: str = "en") -> str:
         return t(lang, "screen.judging.none")
     if j.get("may_block"):
         return t(lang, "screen.judging.pair", judge=j.get("judge_model"), verifier=j.get("verifier_model"))
-    return t(lang, "screen.judging.single", judge=j.get("judge_model"), why=str(j.get("note_block_reason") or ""))
+    # the reason in the reader's language, from its code: the reason text is the English diagnostic (a failed canary's
+    # is every failed model's line) and stays in the list's metadata and the log. A list from before the code: its text
+    code = str(j.get("note_block_code") or "")
+    why = t(lang, f"screen.judging.why.{code}") if code in NOTE_BLOCK_CODES else str(j.get("note_block_reason") or "")
+    return t(lang, "screen.judging.single", judge=j.get("judge_model"), why=why)
 
 
 def scope_patients(
@@ -221,6 +228,7 @@ def judge_for(ctx: Ctx, rs: Ruleset) -> NoteJudge | None:
     if ctx.services.llm is None:
         return None
     prompt = pinned_judge(rs)
+    usable_judge_prompt(rs, prompt or "judge", ctx.services.llm)
     mode = os.environ.get("TB_SCREEN_JUDGE", "agreement").strip().lower()
     verifier = ctx.services.verifier if mode != "single" else None
     return NoteJudge(ctx.services.lake, ctx.services.llm, prompt or "judge", job_id=ctx.job.job_id, verifier=verifier)
@@ -236,6 +244,35 @@ def pinned_judge(rs: Ruleset) -> str:
         return pinned_name(rs.manifest, named.rsplit("_v", 1)[0], named)
     except PromptRegistryError as exc:
         raise StepFailed("running", f"Ruleset {rs.id} v{rs.version}: {exc}") from exc
+
+
+def usable_judge_prompt(rs: Ruleset, prompt: str, llm: Any) -> None:
+    """Stop the run before any model call when this box may not use the ruleset's judge prompt: the version the
+    approval pinned has no qualification record where the box's model calls are checked (a PRODUCTION gateway,
+    D-359), or the registry refuses it for another reason (said as such: a new approval does not mend a registry).
+    Every note call would be refused with the same words, and the run would end as "the model did not answer" (G1
+    rehearsal, 2026-11-12: a healthy model, 0 calls sent). Never another version in its place: the pinned prompt is
+    what the investigator approved (D-318)."""
+    env = getattr(getattr(llm, "gateway", None), "prompt_environment", None)  # a harness's gateway names its own
+    head = f"Ruleset {rs.id} v{rs.version}: this box may not use its judge prompt {prompt}"
+    try:
+        load_prompt(prompt, env)
+    except LlmPromptUnqualified as exc:
+        raise StepFailed(
+            "running",
+            f"{head} ({exc}). No model was asked and nothing was sent. The model service is not the cause: the "
+            f"study was approved on a prompt version this box does not serve. Approve the study again on this box "
+            f"(it then pins the served version), or install the prompt's qualification record.",
+        ) from exc
+    except LlmError as exc:
+        # any other refusal (a file that differs from the registry, an unregistered version, a broken file): a new
+        # approval would pin the same broken entry, so the advice is the registry's, not the investigator's
+        raise StepFailed(
+            "running",
+            f"{head} ({exc}). No model was asked and nothing was sent. The model service is not the cause: the "
+            f"box's prompt registry refuses this prompt (its file or its entry is not what the release holds). "
+            f"Approving again would not help: install the release's prompts again.",
+        ) from exc
 
 
 def structured_engine(ctx: Ctx, snapshot: str) -> StructuredEngine:
@@ -509,12 +546,14 @@ def run_screen(
     run_date: date,
     snapshot: str,
     select: Callable[[list[Scoped]], list[Scoped]] | None = None,
+    given: list[Scoped] | None = None,
 ) -> ScreenRun:
     """``select`` (MICROBATCH, D-397): picks the patients to evaluate from the scope (the new ones, within the night
-    budget); SCREEN evaluates the whole scope."""
+    budget); SCREEN evaluates the whole scope. ``given`` (MICROBATCH, T-707, D-476): exactly these patients, with no
+    scope query (pool rows of another criteria version, screened again in full); the register still applies."""
     opts = ctx.job.options or {}
     sc = rs.manifest.scopes.screen if rs.manifest.scopes and rs.manifest.scopes.screen else None
-    practitioners = practitioners_of(ctx, rs)
+    practitioners = practitioners_of(ctx, rs) if given is None else []
     try:
         window = int(opts.get("window") or (sc.appointment_window_days if sc and sc.appointment_window_days else 180))
     except ValueError as exc:
@@ -522,12 +561,16 @@ def run_screen(
     depts = [d.strip().upper() for d in opts["dept"].split(",")] if opts.get("dept") else []
     recent = int(sc.recent_encounter_months if sc and sc.recent_encounter_months else 12)
     # D-147: the research office's opt-out register applies to every screening run (and MICROBATCH's incident run)
-    scoped = drop_opted_out(ctx, scope_patients(ctx, practitioners, run_date, window, recent, depts, snapshot))
+    if given is not None:
+        scoped = drop_opted_out(ctx, list(given))
+    else:
+        scoped = drop_opted_out(ctx, scope_patients(ctx, practitioners, run_date, window, recent, depts, snapshot))
     if select is not None:
         scoped = select(scoped)
     ctx.metrics(patients_scoped=len(scoped))
     judge = judge_for(ctx, rs)
-    if select is not None and not scoped:  # nobody to evaluate: no model call, no audit of an empty run
+    chosen = select is not None or given is not None
+    if chosen and not scoped:  # nobody to evaluate: no model call, no audit of an empty run
         return ScreenRun(
             rs, run_date, snapshot, [], {}, [], list(practitioners or []), depts, window, judge, judging_info(judge),
             whole_hospital=practitioners is None,

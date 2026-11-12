@@ -161,7 +161,28 @@ old box, or from the vendor. Keep a copy of `deploy/refdata/loaded` beside the o
    EDC signatures and submissions, consent changes. The restore lists them (`to_reapply`: time, event, place in
    the chain), writes `backup.restore_reapply` and exits 4 ("NOT complete"). A steward opens each one in the audit
    browser and does it again (records the opt-out again, closes the break-glass, re-signs or re-sends the EDC
-   record) before screening resumes. Rows that do not match the backup fail the restore; a backup made before
+   record) before screening resumes.
+5. **Opt-outs recorded after the backup (D-493).** Before the restore empties the trial database it reads the
+   box's opt-out register. After the restored rows are checked it **puts back every opt-out** the register held
+   that the backup does not (as it was recorded: who, when, why), so nobody who said no after the backup is listed
+   again. It prints and audits counts only (`optouts_after_backup` in `backup.restored`: found, kept, not kept; how
+   many a person typed and how many the registry's worker wrote; never who). What still needs a person, and makes
+   the restore exit 4 ("NOT complete"):
+   - **a lift typed after the backup** (`lifts_reverted`): it is not replayed, the patient stays withheld until a
+     steward lifts the opt-out again;
+   - **a new machine, or a box with no register** (`state: unknown`): what the old box recorded after the backup
+     cannot be read here. Check the office's records (paper form, mail, phone note) since the backup's snapshot
+     and enter each opt-out again before screening resumes;
+   - **a register that could not be read or written** (`unreadable`, `not_kept`): the same, from the office's
+     record or from the kept copy of the box before the restore (step 2).
+   `--no-copy` is refused while the register holds events a person typed after the backup: the copy would be the
+   only other record of them. Run again, the restore finds the kept opt-outs there and adds nothing twice.
+6. **Jobs that were running at the backup (D-493).** The restored queue holds them as running. The restore sets
+   each to failed ("interrupted by a restore") and lists them (`jobs_failed`): the orchestrator does not run them
+   again, and nobody is mailed twice. Ask the requester to send a request again if it is still wanted. Jobs that
+   were waiting in the queue and had not started run when the services start.
+
+Rows that do not match the backup fail the restore; a backup made before
 D-187 or by the update path, counted on a running box, gives a warning instead. Held by `tests/unit/test_backup.py`,
 `tests/unit/test_backup_schedule.py` and `tools/backup_drill.py` (`make backup-drill`: the nightly run, layout,
 status and alert, wipe, restore with the pack loaded again, an old-format restore, the Postgres settings and a

@@ -139,10 +139,27 @@ class Result:
 
 
 # ------------------------------------------------------------------------------------------------ models
+GATEWAYS: list[Any] = []  # every in-process gateway this process built (its breakers' counts: breaker_opens)
+
+
+def breaker_opens() -> dict[str, int]:
+    """Endpoint -> how often its breaker opened in this process's gateways (T-608; the complete run's G-3 record)."""
+    out: dict[str, int] = {}
+    for gw in GATEWAYS:
+        for name, snap in gw.load.snapshot().items():
+            out[name] = out.get(name, 0) + int(snap.get("opens") or 0)
+    return out
+
+
 def gateway_client(env: dict[str, str], upstream: Any = None) -> Any:
     """``tb_llm.GatewayClient`` to an in-process tb-gateway built exactly as an installed box builds it
     (:func:`gateway.app.from_env` over ``env``: ``TB_ENV``, ``TB_PROFILE``, ``TB_EP_*_URL``, the registry with its
-    site pins). ``upstream``: the HTTP client to the model servers (the stub in process; None = the network)."""
+    site pins). ``upstream``: the HTTP client to the model servers (the stub in process; None = the network).
+
+    The client calls as the orchestrator, so it carries the orchestrator's service token where the run's box has one
+    token per service (``tools.role_demo.orch_client``, as ``trialbox secrets init`` makes them): the gateway routes
+    on the service the token names, not on the header (D-437). The process's own token is the box console's, which
+    may not make that claim. Read at each call: the box's tokens are made after the model clients."""
     from fastapi.testclient import TestClient
     from gateway.app import create_app
     from gateway.core import Gateway, GatewayConfig
@@ -150,7 +167,11 @@ def gateway_client(env: dict[str, str], upstream: Any = None) -> Any:
     from guard.guard import Guard
     from registry.registry import Registry
     from tb_common.audit import AuditLog
+    from tb_common.config import environment_name
+    from tb_common.service_auth import TOKEN_HEADER
     from tb_llm import GatewayClient
+
+    from tools.role_demo import service_token_of
 
     gw = Gateway(
         RoutingPolicy.load(),
@@ -161,9 +182,19 @@ def gateway_client(env: dict[str, str], upstream: Any = None) -> Any:
         guard=Guard.from_settings(),
         env=env,
     )
-    client = GatewayClient("http://tb-gateway/v1", "orchestrator", http=TestClient(create_app(gw)))
+    GATEWAYS.append(gw)
+    http = TestClient(create_app(gw))
+
+    def as_orchestrator(request: Any) -> None:
+        tok = service_token_of("orchestrator")
+        if tok:
+            request.headers[TOKEN_HEADER] = tok
+
+    http.event_hooks["request"].append(as_orchestrator)
+    client = GatewayClient("http://tb-gateway/v1", "orchestrator", http=http)
     # the box's callers load the prompt version that box's TB_ENV serves (D-359), not this harness's environment
-    client.prompt_environment = env.get("TB_ENV")  # type: ignore[attr-defined]
+    # by the one rule for TB_ENV (unset is PRODUCTION, as the gateway built above reads it), never "" or None
+    client.prompt_environment = environment_name(env)  # type: ignore[attr-defined]
     return client
 
 

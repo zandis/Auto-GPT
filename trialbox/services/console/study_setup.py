@@ -134,12 +134,17 @@ def screening_map(store: Any, rs: str) -> dict[str, str]:
     return {no: pid for pid, no in store.screening_nos(rs).items()}
 
 
-def read_now(h: Helpers, rs: str, by: str) -> dict[str, Any]:
-    """Run now and the nightly job: the orchestrator reads REDCap through the study's link and updates the log."""
+def read_now(h: Helpers, rs: str, by: str, sess: Any = None) -> dict[str, Any]:
+    """Run now and the nightly job: the orchestrator reads REDCap through the study's link and updates the log.
+    T-715 (D-483): the call is signed, by the person who pressed "run now" (``sess``) or as the nightly timer, so
+    that the participants' steps the read derives name a verified actor."""
     issued = {no: at for _pid, no, at in h.store.screening_rows(rs)}
     body = {"screening": screening_map(h.store, rs), "issued": issued, "by": by}
-    out = s28.call(h.bk, "POST", f"/studies/{rs}/redcap-read", body)
-    return dict(out)
+    path = f"/studies/{rs}/redcap-read"
+    if sess is not None:
+        return dict(actor.call(h, sess, "request.prepare", rs, "POST", path, body))
+    headers = actor.assert_service(actor.NIGHTLY, "request.prepare", rs, "POST", path, body)
+    return dict(s28.call(h.bk, "POST", path, body, headers=headers))
 
 
 def register(app: FastAPI, h: Helpers) -> None:
@@ -465,7 +470,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(403, "forbidden")
         target = f"/studies/{rid}/screening-log" if back == "log" else f"/studies/{rid}/setup"
         try:
-            out = read_now(h, rid, h.actor(sess))
+            out = read_now(h, rid, h.actor(sess), sess)
         except (Problem, Unavailable) as exc:
             e = err_of(exc)
             return RedirectResponse(f"{target}?rc_err={quote(e['code'])}#redcap", status_code=303)

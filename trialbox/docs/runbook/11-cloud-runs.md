@@ -42,7 +42,7 @@ end with `REHEARSAL PASSED`; no paid launch without it, and none from a commit i
 
 | Case | What it shows |
 | --- | --- |
-| `run-a` | a fresh disk, a bounded run at 500 patients (hospital-ja, public-ja, the gateway probe, emr-fhir, it-dump, MedTxt, TREC), driven with `--no-wait` and repeated `--collect`: setup, the data, both model servers' check, every part reported, no 404 or 401 at the servers, the report's HEAD = the commit, power-off once collected |
+| `run-a` | a fresh disk, a bounded run at 500 patients (hospital-ja, public-ja, the gateway probe, emr-fhir, it-dump, MedTxt, TREC), driven with `--no-wait` and repeated `--collect`: setup, the data, both model servers' check, every part reported, the hospital part measured at 16 calls in flight (both `/metrics`, `gpu.csv`, its calls), no 404 or 401 at the servers, the report's HEAD = the commit, power-off once collected |
 | `run-b` | the same disk, a new run: nothing kept from `run-a`, a fresh log |
 | `served` | the judge serves a wrong name: `TB-SERVING-FAILED` before any part, the servers' logs in `results.tgz` |
 | `no-upload` | nobody uploads: `TB-NO-CODE`, power-off after the grace |
@@ -127,6 +127,37 @@ keys, setup, state and timing are, the layer every failure of 2026-11-09 was in.
 **The first launch after a failed one is bounded**: `deploy/gcp/complete-run.sh --patients 5000 --only
 install,hospital-ja,scenario-gateway,scenario-emr-fhir --no-wait`, then `--collect <run id>`; read `report.md`, and only
 then the full plan.
+
+**Model calls in flight, and the review's tests G-1 and G-3** (deep review 2026-11-12, 13 §8.1 and 06 §7).
+`--llm-concurrency N` sets `TB_SCREEN_LLM_CONCURRENCY` for every part on the VM; not given, the run takes the judge's
+`max_num_seqs` from the serving record (16), as an installed box does, and the plan prints it (G1's hospital-ja ran
+with 1: pass `--llm-concurrency 1` to repeat it). A list is G-3's curve in one VM run: the hospital part runs once
+per value, as its own part `hospital-<lang>@c<N>`, on one prepared hospital. `chat-template` in `--only` adds G-1
+(`tools/chat_template_check.py`): the sha256 of the template the serving configuration passes (the registry row's
+file, fetched from the developer's repository at the registry's revision when it is not on the disk) against the
+weights folder's own, and token identity on 20 synthetic prompts (the judge's `/tokenize` against the folder's
+tokenizer, which runs in the model server's image); it passes only when all are identical.
+
+    deploy/gcp/complete-run.sh --estimate --patients 5000 --only hospital-ja,chat-template --llm-concurrency 1,4,16,48
+    deploy/gcp/complete-run.sh --patients 5000 --only hospital-ja,chat-template --llm-concurrency 1,4,16,48 --no-wait
+
+Every model part's result then holds `llm_concurrency`, `throughput` (calls and tokens per second over the seconds
+a call was in flight, p50 and p95 call time, per endpoint, from the gateway's audit; how often a breaker opened),
+`metrics` (each server's `/metrics` before and after: tokens, time to first token, queue time; the card's mean and
+peak) and, for a hospital part, `candidates` (who was listed, with a sha256). The raw files are in `parts/<part>/`:
+`vllm-<server>-before.prom`, `-after.prom`, `gpu.csv` (`nvidia-smi` every 10 s) and `vllm.csv` (running, waiting,
+KV cache every 10 s). The report has one table of them and says whether the lists are identical at every setting.
+Limits to know before reading a curve:
+
+* The estimate's screening time is G1's 0.78 calls/s at one call in flight, divided by min(N, 2). The 2 is the
+  declared setting `TB_ESTIMATE_LLM_SPEEDUP` (OD-10): no rate above N = 1 is measured yet, so the estimate, and the
+  cap made from it, is an upper bound for N > 1; G-3's measured rate replaces it (1 = the single-call time at any N).
+* The VM starts both servers with `--max-num-seqs 16` and the gateway gives an endpoint 16 slots. A value above 16
+  (48) measures the queue in the gateway, not a larger batch; the plan says so. A point beyond 16 sequences needs
+  the servers started with more, which this driver does not do.
+* Each repeat is a whole hospital part (data in to re-run), not the SCREEN alone; `throughput` counts only the time
+  a call was in flight. The repeats send the same prompts in the order of the list, and the servers are not
+  restarted between them: what a server's prefix cache still holds from the repeat before is in the later points.
 
 **Several VMs at once** (D-148). `--vms N` splits the run into N shards of whole parts (no part is split, so the
 merged report is the single-VM report); VM 1 is `tb-gpu-sim` in the first zone, VM i is `tb-gpu-sim-i` in zone i of

@@ -49,25 +49,53 @@ def orch_client(app: Any) -> Any:
     per-process service token on every changing call. D-464 (T-713): outside DEV and TEST the orchestrator admits only
     a caller it can name, and the demo image runs with no ``TB_ENV`` (PRODUCTION by the one rule), so the box gets a
     token registry naming that token as the console's, and the console's actor key, as ``trialbox secrets init``
-    writes them on a box (unless a registry is configured already)."""
+    writes them on a box (unless a registry is configured already).
+
+    D-437: the process token is the console's, and the console may not call the model gateway as the orchestrator. So
+    the box's orchestrator gets its own token too, in the registry and in a 0600 file beside it
+    (:func:`service_token_of`); the box's model calls carry that one (``tools.scenarios.gateway_client``)."""
     from fastapi.testclient import TestClient
 
     tok = os.environ.setdefault("TB_SERVICE_TOKEN", secrets.token_hex(16))
     if not (os.environ.get(sa.REGISTRY_ENV) or "").strip():
         d = Path(tempfile.mkdtemp(prefix="tb-demo-tokens-"))
         reg, keys = d / "tokens.json", d / "actor-keys"
-        reg.write_text(json.dumps({"schema": sa.REGISTRY_SCHEMA, "services": {"console": sa.token_hash(tok)}}),
-                       encoding="utf-8")  # fmt: skip
+        own = {name: secrets.token_hex(16) for name in OWN_TOKENS}
+        services = {"console": sa.token_hash(tok), **{name: sa.token_hash(t) for name, t in own.items()}}
+        reg.write_text(json.dumps({"schema": sa.REGISTRY_SCHEMA, "services": services}), encoding="utf-8")
         # T-717 (D-485): the console's signing key is its own random secret, as on a box
         sign = d / "actor-sign.key"
         sign.write_text(secrets.token_hex(32) + "\n", encoding="utf-8")
         keys.write_text(sign.read_text(encoding="utf-8"), encoding="utf-8")
-        for f in (reg, keys, sign):
+        for name, t in own.items():
+            _token_file(reg, name).write_text(t + "\n", encoding="utf-8")
+        for f in (reg, keys, sign, *(_token_file(reg, name) for name in own)):
             f.chmod(0o600)
         os.environ[sa.REGISTRY_ENV] = str(reg)
         os.environ.setdefault(sa.ACTOR_KEYS_ENV, str(keys))
         os.environ.setdefault(sa.ACTOR_SIGN_KEY_ENV, str(sign))
     return TestClient(app, headers=auth_headers())
+
+
+# the services of the one-process box, besides the console, that call another service under their own name
+OWN_TOKENS = ("orchestrator",)
+
+
+def _token_file(registry: Path, service: str) -> Path:
+    return registry.parent / f"{service}.token"
+
+
+def service_token_of(service: str) -> str:
+    """The token :func:`orch_client` made for ``service`` of this process's box; "" when the process has no such box
+    (no registry, or a registry :func:`orch_client` did not write), and then the caller sends what
+    ``service_auth.auth_headers`` gives."""
+    reg = (os.environ.get(sa.REGISTRY_ENV) or "").strip()
+    if not reg or service not in OWN_TOKENS:
+        return ""
+    try:
+        return _token_file(Path(reg), service).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 
 class InprocBackend:

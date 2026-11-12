@@ -32,8 +32,9 @@
   mints in one place (`console/actor.py`, after `permit`), checks that it is for this action, this study, this
   request and this body, and asks the matrix again; no field of the body names a person. A refusal is 403 with
   code `ACTOR` and a reason, audited `actor.refused`. `report` (study, data core, site set-up, registry): the
-  person is still the body's `by`; a changing call without a valid v3 assertion is counted
-  (`orchestrator.actor.UNSIGNED`) and logged once per route. `v2` (jobs, reveal, export, notices, EDC): the
+  person is still the body's `by`; a changing call without a verified person is counted
+  (`orchestrator.actor.UNSIGNED`), logged and audited (`actor.unsigned`) once per route and reason; a
+  participant's step such a route derives names the verified person or `unverified`. `v2` (jobs, reveal, export, notices, EDC): the
   handler verifies the older assertion. `no_person`: two groups with their reasons. The service does not start
   when a changing route is in no stage or has the wrong dependency. Tests: `tests/unit/test_actor_routes.py`,
   `tests/unit/test_actor_v3.py`, `tests/console/test_actor_v3_box.py`.

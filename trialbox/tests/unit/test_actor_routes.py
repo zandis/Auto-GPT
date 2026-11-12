@@ -58,6 +58,15 @@ class _Plain(BaseModel):
     to: str
 
 
+class _Outer(BaseModel):
+    rows: list[_Named]
+
+
+class _Confirmed(BaseModel):
+    to: str
+    confirmed_by: str
+
+
 def _toy(defect: str) -> FastAPI:
     app = FastAPI()
     dep = ra.require_actor("study.setup")
@@ -87,6 +96,21 @@ def _toy(defect: str) -> FastAPI:
         @app.post("/studies/{rs}/x", dependencies=[ra.report_actor])
         def reported(rs: str, body: _Plain) -> dict[str, str]:
             return {}
+    elif defect == "nested person":
+
+        @app.post("/studies/{rs}/x")
+        def nested(rs: str, body: _Outer, who: v3.Claim = dep) -> dict[str, str]:
+            return {}
+    elif defect == "free body":
+
+        @app.post("/studies/{rs}/x")
+        def free(rs: str, body: dict[str, Any], who: v3.Claim = dep) -> dict[str, str]:
+            return {}
+    elif defect == "confirmed_by":
+
+        @app.post("/studies/{rs}/x")
+        def confirmed(rs: str, body: _Confirmed, who: v3.Claim = dep) -> dict[str, str]:
+            return {}
     else:
 
         @app.post("/studies/{rs}/x")
@@ -105,11 +129,41 @@ TOY_TABLE: dict[str, Any] = {"refuse": ["g"], "report": [], "v2": [], "no_person
     ("body names a person", "the request still names a person (by)"),
     ("query names a person", "the request still names a person (approved_by)"),
     ("not a matrix action", "which is not a row of the matrix"),
+    ("nested person", "the request still names a person (by)"),  # review M2: at any depth of the body model
+    ("free body", "the request still names a person (*)"),  # a free mapping could carry any name
+    ("confirmed_by", "the request still names a person (confirmed_by)"),
 ])  # fmt: skip
 def test_the_walk_fails_on_each_defect(defect: str, says: str) -> None:
     bad = ra.route_problems(_toy(defect), lambda key: "g", TOY_TABLE)
     assert len(bad) == 1 and says in bad[0] and bad[0].startswith("POST /studies/{rs}/x: ")
     assert ra.route_problems(_toy("none"), lambda key: "g", TOY_TABLE) == []
+
+
+def test_the_walk_fails_on_a_refuse_route_whose_study_is_not_rs() -> None:
+    """Review M2: ``require_actor`` reads the study from ``{rs}``; a route that names it otherwise would be checked
+    against no study."""
+    app = FastAPI()
+
+    @app.post("/studies/{study}/x")
+    def other(study: str, body: _Plain, who: v3.Claim = ra.require_actor("study.setup")) -> dict[str, str]:  # noqa: B008
+        return {}
+
+    bad = ra.route_problems(app, lambda key: "g", TOY_TABLE)
+    assert len(bad) == 1 and "require_actor reads {rs}" in bad[0]
+
+
+REPORT_ROUTES = Path(__file__).parent / "data" / "actor_report_routes.txt"
+
+
+def test_the_report_list_only_shrinks() -> None:
+    """Review M2: the changing routes that still take a typed name are this committed list, exactly. A card that
+    converts a router deletes its lines; a new route cannot join the list (it is built with ``require_actor``)."""
+    from orchestrator.app import app
+
+    now = sorted(f"{m} {p}" for m, p, stage, *_ in ra.walk(app) if stage == "report" and m not in sa.SAFE_METHODS)
+    pinned = [ln for ln in REPORT_ROUTES.read_text(encoding="utf-8").splitlines() if ln and not ln.startswith("#")]
+    assert set(now) <= set(pinned), f"a new route takes a typed name: {sorted(set(now) - set(pinned))}"
+    assert now == pinned, f"converted routes leave the list: delete {sorted(set(pinned) - set(now))}"
 
 
 def test_the_walk_fails_on_a_group_in_no_stage_and_on_a_ghost_group() -> None:
@@ -133,7 +187,11 @@ def test_the_table_is_read_strictly(tmp_path: Path) -> None:
     f.write_text("schema: tb-orchestrator-actors/1\nno_person: {a: ''}\n", encoding="utf-8")
     with pytest.raises(ValueError, match="needs its reason"):
         ra.load(f)
-    assert set(ra.TABLE["principals"]) == {"service:console-notify", "service:console-optout-check"}
+    assert set(ra.TABLE["principals"]) == {
+        "service:console-notify",
+        "service:console-nightly",
+        "service:console-optout-check",
+    }
 
 
 def test_the_console_mints_in_one_place() -> None:
@@ -280,3 +338,44 @@ def test_a_report_route_counts_an_unsigned_call_and_lets_it_through(box: Any) ->
         client.get(path).status_code != 403
         and ra.UNSIGNED.get(("GET /studies/{rs}/settings", "no v3 assertion")) is None
     )
+
+
+def test_a_report_route_counts_a_claim_for_another_study_or_without_the_right(box: Any) -> None:
+    """Review M1: in stage `report` a claim counts as a verified person only when it is for this study and the
+    matrix allows its own action to its role; the first of each route and reason is in the audit trail."""
+    client, events = box
+    path, body = "/studies/GZQO/settings", {"study_type": "trial", "by": "dr_tanaka"}
+    key = "PUT /studies/{rs}/settings"
+    for reason, headers in (
+        ("study", signed("study.setup", "OTHER", "PUT", path, body)),
+        ("right", signed("sae.ack", "GZQO", "PUT", path, body, role="viewer")),
+        ("principal", signed("sae.ack", "GZQO", "PUT", path, body, sub="service:console-notify", role="service")),
+    ):
+        before = ra.UNSIGNED[(key, reason)]
+        assert _refused(client.put(path, json=body, headers=headers)) == ""  # let through: report
+        assert ra.UNSIGNED[(key, reason)] == before + 1, reason
+    seen = [(e["detail"]["route"], e["detail"]["reason"]) for e in events if e["kind"] == "actor.unsigned"]
+    assert len(seen) == len(set(seen))  # once per route and reason in a process
+    assert all(set(e["detail"]) == {"route", "reason", "caller"} for e in events if e["kind"] == "actor.unsigned")
+
+
+def test_a_count_that_cannot_be_audited_does_not_refuse_the_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    """CI on the first push: a router of a `report` group used outside the box's app (a page test's own FastAPI)
+    has no audit log to write to. The stage lets the call through, so the count must not turn it into an error."""
+
+    def no_audit() -> Any:
+        raise PermissionError("no audit log here")
+
+    monkeypatch.setattr(ra, "_audit", no_audit)
+    monkeypatch.setattr(ra, "_logged", set())
+    app = FastAPI()
+
+    @app.post("/studies/{rs}/x", dependencies=[ra.report_actor])
+    def reported(rs: str, body: _Plain) -> dict[str, str]:
+        return {"ok": rs}
+
+    key = "POST /studies/{rs}/x"
+    before = ra.UNSIGNED[(key, "no v3 assertion")]
+    r = TestClient(app).post("/studies/GZQO/x", json={"to": "a"})
+    assert r.status_code == 200 and r.json() == {"ok": "GZQO"}
+    assert ra.UNSIGNED[(key, "no v3 assertion")] == before + 1

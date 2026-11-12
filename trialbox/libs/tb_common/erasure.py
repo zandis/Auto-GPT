@@ -164,6 +164,11 @@ TABLES: dict[str, Entry] = {
         "the events of a patient never consented (OD-8 keeps the rest)",
     ),
     "orch.feedback": _owed("the PI's feedback on a candidate, by pseudonym"),
+    "orch.judge_answers": _keep(
+        "D-456",
+        "a model's answers (a verdict and a quote; no pseudonym column) kept only while their job is unfinished: "
+        "deleted when the job ends in any state, and at the orchestrator's start for jobs finished or gone",
+    ),
     "orch.jobs": _owed("a job's request may name a pseudonym (CASE, a reveal)"),
     "orch.submissions": _owed("NAV submissions, by pseudonym"),
     "orch.cohort_tables": _none("aggregate counts per quarter and criterion"),
@@ -365,7 +370,9 @@ LAKE: dict[str, Entry] = {
     "lake:embed_cache.duckdb": _owed("vectors of note chunks by text hash, never pruned", "pruning by the patient"),
     "lake:fhir_ledger": _owed("the FHIR sync ledger: resource ids and hashes per patient"),
     "lake:backfill": _owed("the back-fill's working copy of a year's extract"),
-    "lake:tmp": _owed("the rebuild's scratch files (removed after a build; a crash may leave them)"),
+    "lake:tmp": _owed(
+        "the rebuild's and the night's ingest scratch files (removed after each; a crash may leave them)"
+    ),
     "lake:holds": _none("a job's hold on a snapshot: job id and date"),
     "lake:CURRENT": _none("the name of the served snapshot"),
     "lake:CURRENT.tmp": _none("the served snapshot's name while it is replaced"),
