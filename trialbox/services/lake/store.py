@@ -14,6 +14,7 @@ Layout under ``<lake_dir>``::
     holds/<holder>.json                      a running job reads this snapshot: never rebuilt or pruned (T-305b)
     .rebuild.lock                            ``flock``: hold, release, pruning and a rebuild's start and swap (D-462)
     locks/<snapshot>.build.lock              ``flock`` held by the one rebuild of the snapshot that runs (D-462)
+    locks/<snapshot>.rebuild.json            the state of the snapshot's last rebuild job, polled (T-690, D-472)
     db/<snapshot>.building, parquet/.building/snapshot=<snapshot>/   a build in progress, swapped in when done
     db/.open/<inode>-<mtime>-<size>/<snapshot>.duckdb   a hard link per file identity that readers open (D-462)
 
@@ -180,6 +181,53 @@ def building(lake_dir: Path, snapshot: str) -> Iterator[None]:
             yield
         finally:
             fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
+# ------------------------------------------------------------------ rebuilds as polled jobs (T-690, D-472)
+#: a rebuild job's states: ``running`` is followed; the others end it (``busy``: held at the swap, nothing replaced;
+#: ``refused``: the data was refused, D-271; ``failed``: an error; ``interrupted``: its process ended without an answer)
+JOB_STATES = ("running", "done", "busy", "refused", "failed", "interrupted")
+
+
+def _job_path(lake_dir: Path, snapshot: str) -> Path:
+    return lake_dir / "locks" / f"{snapshot}.rebuild.json"
+
+
+def write_rebuild_job(lake_dir: Path, job: dict[str, Any]) -> None:
+    """The state of the last rebuild job of ``job['snapshot']`` (one small file beside its build lock, no patient
+    data: an id, times, counts, a reason), written whole so a reader never sees half of it."""
+    p = _job_path(lake_dir, str(job["snapshot"]))
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_name(f".{p.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp.write_text(json.dumps(job, sort_keys=True), encoding="utf-8")
+    tmp.replace(p)
+
+
+def _read_job(lake_dir: Path, snapshot: str) -> dict[str, Any] | None:
+    try:
+        body = json.loads(_job_path(lake_dir, snapshot).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return body if isinstance(body, dict) else None
+
+
+def build_running(lake_dir: Path, snapshot: str) -> bool:
+    """Whether a live process holds the build lock of ``snapshot`` (D-462): a rebuild of it runs now. The test takes
+    the lock without waiting and lets it go at once."""
+    p = lake_dir / "locks" / f"{snapshot}.build.lock"
+    if not p.exists():
+        return False
+    with p.open("a") as fh:
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    return False
+
+
+def _inline(run: Any) -> None:
+    run()
 
 
 def _open_dir(lake_dir: Path) -> Path:
@@ -647,6 +695,93 @@ class Lake:
         with building(self.dir, snapshot):
             return self._rebuild(snapshot, embedder, ndjson_dir, promote, allow_empty)
 
+    def start_rebuild(
+        self,
+        snapshot: str,
+        embedder: Embedder,
+        ndjson_dir: Path | None = None,
+        promote: bool = True,
+        allow_empty: bool = False,
+        spawn: Any = None,
+    ) -> dict[str, Any]:
+        """Start a rebuild of ``snapshot`` as a job and answer its state (T-690, D-472): the lake service's 202.
+
+        What can be decided at once is decided here and raised as before, nothing written: another rebuild of the
+        snapshot runs (:class:`SnapshotBuilding`), a job holds it (:class:`SnapshotHeld`), its NDJSON folder is
+        missing (:class:`RebuildError`). The build itself runs in ``spawn`` (the service: a thread; default: here,
+        so an in-process lake answers the job's end), holding the build lock taken here, and records its end in the
+        job's state (:meth:`rebuild_state`). No time limit: the job runs as long as the build does (OD-10)."""
+        lock = contextlib.ExitStack()
+        lock.enter_context(building(self.dir, snapshot))
+        try:
+            with lake_lock(self.dir):
+                if _is_held(self.dir, snapshot):
+                    raise SnapshotHeld(
+                        f"lake snapshot {snapshot} is being read by a running job; it is not rebuilt until the job "
+                        "ends (nothing built, CURRENT unchanged)"
+                    )
+            self._source_or_refuse(snapshot, ndjson_dir, allow_empty)
+            job: dict[str, Any] = {
+                "job": os.urandom(8).hex(),
+                "snapshot": snapshot,
+                "state": "running",
+                "started": time.time(),
+                "ended": None,
+                "result": None,
+                "busy": None,
+                "detail": "",
+            }
+            write_rebuild_job(self.dir, job)
+        except BaseException:
+            lock.close()
+            raise
+
+        def run() -> None:
+            with lock:
+                end: dict[str, Any] = {}
+                try:
+                    st = self._rebuild(snapshot, embedder, ndjson_dir, promote, allow_empty)
+                    end = {"state": "done", "result": {"snapshot": st.snapshot, "tables": st.tables,
+                                                       "chunks": st.chunks, "embedded_new": st.embedded_new,
+                                                       "seconds": st.seconds, "promoted": st.promoted}}  # fmt: skip
+                except LakeBusy as exc:
+                    end = {"state": "busy", "busy": exc.reason, "detail": str(exc)[:500]}
+                except RebuildError as exc:
+                    end = {"state": "refused", "detail": str(exc)[:500]}
+                except Exception as exc:
+                    if type(exc).__name__ == "OmopError":  # D-271: the OMOP store refused the batch
+                        end = {"state": "refused", "detail": str(exc)[:500]}
+                    else:
+                        log.exception("lake rebuild of %s failed", snapshot)
+                        end = {"state": "failed", "detail": f"{type(exc).__name__}: {str(exc)[:500]}"}
+                write_rebuild_job(self.dir, {**job, **end, "ended": time.time()})
+
+        (spawn or _inline)(run)
+        return self.rebuild_state(snapshot)
+
+    def rebuild_state(self, snapshot: str) -> dict[str, Any]:
+        """The state of the last rebuild job of ``snapshot`` (T-690, D-472): ``none`` when there was none; a job
+        recorded ``running`` whose build lock no live process holds ended without an answer: ``interrupted``."""
+        job = _read_job(self.dir, snapshot)
+        if job is None:
+            return {"snapshot": snapshot, "state": "none"}
+        if job.get("state") == "running" and not build_running(self.dir, snapshot):
+            again = _read_job(self.dir, snapshot) or job  # it may have just ended and written its answer
+            if again.get("state") == "running":
+                why = "the rebuild stopped without an answer (its process ended); start it again"
+                return {**again, "state": "interrupted", "detail": why}
+            return again
+        return job
+
+    def _source_or_refuse(self, snapshot: str, ndjson_dir: Path | None, allow_empty: bool) -> tuple[Path, bool]:
+        """The NDJSON folder of the rebuild and whether an empty one is allowed; a missing folder of a fed lake is
+        refused (D-271) before anything is written."""
+        src = ndjson_dir or self._source(snapshot)
+        allow_empty = allow_empty or not self.fed()
+        if not src.is_dir() and not allow_empty:
+            raise RebuildError(f"lake snapshot {snapshot}: no NDJSON folder {src}; nothing built, CURRENT unchanged")
+        return src, allow_empty
+
     def _rebuild(
         self, snapshot: str, embedder: Embedder, ndjson_dir: Path | None, promote: bool, allow_empty: bool
     ) -> RebuildStats:
@@ -670,10 +805,7 @@ class Lake:
         if promote and cur is not None and snapshot < cur:
             log.warning("lake snapshot %s is older than CURRENT %s: built, not promoted (DATA-007)", snapshot, cur)
             promote = False
-        src = ndjson_dir or self._source(snapshot)
-        allow_empty = allow_empty or not self.fed()
-        if not src.is_dir() and not allow_empty:
-            raise RebuildError(f"lake snapshot {snapshot}: no NDJSON folder {src}; nothing built, CURRENT unchanged")
+        src, allow_empty = self._source_or_refuse(snapshot, ndjson_dir, allow_empty)
         by_type: dict[str, list[dict[str, Any]]] = {}
         for f in sorted(src.glob("*.ndjson")):
             with f.open(encoding="utf-8") as fh:

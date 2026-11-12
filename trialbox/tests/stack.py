@@ -66,9 +66,22 @@ def ensure_ingested(force: bool = False) -> dict[str, object] | None:
         health = httpx.get(url("LAKE", "/healthz"), timeout=30).json()
         if health.get("checks", {}).get("snapshot", "none") != "none":
             return None
-    resp = httpx.post(url("ADAPTER", "/run"), json={"source": "csv", "snapshot": SNAPSHOT}, timeout=1800)
-    resp.raise_for_status()
-    report: dict[str, object] = resp.json()
+    from tb_common.jobpoll import Poll
+
+    resp = httpx.post(url("ADAPTER", "/run"), json={"source": "csv", "snapshot": SNAPSHOT}, timeout=60)
+    resp.raise_for_status()  # T-690 (D-472): 202 and a run id; the night is followed, not timed
+    run = resp.json()["run"]
+
+    def read() -> dict[str, object]:
+        r = httpx.get(url("ADAPTER", f"/run/{run}"), timeout=60)
+        r.raise_for_status()
+        body: dict[str, object] = r.json()
+        return body
+
+    st = Poll().until_done(read, "ingest")
+    assert st["state"] == "done", st
+    report = st["report"]
+    assert isinstance(report, dict)
     return report
 
 
