@@ -585,6 +585,25 @@ def s2b_source_doc(run: ScreenRun) -> dict[str, Any] | None:
             "snapshot": run.snapshot, "flag": "vec.s2b", "patients": run.s2b_sources}  # fmt: skip
 
 
+def publish_s2b_source(ctx: Ctx, run: ScreenRun) -> None:
+    """T-203b (D-449): the S2b source per patient, with the job (label ``phi``, never mailed), on every path that ran
+    the cascade with the flag ``vec.s2b`` on (SCREEN, MICROBATCH); nothing when it was off. The register is read
+    again as it stands now (D-441): an opted-out patient leaves this file too."""
+    sources = getattr(run, "s2b_sources", None)  # a run built before T-203b (or a test's stand-in) has none
+    if sources is None:
+        return
+    gone = opted_out_now(ctx, list(sources), "s2b_source") if sources else frozenset()
+    run.s2b_sources = {p: v for p, v in sources.items() if p not in gone}
+    doc = s2b_source_doc(run)
+    if doc is not None:
+        ctx.publish(
+            f"s2b_source_{run.rs.id}_v{run.rs.version}.json",
+            json.dumps(doc, ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8"),
+            "phi",
+            [],
+        )
+
+
 def candidate_list(run: ScreenRun) -> CandidateList:
     listed = [r for r in run.rows if r.tier in ("high", "review")]
     tiers = {t: sum(1 for r in run.rows if r.tier == t) for t in ("high", "review", "excluded")}
@@ -778,14 +797,7 @@ def run(ctx: Ctx) -> Outcome:
     persist_pool(ctx, rs, [r for r in srun.rows if r.tier in ("high", "review")])
     excluded = json.dumps(excluded_doc(ctx, srun), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
     ctx.publish(f"excluded_{rs.id}_v{rs.version}.json", excluded, "phi", [])  # P-04: the console only, never mailed
-    s2b_doc = s2b_source_doc(srun)
-    if s2b_doc is not None:  # T-203b (D-449): the S2b source per patient, with the job (never mailed)
-        ctx.publish(
-            f"s2b_source_{rs.id}_v{rs.version}.json",
-            json.dumps(s2b_doc, ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8"),
-            "phi",
-            [],
-        )
+    publish_s2b_source(ctx, srun)
     agg_to = recipients(rs.manifest.routing, job.requested_by)
 
     def n(v: int) -> int:  # D-99: internal mail, PDF and console show exact counts; the sponsor pack suppresses

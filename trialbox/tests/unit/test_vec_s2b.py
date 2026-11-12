@@ -22,6 +22,7 @@ from matching.cascade.engine import CascadeConfig, run_cascade
 from matching.cascade.s2b_semantic import SourceFallback, SourceRanking
 from orchestrator.scenarios import screen_cascade
 from tb_common import flags
+from tb_common.ruleset import Ruleset
 from vec import s2b
 from vec.index import Note, index_notes, index_snapshot, note_chunks, snapshot_notes
 from vec.s2b import LakeVecSource, rank_chunks, sentence_ranking, sentence_spans
@@ -309,3 +310,56 @@ def test_the_flag_is_declared_off_and_read_once_per_run(monkeypatch: pytest.Monk
     assert screen_cascade.s2b_source(object(), "2026-01-02", False) is None
     src = screen_cascade.s2b_source("lake", "2026-01-02", True)
     assert isinstance(src, LakeVecSource) and (src.lake, src.snapshot) == ("lake", "2026-01-02")
+
+
+def test_the_job_file_exists_only_when_the_flag_was_on() -> None:
+    from orchestrator.scenarios.screen import ScreenRun, s2b_source_doc
+
+    rs = Ruleset.load(Path(__file__).resolve().parents[2] / "rulesets" / "GZQO")
+    run = ScreenRun(rs, INDEX, "2026-01-02", [], {}, [], [], [], 30, None)
+    assert s2b_source_doc(run) is None  # flag off: no file
+    run.s2b_sources = {"p1": {"vec_pairs": 1, "fallback_pairs": 0, "vec_model": "m", "fallback": []}}
+    doc = s2b_source_doc(run)
+    assert doc is not None and doc["flag"] == "vec.s2b" and doc["patients"]["p1"]["vec_model"] == "m"
+    assert (doc["ruleset"], doc["snapshot"]) == (rs.id, "2026-01-02")
+
+
+def test_one_switch_every_path_or_none() -> None:
+    """With the flag off no path reads the vector store; with it on every service path that runs S2b does: the
+    only service caller of the cascade is ``screen_with_cascade`` (SCREEN and MICROBATCH go through it), and it is the
+    only place that builds the store source."""
+    root = Path(__file__).resolve().parents[2] / "services"
+    callers, builders = set(), set()
+    for f in sorted(root.rglob("*.py")):
+        rel = f.relative_to(root).as_posix()
+        text = f.read_text(encoding="utf-8")
+        if "run_cascade(" in text and not rel.startswith("matching/cascade/") and rel != "vec/s2b.py":
+            callers.add(rel)
+        if "LakeVecSource(" in text and rel != "vec/s2b.py":
+            builders.add(rel)
+    assert callers == builders == {"orchestrator/scenarios/screen_cascade.py"}
+
+
+def test_both_paths_publish_the_record_and_drop_who_opted_out_since(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from orchestrator.scenarios import screen
+    from orchestrator.scenarios.screen import ScreenRun, publish_s2b_source
+
+    published: list[tuple[str, bytes]] = []
+    ctx = SimpleNamespace(publish=lambda name, body, label, to: published.append((name, body)))
+    monkeypatch.setattr(screen, "opted_out_now", lambda ctx, pids, where: frozenset({"p2"}))
+    rs = Ruleset.load(Path(__file__).resolve().parents[2] / "rulesets" / "GZQO")
+    run = ScreenRun(rs, INDEX, "2026-01-02", [], {}, [], [], [], 30, None)
+    publish_s2b_source(ctx, run)  # type: ignore[arg-type]
+    assert published == []  # flag off: no file
+    rec = {"vec_pairs": 0, "fallback_pairs": 1, "vec_model": None, "fallback": [s2b.STALE]}
+    run.s2b_sources = {"p1": rec, "p2": rec}
+    publish_s2b_source(ctx, run)  # type: ignore[arg-type]
+    import json
+
+    ((name, body),) = published
+    assert name == f"s2b_source_{rs.id}_v{rs.version}.json" and set(json.loads(body)["patients"]) == {"p1"}
+    import orchestrator.scenarios.microbatch as mb
+
+    assert vars(mb)["publish_s2b_source"] is publish_s2b_source

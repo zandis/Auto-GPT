@@ -30,6 +30,10 @@ source as an argument.
 1. **An audited flag, off.** `vec.s2b` in `tb_common.flags.DECLARED` (`off`/`on`, default `off`, no seed variable:
    it is switched on `/ops/flags` with a reason after the refit, never left in an environment file). A SCREEN run
    reads it once at its start (`screen_cascade.vec_s2b_on`) and keeps it for the run.
+   **One switch, every path or none** (as T-207's stored-score flag): the only service caller of the cascade is
+   `screen_cascade.screen_with_cascade`, which SCREEN and MICROBATCH both run (`run_screen`), and it is the only place
+   that builds the store source; a test holds this (`test_one_switch_every_path_or_none`). With the flag off no path
+   reads the vector store; with it on every path that runs S2b does, each with its fallback recorded.
 2. **Flag off: the same bytes.** With the flag off no source is built, the engine runs exactly the code it ran
    before, the trace file has no new key (`PatientTrace.to_dict` leaves `s2b_source` out when it is `None`), the S2b
    stage log has no new key and no new job file is written. The goldens are unchanged (they pin S1 and the lake,
@@ -57,8 +61,9 @@ source as an argument.
    and dimension (`VecStore.search`); the answer names the model. Inside one patient's run a second model is refused
    (a fallback). The model of the stored vectors and the on-the-fly model are both recorded.
 7. **Recorded per patient-run.** `PatientTrace.s2b_source`: pairs from the store, pairs that fell back, the reasons
-   (a fixed vocabulary, no note id, no text), the store's model and the on-the-fly model. SCREEN publishes them as
-   `s2b_source_<study>_v<version>.json` (label `phi`, console only, never mailed) when the flag was on; the S2b stage
+   (a fixed vocabulary, no note id, no text), the store's model and the on-the-fly model. SCREEN and MICROBATCH publish them as
+   `s2b_source_<study>_v<version>.json` (label `phi`, console only, never mailed; `screen.publish_s2b_source`) when
+   the flag was on, after reading the opt-out register again as it stands (D-441); the S2b stage
    log (and the run summary) counts `vec_pairs`, `vec_fallback_pairs`, `vec_fallback_patients`, `vec_model`.
 8. **Indexing a snapshot.** `vec.index.index_snapshot(store, lake, snapshot, embedder, exclude=)` indexes every note
    of a snapshot (paged by note id), leaving out the patients in `exclude` (the opt-out register). A text already

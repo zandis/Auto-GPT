@@ -35,8 +35,8 @@ again exactly as the indexer does; when every note's chunks and their vectors of
 store, it ranks them, and the cascade gives each sentence the score of the best chunk over it. Anything else (no
 store, a note not indexed, a note whose text changed since a later night indexed it, a missing vector, an error)
 sends that pair to the old on-the-fly path. Each patient's run records how many pairs came from the store, how many
-fell back and why, and the embedder model of each, in the job's file `s2b_source_<study>_v<version>.json` (console
-only, never mailed); the stage log counts them. A second model inside one patient's run is refused. With absence
+fell back and why, and the embedder model of each, in the job's file `s2b_source_<study>_v<version>.json` (SCREEN and
+MICROBATCH; console only, never mailed); the stage log counts them. A second model inside one patient's run is refused. With absence
 semantics on (feasibility) the store is not asked, because the S2b threshold is fitted to on-the-fly vectors and is
 refitted only after the embedder is chosen (D-429). In screening S2b only picks the excerpts and the index rescue: it
 never excludes, with the flag on or off.
