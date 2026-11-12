@@ -113,7 +113,8 @@ def _build() -> dict[str, Any]:
 def test_the_registry_names_the_embedder() -> None:
     b = _build()
     assert b["repository"] == "BAAI/bge-m3" and b["revision"] == REVISION
-    assert b["provenance"] == {"copy": "publisher", "source": "BAAI/bge-m3", "revision": REVISION}
+    # the publisher's revision holds no safetensors weights: which folder ships is not decided (test_embed_review)
+    assert b["provenance"]["source"] == "BAAI/bge-m3" and b["provenance"]["revision"] == REVISION
     assert b["licence"] == {"name": "MIT", "spdx": "MIT", "verified": True, "register": "model-bge-m3"}
     assert b["origin"]["non_prc"] is False and b["origin"]["country"] == "CN"  # said, not left blank
     assert b["expected"]["revision"] == REVISION

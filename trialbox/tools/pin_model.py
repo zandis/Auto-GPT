@@ -494,7 +494,7 @@ def install_pins(
             continue
         d = models_root / (e.get(dir_var) or dir_default)
         if not d.is_dir():
-            ok = False
+            ok = ok and build == EMBED_BUILD  # the embedder's absence is reported, the result is the pair's
             lines.append(f"{build}: no weights in {d}: this model routes nothing until it is pinned (RUNBOOK §8)")
             continue
         try:
@@ -509,7 +509,8 @@ def install_pins(
                 chat_template=tpl_path,
             )
         except PinError as exc:
-            ok = False
+            # the embedder with no manifest in the registry yet: reported, not a failure of the pair's install
+            ok = ok and build == EMBED_BUILD and not want
             lines.append(f"{build}: {exc}")
             continue
         after = (

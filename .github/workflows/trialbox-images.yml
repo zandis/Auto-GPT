@@ -27,6 +27,12 @@ on:
       - "trialbox/Makefile"
       - "trialbox/tools/supply_chain/**"
       - "trialbox/tools/make_bundle.sh"
+      # ENG-003 (D-563): what the PRODUCTION start of the embed service reads
+      - "trialbox/services/embed_service/**"
+      - "trialbox/tools/pin_model.py"
+      - "trialbox/tools/tiny_embedder.py"
+      - "trialbox/models/registry.yaml"
+      - "trialbox/tests/integration/test_embed_production_start.py"
       - ".github/workflows/trialbox-images.yml"
   push:
     tags: ["trialbox-v*"]

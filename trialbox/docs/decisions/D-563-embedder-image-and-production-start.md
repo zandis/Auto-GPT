@@ -19,19 +19,27 @@ up healthy, and the box rehearsal was green only because it overrode the one set
 ## Decision
 
 1. **The embedder is BGE-M3** (`BAAI/bge-m3`, MIT, 1024 dimensions, the revision of the licence register's row
-   `model-bge-m3`). The registry row `e-embed-1` names the repository, the revision, the licence and the origin. Its
-   expected weight manifest is written from the first hash of the real folder (lane G's run); until then the row
-   has none and the build is pinned from the site's own folder, as D-429 allows for a candidate.
+   `model-bge-m3`). The registry row `e-embed-1` names the repository, the revision, the licence and the origin.
+   **Open, for the owner:** that revision of the publisher's repository holds pickle weights only and no
+   safetensors file, and D-429 refuses pickle weights. Which safetensors folder ships (a publisher revision that
+   has one, or a recorded conversion) is not decided here; the row says so (`provenance.copy: undecided`) and names
+   no manifest. Nothing is trusted on first use: until the manifest is written the install reports the embedder as
+   not pinned and a PRODUCTION embed service refuses to start.
 2. **An image of its own, `trialbox-embed`.** It is the Python service image plus the `embed` extra of `uv.lock`,
    installed from a second hashed export, `deploy/requirements-embed.lock` (`make lock` writes it, `make lock-check`
    holds it). The other services do not carry the library.
 3. **CPU wheels.** The embedder runs on the CPU (the card's memory is the model pair's). `torch` is locked from the
    publisher's CPU wheel index for Linux, so the image carries no CUDA libraries (about 3 GB less in the bundle
    and on a CI runner). A profile that gives the embedder a card is a later decision with its own lock.
-4. **Compose runs the embed service from that image** (`TB_EMBED_IMAGE`, default `trialbox-embed:1.0.0`), with the
-   weights folder `deploy/models/embedder` mounted read-only.
+4. **Compose runs the embed service from that image** (`TB_EMBED_IMAGE`, default `trialbox-embed:1.0.0`, built
+   from its own file), with the weights folder `deploy/models/embedder` mounted read-only. The stacks that run the
+   hash embedder (the test stack, the PoC, the box rehearsal's stand-ins) keep the service image. No overlay asks
+   the CPU image for a GPU (the GB10 overlay did).
 5. **The install pins the embedder with the pair** (`pin_model --install` also pins `e-embed-1` from
-   `deploy/models/embedder`). A missing folder is reported; the embed service then refuses to start and says why.
+   `deploy/models/embedder`). A missing folder, or a registry that names no manifest yet, is reported and leaves
+   the command's result the pair's; a folder that is there and is not the expected weights fails it. The embed
+   service is not a model server: `doctor --serving` and the gateway's start check do not ask it for a model list
+   (its own `/healthz` names the pinned weights).
 6. **A PRODUCTION start test.** A test builds a tiny model in the publisher's format on the spot (random weights,
    no download), pins it, starts the embed service from the image with `TB_ENV=PRODUCTION`, and embeds one sentence.
    It runs in CI where the image is built. The box rehearsal no longer overrides the embedder to the stub (OPS-004
@@ -45,6 +53,12 @@ up healthy, and the box rehearsal was green only because it overrode the one set
   time, memory against `TB_MEM_EMBED` and the time to index 5,000 patients' notes.
 
 ## Not done here
+
+- The platform form (Kubernetes manifests, `tools/trialbox/platform.py`) still runs the embed service from the
+  service image: that form is frozen (plan v7.2 section 3.2).
+- `pip-audit`, the lock's SBOM and the allow-list read the first lock only; the image itself is scanned by the
+  release gates.
+- The box rehearsal bundles and runs the service image for the embed service (hash embedder): OPS-004 changes that.
 
 - The S2b threshold for the new vectors (D-429 "Remains"): from lane G's bench.
 - The embed service merged into the data process (plan v7.2 section 3.1).
