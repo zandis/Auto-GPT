@@ -329,7 +329,19 @@ def snapshot_age_days(snapshot: str, today: date) -> int:
 
 def check_snapshot_age(snapshot: str, today: date, max_age_days: int) -> int | None:
     """The snapshot's age in days, or :class:`StaleSnapshotError` when it is more than ``max_age_days`` old.
-    ``max_age_days`` 0 means no check (None is returned). Pinned jobs are checked once, when they pin (D-383)."""
+    ``max_age_days`` 0 means no age check (None is returned). A snapshot dated after ``today`` is refused whatever
+    the limit (D-529). Pinned jobs are checked once, when they pin (D-383)."""
+    try:
+        night: date | None = date.fromisoformat(snapshot)
+    except ValueError:
+        night = None  # not named after a night: snapshot_age_days says so when the age is asked
+    if night is not None and night > today:
+        # NEW-PERF-3 (D-529; PERF-009): not an age, so not the age limit's to switch off. It counted as 0 days old
+        raise StaleSnapshotError(
+            f"LAKE-STALE: the served lake snapshot is {snapshot}, dated after today ({today.isoformat()}). A night "
+            "with a wrong date was published: no later night can be served over it. Check the box's clock and the "
+            "adapter's last runs (trialbox doctor); the night must be removed before lists are built again."
+        )
     if max_age_days <= 0:
         return None
     age = snapshot_age_days(snapshot, today)

@@ -493,6 +493,7 @@ def _run_ingest(
     zone = ZoneInfo(cfg.tz)
     started = datetime.now(zone)
     snap = snapshot or started.date().isoformat()
+    refuse_future_night(snap, started.date())  # D-529: before a row, a folder or a lake build exists for it
     at["batch"] = _open_night(cfg, source_kind, snap, started.isoformat())  # T-723 (D-489): the row, from the start
     try:  # T-612: before anything is read or written
         key = cfg.site_key()
@@ -1204,6 +1205,21 @@ def jp_core_check(cfg: AdapterConfig, picked: list[Resource], out_dir: Path) -> 
 
 PASSED = "passed.json"  # written in a snapshot's NDJSON folder when its night passed (D-271)
 HELD = "held.json"  # written in a snapshot's NDJSON folder when its night was held, with why (T-611)
+
+
+def refuse_future_night(snap: str, today: date) -> None:
+    """NEW-PERF-3 (D-529; PERF-009): a night dated after the site's today is refused. Once served, every later
+    night is older than it and is never served ("the box never moves back in time"), and the lake's age check read
+    a future night as 0 days old. A name that is not a date (a tool's, a test's) has no place in time: not judged."""
+    try:
+        night = date.fromisoformat(snap[:10])
+    except ValueError:
+        return
+    if night > today:
+        raise ValueError(
+            f"night {snap} is dated after today ({today.isoformat()} at the site): it is not ingested. Check the "
+            "date given to the run and the box's clock"
+        )
 
 
 def reject_key(exc: BaseException) -> str:

@@ -64,6 +64,7 @@ from adapter.pipeline import (
     ingest_instant,
     make_source,
     merge_base,
+    refuse_future_night,
 )
 from adapter.validate.validator import Hl7Validator, StructuralValidator, missing_required
 
@@ -429,6 +430,7 @@ def backfill(
     t0 = time.perf_counter()
     zone = ZoneInfo(cfg.tz)
     snap = snapshot or datetime.now(zone).date().isoformat()
+    refuse_future_night(snap, datetime.now(zone).date())  # D-529
     key = cfg.site_key()
     check_site_key(cfg, key)
     work = work_dir or cfg.lake_dir / "backfill" / snap
