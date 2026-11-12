@@ -54,9 +54,19 @@ was allowed to do, to what, or with which request body.
      `sae_pages`). The sponsor's three changing routes have no console caller yet, so they were open to any
      admitted token with a typed name; they now need a signed coordinator.
    - `report`: **study, data core, site set-up, registry** (32 changing routes). `report_actor` is on the
-     router: a changing call without a valid v3 assertion is counted per route and reason
-     (`orchestrator.actor.UNSIGNED`) and logged once per route and process, and let through; the person is still
-     the body's `by`. The list only shrinks.
+     router: a changing call without a verified person is counted per route and reason
+     (`orchestrator.actor.UNSIGNED`), logged and written to the audit trail (`actor.unsigned`) once per route and
+     reason in a process, and let through; the person is still the body's `by`. A claim counts as a verified
+     person only when it is for this request, this body and this study and the matrix allows its own action to
+     its role. The list only shrinks: it is committed (`tests/unit/data/actor_report_routes.txt`) and a test
+     holds the app to it exactly.
+   - **A record a `report` route derives itself names a verified person or `unverified`** (the review's H2).
+     Saving a lifecycle form (`POST /studies/{rs}/entry/{record}`) and the REDCap read
+     (`POST /studies/{rs}/redcap-read`) move a participant. The step they derive (`life.step`,
+     `life.log_sync`) takes its actor from `orchestrator.actor.person_of`: the claim's subject when the call is
+     signed for `task.enter_data` (the entry) or `request.prepare` (the read; the console's nightly read signs
+     as `service:console-nightly`), else the fixed actor `unverified`. The body's `by` is never used for it.
+     The console signs both calls.
    - `v2`: jobs, cancel, retry, reveal, notices, EDC: the handler verifies the older assertion (a name, a
      session, a role, a study list). They move with the cards that change what they check (T-716: the grant
      and the standing read by the orchestrator; the EDC re-authentication as `reauth_at`).
@@ -90,7 +100,15 @@ was allowed to do, to what, or with which request body.
 ## Consequences
 
 - A participant's step, the visit schedule, the SAE rule, the contact rule, a deviation call, an SAE
-  acknowledgement and the sponsor layout are recorded under a verified person or not at all.
+  acknowledgement and the sponsor layout are recorded under a verified person or not at all. A step derived
+  from a saved form or a REDCap read names a verified person or `unverified`. The form's values themselves
+  (`data.entry`) are still recorded under the body's `by` until the data core's router is converted.
+- An investigator ticked "enter data" saves a lifecycle form under their own signed claim; the follow-up refresh
+  of the participants with the console's screening numbers is the coordinator's (`study.setup`) and runs at the
+  coordinator's next page or the morning notices (the review's H1: it answered 403 after the save).
+- Both sides update together: a console of the release before this one gets 403 on the lifecycle and sponsor
+  routes (it fails closed), and this console gets 422 from an older orchestrator. `trialbox update` replaces
+  both images in one step.
 - The audit actor of these routes is `console:<username>` always (a test that wrote `"by": "crc"` now reads
   `console:crc`); the notice timer's refresh is `service:console-notify` (it was `console:notify`).
 - A new changing route cannot be added without a stage: the service does not start.

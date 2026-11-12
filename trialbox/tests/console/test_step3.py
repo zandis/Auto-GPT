@@ -32,13 +32,13 @@ def b3(box: dict[str, Any], tmp_path: Path) -> Iterator[dict[str, Any]]:  # noqa
     with study_service(tmp_path / "orch") as (svc, sim, clock):
         api = FastAPI()
         api.include_router(router(lambda: svc))
-        oc = SignedClient(api)
+        coc = SignedClient(api, strict=True)  # the console's calls: it signs them itself (review M3)
         bk = box["backend"]
 
         def study_api(method: str, path: str, body: dict[str, Any] | None = None,
                       headers: dict[str, str] | None = None) -> Any:  # fmt: skip
             kw: dict[str, Any] = {"headers": headers} if headers else {}  # T-715: the signed person goes with the call
-            r = oc.request(method, path, json=body, **kw) if body is not None else oc.request(method, path, **kw)
+            r = coc.request(method, path, json=body, **kw) if body is not None else coc.request(method, path, **kw)
             if r.status_code >= 400:
                 raise problem_of(r.status_code, r.text)
             return r.json()

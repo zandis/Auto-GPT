@@ -14,7 +14,7 @@ study, with this body. v3 is one signed claim per request:
 ``target``      the request it is for: ``METHOD path?query``
 ``grant``       a break-glass grant (id, kind, pid or job, end) when the right rests on one, else null
 ``reauth_at``   when the person typed the password again for this action (epoch seconds), else null
-``body``        the sha256 of the request body's bytes
+``body``        the sha256 of the request body's JSON value in one canonical form (``body_hash``)
 ``nonce``       random; an assertion is accepted once (``service_auth.ReplayGuard``)
 ``iat, exp``    issued at, and two minutes later
 ==============  =====================================================================================
@@ -26,7 +26,7 @@ no second header names the person, so nothing unsigned can disagree with it.
 A box with no token at all (DEV and TEST, ``actor_keys()`` is None) verifies no MAC, as v2 did there; the claim is
 still parsed and its expiry, action, study, target and body are still checked, so a test of the one path runs it.
 
-The console mints in one place (``console.identity.assert_for``); the orchestrator checks with one dependency
+The console mints in one place (``console.actor.assert_for``); the orchestrator checks with one dependency
 (``orchestrator.actor.require_actor``). This module is the format and its two functions, and holds no policy.
 """
 

@@ -353,6 +353,7 @@ class Declared:
 
 # Families: a name that starts with one of these is declared by the family (the name is built at run time).
 DECLARED_FAMILIES: dict[str, str] = {
+    "TB_DB_PW_": "compose: the password of one service's database role, TB_DB_PW_<SERVICE> (D-378, D-481)",
     "TB_EP_": "egress: one allowed endpoint per variable (deploy/egress.py, D-140)",
     "TB_MEM_": "compose: memory cap of one service, TB_MEM_<SERVICE> (D-360)",
 }
@@ -404,6 +405,12 @@ DECLARED: dict[str, Declared] = {
     "TB_CANARY_GATE": Declared("bool", "", "note answers gated on a passed canary"),
     "TB_CANARY_MAX_AGE_H": Declared("float", "", "hours a passed canary stays valid"),
     "TB_CANARY_RESULT": Declared("str", "", "platform check: path of the canary result"),
+    "TB_CANARY_WHY_CASES": Declared(
+        "int", "2", "wrong cases named in a failed canary's line, read on one screen line (the report keeps ten)"
+    ),
+    "TB_CANARY_WHY_CHARS": Declared(
+        "int", "120", "characters of a call error kept in a failed canary's line (the gateway's log has it whole)"
+    ),
     "TB_CANDIDATE_VIEWS_PER_HOUR": Declared("int", "", "candidate views allowed per user per hour"),
     "TB_CATALOGUE_DIR": Declared("path", "", "folder of the study catalogue"),
     "TB_CHARTNO_RULE": Declared("str", "", "the site's chart-number pattern for the scrubber"),
@@ -538,6 +545,9 @@ DECLARED: dict[str, Declared] = {
     "TB_HOST_ROOT": Declared("path", "", "host scripts: fake host root for the tests only, empty on the box (D-408)"),
     "TB_HOST_TZ": Declared("str", "", "doctor: the host's zone to compare"),
     "TB_IMAGE": Declared("str", "trialbox-py:1.0.0", "the Python services' image"),
+    "TB_INGEST_SORT_MB": Declared(
+        "int", "", "ingest: MB of NDJSON lines one sort run of the merge holds (unset: a sixteenth of the cap; D-473)"
+    ),
     "TB_INSTALL_PULL": Declared("str", "never", "install: image pull policy"),
     "TB_INSTALL_UP_TIMEOUT": Declared("int", "900", "install: seconds to wait for health"),
     "TB_IRB_TEXT_GATE": Declared(
@@ -550,6 +560,11 @@ DECLARED: dict[str, Declared] = {
     "TB_JOB_POLL_SECONDS": Declared("float", "5", "longest pause between reads of a polled job's state (D-472)"),
     "TB_JP_INGREDIENT_ATC": Declared("str", "", "compiler: Japanese ingredient to ATC map"),
     "TB_JVM_IMAGE": Declared("str", "", "platform: JVM image"),
+    "TB_JOB_MAX_RESTARTS": Declared(
+        "int",
+        "3",
+        "orchestrator: restarts an interrupted job survives; the job may be what stops the box (D-456)",
+    ),
     "TB_KEK_FILE": Declared("path", "", "the key-encryption key file"),
     "TB_KEK_NEW_PASSPHRASE": Declared("str", "", "keys tool: new KEK passphrase (secret)"),
     "TB_KEK_PASSPHRASE": Declared("str", "", "KEK passphrase (secret)"),
@@ -574,6 +589,11 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_LLM_CONTEXT": Declared("int", "", "direct model call: context size (DEV)"),
     "TB_LLM_MODE": Declared("str", "vllm", "model client (vllm, llamacpp, openai, stub)"),
+    "TB_LLM_OUTAGE_WAIT_S": Declared(
+        "float",
+        "1800",
+        "jobs: seconds a job waits in model outages in all; a server reloads in minutes (0: no wait; D-456)",
+    ),
     "TB_LLM_TIMEOUT_S": Declared("float", "240", "model callers: read timeout to the gateway (T-608)"),
     "TB_LOG_DIR": Declared("path", "deploy/logs", "host folder of collected logs"),
     "TB_LOG_MAX_FILE": Declared("int", "10", "container log files kept per service (provisional, D-389)"),
@@ -703,6 +723,10 @@ DECLARED: dict[str, Declared] = {
     "TB_ROUTING_PATH": Declared("path", "", "gateway: routing file"),
     "TB_RULESETS_DIR": Declared("path", "/data/rulesets", "rulesets folder"),
     "TB_RUN_ID": Declared("str", "", "complete-run tool: run id"),
+    "TB_PROVISIONING": Declared("str", "", "complete-run tool: SPOT or STANDARD for every VM (unset: D-468)"),
+    "TB_ESTIMATE_LLM_SPEEDUP": Declared(
+        "float", "2", "complete-run estimate: most that N model calls in flight cut the screening time by"
+    ),
     "TB_SAE_FOLLOWUP_DAYS": Declared("int", "", "SAE: follow-up days"),
     "TB_SAE_OFFICE_MAILBOX": Declared("str", "", "SAE: office mailbox"),
     "TB_SAE_REPORT_DAYS": Declared("int", "", "SAE: report days"),
@@ -717,7 +741,9 @@ DECLARED: dict[str, Declared] = {
     "TB_SCREEN_ENGINE": Declared("str", "sql", "SCREEN engine (sql or fhir)"),
     "TB_SCREEN_JUDGE": Declared("str", "agreement", "SCREEN judge mode (agreement or single)"),
     "TB_SCREEN_LLM_CONCURRENCY": Declared("int", "", "SCREEN: model calls side by side (1 to 64)"),
-    "TB_SCREEN_MAX_PAIRS": Declared("int", "", "SCREEN: model call budget per job"),
+    "TB_SCREEN_MAX_PAIRS": Declared(
+        "int", "", "SCREEN: model call budget per job (unset: the population's own pairs; D-456)"
+    ),
     "TB_SCREEN_PIPELINE": Declared("str", "cascade", "SCREEN pipeline (cascade or v1)"),
     "TB_SCREEN_WORKERS": Declared("int", "", "two-phase: verifier calls side by side"),
     "TB_SECRETS_DIR": Declared("path", "/run/secrets/trialbox", "folder of the services' secrets"),
@@ -732,6 +758,9 @@ DECLARED: dict[str, Declared] = {
     "TB_SETTINGS": Declared("str", "", "settings.yaml path"),
     "TB_SETTINGS_FILE": Declared("path", "settings.yaml", "backup schedule: settings.yaml path"),
     "TB_SITE_ID": Declared("str", "", "the site id"),
+    "TB_SITE_PATIENTS": Declared(
+        "int", "", "install: the hospital's patients, sizing the memory caps before the first night (D-473)"
+    ),
     "TB_SITE_PUBLISH_BATCH_SECONDS": Declared(
         "int", "0", "site decisions on main wait this long and publish as one batch (0: at once; D-403)"
     ),

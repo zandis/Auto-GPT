@@ -127,6 +127,7 @@ class CascadeMetrics:
     cache_hits: int = 0
     llm_share: float = 0.0
     unprocessed: int = 0
+    budget_stopped: str = ""  # the budget that ran out first: "pairs" or "tokens" (T-689, D-456); "" when none did
     rescued: int = 0
     s2b_embed_batches: int = 0
     sampled_patients: int = 0

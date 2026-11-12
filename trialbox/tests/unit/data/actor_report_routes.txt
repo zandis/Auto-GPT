@@ -1,0 +1,34 @@
+# T-715 (D-483): the changing routes of the orchestrator still in stage `report` (they take a typed name and
+# count the call). This list only shrinks: tests/unit/test_actor_routes.py::test_the_report_list_only_shrinks.
+DELETE /studies/{rs}/sources/redcap
+POST /assist
+POST /redcap/connections/{ref}/test
+POST /registry/{ruleset}
+POST /registry/{ruleset}/promote
+POST /setup/practice/load
+POST /setup/practice/reset
+POST /setup/pseudonym
+POST /setup/{ws}/charts
+POST /setup/{ws}/checks/{cid}
+POST /setup/{ws}/codes
+POST /setup/{ws}/codes/sheet
+POST /setup/{ws}/facts/{fid}
+POST /setup/{ws}/people/resolve
+POST /setup/{ws}/publish
+POST /setup/{ws}/sheets
+POST /setup/{ws}/sheets/{iid}/roles
+POST /studies/{rs}/conflicts/{cid}
+POST /studies/{rs}/entry/{record}
+POST /studies/{rs}/forms/builtin
+POST /studies/{rs}/forms/dictionary
+POST /studies/{rs}/import/sheet
+POST /studies/{rs}/redcap-link/test
+POST /studies/{rs}/redcap-read
+POST /studies/{rs}/sync/{name}
+PUT /redcap/connections/{ref}
+PUT /setup/remote
+PUT /studies/{rs}/data/{record}
+PUT /studies/{rs}/redcap-link
+PUT /studies/{rs}/screen-scope
+PUT /studies/{rs}/settings
+PUT /studies/{rs}/sources/redcap

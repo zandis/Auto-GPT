@@ -68,14 +68,15 @@ def sb(box: dict[str, Any], tmp_path: Path) -> Iterator[dict[str, Any]]:  # noqa
     api.include_router(edc_router(lambda: svc))
     api.include_router(datacore_router(lambda: dsvc))
     api.include_router(life_router(lambda: dsvc))
-    oc = SignedClient(api)
+    oc = SignedClient(api)  # the test's own calls (seeding)
+    coc = SignedClient(api, strict=True)  # the console's calls: it signs them itself (review M3)
 
     def study_api(method: str, path: str, body: dict[str, Any] | None = None,
                   headers: dict[str, str] | None = None) -> Any:  # fmt: skip
         if path == "/redcap/connections":
             return {"connections": [{"token_ref": "edc"}]}
         kw: dict[str, Any] = {"headers": headers} if headers else {}
-        r = oc.request(method, path, json=body, **kw) if body is not None else oc.request(method, path, **kw)
+        r = coc.request(method, path, json=body, **kw) if body is not None else coc.request(method, path, **kw)
         if r.status_code >= 400:
             raise problem_of(r.status_code, r.text)
         return r.json()
