@@ -227,6 +227,9 @@ class Ctx:
         return self.publish(filename, self.store.get(key), tag, recipients)
 
 
+INGEST_ONLY = ("INGEST",)  # the job types the first worker takes when there are two or more (T-704, D-458)
+
+
 class Orchestrator:
     def __init__(
         self,
@@ -614,8 +617,11 @@ class Orchestrator:
             self._notify.shutdown(wait=True)
 
     def _worker(self) -> None:
+        # T-704 (D-458; scale review F-33): with two or more workers the first is the ingest's: long jobs on every
+        # other worker never make the night's ingest wait
+        only = INGEST_ONLY if self.n_workers > 1 and threading.current_thread().name == "worker-0" else ()
         while not self._stop.is_set():
-            jid = self.db.claim()
+            jid = self.db.claim(only)
             if jid is None:
                 with self._wake:
                     self._wake.wait(timeout=2.0)
