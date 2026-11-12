@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Generator, Iterator
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, NoReturn
 
 import pytest
 
@@ -186,6 +186,7 @@ PURE_MODULES: tuple[str, ...] = (
     "tests/unit/test_synth_hospital.py",
     "tests/unit/test_tb_llm_truncation.py",
     "tests/unit/test_test_hygiene.py",
+    "tests/unit/test_test_shard.py",
     "tests/unit/test_textproc_sqlguard.py",
     "tests/unit/test_trialbox_doctor.py",
     "tests/unit/test_two_phase_strict.py",
@@ -277,7 +278,23 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    g = parser.getgroup("trialbox shards (T-747, D-475)")
+    g.addoption("--shard", default=None, metavar="I/N",
+                help="run only the test files of shard I of N (tools/test_shard.py: a hash of the file path)")  # fmt: skip
+    g.addoption("--shard-record", default=None, metavar="PATH",
+                help="write the full collection and the shard's node ids to PATH, for `tools.test_shard check`")  # fmt: skip
+
+
 def pytest_configure(config: pytest.Config) -> None:
+    if config.getoption("--shard", None):  # T-747: after every other selection (-m, -k), only this shard's files
+        from tools import test_shard
+
+        try:
+            shard = test_shard.parse(config.getoption("--shard"))
+        except ValueError as exc:
+            raise pytest.UsageError(str(exc)) from exc
+        config.pluginmanager.register(test_shard.ShardPlugin(shard, config.getoption("--shard-record")), "tb-shard")
     config.addinivalue_line("markers", "req(*ids): spec v4 requirement ids this test verifies (§17.4)")
     config.addinivalue_line("markers", "nodb: a pure test: no PostgreSQL is started for it (TB_DB_URL refuses); "
                             "`make test-pure` runs these alone (T-653)")  # fmt: skip
@@ -420,3 +437,12 @@ def ingested(
         "cfg": cfg,
         "key": (site_key_dir / "site_hmac.key").read_bytes(),
     }
+
+
+@pytest.fixture
+def orch_box(synth_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """T-714 (D-482): the real orchestrator app in the production trust configuration, with the console's real
+    backend bound to it (``tests/orch_box.py``). A fresh box per test."""
+    from tests.orch_box import build
+
+    return build(tmp_path / "orch-box", synth_dir, monkeypatch)

@@ -142,7 +142,20 @@ CREATE TABLE IF NOT EXISTS id_limits (
 );
 CREATE INDEX IF NOT EXISTS id_limits_who ON id_limits (kind, who, at);
 """
-MIGRATIONS = (SCHEMA, SCHEMA_V2)
+# T-689 (D-456): a restart is counted per job (``attempts``), and the answers a job's model client gave are kept
+# while the job is unfinished, so the job replays them after a restart instead of asking the model again
+# (``judge_answers``: the answer as JSON under the job and a key; deleted when the job ends)
+SCHEMA_V3 = """
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS attempts BIGINT NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS judge_answers (
+  job_id TEXT NOT NULL,
+  key TEXT NOT NULL,
+  answer TEXT NOT NULL,
+  at TEXT NOT NULL,
+  PRIMARY KEY (job_id, key)
+);
+"""
+MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3)
 SCHEMA_NAME = "orch"
 
 TERMINAL = ("done", "failed")
@@ -275,6 +288,54 @@ class JobDB:
             "ORDER BY received_at, seq"
         )
         return [str(r[0]) for r in rows]
+
+    def count_restart(self, job_id: str) -> int:
+        """One more restart found this job interrupted (T-689, D-456); returns the new count."""
+        with self.tx() as con:
+            row = con.fetchone("UPDATE jobs SET attempts = attempts + 1 WHERE job_id = ? RETURNING attempts", (job_id,))
+        return int(row[0]) if row else 0
+
+    def restarts(self, job_id: str) -> int:
+        row = self._db.fetchone("SELECT attempts FROM jobs WHERE job_id = ?", (job_id,))
+        return int(row[0]) if row else 0
+
+    # ------------------------------------------------------------------ kept model answers (T-689, D-456)
+    def answer_get(self, job_id: str, key: str) -> str | None:
+        row = self._db.fetchone("SELECT answer FROM judge_answers WHERE job_id = ? AND key = ?", (job_id, key))
+        return str(row[0]) if row else None
+
+    def answer_put(self, job_id: str, key: str, answer: str, at: str, replace: bool = False) -> None:
+        """Keep one answer. The first one stays (two calls with one key in flight together gave the same question),
+        unless ``replace``: the kept one is another build's (the caller checked)."""
+        with self.tx() as con:
+            if replace:
+                con.execute(
+                    "INSERT INTO judge_answers (job_id, key, answer, at) VALUES (?,?,?,?) ON CONFLICT (job_id, key) "
+                    "DO UPDATE SET answer = EXCLUDED.answer, at = EXCLUDED.at",
+                    (job_id, key, answer, at),
+                )
+            else:
+                con.execute(
+                    "INSERT INTO judge_answers (job_id, key, answer, at) VALUES (?,?,?,?) ON CONFLICT DO NOTHING",
+                    (job_id, key, answer, at),
+                )
+
+    def answer_count(self, job_id: str) -> int:
+        return int(self._db.fetchval("SELECT count(*) FROM judge_answers WHERE job_id = ?", (job_id,)) or 0)
+
+    def answers_drop(self, job_id: str) -> int:
+        with self.tx() as con:
+            return int(con.execute("DELETE FROM judge_answers WHERE job_id = ?", (job_id,)))
+
+    def answers_sweep(self) -> int:
+        """Drop the kept answers of every job that is finished or gone (the orchestrator's start)."""
+        with self.tx() as con:
+            return int(
+                con.execute(
+                    "DELETE FROM judge_answers a WHERE NOT EXISTS (SELECT 1 FROM jobs j WHERE "
+                    "j.job_id = a.job_id AND j.state NOT IN ('done','failed'))"
+                )
+            )
 
     def unfinished(self, type_: str, ruleset: str | None) -> list[str]:
         """The jobs of ``type_`` for ``ruleset`` (none: the box-wide jobs, INGEST and RETENTION) that are queued or

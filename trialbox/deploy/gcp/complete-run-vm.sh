@@ -9,6 +9,8 @@
 #   tb-run-id         the run's id: the run directory is /var/lib/tb/runs/<id> (a new id never sees an older run's
 #                     parts, D-150 / review H-01); tb-patients the bulk size; tb-bucket an optional gs:// bucket
 #   tb-only           the parts of this VM (complete_run --only tags; a shard of a parallel run, D-148); empty: all
+#   tb-llm-concurrency  the model calls in flight (TB_SCREEN_LLM_CONCURRENCY): one value for every part, or several
+#                     ("1 4 16 48": the hospital part once per value, review test G-3); empty: the record's max_num_seqs
 #   tb-src-sha256     the sha256 of the code the driver uploads: anything else is refused before it is unpacked
 #   tb-max-minutes    hard cap of this boot (the driver sets the cloud cap too: max-run-duration, action STOP)
 #   tb-idle-minutes   the watchdog's idle limit in the run phase (default 20); tb-done-grace (default 30)
@@ -110,6 +112,7 @@ RUN_ID=$(printf '%s' "$RUN_ID" | tr -c 'A-Za-z0-9._-' '_')
 RUN="$TB/runs/$RUN_ID"
 PATIENTS=$(md tb-patients || echo 50000)
 ONLY=$(md tb-only || true)
+LLMC=$(md tb-llm-concurrency || true)
 BUCKET=$(md tb-bucket || true)
 SRC_SHA=$(md tb-src-sha256 || true)
 REC=/root/record
@@ -402,7 +405,7 @@ NODE_PATH=/opt/node-tools/node_modules TB_GPU_KEY="$KEY" TB_ENV=DEV PYTHONPATH=l
   .venv/bin/python -m tools.complete_run --dir "$RUN" --run-id "$RUN_ID" --model pair --patients "$PATIENTS" \
   --ocr tesseract --judge-url http://127.0.0.1:8080/judge/v1 --verifier-url http://127.0.0.1:8080/verifier/v1 \
   --live-record $REC/serving_config.json --skip walk backup update scale --resume --heartbeat "$HB" \
-  --after-part "/usr/local/sbin/tb-pack $RUN $BUCKET" ${ONLY:+--only $ONLY} >>"$LOG" 2>&1
+  --after-part "/usr/local/sbin/tb-pack $RUN $BUCKET" ${LLMC:+--llm-concurrency "$LLMC"} ${ONLY:+--only $ONLY} >>"$LOG" 2>&1
 echo "TB-RUN-EXIT $?" | tee -a "$LOG"
 touch "$TB/run-ended"
 /usr/local/sbin/tb-pack "$RUN" "$BUCKET"

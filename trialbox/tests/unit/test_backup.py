@@ -525,6 +525,11 @@ def test_a_restore_without_the_pack_keeps_the_site_rows_and_says_it_is_not_done(
     box: dict[str, object], tmp_path: Path, capsys: Any
 ) -> None:
     tar, _ref = _refdata_box(box, tmp_path)
+    # D-493 (review of T-728): a box with no opt-out register cannot say what was recorded after the backup, and its
+    # restore is "not complete" (exit 4). A box that has run its services has one, as this one now does
+    from tb_common.optout import OptOutRegister
+
+    OptOutRegister(str(box["url"])).close()
     f = _backup(box, tmp_path)[0]
     out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"], no_copy=True,  # type: ignore[arg-type]
                      refdata_dir=tmp_path / "empty")  # fmt: skip
