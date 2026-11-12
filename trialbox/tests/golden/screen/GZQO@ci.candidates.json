@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
+  "head": "e3ac1779aac2e0f5e13be8d94578e15142dc6697",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
+  "reason": "D-442 (T-207): no eGFR under 18 (catalogue egfr_ckd_epi_2021 and egfr_jsn_2009: age < 18, do not compute); an eGFR criterion of a patient under 18 at the index date is unknown with derived_adult_only instead of met or not met",
   "ref_date": "2026-11-01",
   "ruleset": "GZQO",
   "ruleset_version": "1.0.0",
@@ -144,7 +144,7 @@
     "ff6a3704b6b513fb1faefcbb096324c7"
    ],
    "candidates": 10,
-   "outcomes_sha": "2c1a7bec55b6a77af2ce3d9c165630c73cbdc523fc6137dfeb4db21ac5a741e2",
+   "outcomes_sha": "2f81f0d94ac2fd4306f6777de3c0e312bae0e74dcb0a37eb583b58aef396eb6a",
    "patients": 400,
    "structured_criteria": [
     "GZQO-INC-01",
@@ -248,9 +248,9 @@
      "unknown": 0
     },
     "GZQO-INC-08": {
-     "met": 164,
-     "not_met": 39,
-     "unknown": 197
+     "met": 160,
+     "not_met": 38,
+     "unknown": 202
     },
     "GZQO-INC-09": {
      "met": 238,
@@ -303,7 +303,7 @@
     "ffd49b25f1d323069cb65e0fdab23958"
    ],
    "candidates": 40,
-   "outcomes_sha": "50f0c45a31b84b2701e0617a9ac8bed3e8938e55b207c743f525b482626165f3",
+   "outcomes_sha": "445194444c3ee3937e6b363840ca2c068fc3202fdc58f1d6dd432122d6a83b8f",
    "patients": 2500,
    "structured_criteria": [
     "GZQO-INC-01",
@@ -407,9 +407,9 @@
      "unknown": 7
     },
     "GZQO-INC-08": {
-     "met": 981,
-     "not_met": 271,
-     "unknown": 1248
+     "met": 948,
+     "not_met": 261,
+     "unknown": 1291
     },
     "GZQO-INC-09": {
      "met": 1490,
@@ -471,7 +471,7 @@
     "ffd49b25f1d323069cb65e0fdab23958"
    ],
    "candidates": 49,
-   "outcomes_sha": "f53fe22343e1d35928faab734f4c8d9f980305055a03f10d4966de36410d9923",
+   "outcomes_sha": "f148bdc4b710ac139d8cf0e1539d214ab9f22bdc88e26c454b83cd6ce13d836f",
    "patients": 2500,
    "structured_criteria": [
     "GZQO-INC-01",
@@ -575,9 +575,9 @@
      "unknown": 7
     },
     "GZQO-INC-08": {
-     "met": 897,
-     "not_met": 249,
-     "unknown": 1354
+     "met": 865,
+     "not_met": 240,
+     "unknown": 1395
     },
     "GZQO-INC-09": {
      "met": 1481,
@@ -646,7 +646,7 @@
     "feffa436d392d52a2910d4f960540432"
    ],
    "candidates": 56,
-   "outcomes_sha": "2d032466a9017b974f3a73d0623184490053d65166a7d36a15ecb6e606b66723",
+   "outcomes_sha": "3841d9b9c47ae13f861a9fdae4933845dd95b5b55250fd86dca778e98162597e",
    "patients": 2500,
    "structured_criteria": [
     "GZQO-INC-01",
@@ -750,9 +750,9 @@
      "unknown": 8
     },
     "GZQO-INC-08": {
-     "met": 960,
-     "not_met": 296,
-     "unknown": 1244
+     "met": 924,
+     "not_met": 286,
+     "unknown": 1290
     },
     "GZQO-INC-09": {
      "met": 1503,
