@@ -46,6 +46,7 @@ import hashlib
 import hmac
 import json
 import re
+from collections import Counter
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -110,17 +111,53 @@ def resource_id(site_key: bytes, rtype: str, value: str) -> str:
     return hmac.new(site_key, f"{rtype}|{value}".encode(), hashlib.sha256).hexdigest()[:32]
 
 
+# full-width ASCII (U+FF01 to U+FF5E) and the ideographic space, to their half-width forms: what a Taiwanese or
+# Japanese system writes for the same code. Not Unicode NFKC: that also turns ``㎎`` into ``mg``, ``①`` into ``1``
+# and ``Ⅳ`` into ``IV``, which are other signs, not another width of the same code.
+_HALF_WIDTH = {**{c: c - 0xFEE0 for c in range(0xFF01, 0xFF5F)}, 0x3000: 0x20}
+# what a code looks like when it is written into a report (D-580): printable ASCII with no blank inside, and no
+# longer than this. Reason for the length: the longest code a look-up of this product is keyed by is JLAC10 (17
+# characters); a site's own prefix or suffix fits in the rest. A longer value, or one with a blank or a letter of
+# another script, is text someone typed into the code column and is counted, never written out.
+CODE_MAX = 40
+_CODE_SHAPE = re.compile(rf"[!-~]{{1,{CODE_MAX}}}")
+NO_CODE, NOT_A_CODE = "(no code)", "(not a code)"
+
+
+def fold_key(key: object) -> str:
+    """A look-up key as a person reads it (D-580): no blanks around it, full-width letters and digits made
+    half-width, lower case."""
+    return ("" if key is None else str(key)).translate(_HALF_WIDTH).strip().lower()
+
+
 @dataclass
 class Lookup:
     name: str
     key: str
     rows: dict[str, Row]
+    _folded: dict[str, Row | None] | None = field(default=None, repr=False, compare=False)
 
     @classmethod
     def load(cls, name: str, path: Path, key: str) -> Lookup:
-        with path.open(encoding="utf-8", newline="") as fh:
+        with path.open(encoding="utf-8-sig", newline="") as fh:  # a look-up saved with a byte order mark reads too
             rows = {r[key]: r for r in csv.DictReader(fh)}
         return cls(name, key, rows)
+
+    def find(self, key: object) -> Row | None:
+        """The row of ``key`` (NEW-DIN-6, D-580): as written first; else by its folded form (:func:`fold_key`) when
+        exactly one row of the table has it. Two rows that differ only by case, width or blanks are two codes of the
+        site: folding matches neither (never a guess). An empty key has no row."""
+        text = "" if key is None else str(key)
+        hit = self.rows.get(text)
+        if hit is not None or not text.strip():
+            return hit
+        if self._folded is None:
+            folded: dict[str, Row | None] = {}
+            for k, row in self.rows.items():
+                fk = fold_key(k)
+                folded[fk] = None if fk in folded else row
+            self._folded = folded
+        return self._folded.get(fold_key(text))
 
 
 @dataclass
@@ -256,6 +293,9 @@ class Mapper:
             "coding": self._b_coding,
             "period": self._b_period,
         }
+        # NEW-DIN-6 (D-580): rows a resource's ``where`` dropped because the look-up has no row for their code,
+        # by (source table, look-up, code as fed without its blanks): codes and counts, never a row
+        self.unmapped: Counter[tuple[str, str, str]] = Counter()
 
     # ------------------------------------------------------------------ scalar conversion
     def _parse_dt(self, raw: str) -> datetime:
@@ -370,8 +410,7 @@ class Mapper:
         return resource_id(self.key, rtype, str(row[col]))
 
     def lookup(self, spec: dict[str, Any], row: Row) -> Any:
-        lk = self.m.lookups[spec["name"]]
-        hit = lk.rows.get(str(row.get(spec["key"], "")))
+        hit = self.m.lookups[spec["name"]].find(row.get(spec["key"]))
         if hit is None:
             return spec.get("default")
         return hit.get(spec["field"]) or spec.get("default")
@@ -496,7 +535,7 @@ class Mapper:
         ``unit_column`` the row's own unit is checked against the unit the lookup says the source reports (its
         ``source_unit`` column, else ``ucum`` when ``factor`` is 1): a row in another unit, or in a unit nobody can
         check, has no value (R-31, D-215, :func:`tb_common.labvalue.read`)."""
-        lk = self.m.lookups[args["lookup"]].rows.get(str(row.get(args["key"], "")))
+        lk = self.m.lookups[args["lookup"]].find(row.get(args["key"]))
         raw = row.get(args["column"])
         if lk is None or raw is None or str(raw).strip() == "":
             return None
@@ -640,8 +679,9 @@ class Mapper:
                 except (KeyError, TypeError, ValueError):
                     continue
 
-    def map_row(self, rs: ResourceSpec, row: Row) -> Resource | None:
+    def map_row(self, rs: ResourceSpec, row: Row, seen: set[tuple[str, str]] | None = None) -> Resource | None:
         if rs.where and not self.cond(rs.where, row):
+            self._count_unmapped(rs, row, seen)
             return None
         res: Resource = {"resourceType": rs.type, "id": self.row_id(rs, row)}
         if rs.profile:
@@ -659,6 +699,51 @@ class Mapper:
         pruned: Resource = self.prune(res)
         return pruned
 
+    def _count_unmapped(self, rs: ResourceSpec, row: Row, seen: set[tuple[str, str]] | None = None) -> None:
+        """Count the row a ``where`` dropped when the reason is a code its look-up does not know (D-580): a
+        ``{lookup: ..., not_empty: true}`` condition whose look-up gives nothing for the row's key. ``seen`` (one
+        set per source row) keeps it to one count per row and look-up when a table makes several resources."""
+        for c in rs.where if isinstance(rs.where, list) else [rs.where]:
+            spec = c.get("lookup") if isinstance(c, dict) else None
+            if not spec or not c.get("not_empty") or self.lookup(spec, row) not in (None, ""):
+                continue
+            code = row.get(spec["key"])
+            at = (str(spec["name"]), "" if code is None else str(code).strip())
+            if seen is None or at not in seen:
+                self.unmapped[(rs.table, *at)] += 1
+                if seen is not None:
+                    seen.add(at)
+
+    def unmapped_by_code(self, chart_pattern: str | None = None) -> dict[str, dict[str, dict[str, int]]]:
+        """``{table: {look-up: {code: rows}}}``, the largest count first: every code, none cut (OD-10). Only what
+        looks like a code is written out (``_CODE_SHAPE``, and not the site's chart-number pattern): a value with a
+        blank, a name or a number of a patient that a mis-mapped column put where the code belongs is counted under
+        ``NOT_A_CODE``, an empty one under ``NO_CODE``. Nothing identifying reaches a report."""
+        chart = re.compile(chart_pattern) if chart_pattern else None
+        counts: Counter[tuple[str, str, str]] = Counter()
+        for (table, name, code), n in self.unmapped.items():
+            if not code:
+                code = NO_CODE
+            elif not _CODE_SHAPE.fullmatch(code) or (chart is not None and chart.fullmatch(code)):
+                code = NOT_A_CODE
+            counts[(table, name, code)] += n
+        out: dict[str, dict[str, dict[str, int]]] = {}
+        for (table, name, code), n in sorted(counts.items(), key=lambda kv: (kv[0][:2], -kv[1], kv[0][2])):
+            out.setdefault(table, {}).setdefault(name, {})[code] = n
+        return out
+
+    def unmapped_summary(self) -> dict[str, dict[str, dict[str, int]]]:
+        """``{table: {look-up: {"rows": dropped rows, "codes": distinct values}}}`` for the night's report."""
+        rows: Counter[tuple[str, str]] = Counter()
+        codes: Counter[tuple[str, str]] = Counter()
+        for (table, name, _code), n in self.unmapped.items():
+            rows[(table, name)] += n
+            codes[(table, name)] += 1
+        out: dict[str, dict[str, dict[str, int]]] = {}
+        for table, name in sorted(rows):
+            out.setdefault(table, {})[name] = {"rows": rows[(table, name)], "codes": codes[(table, name)]}
+        return out
+
     def row_hash(self, row: Row) -> str:
         """The source row's fingerprint: an HMAC under the site key of its canonical JSON (24 hex)."""
         body = json.dumps(row, sort_keys=True, default=str, ensure_ascii=False).encode("utf-8")
@@ -667,8 +752,9 @@ class Mapper:
     def map_table(self, table: str, rows: Iterator[Row]) -> Iterator[Resource]:
         specs = [r for r in self.m.resources if r.table == table]
         for row in rows:
+            seen: set[tuple[str, str]] = set()
             for rs in specs:
-                res = self.map_row(rs, row)
+                res = self.map_row(rs, row, seen)
                 if res is not None:
                     yield res
 
