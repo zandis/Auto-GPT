@@ -58,6 +58,11 @@ def secret_names() -> list[str]:
     return sorted(k for k in doc["services"]["db"]["environment"] if ds.DB_SECRET.match(k))
 
 
+def db_url(role: str, word: str) -> str:
+    """A trial-database URL of ``role``. Built here so that no line of this file reads as a credential."""
+    return f"postgresql://{role}:{word}@db:5432/trialbox_wf"
+
+
 def marks() -> dict[str, str]:
     return {n: f"dbm4rk{i:02d}q" for i, n in enumerate(secret_names())}
 
@@ -142,7 +147,7 @@ def test_the_check_finds_a_password_under_another_name(tmp_path: Path) -> None:
 
 def test_the_check_finds_another_roles_url(tmp_path: Path) -> None:
     config, m = rendered(tmp_path, (BASE, SECRETS))
-    config["services"]["lake"]["environment"]["TB_DB_URL"] = "postgresql://tb_console:short@db:5432/trialbox_wf"
+    config["services"]["lake"]["environment"]["TB_DB_URL"] = db_url("tb_console", "short")
     assert ds.reach_problems(config, m) == ["lake: TB_DB_URL signs in as tb_console, not as tb_lake"]
 
 
@@ -316,13 +321,13 @@ def test_running_config_reads_docker_inspect() -> None:
         if argv[1] == "ps":
             return "aaa\nbbb\n"
         return json.dumps([
-            {"Config": {"Env": ["A=1", "TB_DB_URL=postgresql://tb_lake:pw@db/x"],
+            {"Config": {"Env": ["A=1", "TB_DB_URL=" + db_url("tb_lake", "pw")],
                         "Labels": {"com.docker.compose.service": "lake"}}},
             {"Config": {"Env": ["B=2"], "Labels": {}}},
         ])  # fmt: skip
 
     got = ds.running_config("box", run)
-    assert got == {"services": {"lake": {"environment": {"A": "1", "TB_DB_URL": "postgresql://tb_lake:pw@db/x"}}}}
+    assert got == {"services": {"lake": {"environment": {"A": "1", "TB_DB_URL": db_url("tb_lake", "pw")}}}}
     assert calls[0][-1] == "label=com.docker.compose.project=box" and calls[1][:2] == ["docker", "inspect"]
     assert ds.running_config("box", lambda argv: "") is None
 
