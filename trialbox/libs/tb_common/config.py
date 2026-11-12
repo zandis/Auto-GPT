@@ -477,6 +477,7 @@ DECLARED: dict[str, Declared] = {
     "TB_DEMO_OPINIONS": Declared("str", "", "demo: recorded first and second checks"),
     "TB_DEMO_PASSWORD": Declared("str", "", "demo: account password (synthetic)"),
     "TB_DEMO_RUN": Declared("str", "/etc/trialbox-demo/run.sh", "demo: start script"),
+    "TB_DEMO_SITE_LANG": Declared("str", "", "demo: hospital records and notes in ja or zh-TW (unset: both campuses)"),
     "TB_DEMO_WAIT_S": Declared("float", "900", "demo: seconds to wait for health"),
     "TB_DIRECTORY_URL": Declared("str", "", "platform check: directory URL"),
     "TB_DOCKER": Declared("str", "docker", "the docker command"),
@@ -590,6 +591,7 @@ DECLARED: dict[str, Declared] = {
     "TB_LINK_PORT": Declared("int", "", "two-device link: this device's port"),
     "TB_LINK_ROLE": Declared("str", "", "two-device link: this device's role"),
     "TB_LLM_API_KEY": Declared("str", "", "gateway: key of the model admin endpoints (secret)"),
+    "TB_LLM_STUB_NOTE_LANGS": Declared("str", "", "stub model: note languages it reads besides zh-TW (ja; demo only)"),
     "TB_LLM_API_KEY_FILE": Declared(
         "path", "", "gateway, model-guard: the model key file (compose secret, D-437), read before TB_LLM_API_KEY"
     ),
