@@ -484,6 +484,21 @@ class GuardedLlm:
             )
         try:
             out = fn(*args, **kw)
+        except LlmPromptUnqualified as exc:
+            # the gateway (or the registry) refuses this prompt version as unqualified (D-359): the next call is
+            # refused with the same words, so the job stops here. It is not a model failure (the breaker), and a job
+            # that went on would ask every pair and end as "the model did not answer" (review of 2026-11-12).
+            if b is not None:
+                b.release()
+            prompt = str(args[0]) if args and isinstance(args[0], str) else "a prompt"
+            raise StepFailed(
+                "running",
+                f"The {self._label} model's gateway refused {prompt} as unqualified (prompt_unqualified: {exc}), "
+                f"and it refuses every further call the same way, so the job stopped at the first one. No model "
+                f"was asked and nothing was sent. The model service is not the cause: this box does not serve that "
+                f"prompt version. Approve the study again on this box (it then pins the served version), or install "
+                f"the prompt's qualification record.",
+            ) from exc
         except NOT_DOWN:
             if b is not None:
                 b.release()

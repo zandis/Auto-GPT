@@ -53,6 +53,7 @@ class NoteBlock:
     may_block: bool
     policy: str
     reason: str
+    code: str = ""  # the reason's code (``evaluate.NOTE_BLOCK_CODES``, or ``ok``): what a page words the refusal by
 
 
 def register_now() -> frozenset[str]:
@@ -67,9 +68,9 @@ def note_block_of(judge: NoteJudge | None, ctx: Any = None) -> NoteBlock:
     the evaluator), the rule applied now."""
     if ctx is not None:
         return decision_of(ctx).note_block(judge)
-    from orchestrator.scenarios.evaluate import effective_note_block
+    from orchestrator.scenarios.evaluate import note_block_why
 
-    return NoteBlock(*effective_note_block(judge))
+    return NoteBlock(*note_block_why(judge))
 
 
 def configured_note_block() -> str:
@@ -206,10 +207,10 @@ class DecisionContext:
         """Whether a note answer may exclude on this job, for this judge's pair of models. Decided on the first
         call; a later call can only withdraw it (the canary gate shut, note reading held), never grant it again, so
         one job never excludes under two decisions."""
-        from orchestrator.scenarios.evaluate import effective_note_block
+        from orchestrator.scenarios.evaluate import note_block_why
 
         key = (id(getattr(judge, "llm", None)), id(getattr(judge, "verifier", None)))
-        now = NoteBlock(*effective_note_block(judge))
+        now = NoteBlock(*note_block_why(judge))
         first = self._note_block.get(key)
         if first is None or (first.may_block and not now.may_block):
             self._note_block[key] = first = now

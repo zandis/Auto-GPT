@@ -127,6 +127,7 @@
         "verifier_model": {"type": ["string", "null"]},
         "note_block": {"type": "string", "enum": ["both_agree", "never"]},
         "note_block_reason": {"type": "string"},
+        "note_block_code": {"type": "string", "description": "Why a note answer could not exclude, as a code (ok when it could); the mail and the PDF say it in the reader's language."},
         "configured_note_block": {"type": "string", "enum": ["both_agree", "never"]},
         "may_block": {"type": "boolean"},
         "disagreements": {"type": "integer"},
