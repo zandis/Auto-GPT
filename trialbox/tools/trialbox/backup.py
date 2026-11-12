@@ -99,6 +99,10 @@ DEFAULT_DIRS = {
     "console": "console-data",  # as the update path's backup (update.ComposeBox) already takes it
 }
 LAKE_SKIP_TOP = ("tmp",)  # DuckDB spill (lake.store temp_dir default)
+# D-455 (H1): the lake's served files; listed and read under the lake's own lock (lake.store.lake_lock, D-462), so a
+# rebuild's swap never falls between the listing and the reads, and checked against their sidecars after the read
+LAKE_LOCKED = ("db", "parquet")
+LAKE_LOCK = ".rebuild.lock"
 
 
 class BackupError(RuntimeError):
@@ -356,11 +360,13 @@ def take_snapshot(src: DbSource, work: Path, env: Mapping[str, str]) -> dict[str
         if not (d / f"{src.name}.rows").is_file():
             shutil.copyfile(d / f"{src.name}.dump", work / f"{src.name}.dump")
             return {"rows_from": "live", "rows": row_counts(src), "excluded_tables": [], "refdata_schema": None,
-                    "site_rows": {}, "packs": [], "site_files": {}, "row_hash": _sched.ROW_HASH}  # fmt: skip
+                    "site_rows": {}, "packs": [], "site_files": {}, "row_hash": _sched.ROW_HASH,
+                    "snapshot_at": datetime.now(UTC).isoformat(timespec="milliseconds")}  # fmt: skip
         for f in d.glob(f"{src.name}.*"):
             if f.is_file():
                 shutil.copyfile(f, work / f.name)
     else:
+        at = datetime.now(UTC).isoformat(timespec="milliseconds")  # D-455 (M3): the snapshot is taken right after this
         script = work / f"{src.name}.sql"
         pg_dump = " ".join(shlex.quote(a) for a in _cmd(env, "TB_PG_DUMP_CMD", "pg_dump"))
         script.write_text(_sched.snapshot_script(str(work), src.name, pg_dump, f'--dbname "{src.dsn}"', src.schemas,
@@ -374,7 +380,8 @@ def take_snapshot(src: DbSource, work: Path, env: Mapping[str, str]) -> dict[str
             os.umask(old)
         if r.returncode != 0:
             raise BackupError(f"the snapshot of {src.name} failed: {r.stderr.decode(errors='replace').strip()[-400:]}")
-        (work / f"{src.name}.dump.json").write_text(json.dumps(_sched.snapshot_meta(src.name, src.refdata)))
+        (work / f"{src.name}.dump.json").write_text(json.dumps({**_sched.snapshot_meta(src.name, src.refdata),
+                                                                "snapshot_at": at}))  # fmt: skip
     try:
         return _sched.parse_snapshot(work, src.name)
     except (OSError, RuntimeError, ValueError) as e:
@@ -560,6 +567,8 @@ def select_files(name: str, root: Path) -> tuple[list[str], dict[str, int]]:
             ndjson_keep = {cur.read_text(encoding="utf-8").strip(), *snaps[-2:]}
     for rel in _walk(root):
         parts = Path(rel).parts
+        if name == "lake" and rel == LAKE_LOCK:  # the lake's lock file (empty; the backup takes it, D-455)
+            continue
         why = ""
         if name == "lake" and parts[0] in LAKE_SKIP_TOP:
             why = "lake tmp/ (spill)"
@@ -603,6 +612,143 @@ def _add(tar: tarfile.TarFile, path: Path, arcname: str) -> tuple[str, int]:
         if (after.st_size, after.st_mtime_ns, after.st_ino) == (before.st_size, before.st_mtime_ns, before.st_ino):
             return hr.sha.hexdigest(), hr.n
     raise BackupError(f"{arcname} kept changing while it was backed up ({READ_TRIES} reads); run the backup again")
+
+
+@contextlib.contextmanager
+def _lake_lock(root: Path) -> Iterator[bool]:
+    """The lake's lock (``lake/.rebuild.lock``, an exclusive ``flock``, the same file ``lake.store.lake_lock`` takes):
+    a rebuild's swap, a hold and a release wait while it is held. ``flock`` needs no write access, so a read-only
+    mount (the backup container) takes it too. False when there is no lock file to take (a lake never rebuilt)."""
+    import fcntl
+
+    path = root / LAKE_LOCK
+    try:
+        fh = path.open("a")
+    except OSError:
+        try:
+            fh = path.open("r")
+        except OSError:
+            yield False
+            return
+    with fh:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        try:
+            yield True
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
+def _sidecar_sha(text: bytes) -> str:
+    """The hash a ``sha256sum``-format sidecar names (``<sha>  <name>``), or "" when it names none."""
+    first = text.decode("utf-8", errors="replace").split()
+    return first[0] if first and len(first[0]) == 64 else ""
+
+
+def _lake_listing_problems(root: Path, locked: Sequence[str]) -> list[str]:
+    """What makes a listing of the lake's served files not one state (D-455, H1): a sidecar whose file is not
+    listed, a ``db/<snapshot>.duckdb`` whose Parquet folder is missing or empty."""
+    have = set(locked)
+    out = [
+        f"{r}: sidecar without its file" for r in locked if r.endswith(".sha256") and r[: -len(".sha256")] not in have
+    ]
+    for r in locked:
+        p = Path(r)
+        if p.parts[0] == "db" and len(p.parts) == 2 and p.suffix == ".duckdb":
+            folder = f"parquet/snapshot={p.stem}/"
+            if not any(x.startswith(folder) and x.endswith(".parquet") for x in have):
+                out.append(f"{r}: its Parquet folder parquet/snapshot={p.stem} is missing or empty")
+    return out
+
+
+def _add_bytes(tar: tarfile.TarFile, data: bytes, arcname: str, mtime: float) -> tuple[str, int]:
+    info = tarfile.TarInfo(arcname)
+    info.size, info.mtime, info.mode = len(data), int(mtime), 0o600
+    tar.addfile(info, io.BytesIO(data))
+    return hashlib.sha256(data).hexdigest(), len(data)
+
+
+def _add_lake(tar: tarfile.TarFile, root: Path, manifest: dict[str, Any]) -> tuple[int, dict[str, int]]:
+    """The lake (D-455, H1). Its served files (``db/``, ``parquet/``) are listed and read under the lake's lock, so a
+    rebuild's swap waits for them: never half the old snapshot and half the new. A listing that is not one state
+    is listed again, up to ``READ_TRIES``; after the read every file taken with its sidecar must hash to it and the
+    files must still be the ones listed, or the backup fails (nothing vanished, nothing new). The rest of the lake
+    (NDJSON, the vector store, the site inputs) is read after, without the lock. Returns the files taken and the
+    count left out per reason."""
+    left: dict[str, int] = {}
+    n = 0
+    for attempt in range(1, READ_TRIES + 1):
+        with _lake_lock(root) as locked_ok:
+            rels, left = select_files("lake", root)
+            locked = [r for r in rels if Path(r).parts[0] in LAKE_LOCKED]
+            problems = _lake_listing_problems(root, locked)
+            if problems:
+                if locked_ok:  # under the lock nothing moves: this is the lake as it is on disk, damaged
+                    raise BackupError(f"the lake fails its own check ({problems[:3]}): a person looks at it "
+                                      "(trialbox doctor; the lake's /verify) before it can be backed up")  # fmt: skip
+                if attempt == READ_TRIES:
+                    raise BackupError(f"the lake's files are not one state ({problems[:3]}) after {READ_TRIES} "
+                                      "listings without a lake lock; run the backup again")  # fmt: skip
+                continue
+            sides: dict[str, str] = {}
+            for rel in locked:
+                arc = f"dirs/lake/{rel}"
+                try:
+                    if rel.endswith(".sha256"):
+                        data = (root / rel).read_bytes()
+                        manifest["files"][arc], manifest["sizes"][arc] = _add_bytes(
+                            tar, data, arc, (root / rel).stat().st_mtime
+                        )
+                        sides[rel[: -len(".sha256")]] = _sidecar_sha(data)
+                    else:
+                        manifest["files"][arc], manifest["sizes"][arc] = _add(tar, root / rel, arc)
+                except FileNotFoundError as e:
+                    raise BackupError(f"lake file {rel} vanished while the lake was read "
+                                      f"{'under its lock' if locked_ok else '(no lake lock)'}; run the backup "
+                                      "again") from e  # fmt: skip
+                n += 1
+            bad = [r for r, want in sides.items() if manifest["files"].get(f"dirs/lake/{r}") != want]
+            again = [r for r in select_files("lake", root)[0] if Path(r).parts[0] in LAKE_LOCKED]
+            if bad or again != locked:
+                raise BackupError(f"the lake changed while it was read: {len(bad)} file(s) differ from their sidecar "
+                                  f"{bad[:3]}, listing {'changed' if again != locked else 'unchanged'}; run the "
+                                  "backup again")  # fmt: skip
+            break
+    for rel in [r for r in rels if Path(r).parts[0] not in LAKE_LOCKED]:
+        arc = f"dirs/lake/{rel}"
+        try:
+            manifest["files"][arc], manifest["sizes"][arc] = _add(tar, root / rel, arc)
+        except FileNotFoundError:  # removed since the listing (a retention prune): not in the backup
+            left["removed while the backup ran"] = left.get("removed while the backup ran", 0) + 1
+            continue
+        n += 1
+    return n, left
+
+
+def lake_check(root: Path) -> dict[str, Any]:
+    """The lake's own check (``lake.store.Lake.verify``, D-462) of every snapshot under ``root``: each
+    ``db/<snapshot>.duckdb`` and each Parquet file of its folder against its ``.sha256`` sidecar, and the folder not
+    empty. Run by the restore on the restored lake before it is put in place (D-455, H1). A file with no sidecar at
+    all (a lake from before sidecars) is listed in ``unsigned``, not a problem: nothing contradicts it."""
+    problems: list[str] = []
+    unsigned: list[str] = []
+    snaps = sorted(p for p in (root / "db").glob("*.duckdb")) if (root / "db").is_dir() else []
+
+    def check(f: Path) -> None:
+        side = f.with_name(f.name + ".sha256")
+        if not side.is_file():
+            unsigned.append(str(f.relative_to(root)))
+        elif _sidecar_sha(side.read_bytes()) != _sha_file(f):
+            problems.append(f"{f.relative_to(root)}: content does not match its .sha256 sidecar")
+
+    for db in snaps:
+        check(db)
+        folder = root / "parquet" / f"snapshot={db.stem}"
+        files = sorted(folder.glob("*.parquet"))
+        if not files:
+            problems.append(f"parquet/snapshot={db.stem}: missing or empty")
+        for f in files:
+            check(f)
+    return {"snapshots": len(snaps), "problems": problems, "unsigned": len(unsigned)}
 
 
 def _write_sidecar(file: Path, sha: str) -> None:
@@ -695,6 +841,7 @@ def backup(
                 "schemas": list(src.schemas), "rows_from": snap["rows_from"], "rows": snap["rows"],
                 "excluded_tables": snap["excluded_tables"], "refdata_schema": snap["refdata_schema"],
                 "site_rows": snap["site_rows"], "row_hash": snap.get("row_hash", _sched.ROW_HASH),
+                "snapshot_at": snap.get("snapshot_at"),
             }  # fmt: skip
             if snap["refdata_schema"]:
                 manifest["refdata_packs"] = snap["packs"]
@@ -714,6 +861,12 @@ def backup(
                             arc = f"db/{src.name}.site.{t}.copy"
                             manifest["files"][arc], manifest["sizes"][arc] = _add(tar, f, arc)
                 for dname, root in sorted(dirs.items()):
+                    if dname == "lake":
+                        n, left = _add_lake(tar, root, manifest)
+                        manifest["dirs"][dname] = {"path": str(root), "files": n}
+                        if left:
+                            manifest["excluded"][dname] = left
+                        continue
                     rels, left = select_files(dname, root)
                     n = 0
                     for rel in rels:
@@ -864,6 +1017,58 @@ def keep_copy(env: Mapping[str, str], dirs: Mapping[str, Path], public_key: Path
     return out[0]
 
 
+# D-455 (M3): events whose effect a restore loses when they came after the database snapshot, and whose loss is
+# unsafe: an opt-out (the patient comes back into screening), an erasure, a break-glass grant, an EDC signature or
+# submission, a consent change. The audit chain is copied after the snapshots, so it still holds them.
+REAPPLY_EVENTS = frozenset({
+    "console.opt_out", "optout.worker", "screen.opt_out_removed", "screen.opt_out_at_publish", "edc.erase_hidden",
+    "console.breakglass_open", "console.breakglass_use", "console.breakglass_review", "console.breakglass_end",
+    "edc.sign", "edc.sent", "consent.release", "console.consent_version_override",
+})  # fmt: skip
+
+
+def _parse_ts(v: Any) -> datetime | None:
+    try:
+        t = datetime.fromisoformat(str(v))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=UTC)
+
+
+def snapshot_time(manifest: Mapping[str, Any]) -> tuple[datetime, str]:
+    """The earliest database snapshot of a backup, and where it comes from (``snapshot_at``; a backup made before
+    D-455 has only ``created_at``, the backup's start, which is before its snapshots)."""
+    ats = [t for d in manifest.get("databases", {}).values() if (t := _parse_ts(d.get("snapshot_at"))) is not None]
+    if ats:
+        return min(ats), "snapshot_at"
+    made = _parse_ts(manifest.get("created_at")) or datetime.now(UTC)
+    return made, "created_at"
+
+
+def events_to_reapply(audit_dir: Path | None, since: datetime) -> list[dict[str, Any]]:
+    """The audit chain's events after ``since`` whose effect the restored databases do not hold (``REAPPLY_EVENTS``):
+    time, event and where in the chain (file and line), never the detail (it may name a patient)."""
+    out: list[dict[str, Any]] = []
+    if audit_dir is None or not Path(audit_dir).is_dir():
+        return out
+    for f in sorted(Path(audit_dir).rglob("*.jsonl")):
+        with contextlib.suppress(OSError):
+            for i, ln in enumerate(f.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+                if '"event"' not in ln:
+                    continue
+                try:
+                    rec = json.loads(ln)
+                except ValueError:
+                    continue
+                if not isinstance(rec, dict) or rec.get("event") not in REAPPLY_EVENTS:
+                    continue
+                ts = _parse_ts(rec.get("ts"))
+                if ts is not None and ts > since:
+                    out.append({"ts": str(rec["ts"]), "event": rec["event"],
+                                "where": f"{f.relative_to(audit_dir)}:{i}"})  # fmt: skip
+    return sorted(out, key=lambda e: str(e["ts"]))
+
+
 def _audit(dirs: Mapping[str, Path], env: Mapping[str, str], event: str, sha: str, detail: dict[str, Any]) -> str:
     """Append ``event`` to the box's audit log (the ``audit`` directory, else ``TB_AUDIT_DIR``); returns where, or
     why not."""
@@ -976,6 +1181,15 @@ def restore(
                 _audit(targets, env, "backup.restore_failed", sha, {**base, "error": str(e)[-300:]})
             back = f"; the box before it is kept in {copy}: trialbox restore {copy} puts it back" if copy else ""
             raise BackupError(f"{e}{back}") from e
+        lake: dict[str, Any] = {"snapshots": 0, "problems": [], "unsigned": 0, "checked": False}
+        if (work / "dirs" / "lake").is_dir():  # D-455 (H1): the lake's own check, before any folder moves
+            lake = {**lake_check(work / "dirs" / "lake"), "checked": True}
+            if lake["problems"]:
+                msg = f"the restored lake fails its own check: {lake['problems'][:3]}; no folder was replaced"
+                with contextlib.suppress(Exception):
+                    _audit(targets, env, "backup.restore_failed", sha, {**base, "error": msg[-300:]})
+                back = f"; the box before it is kept in {copy}: trialbox restore {copy} puts it back" if copy else ""
+                raise BackupError(f"{msg} (the databases are restored already){back}")
         for dname in manifest["dirs"]:
             if dname == HOST and HOST not in targets:
                 continue
@@ -989,6 +1203,13 @@ def restore(
             src = work / "dirs" / dname
             if src.exists():
                 shutil.copytree(src, dest, dirs_exist_ok=True)
+        since, since_from = snapshot_time(manifest)
+        audit_dir = targets.get("audit") or (Path(env["TB_AUDIT_DIR"]) if env.get("TB_AUDIT_DIR") else None)
+        reapply = events_to_reapply(audit_dir, since)  # D-455 (M3): read from the restored chain, before our events
+        if reapply:
+            _audit(targets, env, "backup.restore_reapply", sha, {
+                **base, "since": since.isoformat(timespec="milliseconds"), "since_from": since_from,
+                "count": len(reapply), "events": reapply[:200]})  # fmt: skip
         packs = manifest.get("refdata_packs", [])
         twf = manifest["databases"].get("trialbox_wf", {})
         if twf.get("refdata_schema") and packs:
@@ -1004,7 +1225,8 @@ def restore(
     return {"ok": not refdata["missing"], "site": manifest["site"], "created_at": manifest["created_at"],
             "layout": manifest.get("layout", 1), "rows": checked, "dirs": sorted(manifest["dirs"]),
             "refdata": refdata, "warnings": warnings, "kept_copy": str(copy) if copy else None, "copy": copy_note,
-            "host": host,
+            "host": host, "lake_check": lake,
+            "to_reapply": reapply, "reapply_since": since.isoformat(timespec="milliseconds"), "complete": not reapply,
             "audit": audited}  # fmt: skip
 
 

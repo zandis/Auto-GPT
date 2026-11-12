@@ -373,12 +373,29 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_BACKUP_ALERT_CMD": Declared("str", "", "command run when the newest good backup is too old"),
     "TB_BACKUP_DIRS": Declared("str", "", "extra host folders put in a backup"),
+    "TB_BACKUP_JOB_WAIT_S": Declared(
+        "float",
+        "21600",
+        "backup waits this long for jobs, then goes on anyway: half of (36 h alert - 24 h cron), D-455",
+    ),
     "TB_BACKUP_KEEP": Declared("int", "14", "backups kept per target"),
+    "TB_BACKUP_KEEP_SHARE": Declared(
+        "float", "0.5", "part of a target's capacity this box's backups may fill; the rest is for others (D-455)"
+    ),
     "TB_BACKUP_MAILTO": Declared("str", "", "address told when the backup is too old"),
     "TB_BACKUP_MAX_AGE_HOURS": Declared("float", "", "age after which backup-status alerts"),
+    "TB_BACKUP_MIN_MBPS": Declared(
+        "float", "5", "slowest MB/s a backup step may run before it counts as hung: a tenth of a box disk (D-455)"
+    ),
     "TB_BACKUP_OFFBOX": Declared("str", "", "the off-box backup target"),
     "TB_BACKUP_PUBKEY": Declared("str", "deploy/secrets/backup.pub", "public key backups are encrypted to"),
-    "TB_BACKUP_QUIESCE": Declared("str", "pause", "how services are quiesced for a backup (pause or none)"),
+    "TB_BACKUP_QUERY_TIMEOUT_S": Declared(
+        "float", "60", "limit of the backup's small queries (sizes, job count); not work sized by data (D-455)"
+    ),
+    "TB_BACKUP_QUIESCE": Declared("str", "off", "off: the snapshot alone; pause: hold services still (D-455)"),
+    "TB_BACKUP_STEP_START_S": Declared(
+        "float", "900", "seconds of a backup step that do not grow with the data (container, connection; D-455)"
+    ),
     "TB_BACKUP_TARGETS": Declared("str", "", "backup-nightly target folders"),
     "TB_BAKEOFF_API_KEY": Declared("str", "", "judge bake-off tool: API key of a cloud endpoint (tool only)"),
     "TB_BENCH_EMBED_CMD": Declared("str", "", "complete-run tool: the embedding benchmark command"),

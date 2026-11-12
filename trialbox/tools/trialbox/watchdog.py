@@ -19,6 +19,14 @@ the stack is down) the event waits in ``deploy/watchdog/pending_audit.jsonl`` an
 restart goes unaudited. The detail holds the service, the container name, how long it was unhealthy and the health
 check's failing streak and exit code, never the check's output.
 
+Two cases are left alone (D-455). A container Docker reports as **paused** (``docker compose pause``, e.g. a backup
+with ``TB_BACKUP_QUIESCE=pause``) is never restarted, whatever its health says: a paused service's probe times out, so
+Docker calls it unhealthy, but it is held on purpose; its unhealthy clock does not run while it is paused. While the
+**maintenance flag** ``deploy/watchdog/maintenance`` exists, nothing is restarted and each service the watchdog would
+have acted on is listed as ``maintenance``. The flag is JSON (who, why, since, and the pid of the process holding it,
+:func:`maintenance`); a flag whose process is gone is stale and ignored (removed outside a dry run), so a killed
+backup never leaves the watchdog off. A flag a person wrote (no pid) stays until the person removes it.
+
 Run it every minute: ``python3 -m tools.trialbox watchdog`` (one pass, for a systemd timer; T-108b installs the unit)
 or ``--interval 60`` (a loop). ``--dry-run`` lists what it would do and changes nothing.
 """
@@ -31,7 +39,8 @@ import shlex
 import subprocess
 import sys
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -74,11 +83,13 @@ class Container:
     health: str  # healthy | unhealthy | starting | none
     failing_streak: int
     last_exit: int | None
+    paused: bool = False  # D-455: held on purpose (docker compose pause); never restarted
 
     @classmethod
     def from_inspect(cls, doc: dict[str, Any]) -> Container:
         labels = (doc.get("Config") or {}).get("Labels") or {}
-        health = (doc.get("State") or {}).get("Health") or {}
+        st = doc.get("State") or {}
+        health = st.get("Health") or {}
         log = health.get("Log") or []
         last = log[-1].get("ExitCode") if log and isinstance(log[-1], dict) else None
         return cls(
@@ -89,7 +100,73 @@ class Container:
             health=str(health.get("Status") or "none"),
             failing_streak=int(health.get("FailingStreak") or 0),
             last_exit=last if isinstance(last, int) else None,
+            paused=bool(st.get("Paused")) or st.get("Status") == "paused",
         )
+
+
+MAINTENANCE = "maintenance"  # the flag's file name in deploy/watchdog/ (D-455)
+
+
+def _start_time(pid: int) -> str | None:
+    """The process's start time in clock ticks since boot (``/proc/<pid>/stat`` field 22), or None where there is
+    no ``/proc``: with the pid it names one process, so a pid reused by another process is not the flag's holder."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    fields = stat.rsplit(")", 1)[-1].split()  # the name in () may hold spaces
+    return fields[19] if len(fields) > 19 else None
+
+
+def _alive(pid: int, start: str | None = None) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:  # another user's process: it is there
+        pass
+    if start is not None:  # D-455: the same pid, another process (the holder died, the pid was given out again)
+        now = _start_time(pid)
+        return now is None or now == start
+    return True
+
+
+def maintenance_state(deploy: Path, clean: bool = False) -> dict[str, Any] | None:
+    """The maintenance flag when it is in force, else None. A flag whose holder process is gone is stale: None, and
+    removed when ``clean``. A flag without a pid (written by a person) is in force until it is removed."""
+    f = deploy / "watchdog" / MAINTENANCE
+    try:
+        doc = json.loads(f.read_text(encoding="utf-8") or "{}")
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError):
+        doc = {"by": "unknown", "why": "an unreadable flag file"}  # a person's flag in another form: honoured
+    doc = doc if isinstance(doc, dict) else {}
+    pid = doc.get("pid")
+    start = doc.get("pid_start")
+    if isinstance(pid, int) and not _alive(pid, start if isinstance(start, str) else None):
+        if clean:
+            f.unlink(missing_ok=True)
+        return None
+    return doc
+
+
+@contextmanager
+def maintenance(deploy: Path, by: str, why: str) -> Iterator[Path]:
+    """Hold the maintenance flag while the block runs (removed after it, whatever happens; a killed holder leaves a
+    stale flag the watchdog ignores)."""
+    d = deploy / "watchdog"
+    d.mkdir(parents=True, exist_ok=True)
+    f = d / MAINTENANCE
+    tmp = d / f".{MAINTENANCE}.tmp"
+    me = os.getpid()
+    tmp.write_text(json.dumps({"by": by, "why": why, "since": int(time.time()), "pid": me,
+                               "pid_start": _start_time(me)}), encoding="utf-8")  # fmt: skip
+    os.replace(tmp, f)
+    try:
+        yield f
+    finally:
+        f.unlink(missing_ok=True)
 
 
 def compose_audit(deploy: Path, run: Runner = run_cmd) -> AuditWriter:
@@ -225,10 +302,17 @@ class Watchdog:
         state = self._load()
         actions: list[dict[str, Any]] = []
         seen: set[str] = set()
+        flag = maintenance_state(self.deploy, clean=not self.dry_run)
+        if flag is not None:
+            self.out(f"watchdog: maintenance on ({flag.get('by', '?')}: {flag.get('why', '')}): nothing is restarted")
         for c in self.containers():
             seen.add(c.service)
             s = state.setdefault(c.service, {})
             s["restarts"] = [t for t in s.get("restarts", []) if now - float(t) < self.window_s]
+            if c.paused:  # D-455: held on purpose; its probe times out, it is not hung. The clock starts afresh after
+                s.pop("unhealthy_since", None)
+                actions.append({"service": c.service, "action": "paused", "unhealthy_minutes": 0.0})
+                continue
             if c.health != "unhealthy":
                 for k in ("unhealthy_since", "reported", "gave_up"):
                     s.pop(k, None)  # healthy (or starting, or no check): the episode is over
@@ -245,6 +329,11 @@ class Watchdog:
                     s["reported"] = True
                     self.audit("ops.watchdog.unhealthy", {**detail, "mode": "report"})
                     actions.append({**detail, "action": "reported"})
+                continue
+            if (
+                flag is not None
+            ):  # D-455: a person or a backup holds the box still: no restart (a report still goes out)
+                actions.append({**detail, "action": "maintenance"})
                 continue
             if len(s["restarts"]) >= self.max_restarts:
                 if not s.get("gave_up"):
@@ -272,7 +361,9 @@ class Watchdog:
                 state.pop(gone)
         self._save(state)
         for a in actions:
-            if a["action"] != "waiting":
+            if a["action"] == "paused":  # D-455: visible, so a service paused by mistake is seen
+                self.out(f"watchdog: paused {a['service']} (held on purpose: not restarted)")
+            elif a["action"] != "waiting":
                 self.out(f"watchdog: {a['action']} {a['service']} (unhealthy {a['unhealthy_minutes']} min)")
         return actions
 
