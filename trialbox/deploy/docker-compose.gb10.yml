@@ -131,7 +131,9 @@ services:
     <<: *arm
     mem_limit: 4g   # deploy/gb10-profile.yaml (unmeasured, D-373)
     environment:
-      TB_EMBED_DEVICE: ${TB_EMBED_DEVICE:-cuda}  # bge-m3 on the GPU; falls back to CPU when CUDA is absent
+      # ENG-003 (D-563): trialbox-embed carries torch's CPU build, which stops at start when asked for cuda. A
+      # profile that gives the embedder the card needs its own image and lock first
+      TB_EMBED_DEVICE: ${TB_EMBED_DEVICE:-cpu}
   doc-parser: {<<: *arm, mem_limit: 2g}
   gateway:
     <<: *arm

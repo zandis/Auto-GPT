@@ -37,8 +37,9 @@ developer's template at a pinned revision, a file under the models root that com
 ``--chat-template``. ``--chat-template FILE`` (and ``--install``, from ``JUDGE_CHAT_TEMPLATE`` or the row's ``file``)
 hashes it into the pin: ``weights.chat_template`` holds its path under the models root, sha256, source and revision,
 and ``manifests/<build_id>.template.sha256`` holds its ``sha256sum`` line. A file whose sha256 differs from the row's
-``chat_template.sha256`` is refused; while the row has none (not yet fetched from the publisher) the file is recorded
-as ``trust: first_use``. ``--install`` refuses a judge build whose template file is missing, because vLLM would not
+``chat_template.sha256`` is refused. Every deployed row names it (HW-005, D-567); a row that has none (one being
+prepared) gets the file recorded as ``trust: first_use``. ``--install`` refuses a judge build whose template file
+is missing, because vLLM would not
 start with the flag. The weight manifest and its digest are unchanged: the template is a second file of the pin.
 
 **The embedder** (T-607, D-429; LLM-014, DEP-010). The embedder is one build of the ``e-embed`` alias
@@ -398,6 +399,14 @@ def verify(
         return False, f"{build_id}: weights changed since the pin ({m.sha256[:12]} != pinned {pinned[:12]})"
     tpl = (entry.get("weights") or {}).get("chat_template") or {}
     if tpl:
+        # HW-005 (D-567): a template pinned before the registry named its hash (first use) is checked against the
+        # registry now, not only against the pin's own record of it
+        named = (template_of(_committed()[1].get(build_id) or {}) or {}).get("sha256")
+        if named and tpl.get("sha256") != named:
+            return False, (
+                f"{build_id}: the pinned chat template {str(tpl.get('sha256'))[:12]} is not the registry's "
+                f"{str(named)[:12]}; put the named file in place and re-pin (pin_model --install)"
+            )
         path = (models_root or model_dir.parent) / str(tpl.get("file"))
         if not path.is_file():
             return False, f"{build_id}: the pinned chat template {path} is missing"
@@ -484,12 +493,19 @@ PROFILE_PAIRS: dict[str, list[tuple[str, str, str, str, str, str]]] = {
 }  # fmt: skip
 
 
+# ENG-003 (D-563): the embedder every profile's box runs (compose mounts deploy/models/embedder into the embed
+# service): build, endpoint, model dir variable and default, served-name variable and default
+EMBED_PIN = (EMBED_BUILD, "embed", "EMBED_MODEL_DIR", "embedder", "EMBED_MODEL", EMBED_BUILD)
+
+
 def install_pins(
     gpu: str,
     models_root: Path,
     out: Path = DEFAULT_OVERRIDE,
     env: dict[str, str] | None = None,
     registry_path: Path | None = None,
+    *,
+    with_embedder: bool = False,
 ) -> tuple[bool, list[str]]:
     """Pin the profile's deployed pair at install (D-142, review R-01): the sha256 of the site's own weights, which
     must be the release's expected manifest (T-012b: a folder of other files is refused and nothing is pinned), the
@@ -503,6 +519,8 @@ def install_pins(
     pairs = PROFILE_PAIRS.get(gpu)
     if pairs is None:
         return False, [f"no deployed pair for GPU profile {gpu!r}"]
+    if with_embedder:  # ENG-003 (D-563): the installer pins the embedder with the pair, on every profile
+        pairs = [*pairs, EMBED_PIN]
     have = (load_override(out).get("builds") or {}) if out.exists() else {}
     known = _committed(registry_path)[1]
     ok, lines = True, []
@@ -519,14 +537,22 @@ def install_pins(
         tpl_path = models_root / (e.get(TEMPLATE_VAR) or str(tpl["file"])) if tpl else None
         if pinned:
             note = ""
-            if tpl_path is not None and not ((have.get(build) or {}).get("weights") or {}).get("chat_template"):
-                try:  # pinned before T-674: the template the server now starts with joins the pin
+            had = ((have.get(build) or {}).get("weights") or {}).get("chat_template") or {}
+            # pinned before T-674 (no template in the pin), or before the registry named the template's hash
+            # (HW-005, D-567: recorded on first use): the file is checked against the registry and the pin follows
+            stale = bool(had) and bool(tpl and tpl.get("sha256")) and had.get("sha256") != (tpl or {}).get("sha256")
+            if tpl_path is not None and (not had or stale):
+                try:
                     add_template(build, tpl_path, out, registry_path)
                 except PinError as exc:
                     ok = False
                     lines.append(f"{build}: {exc}")
                     continue
-                note = f"; chat template {tpl_path.name} added to the pin"
+                note = (
+                    f"; chat template {tpl_path.name} replaced by the registry's in the pin"
+                    if stale
+                    else f"; chat template {tpl_path.name} added to the pin"
+                )
             ctx_ok, ctx_note = install_context(build, endpoint, known.get(build) or {}, out, e, registry_path)
             ok, note = ok and ctx_ok, note + ctx_note
             was = ((have.get(build) or {}).get("served") or {}).get(endpoint)
@@ -538,7 +564,7 @@ def install_pins(
             continue
         d = models_root / (e.get(dir_var) or dir_default)
         if not d.is_dir():
-            ok = False
+            ok = ok and build == EMBED_BUILD  # the embedder's absence is reported, the result is the pair's
             lines.append(f"{build}: no weights in {d}: this model routes nothing until it is pinned (RUNBOOK §8)")
             continue
         try:
@@ -553,16 +579,20 @@ def install_pins(
                 chat_template=tpl_path,
             )
         except PinError as exc:
-            ok = False
+            # the embedder with no manifest in the registry yet: reported, not a failure of the pair's install
+            ok = ok and build == EMBED_BUILD and not want
             lines.append(f"{build}: {exc}")
             continue
+        after = (
+            "the embed service loads these weights and no others (D-429)"
+            if build == EMBED_BUILD
+            else "champion after trialbox eval qualify and --promote"
+        )
         ctx_ok, ctx_note = install_context(build, endpoint, known.get(build) or {}, out, e, registry_path)
         ok = ok and ctx_ok
         lines.append(
             f"{build}: pinned {m.sha256[:12]} ({m.files} files) as candidate on {endpoint}; "
-            "champion after trialbox eval qualify and --promote"
-            + (f"; chat template {tpl['source']} at {tpl['revision']}" if tpl else "")
-            + ctx_note
+            f"{after}" + (f"; chat template {tpl['source']} at {tpl['revision']}" if tpl else "") + ctx_note
         )
     return ok, lines
 
@@ -602,6 +632,12 @@ def promote(
 
     from tools.qualify import check_record
 
+    pinned_tpl = ((load_override(out)["builds"].get(build_id) or {}).get("weights") or {}).get("chat_template") or {}
+    if pinned_tpl.get("trust") == "first_use":  # HW-005 (D-567)
+        raise PinError(
+            f"{build_id}: its chat template was trusted on first use and cannot be promoted; put the registry's "
+            "file in place and run --install"
+        )
     try:
         rec = json.loads(record_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
@@ -709,7 +745,8 @@ def main(argv: list[str] | None = None) -> int:
         import os
 
         try:
-            good, lines = install_pins(args.install, args.models_root, args.out, dict(os.environ))
+            good, lines = install_pins(args.install, args.models_root, args.out, dict(os.environ),
+                                       with_embedder=True)  # fmt: skip
         except PinError as exc:
             print(f"pin_model: {exc}", file=sys.stderr)
             return 2

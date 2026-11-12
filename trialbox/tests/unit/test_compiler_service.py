@@ -141,6 +141,23 @@ def test_approve_all_tags_and_materializes(env: dict[str, Any]) -> None:
     assert out.manifest.models is not None and out.manifest.models.judge_prompt == f"judge_v{active.version}"
 
 
+def test_approve_pins_the_judge_prompt_the_boxs_gateway_serves(env: dict[str, Any]) -> None:
+    """G1 rehearsal 2026-11-12: a box whose gateway runs as PRODUCTION pins the newest qualified judge prompt (the
+    one that gateway takes), not the newest registered one of this DEV process."""
+    from tb_common.llm import load_prompt
+    from tb_llm.prompt_registry import default_registry
+
+    env["deps"].prompt_environment = "PRODUCTION"
+    res = _compile(env)
+    out = _approve(env, _decisions(env["store"], res.review_xlsx_key))
+    assert out.status == "approved" and out.manifest is not None and out.manifest.models is not None
+    served = default_registry().served("judge", "PRODUCTION")
+    pins = out.manifest.prompt_pins or {}
+    assert pins["judge"].version == served.version and pins["judge"].sha256 == served.sha256
+    assert out.manifest.models.judge_prompt == f"judge_v{served.version}"
+    assert load_prompt(out.manifest.models.judge_prompt, "PRODUCTION").meta.version == served.version
+
+
 def test_edit_round_then_approve(env: dict[str, Any]) -> None:
     res = _compile(env)
     r1 = _approve(

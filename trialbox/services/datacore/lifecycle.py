@@ -42,6 +42,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, tzinfo
 from typing import Any
 
+from datacore.forms import XML_ILLEGAL
 from datacore.store import DataCore
 
 STATES = ("candidate", "approached", "consented", "enrolled", "on_study", "completed", "withdrawn", "screen_fail")
@@ -880,6 +881,8 @@ class Lifecycle:
         if decision not in DECISIONS:
             raise LifeError("decision", "confirm or dismiss the possible deviation")
         reason = reason.strip()[:300]
+        if XML_ILLEGAL.search(reason):  # EDC-010 (D-581): it is written into a value and the trail
+            raise LifeError("chars", "the reason holds a character that cannot be stored (a control character)")
         if decision == "dismiss" and not reason:
             raise LifeError("dismiss_reason", "say why this is not a deviation")
         one = next((p for p in self.possible_deviations(study, today, icf_version)
