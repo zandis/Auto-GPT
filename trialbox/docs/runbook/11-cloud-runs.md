@@ -105,7 +105,9 @@ keys, setup, state and timing are, the layer every failure of 2026-11-09 was in.
    `TERMINATED`, and `--format='value(metadata.items)'` must show no `tb-key`;
    `gcloud secrets versions list tb-gpu-door --filter=state:enabled` must list nothing once collected; `deploy/gcp/complete-run.sh --stop` stops it by hand and puts the usual startup script back (a VM
    started by hand after that runs both model servers with no watchdog: only its cloud cap stops it). Read
-   `report.md`: a part that "crashed or never ran" is named in the headline, and a `profile` row whose path says
+   `report.md`: its verdict is PASSED, FAILED (a part that ran failed a check) or INCOMPLETE (parts without a
+   result: `pending` while their VM runs, `not run (VM stopped)` after; they count no check, G1 bug A5). A part that
+   "crashed or never ran" is named in the headline, and a `profile` row whose path says
    "direct (the gateway refused...)" is a failed check, whatever else passed.
 
 **The first launch after a failed one is bounded**: `deploy/gcp/complete-run.sh --patients 5000 --only

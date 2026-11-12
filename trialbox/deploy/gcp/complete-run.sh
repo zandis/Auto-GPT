@@ -471,8 +471,16 @@ elif [ "$G1" = 1 ]; then
     --only walk backup update scale "${STUB[@]}" || true
 fi
 LIVE=(); [ -f "$OUT/serving_config.rtxpro6000.live.json" ] && LIVE=(--live-record "$OUT/serving_config.rtxpro6000.live.json")
+# the parts of a VM that still runs (and the stub parts, which wait for every VM) are "pending" in the report; any
+# other part without a result is "not run (VM stopped)": neither counts as a failed check (G1 bug A5)
+PENDING=()
+if [ -n "$running" ]; then
+  for i in $running; do read -r -a t <<< "$(plan_get "$i" tags)"; PENDING+=("${t[@]}"); done
+  [ "$G1" = 1 ] && PENDING+=(walk backup update scale)
+fi
+[ "${#PENDING[@]}" = 0 ] || PENDING=(--pending-parts "${PENDING[@]}")
 # shellcheck disable=SC2086  # ONLY is a list of tags
 env TB_ENV=DEV PYTHONPATH=libs:services:. "$PY" -m tools.complete_run --dir "$OUT" --report-only --model pair \
-  "${STUB[@]}" "${LIVE[@]}" ${TB_PLANNED_FROM:+--planned-from "$TB_PLANNED_FROM"} --report-parts $ONLY || true
+  "${STUB[@]}" "${LIVE[@]}" ${TB_PLANNED_FROM:+--planned-from "$TB_PLANNED_FROM"} "${PENDING[@]}" --report-parts $ONLY || true
 echo "report: $OUT/report/report.md"
 for i in $(seq 1 "$VMS"); do VM="$(plan_get "$i" vm)"; ZONE="$(plan_get "$i" zone)"; echo "VM $VM status: $(status)"; done
