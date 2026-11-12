@@ -14,10 +14,11 @@ from datacore import sponsor as sp
 from datacore.lifecycle import Lifecycle
 from datacore.store import DataCore
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 from orchestrator.lifecycle_api import LifeHost
 from orchestrator.sponsor_api import router
 from tb_common.audit import AuditLog
+
+from tests.actor3 import SignedClient
 
 STUDY = "GZQO"
 TODAY = date(2026, 11, 11)
@@ -166,7 +167,7 @@ def test_the_routes_read_propose_and_confirm_all_or_nothing(tmp_path: Path) -> N
     host = LifeHost(dc, None, audit, lambda: datetime(2026, 11, 11, 1, 0, tzinfo=UTC))
     app = FastAPI()
     app.include_router(router(lambda: host))  # type: ignore[arg-type,return-value]
-    c = TestClient(app)
+    c = SignedClient(app)
     base = f"/studies/{STUDY}/sponsor"
     sheet = base64.b64encode(_sheet("S-001,Screened,02-Nov-2026,", "S-003,Enrolled,06-Nov-2026,")).decode()
     assert c.post(f"{base}/weekly", json={"data": sheet, "by": "crc"}).json()["detail"]["code"] == "sponsor.no_layout"

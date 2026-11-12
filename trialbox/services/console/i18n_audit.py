@@ -66,6 +66,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
         "篩選服務拒絕提供病歷號",
     ),
     "console.chart_lookup": ("Chart number looked up", "カルテ番号の照会", "查詢病歷號"),
+    "screen.to_pid": (
+        "Pseudonym given out for a chart number by the screening service",
+        "スクリーニング処理によるカルテ番号からの仮名IDの提供",
+        "篩選服務依病歷號提供假名代碼",
+    ),
     "console.site_chart": ("Site chart passage read", "施設カルテ箇所の閲覧", "讀取院內病歷段落"),
     "console.candidate_view": ("Candidate page read", "候補者ページの閲覧", "讀取候選者頁面"),
     "console.monitor_view": (
@@ -100,6 +105,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "console.refused": ("Request refused", "依頼の拒否", "拒絕請求"),
     "console.rate_limited": ("Refused: too many in an hour", "拒否：1時間の上限超過", "拒絕：超過每小時上限"),
     "actor.refused": ("Caller refused by a service", "サービスによる呼出元の拒否", "服務拒絕呼叫者"),
+    "actor.unsigned": (
+        "Call without a verified person (counted)",
+        "確認済みの操作者のない呼出し(計数)",
+        "無已驗證操作者的呼叫(計數)",
+    ),
     # requests and jobs
     "console.request": ("Request sent", "依頼の送信", "送出請求"),
     "console.command": ("Command run", "コマンドの実行", "執行指令"),
@@ -337,6 +347,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
         "Case run refused: the patient opted out",
         "症例処理の拒否：利用拒否の患者",
         "個案作業遭拒：病人已拒絕研究使用",
+    ),
+    "case.opt_out_at_publish": (
+        "Case run stopped: the patient opted out while it ran",
+        "症例処理の中止：処理中に利用拒否の申し出",
+        "個案作業中止：作業期間病人已拒絕研究使用",
     ),
     "nav.opt_out_removed": (
         "Opted-out patient left out of a navigation list",

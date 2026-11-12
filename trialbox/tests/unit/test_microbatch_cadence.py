@@ -387,11 +387,14 @@ def test_the_timer_marks_its_ingest(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("apscheduler.schedulers.background.BackgroundScheduler", _Sched)
     monkeypatch.setattr("tb_common.config.schedule_on_demand", lambda settings, env: False)
+    monkeypatch.setattr("orchestrator.night.advance", lambda orch: [])
     orch: Any = SimpleNamespace(
-        cfg=SimpleNamespace(settings=SimpleNamespace(schedule=None), env=SimpleNamespace(tz="Asia/Tokyo", extra={}))
+        cfg=SimpleNamespace(settings=SimpleNamespace(schedule=None), env=SimpleNamespace(tz="Asia/Tokyo", extra={})),
+        on_terminal=[],
     )
     scheduler.start(orch)
-    assert added["ingest"][1:] == ["INGEST", None, {"timer": "1"}]
+    # T-726 (D-492): the timer's ingest is also the start of the night's chain
+    assert added["ingest"][1:] == ["INGEST", None, {"timer": "1", "chain": "1"}]
 
 
 def test_a_passed_ingest_is_followed_by_the_micro_batch(monkeypatch: pytest.MonkeyPatch) -> None:

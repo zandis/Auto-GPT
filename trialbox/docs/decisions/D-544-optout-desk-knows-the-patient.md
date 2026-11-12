@@ -23,7 +23,7 @@ so more mistyped numbers end as a new pseudonym instead of meeting a real one. A
 
 1. **The box answers "known".** `POST /setup/pseudonym` returns `{"pid", "known"}`. `known` is true when the pid
    map holds a row for that pseudonym, false when it holds none, and null when the map cannot be asked (no map key
-   yet, the database away). The orchestrator asks the map through `orchestrator.candidates.known_pid`; the set-up
+   yet, the database away). The orchestrator asks the map through `orchestrator.identifiers.known_pid` (the one module that opens the map, D-487); the set-up
    service gets it as a callable and has no import of the map.
 2. **Only true is "known".** The console (`console.team.to_pid`) treats false, null and an answer without the field
    (an orchestrator of an earlier release) the same way: not known.

@@ -16,10 +16,13 @@
 * ``public/tokens.json``: the sha256 of each token (``tb-service-tokens/1``), mounted read-only into every service
   (``TB_SERVICE_TOKENS``); the callers each service accepts are ``tb_common.service_auth.CALLERS``. A hash of a
   256-bit random token reveals nothing, so this file is not secret.
-* ``actor/keys``: the key the console signs the signed-in user with (``HMAC(console token, "tb-actor-assertion/1")``,
-  hex; the current one and, during a console rotation, the previous one), mode 0600 in a 0700 folder, mounted into
-  the orchestrator only (``TB_ACTOR_KEYS_FILE``), which verifies ``X-TB-Actor-Assertion`` with it (review
-  2026-11-09 S-09, D-143). It is derived from the console's token, so ``init`` and ``rotate`` rewrite it.
+* ``actor-sign.key``: the key the console signs the signed-in user with (T-717, D-485): 32 random bytes, hex, mode
+  0600, a compose secret of the console only (``TB_ACTOR_SIGN_KEY_FILE``). It is a secret of its own, not derived
+  from the console's token (every service the console calls receives that token). ``rotate --service actor``
+  makes a new one.
+* ``actor/keys``: the same key (hex; the current one and, during a rotation of it, the previous one), mode 0600 in
+  a 0700 folder, mounted into the orchestrator only (``TB_ACTOR_KEYS_FILE``), which verifies
+  ``X-TB-Actor-Assertion`` with it (review 2026-11-09 S-09, D-143).
 
 **The model key** (T-212b, D-437; review LLM-039): the key of the on-box model servers (D-177) is
 ``deploy/secrets/model/llm.key`` (0600, the service user, in a 0700 folder), made by ``init`` (from the
@@ -86,6 +89,7 @@ OPERATOR = "operator"
 IDENTITIES: tuple[str, ...] = (*SERVICES, OPERATOR)
 DB = "db"
 MODEL = "model"  # the on-box model servers' key (D-177, D-437): ``rotate --service model``
+ACTOR = "actor"  # the console's key that signs people (T-717, D-485): ``rotate --service actor``
 MODEL_KEY_ENV = "TB_LLM_API_KEY"
 DB_USERS: tuple[str, ...] = (*SERVICES, "fhir-store")  # every service that reads deploy/.env's database settings
 SERVICE_UID = 10001  # the ``tb`` user of trialbox-py / trialbox-jvm (deploy/docker/python.Dockerfile)
@@ -197,18 +201,49 @@ def model_services(deploy: Path, env_file: Path | None = None) -> list[str]:
 
 
 def actor_key_hex(token: str) -> str:
+    """The old actor key, a function of the console's token. T-717 (D-485): never written to the keys file again;
+    kept so that a test can show it is refused."""
     return hmac.new(token.encode("utf-8"), ACTOR_LABEL, hashlib.sha256).hexdigest()
 
 
+def actor_sign_key_path(deploy: Path) -> Path:
+    """The console's signing key (hex, 32 bytes; 0600): a compose secret of the console only."""
+    return secrets_dir(deploy) / "actor-sign.key"
+
+
+def _actor_sign_key(deploy: Path) -> str:
+    p = actor_sign_key_path(deploy)
+    try:
+        key = p.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    try:  # what tb_common.service_auth accepts as a key: 32 bytes of hex, either case
+        return key if len(bytes.fromhex(key)) == 32 else ""
+    except ValueError:
+        return ""
+
+
+def ensure_actor_sign_key(deploy: Path, uid: int | None = SERVICE_UID) -> bool:
+    """Make the console's signing key when the box has none, and the orchestrator's keys file from it. True when the
+    key was made now. A random secret of its own: the console's token, which travels to every service the console
+    calls, says nothing about it (T-717, D-485)."""
+    made = not _actor_sign_key(deploy)
+    if made:
+        _write_private(actor_sign_key_path(deploy), secrets.token_hex(32) + "\n", uid)
+    write_actor_keys(deploy, uid)
+    return made
+
+
 def write_actor_keys(deploy: Path, uid: int | None, previous: str | None = None) -> bool:
-    """The orchestrator's verification key(s) for the console's actor assertions; False when there is no console
-    token yet. ``previous``: the console's token before a rotation, kept valid until the rotated console runs."""
-    p = token_path(deploy, ACTOR_SIGNER)
-    if not p.is_file():
+    """The orchestrator's verification key(s) for the console's actor assertions: the console's signing key; False
+    when the box has none yet. ``previous``: the signing key before a rotation (hex), kept valid until the
+    rotated console runs."""
+    cur = _actor_sign_key(deploy)
+    if not cur:
         return False
-    keys = [actor_key_hex(p.read_text(encoding="utf-8").strip())]
-    if previous and actor_key_hex(previous) not in keys:
-        keys.append(actor_key_hex(previous))
+    keys = [cur]
+    if previous and previous not in keys:
+        keys.append(previous)
     folder = actor_keys_path(deploy).parent
     folder.mkdir(parents=True, exist_ok=True)
     os.chmod(folder, 0o700)
@@ -329,7 +364,8 @@ def init(deploy: Path, env_file: Path | None = None, uid: int | None = SERVICE_U
     old = _load_registry(deploy).get("legacy")
     legacy = _sha(legacy_token(env_file)) if legacy_token(env_file) else (old if isinstance(old, str) else None)
     _write_public(registry_path(deploy), _registry(deploy, None, legacy))
-    write_actor_keys(deploy, uid)
+    if ensure_actor_sign_key(deploy, uid):
+        created.append(ACTOR)
     if ensure_model_key(deploy, env_file, uid):
         created.append(MODEL)
     return Result(created, [], [], legacy is not None)
@@ -380,31 +416,33 @@ def rotate(
 ) -> Result:
     """Rotate the named tokens (``db``: the database passwords); none named: every token and the database."""
     env_file = env_file or deploy / ".env"
-    want = [*IDENTITIES, DB, MODEL] if not names else list(dict.fromkeys(names))
+    want = [*IDENTITIES, DB, MODEL, ACTOR] if not names else list(dict.fromkeys(names))
     every = set(IDENTITIES) <= set(want)  # every token rotated: the old shared one can go
-    bad = [n for n in want if n not in IDENTITIES and n not in (DB, MODEL)]
+    bad = [n for n in want if n not in IDENTITIES and n not in (DB, MODEL, ACTOR)]
     if bad:
-        raise SecretsError(f"unknown service {', '.join(bad)}: one of {', '.join((*IDENTITIES, DB, MODEL))}")
+        raise SecretsError(f"unknown service {', '.join(bad)}: one of {', '.join((*IDENTITIES, DB, MODEL, ACTOR))}")
     if not registry_path(deploy).is_file():
         init(deploy, env_file, uid)
     reg = _load_registry(deploy)
     raw_legacy = reg.get("legacy")
     legacy: str | None = raw_legacy if isinstance(raw_legacy, str) else None
-    tokens = [n for n in want if n not in (DB, MODEL)]
+    tokens = [n for n in want if n not in (DB, MODEL, ACTOR)]
     old = {
         n: _sha(token_path(deploy, n).read_text(encoding="utf-8").strip())
         for n in tokens
         if token_path(deploy, n).is_file()
     }
-    signer = token_path(deploy, ACTOR_SIGNER)
-    old_signer = signer.read_text(encoding="utf-8").strip() if ACTOR_SIGNER in tokens and signer.is_file() else None
+    # T-717 (D-485): the console's token and its signing key are two secrets; a token rotation leaves the key
+    old_actor = _actor_sign_key(deploy) if ACTOR in want else ""
     for n in tokens:
         _write_private(token_path(deploy, n), _new_token() + "\n", None if n == OPERATOR else uid)
     # both hashes while the rotated services restart: a caller still holding its old token is not cut off
     _write_public(registry_path(deploy), _registry(deploy, old, legacy))
-    if old_signer is not None:  # the console's actor assertions verify with the old and the new key meanwhile
-        write_actor_keys(deploy, uid, old_signer)
     affected = [n for n in tokens if n != OPERATOR]
+    if ACTOR in want:  # a new signing key; the orchestrator verifies with the old and the new one meanwhile
+        _write_private(actor_sign_key_path(deploy), secrets.token_hex(32) + "\n", uid)
+        write_actor_keys(deploy, uid, old_actor or None)
+        affected += [s for s in (ACTOR_SIGNER, "orchestrator") if s not in affected]
     if DB in want:
         affected += [s for s in _rotate_db(deploy, env_file, runner) if s not in affected]
     if MODEL in want:
@@ -419,7 +457,7 @@ def rotate(
         if "TB_SERVICE_TOKEN" in _read_env(env_file):
             _set_env(env_file, {"TB_SERVICE_TOKEN": None})
     _write_public(registry_path(deploy), _registry(deploy, None, legacy))
-    if old_signer is not None:
+    if ACTOR in want:
         write_actor_keys(deploy, uid)
     return Result([], want, affected if do_restart else [], legacy is not None)
 
@@ -449,6 +487,12 @@ def status(deploy: Path, env_file: Path | None = None) -> list[dict[str, object]
     row = {"name": "model key", "file": str(mk), "present": mk.is_file()}
     if mk.is_file():
         st = mk.stat()
+        row.update({"mode": oct(st.st_mode & 0o777), "age_days": round((now - st.st_mtime) / 86400, 1)})
+    rows.append(row)
+    ak = actor_sign_key_path(deploy)  # T-717 (D-485): the console's signing key; without it nobody is signed
+    row = {"name": "actor signing key", "file": str(ak), "present": bool(_actor_sign_key(deploy))}
+    if ak.is_file():
+        st = ak.stat()
         row.update({"mode": oct(st.st_mode & 0o777), "age_days": round((now - st.st_mtime) / 86400, 1)})
     rows.append(row)
     rows.append(

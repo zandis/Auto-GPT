@@ -126,13 +126,13 @@ def _keep_withheld_out(tx: Any) -> None:
     the opt-out register) is
     tombstoned again in the wound-back store, by the opt-out worker's own code, whatever the order of the later
     events was; the consent statements stay. Inside the caller's transaction, which is rolled back."""
-    from tb_common.optout import opted_out
+    from tb_common.optout import register_now  # the one door outside a job (T-708, D-477)
 
     from omop.load import withhold_persons
 
     # review L1: ``tb_withheld`` is the opt-out worker's copy and lags the register by a tick; the register itself
     # is read too (empty when no trial database is configured; a register that does not answer raises)
-    pids = sorted({str(r[0]) for r in tx.fetchall("SELECT pid FROM tb_withheld")} | set(opted_out()))
+    pids = sorted({str(r[0]) for r in tx.fetchall("SELECT pid FROM tb_withheld")} | set(register_now()))
     if pids:
         withhold_persons(tx, pids, "as-of export")
 

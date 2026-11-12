@@ -65,7 +65,6 @@ BASELINE: dict[str, tuple[str, ...]] = {
     "team": ("f7e2ed4c4423ffa6e0c1d7c045108868a2eaf39a6ec829bd2b8536a2b9cdd632",),
     "terminology": ("d7d6eb1dd726abc79b148fbd8f650a30606230f71d08d984ffaffdc24ae7a769",),
     "trace": ("bfdb0077229852c4e139292ba57b6b1f79fffdd9610d33071b6478feba109cab",),
-    "wf": ("cf4331c1cfebbaf0a6f2cae40abcf355c7d163511232559b8a53c789237a5093",),
 }
 
 _TWINS = (re.compile(r"^(omop)_[0-9a-f]{10}$"), re.compile(r"^(orch)_rerun_[0-9a-f]+$"))

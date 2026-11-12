@@ -46,7 +46,7 @@ from pathlib import Path
 from typing import IO, Any
 from zoneinfo import ZoneInfo
 
-from tb_common import feedguard
+from tb_common import feedguard, refdata
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import pid_for_mrn
 
@@ -60,6 +60,7 @@ from adapter.pipeline import (
     _undated_order,
     apply_aliases,
     apply_unit_defaults,
+    check_lookup_factors,
     check_site_key,
     ingest_instant,
     make_source,
@@ -113,6 +114,8 @@ class BackfillReport:
     seconds: float = 0.0
     lake: dict[str, Any] | None = None
     omop: dict[str, Any] | None = None
+    # T-693 (D-457): the cap of the validation sample in force and the types it cut (None: not validated)
+    validation_sample: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -225,7 +228,11 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
         else:
             mapping = Mapping.load(cfg.mapping_path)
             unit_defaults = mapping.unit_defaults
-            mapper = Mapper(mapping, key, cfg.site_id, ingest_instant(snap, mapping.tz))
+            check_lookup_factors(mapping)  # D-527
+            mapper = Mapper(
+                mapping, key, cfg.site_id, ingest_instant(snap, mapping.tz),
+                concept_map=lambda system, code: refdata.map_targets_or_none(system, code, cfg.db_url),  # D-593
+            )  # fmt: skip
             source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)
             for res in mapper.static_resources():
                 emit(res)
@@ -264,7 +271,7 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
                             pairs, idents = [], []
                     try:
                         mapped = list(mapper.map_table(table, iter([row])))
-                    except ValueError:
+                    except (ValueError, ArithmeticError):  # D-527: as the night does
                         bad["rejected"] += 1
                         continue
                     for res in mapped:
@@ -371,11 +378,18 @@ def _write_merged(runs: Path, buckets: list[str], out: Path) -> dict[str, int]:
     return counts
 
 
-def _sample(folder: Path, counts: dict[str, int], fraction: float, minimum: int = 3) -> list[dict[str, Any]]:
-    """``validator.sample`` over a folder without loading it: the same hash order, a bounded heap per type."""
+def _sample(
+    folder: Path, counts: dict[str, int], fraction: float, minimum: int = 3, cap: int | None = None
+) -> list[dict[str, Any]]:
+    """``validator.sample`` over a folder without loading it: the same hash order, a bounded heap per type, the
+    same size rule (T-693, D-457: the share, at least ``minimum``, at most ``cap``)."""
+    from adapter.validate.validator import sample_size
+
     out: list[dict[str, Any]] = []
     for rtype in sorted(counts):
-        k = max(minimum, round(counts[rtype] * fraction))
+        k = sample_size(counts[rtype], fraction, minimum, cap)
+        if k <= 0:
+            continue
         heap: list[tuple[str, str]] = []  # max-heap by hash (negated via sorting key below)
         with (folder / f"{rtype}.ndjson").open(encoding="utf-8") as fh:
             for line in fh:
@@ -506,7 +520,14 @@ def _publish(
     if validate:
         chosen = validator or Hl7Validator.from_env() or StructuralValidator()
         try:
-            v = chosen.validate(_sample(stage, counts, cfg.sample_fraction))
+            from adapter.validate.validator import capped_types, sample_cap
+
+            cap = sample_cap(cfg.validation_max_pct)  # T-693 (D-457)
+            rep.validation_sample = {
+                "sample_cap": cap,
+                "capped": capped_types(counts, cfg.sample_fraction, cap=cap),
+            }
+            v = chosen.validate(_sample(stage, counts, cfg.sample_fraction, cap=cap))
             if v.error_pct > cfg.validation_max_pct:
                 errors.append(f"validation error rate {v.error_pct:.2f}% exceeds {cfg.validation_max_pct}%")
         except Exception as exc:

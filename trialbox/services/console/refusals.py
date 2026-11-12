@@ -13,6 +13,23 @@ from collections.abc import Mapping
 
 # English sentence -> (Japanese, Traditional Chinese)
 REFUSALS: dict[str, tuple[str, str]] = {
+    # DEMO-JA: a monitor grant names the field it lacks (the rehearsal saw only "could not be done")
+    "a monitor grant needs the last day of the monitoring visit": (
+        "モニターの許可には、モニタリング訪問の最終日が必要です",
+        "監測員授權需要監測訪視的最後一天",
+    ),
+    "a monitor grant needs the visit id of the monitoring visit": (
+        "モニターの許可には、モニタリング訪問の ID が必要です",
+        "監測員授權需要監測訪視的編號",
+    ),
+    "a monitor grant needs the last day and the visit id of the monitoring visit": (
+        "モニターの許可には、モニタリング訪問の最終日と ID が必要です",
+        "監測員授權需要監測訪視的最後一天與編號",
+    ),
+    "a monitor grant names a CRO account of this study": (
+        "モニターの許可には、この試験の CRO アカウントを選んでください",
+        "監測員授權須選擇本試驗的 CRO 帳號",
+    ),
     # D-380 (FIT-002): the monitor's read of the data core
     "the data core refused the subject": ("データコアがこの被験者を拒否しました", "資料核心拒絕了這位受試者"),
     "the data core did not answer": ("データコアが応答しませんでした", "資料核心沒有回應"),
@@ -47,6 +64,14 @@ REFUSALS: dict[str, tuple[str, str]] = {
     "attach the informed-consent form": ("同意説明文書を添付してください", "請附上受試者同意書"),
     "attachments are at most 50 MB": ("添付ファイルは50 MBまでです", "附件最大 50 MB"),
     "bad pseudonym": ("仮名IDの形式が正しくありません", "假名代碼格式不正確"),
+    "this is a pseudonym, not a chart number: put it in the pseudonym field": (
+        "これは仮名IDで、カルテ番号ではありません。仮名IDの欄に入力してください",
+        "這是假名代碼，不是病歷號：請填入假名代碼欄位",
+    ),
+    "type the whole pseudonym (32 characters), or the chart number: the 8 characters a page shows name no patient": (
+        "仮名IDは全体（32文字）を入力するか、カルテ番号を入力してください。画面に表示される8文字だけでは患者を特定できません",
+        "請輸入完整的假名代碼（32 個字元）或病歷號：畫面上顯示的 8 個字元無法指明病人",
+    ),
     "too many exports with chart numbers in the last hour": (
         "この 1 時間のカルテ番号付きの書き出しが上限に達しました",
         "過去一小時內含病歷號的匯出已達上限",

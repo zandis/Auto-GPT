@@ -9,12 +9,13 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from adapter.pidmap import PidMap
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from orchestrator import candidates
+from orchestrator import identifiers
 from orchestrator.setup_api import router as setup_router
 from sitesetup.ocr import NoOcr
 from sitesetup.service import SiteSetup
@@ -38,25 +39,27 @@ def _map(secrets: Path, db_url: str, charts: list[str]) -> None:
 
 def test_the_pid_map_answers_known_unknown_or_cannot_say(tmp_path: Path, db_url: str) -> None:
     secrets = tmp_path / "secrets"
-    assert candidates.known_pid(secrets, db_url, pid_for_mrn(KEY, CHART)) is None  # no map yet: it cannot say
+    assert identifiers.known_pid(secrets, db_url, pid_for_mrn(KEY, CHART)) is None  # no map yet: it cannot say
     _map(secrets, db_url, [CHART])
-    assert candidates.known_pid(secrets, db_url, pid_for_mrn(KEY, CHART)) is True
-    assert candidates.known_pid(secrets, db_url, pid_for_mrn(KEY, OTHER)) is False
-    assert candidates.known_pid(secrets, "postgresql://trialbox@127.0.0.1:1/none", pid_for_mrn(KEY, CHART)) is None
+    assert identifiers.known_pid(secrets, db_url, pid_for_mrn(KEY, CHART)) is True
+    assert identifiers.known_pid(secrets, db_url, pid_for_mrn(KEY, OTHER)) is False
+    assert identifiers.known_pid(secrets, "postgresql://trialbox@127.0.0.1:1/none", pid_for_mrn(KEY, CHART)) is None
 
 
 def _client(tmp_path: Path, known: Any) -> TestClient:
     svc = SiteSetup(SetupStore(), tmp_path / "setup", None, None, AuditLog(tmp_path / "audit"), lambda: NOW,
                     lambda: date(2026, 11, 12), lambda: KEY, ocr=NoOcr(), mrn_regex=r"^\d{8}$", known=known)  # fmt: skip
     app = FastAPI()
-    app.include_router(setup_router(lambda: svc, lambda rs: {}, lambda rs: {}, lambda rs: None, lambda: False))
+    # the door (T-719, D-487) has its own tests; here every caller is let in and its record is dropped
+    door = lambda request, actions, service=False: SimpleNamespace(record=lambda *a, **k: None)  # noqa: E731
+    app.include_router(setup_router(lambda: svc, lambda rs: {}, lambda rs: {}, lambda rs: None, lambda: False, door))
     return TestClient(app)
 
 
 def test_the_route_says_whether_the_box_knows_the_pseudonym(tmp_path: Path, db_url: str) -> None:
     secrets = tmp_path / "secrets"
     _map(secrets, db_url, [CHART])
-    c = _client(tmp_path, lambda pid: candidates.known_pid(secrets, db_url, pid))
+    c = _client(tmp_path, lambda pid: identifiers.known_pid(secrets, db_url, pid))
     assert c.post("/setup/pseudonym", json={"chart_no": CHART, "ask_known": True}).json() == {
         "pid": pid_for_mrn(KEY, CHART),
         "known": True,
@@ -91,8 +94,8 @@ def test_a_chart_number_merged_into_another_is_a_patient_of_this_box(tmp_path: P
         pm.merge(KEY, OTHER, CHART, "the same person, two numbers (synthetic)", "T-0001")
     finally:
         pm.close()
-    assert candidates.known_pid(secrets, db_url, pid_for_mrn(KEY, OTHER)) is True
-    assert candidates.known_pid(secrets, db_url, pid_for_mrn(KEY, "00777777")) is False
+    assert identifiers.known_pid(secrets, db_url, pid_for_mrn(KEY, OTHER)) is True
+    assert identifiers.known_pid(secrets, db_url, pid_for_mrn(KEY, "00777777")) is False
 
 
 def test_the_map_is_asked_only_when_the_caller_asks(tmp_path: Path) -> None:

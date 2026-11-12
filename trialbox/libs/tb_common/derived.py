@@ -427,6 +427,8 @@ def compute(
         fn = egfr_jsn if score == "egfr_jsn" else egfr
         return Derived(fn(val["creatinine"], age, female), None, picked)
     if score == "bmi":
+        if val["height"] <= 0:  # T-711 (D-480): a height of 0 divides by zero; no value, as SQL and CQL give
+            return Derived(None, f"{UNIT}:height", picked)
         return Derived(bmi(val["weight"], val["height"]), None, picked)
     if score == "das28":
         if "esr" in val:

@@ -17,7 +17,7 @@
 <section class="card"><p>{{ t('feas.none') }}</p>{% if user.can_request %}<a class="button" href="/pilot/request?ruleset={{ rs }}">{{ t('next.feas') }}</a>{% endif %}</section>
 {% else %}
 {% set s = rep.summary %}
-<p class="hint" data-testid="feas-meta">{{ t('feas.meta', ver=rep.version, snapshot=rep.snapshot, lookback=rep.lookback or '–', population=rep.population or '–') }}</p>
+<p class="hint" data-testid="feas-meta">{{ t('feas.meta', ver=rep.version, snapshot=rep.snapshot, lookback=rep.lookback or '–', population=population(rep.population)) }}</p>
 {% if rep.sponsor %}<p class="warn" data-testid="sponsor-banner">{{ t('feas.sponsor_banner') }}</p>{% endif %}
 
 <section class="card" id="summary">

@@ -15,7 +15,7 @@ WORKFLOW = ROOT.parent / ".github" / "workflows" / "trialbox-ci.yml"
 
 def _shell_steps() -> list[str]:
     doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    return [str(s.get("run") or "") for s in doc["jobs"]["shell"]["steps"] if s.get("name") == "shellcheck"]
+    return [str(s.get("run") or "") for s in doc["jobs"]["checks"]["steps"] if s.get("name") == "shellcheck"]
 
 
 def test_ci_shell_job_gates_on_warnings() -> None:
@@ -34,9 +34,9 @@ def test_make_ci_gates_on_warnings() -> None:
 
 
 def test_every_shell_script_is_clean_at_warning_level() -> None:
-    """The scripts themselves (deploy/*.sh and tools/apply_update.sh among them); CI's shell job runs the same."""
+    """The scripts themselves (deploy/*.sh and tools/apply_update.sh among them); CI's `checks` job runs the same."""
     if shutil.which("shellcheck") is None:
-        pytest.skip("shellcheck is not installed here (the shell job runs it)")
+        pytest.skip("shellcheck is not installed here (the `checks` job runs it)")
     files = subprocess.run(["git", "ls-files", "*.sh"], cwd=ROOT, capture_output=True, text=True, check=True)
     names = files.stdout.split()
     assert "deploy/install.sh" in names and "tools/apply_update.sh" in names
