@@ -327,7 +327,7 @@ ROLE_SAE_ACTIONS: dict[str, frozenset[str]] = {
 # D-280 (owner decision OD-5, CR-029): break-glass. The administrator sees patient data only through a grant: a reason
 # from this list plus a written note, one patient or one job, 60 minutes, then it ends by itself. The console signs a
 # reveal under a grant with :data:`BREAK_GLASS_ROLE`, never with ``admin``; the orchestrator gives a chart number to
-# that role only (``orchestrator.app.ID_ROLES``). Every use is audited and waits on the steward's review list.
+# that role only (``orchestrator.app.id_authority``). Every use is audited and waits on the steward's review list.
 BREAK_GLASS_REASONS: tuple[str, ...] = ("support", "data_fix", "optout_request", "incident", "audit_request", "other")
 BREAK_GLASS_MINUTES = 60
 BREAK_GLASS_NOTE_MIN = 10  # the written "why" every grant needs, in characters

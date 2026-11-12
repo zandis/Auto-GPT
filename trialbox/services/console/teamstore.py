@@ -764,6 +764,41 @@ class TeamStore:
             )
         return True
 
+    def take_once(self, ruleset: str, key: str, purpose: str, kind: str, by: str, at: str, since: str,
+                  limit: int) -> str | None:  # fmt: skip
+        """T-103 (D-438): at most one use per person, ``key`` and window. In one transaction, serialised per person
+        and kind: ``"again"`` when this person already has a use of ``key`` for ``purpose`` since ``since`` (nothing
+        recorded), ``"new"`` when a use is recorded within ``limit``, None at the cap."""
+        with self.db.transaction() as tx:
+            tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"candidate_views:{by}:{kind}",))
+            seen = tx.fetchval(
+                "SELECT count(*) FROM candidate_views WHERE by = ? AND kind = ? AND pid = ? AND purpose = ? "
+                "AND at >= ?",
+                (by, kind, key, purpose, since),
+            )
+            if int(seen or 0):
+                return "again"
+            n = tx.fetchval(
+                "SELECT count(*) FROM candidate_views WHERE by = ? AND kind = ? AND at >= ?", (by, kind, since)
+            )
+            if int(n or 0) >= limit:
+                return None
+            tx.execute(
+                "INSERT INTO candidate_views (ruleset, pid, purpose, kind, by, at) VALUES (?,?,?,?,?,?)",
+                (ruleset, key, purpose, kind, by, at),
+            )
+        return "new"
+
+    def used_since(self, key: str, purpose: str, kind: str, by: str, since: str) -> bool:
+        """Has this person a use of ``key`` for ``purpose`` since ``since``? Read only."""
+        return bool(
+            self.db.fetchval(
+                "SELECT count(*) FROM candidate_views WHERE by = ? AND kind = ? AND pid = ? AND purpose = ? "
+                "AND at >= ?",
+                (by, kind, key, purpose, since),
+            )
+        )
+
     def count_views(self, by: str, kind: str, since: str) -> int:
         return int(
             self.db.fetchval(
