@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import smtplib
 from collections import deque
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from email.message import EmailMessage
@@ -111,6 +112,11 @@ class AuditRecord:
     detail: dict[str, Any] = field(default_factory=dict)
 
 
+#: T-716 (D-484): how a backend gets the header of a call that names a person: ``(method, path, body)`` to the
+#: headers of ``console.actor.assert_for``. The backend builds the request; the console's one minting place signs it.
+Signer = Callable[[str, str, Any], dict[str, str]]
+
+
 class Backend(Protocol):
     def list_jobs(self, limit: int = 100) -> list[Job]: ...
     def get_job(self, job_id: str) -> Job | None: ...
@@ -132,8 +138,7 @@ class Backend(Protocol):
     def registry_update(self, ruleset: str, upd: RegistryUpdate) -> RegistryEntry: ...
     def registry_promote(self, ruleset: str, req: RegistryPromote) -> int: ...
     def registry_export(self, ruleset: str, by: str, role: str = "", scope: str = "") -> bytes: ...
-    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "", purpose: str = "",
-               reason: str = "") -> str | None: ...  # fmt: skip
+    def reveal(self, job_id: str, pid: str, sign: Signer, purpose: str = "", reason: str = "") -> str | None: ...
     def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str: ...
 
 
@@ -462,15 +467,17 @@ class HttpBackend:
     def registry_promote(self, ruleset: str, req: RegistryPromote) -> int:
         return int(self._registry_call("POST", f"/registry/{ruleset}/promote", req)["added"])
 
-    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "", purpose: str = "",
-               reason: str = "") -> str | None:  # fmt: skip
+    def reveal(self, job_id: str, pid: str, sign: Signer, purpose: str = "", reason: str = "") -> str | None:
         """The chart number of one listed pseudonym (D-99): the orchestrator resolves and audits it; None when the
-        box has no pid map for it. D-273: the person's role and studies travel signed, and the orchestrator checks
-        them; its refusal (403: role, study, opted out, not listed; 429: its cap) is a refusal here. T-103 (D-438):
-        the purpose and reason go with the request into the orchestrator's audit record."""
+        box has no pid map for it. T-716 (D-484): the call carries the v3 assertion ``sign`` mints for exactly this
+        request (the person, the role, the study, the standing, a break-glass grant's id); the orchestrator reads
+        the grant and the delegation log itself, and its refusal (403: right, study, grant, opted out, not listed;
+        429: its cap) is a refusal here. T-103 (D-438): the purpose and reason go with the request into the
+        orchestrator's audit record."""
+        path = f"/jobs/{job_id}/reveal"
         body = {"pid": pid, **({"purpose": purpose} if purpose else {}), **({"reason": reason} if reason else {})}
         try:
-            data = self.orch.post_raw(f"/jobs/{job_id}/reveal", body, actor_header(by, role=role, scope=scope)).json()
+            data = self.orch.post_raw(path, body, sign("POST", path, body)).json()
         except ServiceError as exc:
             if exc.status == 404:
                 return None

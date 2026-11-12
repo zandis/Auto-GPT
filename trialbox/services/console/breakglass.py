@@ -10,8 +10,9 @@ operator opens a **grant** on ``/breakglass``:
 * 60 minutes from the moment it opens, then it ends by itself; the operator may end it sooner.
 
 Under the grant the operator may open that patient's page or that job's page and reveal a chart number on it, through
-the console's one reveal path (``home.apply_reveal``). The reveal is signed with ``BREAK_GLASS_ROLE``, the only
-administrator role the orchestrator accepts. Every opening, every use and every end is an audit event with the
+the console's one reveal path (``home.apply_reveal``). The reveal is signed with the account's own role and the
+grant's id (T-716, D-484): the orchestrator reads the row and writes the use, and there is no ``breakglass`` role.
+Every opening, every use and every end is an audit event with the
 person, the reason, the pseudonym and the time.
 
 The steward and the study's PI are told at once: the grant is on their list on this page from the moment it opens,
@@ -311,21 +312,33 @@ def register(app: FastAPI, h: Helpers, store: BreakGlassStore | None = None) -> 
                 out.add(s.id)
         return out
 
+    def find(sess: Session, *, ruleset: str = "", pid: str = "", job_id: str = "") -> Grant | None:
+        """The account's open grant that covers this patient or job, without using it. T-716 (D-484): the reveal
+        path asks this; the orchestrator reads the same row and writes the use when it gives the chart number."""
+        if not permit(sess.user.role, "breakglass.open"):
+            return None
+        return bg.covering(sess.user.username, now(), ruleset=ruleset, pid=pid, job_id=job_id)
+
     def use(sess: Session, *, ruleset: str = "", pid: str = "", job_id: str = "", what: str = "") -> Grant | None:
         """The account's open grant that covers this patient or job; each use is one audit event and one row of
         ``uses``. The callers ask only where the account does not read by its own rights (``Helpers.reads``)."""
-        if not permit(sess.user.role, "breakglass.open"):
-            return None
-        g = bg.covering(sess.user.username, now(), ruleset=ruleset, pid=pid, job_id=job_id)
+        g = find(sess, ruleset=ruleset, pid=pid, job_id=job_id)
         if g is None:
             return None
         bg.used(g.id, what=what.replace(" ", "_")[:40], now=now(), ruleset=ruleset, pid=pid, job_id=job_id)
+        note(sess, g, ruleset=ruleset, pid=pid, job_id=job_id, what=what)
+        return g
+
+    def note(sess: Session, g: Grant, *, ruleset: str = "", pid: str = "", job_id: str = "", what: str = "") -> None:
+        """The audit event of one use. For a chart number (T-716, D-484) the row of ``uses`` is the orchestrator's,
+        written when it gives the number; the console writes this event after it, so the trail still has every use."""
         au.append("console.breakglass_use", actor=h.actor(sess), ruleset=ruleset or None, job_id=job_id or None,
                   detail={"grant": g.id, "reason": g.reason, "kind": g.kind, "what": what[:80],
                           **({"pid": pid} if pid else {})})  # fmt: skip
-        return g
 
     h.breakglass = use
+    h.breakglass_find = find
+    h.breakglass_note = note
 
     def tell(sess: Session, g: Grant) -> None:
         """The steward and the study's PI are told at once by mail (internal addresses, pseudonym only)."""

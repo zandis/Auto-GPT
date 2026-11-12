@@ -18,9 +18,10 @@ from zoneinfo import ZoneInfo
 from fastapi import FastAPI, HTTPException, Request, Response
 from lake.client import LakeHttp
 from pydantic import BaseModel, ConfigDict, Field
+from tb_common.actor_v3 import Claim
 from tb_common.audit import AuditLog
 from tb_common.audit_writer import open_audit
-from tb_common.authz import BREAK_GLASS_ROLE, permit
+from tb_common.authz import permit
 from tb_common.config import get_config, tb_env
 from tb_common.crypto import load_key
 from tb_common.fhir import FhirEvaluator
@@ -195,7 +196,7 @@ def _claim(request: Request, fallback: str | None = None) -> Actor:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
-def _limit_key(request: Request, who: Actor) -> str:
+def _limit_key(request: Request, who: Actor | Claim) -> str:
     """The rate limit is per calling service and verified person (S-09): renaming no longer resets it."""
     return f"{getattr(request.state, 'tb_caller', None) or '-'}|{who.name}"
 
@@ -205,7 +206,7 @@ def _service_key(request: Request) -> str:
     return f"{getattr(request.state, 'tb_caller', None) or '-'}|*"
 
 
-def _over_cap(o: Any, request: Request, claim: Actor, person: Any, service: Any) -> str:
+def _over_cap(o: Any, request: Request, claim: Actor | Claim, person: Any, service: Any) -> str:
     """Take one use of the calling service's total cap, then of the person's; the reason of a refusal, or ""."""
     now = o._now()
     if not service.allow(_service_key(request), o.db, now):
@@ -216,25 +217,23 @@ def _over_cap(o: Any, request: Request, claim: Actor, person: Any, service: Any)
 
 
 def id_authority(role: str) -> bool:
-    """T-103 (D-438): may a signed role receive identifiers? The ``id.reveal`` row of the permission matrix (the same
-    row as ``console.auth.User.can_reveal``, D-143, D-280: never the administrator), or the break-glass rule: the
-    console signs a reveal under an open grant with ``BREAK_GLASS_ROLE`` and holds the grant, its reason and its
-    60-minute end (D-280, D-430). No role list of its own."""
-    return role == BREAK_GLASS_ROLE or permit(role, "id.reveal").allowed
+    """T-103 (D-438): may a signed role receive identifiers by itself? The ``id.reveal`` row of the permission matrix
+    (the same row as ``console.auth.User.can_reveal``, D-143, D-280: never the administrator). T-716 (D-484): there
+    is no ``breakglass`` role any more; a grant is a row the reveal route reads (``orchestrator.grants``), and it
+    never opens a whole list. No role list of its own."""
+    return permit(role, "id.reveal").allowed
 
 
 def _id_authority(o: Any, claim: Actor, rid: str | None, event: str, job_id: str | None = None,
-                  pid: str | None = None, whole_list: bool = False) -> None:  # fmt: skip
+                  pid: str | None = None) -> None:  # fmt: skip
     """D-273 (PV-5, PV-15): a chart number goes out only to a person whose signed role has identifier authority and
     whose signed study scope covers the study. A verified assertion must carry both; on a DEV/TEST box without a
-    token, a role or scope that is sent is checked all the same. A refusal is one audit event. T-103 (D-438): a whole
-    list (``whole_list``, the registry export) never goes to ``BREAK_GLASS_ROLE``: a grant covers one patient or one
-    job."""
+    token, a role or scope that is sent is checked all the same. A refusal is one audit event. This is the rule of
+    the whole-list export (the older assertion); a break-glass grant covers one patient or one job and is read by
+    the reveal route alone (T-716, D-484), so no grant reaches a list."""
     why = ""
     if (claim.verified or claim.role) and not id_authority(claim.role):
         why = "role"
-    elif whole_list and claim.role == BREAK_GLASS_ROLE:
-        why = "break-glass covers one patient or one job"
     elif (claim.verified or claim.scope) and not in_scope(claim.scope, rid):
         why = "study scope"
     if why:
@@ -389,7 +388,6 @@ class RevealRequest(BaseModel):
     # T-103 (D-438): what the console's one reveal path was asked for, kept in this side's audit record
     purpose: str = Field(default="", max_length=32, pattern=r"^([a-z][a-z0-9_]{1,31})?$")
     reason: str = Field(default="", max_length=20, pattern=r"^[a-z ]*$")
-    by: str | None = Field(default=None, max_length=200)  # DEV/TEST without a token only; else X-TB-Actor
 
 
 class RevealLimit:
@@ -432,15 +430,22 @@ def listed_pids(o: Any, job: Any) -> set[str]:
     return out
 
 
+AS_REVEAL = route_actor.require_actor("id.reveal", study_in_handler=True, grant=True)
+
+
 @app.post("/jobs/{job_id}/reveal")
-def reveal(job_id: str, req: RevealRequest, request: Request) -> dict[str, Any]:
+def reveal(job_id: str, req: RevealRequest, request: Request, who: Claim = AS_REVEAL) -> dict[str, Any]:
     """Chart number of one listed pseudonym for a person with identifier authority on the console (D-99, D-143).
     On-prem only: the pid map never leaves the box, every reveal is one audit event with the verified actor and
-    the console session, and nothing is stored."""
+    the console session, and nothing is stored.
+
+    T-716 (D-484): the person is the verified one of a v3 assertion for ``id.reveal`` and this request; the study
+    is the job's; the right is read here. Under break-glass: the grant row itself (open now, this person's, for this
+    patient or this job), and the use is written here. By the person's own rights: the ``id.reveal`` row with the
+    standing the delegation log gives the person in this study."""
+    from orchestrator import grants
     from orchestrator.scenarios.screen import resolve_mrns
 
-    claim = _claim(request, req.by)
-    who = claim.name
     o = orch()
     job = o.db.get(job_id)
     if job is None:
@@ -448,42 +453,60 @@ def reveal(job_id: str, req: RevealRequest, request: Request) -> dict[str, Any]:
     # D-273 (PV-15): screening lists only; a NAV job's list is not a candidate list and reveals nothing
     if job.type not in ("SCREEN", "MICROBATCH") or job.state != "done":
         raise HTTPException(status_code=409, detail="chart numbers are revealed for finished screening jobs only")
-    _id_authority(o, claim, job.ruleset, "screen.reveal_refused", job_id=job_id, pid=req.pid)
+    study = str(job.ruleset or "").strip().upper()
+
+    def refuse(why: str, status: int = 403, says: str = "") -> HTTPException:
+        detail: dict[str, Any] = {"pid": req.pid, "reason": why, "role": who.role}
+        if who.grant is not None:
+            detail["grant"] = str(who.grant.get("id"))
+        o.audit.append("screen.reveal_refused", job_id=job_id, ruleset=job.ruleset, actor=who.name, detail=detail)
+        return HTTPException(status_code=status, detail=says or f"chart numbers are refused: {why}")
+
+    if who.study != study or not study:
+        raise refuse("study scope")
+    now = o._now()
+    grant = None
+    if who.grant is not None:
+        try:
+            grant = grants.verify_grant(who, study=study, pid=req.pid, job_id=job_id, now=now, url=o.db.url)
+        except grants.GrantRefused as exc:
+            raise refuse(f"break-glass grant: {exc.why}") from exc
+    else:
+        # the delegation log's days are the site's days (D-270): the orchestrator's own "today", never a UTC date
+        why = grants.person_right(who.role, grants.username_of(who.sub), study, o.today(), o.db.url)
+        if why:
+            raise refuse(why)
     # security review 2026-11-08 (F-03): only a patient this job listed, and at a bounded rate per person
-    listed = listed_pids(o, job)
-    if req.pid not in listed:
-        o.audit.append("screen.reveal_refused", job_id=job_id, ruleset=job.ruleset, actor=who,
-                       detail={"pid": req.pid, "reason": "not on this job's list"})  # fmt: skip
-        raise HTTPException(status_code=403, detail="this patient is not on this job's list")
+    if req.pid not in listed_pids(o, job):
+        raise refuse("not on this job's list", says="this patient is not on this job's list")
     # D-273 (PV-4): never the chart number of a patient on the opt-out register now, whatever the job's age
     from tb_common.optout import opted_out
 
     if req.pid in opted_out():
-        o.audit.append("screen.reveal_refused", job_id=job_id, ruleset=job.ruleset, actor=who,
-                       detail={"pid": req.pid, "reason": "opted out"})  # fmt: skip
-        raise HTTPException(status_code=403, detail="this patient opted out")
-    if over := _over_cap(o, request, claim, REVEALS, REVEALS_SERVICE):
-        o.audit.append("screen.reveal_refused", job_id=job_id, ruleset=job.ruleset, actor=who,
-                       detail={"pid": req.pid, "reason": over})  # fmt: skip
-        raise HTTPException(status_code=429, detail="too many chart numbers revealed in the last hour")
+        raise refuse("opted out", says="this patient opted out")
+    if over := _over_cap(o, request, who, REVEALS, REVEALS_SERVICE):
+        raise refuse(over, 429, "too many chart numbers revealed in the last hour")
     found = resolve_mrns(Path(o.cfg.env.secrets_dir), [req.pid], o.db.url)
     o.audit.append(
         "screen.reveal",
         job_id=job_id,
         ruleset=job.ruleset,
-        actor=who,
+        actor=who.name,
         detail={
             "pid": req.pid,
             "found": req.pid in found,
-            "session": claim.session,
-            "verified": claim.verified,
-            "role": claim.role,
+            "session": who.session,
+            "verified": who.verified,
+            "role": who.role,
+            **({"grant": str(grant.id)} if grant is not None else {}),
             **({"purpose": req.purpose} if req.purpose else {}),
             **({"reason": req.reason} if req.reason else {}),
         },
     )
     if req.pid not in found:
         raise HTTPException(status_code=404, detail="this pseudonym is not in the box's pid map")
+    if grant is not None:  # the use is written where the chart number is given (F5 c)
+        grants.record_use(grant, what="reveal", study=study, pid=req.pid, job_id=job_id, now=now, url=o.db.url)
     return {"pid": req.pid, "mrn": found[req.pid]}
 
 
@@ -797,7 +820,7 @@ def registry_export(ruleset: str, request: Request, by: str | None = None) -> Re
     claim = _claim(request, by)  # ``by`` counts only on a DEV/TEST box without a token
     rid = ruleset.strip().upper()
     # D-273 (PV-5): the role and the study, not only a name; T-103: never to a break-glass grant (a whole list)
-    _id_authority(o, claim, rid, "registry.export_refused", whole_list=True)
+    _id_authority(o, claim, rid, "registry.export_refused")
     if over := _over_cap(o, request, claim, EXPORTS, EXPORTS_SERVICE):
         o.audit.append("registry.export_refused", ruleset=rid, actor=claim.name,
                        detail={"reason": over})  # fmt: skip
