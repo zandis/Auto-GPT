@@ -9,7 +9,10 @@ exactly those answers. This helper gives them, at three levels:
 * :class:`ScriptedModel`: an ``LlmClient`` stand-in (one model of a pair) that answers, misquotes, or raises like a
   model that is down or timed out (the pair rule through ``NoteJudge`` / ``OrchestratorJudge``);
 * :func:`stub_client`: a real ``LlmClient`` over the in-process stub, by served name, including the stub's test
-  personas (``llm_stub.handlers.PERSONAS``) and a transport that times out (the same rule over HTTP).
+  personas (``llm_stub.handlers.PERSONAS``) and a transport that times out (the same rule over HTTP);
+* :class:`QuotingOracle` and :func:`quoting_pair` (T-705, D-459; also T-706): a pair of ``ScriptedModel`` whose
+  answer is a function of the excerpts it is shown (a decisive sentence per criterion, :class:`Decisive`), with a
+  verifier that agrees, disagrees, is unsure or is down.
 
 :func:`note_lake` builds a lake of a few patients with dated notes, and :func:`ruleset` a ruleset of note criteria on
 top of one structured inclusion (age), as ``tests/unit/test_derived_scores.py`` does for scores. No database.
@@ -19,7 +22,8 @@ from __future__ import annotations
 
 import base64
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -112,6 +116,98 @@ def says(verdict: str, quote: str | None, confidence: float = 0.9, quote_date: s
 
 def down(variables: dict[str, Any]) -> dict[str, Any]:
     raise LlmError("LLM endpoint unreachable (local): scripted outage")
+
+
+# ------------------------------------------------------------------------------------------------ the quoting pair
+# T-705 (path independence, D-459) and T-706 (judge in the loop): a pair whose answer depends only on the text it is
+# shown. The interface is these four names; keep it small (other cards copy it).
+#
+#   oracle = QuotingOracle({"gout flare": [Decisive("Acute gout flare of the right toe.")],
+#                           "infection": [Decisive("Active tuberculosis under treatment.")]})
+#   judge, verifier = quoting_pair(oracle)                      # both read; the verifier agrees
+#   judge, verifier = quoting_pair(oracle, verifier="disagree")  # ... or flips every answer it gives
+#   judge, verifier = quoting_pair(oracle, verifier="down")      # ... or is down (LlmError on every call)
+#   services.llm, services.verifier = judge, verifier            # or NoteJudge(lake, judge, verifier=verifier)
+#   oracle.full(cid_or_text, notes)                              # what a reader of the whole record answers
+@dataclass(frozen=True)
+class Decisive:
+    """One sentence that settles a criterion when the model is shown it. ``answer`` is the judge's predicate (the
+    prompt's ``verdict``): ``pass`` = the record documents the criterion's condition, ``fail`` = it documents that the
+    condition is absent. The quote is the sentence itself, under the date of the excerpt that holds it."""
+
+    sentence: str
+    answer: str = "pass"
+    confidence: float = 0.95
+
+
+class QuotingOracle:
+    """What a careful reader answers from the excerpts it is shown, per criterion.
+
+    ``rules`` maps a key to the criterion's decisive sentences, in order. A key matches a question when it is a
+    substring (case-folded) of the criterion text or the note question. The first sentence (in rule order) found in
+    any excerpt shown decides, quoted from the newest excerpt that holds it; when none is shown the answer is
+    ``unknown`` at 0.5 with no quote. A question no key matches is ``unknown``. Every question is kept in ``asked``
+    as ``(key or None, criterion_text, [excerpt texts])``, so a test can see what each path showed the model."""
+
+    def __init__(self, rules: Mapping[str, Sequence[Decisive]]) -> None:
+        self.rules = {k.casefold(): list(v) for k, v in rules.items()}
+        self.asked: list[tuple[str | None, str, list[str]]] = []
+
+    def key_of(self, criterion_text: str, note_question: str = "") -> str | None:
+        hay = f"{criterion_text}\n{note_question}".casefold()
+        return next((k for k in self.rules if k in hay), None)
+
+    def decide(self, key: str | None, excerpts: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+        """The judge prompt's JSON for ``excerpts`` (dicts with ``text`` and ``date``)."""
+        for rule in self.rules.get(key or "", []):
+            holding = [e for e in excerpts if rule.sentence in str(e.get("text") or "")]
+            if holding:
+                newest = max(holding, key=lambda e: str(e.get("date") or ""))
+                return {"verdict": rule.answer, "reason": "quoting", "confidence": rule.confidence,
+                        "quote": rule.sentence, "quote_date": str(newest.get("date") or "") or None}  # fmt: skip
+        return {"verdict": "unknown", "reason": "quoting: not in the excerpts", "confidence": 0.5, "quote": None,
+                "quote_date": None}  # fmt: skip
+
+    def __call__(self, variables: dict[str, Any]) -> dict[str, Any]:
+        """``ScriptedModel``'s ``answer``: reads the prompt's ``criterion_text``, ``note_question`` and ``excerpts``."""
+        key = self.key_of(str(variables.get("criterion_text") or ""), str(variables.get("note_question") or ""))
+        ex = list(variables.get("excerpts") or [])
+        self.asked.append((key, str(variables.get("criterion_text") or ""), [str(e.get("text") or "") for e in ex]))
+        return self.decide(key, ex)
+
+    def full(self, criterion: str, notes: Sequence[Mapping[str, Any]]) -> str:
+        """The predicate (``pass``/``fail``/``unknown``) a reader of every note in ``notes`` gives; ``criterion`` is
+        a rule key or a criterion text."""
+        key = criterion.casefold() if criterion.casefold() in self.rules else self.key_of(criterion)
+        return str(self.decide(key, notes)["verdict"])
+
+
+_FLIP = {"pass": "fail", "fail": "pass"}
+
+
+def quoting_pair(
+    oracle: QuotingOracle, verifier: str = "agree", only: Sequence[str] = ()
+) -> tuple[ScriptedModel, ScriptedModel]:
+    """``(judge, verifier)``: two models of different builds that both read through ``oracle``. ``verifier`` is what
+    the second model does: ``agree`` (reads as the judge does), ``disagree`` (flips a ``pass``/``fail`` answer, same
+    quote), ``unknown`` (never sure) or ``down`` (an outage on every call). ``only``: rule keys the verifier's
+    behaviour applies to; it agrees on the others."""
+    if verifier not in ("agree", "disagree", "unknown", "down"):
+        raise ValueError(f"verifier {verifier!r}: agree, disagree, unknown or down")
+    keys = {k.casefold() for k in only}
+
+    def second(variables: dict[str, Any]) -> dict[str, Any]:
+        key = oracle.key_of(str(variables.get("criterion_text") or ""), str(variables.get("note_question") or ""))
+        ans = oracle.decide(key, list(variables.get("excerpts") or []))
+        if verifier == "agree" or (keys and key not in keys):
+            return ans
+        if verifier == "down":
+            raise LlmError("LLM endpoint unreachable (local): scripted verifier outage")
+        if verifier == "unknown":
+            return {**ans, "verdict": "unknown", "confidence": 0.5, "quote": None, "quote_date": None}
+        return {**ans, "verdict": _FLIP.get(str(ans["verdict"]), ans["verdict"])}
+
+    return ScriptedModel("judge-a", oracle), ScriptedModel("verifier-b", second)
 
 
 # ------------------------------------------------------------------------------------------------ the stub over HTTP

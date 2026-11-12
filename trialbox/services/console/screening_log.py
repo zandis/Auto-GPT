@@ -261,17 +261,23 @@ def register(app: FastAPI, h: Helpers) -> None:
             back="log",
             sstate=store.study_state(rid),  # D-386: the study's state and identifiers above the log
             sident=store.study_identity(rid),
+            sponsor_cols=current_layout(rid) is not None,  # T-302c: the link to the log in the sponsor's columns
         )
 
-    def sponsor_layout(rs: str) -> dict[str, Any]:
-        """The study's sponsor layout (D-435), or 404 when none is saved."""
+    def current_layout(rs: str) -> dict[str, Any] | None:
+        """The study's sponsor layout in force (D-435) when it names the log's columns, else None."""
         cur = None
         if s28.has_api(bk):
             try:
                 cur = (s28.call(bk, "GET", f"/studies/{rs}/sponsor/layout") or {}).get("current")
             except (Problem, Unavailable):
                 cur = None
-        if not isinstance(cur, dict) or not (cur.get("layout") or {}).get("log"):
+        return cur if isinstance(cur, dict) and (cur.get("layout") or {}).get("log") else None
+
+    def sponsor_layout(rs: str) -> dict[str, Any]:
+        """The study's sponsor layout (D-435), or 404 when none is saved."""
+        cur = current_layout(rs)
+        if cur is None:
             raise h.problem(404, "notfound")
         return cur
 

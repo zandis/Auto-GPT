@@ -409,17 +409,22 @@ class SiteSetup:
             # D-273 (CR-055, DI-5): the audit event goes first; if it cannot be written, nothing is published
             self.audit.append("setup.publish_begin", actor=by, detail={"ws": ws, "snapshot": snap, "digest": dg[:16]})
             lake.put_site(res)
-            if ws == "main":  # the hospital's lake: never rebuilt from a missing or empty feed once it had one (D-271)
-                try:
-                    lake.rebuild(snap)
-                except Exception as exc:
-                    if not _held_refusal(exc):
-                        raise
-                    # a job pinned the snapshot between the check and the rebuild: the batch waits for it (D-403)
-                    self.audit.append("setup.publish_deferred", actor=by, detail={"ws": ws, "snapshot": snap})
-                    return _pending(last, 0, max(1, self._held_by(lake, snap)))
-            else:  # a practice site holds the site's own inputs only
-                lake.rebuild(snap, allow_empty=True)
+            try:
+                if ws == "main":  # the hospital's lake: never rebuilt from a missing or empty feed once it had one
+                    lake.rebuild(snap)  # (D-271)
+                else:  # a practice site holds the site's own inputs only
+                    lake.rebuild(snap, allow_empty=True)
+            except Exception as exc:
+                if _building_refusal(exc):
+                    # D-462: another rebuild of the snapshot runs (an earlier publish whose HTTP client timed out,
+                    # another worker, a double click): never a second writer; this publish waits, "building"
+                    self.audit.append("setup.publish_building", actor=by, detail={"ws": ws, "snapshot": snap})
+                    return _pending(last, 0, 0, building=True)
+                if ws != "main" or not _held_refusal(exc):
+                    raise
+                # a job pinned the snapshot between the check and the rebuild: the batch waits for it (D-403)
+                self.audit.append("setup.publish_deferred", actor=by, detail={"ws": ws, "snapshot": snap})
+                return _pending(last, 0, max(1, self._held_by(lake, snap)))
             counts = publish.counts(res)
             self.store.set_published(ws, self.stamp(), snap, dg, counts)
             self.audit.append("setup.publish", actor=by, detail={"ws": ws, "snapshot": snap, "counts": counts})
@@ -439,16 +444,29 @@ class SiteSetup:
         self.audit.append("setup.reset", actor=by, detail={"ws": ws})
 
 
-def _pending(last: dict[str, Any] | None, wait: int, held: int) -> dict[str, Any]:
-    """What a publish that waits answers (T-305b, D-403): the last published snapshot and why it waits."""
+def _pending(last: dict[str, Any] | None, wait: int, held: int, building: bool = False) -> dict[str, Any]:
+    """What a publish that waits answers (T-305b, D-403): the last published snapshot and why it waits; ``building``
+    when another rebuild of the snapshot is running (D-462)."""
     return {
         "snapshot": last["snapshot"] if last else None,
         "unchanged": False,
         "pending": True,
         "wait_seconds": wait,
         "held_by_jobs": held,
+        "building": building,
         "counts": last["counts"] if last else {},
     }
+
+
+def _building_refusal(exc: Exception) -> bool:
+    """The lake refused the rebuild because another rebuild of the snapshot runs (D-462; in process, or the 409)."""
+    if type(exc).__name__ == "SnapshotBuilding":
+        return True
+    resp = getattr(exc, "response", None)
+    if getattr(resp, "status_code", None) != 409:
+        return False
+    headers = getattr(resp, "headers", None) or {}
+    return headers.get("X-TB-Lake-Busy") == "building" or "already building" in str(getattr(resp, "text", ""))
 
 
 def _held_refusal(exc: Exception) -> bool:

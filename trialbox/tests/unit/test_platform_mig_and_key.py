@@ -401,7 +401,8 @@ def test_shared_quota_compose_keeps_both_servers_behind_the_guard() -> None:
     doc = yaml.load((ROOT / "deploy/docker-compose.shared-quota.yml").read_text(encoding="utf-8"), Loader=_Loader)
     for svc, alias in (("llm-service", "llm-service-vllm"), ("llm-verifier", "llm-verifier-vllm")):
         body = doc["services"][svc]
-        assert body["environment"]["VLLM_API_KEY"] == "${TB_LLM_API_KEY:-}", svc
+        assert "VLLM_API_KEY" not in body["environment"], svc  # D-450: from the servers' own env file
+        assert {"path": "./secrets/model/vllm.env", "required": False} in body["env_file"], svc
         assert body["networks"] == {"model-backend-net": {"aliases": [alias]}}, svc
 
 

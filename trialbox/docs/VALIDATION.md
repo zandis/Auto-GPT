@@ -66,16 +66,14 @@ The pair (judge Gemma 4 26B-A4B NVFP4, verifier Qwen3.5-9B AWQ) excludes on a no
 
 | Measure | Gate | Deployed files on the card | Where |
 | --- | --- | --- | --- |
-| N-11: eligible SIGIR pairs lost, of 79 (EN / JA / zh-TW) | ≤ 5 / ≤ 4 / ≤ 2 | 4 / 3 / **not recorded** | `eval/parity/replay.json` |
+| N-11: eligible SIGIR pairs lost, of 79 (EN / JA / zh-TW) | ≤ 5 / ≤ 4 / ≤ 2 | 4 / 2 / 1 | `eval/parity/replay.json` |
 | N-12: TREC CT eligible pairs wrongly dropped, unadjusted | ≤ 5 % | **9.4 %** (95 % 7.9–11.2), **fail** | `eval/trec_ct/results/n12_deployed_2026-11-08.md` |
 | pair canary (54 cases, en/ja/zh-TW) on the PRO 6000 | 0 wrong exclusions | judge 54/54, verifier 49/54, 0 wrong exclusions | `eval/parity/gpu-run-2026-11-08-pro6000/` |
 | `public_e2e --lang en` with the pair, PRO 6000 | all checks | 98/98 in 1,303 s; 7 disagreements and 1 failure went to review | same folder |
 
 `python -m tools.parity_replay` replays the recorded answers with no model (`--check` checks the committed tables)
-and names any recording a GPU run must still add. N-11 zh-TW on the deployed files needs
-`eval/trialgpt_compare/results/raw/trialbox__local__gemma-4-26b-a4b-nvfp4__zh-TW.jsonl.gz` and the verifier's file:
-`python -m tools.trialgpt_compare run --pipelines trialbox --langs zh-TW --base-url http://<vm>/judge/v1`, then the same
-for the verifier (2,030 checks, about 10 minutes on the PRO 6000).
+and names any recording a GPU run must still add (none is missing for the deployed pair: EN, JA and zh-TW are all in
+`eval/trialgpt_compare/results/raw`).
 N-12 is the unadjusted figure (D-343, REG-030). The audit-adjusted figure, 3.1 % (95 % 1.8–5.0), is a note and not
 the gate result: the adjustment rests on a sampled check of NIST labels by Claude, not a clinician
 (`eval/trec_ct/AUDIT.md`). It stays a note until a clinician repeats the sample.

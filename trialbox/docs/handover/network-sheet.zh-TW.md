@@ -68,6 +68,7 @@
 | 機密 | 存放位置 | 提供給 |
 | --- | --- | --- |
 | model key | deploy/secrets/model/llm.key (0600) | gateway, model-guard only, at /run/secrets/tb_llm_key |
+| model key, the vLLM servers' copy (VLLM_API_KEY) | deploy/secrets/model/vllm.env (0600, root) | llm-service, llm-verifier only |
 | oidc_client_secret | deploy/secrets/authelia/oidc_client_secret.txt (0600, root) | console only, at /run/secrets/oidc_client_secret (OIDC on) |
 | service token: adapter | deploy/secrets/services/adapter.token (0600) | adapter only, at /run/secrets/tb_service_token |
 | service token: console | deploy/secrets/services/console.token (0600) | console only, at /run/secrets/tb_service_token |
@@ -82,7 +83,9 @@
 | token registry (sha256 of each token) | deploy/secrets/services/public/tokens.json | 所有 TrialBox 服務（僅雜湊，非機密） |
 | POSTGRES_PASSWORD (role hapi) | deploy/.env (0600, root) | db, fhir-store |
 | POSTGRES_WF_PASSWORD, TB_DB_URL (role trialbox) | deploy/.env (0600, root) | db; adapter, console, criteria-compiler, gateway, lake, mail-gateway, orchestrator |
+| TB_DB_PW_<SERVICE> (one role per service) | deploy/.env (0600, root) | db; each service its own only |
 | IMAP_PASS, SMTP_PASS | deploy/.env (0600, root) | mail-gateway |
+| TB_KEK_PASSPHRASE, TB_KMS_TOKEN (if the KEK back end uses them) | deploy/.env (0600, root) | adapter, orchestrator |
 | CLOUD_LLM_API_KEY (empty by default) | deploy/.env (0600, root) | gateway |
 | site_hmac.key, pid_map.key, REDCap API tokens | volume tb-secrets (/run/secrets/trialbox) | adapter, orchestrator |
 | Caddy's internal CA keys (TB_TLS_MODE=internal) | volume caddy-data | caddy only; never copied out |

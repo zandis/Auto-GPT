@@ -24,14 +24,18 @@
 **The model key** (T-212b, D-437; review LLM-039): the key of the on-box model servers (D-177) is
 ``deploy/secrets/model/llm.key`` (0600, the service user, in a 0700 folder), made by ``init`` (from the
 ``TB_LLM_API_KEY`` that install.sh or an older box put in ``deploy/.env``, else new). The secrets overlay mounts it
-into the gateway and model-guard only, as a compose secret (``TB_LLM_API_KEY_FILE``). The vLLM servers still take it
-from ``deploy/.env`` by compose interpolation (``VLLM_API_KEY``), so ``init`` and ``rotate`` keep that copy equal to
-the file. ``rotate --service model`` writes a new key and recreates the model servers, model-guard and the gateway
-in one command: the old key is refused from then on.
+into the gateway and model-guard only, as a compose secret (``TB_LLM_API_KEY_FILE``). vLLM has no ``*_FILE``
+setting, so the vLLM servers read ``deploy/secrets/model/vllm.env`` (``VLLM_API_KEY=<key>``, 0600), their own env
+file in every compose file that defines them, written here with ``llm.key`` and rewritten from it when it is missing
+or differs (T-212d, D-450). ``deploy/.env`` keeps a copy (``TB_LLM_API_KEY``) only for a box started without the
+secrets overlay, where model-guard reads it; ``init`` and ``rotate`` keep it equal to the file, and a copy that
+differs is refused (D-445). ``rotate --service model`` writes a new key and recreates the model servers,
+model-guard and the gateway in one command: the old key is refused from then on.
 
-The database passwords (``POSTGRES_PASSWORD`` for HAPI, ``POSTGRES_WF_PASSWORD`` and ``TB_DB_URL`` for the trial
-database) stay in ``deploy/.env`` (0600, root), which compose reads; the overlay clears them, the mail passwords and
-the cloud-model key in every container that does not need them.
+The database passwords (``POSTGRES_PASSWORD`` for HAPI, ``POSTGRES_WF_PASSWORD``, ``TB_DB_PW_<SERVICE>`` and
+``TB_DB_URL`` for the trial database) stay in ``deploy/.env`` (0600, root), which compose reads; the overlay clears
+them, the mail passwords, the cloud-model keys, the KEK passphrase and the host tools' keys in every container that
+does not need them (D-450; ``tests/unit/test_compose_secret_reach.py``).
 
 **Migration.** A box installed before step 8 has one shared ``TB_SERVICE_TOKEN`` in ``deploy/.env``. ``init`` keeps
 it working: its hash goes into ``tokens.json`` as ``legacy`` (accepted from any caller, with a warning in the
@@ -113,6 +117,21 @@ def model_key_path(deploy: Path) -> Path:
     return deploy / "secrets" / "model" / "llm.key"
 
 
+def vllm_env_path(deploy: Path) -> Path:
+    """The vLLM servers' env file (``VLLM_API_KEY``; T-212d, D-450): compose reads it, no service mounts it."""
+    return deploy / "secrets" / "model" / "vllm.env"
+
+
+def _vllm_env_write(deploy: Path, key: str) -> bool:
+    """(Re)write the vLLM servers' env file from the key; True when it changed."""
+    p = vllm_env_path(deploy)
+    want = f"VLLM_API_KEY={key}\n"
+    if p.is_file() and p.read_text(encoding="utf-8") == want:
+        return False
+    _write_private(p, want, None)  # read by compose (root), never by a TrialBox service
+    return True
+
+
 def _model_key_write(deploy: Path, env_file: Path, key: str, uid: int | None) -> None:
     folder = model_key_path(deploy).parent
     folder.mkdir(parents=True, exist_ok=True)
@@ -120,6 +139,7 @@ def _model_key_write(deploy: Path, env_file: Path, key: str, uid: int | None) ->
     if uid is not None and os.geteuid() == 0:
         os.chown(folder, uid, uid)
     _write_private(model_key_path(deploy), key + "\n", uid)  # the gateway and model-guard run as ``uid``
+    _vllm_env_write(deploy, key)  # the vLLM servers' copy (D-450)
     if _read_env(env_file).get(MODEL_KEY_ENV) != key:
         _set_env(env_file, {MODEL_KEY_ENV: key})  # the vLLM servers' copy (compose interpolation), kept equal
 
@@ -145,6 +165,7 @@ def ensure_model_key(deploy: Path, env_file: Path | None = None, uid: int | None
             )
         if not copy:
             _set_env(env_file, {MODEL_KEY_ENV: cur})
+        _vllm_env_write(deploy, cur)  # a box from before D-450, or a file lost: the servers' copy from the key file
         return False
     _model_key_write(deploy, env_file, _read_env(env_file).get(MODEL_KEY_ENV) or _new_token(), uid)
     return True
