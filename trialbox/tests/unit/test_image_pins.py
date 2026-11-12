@@ -117,3 +117,40 @@ def test_an_update_keeps_the_bundle_pins_and_resolves_them_before_the_restart(
     with pytest.raises(up.UpdateFailed, match="pinned images"):
         box.restart(plan)
     assert len(calls) == n
+
+
+# ------------------------------------------------------------------------------------------------ OPS-004b (D-574)
+def test_an_image_no_service_of_this_box_runs_is_not_asked_for(tmp_path: Path) -> None:
+    """The box rehearsal's stand-ins replace the model servers through the compose override; the installer still
+    wanted the model server image on the box by its variable. What the rendered stack does not run is not needed;
+    what it runs is still required."""
+    deploy, files = _box(tmp_path, "", {PG: PG_ID})
+    used = {PG}  # the rendered stack: the database, and the FHIR store replaced by an override's image
+    changes, notes, missing = ip.resolve(deploy, files, has=lambda ref: False, used=used)
+    assert missing == [f"POSTGRES_IMAGE: {PG}"] or missing == [
+        f"POSTGRES_IMAGE: {PG} (no pin in deploy/image-pins.json)"
+    ]
+    assert any(n.startswith("HAPI_IMAGE:") and "no service of this box's stack runs it" in n for n in notes)
+    # nothing given: every pinned variable is asked for, as before
+    _, _, all_missing = ip.resolve(deploy, files, has=lambda ref: False)
+    assert len(all_missing) == 2
+
+
+def test_an_image_already_set_to_the_bundles_id_still_counts_as_run(tmp_path: Path) -> None:
+    """On the classic image store deploy/.env holds the bundle's image id for the variable, and the rendered stack
+    names that id, not the digest reference."""
+    deploy, files = _box(tmp_path, f"HAPI_IMAGE={HAPI_ID}\n", {HAPI: HAPI_ID, PG: PG_ID})
+    _, notes, missing = ip.resolve(deploy, files, has=lambda ref: ref in (HAPI_ID, PG_ID), used={HAPI_ID, PG})
+    assert missing == [] and not any("no service" in n for n in notes)
+
+
+def test_the_installer_gives_the_rendered_stack_to_the_pin_check() -> None:
+    text = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
+    call = text[text.index("python3 -m tools.image_pins resolve") :].split("\n", 1)[0]
+    assert '--used "$USED_IMAGES"' in call
+    before = text[: text.index("python3 -m tools.image_pins resolve")]
+    assert 'USED_IMAGES="$("${COMPOSE[@]}" config --images' in before[-600:]
+    assert ip.main(["resolve", "--deploy", "x", "--files", "y", "--used", ""]) in (
+        0,
+        1,
+    )  # an empty list is "none given"

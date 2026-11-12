@@ -447,7 +447,10 @@ say "starting the stack (profile $MODE)"
 PULL="${TB_INSTALL_PULL:-never}"
 case "$PULL" in never|missing) ;; *) die "TB_INSTALL_PULL must be never or missing" ;; esac
 if command -v python3 >/dev/null; then
-  python3 -m tools.image_pins resolve --deploy deploy --files "$FILES" 2>&1 | sed 's/^/    /' \
+  # OPS-004b (D-574): what the stack will run, with the box's overrides applied; an image no service runs (a model
+  # server a compose override replaces) is not asked for
+  USED_IMAGES="$("${COMPOSE[@]}" config --images | sort -u)"
+  python3 -m tools.image_pins resolve --deploy deploy --files "$FILES" --used "$USED_IMAGES" 2>&1 | sed 's/^/    /' \
     || die "a pinned image is not on this box (MISSING above): the bundle must carry it (make_bundle.sh without --no-third-party)"
 fi
 if [ "$PULL" = never ]; then

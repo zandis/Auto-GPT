@@ -133,8 +133,14 @@ media() (  # a subshell: set -e stops the step, not the run
   mkdir -p "$W/vendor/cfg"
   printf 'TB_TZ=%s\n' "$(sed -n "s/^tz: *['\"]\{0,1\}\([A-Za-z0-9_+\/-]*\).*/\1/p" tools/rehearse_box/site_answers.yaml | head -1)" > "$W/vendor/cfg/.env"
   grep -q '^TB_TZ=.' "$W/vendor/cfg/.env" || { echo "site_answers.yaml names no tz"; return 1; }
+  # OPS-004b (D-574): the bundle carries what the box's own stack runs: the file set install.sh uses for these
+  # answers (the large tier, TLS on), with the stand-ins' override, which replaces the model servers
+  printf 'TB_TLS_HOSTNAME=%s\n' "$(sed -n "s/^tls_hostname: *['\"]\{0,1\}\([A-Za-z0-9._-]*\).*/\1/p" tools/rehearse_box/site_answers.yaml | head -1)" >> "$W/vendor/cfg/.env"
+  grep -q '^TB_TLS_HOSTNAME=.' "$W/vendor/cfg/.env" || { echo "site_answers.yaml names no tls_hostname"; return 1; }
   while IFS= read -r i; do case "$i" in trialbox-*) ;; *) imgs+=("$i") ;; esac; done \
-    < <(docker compose --project-directory "$W/vendor/cfg" -f deploy/docker-compose.yml config --images | sort -u)
+    < <(docker compose --project-directory "$W/vendor/cfg" -f deploy/docker-compose.yml -f deploy/docker-compose.secrets.yml \
+          -f deploy/docker-compose.rtxpro6000.yml -f deploy/docker-compose.identity.yml \
+          -f tools/rehearse_box/standins.yml config --images | sort -u)
   [ ${#imgs[@]} -ge 4 ] || { echo "compose listed no third-party image"; return 1; }
   : > "$W/vendor/bundle-images.txt"
   for i in "${imgs[@]}"; do
