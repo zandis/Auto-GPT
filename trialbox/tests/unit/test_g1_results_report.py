@@ -13,6 +13,7 @@ import socket
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -30,7 +31,7 @@ sys.modules["results_report"] = rr
 _spec.loader.exec_module(rr)
 
 
-def run(folder: Path, out: Path, *args: str) -> tuple[int, str, str, dict]:
+def run(folder: Path, out: Path, *args: str) -> tuple[int, str, str, dict[str, Any]]:
     code = rr.main([str(folder), "--out", str(out), *args])
     if code:
         return code, "", "", {}
@@ -232,7 +233,9 @@ def test_the_real_partial_run_marks_its_missing_parts(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "text", ['{"stages": [', '{"checks": []}', '{"stages": [{"checks": [["only a name"]]}]}', "[]"]
 )
-def test_a_malformed_part_is_the_only_non_zero_exit(tmp_path: Path, text: str, capsys: pytest.CaptureFixture) -> None:
+def test_a_malformed_part_is_the_only_non_zero_exit(
+    tmp_path: Path, text: str, capsys: pytest.CaptureFixture[str]
+) -> None:
     src = tmp_path / "run"
     shutil.copytree(FIXTURES / "complete", src)
     (src / "parts" / "install.json").write_text(text, "utf-8")
