@@ -4,6 +4,7 @@
     python tests/rehearsal/check.py run-b <evidence> --only ... --head <sha> --previous <run id of run-a>
     python tests/rehearsal/check.py bucket <evidence> --only ... --head <sha>
     python tests/rehearsal/check.py served|no-upload|hang|busy <evidence>
+    python tests/rehearsal/check.py preempt <evidence> --only TAG,TAG
 
 The evidence (rehearse.sh ``end_case``): ``console.log`` (the VM's serial console of this case), ``POWEROFF`` (each
 power-off and why), ``standin-judge.log`` / ``standin-verifier.log`` (one line per call: status, path, model),
@@ -272,9 +273,44 @@ def silent_case(a: argparse.Namespace, hang: bool) -> int:
     return r.done()
 
 
+def preempt_case(a: argparse.Namespace) -> int:
+    """G1 bug A1: pre-empted after part 3, collected, resumed. The parts done before the pre-emption reach the driver,
+    no collect removes them, and the resumed VM keeps them (``--resume``) and runs only the part that was cut."""
+    r = Result(a.case)
+    e = a.evidence
+    only = [t for t in a.only.split(",") if t]
+    done, cut = only[:-1], only[-1]
+    r.ok("the VM was pre-empted (stopped from outside, mid-run)", bool(poweroffs(e, "POWEROFF.preempt")))
+    r.ok("--collect started the stopped VM results-only", "TB-COLLECT-ONLY: results.tgz" in text(e / "console.log"))
+    early = {p.stem: p.read_bytes() for p in (e / "parts-after-collect").glob("*.json")}
+    r.ok("the collect after the pre-emption has the finished parts", set(done) <= set(early), sorted(early))
+    r.ok("the part that was cut has no result after the pre-emption", cut not in early, sorted(early))
+    drv = text(e / "driver.log")
+    r.ok("no collect removed a part result", "HEAD removed" not in drv,
+         [ln for ln in drv.splitlines() if "removed" in ln][:3])  # fmt: skip
+    res = members(e / "out" / "shard-1" / "results.tgz")
+    vm = res.get("vm.log", b"").decode("utf-8", "replace")
+    for tag in done:
+        r.ok(f"the resumed VM kept {tag} (--resume)", f"{tag}: done earlier in this run at this HEAD, kept" in vm)
+        final = e / "out" / "parts" / f"{tag}.json"
+        r.ok(f"{tag}: the result is the one made before the pre-emption", final.exists() and
+             final.read_bytes() == early.get(tag))  # fmt: skip
+    part = res.get(f"parts/{cut}.json")
+    r.ok(
+        f"the resumed VM ran {cut} to its end",
+        part is not None and all(c[1] for st in json.load(io.BytesIO(part))["stages"] for c in st["checks"]),
+    )
+    rep = report_of(e)
+    r.ok("the report has every planned part", set(only) <= {p["tag"] for p in rep.get("parts") or []})
+    r.ok("no part crashed, did not report or lacked its data", not rep.get("not_run"), rep.get("not_run"))
+    offs = poweroffs(e)
+    r.ok("the VM powered off once the driver collected", bool(offs) and "results collected" in offs[-1], offs[-1:])
+    return r.done()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("case", choices=["run-a", "run-b", "bucket", "served", "no-upload", "hang", "busy"])
+    ap.add_argument("case", choices=["run-a", "run-b", "bucket", "served", "no-upload", "hang", "busy", "preempt"])
     ap.add_argument("evidence", type=Path)
     ap.add_argument("--only", default="")
     ap.add_argument("--head", default="")
@@ -287,6 +323,8 @@ def main() -> int:
         return served_case(a)
     if a.case == "no-upload":
         return no_upload_case(a)
+    if a.case == "preempt":
+        return preempt_case(a)
     return silent_case(a, a.case == "hang")
 
 
