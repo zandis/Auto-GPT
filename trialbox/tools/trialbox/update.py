@@ -395,12 +395,14 @@ RESTORE_SH = (
     '{ printf "%s\\n" "$3"; cat "$t"; } | psql -X -q -v ON_ERROR_STOP=1 --single-transaction -U "$1" -d "$2"'
 )
 # Everything the role owns that a later release could have added: its schemas (not public, not an extension's) and
-# its relations in public (not an extension's). The dump's script then re-creates exactly what it holds.
+# its relations in public (not an extension's). D-541: and what the database's owner owns (the FHIR store's own role
+# owns `hapi`'s tables; the restore runs as the superuser). The dump's script then re-creates exactly what it holds.
 RESET_SQL = """DO $tb$
 DECLARE r record;
 BEGIN
   FOR r IN SELECT n.nspname FROM pg_namespace n
-           WHERE n.nspowner = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+           WHERE n.nspowner IN ((SELECT oid FROM pg_roles WHERE rolname = current_user),
+                                (SELECT datdba FROM pg_database WHERE datname = current_database()))
              AND n.nspname <> 'public' AND n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
              AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_namespace'::regclass
                              AND d.objid = n.oid AND d.deptype = 'e')
@@ -409,7 +411,8 @@ BEGIN
   END LOOP;
   FOR r IN SELECT c.relname, c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
            WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
-             AND c.relowner = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+             AND c.relowner IN ((SELECT oid FROM pg_roles WHERE rolname = current_user),
+                                (SELECT datdba FROM pg_database WHERE datname = current_database()))
              AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass
                              AND d.objid = c.oid AND d.deptype = 'e')
   LOOP
@@ -1212,8 +1215,6 @@ class ComposeBox(_DockerImages):
         """T-718 (D-486, the review's H1): the role script before the migrate step, as `install.sh` runs it. A box
         updated in place otherwise keeps a schema under its old group, with the service as its owner. The script
         is idempotent and reads the passwords from the database container's own environment."""
-        if not self.env.get("TB_DB_URL", ""):  # as migrate_owned: a box that never ran install.sh's database step
-            return
         # D-541 (NEW-TRUST-1): a box installed before the FHIR store had a role of its own has no password for it.
         # The file first, the role after: a run that stops in between is repeated with the same value. The running
         # database container was started without the variable, so it is handed over by name for this one command
@@ -1225,8 +1226,18 @@ class ComposeBox(_DockerImages):
             fhir = secrets.token_urlsafe(32)
             svc_secrets._set_env(self.deploy / ".env", {FHIR_PW: fhir})
             self.env[FHIR_PW] = fhir
-        self.run(self._c("exec", "-T", "-e", FHIR_PW, "db", "/docker-entrypoint-initdb.d/30-service-roles.sh"),
-                 env={FHIR_PW: fhir}, timeout=int(os.environ.get("TB_INSTALL_UP_TIMEOUT", "900")))  # fmt: skip
+        if not self.env.get("TB_DB_URL", ""):  # as migrate_owned: a box that never ran install.sh's database step
+            return
+        # the script of this release, on standard input: the running database container still has the folder of
+        # the release before mounted, so the path inside it would run the older script
+        script = self.deploy / "docker" / "db-init" / "30-service-roles.sh"
+        t = int(os.environ.get("TB_INSTALL_UP_TIMEOUT", "900"))
+        if script.is_file():
+            self.run(self._c("exec", "-T", "-e", FHIR_PW, "db", "sh", "-s"), stdin_file=script, env={FHIR_PW: fhir},
+                     timeout=t)  # fmt: skip
+        else:  # a deploy folder without the script (a copied tree): the one the container has
+            self.run(self._c("exec", "-T", "-e", FHIR_PW, "db", "/docker-entrypoint-initdb.d/30-service-roles.sh"),
+                     env={FHIR_PW: fhir}, timeout=t)  # fmt: skip
 
     def migrate_owned(self) -> None:
         """T-718 (D-486): the schemas no service owns are made by the box's admin before the services start, in a

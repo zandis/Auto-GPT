@@ -24,6 +24,9 @@ def _box(tmp_path: Path, env: str) -> tuple[up.ComposeBox, list[tuple[list[str],
         calls.append((list(argv), dict(env or {})))
         return ""
 
+    script = deploy / "docker" / "db-init" / "30-service-roles.sh"  # the release's own script, as a box has it
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text("#!/bin/sh\n", encoding="utf-8")
     return up.ComposeBox(deploy, run=run), calls
 
 
@@ -64,13 +67,14 @@ def test_the_update_sets_the_roles_before_it_migrates(tmp_path: Path) -> None:
     the schema under the old group, with the service as its owner, and nothing said so."""
     box, calls = _box(tmp_path, f"COMPOSE_PROFILES=stub\nTB_DB_URL={URL}\n")
     box.restart(up.Plan("b1", "", "", [], tmp_path / "stage"))
-    roles = next(i for i, (argv, _e) in enumerate(calls) if argv[-1].endswith("30-service-roles.sh"))
+    roles = next(i for i, (argv, _e) in enumerate(calls) if argv[-2:] == ["sh", "-s"])
     step = next(i for i, (argv, _e) in enumerate(calls) if "orchestrator.migrate" in argv)
     assert roles < step
     argv, env = calls[roles]
     # D-541: the one variable the running database container was started without is handed over by name
-    assert argv[-6:] == ["exec", "-T", "-e", "TB_DB_PW_FHIR_STORE", "db",
-                         "/docker-entrypoint-initdb.d/30-service-roles.sh"]  # fmt: skip
+    # the script of the NEW release goes in on standard input: the running database container still has the
+    # previous release's folder mounted (review of D-541)
+    assert argv[-7:] == ["exec", "-T", "-e", "TB_DB_PW_FHIR_STORE", "db", "sh", "-s"]
     assert set(env) == {"TB_DB_PW_FHIR_STORE"} and not any(WORD in a for a in argv)
     assert not any(env["TB_DB_PW_FHIR_STORE"] in a for a in argv)  # the value is never an argument
 
@@ -87,8 +91,8 @@ def test_the_update_gives_the_fhir_store_a_password_before_it_sets_the_roles(tmp
     assert oct(env_file.stat().st_mode & 0o777) == "0o600"
     assert not any(made[0] in a for argv, _e in calls for a in argv)
     holders = [argv for argv, e in calls if made[0] in e.values()]
-    assert len(holders) == 1 and holders[0][-1].endswith("30-service-roles.sh")  # the role script's call only
-    roles = next(i for i, (argv, _e) in enumerate(calls) if argv[-1].endswith("30-service-roles.sh"))
+    assert len(holders) == 1 and holders[0][-2:] == ["sh", "-s"]  # the role script's call only
+    roles = next(i for i, (argv, _e) in enumerate(calls) if argv[-2:] == ["sh", "-s"])
     start = next(i for i, (argv, _e) in enumerate(calls) if "up" in argv)
     assert roles < start
     box2, _ = _box_again(tmp_path)
@@ -105,3 +109,11 @@ def _box_again(tmp_path: Path) -> tuple[up.ComposeBox, list[tuple[list[str], dic
         return ""
 
     return up.ComposeBox(tmp_path / "deploy", run=run), calls
+
+
+def test_a_box_without_the_admin_url_still_gets_the_fhir_password(tmp_path: Path) -> None:
+    """Review L3: the compose file asks for the role's password whatever else the box has."""
+    box, calls = _box(tmp_path, "X=1\n")
+    box.set_roles()
+    assert "TB_DB_PW_FHIR_STORE=" in (tmp_path / "deploy" / ".env").read_text()
+    assert calls == []  # no database step on such a box

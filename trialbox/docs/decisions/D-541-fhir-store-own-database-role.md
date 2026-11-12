@@ -29,19 +29,28 @@ an allowed holder.
    T-712 left the other roles' passwords on the command line: its own card).
 3. **A new box**: `install.sh` makes the password with the others; the role script makes the role before HAPI
    first starts, so HAPI makes its tables as their owner.
-4. **An installed box, updated in place** (`trialbox update`, or `install.sh` run again). In this order:
-   - the password is written to `deploy/.env` (0600) if it is not there;
-   - the role script runs. It makes the role, sets the password, gives it the database, and inside `hapi` moves
-     what HAPI made as the superuser: tables with their indexes, sequences, views, the schema, large objects. The
-     running database container was started before the variable existed, so the update hands it over by name for
-     that one command (`exec -e TB_DB_PW_FHIR_STORE`; the value is in the environment, never an argument);
+4. **An installed box, updated in place.** The steps, in this order (`ComposeBox.set_roles`, then the start):
+   - the password is written to `deploy/.env` (0600) if it is not there, or is still the example file's;
+   - the role script of the new release runs in the database container. It is given on standard input, because
+     the running container still has the folder of the release before mounted; and the one variable that
+     container was started without is handed over by name (`exec -e TB_DB_PW_FHIR_STORE`; the value is in the
+     environment, never an argument). It makes the role, sets the password, gives it the database, and inside
+     `hapi` moves what HAPI made as the superuser: tables with their indexes, sequences, views, the schema
+     `public`, and the large objects in committed batches of 1,000;
    - the services start; the FHIR store signs in as its own role.
    Every step can be repeated: a run that stops after the file and before the script, or in the script, is run
-   again with the same password and moves what is left. **The window:** an update stops the services first, so
-   the FHIR store is down for the update as before and for nothing longer. With `install.sh` on a running box,
-   the old FHIR store container keeps working as the superuser until it is recreated with the new sign-in (a
-   superuser may use tables it no longer owns); it cannot connect only if the role script failed, and then
-   `docker compose logs fhir-store` says "password authentication failed for user tb_fhir_store".
+   again with the same password and moves what is left. **The window:** the update stops TrialBox's own
+   services, not the FHIR store, so the script runs while HAPI is up and waits for its locks; if it gives up, the
+   role, the password and the database's owner are already set, no table has moved, and a rerun finishes. The
+   old FHIR store container keeps working as the superuser until it is recreated with the new sign-in.
+   **What does not work yet (the adversarial review's H1, by reading):** the update that BRINGS this release is
+   run by the release before it, whose steps know none of this (`apply_update.sh` starts the installed updater;
+   `install.sh` with a new bundle goes the same way). The new compose file is then in force with no role and no
+   password: the FHIR store cannot sign in, the start fails, and the update rolls back. Nothing is lost, and the
+   box stays on the old release. So this card reaches an installed box only once the update tool runs the new
+   release's own steps (a finding sent to lane D on 2026-11-12), or by a release in two steps (this one makes
+   the role while the compose file still accepts the old sign-in; the next one changes the compose file). A new
+   box is not affected. No box is in the field.
 5. **After a restore** the dump is loaded by the superuser, so the tables are the superuser's again: the role
    script is run after a restore (as D-378 already asks) and moves them.
 6. `ADMIN_HOLDERS["POSTGRES_PASSWORD"]` is the database server alone. The unit test over every compose file set
@@ -49,12 +58,24 @@ an allowed holder.
 
 ## What it does not do
 
-- The Kubernetes form gives every pod the administrator's URL: it waits with the frozen server form.
-- `trialbox secrets rotate --service db` does not rotate this role's password yet (it rotates two roles; the
-  review of T-712 named that: its own card).
+- The Kubernetes form gives every pod the administrator's URL, and its FHIR store still signs in as the
+  superuser: it waits with the frozen server form.
+- `trialbox secrets rotate --service db` does not rotate this role's password yet, and still restarts the FHIR
+  store when it rotates the superuser's (the review of T-712 named the rotation: its own card).
 - A stack started by hand from an older `deploy/.env` (not through `install.sh` or `trialbox update`) has no
   `TB_DB_PW_FHIR_STORE`: add one and run the role script. `.env.example` carries a placeholder; `poc.sh` and
-  `poc.ps1` replace it.
+  `poc.ps1` replace it. A run of the script without the variable leaves a password that is set as it is.
+- The update's one-off backup container still gets the superuser's URL for `hapi` (it dumps the database).
+- `tb_fhir_store` can connect to `postgres` and `template1` (PostgreSQL's default for every role) and, as the
+  owner, could drop its own database from there. It reaches no other data.
+- As the owner of `hapi` the role may create the extensions the image marks trusted (`vector`, `pgroonga`).
+  Whether PGroonga's command function reaches server files was not run (no such image here): to be checked on
+  the image, and the trusted mark narrowed to `trialbox_wf` if it does (lane D's `db.Dockerfile`).
+- Only what HAPI is known to make is moved: relations and large objects. A function, a type or a schema other
+  than `public` made by the superuser would stay the superuser's.
+- `trialbox doctor` reports the example password and a value equal to the superuser's, not a missing
+  `TB_DB_PW_FHIR_STORE`.
+- The support bundle's redaction of `TB_DB_PW_*` is OPS-002 (#324, lane D).
 - The server's superuser is still named `hapi`. Renaming it would need a new volume.
 
 ## Dropped (D-311)

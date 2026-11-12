@@ -504,3 +504,42 @@ def test_the_fhir_stores_password_is_read_from_the_environment_never_from_the_co
     assert SCRIPT.read_text(encoding="utf-8") == (
         SCRIPT.parents[2] / "platform" / "base" / "db-init" / SCRIPT.name
     ).read_text(encoding="utf-8")
+
+
+def test_fhir_review_an_empty_variable_does_not_remove_a_password_that_is_set(roles_cluster: tuple[Path, str]) -> None:
+    """Review M3: the script run by hand in a database container started before the variable existed (the runbook's
+    command after a restore) set the role's password to nothing, and the FHIR store could not sign in."""
+    root = roles_cluster[0]
+    _run_script(root)
+    had = _superuser(root, "SELECT rolpassword FROM pg_authid WHERE rolname = 'tb_fhir_store'")
+    assert had
+    env = _psql_env(root)
+    env.pop("TB_DB_PW_FHIR_STORE")
+    r = subprocess.run(["sh", str(SCRIPT)], env=env, capture_output=True, text=True, check=False)
+    assert r.returncode == 0, r.stderr
+    assert _superuser(root, "SELECT rolpassword FROM pg_authid WHERE rolname = 'tb_fhir_store'") == had
+
+
+def test_fhir_review_many_large_objects_move_in_batches(roles_cluster: tuple[Path, str]) -> None:
+    """Review M1: one ALTER LARGE OBJECT per object in one transaction takes a lock each; past the lock table's
+    size the move failed, and failed again at every rerun. The move commits in batches."""
+    root = roles_cluster[0]
+    _fhir_db(root, "SELECT count(lo_create(0)) FROM generate_series(1, 2500)")  # made by the superuser
+    _run_script(root)
+    left = _fhir_db(root, "SELECT count(*) FROM pg_largeobject_metadata WHERE lomowner <> 'tb_fhir_store'::regrole")
+    assert left == "0"
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert "COMMIT;" in text[text.index("ALTER LARGE OBJECT") - 600 : text.index("ALTER LARGE OBJECT") + 400]
+
+
+def test_fhir_review_a_rolled_back_update_resets_what_the_fhir_store_owns(roles_cluster: tuple[Path, str]) -> None:
+    """Review M2: the update's rollback drops what the restoring role owns before it loads the dump. The tables of
+    `hapi` are the FHIR store's now, so a table a failed release added stayed. It drops the database owner's too."""
+    from tools.trialbox import update as up
+
+    root = roles_cluster[0]
+    _run_script(root)
+    _fhir_db(root, "CREATE TABLE hfj_new_release (k INT); ALTER TABLE hfj_new_release OWNER TO tb_fhir_store")
+    _fhir_db(root, up.RESET_SQL)
+    assert _fhir_db(root, "SELECT count(*) FROM pg_class WHERE relname = 'hfj_new_release'") == "0"
+    _run_script(root)  # the cluster as the other tests expect it

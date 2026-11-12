@@ -54,7 +54,12 @@ BEGIN
   END IF;
 END
 $fhir$;
+-- an empty variable sets nothing: a run without it (the script by hand, in a database container started before the
+-- variable existed) must not take away a password that is set
+SELECT :'pw_fhir_store' <> '' AS has_fhir_pw \gset
+\if :has_fhir_pw
 ALTER ROLE tb_fhir_store PASSWORD :'pw_fhir_store';
+\endif
 -- END FHIR STORE ROLE
 DO $roles$
 DECLARE
@@ -284,7 +289,9 @@ ALTER ROLE tb_audit_writer PASSWORD :'pw_audit_writer';
 SQL
 # D-541: inside `hapi`, what HAPI made while it signed in as the superuser becomes the FHIR store's own (tables with
 # their indexes, sequences, views, the schema `public`, large objects). Idempotent; a new box has nothing to move.
-if psql -tA --username "$POSTGRES_USER" --dbname postgres -c "SELECT 1 FROM pg_database WHERE datname = 'hapi'" | grep -q 1; then
+has_hapi="$(psql -tA -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "${TB_WF_DB:-trialbox_wf}" \
+  -c "SELECT count(*) FROM pg_database WHERE datname = 'hapi'")"  # a failed question stops the script (set -e)
+if [ "$has_hapi" = 1 ]; then
   psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname hapi <<'SQL'
 DO $own$
 DECLARE
@@ -306,10 +313,23 @@ BEGIN
   LOOP
     EXECUTE format('ALTER %s %I.%I OWNER TO tb_fhir_store', kinds ->> obj.kind, obj.sch, obj.name);
   END LOOP;
-  FOR obj IN SELECT oid FROM pg_largeobject_metadata WHERE lomowner <> 'tb_fhir_store'::regrole LOOP
-    EXECUTE format('ALTER LARGE OBJECT %s OWNER TO tb_fhir_store', obj.oid);
-  END LOOP;
 END
 $own$;
+-- large objects, in committed batches: each ALTER takes a lock held to the end of its transaction, and a store with
+-- many of them would run out of lock table in one (and fail the same way at every rerun)
+DO $lo$
+DECLARE
+  obj record;
+  n int := 0;
+BEGIN
+  FOR obj IN SELECT oid FROM pg_largeobject_metadata WHERE lomowner <> 'tb_fhir_store'::regrole LOOP
+    EXECUTE format('ALTER LARGE OBJECT %s OWNER TO tb_fhir_store', obj.oid);
+    n := n + 1;
+    IF n % 1000 = 0 THEN
+      COMMIT;
+    END IF;
+  END LOOP;
+END
+$lo$;
 SQL
 fi
