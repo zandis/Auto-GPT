@@ -117,6 +117,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "microbatch.budget": ("Night budget used", "夜間予算の使用", "使用夜間額度"),
     "notice.sent": ("Notice sent", "通知の送信", "寄送通知"),
     "cohort.trials": ("Cohort's studies listed", "コホートの研究一覧", "列出族群之研究"),
+    "opportunity.feed": ("Trial-opportunity feed built", "治験機会フィードを作成", "建立臨床試驗機會摘要"),
     "feas.profile_skipped": ("Feasibility profile skipped", "実施可能性プロファイルの省略", "略過可行性剖析"),
     "derive.batch": (
         "Derived scores computed for a snapshot",

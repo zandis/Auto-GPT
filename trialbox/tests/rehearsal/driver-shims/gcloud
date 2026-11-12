@@ -14,6 +14,7 @@
 #   storage cp                gs://<bucket>/<path> is $TB_REH_STATE/bucket/<bucket>/<path> (the VM's shim the same)
 #   project-info / regions describe --format=json   quota JSON: $TB_REH_GPU_LIMIT GPUs (default 1), 96 CPUs
 #   auth print-access-token   a fake token (the driver's probe)
+#   auth activate-service-account  accepted (the driver activates at the start of every command)
 S=${TB_REH_STATE:?}
 C=${TB_REH_CONTAINER:-tb-rehearsal-vm}
 echo "$(date -u +%T) gcloud $*" >> "$S/gcloud.log"
@@ -35,6 +36,7 @@ gs() { case "$1" in gs://*) echo "$S/bucket/${1#gs://}" ;; *) echo "$1" ;; esac;
 quota() { printf '{"metric": "%s", "limit": %s, "usage": 0.0}' "$1" "$2"; }
 case "$1 $2 $3" in
   "auth print-access-token"*) echo "rehearsal-token" ;;
+  "auth activate-service-account"*) true ;;   # every driver command activates first (G1 bug A2); no key is read
   "compute instances describe")
     case "$fmt" in
       *status*) cat "$S/status" 2>/dev/null || echo TERMINATED ;;
