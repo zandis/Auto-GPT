@@ -3,8 +3,8 @@
 A service signs in to the trial database as its own role and reaches only the schemas on its list
 (``deploy/docker/db-init/30-service-roles.sh``, D-378). A store opened by a service whose role is not on the
 schema's list works in every test (one role there) and fails on a box. This test reads the code: every
-``Database.connect(url, <schema>)`` in ``services/`` and ``libs/``, and for the console and the orchestrator
-(which host the shared stores) every module their process can import.
+``Database.connect(url, <schema>)`` in ``services/`` and ``libs/``, and for each service with a role every module
+its process can import.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 ROLE_OF = {"console": "tb_console", "orchestrator": "tb_orchestrator", "mail_gateway": "tb_mail_gateway",
            "gateway": "tb_gateway", "lake": "tb_lake", "adapter": "tb_adapter",
            "criteria_compiler": "tb_criteria_compiler"}  # fmt: skip
-HOSTS = ("console", "orchestrator")  # their processes import the shared stores: everything they can run is checked
+HOSTS = ("console", "orchestrator")  # their processes host the shared stores: every import they name is followed
 #: a helper that opens the schema its caller names: (module, parameter) -> what the scan reads instead
 DYNAMIC = {
     ("console.storedb", "schema"): "open_db(url, <schema>, ...): every call of it is read (a literal second argument)",
@@ -34,6 +34,12 @@ DYNAMIC = {
 BACKEND_SCHEMAS = {"recall"}
 
 
+#: a store's module that a service loads and never opens: (service, schema) -> why. Read once, by a person.
+LOADED_NOT_OPENED = {
+    ("lake", "derived"): "lake.client loads vec.s2b, which loads the matching cascade for its S2b types; the cascade "
+    "module imports tb_common.derived_store for three type names (STORED, Batch, Latest). The lake asks no stored "
+    "derived row: the orchestrator passes them to the cascade.",
+}
 #: on a list and opened by no code: why it is still listed
 LISTED_ONLY = {
     "mpi": "retired with the second ingest stack (D-381); still listed so that a volume that has the schema keeps "
@@ -55,51 +61,91 @@ MODS = _modules()
 
 def _opened(f: Path) -> set[str]:
     """The schemas one module opens. A literal or a module constant in ``Database.connect(url, <schema>)``; for a
-    helper that takes the schema as a parameter, that parameter's default and ``?<parameter>``; and the literal
-    second argument of every call of ``open_db`` (the console's helper)."""
+    helper that takes the schema as a parameter, that parameter's default and ``?<parameter>``; and the second
+    argument of every call of ``open_db`` (the console's helper). Read wherever the call stands (a function, an
+    ``async`` one, the module's own body) and however the schema is passed (second argument, ``name=`` or
+    ``schema=``); a schema the scan cannot read is a ``?`` entry, never dropped (the review's M3)."""
     tree = ast.parse(f.read_text(encoding="utf-8"))
     consts = {t.id: n.value.value for n in tree.body
               if isinstance(n, ast.Assign) and isinstance(n.value, ast.Constant) and isinstance(n.value.value, str)
               for t in n.targets if isinstance(t, ast.Name)}  # fmt: skip
+    for n in tree.body:  # an annotated constant: SCHEMA: str = "x"
+        if (isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name) and isinstance(n.value, ast.Constant)
+                and isinstance(n.value.value, str)):  # fmt: skip
+            consts[n.target.id] = n.value.value
 
     def text_of(a: ast.AST | None) -> str | None:
         if isinstance(a, ast.Constant) and isinstance(a.value, str):
             return a.value
         return consts.get(a.id) if isinstance(a, ast.Name) else None
 
+    def is_connect(func: ast.AST) -> bool:
+        if not (isinstance(func, ast.Attribute) and func.attr == "connect"):
+            return False
+        v = func.value  # Database.connect or <module>.Database.connect
+        return (isinstance(v, ast.Name) and v.id == "Database") or (
+            isinstance(v, ast.Attribute) and v.attr == "Database"
+        )
+
+    def is_open_db(func: ast.AST) -> bool:
+        return (isinstance(func, ast.Name) and func.id == "open_db") or (
+            isinstance(func, ast.Attribute) and func.attr == "open_db"
+        )
+
+    def schema_arg(n: ast.Call, names: tuple[str, ...]) -> ast.AST | None:
+        if len(n.args) >= 2:
+            return n.args[1]
+        return next((k.value for k in n.keywords if k.arg in names), None)
+
     out: set[str] = set()
-    for fn in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
-        args = [*fn.args.posonlyargs, *fn.args.args]
-        defaults: dict[str, ast.AST | None] = dict.fromkeys((a.arg for a in args), None)
-        defaults.update(zip([a.arg for a in args][len(args) - len(fn.args.defaults) :], fn.args.defaults, strict=True))
-        defaults.update({a.arg: d for a, d in zip(fn.args.kwonlyargs, fn.args.kw_defaults, strict=True)})
-        for n in ast.walk(fn):
-            if not (isinstance(n, ast.Call) and len(n.args) >= 2):
+
+    def read(scope: ast.AST, defaults: dict[str, ast.AST | None]) -> None:
+        for n in ast.iter_child_nodes(scope):
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                args = [*n.args.posonlyargs, *n.args.args]
+                own: dict[str, ast.AST | None] = dict.fromkeys((a.arg for a in args), None)
+                own.update(zip([a.arg for a in args][len(args) - len(n.args.defaults) :], n.args.defaults, strict=True))
+                own.update({a.arg: d for a, d in zip(n.args.kwonlyargs, n.args.kw_defaults, strict=True)})
+                read(n, {**defaults, **own})
                 continue
-            func = n.func
-            if isinstance(func, ast.Name) and func.id == "open_db" and (got := text_of(n.args[1])):
-                out.add(got)
-            if not (isinstance(func, ast.Attribute) and func.attr == "connect"
-                    and isinstance(func.value, ast.Name) and func.value.id == "Database"):  # fmt: skip
-                continue
-            a = n.args[1]
-            if got := text_of(a):
-                out.add(got)
-            elif isinstance(a, ast.Name) and a.id in defaults:
-                out.add("?" + a.id)
-                if got := text_of(defaults[a.id]):
+            if isinstance(n, ast.Call) and (is_connect(n.func) or is_open_db(n.func)):
+                a = schema_arg(n, ("name", "schema"))
+                if a is None:
+                    out.add("?" + ast.unparse(n)[:60])  # no schema the scan can see
+                elif got := text_of(a):
                     out.add(got)
-            else:
-                out.add("?" + ast.unparse(a))
+                elif isinstance(a, ast.Name) and a.id in defaults:
+                    out.add("?" + a.id)
+                    if got := text_of(defaults[a.id]):
+                        out.add(got)
+                else:
+                    out.add("?" + ast.unparse(a))
+            read(n, defaults)
+
+    read(tree, {})
     return out
 
 
 OPENED = {m: _opened(f) for m, f in MODS.items()}
 
 
-def _imports(f: Path) -> set[str]:
+def _module_level(tree: ast.Module) -> list[ast.stmt]:
+    """The statements that run at import: the module's body, and what sits in its ``if`` / ``try`` / ``with``."""
+    out: list[ast.stmt] = []
+    todo = list(tree.body)
+    while todo:
+        n = todo.pop()
+        out.append(n)
+        if isinstance(n, (ast.If, ast.Try, ast.With)):
+            todo += [*n.body, *getattr(n, "orelse", []), *getattr(n, "finalbody", []),
+                     *(s for h in getattr(n, "handlers", []) for s in h.body)]  # fmt: skip
+    return out
+
+
+def _imports(f: Path, nested: bool = True) -> set[str]:
+    tree = ast.parse(f.read_text(encoding="utf-8"))
     named: set[str] = set()
-    for n in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+    for n in ast.walk(tree) if nested else _module_level(tree):
         if isinstance(n, ast.Import):
             named |= {a.name for a in n.names}
         elif isinstance(n, ast.ImportFrom) and n.module and n.level == 0:
@@ -108,12 +154,18 @@ def _imports(f: Path) -> set[str]:
 
 
 def _closure(service: str) -> set[str]:
+    """Every module the service's process can run. A host (the console, the orchestrator): every import, wherever
+    it stands. Any other service: its own package's imports wherever they stand, and in another package only the
+    imports at module level (those run when the module is loaded; an import inside a function of another package
+    runs only if the service calls that function, which a reading of the text cannot know: the adapter imports
+    one helper of the orchestrator and would otherwise be held to the orchestrator's whole list)."""
     seen: set[str] = set()
     todo = {m for m in MODS if m == service or m.startswith(service + ".")}
     while todo:
         m = todo.pop()
         seen.add(m)
-        todo |= _imports(MODS[m]) - seen
+        own = service in HOSTS or m == service or m.startswith(service + ".")
+        todo |= _imports(MODS[m], nested=own) - seen
     return seen
 
 
@@ -137,11 +189,41 @@ def test_every_schema_the_code_opens_is_on_a_role_list() -> None:
 
 @pytest.mark.parametrize("service", sorted(ROLE_OF))
 def test_a_service_opens_only_schemas_on_its_own_list(service: str) -> None:
+    """Everything the service's process can import, for every service (the review's M1: the lake opens ``vec`` and
+    ``omop`` through the shared packages, not in its own folder), and the workflow backend's ledger for the role
+    that runs it (LOW-1)."""
+    from orchestrator.recall.ledger import LEDGER_SCHEMA
+
     role = ROLE_OF[service]
-    mods = _closure(service) if service in HOSTS else {m for m in MODS if m == service or m.startswith(service + ".")}
+    mods = _closure(service)
     missing = {s: sorted(m for m in mods if s in OPENED[m])
                for m in mods for s in OPENED[m] if not s.startswith("?") and s not in ACCESS[role]}  # fmt: skip
+    if "orchestrator.recall.ledger" in mods and LEDGER_SCHEMA not in ACCESS[role]:
+        missing[LEDGER_SCHEMA] = ["orchestrator.recall.ledger"]
+    excused = {sch for (svc, sch) in LOADED_NOT_OPENED if svc == service}
+    assert excused <= set(missing), f"no longer needed in LOADED_NOT_OPENED: {sorted(excused - set(missing))}"
+    missing = {k: v for k, v in missing.items() if k not in excused}
     assert missing == {}, f"{role} opens a store its role cannot reach on a box: {missing}"
+
+
+def test_the_scan_reads_every_way_a_store_is_opened(tmp_path: Path) -> None:
+    """The review's M3: each of these was missed and passed. A schema the scan cannot read is a ``?`` entry."""
+    cases = {
+        'from tb_common.db import Database\nDB = Database.connect(URL, "edc")\n': {"edc"},
+        'async def f():\n    return Database.connect(url, "edc")\n': {"edc"},
+        'def f():\n    return Database.connect(url=u, name="edc")\n': {"edc"},
+        'def f():\n    return Database.connect(u, name="edc")\n': {"edc"},
+        'import tb_common.db\ndef f():\n    return tb_common.db.Database.connect(u, "edc")\n': {"edc"},
+        'def f():\n    return storedb.open_db(u, "edc", [])\n': {"edc"},
+        'import os\ndef f():\n    return open_db(u, os.environ["X"], [])\n': {"?os.environ['X']"},
+        'S: str = "edc"\ndef f():\n    return Database.connect(u, S)\n': {"edc"},
+        'def f(u, schema="edc"):\n    return open_db(u, schema, [])\n': {"edc", "?schema"},
+        "def f():\n    return Database.connect(u)\n": {"?Database.connect(u)"},
+    }
+    for i, (text, want) in enumerate(cases.items()):
+        f = tmp_path / f"m{i}.py"
+        f.write_text(text, encoding="utf-8")
+        assert _opened(f) == want, text
 
 
 def test_arch021_the_console_opens_the_twin_store_and_both_hosts_the_not_matched_store(

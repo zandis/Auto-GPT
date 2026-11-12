@@ -33,10 +33,31 @@ console, and nothing stopped the next store from being forgotten.
 
 - The console gets the group's full rights on `profile` (read and write), as on its other schemas. Read-only
   roles per schema are T-718's (wave 6), and the console leaving the orchestrator's stores is NEW-ARCH-3 (wave 2).
-- For the services other than the console and the orchestrator the test reads their own folder only: what they
-  import from shared packages is not followed (their import closure reaches the orchestrator's modules, which
-  they never run).
+- **An installed box gets the new membership only when the role script runs.** `trialbox update` does not run
+  it (only `deploy/install.sh` does); the changelog line gives the command. The update running the script is the
+  update tool's card (lane D), not this one.
+- For a service other than the console and the orchestrator the test follows its own package's imports wherever
+  they stand, and in another package only the imports at module level: an import inside a function of another
+  package runs only if the service calls that function, which the text cannot tell. One pair the rule still
+  reaches and the service never opens is named with its reason (`LOADED_NOT_OPENED`: the lake and `derived`).
 - `mpi` stays on three lists; taking a retired schema off an installed volume is not done here.
+
+## What the adversarial review changed
+
+One review by a fresh reviewer; verdict: merge with two small fixes; no HIGH.
+
+- **M1, the test checked almost nothing for five of the seven roles** (own folder only: taking `vec` or `omop`
+  off the lake's list passed). Now every service's import closure is read, with the rule above.
+- **M2, the changelog gave no command** and an updated box stays at 500 until the script runs. The command is
+  in the line; the limit is stated above.
+- **M3, shapes of a store the scan missed** (a call at module level or in an `async` function, the schema as a
+  keyword, `open_db` with a schema that is not a literal, `storedb.open_db`, `x.Database.connect`): all read
+  now; a schema the scan cannot read is a `?` entry that must be named. A test plants each shape.
+- **LOW-1, `recall` was checked against the union of the lists only:** the role whose process loads the ledger
+  must have it.
+- Not changed: `wf`, `recall`, `study` and `library` stay on the console's list though nothing in its closure
+  opens them (NEW-ARCH-3's); `PostgresBackend(url, "<schema>")` and `importlib` are not read (none exists; the
+  ledger's schema is pinned by name).
 
 ## Dropped (D-311)
 

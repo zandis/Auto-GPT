@@ -11,7 +11,9 @@ new heading with the version and date, in the same pull request that sets the ve
 ## Unreleased
 
 - Database roles (NEW-ARCH-18, D-543): the console's role reaches the patient twin's schema (`profile`), so the
-  twin read works on a box; run the role script once after the update (`install.sh` does).
+  twin read works on a box. `trialbox update` does not run the role script: run it once after the update, from the
+  release folder: `docker compose --project-directory deploy exec -T db /docker-entrypoint-initdb.d/30-service-roles.sh`
+  (`deploy/install.sh` runs it). Until then the twin read answers 500.
 - Database passwords (T-712, D-481): every service clears the other roles' and the administrators' passwords in
   the base compose file, so no stack can be started with them; `trialbox doctor` has the check `db_passwords`
   (the box's `.env`, its compose files and its running containers).
