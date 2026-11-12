@@ -66,9 +66,9 @@ def test_site_setup_takes_it_for_a_pasted_chart(svc: Any) -> None:  # noqa: F811
     assert svc.mrn_regex == PATTERN
     want = pid_for_mrn(SETUP_KEY, WHOLE)
     for typed in TYPED:
-        out = svc.add_chart("practice", typed, "pasted.txt", b"Gout flare. Uric acid 9.2.", "crc", "en",
-                            pasted=True)  # fmt: skip
-        assert out["pid"] == want, typed
+        svc.add_chart("practice", typed, "pasted.txt", b"Gout flare. Uric acid 9.2.", "crc", "en", pasted=True)
+    charts = [i for i in svc.store.inputs("practice") if i["kind"] == "chart"]
+    assert len(charts) == len(TYPED) and {i["pid"] for i in charts} == {want}  # every spelling: the one patient
     for typed in WRONG:
         with pytest.raises(Exception, match="not a chart number of this hospital"):
             svc.add_chart("practice", typed, "pasted.txt", b"Gout flare.", "crc", "en", pasted=True)
