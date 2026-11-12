@@ -57,7 +57,7 @@ bundle of card T-304 builds from this table.
 | R-19 | Recall ledger: audit draws and the confidence sequences of the excluded lists | control | the box | data steward | kept | page only | (in the job's events) |
 | R-20 | Site set-up: inputs, facts read or confirmed, local codes, checks, published settings | aid | the box; the site's sheets and charts in the protected data folder | data steward | kept | page only | `setup.fact`, `setup.resolve`, `setup.publish`, `console.site_fact`, `console.site_map` |
 | R-21 | Feasibility answers the site types (site profile) | aid | the box | PI | kept | on the feasibility report | `console.site_profile` |
-| R-22 | Screening review traces: criterion labels, code pre-ticks, amber rows opened, the review of the excluded list | aid | the box | PI | kept | page only | `console.excluded_review`, `console.view` |
+| R-22 | Screening review traces: criterion labels, code pre-ticks, amber rows opened, the review of the excluded list; the weekly PI sample of ten "criteria not matched" patients with the run and snapshot each was drawn from and the PI's answer, and the site's check that opens the list (D-446) | aid | the box | PI | kept | page only | `console.excluded_review`, `console.view`, `notmatched.sample`, `notmatched.held`, `console.notmatched_answer`, `console.notmatched_check` |
 | R-23 | Derived scores with their inputs and definition versions; the derive batch of each snapshot (D-442) | copy | the hospital data they are computed from (R-25) | data steward | kept | page only | `derive.batch`, `derive.failed` |
 | R-24 | Pseudonym map and master patient index: the only link from a pseudonym back to a chart number | control | the box (encrypted; the key under the KEK) | site administrator | kept while any record keyed by the pseudonym is kept | never exported | `console.view_id`, `console.chart_lookup` |
 | R-25 | The hospital data copy: OMOP rows and TrialBox's extension rows, the lake snapshots | copy | the hospital EMR and its export | data steward | snapshots: `nightly_snapshots` and `month_end_snapshots_months`; OMOP rows replaced by each load | never exported as such | `console.site_patients` |
@@ -125,9 +125,10 @@ are marked "files".
 | `services/sitesetup/store.py` | `input`, `fact`, `local_code`, `check_item`, `fix`, `setting`, `published` | R-20 |
 | `services/console/sitestore.py` | `site_profile` | R-21 |
 | `services/console/sitestore.py` | `criterion_labels`, `code_ticks`, `approval_opened`, `excluded_review` | R-22 |
+| `libs/tb_common/notmatched.py` | `tuned_patients`, `not_matched_check` | R-22 |
 | `libs/tb_common/derived_store.py` | `definition`, `score_row`, `input_link`, `conflict`, `batch_run` | R-23 |
 | `services/adapter/pidmap.py` | `pid_map`, `identity`, `site_key`, `pid_alias` | R-24 |
-| `services/omop/schema.py` | `tb_record`, `tb_record_event`, `tb_conflict`, `tb_id_map`, `tb_appointment`, `tb_claim`, `tb_consent`, `tb_load` | R-25 |
+| `services/omop/schema.py` | `tb_record`, `tb_record_event`, `tb_conflict`, `tb_id_map`, `tb_appointment`, `tb_claim`, `tb_consent`, `tb_load`, `tb_withheld` | R-25 |
 | `services/lake/store.py` | `document_chunk`, `lake_meta` | R-25 |
 | `services/mail_gateway/store.py` | `intake`, `sent`, `send_keys` | R-26 |
 | `services/orchestrator/db.py` | `mails` | R-26 |

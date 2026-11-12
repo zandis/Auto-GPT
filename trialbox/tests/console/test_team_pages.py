@@ -91,13 +91,14 @@ def test_opt_out_register_as_of_and_read_only_reader() -> None:
     assert opted_out() == frozenset()  # no register yet: nothing to remove, and nothing created
     reg = OptOutRegister()
     assert reg.add(A, "paper", "", "office1", "2026-10-01T09:00:00+09:00")
-    assert not reg.add(A, "paper", "", "office1", "2026-10-01T10:00:00+09:00")  # already opted out
+    # already opted out: not a change, but the person's request is its own event (D-441, review HIGH-2)
+    assert not reg.add(A, "paper", "", "office1", "2026-10-01T10:00:00+09:00")
     assert reg.lift(A, "changed her mind", "office1", "2026-10-05T09:00:00+09:00")
     assert reg.add(B, "phone", "", "office1", "2026-10-06T09:00:00+09:00")
     assert reg.active() == {B}
     assert reg.active("2026-10-02T00:00:00+00:00") == {A}  # as it stood then: a re-run of an old job is unchanged
     assert opted_out(as_of="2026-10-02T00:00:00+00:00") == frozenset({A}) and opted_out() == frozenset({B})
-    assert [e.action for e in reg.events()] == ["opt_out", "lift", "opt_out"]
+    assert [e.action for e in reg.events()] == ["opt_out", "opt_out", "lift", "opt_out"]
 
 
 # ---------------------------------------------------------------------------------------------- permissions

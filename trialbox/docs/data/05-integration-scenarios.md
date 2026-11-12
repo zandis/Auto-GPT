@@ -11,6 +11,7 @@ From the 2026-11-05 catalogue (full text, with sources: `spec/archive/INTEGRATIO
 | E. Staged (manual first, EMR later) and air-gapped | start small | supported: a site can start with charts only; offline updates |
 | F. Imaging, check-ups, claims, wearables, cloud, SMO or CRO boxes, research zones | other feeds | not built |
 
-Gaps from that catalogue still open: no TOTP in the console; no erasure path for an opt-out (a delta night drops what
-the source deleted since D-149, but a patient's facts are not removed from kept snapshots); no SMART Backend Services
+Gaps from that catalogue still open: no TOTP in the console; no erasure path for an opt-out (the opt-out worker
+tombstones the patient in OMOP and withdraws open candidates, D-441, but a patient's facts are not removed from kept
+snapshots, chunks or vectors: T-206b); no SMART Backend Services
 client for live FHIR Bulk (the reader takes NDJSON from disk); an IQ/OQ/PQ package is a document, not code.

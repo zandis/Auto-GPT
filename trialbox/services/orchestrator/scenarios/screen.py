@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -186,6 +186,24 @@ def drop_opted_out(ctx: Ctx, scoped: list[Scoped]) -> list[Scoped]:
             detail={"removed": len(scoped) - len(kept), "register": "optout"},
         )
     return kept
+
+
+def opted_out_now(ctx: Ctx, pids: Iterable[str], where: str) -> frozenset[str]:
+    """D-441 (review MED-3): the register read again, as it stands now, just before a run publishes or stores its
+    lists: a patient who opted out while the run was going (or before a re-run of an old job) leaves its files, its
+    mail and the pool. The scope read (:func:`drop_opted_out`) stays as of the job's receipt. Audited by count."""
+    from tb_common.optout import opted_out
+
+    want = set(pids)
+    gone = frozenset(opted_out() & want) if want else frozenset()
+    if gone:
+        ctx.orch.audit.append(
+            "screen.opt_out_at_publish",
+            job_id=ctx.job.job_id,
+            ruleset=ctx.job.ruleset,
+            detail={"removed": len(gone), "where": where, "register": "optout"},
+        )
+    return gone
 
 
 def local_iso(value: object, tz: str) -> str | None:
@@ -625,6 +643,8 @@ def excluded_doc(ctx: Ctx, run: ScreenRun) -> dict[str, Any]:
 
 
 def persist_pool(ctx: Ctx, rs: Ruleset, rows: list[CandidateRow]) -> None:
+    gone = opted_out_now(ctx, [r.pid for r in rows], "pool")
+    rows = [r for r in rows if r.pid not in gone]
     ctx.orch.db.pool_upsert(
         rs.id,
         rs.version,
@@ -664,6 +684,10 @@ def deliver_lists(
     if not list_to:
         raise StepFailed("routing", f"Ruleset {rs.id} has no routing.list_to; patient lists cannot be sent.")
     listed = [r for r in rows if r.tier in ("high", "review") or (changes is not None and r.changed)]
+    gone = opted_out_now(ctx, [r.pid for r in listed], "list")
+    listed = [r for r in listed if r.pid not in gone]
+    if changes is not None and gone:
+        changes = [c for c in changes if c.pid not in gone]
     mrns = pid_names(ctx, [r.pid for r in listed])
     names = practitioner_names(ctx)
     xlsx = ctx.publish(f"{stem}.xlsx", candidate_xlsx.render(listed, rs, meta, mrns, names, changes), "phi", list_to)
@@ -738,6 +762,10 @@ def run(ctx: Ctx) -> Outcome:
     run_date = ctx.today()
     srun = run_screen(ctx, rs, run_date, snapshot)
     ctx.state("reporting")
+    gone = opted_out_now(ctx, [r.pid for r in srun.rows], "publish")  # D-441: every file of the run
+    if gone:
+        srun.rows = [r for r in srun.rows if r.pid not in gone]
+        srun.results = {p: v for p, v in srun.results.items() if p not in gone}
     cl = candidate_list(srun)
     meta = report_meta(ctx, rs, snapshot, run_date, srun.judging)
     stem = f"candidates_{rs.id}_v{rs.version}_{run_date.isoformat()}"
