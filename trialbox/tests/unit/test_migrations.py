@@ -276,7 +276,8 @@ def test_migrate_dir_missing_directory(tmp_path: Path) -> None:
 
 
 def test_the_workflow_backend_has_the_same_api(db_url: str, tmp_path: Path) -> None:
-    from orchestrator.db_pg import MIGRATIONS, PostgresBackend
+    from orchestrator.db_pg import PostgresBackend
+    from orchestrator.recall.ledger import LEDGER_SCHEMA, MIGRATIONS
 
     (tmp_path / "001_a.sql").write_text("CREATE TABLE a (id INT)")
     be = PostgresBackend(db_url, "mig_be")
@@ -284,15 +285,15 @@ def test_the_workflow_backend_has_the_same_api(db_url: str, tmp_path: Path) -> N
         assert be.migrate_dir(tmp_path) == 1
         assert [r.script_name for r in be.applied()] == ["001_a.sql"]
         with pytest.raises(MigrationChanged, match="mig_be"):
-            be.migrate(MIGRATIONS)  # the wf schema's version 1 is not this directory's
+            be.migrate(MIGRATIONS)  # the recall ledger's version 1 is not this directory's
     finally:
         be.close()
-    wf = PostgresBackend(db_url)
+    led = PostgresBackend(db_url, LEDGER_SCHEMA)  # NEW-ARCH-2 (D-524): schema wf is gone; the ledger's stands in
     try:
-        wf.migrate(MIGRATIONS)
-        assert [r.sha256 for r in wf.applied()] == [script_sha256(s) for s in MIGRATIONS]
+        led.migrate(MIGRATIONS)
+        assert [r.sha256 for r in led.applied()] == [script_sha256(s) for s in MIGRATIONS]
     finally:
-        wf.close()
+        led.close()
 
 
 def test_extensions_reports_what_is_installed(db_url: str) -> None:
@@ -323,7 +324,7 @@ def store_migrations() -> dict[str, list[str]]:
     from mail_gateway import store as mail
     from omop import schema as omop
     from orchestrator import db as orch
-    from orchestrator import db_pg, studystore
+    from orchestrator import studystore
     from orchestrator.recall import ledger
     from patient_profile import twin
     from sitesetup import store as sitesetup
@@ -334,7 +335,6 @@ def store_migrations() -> dict[str, list[str]]:
     return {
         "refdata": list(refdata.MIGRATIONS),
         "optout": list(optout.MIGRATIONS),
-        "wf": list(db_pg.MIGRATIONS),
         "recall": list(ledger.MIGRATIONS),
         "study": list(studystore.MIGRATIONS),
         "orch": list(orch.MIGRATIONS),
@@ -475,7 +475,7 @@ STORE_FILES = {
     "services/console/sitestore.py", "services/console/teamstore.py", "services/criteria_compiler/library/repository.py",
     "services/datacore/dataops.py", "services/datacore/store.py", "services/edc/store.py",
     "services/mail_gateway/store.py", "services/omop/schema.py", "services/orchestrator/db.py",
-    "services/orchestrator/db_pg.py", "services/orchestrator/outbox.py", "services/orchestrator/recall/ledger.py",
+    "services/orchestrator/recall/ledger.py",
     "services/orchestrator/studystore.py", "services/patient_profile/twin.py", "services/sitesetup/store.py",
     "services/tracestore/store.py", "services/vec/store.py",
 }  # fmt: skip
@@ -484,6 +484,7 @@ STORE_FILES = {
 NOT_STORES = {
     "libs/tb_common/db.py",
     "services/console/storedb.py",
+    "services/orchestrator/db_pg.py",  # NEW-ARCH-2 (D-524): the backend only; its schema ``wf`` is removed
     "tools/trialbox/update.py",
     "tools/backup_drill.py",
 }

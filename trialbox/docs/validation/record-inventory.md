@@ -76,7 +76,6 @@ R-01 and R-02 also hold the training evidence of `qms-lite.md` §3 (first sign-i
 | O-01 | Sign-in state: sessions, pending sign-ins, single sign-on hand-offs, failure counters | transient; every sign-in, failure and lock is in R-01 | until the session or the lock ends |
 | O-02 | Feedback entries (in-product feedback) | product feedback, not about a patient or the trial | kept; exported by the owner |
 | O-03 | Model traces | debugging aid, redacted at write; the audit trail is the gateway's ledger and R-01 | 7 days in PRODUCTION, 90 in DEV and TEST (`tracestore` `production_retention_days`, `retention_days`; D-346); PRODUCTION D3 and D4 rows hold sha256 and size only (D-431) |
-| O-04 | Workflow steps and the outbox | how a job resumes; the job (R-18) is the record | kept |
 | O-05 | Working pool and the PI feedback of a job | rebuilt by each run; the marks of R-03 are the record | `pool_months_after_ruleset` |
 | O-06 | Weekly appearances | "new this week" on the list | kept |
 | O-07 | Notice recipients | settings | kept |
@@ -143,7 +142,6 @@ are marked "files".
 | `services/console/auth.py` | `sessions`, `pending_logins`, `oidc_pending`, `login_failures` | O-01 |
 | `services/console/feedback.py` | `entry` | O-02 |
 | `services/tracestore/store.py` | `traces`, `access_log` | O-03 |
-| `services/orchestrator/db_pg.py` | `steps`, `outbox` | O-04 |
 | `services/orchestrator/db.py` | `pool`, `feedback` | O-05 |
 | `services/console/sitestore.py` | `weekly_seen` | O-06 |
 | `services/console/sitestore.py` | `notify_people` | O-07 |

@@ -143,8 +143,6 @@ TABLES: dict[str, Entry] = {
         "refdata", ("concept_map", "ctgov_study", "pack", "source", "synonym", "term", "trial", "withdrawn"), _REFDATA
     ),
     "optout.optout_events": _keep("D-441", "the opt-out register itself: the record of the refusal (D-147)"),
-    "wf.outbox": _owed("a job's mail payloads may carry pseudonyms (candidate lists)"),
-    "wf.steps": _owed("a job step's input and output may carry pseudonyms"),
     **_each(
         "recall",
         ("recall_cell", "recall_registration", "recall_run_cell", "recall_sequence_state"),
