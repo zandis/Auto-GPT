@@ -599,6 +599,18 @@ esac
 echo "    add coordinators and viewers on the console's Users page, or: docker compose exec console python -m console.cli add-user"
 fi
 
+# NEW-STD-2 (D-562): the first signed head of the audit chain, when the site named an anchor folder: the night's own
+# command, once, so the box does not wait for 00:20 for its first head. Not a stop: a line of the install's report
+if [ -n "$(envget TB_AUDIT_ANCHOR_TARGETS)" ] && [ "$(id -u)" = 0 ]; then
+  say "audit chain: the first signed head"
+  if SIGN_OUT="$(python3 -m tools.trialbox audit-sign 2>&1)"; then
+    echo "$SIGN_OUT" | sed 's/^/    /'
+  else
+    echo "$SIGN_OUT" | tail -5 | sed 's/^/    /' >&2
+    FAILS+=("the first signed audit head was not made (python3 -m tools.trialbox audit-sign, above; RUNBOOK §2)")
+  fi
+fi
+
 # ------------------------------------------------------------------------------------------------ 6. check
 say "host check"
 HOST_ARGS=(); [ "$MODE" = gpu ] && HOST_ARGS=(--gpu "$GPU")

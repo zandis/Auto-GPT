@@ -244,6 +244,8 @@ def test_doctor_fails_a_box_with_no_anchor_folder(box: dict[str, Path], env: str
 
 def test_doctor_fails_an_old_head_a_folder_with_none_and_a_missing_key(box: dict[str, Path]) -> None:
     _events(AuditLog(box["audit"]), 2)
+    old = (NIGHT - timedelta(hours=40)).timestamp()  # the key is older than the limit: a missing head is not "new"
+    os.utime(box["secrets"] / audit.SIGN_PUB_FILE, (old, old))
     targets = {"TB_AUDIT_ANCHOR_TARGETS": str(box["share"])}
     c = _doctor(box, "PRODUCTION", NIGHT, **targets)
     assert c.status == "FAIL" and "no signed head" in c.detail
@@ -305,3 +307,134 @@ def test_the_event_has_its_label_in_three_languages() -> None:
 
     for lang in ("en", "ja", "zh-TW"):
         assert i18n_audit.event_label(lang, audit.SIGNED_EVENT) != audit.SIGNED_EVENT
+
+
+# ------------------------------------------------------------------------------------ the adversarial review's cases
+@pytest.mark.parametrize("how", ["no_anchor", "zero_anchor", "empty_folder"])
+def test_a_chain_whose_head_anchor_is_gone_is_a_failure_once_a_head_was_signed(box: dict[str, Path], how: str) -> None:
+    """Review H2: the night said "no event yet" and exited 0 with an earlier signed head for event 6 in the folder."""
+    _events(AuditLog(box["audit"]), 6)
+    assert _night(box, Recorder()).ok
+    if how == "no_anchor":
+        (box["audit"] / "HEAD.json").unlink()
+    elif how == "zero_anchor":
+        write_head(box["audit"], 0, GENESIS, None)
+    else:
+        for p in box["audit"].iterdir():
+            p.unlink()
+    rec = Recorder()
+    res = _night(box, rec, now=NIGHT + timedelta(days=1))
+    assert not res.ok and res.signed is None and len(read_signed_heads(box["share"])) == 1 and not rec.events
+
+
+def test_day_files_without_a_head_anchor_are_a_failure_on_the_first_night_too(box: dict[str, Path]) -> None:
+    _events(AuditLog(box["audit"]), 3)
+    (box["audit"] / "HEAD.json").unlink()
+    assert not _night(box, Recorder()).ok
+
+
+def test_on_a_site_box_a_folder_that_is_not_there_is_never_made_by_docker(box: dict[str, Path]) -> None:
+    """Review H2 and M3: `docker run -v` makes a missing host folder, as root: an unmounted share took the head on the
+    box's own disk, and a wrong audit path looked like an empty chain."""
+    calls: list[list[str]] = []
+
+    def run(argv: list[str], **kw: Any) -> str:
+        calls.append(argv)
+        return json.dumps({"ok": True, "problems": [], "signed": {"lines": 1, "hash": "ab" * 32, "key_id": "k"},
+                           "detail": {"lines": 1, "head": "ab" * 32, "key_id": "k", "anchors": 1}})  # fmt: skip
+
+    gone = box["share"].parent / "unmounted"
+    env = {"TB_AUDIT_HOST_DIR": str(box["audit"]), "TB_SECRETS_HOST_DIR": str(box["secrets"]), "TB_ENV": "PRODUCTION",
+           "TB_AUDIT_ANCHOR_TARGETS": os.pathsep.join([str(box["share"]), str(gone)])}  # fmt: skip
+    res = audit_heads.sign_on_box(box["deploy"], env, run=run)
+    assert not res.ok and str(gone) in " ".join(res.problems) and not gone.exists()
+    assert str(gone) not in " ".join(calls[0])  # not mounted, not passed to the signer
+    calls.clear()
+    res = audit_heads.sign_on_box(box["deploy"], {**env, "TB_AUDIT_HOST_DIR": str(box["audit"]) + "-wrong"}, run=run)
+    assert not res.ok and "audit folder" in " ".join(res.problems) and not calls
+
+
+def test_the_volumes_folder_and_the_kek_folder_are_the_declared_settings(box: dict[str, Path]) -> None:
+    a, s, _ = audit_heads.host_dirs({"TB_DOCKER_VOLUMES": "/srv/docker/volumes", "COMPOSE_PROJECT_NAME": "tb2"})
+    assert str(a) == "/srv/docker/volumes/tb2_audit-data/_data" and str(s) == "/srv/docker/volumes/tb2_tb-secrets/_data"
+    calls: list[list[str]] = []
+
+    def run(argv: list[str], **kw: Any) -> str:
+        calls.append(argv)
+        return json.dumps({"ok": True, "problems": [], "signed": None, "detail": None})
+
+    env = {"TB_AUDIT_HOST_DIR": str(box["audit"]), "TB_SECRETS_HOST_DIR": str(box["secrets"]),
+           "TB_AUDIT_ANCHOR_TARGETS": str(box["share"]), "TB_KEK_HOST_DIR": str(box["run"])}  # fmt: skip
+    assert audit_heads.sign_on_box(box["deploy"], env, run=run).ok
+    assert f"{box['run']}:/run/trialbox:ro" in " ".join(calls[0])
+
+
+def test_the_night_leaves_its_result_where_doctor_reads_it(
+    box: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review M1: a refused night was one line in a log; doctor passed the next morning."""
+    log = AuditLog(box["audit"])
+    _events(log, 6)
+    (box["deploy"] / ".env").write_text(
+        f"TB_TZ=Asia/Taipei\nTB_ENV=DEV\nTB_AUDIT_HOST_DIR={box['audit']}\nTB_SECRETS_HOST_DIR={box['secrets']}\n"
+        f"TB_AUDIT_ANCHOR_TARGETS={box['share']}\n",
+        encoding="utf-8",
+    )
+    assert cli(["audit-sign", "--deploy", str(box["deploy"]), "--local"]) == 0
+    state = json.loads((box["deploy"] / "logs" / "audit-sign.json").read_text(encoding="utf-8"))
+    assert state["ok"] is True and state["at"]
+    now = datetime.fromisoformat(state["at"]) + timedelta(hours=2)
+    targets = {"TB_AUDIT_ANCHOR_TARGETS": str(box["share"])}
+    assert _doctor(box, "PRODUCTION", now, **targets).status == "PASS"
+    _remove_line_and_rehash(box["audit"], 2)
+    assert cli(["audit-sign", "--deploy", str(box["deploy"]), "--local"]) == 1
+    c = _doctor(box, "PRODUCTION", now, **targets)
+    assert c.status == "FAIL" and "refused" in c.detail and "does not agree" in c.detail
+
+
+def test_doctor_counts_only_heads_the_boxs_own_key_signed(box: dict[str, Path]) -> None:
+    """Review M2: a JSON file with a fresh date dropped into heads/ gave PASS."""
+    _events(AuditLog(box["audit"]), 2)
+    assert _night(box, Recorder()).ok
+    planted = box["share"] / "heads" / "20261120T000000+0000-000000000002.json"
+    planted.write_text(json.dumps({"format": "x", "lines": 2, "hash": "00", "ts": "2026-11-20T00:00:00+00:00"}))
+    c = _doctor(box, "PRODUCTION", datetime(2026, 11, 20, 1, tzinfo=UTC), TB_AUDIT_ANCHOR_TARGETS=str(box["share"]))
+    assert c.status == "FAIL" and "not signed by this box" in c.detail
+
+
+def test_no_head_yet_is_a_warning_only_while_the_key_is_new(box: dict[str, Path]) -> None:
+    """Review H1b: a box installed today has no head until the first night; the install must not end in FAIL for it."""
+    targets = {"TB_AUDIT_ANCHOR_TARGETS": str(box["share"])}
+    made = datetime.fromtimestamp((box["secrets"] / audit.SIGN_PUB_FILE).stat().st_mtime, UTC)
+    c = _doctor(box, "PRODUCTION", made + timedelta(hours=3), **targets)
+    assert c.status == "WARN" and "no signed head" in c.detail
+    c = _doctor(box, "PRODUCTION", made + timedelta(hours=37), **targets)
+    assert c.status == "FAIL" and "no signed head" in c.detail
+
+
+def test_a_platform_is_told_that_nothing_signs_there() -> None:
+    c = doctor.check_audit_heads(doctor.DoctorInputs(env={"TB_ENV": "PRODUCTION"}, platform=True))
+    assert c.status == "WARN" and "platform" in c.detail  # review M6: not a PASS that hides an open finding
+
+
+def test_the_host_check_shows_doctor_the_secrets_and_the_anchor_folders() -> None:
+    """Review H1a: check_host.sh runs doctor in the image; without these mounts a healthy box FAILed audit_heads."""
+    text = (ROOT / "deploy" / "check_host.sh").read_text(encoding="utf-8")
+    block = text[text.index("the doctor runs in the box's own image") :].split("python -m tools.trialbox doctor", 1)[0]
+    assert "AUDIT_MOUNTS" in block and ":ro" in text[text.index("AUDIT_MOUNTS=") : text.index("AUDIT_MOUNTS=") + 900]
+    assert "TB_AUDIT_ANCHOR_TARGETS" in text and "tb-secrets" in text
+
+
+def test_the_installer_signs_once_when_a_folder_is_set() -> None:
+    text = (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
+    step = text[text.index("# NEW-STD-2 (D-562): the first signed head") :].split("\nfi\n", 1)[0]
+    assert "tools.trialbox audit-sign" in step and "FAILS+=" in step and "die " not in step
+
+
+def test_the_console_is_not_given_anchor_folders_it_cannot_see() -> None:
+    """Review H4: the audit page verifies with TB_AUDIT_ANCHOR_TARGETS, and the console mounts no such folder: an
+    intact chain then verified as broken. Cleared until the console mounts the folders (lane C)."""
+    import yaml
+
+    base = yaml.safe_load((ROOT / "deploy" / "docker-compose.yml").read_text(encoding="utf-8"))
+    assert base["services"]["console"]["environment"]["TB_AUDIT_ANCHOR_TARGETS"] == ""

@@ -108,6 +108,8 @@ def check_and_sign(audit_dir: Path, secrets_dir: Path, targets: Sequence[Path], 
         private_pem, public_pem = _load_pair(secrets_dir)
     except (KeyMissingError, FileNotFoundError, KekError) as exc:
         return Night(False, [f"the audit signing key cannot be read ({exc}): nothing was signed"])
+    if not audit_dir.is_dir():
+        return Night(False, [f"the audit folder {audit_dir} is not there: nothing was signed"])
     earlier = [h for t in targets if (t / "heads").is_dir() for h in audit.read_signed_heads(t)]
     with reading(audit_dir):
         try:
@@ -115,6 +117,12 @@ def check_and_sign(audit_dir: Path, secrets_dir: Path, targets: Sequence[Path], 
         except ValueError as exc:
             return Night(False, [f"the head anchor of {audit_dir} cannot be read ({exc}): nothing was signed"])
         if head is None or not int(head.get("lines") or 0):
+            # "no event yet" is true only of a chain nobody ever wrote or signed: with day files there, or with an
+            # earlier signed head in a folder, a missing or empty anchor is what a removal looks like
+            if earlier or any(audit_dir.glob("*.jsonl")):
+                seen = f"{len(earlier)} earlier signed head(s)" if earlier else "day files"
+                return Night(False, [f"the audit chain in {audit_dir} has no head anchor, and there are {seen}: the "
+                                     "chain does not agree with them; nothing was signed"])  # fmt: skip
             return Night(True)  # no event yet: nothing to sign, and nothing wrong
         res = audit.verify(audit_dir, signed_heads=earlier or None, trusted_keys=own_keys(secrets_dir))
         if not res.ok:
@@ -173,19 +181,33 @@ def _run(argv: Sequence[str], env: Mapping[str, str] | None = None) -> str:
 def host_dirs(env: Mapping[str, str]) -> tuple[Path, Path, list[Path]]:
     """The audit volume, the secrets volume and the anchor folders as the host sees them."""
     project = env.get("COMPOSE_PROJECT_NAME") or PROJECT
-    audit_dir = Path(env.get("TB_AUDIT_HOST_DIR") or f"{VOLUMES}/{project}_audit-data/_data")
-    secrets = Path(env.get("TB_SECRETS_HOST_DIR") or f"{VOLUMES}/{project}_tb-secrets/_data")
+    volumes = env.get("TB_DOCKER_VOLUMES") or VOLUMES
+    audit_dir = Path(env.get("TB_AUDIT_HOST_DIR") or f"{volumes}/{project}_audit-data/_data")
+    secrets = Path(env.get("TB_SECRETS_HOST_DIR") or f"{volumes}/{project}_tb-secrets/_data")
     targets = [Path(p) for p in (env.get("TB_AUDIT_ANCHOR_TARGETS") or "").split(os.pathsep) if p.strip()]
     return audit_dir, secrets, targets
 
 
 def sign_on_box(deploy: Path, env: Mapping[str, str], run: Run = _run) -> Night:
     """A site box, as root on the host: the signer in the box's image, the event through the orchestrator."""
-    audit_dir, secrets, targets = host_dirs(env)
-    kek_dir = Path(env.get("TB_KEK_FILE") or KEK_FILE).parent
+    audit_dir, secrets, wanted = host_dirs(env)
+    # `docker run -v` makes a host folder that is not there, as root: a wrong audit path would look like an empty
+    # chain, and a share that is not mounted would take the head on the box's own disk. So the host looks first.
+    if not audit_dir.is_dir():
+        return Night(False, [f"the audit folder {audit_dir} is not there (TB_AUDIT_HOST_DIR, TB_DOCKER_VOLUMES, "
+                             "COMPOSE_PROJECT_NAME in deploy/.env): nothing was signed"])  # fmt: skip
+    if not secrets.is_dir():
+        return Night(False, [f"the secrets folder {secrets} is not there (TB_SECRETS_HOST_DIR): nothing was signed"])
+    targets = [t for t in wanted if t.is_dir()]
+    absent = [f"the anchor folder {t} is not there (not mounted?): no signed head was written to it"
+              for t in wanted if not t.is_dir()]  # fmt: skip
+    if not targets:
+        return Night(False, absent or ["no anchor folder: set TB_AUDIT_ANCHOR_TARGETS to a folder off the box"])
     docker = shlex.split(env.get("TB_DOCKER") or "docker")
     mounts = ["-v", f"{audit_dir}:{audit_dir}:ro", "-v", f"{secrets}:{secrets}:ro"]
-    if kek_dir.is_dir():
+    if env.get("TB_KEK_HOST_DIR"):  # as the compose files and check_host.sh mount it (D-347)
+        mounts += ["-v", f"{env['TB_KEK_HOST_DIR']}:{Path(KEK_FILE).parent}:ro"]
+    elif (kek_dir := Path(env.get("TB_KEK_FILE") or KEK_FILE).parent).is_dir():
         mounts += ["-v", f"{kek_dir}:{kek_dir}:ro"]
     for t in targets:
         mounts += ["-v", f"{t}:{t}"]
@@ -200,6 +222,11 @@ def sign_on_box(deploy: Path, env: Mapping[str, str], run: Run = _run) -> Night:
         night = Night(bool(doc["ok"]), list(doc["problems"]), doc.get("signed"), doc.get("detail"))
     except (RuntimeError, OSError, ValueError, KeyError, IndexError) as exc:
         return Night(False, [f"the signer did not answer ({exc}): nothing was recorded"])
+    if absent:
+        night.ok = False
+        night.problems += absent
+        if night.detail is not None:
+            night.detail["failed"] = [*night.detail.get("failed", []), *absent]
     compose = shlex.split(env.get("TB_COMPOSE") or f"docker compose --project-directory {shlex.quote(str(deploy))}")
     code = (
         "import json, sys\nfrom tb_common.audit_writer import open_audit\n"
@@ -244,7 +271,26 @@ def main_action(deploy: Path, local: bool) -> int:
 
     env = {**env_file(deploy), **{k: v for k, v in os.environ.items() if k.startswith(("TB_", "COMPOSE_"))}}
     night = sign_local(env) if local else sign_on_box(deploy, env)
+    write_state(state_file(deploy, env), night)
     return report(night, len(host_dirs(env)[2]))
+
+
+def state_file(deploy: Path, env: Mapping[str, str]) -> Path:
+    """Where the night leaves its result for ``doctor`` (check ``audit_heads``): the host's log folder."""
+    return Path(env.get("TB_LOG_DIR") or deploy / "logs") / "audit-sign.json"
+
+
+def write_state(path: Path, night: Night) -> None:
+    """The night's result, so that a refused night is a FAIL line of ``doctor`` and not only a line in a log."""
+    doc = {"at": datetime.now(UTC).isoformat(timespec="seconds"), "ok": night.ok, "problems": night.problems[:5],
+           "lines": (night.signed or {}).get("lines")}  # fmt: skip
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.tmp")
+        tmp.write_text(json.dumps(doc, ensure_ascii=False) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError as exc:
+        print(f"audit-sign: the result was not kept in {path} ({exc})", file=sys.stderr)
 
 
 def init_key(secrets_dir: Path) -> int:
