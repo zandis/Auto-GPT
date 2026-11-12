@@ -140,7 +140,8 @@ def date_shapes(mapper: Mapper, rows: list[Row], columns: dict[str, str]) -> dic
             if v is None or not str(v).strip():
                 empty += 1
                 continue
-            shapes[shape(str(v).strip())] += 1
+            unread = engine.declared_and_unread(v)  # D-589: a value not of the column's declared calendar
+            shapes[shape(unread[1]) + f" (not {unread[0]})" if unread else shape(str(v).strip())] += 1
             try:
                 mapper.convert(v, typ)
                 read += 1
