@@ -280,6 +280,9 @@ def expected(states: dict[str, str]) -> dict[str, bool | str | None]:
     out: dict[str, bool | str | None] = {}
     for crit, (attr, answers) in STRUCTURED.items():
         out[crit] = answers[states.get(attr, "na")]
+    # D-442: no eGFR under 18 (an adult equation): a patient of the young band (15-16) has no eGFR, unknown
+    if states.get("age_band") == "young":
+        out["RA-JAK-EXC-11"] = None
     for crit, (attr, note_answers) in NOTES.items():
         out[crit + "/notes"] = note_answers[states[attr]]
     for crit, attr in HUMAN.items():

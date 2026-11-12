@@ -51,7 +51,7 @@ def test_an_approval_pins_the_version_the_gateways_environment_serves() -> None:
 
     reg = default_registry()
     served = reg.served("judge", "PRODUCTION")
-    out = approval_pins(_manifest(), "PRODUCTION")
+    out = approval_pins(_manifest(), environment="PRODUCTION")
     assert out["prompt_pins"]["judge"]["version"] == served.version
     assert out["prompt_pins"]["judge"]["sha256"] == served.sha256
     assert out["models"]["judge_prompt"] == f"judge_v{served.version}"

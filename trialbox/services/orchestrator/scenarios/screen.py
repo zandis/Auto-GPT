@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -260,7 +260,29 @@ def usable_judge_prompt(rs: Ruleset, prompt: str, llm: Any) -> None:
 
 
 def structured_engine(ctx: Ctx, snapshot: str) -> StructuredEngine:
-    return engine_from_env(os.environ.get("TB_SCREEN_ENGINE", "sql"), ctx.services.fhir, ctx.services.lake, snapshot)
+    """The SQL engine on ``snapshot``; it reads the stored derived rows while the flag is on (D-442)."""
+    from orchestrator import derive
+
+    return engine_from_env(
+        os.environ.get("TB_SCREEN_ENGINE", "sql"),
+        ctx.services.fhir,
+        ctx.services.lake,
+        snapshot,
+        derive.reader_for(ctx),
+    )
+
+
+def scores_unverified(ctx: Ctx, rs: Ruleset, snapshot: str) -> bool:
+    """D-442: while the stored-score read is on, whether this snapshot's scores were not verified (no finished derive
+    batch) for a ruleset that decides on stored scores: the list's header says so."""
+    from matching.stored_scores import unverified
+
+    from orchestrator import derive
+
+    try:
+        return unverified(rs.active(), derive.reader_for(ctx), snapshot)
+    except Exception:  # the store cannot be read: every score answer is unknown already, the line says so
+        return derive.reader_for(ctx) is not None
 
 
 def threshold(ctx: Ctx, rs: Ruleset) -> float:
@@ -810,6 +832,9 @@ def run(ctx: Ctx) -> Outcome:
         srun.results = {p: v for p, v in srun.results.items() if p not in gone}
     cl = candidate_list(srun)
     meta = report_meta(ctx, rs, snapshot, run_date, srun.judging)
+    unverified = scores_unverified(ctx, rs, snapshot)  # D-442: the list says so in its own header
+    if unverified:
+        meta = replace(meta, notice=t(job_language(ctx), "screen.scores_unverified", snapshot=snapshot))
     stem = f"candidates_{rs.id}_v{rs.version}_{run_date.isoformat()}"
     body = json.dumps(dump(cl), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
     deliveries, info = deliver_lists(
@@ -836,6 +861,7 @@ def run(ctx: Ctx) -> Outcome:
             scoped=n(len(srun.scoped)),
         ),
         judging_sentence(judging, lang),
+        *([meta.notice] if meta.notice else []),
         *([population_line(lang, rs.manifest.population)] if population_line(lang, rs.manifest.population) else []),
     ]
     # D-130 (review F-10): patients kept because a record is coded in a system the mapping does not know
@@ -884,6 +910,7 @@ def run(ctx: Ctx) -> Outcome:
                 "unknown_code_system": n(unknown_system),
                 "judging": judging,
                 "provenance": provenance(ctx, rs, meta, judging),
+                "scores_unverified": bool(meta.notice),
             },
             ensure_ascii=False,
             indent=1,
