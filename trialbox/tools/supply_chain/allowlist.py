@@ -9,6 +9,11 @@ A finding is accepted only by a written entry: which package, why, and until whe
         review_by: 2027-01-31            # required ISO date, at most 180 days ahead; after it the gate fails
         owner: security owner            # optional
         image: hapiproject/hapi          # optional (T-110b): accepts the finding in this image repository only
+      - id: "*"                          # D-622: every finding of ONE package in ONE third-party image of
+        package: linux-libc-dev          # images.lock, named in full; never an image of ours, never without
+        image: vllm/vllm-openai          # package and image; dated and reasoned like every entry
+        reason: ...
+        review_by: 2026-12-10
     licences:
       - package: psycopg
         class: lgpl                      # lgpl, gpl, agpl, unknown or dual, as the licence report flags it
@@ -34,13 +39,17 @@ A finding is accepted only by a written entry: which package, why, and until whe
 
 The checker rejects an entry with no reason, a reason shorter than 20 characters, no or a bad ``review_by``, a date
 in the past or more than 180 days ahead, an unknown or duplicate key, a duplicate entry, a vulnerability entry without
-a package, a dual entry without ``chosen``, and an unknown entry without ``licence``. "Today" is the build machine's
+a package, a dual entry without ``chosen``, and an unknown entry without ``licence``. An entry for every id (D-622,
+``id: "*"``) is rejected without a package or an image, for an image of ours, for an image that is not a third-party
+image of ``deploy/images.lock`` by its full name, and beside an entry for one id that it covers; it accepts findings
+only in the image at the digest the lock pins. "Today" is the build machine's
 date (``today()``); there is no override on the command line.
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -56,6 +65,8 @@ LICENCE_CLASSES = ("lgpl", "gpl", "agpl", "unknown", "dual")
 _VULN_KEYS = {"id", "package", "reason", "review_by", "owner", "image"}
 _LIC_KEYS = {"package", "class", "chosen", "licence", "reason", "review_by", "owner"}
 _BUDGET_KEYS = {"image", "ecosystem", "max", "reason", "review_by", "owner"}
+EVERY_ID = "*"  # D-622: a vulnerability entry for every finding of one package in one third-party image
+IMAGES_LOCK = ROOT / "deploy" / "images.lock"
 # in our own images and the lock, an unknown licence in these ecosystems is never budgeted: each needs an entry
 STRICT_ECOSYSTEMS = ("pypi", "npm")
 LOCK_SUBJECT = "requirements.lock"
@@ -110,7 +121,14 @@ class Allowlist:
         image accepts it only when ``subject`` (the scanned image reference) is that image."""
         wanted = {i.upper() for i in ids}
         for e in self.vulnerabilities:
-            if e.id.upper() in wanted and e.package == norm(package) and image_matches(e.image, subject):
+            if e.package != norm(package):
+                continue
+            if e.id == EVERY_ID:  # D-622: the pinned image: that repository exactly, at the lock's digest
+                if e.image and subject and same_repository(e.image, subject):
+                    digest = third_party_digests().get(e.image)
+                    if digest and "@" in subject and subject.rsplit("@", 1)[1] == digest:
+                        return e
+            elif e.id.upper() in wanted and image_matches(e.image, subject):
                 return e
         return None
 
@@ -144,6 +162,40 @@ def image_matches(scope: str | None, subject: str | None) -> bool:
         return False
     repo = image_repository(subject)
     return repo == scope or repo.endswith("/" + scope)
+
+
+def same_repository(scope: str, subject: str) -> bool:
+    """Stricter than :func:`image_matches`: ``subject`` is exactly the repository ``scope``, in any registry (a first
+    component with a dot or a port, or ``localhost``; Docker Hub's ``library/`` for a one-word name). A longer path
+    that only ends the same way (``someone/authelia/authelia``) is another repository."""
+    repo = image_repository(subject)
+    head, _, rest = repo.partition("/")
+    if rest and ("." in head or ":" in head or head == "localhost"):
+        repo = rest
+    if "/" not in scope and repo.startswith("library/"):
+        repo = repo[len("library/") :]
+    return repo == scope
+
+
+def third_party_digests() -> dict[str, str]:
+    """Repository -> pinned digest of the third-party images of ``deploy/images.lock``; empty when it cannot be read."""
+    try:
+        doc = json.loads(IMAGES_LOCK.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    entries = doc.get("third_party") if isinstance(doc, dict) else None
+    if not isinstance(entries, dict):
+        return {}
+    return {
+        image_repository(str(e.get("image", ""))): str(e.get("digest") or "")
+        for e in entries.values()
+        if isinstance(e, dict) and e.get("image")
+    }
+
+
+def third_party_repositories() -> frozenset[str]:
+    """The repositories of the third-party images the project pins (``deploy/images.lock``)."""
+    return frozenset(third_party_digests())
 
 
 def norm(name: str) -> str:
@@ -239,6 +291,15 @@ def parse(data: Any, *, today: dt.date | None) -> tuple[Allowlist, list[str]]:
             errs.append(f"{where}: no id")
         if not pkg:
             errs.append(f"{where}: no package; an entry covers one package")
+        if vid == EVERY_ID:  # D-622: every id of ONE package in ONE third-party image, by its full name
+            if pkg and not pkg.replace("-", "").replace("_", "").replace(".", "").replace("+", "").isalnum():
+                errs.append(f"{where}: an entry for every id names one package, got {pkg!r}")
+            if img is None:
+                errs.append(f"{where}: an entry for every id needs an image (it never holds for every image)")
+            elif img == image_repository(img) and is_own(img):
+                errs.append(f"{where}: an entry for every id is never for our own images")
+            elif img == image_repository(img) and img not in third_party_repositories():
+                errs.append(f"{where}: {img!r} is not a third-party image of deploy/images.lock, by its full name")
         if vid and pkg:
             key = (vid.upper(), norm(pkg), img)
             if key in seen:
@@ -247,6 +308,12 @@ def parse(data: Any, *, today: dt.date | None) -> tuple[Allowlist, list[str]]:
         errors += errs
         if not errs and when is not None and vid and pkg:
             out.vulnerabilities.append(VulnEntry(vid, norm(pkg), str(raw["reason"]).strip(), when, img))
+    wide = {(e.package, e.image) for e in out.vulnerabilities if e.id == EVERY_ID}
+    for e in out.vulnerabilities:
+        if e.id != EVERY_ID and (e.package, e.image) in wide:
+            errors.append(
+                f"vulnerabilities ({e.id}): {e.package} in {e.image} is covered by the entry for every id; remove it"
+            )
     seen_l: set[tuple[str, str]] = set()
     for i, raw in enumerate(lists["licences"]):
         if not isinstance(raw, dict):
