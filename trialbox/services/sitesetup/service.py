@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import json
 import re
 import threading
 from collections.abc import Callable
@@ -392,14 +393,32 @@ class SiteSetup:
         the window closes (:meth:`flush`) or a person presses Publish (``force``). Nothing is published while a
         running job holds the snapshot it would rebuild, forced or not: the job reads its snapshot to the end, and
         the batch follows when it ends. What waits is the difference between the facts and the last publish, so a
-        restart loses nothing."""
+        restart loses nothing.
+
+        T-690 (D-472), the hospital's lake rebuilds as a polled job: the publish starts it and, while it runs,
+        records a publish in progress (``<data>/main/publishing.json``: the job, the snapshot, the digest and counts
+        it carries). Every later call follows that job instead of starting another (``pending``, ``building``) and
+        records the publish when the job is done; a failed job is recorded and not started again for the same facts
+        until a person presses Publish. No time limit on the rebuild (OD-10). A box with no site facts that never
+        published starts no rebuild."""
         with self._lock:
             res = publish.resources(self.store.facts(ws), self.store.mapping(ws), self.chart_texts(ws))
             dg = publish.digest(res)
-            last = self.store.published(ws)
             lake = self.lake(ws)
+            rec = self._record(ws)
+            if rec is not None and rec.get("state") == "running":
+                followed = self._follow(ws, rec, lake, by, dg)
+                if followed is not None:
+                    return followed
+                rec = self._record(ws)
+            last = self.store.published(ws)
+            if rec is not None and rec.get("state") == "failed" and rec.get("digest") == dg and not force:
+                return _failed(last, rec)
             if not force and last is not None and last["digest"] == dg and lake.snapshot():
                 return {"snapshot": last["snapshot"], "unchanged": True, "counts": last["counts"]}
+            if ws == "main" and last is None and not any(res.values()):
+                # F-01 (T-690): a fresh box with no site facts has nothing to publish; no rebuild of the hospital
+                return {"snapshot": None, "unchanged": True, "empty": True, "counts": {}}
             snap = (lake.snapshot() if ws == "main" else None) or self.today().isoformat()
             if ws == "main":
                 wait = 0 if force else self._batch_wait(last)
@@ -409,15 +428,20 @@ class SiteSetup:
             # D-273 (CR-055, DI-5): the audit event goes first; if it cannot be written, nothing is published
             self.audit.append("setup.publish_begin", actor=by, detail={"ws": ws, "snapshot": snap, "digest": dg[:16]})
             lake.put_site(res)
+            counts = publish.counts(res)
+            start = getattr(lake, "start_rebuild", None) if ws == "main" else None
+            job: dict[str, Any] | None = None
             try:
-                if ws == "main":  # the hospital's lake: never rebuilt from a missing or empty feed once it had one
-                    lake.rebuild(snap)  # (D-271)
+                if start is not None:  # T-690: the hospital's lake, a polled job (never rebuilt from a missing or
+                    job = start(snap)  # empty feed once it had one: D-271)
+                elif ws == "main":
+                    lake.rebuild(snap)
                 else:  # a practice site holds the site's own inputs only
                     lake.rebuild(snap, allow_empty=True)
             except Exception as exc:
                 if _building_refusal(exc):
-                    # D-462: another rebuild of the snapshot runs (an earlier publish whose HTTP client timed out,
-                    # another worker, a double click): never a second writer; this publish waits, "building"
+                    # D-462: another rebuild of the snapshot runs (another worker, the night's rebuild, a double
+                    # click): never a second writer; this publish waits, "building"
                     self.audit.append("setup.publish_building", actor=by, detail={"ws": ws, "snapshot": snap})
                     return _pending(last, 0, 0, building=True)
                 if ws != "main" or not _held_refusal(exc):
@@ -425,10 +449,85 @@ class SiteSetup:
                 # a job pinned the snapshot between the check and the rebuild: the batch waits for it (D-403)
                 self.audit.append("setup.publish_deferred", actor=by, detail={"ws": ws, "snapshot": snap})
                 return _pending(last, 0, max(1, self._held_by(lake, snap)))
-            counts = publish.counts(res)
-            self.store.set_published(ws, self.stamp(), snap, dg, counts)
-            self.audit.append("setup.publish", actor=by, detail={"ws": ws, "snapshot": snap, "counts": counts})
-            return {"snapshot": snap, "unchanged": False, "counts": counts}
+            if job is not None:
+                rec = {"state": "running", "job": job.get("job"), "snapshot": snap, "digest": dg, "counts": counts,
+                       "at": self.stamp(), "by": by}  # fmt: skip
+                if job.get("state") == "running":
+                    self._set_record(ws, rec)
+                    return {**_pending(last, 0, 0, building=True), "running": True}
+                self._set_record(ws, rec)  # an in-process lake answers the job's end at once
+                followed = self._follow(ws, rec, lake, by, dg, job)
+                if followed is not None:
+                    return followed
+                rec = self._record(ws)
+                last = self.store.published(ws)
+                if rec is not None and rec.get("state") == "failed":
+                    return _failed(last, rec)
+                return _pending(last, 0, max(1, self._held_by(lake, snap)))  # held at the swap: waits for the job
+            return self._done(ws, snap, dg, counts, by)
+
+    def _done(self, ws: str, snap: str, dg: str, counts: dict[str, int], by: str) -> dict[str, Any]:
+        self.store.set_published(ws, self.stamp(), snap, dg, counts)
+        self._set_record(ws, None)
+        self.audit.append("setup.publish", actor=by, detail={"ws": ws, "snapshot": snap, "counts": counts})
+        return {"snapshot": snap, "unchanged": False, "counts": counts}
+
+    def _follow(
+        self, ws: str, rec: dict[str, Any], lake: Any, by: str, dg: str, st: dict[str, Any] | None = None
+    ) -> dict[str, Any] | None:
+        """Follow the publish in progress (T-690, D-472): its answer while it runs or once recorded, or None when the
+        caller goes on (the job ended otherwise, or the facts changed since; the record says which)."""
+        read = getattr(lake, "rebuild_state", None)
+        if st is None:
+            if read is None:
+                self._set_record(ws, None)
+                return None
+            try:
+                st = read(str(rec["snapshot"]))
+            except Exception:  # the lake does not answer now: the next call asks again; nothing is started
+                return {**_pending(self.store.published(ws), 0, 0, building=True), "running": True}
+        state = st.get("state")
+        if st.get("job") != rec.get("job"):
+            if state == "running":  # another rebuild of the snapshot runs now; ours ended unseen: wait for it
+                return {**_pending(self.store.published(ws), 0, 0, building=True), "running": True}
+            self._set_record(ws, None)  # ours was replaced by a later job: publish again
+            return None
+        if state == "running":
+            return {**_pending(self.store.published(ws), 0, 0, building=True), "running": True}
+        if state == "done":
+            out = self._done(ws, str(rec["snapshot"]), str(rec["digest"]), dict(rec.get("counts") or {}), by)
+            return out if rec.get("digest") == dg else None
+        if state in ("refused", "failed"):
+            detail = str(st.get("detail") or state)[:300]
+            self._set_record(ws, {**rec, "state": "failed", "detail": detail})
+            self.audit.append("setup.publish_failed", actor=by,
+                              detail={"ws": ws, "snapshot": rec["snapshot"], "state": state})  # fmt: skip
+            return None
+        if state == "busy":  # held at the swap: nothing replaced; the batch waits for the job (D-403, D-462)
+            self.audit.append("setup.publish_deferred", actor=by, detail={"ws": ws, "snapshot": rec["snapshot"]})
+        self._set_record(ws, None)  # busy, interrupted, unknown: published again on the next call
+        return None
+
+    def _record_path(self, ws: str) -> Path:
+        return self.root / ws / "publishing.json"
+
+    def _record(self, ws: str) -> dict[str, Any] | None:
+        """The publish in progress of ``ws`` (T-690): no patient data, the job id, snapshot, digest and counts."""
+        try:
+            body = json.loads(self._record_path(ws).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return body if isinstance(body, dict) else None
+
+    def _set_record(self, ws: str, rec: dict[str, Any] | None) -> None:
+        p = self._record_path(ws)
+        if rec is None:
+            p.unlink(missing_ok=True)
+            return
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps(rec, sort_keys=True), encoding="utf-8")
+        tmp.replace(p)
 
     # ------------------------------------------------------------------ the practice site and resets
     def reset(self, ws: str, by: str) -> None:
@@ -454,6 +553,18 @@ def _pending(last: dict[str, Any] | None, wait: int, held: int, building: bool =
         "wait_seconds": wait,
         "held_by_jobs": held,
         "building": building,
+        "counts": last["counts"] if last else {},
+    }
+
+
+def _failed(last: dict[str, Any] | None, rec: dict[str, Any]) -> dict[str, Any]:
+    """What a publish whose rebuild failed answers until the facts change or a person presses Publish (T-690)."""
+    return {
+        "snapshot": last["snapshot"] if last else None,
+        "unchanged": False,
+        "pending": False,
+        "failed": True,
+        "detail": str(rec.get("detail") or ""),
         "counts": last["counts"] if last else {},
     }
 

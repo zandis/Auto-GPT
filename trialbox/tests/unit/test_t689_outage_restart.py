@@ -598,7 +598,9 @@ def test_sixteen_calls_in_flight_wait_through_one_outage_together(clock: Clock) 
     with ThreadPoolExecutor(max_workers=16) as ex:
         got = list(ex.map(lambda i: llm.chat_json("judge", {**variables, "criterion_text": f"c{i}"}), range(200)))
     assert len(got) == 200 == gw.answered and gw.refused
-    assert all(e[3] == "resumed" for e in ended) and 0 < budget.spent <= 40.0 + 30.0
+    # every thread's pause moves the one test clock, so the seconds are bounded by what was paused in all, not by
+    # the outage's own length
+    assert ended and all(e[3] == "resumed" for e in ended) and 0 < budget.spent <= clock.slept
 
 
 def test_the_cascades_own_judge_waits_through_an_outage_too(clock: Clock) -> None:

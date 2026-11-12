@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from lake.client import LakeHttp
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from tb_common.audit import AuditLog
 from tb_common.audit_writer import open_audit
 from tb_common.authz import BREAK_GLASS_ROLE, permit
@@ -44,7 +44,7 @@ from orchestrator.callers import Gate
 from orchestrator.callers import load as load_callers
 from orchestrator.candidates import CandidateRegistry, RegistryError
 from orchestrator.clients import AdapterHttp, CompilerHttp, MailHttp, ParserHttp
-from orchestrator.core import Orchestrator, Rejected, Services
+from orchestrator.core import NotRetryable, Orchestrator, Rejected, Services
 from orchestrator.datacore_api import router as datacore_router
 from orchestrator.db import JobDB
 from orchestrator.edc_api import router as edc_router
@@ -134,8 +134,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         from orchestrator.scheduler import start
 
         sched = start(o)
-    if sched is not None and o.cfg.env.site_publish_batch_seconds > 0:  # T-305b (D-403): the batch's own tick
-        sched.add_job(lambda: _flush_main(setup_of(o)), "interval", seconds=60, id="site-publish-batch")
+    if sched is not None:  # T-305b (D-403): the batch's own tick; T-690 (D-472): it also follows a publish whose
+        # rebuild runs as a lake job, batching on or off (a publish with nothing new and no job in progress is a no-op)
+        sched.add_job(lambda: _flush_main(None, o), "interval", seconds=60, id="site-publish-batch")
     # D-441: the opt-out worker ticks even when nights are on demand; in PRODUCTION also without the scheduler (and it
     # refuses to be off there)
     from datacore.optout_worker import start as optout_start
@@ -519,6 +520,33 @@ def notice(req: NoticeRequest, request: Request) -> dict[str, Any]:
     return {"message_id": res.message_id}
 
 
+class RetryScheduled(BaseModel):
+    """``POST /jobs/{job_id}/retry`` body (T-746, D-474): the administrator's reply mailbox, nothing else. The type,
+    study, options and inputs are the failed job's own; a field that would change them is refused (422)."""
+
+    model_config = ConfigDict(extra="forbid")
+    reply_to: str
+
+
+@app.post("/jobs/{job_id}/retry")
+def retry_scheduled_job(job_id: str, body: RetryScheduled, request: Request) -> Job:
+    """The administrator runs a failed job of the box's own scheduler again (``job.retry_scheduled``, D-474). The
+    signed person and role decide (the console's assertion; the D-464 gate admits the console only); the orchestrator
+    copies the failed job. 403: the role may not; 404: no such job; 409: not failed, not a scheduler job, or a job of
+    the same type and study is queued or running."""
+    if not (request.headers.get(ACTOR_HEADER) and request.headers.get(ROLE_HEADER)):
+        raise HTTPException(status_code=403, detail="a retry names the signed-in administrator and role")
+    who = _claim(request)
+    try:
+        return orch().retry_scheduled(job_id, by=who.name, role=who.role, reply_to=body.reply_to)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="no such job") from exc
+    except Rejected as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except NotRetryable as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.post("/jobs/{job_id}/cancel")
 def cancel_job(job_id: str, request: Request, by: str | None = None) -> Job:
     who = _claim(request, by).name
@@ -613,9 +641,13 @@ def setup_of(o: Orchestrator) -> Any:
     return _setups[key]
 
 
-def _flush_main(svc: Any) -> None:
-    """Apply the hospital lake's waiting batch of site decisions, if its window closed and no job holds it."""
+def _flush_main(svc: Any, o: Orchestrator | None = None) -> None:
+    """Apply the hospital lake's waiting batch of site decisions, if its window closed and no job holds it, and
+    follow a publish in progress (T-690)."""
     try:
+        if svc is None:
+            assert o is not None
+            svc = setup_of(o)
         svc.flush("main")
     except Exception:  # the next tick or the next job tries again; the decisions are stored
         log.exception("site publish batch not applied")

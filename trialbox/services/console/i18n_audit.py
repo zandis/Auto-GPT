@@ -113,6 +113,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "console.testmail": ("Test mail sent", "テストメールの送信", "寄送測試郵件"),
     "job.state": ("Job state changed", "処理状態の変更", "作業狀態變更"),
     "job.requeued": ("Job queued again", "処理の再登録", "作業重新排入"),
+    "job.retried": (
+        "Failed scheduled job run again by the administrator",
+        "失敗した定時処理の管理者による再実行",
+        "管理員重新執行失敗的排程作業",
+    ),
     "scheduler.held": ("Scheduled run held", "予定処理の保留", "保留排程作業"),
     "rerun.checked": ("Re-run checked", "再実行の確認", "檢查重新執行"),
     "microbatch.budget": ("Night budget used", "夜間予算の使用", "使用夜間額度"),
@@ -238,6 +243,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
         "發布院內設定正等待進行中的重建",
     ),
     "setup.publish_deferred": ("Site set-up publishing deferred", "施設設定の公開延期", "延後發布院內設定"),
+    "setup.publish_failed": (
+        "Site set-up publishing failed (the rebuild did not finish)",
+        "施設設定の公開に失敗（再構築が完了せず）",
+        "發布院內設定失敗（重建未完成）",
+    ),
     "setup.remote": (
         "Remote site source changed (service)",
         "遠隔施設ソースの変更（サービス）",

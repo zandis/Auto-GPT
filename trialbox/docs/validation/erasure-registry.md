@@ -147,7 +147,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `lake:CURRENT.tmp` | the served snapshot's name while it is replaced |
 | `lake:FEED` | the date of the last feed snapshot |
 | `lake:holds` | a job's hold on a snapshot: job id and date |
-| `lake:locks` | lock files of the lake's readers and writers (T-722), no patient |
+| `lake:locks` | lock files of the lake's readers and writers (T-722), rebuild job states (T-690) |
 | `library.criterion_library` | the criteria library |
 | `library.criterion_library_lexicon_key` | the criteria library |
 | `library.criterion_library_meta` | the criteria library |

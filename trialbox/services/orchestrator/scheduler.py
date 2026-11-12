@@ -182,8 +182,9 @@ def after_ingest(orch: Orchestrator, timed: bool = False) -> list[str]:
         return []
 
 
-def plan(settings: Settings) -> list[tuple[str, dict[str, Any]]]:
-    sch = settings.schedule
+def plan(settings: Settings | None) -> list[tuple[str, dict[str, Any]]]:
+    """Every timed job type with its cron arguments (``settings.schedule``; the defaults without settings)."""
+    sch = settings.schedule if settings is not None else None
 
     def get(key: str, default: str) -> str:
         return str(getattr(sch, key, None) or default) if sch else default
@@ -196,6 +197,11 @@ def plan(settings: Settings) -> list[tuple[str, dict[str, Any]]]:
         ("RETENTION", cron_kwargs(get("retention", "05:00"))),
         ("CALIBRATION", cron_kwargs(get("calibration", "1st 05:30"))),
     ]
+
+
+def scheduled_types() -> frozenset[str]:
+    """The job types the box's own scheduler starts (T-746, D-474: the types the administrator may retry)."""
+    return frozenset(t for t, _ in plan(None))
 
 
 def run_now(orch: Orchestrator, jtype: str, ruleset: str | None = None) -> None:
