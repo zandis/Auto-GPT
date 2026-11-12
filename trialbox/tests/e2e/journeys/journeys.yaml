@@ -58,6 +58,12 @@ journeys:
           patient, then end the grant.
         expect: The patient opens, another patient does not; after "End" the patient page is refused again.
         covers: [break_glass]
+      - id: J-ADM-05
+        do: A new study starts, GOUT-NEW. On "Send in a protocol", paste its criteria and send them. Then on
+          "Users" add GOUT-NEW to the studies of the PI's and the coordinator's accounts.
+        expect: The criteria wait for approval as GOUT-NEW v1.0.0; the approval page says that nobody can approve
+          until the data steward names the principal investigator; both accounts list GOUT-NEW.
+        covers: [protocol_to_criteria]
 
   - id: J-STW
     role: steward
@@ -85,6 +91,12 @@ journeys:
         expect: The held night is listed with the lab table; "Accept" is not offered yet; after "Reject" the night
           is rejected with your reason on its trail, and the readiness page no longer says the feed was held.
         covers: [held_feed]
+      - id: J-STW-05
+        do: Your pages show "GOUT-NEW - name the principal investigator". Open the delegation log of GOUT-NEW and
+          name the PI from the signed log.
+        expect: The log of GOUT-NEW opens before the study has approved criteria; after you name the PI the task
+          is gone.
+        covers: [protocol_to_criteria]
 
   - id: J-CRC
     role: coordinator
@@ -123,6 +135,11 @@ journeys:
           with their source; "Comments" not drafted; nothing reaches REDCap before a person confirms and signs.
         covers: [edc_prefill_review]
         langs: [en, ja, zh-TW]
+      - id: J-CRC-08
+        do: After the PI's approval of GOUT-NEW (J-PI-08), choose the whole hospital under "Who to screen" on its
+          set-up page and ask for its first list.
+        expect: The run ends and "This week's patients" of GOUT-NEW v1.0.0 opens.
+        covers: [screening_run]
 
   - id: J-PI
     role: investigator
@@ -158,6 +175,11 @@ journeys:
         do: Open this week's sample of RA-JAK "Criteria not matched" patients; send one back with a note.
         expect: Ten patients (or all, if fewer) with the week's counter; after "Send back" the patient is on the
           weekly list again, marked "sent back".
+      - id: J-PI-08
+        do: Open the waiting criteria of GOUT-NEW, label each line that asks for one, "Approve all".
+        expect: Before the steward named you (J-STW-05) the page had no "Approve all"; now GOUT-NEW is approved at
+          v1.0.0.
+        covers: [protocol_to_criteria]
 
   - id: J-SI
     role: investigator
@@ -269,3 +291,7 @@ walk:
   - J-PRV-02
   - J-PRV-03
   - J-PRV-04
+  - J-ADM-05
+  - J-STW-05
+  - J-PI-08
+  - J-CRC-08

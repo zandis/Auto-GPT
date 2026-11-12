@@ -1222,6 +1222,15 @@ EN.update(_J_EN)
 JA.update(_J_JA)
 ZH.update(_J_ZH)
 
+# NEW-JRN-1 (D-540): a new study's first approval; new keys
+from console.i18n_first_approval import EN as _FA_EN  # noqa: E402
+from console.i18n_first_approval import JA as _FA_JA  # noqa: E402
+from console.i18n_first_approval import ZH as _FA_ZH  # noqa: E402
+
+EN.update(_FA_EN)
+JA.update(_FA_JA)
+ZH.update(_FA_ZH)
+
 # D-147: the delegation log, whole-hospital candidates, referral, the IRB warning, staff directory, opt-outs; new keys
 from console.i18n_team import EN as _TEAM_EN  # noqa: E402
 from console.i18n_team import JA as _TEAM_JA  # noqa: E402

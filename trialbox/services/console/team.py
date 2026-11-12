@@ -247,6 +247,17 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return user.can_approve and stand(user, rid).pi
 
     h.may_approve, h.stand = may_approve, stand  # T-512, T-102c: h.permit and h.may_run read the standing
+
+    def pi_missing(user: User) -> list[str]:
+        """NEW-JRN-1 (D-540): the studies this account sees whose criteria wait for approval while the delegation
+        log names no PI: nobody can approve them until the steward names one (D-380)."""
+        try:
+            waiting = st.waiting_studies(bk)
+        except Exception:  # the orchestrator is down: no task shown, the pages say so themselves
+            return []
+        return [rid for rid in waiting if user.sees_study(rid) and team.pi_of(rid, today()) is None]
+
+    h.pi_missing = pi_missing
     h.team_due = lambda rid: check_due(team, rid, today(), site_zone(bk))
 
     def deny(sess: Session, path: str) -> Exception:

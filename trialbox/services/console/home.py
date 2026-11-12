@@ -122,6 +122,8 @@ class Helpers:
     may_approve: Callable[..., bool] | None = None
     stand: Callable[..., Any] | None = None  # console.team.standing for one account and study (T-512)
     team_due: Callable[[str], bool] | None = None
+    # set by console.team (NEW-JRN-1, D-540): the studies waiting for approval whose log names no PI yet
+    pi_missing: Callable[..., list[str]] | None = None
     reveal: Any = None  # set by register(): console.reveal.Reveal, the one reveal path (T-103, D-438)
     chart_lookup: Callable[[Session, str], None] | None = None  # set by console.team: the lookup cap (D-273)
     irb_gate: bool = False  # set by console.team (D-395): the candidate view waits for the study's IRB-text record

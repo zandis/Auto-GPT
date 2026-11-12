@@ -68,6 +68,9 @@
     <button type="submit" data-testid="approve">{{ t('s20.approve_all') }}</button>
   </form>{% endif %}
   <p class="hint">{{ t('s20.legal') }}</p>
+{% elif needs_pi %}
+  <p class="warn" data-testid="approve-needs-pi">{{ t('pi.needed', rs=job.ruleset) }}
+  {% if permit(user.role, 'delegation.name_pi') %}<a href="/studies/{{ job.ruleset|upper }}/team" data-testid="approve-name-pi">{{ t('pi.needed.link') }}</a>{% endif %}</p>
 {% else %}
   <p data-testid="approve-who">{{ t('s20.only_pi') }}</p>
 {% endif %}

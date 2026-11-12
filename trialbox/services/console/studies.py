@@ -27,12 +27,24 @@ STATUS_ORDER = ("new", "pending", "contacted", "screened", "enrolled", "set_asid
 
 
 # ---------------------------------------------------------------------------------------------- jobs
+def waiting_studies(bk: Any) -> list[str]:
+    """NEW-JRN-1 (JRN-001, D-540): the studies with criteria waiting for approval, in the order their jobs are
+    listed. A new study has no ruleset folder until its first approval; this job is what makes it a study."""
+    seen: list[str] = []
+    for j in bk.list_jobs(limit=500):  # the same listing as the approval queue of the home page (home.approvals)
+        rid = (j.ruleset or "").upper()
+        if j.state == "awaiting_approval" and rid and rid not in seen:
+            seen.append(rid)
+    return seen
+
+
 def known_study(bk: Any, rid: str) -> bool:
     """D-133 (review F-37): a study page answers only for a study TrialBox has (a ruleset of any status, so a study
     whose protocol was read but not yet approved can be set up). A mistyped code gets the 404 page, never an empty
-    set-up form for a study that does not exist."""
+    set-up form for a study that does not exist. D-540: a study whose first criteria wait for approval is known
+    too, so that the steward can open its delegation log and name the PI who approves (D-380)."""
     try:
-        return any(r.id == rid for r in bk.rulesets())
+        return any(r.id == rid for r in bk.rulesets()) or rid in waiting_studies(bk)
     except Exception:
         return True
 
