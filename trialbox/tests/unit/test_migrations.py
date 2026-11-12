@@ -406,6 +406,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         # D-435 (T-302d): datacore version 8 (the sponsor's layout: screening-log columns, the weekly sheet)
         "cd15f0cb005567fbcaa623030a4e5ea5dd4bc947add082f57bcbe23b1cb7547d",
     ),
+    # D-442 (T-207): derived version 2, the derive batch of each snapshot
+    "derived": ("375852250dfeb38566f9172945e0d268f2a9f6b3d34f139e0c452eac4a59c711",),
     # D-386 (T-622): site version 5 (the study's state log and identifiers)
     # D-395 (T-310b): site version 6 (the IRB-text record of the cross-department candidate view)
     "site": (

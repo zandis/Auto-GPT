@@ -43,7 +43,7 @@ vsf(vs_id, system, prefix) AS (VALUES
   ('VS_NON_SMALL_CELL_LUNG_CANCER', 'http://hl7.org/fhir/sid/icd-10-cm', 'C34')),
 -- ONC-OSI-INC-01 (inclusion): 病患年齡須滿十八歲。
 c_onc_osi_inc_01 AS (
-  SELECT b.pid, b.index_date, ((date_sub('year', b.birth_date, b.index_date) >= 18)) AS v,
+  SELECT b.pid, b.index_date, (((year(b.index_date) - year(b.birth_date) - CASE WHEN strftime(b.index_date, '%m-%d') < strftime(b.birth_date, '%m-%d') THEN 1 ELSE 0 END) >= 18)) AS v,
          concat_ws(';', NULL) AS ev
   FROM base b
   ),

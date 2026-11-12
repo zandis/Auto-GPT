@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
+  "head": "e3ac1779aac2e0f5e13be8d94578e15142dc6697",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
+  "reason": "D-442 (T-207): no eGFR under 18 (catalogue egfr_ckd_epi_2021 and egfr_jsn_2009: age < 18, do not compute); an eGFR criterion of a patient under 18 at the index date is unknown with derived_adult_only instead of met or not met",
   "ref_date": "2026-11-01",
   "ruleset": "RA-JAK",
   "ruleset_version": "1.0.0",
@@ -124,7 +124,7 @@
     "d4f38f3ffdf00507bdb81ae740385030"
    ],
    "candidates": 14,
-   "outcomes_sha": "953b0f9c57b9291f0db8dbd9b4f1578caadf09ca2334ff72e7648c4ca37cf6f6",
+   "outcomes_sha": "95f82db7fe320a287a8f9bd88489f963da77b8a8273af4337150ad7a03c0bd71",
    "patients": 400,
    "structured_criteria": [
     "RA-JAK-INC-01",
@@ -189,9 +189,9 @@
      "unknown": 0
     },
     "RA-JAK-EXC-11": {
-     "met": 43,
-     "not_met": 160,
-     "unknown": 197
+     "met": 42,
+     "not_met": 156,
+     "unknown": 202
     },
     "RA-JAK-INC-01": {
      "met": 326,
@@ -308,7 +308,7 @@
     "fd7be4962be6aaa2c61387ff84e3f27b"
    ],
    "candidates": 89,
-   "outcomes_sha": "deae5b82a8862477dd96cc38f6d4fa4bcc9dad56a2e67575fad420b2147a004a",
+   "outcomes_sha": "b1c79f0716c06388a04ef687c6ad44321d6d6775af490ea10df510c7b3e35098",
    "patients": 2500,
    "structured_criteria": [
     "RA-JAK-INC-01",
@@ -373,9 +373,9 @@
      "unknown": 0
     },
     "RA-JAK-EXC-11": {
-     "met": 307,
-     "not_met": 945,
-     "unknown": 1248
+     "met": 297,
+     "not_met": 912,
+     "unknown": 1291
     },
     "RA-JAK-INC-01": {
      "met": 2032,
@@ -499,7 +499,7 @@
     "fd7be4962be6aaa2c61387ff84e3f27b"
    ],
    "candidates": 96,
-   "outcomes_sha": "8f26ef514f6e4dcc44afb3633f9d346de27331306ec41a52c195d0c3d498aea9",
+   "outcomes_sha": "bc0cc9f8c93a2d5d2a5a060a34a84b4cd67f9b96b78d1d455fc2917a22fe1e57",
    "patients": 2500,
    "structured_criteria": [
     "RA-JAK-INC-01",
@@ -564,9 +564,9 @@
      "unknown": 0
     },
     "RA-JAK-EXC-11": {
-     "met": 299,
-     "not_met": 847,
-     "unknown": 1354
+     "met": 290,
+     "not_met": 815,
+     "unknown": 1395
     },
     "RA-JAK-INC-01": {
      "met": 2045,
@@ -680,7 +680,7 @@
     "fa2efd1ed5627ac07b7fe164e4800f78"
    ],
    "candidates": 86,
-   "outcomes_sha": "6cf691275cda87de9bd8b4c13b8a5281495ad99f2066b238d1ea4280cc1631df",
+   "outcomes_sha": "427201f483636f53ec9fb3ece43a88fdf64621d8d3239bc8c88fb5faaf00c286",
    "patients": 2500,
    "structured_criteria": [
     "RA-JAK-INC-01",
@@ -745,9 +745,9 @@
      "unknown": 0
     },
     "RA-JAK-EXC-11": {
-     "met": 321,
-     "not_met": 935,
-     "unknown": 1244
+     "met": 311,
+     "not_met": 899,
+     "unknown": 1290
     },
     "RA-JAK-INC-01": {
      "met": 1983,
