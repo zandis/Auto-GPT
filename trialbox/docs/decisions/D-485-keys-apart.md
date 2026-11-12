@@ -71,10 +71,11 @@ and any grant, to the orchestrator.
   reading). `apply_update.sh` starts the installed release's updater; it switches to the new files and restarts
   with its own, older steps, which know no signing key. The new overlay names the key as a compose secret, so
   `compose up` refuses, and the update rolls back: nothing is lost and nothing is signed with a derived key, but
-  the box is not updated. **Bring a box to this release with `deploy/install.sh` run again** (it runs
-  `secrets init`, which makes the key, before it starts the services), or run
-  `python3 -m tools.trialbox secrets init` from the new tree first. The update tool running the new release's own
-  steps is the update tool's card (sent to the integrator, 2026-11-12).
+  the box is not updated. `deploy/install.sh` with the new bundle goes through the same updater first, so it
+  does not help on a running box (corrected with T-719: the first version of this paragraph said it did). The
+  supported way is the update tool running the new release's own steps, which is that tool's card (sent to the
+  integrator, 2026-11-12). A new box is not affected: `install.sh` runs `secrets init` before it starts the
+  services. No box is in the field.
 - **The Kubernetes form** needs the Secret `trialbox-actor-sign` made by hand at an upgrade, and the Secret
   `trialbox-actor` re-made from the new keys file; until both are done the old console pod keeps signing with the
   derived key and the orchestrator keeps accepting it. The form is frozen (plan section 3.2); the step is to be

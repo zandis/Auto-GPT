@@ -215,7 +215,7 @@ audit-writer` says what it found.
 | `... secrets rotate --service orchestrator` | one service's token; only it restarts |
 | `... secrets rotate --service db` | the two database passwords (`ALTER ROLE`, on stdin) |
 | `... secrets rotate --service actor` | the console's key that signs the acting person (D-485): a new `deploy/secrets/services/actor-sign.key`; the console and the orchestrator restart |
-| `... secrets status` | lists the console's signing key ("actor signing key"): `present` must be true on a box with service tokens, or nobody's actions are signed. A box brought to the release with D-485 by `trialbox update` does not get the key (the update rolls back): run `deploy/install.sh` again, or `secrets init` from the new tree |
+| `... secrets status` | lists the console's signing key ("actor signing key"): `present` must be true on a box with service tokens, or nobody's actions are signed. The update that brings the release with D-485 to an installed box does not make the key and rolls back (nothing is lost); see D-485, "Not done" |
 | `... secrets rotate --service model` | the on-box model servers' key (D-437): a new `deploy/secrets/model/llm.key`; the vLLM servers, model-guard and the gateway are recreated in one command (model calls fail until vLLM has loaded again) |
 | `... secrets init` | make any missing token and the orchestrator's actor key (the installer runs it; run it once on a box updated past D-143, else chart-number reveals and exports are refused) |
 
