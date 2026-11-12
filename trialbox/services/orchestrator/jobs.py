@@ -61,8 +61,13 @@ if TYPE_CHECKING:
 log = logging.getLogger("orchestrator")
 
 
+GENERATION_OPTION = "lake_generation"  # the job record's copy of the generation it reads (T-724, D-490)
+
+
 class PinnedLake:
-    """A job's view of the lake: every query and note search on the one snapshot it pinned."""
+    """A job's view of the lake: every query and note search on the one snapshot it pinned, and, where the lake has
+    generations (T-724, D-490), on the one generation of that date it pinned: a rebuild of the date meanwhile (a
+    site publish) makes the next generation and the job goes on reading its own."""
 
     def __init__(
         self,
@@ -72,11 +77,17 @@ class PinnedLake:
         pinned: str | None = None,
         on_pin: Callable[[str], None] | None = None,
         holder: str | None = None,
+        generation: str | None = None,
+        on_generation: Callable[[str], None] | None = None,
     ) -> None:
         self.lake = lake
         self.pinned = pinned
         self.holder = holder
         self.held = False
+        # T-724 (D-490): the generation of the pinned date this job reads. ``generation``: the one the job's record
+        # names (a job started again); else the date's newest when the job first holds it
+        self.generation = generation
+        self._on_generation = on_generation
         self._today = today
         self._max_age = max_age_days
         self._on_pin = on_pin
@@ -110,10 +121,33 @@ class PinnedLake:
         self.held = True
         if hold is None or not self.holder:
             return
+        recorded = self.generation
         try:
-            hold(snap, self.holder)
+            # T-724 (D-490): the job pins a generation of its date: the one its record names, else the newest
+            got = hold(recorded or snap, self.holder, pin=True)
+        except TypeError:  # a lake without generations (a test's stand-in): the date is held, as before
+            with contextlib.suppress(Exception):
+                hold(snap, self.holder)
+            return
         except Exception as exc:
+            if recorded:  # the job read that generation before it was interrupted; it never reads another
+                self.held = False
+                raise StepFailed(
+                    "running",
+                    f"The lake generation this job was reading ({recorded}) is gone, so it cannot go on from where "
+                    f"it stopped without mixing two states of the data. Nothing was sent; send the request again.",
+                ) from exc
             log.warning("job %s: lake snapshot %s not held (%s)", self.holder, snap, type(exc).__name__)
+            return
+        if isinstance(got, str) and got != snap and got.startswith(f"{snap}."):
+            self.generation = got
+            if got != recorded and self._on_generation is not None:
+                self._on_generation(got)
+
+    def _reads(self, snapshot: str | None) -> str | None:
+        """What a read names on the lake: the job's generation for its own date, else what the caller asked for."""
+        snap = snapshot or self.pin()
+        return self.generation if snap == self.pinned and self.generation else snap
 
     def release(self) -> None:
         """End this job's hold (the job is done, failed or cancelled)."""
@@ -130,7 +164,12 @@ class PinnedLake:
         return self.pin()
 
     def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> Any:
-        return self.lake.query(sql, params, snapshot or self.pin())
+        self.pin()
+        return self.lake.query(sql, params, self._reads(snapshot))
+
+    def vec_s2b(self, pid: str, dids: list[str], query: str, snapshot: str | None = None) -> Any:
+        self.pin()
+        return self.lake.vec_s2b(pid, dids, query, self._reads(snapshot))
 
     def chunks_search(
         self,
@@ -141,7 +180,8 @@ class PinnedLake:
         date_to: date | None = None,
         snapshot: str | None = None,
     ) -> Any:
-        return self.lake.chunks_search(pid, query, k, date_from, date_to, snapshot=snapshot or self.pin())
+        self.pin()
+        return self.lake.chunks_search(pid, query, k, date_from, date_to, snapshot=self._reads(snapshot))
 
     def __getattr__(self, name: str) -> Any:  # put_site, rebuild and the rest: the lake itself
         return getattr(self.lake, name)
@@ -159,6 +199,10 @@ def pinned_services(ctx: Ctx) -> Services:
             with contextlib.suppress(ValueError):  # a snapshot not named after a night (only with the age check off)
                 ctx.update(snapshot_date=date.fromisoformat(snap))
 
+    def record_generation(gen: str) -> None:
+        # T-724 (D-490): the job's record names the generation it reads, beside its date
+        ctx.update(options={**(ctx.job.options or {}), GENERATION_OPTION: gen})
+
     lake = PinnedLake(
         base.lake,
         today=ctx.today,
@@ -166,6 +210,8 @@ def pinned_services(ctx: Ctx) -> Services:
         pinned=job.snapshot_date.isoformat() if job.snapshot_date else None,
         on_pin=record,
         holder=job.job_id,
+        generation=str((job.options or {}).get(GENERATION_OPTION) or "") or None,
+        on_generation=record_generation,
     )
     return replace(base, lake=lake)
 

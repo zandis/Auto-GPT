@@ -37,11 +37,21 @@ class LakeHttp:
         self.client = httpx.Client(timeout=timeout, headers=auth_headers())  # D-127 (F-11)
         self._poll = poll  # T-690 (D-472): how a rebuild job is followed (tb_common.jobpoll.Poll); settings if None
 
+    @staticmethod
+    def _named(snapshot: str | None) -> tuple[date | None, dict[str, str]]:
+        """T-724 (D-490): a snapshot name as the request's date and, for a generation (``<date>.g<n>``), the header
+        that carries its number: the request contracts are unchanged."""
+        if not snapshot:
+            return None, {}
+        from lake.store import GENERATION_HEADER, split_generation
+
+        snap, seq = split_generation(snapshot)
+        return date.fromisoformat(snap), ({GENERATION_HEADER: str(seq)} if seq is not None else {})
+
     def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> pa.Table:
-        body = dump(
-            LakeQuery(sql=sql, params=params or [], snapshot=date.fromisoformat(snapshot) if snapshot else None)
-        )
-        resp = self.client.post(f"{self.base}/query", json=body)
+        day, headers = self._named(snapshot)
+        body = dump(LakeQuery(sql=sql, params=params or [], snapshot=day))
+        resp = self.client.post(f"{self.base}/query", json=body, headers=headers)
         if resp.status_code != 200:
             raise RuntimeError(f"lake query failed ({resp.status_code}): {resp.text[:500]}")
         return pa.ipc.open_stream(resp.content).read_all()
@@ -55,15 +65,9 @@ class LakeHttp:
         date_to: date | None = None,
         snapshot: str | None = None,
     ) -> list[dict[str, Any]]:
-        req = ChunkSearchRequest(
-            pid=pid,
-            query=query,
-            k=k,
-            date_from=date_from,
-            date_to=date_to,
-            snapshot=date.fromisoformat(snapshot) if snapshot else None,
-        )
-        resp = self.client.post(f"{self.base}/chunks/search", json=dump(req))
+        day, headers = self._named(snapshot)
+        req = ChunkSearchRequest(pid=pid, query=query, k=k, date_from=date_from, date_to=date_to, snapshot=day)
+        resp = self.client.post(f"{self.base}/chunks/search", json=dump(req), headers=headers)
         resp.raise_for_status()
         hits: list[dict[str, Any]] = resp.json()["hits"]
         return hits
@@ -114,9 +118,23 @@ class LakeHttp:
             lambda: self.start_rebuild(snapshot), lambda: self.rebuild_state(snapshot), snapshot, self._poll
         )
 
-    def hold(self, snapshot: str, holder: str) -> None:
-        """T-305b (D-403): ``holder`` (a job) reads ``snapshot`` to its end: not rebuilt, not pruned."""
-        self.client.post(f"{self.base}/holds", json={"snapshot": snapshot, "holder": holder}).raise_for_status()
+    def hold(self, snapshot: str, holder: str, pin: bool = False) -> str:
+        """T-305b (D-403): ``holder`` (a job) reads ``snapshot`` to its end: not rebuilt, not pruned. With ``pin``
+        (T-724, D-490) it pins a generation, which is returned: see :meth:`lake.store.Lake.hold`."""
+        resp = self.client.post(f"{self.base}/holds", json={"snapshot": snapshot, "holder": holder, "pin": pin})
+        resp.raise_for_status()
+        return str(resp.json().get("generation") or snapshot)
+
+    def generation(self, snapshot: str | None = None) -> str | None:
+        """T-724 (D-490): the generation the date ``snapshot`` (default the served one) names now; None when the
+        lake has no snapshot, or the date was built before generations."""
+        snap = snapshot or self.snapshot()
+        if not snap:
+            return None
+        resp = self.client.get(f"{self.base}/generations/{snap}")
+        resp.raise_for_status()
+        got = resp.json().get("generation")
+        return str(got) if got else None
 
     def release(self, holder: str) -> bool:
         resp = self.client.delete(f"{self.base}/holds/{holder}")
@@ -174,8 +192,11 @@ class LakeLocal:
     def put_site(self, resources: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
         return self.lake.put_site(resources)
 
-    def hold(self, snapshot: str, holder: str) -> None:
-        self.lake.hold(snapshot, holder)
+    def hold(self, snapshot: str, holder: str, pin: bool = False) -> str:
+        return self.lake.hold(snapshot, holder, pin=pin)
+
+    def generation(self, snapshot: str | None = None) -> str | None:
+        return self.lake.generation(snapshot) if (snapshot or self.lake.current()) else None
 
     def release(self, holder: str) -> bool:
         return self.lake.release(holder)

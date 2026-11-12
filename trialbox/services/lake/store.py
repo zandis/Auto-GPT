@@ -287,16 +287,18 @@ def drop_reader_links(lake_dir: Path, snapshot: str) -> int:
 
 
 def _is_held(lake_dir: Path, snapshot: str) -> bool:
-    """A built snapshot a running job holds (call under :func:`lake_lock`)."""
-    return (lake_dir / "db" / f"{snapshot}.duckdb").exists() and snapshot in held_snapshots(lake_dir).values()
+    """A built snapshot a holder holds *by its date* (call under :func:`lake_lock`): it is not rebuilt. A hold on a
+    generation (T-724, D-490: a job's pin) does not count: a rebuild makes the next generation beside it."""
+    if not (lake_dir / "db" / f"{snapshot}.duckdb").exists():
+        return False
+    return any(snap == snapshot and gen is None for snap, gen in _holds(lake_dir).values())
 
 
-def held_snapshots(lake_dir: Path, now: float | None = None) -> dict[str, str]:
-    """``holder -> snapshot`` of every live hold on the lake in ``lake_dir`` (T-305b, D-403). A hold older than
-    :data:`HOLD_TTL_SECONDS` or unreadable is left out (a job that died holds nothing). The adapter's pruning and
-    every rebuild read this; it needs no lake service."""
+def _holds(lake_dir: Path, now: float | None = None) -> dict[str, tuple[str, str | None]]:
+    """``holder -> (snapshot date, generation or None)`` of every live hold (a hold older than
+    :data:`HOLD_TTL_SECONDS` or unreadable is left out: a job that died holds nothing)."""
     now = time.time() if now is None else now
-    out: dict[str, str] = {}
+    out: dict[str, tuple[str, str | None]] = {}
     for f in sorted(_holds_dir(lake_dir).glob("*.json")):
         try:
             body = json.loads(f.read_text(encoding="utf-8"))
@@ -304,8 +306,51 @@ def held_snapshots(lake_dir: Path, now: float | None = None) -> dict[str, str]:
         except (OSError, ValueError, KeyError, TypeError):
             continue
         if now - at <= HOLD_TTL_SECONDS:
-            out[f.stem] = snap
+            out[f.stem] = (snap, str(body["generation"]) if body.get("generation") else None)
     return out
+
+
+def held_snapshots(lake_dir: Path, now: float | None = None) -> dict[str, str]:
+    """``holder -> snapshot`` (the date) of every live hold on the lake in ``lake_dir`` (T-305b, D-403), whether the
+    holder holds the date or one of its generations. The adapter's pruning and every rebuild read this; it needs no
+    lake service."""
+    return {h: snap for h, (snap, _) in _holds(lake_dir, now).items()}
+
+
+def held_generations(lake_dir: Path, now: float | None = None) -> dict[str, str]:
+    """``holder -> generation`` of the live holds that pin a generation (T-724, D-490)."""
+    return {h: gen for h, (_, gen) in _holds(lake_dir, now).items() if gen}
+
+
+# ------------------------------------------------------------------------------------------ generations (T-724)
+GEN_ID = re.compile(r"^(?P<snap>[^/\\]+)\.g(?P<seq>[1-9][0-9]*)$")
+GENERATION_HEADER = "X-TB-Lake-Generation"  # over HTTP the generation's number travels beside the request's date
+
+
+def gen_dir(lake_dir: Path) -> Path:
+    """Where the generations' files and records are (under ``db``, so the lake's top-level entries are unchanged)."""
+    return lake_dir / "db" / "gen"
+
+
+def split_generation(name: str) -> tuple[str, int | None]:
+    """``"2026-10-04.g3" -> ("2026-10-04", 3)``; a plain date gives ``(date, None)``."""
+    m = GEN_ID.match(name)
+    return (m["snap"], int(m["seq"])) if m else (name, None)
+
+
+def generation_records(lake_dir: Path, snapshot: str) -> list[dict[str, Any]]:
+    """The generations of ``snapshot`` that exist (file and record), oldest first."""
+    out: list[dict[str, Any]] = []
+    for rec in gen_dir(lake_dir).glob(f"{snapshot}.g*.json"):
+        if split_generation(rec.stem) == (snapshot, None) or not rec.with_suffix(".duckdb").exists():
+            continue
+        try:
+            body = json.loads(rec.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(body, dict) and body.get("snapshot") == snapshot:
+            out.append(body)
+    return sorted(out, key=lambda b: int(b.get("seq") or 0))
 
 
 class StaleSnapshotError(RuntimeError):
@@ -459,6 +504,7 @@ class RebuildStats:
     embedded_new: int
     seconds: float
     promoted: bool = True  # False: built but not made CURRENT (not asked, or older than CURRENT: DATA-007)
+    generation: str = ""  # T-724 (D-490): the generation this rebuild made, "<snapshot>.g<n>"
 
 
 CGROUP_MEMORY_MAX = Path("/sys/fs/cgroup/memory.max")  # cgroup v2: the container's cap (compose mem_limit)
@@ -550,18 +596,125 @@ class Lake:
         return snap
 
     # ------------------------------------------------------------------ holds (T-305b, D-403)
-    def hold(self, snapshot: str, holder: str) -> None:
-        """``holder`` (a job id) reads ``snapshot`` until :meth:`release`: the snapshot is neither rebuilt
-        (:class:`SnapshotHeld`) nor pruned meanwhile. Holding again refreshes the hold's time."""
+    def hold(self, snapshot: str, holder: str, pin: bool = False) -> str:
+        """``holder`` (a job id) reads ``snapshot`` until :meth:`release`. Holding again refreshes the hold's time.
+
+        Without ``pin`` the holder holds the *date*: it is neither rebuilt (:class:`SnapshotHeld`) nor pruned
+        meanwhile (D-403, D-462); the date is returned.
+
+        With ``pin`` (T-724, D-490: a job) the holder pins a *generation*: the date's newest one, resolved here under
+        the lake lock, or the generation ``snapshot`` names (a job started again). That generation's file is not
+        deleted while the hold lives and its date is not pruned; a rebuild of the date is not refused, it makes the
+        next generation beside it. The generation is returned: the job names it in every read."""
         if not _HOLDER.match(holder):
             raise ValueError(f"lake hold: {holder!r} is not a job id")
         with lake_lock(self.dir):  # D-462: never between a rebuild's last hold check and its swap
-            self.db_path(snapshot)
+            snap, seq = split_generation(snapshot)
+            gen: str | None = None
+            if pin:
+                gen = snapshot if seq is not None else self._newest_generation(snap, adopt=True)
+                self.db_path(gen)
+            else:
+                self.db_path(snapshot)
             d = _holds_dir(self.dir)
             d.mkdir(parents=True, exist_ok=True)
             tmp = d / f".{holder}.tmp"
-            tmp.write_text(json.dumps({"snapshot": snapshot, "holder": holder, "at": time.time()}), encoding="utf-8")
+            body = {"snapshot": snap if pin else snapshot, "holder": holder, "at": time.time()}
+            if gen is not None:
+                body["generation"] = gen
+            tmp.write_text(json.dumps(body), encoding="utf-8")
             tmp.replace(d / f"{holder}.json")
+        return gen or snapshot
+
+    # ------------------------------------------------------------------ generations (T-724, D-490)
+    def generations(self, snapshot: str) -> list[dict[str, Any]]:
+        """The generations of the date ``snapshot`` on the box, oldest first: ``generation``, ``snapshot``, ``seq``,
+        ``cause``, ``sha256`` (the lake's hash) and ``built_at``."""
+        return generation_records(self.dir, snapshot)
+
+    def generation(self, snapshot: str | None = None) -> str | None:
+        """The generation the date ``snapshot`` (default ``CURRENT``) names now, or None for a date built before
+        generations (it gets one at its next rebuild, or when a job pins it)."""
+        snap = snapshot or self.current()
+        return self._newest_generation(snap, adopt=False) if snap else None
+
+    def _newest_generation(self, snapshot: str, adopt: bool) -> str | None:
+        """The generation whose file the date's alias is. Not "the highest number": a swap cut short between the
+        generation's file and the alias leaves the date on the generation it had. ``adopt`` (under the lake lock):
+        a date built before generations is given generation 1, the file it has."""
+        alias = self.dir / "db" / f"{snapshot}.duckdb"
+        if not alias.exists():
+            raise FileNotFoundError(f"no lake snapshot {snapshot}")
+        recs = generation_records(self.dir, snapshot)
+        ino = alias.stat().st_ino
+        digest: str | None = None
+        for rec in reversed(recs):
+            path = gen_dir(self.dir) / f"{rec['generation']}.duckdb"
+            if path.stat().st_ino == ino:
+                return str(rec["generation"])
+        for rec in reversed(recs):  # no hard links here: the alias is a copy; tell it by the lake's hash
+            digest = digest or _file_sha(alias)
+            if rec.get("sha256") == digest:
+                return str(rec["generation"])
+        if not adopt:
+            return None
+        return self._write_generation(snapshot, alias, digest or _file_sha(alias), "adopted", link_from_alias=True)
+
+    def _write_generation(self, snapshot: str, built: Path, digest: str, cause: str, link_from_alias: bool) -> str:
+        """Give ``built`` its place as the next generation of ``snapshot`` and write its record (call under
+        :func:`lake_lock`). ``link_from_alias``: ``built`` is the date's own file (an adopted date): the generation
+        is a link to it. Else ``built`` is a finished build: it is moved in. Returns the generation's name."""
+        gdir = gen_dir(self.dir)
+        gdir.mkdir(parents=True, exist_ok=True)
+        seqs = [split_generation(p.stem)[1] or 0 for p in gdir.glob(f"{snapshot}.g*.duckdb")]
+        gen = f"{snapshot}.g{max(seqs, default=0) + 1}"
+        path = gdir / f"{gen}.duckdb"
+        if link_from_alias:
+            try:
+                os.link(built, path)
+            except OSError:
+                shutil.copyfile(built, path)
+        else:
+            built.replace(path)
+        rec = {
+            "generation": gen,
+            "snapshot": snapshot,
+            "seq": split_generation(gen)[1],
+            "cause": cause,
+            "sha256": digest,
+            "built_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        }
+        tmp = gdir / f".{gen}.json.tmp"
+        tmp.write_text(json.dumps(rec, sort_keys=True) + "\n", encoding="utf-8")
+        tmp.replace(gdir / f"{gen}.json")
+        return gen
+
+    def _point_alias(self, snapshot: str, gen: str) -> None:
+        """Make the date's file the generation ``gen``, atomically: a hard link, or a copy where there are none."""
+        alias = self.dir / "db" / f"{snapshot}.duckdb"
+        tmp = alias.with_name(f"{snapshot}.duckdb.alias")
+        tmp.unlink(missing_ok=True)
+        src = gen_dir(self.dir) / f"{gen}.duckdb"
+        try:
+            os.link(src, tmp)
+        except OSError as exc:
+            log.warning("lake: no hard link for %s (%s); the date's file is a copy of its generation", gen, exc)
+            shutil.copyfile(src, tmp)
+        tmp.replace(alias)
+
+    def _drop_generations(self, snapshot: str, keep: str) -> list[str]:
+        """Delete every generation of ``snapshot`` that is neither ``keep`` (the newest) nor held, and the leftovers
+        of a swap cut short (a file with no record, a record with no file). Call under :func:`lake_lock`."""
+        held = set(held_generations(self.dir).values()) | {keep}
+        gone: list[str] = []
+        for f in sorted(gen_dir(self.dir).glob(f"{snapshot}.g*")):
+            gen = f.name.split(".duckdb")[0].removesuffix(".json")
+            if split_generation(gen)[0] != snapshot or gen in held:
+                continue
+            f.unlink(missing_ok=True)
+            if gen not in gone:
+                gone.append(gen)
+        return gone
 
     def release(self, holder: str) -> bool:
         """End ``holder``'s hold; False when it held nothing."""
@@ -584,6 +737,11 @@ class Lake:
         snap = snapshot or self.current()
         if not snap:
             raise FileNotFoundError("lake has no snapshot yet (run adapter / rebuild)")
+        if split_generation(snap)[1] is not None:  # T-724 (D-490): a generation, never the date's newest in its place
+            path = gen_dir(self.dir) / f"{snap}.duckdb"
+            if not path.exists() or not path.with_suffix(".json").exists():
+                raise FileNotFoundError(f"no lake generation {snap} (it is gone, or was never built)")
+            return path
         path = self.dir / "db" / f"{snap}.duckdb"
         if not path.exists():
             raise FileNotFoundError(f"no lake snapshot {snap}")
@@ -678,6 +836,7 @@ class Lake:
         ndjson_dir: Path | None = None,
         promote: bool = True,
         allow_empty: bool = False,
+        cause: str | None = None,
     ) -> RebuildStats:
         """Build ``db/<snapshot>.duckdb`` (into ``.building``, renamed when complete, with ``.sha256`` sidecars) and,
         with ``promote``, make it ``CURRENT``. The adapter calls this only for a night that passed validation.
@@ -693,7 +852,7 @@ class Lake:
         files and swapped in under :func:`lake_lock` after the holds are read again: a snapshot a job came to hold
         during the build is refused there (:class:`SnapshotHeld`) and its bytes stay as the job pinned them."""
         with building(self.dir, snapshot):
-            return self._rebuild(snapshot, embedder, ndjson_dir, promote, allow_empty)
+            return self._rebuild(snapshot, embedder, ndjson_dir, promote, allow_empty, cause)
 
     def start_rebuild(
         self,
@@ -783,7 +942,13 @@ class Lake:
         return src, allow_empty
 
     def _rebuild(
-        self, snapshot: str, embedder: Embedder, ndjson_dir: Path | None, promote: bool, allow_empty: bool
+        self,
+        snapshot: str,
+        embedder: Embedder,
+        ndjson_dir: Path | None,
+        promote: bool,
+        allow_empty: bool,
+        cause: str | None = None,
     ) -> RebuildStats:
         t0 = time.perf_counter()
         db_path = self.dir / "db" / f"{snapshot}.duckdb"
@@ -837,8 +1002,16 @@ class Lake:
                 pdir.rename(old)
             stage.rename(pdir)
             shutil.rmtree(old, ignore_errors=True)
-            tmp.replace(db_path)
+            # T-724 (D-490): the build becomes the date's next generation, a file never written again; the date's
+            # own file is then pointed at it. A swap that dies between the two leaves the date on the generation
+            # it had; the leftover is swept by the next rebuild
+            first = not any(gen_dir(self.dir).glob(f"{snapshot}.g*.json"))
+            gen = self._write_generation(
+                snapshot, tmp, digest, cause or ("night" if first and not db_path.exists() else "republish"), False
+            )
+            self._point_alias(snapshot, gen)
             write_sidecar(db_path, digest)  # hashed before the lock: holds and releases never wait for a hash
+            self._drop_generations(snapshot, gen)
             drop_reader_links(self.dir, snapshot)
             rec = self.dir / "db" / f"{snapshot}.duckdb.source"  # pruned with the snapshot (``<snap>.duckdb*``)
             if src.is_dir() and src.resolve() != (self.dir / "ndjson" / snapshot).resolve():
@@ -857,7 +1030,7 @@ class Lake:
                 promote = False
             if promote:
                 self.promote(snapshot)
-        return RebuildStats(snapshot, counts, n_chunks, new, round(time.perf_counter() - t0, 2), promote)
+        return RebuildStats(snapshot, counts, n_chunks, new, round(time.perf_counter() - t0, 2), promote, gen)
 
     def _build(
         self,
@@ -1044,7 +1217,9 @@ class Lake:
         # instance already hardened (FTS loaded, external access off, configuration locked) and must not re-set it.
         with _CONNECT_LOCK:
             for attempt in range(3):
-                path = reader_path(self.db_path(snapshot))  # D-462: replaced bytes are never a cached copy
+                found = self.db_path(snapshot)
+                # D-462: replaced bytes are never a cached copy. A generation's file is never replaced (D-490)
+                path = found if found.parent.name == "gen" else reader_path(found)
                 try:
                     con = duckdb.connect(str(path), read_only=True)
                     break
