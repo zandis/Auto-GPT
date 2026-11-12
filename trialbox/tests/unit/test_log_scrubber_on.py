@@ -41,6 +41,14 @@ def test_a_planted_chart_number_and_token_do_not_reach_the_log(service: str, sta
     env = {k: v for k, v in os.environ.items() if not k.startswith(("TB_DB_URL", "TB_SERVICE_TOKEN"))}
     env.update({"TB_ENV": "DEV", "PYTHONPATH": "libs:services:.", "TB_SERVICE_TOKEN_FILE": str(tok),
                 "TB_SERVICE_NAME": service, "TB_TEST_ROOT": str(tmp_path)})  # fmt: skip
+    # the folders compose mounts at /data/... (the audit journal, the console's, the operations folder): here, so the
+    # entry point starts as a user that cannot write /data (CI), not only as root
+    env.update(
+        {
+            k: str(tmp_path / k.lower())
+            for k in ("TB_AUDIT_DIR", "TB_CONSOLE_DIR", "TB_OPS_DIR", "TB_DATA_DIR", "TB_LAKE_DIR", "TB_RULESETS_DIR")
+        }
+    )
     code = f"import logging\n{start}\n{PROBE}\n"
     out = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env, capture_output=True, text=True,
                          timeout=120, check=False)  # fmt: skip
