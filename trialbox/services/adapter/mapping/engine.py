@@ -91,10 +91,14 @@ CALENDARS = ("western", "roc", "era")
 DATE_TYPES = ("date", "datetime", "instant")
 _NOT_CALENDAR = "\x00not-a-date-of:"  # what ``normalize`` leaves for the date readers to refuse, with the value
 _CLOCK = r"(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?"
-_ROC_COMPACT_LENGTHS = {6: 6, 7: 7, 10: 6, 11: 7, 12: 6, 13: 7}  # digits in all → digits of the date (YYMMDD, YYYMMDD)
+# Digits only: YYYMMDD, alone or with hhmm or hhmmss. A two-digit year (YYMMDD, 6, 10 or 12 digits) is not read:
+# the same digits are a western date (260512, 201208151000), and a declared column must never read one as ROC
+_ROC_COMPACT_LENGTHS = (7, 11, 13)
+# written with separators: the year has three digits (049/03/12), or fewer only when 民國 stands before it
 _ROC_WRITTEN = re.compile(
-    rf"(?:民國|民国|中華民國)?\s*(\d{{1,3}})\s*[年./\-]\s*(\d{{1,2}})\s*[月./\-]\s*(\d{{1,2}})\s*日?{_CLOCK}"
+    rf"(?:(?:民國|民国|中華民國)\s*(\d{{1,3}})|(\d{{3}}))\s*[年./\-]\s*(\d{{1,2}})\s*[月./\-]\s*(\d{{1,2}})\s*日?{_CLOCK}"
 )
+_MIDNIGHT = re.compile(r"[ T]00:00(?::00(?:\.0+)?)?$")
 _ERA_WRITTEN = re.compile(rf"(.*?){_CLOCK}")
 # a western date-time with a time of day, the seconds' fraction allowed (DIN-014)
 _WESTERN_CLOCK = re.compile(r"(\d{4}[-/]\d{1,2}[-/]\d{1,2}) +(\d{1,2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?")
@@ -116,17 +120,16 @@ def to_western(raw: str, calendar: str) -> str | None:
     clock: str | None = ""
     if calendar == "roc":
         if text.isascii() and text.isdigit():
-            n = _ROC_COMPACT_LENGTHS.get(len(text))
-            if n is None:
+            if len(text) not in _ROC_COMPACT_LENGTHS:
                 return None
-            d, t = text[:n], text[n:]
+            d, t = text[:7], text[7:]
             if int(d[:-4]) < 1:
                 return None
             day = tb_dates.minguo_date(int(d[:-4]), int(d[-4:-2]), int(d[-2:]))
             clock = _clock(t[:2], t[2:4], t[4:6] or None) if t else ""
-        elif (m := _ROC_WRITTEN.fullmatch(text)) and int(m.group(1)) >= 1:
-            day = tb_dates.minguo_date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-            clock = _clock(m.group(4), m.group(5), m.group(6))
+        elif (m := _ROC_WRITTEN.fullmatch(text)) and int(m.group(1) or m.group(2)) >= 1:
+            day = tb_dates.minguo_date(int(m.group(1) or m.group(2)), int(m.group(3)), int(m.group(4)))
+            clock = _clock(m.group(5), m.group(6), m.group(7))
     elif calendar == "era":
         m = _ERA_WRITTEN.fullmatch(text)
         cell = tb_dates.CELL_ERA.match(m.group(1).strip()) if m else None
@@ -139,20 +142,22 @@ def to_western(raw: str, calendar: str) -> str | None:
     return day.isoformat() + clock
 
 
-def _refuse_declared(raw: str) -> None:
-    """``normalize`` could not read a value in its column's declared calendar: the row is refused here, where
-    every refused row is counted."""
-    if raw.startswith(_NOT_CALENDAR):
-        calendar, _, value = raw[len(_NOT_CALENDAR) :].partition("\x00")
-        raise MappingError(f"not a {calendar} calendar date {value!r}")
-
-
 def declared_and_unread(value: Any) -> tuple[str, str] | None:
-    """``(calendar, the value as fed)`` when ``normalize`` could not read ``value`` in its declared calendar."""
+    """``(calendar, the value as fed)`` when ``normalize`` could not read ``value`` in its declared calendar. A
+    source value that only imitates the marker names no calendar of ours and is an ordinary value."""
     if isinstance(value, str) and value.startswith(_NOT_CALENDAR):
         calendar, _, raw = value[len(_NOT_CALENDAR) :].partition("\x00")
-        return calendar, raw
+        if calendar in CALENDARS:
+            return calendar, raw
     return None
+
+
+def _refuse_declared(raw: Any) -> None:
+    """``normalize`` could not read a value in its column's declared calendar: the row is refused here, where
+    every refused row is counted."""
+    unread = declared_and_unread(raw)
+    if unread:
+        raise MappingError(f"not a {unread[0]} calendar date {unread[1]!r}")
 
 
 def _date_columns(resources: list[ResourceSpec], table: str) -> frozenset[str]:
@@ -162,7 +167,7 @@ def _date_columns(resources: list[ResourceSpec], table: str) -> frozenset[str]:
 
     def walk(x: Any) -> None:
         if isinstance(x, dict):
-            if x.get("type") in DATE_TYPES:
+            if x.get("type") in DATE_TYPES or x.get("builder") == "period" or "add_minutes" in x:
                 out.update(x[k] for k in ("column", "start", "end") if isinstance(x.get(k), str))
             if ("date_before" in x or "date_from" in x) and isinstance(x.get("column"), str):
                 out.add(x["column"])
@@ -347,14 +352,22 @@ class Mapping:
             _known_codes_are_the_maps(path, r)
         date_columns = {t: _date_columns(resources, t) for t in (doc.get("tables") or {})}
         calendars: dict[str, dict[str, str]] = {}
+        for word in ("dates", "date", "calendars"):  # a declaration in the wrong place would be ignored without a word
+            if word in doc:
+                raise MappingError(f"{path}: {word} belongs on a table (tables.<table>.dates), not at the top")
         for t, tspec in (doc.get("tables") or {}).items():
+            for word in ("date", "calendars", "calendar", "empty_dates"):
+                if word in (tspec or {}):
+                    raise MappingError(f"{path}: {t}.{word}: a table declares `dates`; `empty_dates` is at the top")
+            if not isinstance((tspec or {}).get("dates") or {}, dict):
+                raise MappingError(f"{path}: {t}.dates is a map of date column to calendar ({', '.join(CALENDARS)})")
             for col, cal in ((tspec or {}).get("dates") or {}).items():
                 if cal not in CALENDARS:
                     raise MappingError(f"{path}: {t}.dates.{col}: the calendar is one of {', '.join(CALENDARS)}")
                 if col not in date_columns[t]:
                     raise MappingError(f"{path}: {t}.dates.{col}: not a date column of a resource of {t}")
                 calendars.setdefault(t, {})[str(col)] = str(cal)
-        empty = doc.get("empty_dates") or []
+        empty = doc.get("empty_dates", [])
         if not isinstance(empty, list) or not all(isinstance(x, str) and x.strip() for x in empty):
             raise MappingError(f"{path}: empty_dates is a list of placeholder dates as the source writes them")
         return cls(
@@ -427,8 +440,8 @@ class Mapping:
                 text = "" if out.get(col) is None else str(out[col]).strip()
                 if not text:
                     continue
-                if text in self.empty_dates:
-                    out[col] = ""
+                if text in self.empty_dates or _MIDNIGHT.sub("", text) in self.empty_dates:
+                    out[col] = ""  # the placeholder, also when a date-time column adds its midnight
                 elif calendars.get(col, "western") != "western":
                     western = to_western(text, calendars[col])
                     # not raised here: the row is refused where refused rows are counted (the date readers)
@@ -912,6 +925,8 @@ class Mapper:
                     continue
 
     def map_row(self, rs: ResourceSpec, row: Row) -> Resource | None:
+        for v in row.values():  # D-589: an unread date of a declared calendar refuses the row, whoever reads it
+            _refuse_declared(v)
         if rs.where and not self.cond(rs.where, row):
             self._count_unmapped(rs, row)
             return None

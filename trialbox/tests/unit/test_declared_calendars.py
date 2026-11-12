@@ -50,16 +50,15 @@ def _effective(m: Mapping, when: Any) -> str:
 @pytest.mark.parametrize(("raw", "want"), [
     ("1150501", "2026-05-01T00:00:00+08:00"),
     ("0490312", "1960-03-12T00:00:00+08:00"),
-    ("490312", "1960-03-12T00:00:00+08:00"),
     ("11505010830", "2026-05-01T08:30:00+08:00"),
     ("1150501083015", "2026-05-01T08:30:15+08:00"),
-    ("4903120830", "1960-03-12T08:30:00+08:00"),
-    ("490312083015", "1960-03-12T08:30:15+08:00"),
     ("115/05/01", "2026-05-01T00:00:00+08:00"),
     ("115-5-1", "2026-05-01T00:00:00+08:00"),
     ("115.05.01 08:30", "2026-05-01T08:30:00+08:00"),
     ("115/05/01 08:30:15", "2026-05-01T08:30:15+08:00"),
     ("民國115年5月1日", "2026-05-01T00:00:00+08:00"),
+    ("民國49年3月12日", "1960-03-12T00:00:00+08:00"),
+    ("049/03/12", "1960-03-12T00:00:00+08:00"),
     ("民國115年05月01日 08:30", "2026-05-01T08:30:00+08:00"),
     (" 1150501 ", "2026-05-01T00:00:00+08:00"),
     ("1101231", "2021-12-31T00:00:00+08:00"),
@@ -73,6 +72,9 @@ def test_a_column_declared_roc_is_read_in_that_calendar(m: Mapping, raw: str, wa
     "1151301", "1150230", "1150500", "11505012460", "115/05/01 24:00", "115/13/01",
     "R8.5.1", "115年", "abc", "115/05", "11505", "115050108", "1150501T0830", "0000101",
     "3000101",  # the year 2211: outside the range every date must pass
+    # the review's finding: digits that are also a western compact value are never taken for a short ROC form
+    "201208151000", "200101010000", "2012081510", "260512", "120815", "201012", "490312", "4903120830",
+    "490312083015", "26/05/12", "05/12/26", "1/2/3", "49/03/12",
 ])  # fmt: skip
 def test_another_form_in_a_declared_column_is_a_refused_row(m: Mapping, raw: str) -> None:
     with pytest.raises(MappingError):
@@ -191,3 +193,71 @@ def test_the_share_report_shows_a_value_not_of_the_declared_calendar_by_its_shap
     got = sharereport.date_shapes(Mapper(m, b"k" * 32, "s"), rows, {"sample_datetime": "datetime"})
     assert got["sample_datetime"]["shapes"] == {"9999-99-99": 2, "9999-99-99 (not roc)": 1}
     assert (got["sample_datetime"]["read"], got["sample_datetime"]["refused"]) == (2, 1)
+
+
+def test_a_value_that_imitates_the_marker_is_refused_like_any_other(m: Mapping) -> None:
+    """A source value that starts with the marker's bytes names no calendar of ours: nothing of it reaches a reason
+    or a shape."""
+    from adapter.mapping import sharereport
+
+    fake = "\x00not-a-date-of:WANG DA-MING\x00x"
+    plain = Mapper(Mapping.load(BASE), b"k" * 32, "s")
+    with pytest.raises(MappingError, match="^unparseable datetime "):
+        plain.convert(fake, "datetime")
+    with pytest.raises(MappingError, match="^unparseable date "):
+        plain.convert(fake, "date")
+    got = sharereport.date_shapes(plain, [_lab(fake)], {"sample_datetime": "datetime"})
+    assert "WANG" not in str(got) and got["sample_datetime"]["refused"] == 1
+
+
+def test_an_unread_declared_date_refuses_the_row_even_where_nothing_reads_it_as_a_date(tmp_path: Path) -> None:
+    """The same column read as a date under a condition that is false and as text elsewhere: the marker must not
+    reach a resource."""
+    site = (
+        SITE
+        + """
+overlay:
+  - type: Patient
+    table: patient
+    elements:
+      deceasedDateTime: {column: death_date, type: datetime, when: {column: sex, in: [M]}}
+      address[0].text: {column: death_date}
+"""
+    )
+    m = _load(tmp_path, site)
+    pat = {"mrn": "P1", "name": "x", "id_no": "y", "birth_date": "0490312", "sex": "F", "death_date": "2026-05-01"}
+    with pytest.raises(MappingError, match="not a roc calendar date"):
+        list(Mapper(m, b"k" * 32, "s").map_table("patient", iter([m.normalize("patient", pat)])))
+
+
+def test_a_period_and_an_added_duration_are_date_columns_too(tmp_path: Path) -> None:
+    site = SITE.replace("dates: {start_date: era, end_date: era}", "dates: {start_date: roc, end_date: roc}")
+    m = _load(tmp_path, site)
+    assert {"start_date", "end_date"} <= m.date_columns["medication"]
+    assert "appt_datetime" in Mapping.load(BASE).date_columns["appointment"]
+    row = m.normalize("medication", {"start_date": "1150501", "end_date": "9999-12-31"})
+    assert (row["start_date"], row["end_date"]) == ("2026-05-01", "")
+
+
+@pytest.mark.parametrize(
+    "raw", ["9999-12-31 00:00:00", "9999-12-31T00:00:00", "9999-12-31 00:00", "9999-12-31 00:00:00.000"]
+)
+def test_a_placeholder_with_a_midnight_after_it_is_the_placeholder(m: Mapping, raw: str) -> None:
+    pat = {"mrn": "P1", "birth_date": "0490312", "death_date": raw}
+    assert m.normalize("patient", pat)["death_date"] == ""
+    assert m.normalize("patient", {**pat, "death_date": "9999-12-31 08:30:00"})["death_date"] != ""
+
+
+@pytest.mark.parametrize(("old", "new"), [
+    ("dates: {sample_datetime: roc}", "dates: [sample_datetime]"),
+    ("dates: {sample_datetime: roc}", "dates: roc"),
+    ("dates: {sample_datetime: roc}", "date: {sample_datetime: roc}"),
+    ("dates: {sample_datetime: roc}", "calendars: {sample_datetime: roc}"),
+    ("dates: {sample_datetime: roc}", "empty_dates: ['9999-12-31']"),
+    ("tz: Asia/Taipei", "tz: Asia/Taipei\ndates: {sample_datetime: roc}"),
+    ('empty_dates: ["9999-12-31", "99991231", "0000000"]', "empty_dates: 0"),
+])  # fmt: skip
+def test_a_declaration_in_the_wrong_place_or_shape_does_not_load(tmp_path: Path, old: str, new: str) -> None:
+    assert old in SITE
+    with pytest.raises(MappingError):
+        _load(tmp_path, SITE.replace(old, new, 1))

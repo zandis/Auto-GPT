@@ -16,7 +16,7 @@
 # Dates (D-589): a column written in the Republic-of-China calendar (1150501, 115/05/01) or a Japanese era is
 # declared on its table, e.g. `dates: {sample_datetime: roc}` (words: roc, era; undeclared: western). Nothing is
 # detected from the values; a value of another form in a declared column is a refused row. Placeholder dates the
-# source writes for "none" are listed once: `empty_dates: ["9999-12-31"]` (top level).
+# source writes for "none" are listed once at the top, as written: `empty_dates: ["9999-12-31", "99991231"]`.
 version: 1
 name: SITE_his
 extends: ../tw_core/demo_his.yaml
