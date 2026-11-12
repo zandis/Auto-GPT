@@ -124,7 +124,7 @@ def test_judge_down_is_unknown_and_a_failure_never_agreement(box: Any, fault: st
     assert fake.hits(JUDGE_HOST) == 2  # tried once more on the same build
     assert fake.hits(VERIFIER_HOST) == 0  # the verifier build never stood in for the judge
     refused = [c for c in _gateway_calls(tmp_path) if c["event"] == "llm.gateway.refuse"]
-    assert [c["detail"]["reason"] for c in refused] == ["upstream_failed"]
+    assert [c["detail"]["reason"] for c in refused] == ["upstream_down"]  # the server, not the call (D-456)
     assert refused[0]["detail"]["retries"] == 1 and refused[0]["detail"]["expected_alias"] == "j-workhorse"
     with pytest.raises(Exception, match="did not answer"):
         nj.calls = 0
@@ -246,7 +246,7 @@ def test_a_route_that_allows_it_falls_back_and_says_so_and_tb_llm_refuses_it(tmp
     lenient = GatewayClient("http://gateway/v1", "criteria-compiler", http=app, allow_fallback=True)
     assert lenient.complete(dict(body), labels)["tb"]["alias"] == "v-verifier"
     named = GatewayClient("http://gateway/v1", "criteria-compiler", http=app, allow_fallback=True, model="j-workhorse")
-    with pytest.raises(Exception, match="upstream_failed"):
+    with pytest.raises(Exception, match="upstream_down"):
         named.complete(dict(body), labels)  # the alias named must answer, allow_fallback or not
 
 
@@ -264,7 +264,10 @@ def test_the_judge_role_never_gets_the_verifier_build_whatever_the_judge_server_
 ) -> None:
     http, log = _vllm({JUDGE_HOST: fault})
     res = _gw(tmp_path, http).chat(H(Data_Class="D3"), _judge_body())
-    assert res.status == 502 and res.body["error"]["code"] == "upstream_failed", res.body
+    # D-456 (review of T-689): a server error or a refused connection that the retry met again is ``upstream_down``
+    # (a batch caller may send it again); a timeout or a 429 / 408 stays ``upstream_failed`` (never sent again)
+    want = "upstream_down" if tries == 2 else "upstream_failed"
+    assert res.status == 502 and res.body["error"]["code"] == want, res.body
     assert log == [JUDGE_HOST] * tries  # a timeout is not tried again; nothing reaches the verifier build
 
 
@@ -280,7 +283,7 @@ def test_a_route_that_says_nothing_does_not_fall_back(tmp_path: Path) -> None:
             r.pop("fallback")
     http, log = _vllm({JUDGE_HOST: 503})
     res = _gw(tmp_path, http, doc).chat(IR, _ir_body())
-    assert res.body["error"]["code"] == "upstream_failed" and VERIFIER_HOST not in log
+    assert res.body["error"]["code"] == "upstream_down" and VERIFIER_HOST not in log
     shipped = RoutingPolicy.load()
     allowed = {r.id for r in shipped.routes if r.fallback == "any"}
     assert allowed == {"converse", "documents-d1", "protocol", "mapping", "aggregate", "ops"}
