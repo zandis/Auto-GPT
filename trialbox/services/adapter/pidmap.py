@@ -103,15 +103,20 @@ def pseudonym(site_key: bytes, chart_no: str) -> tuple[str, str]:
     return pid_for_mrn(site_key, norm), norm
 
 
+class PidCollision(ValueError):
+    """One pseudonym for two different chart numbers: two patients under one name (D-591). Nothing is stored."""
+
+
 def _one_per_pid(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
     """One row per pseudonym, the first kept: two spellings of one chart number (R-48) are one patient. One
-    pseudonym for two different chart numbers (written the site's way) is two patients under one name: refused
-    (D-591), with no chart number in the message."""
+    pseudonym for two different chart numbers is refused (D-591), with no chart number in the message. Whether
+    two spellings are one number is asked of ``chartno.same_number``, which does not go through the normaliser
+    the pseudonym was made with: a fault there (two numbers made one) is caught here."""
     first: dict[str, tuple[str, str]] = {}
     for pid, mrn in pairs:
         kept = first.setdefault(pid, (pid, mrn))
-        if kept[1] != mrn and chartno.normalise(None, kept[1]) != chartno.normalise(None, mrn):
-            raise ValueError(f"one pseudonym for two chart numbers ({pid[:8]}…): the batch is not stored")
+        if kept[1] != mrn and not chartno.same_number(None, kept[1], mrn):
+            raise PidCollision(f"one pseudonym for two chart numbers ({pid[:8]}…): the batch is not stored")
     return list(first.values())
 
 

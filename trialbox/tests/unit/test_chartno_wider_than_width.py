@@ -81,3 +81,44 @@ def test_the_pid_map_refuses_one_pseudonym_for_two_chart_numbers(
         assert pm.resolve(nine) == "012345678"
     finally:
         pm.close()
+
+
+@pytest.mark.parametrize(("rule", "a", "b", "same"), [
+    ("digits:8", "4242", "00004242", True), ("digits:8", "4242", "４２４２", True), ("digits:8", " 4242 ", "4242", True),
+    ("digits:8", "012345678", "12345678", False), ("digits:8", "012345678", "0012345678", False),
+    ("digits:8", "012345678", "012345678", True), ("digits", "012345678", "12345678", True),
+    ("digits:8", "A1", "0A1", False), ("hex:4", "0ab", "AB", True), ("hex:4", "0abcd", "ABCD", False),
+    ("hex:4", "0abcd", "0ABCD", True), ("asis", "0042", "42", False), ("asis", "42", " ４２ ", True),
+    ("digits:8", "", "0", False),
+])  # fmt: skip
+def test_same_number_is_decided_without_the_normaliser(rule: str, a: str, b: str, same: bool) -> None:
+    assert chartno.same_number(rule, a, b) is same and chartno.same_number(rule, b, a) is same
+
+
+def test_the_pid_map_check_does_not_trust_the_normaliser(
+    db_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The fault of D-591 put back (a normaliser that strips the zeros of a wide value): the pairs the night
+    builds then carry one pseudonym for two chart numbers, and the pid map must refuse them."""
+    from adapter import pidmap
+    from adapter.pidmap import PidCollision, PidMap
+
+    monkeypatch.setenv(chartno.ENV, "digits:8")
+    real = chartno.normalise
+
+    def old(rule: object, value: str) -> str:
+        text = real("asis", value)
+        return (text.lstrip("0") or "0").zfill(8) if text.isdigit() else text
+
+    pm = PidMap(tmp_path / "pid_map.key", db_url)
+    try:
+        monkeypatch.setattr(chartno, "normalise", old)
+        pairs = [(pid_for_mrn(pm.key, raw), raw) for raw in ("012345678", "12345678")]  # as pipeline.py builds them
+        assert pairs[0][0] == pairs[1][0]  # the fault is back
+        with pytest.raises(PidCollision):
+            pm.upsert_many(pairs)
+        with pytest.raises(PidCollision):
+            pm.stage("2026-11-01", pairs, [])
+        assert issubclass(PidCollision, ValueError) and pidmap._one_per_pid(pairs[:1]) == pairs[:1]
+    finally:
+        pm.close()

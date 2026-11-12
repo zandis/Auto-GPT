@@ -123,6 +123,32 @@ def normalise(site_rule: Rule | str | None, value: str) -> str:
     return core
 
 
+def same_number(site_rule: Rule | str | None, a: str, b: str) -> bool:
+    """Whether two chart numbers as written are one chart number under the rule. Decided here from the rule's
+    words alone, NOT through :func:`normalise`: the pid map uses it to check what the normaliser did (D-591), so
+    a fault in one is caught by the other. One number: the same text once full-width and blanks are folded; or,
+    under ``digits`` / ``hex``, both all digits (hexadecimal digits), neither wider than the width, and equal
+    without their leading zeros (and whatever the case of a hexadecimal key)."""
+    if isinstance(site_rule, Rule):
+        rule = site_rule
+    else:
+        rule = parse_rule(site_rule) if site_rule else _box_rule()
+    x, y = str(a).translate(_FULL).strip(), str(b).translate(_FULL).strip()
+    if x == y:
+        return True
+    if rule.kind == "asis":
+        return False
+    shape = _DIGITS if rule.kind == "digits" else _HEX
+    if not (shape.match(x) and shape.match(y)):
+        return False
+    x, y = x.upper(), y.upper()
+    if x == y:
+        return True
+    if rule.width and (len(x) > rule.width or len(y) > rule.width):
+        return False
+    return (x.lstrip("0") or "0") == (y.lstrip("0") or "0")
+
+
 # FIT-U09 (T-629, D-415): a chart-number column that Excel turned into numbers is refused at import, never read.
 # Excel stores a number, so ``00123456`` is saved as ``123456``; a long one is written ``1.23457E+11``; a CSV saved
 # from it may write ``123456.0``. Each would hash to another pseudonym and quietly split one patient in two.
