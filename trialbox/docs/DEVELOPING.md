@@ -42,6 +42,21 @@ TB_ENV=DEV TB_TZ=Asia/Taipei PYTHONPATH=libs:services:. .venv/bin/python -m pyte
 
 There is no default site time zone (D-315): a test run names one. The full suite (`make test`) is CI's.
 
+**One shard of CI's unit run (T-747, D-475).** CI runs the unit suite in N parallel jobs `unit-shard (i/N)`; the
+required check `unit` passes when every shard passed, the shards together ran every collected test exactly once and
+the coverage ratchet holds on their combined coverage. A test file is in one shard, chosen by a hash of its path, so a
+failing shard is repeated locally with the same split (the shard number and N are in the job's name):
+
+```sh
+make test SHARD=3/6                       # shard 3 of 6, as in CI
+.venv/bin/python -m tools.test_shard files 3/6   # which test files that is
+make cross-card                           # the tests that fail when two cards meet (CI job `cross-card`, minutes)
+```
+
+The cross-card list is `CROSS_CARD_TESTS` in the Makefile: a test that fails only when two cards meet (a registry, an
+index or a matrix every card writes to) belongs there. N is the matrix of `unit-shard` in
+`.github/workflows/trialbox-ci.yml`; changing it moves files between shards and nothing else.
+
 ## Documents
 
 * **Nine documents.** README and the eight under `docs/`: Architecture, Runbook, Security, Data, Validation, User
