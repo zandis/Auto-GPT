@@ -748,8 +748,10 @@ def evaluate_patients(
     """Structured screen of every pid, then note criteria for structured candidates only (SPEC §8.2). NAV passes
     ``kinds`` with renewal/documentation criteria and ``all_candidates`` (every scoped patient is judged).
     ``note_block`` defaults to :func:`effective_note_block` of the judge: without a verifier no note answer excludes."""
-    if note_block is None:
-        note_block = effective_note_block(judge)[0]
+    if note_block is None:  # a caller with no job (a tool, a test): the rule applied now (D-477)
+        from orchestrator.decision_context import note_block_of
+
+        note_block = note_block_of(judge).may_block
     active = [c for c in rs.active() if c.kind in kinds and (only is None or c.id in only)]
     structured_ids = [c.id for c in active if c.class_ in FILTERED]
     evals = engine.evaluate(rs, pids, index_date, structured_ids) if structured_ids else {}

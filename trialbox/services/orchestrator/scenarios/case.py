@@ -46,6 +46,7 @@ from tb_contracts import CriterionIR, CriterionVerdict, Evidence, ParseRequest, 
 
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_stamp
+from orchestrator.decision_context import decision_of
 from orchestrator.i18n import detect_lang
 from orchestrator.reports import case_html
 from orchestrator.scenarios.evaluate import (
@@ -201,12 +202,18 @@ def refuse_opted_out(ctx: Ctx, pid: str | None) -> None:
     received. The refusal is audited without the pseudonym; the requester typed the chart number and is told why."""
     if pid is None:
         return
-    from tb_common.optout import opted_out
-
-    if pid in opted_out(as_of=ctx.job.received_at.isoformat()):
+    d = decision_of(ctx)
+    if pid in d.register() or pid in d.refused():  # D-477: a registry refusal as the register (the worker copies it)
         ctx.orch.audit.append("case.opt_out_refused", job_id=ctx.job.job_id, ruleset=ctx.job.ruleset,
                               detail={"register": "optout"})  # fmt: skip
         raise StepFailed("received", "This patient opted out of research use: no eligibility sheet is made.")
+
+
+def refuse_opted_out_now(ctx: Ctx, pid: str | None) -> None:
+    """Review of T-708 (D-477): the register is read again before the sheet leaves. The evaluation can take hours
+    (an outage wait, T-689); a patient who opted out meanwhile gets no sheet. Audited by count, as every removal."""
+    if pid is not None and decision_of(ctx).drop_now([pid], "case.opt_out_at_publish"):
+        raise StepFailed("reporting", "This patient opted out of research use: no eligibility sheet is made.")
 
 
 # ------------------------------------------------------------------------------------------------ judging
@@ -379,6 +386,7 @@ def run(ctx: Ctx) -> Outcome:
         "criteria": rows,
     }
     ctx.state("reporting")
+    refuse_opted_out_now(ctx, subj.pid)
     to = sorted(set(phi_to) | ({job.requested_by.lower()} if job.requested_by.lower() in phi_to else set()))
     rec["recipients"] = to
     stem = f"case_{rs.id}_{job.job_id}"

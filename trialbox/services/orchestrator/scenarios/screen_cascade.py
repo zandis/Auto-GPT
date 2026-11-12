@@ -34,12 +34,12 @@ from tb_contracts import CriterionVerdict, Evidence, Opinion
 
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx
+from orchestrator.decision_context import decision_of
 from orchestrator.jobs import llm_concurrency
 from orchestrator.scenarios.evaluate import (
     MAX_JUDGE_FAILURE_SHARE,
     NoteJudge,
     PatientVerdicts,
-    effective_note_block,
     not_in_snapshot,
 )
 from orchestrator.twophase import two_phase
@@ -374,7 +374,8 @@ def screen_with_cascade(
     in_flight = llm_concurrency()
     # T-689 (D-456, G1-3): the share of unanswered checks is watched while the cascade runs, not only at its end
     judge = OrchestratorJudge.from_note_judge(note_judge, in_flight) if note_judge is not None else None
-    may_block, _policy, _why = effective_note_block(note_judge)
+    decision = decision_of(ctx)
+    may_block = decision.note_block(note_judge).may_block
     from embed_service.embedder import HashEmbedder
 
     from orchestrator import derive
@@ -397,6 +398,7 @@ def screen_with_cascade(
         max_llm_items=max_pairs,
         llm_concurrency=in_flight,
         stored=derive.reader_for(ctx),  # D-442: the stored-row read, as the v1 engine's (None: the flag is off)
+        registry=lambda: decision.consent(run_date, snapshot),  # D-477: S0 reads consent through the job's context
     )
     try:
         res = two_phase(  # one GPU for both models (TB_MODEL_SWAP=sleep): judge pass, verifier pass, merge

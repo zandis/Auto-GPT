@@ -146,8 +146,10 @@ class Helpers:
 
     def gone(self) -> set[str]:
         """D-273 (PV-4): the pseudonyms on the opt-out register now. Every patient-level reader (lists, the excluded
-        list, the job page, the registry) leaves them out; who opted out is itself private, so callers show counts."""
-        return set(self.optout.active()) if self.optout is not None else set()
+        list, the job page, the registry) leaves them out; who opted out is itself private, so callers show counts.
+        The one register read of the console's pages (D-477, review M3): with the surviving pseudonym of a merged
+        chart, as the jobs read it."""
+        return set(self.optout.effective()) if self.optout is not None else set()  # D-477 (M3): merged charts too
 
     def delegated(self, sess: Session, rid: str, path: str, tasks: tuple[str, ...] = ("screen",)) -> None:
         """D-273 (PV-3): D-147's delegation rule on every page that shows one study's patients, not only the week,
@@ -336,7 +338,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         cl, sent_back = h.not_matched.back_to_list(rs, cl) if h.not_matched is not None else (cl, {})
         removed: list[str] = []
         if cl is not None and h.optout is not None:  # D-147: an opted-out patient is on no list, page or mail
-            out = h.optout.active()
+            out = h.gone()
             removed = [str(r.get("pid")) for r in cl.get("rows") or [] if str(r.get("pid")) in out]
             if removed:
                 cl = {**cl, "rows": [r for r in cl.get("rows") or [] if str(r.get("pid")) not in out]}
@@ -1491,7 +1493,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def api_screening_log(request: Request, rs: str) -> list[dict[str, Any]]:
         sess = api_session(request)
         rid = rows_or_403(sess, rs, request.url.path)
-        gone = h.optout.active() if h.optout is not None else set()  # D-147: never an opted-out patient
+        gone = h.gone()  # D-147: never an opted-out patient
         refs = h.team.latest_referrals(rid) if h.team is not None else {}
         return [
             {"pid": a, "screening_no": b, "at": c, "referral_route": refs[a].route if a in refs else "",
