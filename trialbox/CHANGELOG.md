@@ -10,6 +10,9 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- The acting person (T-715, D-483): the participant, visit-schedule, SAE-rule, contact-rule, deviation and sponsor
+  routes of the orchestrator take the person from a signed claim for that action, study and request, never from the
+  request body; their records name `console:<username>`. The other changing routes count unsigned calls.
 - Release identity and bundle gates (T-110b, D-340): `tools/release.py` writes `release.json`
   (`schemas/release.schema.json`) and the release's `images.lock` for each bundle; `tools/make_bundle.sh` needs
   `--gates` and `--release-seq`, carries the SBOMs, the gate record, `NOTICE` and this file, and no longer carries

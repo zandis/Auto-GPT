@@ -31,7 +31,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from tb_common.authz import permit
 
-from console import s28
+from console import actor, s28
 from console.api_first import before_body, page_twin
 from console.auth import Session, User
 from console.backend import Problem, Unavailable
@@ -173,9 +173,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             h.sae_sync(rid)  # D-277 (CR-012): the SAE register is written on the write path, never on a page view
         if out.get("life"):  # T-516 (UX-011): a lifecycle form moved the participant; the screening log follows now,
             with contextlib.suppress(Problem, Unavailable):  # with the screening numbers the console issued
-                s28.call(
-                    bk, "POST", f"/studies/{rid}/subjects/refresh", {"screening": issued(rid), "by": h.actor(sess)}
-                )
+                actor.call(h, sess, "study.setup", rid, "POST", f"/studies/{rid}/subjects/refresh",
+                           {"screening": issued(rid)})  # fmt: skip
         return out
 
     def consent_version_check(sess: Session, rid: str, rec: str, ev: str, values: dict[str, str]) -> list[str]:

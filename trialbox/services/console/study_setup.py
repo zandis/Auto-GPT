@@ -31,7 +31,7 @@ from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from tb_common.authz import permit
 
-from console import s28
+from console import actor, s28
 from console import studies as st
 from console.auth import Session, User
 from console.backend import Problem, Unavailable
@@ -269,7 +269,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             # T-629 (FIT-U06): a study type of another country would select another country's reporting table
             return setup_page(request, sess, rid, err={"code": "SAE-COUNTRY", "msg": country, "fields": ""})
         try:
-            s28.call(bk, "PUT", f"/studies/{rid}/sae-rule", {"rule_set": rule_set.strip()[:40], "by": h.actor(sess)})
+            actor.call(h, sess, "study.setup", rid, "PUT", f"/studies/{rid}/sae-rule",
+                       {"rule_set": rule_set.strip()[:40]})  # fmt: skip
         except (Problem, Unavailable) as exc:
             return setup_page(request, sess, rid, err=err_of(exc))
         detail = {"section": "sae", "rule_set": rule_set[:40]}
@@ -285,11 +286,11 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         need_edit(request, sess, csrf)
         try:
-            body = {"max_attempts": int(max_attempts), "min_days": int(min_days), "by": h.actor(sess)}
+            body = {"max_attempts": int(max_attempts), "min_days": int(min_days)}
         except ValueError:
             raise h.problem(400, "request.refused", reason="attempts and days are whole numbers") from None
         try:
-            s28.call(bk, "PUT", f"/studies/{rid}/contact-rule", body)
+            actor.call(h, sess, "study.setup", rid, "PUT", f"/studies/{rid}/contact-rule", body)
         except (Problem, Unavailable) as exc:
             return setup_page(request, sess, rid, err=err_of(exc))
         au.append(

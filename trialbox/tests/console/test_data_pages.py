@@ -32,6 +32,7 @@ from rc_sim.app import create_app as create_sim
 from rc_sim.app import load_projects
 from tb_common.audit import AuditLog
 
+from tests.actor3 import SignedClient
 from tests.console.test_console_app import ADMIN_PW, VIEWER_PW, box, login, sub_investigator  # noqa: F401 - the fixture is used by name
 from tests.rc_kit import TOKEN_A
 
@@ -68,14 +69,16 @@ def dcb(box: dict[str, Any], tmp_path: Path) -> Iterator[dict[str, Any]]:  # noq
     svc = DataService(dc, AuditLog(tmp_path / "orch-audit"), lambda: datetime(2026, 11, 8, 1, 0, tzinfo=UTC), client)
     api = FastAPI()
     api.include_router(datacore_router(lambda: svc))
-    oc = TestClient(api)
+    oc = SignedClient(api)
     calls: list[tuple[str, str, Any]] = []
 
-    def study_api(method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+    def study_api(method: str, path: str, body: dict[str, Any] | None = None,
+                  headers: dict[str, str] | None = None) -> Any:  # fmt: skip
         calls.append((method, path, body))
         if path == "/redcap/connections":  # S36's token list (the study store; not under test here)
             return {"connections": [{"token_ref": "main"}]}
-        r = oc.request(method, path, json=body) if body is not None else oc.request(method, path)
+        kw: dict[str, Any] = {"headers": headers} if headers else {}  # T-715: the signed person goes with the call
+        r = oc.request(method, path, json=body, **kw) if body is not None else oc.request(method, path, **kw)
         if r.status_code >= 400:
             raise problem_of(r.status_code, r.text)
         return r.json()

@@ -31,6 +31,7 @@ from orchestrator.lifecycle_api import router as life_router
 from tb_common.audit import AuditLog
 
 from tests import edc_kit as k
+from tests.actor3 import SignedClient
 from tests.console.test_console_app import box, login, name_pi  # noqa: F401 - the fixture is used by name
 
 PW = "monitor-sdv-password-0001"
@@ -67,7 +68,7 @@ def sb(box: dict[str, Any], tmp_path: Path) -> Iterator[dict[str, Any]]:  # noqa
     api.include_router(edc_router(lambda: svc))
     api.include_router(datacore_router(lambda: dsvc))
     api.include_router(life_router(lambda: dsvc))
-    oc = TestClient(api)
+    oc = SignedClient(api)
 
     def study_api(method: str, path: str, body: dict[str, Any] | None = None,
                   headers: dict[str, str] | None = None) -> Any:  # fmt: skip
