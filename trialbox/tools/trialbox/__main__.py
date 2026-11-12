@@ -408,6 +408,12 @@ def _backup_cmd(a: argparse.Namespace) -> int:
                   f"{a.refdata} (the update bundle or the vendor) and run this restore again, or load it with "
                   "python -m tb_common.refdata load <pack> (RUNBOOK §5)", file=sys.stderr)  # fmt: skip
             return 3
+        if out.get("to_reapply"):  # D-455 (M3): the restore is not complete until a steward re-applies these
+            print(f"restore: NOT complete: {len(out['to_reapply'])} event(s) in the audit chain came after the "
+                  f"backup's snapshot ({out['reapply_since']}) and are not in the restored databases (opt-outs, "
+                  "erasures, break-glass, EDC signatures, consent): a steward re-applies each one (to_reapply above; "
+                  "audit event backup.restore_reapply; RUNBOOK §5)", file=sys.stderr)  # fmt: skip
+            return 4
         return 0
     except bk.BackupError as exc:
         print(f"{a.cmd}: {exc}", file=sys.stderr)

@@ -1,0 +1,11 @@
+# The box form (T-729, D-466): deploy/box-install.sh adds this file (install.sh with TB_BOX=1) after the identity
+# overlay. It gives the console the first-run folder, the host's /run/trialbox-firstrun (tmpfs, owned by the console's
+# user tb, 10001, mode 0700): the one-time code's hash, the detected hardware, and the owner's answers on their way
+# to the installer's apply step. Nothing here publishes a port or opens a route; once the owner account exists the
+# first-run pages answer 404 whatever the folder holds.
+services:
+  console:
+    environment:
+      TB_FIRSTRUN_DIR: /run/firstrun
+    volumes:
+      - ${TB_FIRSTRUN_HOST_DIR:-/run/trialbox-firstrun}:/run/firstrun

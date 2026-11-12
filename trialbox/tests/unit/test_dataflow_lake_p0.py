@@ -506,7 +506,7 @@ def test_a_refusal_by_the_lake_holds_the_night_with_its_reason(tmp_path: Path, m
     assert rep.held and not rep.passed and any("person: 600 of 600" in e for e in rep.errors or [])
 
     class _Omop:
-        def rebuild(self, *a: Any, **k: Any) -> Any:
+        def start_rebuild(self, *a: Any, **k: Any) -> Any:  # T-690: the service starts a job (refused at its start)
             raise OmopError("OMOP feed batch 2026-10-02 would tombstone person: 600 of 600")
 
         def current(self) -> str:

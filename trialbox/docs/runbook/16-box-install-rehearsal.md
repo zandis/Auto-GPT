@@ -91,3 +91,22 @@ the same check after the restart (reading the key file); a FAIL rolls the update
 per-service tokens it also makes the key file and `vllm.env` from `deploy/.env` when they are missing. The rehearsal's
 `missing-key` drill empties the key file, not `deploy/.env`, because that is what the gateway reads. To change the key: `trialbox secrets rotate --service model` (the old key
 is refused from then on). Do not change the key in `deploy/.env` by hand: the gateway and model-guard read the file.
+
+**The box form** (T-729, D-466; developer note: the owner's set-up page is T-735's). A box (a GPU workstation or a
+DGX Spark, plan v6.1 OD-11) is installed by `sudo deploy/box-install.sh trialbox-<version>.tar`, a thin script over
+`install.sh`: it detects the machine (`python3 -m tools.box detect`), asks only whether that is the machine, plans
+the settings from the hardware (`tools/box/plan.py`: the GPU profile from `deploy/gpu_profile.sh`, the memory caps
+from the RAM, TLS `internal` under the box's name, `deploy/site/hardening.conf` with the KEK on the TPM or, without
+one, a passphrase the owner sets), runs `install.sh` with `TB_BOX=1` (the overlay `deploy/docker-compose.box.yml`,
+no `bootstrap-admin`), prints the address `https://<name>.local/login/first-run` and a one-time code (also on the
+box's own screen, `/etc/issue.d/trialbox-firstrun.issue`) and waits. The owner answers the first-run wizard
+(site name, time zone, language, their account and authenticator, the box's name, where backups go, the kind of data
+source); the console makes the owner's accounts (steward and `<name>-admin`) and hands the answers over the tmpfs
+folder `/run/trialbox-firstrun`; the script then applies them (`python -m tools.box apply` in the image: settings
+and `deploy/.env` rewritten from the answers, the install's passwords kept), sets the host's zone, restarts the stack,
+installs the backup schedule and runs the host check. **Prepared image:** Aimedics runs the same script with
+`--prepare` before shipping; it stops before the code and enables `trialbox-firstrun.service`, which at the site's
+first boot runs `deploy/box-install.sh --firstrun` (the code on the screen, the wizard, the apply). The rehearsal of
+this path without Docker is `tests/console/test_box_install_rehearsal.py` (the real script, stand-ins for the inner
+install, compose and the host check, the wizard in process); what only a real box proves is listed in D-466 for
+T-213b's rental-workstation and Spark runs.
