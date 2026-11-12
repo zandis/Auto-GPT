@@ -61,6 +61,13 @@ def weekly(orch: Any, today: date | None = None, store: NotMatchedStore | None =
     from tb_common.timeutil import today as site_today
 
     environ = env if env is not None else dict(os.environ)
+    from orchestrator.scheduler import restore_held
+
+    if (
+        restore_held()
+    ):  # NEW-B-3 (D-522): the sample filters by the opt-out register, which a restore may not have whole
+        log.warning("not-matched sample not drawn: the box is held after a restore")
+        return {}
     try:
         gated = gate_on(environ)
         gone = register_now()  # raises when the register does not answer: no sample rather than one with an opt-out

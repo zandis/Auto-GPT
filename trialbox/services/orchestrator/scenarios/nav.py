@@ -43,6 +43,7 @@ from orchestrator.scenarios.screen import (
     structured_engine,
     threshold,
 )
+from orchestrator.scheduler import require_released
 
 SCOPE_SQL = """
 SELECT pid, CAST(min(start) AS VARCHAR) AS next_appt, arg_min(practitioner_id, start) AS practitioner_id,
@@ -121,6 +122,7 @@ def _without_opted_out(ctx: Ctx, scoped: list[Any]) -> list[Any]:
 
 
 def run(ctx: Ctx) -> Outcome:
+    require_released()  # NEW-B-3 (D-522): no list while the hold of a restore stands
     job = ctx.job
     rs = require_approved(ctx, (job.ruleset or "").upper(), (job.options or {}).get("version"))
     if rs.manifest.kind != "nhi":

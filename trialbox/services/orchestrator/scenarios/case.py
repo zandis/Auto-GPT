@@ -365,6 +365,9 @@ def pick_lang(ctx: Ctx, chart_text: str | None = None) -> str:
 
 # ------------------------------------------------------------------------------------------------ scenario
 def run(ctx: Ctx) -> Outcome:
+    from orchestrator.scheduler import require_released
+
+    require_released()  # NEW-B-3 (D-522; the owner's ruling of 2026-11-12): no patient is answered for while held
     job = ctx.job
     opts = job.options or {}
     rs = require_approved(ctx, (job.ruleset or "").upper(), opts.get("version"))
