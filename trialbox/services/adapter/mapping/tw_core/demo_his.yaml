@@ -11,6 +11,7 @@ tz: Asia/Taipei
 fhir_profiles: tw-core
 systems:
   icd10cm: http://hl7.org/fhir/sid/icd-10-cm
+  icd9cm: http://hl7.org/fhir/sid/icd-9-cm  # NEW-STD-1: Taiwan's NHI diagnoses before 2016-01-01
   loinc: http://loinc.org
   ucum: http://unitsofmeasure.org
   atc: http://www.whocc.no/atc
@@ -145,10 +146,15 @@ resources:
       verificationStatus.coding[0].system: {template: "{sys.condition_verification}", when: {column: suspected, in: [Y, y, "1"]}}
       verificationStatus.coding[0].code: {column: suspected, map: {Y: provisional, y: provisional, "1": provisional}}
       category[0].coding[0]: {const: {system: "http://terminology.hl7.org/CodeSystem/condition-category", code: encounter-diagnosis}}
-      code.coding[0]: {builder: coding, column: icd10, system: icd10cm}
+      # NEW-STD-1 (D-586): which edition the code is in. The row's own `diag_code_system` (icd9cm / icd10cm) wins;
+      # else the date against the site's `params.icd9cm_before` (Taiwan's NHI: 2016-01-01). A mapping that sets no
+      # such parameter has no ICD-9-CM years: every diagnosis is ICD-10-CM, as before. With the parameter set, a
+      # diagnosis with no date and no system gets no code (unknown, never a guess)
+      code.coding[0]: {builder: coding, column: icd10, system: icd10cm, when: &icd10cm {any: [[{column: diag_code_system, in: [icd10cm]}], [{column: diag_code_system, not_empty: false}, {column: diag_date, date_from: {param: icd9cm_before}}]]}}
+      code.coding[3]: {builder: coding, column: icd10, system: icd9cm, when: {any: [[{column: diag_code_system, in: [icd9cm]}], [{column: diag_code_system, not_empty: false}, {column: diag_date, date_before: {param: icd9cm_before}}]]}}
       # TW Core slices icd10-cm-2014 / icd10-cm-2023: the NHI edition by the date of the diagnosis (2023 from 2025-01-01)
-      code.coding[1]: {builder: coding, column: icd10, system: tw_icd10cm_2014, when: [{fhir_profiles: tw-core}, {column: diag_date, date_before: "2025-01-01"}]}
-      code.coding[2]: {builder: coding, column: icd10, system: tw_icd10cm_2023, when: [{fhir_profiles: tw-core}, {column: diag_date, date_from: "2025-01-01"}]}
+      code.coding[1]: {builder: coding, column: icd10, system: tw_icd10cm_2014, when: [{fhir_profiles: tw-core}, *icd10cm, {column: diag_date, date_before: "2025-01-01"}]}
+      code.coding[2]: {builder: coding, column: icd10, system: tw_icd10cm_2023, when: [{fhir_profiles: tw-core}, *icd10cm, {column: diag_date, date_from: "2025-01-01"}]}
       subject.reference: {ref: {type: Patient, pid: mrn}}
       encounter.reference: {ref: {type: Encounter, hid: enc_no}}
       onsetDateTime: {column: diag_date, type: date}

@@ -126,6 +126,8 @@ class Mapping:
     fhir_profiles: str = ""  # "jp-core": the ingest checks a sample against JP Core (D-137); "tw-core" (T-619a)
     # D-149: the site's declared unit per analyte (LOINC code -> UCUM) for a feed result that arrives without one
     unit_defaults: dict[str, str] = field(default_factory=dict)
+    # NEW-STD-1 (D-586): what a site states once and conditions read as ``{param: name}`` (``icd9cm_before``)
+    params: dict[str, str] = field(default_factory=dict)
     # T-106b: ``<name>@<12 hex>``, the hash of the mapping file and the base it extends (a changed file, a new version)
     version: str = ""
 
@@ -199,6 +201,7 @@ class Mapping:
             profiles={str(k): str(v or "") for k, v in (doc.get("profiles") or {}).items()},
             fhir_profiles=str(doc.get("fhir_profiles") or ""),
             unit_defaults={str(k): str(v) for k, v in (doc.get("unit_defaults") or {}).items()},
+            params={str(k): str(v) for k, v in (doc.get("params") or {}).items()},
             version=f"{doc.get('name', path.stem)}@{digest.hexdigest()[:12]}",
         )
 
@@ -392,8 +395,20 @@ class Mapper:
             return None if text is None else base64.b64encode(str(text).encode("utf-8")).decode("ascii")
         raise MappingError(f"unknown value expression {expr!r}")
 
+    def _bound(self, value: Any) -> str | None:
+        """A date bound of a condition: a day, or ``{param: name}`` (NEW-STD-1): the mapping's parameter of that
+        name, None when the mapping sets none."""
+        if isinstance(value, dict):
+            got = self.m.params.get(str(value.get("param")))
+            return str(got) if got else None
+        return str(value)
+
     def cond(self, conds: Any, row: Row) -> bool:
         for c in conds if isinstance(conds, list) else [conds]:
+            if "any" in c:  # NEW-STD-1: one of the lists holds
+                if not any(self.cond(alt, row) for alt in c["any"]):
+                    return False
+                continue
             if "fhir_profiles" in c:  # T-619a: the profile set of the mapping (tw-core, jp-core), not a column
                 if self.m.fhir_profiles != str(c["fhir_profiles"]):
                     return False
@@ -413,14 +428,19 @@ class Mapper:
             if "not_in" in c and sv in [str(x) for x in c["not_in"]]:
                 return False
             if "date_before" in c or "date_from" in c:  # T-619a: an ISO date bound (a code edition by date)
-                try:
-                    day = self._parse_date(sv).isoformat() if sv.strip() else ""
-                except MappingError:
-                    day = ""
-                if not day or ("date_before" in c and day >= str(c["date_before"])):
-                    return False
-                if "date_from" in c and day < str(c["date_from"]):
-                    return False
+                before = self._bound(c["date_before"]) if "date_before" in c else None
+                since = self._bound(c["date_from"]) if "date_from" in c else None
+                if "date_before" in c and before is None:
+                    return False  # a parameter the mapping does not set: nothing is "before" it
+                if before is not None or since is not None:
+                    try:
+                        day = self._parse_date(sv).isoformat() if sv.strip() else ""
+                    except MappingError:
+                        day = ""
+                    if not day or (before is not None and day >= before):
+                        return False
+                    if since is not None and day < since:
+                        return False
             if "numeric" in c:
                 try:
                     float(sv)
