@@ -32,7 +32,6 @@ import os
 import pickle
 import shutil
 import zipfile
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -148,35 +147,36 @@ def _note(on: str, *sentences: str) -> tuple[str, str]:
     return on, " ".join([*sentences, NO_TB, NOT_PREG, FILLER])
 
 
-# Adults (born 1960) with a booked visit with PRACT on 2026-10-08 in RHEU, unless the entry says otherwise.
+# Adults (born 1960) with a booked visit with PRACT on 2026-10-08 in RHEU, unless the entry says otherwise; "number"
+# is the synthetic hospital's chart number (the pseudonym is made from it with the site key, as the adapter does).
 PATIENTS: dict[str, dict[str, Any]] = {
-    "ELIG": {"mrn": "10000001", "notes": [_note("2026-09-20", FLARE)]},
-    "INF": {"mrn": "10000002", "notes": [_note("2026-09-20", FLARE), _note("2026-08-01", TB)]},
-    "CODED": {"mrn": "10000003", "notes": [_note("2026-09-20", FLARE)], "malig": "2026-01-10"},
-    "NOFLARE": {"mrn": "10000004", "notes": [_note("2026-09-20", NOFLARE)]},
-    "SILENT": {"mrn": "10000005", "notes": [_note("2026-09-20")]},
-    "CHILD": {"mrn": "10000006", "birth": "2015-03-01", "notes": [_note("2026-09-20", FLARE)]},
-    "OPT": {"mrn": "10000007", "notes": [_note("2026-09-20", FLARE)], "optout": True},
-    "REFUSED": {"mrn": "10000008", "notes": [_note("2026-09-20", FLARE)],
+    "ELIG": {"number": "10000001", "notes": [_note("2026-09-20", FLARE)]},
+    "INF": {"number": "10000002", "notes": [_note("2026-09-20", FLARE), _note("2026-08-01", TB)]},
+    "CODED": {"number": "10000003", "notes": [_note("2026-09-20", FLARE)], "malig": "2026-01-10"},
+    "NOFLARE": {"number": "10000004", "notes": [_note("2026-09-20", NOFLARE)]},
+    "SILENT": {"number": "10000005", "notes": [_note("2026-09-20")]},
+    "CHILD": {"number": "10000006", "birth": "2015-03-01", "notes": [_note("2026-09-20", FLARE)]},
+    "OPT": {"number": "10000007", "notes": [_note("2026-09-20", FLARE)], "optout": True},
+    "REFUSED": {"number": "10000008", "notes": [_note("2026-09-20", FLARE)],
                 "consent": [("rejected", "deny", "2026-05-01")]},
-    "NOCONTACT": {"mrn": "10000009", "notes": [_note("2026-09-20", FLARE)],
+    "NOCONTACT": {"number": "10000009", "notes": [_note("2026-09-20", FLARE)],
                   "consent": [("active", "deny", "2026-05-01")]},
-    "UNDATED": {"mrn": "10000010", "notes": [_note("2026-09-20", FLARE)],
+    "UNDATED": {"number": "10000010", "notes": [_note("2026-09-20", FLARE)],
                 "consent": [("active", "permit", "2026-05-01"), ("rejected", "deny", None)]},
-    "PERMIT": {"mrn": "10000011", "notes": [_note("2026-09-20", FLARE)],
+    "PERMIT": {"number": "10000011", "notes": [_note("2026-09-20", FLARE)],
                "consent": [("active", "permit", "2026-05-01")]},
-    "LOWCONF": {"mrn": "10000012", "notes": [_note("2026-09-20", SOFTFLARE)]},
-    "PREGNANT": {"mrn": "10000013", "notes": [_note("2026-09-20", FLARE), _note("2026-10-01", PREG)]},
-    "NOAGE": {"mrn": "10000014", "birth": None, "notes": [_note("2026-09-20", FLARE)]},
+    "LOWCONF": {"number": "10000012", "notes": [_note("2026-09-20", SOFTFLARE)]},
+    "PREGNANT": {"number": "10000013", "notes": [_note("2026-09-20", FLARE), _note("2026-10-01", PREG)]},
+    "NOAGE": {"number": "10000014", "birth": None, "notes": [_note("2026-09-20", FLARE)]},
     # the flare is in an old note; seven newer notes say there was none (which text a path shows decides)
-    "CUT": {"mrn": "10000015", "notes": [_note("2026-01-15", FLARE)]
+    "CUT": {"number": "10000015", "notes": [_note("2026-01-15", FLARE)]
             + [_note(f"2026-09-{d:02d}", NOFLARE) for d in (1, 5, 9, 13, 17, 21, 25)]},
     # the flare is in an old note, the newer ones say nothing about it (an unknown first answer: the full record)
-    "DEEP": {"mrn": "10000017", "notes": [_note("2026-01-15", FLARE)]
+    "DEEP": {"number": "10000017", "notes": [_note("2026-01-15", FLARE)]
              + [_note(f"2026-09-{d:02d}", ASKED) for d in (1, 5, 9, 13, 17, 21, 25)]},
-    "OTHERDOC": {"mrn": "10000016", "pract": PRACT2, "notes": [_note("2026-09-20", FLARE)]},
+    "OTHERDOC": {"number": "10000016", "pract": PRACT2, "notes": [_note("2026-09-20", FLARE)]},
 }  # fmt: skip
-PID = {k: pid_for_mrn(KEY, v["mrn"]) for k, v in PATIENTS.items()}
+PID = {k: pid_for_mrn(KEY, v["number"]) for k, v in PATIENTS.items()}
 WHO = {v: k for k, v in PID.items()}
 SCREENED = [k for k, v in PATIENTS.items() if v.get("pract", PRACT) == PRACT]  # SCREEN's scope (pract=PRACT)
 
@@ -435,7 +435,7 @@ def build_world(tmp: Path, pg_cluster_url: str) -> World:
         # CASE with the chart number and the patient's notes as the chart
         case = Seen(covers=set(SCREENED))
         for key in SCREENED:
-            jobs[f"case.{key}"] = j = run_job(box, f"CASE PIX mrn={PATIENTS[key]['mrn']} lang=en",
+            jobs[f"case.{key}"] = j = run_job(box, f"CASE PIX mrn={PATIENTS[key]['number']} lang=en",
                                               files=(("chart.txt", chart(key)),))  # fmt: skip
             if j.state == "done":
                 rec = json.loads(next(v for k, v in _outputs(box, j).items() if k.endswith(".json")))
@@ -462,7 +462,7 @@ def build_world(tmp: Path, pg_cluster_url: str) -> World:
         assert jobs["feas"].state == "done", jobs["feas"].error
         members = {WHO[p] for p in raws[0].prevalent_pids}
         seen["feas"] = Seen({k: "member" if k in members else "-" for k in PATIENTS}, {}, set(PATIENTS))
-        # COHORT: its count functions at the run date (see test_cohort_is_counted_by_its_own_functions)
+        # COHORT: its own count functions at the run date (cohort_counts)
         cohort = cohort_counts(box, rs["PIX"])
         by_kind = {c["id"]: c["kind"] for c in CRITERIA}
         seen["cohort"] = Seen(
@@ -522,7 +522,7 @@ def reads_tb_the_other_way(oracle: QuotingOracle) -> ScriptedModel:
 
 def cohort_counts(box: Box, rs: Ruleset) -> dict[str, Any]:
     """COHORT's membership by its own functions (``cohort.items_at``, ``cohort.contactable_pids``) at the run date
-    on the job's pinned lake. The COHORT job itself is not run: its published bytes are suppressed counts (no
+    on the box's lake (one snapshot). The COHORT job itself is not run: its published bytes are suppressed counts (no
     patient id can be compared), and it compiles the trials of the ClinicalTrials.gov cassette, which this test
     does not need (``tests/integration/test_cohort_inproc.py`` runs the job)."""
     from orchestrator.scenarios import cohort
@@ -607,9 +607,6 @@ INTENDED: dict[str, Intended] = {
 
 
 # ------------------------------------------------------------------------------------------------ what to expect
-Expect = Callable[[World, "Rule", str], Any]
-
-
 @dataclass(frozen=True)
 class Rule:
     """A path, the path it must agree with, and the decisions (``INTENDED``) its expectation reads."""
@@ -828,6 +825,30 @@ def test_the_world_is_not_vacuous(world: World) -> None:
     assert not failed, failed
 
 
+# ------------------------------------------------------------------------------------------------ the pair itself
+@pytest.mark.parametrize(
+    ("verifier", "expected"),
+    [("agree", ("pass", "note")), ("disagree", ("unknown", "disagree")), ("unknown", ("unknown", "disagree")),
+     ("down", ("unknown", "model_down"))],
+)  # fmt: skip
+def test_the_quoting_pair_answers_from_what_it_is_shown(verifier: str, expected: tuple[str, str]) -> None:
+    """The kit's pair through the box's own pair rule (``NoteJudge.judge_excerpts``): the answer follows the decisive
+    sentence when it is shown, and is unknown when it is not; the verifier's four behaviours reach the pair rule."""
+    from orchestrator.scenarios.evaluate import NoteJudge
+
+    oracle = QuotingOracle(ORACLE)
+    shown = [{"date": "2026-09-20", "note_type": "progress", "text": f"{FLARE} {FILLER}", "did": "D1"}]
+    hidden = [{"date": "2026-09-20", "note_type": "progress", "text": FILLER, "did": "D2"}]
+    crit = next(c for c in CRITERIA if c["id"] == "PI-INC-02")
+    llm, second = quoting_pair(oracle, verifier=verifier)
+    nj = NoteJudge(None, llm, "judge", verifier=second)  # type: ignore[arg-type]
+    r = nj.judge_excerpts(crit["text"], crit["note_question"], RUN, shown)
+    assert (r.predicate, r.reason) == expected
+    assert nj.judge_excerpts(crit["text"], crit["note_question"], RUN, hidden).predicate == "unknown"
+    assert oracle.asked[0] == ("gout flare", crit["text"], [shown[0]["text"]])
+    assert oracle.full("gout flare", [*hidden, *shown]) == "pass" and oracle.full(crit["text"], hidden) == "unknown"
+
+
 # ------------------------------------------------------------------------------------------------ the opt-out
 def _texts(name: str, data: bytes) -> str:
     """What a reader of the file can see: the members of a workbook or a document (zip), a PDF's text, else the
@@ -843,7 +864,7 @@ def _texts(name: str, data: bytes) -> str:
 
 
 def _marks(key: str) -> tuple[str, ...]:
-    return PID[key], PID[key][:12], PATIENTS[key]["mrn"]
+    return PID[key], PID[key][:12], PATIENTS[key]["number"]
 
 
 BYTES_PATHS = sorted({n.split(".")[0] if n.startswith("case.") else n for n in (
