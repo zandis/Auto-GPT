@@ -6,6 +6,9 @@ Synthetic patients only."""
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -278,12 +281,12 @@ def test_compose_setting_reads_a_list_environment(tmp_path: Path) -> None:
 
 
 def test_the_cgroup_prefix_and_its_probe(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(scale.os, "geteuid", lambda: 1000)
+    monkeypatch.setattr(os, "geteuid", lambda: 1000)
     pre = scale._cgroup_prefix(2**30)
-    assert pre[:3] == ["sudo", "-n", "-E"] and "--uid=" + str(scale.os.getuid()) in pre  # the runner keeps its user
-    monkeypatch.setattr(scale.shutil, "which", lambda name: None)
+    assert pre[:3] == ["sudo", "-n", "-E"] and "--uid=" + str(os.getuid()) in pre  # the runner keeps its user
+    monkeypatch.setattr(shutil, "which", lambda name: None)
     assert scale.cgroup_available() is False  # no systemd-run
-    monkeypatch.setattr(scale.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/" + name)
     monkeypatch.setattr(Path, "exists", lambda self: True)
 
     class Done:
@@ -297,7 +300,7 @@ def test_the_cgroup_prefix_and_its_probe(monkeypatch: pytest.MonkeyPatch) -> Non
                 raise answer
             return answer
 
-        monkeypatch.setattr(scale.subprocess, "run", run)
+        monkeypatch.setattr(subprocess, "run", run)
         assert scale.cgroup_available() is want
 
 
