@@ -137,6 +137,16 @@ function Unregister-TbResumeTask {
     Unregister-ScheduledTask -TaskName $script:TbResumeTask -Confirm:$false
   }
 }
+function Find-TbMedia {
+  # a TrialBox media at the root of a drive, or one folder below it (TRIALBOX-<version>)
+  foreach ($d in @(Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue)) {
+    $roots = @($d.Root) + @(Get-ChildItem -LiteralPath $d.Root -Directory -Filter "TRIALBOX-*" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+    foreach ($r in $roots) {
+      if ((Test-Path -LiteralPath (Join-Path $r "SHA256SUMS")) -and (Test-Path -LiteralPath (Join-Path $r "windows\wsl-setup.sh"))) { return $r }
+    }
+  }
+  return ""
+}
 function Restart-TbComputer { Restart-Computer -Force }
 function Start-TbSleep([int]$Seconds) { Start-Sleep -Seconds $Seconds }
 function Read-TbLine([string]$Prompt) { return (Read-Host $Prompt) }
@@ -206,7 +216,7 @@ function Save-TbState {
   [IO.File]::WriteAllText($script:TbStatePath, $json, (New-Object Text.UTF8Encoding $false))
 }
 function Read-TbState {
-  $s = @{ version = 1; account = ""; media_root = ""; data_drive = ""; distro = ""; imported = $false
+  $s = @{ version = 1; account = ""; media_root = ""; data_drive = ""; distro = ""; imported = $false; import_started = $false
     restart_pending = $false; finished = $false }
   if (Test-Path -LiteralPath $script:TbStatePath) {
     $j = Get-Content -LiteralPath $script:TbStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -291,6 +301,7 @@ function Step-Drive {
       Say "drive_ask" @(($cands -join ", "), $script:TbFacts.SystemDrive)
       $d = ([string](Read-TbLine ">")).Trim().TrimEnd("\")
       if ($d -match "^[A-Za-z]$") { $d = $d + ":" }
+      if ($d -notmatch "^[A-Za-z]:$") { Stop-TbStep "drive_bad" @($d) }
     }
     if ($d -match "^[A-Za-z]:$") { $d = $d.ToUpper() }
   }
@@ -361,13 +372,21 @@ function Step-Import {
   $dir = Join-Path $script:TbDataRoot "wsl"
   $r = Invoke-TbNative "wsl.exe" @("--list", "--quiet")
   $have = @($r.Output | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ -eq $name }).Count -gt 0
+  # import_started is saved before the import, when neither the name nor a virtual disk was there: what is found
+  # after that is this install's own, also when the window was closed while the import ran
   if ($have) {
-    if (-not $script:TbState.imported) { Stop-TbStep "distro_exists" @($name) }
+    if (-not ($script:TbState.imported -or $script:TbState.import_started)) { Stop-TbStep "distro_exists" @($name) }
     Write-TbLog ("    " + $name + " was imported by this install: kept")
+    $script:TbState.imported = $true
     return
   }
-  if (Test-Path -LiteralPath (Join-Path $dir "ext4.vhdx")) { Stop-TbStep "vhdx_exists" @((Join-Path $dir "ext4.vhdx")) }
+  if (Test-Path -LiteralPath (Join-Path $dir "ext4.vhdx")) {
+    if ($script:TbState.import_started) { Stop-TbStep "import_interrupted" @((Join-Path $dir "ext4.vhdx")) }
+    Stop-TbStep "vhdx_exists" @((Join-Path $dir "ext4.vhdx"))
+  }
   Protect-TbDirectory $dir $script:TbFacts.Account
+  $script:TbState.import_started = $true
+  Save-TbState
   Say "importing" @($name, $dir)
   $r = Invoke-TbNative "wsl.exe" @("--import", $name, $dir, $script:TbFiles.RootFs, "--version", "2")
   foreach ($ln in $r.Output) { Write-TbLog ("    " + $ln) }
@@ -396,7 +415,7 @@ function Step-Systemd {
   if (@($r.Output) -contains "changed") {
     [void](Invoke-TbNative "wsl.exe" @("--terminate", $script:TbState.distro))
   }
-  $waited = 0; $pause = 5
+  $waited = 0; $pause = 5  # how often to look, not a limit: the limit is -StartWaitSeconds
   while ($true) {
     $r = Invoke-TbSetup "pid1" @()
     if ($r.ExitCode -eq 0 -and (@($r.Output) | Select-Object -Last 1) -eq "systemd") { return }
@@ -437,25 +456,44 @@ function Step-LinuxInstall {
 function Invoke-TbInstall {
   param([string]$MediaRoot, [string]$DataDrive, [string]$Distro = "TrialBox", [string]$Lang, [string]$StateDir,
     [switch]$Resume, [switch]$Yes)
+  # a cmdlet that reports an error stops its step: nothing goes on after a failed copy, permission change or task
+  # registration (Invoke-TbNative sets its own preference for a program's error text)
+  $ErrorActionPreference = "Stop"
   $script:TbFacts = Get-TbWindowsFacts
   $script:TbLang = Get-TbLang $Lang $script:TbFacts.UiCulture
   $script:TbMessages = Get-Content -LiteralPath (Join-Path $PSScriptRoot "box-install.messages.json") -Raw -Encoding UTF8 | ConvertFrom-Json
   if (-not $script:TbFacts.IsAdmin) { Write-TbScreen (Get-TbText "not_admin" @() $script:TbLang); return 1 }
-  if (-not $StateDir) { $StateDir = Join-Path $env:ProgramData "TrialBox\box-install" }
+  $closing = $StateDir
+  try {
+    if (-not $StateDir) {
+      # standard accounts may make folders under ProgramData: the parent is closed first, so nobody else owns the
+      # path of the script the resume task runs elevated
+      $closing = Join-Path $env:ProgramData "TrialBox"
+      Protect-TbDirectory $closing $script:TbFacts.Account
+      $StateDir = Join-Path $closing "box-install"
+      $closing = $StateDir
+    }
+    Protect-TbDirectory $StateDir $script:TbFacts.Account
+  } catch { Write-TbScreen (Get-TbText "folder_not_ours" @($closing) $script:TbLang); return 1 }
   $script:TbStateDir = $StateDir
-  try { Protect-TbDirectory $StateDir $script:TbFacts.Account }
-  catch { Write-TbScreen (Get-TbText "folder_not_ours" @($StateDir) $script:TbLang); return 1 }
   $script:TbStatePath = Join-Path $StateDir "state.json"
   $script:TbLogPath = Join-Path $StateDir "box-install.log"
   $script:TbState = Read-TbState
   $script:TbStop = $null
   Write-TbLog ("box-install.ps1 started by {0}; resume={1}; Windows {2} build {3}; language {4}" -f $script:TbFacts.Account,
     [bool]$Resume, $script:TbFacts.EditionId, $script:TbFacts.Build, $script:TbLang)
+  # the resume task has done its work once this run started; step 5 registers it again if Windows wants a restart
+  try { Unregister-TbResumeTask } catch { Write-TbLog ("    the resume task could not be removed: " + [string]$_.Exception.Message) }
   if ($script:TbState.finished) { Say "already_installed" @($script:TbLogPath); return 0 }
-  if (-not $script:TbState.media_root) {
-    if (-not $MediaRoot) { $MediaRoot = Split-Path -Parent $PSScriptRoot }
-    $script:TbState.media_root = $MediaRoot
-  } elseif ($MediaRoot) { $script:TbState.media_root = $MediaRoot }
+  # the media: the one named; else the one this script was started from; else the one of the last run; else a
+  # media found on a drive (its letter may have changed over the restart)
+  $here = Split-Path -Parent $PSScriptRoot
+  if ($MediaRoot) { $script:TbState.media_root = $MediaRoot }
+  elseif (Test-Path -LiteralPath (Join-Path $here "SHA256SUMS")) { $script:TbState.media_root = $here }
+  elseif (-not $script:TbState.media_root -or -not (Test-Path -LiteralPath (Join-Path $script:TbState.media_root "SHA256SUMS"))) {
+    $found = Find-TbMedia
+    if ($found) { $script:TbState.media_root = $found } elseif (-not $script:TbState.media_root) { $script:TbState.media_root = $here }
+  }
   if (-not $script:TbState.data_drive -and $DataDrive) { $script:TbState.data_drive = $DataDrive }
   if (-not $script:TbState.distro) { $script:TbState.distro = $Distro }
   $n = 0

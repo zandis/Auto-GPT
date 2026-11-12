@@ -35,7 +35,7 @@ BeforeAll {
       FeatureRestart = $true; WslInstalled = $false; Distros = @(); WinGpu = $true
       Pid1 = "systemd"; SetupFail = @{}; InstallExit = 0; StateLine = "installed=1"
       Calls = New-Object System.Collections.ArrayList; Console = New-Object System.Collections.ArrayList
-      Restarted = 0; ResumeTask = $false; Said = New-Object System.Collections.ArrayList
+      Restarted = 0; ResumeTask = $false; FoundMedia = ""; ImportDies = $false; Said = New-Object System.Collections.ArrayList
     }
     New-Item -ItemType Directory -Force -Path $s.Data | Out-Null
     $script:S = $s
@@ -69,6 +69,7 @@ Describe "box-install.ps1" {
     Mock Register-TbResumeTask { $script:S.ResumeTask = $true; $script:S.ResumeMore = $More; $script:S.ResumeScript = $ScriptPath }
     Mock Unregister-TbResumeTask { $script:S.ResumeTask = $false }
     Mock Restart-TbComputer { $script:S.Restarted++ }
+    Mock Find-TbMedia { return [string]$script:S.FoundMedia }
     Mock Start-TbSleep { }
     Mock Read-TbLine { return "" }
     Mock Write-TbScreen { [void]$script:S.Said.Add($Text) }
@@ -83,7 +84,10 @@ Describe "box-install.ps1" {
       } elseif ($Exe -eq "msiexec.exe") { $s.WslInstalled = $true }
       elseif ($line -match "wsl\.exe --version") { if (-not $s.WslInstalled) { $r.ExitCode = 1 } }
       elseif ($line -match "wsl\.exe --list") { $r.Output = @($s.Distros) }
-      elseif ($line -match "wsl\.exe --import (\S+)") { $s.Distros = @($s.Distros) + $Matches[1] }
+      elseif ($line -match "wsl\.exe --import (\S+)") {
+        $s.Distros = @($s.Distros) + $Matches[1]
+        if ($s.ImportDies) { $s.ImportDies = $false; throw "the window was closed" }
+      }
       elseif ($line -match "wsl-setup\.sh (\S+)") {
         $step = $Matches[1]
         if ($s.SetupFail.ContainsKey($step)) { $r.ExitCode = 1; $r.Output = @("wsl-setup: " + $s.SetupFail[$step]) }
@@ -189,6 +193,27 @@ Describe "box-install.ps1" {
       $script:S.Restarted | Should -Be 0
       ($script:S.Calls -join "`n") | Should -Not -Match "msiexec"
     }
+    It "finds the media again when its drive letter changed over the restart (review H1)" {
+      Invoke-Run | Should -Be 3010
+      $moved = Join-Path $script:S.Base "media-on-another-letter"
+      Move-Item -LiteralPath $script:S.Media -Destination $moved
+      $script:S.FoundMedia = $moved
+      Invoke-Run -Resume | Should -Be 0
+      ($script:S.Calls -join "`n") | Should -Match ([regex]::Escape($moved) + "\S*ubuntu-24\.04")
+    }
+    It "says to connect the media when it is nowhere after the restart, and leaves no task that fires for ever (H1, L3)" {
+      Invoke-Run | Should -Be 3010
+      Move-Item -LiteralPath $script:S.Media -Destination (Join-Path $script:S.Base "unplugged")
+      Invoke-Run -Resume | Should -Be 1
+      Get-Log | Should -Match "STOP step 1/\d+ media: .*Connect the media"
+      $script:S.ResumeTask | Should -BeFalse
+    }
+    It "does not restart when the resume task could not be registered (review H2)" {
+      Mock Register-TbResumeTask { Write-Error "Access is denied." }
+      Invoke-Run | Should -Be 1
+      $script:S.Restarted | Should -Be 0
+      Get-Log | Should -Match "STOP step 5/\d+ wsl-enable: .*Access is denied"
+    }
     It "refuses to continue under another Windows account" {
       Invoke-Run | Should -Be 3010
       $script:S.Account = "BOX\somebody"
@@ -242,6 +267,34 @@ Describe "box-install.ps1" {
       $calls = $script:S.Calls -join "`n"
       $calls | Should -Not -Match "--import|--unregister|wsl-setup"
       Get-Log | Should -Match "STOP step 7/\d+ import"
+    }
+    It "takes up its own import when the window was closed while it ran (review M2)" {
+      $script:S.ImportDies = $true
+      Invoke-Run | Should -Be 1
+      Invoke-Run | Should -Be 0
+      @($script:S.Calls | Where-Object { $_ -match "--import" }).Count | Should -Be 1
+    }
+    It "names its own unfinished virtual disk as such, and still does not remove it (review M2)" {
+      $script:S.ImportDies = $true
+      Invoke-Run | Should -Be 1
+      $script:S.Distros = @()   # the import died before the name was registered
+      $d = Join-Path $script:S.Data "TrialBox/wsl"
+      Set-Content -LiteralPath (Join-Path $d "ext4.vhdx") -Value "half a disk"
+      Invoke-Run | Should -Be 1
+      Get-Log | Should -Match "STOP step 7/\d+ import: An earlier run of this installer was interrupted"
+      Test-Path -LiteralPath (Join-Path $d "ext4.vhdx") | Should -BeTrue
+    }
+    It "removes the resume task on a finished install too (review L3)" {
+      Invoke-Run | Should -Be 0
+      $script:S.ResumeTask = $true
+      Invoke-Run | Should -Be 0
+      $script:S.ResumeTask | Should -BeFalse
+    }
+    It "stops with a plain message when the owner gives no drive (review L4)" {
+      Mock Get-TbDataDriveCandidates { return @("D:", "E:") }
+      Invoke-TbInstall -MediaRoot $script:S.Media -StateDir $script:S.StateDir -Lang en | Should -Be 1
+      Get-Log | Should -Match "STOP step 4/\d+ drive: .*not a fixed NTFS drive"
+      Get-Log | Should -Not -Match "unexpected"
     }
     It "refuses a data folder that already holds a virtual disk" {
       $d = Join-Path $script:S.Data "TrialBox/wsl"

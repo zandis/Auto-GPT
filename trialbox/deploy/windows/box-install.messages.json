@@ -1,8 +1,8 @@
 {
   "media_missing": {
-    "en": "The TrialBox media was not found at {0} (no SHA256SUMS file). Start Install-TrialBox.cmd from the media itself.",
-    "ja": "{0} に TrialBox のメディアが見つかりません（SHA256SUMS がありません）。メディア上の Install-TrialBox.cmd から起動してください。",
-    "zh-TW": "在 {0} 找不到 TrialBox 安裝媒體（沒有 SHA256SUMS 檔）。請從媒體上的 Install-TrialBox.cmd 啟動。"
+    "en": "The TrialBox media was not found (looked at {0} and on every drive). Connect the media and start Install-TrialBox.cmd from it again.",
+    "ja": "TrialBox のメディアが見つかりません（{0} とすべてのドライブを確認しました）。メディアを接続し、メディア上の Install-TrialBox.cmd をもう一度起動してください。",
+    "zh-TW": "找不到 TrialBox 安裝媒體（已檢查 {0} 與所有磁碟機）。請接上媒體，再從媒體上啟動 Install-TrialBox.cmd。"
   },
   "media_file": {
     "en": "The media must hold exactly one file {0}; it holds {1}. Ask Aimedics for a new copy of the media.",
@@ -198,5 +198,10 @@
     "en": "The install is finished. The install log: {0}",
     "ja": "インストールが完了しました。インストールの記録: {0}",
     "zh-TW": "安裝完成。安裝記錄：{0}"
+  },
+  "import_interrupted": {
+    "en": "An earlier run of this installer was interrupted while it set up the Linux system. Its unfinished virtual disk is still there: {0}. The installer never removes a file: move that file away by hand (it holds no TrialBox data), then start the installer again.",
+    "ja": "このインストーラーの前回の実行が、Linux システムの用意の途中で中断されました。未完成の仮想ディスクが残っています: {0}。インストーラーはファイルを削除しません。このファイル（TrialBox のデータは入っていません）を手作業で別の場所へ移してから、もう一度インストーラーを起動してください。",
+    "zh-TW": "本安裝程式先前的執行在建立 Linux 系統時被中斷，未完成的虛擬磁碟仍在：{0}。安裝程式絕不移除檔案：請手動將該檔案移走（其中沒有 TrialBox 資料），然後再啟動安裝程式。"
   }
 }
