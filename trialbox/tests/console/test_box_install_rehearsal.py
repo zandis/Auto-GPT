@@ -121,6 +121,22 @@ def test_a_box_installs_from_the_installer_with_only_the_wizards_answers(tmp_pat
     assert "compose up -d --wait" in calls and "hostcheck" in calls
     assert not (t["fr"] / "answers.json").exists() and not t["issue"].exists()  # nothing of the owner's is left
     assert "TrialBox is ready: https://trialbox.local" in out
+    # BOX-APPLIED (D-576): the mark, and a start after the apply (the window closed before the last line): no new
+    # code, no wait for answers that will never come; the set-up is finished and the same last line is printed
+    applied = t["deploy"] / "site" / "box" / "applied"
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", applied.read_text(encoding="utf-8").strip())
+    t["calls"].write_text("", encoding="utf-8")
+    try:
+        again = subprocess.run(["bash", str(t["deploy"] / "box-install.sh"), "--firstrun"], cwd=tmp_path, env=t["env"],
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30, check=False)  # fmt: skip
+    except subprocess.TimeoutExpired as e:
+        raise AssertionError(f"the second start waits for ever:\n{(e.stdout or b'')[-600:]!r}") from e
+    assert again.returncode == 0, again.stdout[-2000:]
+    assert "One-time code:" not in again.stdout and not t["issue"].exists()
+    assert "the owner's answers were applied on" in again.stdout
+    assert "TrialBox is ready: https://trialbox.local" in again.stdout
+    calls = t["calls"].read_text(encoding="utf-8")
+    assert "compose up -d --wait" in calls and "hostcheck" in calls and "install " not in calls
 
 
 def test_the_prepared_image_stops_before_the_wizard(tmp_path: Path) -> None:
@@ -223,3 +239,18 @@ def test_the_wsl2_switch_reads_the_kernel_and_its_knob_takes_two_values(tmp_path
     # the two lines the Windows installer reads (lane W, tests/unit/test_windows_box_install.py)
     assert "\\n  TrialBox is ready: https://%s" in text
     assert "\n  TrialBox is running.\n" in (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")
+
+
+def test_a_new_install_removes_the_applied_mark() -> None:
+    """D-576: planning the box again from its hardware makes the answers provisional again; the wizard is due."""
+    text = (ROOT / "deploy" / "box-install.sh").read_text(encoding="utf-8")
+    plan = text[
+        text.index(
+            "# ---------------------------------------------------------------------------------------------- 2. plan"
+        ) :
+    ]
+    plan = plan[: plan.index("3. install")]
+    assert 'rm -f "$BOX/applied"' in plan
+    first_run = text[text.index("5. first run") :]
+    assert first_run.index('if [ -f "$BOX/applied" ]; then') < first_run.index("show_code() {")
+    assert first_run.index("box_py apply") < first_run.index('> "$BOX/applied"') < first_run.index("timedatectl")

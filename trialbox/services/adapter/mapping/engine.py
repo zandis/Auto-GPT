@@ -248,6 +248,7 @@ class Mapping:
         for r in resources:
             if r.table not in (doc.get("tables") or {}):
                 raise MappingError(f"{path}: resource {r.type} uses undeclared table {r.table!r}")
+            _known_codes_are_the_maps(path, r)
         return cls(
             name=doc.get("name", path.stem),
             tz=_zone(path, doc.get("tz")),
@@ -303,8 +304,12 @@ class Mapping:
         for col, codes in (spec.get("values") or {}).items():
             v = out.get(col)
             table_codes = {str(k): c for k, c in codes.items()}  # YAML may load 1: M with an int key
-            if v is not None and str(v) in table_codes:
+            if v is None:
+                continue
+            if str(v) in table_codes:
                 out[col] = table_codes[str(v)]
+            elif str(v).strip() in table_codes:  # D-587: blanks around a site's code are not part of it
+                out[col] = table_codes[str(v).strip()]
         return out
 
     def source_column(self, table: str, canonical: str | None) -> str | None:
@@ -313,6 +318,35 @@ class Mapping:
             return None
         rename: dict[str, str] = (self.tables.get(table) or {}).get("rename") or {}
         return next((local for local, canon in rename.items() if canon == canonical), canonical)
+
+
+def _known_codes_are_the_maps(path: Path, r: ResourceSpec) -> None:
+    """NEW-DIN-7 (D-587): a ``known:`` / ``unknown_to:`` list repeats the codes of the ``map:`` on the same column
+    of the same resource. One changed without the other would drop, or mark unknown, every row of a code the map
+    reads: the mapping does not load."""
+    maps: dict[str, set[str]] = {}
+    for expr in r.elements.values():
+        if isinstance(expr, dict) and isinstance(expr.get("map"), dict) and isinstance(expr.get("column"), str):
+            maps.setdefault(expr["column"], set()).update(str(k) for k in expr["map"])
+
+    def walk(x: Any) -> None:
+        if isinstance(x, dict):
+            for word in ("known", "unknown_to"):
+                col = x.get("column")
+                if word in x and col in maps and {str(c) for c in x[word]} != maps[col]:
+                    raise MappingError(
+                        f"{path}: {r.type} from {r.table}: the {word} codes {sorted(str(c) for c in x[word])} of "
+                        f"{col} are not the codes of the map on {col} {sorted(maps[col])}; a site's own codes go "
+                        "in the table's values: map"
+                    )
+            for v in x.values():
+                walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v)
+
+    walk(r.where)
+    walk(r.elements)
 
 
 class Mapper:
@@ -331,6 +365,7 @@ class Mapper:
         # NEW-DIN-6 (D-580): rows a resource's ``where`` dropped because the look-up has no row for their code,
         # by (source table, look-up, code as fed without its blanks): codes and counts, never a row
         self.unmapped: Counter[tuple[str, str, str]] = Counter()
+        self._row_seen: set[tuple[str, str]] | None = None  # the row :meth:`map_table` is mapping, else None
 
     # ------------------------------------------------------------------ scalar conversion
     def _parse_dt(self, raw: str) -> datetime:
@@ -495,9 +530,12 @@ class Mapper:
             raw = row.get(expr["column"])
             if "map" in expr:
                 key = "" if raw is None else str(raw)
-                if key.strip() and key not in expr["map"] and "unmapped" in expr:
+                if key not in expr["map"]:
+                    key = key.strip()  # a padded code is the same code (D-580)
+                if key and key not in expr["map"] and "unmapped" in expr:
                     # D-275: a code the map does not know is not the empty default (a cancelled order must never
-                    # become "active" because the map lacks the word)
+                    # become "active" because the map lacks the word). NEW-DIN-7 (D-587): and it is counted
+                    self._note_unmapped(rs.table, f"column:{expr['column']}", key)
                     raw = expr["unmapped"]
                 else:
                     raw = expr["map"].get(key, expr.get("default"))
@@ -556,6 +594,11 @@ class Mapper:
             if "equals" in c and sv != str(c["equals"]):
                 return False
             if "in" in c and sv not in [str(x) for x in c["in"]]:
+                return False
+            # NEW-DIN-7 (D-587): ``known``: blank, or one of the codes; ``unknown_to``: a code that is none of them
+            if "known" in c and sv.strip() and sv.strip() not in [str(x) for x in c["known"]]:
+                return False
+            if "unknown_to" in c and (not sv.strip() or sv.strip() in [str(x) for x in c["unknown_to"]]):
                 return False
             if "not_in" in c and sv in [str(x) for x in c["not_in"]]:
                 return False
@@ -735,9 +778,9 @@ class Mapper:
                 except (KeyError, TypeError, ValueError):
                     continue
 
-    def map_row(self, rs: ResourceSpec, row: Row, seen: set[tuple[str, str]] | None = None) -> Resource | None:
+    def map_row(self, rs: ResourceSpec, row: Row) -> Resource | None:
         if rs.where and not self.cond(rs.where, row):
-            self._count_unmapped(rs, row, seen)
+            self._count_unmapped(rs, row)
             return None
         res: Resource = {"resourceType": rs.type, "id": self.row_id(rs, row)}
         if rs.profile:
@@ -755,20 +798,31 @@ class Mapper:
         pruned: Resource = self.prune(res)
         return pruned
 
-    def _count_unmapped(self, rs: ResourceSpec, row: Row, seen: set[tuple[str, str]] | None = None) -> None:
-        """Count the row a ``where`` dropped when the reason is a code its look-up does not know (D-580): a
-        ``{lookup: ..., not_empty: true}`` condition whose look-up gives nothing for the row's key. ``seen`` (one
-        set per source row) keeps it to one count per row and look-up when a table makes several resources."""
+    def _note_unmapped(self, table: str, name: str, code: str) -> None:
+        """One dropped or unknown code, once per source row and name (``self._row_seen`` is the row's set while
+        :meth:`map_table` maps it; a caller of :meth:`map_row` alone counts every call)."""
+        at = (name, code)
+        if self._row_seen is None or at not in self._row_seen:
+            self.unmapped[(table, *at)] += 1
+            if self._row_seen is not None:
+                self._row_seen.add(at)
+
+    def _count_unmapped(self, rs: ResourceSpec, row: Row) -> None:
+        """Count the row a ``where`` dropped when the reason is a code nobody knows: a ``{lookup: ..., not_empty:
+        true}`` condition whose look-up gives nothing for the row's key (D-580), or a ``{column: ..., known:
+        [...]}`` condition whose column holds another code (NEW-DIN-7, D-587)."""
         for c in rs.where if isinstance(rs.where, list) else [rs.where]:
-            spec = c.get("lookup") if isinstance(c, dict) else None
-            if not spec or not c.get("not_empty") or self.lookup(spec, row) not in (None, ""):
+            if not isinstance(c, dict):
                 continue
-            code = row.get(spec["key"])
-            at = (str(spec["name"]), "" if code is None else str(code).strip())
-            if seen is None or at not in seen:
-                self.unmapped[(rs.table, *at)] += 1
-                if seen is not None:
-                    seen.add(at)
+            spec = c.get("lookup")
+            if spec and c.get("not_empty") and self.lookup(spec, row) in (None, ""):
+                code = row.get(spec["key"])
+                self._note_unmapped(rs.table, str(spec["name"]), "" if code is None else str(code).strip())
+            elif "known" in c and "column" in c:
+                raw = row.get(c["column"])
+                code = "" if raw is None else str(raw).strip()
+                if code and code not in [str(x) for x in c["known"]]:
+                    self._note_unmapped(rs.table, f"column:{c['column']}", code)
 
     def unmapped_by_code(self, chart_pattern: str | None = None) -> dict[str, dict[str, dict[str, int]]]:
         """``{table: {look-up: {code: rows}}}``, the largest count first: every code, none cut (OD-10). Only what
@@ -807,12 +861,15 @@ class Mapper:
 
     def map_table(self, table: str, rows: Iterator[Row]) -> Iterator[Resource]:
         specs = [r for r in self.m.resources if r.table == table]
-        for row in rows:
-            seen: set[tuple[str, str]] = set()
-            for rs in specs:
-                res = self.map_row(rs, row, seen)
-                if res is not None:
-                    yield res
+        try:
+            for row in rows:
+                self._row_seen = set()
+                for rs in specs:
+                    res = self.map_row(rs, row)
+                    if res is not None:
+                        yield res
+        finally:
+            self._row_seen = None
 
     def static_resources(self) -> list[Resource]:
         out: list[Resource] = []

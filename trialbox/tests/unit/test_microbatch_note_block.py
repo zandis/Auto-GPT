@@ -8,6 +8,7 @@ SCREEN on the same box would never exclude on it. Now the tier needs the run's d
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import UTC, date, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -71,7 +72,11 @@ def _weekly_tier(monkeypatch: pytest.MonkeyPatch, llm: Any, verifier: Any) -> st
         metrics=lambda **kw: None,
         today=lambda: RUN,
         orch=SimpleNamespace(
-            db=SimpleNamespace(pool=lambda rid: [{"pid": "P1", "verdicts": _pool_verdicts()}], find=lambda **kw: [])
+            db=SimpleNamespace(
+                pool=lambda rid: [{"pid": "P1", "verdicts": _pool_verdicts()}],
+                find=lambda **kw: [],
+                locked=lambda name: nullcontext(),
+            )
         ),
         services=SimpleNamespace(
             lake=SimpleNamespace(

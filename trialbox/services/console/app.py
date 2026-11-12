@@ -1163,7 +1163,10 @@ def create_app(
     conflicts_page.register(app, helpers)  # T-201 (D-426): /data/conflicts, the steward's clinical conflicts
     from console import dataops_page
 
-    dataops_page.register(app, helpers)  # T-112b (D-443): /data-ops and /api/v1/data/*, the nights of every source
+    # T-112b (D-443): /data-ops and /api/v1/data/*, the nights of every source. T-723 (D-489): accept publishes the
+    # held night through the adapter
+    promoter = dataops_page.adapter_promoter(helpers.bk) if getattr(helpers.bk, "adapter", None) is not None else None
+    dataops_page.register(app, helpers, promote=promoter)
     from console import instruments_page
 
     instruments_page.register(app, helpers)  # T-307 (D-375): /data/instruments, the instrument copyright register

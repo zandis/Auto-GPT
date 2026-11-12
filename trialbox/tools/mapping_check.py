@@ -276,7 +276,10 @@ def check(
     until: str | None = None,
     chart_pattern: str | None = None,
     min_patients: int | None = None,
+    stop_at_refused: bool = False,
 ) -> dict[str, Any]:
+    """``stop_at_refused``: the first row the mapping refuses raises its ``MappingError``, as this function did
+    before T-731 (``tools/synth_site_from_schema.py`` reports that one message); else refused rows are counted."""
     from adapter.mapping import sharereport
     from adapter.mapping.engine import Mapper, Mapping
     from adapter.pipeline import make_source
@@ -402,7 +405,11 @@ def check(
         if missing:
             report["tables"][table] = t
             continue
-        resources, rejected = sharereport.map_rows(mapper, table, got)  # a refused row is counted, as at night
+        if stop_at_refused:
+            resources = list(mapper.map_table(table, iter(got)))
+            rejected: Counter[str] = Counter()
+        else:
+            resources, rejected = sharereport.map_rows(mapper, table, got)  # a refused row is counted, as at night
         t["rejected"] = dict(sorted(rejected.items()))
         report["rejected"] += sum(rejected.values())
         res = validator.validate(resources)
