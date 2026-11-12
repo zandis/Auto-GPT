@@ -46,7 +46,9 @@ a held night: no code promoted one.
 4. **The pid map is written after the gate.** A night that passes writes its chart numbers as the publish's first
    step. A held night's are **staged** (`pidmap.pending`, encrypted under the same key as the map, keyed by the
    night): the reverse map does not know them. An accept writes them; a night that is no longer held (rejected, or
-   replaced by a later run that passed) has its staged rows deleted at the next run's start.
+   replaced by a later run that passed) has its staged rows deleted at the next run's start. The staging is a store
+   of the erasure registry (D-465) with its own clear: the opt-out worker deletes an opted-out patient's staged
+   rows (`pid_pending`), so it adds nothing to the erasure owed.
 5. **The data-operations row is opened at the start** (`DataOps.open_night`: `LANDED`, the attempt known from the
    first minute) and advanced as the night goes: the gate's outcome, then each publish step in `detail.publish`,
    then `PUBLISHED` with the night's audit event (`record_night` closes the row it was given instead of inserting

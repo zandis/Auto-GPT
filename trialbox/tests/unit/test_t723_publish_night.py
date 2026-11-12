@@ -270,6 +270,31 @@ def test_the_pid_map_is_written_after_the_gate_and_a_rejected_nights_numbers_are
     assert _staged(cfg) == {} and not _resolves(cfg, "10000002")
 
 
+def test_an_opt_out_takes_the_patient_out_of_the_staging(tmp_path: Path) -> None:
+    """The staging is a store like any other (D-465): the opt-out worker's clear deletes the opted-out patient's
+    staged chart number and identity, and its verify reads the store back."""
+    from types import SimpleNamespace
+
+    from datacore.optout_worker import clear_pending, verify_pending
+    from tb_common.optout import OptOutRegister
+
+    lakes = _Lakes(tmp_path / "lake")
+    cfg = _cfg(tmp_path, lakes)
+    held = _night(tmp_path, "n1", [_row("D1", "2026-09-01")], ["10000001", "10000002"])
+    assert run_ingest(cfg, "csv", held, snapshot=N1, load_fhir=False, validator=_Bad()).held  # type: ignore[arg-type]
+    assert _staged(cfg) == {N1: 2}
+    reg = OptOutRegister()
+    try:
+        env: Any = SimpleNamespace(register=reg)
+        out = frozenset({pid_for_mrn(KEY, "10000002")})
+        assert verify_pending(out, env) == {"pidmap.pending": 1}
+        assert clear_pending(out, env) == {"staged": 1}
+        assert verify_pending(out, env) == {"pidmap.pending": 0} and _staged(cfg) == {N1: 1}
+        assert clear_pending(out, env) == {"staged": 0}  # idempotent
+    finally:
+        reg.close()
+
+
 # ------------------------------------------------------------------------------------------- acceptance 3: accept
 def _held_night(tmp_path: Path, cfg: AdapterConfig) -> Any:
     assert run_ingest(cfg, "csv", _night(tmp_path, "n1", [_row("D1", "2026-09-01")], ["10000001"]), snapshot=N1,

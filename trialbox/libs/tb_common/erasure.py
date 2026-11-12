@@ -92,6 +92,12 @@ CLEARS: dict[str, Clear] = {
             "VecStore.delete_patient: the chunks and every vector no other chunk uses (D-439)",
         ),
         Clear(
+            "pid_pending",
+            f"{_W}:clear_pending",
+            f"{_W}:verify_pending",
+            "the staged chart number and identity of the patient go; a later night stages them again (D-489)",
+        ),
+        Clear(
             "profile",
             f"{_W}:clear_profile",
             f"{_W}:verify_profile",
@@ -194,9 +200,9 @@ TABLES: dict[str, Entry] = {
     **_each("terminology", ("concept", "release"), _REFDATA),
     "pidmap.pid_map": _keep("D-441", "the chart number must still be recognised at the door to honour the opt-out"),
     "pidmap.pid_alias": _keep("D-441", "a merged chart's opt-out hides the surviving pseudonym (append-only)"),
-    "pidmap.pending": _owed(
+    "pidmap.pending": _erase(
+        "pid_pending",
         "a night's chart numbers and identities, encrypted, until the night is published or dropped (D-489)",
-        "the staged rows of an opted-out patient (they go with the night: published, or dropped at the next run)",
     ),
     "pidmap.identity": _owed("the encrypted identity of the patient", "the crypto-shred of the opted-out identity"),
     "pidmap.site_key": _none("the site key's fingerprint"),
