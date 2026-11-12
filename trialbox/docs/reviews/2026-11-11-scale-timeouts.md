@@ -503,8 +503,9 @@ nothing limits how often a job starts again, and nothing orders the night.
 
 ## 6. Proposed cards
 
-Numbers are the next free in `docs/plan/28-master-plan-v6.md` (T-687 on; T-699 is taken) and
-`docs/decisions/REGISTRY.md` (D-448 on) at the time of writing. No row is reserved by this review.
+The cards are in `docs/plan/28-master-plan-v6.md` §6.2.10 (T-687 to T-704; T-699 was taken) and the four decision
+numbers are reserved in `docs/decisions/REGISTRY.md` (D-448 to D-451). Every finding is a row of
+`docs/validation/problems.csv` (PRB-010 to PRB-049).
 
 | Card | What | Findings | Decision |
 | --- | --- | --- | --- |
