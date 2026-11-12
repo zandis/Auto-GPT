@@ -896,10 +896,19 @@ def _stage14(work: Path, box: Any) -> Stage:
 
     s = Stage("14 ClinicalTrials.gov offline: the reference data pack")
     t = time.perf_counter()
-    tar = rf.build(rf.sample_raw(work / "refdata" / "raw"), work / "refdata", "20261109", sample=True)
+    raw = rf.sample_raw(work / "refdata" / "raw")
+    tar = rf.build(raw, work / "refdata", "20261109", sample=True)
+    # what the pack must hold follows the samples laid out, not a number kept here: an item with a sample, or one
+    # derived from an item with a sample (a count written here went stale when the pack gained the CMS map, D-592)
+    want = sorted(x.id for x in rf.SOURCES if (raw / x.id).is_dir() or (raw / (x.derived_from or "-")).is_dir())
     with rd.opened(tar) as pack:
         m = rd.verify(pack)
-        s.check("the pack verifies: every file's sha256 and record count", len(m["sources"]) == 15, m["pack_id"])
+        got = sorted(x["id"] for x in m["sources"])
+        s.check(
+            "the pack verifies: every file's sha256 and record count",
+            got == want and "ctgov" in got,
+            f"{m['pack_id']}: {len(got)} items, differs from the samples in {sorted(set(got) ^ set(want))}",
+        )
         s.check("each source has its URL, date, sha256, count, licence, terms and attribution",
                 all(x["url"] and x["download_sha256"] and x["attribution"] for x in m["sources"]))  # fmt: skip
         with rd.RefStore() as st:
