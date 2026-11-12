@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
+  "head": "e3ac1779aac2e0f5e13be8d94578e15142dc6697",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
+  "reason": "D-442 (T-207): no eGFR under 18 (catalogue egfr_ckd_epi_2021 and egfr_jsn_2009: age < 18, do not compute); an eGFR criterion of a patient under 18 at the index date is unknown with derived_adult_only instead of met or not met",
   "ref_date": "2026-11-01",
   "ruleset": "GOUT-COH",
   "ruleset_version": "1.0.0",
@@ -67,7 +67,7 @@
   "ssmix2-jp": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "e5551b0cd7a2b08977f96556c538b20ac224c76e1d36d9bae228e5ed07cf45c1",
+   "outcomes_sha": "873927ce8437d07eb46e543a24d3181189b918131a740094c582f7fc12396417",
    "patients": 400,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -100,9 +100,9 @@
      "unknown": 0
     },
     "GOUT-COH-INC-05": {
-     "met": 83,
-     "not_met": 120,
-     "unknown": 197
+     "met": 81,
+     "not_met": 117,
+     "unknown": 202
     },
     "GOUT-COH-INC-06": {
      "met": 90,
@@ -122,11 +122,12 @@
     "034ca5970393eb79513ec5eba57470d2",
     "4919811fdedc03f2c0937ec59da8bc66",
     "4dedd303d6ca946521256323e5c2bbec",
+    "b4a1b842b6cc4358865fa8b73e7c8d6c",
     "c2bb3196003046cdd98e2ac10edce5a6",
     "d47858b4b25b344806b8fb1efb63cedd"
    ],
-   "candidates": 6,
-   "outcomes_sha": "e9f2780ded6b7770d7771197d255beeea4431ba39c6bbca4d0dc57ef3d30f5f0",
+   "candidates": 7,
+   "outcomes_sha": "7a94347e274deb151a6727329fdc0d966a3ecbb5598de9dc3cc76fb1918322a3",
    "patients": 2500,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -159,9 +160,9 @@
      "unknown": 10
     },
     "GOUT-COH-INC-05": {
-     "met": 486,
-     "not_met": 766,
-     "unknown": 1248
+     "met": 472,
+     "not_met": 737,
+     "unknown": 1291
     },
     "GOUT-COH-INC-06": {
      "met": 524,
@@ -180,12 +181,13 @@
     "034ca5970393eb79513ec5eba57470d2",
     "4dedd303d6ca946521256323e5c2bbec",
     "8b85e2b3a8c24b78bc02d836acbf72fc",
+    "b4a1b842b6cc4358865fa8b73e7c8d6c",
     "c2bb3196003046cdd98e2ac10edce5a6",
     "d47858b4b25b344806b8fb1efb63cedd",
     "d591edeb5920715e0bd200fdec855805"
    ],
-   "candidates": 6,
-   "outcomes_sha": "1167f3672a6f9669664e0d0ba73e1ee3863e0037d02e8a1fcd02f63d79c500b7",
+   "candidates": 7,
+   "outcomes_sha": "49335badd162276146e16103bbd7442bd95c1313814ab0a0b8613090b21575bd",
    "patients": 2500,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -218,9 +220,9 @@
      "unknown": 10
     },
     "GOUT-COH-INC-05": {
-     "met": 477,
-     "not_met": 669,
-     "unknown": 1354
+     "met": 464,
+     "not_met": 641,
+     "unknown": 1395
     },
     "GOUT-COH-INC-06": {
      "met": 450,
@@ -241,10 +243,11 @@
     "40f417a15d121a2877536fe48fb00bc3",
     "5da59ec8f2dc09e59b6e020fb24839c5",
     "77388c7f746504c417b7f990151b35df",
-    "bad926ed536872ce7d0d835f3f854fdd"
+    "bad926ed536872ce7d0d835f3f854fdd",
+    "c3a18f529c61537ffd914ef5a70bf6e9"
    ],
-   "candidates": 6,
-   "outcomes_sha": "46ea03676430c7bb54f89e5298384583d5aea884af4b0210c13f3f512f7ead3f",
+   "candidates": 7,
+   "outcomes_sha": "f3d360f6dd80a52a623bbd0aa266094dbe3b149cac17d729872b79dccb3d4926",
    "patients": 2500,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -277,9 +280,9 @@
      "unknown": 10
     },
     "GOUT-COH-INC-05": {
-     "met": 538,
-     "not_met": 718,
-     "unknown": 1244
+     "met": 526,
+     "not_met": 684,
+     "unknown": 1290
     },
     "GOUT-COH-INC-06": {
      "met": 545,

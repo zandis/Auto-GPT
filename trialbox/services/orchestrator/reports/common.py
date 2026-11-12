@@ -37,6 +37,7 @@ class ReportMeta:
     locale: str = "zh-TW"
     contact: str = ""
     clock: str = ""  # non-empty when the box's clock was pinned (test stack): printed so a reader never mistakes it
+    notice: str = ""  # D-442: printed under the list's footer, e.g. scores not verified for this snapshot
 
     @property
     def footer(self) -> str:

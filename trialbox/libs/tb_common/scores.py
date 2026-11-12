@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable, Mapping
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,15 @@ ENGINE: dict[str, str] = {
     "das28_crp": "rheum.das28_crp",
     "egfr_ckd_epi": "neph.egfr_ckd_epi_2021",
     "egfr_jsn": "neph.egfr_jsn_2009",
+}
+
+# D-442: a criterion's score (the IR's ``derived``) -> the engine scores whose definitions it follows. ``egfr``
+# (approved before D-149) is CKD-EPI 2021; ``das28`` is DAS28-ESR at a visit with an ESR, else DAS28-CRP. A score with
+# no catalogue definition in :data:`ENGINE` (BMI, BASDAI, ASDAS) pins nothing.
+FOLLOWS: dict[str, tuple[str, ...]] = {
+    "egfr": ("egfr_ckd_epi",),
+    "das28": ("das28_esr", "das28_crp"),
+    **{s: (s,) for s in ENGINE},
 }
 
 # catalogue item id (items.csv) -> derived.py component
@@ -116,4 +126,38 @@ def worked_examples(score: str) -> list[dict[str, Any]]:
         expected = [float(v) for k, v in (ex.get("expected") or {}).items() if num(v) and k in names]
         if len(expected) == 1 and inputs and all(num(v) or isinstance(v, str) for v in inputs.values()):
             out.append({"inputs": dict(inputs), "expected": expected[0], "source": ex.get("source")})
+    return out
+
+
+def pins(criterion_scores: Iterable[str]) -> dict[str, dict[str, str]]:
+    """D-442: the ``derived_pins`` an approval writes: for every engine score the criteria use (:data:`FOLLOWS`), the
+    definition version and the sha256 of its YAML as the investigator approved them."""
+    out: dict[str, dict[str, str]] = {}
+    for score in sorted({e for s in criterion_scores for e in FOLLOWS.get(s, ())}):
+        d = definition(score)
+        out[score] = {"def_version": str(d["def_version"]), "sha256": str(d["sha256"])}
+    return out
+
+
+def pin_fields(pin: Any) -> dict[str, Any]:
+    """A pin as a plain mapping (``def_version``, ``sha256``): from the manifest's model or from a dict."""
+    if isinstance(pin, Mapping):
+        return dict(pin)
+    return {"def_version": getattr(pin, "def_version", None), "sha256": getattr(pin, "sha256", None)}
+
+
+def pin_drift(pinned: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    """D-442: each pinned definition the box no longer computes as approved: ``newer`` (another version), ``changed``
+    (the same version, another text) or ``unknown`` (no such score on this box). Empty when every pin holds."""
+    out: list[dict[str, Any]] = []
+    for score, raw in sorted((pinned or {}).items()):
+        pin = pin_fields(raw)
+        if score not in ENGINE:
+            out.append({"id": score, "pinned": pin.get("def_version"), "active": None, "state": "unknown"})
+            continue
+        d = definition(score)
+        if d["def_version"] != pin.get("def_version"):
+            out.append({"id": score, "pinned": pin.get("def_version"), "active": d["def_version"], "state": "newer"})
+        elif d["sha256"] != pin.get("sha256"):
+            out.append({"id": score, "pinned": pin.get("def_version"), "active": d["def_version"], "state": "changed"})
     return out

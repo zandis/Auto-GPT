@@ -66,6 +66,8 @@ T: dict[str, dict[str, str]] = {
         "inclusions are unknown, not failed; a person checks).",
         "screen.budget_hit": "This run's limit of {max} model calls was reached: the notes of {n} patients were not "
         "all read. They are listed for review, never under criteria not matched. Run again with a higher max_pairs to read them.",
+        "screen.scores_unverified": "Scores not verified for snapshot {snapshot}: the score batch did not finish, so "
+        "criteria on eGFR, DAS28, CDAI and SDAI read as needing information on this list.",
         "screen.judging.none": "Note criteria were not read (no model on this box): they go to review.",
         "screen.judging.pair": "Note criteria: read by {judge} and checked by {verifier}; a note answer puts a patient "
         "under criteria not matched only when both models agree.",
@@ -181,6 +183,8 @@ T: dict[str, dict[str, str]] = {
         "screen.unknown_system": "不明なコード体系の病名・薬剤：{n} 人（コードによる選択基準は「不明」とし、基準に合致しないとはせず担当者が確認）。",
         "screen.budget_hit": "今回の実行のモデル呼び出し上限 {max} 回に達しました：{n} 名は記録を読み切れていません。"
         "基準に合致しないとはせず確認待ちに回します。max_pairs を上げて再実行すると読みます。",
+        "screen.scores_unverified": "スナップショット {snapshot} のスコアは未確認です（スコアの一括計算が完了していません）。"
+        "このリストでは eGFR、DAS28、CDAI、SDAI を使う基準は「情報が必要」です。",
         "screen.judging.none": "記録基準は読み取っていません（この装置にモデルなし）：確認待ちに回します。",
         "screen.judging.pair": "記録基準：{judge} が読み取り {verifier} が検証。両モデルが一致したときのみ、記録の回答で基準に合致しないとします。",
         "screen.judging.single": "記録基準：{judge} のみが読み取り。この実行では記録の回答で基準に合致しないとした患者はいません（{why}）。"
@@ -292,6 +296,7 @@ T: dict[str, dict[str, str]] = {
         "screen.unknown_system": "疾病或藥品使用無法辨識的代碼系統：{n} 位（其結構化納入條件列為未知，不列為未符合條件，由人員確認）。",
         "screen.budget_hit": "本次執行已達模型呼叫上限 {max} 次：{n} 位病人的病歷未全部判讀，列為待確認，不列為未符合條件。"
         "提高 max_pairs 後重新執行即可判讀。",
+        "screen.scores_unverified": "快照 {snapshot} 的分數未經確認（分數批次計算未完成）：本名單中使用 eGFR、DAS28、CDAI、SDAI 的條件列入「需要更多資訊」。",
         "screen.judging.none": "病歷條件未經判讀（本機沒有模型）：列為待確認。",
         "screen.judging.pair": "病歷條件：由 {judge} 判讀、{verifier} 驗證；兩個模型一致時病歷判讀才會將病人列為未符合條件。",
         "screen.judging.single": "病歷條件：僅由 {judge} 判讀；本次執行中病歷判讀未將任何人列為未符合條件（{why}）。病歷條件不符的病人列入待確認。",
