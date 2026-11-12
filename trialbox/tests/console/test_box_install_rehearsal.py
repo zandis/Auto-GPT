@@ -144,3 +144,82 @@ def test_a_stopped_install_stops_the_box_installer(tmp_path: Path) -> None:
     r = subprocess.run(["bash", str(t["deploy"] / "box-install.sh"), "--yes"], cwd=tmp_path, env=t["env"],
                        capture_output=True, text=True, timeout=60, check=False)  # fmt: skip
     assert r.returncode == 1 and "usage" in r.stderr
+
+
+# ------------------------------------------------------------------------------------------------ BOX-WSL2 (D-571)
+def _until_code(proc: subprocess.Popen[str], seconds: float = 60) -> str:
+    """The script's output up to the line that holds the one-time code."""
+    assert proc.stdout is not None
+    seen = ""
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        line = proc.stdout.readline()
+        if not line:
+            break
+        seen += line
+        if "One-time code:" in line:
+            return seen
+    raise AssertionError(f"no code on the output:\n{seen[-2000:]}")
+
+
+def test_under_wsl2_the_code_is_on_the_output_and_no_issue_file_is_written(tmp_path: Path) -> None:
+    """No screen shows /etc/issue.d under WSL2; the Windows installer's window shows the script's output."""
+    t: dict[str, Any] = _tree(tmp_path)
+    proc = subprocess.Popen(["bash", str(t["deploy"] / "box-install.sh"), str(t["bundle"]), "--yes"], cwd=tmp_path,
+                            env={**t["env"], "TB_BOX_WSL2": "1"}, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True)  # fmt: skip
+    try:
+        out = _until_code(proc)
+        assert "TrialBox set-up:  https://box1.local/login/first-run" in out
+        assert re.search(r"One-time code:\s+\S+", out)
+        assert (t["fr"] / "code.json").is_file()  # the wizard is waiting for that code
+        assert not t["issue"].exists() and not t["issue"].parent.exists()
+    finally:
+        proc.kill()
+        proc.communicate()
+
+
+def test_off_wsl2_the_code_is_on_the_output_and_on_the_boxs_screen(tmp_path: Path) -> None:
+    t: dict[str, Any] = _tree(tmp_path)
+    proc = subprocess.Popen(["bash", str(t["deploy"] / "box-install.sh"), str(t["bundle"]), "--yes"], cwd=tmp_path,
+                            env={**t["env"], "TB_BOX_WSL2": "0"}, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True)  # fmt: skip
+    try:
+        out = _until_code(proc)
+        screen = _wait(t["issue"], proc)
+        code = re.search(r"One-time code:\s+(\S+)", out)
+        assert code and code.group(1) in screen and "https://box1.local/login/first-run" in screen
+    finally:
+        proc.kill()
+        proc.communicate()
+
+
+def test_the_wsl2_switch_reads_the_kernel_and_its_knob_takes_two_values(tmp_path: Path) -> None:
+    text = (ROOT / "deploy" / "box-install.sh").read_text(encoding="utf-8")
+    start = text.index("# BOX-WSL2 (D-571)")
+    block = text[start : text.index("\n", text.index("TB_BOX_WSL2 is 0 or 1", start)) + 1]
+
+    def wsl2(release: str, knob: str | None) -> subprocess.CompletedProcess[str]:
+        script = (
+            f'set -euo pipefail\ndie() {{ echo "box-install: $*" >&2; exit 1; }}\nuname() {{ echo "{release}"; }}\n'
+            f'{block}\necho "WSL2=$WSL2"\n'
+        )
+        env = {"PATH": os.environ["PATH"], **({} if knob is None else {"TB_BOX_WSL2": knob})}
+        return subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True, check=False)
+
+    assert wsl2("6.6.87.2-microsoft-standard-WSL2", None).stdout.strip() == "WSL2=1"
+    assert wsl2("5.15.0-Microsoft", None).stdout.strip() == "WSL2=1"
+    assert wsl2("6.8.0-45-generic", None).stdout.strip() == "WSL2=0"
+    assert wsl2("6.8.0-45-generic", "1").stdout.strip() == "WSL2=1"
+    assert wsl2("6.6.87.2-microsoft-standard-WSL2", "0").stdout.strip() == "WSL2=0"
+    r = wsl2("6.8.0-45-generic", "yes")
+    assert r.returncode == 1 and "TB_BOX_WSL2 is 0 or 1" in r.stderr
+    # the host's zone: Windows keeps it under WSL2, and one line says so
+    zone = text[text.index('TZ_NEW="$(') :]
+    zone = zone[zone.index('if [ "$WSL2" = 1 ]') : zone.index("chown ")]
+    assert "Windows keeps the clock and the time zone" in zone and zone.index("timedatectl set-timezone") > zone.index(
+        "elif "
+    )
+    # the two lines the Windows installer reads (lane W, tests/unit/test_windows_box_install.py)
+    assert "\\n  TrialBox is ready: https://%s" in text
+    assert "\n  TrialBox is running.\n" in (ROOT / "deploy" / "install.sh").read_text(encoding="utf-8")

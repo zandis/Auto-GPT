@@ -107,6 +107,8 @@ and `deploy/.env` rewritten from the answers, the install's passwords kept), set
 installs the backup schedule and runs the host check. On a box the inner install does not stop when the backup
 schedule cannot be installed yet (a fresh host has no alert route): it is a line in the install's FAIL list, the
 stack runs and the wizard is served (OPS-003, D-566); `install.sh` without `TB_BOX` still stops there.
+Under WSL2 (the Windows form; the script reads the kernel's release) the address and the code are
+printed and not written to the box's screen file, and the host's time zone is left to Windows (D-571).
 **Prepared image:** Aimedics runs the same script with
 `--prepare` before shipping; it stops before the code and enables `trialbox-firstrun.service`, which at the site's
 first boot runs `deploy/box-install.sh --firstrun` (the code on the screen, the wizard, the apply). The rehearsal of
