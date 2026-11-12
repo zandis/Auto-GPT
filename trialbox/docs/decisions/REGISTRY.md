@@ -264,3 +264,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-449 | reserved | T-689 | held for T-689: what a batch model call does on a refusal or an outage: wait and retry bounded per job, the failure share checked while the job runs, the pair and token budgets (F-04, F-13, F-16; T-698 reads it too) |
 | D-450 | reserved | T-693 | held for T-693: the ingest gate's validation sample: an absolute cap per resource type beside the 1 % (F-06) |
 | D-451 | reserved | T-704 | held for T-704: the night as a chain: order of ingest, weekly jobs, backup and retention; the microbatch allowance and its sharing (F-32, F-33) |
+| D-462 | reserved | T-722 | the lake: one `flock` (`lake/.rebuild.lock`) for rebuild, hold, release and pruning; holds checked again at the swap, a held snapshot refused there (`SnapshotHeld`, nothing replaced); one rebuild per snapshot (`SnapshotBuilding`, "already building"); the site publish answers "building" (file `D-462-lake-rebuild-hold-lock.md`) |
