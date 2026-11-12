@@ -182,6 +182,10 @@ def resolve(dc: DataCore, cid: int, keep: str, by: str, at: str) -> dict[str, An
     if keep not in ("theirs", "trialbox"):
         raise DataError("DATA-CONFLICT", "keep is theirs or trialbox")
     s, rec, ev, f = c["study"], c["record"], c["event"], c["field"]
+    # D-582: the conflict is closed first, and only an open one can be. Of two people who resolve at once the
+    # second is refused here, before any value is written (the value and the conflict row never disagree)
+    if not dc.close_conflict(cid, keep, by, at):
+        raise DataError("DATA-CONFLICT", "no open conflict with that number")
     if keep == "theirs":
         dc.write(s, rec, ev, f, c["theirs"], by, at, f"resolve:{c['source']}", seen=c["theirs"])
         dc.mark(s, rec, ev, f, pushed=c["theirs"])
@@ -189,7 +193,6 @@ def resolve(dc: DataCore, cid: int, keep: str, by: str, at: str) -> dict[str, An
         dc.mark(s, rec, ev, f, seen=c["theirs"])
         if c["owner"] == TRIALBOX:
             dc.mark(s, rec, ev, f, pushed=c["theirs"])  # TrialBox's value differs from it: pushed on the next sync
-    dc.close_conflict(cid, keep, by, at)
     return {**c, "resolved": keep, "resolved_by": by, "resolved_at": at}
 
 

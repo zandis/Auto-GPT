@@ -65,6 +65,9 @@ services:
       - audit-data:/data/audit
       - ../.cache/test-secrets:/run/secrets/trialbox
   embed-service:
+    # ENG-002 (D-560): a synthetic stack says so. The base file leaves TB_ENV unset here, which is PRODUCTION, where
+    # the stub embedder is refused (D-429): `make up-test` stopped on it for two nights
+    environment: {TB_ENV: "${TB_ENV:-TEST}"}
     # ENG-003 (D-563): the hash embedder of a synthetic stack needs no library: the service image, not trialbox-embed
     image: ${TB_EMBED_IMAGE:-trialbox-py:1.0.0}
     build: {context: .., dockerfile: deploy/docker/python.Dockerfile}
