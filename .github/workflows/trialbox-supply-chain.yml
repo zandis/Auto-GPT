@@ -19,7 +19,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: trialbox-supply-chain-${{ github.ref }}
+  group: trialbox-supply-chain-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

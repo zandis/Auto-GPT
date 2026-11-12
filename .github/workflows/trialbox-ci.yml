@@ -10,6 +10,7 @@ name: TrialBox CI
 # The `changes` job decides instead; a job it skips reports "skipped", which satisfies a required check.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]  # D-564: marking ready starts the full tier
   push:
     branches: [master]
   workflow_dispatch:
@@ -18,7 +19,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: trialbox-ci-${{ github.ref }}
+  # one run per pull request (D-564): a new push cancels the old run of the same pull request
+  group: trialbox-ci-${{ github.event.pull_request.number || github.ref }}
   # a running push to master is never cancelled; a push run still waiting in the group is replaced by a newer push
   # (GitHub keeps one pending run per concurrency group), so master is checked at its newest commit
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -37,6 +39,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       trialbox: ${{ steps.diff.outputs.trialbox }}
+      # D-564: 'true' when the full tier runs: not on a draft pull request, except a merge train (train/*)
+      full: ${{ steps.tier.outputs.full }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -51,6 +55,22 @@ jobs:
           else
             echo "trialbox=false" >> "$GITHUB_OUTPUT"
           fi
+      # D-564: the tiers. Fast (every push): changes, lint, types, docs, contracts, data-scan, shell, trace,
+      # cross-card. Full (a pull request that is not a draft, a branch train/*, master, a run by hand): unit-shard,
+      # unit, property, goldens, e2e-simple, demo-boot, security, standards, images. tests/unit/test_ci_tiers.py
+      # holds the two lists; a new job is put in one.
+      - id: tier
+        working-directory: .
+        env:
+          EVENT: ${{ github.event_name }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          full=true
+          if [ "$EVENT" = pull_request ] && [ "$DRAFT" = true ]; then
+            case "$HEAD_REF" in train/*) ;; *) full=false ;; esac
+          fi
+          echo "full=$full" >> "$GITHUB_OUTPUT"
 
   lint:
     runs-on: ubuntu-latest
@@ -152,7 +172,7 @@ jobs:
   standards:
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.trialbox == 'true'
+    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
     timeout-minutes: 45
     env:
       TB_ENV: DEV
@@ -232,8 +252,12 @@ jobs:
     name: unit-shard (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
     needs: changes
-    if: needs.changes.outputs.trialbox == 'true'
-    timeout-minutes: 30  # each xdist worker starts its own throwaway cluster; the whole suite took 35 to 55 minutes on one runner
+    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
+    # D-564, from the shards' own times (142 green shard jobs of the 40 runs before 2026-11-12 14:00 UTC): the slowest
+    # shard (3/6) has a median of 24.8 minutes and reached 29.6; a slow runner took up to 1.5 times a shard's median
+    # (6/6: 18.6 against 12.4). 24.8 x 1.5 = 37.2, rounded up to the next five. At 30 a shard that had passed its
+    # tests was cancelled while it kept its record (#307). Measure again when the split or the suite changes.
+    timeout-minutes: 40
     # no service container: the tests start throwaway clusters from the runner's own PostgreSQL (tools/pglocal.py),
     # so pg_dump/pg_restore and the server are one version, as on a developer machine (a postgres:16 service with the
     # runner's newer client tools failed the backup tests on transaction_timeout)
@@ -296,7 +320,7 @@ jobs:
   unit:
     runs-on: ubuntu-latest
     needs: [changes, unit-shard]
-    if: ${{ !cancelled() && needs.changes.outputs.trialbox == 'true' }}
+    if: ${{ !cancelled() && needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true' }}
     timeout-minutes: 15
     steps:
       - name: Every shard passed
@@ -364,7 +388,7 @@ jobs:
   property:
     runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing
     needs: changes
-    if: needs.changes.outputs.trialbox == 'true'
+    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -397,7 +421,7 @@ jobs:
     name: ${{ matrix.lake_source == 'legacy' && 'e2e-simple' || 'e2e-simple (omop)' }}
     runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
     needs: changes
-    if: needs.changes.outputs.trialbox == 'true'
+    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -443,7 +467,7 @@ jobs:
     name: ${{ matrix.lake_source == 'legacy' && 'goldens' || 'goldens (omop)' }}
     runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
     needs: changes
-    if: needs.changes.outputs.trialbox == 'true'
+    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -490,7 +514,7 @@ jobs:
   security:
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.trialbox == 'true'
+    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -530,7 +554,7 @@ jobs:
   images:
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.trialbox == 'true'
+    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
     timeout-minutes: 15
     # D-206: gating since 2026-11-10; the first findings were triaged as inline ignores with a reason in each Dockerfile
     steps:
@@ -550,7 +574,7 @@ jobs:
   demo-boot:
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.trialbox == 'true'
+    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0

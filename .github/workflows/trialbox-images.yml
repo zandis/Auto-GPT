@@ -19,6 +19,7 @@ name: TrialBox image gates
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]  # D-564: marking ready starts the full tier
     paths:
       - "trialbox/uv.lock"
       - "trialbox/pyproject.toml"
@@ -38,11 +39,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: trialbox-images-${{ github.ref }}
+  group: trialbox-images-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   images:
+    # D-564: full tier: not on a draft pull request, except a merge train
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false || startsWith(github.head_ref, 'train/')
     strategy:
       fail-fast: false
       matrix:
