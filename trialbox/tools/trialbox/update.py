@@ -1211,6 +1211,26 @@ class ComposeBox(_DockerImages):
             svc_secrets.ensure_actor_sign_key(self.deploy)
         return made
 
+    def set_roles(self) -> None:
+        """T-718 (D-486, the review's H1): the role script before the migrate step, as `install.sh` runs it. A box
+        updated in place otherwise keeps a schema under its old group, with the service as its owner. The script
+        is idempotent and reads the passwords from the database container's own environment."""
+        if not self.env.get("TB_DB_URL", ""):  # as migrate_owned: a box that never ran install.sh's database step
+            return
+        self.run(self._c("exec", "-T", "db", "/docker-entrypoint-initdb.d/30-service-roles.sh"),
+                 timeout=int(os.environ.get("TB_INSTALL_UP_TIMEOUT", "900")))  # fmt: skip
+
+    def migrate_owned(self) -> None:
+        """T-718 (D-486): the schemas no service owns are made by the box's admin before the services start, in a
+        one-off orchestrator container of the new image (``python -m orchestrator.migrate``). The admin's URL
+        travels in the environment (``-e NAME`` without a value), never on the command line. The database is up: an
+        update stops the services only."""
+        url = self.env.get("TB_DB_URL", "")
+        if not url:  # a box that never ran install.sh's database step: nothing to do here
+            return
+        self.run(self._c("run", "--rm", "--no-deps", "-T", "-e", "TB_DB_URL", "orchestrator",
+                         "python", "-m", "orchestrator.migrate"), env={"TB_DB_URL": url}, timeout=900)  # fmt: skip
+
     def pre_start(self) -> None:
         """The host-side steps before the stack starts, run by the release whose tree is now in force
         (``tools/trialbox/prestart.py``): this process is the installed, older release's, and a step the new release
@@ -1239,8 +1259,11 @@ class ComposeBox(_DockerImages):
             print(line)  # each step and what it did, in the operator's log
 
     def restart(self, plan: Plan) -> None:
-        # new images: the containers are recreated and every service runs its migrations at start (tb_common.db)
+        # new images: the containers are recreated and every service runs its migrations at start (tb_common.db);
+        # the schemas with an owner role (D-486) first, as the admin, once the host-side steps are done (the db is up)
         self.pre_start()
+        self.set_roles()
+        self.migrate_owned()
         t = os.environ.get("TB_INSTALL_UP_TIMEOUT", "900")
         pull = os.environ.get("TB_INSTALL_PULL") or "never"  # as install.sh: every image from a bundle (D-176)
         if pull not in ("never", "missing"):

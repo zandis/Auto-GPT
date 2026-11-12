@@ -10,6 +10,10 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- Database roles (T-718, D-486): the EDC schema has an owner role no service can become; the orchestrator writes its
+  rows and can no longer drop, disable or alter the triggers that make its trail tables append-only. The schema's
+  tables are made by the box's admin before the services start (`install.sh`, `trialbox update`, or by hand
+  `python3 -m tools.trialbox migrate`); after a restore run the role script, then that command.
 - Chart number to pseudonym (T-719, D-487): the orchestrator gives the pseudonym of a chart number only to a
   signed-in person with the right (the opt-out register, a registry row typed by chart number), at most
   `TB_TO_PID_MAX_PER_HOUR` an hour per person (unset: the value of `TB_REVEAL_MAX_PER_HOUR`), and records each one
