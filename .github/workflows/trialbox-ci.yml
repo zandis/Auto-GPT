@@ -128,6 +128,8 @@ jobs:
         run: .venv/bin/python -m tools.decisions_index --check
       - name: licence register (every shipped data file has a row; no SNOMED CT; model licence rows; T-617b, D-342)
         run: PYTHONPATH=libs:services:. .venv/bin/python -m tools.licence_register --check
+      - name: limits lint (every timeout over 60 s and every LIMIT literal in services/ has a reason; OD-10, T-687, D-471)
+        run: PYTHONPATH=libs:services:. .venv/bin/python -m tools.limits_lint
 
   contracts:
     runs-on: ubuntu-latest

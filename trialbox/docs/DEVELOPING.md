@@ -87,6 +87,25 @@ A push starts one of two tiers. `tests/unit/test_ci_tiers.py` holds the lists; a
 * **Decisions are files**: `docs/decisions/D-nnn-<slug>.md` and a row in `docs/decisions/REGISTRY.md` (D-306, D-311).
   `docs/DECISIONS.md` is frozen.
 
+## The scale gate and the limits lint
+
+OD-10 (TB-PLAN-06.1): every time limit, memory cap and count in the product is derived from the hardware, the model's
+measured speed or the size of the data, or it is a declared setting with a reason. Two checks hold it (T-687, D-471):
+
+* **The limits lint** (`python -m tools.limits_lint`, CI job `docs`). A new `timeout=` over 60 s or a new `LIMIT n` /
+  `limit=n` literal in `services/` fails until it has a line in `tools/limits_allow.yaml` whose reason names its
+  scale-review finding (`F-nn`), the card that removes it, or why it is not a cut. A card that removes a limit removes
+  its line in the same pull request (a stale line fails too). `--list` prints what it finds.
+* **The scale gate** (`tests/perf/test_scale_gate.py`, nightly job `scale-50k` of `trialbox-e2e.yml`). The night at
+  50,000 synthetic patients: ingest, the lake rebuild through the site publish, the screen with the slow model
+  stand-in (seconds per call, a 40 s outage, a restart) and the backup, each part in its own process under the
+  `mem_limit` of its compose service, enforced by a cgroup (`systemd-run`). Today's failures are listed in `EXPECTED`
+  of `tools/scale_gate.py` with their findings and cards (empty since T-689: F-01, F-02, F-05 and F-04 were removed when T-690, T-691, T-692 and T-689 fixed them): they show as
+  XFAIL and keep the job green; the card that fixes one removes its line, because a pass of a listed check fails the
+  job. A small run on this machine: `TB_ENV=DEV TB_TZ=Asia/Taipei PYTHONPATH=libs:services:. .venv/bin/python -m
+  tools.scale_gate --patients 300` (no cgroup here: the memory is measured and a part over its cap is killed). The
+  gate's own logic runs on every pull request at 200 patients (`tests/unit/test_scale_gate_logic.py`).
+
 ## Operations drills
 
 Every site page of the RUNBOOK names its drill, in a line `**Drill (T-213b):**` with the name of a test. T-213b
