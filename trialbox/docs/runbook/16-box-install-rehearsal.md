@@ -109,6 +109,8 @@ schedule cannot be installed yet (a fresh host has no alert route): it is a line
 stack runs and the wizard is served (OPS-003, D-566); `install.sh` without `TB_BOX` still stops there.
 Under WSL2 (the Windows form; the script reads the kernel's release) the address and the code are
 printed and not written to the box's screen file, and the host's time zone is left to Windows (D-571).
+When the answers are applied the script writes `deploy/site/box/applied`; a start that finds it (the window
+closed before the last line) shows no new code and finishes the set-up (D-576).
 **Prepared image:** Aimedics runs the same script with
 `--prepare` before shipping; it stops before the code and enables `trialbox-firstrun.service`, which at the site's
 first boot runs `deploy/box-install.sh --firstrun` (the code on the screen, the wizard, the apply). The rehearsal of

@@ -7,7 +7,7 @@
 | 02:00 | INGEST: adapter to FHIR store and lake, 1 % validator sample, snapshot pruning | job list, `ingest_report.json` |
 | 03:00 | REDCap read-back (console timer) | the study's Sources page |
 | before the night's model jobs | the pair canary (54 questions); model jobs start only when it passes | `selftest.passed` in the audit |
-| 05:00 | RETENTION: attachments 90 days, outputs 365 days, mail logs by country | `retention_<date>.json` |
+| 05:00 | RETENTION: attachments 90 days, outputs 365 days, mail logs by country. The lists an open study's next micro-batch reads are kept whatever their age (`kept_for_open_studies`; D-458) | `retention_<date>.json` |
 | 07:00, 07:30 | morning mail N1 (coordinator) and N2 (investigator), console timers | Notices received |
 | Mon 03:00, 03:30 | MICROBATCH and NAV per ruleset | mail |
 | Mon 06:00 | the weekly PI sample of ten "criteria not matched" patients per study (orchestrator, `schedule.not_matched_sample`; D-446) | `notmatched.sample` in the audit |

@@ -1213,6 +1213,10 @@ class RebuildRequest(BaseModel):
     )
     snapshot: date_aliased
     ndjson_dir: str | None = None
+    promote: bool = True
+    """
+    false: build and judge the night, do not make it CURRENT yet (T-723, D-489: the publish promotes last, POST /promote)
+    """
 
 
 class RebuildResult(BaseModel):
