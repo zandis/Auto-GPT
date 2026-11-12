@@ -22,14 +22,17 @@ repository yet, so the AD-specific report rows (screen-failure default, AD capab
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import secrets
 import shutil
 import sys
+import tempfile
 from datetime import date
 from pathlib import Path
 from typing import Any
 
+from tb_common import service_auth as sa
 from tb_common.service_auth import actor_header, auth_headers
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,10 +46,23 @@ RUN = date(2026, 10, 5)  # a Monday, the synthetic reference date
 
 def orch_client(app: Any) -> Any:
     """The demo box's client for the in-process orchestrator. D-114: it authenticates like a real console, with a
-    per-process service token on every changing call."""
+    per-process service token on every changing call. D-464 (T-713): outside DEV and TEST the orchestrator admits only
+    a caller it can name, and the demo image runs with no ``TB_ENV`` (PRODUCTION by the one rule), so the box gets a
+    token registry naming that token as the console's, and the console's actor key, as ``trialbox secrets init``
+    writes them on a box (unless a registry is configured already)."""
     from fastapi.testclient import TestClient
 
-    os.environ.setdefault("TB_SERVICE_TOKEN", secrets.token_hex(16))
+    tok = os.environ.setdefault("TB_SERVICE_TOKEN", secrets.token_hex(16))
+    if not (os.environ.get(sa.REGISTRY_ENV) or "").strip():
+        d = Path(tempfile.mkdtemp(prefix="tb-demo-tokens-"))
+        reg, keys = d / "tokens.json", d / "actor-keys"
+        reg.write_text(json.dumps({"schema": sa.REGISTRY_SCHEMA, "services": {"console": sa.token_hash(tok)}}),
+                       encoding="utf-8")  # fmt: skip
+        keys.write_text(sa.actor_key(tok).hex() + "\n", encoding="utf-8")
+        for f in (reg, keys):
+            f.chmod(0o600)
+        os.environ[sa.REGISTRY_ENV] = str(reg)
+        os.environ.setdefault(sa.ACTOR_KEYS_ENV, str(keys))
     return TestClient(app, headers=auth_headers())
 
 
@@ -82,6 +98,18 @@ class InprocBackend:
             except (ValueError, AttributeError):
                 detail = r.text
             raise Refused(detail[:300])
+        job = Job.model_validate(r.json())
+        self.box.orch.drain()
+        return self.get_job(job.job_id) or job
+
+    def retry_scheduled_job(self, job_id: str, *, reply_to: str, by: str, role: str) -> Any:
+        from console.backend import Refused
+        from tb_contracts import Job
+
+        # T-746 (D-474): as the HTTP backend does: the job's id and the reply mailbox, the person and role signed
+        r = self.c.post(f"/jobs/{job_id}/retry", json={"reply_to": reply_to}, headers=actor_header(by, role=role))
+        if r.status_code != 200:
+            raise Refused(r.text[:300])
         job = Job.model_validate(r.json())
         self.box.orch.drain()
         return self.get_job(job.job_id) or job

@@ -12,6 +12,7 @@ from typing import Any
 
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
+from tb_common.authz import permit, role_allowed
 from tb_contracts import Job, JobCreate
 
 from console import about, command
@@ -19,6 +20,24 @@ from console.auth import AuthError, Session, source_of
 from console.backend import Refused, Unavailable
 from console.home import Helpers
 from console.models_view import build_rows
+
+# the orchestrator's in-process principals (orchestrator.core.SYSTEM_SENDERS; D-464): a retry names a person instead
+INTERNAL_PRINCIPALS = ("scheduler", "system")
+
+
+def scheduler_job(job: Job) -> bool:
+    """A job the box's own scheduler started, or an administrator's retry of one (T-746, D-474: the orchestrator's
+    retry sets ``parent_job_id``; it checks the chain again itself)."""
+    return job.requested_by.strip().lower() == "scheduler" or bool(job.parent_job_id)
+
+
+def may_retry(role: str, job: Job) -> bool:
+    """A failed scheduler job: the matrix row ``job.retry_scheduled`` (D-474); any other: the role may start its type
+    (D-146), as the orchestrator checks again."""
+    if scheduler_job(job):
+        return permit(role, "job.retry_scheduled").allowed
+    return role_allowed(role, job.type)
+
 
 _ULID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
 TERMINAL = ("done", "failed")
@@ -378,6 +397,9 @@ def register(app: FastAPI, h: Helpers) -> None:
                 flt=flt,
                 terminal=TERMINAL,
                 can_cancel=callable(getattr(bk, "cancel_job", None)),
+                # T-746 (D-474): every failed scheduler job (job.retry_scheduled); a person's job when the role may
+                # start its type (D-146)
+                can_retry={j.job_id for j in sel if j.state == "failed" and may_retry(sess.user.role, j)},
             )
         else:
             ctx.update(sources=sources_rows())
@@ -447,19 +469,50 @@ def register(app: FastAPI, h: Helpers) -> None:
         )
         return RedirectResponse("/admin?tab=jobs&notice=cancelled", status_code=303)
 
+    def retry_scheduled(sess: Session, job: Job) -> Response:
+        """T-746 (D-474): the orchestrator copies the failed scheduler job (type, study, options, inputs) and checks
+        the signed role, the job's state and origin, and that none of its type and study is unfinished; the console
+        sends the job's id and the administrator's reply mailbox only."""
+        if not sess.user.mailbox:
+            raise h.problem(400, "request.refused", reason="this account has no mailbox (console.cli set-mailbox)")
+        fn = getattr(bk, "retry_scheduled_job", None)
+        if not callable(fn):
+            raise Unavailable("this backend cannot retry a scheduled job")
+        try:
+            new = fn(job.job_id, reply_to=sess.user.mailbox, by=h.actor(sess), role=sess.user.role)
+        except Refused as exc:
+            raise h.problem(400, "request.refused", reason=str(exc)) from exc
+        au.append(
+            "console.operate",
+            actor=h.actor(sess),
+            job_id=new.job_id,
+            ruleset=job.ruleset,
+            detail={"action": "retry", "from": job.job_id, "type": job.type},
+        )
+        return RedirectResponse("/admin?tab=jobs&notice=retried", status_code=303)
+
     @app.post("/admin/jobs/{job_id}/retry")
     def job_retry(request: Request, job_id: str, csrf: str = Form(""), confirm: str = Form("")) -> Response:
         sess, job = job_for_admin(request, job_id, csrf)
         if job.state != "failed":
             raise h.problem(409, "admin.jobs.not_retryable")
+        if not may_retry(sess.user.role, job):
+            raise h.problem(403, "forbidden")
         if confirm != "yes":
             return h.page(request, "admin_confirm.html", sess, job=job, action="retry")
+        if scheduler_job(job):
+            return retry_scheduled(sess, job)
+        requested_by = job.requested_by
+        if requested_by.strip().lower() in INTERNAL_PRINCIPALS:  # T-713 (D-464): never named over HTTP
+            if not sess.user.mailbox:
+                raise h.problem(400, "request.refused", reason="this account has no mailbox (console.cli set-mailbox)")
+            requested_by = sess.user.mailbox  # the administrator retries it, under the administrator's role
         req = JobCreate(
             type=job.type,
             ruleset=job.ruleset,
             options=dict(job.options or {}),
             comment=job.comment,
-            requested_by=job.requested_by,
+            requested_by=requested_by,
             inputs=list(job.inputs or []) or None,
         )
         try:

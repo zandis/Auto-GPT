@@ -159,6 +159,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             if not _BUNDLE.match(bundle):
                 raise h.problem(400, "request.refused", reason="choose a staged bundle")
             args["bundle"] = bundle
+        if action == "backup":  # D-455: the snapshot backup; no service is stopped or paused
+            args["mode"] = "running"
         if action in [r.get("action") for r in ops.pending()]:
             raise h.problem(409, "ops.busy")
         if confirm != "yes" and h.confirm is not None:  # WS-14.7: each action names its consequence first
