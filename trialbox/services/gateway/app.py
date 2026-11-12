@@ -113,6 +113,8 @@ def served_problems(
     for b in gw.registry.builds:
         if not b.pinned or b.serving in ("stub", "hosted") or b.status.value in ("retired", "suspended"):
             continue
+        if b.family == "embedder":  # ENG-003 (D-563): the embed service lists no models; it checks its own pin
+            continue
         for ep_name, name in sorted(b.served.items()):
             ep = gw.policy.endpoints.get(ep_name)
             if not name or ep is None or ep.zone != "perimeter":

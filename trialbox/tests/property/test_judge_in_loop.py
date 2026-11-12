@@ -30,6 +30,7 @@ import hashlib
 import json
 import random
 from collections.abc import Callable, Iterator
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -357,7 +358,12 @@ def _ctx(lake: Any, llm: Any, verifier: Any, *, job_id: str = "J-706", options: 
         metrics=lambda **kw: None,
         today=lambda: IDX,
         orch=SimpleNamespace(
-            db=SimpleNamespace(pool=lambda rid: list(pool or []), find=lambda **kw: [], pool_upsert=upsert),
+            db=SimpleNamespace(
+                pool=lambda rid: list(pool or []),
+                find=lambda **kw: [],
+                pool_upsert=upsert,
+                locked=lambda name: nullcontext(),
+            ),
             audit=SimpleNamespace(append=lambda *a, **kw: None),
             _now=lambda: datetime(2026, 10, 5, 2, 0, tzinfo=UTC),
         ),

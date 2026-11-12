@@ -31,7 +31,7 @@ import re
 from typing import Any
 from xml.etree import ElementTree as ET  # building only; nothing is parsed here
 
-from datacore.export import BASE_EVENT, ODM_NS, _sub, _texts, item_def_attrs
+from datacore.export import BASE_EVENT, ODM_NS, _sub, _texts, item_def_attrs, write_xml
 from datacore.forms import Field
 
 from edc.cdash import sds_name
@@ -187,8 +187,7 @@ def build(study: str, fields: dict[str, Field], items: list[dict[str, Any]], val
                     fdata = _sub(se, "FormData", FormOID=f"Form.{fm}",
                                  **({"FormRepeatKey": str(form_rep)} if form_rep else {}))  # fmt: skip
                     _items(_sub(fdata, "ItemGroupData", ItemGroupOID=group_oid[fm]), fs, here, signatures, words)
-    ET.indent(root, space=" ")
-    return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode") + "\n"
+    return write_xml(root)
 
 
 def _items(igd: ET.Element, fs: list[Field], here: dict[str, dict[str, Any]], signatures: dict[int, dict[str, Any]],

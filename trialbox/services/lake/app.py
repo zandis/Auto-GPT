@@ -233,7 +233,14 @@ def rebuild(req: RebuildRequest) -> JSONResponse:
     the records are read (no record, a drop, the OMOP store's) is the job's state ``refused``."""
     snap = req.snapshot.isoformat()
     try:
-        job = lake().start_rebuild(snap, embedder(), Path(req.ndjson_dir) if req.ndjson_dir else None, spawn=_spawn)
+        job = lake().start_rebuild(
+            snap,
+            embedder(),
+            Path(req.ndjson_dir) if req.ndjson_dir else None,
+            promote=req.promote,
+            spawn=_spawn,
+            check=not req.promote,  # T-723 (D-489): built to be promoted last, judged as such
+        )
     except LakeBusy as exc:  # D-462: held by a job or already building; nothing written, try again later
         raise HTTPException(status_code=409, detail=str(exc), headers={BUSY_HEADER: exc.reason}) from exc
     except RebuildError as exc:  # D-271: a missing feed is refused; CURRENT stays
@@ -245,6 +252,21 @@ def rebuild(req: RebuildRequest) -> JSONResponse:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         raise
     return JSONResponse(job, status_code=202, headers={"Location": f"/rebuild/{snap}"})
+
+
+@app.post("/promote")
+def promote(body: dict[str, Any]) -> dict[str, Any]:
+    """T-723 (D-489): the last step of a publish. Makes the built snapshot the served one; ``promoted`` is false,
+    and nothing changed, when a newer night is served. 404: no such built snapshot."""
+    try:
+        snap = date.fromisoformat(str(body.get("snapshot") or "")).isoformat()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="snapshot must be a date") from exc
+    try:
+        done = lake().promote_built(snap)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"promoted": done, "current": lake().current()}
 
 
 @app.get("/rebuild/{snapshot}")

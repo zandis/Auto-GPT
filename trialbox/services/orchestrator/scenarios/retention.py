@@ -54,6 +54,25 @@ def prune_mail_logs(before_iso: str, before_day: Any) -> dict[str, int]:
     return out
 
 
+def kept_for_open_studies(ctx: Ctx) -> set[str]:
+    """T-704 (D-458; scale review F-34): the stored lists the next micro-batch of each open study with a candidate
+    pool will read (:func:`orchestrator.scenarios.microbatch.study_sources`). They are kept whatever their age: a
+    study whose last SCREEN is over a year old lost them, and every micro-batch of it failed from then on. A study
+    whose state cannot be read is treated as open (keep rather than delete)."""
+    from orchestrator import scheduler
+    from orchestrator.scenarios.microbatch import study_sources
+
+    keep: set[str] = set()
+    for rid in ctx.orch.db.pool_rulesets():
+        try:
+            is_open = scheduler.study_state(rid) == scheduler.OPEN
+        except Exception:
+            is_open = True
+        if is_open:
+            keep |= set(study_sources(ctx.orch.db, rid))
+    return keep
+
+
 def run(ctx: Ctx) -> Outcome:
     ret = ctx.cfg.settings.retention
     days = {
@@ -64,9 +83,14 @@ def run(ctx: Ctx) -> Outcome:
     ctx.state("running")
     now = ctx.orch._now()
     deleted: dict[str, list[str]] = {}
+    keep = kept_for_open_studies(ctx)
+    kept: list[str] = []
     for prefix, key in PREFIXES:
         for obj in ctx.store.list(prefix):
             if expired(obj.last_modified, now, days[key]):
+                if obj.key in keep:  # an open study's next micro-batch reads it (D-458)
+                    kept.append(obj.key)
+                    continue
                 deleted.setdefault(obj.key.split("/", 2)[1] if obj.key.count("/") >= 2 else prefix, []).append(obj.key)
     count = 0
     for group, keys in sorted(deleted.items()):
@@ -93,6 +117,7 @@ def run(ctx: Ctx) -> Outcome:
     report: dict[str, Any] = {
         "run_at": now.isoformat(timespec="seconds"),
         "objects_deleted": count,
+        "kept_for_open_studies": len(kept),  # past their age, kept: an open study's next micro-batch reads them
         "by_prefix": {p: sum(1 for ks in deleted.values() for k in ks if k.startswith(p)) for p, _ in PREFIXES},
         "pool_rows_deleted": pools["pool"],
         "feedback_rows_deleted": pools["feedback"],

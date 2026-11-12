@@ -74,6 +74,18 @@ BEGIN
                                       WHEN 'f' THEN 'FOREIGN TABLE' ELSE 'TABLE' END,
                      sch, obj.relname, grp);
     END LOOP;
+    -- D-573: functions, procedures and aggregates too (a restore makes them trialbox's, as it does the tables);
+    -- what an extension owns stays the extension's
+    FOR obj IN
+      SELECT p.oid::regprocedure::text AS sig, p.prokind FROM pg_proc p
+      WHERE p.pronamespace = sch::regnamespace AND p.proowner <> grp::regrole
+        AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid
+                                                    AND d.deptype = 'e')
+    LOOP
+      EXECUTE format('ALTER %s %s OWNER TO %I',
+                     CASE obj.prokind WHEN 'p' THEN 'PROCEDURE' WHEN 'a' THEN 'AGGREGATE' ELSE 'FUNCTION' END,
+                     obj.sig, grp);
+    END LOOP;
   END LOOP;
   FOR svc IN SELECT jsonb_object_keys(access) LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = svc) THEN

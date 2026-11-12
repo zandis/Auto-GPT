@@ -48,7 +48,8 @@ so a second candidate must be on record (PLAN-036, RSK-60).
 ## Remains
 
 - The full revision id and the sha256 of the judge's template, from a download of the developer's repository (no
-  network from here). Until then `pin_model` records the site's file as `trust: first_use`.
+  network from here). Until then `pin_model` records the site's file as `trust: first_use`. (Done by HW-005, D-567: the
+  registry names the full revision and the sha256.)
 - A test that renders one judge prompt with the developer's template and compares it with the upstream output
   (DEP-007 acceptance), once the file is in hand. The developer's `tokenizer_config.json` is not used yet.
 - A serving record taken with `--chat-template` (the committed one is from 2026-11-08, before it), then the judge

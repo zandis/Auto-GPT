@@ -28,7 +28,8 @@ REQUIRED: dict[str, list[str]] = {
     "Patient": ["id", "birthDate", "gender"],
     "Encounter": ["id", "subject", "class", "period.start", "serviceType", "participant"],
     "Appointment": ["id", "participant", "start", "status", "serviceType"],
-    "Condition": ["id", "subject", "code", "onsetDateTime|recordedDate", "clinicalStatus"],
+    # D-587: a diagnosis whose status code nobody knows has no clinical status and is "unconfirmed" instead
+    "Condition": ["id", "subject", "code", "onsetDateTime|recordedDate", "clinicalStatus|verificationStatus"],
     "Observation": ["id", "subject", "code", "effectiveDateTime", "category"],
     "MedicationRequest": [
         "id",
