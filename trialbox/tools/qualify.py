@@ -440,6 +440,26 @@ def gpu_versions() -> dict[str, str]:
     return {"driver": first[0].strip(), "cuda": cuda, "gpu": first[-1].strip()}
 
 
+def model_server_image(root: Path = ROOT) -> dict[str, str]:
+    """HW-003 (D-569): the model server image this release pins (``deploy/images.lock``): reference and digest. A
+    record names it, so a shipped record is used only on a box that runs the same image."""
+    lock = json.loads((root / "deploy" / "images.lock").read_text(encoding="utf-8"))
+    entry = (lock.get("third_party") or {}).get("vllm") or {}
+    return {"image": str(entry.get("image") or ""), "digest": str(entry.get("digest") or "")}
+
+
+def pinned_template_sha256(build_id: str) -> str | None:
+    """The sha256 of the chat template in ``build_id``'s site pin (``TB_REGISTRY_OVERRIDE``, else the box's
+    ``deploy/site/registry.site.yaml``); None when the build has no pin or is served with its own template."""
+    path = Path(os.environ.get("TB_REGISTRY_OVERRIDE") or ROOT / "deploy" / "site" / "registry.site.yaml")
+    if not path.is_file():
+        return None
+    doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    entry = (doc.get("builds") or {}).get(build_id) or {}
+    sha = ((entry.get("weights") or {}).get("chat_template") or {}).get("sha256")
+    return str(sha) if sha else None
+
+
 def step_serving_record(ctx: Ctx) -> StepResult:
     from gateway.policy import RoutingPolicy
     from tb_llm.prompt_registry import default_registry
@@ -456,6 +476,9 @@ def step_serving_record(ctx: Ctx) -> StepResult:
         "registry_version": str(registry_doc().get("version") or ""),
         "prompt_registry_version": reg.version,
         "prompts": prompts,
+        # HW-003 (D-569): what a shipped record is matched on at a site, beside the weights
+        "model_server_image": model_server_image(),
+        "chat_template_sha256": pinned_template_sha256(ctx.builds["judge"].build_id),
     }
     ctx.state["serving"] = detail
     problems = []
