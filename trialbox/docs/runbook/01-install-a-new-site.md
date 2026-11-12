@@ -57,7 +57,9 @@ for every image a bundle carries; the dated exceptions and open findings are in 
    and container toolkit when there is a GPU (GB10: driver 580.142, held). See [Security §1](../SECURITY.md#1-the-host).
 2. **Images.** `tools/apply_update.sh trialbox-<version>.tar` loads images, models and approved rulesets. A
    development host can build instead: `make images` (or `make images-multiarch` for x86 and GB10).
-   The judge's chat template goes beside the weights, at
+   The embedder's folder is `deploy/models/embedder`: the whole folder of the release (the registry's
+   `e-embed-1` row: the publisher's revision without its three pickle files; README and images included), because
+   its pin is the digest of every file in it (ENG-003, D-563). The judge's chat template goes beside the weights, at
    `deploy/models/chat-templates/gemma-4-26b-a4b-it/chat_template.jinja`: the developer's file at the revision
    `models/registry.yaml` names (`chat_template`, D-392). Compose starts the judge with `--chat-template` on it
    (`JUDGE_CHAT_TEMPLATE` moves it), and the install pins its sha256 with the weights; a judge without it is not
