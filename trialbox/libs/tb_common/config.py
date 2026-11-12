@@ -554,6 +554,11 @@ DECLARED: dict[str, Declared] = {
     "TB_JOB_POLL_SECONDS": Declared("float", "5", "longest pause between reads of a polled job's state (D-472)"),
     "TB_JP_INGREDIENT_ATC": Declared("str", "", "compiler: Japanese ingredient to ATC map"),
     "TB_JVM_IMAGE": Declared("str", "", "platform: JVM image"),
+    "TB_JOB_MAX_RESTARTS": Declared(
+        "int",
+        "3",
+        "orchestrator: restarts an interrupted job survives; the job may be what stops the box (D-456)",
+    ),
     "TB_KEK_FILE": Declared("path", "", "the key-encryption key file"),
     "TB_KEK_NEW_PASSPHRASE": Declared("str", "", "keys tool: new KEK passphrase (secret)"),
     "TB_KEK_PASSPHRASE": Declared("str", "", "KEK passphrase (secret)"),
@@ -578,6 +583,11 @@ DECLARED: dict[str, Declared] = {
     ),
     "TB_LLM_CONTEXT": Declared("int", "", "direct model call: context size (DEV)"),
     "TB_LLM_MODE": Declared("str", "vllm", "model client (vllm, llamacpp, openai, stub)"),
+    "TB_LLM_OUTAGE_WAIT_S": Declared(
+        "float",
+        "1800",
+        "jobs: seconds a job waits in model outages in all; a server reloads in minutes (0: no wait; D-456)",
+    ),
     "TB_LLM_TIMEOUT_S": Declared("float", "240", "model callers: read timeout to the gateway (T-608)"),
     "TB_LOG_DIR": Declared("path", "deploy/logs", "host folder of collected logs"),
     "TB_LOG_MAX_FILE": Declared("int", "10", "container log files kept per service (provisional, D-389)"),
@@ -721,7 +731,9 @@ DECLARED: dict[str, Declared] = {
     "TB_SCREEN_ENGINE": Declared("str", "sql", "SCREEN engine (sql or fhir)"),
     "TB_SCREEN_JUDGE": Declared("str", "agreement", "SCREEN judge mode (agreement or single)"),
     "TB_SCREEN_LLM_CONCURRENCY": Declared("int", "", "SCREEN: model calls side by side (1 to 64)"),
-    "TB_SCREEN_MAX_PAIRS": Declared("int", "", "SCREEN: model call budget per job"),
+    "TB_SCREEN_MAX_PAIRS": Declared(
+        "int", "", "SCREEN: model call budget per job (unset: the population's own pairs; D-456)"
+    ),
     "TB_SCREEN_PIPELINE": Declared("str", "cascade", "SCREEN pipeline (cascade or v1)"),
     "TB_SCREEN_WORKERS": Declared("int", "", "two-phase: verifier calls side by side"),
     "TB_SECRETS_DIR": Declared("path", "/run/secrets/trialbox", "folder of the services' secrets"),

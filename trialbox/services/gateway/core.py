@@ -100,9 +100,12 @@ INTERACTIVE_TIMEOUT_S = 30.0
 BUSY_MESSAGE = "the model is busy (a screening run is using the GPU); try again in a few minutes"
 UNAVAILABLE_MESSAGE = "the model server does not answer (its breaker is open); try again later"
 # Retry-After (seconds) on the 503 refusals (T-608)
-RETRY_AFTER = {"model_busy": "5", "model_asleep": "5", "model_unavailable": "30"}
+# ``upstream_down`` (T-689 review, D-456): a batch caller may send the call again; the breaker turns a server that
+# stays down into ``model_unavailable`` after a few of these
+RETRY_AFTER = {"model_busy": "5", "model_asleep": "5", "model_unavailable": "30", "upstream_down": "5"}
 _BUSY = ": busy"  # an error the caller may retry soon (an interactive timeout, no slot)
 _OPEN = ": unavailable (breaker open)"
+_RETRIED = " (tried twice)"  # a server error or a transport error that the one retry on the same build met again
 # T-601: a transport error or HTTP 5xx is tried once more on the same build after this pause
 RETRY_DELAY_S = 0.5
 # the body fields a caller may send on to the model server (T-605, D-431, review LLM-019); sampling is then forced
@@ -522,7 +525,13 @@ class Gateway:
                 raise Refusal("model_busy", BUSY_MESSAGE, status=503)
             raise Refusal("model_unavailable", UNAVAILABLE_MESSAGE, status=503)
         if upstream_errors:
-            raise Refusal("upstream_failed", "; ".join(upstream_errors)[:500], status=502)
+            # T-689 review (D-456): the server did not answer and the retry met the same (5xx, a dropped or refused
+            # connection): ``upstream_down``, the one 502 a batch caller sends again. A timeout (the server may still
+            # be working on the call), a malformed answer or a spent budget stays ``upstream_failed``, as a
+            # configuration fault (400, 404) does: never sent again by anyone
+            down = all(e.endswith((_BUSY, _OPEN, _RETRIED)) for e in upstream_errors)
+            code = "upstream_down" if down else "upstream_failed"
+            raise Refusal(code, "; ".join(upstream_errors)[:500], status=502)
         first = registry_refusals[0] if registry_refusals else None
         raise Refusal(first.reason if first else "no_eligible_build", str(first) if first else "no candidate")
 
@@ -692,7 +701,7 @@ class Gateway:
                     f"{ep.name}: HTTP {resp.status_code}{hint}; a configuration fault, no other build is tried",
                     status=502,
                 )
-            tried = " (tried twice)" if resp.status_code >= 500 else ""
+            tried = _RETRIED if resp.status_code >= 500 else ""
             errors.append(f"{ep.name}: HTTP {resp.status_code}{hint}{tried}")
             return None
         try:
@@ -789,7 +798,7 @@ class Gateway:
                     continue  # T-601: a transport error is tried once more on the same build
                 if breaker is not None:
                     breaker.failure("connection errors")
-                errors.append(f"{name}: {type(e).__name__} (tried twice)")
+                errors.append(f"{name}: {type(e).__name__}{_RETRIED}")
                 return None
             call.latency_ms = round((time.perf_counter() - t0) * 1000, 2)
             if resp.status_code >= 500 and attempt == 1:

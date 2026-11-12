@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import threading
 from collections.abc import Callable
@@ -236,6 +237,9 @@ class NoteJudge:
     disagreements: int = 0  # decided answers the verifier did not confirm (became unknown)
     same_model: int = 0  # decided answers the "verifier" gave as the judge's own model (became unknown, D-276)
     held: int = 0  # note questions not put to a model because note reading was held (T-609)
+    # T-689 (D-456, review G1-3): model calls this judge has in flight together. Above 0 the share rule of
+    # check_judge is also applied while the job runs (running_share_min); 0: only at the job's end, as before
+    in_flight: int = 0
     # the counters are bumped from the evaluator's worker threads: one lock, so the >10 % model-down rule and the
     # audit counts never lose an increment (review F-27)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
@@ -244,6 +248,11 @@ class NoteJudge:
         with self._lock:
             for name, n in inc.items():
                 setattr(self, name, getattr(self, name) + n)
+            failures, total = self.failures, self.calls + self.failures
+        # T-689 (G1-3): past the share while the job runs, it stops now, not hours later with the same verdict
+        watched = inc.get("failures") and self.in_flight > 0 and total >= running_share_min(self.in_flight)
+        if watched and failures > MAX_JUDGE_FAILURE_SHARE * total:
+            raise share_exceeded(failures, total, running=True)
 
     @property
     def mode(self) -> str:
@@ -432,18 +441,30 @@ class NoteJudge:
 MAX_JUDGE_FAILURE_SHARE = 0.1
 
 
+def running_share_min(in_flight: int) -> int:
+    """Note checks a job must have behind it before the share rule is applied while it runs (T-689, D-456): the
+    number at which two full rounds of in-flight failures are exactly the share, so one event that fails every call
+    in flight never stops a job by itself."""
+    return math.ceil(2 * max(1, in_flight) / MAX_JUDGE_FAILURE_SHARE)
+
+
+def share_exceeded(failures: int, total: int, running: bool = False) -> Exception:
+    from orchestrator.clients import StepFailed
+
+    so_far = " so far" if running else ""
+    return StepFailed(
+        "judging",
+        f"The model did not answer {failures} of {total} note checks{so_far}, so the note-based criteria could not "
+        f"be judged. Nothing was sent; send the request again when the model is back.",
+    )
+
+
 def check_judge(judge: NoteJudge | None) -> None:
     if judge is None or not judge.failures:
         return
     total = judge.calls + judge.failures
     if judge.failures > MAX_JUDGE_FAILURE_SHARE * total:
-        from orchestrator.clients import StepFailed
-
-        raise StepFailed(
-            "judging",
-            f"The model did not answer {judge.failures} of {total} note checks, so the note-based criteria could not "
-            f"be judged. Nothing was sent; send the request again when the model is back.",
-        )
+        raise share_exceeded(judge.failures, total)
 
 
 def postprocess(d: dict[str, Any], excerpts: list[dict[str, Any]], source: str = "chunks") -> NoteResult:
