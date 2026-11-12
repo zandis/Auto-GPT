@@ -82,6 +82,11 @@ def provenance_problems(doc: dict[str, Any]) -> list[str]:
             for key in ("source", "revision", "file"):
                 if not tpl.get(key):
                     bad.append(f"{bid}: chat_template.{key} is null")
+            # HW-005 (D-567): named in full, so the pin trusts no file at first use
+            if not re.fullmatch(r"[0-9a-f]{40}", str(tpl.get("revision"))):
+                bad.append(f"{bid}: chat_template.revision is not a full revision")
+            if not re.fullmatch(r"[0-9a-f]{64}", str(tpl.get("sha256"))):
+                bad.append(f"{bid}: chat_template.sha256 is not a sha256")
     return bad
 
 
@@ -223,13 +228,68 @@ def test_a_template_other_than_the_registrys_is_refused(tmp_path: Path, monkeypa
 
 
 def test_a_template_not_yet_fetched_is_recorded_on_first_use(tmp_path: Path) -> None:
-    """The committed row has no template sha256 (not fetched from here): the site's file is recorded, marked."""
-    row = _builds()[JUDGE]
-    assert row["chat_template"]["sha256"] is None
+    """A row with no template sha256 (one being prepared; no deployed row since HW-005): the site's file is
+    recorded, marked. The committed row names its hash, so the same file is refused for it."""
+    committed = _builds()[JUDGE]
+    row = {**committed, "chat_template": {**committed["chat_template"], "sha256": None}}
     f = tmp_path / "chat_template.jinja"
     f.write_text("synthetic", encoding="utf-8")
     got = pin_model.pin_template(JUDGE, row, f)
     assert got["trust"] == "first_use" and got["sha256"] == pin_model.file_sha256(f)
+    with pytest.raises(pin_model.PinError, match="is not the expected ae53464bf3be"):
+        pin_model.pin_template(JUDGE, committed, f)
+
+
+TEMPLATE_REVISION = "4d7ae4984b7db7de8f8457170b3f1a419ee76d52"
+TEMPLATE_SHA256 = "ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4"
+
+
+def test_hw005_every_judge_and_front_desk_row_names_the_template_by_its_hash() -> None:
+    """D-567: read from the developer's repository at this revision on 2026-11-12; one file for the seven rows."""
+    rows = [b for b in _builds().values() if b.get("chat_template")]
+    assert len(rows) == 7
+    for b in rows:
+        tpl = b["chat_template"]
+        assert (tpl["source"], tpl["revision"], tpl["sha256"]) == (
+            "google/gemma-4-26B-A4B-it", TEMPLATE_REVISION, TEMPLATE_SHA256,
+        ), b["build_id"]  # fmt: skip
+        assert b["provenance"]["base"] == {"repository": "google/gemma-4-26B-A4B-it", "revision": TEMPLATE_REVISION}
+    text = (ROOT / "models" / "registry.yaml").read_text(encoding="utf-8")
+    assert "pin_model records the site's file" not in text  # the old note of a hash still to come
+
+
+def test_hw005_a_deployed_row_without_the_template_hash_is_a_provenance_problem() -> None:
+    doc = copy.deepcopy(_doc())
+    b = next(x for x in doc["builds"] if x["build_id"] == JUDGE)
+    b["chat_template"]["sha256"] = None
+    b["chat_template"]["revision"] = "4d7ae4984b7d"
+    assert provenance_problems(doc) == [
+        f"{JUDGE}: chat_template.revision is not a full revision",
+        f"{JUDGE}: chat_template.sha256 is not a sha256",
+    ]
+
+
+def test_hw005_the_flag_stays_while_the_weight_folders_template_is_another_file() -> None:
+    """The measured record lists the weight folder's own chat_template.jinja. It is not the developer's file, so
+    compose keeps --chat-template; when the two hashes are equal the flag can go (D-567)."""
+    record = json.loads((ROOT / "deploy" / "measured" / "serving_config.rtxpro6000.json").read_text(encoding="utf-8"))
+    found: list[str] = []
+
+    def walk(v: object) -> None:
+        if isinstance(v, dict):
+            if v.get("path") == "chat_template.jinja" and v.get("sha256"):
+                found.append(str(v["sha256"]))
+            for x in v.values():
+                walk(x)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x)
+
+    walk(record)
+    assert found and found[0].startswith("94899c0f") and TEMPLATE_SHA256 not in found
+    for name in ("rtxpro6000", "gb10", "rtx5090", "shared-quota"):
+        compose = (ROOT / "deploy" / f"docker-compose.{name}.yml").read_text(encoding="utf-8")
+        assert "--chat-template=/models/${JUDGE_CHAT_TEMPLATE:-chat-templates/gemma-4-26b-a4b-it/" in compose, name
 
 
 def test_a_box_pinned_before_the_template_gets_it_added(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

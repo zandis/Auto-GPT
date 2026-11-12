@@ -37,8 +37,9 @@ developer's template at a pinned revision, a file under the models root that com
 ``--chat-template``. ``--chat-template FILE`` (and ``--install``, from ``JUDGE_CHAT_TEMPLATE`` or the row's ``file``)
 hashes it into the pin: ``weights.chat_template`` holds its path under the models root, sha256, source and revision,
 and ``manifests/<build_id>.template.sha256`` holds its ``sha256sum`` line. A file whose sha256 differs from the row's
-``chat_template.sha256`` is refused; while the row has none (not yet fetched from the publisher) the file is recorded
-as ``trust: first_use``. ``--install`` refuses a judge build whose template file is missing, because vLLM would not
+``chat_template.sha256`` is refused. Every deployed row names it (HW-005, D-567); a row that has none (one being
+prepared) gets the file recorded as ``trust: first_use``. ``--install`` refuses a judge build whose template file
+is missing, because vLLM would not
 start with the flag. The weight manifest and its digest are unchanged: the template is a second file of the pin.
 
 **The embedder** (T-607, D-429; LLM-014, DEP-010). The embedder is one build of the ``e-embed`` alias

@@ -129,13 +129,13 @@ builds:
       copy: publisher-quantisation
       source: nvidia/Gemma-4-26B-A4B-NVFP4
       revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
-      base: {repository: google/gemma-4-26B-A4B-it, revision: 4d7ae4984b7d}
+      base: {repository: google/gemma-4-26B-A4B-it, revision: 4d7ae4984b7db7de8f8457170b3f1a419ee76d52}
       licence_file: none-in-source  # no LICENSE file there (register row model-gemma-4-26b-a4b-nvfp4)
     chat_template:  # DEP-007: the developer's template, not the one in the NVFP4 folder; compose --chat-template
       source: google/gemma-4-26B-A4B-it
-      revision: 4d7ae4984b7d  # short id read 2026-11-10 (deep review 08); the full id is written at first download
+      revision: 4d7ae4984b7db7de8f8457170b3f1a419ee76d52
       file: chat-templates/gemma-4-26b-a4b-it/chat_template.jinja  # under the models root (JUDGE_CHAT_TEMPLATE)
-      sha256: null  # not fetched from here: pin_model records the site's file until the download fills it in
+      sha256: ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4  # HW-005 (D-567): the publisher's file at this revision, read 2026-11-12; 18,683 bytes
     quantisation: NVFP4 (NVIDIA release; measured 2026-11-08)
     context_length: 32768
     family: gemma
@@ -187,13 +187,13 @@ builds:
       copy: publisher-quantisation
       source: nvidia/Gemma-4-26B-A4B-NVFP4
       revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
-      base: {repository: google/gemma-4-26B-A4B-it, revision: 4d7ae4984b7d}
+      base: {repository: google/gemma-4-26B-A4B-it, revision: 4d7ae4984b7db7de8f8457170b3f1a419ee76d52}
       licence_file: none-in-source  # no LICENSE file there (register row model-gemma-4-26b-a4b-nvfp4)
     chat_template:  # DEP-007: the developer's template, not the one in the NVFP4 folder; compose --chat-template
       source: google/gemma-4-26B-A4B-it
-      revision: 4d7ae4984b7d  # short id read 2026-11-10 (deep review 08); the full id is written at first download
+      revision: 4d7ae4984b7db7de8f8457170b3f1a419ee76d52
       file: chat-templates/gemma-4-26b-a4b-it/chat_template.jinja  # under the models root (JUDGE_CHAT_TEMPLATE)
-      sha256: null  # not fetched from here: pin_model records the site's file until the download fills it in
+      sha256: ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4  # HW-005 (D-567): the publisher's file at this revision, read 2026-11-12; 18,683 bytes
     quantisation: NVFP4 (NVIDIA release; measured 2026-11-08)
     context_length: 32768
     family: gemma
@@ -219,13 +219,13 @@ builds:
       copy: publisher-quantisation
       source: nvidia/Gemma-4-26B-A4B-NVFP4
       revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
-      base: {repository: google/gemma-4-26B-A4B-it, revision: 4d7ae4984b7d}
+      base: {repository: google/gemma-4-26B-A4B-it, revision: 4d7ae4984b7db7de8f8457170b3f1a419ee76d52}
       licence_file: none-in-source  # no LICENSE file there (register row model-gemma-4-26b-a4b-nvfp4)
     chat_template:  # DEP-007: the developer's template, not the one in the NVFP4 folder; compose --chat-template
       source: google/gemma-4-26B-A4B-it
-      revision: 4d7ae4984b7d  # short id read 2026-11-10 (deep review 08); the full id is written at first download
+      revision: 4d7ae4984b7db7de8f8457170b3f1a419ee76d52
       file: chat-templates/gemma-4-26b-a4b-it/chat_template.jinja  # under the models root (JUDGE_CHAT_TEMPLATE)
-      sha256: null  # not fetched from here: pin_model records the site's file until the download fills it in
+      sha256: ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4  # HW-005 (D-567): the publisher's file at this revision, read 2026-11-12; 18,683 bytes
     quantisation: NVFP4 (NVIDIA release; measured 2026-11-08)
     context_length: 16384
     family: gemma
@@ -277,13 +277,13 @@ builds:
       copy: publisher-quantisation
       source: nvidia/Gemma-4-26B-A4B-NVFP4
       revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
-      base: {repository: google/gemma-4-26B-A4B-it, revision: 4d7ae4984b7d}
+      base: {repository: google/gemma-4-26B-A4B-it, revision: 4d7ae4984b7db7de8f8457170b3f1a419ee76d52}
       licence_file: none-in-source  # no LICENSE file there (register row model-gemma-4-26b-a4b-nvfp4)
     chat_template:  # DEP-007: the developer's template, not the one in the NVFP4 folder; compose --chat-template
       source: google/gemma-4-26B-A4B-it
-      revision: 4d7ae4984b7d  # short id read 2026-11-10 (deep review 08); the full id is written at first download
+      revision: 4d7ae4984b7db7de8f8457170b3f1a419ee76d52
       file: chat-templates/gemma-4-26b-a4b-it/chat_template.jinja  # under the models root (JUDGE_CHAT_TEMPLATE)
-      sha256: null  # not fetched from here: pin_model records the site's file until the download fills it in
+      sha256: ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4  # HW-005 (D-567): the publisher's file at this revision, read 2026-11-12; 18,683 bytes
     quantisation: NVFP4 (NVIDIA release; measured 2026-11-08)
     context_length: 16384
     family: gemma
@@ -309,13 +309,13 @@ builds:
       copy: publisher-quantisation
       source: nvidia/Gemma-4-26B-A4B-NVFP4
       revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
-      base: {repository: google/gemma-4-26B-A4B-it, revision: 4d7ae4984b7d}
+      base: {repository: google/gemma-4-26B-A4B-it, revision: 4d7ae4984b7db7de8f8457170b3f1a419ee76d52}
       licence_file: none-in-source  # no LICENSE file there (register row model-gemma-4-26b-a4b-nvfp4)
     chat_template:  # DEP-007: the developer's template, not the one in the NVFP4 folder; compose --chat-template
       source: google/gemma-4-26B-A4B-it
-      revision: 4d7ae4984b7d  # short id read 2026-11-10 (deep review 08); the full id is written at first download
+      revision: 4d7ae4984b7db7de8f8457170b3f1a419ee76d52
       file: chat-templates/gemma-4-26b-a4b-it/chat_template.jinja  # under the models root (JUDGE_CHAT_TEMPLATE)
-      sha256: null  # not fetched from here: pin_model records the site's file until the download fills it in
+      sha256: ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4  # HW-005 (D-567): the publisher's file at this revision, read 2026-11-12; 18,683 bytes
     quantisation: NVFP4 (NVIDIA release; measured 2026-11-08)
     context_length: 8192
     family: gemma
@@ -372,13 +372,13 @@ builds:
       copy: publisher-quantisation
       source: nvidia/Gemma-4-26B-A4B-NVFP4
       revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
-      base: {repository: google/gemma-4-26B-A4B-it, revision: 4d7ae4984b7d}
+      base: {repository: google/gemma-4-26B-A4B-it, revision: 4d7ae4984b7db7de8f8457170b3f1a419ee76d52}
       licence_file: none-in-source  # no LICENSE file there (register row model-gemma-4-26b-a4b-nvfp4)
     chat_template:  # DEP-007: the developer's template, not the one in the NVFP4 folder; compose --chat-template
       source: google/gemma-4-26B-A4B-it
-      revision: 4d7ae4984b7d  # short id read 2026-11-10 (deep review 08); the full id is written at first download
+      revision: 4d7ae4984b7db7de8f8457170b3f1a419ee76d52
       file: chat-templates/gemma-4-26b-a4b-it/chat_template.jinja  # under the models root (JUDGE_CHAT_TEMPLATE)
-      sha256: null  # not fetched from here: pin_model records the site's file until the download fills it in
+      sha256: ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4  # HW-005 (D-567): the publisher's file at this revision, read 2026-11-12; 18,683 bytes
     quantisation: NVFP4 (NVIDIA release; the same weights as the measured pair; NVFP4 under MIG unproven, RSK-43)
     context_length: null  # measured on the MIG instance (T-114, then the site's own at IQ); never assumed
     family: gemma
@@ -430,13 +430,13 @@ builds:
       copy: publisher-quantisation
       source: nvidia/Gemma-4-26B-A4B-NVFP4
       revision: a19cfe00be84568a6867111c9a68c9c44fdcffe6
-      base: {repository: google/gemma-4-26B-A4B-it, revision: 4d7ae4984b7d}
+      base: {repository: google/gemma-4-26B-A4B-it, revision: 4d7ae4984b7db7de8f8457170b3f1a419ee76d52}
       licence_file: none-in-source  # no LICENSE file there (register row model-gemma-4-26b-a4b-nvfp4)
     chat_template:  # DEP-007: the developer's template, not the one in the NVFP4 folder; compose --chat-template
       source: google/gemma-4-26B-A4B-it
-      revision: 4d7ae4984b7d  # short id read 2026-11-10 (deep review 08); the full id is written at first download
+      revision: 4d7ae4984b7db7de8f8457170b3f1a419ee76d52
       file: chat-templates/gemma-4-26b-a4b-it/chat_template.jinja  # under the models root (JUDGE_CHAT_TEMPLATE)
-      sha256: null  # not fetched from here: pin_model records the site's file until the download fills it in
+      sha256: ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4  # HW-005 (D-567): the publisher's file at this revision, read 2026-11-12; 18,683 bytes
     quantisation: NVFP4 (NVIDIA release; the same weights as the measured pair; NVFP4 under MIG unproven, RSK-43)
     context_length: null  # measured on the MIG instance (T-114, then the site's own at IQ); never assumed
     family: gemma
