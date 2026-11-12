@@ -231,10 +231,8 @@ class Gate:
             # synthetic DEV/TEST box; a named caller elsewhere is refused, so no-match is never "allowed"
             if caller is None or self._env() in OPEN_ENVS:
                 return None
-            why: tuple[str, str] | None = (NOT_ALLOWED, f"service {caller} may not call an undeclared route")
-            key = f"{method} ?"
-        else:
-            why = self.decide(caller, key)
+            key = f"{method} ?"  # in no row: a named service gets route_not_allowed, the shared token caller_unverified
+        why = self.decide(caller, key)
         if why is None:
             return None
         self.record(caller, key, why[0])

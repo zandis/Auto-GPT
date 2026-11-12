@@ -35,7 +35,11 @@ def test_changing_calls_need_the_token(client: TestClient, monkeypatch: pytest.M
     assert r.status_code == 403
     for path in ("/jobs", "/notices", "/jobs/J1/cancel", "/registry/X", "/studies"):
         assert client.post(path, json={}).status_code == 401, path
-    # with the token the call reaches the route (an unknown route answers 404, not 401/403)
+    # the token passes the token layer; in PRODUCTION the old shared token names no service, so the route gate of
+    # D-464 answers (403 caller_unverified), not the token layer (401)
+    r = client.post("/no-such-route", json={}, headers={sa.TOKEN_HEADER: TOKEN})
+    assert r.status_code == 403 and r.headers["X-TB-Refusal"] == "caller_unverified"
+    monkeypatch.setenv("TB_ENV", "TEST")  # on a TEST box the call reaches the router: an unknown route is 404
     assert client.post("/no-such-route", json={}, headers={sa.TOKEN_HEADER: TOKEN}).status_code == 404
 
 
@@ -62,6 +66,9 @@ def test_reads_need_the_token_too(client: TestClient, monkeypatch: pytest.Monkey
         assert client.get(path).status_code == 401, path
         assert client.get(path, headers={sa.TOKEN_HEADER: "wrong"}).status_code == 403, path
     assert client.head("/jobs").status_code == 401
+    r = client.get("/no-such-route", headers={sa.TOKEN_HEADER: TOKEN})  # past the token layer: D-464's gate answers
+    assert r.status_code == 403 and r.headers["X-TB-Refusal"] == "caller_unverified"
+    monkeypatch.setenv("TB_ENV", "TEST")
     assert client.get("/no-such-route", headers={sa.TOKEN_HEADER: TOKEN}).status_code == 404  # reached the router
 
 
