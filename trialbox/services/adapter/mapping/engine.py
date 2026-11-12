@@ -45,6 +45,7 @@ import csv
 import hashlib
 import hmac
 import json
+import math
 import re
 from collections import Counter
 from collections.abc import Callable, Iterator
@@ -192,6 +193,24 @@ class Mapping:
     version: str = ""
 
     @staticmethod
+    def _plausible_of(lk: dict[str, Any]) -> tuple[float, float] | None:
+        """A look-up row's own ``plausible_low`` / ``plausible_high``: both or neither, two finite numbers, low not
+        over high. Anything else is a ``MappingError``."""
+        low, high = (lk.get("plausible_low") or "").strip(), (lk.get("plausible_high") or "").strip()
+        if not low and not high:
+            return None
+        try:
+            span = float(low), float(high)
+        except ValueError:
+            span = float("nan"), float("nan")
+        if not (math.isfinite(span[0]) and math.isfinite(span[1]) and span[0] <= span[1]):
+            raise MappingError(
+                f"the plausible range of {lk.get('local_code')!r} needs two numbers, low then high "
+                "(plausible_low, plausible_high)"
+            )
+        return span
+
+    @staticmethod
     def _unit_spellings(path: Path, doc: Any) -> dict[str, str]:
         """``unit_spellings: {<as the source writes it>: <UCUM code>}``. The code must be one the shared unit table
         knows, and a spelling the table already reads must not be given another meaning: the mapping does not
@@ -207,6 +226,8 @@ class Mapping:
                 raise MappingError(f"{path}: unit_spellings {spelling!r}: {code!r} is not a UCUM code the box knows")
             if labvalue.ucum(spelling) not in (None, known):
                 raise MappingError(f"{path}: unit_spellings {spelling!r} already means {labvalue.ucum(spelling)}")
+            if out.get(key, known) != known:  # two spellings that fold to one cannot mean two units
+                raise MappingError(f"{path}: unit_spellings {spelling!r} is declared twice, as {out[key]} and {known}")
             out[key] = known
         return out
 
@@ -240,6 +261,8 @@ class Mapping:
             merged = {**base, **{k: v for k, v in doc.items() if k != "extends"}}
             merged["systems"] = {**(base.get("systems") or {}), **(doc.get("systems") or {})}
             merged["params"] = {**(base.get("params") or {}), **(doc.get("params") or {})}
+            if isinstance(base.get("unit_spellings"), dict) and isinstance(doc.get("unit_spellings") or {}, dict):
+                merged["unit_spellings"] = {**base["unit_spellings"], **(doc.get("unit_spellings") or {})}  # D-590
             merged["lookups"] = {**(base.get("lookups") or {}), **(doc.get("lookups") or {})}
             lookup_dirs = {
                 **{n: base_path.parent for n in (base.get("lookups") or {})},
@@ -274,6 +297,12 @@ class Mapping:
             if r.table not in (doc.get("tables") or {}):
                 raise MappingError(f"{path}: resource {r.type} uses undeclared table {r.table!r}")
             _known_codes_are_the_maps(path, r)
+        for name, lk in lookups.items():  # D-590: a range stated badly is found now, not row by row at night
+            for row in lk.rows.values():
+                try:
+                    cls._plausible_of(row)
+                except MappingError as exc:
+                    raise MappingError(f"{path}: look-up {name}: {exc}") from exc
         return cls(
             unit_spellings=cls._unit_spellings(path, doc.get("unit_spellings")),
             name=doc.get("name", path.stem),
@@ -656,16 +685,16 @@ class Mapper:
     def _plausible(lk: dict[str, Any]) -> tuple[float, float] | None:
         """The range a unit-less value of this look-up row may have, in the unit the look-up writes: the row's own
         ``plausible_low`` / ``plausible_high`` (the site's data), else the built-in one for its LOINC code."""
-        low, high = (lk.get("plausible_low") or "").strip(), (lk.get("plausible_high") or "").strip()
-        if low or high:
-            try:
-                return float(low), float(high)
-            except ValueError as exc:
-                raise MappingError(
-                    f"the plausible range of {lk.get('local_code')!r} needs two numbers (plausible_low, plausible_high)"
-                ) from exc
+        own = Mapping._plausible_of(lk)
+        if own is not None:
+            return own
         loinc = lk.get("code") if lk.get("system") == "loinc" else None
         return labvalue.plausible_range(loinc, lk.get("ucum"))
+
+    def _lab_code(self, lk: dict[str, Any], row: Row, args: dict[str, Any]) -> str:
+        """The look-up's own spelling of the lab code (one count per analyte, not per spelling of its code)."""
+        key = self.m.lookups[args["lookup"]].key
+        return str(lk.get(key) or row.get(args["key"]) or "").strip()
 
     def _b_lab_value(self, rs: ResourceSpec, row: Row, args: dict[str, Any]) -> Any:
         """``value[x]`` from a lab result using the lookup's ucum/factor/value_type/answers columns. With
@@ -685,7 +714,7 @@ class Mapper:
             loinc = lk.get("code") if lk.get("system") == "loinc" else None  # NEW-STD-4: IU/L as U/L for enzymes
             checked = labvalue.read(raw, self.m.unit_as_code(row[column]), source_unit, loinc)
             if checked.reason == labvalue.UNIT_MISMATCH:  # no value[x]: the engines read no value as unknown (D-130)
-                self._note_unmapped(rs.table, "unit_mismatch", str(row.get(args["key"]) or "").strip())  # D-590
+                self._note_unmapped(rs.table, "unit_mismatch", self._lab_code(lk, row, args))  # D-590
                 return {
                     "dataAbsentReason": {
                         "coding": [{"system": DATA_ABSENT, "code": "error"}],
@@ -732,8 +761,15 @@ class Mapper:
         if not (column and str(row.get(column) or "").strip()):
             span = self._plausible(lk)
             if span is not None and not span[0] <= float(val) <= span[1]:
-                self._note_unmapped(rs.table, "no_unit_implausible", str(row.get(args["key"]) or "").strip())
-                return {"valueString": str(raw)}
+                self._note_unmapped(rs.table, "no_unit_implausible", self._lab_code(lk, row, args))
+                # no value[x], as for a unit mismatch: a text value would be read back as a number by the lake
+                return {
+                    "dataAbsentReason": {
+                        "coding": [{"system": DATA_ABSENT, "code": "error"}],
+                        "text": labvalue.NO_UNIT_IMPLAUSIBLE,
+                    },
+                    "note": [{"text": str(raw).strip()}],
+                }
         # NEW-STD-4 (D-585): the unit is stored as its UCUM code, never as the spelling the look-up was typed in
         # (``×10^3/μL``): the engines read the code, not the spellings of the feed
         unit = labvalue.ucum(lk.get("ucum")) or lk.get("ucum") or ""

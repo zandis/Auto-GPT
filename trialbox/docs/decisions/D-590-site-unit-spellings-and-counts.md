@@ -31,11 +31,21 @@ became 88 mg/dL, `HbA1c 0.072` became 0.072 %.
    (`completeness.json`, `unmapped_codes.json`, the night's audit event) under the names `unit_mismatch` and
    `no_unit_implausible`. Counts only; the pairs of spellings are in the mapping check.
 4. **A value with no unit must be plausible in the unit it is read in.** For an analyte with a plausible range,
-   a unit-less value outside it has no number: it stays text (unknown to the engines) and is counted. The range
-   comes from the look-up (`plausible_low`, `plausible_high`, in the unit the look-up writes: the site's data) and
-   else from a short table for four analytes whose other common unit differs by an order of magnitude
-   (creatinine, urate, HbA1c, glucose: the ranges the sheet path already uses). A row that states its unit is
-   not range-checked here: its unit was checked.
+   a unit-less value outside it has no value at all (the same shape as a unit mismatch, reason
+   `no_unit_implausible`, the text as written kept in a note) and is counted. It is not kept as text: the lake
+   reads a text result back as a number. The range comes from the look-up (`plausible_low`, `plausible_high`,
+   in the unit the look-up writes: the site's data; a range stated badly stops the mapping from loading) and
+   else from a short table for four analytes (creatinine, urate, HbA1c, glucose: the ranges the sheet path
+   already uses). A row that states its unit is not range-checked here: its unit was checked.
+5. **What the range does and does not do.** It catches the gross cases (`CRE 88`, `HbA1c 0.072`, `HbA1c 53`,
+   `UA 360`). It does not catch every value in another unit: glucose `25` (mmol/L), urate `0.55` (mmol/L),
+   HbA1c `20` (mmol/mol) and creatinine `20` (µmol/L) lie inside and are given numbers, as before this card.
+   And a real extreme reported without a unit is refused: glucose over 800 mg/dL (a hyperosmolar state) or
+   under 20, creatinine over 20 mg/dL, urate under 0.5 mg/dL (rasburicase), HbA1c over 20 %. Those become
+   unknown and are counted (a person looks), never a failed comparison. A feed that states its units is
+   untouched; the lasting repair for a feed without them is the unit column.
+6. A site mapping that `extends` another adds its `unit_spellings` to the base's; two spellings that fold to one
+   key cannot mean two units (the mapping does not load).
 
 ## Not in this card
 
@@ -48,5 +58,8 @@ became 88 mg/dL, `HbA1c 0.072` became 0.072 %.
 
 - A site can take a new spelling of a known unit into use by a line in its mapping; the mapping check reads it
   as the night does.
-- A feed with a blank unit column and SI values no longer loads wrong numbers under a right-looking unit for the
-  four analytes; for every other analyte D-149 stands as it was, and the site can add a range.
+- A feed with a blank unit column and SI values no longer loads the grossly wrong numbers of the four analytes
+  under a right-looking unit (point 5 says what still passes); for every other analyte D-149 stands as it was,
+  and the site can add a range.
+- The night's log line and audit total for D-580's counter call these rows "dropped" and "unmapped"; they are
+  kept, without a value (`adapter/pipeline.py`, lane B: sent to the integrator).

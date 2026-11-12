@@ -1,5 +1,5 @@
-"""NEW-DIN-9 (DIN-009, DIN-017; D-590): the look-up's own unit spelling agrees; lost values are counted; a value with
-no unit must be plausible."""
+"""NEW-DIN-9 (DIN-009, DIN-017; D-590): a site declares its unit spellings; lost values are counted; a value with no
+unit must be plausible."""
 
 from __future__ import annotations
 
@@ -121,8 +121,14 @@ def test_a_value_with_no_unit_must_be_plausible_in_the_look_ups_unit(
     res = _one(mapper, _lab(code, value, ""))
     assert ("valueQuantity" in res) is ok
     if not ok:
-        assert res["valueString"] == value  # kept as text: unknown to the engines, never a number
+        # no value[x] at all, like a unit mismatch: a text value would be read back as a number by the lake
+        assert "valueString" not in res and res["dataAbsentReason"]["text"] == labvalue.NO_UNIT_IMPLAUSIBLE
+        assert res["note"] == [{"text": value}]
         assert dict(mapper.unmapped) == {("lab", "no_unit_implausible", code): 1}
+        from lake.flatten import Flattener
+
+        row = Flattener().observation(res)
+        assert row["value_num"] is None and row.get("value_text") in (None, "")
     else:
         assert not mapper.unmapped
 
@@ -145,13 +151,13 @@ def test_the_sites_look_up_can_state_a_range_and_it_wins(tmp_path: Path) -> None
     assert dict(mapper.unmapped) == {("lab", "no_unit_implausible", "CRP9"): 1}
 
 
-def test_a_range_the_look_up_states_badly_stops_the_row_not_the_check(tmp_path: Path) -> None:
+def test_a_range_the_look_up_states_badly_stops_the_mapping_from_loading(tmp_path: Path) -> None:
     from adapter.mapping.engine import MappingError
 
-    mapper = _site(tmp_path, [{"local_code": "CRE8", "code": "2160-0", "ucum": "mg/dL", "factor": "1",
-                               "plausible_low": "low", "plausible_high": "20"}], ("plausible_low", "plausible_high"))  # fmt: skip
-    with pytest.raises(MappingError, match="plausible"):
-        _one(mapper, _lab("CRE8", "1.1", ""))
+    for low, high in (("low", "20"), ("0.1", ""), ("", "20"), ("20", "0.1"), ("nan", "nan"), ("0.1", "inf")):
+        with pytest.raises(MappingError, match="plausible"):  # when the mapping loads, not row by row at night
+            _site(tmp_path, [{"local_code": "CRE8", "code": "2160-0", "ucum": "mg/dL", "factor": "1",
+                              "plausible_low": low, "plausible_high": high}], ("plausible_low", "plausible_high"))  # fmt: skip
 
 
 def test_the_built_in_ranges_are_only_used_in_their_own_unit(tmp_path: Path) -> None:
@@ -159,3 +165,41 @@ def test_the_built_in_ranges_are_only_used_in_their_own_unit(tmp_path: Path) -> 
     mapper = _site(tmp_path, [{"local_code": "CRE7", "code": "2160-0", "ucum": "umol/L", "factor": "1",
                                "source_unit": "umol/L"}])  # fmt: skip
     assert _one(mapper, _lab("CRE7", "88", ""))["valueQuantity"]["value"] == 88 and not mapper.unmapped
+
+
+def test_two_spellings_that_fold_to_one_cannot_mean_two_units(tmp_path: Path) -> None:
+    from adapter.mapping.engine import MappingError
+
+    with pytest.raises(MappingError, match="declared twice"):
+        _site(tmp_path, [], top='\nunit_spellings:\n  "thou/uL": 10*3/uL\n  "thou / uL": 10*4/uL\n')
+    _site(tmp_path, [], top='\nunit_spellings:\n  "thou/uL": 10*3/uL\n  "thou / uL": 10*3/uL\n')  # the same: fine
+
+
+def test_a_site_mapping_adds_its_spellings_to_the_ones_it_extends(tmp_path: Path) -> None:
+    base = tmp_path / "base.yaml"
+    base.write_text(BASE.read_text(encoding="utf-8") + '\nunit_spellings:\n  "thou/uL": 10*3/uL\n', encoding="utf-8")
+    (tmp_path / LOOKUP.name).write_bytes(LOOKUP.read_bytes())
+    site = tmp_path / "site.yaml"
+    site.write_text(
+        f'version: 1\nname: s\nextends: {base}\ntz: Asia/Taipei\nunit_spellings:\n  "萬/μL": 10*4/uL\n'
+        "tables:\n  lab: {source: lab, key: lab_no}\n",
+        encoding="utf-8",
+    )
+    assert Mapping.load(site).unit_spellings == {"thou/uL": "10*3/uL", "萬/μL": "10*4/uL"}
+
+
+def test_a_lost_value_is_counted_under_the_look_ups_code_not_under_each_spelling_of_it(tmp_path: Path) -> None:
+    mapper = _site(tmp_path, [])
+    rows = [_lab("CRE", "97", "umol/L", "L1"), _lab("cre", "88", "umol/L", "L2"), _lab(" CRE ", "88", "", "L3")]
+    list(mapper.map_table("lab", iter(rows)))
+    assert dict(mapper.unmapped) == {("lab", "unit_mismatch", "CRE"): 2, ("lab", "no_unit_implausible", "CRE"): 1}
+
+
+def test_the_mapping_checks_proposal_names_the_code_a_site_spelling_stands_for(tmp_path: Path) -> None:
+    from tools import mapping_check
+
+    mapper = _site(tmp_path, [{"local_code": "WBC2", "code": "6690-2", "ucum": "10*3/uL", "factor": "1",
+                               "source_unit": "10*3/uL"}], top=SPELLINGS)  # fmt: skip
+    args = {"lookup": "lab", "key": "local_code", "column": "result_value", "unit_column": "unit"}
+    (pair,) = mapping_check.unit_pairs(mapper.m, args, [_lab("WBC2", "6.5", "萬/μL")])
+    assert pair["read"] == "unit_mismatch: no value" and "source_unit 10*4/uL, factor" in pair["proposal"]

@@ -73,6 +73,8 @@ def parse(text: object) -> tuple[float, str | None] | None:
 # ------------------------------------------------------------------------------------------------ units (R-31)
 UNIT_MISMATCH = labunit.UNIT_MISMATCH  # one spelling of the reason for the adapter and the engines (D-275)
 UNKNOWN_VALUE = Reason.UNKNOWN_VALUE.value
+# D-590: a result with no unit whose value cannot be one in the look-up's unit: no value, like a unit mismatch
+NO_UNIT_IMPLAUSIBLE = "no_unit_implausible"
 
 # UCUM code -> the spellings that mean exactly that unit: one table in :mod:`tb_common.labunit` (D-418), which
 # the engines' scale conversions read too.

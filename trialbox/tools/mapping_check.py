@@ -140,7 +140,7 @@ def unit_pairs(m: Any, args: dict[str, Any], got: list[dict[str, Any]]) -> list[
             k = labvalue.conversion(m.unit_as_code(unit), to, _loinc(hit)) if to else None
             item["factor"] = k
             item["proposal"] = (
-                f"if {code} is reported in {unit}: source_unit {unit}, factor {k} (then ucum {to})"
+                f"if {code} is reported in {unit}: source_unit {m.unit_as_code(unit)}, factor {k} (then ucum {to})"
                 if k is not None
                 else "no tested factor: the lab team fixes the export or the lookup"
             )
