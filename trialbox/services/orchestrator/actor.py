@@ -192,6 +192,7 @@ async def _report(request: Request) -> None:
         except ActorError as exc:
             reason = str(exc)
     if reason:
+        request.state.tb_actor_why = reason  # for a door behind this stage that refuses: its refusal says why
         _count(request, reason)
 
 
