@@ -7,7 +7,7 @@
 | Tree | `514ae9b` (branch `claude/deep-review-2026-11-12`, same tree as master) |
 | Area | 2. Architecture and best practice. Finding prefix `ARCH` |
 | Read | `services/*` (26 packages), `libs/*`, `deploy/docker-compose*.yml`, `deploy/platform`, `deploy/systemd`, `deploy/docker/db-init/30-service-roles.sh`, `docs/ARCHITECTURE.md`, `docs/reviews/2026-11-12-architecture/{decision,lifecycle,trust}.md`, `docs/decisions/REGISTRY.md`, plan v6.1 addendum, scale review of 2026-11-11, G1 bug list |
-| Run (all synthetic, on this machine) | (1) an import graph of every service by `ast` (`ARCH/imports.py`); (2) the console's module graph (`ARCH/console_graph.py`); (3) **E1** restart recovery of the orchestrator's job queue on a throwaway PostgreSQL (`ARCH/exp1.py`); (4) **E2** the ingest follow over real HTTP with the real `adapter.app` and `AdapterHttp` on `127.0.0.1:18050`, ingest body replaced by a sleep (`ARCH/exp2.py`, `ARCH/adapter_srv.py`); (5) **E3** two threads on one `tb_common.db.Database`; (6) audit chain append rate and tail-truncation check (`ARCH/audit_bench.py`, `tools/audit_verify.py`); (7) the gateway's routing policy for the roles `judge` and `second_opinion`; (8) the erasure registry counted; (9) 63 targeted tests: `test_lake_rebuild_lock.py`, `test_polled_jobs.py`, `test_snapshot_holds.py`, `test_erasure_registry.py`, `test_compose_secret_reach.py` (all pass, 41.7 s) |
+| Run (all synthetic, on this machine) | (1) an import graph of every service by `ast` (`ARCH/imports.py`); (2) the console's module graph (`ARCH/console_graph.py`); (3) **E1** restart recovery of the orchestrator's job queue on a throwaway PostgreSQL (`ARCH/exp1.py`); (4) **E2** the ingest follow over real HTTP with the real `adapter.app` and `AdapterHttp` on `127.0.0.1:18050`, ingest body replaced by a sleep (`ARCH/exp2.py`, `ARCH/adapter_srv.py`); (5) **E3** two threads on one `tb_common.db.Database`; (6) audit chain append rate and tail-truncation check (`ARCH/audit_bench.py`, `tools/audit_verify.py`); (7) the gateway's routing policy for the roles `judge` and `second_opinion`; (8) the erasure registry counted; (9) two throwaway tests on the role cluster of `test_db_roles.py`: which role can open `ProfileStore` and `NotMatchedStore`; (10) 63 targeted tests: `test_lake_rebuild_lock.py`, `test_polled_jobs.py`, `test_snapshot_holds.py`, `test_erasure_registry.py`, `test_compose_secret_reach.py` (all pass, 41.7 s) |
 | Not run | Docker, the compose stack, a GPU, HAPI, a real ingest, the Kubernetes form. Scripts are in the session scratchpad under `ARCH/`, not in the repository |
 
 Paths are relative to `trialbox/`. "Run" in an Evidence cell means the result came from one of the runs above;
@@ -27,25 +27,25 @@ Paths are relative to `trialbox/`. "Run" in an Evidence cell means the result ca
    JSON file per snapshot on the lake volume, `publishing.json` on the orchestrator volume, the mail outbox, the ops
    folder, the watchdog's state file, an end-of-run `dataops.batch` row), and time is kept by **ten timers in three
    technologies** (three APScheduler instances in two processes, cron, four systemd timers, two poll loops).
-4. A crash is not survived cleanly. **Run:** a job interrupted by a restart is re-run from zero on every start, with
+4. **Run:** two features cannot work on a box installed with the per-service database roles: the console's role
+   cannot open the twin store, and schema `tuned` (the PI's weekly not-matched sample) is on no role's list, so the
+   orchestrator cannot open it once the console has made it. Tests connect as the admin role and pass.
+5. A crash is not survived cleanly. **Run:** a job interrupted by a restart is re-run from zero on every start, with
    no count (six boots, six runs). **Run:** an orchestrator restart during the night's ingest fails the INGEST job
    in 0.2 s with "an ingest is already running" while the adapter goes on unobserved; an adapter restart loses the
    night's state altogether (`{"state": "none"}`).
-5. T-690 (polled jobs) merged today with its own state, although the addendum says it "uses T-723's state, not its
+6. T-690 (polled jobs) merged today with its own state, although the addendum says it "uses T-723's state, not its
    own". T-723 to T-726 (the night as one resumable object, one runner) are the cards that matter most for this
    area and none is built.
-6. A durable step engine with leases, attempts and idempotency keys exists (`orchestrator/db_pg.py` `StepStore`,
+7. A durable step engine with leases, attempts and idempotency keys exists (`orchestrator/db_pg.py` `StepStore`,
    `outbox.py` `Dispatcher`, about 760 lines, a kill-loop test) and **no production code calls it**;
    `docs/ARCHITECTURE.md` §9 says delivery goes through it.
-7. The topology that is tested is not the one that is deployed: `LakeLocal` (in process) is used by 76 test files,
+8. The topology that is tested is not the one that is deployed: `LakeLocal` (in process) is used by 76 test files,
    `LakeHttp` by 10, `AdapterHttp` by 4, `CompilerHttp` by 2. The G1 failures were in the HTTP layer.
-8. What is sound and should not be redone: the gateway as the only model path with a verified caller, the audit
-   journal with one writer and a head anchor (tail truncation is caught, run), the lake's single lock (T-722), the
-   checksummed migrations, the per-route caller table (T-713), secrets out of the shared environment (T-212d), the
-   declared-settings registry.
-9. Configuration is large: 366 declared `TB_*` settings (58 of them limits or timeouts), about 25 top-level keys in
-   `settings.yaml`, flags in the database, three model/route YAML files, and one dead file (`site_params.yaml` has
-   no reader).
+9. Sound, not to be redone: the gateway as the only model path, the audit journal with one writer and a head
+   anchor (tail truncation is caught, run), the lake's single lock (T-722), checksummed migrations, the per-route
+   caller table (T-713), secrets out of the shared environment (T-212d). Configuration is large (366 declared
+   `TB_*` settings, 58 of them limits) and has one dead file (`site_params.yaml`).
 10. **No rewrite is justified.** The evidence supports: one job runner and one state store (PostgreSQL) for the
     night, three small process merges, HAPI off the nightly path, and deleting five unused or duplicate parts. That
     fits before 2027-04-28 if T-723/T-726 and T-689 start now.
@@ -232,8 +232,9 @@ measured rate.
 | ARCH-018 | Medium | The console, the only place an owner sees the box's health, starts only after the gateway, the orchestrator and the mail gateway are healthy. | Read: `docker-compose.yml:341-345` (`depends_on` with `service_healthy`); `deploy/systemd/trialbox.service:14` (`up -d --wait --wait-timeout 900`, a fixed 900 s); the gateway exits at start on a perimeter problem (`gateway/app.py:314`) and refuses a bad prompt-registry entry in PRODUCTION. The console already degrades per call (`console/app.py:717` handler for `Unavailable`, health tiles in `backend.py:259-266`). | After an install, an update or a recreate with a model-side fault, the browser gets a connection error instead of the page that says what is wrong. (After a plain reboot Docker restarts existing containers without the dependency order, so this is the update and install path.) | The console depends on `db` only. | NEW-ARCH-15 (S) | Go-live both |
 | ARCH-019 | Low | `docs/ARCHITECTURE.md` no longer describes the tree in several places. | Read: §2 table lists no `audit-writer` and no `model-guard` (both in `docker-compose.yml:222`, `:399`); §9 the outbox (ARCH-004) and "audit chain is daily JSONL files" with no mention of the journal; §2 "console: the box's timers" but most timers are the orchestrator's; nothing on the eight job states of §2.4. | The page is the entry point for a new engineer and for hospital IT. | Regenerate the service table from the compose file in `make lint`; rewrite §9 after T-723. | NEW-ARCH-16 (S) | Later |
 | ARCH-020 | High | Fixed limits that are not derived from hardware, speed or size, and are not declared settings (OD-10). Worst offenders in §4.3. | Read (grep over `services` and `libs`): about 20 fixed HTTP timeouts, 11 `list_jobs(limit=500)` call sites in `console/home.py`, and the table below. | A result is cut or a step fails at a size the box was sold for, in most cases without telling the user. | Each row of §4.3 names its fix; most are covered by T-700 and T-687 to T-704. The two not covered get a card. | T-700, T-689, T-694; NEW-ARCH-17 (S) "the remaining fixed client timeouts become polled jobs or declared settings" | Go-live both |
+| ARCH-021 | High | Two stores are opened by a service whose database role cannot reach the schema; on a box with the D-378 roles the features behind them do not work, and no test can see it. | **Run** (throwaway tests on the role cluster of `tests/unit/test_db_roles.py`, the real role script applied): (a) `ProfileStore()` as `tb_console` → `InvalidSchemaName: no schema has been selected to create in`; as `tb_orchestrator` → opens. The console opens it in `console/twin_api.py:36-40` for `GET /api/v1/studies/{rs}/patients/{pid}/twin` (T-204). (b) Schema `tuned` (`tb_common/notmatched.py:39`, T-310a) is on **no** role's list (`30-service-roles.sh:36-48`); the console opens it at start (`console/notmatched_pages.py:88`) and, having CREATE on the database, makes and owns it; `NotMatchedStore()` as `tb_orchestrator` then fails with the same error, at `orchestrator/notmatched_sample.py:71`, outside that function's `try`. The unit tests connect as `trialbox`, a member of every group. | On a real box the patient twin's read route answers 500, and the PI's weekly sample of not-matched patients (D-446, the site's check on what the models excluded) is never drawn; the only trace is a scheduler error in the orchestrator's log. If the orchestrator happens to create `tuned` first, the console fails at start instead. | (a) The console reads the twin through an orchestrator route (fits ARCH-005), or `profile` joins the console's list. (b) Add `tuned` to both roles' lists in both copies of the role script (§8). (c) The missing test: enumerate every schema the code opens (the erasure registry already lists all 27) and every store a service constructs, and fail when a schema is on no list or a service opens one its role lacks; run the role-cluster tests for the stores themselves, not for a `probe` table. | NEW-ARCH-18 (S) "every store a service opens is on its role's list; enumerating test" | Go-live both |
 
-Counts: Blocker 0, Critical 0, High 6, Medium 10, Low 4.
+Counts: Blocker 0, Critical 0, High 7, Medium 10, Low 4.
 
 ### 4.2 Detail by ID
 
@@ -288,6 +289,25 @@ recommendation.
 ```
 E3: a 'SELECT 1' on the same store while another thread runs a 3 s query waited 2815 ms
 ```
+
+**ARCH-021, the run.** Two throwaway tests importing the `roles_cluster` fixture and `_as` of
+`tests/unit/test_db_roles.py` (a cluster with `deploy/docker/db-init/30-service-roles.sh` applied twice):
+
+```
+tb_console in ACCESS for profile : False
+RESULT tb_console profile FAILED InvalidSchemaName no schema has been selected to create in
+RESULT tb_orchestrator profile opened
+
+RESULT tuned in the role script: False []
+RESULT tb_console opened schema tuned
+RESULT tb_orchestrator FAILED InvalidSchemaName no schema has been selected to create in LINE 1: CREATE TABLE IF NOT
+       EXISTS _schema_version ...
+```
+
+The other cross-process store imports of §2.2 were checked against the list by reading and are covered
+(`dataops`, `sitesetup`, `omop`, `orch` for the console; `pidmap`, `mail`, `vec`, `profile` for the orchestrator).
+This is the same defect class as ARCH-006: the configuration a box runs (per-service roles) is not the one the tests
+run (one admin role).
 
 **ARCH-014, the run** (the same candidates for both roles; the verifier's pair call itself is sent with role `judge`).
 
@@ -382,7 +402,8 @@ go-live. It should start now, in parallel, because it touches different files (a
    publish (§3.2). The answer changes T-724 from L to M or confirms L.
 3. **T-718 gets a predecessor:** NEW-ARCH-3 (the console leaves the orchestrator's stores), else owner ≠ writer
    cannot be reached for 17 schemas.
-4. **New small cards, all S, all before go-live:** NEW-ARCH-5 (read connection), NEW-ARCH-6 (`/healthz` vs
+4. **New small cards, all S, all before go-live:** NEW-ARCH-18 (stores and roles, with its enumerating test: do it
+   first, it is a functional defect on every installed box), NEW-ARCH-5 (read connection), NEW-ARCH-6 (`/healthz` vs
    `/readyz`), NEW-ARCH-8 (no `tools` in services), NEW-ARCH-10 (config hygiene), NEW-ARCH-15 (console depends on `db` only), NEW-ARCH-17 (remaining fixed client timeouts).
 5. **New medium cards:** NEW-ARCH-7 (audit event in the transaction), NEW-ARCH-11 (the gateway binds the pair's
    seats to builds), NEW-ARCH-12 (HAPI off the nightly path; do it
@@ -399,9 +420,17 @@ go-live. It should start now, in parallel, because it touches different files (a
    raising. `ServiceError` must expose the response headers (or use `post_raw` with the status checked by hand).
    About ten lines. Test that fails first: in `tests/unit/test_polled_jobs.py`, start a run on the adapter app, call
    `AdapterHttp.run()` again, expect the report of the first run and not `StepFailed`.
-2. **ARCH-018, the console starts without the model path.** `deploy/docker-compose.yml:341-345`: keep
+2. **ARCH-021 (b), schema `tuned` on the role list.** `deploy/docker/db-init/30-service-roles.sh:40-47` and the
+   copy `deploy/platform/base/db-init/30-service-roles.sh`: add `"tuned"` to the lists of `tb_orchestrator` and
+   `tb_console`. Test that fails first: in `tests/unit/test_db_roles.py`, assert that every schema named by
+   `tb_common.erasure.entries()` is in `SCHEMAS` (today `tuned` is not); and open `NotMatchedStore` as each of the
+   two roles on `roles_cluster`. On a box already installed the schema is owned by whichever service made it; the
+   script's existing loop moves objects to the group when it is re-run (install and update re-run it).
+3. **ARCH-018, the console starts without the model path.** `deploy/docker-compose.yml:341-345`: keep
    `db: {condition: service_healthy}` only. Test that fails first: a compose-render test (as
-   `test_compose_secret_reach.py` renders) asserting the console's `depends_on` is `{db}`.
+   `test_compose_secret_reach.py` renders) asserting the console's `depends_on` is `{db}`. The Kubernetes form already
+   starts the console with no ordering (`deploy/platform/base/apps.yaml` has no init container or wait), so the
+   console is expected to start alone.
 
 Not offered as a small fix: ARCH-014. Splitting the `patient` route by role looks like a few lines but would refuse
 the verifier's own calls, which use the role `judge` (see the row).
@@ -455,7 +484,9 @@ the verifier's own calls, which use the role `judge` (see the row).
 - The gateway's internals beyond routing and timeouts, the model swap, `tb_common.pair` beyond `same_model`'s
   header, the cascade engine, EDC, REDCap bridge and the mail gateway's intake were not reviewed here.
 - `deploy/platform` was surveyed (counts of workloads, the duplicate settings file), not rendered or applied.
+- ARCH-021 was run on a local role cluster with the real role script, not on an installed box; no installed box
+  was available to confirm the 500 on the twin route or the scheduler error in the orchestrator's log.
 - The count of 311 console routes is a count of decorators by grep; the import graphs count `import` statements by
   `ast`, including imports inside functions.
 - The test PostgreSQL could not be started under the session scratchpad (`/tmp/claude-0` is mode 0700 and the server
-  runs as `postgres`); the clusters for E1, E3 and the 63 tests ran under `/var/tmp/trialbox-0/ARCH`, removed after.
+  runs as `postgres`); the clusters for E1, E3, the role tests and the 63 tests ran under `/var/tmp/trialbox-0/ARCH`, removed after.
