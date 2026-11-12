@@ -338,6 +338,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
         "症例処理の拒否：利用拒否の患者",
         "個案作業遭拒：病人已拒絕研究使用",
     ),
+    "case.opt_out_at_publish": (
+        "Case run stopped: the patient opted out while it ran",
+        "症例処理の中止：処理中に利用拒否の申し出",
+        "個案作業中止：作業期間病人已拒絕研究使用",
+    ),
     "nav.opt_out_removed": (
         "Opted-out patient left out of a navigation list",
         "利用拒否の患者をナビゲーション一覧から外す",

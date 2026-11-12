@@ -19,6 +19,7 @@ from typing import Any
 from matching import decision
 from tb_common.ruleset import Ruleset
 from tb_common.subject import job_subject
+from tb_common.verdict_word import shown_of
 from tb_contracts import JobOutput, MissingItem, NavLists, NavRow, dump
 
 from orchestrator.clients import StepFailed
@@ -68,7 +69,7 @@ def classify(
     lead_days: int,
     lookback_days: int,
     t: float,
-    note_block: bool = True,
+    note_block: bool = False,
 ) -> tuple[str | None, list[MissingItem]]:
     """Which NAV sheet a patient is on, and what is still to confirm. Each criterion's answer (yes / no / unknown)
     is the one status function's (:func:`matching.decision.answer_of`, T-709, D-478) under the run's policy
@@ -325,7 +326,8 @@ def _draft(
     excl = [
         (
             by[v.id].label or by[v.id].text[:30],
-            {"pass": "無", "fail": "有", "unknown": "[待補]", "pending_human": "[待補]"}[v.verdict],
+            # D-478: one model's "present" is not written as present in a draft: it is left to fill in
+            {"pass": "無", "fail": "有", "unknown": "[待補]", "pending_human": "[待補]"}[shown_of(v)[0]],
         )
         for v in row.criteria
         if by[v.id].kind == "exclusion"

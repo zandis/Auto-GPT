@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -40,9 +40,11 @@ REGISTRY_ACTOR = "worker:registry"
 #: the lake's consent rows on or before a day, oldest first per patient (an undated row counts as the oldest); a row
 #: entered in error is no statement (the rule of COHORT's ``n_contactable``, PR #257). Dates are whole days, so two
 #: statements of one day are ordered fail-closed: an active consent first, a refusal last, so the refusal wins and a
-#: same-day withdrawal beats a consent (review MED-2)
+#: same-day withdrawal beats a consent (review MED-2). ``undated`` (review of T-708): a refusal whose date is unknown
+#: cannot be shown to be older than a consent, so :func:`registry_rule` keeps the patient out whatever came later
 REGISTRY_SQL = (
-    "SELECT pid, status, contact_ok FROM consent WHERE coalesce(status, '') <> 'entered-in-error' "
+    "SELECT pid, status, contact_ok, date IS NULL AS undated FROM consent "
+    "WHERE coalesce(status, '') <> 'entered-in-error' "
     "AND (date IS NULL OR date <= CAST($1 AS DATE)) "
     "ORDER BY pid, date NULLS FIRST, CASE status WHEN 'active' THEN 0 WHEN 'rejected' THEN 2 ELSE 1 END, "
     "coalesce(contact_ok, true) DESC, coalesce(contact_ok, false) DESC"
@@ -208,17 +210,24 @@ class RegistryState:
     contactable: frozenset[str] = frozenset()
 
 
-def registry_rule(rows: list[tuple[str, str, bool | None]]) -> RegistryState:
-    """``rows``: (pid, status, contact_ok) oldest first. The patient's latest statement decides: a later withdrawal
-    ends an earlier active consent, and a later active consent ends an earlier refusal."""
+def registry_rule(rows: Sequence[tuple[Any, ...]]) -> RegistryState:
+    """``rows``: (pid, status, contact_ok[, undated]) oldest first. The patient's latest statement decides: a later
+    withdrawal ends an earlier active consent, and a later active consent ends an earlier refusal.
+
+    **Except an undated refusal** (``undated`` true on a ``rejected`` row): its date is unknown, so no consent can
+    be shown to be later. The patient is refused, and is neither consenting nor contactable, whatever else the
+    registry holds (the integrator's ruling on the review of T-708; D-477 records the question for the owner)."""
     last: dict[str, tuple[str, bool | None]] = {}
-    for pid, status, contact in rows:
+    undated_refusal: set[str] = set()
+    for pid, status, contact, *rest in rows:
         last[pid] = (status, contact)
+        if status == "rejected" and rest and rest[0]:
+            undated_refusal.add(pid)
     return RegistryState(
-        frozenset(p for p, (st, _) in last.items() if st == "rejected"),
+        frozenset(p for p, (st, _) in last.items() if st == "rejected" or p in undated_refusal),
         frozenset(p for p, (_, ok) in last.items() if ok is False),
-        frozenset(p for p, (st, _) in last.items() if st == "active"),
-        frozenset(p for p, (st, ok) in last.items() if st == "active" and ok is True),
+        frozenset(p for p, (st, _) in last.items() if st == "active" and p not in undated_refusal),
+        frozenset(p for p, (st, ok) in last.items() if st == "active" and ok is True and p not in undated_refusal),
     )
 
 
@@ -232,7 +241,9 @@ def registry_state(lake: Any, snapshot: str | None, day: str) -> RegistryState |
         if "consent" in msg and ("does not exist" in msg or "Catalog Error" in msg):
             return None
         raise
-    return registry_rule([(str(r["pid"]), str(r["status"] or ""), r["contact_ok"]) for r in rows if r["pid"]])
+    return registry_rule(
+        [(str(r["pid"]), str(r["status"] or ""), r["contact_ok"], bool(r.get("undated"))) for r in rows if r["pid"]]
+    )
 
 
 def sync_registry(reg: OptOutRegister, state: RegistryState, at: str) -> tuple[int, int]:

@@ -27,8 +27,6 @@ per context either way). Code outside a job (a route, a timer) uses :func:`regis
 from __future__ import annotations
 
 import contextlib
-import hashlib
-import json
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
@@ -193,24 +191,7 @@ class DecisionContext:
         state = self.consent(index, snapshot)
         return None if state is None else set(state.contactable)
 
-    # ------------------------------------------------------------------------------------ the ruleset and its pins
-    def ruleset(self, ruleset: str, version: str | None = None) -> Ruleset:
-        """The approved ruleset in force on the job's run date (review L1: not the wall clock's date), refused when
-        none is approved or its pins no longer hold."""
-        from orchestrator.scenarios.review import require_approved
-
-        return require_approved(self._ctx, ruleset, version)
-
-    def pins(self, rs: Ruleset) -> dict[str, Any]:
-        """What the approved ruleset pins for a run: its version, the judge prompt and the terminology release."""
-        m = rs.manifest
-        return {
-            "ruleset": rs.id,
-            "version": rs.version,
-            "judge_prompt": m.models.judge_prompt if m.models and m.models.judge_prompt else None,
-            "terminology_release": m.terminology_release,
-        }
-
+    # ------------------------------------------------------------------------------------ the threshold
     def threshold(self, rs: Ruleset) -> float:
         """The confidence a note answer needs to count (the ruleset's, else the site's, else 0.75)."""
         m, s = rs.manifest, self._ctx.cfg.settings
@@ -233,23 +214,6 @@ class DecisionContext:
         if first is None or (first.may_block and not now.may_block):
             self._note_block[key] = first = now
         return first
-
-    # ------------------------------------------------------------------------------------ what the job decided on
-    def fingerprint(self, rs: Ruleset, judge: NoteJudge | None = None) -> str:
-        """A short hash of the inputs of this job's decisions: the snapshot, the run date, the ruleset's pins, the
-        threshold, the note-block decision and the sizes of the register and the consent sets (never who)."""
-        state = self.consent()
-        doc = {
-            "snapshot": self.snapshot(),
-            "run_date": self.run_date.isoformat(),
-            "pins": self.pins(rs),
-            "threshold": self.threshold(rs),
-            "note_block": self.note_block(judge).policy,
-            "register": len(self.register()),
-            "refused": len(state.refused) if state is not None else None,
-            "no_contact": len(state.no_contact) if state is not None else None,
-        }
-        return hashlib.sha256(json.dumps(doc, sort_keys=True).encode()).hexdigest()[:16]
 
     def _audit(self, event: str, detail: dict[str, Any]) -> None:
         job = self._ctx.job

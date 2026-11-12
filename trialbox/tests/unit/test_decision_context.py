@@ -36,7 +36,11 @@ CONSENT: list[tuple[str, str, bool | None, str | None]] = [
     ("P-NOCONTACT", "active", False, "2026-05-01"),
     ("P-OK", "active", True, "2026-05-01"),
     ("P-UNDATED", "active", True, "2026-05-01"),
-    ("P-UNDATED", "rejected", False, None),  # undated: the oldest, so the dated consent decides
+    # an undated refusal: its date is unknown, so it cannot be shown to be older than the consent. The patient is
+    # out on every path (the integrator's ruling on the review of T-708, until the owner decides)
+    ("P-UNDATED", "rejected", False, None),
+    ("P-UNDATEDOK", "active", True, None),  # an undated consent is the oldest statement: the dated refusal decides
+    ("P-UNDATEDOK", "rejected", False, "2026-05-01"),
     ("P-ERROR", "active", True, "2026-04-01"),
     ("P-ERROR", "entered-in-error", False, "2026-06-01"),  # no statement
     ("P-LATER", "active", True, "2026-05-01"),
@@ -91,11 +95,12 @@ def _env(monkeypatch: pytest.MonkeyPatch) -> None:
 # ------------------------------------------------------------------------------------------------ consent: one rule
 def test_the_latest_statement_on_or_before_the_run_date_decides() -> None:
     d = DecisionContext(_ctx())
-    assert d.refused() == {"P-REFUSED", "P-SAMEDAY"}
-    assert d.no_contact() == {"P-REFUSED", "P-NOCONTACT", "P-SAMEDAY"}
+    assert d.refused() == {"P-REFUSED", "P-SAMEDAY", "P-UNDATED", "P-UNDATEDOK"}
+    assert d.no_contact() == {"P-REFUSED", "P-NOCONTACT", "P-SAMEDAY", "P-UNDATEDOK"}
     state = d.consent()
     assert state is not None
-    assert state.contactable == {"P-OK", "P-UNDATED", "P-ERROR", "P-LATER"}
+    assert state.contactable == {"P-OK", "P-ERROR", "P-LATER"}  # never a patient with an undated refusal
+    assert "P-UNDATED" not in state.consenting  # and that consent does not lift the register's opt-out
     # after the later refusal's date the same rule says refused
     assert "P-LATER" in d.consent(date(2026, 11, 2)).refused  # type: ignore[union-attr]
 
@@ -127,8 +132,8 @@ def test_the_cascade_and_cohort_read_the_same_state() -> None:
 
     ctx = _ctx()
     ctx.cfg.settings.registry_source = SimpleNamespace(type="fhir")
-    assert cohort.contactable_pids(ctx, RUN) == {"P-OK", "P-UNDATED", "P-ERROR", "P-LATER"}
-    assert cohort.contactable_pids(ctx, date(2026, 7, 15)) == {"P-OK", "P-UNDATED", "P-ERROR", "P-LATER", "P-WITHDRAWN"}
+    assert cohort.contactable_pids(ctx, RUN) == {"P-OK", "P-ERROR", "P-LATER"}
+    assert cohort.contactable_pids(ctx, date(2026, 7, 15)) == {"P-OK", "P-ERROR", "P-LATER", "P-WITHDRAWN"}
     ctx.cfg.settings.registry_source = None
     assert cohort.contactable_pids(ctx, RUN) is None
 
@@ -163,7 +168,8 @@ def test_counts_leave_out_the_register_and_refusals_lists_also_a_contact_denial(
     monkeypatch.setattr(optout_mod, "opted_out", lambda url=None, as_of=None: frozenset({"P-OPT"}))
     ctx = _ctx()
     d = decision_of(ctx)
-    assert d.uncounted() == {"P-OPT", "P-REFUSED", "P-SAMEDAY"}  # OD-8; a contact denial is still counted
+    # OD-8; a contact denial is still counted; an undated refusal is a refusal
+    assert d.uncounted() == {"P-OPT", "P-REFUSED", "P-SAMEDAY", "P-UNDATED", "P-UNDATEDOK"}
     everyone = ["P-OPT", "P-REFUSED", "P-NOCONTACT", "P-OK", "P-NEW"]
     assert d.off_lists(everyone, "nav.opt_out_removed") == {"P-OPT", "P-REFUSED", "P-NOCONTACT"}
     assert ctx.audited == [("nav.opt_out_removed", {"removed": 3, "register": "optout", "consent": 2})]
@@ -174,7 +180,7 @@ def test_nav_leaves_out_the_register_refusals_and_contact_denials(monkeypatch: p
     monkeypatch.setattr(optout_mod, "opted_out", lambda url=None, as_of=None: frozenset({"P-OPT"}))
     scoped = [{"pid": p} for p in ("P-OPT", "P-REFUSED", "P-NOCONTACT", "P-OK", "P-UNDATED")]
     kept = nav_mod._without_opted_out(_ctx(), scoped)
-    assert [r["pid"] for r in kept] == ["P-OK", "P-UNDATED"]
+    assert [r["pid"] for r in kept] == ["P-OK"]  # an undated refusal is off the list
 
 
 def test_case_makes_no_sheet_for_a_refusal_but_one_for_a_contact_denial() -> None:
@@ -186,6 +192,28 @@ def test_case_makes_no_sheet_for_a_refusal_but_one_for_a_contact_denial() -> Non
     case_mod.refuse_opted_out(ctx, "P-NOCONTACT")  # a reading aid for the PI: not a list (D-441)
     case_mod.refuse_opted_out(ctx, "P-OK")
     case_mod.refuse_opted_out(ctx, None)  # an uploaded chart without a chart number
+
+
+def test_case_makes_no_sheet_when_the_patient_opts_out_while_the_job_runs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review of T-708 (MED 2): the register is read again before the sheet is published. The evaluation can sit
+    in an outage wait for hours (T-689); a patient who opted out meanwhile gets no sheet mailed."""
+    import inspect
+
+    from orchestrator.clients import StepFailed
+
+    # at receipt nobody is on the register; now P-OK is
+    monkeypatch.setattr(
+        optout_mod, "opted_out", lambda url=None, as_of=None: frozenset() if as_of else frozenset({"P-OK"})
+    )
+    ctx = _ctx()
+    case_mod.refuse_opted_out(ctx, "P-OK")  # received: a sheet may be made
+    with pytest.raises(StepFailed, match="opted out"):
+        case_mod.refuse_opted_out_now(ctx, "P-OK")
+    case_mod.refuse_opted_out_now(ctx, "P-OTHER")
+    case_mod.refuse_opted_out_now(ctx, None)
+    assert ctx.audited == [("case.opt_out_at_publish", {"removed": 1, "register": "optout"})]  # by count
+    src = inspect.getsource(case_mod.run)
+    assert 0 < src.index("refuse_opted_out_now(ctx, subj.pid)") < src.index("ctx.publish(")  # before anything leaves
 
 
 def test_the_v1_screen_applies_the_consent_rule_of_s0(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -200,9 +228,9 @@ def test_the_v1_screen_applies_the_consent_rule_of_s0(monkeypatch: pytest.Monkey
     monkeypatch.setattr(screen_mod, "evaluate_scope", evaluate_scope)
     scoped = [screen_mod.Scoped(p, None, None, None) for p in ("P-REFUSED", "P-NOCONTACT", "P-OK", "P-UNDATED")]
     res = screen_mod.screen_v1(_ctx(), RS, RUN, "2026-10-05", scoped, None)
-    assert asked == ["P-NOCONTACT", "P-OK", "P-UNDATED"]
+    assert asked == ["P-NOCONTACT", "P-OK"]
     assert {p: pv.tier for p, pv in res.items()} == {
-        "P-REFUSED": "excluded", "P-NOCONTACT": "excluded", "P-OK": "high", "P-UNDATED": "high",
+        "P-REFUSED": "excluded", "P-NOCONTACT": "excluded", "P-OK": "high", "P-UNDATED": "excluded",
     }  # fmt: skip
     assert res["P-REFUSED"].actions == [REFUSED_REASON] and res["P-NOCONTACT"].actions == [NO_CONTACT_ACTION]
     assert {v.verdict for v in res["P-REFUSED"].verdicts} == {"unknown"}  # nothing was evaluated
@@ -234,9 +262,8 @@ def test_one_model_never_excludes_and_a_caller_without_a_job_gets_the_rule() -> 
     assert note_block_of(pair).may_block and note_block_of(pair, _ctx()).may_block
 
 
-def test_the_fingerprint_names_what_the_job_decided_on_and_nobody() -> None:
-    a, b = DecisionContext(_ctx()), DecisionContext(_ctx())
-    assert a.fingerprint(RS) == b.fingerprint(RS) and len(a.fingerprint(RS)) == 16
-    assert a.pins(RS)["version"] == RS.version and a.threshold(RS) == 0.75
-    other = DecisionContext(_ctx(Lake(consent=False)))
-    assert other.fingerprint(RS) != a.fingerprint(RS)
+def test_the_threshold_is_the_rulesets_else_the_sites_else_the_default() -> None:
+    """(Until the review of T-708 this test also read ``pins()`` and ``fingerprint()``: methods no path called.
+    They are removed with the claim that the ruleset is read through the context; D-477 names what is left.)"""
+    assert DecisionContext(_ctx()).threshold(RS) == 0.75
+    assert not hasattr(DecisionContext, "fingerprint") and not hasattr(DecisionContext, "pins")

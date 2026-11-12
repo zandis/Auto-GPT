@@ -22,6 +22,7 @@ from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
 from tb_common.subject import job_subject
 from tb_common.timeutil import add_months
+from tb_common.verdict_word import shown_of
 from tb_contracts import CandidateList, CandidateRow, Judging, Routing, ScreenRunScope, TierSummary, dump
 
 from orchestrator.clients import StepFailed
@@ -691,7 +692,7 @@ def excluded_doc(ctx: Ctx, run: ScreenRun) -> dict[str, Any]:
         failing = [
             {"id": v.id, "source": source(v), **(v.evidence.model_dump(mode="json", exclude_none=True)
                                                  if v.evidence is not None else {})}
-            for v in r.criteria if v.verdict == "fail"
+            for v in r.criteria if shown_of(v)[0] == "fail"  # D-478: an answer that could not exclude is no reason
         ]  # fmt: skip
         rows.append({"pid": r.pid, "criteria": failing, "actions": list(r.actions)})
     return {"ruleset": run.rs.id, "version": run.rs.version, "run_date": run.run_date.isoformat(),
