@@ -39,6 +39,10 @@
 
 ## Consequences
 
+- The in-process demo box (`tools.role_demo.orch_client`, used by the demo image, `cgmh_demo`, `feas_demo`,
+  `public_e2e`, `scenarios`) runs with no `TB_ENV` in the image (PRODUCTION by the one rule), so it now writes a token
+  registry naming its token as the console's, and the console's actor key, as `trialbox secrets init` does on a box.
+
 - A new orchestrator route is unreachable from every service until it has a line in the table, and the walk test
   fails until it does.
 - A box without per-service tokens outside DEV and TEST loses the orchestrator as it already lost the gateway (D-437):

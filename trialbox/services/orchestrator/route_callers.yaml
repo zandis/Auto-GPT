@@ -144,6 +144,8 @@ groups:
     - POST /studies/{rs}/edc/send/redcap
     - GET /studies/{rs}/edc/export/odm
     - GET /studies/{rs}/edc/trail/{record}
+    - GET /studies/{rs}/edc/copy        # copy-assist (D-434): services/console/copy_assist_page.py
+    - POST /studies/{rs}/edc/copy/tick
   api_docs:   # FastAPI's own schema pages
     - GET /openapi.json
     - GET /docs

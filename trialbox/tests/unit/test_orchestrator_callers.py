@@ -5,6 +5,7 @@ service's token in registry mode; a route in no group of ``route_callers.yaml`` 
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from types import SimpleNamespace
@@ -303,3 +304,28 @@ def test_the_shipped_table_is_plain_yaml_with_a_schema() -> None:
     from orchestrator.callers import SCHEMA, TABLE_PATH
 
     assert yaml.safe_load(TABLE_PATH.read_text(encoding="utf-8"))["schema"] == SCHEMA
+
+
+def test_the_demo_box_client_is_the_console_also_without_tb_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The demo image runs with no TB_ENV (PRODUCTION by the one rule): its in-process orchestrator must still admit
+    the demo console (CI demo-boot: the amend walk's GET /jobs was refused as the shared token before this)."""
+    from orchestrator import app as oapp
+
+    from tools.role_demo import orch_client
+
+    for var in ("TB_ENV", "TB_SERVICE_TOKEN", "TB_SERVICE_TOKEN_FILE", sa.REGISTRY_ENV, sa.ACTOR_KEYS_ENV):
+        monkeypatch.delenv(var, raising=False)
+    events: list[dict[str, Any]] = []
+    state: dict[str, Any] = {"job": _job(None), "created": []}
+    fake = _fake(events, state)
+    fake.db.find = lambda **_kw: [state["job"]]
+    monkeypatch.setattr(oapp, "orch", lambda: fake)
+    client = orch_client(oapp.app)
+    r = client.get("/jobs?limit=5")
+    assert r.status_code == 200 and r.json()[0]["job_id"] == ULID
+    assert sa.registry() is not None and sa.registry().identify(sa.service_token()) == "console"  # type: ignore[union-attr]
+    assert not events
+    # a second client in the same process keeps the same identity (no second registry)
+    path = os.environ[sa.REGISTRY_ENV]
+    orch_client(oapp.app)
+    assert os.environ[sa.REGISTRY_ENV] == path
