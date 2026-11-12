@@ -15,9 +15,9 @@ Generated from `models/registry.yaml` by `python -m registry.cards --write`. Do 
 | Licence | Apache-2.0 (Gemma 4) (SPDX: Apache-2.0; verified: yes) |
 | Origin | Google (US); non-PRC: yes |
 | Source | `nvidia/Gemma-4-26B-A4B-NVFP4` at a19cfe00be84568a6867111c9a68c9c44fdcffe6 (publisher-quantisation) |
-| Base model | `google/gemma-4-26B-A4B-it` at 4d7ae4984b7d |
+| Base model | `google/gemma-4-26B-A4B-it` at 4d7ae4984b7db7de8f8457170b3f1a419ee76d52 |
 | Licence file | none in the source repository (the licence register row holds the text) |
-| Chat template | `google/gemma-4-26B-A4B-it` at 4d7ae4984b7d, `chat-templates/gemma-4-26b-a4b-it/chat_template.jinja` (recorded in the site pin) |
+| Chat template | `google/gemma-4-26B-A4B-it` at 4d7ae4984b7db7de8f8457170b3f1a419ee76d52, `chat-templates/gemma-4-26b-a4b-it/chat_template.jinja` (ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4) |
 
 ## Contexts of use
 
