@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -88,6 +89,8 @@ class _Box:
         other = SimpleNamespace(
             job_id="J-OTHER",
             run_date=WED,
+            state="done",
+            options={},
             received_at=RECEIVED,
             metrics=JobMetrics(patients_scoped=others),
             outputs=[],
@@ -116,7 +119,7 @@ class _Box:
             publish=self._publish,
             store=SimpleNamespace(get=lambda key: self.store[key]),
             orch=SimpleNamespace(
-                db=SimpleNamespace(pool=lambda rid: self.pool, find=find),
+                db=SimpleNamespace(pool=lambda rid: self.pool, find=find, locked=lambda name: nullcontext()),
                 audit=SimpleNamespace(append=lambda ev, **kw: self.audit.append((ev, kw))),
             ),
             services=SimpleNamespace(
