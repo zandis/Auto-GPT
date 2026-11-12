@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from adapter.mapping.engine import Mapper, Mapping
+from adapter.mapping.engine import Mapper, Mapping, MappingError
+from adapter.validate.validator import StructuralValidator, missing_required
 from lake import flatten
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -108,3 +109,50 @@ def test_known_and_unknown_to_are_opposites_for_a_code_and_both_let_a_blank_thro
     for value, is_known, is_unknown in (("A", True, False), (" R ", True, False), ("X", False, True),
                                         ("", True, False), (None, True, False), ("  ", True, False)):  # fmt: skip
         assert mapper.cond(known, {"s": value}) is is_known and mapper.cond(unknown, {"s": value}) is is_unknown
+
+
+def test_the_night_is_not_held_by_a_diagnosis_of_unknown_status(mapper: Mapper) -> None:
+    """The night's structure check wanted a clinical status on every diagnosis: a share of unknown statuses held
+    the night, which D-587 says these rows never do."""
+    rows = [_diag("X"), _diag("X", suspected="Y"), _diag("A")]
+    resources = [dict(r) for r in mapper.map_table("diagnosis", iter(rows))]
+    assert [missing_required(r) for r in resources] == [[], [], []]
+    assert StructuralValidator().validate(resources).errors == 0
+    bare = {k: v for k, v in resources[2].items() if k != "clinicalStatus"}
+    assert missing_required(bare) == ["clinicalStatus|verificationStatus"]  # neither: still refused
+
+
+def test_a_site_code_with_blanks_around_it_is_still_the_sites_code(tmp_path: Path) -> None:
+    site = tmp_path / "s.yaml"
+    site.write_text(
+        f"version: 1\nname: s\nextends: {MAPPING}\ntz: Asia/Taipei\ntables:\n"
+        "  encounter: {source: encounter, key: enc_no, values: {enc_type: {O: OPD, I: IPD}}}\n",
+        encoding="utf-8",
+    )
+    m = Mapping.load(site)
+    assert [m.normalize("encounter", {"enc_type": v})["enc_type"] for v in ("O", "O ", " I", "o", "Z ")] == [
+        "OPD", "OPD", "IPD", "o", "Z "]  # fmt: skip
+
+
+@pytest.mark.parametrize(("old", "new"), [
+    ("known: [B, A, C, N]", "known: [B, A, C]"),
+    ("unknown_to: [A, R]}}\n      verificationStatus.coding[1].code", "unknown_to: [A]}}\n      verificationStatus.coding[1].code"),
+    ("map: {A: active, R: resolved}, default: active, unmapped: ~", "map: {'1': active, '2': resolved}, default: active, unmapped: ~"),
+])  # fmt: skip
+def test_a_list_of_known_codes_that_is_not_the_maps_own_stops_the_mapping_from_loading(
+    tmp_path: Path, old: str, new: str
+) -> None:
+    """The codes stand beside the map a second time; a mapping that changes one and not the other would lose
+    every row of that code without a word."""
+    text = MAPPING.read_text(encoding="utf-8")
+    assert old in text
+    for name in ("lab_local_to_loinc.csv",):
+        (tmp_path / name).write_bytes((MAPPING.parent / name).read_bytes())
+    (tmp_path / "m.yaml").write_text(text.replace(old, new, 1), encoding="utf-8")
+    with pytest.raises(MappingError, match="codes .* are not the codes of the map"):
+        Mapping.load(tmp_path / "m.yaml")
+
+
+def test_a_number_fed_as_a_status_is_counted_like_its_text(mapper: Mapper) -> None:
+    assert list(mapper.map_table("appointment", iter([{**_appt("B"), "status": 0}]))) == []
+    assert dict(mapper.unmapped) == {("appointment", "column:status", "0"): 1}

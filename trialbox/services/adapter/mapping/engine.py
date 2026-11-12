@@ -245,6 +245,7 @@ class Mapping:
         for r in resources:
             if r.table not in (doc.get("tables") or {}):
                 raise MappingError(f"{path}: resource {r.type} uses undeclared table {r.table!r}")
+            _known_codes_are_the_maps(path, r)
         return cls(
             name=doc.get("name", path.stem),
             tz=_zone(path, doc.get("tz")),
@@ -268,8 +269,12 @@ class Mapping:
         for col, codes in (spec.get("values") or {}).items():
             v = out.get(col)
             table_codes = {str(k): c for k, c in codes.items()}  # YAML may load 1: M with an int key
-            if v is not None and str(v) in table_codes:
+            if v is None:
+                continue
+            if str(v) in table_codes:
                 out[col] = table_codes[str(v)]
+            elif str(v).strip() in table_codes:  # D-587: blanks around a site's code are not part of it
+                out[col] = table_codes[str(v).strip()]
         return out
 
     def source_column(self, table: str, canonical: str | None) -> str | None:
@@ -278,6 +283,35 @@ class Mapping:
             return None
         rename: dict[str, str] = (self.tables.get(table) or {}).get("rename") or {}
         return next((local for local, canon in rename.items() if canon == canonical), canonical)
+
+
+def _known_codes_are_the_maps(path: Path, r: ResourceSpec) -> None:
+    """NEW-DIN-7 (D-587): a ``known:`` / ``unknown_to:`` list repeats the codes of the ``map:`` on the same column
+    of the same resource. One changed without the other would drop, or mark unknown, every row of a code the map
+    reads: the mapping does not load."""
+    maps: dict[str, set[str]] = {}
+    for expr in r.elements.values():
+        if isinstance(expr, dict) and isinstance(expr.get("map"), dict) and isinstance(expr.get("column"), str):
+            maps.setdefault(expr["column"], set()).update(str(k) for k in expr["map"])
+
+    def walk(x: Any) -> None:
+        if isinstance(x, dict):
+            for word in ("known", "unknown_to"):
+                col = x.get("column")
+                if word in x and col in maps and {str(c) for c in x[word]} != maps[col]:
+                    raise MappingError(
+                        f"{path}: {r.type} from {r.table}: the {word} codes {sorted(str(c) for c in x[word])} of "
+                        f"{col} are not the codes of the map on {col} {sorted(maps[col])}; a site's own codes go "
+                        "in the table's values: map"
+                    )
+            for v in x.values():
+                walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v)
+
+    walk(r.where)
+    walk(r.elements)
 
 
 class Mapper:
@@ -732,7 +766,8 @@ class Mapper:
                 code = row.get(spec["key"])
                 self._note_unmapped(rs.table, str(spec["name"]), "" if code is None else str(code).strip())
             elif "known" in c and "column" in c:
-                code = str(row.get(c["column"]) or "").strip()
+                raw = row.get(c["column"])
+                code = "" if raw is None else str(raw).strip()
                 if code and code not in [str(x) for x in c["known"]]:
                     self._note_unmapped(rs.table, f"column:{c['column']}", code)
 

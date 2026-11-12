@@ -30,7 +30,13 @@ code stood on today's list as booked.
 5. **Counted.** Every such row is counted with D-580's counter under the name `column:<column>`, once a source row:
    in `completeness.json`, `unmapped_codes.json` and the night's audit event. That includes the lab and order
    statuses of D-275, which were `unknown` but uncounted. The night is not held by these counts.
-6. Two small additions to the mapping language carry this: the conditions `known: [codes]` (blank, or one of the
+6. **The night's structure check accepts such a diagnosis**: it asks for a clinical status or a verification
+   status (`adapter/validate/validator.py`, one line; it asked for a clinical status on every diagnosis, and a
+   share of unknown statuses would have held the night).
+7. **The codes stand twice, and the mapping checks it.** A `known:` / `unknown_to:` list repeats the codes of the
+   `map:` on the same column. A mapping where the two differ does not load. A site's own codes go in the table's
+   `values:` map (blanks around a site's code are not part of it there either).
+8. Two small additions to the mapping language carry this: the conditions `known: [codes]` (blank, or one of the
    codes) and `unknown_to: [codes]` (a code that is none of them). A site that uses its own status codes names them
    in the table's `values:` map, as before.
 
@@ -39,13 +45,20 @@ code stood on today's list as booked.
 - A status code missing from the site's `values:` map used to pass as active, out-patient or booked. It now shows
   as a count in the night's report under `column:status` or `column:enc_type`, with the code. The repair is one
   line in the site mapping.
-- After the map is repaired, one full load: a delta night re-reads only rows that changed.
+- **One full load after this release, and one after the map is repaired.** A delta night re-reads only rows that
+  changed, and a row the night does not send keeps its earlier record: a diagnosis loaded as `active` from an
+  unknown code stays so, and a booking whose status changes to an unknown code on a delta night stays `booked`
+  in the lake until a full load. "Never shown as booked" holds from the full load on. (Sending a tombstone for
+  such a booking on a delta night is the pipeline's part, lane B: sent to the integrator.)
 
 ## Not in this card
 
 - The Japanese and MIMIC mappings (`mapping/jp_core`, `mapping/mimic`) write their own status elements; they are
   read in NEW-DIN-4 / -5.
-- OMOP: a visit of class `UNK` has no standard visit concept (concept 0) and keeps its source value.
+- OMOP: a visit of class `UNK` has no standard visit concept (concept 0); its source value is `UNK`, not the
+  site's code (the code is in the night's count).
+- The count's wording in the night's log ("rows dropped: values have no look-up row") also covers these rows,
+  which are kept: `adapter/pipeline.py`, lane B.
 
 ## Consequences
 
