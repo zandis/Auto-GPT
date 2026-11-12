@@ -652,7 +652,9 @@ def _run_ingest(
             for row in rows:
                 try:
                     mapped = list(mapper.map_table(table, iter([row])))
-                except ValueError as exc:
+                except (ValueError, ArithmeticError) as exc:
+                    # NEW-B-6 (D-527): a number the mapper reads and cannot compute with (thirty digits:
+                    # decimal.InvalidOperation) is a row it cannot read, as a ValueError is; it ended the night before
                     rejected[reject_key(exc)] += 1
                     continue
                 for res in mapped:
@@ -1230,7 +1232,10 @@ def reject_key(exc: BaseException) -> str:
     first value**, never a feed value. The message is cut at its first quote mark (the mapper writes a value with
     ``repr``; everything from there on is ``<value>``, so a value that holds quote marks of both kinds cannot end
     the cut early and leave a fragment), and a run of digits before it is ``<n>`` (a number written without quote
-    marks). The key goes into ``completeness.json``, the night's error, the audit and the log."""
+    marks). An ``ArithmeticError`` has one fixed sentence (D-527). The key goes into ``completeness.json``, the
+    night's error, the audit and the log."""
+    if isinstance(exc, ArithmeticError):  # D-527: decimal's message is a list of signal classes, not a sentence
+        return f"{type(exc).__name__}: a number the mapping cannot compute"
     text = str(exc)
     head = re.split("['\"\u2018\u2019\u201c\u201d`]", text, maxsplit=1)[0]
     cut = len(head) < len(text)
