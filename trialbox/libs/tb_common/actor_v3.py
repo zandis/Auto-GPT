@@ -161,8 +161,8 @@ def mint(
 
 def _sign(payload: dict[str, Any]) -> str:
     head = VERSION + "." + base64.urlsafe_b64encode(_canonical(payload)).decode("ascii").rstrip("=")
-    tok = sa.service_token()
-    return f"{head}.{_mac(sa.actor_key(tok), head) if tok else ''}"
+    key = sa.signing_key()  # T-717 (D-485): the signing service's own key, never a function of its token
+    return f"{head}.{_mac(key, head) if key else ''}"
 
 
 def remint(assertion: str, now: float | None = None) -> str:

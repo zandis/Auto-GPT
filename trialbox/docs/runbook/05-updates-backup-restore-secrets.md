@@ -184,9 +184,10 @@ audit-writer` says what it found.
 | Command (as root, in `/opt/trialbox`) | What it does |
 | --- | --- |
 | `python3 -m tools.trialbox secrets status` | each token's file, mode and age; never a value |
-| `python3 -m tools.trialbox secrets rotate` | **at handover, then yearly**: every service token, the operator token, both database passwords and the model key |
+| `python3 -m tools.trialbox secrets rotate` | **at handover, then yearly**: every service token, the operator token, both database passwords, the model key and the console's signing key |
 | `... secrets rotate --service orchestrator` | one service's token; only it restarts |
 | `... secrets rotate --service db` | the two database passwords (`ALTER ROLE`, on stdin) |
+| `... secrets rotate --service actor` | the console's key that signs the acting person (D-485): a new `deploy/secrets/services/actor-sign.key`; the console and the orchestrator restart |
 | `... secrets rotate --service model` | the on-box model servers' key (D-437): a new `deploy/secrets/model/llm.key`; the vLLM servers, model-guard and the gateway are recreated in one command (model calls fail until vLLM has loaded again) |
 | `... secrets init` | make any missing token and the orchestrator's actor key (the installer runs it; run it once on a box updated past D-143, else chart-number reveals and exports are refused) |
 

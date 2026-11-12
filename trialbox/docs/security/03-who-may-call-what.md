@@ -43,6 +43,10 @@
   this job), refuses otherwise (403, `screen.reveal_refused` with `break-glass grant: ...`), and writes the use
   in `breakglass.uses` when it gives the number. Without a grant it asks the `id.reveal` row with the standing it
   reads from the delegation log. There is no role `breakglass`. Tests: `tests/console/test_grant_box.py`.
+- **The key that signs people** (D-485, T-717). The console signs with `secrets/services/actor-sign.key`, a
+  random secret mounted into the console alone; the orchestrator verifies with `secrets/services/actor/keys`. The
+  key is not derived from the console's token (which every service the console calls receives): a service with
+  per-service tokens and no signing key signs nobody. Tests: `tests/unit/test_actor_key_apart.py`.
 - **The administrator's retry of a failed nightly job** (D-474, T-746). `POST /jobs/{job_id}/retry` (group
   `job_retry_scheduled`, the console only; the mail gateway and the operator token are refused by the route gate)
   runs a failed job of the box's own scheduler again (every type of `scheduler.plan`). The orchestrator checks the

@@ -71,6 +71,7 @@ ROLE_HEADER = "X-TB-Actor-Role"  # the signed-in person's console role, covered 
 # the chart-number calls (reveal, registry export) so that the orchestrator checks the study, not only the name.
 SCOPE_HEADER = "X-TB-Actor-Scope"
 ACTOR_KEYS_ENV = "TB_ACTOR_KEYS_FILE"
+ACTOR_SIGN_KEY_ENV = "TB_ACTOR_SIGN_KEY_FILE"  # the signing service's own key (T-717, D-485): hex, 32 bytes
 ACTOR_LABEL = b"tb-actor-assertion/1"
 ACTOR_TTL = 120  # seconds an assertion is valid
 ACTOR_VERSION = "v2"  # D-447 (SEC-17): v2 carries a nonce and is accepted once; v1 (no nonce) is refused
@@ -228,8 +229,37 @@ def bound_session() -> str:
 
 
 def actor_key(token: str) -> bytes:
-    """The key that signs actor assertions, derived from the signing service's own token (never the token itself)."""
+    """The old actor key: a function of a service token. T-717 (D-485): a box with per-service tokens does not sign
+    with it any more (:func:`signing_key`); it remains for a box with one shared token and for tests, where the
+    token already is the only secret."""
     return hmac.new(token.encode("utf-8"), ACTOR_LABEL, hashlib.sha256).digest()
+
+
+def _hex_key(path: str) -> bytes | None:
+    try:
+        key = bytes.fromhex(Path(path).read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+    return key if len(key) == 32 else None
+
+
+def signing_key() -> bytes | None:
+    """The key this service signs people with (T-717, D-485), or None when it may sign nobody.
+
+    * ``TB_ACTOR_SIGN_KEY_FILE`` (the console's compose secret, written by ``trialbox secrets init``): that key,
+      a random secret of its own. A file that cannot be read gives no key: nothing is signed (fail closed).
+    * A box with a token registry (per-service tokens) and no such file: no key. The console's token travels to
+      every service the console calls; a key derived from it would let each of them name a person.
+    * One shared token and no registry (tests, ``make demo``, a box before step 8): the key derived from the token,
+      as before; every service holds that token anyway.
+    * No token at all (DEV, TEST): None; nothing is signed or verified there."""
+    path = (os.environ.get(ACTOR_SIGN_KEY_ENV) or "").strip()
+    if path:
+        return _hex_key(path)
+    if (os.environ.get(REGISTRY_ENV) or "").strip():
+        return None
+    tok = service_token()
+    return actor_key(tok) if tok else None
 
 
 _ROLE = re.compile(r"^[a-z]{1,20}$")
@@ -290,13 +320,13 @@ def sign_actor(
     """``v2.<expiry>.<session>.<nonce>.<hmac>`` for ``actor`` (and its ``role`` and study ``scope`` when given: the
     MAC covers them), or None when this service holds no token (DEV/TEST). A new nonce each time: two calls in the
     same second carry two assertions, each accepted once (D-447)."""
-    tok = service_token()
-    if not tok:
+    key = signing_key()
+    if key is None:
         return None
     sid = _SID.sub("", _SESSION.get() if session is None else session)[:32]
     exp = int(time.time() if now is None else now) + ACTOR_TTL
     nonce = secrets.token_urlsafe(16)[:22]
-    return f"{ACTOR_VERSION}.{exp}.{sid}.{nonce}.{_actor_mac(actor_key(tok), actor, sid, exp, nonce, role, scope)}"
+    return f"{ACTOR_VERSION}.{exp}.{sid}.{nonce}.{_actor_mac(key, actor, sid, exp, nonce, role, scope)}"
 
 
 def actor_header(actor: str, session: str | None = None, role: str = "", scope: str = "") -> dict[str, str]:
@@ -355,8 +385,10 @@ def actor_keys() -> list[bytes] | None:
         return out
     if (os.environ.get(REGISTRY_ENV) or "").strip():
         return []
-    tok = service_token()
-    return [actor_key(tok)] if tok else None
+    if not service_token() and not (os.environ.get(ACTOR_SIGN_KEY_ENV) or "").strip():
+        return None
+    own = signing_key()  # one process that signs and verifies (tests, the demo): its own signing key
+    return [own] if own else []
 
 
 class ActorError(ValueError):

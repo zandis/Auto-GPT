@@ -83,8 +83,10 @@ def test_refused_without_a_key_expired_used_twice_or_not_v3(keys: None, monkeypa
     for bad in (None, "", "v2.1.s.n.mac", "v3.only-two", "v3.!!!." + "0" * 64, "v3." + "A" * 9000 + ".x"):
         with pytest.raises(sa.ActorError):
             v3.verify(bad, now=NOW, replay=guard)
-    # another service's token signs nothing the box accepts (the mail gateway holds no actor key)
+    # another service signs nothing the box accepts: the mail gateway holds its token and no signing key (D-485)
     monkeypatch.setenv("TB_SERVICE_TOKEN", "test-token-of-mail-gateway-0123456789abcdef")
+    monkeypatch.delenv(sa.ACTOR_SIGN_KEY_ENV)
+    assert _mint().endswith(".")  # no key, no MAC
     with pytest.raises(sa.ActorError, match="does not verify"):
         v3.verify(_mint(), now=NOW, replay=guard)
     monkeypatch.setenv(sa.ACTOR_KEYS_ENV, "/nonexistent/keys")  # a keys file that cannot be read: fail closed

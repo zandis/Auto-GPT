@@ -359,6 +359,7 @@ DECLARED_FAMILIES: dict[str, str] = {
 
 DECLARED: dict[str, Declared] = {
     "TB_ACTOR_KEYS_FILE": Declared("path", "", "file of keys that sign the console's user assertions (S-09)"),
+    "TB_ACTOR_SIGN_KEY_FILE": Declared("path", "", "the console's own key that signs people (T-717, D-485)"),
     "TB_ADAPTER_LAKE": Declared("str", "http", "adapter CLI: write to the lake over http or in process"),
     "TB_AUDIT_ANCHOR_TARGETS": Declared("str", "", "where the audit chain's head anchor is also written"),
     "TB_AUDIT_ARCHIVE_DIR": Declared("path", "", "host folder of the audit archive (logs archive-audit)"),

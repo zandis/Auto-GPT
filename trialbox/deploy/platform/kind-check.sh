@@ -61,6 +61,7 @@ for svc in lake embed-service doc-parser criteria-compiler adapter orchestrator 
 done
 kubectl -n "$NS" create configmap trialbox-service-tokens --from-file=tokens.json="$S/public/tokens.json"
 kubectl -n "$NS" create secret generic trialbox-actor --from-file=keys="$S/actor/keys"
+kubectl -n "$NS" create secret generic trialbox-actor-sign --from-file=key="$S/actor-sign.key"  # T-717: the console's
 kubectl -n "$NS" create secret generic trialbox-model-key \
   --from-literal=TB_LLM_API_KEY="$(head -c 32 /dev/urandom | base64 | tr -dc A-Za-z0-9)"
 kubectl -n "$NS" create configmap vllm-standin --from-file=vllm_standin.py="$ROOT/tests/rehearsal/vllm_standin.py"

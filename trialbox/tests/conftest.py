@@ -213,7 +213,8 @@ def _keep_service_token() -> Iterator[None]:
     """``tools.role_demo.orch_client`` sets ``TB_SERVICE_TOKEN`` for its process (a demo box authenticates like a real
     console). A test that builds such a box must not leave it set: every later test of a service's HTTP surface would
     then expect a token (the 401s seen after tests/integration/test_list_demo.py in one run, D-146)."""
-    names = ("TB_SERVICE_TOKEN", "TB_SERVICE_TOKENS", "TB_ACTOR_KEYS_FILE")  # D-464: and the demo's token registry
+    # D-464: and the demo's token registry; T-717 (D-485): and the demo console's signing key
+    names = ("TB_SERVICE_TOKEN", "TB_SERVICE_TOKENS", "TB_ACTOR_KEYS_FILE", "TB_ACTOR_SIGN_KEY_FILE")
     before = {n: os.environ.get(n) for n in names}
     yield
     for n, v in before.items():
