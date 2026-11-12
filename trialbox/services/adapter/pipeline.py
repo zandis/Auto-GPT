@@ -645,7 +645,7 @@ def _run_ingest(
                 try:
                     mapped = list(mapper.map_table(table, iter([row])))
                 except ValueError as exc:
-                    rejected[re.sub(r"'[^']*'|\"[^\"]*\"", "<value>", str(exc))] += 1
+                    rejected[reject_key(exc)] += 1
                     continue
                 for res in mapped:
                     to_spool(res)
@@ -1204,6 +1204,22 @@ def jp_core_check(cfg: AdapterConfig, picked: list[Resource], out_dir: Path) -> 
 
 PASSED = "passed.json"  # written in a snapshot's NDJSON folder when its night passed (D-271)
 HELD = "held.json"  # written in a snapshot's NDJSON folder when its night was held, with why (T-611)
+
+
+def reject_key(exc: BaseException) -> str:
+    """The key a rejected row is counted under (STD-025; D-520): the exception's type and its message **up to the
+    first value**, never a feed value. The message is cut at its first quote mark (the mapper writes a value with
+    ``repr``; everything from there on is ``<value>``, so a value that holds quote marks of both kinds cannot end
+    the cut early and leave a fragment), and a run of digits before it is ``<n>`` (a number written without quote
+    marks). The key goes into ``completeness.json``, the night's error, the audit and the log."""
+    text = str(exc)
+    head = re.split("['\"\u2018\u2019\u201c\u201d`]", text, maxsplit=1)[0]
+    cut = len(head) < len(text)
+    head = re.sub(r"[0-9]+(?:[.,:/-][0-9]+)*", "<n>", head).strip()
+    said = f"{head} <value>".strip() if cut else head
+    return f"{type(exc).__name__}: {said}" if said else type(exc).__name__
+
+
 REJECT_MAX_PCT = 1.0  # STD-025: a table whose rejected rows pass this share of its rows holds the night (T-615a)
 UNMAPPED_CODES = "unmapped_codes.json"  # NEW-DIN-6 (D-580): every code no look-up knows, with its row count
 COMPLETENESS = "completeness.json"  # per source table: present, rows, duplicate keys; the gate's findings (T-611)
