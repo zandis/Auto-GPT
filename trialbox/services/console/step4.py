@@ -12,6 +12,7 @@ from typing import Any
 
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
+from tb_common.authz import role_allowed
 from tb_contracts import Job, JobCreate
 
 from console import about, command
@@ -19,6 +20,9 @@ from console.auth import AuthError, Session, source_of
 from console.backend import Refused, Unavailable
 from console.home import Helpers
 from console.models_view import build_rows
+
+# the orchestrator's in-process principals (orchestrator.core.SYSTEM_SENDERS; D-464): a retry names a person instead
+INTERNAL_PRINCIPALS = ("scheduler", "system")
 
 _ULID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
 TERMINAL = ("done", "failed")
@@ -378,6 +382,9 @@ def register(app: FastAPI, h: Helpers) -> None:
                 flt=flt,
                 terminal=TERMINAL,
                 can_cancel=callable(getattr(bk, "cancel_job", None)),
+                # T-713 (D-464): a retry runs under the administrator's role; a type the role may not start (the box's
+                # own INGEST, RETENTION, CALIBRATION) runs again on its schedule
+                can_retry={j.type for j in sel if role_allowed(sess.user.role, j.type)},
             )
         else:
             ctx.update(sources=sources_rows())
@@ -452,14 +459,21 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess, job = job_for_admin(request, job_id, csrf)
         if job.state != "failed":
             raise h.problem(409, "admin.jobs.not_retryable")
+        if not role_allowed(sess.user.role, job.type):  # T-713 (D-464): the box's own timers run again on schedule
+            raise h.problem(409, "admin.jobs.on_schedule")
         if confirm != "yes":
             return h.page(request, "admin_confirm.html", sess, job=job, action="retry")
+        requested_by = job.requested_by
+        if requested_by.strip().lower() in INTERNAL_PRINCIPALS:  # T-713 (D-464): never named over HTTP
+            if not sess.user.mailbox:
+                raise h.problem(400, "request.refused", reason="this account has no mailbox (console.cli set-mailbox)")
+            requested_by = sess.user.mailbox  # the administrator retries it, under the administrator's role
         req = JobCreate(
             type=job.type,
             ruleset=job.ruleset,
             options=dict(job.options or {}),
             comment=job.comment,
-            requested_by=job.requested_by,
+            requested_by=requested_by,
             inputs=list(job.inputs or []) or None,
         )
         try:
