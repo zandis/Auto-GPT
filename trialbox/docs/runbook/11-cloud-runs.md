@@ -49,6 +49,7 @@ end with `REHEARSAL PASSED`; no paid launch without it, and none from a commit i
 | `hang` | a stuck, silent part and no driver: the idle watchdog powers off; `--collect` then gets the results from the stopped VM |
 | `busy` | a part silent for 5 minutes but working (idle limit 2): it is never powered off as idle; it finishes; `--collect` gets it |
 | `bucket` | `TB_BUCKET` set: the code and the results go through the bucket (a `gcloud storage` stand-in), not the door |
+| `preempt` | three short parts done, the VM pre-empted while a fourth runs; `--collect` gets the three from the stopped VM and removes none; the same run started again (`--shard 1`) keeps them (`--resume`) and runs only the fourth (G1 bug A1) |
 
 In every case the door is TLS on 443 with the driver's pinned certificate, the key and the TLS key come from the
 Secret Manager stand-in (never the metadata) and their version is destroyed once collected, and `run-a`, `run-b`
@@ -98,7 +99,9 @@ keys, setup, state and timing are, the layer every failure of 2026-11-09 was in.
    cloud cap; it powers off as soon as the results are here; about US$0.20). Once every VM is done, it runs the walk,
    backup, update and scale on the stub here (at the run's `--patients`, OCR tesseract) and writes the report, whose
    head, host and run id are the VM's. A restart of the same run (`TB_RUN_ID=<run id> --shard i`) keeps the parts
-   passed in that run at that HEAD; a new run never keeps anything.
+   passed in that run at that HEAD; a new run never keeps anything. `<run id>` and the VM's `<run id>-s<i>` are one
+   run, and a `--resume` removes a stale result only of a part it runs itself: the collect's stub parts never remove
+   the VMs' finished parts (G1 bug A1; `make rehearse CASES=preempt` pre-empts after part 3, collects and resumes).
 5. Every gcloud call goes through `gc` (`deploy/gcp/gcloud-auth.sh`): an authentication error re-activates the
    service account from `TB_SA_KEY_FILE` and retries once.
 6. Afterwards: `gcloud compute instances describe tb-gpu-sim --zone asia-east1-a --format='value(status)'` must say

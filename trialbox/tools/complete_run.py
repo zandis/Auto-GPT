@@ -54,6 +54,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -161,11 +162,18 @@ def run_identity(run_id: str) -> dict[str, Any]:
     return {"id": run_id, "head": g["head"], "subject": g["subject"], "dirty": g["dirty"], "host": host_facts()}
 
 
+def base_run_id(run_id: str) -> str:
+    """The run a run id belongs to: a VM of a run carries ``<run id>-s<N>`` (its shard, D-148), the driver ``<run
+    id>``; both are one run (G1 bug A1)."""
+    head, sep, tail = run_id.rpartition("-s")
+    return head if sep and head and tail.isdigit() else run_id
+
+
 def same_run(res: dict[str, Any], run_id: str, head: str) -> tuple[bool, str]:
-    """``--resume`` keeps a part only when it was made by this run id at this HEAD (review H-01: a disk that outlives
-    a run must never carry a passed part into the next one)."""
+    """``--resume`` keeps a part only when it was made by this run at this HEAD (review H-01: a disk that outlives
+    a run must never carry a passed part into the next one). ``<run id>`` and ``<run id>-s<N>`` are the same run."""
     r = res.get("run") or {}
-    if r.get("id") != run_id:
+    if not r.get("id") or base_run_id(str(r["id"])) != base_run_id(run_id):
         return False, f"run {r.get('id') or '?'}"
     if not head or r.get("head") != head:
         return False, f"HEAD {str(r.get('head') or '?')[:12]}"
@@ -860,10 +868,17 @@ def _run_part_process(a: argparse.Namespace, cmd: list[str], env: dict[str, str]
             hb.close()
 
 
-def drop_stale_parts(parts: Path, run_id: str, head: str) -> list[str]:
-    """Remove every part result on disk that another run id or HEAD made (review H-01); returns their tags."""
+def drop_stale_parts(parts: Path, run_id: str, head: str, tags: Iterable[str] | None = None) -> list[str]:
+    """Remove the part results on disk that another run id or HEAD made (review H-01); returns their tags.
+
+    ``tags``: only these parts are candidates, the ones this invocation is about to run. A result of a part it does
+    not run is never touched: the collect's merge runs the stub parts with ``--resume`` over the VMs' finished parts,
+    made under ``<run id>-s<N>`` at the archive's HEAD, and removed them (G1 bug A1). Nothing runs: nothing goes."""
     gone = []
+    only = None if tags is None else set(tags)
     for f in sorted(parts.glob("*.json")) if parts.is_dir() else []:
+        if only is not None and f.stem not in only:
+            continue
         try:
             same, _ = same_run(json.loads(f.read_text(encoding="utf-8")), run_id, head)
         except (OSError, ValueError):
@@ -879,11 +894,12 @@ def run_all(a: argparse.Namespace) -> int:
     report_dir = a.dir / "report"
     shots = report_dir / "shots"
     head = git_head()
+    todo = plan(a)
     if not a.resume:
         shutil.rmtree(report_dir, ignore_errors=True)
         shutil.rmtree(a.dir / "parts", ignore_errors=True)
-    else:
-        gone = drop_stale_parts(a.dir / "parts", a.run_id, head["head"])
+    else:  # only the parts this run is about to run (G1 bug A1: the collect's stub resume removed the VM's parts)
+        gone = drop_stale_parts(a.dir / "parts", a.run_id, head["head"], [_tag(*p) for p in todo])
         if gone:
             print(f"      --resume: {len(gone)} part result(s) of another run or HEAD removed: {' '.join(gone)}",
                   flush=True)  # fmt: skip
@@ -891,7 +907,6 @@ def run_all(a: argparse.Namespace) -> int:
     env = dict(os.environ, TB_ENV=os.environ.get("TB_ENV") or "DEV", PYTHONPATH="libs:services:.")
     env.setdefault("TB_DEMO_PASSWORD", secrets.token_urlsafe(12))  # one random password for every part, never printed
     started = datetime.now(UTC)
-    todo = plan(a)
     rows: list[dict[str, Any]] = []
     for i, (part, lang, scenario) in enumerate(todo):
         tag = _tag(part, lang, scenario)

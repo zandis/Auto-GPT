@@ -48,7 +48,9 @@
 #   4. Every gcloud call goes through `gc` (deploy/gcp/gcloud-auth.sh): an auth error re-activates the service
 #      account from TB_SA_KEY_FILE and retries once; a probe before the start fails fast.
 #   5. Every part is resumable within its run: a restarted VM runs complete_run --resume, which keeps only parts of the
-#      same run id and HEAD. A preempted VM: `TB_RUN_ID=<run id> complete-run.sh --shard <i>` starts it again.
+#      same run (<run id> and <run id>-s<N> are one run) and HEAD, and removes a stale result only of a part it runs
+#      itself, so the collect's stub parts never remove the VMs' parts (G1 bug A1). A preempted VM:
+#      `TB_RUN_ID=<run id> complete-run.sh --shard <i>` starts it again; `make rehearse CASES=preempt` rehearses it.
 # The door (T-119, CR-048): HTTPS on 443 only, the VM's self-signed certificate made here per run and its public key
 # pinned (deploy/gcp/door-tls.sh); no port 80. The bearer key and the TLS key go to the VM through Secret Manager
 # (secret tb-gpu-door, one version per VM and run, destroyed once the results are here), never as metadata; a tb-key
@@ -78,7 +80,7 @@ while [ $# -gt 0 ]; do
     --shard) SHARD="$2"; shift 2 ;;
     --provision) PROVISION=1; shift ;;
     --teardown) TEARDOWN=1; shift ;;
-    -h|--help) sed -n 2,52p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,54p "$0"; exit 0 ;;
     *) break ;;
   esac
 done
