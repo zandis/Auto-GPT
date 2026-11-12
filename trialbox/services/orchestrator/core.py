@@ -276,6 +276,9 @@ class Orchestrator:
         # T-305b (D-403): called after a job ends and its lake hold is released (the site's batched publish waits
         # for the jobs that read the snapshot it would rebuild)
         self.after_job: list[Callable[[], None]] = []
+        # T-726 (D-492): called with every job that reaches a final state, whatever ended it (the night's chain
+        # starts its next step then)
+        self.on_terminal: list[Callable[[Job], None]] = []
 
     # ------------------------------------------------------------------ time
     def today(self) -> date:
@@ -437,6 +440,12 @@ class Orchestrator:
             actor=job.requested_by,
             detail={"from": prev, "to": state, **({"error": mask_detail(job.error.model_dump())} if job.error else {})},
         )
+        if state in TERMINAL and prev not in TERMINAL:
+            for hook in list(self.on_terminal):
+                try:
+                    hook(job)
+                except Exception:  # a hook's failure is its own; the job is finished
+                    log.exception("on-terminal hook failed")
         return job
 
     def cancel(self, job_id: str, by: str) -> Job:
