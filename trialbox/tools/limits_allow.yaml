@@ -82,6 +82,8 @@ allow:
      reason: "mails sent per drain round; the rest wait for the next round (scale review §5); not a cut"}
   - {path: services/mail_gateway/store.py, kind: limit, value: 50, count: 1,
      reason: "due mails read per round; not a cut"}
+  - {path: services/console/studies.py, kind: limit, value: 500, count: 1,
+     reason: "NEW-JRN-1: the jobs waiting for approval only (asked by state), up to the orchestrator's own ceiling for one read of /jobs; a study behind 500 other waiting jobs is not offered on the approval list; T-700"}
   - {path: services/adapter/validate/jpcore.py, kind: limit, value: 200, count: 1,
      reason: "the first 200 validator messages for display; the counts are complete; not a cut"}
   - {path: services/matching/cascade/engine.py, kind: limit, value: 24, count: 1,
