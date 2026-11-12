@@ -513,7 +513,7 @@ def site_report(schema: dict[str, Any], out: Path, mapping: Path, staged: Path |
     rep: dict[str, Any] = {"site": schema["site"], "layout": schema["feed"]["layout"], "mapping": mapping.name,
                            "tables": {}, "parse_errors": []}  # fmt: skip
     try:
-        raw = check(mapping, kind, str(path), rows=10**9)
+        raw = check(mapping, kind, str(path), rows=10**9, stop_at_refused=True)
     except ValueError as exc:  # MappingError: an unparseable date or number stops the check; its value is cut out
         rep["parse_errors"].append(_QUOTED.sub("'…'", str(exc)))
         rep["passed"] = False
