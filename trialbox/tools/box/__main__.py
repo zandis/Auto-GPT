@@ -28,6 +28,8 @@ from tools.box.plan import DEPLOY, Hardware, PlanError, detect, plan, provisiona
 
 # made by the install (or the wizard's first write) and never replaced by an apply: the database and services hold them
 KEEP = frozenset({"POSTGRES_PASSWORD", "IMAP_PASS", "SMTP_PASS", "TB_SERVICE_TOKEN", "CLOUD_LLM_API_KEY"})
+CHARTNO_RULE = "TB_CHARTNO_RULE"
+CHARTNO_UNSET = ("", "asis")  # the plan's provisional value: the first answer may replace it
 
 
 def merge_env(env_file: Path, new: dict[str, str]) -> list[str]:
@@ -39,6 +41,8 @@ def merge_env(env_file: Path, new: dict[str, str]) -> list[str]:
     for k, v in new.items():
         if k in KEEP and k in have:
             continue
+        if k == CHARTNO_RULE and k in have and lines[have[k]].split("=", 1)[1].strip() not in CHARTNO_UNSET:
+            continue  # D-579: a rule the box runs on is never replaced: it would change pseudonyms
         line = f"{k}={v}"
         if k in have:
             if lines[have[k]] != line:

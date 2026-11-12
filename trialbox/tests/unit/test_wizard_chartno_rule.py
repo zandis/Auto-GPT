@@ -36,9 +36,9 @@ def test_the_wizard_has_the_question_after_the_mrn_pattern() -> None:
     assert keys.index("chartno_rule") == keys.index("mrn_regex") + 1
 
 
-@pytest.mark.parametrize("rule", ["asis", "digits", "digits:8", "hex:8", "hex:8:lower"])
+@pytest.mark.parametrize("rule", ["asis", "digits:8", "hex:8", "hex:8:lower"])
 def test_an_answered_rule_is_written_as_the_normaliser_reads_it(rule: str) -> None:
-    regex = r"^\d{8}$" if rule.startswith("digits") or rule == "asis" else r"^[0-9A-Fa-f]{8}$"
+    regex = {"hex:8": r"^[0-9A-F]{8}$", "hex:8:lower": r"^[0-9a-f]{8}$"}.get(rule, r"^\d{8}$")
     env, _ = _build(chartno_rule=rule, mrn_regex=regex)
     assert env["TB_CHARTNO_RULE"] == rule
     assert str(chartno.parse_rule(env["TB_CHARTNO_RULE"])) == rule
@@ -72,6 +72,14 @@ def test_a_rule_the_normaliser_cannot_read_is_refused(rule: str, needle: str) ->
         ("digits:6", r"^\d{8}$"),
         ("hex:8", r"^\d{8}$"),  # a hex rule on an all-digit pattern
         ("digits:8", r"^C\d{7}$"),  # a digit rule on a pattern with a letter: it would never apply
+        # review M2: the pattern accepts other lengths too, so padding or stripping would make two numbers one
+        ("digits:8", r"^\d{8,10}$"),  # 0012345678 and 12345678
+        ("digits:8", r"^\d{6,8}$"),
+        ("digits", r"^\d{6,8}$"),  # 00123456 and 123456
+        ("digits", r"^\d{8}$"),  # the rule would write 123456, which the pattern refuses
+        # review H2: the services read the pattern with re.match; without the end anchor it accepts 012345678
+        ("digits:8", r"^\d{8}"),
+        ("digits:8", r"\d{8}"),
     ],
 )
 def test_a_rule_that_contradicts_the_mrn_pattern_is_refused(rule: str, regex: str) -> None:
@@ -79,33 +87,56 @@ def test_a_rule_that_contradicts_the_mrn_pattern_is_refused(rule: str, regex: st
         _build(chartno_rule=rule, mrn_regex=regex)
 
 
-def test_no_answer_and_an_answered_pattern_of_fixed_digits_gives_the_rule() -> None:
-    for regex, want in ((r"^\d{8}$", "digits:8"), (r"^[0-9]{10}$", "digits:10"), (r"\d{7}", "digits:7")):
-        env, warnings = _build(mrn_regex=regex)
-        assert env["TB_CHARTNO_RULE"] == want, regex
-        assert any("chartno_rule" in w and want in w for w in warnings), warnings  # said, not silent
+def test_a_rule_without_a_width_needs_a_pattern_with_no_leading_zero() -> None:
+    env, _ = _build(chartno_rule="digits", mrn_regex=r"^[1-9]\d{0,9}$")
+    assert env["TB_CHARTNO_RULE"] == "digits"
 
 
-def test_no_answer_and_any_other_pattern_stays_asis_and_says_so() -> None:
-    for regex in (r"^C\d{7}$", r"^\d{6,8}$", r"^\d+$"):
-        env, warnings = _build(mrn_regex=regex)
-        assert env["TB_CHARTNO_RULE"] == "asis", regex
-        assert any("chartno_rule" in w and "leading zeros" in w for w in warnings), warnings
+@pytest.mark.parametrize("regex", [r"^\d{8}$", r"^[0-9]{10}$", r"\d{7}", r"^C\d{7}$", r"^\d{6,8}$", r"^\d+$"])
+def test_review_no_answer_is_never_turned_into_a_rule(regex: str) -> None:
+    """Review H1 to H3: a rule read from the pattern could make two patients one (a pattern without its end anchor,
+    a feed with a number wider than the pattern says, the wizard's own default taken for an answer). No answer is
+    asis, the rule every box ran on, and a warning names the question."""
+    env, warnings = _build(mrn_regex=regex)
+    assert env["TB_CHARTNO_RULE"] == "asis", regex
+    assert any("chartno_rule" in w and "leading zeros" in w for w in warnings), warnings
 
 
-def test_a_pattern_nobody_answered_is_never_read_as_the_hospitals_format() -> None:
-    """The wizard's own default pattern is a placeholder: no rule is guessed from it."""
-    a = _answers()
-    a.pop("mrn_regex")
-    _settings, env, warnings = settings_wizard.build(a, [REHEARSAL / "mapping"])
-    assert env["TB_CHARTNO_RULE"] == "asis"
-    assert any("chartno_rule" in w for w in warnings)
+def test_review_h1_pressing_enter_at_every_question_gives_asis() -> None:
+    answers = settings_wizard.ask({}, prompt=lambda _q: "")
+    assert answers["mrn_regex"] and not answers["chartno_rule"]
+    errors: list[str] = []
+    warnings: list[str] = []
+    assert settings_wizard.chartno_rule(answers["chartno_rule"], answers["mrn_regex"], errors, warnings) == "asis"
+    assert errors == [] and len(warnings) == 1
 
 
-def test_the_rule_reaches_every_service_through_the_env_file() -> None:
+def test_review_l1_a_width_that_is_not_an_ascii_number_is_refused_not_a_crash() -> None:
+    with pytest.raises(settings_wizard.WizardError, match="chartno_rule"):
+        _build(chartno_rule="digits:\u00b2")
+
+
+def test_review_m1_an_apply_on_the_box_never_replaces_a_rule_that_is_set(tmp_path: Path) -> None:
+    """The box's apply merges the wizard's .env into the box's. A rule a box already runs on (set by hand or by an
+    earlier answer) is kept: changing it changes pseudonyms. The provisional `asis` gives way to a first answer."""
+    from tools.box.__main__ import merge_env
+
+    env = tmp_path / ".env"
+    env.write_text("TB_TZ=Asia/Taipei\nTB_CHARTNO_RULE=digits:8\n", encoding="utf-8")
+    assert "TB_CHARTNO_RULE" not in merge_env(env, {"TB_CHARTNO_RULE": "asis", "TB_TZ": "Asia/Taipei"})
+    assert "TB_CHARTNO_RULE=digits:8" in env.read_text(encoding="utf-8")
+    assert "TB_CHARTNO_RULE" not in merge_env(env, {"TB_CHARTNO_RULE": "hex:8"})
+    assert "TB_CHARTNO_RULE=digits:8" in env.read_text(encoding="utf-8")
+    env.write_text("TB_CHARTNO_RULE=asis\n", encoding="utf-8")
+    assert merge_env(env, {"TB_CHARTNO_RULE": "digits:8"}) == ["TB_CHARTNO_RULE"]  # the first answer after the plan
+    env.write_text("TB_TZ=Asia/Taipei\n", encoding="utf-8")
+    assert merge_env(env, {"TB_CHARTNO_RULE": "asis"}) == ["TB_CHARTNO_RULE"]  # absent: written
+
+
+def test_the_rule_reaches_every_service_that_hashes_a_chart_number() -> None:
     compose = yaml.safe_load((ROOT / "deploy" / "docker-compose.yml").read_text(encoding="utf-8"))
-    anchor = next(v for k, v in compose.items() if k.startswith("x-") and isinstance(v, dict) and "env_file" in v)
-    assert anchor["env_file"] == [".env"]
+    for name in ("adapter", "orchestrator", "console", "lake"):  # yaml merges the anchor into each service
+        assert compose["services"][name]["env_file"] == [".env"], name
     from tb_common.config import DECLARED
 
     assert "installation" in DECLARED["TB_CHARTNO_RULE"].doc or "wizard" in DECLARED["TB_CHARTNO_RULE"].doc

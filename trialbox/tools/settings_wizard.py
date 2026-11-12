@@ -61,10 +61,10 @@ QUESTIONS: list[tuple[str, str, Any, str]] = [
     ("data_source_dsn_env", "Env var holding the SQL DSN (cgrd_sql) or empty", "", "str"),
     ("mapping", "Mapping YAML (in deploy/site/mapping, else the shipped ones)", "mapping/tw_core/demo_his.yaml", "str"),
     ("mrn_regex", "MRN pattern (regular expression)", r"^\d{8}$", "str"),
-    # NEW-DIN-3 (D-579): asked once; with no answer it is read from an answered pattern of fixed digits, else asis
+    # NEW-DIN-3 (D-579): asked once; no answer is asis (leading zeros significant) and a warning
     (
         "chartno_rule",
-        "Chart-number format: asis | digits[:width] | hex[:width][:lower] (empty: from the MRN pattern)",
+        "Chart-number format: digits:<width> | hex:<width>[:lower] | asis (empty: asis, as written)",
         "",
         "str",
     ),
@@ -208,58 +208,68 @@ def ask(answers: dict[str, Any], prompt: Callable[[str], str] = input) -> dict[s
     return out
 
 
-_FIXED_DIGITS = re.compile(r"\^?(?:\\d|\[0-9\])\{(\d+)\}\$?")  # ^\d{8}$ and its plain spellings: N digits, nothing else
 _PROBE_WIDTHS = range(1, 65)  # the widths tb_common.chartno accepts
 
 
-def chartno_rule(answer: Any, mrn_regex: str, regex_answered: bool, errors: list[str], warnings: list[str]) -> str:
+def _rule_fits(kind: str, case: str, width: int | None, pat: re.Pattern[str]) -> bool:
+    """Whether the MRN pattern describes chart numbers the rule can write without making two of them one.
+
+    With a width: the pattern accepts a number of that width with leading zeros and no number of any other width
+    (padding and stripping then only join spellings of one number). Without a width the rule strips leading zeros:
+    the pattern must accept some number and none that starts with a zero. The services read the pattern with
+    ``re.match``, so "accepts no other width" is asked the same way: a pattern without its end anchor fails."""
+    last = "1" if kind == "digits" else ("a" if case == "lower" else "A")
+
+    def padded(k: int) -> str:
+        return "0" * (k - 1) + last
+
+    if width:
+        if not pat.fullmatch(padded(width)):
+            return False
+        others = [k for k in (*_PROBE_WIDTHS, _PROBE_WIDTHS[-1] + 1) if k != width]
+        return not any(pat.match(padded(k)) or pat.match(last * k) for k in others)
+    if not any(pat.fullmatch(last * k) for k in _PROBE_WIDTHS):
+        return False
+    return not any(pat.match("0" + last * k) for k in _PROBE_WIDTHS)
+
+
+def chartno_rule(answer: Any, mrn_regex: str, errors: list[str], warnings: list[str]) -> str:
     """The site's chart-number rule for ``TB_CHARTNO_RULE`` (NEW-DIN-3, D-579; ``tb_common.chartno``).
 
-    An answer must be a rule the normaliser reads, and it must not contradict the MRN pattern: a chart number
-    written by the rule has to be one the pattern accepts, or the rule would never apply (or every number would be
-    refused). With no answer the rule is read from the MRN pattern only when the site answered that pattern and it
-    says a fixed number of digits (``^\\d{8}$`` gives ``digits:8``: a number of that pattern cannot be confused
-    with another by padding). Anything else stays ``asis``, and a warning says that leading zeros are significant.
-    The wizard's own default pattern is a placeholder and is never read as the hospital's format."""
+    An answer must be a rule the normaliser reads, and the MRN pattern must describe numbers that rule can write
+    (:func:`_rule_fits`). No answer is ``asis``, the rule every box ran on, with a warning that names the question.
+    A rule is never read from the MRN pattern: the pattern may under-describe the hospital's numbers, and a wrong
+    rule makes two patients one."""
     from tb_common import chartno
 
     text = str(answer or "").strip()
-    fixed = _FIXED_DIGITS.fullmatch(mrn_regex.strip())
     if not text:
-        if fixed and regex_answered and int(fixed.group(1)) in _PROBE_WIDTHS:
-            rule = f"digits:{int(fixed.group(1))}"
-            warnings.append(
-                f"chartno_rule was not answered: {rule}, read from the MRN pattern {mrn_regex} (a chart number that "
-                "lost its leading zeros in a sheet gets them back)"
-            )
-            return rule
         warnings.append(
-            "chartno_rule was not answered and the MRN pattern does not say a fixed number of digits: asis, where "
-            "leading zeros stay significant: a chart number that lost them in a sheet is another patient. Answer "
-            "chartno_rule (digits:<width> or hex:<width>) with the hospital's chart-number format"
+            "chartno_rule was not answered: asis, where leading zeros stay significant: a chart number that lost "
+            "them in a sheet is another patient. Answer chartno_rule (digits:<width> or hex:<width>) with the "
+            "hospital's chart-number format"
         )
         return "asis"
     if any(c in text for c in "\r\n"):
         errors.append("chartno_rule has a line break")
         return "asis"
     try:
-        rule_ = chartno.parse_rule(text)
-    except chartno.ChartNoError as exc:
-        errors.append(f"chartno_rule: {exc}")
+        rule = chartno.parse_rule(text)
+    except ValueError as exc:  # ChartNoError, and a width that is a digit but not an ASCII number
+        errors.append(f"chartno_rule {text!r} is not a rule: {exc}")
         return "asis"
-    if rule_.kind != "asis":
+    if rule.kind != "asis":
         try:
             pat = re.compile(mrn_regex)
         except re.error:
-            return str(rule_)  # the pattern's own error is reported by the caller
-        last = "1" if rule_.kind == "digits" else ("a" if rule_.case == "lower" else "A")
-        widths = [rule_.width] if rule_.width else list(_PROBE_WIDTHS)
-        if not any(pat.fullmatch("0" * (w - 1) + last) for w in widths):
+            return str(rule)  # the pattern's own error is reported by the caller
+        if not _rule_fits(rule.kind, rule.case, rule.width, pat):
             errors.append(
-                f"chartno_rule {rule_} contradicts mrn_regex {mrn_regex}: a chart number written by the rule is not "
-                "one the pattern accepts"
+                f"chartno_rule {rule} contradicts mrn_regex {mrn_regex}: the pattern must accept a chart number as "
+                "the rule writes it and no number the rule would join with another (one fixed width for a rule "
+                "with a width; no leading zero for a rule without; for a lower-case key say hex:<width>:lower)"
             )
-    return str(rule_)
+    return str(rule)
 
 
 def _zone_errors(tz: str, mapping: Path) -> list[str]:
@@ -315,7 +325,7 @@ def build(
         re.compile(str(get("mrn_regex")))
     except re.error as exc:
         errors.append(f"mrn_regex does not compile: {exc}")
-    chart_rule = chartno_rule(a.get("chartno_rule"), str(get("mrn_regex")), bool(a.get("mrn_regex")), errors, warnings)
+    chart_rule = chartno_rule(a.get("chartno_rule"), str(get("mrn_regex")), errors, warnings)
     depts = _map(get("departments"))
     prac = _practitioners(get("practitioners"))
     for pid, p in prac.items():
