@@ -383,24 +383,6 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         ctx["purpose"] = purpose
         return rid, ctx
 
-    def reveal_candidate(sess: Session, path: str, rs: str, pid: str, purpose: str, reason: str,
-                         note: str = "") -> dict[str, Any]:  # fmt: skip
-        """The chart number of one candidate through D-143's reveal (``h.apply_reveal``): identifier authority for
-        the study and, for an investigator, the delegation log's "screen"; the D-143 reason; the audit record on both
-        sides and the orchestrator's per-person cap. The candidate page adds only the view's purpose to the record."""
-        rid = study_or_404(sess, rs)
-        need_irb_text(sess, rid, path)
-        if purpose not in VIEW_PURPOSES:
-            raise h.problem(400, "candidate.purpose")
-        if h.apply_reveal is None:
-            raise deny(sess, path)
-        _ctx, mrn = h.apply_reveal(sess, path, rid, pid, reason, via="candidates", purpose=purpose, note=note)
-        team.record_view(rid, pid, purpose, "reveal", sess.user.username, now())
-        ctx = candidate_ctx(sess, rid, pid)
-        ctx["mrn"] = mrn
-        ctx["purpose"] = purpose
-        return ctx
-
     @app.get("/studies/{rs}/candidates")
     def candidates(request: Request, rs: str, page: int = 1, show: str = "") -> Response:
         sess = h.need(request)
@@ -436,9 +418,15 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         sess = h.need(request)
         form = await request.form()
         need_csrf(sess, form)
-        ctx = reveal_candidate(sess, request.url.path, rs, pid, str(form.get("purpose") or ""),
-                               str(form.get("reason") or ""), str(form.get("note") or "")[:200])  # fmt: skip
-        return h.page(request, "team_candidate.html", sess, **ctx)
+        rid = study_or_404(sess, rs)
+        need_irb_text(sess, rid, request.url.path)
+        purpose = str(form.get("purpose") or "")
+        if purpose not in VIEW_PURPOSES:
+            raise h.problem(400, "candidate.purpose")
+        got = h.reveal.identifier(sess, rid, pid, purpose, str(form.get("reason") or ""), via="candidates",
+                                  note=str(form.get("note") or "")[:200], path=request.url.path)  # fmt: skip
+        return h.page(request, "team_candidate.html", sess,
+                      **{**candidate_ctx(sess, rid, pid), "mrn": got.mrn, "purpose": purpose})  # fmt: skip
 
     # ------------------------------------------------------------------ referral
     def request_referral(sess: Session, path: str, rs: str, pid: str, body: ApiReferral) -> tuple[str, int, str]:
@@ -582,19 +570,17 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     @app.post("/studies/{rs}/referrals/{ref_id}/print")
     async def referral_print_reveal(request: Request, rs: str, ref_id: int) -> Response:
         """The same page with the chart number, through the one reveal path (a reason, the audit record on both
-        sides and the per-person cap); the reveal is recorded as a candidate view for the referral."""
+        sides and the per-person cap, whose use row is the referral's candidate-view record; T-103, D-438)."""
         sess = h.need(request)
         form = await request.form()
         need_csrf(sess, form)
+        h.reveal.guard(sess, rs.strip().upper(), request.url.path, "referral", str(form.get("reason") or ""),
+                       "referral")  # fmt: skip
         rid, ref = ref_or_404(sess, request.url.path, rs, ref_id)
         need_irb_text(sess, rid, request.url.path)
-        if h.apply_reveal is None:
-            raise deny(sess, request.url.path)
-        _ctx, mrn = h.apply_reveal(sess, request.url.path, rid, ref.pid, str(form.get("reason") or ""),
-                                   via="candidates", purpose="referral",
-                                   note=str(form.get("note") or "")[:200])  # fmt: skip
-        team.record_view(rid, ref.pid, "referral", "reveal", sess.user.username, now())
-        return print_page(request, sess, rid, ref, str(form.get("lang") or ""), mrn)
+        got = h.reveal.identifier(sess, rid, ref.pid, "referral", str(form.get("reason") or ""), via="referral",
+                                  note=str(form.get("note") or "")[:200], path=request.url.path)  # fmt: skip
+        return print_page(request, sess, rid, ref, str(form.get("lang") or ""), got.mrn)
 
     @app.get("/studies/{rs}/referrals")
     def referrals(request: Request, rs: str) -> Response:

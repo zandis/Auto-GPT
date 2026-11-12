@@ -1,4 +1,4 @@
-"""The trial-opportunity feed (D-449): what one site may tell sponsors and CROs about recruiting trials.
+"""The trial-opportunity feed (D-467): what one site may tell sponsors and CROs about recruiting trials.
 
 One feed per site and night. It lists actively recruiting ClinicalTrials.gov studies in the site's therapeutic areas
 and, for each, how many of the site's patients the study's registry criteria leave (an automatic, unreviewed compile

@@ -746,7 +746,7 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
                 r.status_code == 200 and r.content.startswith(magic),
                 r.status_code,
             )
-    r = crc.get(f"/pilot/registry/{COHORT}/export.xlsx")
+    r = crc.get(f"/pilot/registry/{COHORT}/export.xlsx?reason=contact")  # T-103 (D-438): a reason
     s.check("cohort registry export XLSX", r.status_code == 200 and r.content[:2] == b"PK", r.status_code)
     # CASE: one real MedTxt case report, uploaded as the chart of its own patient
     case_p = next(p for p in site["patients"] if p["source"] == "MedTxt-CR" and p["dx"] and p["age"])
@@ -855,7 +855,8 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         page = pi.get(f"/pilot/jobs/{cj.job_id}").text
         s.check("the study's investigator sees the CASE request's chart number (D-143)",
                 f"mrn={case_p['mrn']}" in page, "")  # fmt: skip
-        s.check("and that view is audited", any(r.event == "console.view_id" and r.actor == "console:pi"
+        s.check("and that view is audited", any(r.event == "console.reveal_patient" and r.actor == "console:pi"
+                                                and r.detail.get("via") == "request_line"
                                                 for r in h.bk.audit(cj.job_id)))  # fmt: skip
     s.seconds = time.perf_counter() - t
     stages.append(s)

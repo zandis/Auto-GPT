@@ -1,6 +1,6 @@
-# D-449 The trial-opportunity feed: rounded aggregates per recruiting trial, signed by the site, shown on a hub
+# D-467 The trial-opportunity feed: rounded aggregates per recruiting trial, signed by the site, shown on a hub
 
-- **Task:** T-690 (`docs/plan/31-trial-opportunity-feed.md`)
+- **Task:** T-740 (`docs/plan/32-trial-opportunity-feed.md`)
 - **PR:** this branch (`claude/project-thread-dq324y`)
 - **Date:** 2026-11-12
 - **Status:** accepted
@@ -12,7 +12,7 @@
    its areas, the counts of COHORT's trial simulation, reduced by `tb_common.opportunity.row_from_sim`. No patient
    identifier, row or note text is published.
 2. **Rounding.** Every published count, including the drop of each top exclusion, goes through `round_count` at the
-   feed threshold (default 10, never below 5 in code, never below 10 by site policy in T-692). Rates and the enrolment
+   feed threshold (default 10, never below 5 in code, never below 10 by site policy in T-742). Rates and the enrolment
    band are dropped when the eligible count is a small cell. The first counted criterion defines the pool and is not
    listed as an exclusion.
 3. **Allow-list guard.** `guard` refuses any feed or row key outside the allow-list and any unrounded count, so a

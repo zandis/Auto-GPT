@@ -1,4 +1,4 @@
-"""The site's trial-opportunity feed (D-449): every recruiting ClinicalTrials.gov study in the site's areas, counted.
+"""The site's trial-opportunity feed (D-467): every recruiting ClinicalTrials.gov study in the site's areas, counted.
 
 For each condition in ``site_params.yaml`` ``opportunity.conditions`` (the site's therapeutic areas), the compiler's
 ``/ctgov/search`` returns the recruiting studies (live, offline refdata pack or cassette, as the hospital chose at

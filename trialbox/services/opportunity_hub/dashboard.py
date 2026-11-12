@@ -1,4 +1,4 @@
-"""The sponsor and CRO dashboard (D-449): one self-contained HTML page from the sites' verified feeds.
+"""The sponsor and CRO dashboard (D-467): one self-contained HTML page from the sites' verified feeds.
 
 The page holds only what the feeds hold (aggregates, rounded at the site). Every feed is shown with its signature state;
 an unverified feed is shown only when the caller says so (the sample page), and then marked. Labels in en, ja, zh-TW.

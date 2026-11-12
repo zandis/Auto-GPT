@@ -1,4 +1,4 @@
-"""Trial-opportunity feed (D-449): only rounded aggregates, signed by the site, refused when anything else slips in."""
+"""Trial-opportunity feed (D-467): only rounded aggregates, signed by the site, refused when anything else slips in."""
 
 from __future__ import annotations
 

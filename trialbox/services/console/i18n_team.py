@@ -209,6 +209,7 @@ EN: dict[str, str] = {
     "candidate.rate_limited": "Too many opened in a short time (limit {n}). Wait a while, or ask the administrator if your work needs more.",
     "candidate.purpose": "Choose why you are opening this candidate first.",
     "reveal.note": "Why, in your words (needed for “other”)",
+    "reveal.rate_limited": "Too many chart numbers shown in the last hour (limit {n}). Wait a while, or ask the data steward if your work needs more.",
     "reveal.note_needed": "For “other”, write why you need the chart number ({n} characters or more). It is kept in the audit trail.",
     "optout.rate_limited": "Too many chart numbers looked up in a short time (limit {n}). Wait a while, or ask the data steward.",
 }
@@ -415,6 +416,7 @@ JA: dict[str, str] = {
     "candidate.rate_limited": "短時間に開きすぎました（上限 {n}）。しばらく待つか、業務でもっと必要なら管理者に相談してください。",
     "candidate.purpose": "先に、この候補者を開く目的を選んでください。",
     "reveal.note": "理由（「その他」のときは記入が必要です）",
+    "reveal.rate_limited": "直近1時間にカルテ番号を表示しすぎました（上限 {n}）。しばらく待つか、業務でもっと必要ならデータ管理者に相談してください。",
     "reveal.note_needed": "「その他」のときは、カルテ番号が必要な理由を {n} 文字以上で書いてください。監査記録に残ります。",
     "optout.rate_limited": "短時間にカルテ番号を照会しすぎました（上限 {n}）。しばらく待つか、データ管理者に相談してください。",
 }
@@ -621,6 +623,7 @@ ZH: dict[str, str] = {
     "candidate.rate_limited": "短時間內開啟太多次（上限 {n}）。請稍候；若職責需要更多，請洽管理員。",
     "candidate.purpose": "請先選擇開啟這位候選者的目的。",
     "reveal.note": "原因（選「其他」時必填）",
+    "reveal.rate_limited": "最近一小時內顯示太多病歷號（上限 {n}）。請稍候；若職責需要更多，請洽資料管理員。",
     "reveal.note_needed": "選「其他」時，請寫下需要病歷號的原因（至少 {n} 個字）。會保存在稽核紀錄中。",
     "optout.rate_limited": "短時間內查詢太多病歷號（上限 {n}）。請稍候，或洽資料管理員。",
 }

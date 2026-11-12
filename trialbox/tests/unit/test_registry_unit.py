@@ -133,7 +133,8 @@ def test_registry_api_routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.delenv("TB_SERVICE_TOKEN", raising=False)
 
     fake = SimpleNamespace(
-        db=reg.db,
+        db=reg.db,  # T-103 (D-438): the export cap is counted in this store, at the box's clock
+        _now=lambda: datetime.now(UTC),
         audit=reg.audit,
         cfg=SimpleNamespace(
             env=SimpleNamespace(secrets_dir=str(reg.secrets_dir)),

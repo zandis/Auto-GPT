@@ -1,4 +1,4 @@
-"""Trial-opportunity feed tools (D-449).
+"""Trial-opportunity feed tools (D-467).
 
     python -m tools.opportunity_feed keygen --out DIR
     python -m tools.opportunity_feed sign FEED.json --key site.key --pub site.pub --out SIGNED.json

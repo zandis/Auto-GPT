@@ -98,6 +98,11 @@ class ValidationResult:
         return 100.0 * self.errors / self.sampled if self.sampled else 0.0
 
 
+# files per ``java`` run: far under the kernel's argument limit (about 65,000 names of 32 bytes in 2 MiB), and a size
+# the 1,800 s limit of one run was set for (the 5,000-patient hospital's whole sample is under it)
+BATCH = 5000
+
+
 class Hl7Validator:
     """Wraps ``java -jar validator_cli.jar`` with an offline package cache."""
 
@@ -121,11 +126,23 @@ class Hl7Validator:
         return cls(jar, home, igs, os.environ.get("TB_VALIDATOR_XMX", "4g"), java)
 
     def validate(self, resources: list[Resource], extra_args: list[str] | None = None) -> ValidationResult:
+        """One ``java`` run per :data:`BATCH` resources: the sample grows with the hospital (1 % of the load), and one
+        command line holds only about 65,000 file names (``ARG_MAX``). A file keeps its index in the whole sample."""
         if not resources:
             return ValidationResult("hl7-validator", 0, 0)
+        total = ValidationResult("hl7-validator", len(resources), 0)
+        for start in range(0, len(resources), BATCH):
+            part = self._validate_batch(resources[start : start + BATCH], start, extra_args)
+            total.errors += part.errors
+            total.messages = (total.messages + part.messages)[:200]
+            total.per_file.update(part.per_file)
+            total.unsliced.update(part.unsliced)
+        return total
+
+    def _validate_batch(self, resources: list[Resource], start: int, extra_args: list[str] | None) -> ValidationResult:
         with tempfile.TemporaryDirectory(prefix="tbval-") as td:
             files = []
-            for i, r in enumerate(resources):
+            for i, r in enumerate(resources, start):
                 p = Path(td) / f"r{i:05d}-{r['resourceType']}.json"
                 p.write_text(json.dumps(r, ensure_ascii=False), encoding="utf-8")
                 files.append(p.name)
@@ -170,7 +187,7 @@ class Hl7Validator:
                 "?",
             )
             errs = [i for i in oo.get("issue", []) if i.get("severity") in ("error", "fatal")]
-            m = re.search(r"(?:^|[\\/])r(\d{5})-[A-Za-z]+\.json$", fname)
+            m = re.search(r"(?:^|[\\/])r(\d{5,})-[A-Za-z]+\.json$", fname)
             if m:
                 unsliced[int(m.group(1))] = [
                     (i.get("expression") or i.get("location") or [""])[0]
