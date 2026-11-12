@@ -130,7 +130,8 @@ def test_the_v1_tier_is_the_status_function() -> None:
 def test_a_fresh_note_answer_carries_the_basis_of_the_run() -> None:
     said_no = NoteResult(predicate="pass", confidence=0.95, quote="q", quote_date="2026-10-01", dids=["D1"])
     assert note_verdict(EXC, said_no, pair=True).basis == "pair"
-    assert note_verdict(EXC, said_no).basis == "single"  # a caller that does not say: one model
+    assert note_verdict(EXC, said_no, pair=False).basis == "single"
+    assert note_verdict(EXC, said_no).basis is None  # a caller that does not say: unstated, the policy decides
     assert note_verdict(EXC, NoteResult(predicate="unknown", confidence=0.0, reason="disagree")).basis is None
     assert evaluate.human_verdict(INC).basis == "person"
     model_a = SimpleNamespace(model="judge-a", base_url="http://a/v1", gateway=None, served_root="judge-a")

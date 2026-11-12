@@ -514,9 +514,11 @@ def structured_verdict(c: CriterionIR, ev: PatientEvaluation | None) -> Criterio
     )
 
 
-def note_verdict(c: CriterionIR, r: NoteResult, pair: bool = False) -> CriterionVerdict:
-    """``pair``: the answer is the judge's and a second, different model's (:func:`is_pair`); it becomes the
-    verdict's basis (D-478). A caller that does not say gets ``single``: one model, which never excludes."""
+def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> CriterionVerdict:
+    """``pair``: whether the answer is the judge's and a second, different model's (:func:`is_pair`); it becomes
+    the verdict's basis (D-478: ``pair`` or ``single``; a single model's "not met" never excludes). A caller that
+    does not say (a tool, a test of the judge) leaves the basis unstated, and the run's policy alone decides, as
+    before the field. Every screening path says."""
     pred = {"pass": True, "fail": False}.get(r.predicate)
     refs = [f"DocumentReference/{d}" for d in r.dids]
     verdict = eligibility(c.kind, pred)
@@ -531,7 +533,7 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool = False) -> Criterion
             reason=r.reason,
             opinions=[Opinion(**o) for o in r.opinions] or None,
         ),
-        basis=("pair" if pair else "single") if verdict != "unknown" else None,
+        basis=("pair" if pair else "single") if verdict != "unknown" and pair is not None else None,
     )
 
 
